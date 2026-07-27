@@ -104,6 +104,63 @@ describe("computeGitSyncDeployBranch", () => {
     expect(branch).not.toBe("main");
   });
 
+  test("dev workspace (parent + label) deploys to the label branch", () => {
+    expect(
+      computeGitSyncDeployBranch({
+        ...base,
+        workspaceId: "staging-ws",
+        parentWorkspaceId: "prod",
+        devWorkspaceLabel: "staging",
+        useIndividualBranch: false,
+        items: [{ path_type: "script", path: "f/foo/bar" }],
+      })
+    ).toBe("staging");
+  });
+
+  test("dev workspace in promotion mode -> per-item wm_deploy branch, not the label branch", () => {
+    expect(
+      computeGitSyncDeployBranch({
+        ...base,
+        workspaceId: "staging-ws",
+        parentWorkspaceId: "prod",
+        devWorkspaceLabel: "staging",
+        useIndividualBranch: true,
+        items: [{ path_type: "script", path: "f/foo/bar" }],
+      })
+    ).toBe("wm_deploy/staging-ws/script/f__foo__bar");
+  });
+
+  test("dev promotion user/group objects go to the env-label branch, never the base", () => {
+    // Non-branchable objects must not fall through to null (= the parent's
+    // tracked branch) on a dev workspace — that would push dev content to prod.
+    for (const path_type of ["user", "group"]) {
+      expect(
+        computeGitSyncDeployBranch({
+          ...base,
+          workspaceId: "staging-ws",
+          parentWorkspaceId: "prod",
+          devWorkspaceLabel: "staging",
+          useIndividualBranch: true,
+          items: [{ path_type, path: "u/alice", parent_path: null }],
+        })
+      ).toBe("staging");
+    }
+  });
+
+  test("dev workspace in promotion mode honors group_by_folder", () => {
+    expect(
+      computeGitSyncDeployBranch({
+        ...base,
+        workspaceId: "staging-ws",
+        parentWorkspaceId: "prod",
+        devWorkspaceLabel: "staging",
+        useIndividualBranch: true,
+        groupByFolder: true,
+        items: [{ path_type: "script", path: "f/foo/bar" }],
+      })
+    ).toBe("wm_deploy/staging-ws/f__foo");
+  });
+
   test("use_individual_branch=false -> null (stay on base/main, workspace-wide mode)", () => {
     expect(
       computeGitSyncDeployBranch({
@@ -133,6 +190,21 @@ describe("computeGitSyncDeployBranch", () => {
         items: [{ path_type: "flow", path: null, parent_path: "f/x/y" }],
       })
     ).toBe("wm_deploy/prod/flow/f__x__y");
+  });
+
+  test("falls back to parent_path when the backend serializes path as \"\" (rename out of filter)", () => {
+    // The backend emits "" (not null) for a path that no longer matches the repo
+    // filter; it must still get its own branch, not fall through to the base.
+    expect(
+      computeGitSyncDeployBranch({
+        ...base,
+        workspaceId: "staging-ws",
+        parentWorkspaceId: "prod",
+        devWorkspaceLabel: "staging",
+        useIndividualBranch: true,
+        items: [{ path_type: "resource", path: "", parent_path: "f/folder/old" }],
+      })
+    ).toBe("wm_deploy/staging-ws/resource/f__folder__old");
   });
 
   test("user/group objects never get a dedicated branch", () => {
@@ -173,11 +245,53 @@ describe("computeGitSyncDeployBranch", () => {
       })
     ).toBe("wm-fork/main/myfork");
   });
+
+  test("prefix-less fork (parent set, no label) beats the wm_deploy derivation", () => {
+    expect(
+      computeGitSyncDeployBranch({
+        workspaceId: "mydev",
+        parentWorkspaceId: "prod",
+        clonedBranchName: "main",
+        groupByFolder: false,
+        useIndividualBranch: true,
+        items: [{ path_type: "script", path: "f/foo/bar" }],
+      })
+    ).toBe("wm-fork/main/mydev");
+  });
+
+  // A throwaway fork OF a dev workspace is named after the tracked (cloned)
+  // branch, NOT the parent dev's label: the child is not itself a dev
+  // workspace, so it carries no devWorkspaceLabel. The dev label reaches this
+  // deploy only as the checkout base + PR target (handled in sync.ts), never as
+  // the branch name — otherwise the branch would be `wm-fork/<label>/<id>` and
+  // the poller's `wm-fork/<tracked>/*` enumeration would miss it.
+  test("throwaway fork of a dev workspace -> wm-fork/<tracked>/<id>, not the dev label", () => {
+    const branch = computeGitSyncDeployBranch({
+      workspaceId: "wm-fork-child",
+      parentWorkspaceId: "prodstaging", // the dev workspace (prefix-less id)
+      devWorkspaceLabel: undefined, // child is not a dev workspace
+      clonedBranchName: "main",
+      groupByFolder: false,
+      useIndividualBranch: false,
+      items: [{ path_type: "script", path: "f/foo/bar" }],
+    });
+    expect(branch).toBe("wm-fork/main/child");
+    expect(branch).not.toBe("wm-fork/dev/child");
+  });
 });
 
 describe("forkBranchName", () => {
   test("maps wm-fork-<id> to wm-fork/<branch>/<id>", () => {
     expect(forkBranchName("wm-fork-abc", "main")).toBe("wm-fork/main/abc");
+  });
+
+  test("dev workspace label wins: the branch is the label verbatim", () => {
+    expect(forkBranchName("staging-ws", "main", "staging")).toBe("staging");
+    expect(forkBranchName("wm-fork-abc", "main", "dev")).toBe("dev");
+  });
+
+  test("prefix-less id without a label falls back to the wm-fork form", () => {
+    expect(forkBranchName("staging-ws", "main")).toBe("wm-fork/main/staging-ws");
   });
 });
 
@@ -238,6 +352,9 @@ describe("gitSyncIncludePattern", () => {
     );
     expect(gitSyncIncludePattern("gcptrigger", "f/t")).toBe(
       "f/t.gcp_trigger.*"
+    );
+    expect(gitSyncIncludePattern("amqptrigger", "f/t")).toBe(
+      "f/t.amqp_trigger.*"
     );
   });
 });
@@ -338,6 +455,12 @@ describe("isForkWorkspace", () => {
     expect(isForkWorkspace("prod")).toBe(false);
     // "wm-fork" without the trailing dash is the BRANCH prefix, not a ws id
     expect(isForkWorkspace("wm-fork")).toBe(false);
+  });
+
+  test("a parent workspace id marks prefix-less ids (dev workspaces) as forks", () => {
+    expect(isForkWorkspace("mydev", "prod")).toBe(true);
+    expect(isForkWorkspace("mydev", undefined)).toBe(false);
+    expect(isForkWorkspace("wm-fork-abc", undefined)).toBe(true);
   });
 });
 

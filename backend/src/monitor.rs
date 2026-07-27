@@ -53,11 +53,12 @@ use windmill_common::{
     flow_status::{FlowStatus, FlowStatusModule},
     global_settings::{
         AUDIT_LOG_RETENTION_DAYS_SETTING, BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING,
-        BUN_INSTALL_MIN_RELEASE_AGE_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
-        CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
-        CRITICAL_ERROR_CHANNELS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
-        DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_PASSWORD_LOGIN, DISABLE_PASSWORD_LOGIN_SETTING,
-        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
+        BUN_INSTALL_MIN_RELEASE_AGE_SETTING, CONCURRENCY_KEY_MAX_QUEUED_SETTING,
+        CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING,
+        CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
+        DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
+        DISABLE_PASSWORD_LOGIN, DISABLE_PASSWORD_LOGIN_SETTING, EXPOSE_DEBUG_METRICS_SETTING,
+        EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
         FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING, HUB_API_SECRET_SETTING,
         HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
         JOB_ISOLATION_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
@@ -73,6 +74,7 @@ use windmill_common::{
         UV_INDEX_STRATEGY_SETTING, UV_PYTHON_INSTALL_MIRROR_SETTING,
         WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
         WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
+        WORKSPACE_MAX_QUEUED_JOBS_SETTING,
     },
     indexer::load_indexer_config,
     jobs::delete_jobs,
@@ -86,11 +88,13 @@ use windmill_common::{
         load_env_vars, load_init_bash_from_env, load_periodic_bash_script_from_env,
         load_periodic_bash_script_interval_from_env, load_whitelist_env_vars_from_env,
         load_worker_config, reload_custom_tags_setting, store_pull_query,
-        store_suspended_pull_query, Connection, WorkerConfig, DEFAULT_TAGS_PER_WORKSPACE,
+        store_suspended_pull_query, Connection, WorkerConfig, CLOUD_HOSTED,
+        CONCURRENCY_KEY_MAX_QUEUED, CONCURRENCY_KEY_MAX_QUEUED_DEFAULT, DEFAULT_TAGS_PER_WORKSPACE,
         DEFAULT_TAGS_WORKSPACES, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX, INDEXER_CONFIG,
         PREVIEW_TAGS_OVERRIDE, SCRIPT_TOKEN_EXPIRY, SMTP_CONFIG, WINDMILL_DIR, WORKER_CONFIG,
         WORKER_GROUP, WORKSPACE_FAIRNESS_DURATION_SECS, WORKSPACE_FAIRNESS_ENABLED,
-        WORKSPACE_FAIRNESS_MAX_PERCENT, WORKSPACE_FAIRNESS_MIN_TOTAL,
+        WORKSPACE_FAIRNESS_MAX_PERCENT, WORKSPACE_FAIRNESS_MIN_TOTAL, WORKSPACE_MAX_QUEUED_JOBS,
+        WORKSPACE_MAX_QUEUED_JOBS_DEFAULT,
     },
     KillpillSender, AUDIT_LOG_RETENTION_DAYS, BASE_URL, CRITICAL_ALERTS_ON_DB_OVERSIZE,
     CRITICAL_ALERTS_ON_TOKEN_EXPIRY, CRITICAL_ALERT_MUTE_UI_ENABLED, CRITICAL_ERROR_CHANNELS, DB,
@@ -108,7 +112,11 @@ use windmill_common::{
 };
 #[cfg(feature = "parquet")]
 use windmill_object_store::reload_object_store_setting;
-use windmill_queue::{cancel_job, get_queued_job_v2, SameWorkerPayload};
+use windmill_queue::{
+    cancel_job, get_queued_job_v2,
+    schedule::{find_unarmed_schedules, rearm_schedule, RearmOutcome},
+    SameWorkerPayload,
+};
 use windmill_worker::{
     result_processor::handle_job_error, JobCompletedSender, JobIsolationLevel,
     OtelTracingProxySettings, SameWorkerSender, WorkspaceRegistryMap, BUNFIG_INSTALL_SCOPES,
@@ -286,6 +294,16 @@ pub async fn initial_load(
         }
         if let Err(e) = load_workspace_fairness_enabled(db).await {
             tracing::error!("Error loading workspace fairness enabled: {e:#}");
+        }
+
+        // Only the cloud reads this cap, so don't spend a query loading it anywhere else.
+        if *CLOUD_HOSTED {
+            if let Err(e) = load_concurrency_key_max_queued(db).await {
+                tracing::error!("Error loading concurrency key max queued: {e:#}");
+            }
+            if let Err(e) = load_workspace_max_queued_jobs(db).await {
+                tracing::error!("Error loading workspace max queued jobs: {e:#}");
+            }
         }
     }
 
@@ -606,6 +624,10 @@ const WORKSPACE_FAIRNESS_MAX_PERCENT_DEFAULT: u32 = 50;
 const WORKSPACE_FAIRNESS_DURATION_SECS_DEFAULT: u32 = 10;
 const WORKSPACE_FAIRNESS_MIN_TOTAL_DEFAULT: u32 = 4;
 
+/// The cap is used as a SQL `LIMIT`, so it must survive the `u32 -> i64` widening without
+/// becoming absurd; `u32::MAX` is already far beyond any queue depth worth allowing.
+const CONCURRENCY_KEY_MAX_QUEUED_MAX: u64 = u32::MAX as u64;
+
 pub async fn load_workspace_fairness_enabled(db: &DB) -> error::Result<()> {
     // Match the convention used by `load_preview_tags_override` /
     // `load_fork_workspace_tag_append_fork_suffix`: on transient DB errors, leave the in-memory
@@ -688,6 +710,72 @@ pub async fn load_workspace_fairness_min_total(db: &DB) -> error::Result<()> {
         _ => {
             WORKSPACE_FAIRNESS_MIN_TOTAL
                 .store(WORKSPACE_FAIRNESS_MIN_TOTAL_DEFAULT, Ordering::Relaxed);
+        }
+    }
+    Ok(())
+}
+
+pub async fn load_concurrency_key_max_queued(db: &DB) -> error::Result<()> {
+    // See `load_workspace_fairness_max_percent` for the Err / None / invalid policy.
+    match load_value_from_global_settings(db, CONCURRENCY_KEY_MAX_QUEUED_SETTING).await? {
+        Some(serde_json::Value::Number(n)) => {
+            // `0` is a meaningful value here (disable the cap), so unlike the fairness knobs
+            // the lower bound is 0 rather than 1.
+            let v = n
+                .as_u64()
+                .map(|u| u.min(CONCURRENCY_KEY_MAX_QUEUED_MAX) as u32)
+                .unwrap_or_else(|| {
+                    // Warn rather than silently defaulting: `-1` and `"0"` are plausible
+                    // attempts to disable the cap, and both would otherwise land on 10000.
+                    tracing::warn!(
+                        "{CONCURRENCY_KEY_MAX_QUEUED_SETTING}={n} is not a non-negative integer, \
+                         falling back to {CONCURRENCY_KEY_MAX_QUEUED_DEFAULT}. Set 0 to disable."
+                    );
+                    CONCURRENCY_KEY_MAX_QUEUED_DEFAULT
+                });
+            CONCURRENCY_KEY_MAX_QUEUED.store(v, Ordering::Relaxed);
+        }
+        other => {
+            if let Some(v) = other {
+                tracing::warn!(
+                    "{CONCURRENCY_KEY_MAX_QUEUED_SETTING}={v} is not a number, falling back to \
+                     {CONCURRENCY_KEY_MAX_QUEUED_DEFAULT}. Set 0 to disable."
+                );
+            }
+            CONCURRENCY_KEY_MAX_QUEUED.store(CONCURRENCY_KEY_MAX_QUEUED_DEFAULT, Ordering::Relaxed);
+        }
+    }
+    Ok(())
+}
+
+pub async fn load_workspace_max_queued_jobs(db: &DB) -> error::Result<()> {
+    // Only the cloud enforces this cap, so never spend the query off-cloud, from any call site.
+    if !*CLOUD_HOSTED {
+        return Ok(());
+    }
+    // Same Err / None / invalid policy as load_concurrency_key_max_queued: 0 disables.
+    match load_value_from_global_settings(db, WORKSPACE_MAX_QUEUED_JOBS_SETTING).await? {
+        Some(serde_json::Value::Number(n)) => {
+            let v = n
+                .as_u64()
+                .map(|u| u.min(CONCURRENCY_KEY_MAX_QUEUED_MAX) as u32)
+                .unwrap_or_else(|| {
+                    tracing::warn!(
+                        "{WORKSPACE_MAX_QUEUED_JOBS_SETTING}={n} is not a non-negative integer, \
+                         falling back to {WORKSPACE_MAX_QUEUED_JOBS_DEFAULT}. Set 0 to disable."
+                    );
+                    WORKSPACE_MAX_QUEUED_JOBS_DEFAULT
+                });
+            WORKSPACE_MAX_QUEUED_JOBS.store(v, Ordering::Relaxed);
+        }
+        other => {
+            if let Some(v) = other {
+                tracing::warn!(
+                    "{WORKSPACE_MAX_QUEUED_JOBS_SETTING}={v} is not a number, falling back to \
+                     {WORKSPACE_MAX_QUEUED_JOBS_DEFAULT}. Set 0 to disable."
+                );
+            }
+            WORKSPACE_MAX_QUEUED_JOBS.store(WORKSPACE_MAX_QUEUED_JOBS_DEFAULT, Ordering::Relaxed);
         }
     }
     Ok(())
@@ -1061,12 +1149,16 @@ pub async fn reload_otel_tracing_proxy_setting(conn: &Connection) {
                 if current.enabled != new_settings.enabled
                     || current.enabled_languages != new_settings.enabled_languages
                     || current.no_proxy_hosts != new_settings.no_proxy_hosts
+                    || current.insecure_upstream_hosts != new_settings.insecure_upstream_hosts
+                    || current.upstream_ca_certs != new_settings.upstream_ca_certs
                 {
                     tracing::info!(
-                        "OTEL tracing proxy settings changed: enabled={}, languages={:?}, no_proxy_hosts={:?}",
+                        "OTEL tracing proxy settings changed: enabled={}, languages={:?}, no_proxy_hosts={:?}, insecure_upstream_hosts={:?}, upstream_ca_certs={}",
                         new_settings.enabled,
                         new_settings.enabled_languages,
                         new_settings.no_proxy_hosts,
+                        new_settings.insecure_upstream_hosts,
+                        if new_settings.upstream_ca_certs.as_deref().unwrap_or("").trim().is_empty() { "unset" } else { "set" },
                     );
                     *current = new_settings;
                 }
@@ -1304,8 +1396,29 @@ pub async fn delete_expired_items(db: &DB) -> () {
         tracing::error!("Error reaping orphaned native retry markers: {:?}", e);
     }
 
+    // Same story for job_resolution: no FK, so a job deleted outside delete_jobs
+    // would leave its resolution behind.
+    if let Err(e) = sqlx::query!(
+        "DELETE FROM job_resolution jr WHERE NOT EXISTS (SELECT 1 FROM v2_job WHERE id = jr.job_id)"
+    )
+    .execute(db)
+    .await
+    {
+        tracing::error!("Error reaping orphaned job resolutions: {:?}", e);
+    }
+
     if let Err(e) = windmill_queue::cascade::reap_stale_join_slots(db).await {
         tracing::error!("Error reaping stale join_pending_inputs slots: {:?}", e);
+    }
+
+    // 60-day retention for anonymous feature-usage counters. Runs here (not only
+    // in the telemetry sender) so rows are pruned even when telemetry is disabled
+    // or the build has no stats scheduler.
+    if let Err(e) = sqlx::query!("DELETE FROM feature_usage WHERE day < CURRENT_DATE - 60")
+        .execute(db)
+        .await
+    {
+        tracing::error!("Error deleting old feature_usage rows: {e}");
     }
 
     match sqlx::query_scalar!(
@@ -3091,6 +3204,14 @@ pub async fn monitor_db(
         if !initial_load {
             verify_license_key(conn.as_sql()).await;
             refetch_license_key_if_invalid(conn).await;
+            // Server-side only: the alert writes to the alerts table and notifies
+            // the critical channels, so gate it like enforce_offline_caps rather
+            // than have every worker re-report the same expiry.
+            if server_mode {
+                if let Some(db) = conn.as_sql() {
+                    windmill_common::ee_oss::alert_on_online_license_expired(db).await;
+                }
+            }
         }
     };
 
@@ -3255,9 +3376,10 @@ pub async fn monitor_db(
         }
     };
 
-    // run every ~60s (2 iterations * 30s). Enterprise feature: core logic is
-    // in `crate::ee` (OSS gets a no-op stub); gated on a valid Enterprise
-    // license, mirroring how `audit_log()` itself is license-aware.
+    // run every 2 iterations (~20s at the default LISTEN_NEW_EVENTS_INTERVAL_SEC).
+    // Enterprise feature: core logic is in `crate::ee` (OSS gets a no-op stub);
+    // gated on a valid Enterprise license, mirroring how `audit_log()` itself
+    // is license-aware.
     let export_audit_logs_to_object_store_f = async {
         #[cfg(feature = "parquet")]
         if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(2) {
@@ -3281,11 +3403,32 @@ pub async fn monitor_db(
         }
     };
 
-    // run every ~60s (2 iterations * 30s). Enterprise feature: the active
-    // `// freshness` backstop lives in windmill-queue's `freshness_watchdog`
-    // (`private`); OSS gets a no-op stub. Runtime-gated on an Enterprise
-    // license like the audit export above. Safe on concurrent servers — the
-    // watchdog claims per-script state rows atomically before pushing.
+    // run every 30 iterations (~5min at the default LISTEN_NEW_EVENTS_INTERVAL_SEC).
+    let reconcile_unarmed_schedules_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(30) {
+            if let Some(db) = conn.as_sql() {
+                reconcile_unarmed_schedules(&db).await;
+            }
+        }
+    };
+
+    // Poll git-sync repositories for new commits and pull them into the
+    // workspace (repo → Windmill auto-pull). Runs every 2 iterations.
+    let git_auto_pull_f = async {
+        #[cfg(feature = "private")]
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(2) {
+            if let Some(db) = conn.as_sql() {
+                poll_git_auto_pull(db).await;
+            }
+        }
+    };
+
+    // run every 2 iterations (~20s at the default LISTEN_NEW_EVENTS_INTERVAL_SEC).
+    // Enterprise feature: the active `// freshness` backstop lives in
+    // windmill-queue's `freshness_watchdog` (`private`); OSS gets a no-op stub.
+    // Runtime-gated on an Enterprise license like the audit export above. Safe
+    // on concurrent servers — the watchdog claims per-script state rows
+    // atomically before pushing.
     let pipeline_freshness_watchdog_f = async {
         if server_mode
             && !*DISABLE_FRESHNESS_WATCHDOG
@@ -3330,8 +3473,565 @@ pub async fn monitor_db(
         manage_audit_partitions_f,
         export_audit_logs_to_object_store_f,
         cleanup_scheduled_job_deletions_f,
+        git_auto_pull_f,
         pipeline_freshness_watchdog_f,
+        reconcile_unarmed_schedules_f,
     );
+}
+
+/// Advisory lock id ensuring only one server replica reconciles schedules at a
+/// time (adjacent to GIT_AUTO_PULL_LOCK_ID).
+const SCHEDULE_RECONCILE_LOCK_ID: i64 = 737_483_922;
+
+/// Consecutive reconciliation passes an enabled schedule must be observed with no
+/// queued occurrence before it is re-armed. The next occurrence is pushed in the
+/// same transaction that completes the previous one (or, for flows, on entry to
+/// step 0), so an unarmed schedule is normally only ever a mid-flight push or a
+/// push being retried. Requiring two passes keeps the reconciler from racing
+/// those and double-pushing an occurrence.
+const SCHEDULE_RECONCILE_STRIKES: u8 = 2;
+
+/// Most schedules re-armed in one pass, so a large first-pass backlog is drained
+/// over several passes instead of enqueuing every occurrence at once.
+const SCHEDULE_RECONCILE_MAX_PER_PASS: usize = 50;
+
+/// Consecutive failed re-arm attempts after which a schedule's persistent failure
+/// is surfaced once (its `error` recorded + a critical alert). Most re-arm
+/// failures are a transient blip that clears on the next attempt; a schedule that
+/// keeps failing has a real cause (bad stored cron/timezone/args, lapsed license)
+/// and would otherwise be enabled-yet-silently-dead.
+const SCHEDULE_REARM_ALERT_THRESHOLD: u32 = 3;
+
+/// Cap on the exponential back-off (in reconcile passes) between re-arm retries of
+/// a schedule that keeps failing. Without a back-off a permanently-failing push
+/// retries every pass forever; the delay grows 2, 4, 8 and holds at this cap, and
+/// resets the moment the schedule re-arms. Kept small so a schedule fixed out of
+/// band (the UI/API re-arms immediately) still auto-recovers within a few passes.
+const SCHEDULE_REARM_MAX_BACKOFF_PASSES: u32 = 8;
+
+/// State for a schedule that keeps failing to re-arm: paces retries and drives the
+/// one-time visibility so the loop is neither hot nor silent.
+#[derive(Default)]
+struct RearmFailureState {
+    consecutive_failures: u32,
+    /// Reconcile passes still to skip before the next attempt (exponential back-off).
+    cooldown_passes: u32,
+    /// Whether the persistent failure has already been surfaced.
+    surfaced: bool,
+}
+
+lazy_static::lazy_static! {
+    /// `(workspace_id, path)` -> consecutive passes seen with no queued occurrence.
+    /// Bounded by the number of enabled schedules; entries drop as soon as a
+    /// schedule is seen armed again.
+    static ref UNARMED_SCHEDULES: Mutex<std::collections::HashMap<(String, String), u8>> =
+        Mutex::new(std::collections::HashMap::new());
+
+    /// `(workspace_id, path)` -> back-off/visibility state for schedules that keep
+    /// failing to re-arm. Entries drop as soon as a schedule re-arms or is no
+    /// longer unarmed (armed, disabled, deleted).
+    static ref SCHEDULE_REARM_FAILURES: Mutex<std::collections::HashMap<(String, String), RearmFailureState>> =
+        Mutex::new(std::collections::HashMap::new());
+}
+
+/// Re-arm enabled schedules that have no queued occurrence.
+///
+/// Every path that completes a scheduled job is supposed to push the next
+/// occurrence atomically, but a run that dies through an abnormal path (a flow
+/// whose status update fails and is later force-completed by zombie detection,
+/// say) can skip that push and leave the schedule enabled yet dead forever. This
+/// is the backstop: without it the only recovery is a manual disable/enable.
+///
+/// Replicas each run their own passes (staggered by `rd_shift`) and each keep
+/// their own strike tally, so the scan cost is per-replica. That is deliberate:
+/// scanning inside the advisory lock is what makes a double-push impossible —
+/// whoever holds it re-reads the unarmed set, so a schedule another replica just
+/// re-armed is seen armed and its tally dropped, rather than pushed twice.
+///
+/// Not an authorization boundary: it re-arms schedules across every workspace, so
+/// this is a system caller (the monitor loop) only.
+async fn reconcile_unarmed_schedules(db: &Pool<Postgres>) {
+    // Transaction-scoped advisory lock, not session-scoped: monitor_db runs under a
+    // 600s timeout, and if it fires the whole future is dropped mid-pass. A session
+    // lock taken on a pooled connection would then ride that connection back into the
+    // pool still held, wedging reconciliation on every replica until the process
+    // restarts. An xact lock is released when its transaction ends — including the
+    // rollback a dropped `Transaction` performs — so cancellation can't strand it.
+    // The tx is held open only to own the lock; the scan and re-arm run on separate
+    // pool connections.
+    let mut lock_tx = match db.begin().await {
+        Ok(tx) => tx,
+        Err(e) => {
+            tracing::error!("schedule reconcile: failed to begin lock tx: {e:#}");
+            return;
+        }
+    };
+    let locked: bool = match sqlx::query_scalar("SELECT pg_try_advisory_xact_lock($1)")
+        .bind(SCHEDULE_RECONCILE_LOCK_ID)
+        .fetch_one(&mut *lock_tx)
+        .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!("schedule reconcile: advisory lock failed: {e:#}");
+            return;
+        }
+    };
+    if !locked {
+        // Another replica is already reconciling this tick.
+        return;
+    }
+
+    if let Err(e) = reconcile_unarmed_schedules_inner(db).await {
+        tracing::error!("schedule reconcile: {e:#}");
+    }
+
+    // Ends the transaction and releases the xact lock; a plain drop would too.
+    if let Err(e) = lock_tx.rollback().await {
+        tracing::error!("schedule reconcile: releasing lock failed: {e:#}");
+    }
+}
+
+/// Record this pass's unarmed schedules against `seen` and return those that have
+/// now struck out. An armed observation drops the schedule's tally entirely, so
+/// the strikes a re-arm rests on are always consecutive.
+fn strike_unarmed(
+    seen: &mut std::collections::HashMap<(String, String), u8>,
+    current: std::collections::HashSet<(String, String)>,
+) -> Vec<(String, String)> {
+    seen.retain(|k, _| current.contains(k));
+    current
+        .into_iter()
+        .filter(|k| {
+            let strikes = seen.entry(k.clone()).or_insert(0);
+            *strikes = strikes.saturating_add(1);
+            *strikes >= SCHEDULE_RECONCILE_STRIKES
+        })
+        .collect()
+}
+
+async fn reconcile_unarmed_schedules_inner(db: &Pool<Postgres>) -> error::Result<()> {
+    let current: std::collections::HashSet<(String, String)> =
+        find_unarmed_schedules(db).await?.into_iter().collect();
+    let mut to_rearm = strike_unarmed(&mut UNARMED_SCHEDULES.lock().unwrap(), current.clone());
+
+    // Back off schedules that keep failing to re-arm (bad stored cron/timezone/args,
+    // lapsed license): skip those still cooling down, and forget state for any that
+    // are no longer unarmed. Without this a permanently-failing push is retried
+    // every pass forever.
+    {
+        let mut failures = SCHEDULE_REARM_FAILURES.lock().unwrap();
+        failures.retain(|k, _| current.contains(k));
+        to_rearm.retain(|k| match failures.get_mut(k) {
+            Some(state) if state.cooldown_passes > 0 => {
+                state.cooldown_passes -= 1;
+                false
+            }
+            _ => true,
+        });
+    }
+
+    // The first pass on an instance that has never been swept can find a large
+    // backlog; re-arming it all at once would enqueue that whole backlog in one
+    // go. The overflow keeps its tally and is picked up next pass.
+    if to_rearm.len() > SCHEDULE_RECONCILE_MAX_PER_PASS {
+        tracing::warn!(
+            "schedule reconcile: {} schedules have no queued occurrence, re-arming {} this pass and the rest on later passes",
+            to_rearm.len(),
+            SCHEDULE_RECONCILE_MAX_PER_PASS
+        );
+        to_rearm.truncate(SCHEDULE_RECONCILE_MAX_PER_PASS);
+    }
+
+    for (w_id, path) in to_rearm {
+        match rearm_schedule(db, &w_id, &path).await {
+            Ok(outcome) => {
+                if outcome == RearmOutcome::Rearmed {
+                    tracing::warn!(
+                        "schedule reconcile: re-armed enabled schedule {path} in {w_id}, which had no queued occurrence"
+                    );
+                }
+                UNARMED_SCHEDULES
+                    .lock()
+                    .unwrap()
+                    .remove(&(w_id.clone(), path.clone()));
+                // Clear the error we recorded once it re-arms, so a recovered
+                // schedule stops showing a stale failure.
+                let was_surfaced = SCHEDULE_REARM_FAILURES
+                    .lock()
+                    .unwrap()
+                    .remove(&(w_id.clone(), path.clone()))
+                    .is_some_and(|s| s.surfaced);
+                if was_surfaced {
+                    if let Err(e) = sqlx::query!(
+                        "UPDATE schedule SET error = NULL WHERE workspace_id = $1 AND path = $2 AND enabled IS TRUE",
+                        w_id,
+                        path
+                    )
+                    .execute(db)
+                    .await
+                    {
+                        tracing::error!(
+                            "schedule reconcile: could not clear error for {path} in {w_id}: {e:#}"
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::error!(
+                    "schedule reconcile: could not re-arm schedule {path} in {w_id}: {e:#}"
+                );
+                let should_surface = {
+                    let mut failures = SCHEDULE_REARM_FAILURES.lock().unwrap();
+                    let state = failures.entry((w_id.clone(), path.clone())).or_default();
+                    state.consecutive_failures += 1;
+                    state.cooldown_passes = (1u32 << state.consecutive_failures.min(5))
+                        .min(SCHEDULE_REARM_MAX_BACKOFF_PASSES);
+                    let surface = !state.surfaced
+                        && state.consecutive_failures >= SCHEDULE_REARM_ALERT_THRESHOLD;
+                    state.surfaced |= surface;
+                    surface
+                };
+                // Surface without disabling: record the error for the owner (schedule
+                // stays enabled) and raise a critical alert. rearm_schedule never
+                // disables, so this is the only signal a persistently-broken schedule
+                // gives beyond server logs.
+                if should_surface {
+                    if let Err(err) = sqlx::query!(
+                        "UPDATE schedule SET error = $1 WHERE workspace_id = $2 AND path = $3 AND enabled IS TRUE",
+                        e.to_string(),
+                        w_id,
+                        path
+                    )
+                    .execute(db)
+                    .await
+                    {
+                        tracing::error!(
+                            "schedule reconcile: could not record error for {path} in {w_id}: {err:#}"
+                        );
+                    }
+                    report_critical_error(
+                        format!(
+                            "Schedule {path} in workspace {w_id} is enabled but has repeatedly failed to re-arm and will not run until the cause is fixed: {e:#}"
+                        ),
+                        db.clone(),
+                        Some(&w_id),
+                        None,
+                    )
+                    .await;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Advisory lock id ensuring only one server replica runs the git auto-pull
+/// poll at a time (adjacent to RESTART_LOCK_ID used for restart coordination).
+#[cfg(feature = "private")]
+const GIT_AUTO_PULL_LOCK_ID: i64 = 737_483_921;
+
+/// Poll every git-sync repository with auto-pull enabled and enqueue a pull when
+/// the tracked branch has new commits (repo → Windmill direction).
+///
+/// Runs on a single replica at a time (advisory lock) and only on
+/// Enterprise-licensed instances. Detection is `git ls-remote`; GitHub-App
+/// repositories are skipped here and sync via webhooks instead (phase 2).
+#[cfg(feature = "private")]
+pub async fn poll_git_auto_pull(db: &Pool<Postgres>) {
+    use windmill_common::ee_oss::{get_license_plan, LicensePlan};
+
+    if !matches!(get_license_plan().await, LicensePlan::Enterprise) {
+        return;
+    }
+
+    let mut lock_conn = match db.acquire().await {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!("git auto-pull: failed to acquire connection: {e:#}");
+            return;
+        }
+    };
+    let locked: bool = match sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
+        .bind(GIT_AUTO_PULL_LOCK_ID)
+        .fetch_one(&mut *lock_conn)
+        .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!("git auto-pull: advisory lock failed: {e:#}");
+            return;
+        }
+    };
+    if !locked {
+        // Another replica is already polling this tick.
+        return;
+    }
+
+    if let Err(e) = poll_git_auto_pull_inner(db).await {
+        tracing::error!("git auto-pull: poll error: {e:#}");
+    }
+
+    if let Err(e) = sqlx::query("SELECT pg_advisory_unlock($1)")
+        .bind(GIT_AUTO_PULL_LOCK_ID)
+        .execute(&mut *lock_conn)
+        .await
+    {
+        tracing::error!("git auto-pull: advisory unlock failed: {e:#}");
+    }
+}
+
+#[cfg(feature = "private")]
+lazy_static::lazy_static! {
+    /// Last auto-pull poll time (unix secs) per `workspace|repo_path`, so each repo
+    /// is only probed once per its effective interval instead of every ~60s tick.
+    /// Bounded by the number of auto-pull repos; stale entries for removed repos are
+    /// harmless.
+    static ref AUTO_PULL_LAST_POLL: std::sync::Mutex<std::collections::HashMap<String, i64>> =
+        std::sync::Mutex::new(std::collections::HashMap::new());
+}
+
+/// Slack (seconds) subtracted from the effective interval so a repo whose interval
+/// equals the ~60s tick isn't skipped by tick jitter.
+#[cfg(feature = "private")]
+const AUTO_PULL_POLL_SLACK_S: i64 = 30;
+
+#[cfg(feature = "private")]
+async fn poll_git_auto_pull_inner(db: &Pool<Postgres>) -> error::Result<()> {
+    use windmill_common::workspaces::{AutoPullMode, WorkspaceGitSyncSettings};
+
+    // Join `workspace` and skip deleted/archived ones: their `workspace_settings`
+    // rows persist (archive is a soft delete, and change_workspace_id leaves the old
+    // id as an archived shell), so an auto-pull repo would otherwise keep polling and
+    // deploying into a dead workspace.
+    let rows = sqlx::query!(
+        r#"SELECT ws.workspace_id, ws.git_sync
+           FROM workspace_settings ws
+           JOIN workspace w ON w.id = ws.workspace_id
+           WHERE NOT w.deleted
+             AND ws.git_sync IS NOT NULL
+             AND ws.git_sync->'repositories' @> '[{"auto_pull": {"enabled": true}}]'::jsonb"#
+    )
+    .fetch_all(db)
+    .await?;
+
+    for row in rows {
+        let Some(git_sync) = row.git_sync else {
+            continue;
+        };
+        let settings: WorkspaceGitSyncSettings = match serde_json::from_value(git_sync) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(
+                    "git auto-pull: invalid git_sync settings for workspace {}: {e}",
+                    row.workspace_id
+                );
+                continue;
+            }
+        };
+
+        for repo in &settings.repositories {
+            let Some(auto_pull) = &repo.auto_pull else {
+                continue;
+            };
+            if !auto_pull.enabled || auto_pull.mode == AutoPullMode::Webhook {
+                continue;
+            }
+
+            // Honor the repo's effective poll interval (relaxed to ~10 min when a
+            // webhook is live) instead of probing every ~60s tick.
+            let interval_s = auto_pull.effective_poll_interval_s() as i64;
+            let poll_key = format!("{}|{}", row.workspace_id, repo.git_repo_resource_path);
+            let now = chrono::Utc::now().timestamp();
+            {
+                let mut last = AUTO_PULL_LAST_POLL.lock().unwrap();
+                if let Some(&t) = last.get(&poll_key) {
+                    if now - t < interval_s - AUTO_PULL_POLL_SLACK_S {
+                        continue;
+                    }
+                }
+                last.insert(poll_key, now);
+            }
+
+            let head = match windmill_store::resources::get_git_repo_head_for_autopull(
+                db,
+                &row.workspace_id,
+                &repo.git_repo_resource_path,
+            )
+            .await
+            {
+                Ok(Some(h)) => Ok(Some(h)),
+                // App-backed repos store a tokenless URL, so the ls-remote head
+                // check can't authenticate and returns None. Poll the head over
+                // the GitHub API with a minted installation token instead. This
+                // is the polling fallback/safety-net for auto- and polling-mode
+                // app repos whose webhook isn't live (unreachable instance,
+                // missing permission, or a dropped delivery). `webhook`-mode
+                // repos are skipped above and stay webhook-only.
+                Ok(None) => {
+                    #[cfg(feature = "enterprise")]
+                    {
+                        windmill_common::git_sync_ee::get_app_repo_head_for_autopull(
+                            db,
+                            &row.workspace_id,
+                            &repo.git_repo_resource_path,
+                        )
+                        .await
+                    }
+                    #[cfg(not(feature = "enterprise"))]
+                    {
+                        Ok(None)
+                    }
+                }
+                Err(e) => Err(e),
+            };
+
+            match head {
+                Ok(Some((git_ref, sha))) => {
+                    // Shared reconcile (also used by the webhook receiver):
+                    // checks should_pull, enqueues, and records status/failure.
+                    if let Err(e) = windmill_git_sync::reconcile_and_enqueue_pull(
+                        db,
+                        &row.workspace_id,
+                        repo,
+                        &git_ref,
+                        &sha,
+                        None,
+                    )
+                    .await
+                    {
+                        tracing::warn!(
+                            "git auto-pull: reconcile failed for {}/{}: {e:#}",
+                            row.workspace_id,
+                            repo.git_repo_resource_path
+                        );
+                    }
+
+                    // Parent-managed fork sync: list the fork branches' heads in
+                    // the same poll tick (one extra ls-remote / API call) and
+                    // route each into its fork workspace. Needs the concrete
+                    // tracked branch name to scope `wm-fork/<branch>/*`; a
+                    // branch-less resource resolves its default branch via
+                    // `ls-remote --symref`, so "HEAD" only remains when that
+                    // resolution failed.
+                    if auto_pull.sync_forks && git_ref != "HEAD" {
+                        poll_git_fork_branches(
+                            db,
+                            &row.workspace_id,
+                            &repo.git_repo_resource_path,
+                            &git_ref,
+                        )
+                        .await;
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    windmill_git_sync::record_auto_pull_failure(
+                        db,
+                        &row.workspace_id,
+                        &repo.git_repo_resource_path,
+                        &auto_pull.last_synced_sha,
+                        format!("head check failed: {e}"),
+                    )
+                    .await;
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Poll-side half of parent-managed fork sync (`sync_forks`): list every
+/// `wm-fork/<base_branch>/*` head of the parent's repo and reconcile each into
+/// its fork workspace. Failures are logged, not recorded in the parent's pull
+/// status — the parent's own sync state is unaffected by a fork's.
+#[cfg(feature = "private")]
+async fn poll_git_fork_branches(
+    db: &Pool<Postgres>,
+    parent_w_id: &str,
+    repo_path: &str,
+    base_branch: &str,
+) {
+    // Dev-workspace children sync with their environment-label branch (`dev`/
+    // `staging`) rather than the `wm-fork/**` pattern, so their branches must be
+    // listed explicitly. A label equal to the tracked branch is excluded — the
+    // parent's own head check covers it.
+    let label_refs: Vec<String> = match sqlx::query_scalar!(
+        r#"SELECT DISTINCT COALESCE(dev_workspace_label, 'dev') as "label!"
+           FROM workspace
+           WHERE parent_workspace_id = $1 AND is_dev_workspace AND NOT deleted"#,
+        parent_w_id
+    )
+    .fetch_all(db)
+    .await
+    {
+        Ok(labels) => labels.into_iter().filter(|l| l != base_branch).collect(),
+        Err(e) => {
+            tracing::warn!(
+                "git fork sync: failed to list dev-workspace labels for {parent_w_id}: {e:#}"
+            );
+            Vec::new()
+        }
+    };
+
+    let fork_heads = match windmill_store::resources::get_git_repo_fork_heads_for_autopull(
+        db,
+        parent_w_id,
+        repo_path,
+        base_branch,
+        &label_refs,
+    )
+    .await
+    {
+        Ok(Some(heads)) => Ok(heads),
+        // App-backed repos list fork refs over the GitHub API, mirroring the
+        // parent head check's fallback.
+        Ok(None) => {
+            #[cfg(feature = "enterprise")]
+            {
+                windmill_common::git_sync_ee::get_app_repo_fork_heads_for_autopull(
+                    db,
+                    parent_w_id,
+                    repo_path,
+                    base_branch,
+                    &label_refs,
+                )
+                .await
+                .map(|heads| heads.unwrap_or_default())
+            }
+            #[cfg(not(feature = "enterprise"))]
+            {
+                Ok(Vec::new())
+            }
+        }
+        Err(e) => Err(e),
+    };
+    match fork_heads {
+        Ok(heads) => {
+            for (branch, sha) in heads {
+                if let Err(e) = windmill_git_sync::reconcile_fork_branch_pull(
+                    db,
+                    parent_w_id,
+                    repo_path,
+                    &branch,
+                    base_branch,
+                    &sha,
+                )
+                .await
+                {
+                    tracing::warn!(
+                        "git fork sync: reconcile failed for {parent_w_id}/{repo_path} branch {branch}: {e:#}"
+                    );
+                }
+            }
+        }
+        Err(e) => {
+            tracing::warn!(
+                "git fork sync: fork branch listing failed for {parent_w_id}/{repo_path}: {e:#}"
+            );
+        }
+    }
 }
 
 async fn vacuuming_tables(db: &Pool<Postgres>) -> error::Result<()> {
@@ -4183,12 +4883,95 @@ WHERE concurrency_id IN (SELECT concurrency_id FROM rows_to_delete)  RETURNING c
     Ok(())
 }
 
+/// Memory usage at a worker's last ping as a fraction of its cgroup limit.
+/// Takes the larger of the cgroup-wide reading and the windmill process's
+/// jemalloc resident — if only one is present, that value wins; if both are
+/// present, the larger is the more conservative (higher-signal) choice.
+fn zombie_worker_memory_pct(
+    usage: Option<i64>,
+    wm_usage: Option<i64>,
+    total: Option<i64>,
+) -> Option<f64> {
+    let total = total?;
+    if total <= 0 {
+        return None;
+    }
+    let used = usage.max(wm_usage)?;
+    Some(used as f64 / total as f64)
+}
+
+struct ZombieFlowCulprit {
+    worker: String,
+    ping_at: DateTime<Utc>,
+    memory_usage: Option<i64>,
+    wm_memory_usage: Option<i64>,
+    memory_total: Option<i64>,
+    worker_group: Option<String>,
+    worker_instance: Option<String>,
+    ping_delta_secs: Option<f64>,
+}
+
+/// Finds the worker that likely performed and dropped the flow's final state
+/// transition when `q.worker` (the outer queue-row worker) looks healthy — a
+/// different worker on the same pod/group whose *latest* ping is frozen in the
+/// `[last_ping-5s, +15s]` window (a live worker would have advanced its in-place
+/// ping past that old window, so a frozen ping there proves it has gone silent),
+/// nearest the transition. Diagnostics-only: fails soft to `None`.
+async fn find_zombie_flow_culprit_worker(
+    db: &DB,
+    q_worker: &str,
+    last_ping: DateTime<Utc>,
+) -> Option<ZombieFlowCulprit> {
+    let res = sqlx::query_as!(
+        ZombieFlowCulprit,
+        r#"
+        WITH ref AS (
+            SELECT worker_instance, worker_group FROM worker_ping WHERE worker = $1 LIMIT 1
+        )
+        SELECT
+            wp.worker AS "worker!",
+            wp.ping_at AS "ping_at!",
+            wp.memory_usage,
+            wp.wm_memory_usage,
+            wp.memory AS memory_total,
+            wp.worker_group,
+            wp.worker_instance,
+            EXTRACT(EPOCH FROM (wp.ping_at - $2::timestamptz))::float8 AS ping_delta_secs
+        FROM worker_ping wp, ref
+        WHERE wp.worker <> $1
+            AND (
+                (ref.worker_instance IS NOT NULL AND wp.worker_instance = ref.worker_instance)
+                OR (ref.worker_group IS NOT NULL AND wp.worker_group = ref.worker_group)
+            )
+            AND wp.ping_at >= $2::timestamptz - interval '5 seconds'
+            AND wp.ping_at <= $2::timestamptz + interval '15 seconds'
+        ORDER BY ABS(EXTRACT(EPOCH FROM (wp.ping_at - $2::timestamptz))) ASC
+        LIMIT 1
+        "#,
+        q_worker,
+        last_ping,
+    )
+    .fetch_optional(db)
+    .await;
+    match res {
+        Ok(culprit) => culprit,
+        Err(e) => {
+            tracing::warn!(
+                "failed to query for zombie-flow culprit worker (q_worker={q_worker}): {e:#}"
+            );
+            None
+        }
+    }
+}
+
 async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
+    // flow_status is cast ::text on purpose: decoding the jsonb column directly as Box<str>
+    // yields its binary form (leading version byte) and fails serde_json parsing at column 1.
     let flows = sqlx::query!(
         r#"
         SELECT
             j.id AS "id!", j.workspace_id AS "workspace_id!", j.parent_job, j.flow_step_id IS NOT NULL AS "is_flow_step?",
-            COALESCE(s.flow_status, s.workflow_as_code_status) AS "flow_status: Box<str>", r.ping AS last_ping, j.same_worker AS "same_worker?",
+            COALESCE(s.flow_status, s.workflow_as_code_status)::text AS "flow_status: Box<str>", r.ping AS last_ping, j.same_worker AS "same_worker?",
             q.worker AS "worker?",
             wp.ping_at AS "worker_last_ping?",
             wp.memory_usage AS "worker_memory_usage?",
@@ -4217,11 +5000,7 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
             .as_deref()
             .and_then(|x| serde_json::from_str::<FlowStatus>(x).ok());
         if !flow.same_worker.unwrap_or(false)
-            && status.is_some_and(|s| {
-                s.modules
-                    .get(0)
-                    .is_some_and(|x| matches!(x, FlowStatusModule::WaitingForPriorSteps { .. }))
-            })
+            && status.as_ref().is_some_and(|s| s.is_not_yet_started())
         {
             let error_message = format!(
                 "Zombie flow detected: {} in workspace {}. It hasn't started yet, restarting it.",
@@ -4282,18 +5061,35 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
             // worker name; this flow's recorded worker name still points at the
             // dead process whose last ping can be under 60s old, and the memory
             // signal is what lets us catch that window.
-            let memory_pct: Option<f64> = flow.worker_memory_total.and_then(|total| {
-                if total <= 0 {
-                    return None;
-                }
-                let used = flow.worker_memory_usage.max(flow.worker_wm_memory_usage)?;
-                Some(used as f64 / total as f64)
-            });
+            let memory_pct: Option<f64> = zombie_worker_memory_pct(
+                flow.worker_memory_usage,
+                flow.worker_wm_memory_usage,
+                flow.worker_memory_total,
+            );
             let oom_strong = memory_pct.is_some_and(|p| p >= 0.85);
             let oom_moderate = memory_pct.is_some_and(|p| p >= 0.60);
             let mem_pct_str = memory_pct
                 .map(|p| format!("{:.1}% of container limit", (p * 100.0).min(100.0)))
                 .unwrap_or_else(|| "memory unknown at last ping".to_string());
+
+            // When q.worker itself already shows OOM evidence the diagnosis below is
+            // already correct. Otherwise q.worker is likely a bystander (the outer
+            // queue-row worker) and the dropped transition was performed by a
+            // different worker on the same pod/group that OOM-died — go find it.
+            let q_worker_shows_oom = oom_moderate || worker_ping_stale == Some(true);
+            let culprit = if q_worker_shows_oom {
+                None
+            } else if let (Some(qw), Some(lp)) = (flow.worker.as_deref(), flow.last_ping) {
+                find_zombie_flow_culprit_worker(db, qw, lp).await
+            } else {
+                None
+            };
+            let culprit_pct = culprit.as_ref().and_then(|c| {
+                zombie_worker_memory_pct(c.memory_usage, c.wm_memory_usage, c.memory_total)
+            });
+            let culprit_pct_str =
+                culprit_pct.map(|p| format!("{:.1}% of its memory limit", (p * 100.0).min(100.0)));
+
             let worker_info = if let Some(worker_name) = flow.worker.as_deref() {
                 let mut s = format!("\nWorker handling the flow: {worker_name}");
                 match (flow.worker_group.as_deref(), flow.worker_version.as_deref()) {
@@ -4324,8 +5120,11 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
                         (false, false, true) => format!(
                             "LIKELY OOM-KILLED — {mem_pct_str} at last ping (a replacement worker process may have started in the same pod under a new windmill worker name)"
                         ),
+                        (false, false, false) if culprit.is_some() => {
+                            "still pinging with healthy memory — this is NOT the worker that performed the flow's final state transition (see likely culprit worker below)".to_string()
+                        }
                         (false, false, false) => {
-                            "worker still pinging with healthy memory — likely deadlocked or blocking on the state transition".to_string()
+                            "worker still pinging with healthy memory — most likely a different worker performed and dropped the final transition (see hint); less likely: this worker deadlocked or is blocking on the state transition".to_string()
                         }
                     };
                     s.push_str(&format!("\nWorker last ping: {wp} ({age}s ago) — {status}"));
@@ -4370,20 +5169,88 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
                     .to_string()
             };
 
-            let hint: String = match (worker_ping_stale, oom_moderate) {
-                (Some(_), true) => format!(
-                    "\nThis is almost certainly an OOM-kill: container memory at the worker's last ping was at {mem_pct_str}. Raise the worker memory limit (e.g. k8s `resources.limits.memory`) or reduce per-flow memory usage. Confirm via pod restart count (`kubectl describe pod` / `kube_pod_container_status_last_terminated_reason`)."
-                ),
-                (Some(true), false) => {
-                    "\nWorker stopped pinging and its last memory snapshot did not look high — in practice the overwhelmingly common cause here is still OOM-kill (memory may have spiked between the last ping and the kill, or never been reported). First check pod restart count (`kubectl describe pod` / `kube_pod_container_status_last_terminated_reason`). Less likely: host failure, network partition, or a panic — check worker logs / k8s events around the last ping time.".to_string()
-                }
-                (Some(false), false) => {
-                    "\nWorker is still pinging and memory looked healthy at its last ping — most likely a deadlock or blocking call during the state transition. Capture a stack trace (e.g. via SIGQUIT) from the worker process. As a sanity check, also verify pod restart count in case a replacement worker process in the same pod has silently taken over.".to_string()
-                }
-                (None, _) => String::new(),
+            let culprit_info = if let Some(c) = culprit.as_ref() {
+                let age = (now - c.ping_at).num_seconds();
+                let rel = match c.ping_delta_secs {
+                    Some(d) if d >= 0.0 => format!("{d:.0}s after"),
+                    Some(d) => format!("{:.0}s before", -d),
+                    None => "around".to_string(),
+                };
+                let loc =
+                    if c.worker_instance.is_some() && c.worker_instance == flow.worker_instance {
+                        format!(
+                            "same pod/instance '{}'",
+                            c.worker_instance.as_deref().unwrap()
+                        )
+                    } else if let Some(g) = c.worker_group.as_deref() {
+                        format!("worker group '{g}'")
+                    } else if let Some(inst) = c.worker_instance.as_deref() {
+                        format!("instance '{inst}'")
+                    } else {
+                        "same pod/group".to_string()
+                    };
+                let mem = match culprit_pct_str.as_deref() {
+                    Some(p) => format!("was at {p}"),
+                    None => "did not report memory".to_string(),
+                };
+                let mem_detail = match (c.memory_usage, c.wm_memory_usage, c.memory_total) {
+                    (host, wm, Some(total)) => {
+                        let used = host.max(wm);
+                        match used {
+                            Some(u) => format!(
+                                " (memory at last ping: {} of {})",
+                                fmt_mb(u),
+                                fmt_mb(total)
+                            ),
+                            None => format!(" (total available: {})", fmt_mb(total)),
+                        }
+                    }
+                    _ => String::new(),
+                };
+                let q_name = flow.worker.as_deref().unwrap_or("the recorded worker");
+                format!(
+                    "\nLikely culprit worker (on {loc}): {} — last pinged {} ({age}s ago, {rel} this flow's last ping) and then stopped pinging; it {mem} at that last ping{mem_detail}. This flow's dropped state transition was most likely performed by this worker and lost to its death (most likely OOM-kill), not a deadlock on {q_name}.",
+                    c.worker, c.ping_at,
+                )
+            } else {
+                String::new()
             };
 
-            let service_logs_info = match (flow.worker_instance.as_deref(), flow.worker_last_ping) {
+            let hint: String = if let Some(c) = culprit.as_ref() {
+                let q_name = flow.worker.as_deref().unwrap_or("the recorded worker");
+                match culprit_pct {
+                    Some(p) if p >= 0.60 => format!(
+                        "\nThis is almost certainly an OOM-kill on a *different* worker: {} (on the same pod/worker group) was at {} at its last ping right around this flow's transition, then stopped pinging. The flow's recorded worker ({q_name}) looks healthy because it is not the worker that performed the dropped transition. Raise the worker memory limit (e.g. k8s `resources.limits.memory`) or reduce per-flow memory usage. Confirm via that pod's restart count (`kubectl describe pod` / `kube_pod_container_status_last_terminated_reason`).",
+                        c.worker,
+                        culprit_pct_str.as_deref().unwrap_or("a high fraction of its limit"),
+                    ),
+                    _ => format!(
+                        "\nMost likely an OOM-kill on a *different* worker: {} (on the same pod/worker group) stopped pinging right around this flow's transition ({last_ping:?}); its memory may have spiked after its last ping or not been reported. The flow's recorded worker ({q_name}) looks healthy because it did not perform the dropped transition. First check that pod's restart count (`kubectl describe pod` / `kube_pod_container_status_last_terminated_reason`). Only if that worker was not OOM-killed, consider a deadlock on {q_name} and capture a stack trace (e.g. via SIGQUIT).",
+                        c.worker,
+                    ),
+                }
+            } else {
+                match (worker_ping_stale, oom_moderate) {
+                    (Some(_), true) => format!(
+                        "\nThis is almost certainly an OOM-kill: container memory at the worker's last ping was at {mem_pct_str}. Raise the worker memory limit (e.g. k8s `resources.limits.memory`) or reduce per-flow memory usage. Confirm via pod restart count (`kubectl describe pod` / `kube_pod_container_status_last_terminated_reason`)."
+                    ),
+                    (Some(true), false) => {
+                        "\nWorker stopped pinging and its last memory snapshot did not look high — in practice the overwhelmingly common cause here is still OOM-kill (memory may have spiked between the last ping and the kill, or never been reported). First check pod restart count (`kubectl describe pod` / `kube_pod_container_status_last_terminated_reason`). Less likely: host failure, network partition, or a panic — check worker logs / k8s events around the last ping time.".to_string()
+                    }
+                    (Some(false), false) => {
+                        format!("\nThe flow's recorded worker is still pinging with healthy memory, but that worker is often NOT the one that performed the final state transition (in nested/subflow/forloop cases the last iteration runs on another worker). First check whether a different worker on the same pod / worker group was OOM-killed around {last_ping:?} (`kubectl describe pod` / `kube_pod_container_status_last_terminated_reason`, and that pod's worker memory metrics). Only if no such worker died, treat this as a deadlock or blocking call on the recorded worker during the state transition and capture a stack trace (e.g. via SIGQUIT).")
+                    }
+                    (None, _) => String::new(),
+                }
+            };
+
+            // Pull logs for the worker (and around the time) we actually blame: the
+            // culprit's instance/last-ping when one was found, else q.worker's.
+            let (log_instance, log_ping) = match culprit.as_ref() {
+                Some(c) => (c.worker_instance.as_deref(), Some(c.ping_at)),
+                None => (flow.worker_instance.as_deref(), flow.worker_last_ping),
+            };
+            let service_logs_info = match (log_instance, log_ping) {
                 (Some(host), Some(wlp)) => {
                     let after = (wlp - chrono::Duration::seconds(90))
                         .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
@@ -4437,13 +5304,25 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
             };
 
             let reason = format!(
-                "{} was hanging in between 2 steps. Last ping: {last_ping:?} (now: {now}){worker_info}{hint}{service_logs_info}",
+                "{} was hanging in between 2 steps. Last ping: {last_ping:?} (now: {now}){worker_info}{culprit_info}{hint}{service_logs_info}",
                 if flow.is_flow_step.unwrap_or(false) && flow.parent_job.is_some() {
                     format!("Flow was cancelled because subflow {id} ({base_url}/run/{id}?workspace={workspace_id})")
                 } else {
                     format!("Flow {id} ({base_url}/run/{id}?workspace={workspace_id}) was cancelled because it")
                 }
             );
+            let reason = match between_steps_recovery_guidance(
+                db,
+                status.as_ref(),
+                id,
+                &workspace_id,
+                &base_url,
+            )
+            .await
+            {
+                Some(guidance) => format!("{reason}\n\n{guidance}"),
+                None => reason,
+            };
             report_critical_error(reason.clone(), db.clone(), Some(&flow.workspace_id), None).await;
             cancel_zombie_flow_job(db, flow.id, &flow.workspace_id,
                 format!(r#"{reason}
@@ -4488,6 +5367,103 @@ Please check your worker logs for more details and feel free to report it to the
         }
     }
     Ok(())
+}
+
+/// When a between-steps zombie's stuck step has every child recorded as a
+/// `success` completion, the flow's state is fully derivable: only the final
+/// state transition was lost to the worker failure, not any real work. In that
+/// case return concrete restart-from-step recovery guidance to append to the
+/// cancellation reason / critical alert. Returns `None` when the state isn't
+/// derivable (some child missing or not successful), so the existing wording is
+/// left untouched. Auto-recovery is deliberately not attempted (a re-driven
+/// transition can OOM again on the same aggregated state; a human raises the
+/// memory limit first, then restarts).
+async fn between_steps_recovery_guidance(
+    db: &DB,
+    status: Option<&FlowStatus>,
+    flow_id: Uuid,
+    workspace_id: &str,
+    base_url: &str,
+) -> Option<String> {
+    // The stuck module is the current step, left InProgress because the
+    // transition that would have marked it Success was dropped. It is only
+    // derivable when its own cursor reached the end (a serial fan-out reaped
+    // mid-iteration has unrun work left; while-loops are never derivable). Whether
+    // restart reuses the children or re-runs the step (final step, or one carrying a
+    // stop/skip/approval/sleep) is decided by the restart path against the flow
+    // definition, which the reaper doesn't load; the guidance states both outcomes
+    // rather than promising reuse the restart might decline.
+    let status = status?;
+    let idx = usize::try_from(status.step).ok()?;
+    let module = status.modules.get(idx)?;
+    if !module.is_between_steps_complete() {
+        return None;
+    }
+    let step_id = module.id();
+
+    // Only a top-level deployed flow exposes a working restart-from-step: the run page's
+    // "Re-start from" button is rendered only for job_kind == 'flow' (a flowpreview, even a
+    // pathful editor preview, or a singlestepflow does not qualify), and a subflow child
+    // restarts via its root. Match that surface exactly so the guidance never points at a
+    // button / endpoint that isn't there; leave the existing wording otherwise.
+    let restartable = sqlx::query_scalar!(
+        r#"SELECT (kind = 'flow' AND parent_job IS NULL) AS "restartable!"
+           FROM v2_job WHERE id = $1"#,
+        flow_id,
+    )
+    .fetch_one(db)
+    .await
+    .ok()?;
+    if !restartable {
+        return None;
+    }
+
+    // Children whose completion the lost transition would have aggregated: the
+    // loop/branchall iterations, or the single leaf/subflow child.
+    let child_ids: Vec<Uuid> = module
+        .flow_jobs()
+        .filter(|v| !v.is_empty())
+        .or_else(|| module.job().map(|j| vec![j]))?;
+
+    // Derivable only when every child is recorded as a success completion.
+    let success_children = sqlx::query_scalar!(
+        "SELECT count(*) FROM v2_job_completed
+         WHERE workspace_id = $1 AND id = ANY($2) AND status = 'success'",
+        workspace_id,
+        &child_ids,
+    )
+    .fetch_one(db)
+    .await
+    .ok()?
+    .unwrap_or(0);
+    if success_children != child_ids.len() as i64 {
+        return None;
+    }
+    let n = child_ids.len();
+
+    // For loop/branchall, name the completed iteration/branch count so the
+    // operator can confirm the whole fan-out is intact.
+    let iteration_hint = match module {
+        FlowStatusModule::InProgress { iterator: Some(_), .. } => {
+            format!(" (loop step, all {n} iterations completed)")
+        }
+        FlowStatusModule::InProgress { branchall: Some(_), .. } => {
+            format!(" (branchall step, all {n} branches completed)")
+        }
+        _ => String::new(),
+    };
+
+    Some(format!(
+        "RECOVERY: all {n} child job(s) of step `{step_id}`{iteration_hint} completed successfully; \
+only the flow's final state transition was lost to the worker failure above (not any genuine failure), so \
+the completed work is intact. To recover: first change the failure condition (raise the worker memory limit, \
+e.g. k8s `resources.limits.memory`, or move the flow to a larger worker group), then restart from step \
+`{step_id}`. Restart replays only the dropped transition and reuses the completed children where the step's \
+result is fully derivable; a step that is the flow's last, or carries a stop/skip condition, an approval, or a \
+sleep, is re-run instead (re-evaluating those on the larger worker).\n\
+  UI:  open {base_url}/run/{flow_id}?workspace={workspace_id} and use \"Re-start from {step_id}\".\n\
+  API: POST {base_url}/api/w/{workspace_id}/jobs/restart/f/{flow_id} with body {{\"step_id\":\"{step_id}\"}}."
+    ))
 }
 
 async fn cancel_zombie_flow_job(
@@ -5062,5 +6038,84 @@ mod retention_overrides_tests {
             .map(|i| (format!("ws_{i}"), json!(3600)))
             .collect();
         assert!(parse_retention_overrides(over_cap).is_err());
+    }
+}
+
+#[cfg(test)]
+mod strike_unarmed_tests {
+    use super::strike_unarmed;
+    use std::collections::{HashMap, HashSet};
+
+    fn key(path: &str) -> (String, String) {
+        ("ws".to_string(), path.to_string())
+    }
+
+    fn set(paths: &[&str]) -> HashSet<(String, String)> {
+        paths.iter().map(|p| key(p)).collect()
+    }
+
+    /// The strike threshold is the only thing keeping the reconciler from racing
+    /// an in-flight push: `push_scheduled_job`'s own `already_exists` guard keys
+    /// on the same columns as the scan, so it is false by construction whenever a
+    /// schedule is found unarmed.
+    #[test]
+    fn rearms_only_after_consecutive_unarmed_passes() {
+        let mut seen = HashMap::new();
+        assert!(strike_unarmed(&mut seen, set(&["a"])).is_empty());
+        assert_eq!(strike_unarmed(&mut seen, set(&["a"])), vec![key("a")]);
+    }
+
+    #[test]
+    fn armed_observation_resets_the_tally() {
+        let mut seen = HashMap::new();
+        assert!(strike_unarmed(&mut seen, set(&["a"])).is_empty());
+        // `a` is armed again on this pass, so its strike must not carry over.
+        assert!(strike_unarmed(&mut seen, set(&[])).is_empty());
+        assert!(strike_unarmed(&mut seen, set(&["a"])).is_empty());
+        assert_eq!(strike_unarmed(&mut seen, set(&["a"])), vec![key("a")]);
+    }
+
+    #[test]
+    fn tallies_are_per_schedule() {
+        let mut seen = HashMap::new();
+        assert!(strike_unarmed(&mut seen, set(&["a"])).is_empty());
+        assert_eq!(strike_unarmed(&mut seen, set(&["a", "b"])), vec![key("a")]);
+        assert_eq!(strike_unarmed(&mut seen, set(&["b"])), vec![key("b")]);
+    }
+}
+
+#[cfg(test)]
+mod zombie_worker_memory_pct_tests {
+    use super::zombie_worker_memory_pct;
+
+    #[test]
+    fn takes_the_larger_of_the_two_readings() {
+        // Both present: the larger (higher-signal) reading wins, not either
+        // one unconditionally — a "simplify to `usage.or(wm_usage)`" refactor
+        // would silently under-report and miss OOMs.
+        let p = zombie_worker_memory_pct(Some(600), Some(900), Some(1000)).unwrap();
+        assert!((p - 0.9).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn falls_back_to_whichever_reading_is_present() {
+        assert_eq!(
+            zombie_worker_memory_pct(Some(700), None, Some(1000)),
+            Some(0.7)
+        );
+        assert_eq!(
+            zombie_worker_memory_pct(None, Some(800), Some(1000)),
+            Some(0.8)
+        );
+    }
+
+    #[test]
+    fn none_when_no_usage_or_no_valid_total() {
+        assert_eq!(zombie_worker_memory_pct(None, None, Some(1000)), None);
+        assert_eq!(zombie_worker_memory_pct(Some(500), Some(500), None), None);
+        assert_eq!(
+            zombie_worker_memory_pct(Some(500), Some(500), Some(0)),
+            None
+        );
     }
 }

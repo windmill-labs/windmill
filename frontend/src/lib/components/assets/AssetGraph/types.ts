@@ -110,6 +110,7 @@ export type NativeTriggerKind =
 	| 'email'
 	| 'kafka'
 	| 'mqtt'
+	| 'amqp'
 	| 'nats'
 	| 'postgres'
 	| 'sqs'

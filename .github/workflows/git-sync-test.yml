@@ -9,6 +9,10 @@ on:
       - "backend/windmill-api-integration-tests/tests/git_sync*"
       - "backend/ee-repo-ref.txt"
       - "backend/windmill-common/src/workspaces.rs"
+      - "backend/windmill-worker/src/result_processor.rs"
+      - "backend/windmill-api-workspaces/**"
+      - "cli/src/commands/sync/**"
+      - "cli/src/utils/git.ts"
       - "integration_tests/test/git_sync_test.py"
       - ".github/workflows/git-sync-test.yml"
   pull_request:
@@ -18,6 +22,10 @@ on:
       - "backend/windmill-api-integration-tests/tests/git_sync*"
       - "backend/ee-repo-ref.txt"
       - "backend/windmill-common/src/workspaces.rs"
+      - "backend/windmill-worker/src/result_processor.rs"
+      - "backend/windmill-api-workspaces/**"
+      - "cli/src/commands/sync/**"
+      - "cli/src/utils/git.ts"
       - "integration_tests/test/git_sync_test.py"
       - ".github/workflows/git-sync-test.yml"
 
@@ -50,8 +58,8 @@ jobs:
           echo "Changed files:"
           echo "$CHANGED_FILES"
 
-          # Direct git sync file changes — always relevant
-          if echo "$CHANGED_FILES" | grep -qE '^(backend/windmill-git-sync/|backend/windmill-api-integration-tests/tests/git_sync|backend/windmill-common/src/workspaces\.rs|integration_tests/test/git_sync|\.github/workflows/git-sync-test\.yml)'; then
+          # Direct git sync file changes — always relevant.
+          if echo "$CHANGED_FILES" | grep -qE '^(backend/windmill-git-sync/|backend/windmill-worker/src/result_processor\.rs|backend/windmill-api-workspaces/|backend/windmill-api-integration-tests/tests/git_sync|backend/windmill-common/src/workspaces\.rs|cli/src/commands/sync/|cli/src/utils/git\.ts|integration_tests/test/git_sync|\.github/workflows/git-sync-test\.yml)'; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
             echo "Relevant: direct git sync file changes"
             exit 0
@@ -180,6 +188,9 @@ jobs:
           DENO_PATH: deno
           BUN_PATH: bun
           NODE_BIN_PATH: node
+          # The auto-pull poller's SSRF guard rejects localhost git remotes;
+          # the tests' Gitea runs on localhost.
+          ALLOW_LOCAL_GIT_REMOTES: "true"
         run: |
           ./target/debug/windmill &
           echo "Waiting for Windmill to be ready..."

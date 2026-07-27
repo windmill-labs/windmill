@@ -19,6 +19,7 @@ use windmill_common::{
     jobs::{is_safe_log_file_path, JobKind, JobStatus, JobTriggerKind},
     scripts::ScriptLang,
     utils::{paginate, paginate_without_limits, require_admin, Pagination},
+    worker::CLOUD_HOSTED,
 };
 
 use windmill_api_auth::ApiAuthed;
@@ -435,6 +436,15 @@ pub async fn import_queued_jobs(
 ) -> error::Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
 
+    // Self-hosted migration/restore tool. It writes queue rows straight to the DB, bypassing the
+    // push path and every admission check that lives there, so it has no place on multi-tenant
+    // cloud where those checks are what keep one workspace from swamping the shared pool.
+    if *CLOUD_HOSTED {
+        return Err(error::Error::BadRequest(
+            "Importing queued jobs is not available on the cloud".to_string(),
+        ));
+    }
+
     let mut tx = user_db.begin(&authed).await?;
 
     for job in jobs {
@@ -693,6 +703,17 @@ pub async fn delete_jobs(
     .await?
     .rows_affected();
 
+    // Resolutions are not exported, so a delete-then-reimport of the same UUID would
+    // otherwise resurrect the old annotation on a job that never carried one.
+    let resolution_deleted = sqlx::query!(
+        "DELETE FROM job_resolution WHERE workspace_id = $1 AND job_id = ANY($2)",
+        &w_id,
+        &job_ids
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+
     let jobs_deleted = sqlx::query!(
         "DELETE FROM v2_job WHERE workspace_id = $1 AND id = ANY($2)",
         &w_id,
@@ -716,6 +737,7 @@ pub async fn delete_jobs(
         + zombie_deleted
         + dispatch_event_deleted
         + conversation_message_deleted
+        + resolution_deleted
         + jobs_deleted;
 
     tracing::info!(

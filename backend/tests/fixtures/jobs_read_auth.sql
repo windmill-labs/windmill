@@ -229,3 +229,30 @@ INSERT INTO public.v2_job_completed (id, workspace_id, duration_ms, status, resu
      '{"mid": "MID_RESULT"}'),
     ('88888888-8888-8888-8888-888888888888', 'test-workspace', 1000, 'success'::job_status,
      '{"deep": "DEEP_STEP_INHERITED"}');
+
+-- 6. QUEUED nesting for force-cancel: a hidden top flow (`f/secret/qtop`) whose
+--    step is a sub-flow in the visible `shared` folder (`f/shared/qmid`). Force
+--    cancel walks up to the highest queued ancestor, so force-cancelling the
+--    sub-flow test-user-3 CAN see would kill the top flow they cannot.
+INSERT INTO public.v2_job (
+    id, workspace_id, created_by, created_at, permissioned_as, permissioned_as_email,
+    kind, script_lang, runnable_path, tag, visible_to_owner
+) VALUES (
+    '66666666-6666-6666-6666-666666666666', 'test-workspace', 'test-user-2',
+    '2023-01-01 00:00:00', 'u/test-user-2', 'test2@windmill.dev',
+    'flow', 'deno', 'f/secret/qtop', 'flow', true
+);
+INSERT INTO public.v2_job (
+    id, workspace_id, created_by, created_at, permissioned_as, permissioned_as_email,
+    kind, script_lang, runnable_path, tag, visible_to_owner,
+    parent_job, root_job, flow_innermost_root_job
+) VALUES (
+    '55555555-5555-5555-5555-555555555555', 'test-workspace', 'test-user-2',
+    '2023-01-01 00:00:00', 'u/test-user-2', 'test2@windmill.dev',
+    'flow', 'deno', 'f/shared/qmid', 'flow', true,
+    '66666666-6666-6666-6666-666666666666', '66666666-6666-6666-6666-666666666666',
+    '66666666-6666-6666-6666-666666666666'
+);
+INSERT INTO public.v2_job_queue (id, workspace_id, scheduled_for, running, tag) VALUES
+    ('66666666-6666-6666-6666-666666666666', 'test-workspace', '2023-01-01 00:00:00', true, 'flow'),
+    ('55555555-5555-5555-5555-555555555555', 'test-workspace', '2023-01-01 00:00:00', true, 'flow');

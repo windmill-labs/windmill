@@ -13,7 +13,7 @@ use crate::{
         AnthropicExtraContent, ExtraContent, GoogleExtraContent, OpenAIFunction, OpenAIToolCall,
     },
     query_builder::StreamEventSink,
-    types::StreamingEvent,
+    types::{StreamingEvent, TokenUsage},
 };
 
 #[derive(Deserialize)]
@@ -44,6 +44,14 @@ pub struct OpenAIChoice {
     pub delta: Option<OpenAIChoiceDelta>,
 }
 
+/// Nested prompt token details returned by the Chat Completions API.
+/// `cached_tokens` is the portion of `prompt_tokens` served from cache (a subset, not additive).
+#[derive(Deserialize, Debug, Clone, Default)]
+pub struct OpenAIPromptTokensDetails {
+    #[serde(default)]
+    pub cached_tokens: Option<i32>,
+}
+
 /// OpenAI Chat Completions API usage information (from final chunk with stream_options.include_usage)
 #[derive(Deserialize, Debug, Clone, Default)]
 pub struct OpenAIChatUsage {
@@ -53,6 +61,24 @@ pub struct OpenAIChatUsage {
     pub completion_tokens: Option<i32>,
     #[serde(default)]
     pub total_tokens: Option<i32>,
+    #[serde(default)]
+    pub prompt_tokens_details: Option<OpenAIPromptTokensDetails>,
+}
+
+impl OpenAIChatUsage {
+    /// cached_tokens is a subset of prompt_tokens, so input/total are reported as-is
+    /// and only recorded as cache_read for reporting.
+    pub fn to_token_usage(self) -> TokenUsage {
+        TokenUsage::new(
+            self.prompt_tokens,
+            self.completion_tokens,
+            self.total_tokens,
+        )
+        .with_cache(
+            self.prompt_tokens_details.and_then(|d| d.cached_tokens),
+            None,
+        )
+    }
 }
 
 #[derive(Deserialize)]
@@ -684,6 +710,14 @@ pub struct OpenAIUrlCitationEvent {
     pub title: Option<String>,
 }
 
+/// Nested input token details returned by the Responses API.
+/// `cached_tokens` is the portion of `input_tokens` served from cache (a subset, not additive).
+#[derive(Deserialize, Debug, Clone, Default)]
+pub struct OpenAIInputTokensDetails {
+    #[serde(default)]
+    pub cached_tokens: Option<i32>,
+}
+
 /// OpenAI Responses API usage information
 #[derive(Deserialize, Debug, Clone)]
 pub struct OpenAIResponsesUsage {
@@ -693,6 +727,19 @@ pub struct OpenAIResponsesUsage {
     pub output_tokens: Option<i32>,
     #[serde(default)]
     pub total_tokens: Option<i32>,
+    #[serde(default)]
+    pub input_tokens_details: Option<OpenAIInputTokensDetails>,
+}
+
+impl OpenAIResponsesUsage {
+    /// cached_tokens is a subset of input_tokens, so input/total are reported as-is
+    /// and only recorded as cache_read for reporting.
+    pub fn to_token_usage(self) -> TokenUsage {
+        TokenUsage::new(self.input_tokens, self.output_tokens, self.total_tokens).with_cache(
+            self.input_tokens_details.and_then(|d| d.cached_tokens),
+            None,
+        )
+    }
 }
 
 /// OpenAI Responses API response object (from response.completed event)
@@ -925,6 +972,34 @@ mod tests {
             serde_json::from_str(&serde_json::to_string(&event).unwrap()).unwrap();
         assert_eq!(json["type"], "reasoning_token_delta");
         assert_eq!(json["content"], "hmm");
+    }
+
+    #[test]
+    fn openai_chat_usage_maps_cached_prompt_tokens() {
+        // Payload shape returned by OpenAI and Azure OpenAI Chat Completions.
+        // cached_tokens lives under prompt_tokens_details and is a subset of prompt_tokens,
+        // so it must land in cache_read while input/total stay as the provider reported them.
+        let usage: OpenAIChatUsage = serde_json::from_str(
+            r#"{"prompt_tokens":4819,"completion_tokens":1,"total_tokens":4820,"prompt_tokens_details":{"cached_tokens":4736,"audio_tokens":0}}"#,
+        )
+        .unwrap();
+        let token_usage = usage.to_token_usage();
+        assert_eq!(token_usage.cache_read_input_tokens, Some(4736));
+        assert_eq!(token_usage.input_tokens, Some(4819));
+        assert_eq!(token_usage.total_tokens, Some(4820));
+    }
+
+    #[test]
+    fn openai_responses_usage_maps_cached_input_tokens() {
+        // Payload shape returned by the OpenAI Responses API.
+        let usage: OpenAIResponsesUsage = serde_json::from_str(
+            r#"{"input_tokens":4819,"input_tokens_details":{"cache_write_tokens":0,"cached_tokens":4736},"output_tokens":2,"total_tokens":4821}"#,
+        )
+        .unwrap();
+        let token_usage = usage.to_token_usage();
+        assert_eq!(token_usage.cache_read_input_tokens, Some(4736));
+        assert_eq!(token_usage.input_tokens, Some(4819));
+        assert_eq!(token_usage.total_tokens, Some(4821));
     }
 
     #[test]

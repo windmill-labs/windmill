@@ -199,18 +199,25 @@
 	})
 	let scheduleEditor: ScheduleEditor | undefined = $state()
 
-	let hashHandled = false
+	// Deep link: #<path> opens that schedule's edit drawer. Tracks the last
+	// handled hash (not a one-shot flag) so a hash change on the already-mounted
+	// page (e.g. the AI session preview re-pointing its tab) opens the drawer
+	// too. Row links pre-set handledHash: their onclick already opens the drawer.
+	let handledHash = ''
 	$effect(() => {
-		if (!hashHandled && schedules.length > 0 && scheduleEditor) {
-			let hash = $page.url.hash
-			if (hash.length > 1) {
-				let path = hash.slice(1)
-				let schedule = schedules.find((s) => s.path === path)
-				if (schedule) {
-					hashHandled = true
-					scheduleEditor?.openEdit(path, schedule.is_flow)
-				}
-			}
+		const hash = $page.url.hash
+		if (hash.length <= 1) {
+			// Navigating away from a drawer target must clear the tracker, or
+			// re-targeting the same schedule later would be skipped as already handled.
+			handledHash = ''
+			return
+		}
+		if (hash === handledHash || schedules.length === 0 || !scheduleEditor) return
+		const path = hash.slice(1)
+		const schedule = schedules.find((s) => s.path === path)
+		if (schedule) {
+			handledHash = hash
+			scheduleEditor.openEdit(path, schedule.is_flow)
 		}
 	})
 
@@ -384,7 +391,10 @@
 								<div class="min-w-0 grow flex items-center gap-2">
 									<a
 										href="#{path}"
-										onclick={() => scheduleEditor?.openEdit(path, is_flow)}
+										onclick={() => {
+											handledHash = `#${path}`
+											scheduleEditor?.openEdit(path, is_flow)
+										}}
 										class="min-w-0 hover:underline decoration-gray-400"
 									>
 										<div

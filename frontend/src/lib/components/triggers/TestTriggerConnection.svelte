@@ -3,6 +3,7 @@
 		CancelablePromise,
 		KafkaTriggerService,
 		MqttTriggerService,
+		AmqpTriggerService,
 		NatsTriggerService,
 		SqsTriggerService,
 		PostgresTriggerService,
@@ -10,22 +11,20 @@
 		GcpTriggerService
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 	import { sendUserToast } from '$lib/toast'
 	import Button from '../common/button/Button.svelte'
 
 	interface Props {
-		kind: 'websocket' | 'nats' | 'kafka' | 'postgres' | 'sqs' | 'mqtt' | 'gcp';
-		args: Record<string, any>;
-		noButton?: boolean;
-		testLoading?: boolean;
+		kind: 'websocket' | 'nats' | 'kafka' | 'postgres' | 'sqs' | 'mqtt' | 'amqp' | 'gcp'
+		args: Record<string, any>
+		noButton?: boolean
+		testLoading?: boolean
 	}
 
-	let {
-		kind,
-		args,
-		noButton = false,
-		testLoading = $bindable(false)
-	}: Props = $props();
+	let { kind, args, noButton = false, testLoading = $bindable(false) }: Props = $props()
+	const triggerWs = getTriggerWorkspace()
+	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
 
 	const kindToName: { [key: string]: string } = {
 		websocket: 'WebSocket',
@@ -34,6 +33,7 @@
 		sqs: 'SQS',
 		postgres: 'Postgres',
 		mqtt: 'MQTT broker',
+		amqp: 'AMQP broker',
 		gcp: 'Google Cloud Pub/Sub'
 	}
 
@@ -48,37 +48,42 @@
 		try {
 			if (kind === 'websocket') {
 				promise = WebsocketTriggerService.testWebsocketConnection({
-					workspace: $workspaceStore!,
+					workspace: wsId!,
 					requestBody: args as any
 				})
 			} else if (kind === 'nats') {
 				promise = NatsTriggerService.testNatsConnection({
-					workspace: $workspaceStore!,
+					workspace: wsId!,
 					requestBody: args as any
 				})
 			} else if (kind === 'kafka') {
 				promise = KafkaTriggerService.testKafkaConnection({
-					workspace: $workspaceStore!,
+					workspace: wsId!,
 					requestBody: args as any
 				})
 			} else if (kind === 'mqtt') {
 				promise = MqttTriggerService.testMqttConnection({
-					workspace: $workspaceStore!,
+					workspace: wsId!,
+					requestBody: args as any
+				})
+			} else if (kind === 'amqp') {
+				promise = AmqpTriggerService.testAmqpConnection({
+					workspace: wsId!,
 					requestBody: args as any
 				})
 			} else if (kind === 'sqs') {
 				promise = SqsTriggerService.testSqsConnection({
-					workspace: $workspaceStore!,
+					workspace: wsId!,
 					requestBody: args as any
 				})
 			} else if (kind === 'postgres') {
 				promise = PostgresTriggerService.testPostgresConnection({
-					workspace: $workspaceStore!,
+					workspace: wsId!,
 					requestBody: args as any
 				})
 			} else if (kind === 'gcp') {
 				promise = GcpTriggerService.testGcpConnection({
-					workspace: $workspaceStore!,
+					workspace: wsId!,
 					requestBody: args as any
 				})
 			}

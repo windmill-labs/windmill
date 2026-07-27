@@ -1,4 +1,4 @@
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use crate::error::Error;
 
@@ -58,6 +58,63 @@ impl std::fmt::Display for SsrfValidationError {
 // `anyhow::Result` (e.g. the EE SAML metadata loader).
 impl std::error::Error for SsrfValidationError {}
 
+/// A URL that passed SSRF validation, carrying the exact addresses its host
+/// resolved to so the eventual connect targets the SAME address that was
+/// checked.
+///
+/// Validation resolves the host once and verifies every address is public; it
+/// then hands those addresses back instead of discarding them. Callers pin them
+/// onto their client — [`apply_dns_pinning`](ValidatedTarget::apply_dns_pinning)
+/// for reqwest, or [`pinned_addrs`](ValidatedTarget::pinned_addrs) for a raw TCP
+/// connect — so a DNS rebinder cannot answer a public IP at check-time and an
+/// internal one (e.g. 169.254.169.254) at connect-time. Without pinning the
+/// check and the connect resolve independently and the guard is a TOCTOU no-op.
+///
+/// `addrs` is empty when the host was an IP literal (there is nothing to rebind)
+/// or when an `ALLOW_PRIVATE_*` override skipped resolution entirely; pinning is
+/// then a no-op and the caller connects normally.
+///
+/// Limitation: pinning governs only *direct* connections. When a deployment
+/// configures an outbound egress proxy (`HTTP_PROXY`/`HTTPS_PROXY`), the proxy
+/// resolves the target host itself and the pin does not reach it — a property of
+/// proxy-based egress shared by every app-side SSRF guard, not specific to this
+/// one. The public/private pre-check still runs; closing the proxy hop would
+/// require the proxy to resolve, which it owns.
+#[derive(Debug, Clone)]
+pub struct ValidatedTarget {
+    /// The URL host, exactly as reqwest keys its DNS override on.
+    pub host: String,
+    /// Public addresses the host resolved to, to pin at connect time.
+    pub addrs: Vec<SocketAddr>,
+}
+
+impl ValidatedTarget {
+    /// A target with nothing to pin: an IP-literal host (no rebinding possible)
+    /// or a host whose SSRF check was skipped by an `ALLOW_PRIVATE_*` override.
+    fn unpinned(host: &str) -> Self {
+        ValidatedTarget { host: host.to_string(), addrs: Vec::new() }
+    }
+
+    /// Pin the validated addresses onto a reqwest client builder so connect-time
+    /// resolution cannot diverge from what was checked. No-op when there is
+    /// nothing to pin (IP-literal host, or a skipped `ALLOW_PRIVATE_*` check).
+    pub fn apply_dns_pinning(&self, builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+        if self.addrs.is_empty() {
+            builder
+        } else {
+            builder.resolve_to_addrs(&self.host, &self.addrs)
+        }
+    }
+
+    /// The validated addresses to connect to, for callers that pin by opening
+    /// the socket themselves (e.g. the WebSocket trigger's raw TCP connect)
+    /// rather than through reqwest. Empty means "nothing to pin, connect
+    /// normally".
+    pub fn pinned_addrs(&self) -> &[SocketAddr] {
+        &self.addrs
+    }
+}
+
 impl From<SsrfValidationError> for Error {
     fn from(e: SsrfValidationError) -> Self {
         Error::BadRequest(e.to_string())
@@ -69,8 +126,13 @@ impl From<SsrfValidationError> for Error {
 /// Checks:
 /// 1. Scheme must be http or https
 /// 2. Host must be present and not a private/loopback/link-local IP
-/// 3. DNS resolution is checked to prevent DNS rebinding to internal IPs
-pub async fn validate_url_for_ssrf(url: &str) -> Result<(), SsrfValidationError> {
+/// 3. The host is resolved and every address verified public
+///
+/// Returns the resolved addresses as a [`ValidatedTarget`] so the caller can pin
+/// them onto the client that actually connects. Validating here and re-resolving
+/// at connect time is a TOCTOU no-op against a DNS rebinder — the check only
+/// closes the hole if the connect targets the SAME address this resolved.
+pub async fn validate_url_for_ssrf(url: &str) -> Result<ValidatedTarget, SsrfValidationError> {
     let parsed =
         url::Url::parse(url).map_err(|e| SsrfValidationError::InvalidUrl(e.to_string()))?;
 
@@ -85,12 +147,13 @@ pub async fn validate_url_for_ssrf(url: &str) -> Result<(), SsrfValidationError>
     // 2. Host check
     let host = parsed.host_str().ok_or(SsrfValidationError::MissingHost)?;
 
-    // 3. If the host is an IP literal, check it directly
+    // 3. If the host is an IP literal, check it directly. There is nothing to
+    // rebind (reqwest connects straight to the literal), so no addresses to pin.
     if let Ok(ip) = host.parse::<IpAddr>() {
         if is_private_ip(&ip) {
             return Err(SsrfValidationError::Private { resolved: false });
         }
-        return Ok(());
+        return Ok(ValidatedTarget::unpinned(host));
     }
 
     // 4. DNS resolution check — resolve the hostname and verify all IPs are public
@@ -117,7 +180,7 @@ pub async fn validate_url_for_ssrf(url: &str) -> Result<(), SsrfValidationError>
         }
     }
 
-    Ok(())
+    Ok(ValidatedTarget { host: host.to_string(), addrs })
 }
 
 pub fn allow_private_mcp_server_urls() -> bool {
@@ -132,7 +195,7 @@ pub fn allow_private_saml_metadata_urls() -> bool {
         .is_some_and(|v| v == "true" || v == "1")
 }
 
-pub async fn validate_saml_metadata_url(url: &str) -> Result<(), SsrfValidationError> {
+pub async fn validate_saml_metadata_url(url: &str) -> Result<ValidatedTarget, SsrfValidationError> {
     let parsed =
         url::Url::parse(url).map_err(|e| SsrfValidationError::InvalidUrl(e.to_string()))?;
 
@@ -141,16 +204,16 @@ pub async fn validate_saml_metadata_url(url: &str) -> Result<(), SsrfValidationE
         scheme => return Err(SsrfValidationError::DisallowedScheme(scheme.to_string())),
     }
 
-    parsed.host_str().ok_or(SsrfValidationError::MissingHost)?;
+    let host = parsed.host_str().ok_or(SsrfValidationError::MissingHost)?;
 
     if allow_private_saml_metadata_urls() {
-        return Ok(());
+        return Ok(ValidatedTarget::unpinned(host));
     }
 
     validate_url_for_ssrf(url).await
 }
 
-pub async fn validate_mcp_server_url(url: &str) -> Result<(), SsrfValidationError> {
+pub async fn validate_mcp_server_url(url: &str) -> Result<ValidatedTarget, SsrfValidationError> {
     let parsed =
         url::Url::parse(url).map_err(|e| SsrfValidationError::InvalidUrl(e.to_string()))?;
 
@@ -159,16 +222,24 @@ pub async fn validate_mcp_server_url(url: &str) -> Result<(), SsrfValidationErro
         scheme => return Err(SsrfValidationError::DisallowedScheme(scheme.to_string())),
     }
 
-    parsed.host_str().ok_or(SsrfValidationError::MissingHost)?;
+    let host = parsed.host_str().ok_or(SsrfValidationError::MissingHost)?;
 
     if allow_private_mcp_server_urls() {
-        return Ok(());
+        return Ok(ValidatedTarget::unpinned(host));
     }
 
     validate_url_for_ssrf(url).await
 }
 
-pub async fn validate_mcp_server_url_for_bad_request(url: &str, label: &str) -> Result<(), Error> {
+/// Validate an MCP-related URL and return the [`ValidatedTarget`] so the caller
+/// can pin the connect: the OAuth registration/discovery/token requests carry
+/// secrets, so they must target the validated address (see
+/// `windmill_mcp::oauth::no_redirect_http_client_pinned`). Callers that only
+/// pre-validate (no adjacent connect) can discard the target.
+pub async fn validate_mcp_server_url_for_bad_request(
+    url: &str,
+    label: &str,
+) -> Result<ValidatedTarget, Error> {
     validate_mcp_server_url(url).await.map_err(|e| {
         Error::BadRequest(format!(
             "{label} is not allowed: {}",
@@ -329,6 +400,35 @@ mod tests {
     async fn test_validate_url_allows_public() {
         // This resolves to a public IP
         assert!(validate_url_for_ssrf("https://google.com").await.is_ok());
+    }
+
+    /// An IP-literal host has nothing to rebind — reqwest connects straight to
+    /// the literal — so the target pins no addresses.
+    #[tokio::test]
+    async fn validate_url_ip_literal_pins_nothing() {
+        let target = validate_url_for_ssrf("http://8.8.8.8:1234/x")
+            .await
+            .unwrap();
+        assert_eq!(target.host, "8.8.8.8");
+        assert!(target.pinned_addrs().is_empty());
+    }
+
+    /// Regression for the DNS-rebinding TOCTOU: the guard must surface the exact
+    /// public addresses it validated so the caller can pin the connect to the
+    /// SAME address. If
+    /// this returned nothing, the connect would re-resolve and a rebinder could
+    /// swap in an internal IP after the check.
+    #[tokio::test]
+    async fn validate_url_surfaces_resolved_addrs_for_pinning() {
+        let target = validate_url_for_ssrf("https://google.com").await.unwrap();
+        assert_eq!(target.host, "google.com");
+        assert!(!target.pinned_addrs().is_empty());
+        assert!(target
+            .pinned_addrs()
+            .iter()
+            .all(|a| !is_private_ip(&a.ip())));
+        // The pin applies cleanly onto a reqwest builder.
+        let _ = target.apply_dns_pinning(reqwest::ClientBuilder::new());
     }
 
     /// Regression for #9171: a malformed base URL (missing scheme) must report

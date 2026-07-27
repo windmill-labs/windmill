@@ -239,9 +239,15 @@ export function validateToolExpectations(input: {
       // model mixes the requested statement (e.g. an UPDATE) with verification
       // SELECTs that would otherwise fail an "all calls" check.
       const needles = rule.stringIncludesAnyOf.map((needle) => needle.toLowerCase());
-      const hasMatch = values.some(
-        (value) =>
-          typeof value === "string" && needles.some((needle) => value.toLowerCase().includes(needle))
+      // Array-valued fields (e.g. open_page.items) match on any element.
+      const haystacks = (value: unknown): string[] =>
+        typeof value === "string"
+          ? [value]
+          : Array.isArray(value)
+            ? value.filter((v): v is string => typeof v === "string")
+            : [];
+      const hasMatch = values.some((value) =>
+        haystacks(value).some((hay) => needles.some((needle) => hay.toLowerCase().includes(needle)))
       );
       checks.push(
         check(

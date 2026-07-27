@@ -55,6 +55,10 @@
 	import { type Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { checkIfParentLoop } from '../utils.svelte'
+	import { useWorkspaceScriptSettings } from '../useWorkspaceScriptSettings.svelte'
+	import ScriptSettingsBadges from '$lib/components/ScriptSettingsBadges.svelte'
+	import { getActiveScriptSettingsBadges } from '$lib/components/scriptSettings'
+	import WorkspaceScriptSettingInfo from './WorkspaceScriptSettingInfo.svelte'
 	import ModulePreviewResultViewer from '$lib/components/ModulePreviewResultViewer.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
@@ -95,7 +99,8 @@
 		saveDraft,
 		customUi,
 		executionCount,
-		opWorkspace
+		opWorkspace,
+		workspaceScriptSettingsDrawer
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const selectedId = $derived(selectionManager.getSelectedId())
@@ -179,6 +184,59 @@
 
 	let assets = $derived((flowModule.value.type === 'rawscript' && flowModule.value.assets) || [])
 	const flowGraphAssetsCtx = getContext<FlowGraphAssetContext | undefined>('FlowGraphAssetContext')
+
+	// For workspace-script steps, load the referenced script's advanced settings so
+	// the delegating settings tabs (concurrency, cache, ...) can show current values
+	// and offer an "Edit script settings" shortcut instead of a bare warning.
+	const referencedScriptSettings = useWorkspaceScriptSettings(
+		() => (flowModule.value.type === 'script' ? flowModule.value.path : undefined),
+		() => (flowModule.value.type === 'script' ? flowModule.value.hash : undefined),
+		() => opWs
+	)
+	// Hub scripts, hash-pinned steps, and embeddings that disable script editing
+	// can't have their settings edited from here. The drawer must also be mounted:
+	// local-dev editors (Dev.svelte / flows/dev) provide the context store but never
+	// render the drawer, so editing there would be a no-op — keep values read-only.
+	let canEditWorkspaceScriptSettings = $derived(
+		flowModule.value.type === 'script' &&
+			!flowModule.value.path?.startsWith('hub/') &&
+			flowModule.value.hash == undefined &&
+			customUi?.scriptEdit != false &&
+			$workspaceScriptSettingsDrawer != undefined
+	)
+	let workspaceScriptNoEditReason = $derived(
+		flowModule.value.type !== 'script' || canEditWorkspaceScriptSettings
+			? undefined
+			: flowModule.value.path?.startsWith('hub/')
+				? 'Hub scripts cannot be edited from here.'
+				: flowModule.value.hash != undefined
+					? 'Steps pinned to a specific version cannot be edited from here.'
+					: 'Editing script settings is not available in this editor.'
+	)
+	// Non-positive concurrent_limit / cache_ttl are treated as unset by the runtime (legacy rows).
+	let referencedConcurrentLimit = $derived(
+		referencedScriptSettings.settings?.concurrent_limit != undefined &&
+			referencedScriptSettings.settings.concurrent_limit > 0
+			? referencedScriptSettings.settings.concurrent_limit
+			: undefined
+	)
+	let referencedCacheTtl = $derived(
+		referencedScriptSettings.settings?.cache_ttl != undefined &&
+			referencedScriptSettings.settings.cache_ttl > 0
+			? referencedScriptSettings.settings.cache_ttl
+			: undefined
+	)
+	function openWorkspaceScriptSettings() {
+		if (flowModule.value.type !== 'script') return
+		$workspaceScriptSettingsDrawer?.openDrawer(
+			flowModule.value.path,
+			flowModule.value.hash,
+			async () => {
+				await referencedScriptSettings.reload()
+				forceReload++
+			}
+		)
+	}
 
 	// UI Intent handling for AI tool control
 	useUiIntent(`flow-${flowModule.id}`, {
@@ -770,6 +828,9 @@
 								flowModule.value.hash = await getLatestHashForScript(flowModule.value.path, opWs)
 							}
 							forceReload++
+							// Keep the surfaced concurrency/cache values and badges in sync after
+							// a settings/code save from the header (path/hash may be unchanged).
+							await referencedScriptSettings.reload()
 							await reload(flowModule)
 						}
 						if (flowModule.value.type == 'flow') {
@@ -991,6 +1052,16 @@
 						{:else if flowModule.value.type === 'script'}
 							{#if !noEditor && (customUi?.hubCode != false || !flowModule?.value?.path?.startsWith('hub/'))}
 								<div class="border-t">
+									{#if referencedScriptSettings.settings && getActiveScriptSettingsBadges(referencedScriptSettings.settings).length > 0}
+										<div class="flex flex-row items-center gap-2 px-2 pt-2 flex-wrap">
+											<ScriptSettingsBadges
+												settings={referencedScriptSettings.settings}
+												onclick={canEditWorkspaceScriptSettings
+													? openWorkspaceScriptSettings
+													: undefined}
+											/>
+										</div>
+									{/if}
 									{#key forceReload}
 										<FlowModuleScript
 											bind:tag={workspaceScriptTag}
@@ -1251,11 +1322,30 @@
 																placeholder={`$workspace/script/${$pathStore}-$args[foo]`}
 															/>
 														</Label>
+													{:else if flowModule.value.type == 'script'}
+														<WorkspaceScriptSettingInfo
+															label="Concurrency limit"
+															active={referencedConcurrentLimit != undefined}
+															valueText={referencedConcurrentLimit != undefined
+																? `Max ${referencedConcurrentLimit} execution${
+																		referencedConcurrentLimit === 1 ? '' : 's'
+																	}${
+																		referencedScriptSettings.settings?.concurrency_time_window_s !=
+																		undefined
+																			? ` within ${referencedScriptSettings.settings.concurrency_time_window_s}s`
+																			: ''
+																	}`
+																: undefined}
+															loading={referencedScriptSettings.loading}
+															error={referencedScriptSettings.error}
+															canEdit={canEditWorkspaceScriptSettings}
+															noEditReason={workspaceScriptNoEditReason}
+															onEdit={openWorkspaceScriptSettings}
+														/>
 													{:else}
 														<Alert type="warning" title="Limitation" size="xs">
-															The concurrency limit of a workspace script is only settable in the
-															script metadata itself. For hub scripts, this feature is non available
-															yet.
+															The concurrency limit of a referenced flow is only settable in the
+															flow settings directly.
 														</Alert>
 													{/if}
 												</Section>
@@ -1322,7 +1412,15 @@
 												</div>
 											{:else if advancedSelected === 'cache'}
 												<div>
-													<FlowModuleCache bind:flowModule />
+													<FlowModuleCache
+														bind:flowModule
+														workspaceScriptCacheTtl={referencedCacheTtl}
+														loadingWorkspaceScript={referencedScriptSettings.loading}
+														workspaceScriptError={referencedScriptSettings.error}
+														canEditWorkspaceScript={canEditWorkspaceScriptSettings}
+														{workspaceScriptNoEditReason}
+														onEditWorkspaceScript={openWorkspaceScriptSettings}
+													/>
 												</div>
 											{:else if advancedSelected === 'early-stop'}
 												<FlowModuleEarlyStop bind:flowModule />

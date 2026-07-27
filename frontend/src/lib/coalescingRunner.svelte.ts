@@ -30,6 +30,9 @@ export type CoalescingKeyedRunner = {
 	cancel(key: string): boolean
 	/** Reactively whether `key`'s chain is running (SvelteSet-backed). */
 	isRunning(key: string): boolean
+	/** Resolves once `key`'s chain has drained (nothing running, nothing
+	 * pending), immediately if it's idle. Never rejects. */
+	settled(key: string): Promise<void>
 }
 
 type PendingTask = {
@@ -51,6 +54,8 @@ export function createCoalescingKeyedRunner(): CoalescingKeyedRunner {
 	// Reactive mirror of keys with a running chain, kept in lock-step with
 	// `state` (SvelteSet for per-key `isRunning` subscriptions).
 	const runningKeys = new SvelteSet<string>()
+	// Live chain promise per key, backing `settled`.
+	const chains = new Map<string, Promise<void>>()
 
 	async function chain(key: string, first: PendingTask): Promise<void> {
 		let current: PendingTask | undefined = first
@@ -71,6 +76,7 @@ export function createCoalescingKeyedRunner(): CoalescingKeyedRunner {
 		}
 		state.delete(key)
 		runningKeys.delete(key)
+		chains.delete(key)
 	}
 
 	/** Set `task` pending for `key`, displacing (and rejecting) any prior
@@ -84,7 +90,15 @@ export function createCoalescingKeyedRunner(): CoalescingKeyedRunner {
 		}
 		state.set(key, { pending: undefined })
 		runningKeys.add(key)
-		void chain(key, task)
+		// Register the chain promise BEFORE the first task runs. `chain` invokes
+		// the task synchronously, so a task that calls `settled(key)` (or that
+		// throws synchronously, running cleanup) would otherwise race ahead of a
+		// `chains.set(key, chain(...))` and leave the map wrong. A separate
+		// deferred sidesteps that: it's live before the task starts and resolves
+		// when the chain drains.
+		let done!: () => void
+		chains.set(key, new Promise<void>((resolve) => (done = resolve)))
+		void chain(key, task).finally(done)
 	}
 
 	function submit(key: string, fn: CoalescingTask): void {
@@ -114,5 +128,9 @@ export function createCoalescingKeyedRunner(): CoalescingKeyedRunner {
 		return runningKeys.has(key)
 	}
 
-	return { submit, submitAndWait, cancel, isRunning }
+	function settled(key: string): Promise<void> {
+		return chains.get(key) ?? Promise.resolve()
+	}
+
+	return { submit, submitAndWait, cancel, isRunning, settled }
 }

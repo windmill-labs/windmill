@@ -57,6 +57,27 @@ pub mod oauth {
             .build()
     }
 
+    /// Like [`no_redirect_http_client`], but pins DNS to the address the SSRF
+    /// guard validated for the request URL so the connect cannot rebind to an
+    /// internal IP after the check (TOCTOU). The OAuth DCR/discovery/token
+    /// requests target author-controlled URLs and carry secrets, so they must
+    /// go through this rather than the unpinned client. `apply_dns_pinning`
+    /// lives on windmill-common's reqwest, which this crate resolves at a
+    /// different version (via rmcp), so pin directly with the std-typed
+    /// host/addrs. Empty `addrs` (IP literal or ALLOW_PRIVATE_MCP_SERVER_URLS)
+    /// leaves resolution untouched.
+    pub fn no_redirect_http_client_pinned(
+        target: &windmill_common::ssrf::ValidatedTarget,
+    ) -> Result<reqwest::Client, reqwest::Error> {
+        let mut builder = reqwest::Client::builder()
+            .timeout(DEFAULT_OAUTH_HTTP_TIMEOUT)
+            .redirect(reqwest::redirect::Policy::none());
+        if !target.addrs.is_empty() {
+            builder = builder.resolve_to_addrs(&target.host, &target.addrs);
+        }
+        builder.build()
+    }
+
     // Re-export oauth2 types needed for MCP OAuth flow
     pub use oauth2::{
         basic::BasicClient, AuthUrl, ClientId, ClientSecret, CsrfToken, PkceCodeChallenge,

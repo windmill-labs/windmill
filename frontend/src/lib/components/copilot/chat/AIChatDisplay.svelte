@@ -39,16 +39,19 @@
 	import { getAiChatManager } from './aiChatManagerContext'
 	import ChatTypingIndicator from './ChatTypingIndicator.svelte'
 	import AIChatInput from './AIChatInput.svelte'
+	import AttachedFilesBar from './files/AttachedFilesBar.svelte'
 	import QueuedMessageChip from './QueuedMessageChip.svelte'
 	import JobsSegment from './JobsSegment.svelte'
 	import { getModifierKey } from '$lib/utils'
 	import type { SelectedContext } from './app/core'
-	import AttachedFilesBar from './files/AttachedFilesBar.svelte'
 	import { type FileToAttach } from './files/attachedFiles.svelte'
+	import { isImageFile } from './imageUtils'
 	import {
 		hasFileSystemAccess,
 		pickDirectory,
 		handlesFromDataTransfer,
+		isDirectoryHandle,
+		isFileHandle,
 		readDroppedEntries
 	} from './files/fsAccess'
 	import { sendUserToast } from '$lib/toast'
@@ -270,9 +273,10 @@
 
 	// File attachment is GLOBAL-mode only.
 	const canAttachFiles = $derived(aiChatManager.mode === AIMode.GLOBAL && !disabled)
-	// Steers the OS file picker toward text formats (soft hint; content sniff is authoritative).
+	// Steers the OS file picker toward text + image formats (soft hint; both attach
+	// to the message — text files after a content sniff).
 	const TEXT_FILE_ACCEPT =
-		'text/*,.txt,.csv,.tsv,.json,.jsonl,.ndjson,.md,.markdown,.log,.yaml,.yml,.toml,.ini,.cfg,.conf,.env,.xml,.html,.htm,.css,.js,.mjs,.cjs,.ts,.tsx,.jsx,.py,.rb,.rs,.go,.java,.kt,.c,.h,.cpp,.cc,.cs,.php,.sh,.bash,.zsh,.sql,.svelte,.vue,.dockerfile'
+		'image/*,text/*,.txt,.csv,.tsv,.json,.jsonl,.ndjson,.md,.markdown,.log,.yaml,.yml,.toml,.ini,.cfg,.conf,.env,.xml,.html,.htm,.css,.js,.mjs,.cjs,.ts,.tsx,.jsx,.py,.rb,.rs,.go,.java,.kt,.c,.h,.cpp,.cc,.cs,.php,.sh,.bash,.zsh,.sql,.svelte,.vue,.dockerfile'
 	let fileInputEl = $state<HTMLInputElement | null>(null)
 	let folderInputEl = $state<HTMLInputElement | null>(null)
 	let dragDepth = $state(0)
@@ -358,17 +362,46 @@
 		e.preventDefault()
 		const dt = e.dataTransfer
 		if (!dt) return
+		// Images and loose text files attach to the message; folders link as session
+		// assets. Images are reserved from dt.files BEFORE any await (a send
+		// mid-ingestion would land them on the next message), and dt.files is the
+		// only place a disk-less drag exists — a cross-tab image resolves every
+		// getAsFileSystemHandle() to null.
+		const flatFiles = Array.from(dt.files ?? [])
+		const topLevelImages = flatFiles.filter(isImageFile)
+		const imageWork: Promise<unknown>[] = []
+		if (topLevelImages.length > 0) {
+			imageWork.push(aiChatInput?.addImages(topLevelImages) ?? Promise.resolve())
+		}
+		// Text-file routing must await handle/entry resolution before it can call
+		// addTextFiles — hold sending across that window (taken BEFORE the first
+		// await) or a send mid-resolution would land the drop on the next message.
+		const releaseSendHold = aiChatInput?.holdSendForIngestion()
+		try {
+			await routeDroppedTextAndFolders(dt, flatFiles)
+		} finally {
+			releaseSendHold?.()
+		}
+		await Promise.all(imageWork)
+	}
+
+	async function routeDroppedTextAndFolders(dt: DataTransfer, flatFiles: File[]) {
 		if (canUseFsAccess) {
 			// getAsFileSystemHandle calls are kicked off synchronously inside this call.
 			const handles = await handlesFromDataTransfer(dt)
-			for (const h of handles) {
-				if (h.kind === 'directory') {
-					// Folders link as a live handle.
-					await addDirHandle(h as FileSystemDirectoryHandle)
-				} else {
-					// Files are always snapshotted (handle discarded).
-					await handleAddFiles([{ file: await (h as FileSystemFileHandle).getFile() }])
-				}
+			// No handles → nothing beyond dt.files exists; its text files are all there is.
+			// Handle-backed files are top-level by definition, so their images are
+			// already reserved above — only text files remain to route.
+			const looseFiles =
+				handles.length === 0
+					? flatFiles
+					: await Promise.all(handles.filter(isFileHandle).map((h) => h.getFile()))
+			// Loose text files attach to the message, like images.
+			const textFiles = looseFiles.filter((f) => !isImageFile(f))
+			if (textFiles.length > 0) await aiChatInput?.addTextFiles(textFiles)
+			// Folders link as a live handle.
+			for (const h of handles.filter(isDirectoryHandle)) {
+				await addDirHandle(h)
 			}
 		} else {
 			// Fallback (no File System Access API): snapshot dropped files AND folders by walking
@@ -376,14 +409,39 @@
 			// (they're only valid during this event) before its first await; if it yields nothing
 			// (no entry API), fall back to the flat dt.files.
 			const entries = await readDroppedEntries(Array.from(dt.items ?? []))
-			if (entries.length > 0) await handleAddFiles(entries)
-			else if (dt.files.length > 0) await handleAddFiles(dt.files)
+			const source: FileToAttach[] = entries.length > 0 ? entries : flatFiles
+			// Top-level files attach to the message (images were already reserved
+			// from dt.files before the walk). Folder children keep riding the
+			// session store as a snapshot — including nested images, which are
+			// deliberately NOT attached (the FSA path never extracts folder
+			// contents either); they are summarized as skipped there.
+			const topLevelText: File[] = []
+			const folderEntries: FileToAttach[] = []
+			for (const entry of source) {
+				const file = entry instanceof File ? entry : entry.file
+				const nested = !(entry instanceof File) && !!entry.path?.includes('/')
+				if (nested) {
+					folderEntries.push(entry)
+				} else if (!isImageFile(file)) {
+					topLevelText.push(file)
+				}
+			}
+			if (folderEntries.length > 0) await handleAddFiles(folderEntries)
+			if (topLevelText.length > 0) await aiChatInput?.addTextFiles(topLevelText)
 		}
 	}
 
-	function onFileInputChange(e: Event) {
+	async function onFileInputChange(e: Event) {
 		const input = e.currentTarget as HTMLInputElement
-		if (input.files && input.files.length > 0) void handleAddFiles(input.files)
+		if (input.files && input.files.length > 0) {
+			const picked = Array.from(input.files)
+			const imageFiles = picked.filter(isImageFile)
+			const textFiles = picked.filter((f) => !isImageFile(f))
+			// Reserved before the text work is awaited — see onPanelDrop.
+			const imageWork = imageFiles.length > 0 ? aiChatInput?.addImages(imageFiles) : undefined
+			if (textFiles.length > 0) await aiChatInput?.addTextFiles(textFiles)
+			await imageWork
+		}
 		input.value = '' // allow re-selecting the same file
 	}
 
@@ -504,7 +562,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 		>
 			<div class="flex flex-col items-center gap-1 text-blue-600 dark:text-blue-300">
 				<Plus size={24} />
-				<span class="text-sm font-medium">Drop files to attach</span>
+				<span class="text-sm font-medium">Drop files or images to attach</span>
 			</div>
 		</div>
 	{/if}
@@ -613,7 +671,6 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							{message}
 							{messageIndex}
 							{availableContext}
-							bind:selectedContext
 							bind:editingMessageIndex
 							isLast={messageIndex === messages.length - 1}
 						/>
@@ -643,7 +700,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 											: aiChatManager.currentReasoningActive &&
 												  !aiChatManager.currentReply &&
 												  !aiChatManager.currentReasoning
-												? 'Thinking'
+												? (aiChatManager.reasoningHiddenIndicatorLabel ?? 'Thinking')
 												: undefined}
 								/>
 							{/if}
@@ -718,12 +775,11 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 					<JobsSegment standalone />
 				</div>
 			{/if}
-			{#if aiChatManager.mode === AIMode.GLOBAL}
-				<!-- In sessions, file chips sit above the fork/draft bar (inputPreface). Selected
-				     context gets no badge row here — items already appear as highlighted @mentions
-				     in the input (deleting the mention deselects), so showContext={false} below. -->
-				<AttachedFilesBar />
-			{/if}
+			<!-- Message-scoped chips (selected-context / DOM-selector / images) render
+			     inside the input box via AIChatInput → ContextTextarea's `leading` snippet;
+			     selected context also appears as @mentions in the input (deleting the
+			     mention deselects). Hence showContext={false} below. Session-scoped
+			     assets (attached files/folders) render in the footer row instead. -->
 			{#if inputPreface}
 				{@render inputPreface()}
 			{/if}
@@ -797,7 +853,11 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						{#if canAttachFiles}
 							<DropdownV2
 								items={() => [
-									{ displayName: 'Attach file', icon: FileText, action: () => linkFiles() },
+									{
+										displayName: 'Attach file or image',
+										icon: FileText,
+										action: () => linkFiles()
+									},
 									{
 										// A real (live) link needs the File System Access API; without it the
 										// folder is only snapshotted, so call it "Add folder", not "Link folder".
@@ -825,9 +885,12 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 											<div class="max-w-64 text-xs">
 												<p class="font-semibold">Attach files or link a folder</p>
 												<p class="mt-1">
-													Nothing is uploaded. Files are kept locally in your browser; a folder is
-													linked live from disk. The assistant lists, searches, and reads them on
-													demand — their contents aren't sent unless it reads them.
+													Files and images attach to your next message. Images are seen directly;
+													file contents stay in your browser and are read on demand.
+												</p>
+												<p class="mt-1">
+													A linked folder is a session-wide resource: the assistant lists, searches,
+													and reads its files whenever it needs them.
 												</p>
 											</div>
 										{/snippet}
@@ -835,7 +898,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 								{/snippet}
 							</DropdownV2>
 							<!-- Fallback file picker (used when the File System Access API is unavailable).
-							     `accept` only steers toward text; the content sniff in addFiles() is authoritative. -->
+							     `accept` only steers the picker; the content sniff at attach is authoritative. -->
 							<input
 								bind:this={fileInputEl}
 								type="file"
@@ -927,6 +990,9 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 					</div>
 				{:else}
 					<div class="flex flex-row gap-x-1.5 min-w-0 flex-wrap items-center">
+						{#if aiChatManager.mode === AIMode.GLOBAL}
+							<AttachedFilesBar />
+						{/if}
 						{#if !hideModeSelector}
 							<ChatMode />
 						{/if}

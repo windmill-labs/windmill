@@ -741,6 +741,679 @@ pub async fn handle_receive_completed_job(
     }
 }
 
+/// A git-sync check run threaded through a pull job: the PR diff preview (phase 4)
+/// or the live deploy status (phase 6). Both markers carry the same shape.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+#[derive(serde::Deserialize)]
+struct GitSyncCheck {
+    check_run_id: i64,
+    repo_url: String,
+    #[serde(default)]
+    pr_number: Option<i64>,
+    #[serde(default)]
+    head_sha: Option<String>,
+    /// Whether the PR itself modifies wmill.yaml (None = undetermined); picks
+    /// the wording for a settings difference in the diff summary.
+    #[serde(default)]
+    wmill_yaml_changed: Option<bool>,
+}
+
+/// Parsed diff summary from a (dry-run or real) pull result. `None` when the
+/// result can't be parsed into the expected shape.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+fn parse_git_sync_changes(result_raw: &str) -> Option<(Vec<(String, String)>, bool)> {
+    use serde::Deserialize;
+    #[derive(Deserialize)]
+    struct Change {
+        #[serde(rename = "type")]
+        change_type: String,
+        path: String,
+    }
+    #[derive(Deserialize)]
+    struct SettingsDiff {
+        #[serde(rename = "hasChanges", default)]
+        has_changes: bool,
+    }
+    #[derive(Deserialize)]
+    struct SyncResponse {
+        changes: Option<Vec<Change>>,
+        #[serde(rename = "settingsDiffResult")]
+        settings_diff_result: Option<SettingsDiff>,
+    }
+    let resp = serde_json::from_str::<SyncResponse>(result_raw).ok()?;
+    // A result carrying neither field isn't a recognizable diff; return None so the
+    // caller falls back to the unsummarized path instead of a false "in sync".
+    if resp.changes.is_none() && resp.settings_diff_result.is_none() {
+        return None;
+    }
+    let settings_changed = resp
+        .settings_diff_result
+        .map(|s| s.has_changes)
+        .unwrap_or(false);
+    Some((
+        resp.changes
+            .unwrap_or_default()
+            .into_iter()
+            .map(|c| (c.change_type, c.path))
+            .collect(),
+        settings_changed,
+    ))
+}
+
+#[cfg(all(feature = "enterprise", feature = "private"))]
+fn format_change_list(changes: &[(String, String)]) -> Vec<String> {
+    let mut lines = Vec::new();
+    for (change_type, path) in changes.iter().take(100) {
+        lines.push(format!("- `{}` {}", change_type, path));
+    }
+    if changes.len() > 100 {
+        lines.push(format!("- ... and {} more", changes.len() - 100));
+    }
+    lines
+}
+
+#[cfg(all(test, feature = "enterprise", feature = "private"))]
+mod git_sync_check_tests {
+    use super::{format_change_list, parse_git_sync_changes};
+
+    #[test]
+    fn parse_empty_changes_is_in_sync() {
+        // Present-but-empty diff → a real "in sync" result, not None.
+        let (changes, settings) = parse_git_sync_changes(r#"{"changes":[]}"#).unwrap();
+        assert!(changes.is_empty());
+        assert!(!settings);
+    }
+
+    #[test]
+    fn parse_missing_fields_is_none() {
+        // Neither field present → unrecognizable, falls back to the caller's path.
+        assert!(parse_git_sync_changes("{}").is_none());
+    }
+
+    #[test]
+    fn parse_unparseable_is_none() {
+        assert!(parse_git_sync_changes("not json").is_none());
+    }
+
+    #[test]
+    fn parse_changes_and_settings() {
+        let (changes, settings) = parse_git_sync_changes(
+            r#"{"changes":[{"type":"edited","path":"f/a"}],"settingsDiffResult":{"hasChanges":true}}"#,
+        )
+        .unwrap();
+        assert_eq!(changes, vec![("edited".to_string(), "f/a".to_string())]);
+        assert!(settings);
+    }
+
+    #[test]
+    fn format_truncates_over_100() {
+        let changes: Vec<(String, String)> = (0..150)
+            .map(|i| ("edited".to_string(), format!("f/{i}")))
+            .collect();
+        let lines = format_change_list(&changes);
+        assert_eq!(lines.len(), 101);
+        assert_eq!(lines.last().unwrap(), "- ... and 50 more");
+    }
+}
+
+/// When an auto-pull job (carrying `__git_sync_auto_pull`) fails, roll the
+/// optimistic `last_synced_sha` advance back to the pre-pull value so the commit
+/// is retried instead of being silently treated as synced, and record the failure.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+async fn maybe_reconcile_git_sync_auto_pull(
+    db: &DB,
+    job_id: &uuid::Uuid,
+    workspace_id: &str,
+    success: bool,
+) {
+    if success {
+        return; // the optimistic synced state is already correct
+    }
+    let marker: Option<serde_json::Value> = match sqlx::query_scalar!(
+        "SELECT args->'__git_sync_auto_pull' FROM v2_job WHERE id = $1",
+        job_id
+    )
+    .fetch_optional(db)
+    .await
+    {
+        Ok(v) => v.flatten(),
+        Err(e) => {
+            tracing::error!("git auto-pull: failed to read job args: {e:#}");
+            return;
+        }
+    };
+    let Some(marker) = marker else {
+        return;
+    };
+    #[derive(serde::Deserialize)]
+    struct AutoPullMarker {
+        repo_resource_path: String,
+        #[serde(default)]
+        prev_synced: std::collections::HashMap<String, String>,
+    }
+    let Ok(m) = serde_json::from_value::<AutoPullMarker>(marker) else {
+        return;
+    };
+    windmill_git_sync::record_auto_pull_failure(
+        db,
+        workspace_id,
+        &m.repo_resource_path,
+        &m.prev_synced,
+        "auto-pull job failed".to_string(),
+    )
+    .await;
+}
+
+/// Branch a git-sync push job deployed to, mirroring the hub script's
+/// derivation: a dev workspace deploys to its environment-label branch
+/// (`dev`/`staging`), other fork workspaces to `wm-fork/<base>/<id-suffix>`,
+/// else the promotion `wm_deploy/**` formula (per-folder or per-item form).
+/// A dev workspace in promotion mode is the exception: it takes the promotion
+/// `wm_deploy/**` formula (per-item PRs into the parent) instead of its label
+/// branch. `None` when the deploy stays on the base branch (workspace-wide
+/// mode) and has no PR to open.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+fn git_sync_deploy_pr_head_branch(
+    workspace_id: &str,
+    parent_workspace_id: Option<&str>,
+    dev_workspace_label: Option<&str>,
+    base: &str,
+    use_individual_branch: bool,
+    group_by_folder: bool,
+    item_path: &str,
+    item_parent_path: &str,
+    path_type: &str,
+) -> Option<String> {
+    let is_dev = dev_workspace_label.is_some();
+    // A dev workspace with promotion on falls through to the wm_deploy/**
+    // formula below; the label/fork branches only apply when promotion is off.
+    if !(is_dev && use_individual_branch) {
+        if is_dev {
+            return Some(windmill_common::workspaces::dev_workspace_branch(
+                dev_workspace_label,
+            ));
+        }
+        let is_fork = parent_workspace_id.is_some()
+            || workspace_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX);
+        if is_fork {
+            let suffix = workspace_id
+                .strip_prefix(windmill_common::workspaces::WM_FORK_PREFIX)
+                .unwrap_or(workspace_id);
+            return Some(format!("wm-fork/{base}/{suffix}"));
+        }
+    }
+    if !use_individual_branch {
+        return None;
+    }
+    // Mirrors the CLI's computeGitSyncDeployBranch: user/group objects are
+    // pushed to the base branch and never get their own wm_deploy branch.
+    if path_type == "user" || path_type == "group" {
+        return None;
+    }
+    let git_ref = if !item_path.is_empty() {
+        item_path
+    } else {
+        item_parent_path
+    };
+    if git_ref.is_empty() {
+        return None;
+    }
+    Some(if group_by_folder {
+        format!(
+            "wm_deploy/{workspace_id}/{}",
+            git_ref.split('/').take(2).collect::<Vec<_>>().join("__")
+        )
+    } else {
+        format!(
+            "wm_deploy/{workspace_id}/{}/{}",
+            path_type,
+            git_ref.replace('/', "__")
+        )
+    })
+}
+
+/// Whether the push job's result says a commit was actually pushed. `None`
+/// when the result doesn't carry the flag (hub script versions predating it).
+#[cfg(all(feature = "enterprise", feature = "private"))]
+fn git_sync_push_result_pushed(result: &str) -> Option<bool> {
+    serde_json::from_str::<serde_json::Value>(result)
+        .ok()?
+        .get("pushed")?
+        .as_bool()
+}
+
+/// When a git-sync push job carrying `__git_sync_open_pr` succeeds, open (or
+/// reopen) the PR for the branch it pushed: `wm-fork/<base>/<id>` for a fork
+/// deploy, `wm_deploy/**` for a promotion deploy. Runs outbound with the
+/// installation token, so it works regardless of webhook reachability.
+/// Best-effort: failures are logged, never propagated.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+async fn maybe_open_git_sync_deploy_pr(
+    db: &DB,
+    job_id: &uuid::Uuid,
+    workspace_id: &str,
+    result: &str,
+) {
+    // A no-op push (workspace already matches the repo — e.g. the deploy was
+    // itself caused by an auto-pull) must not ensure a PR: it would recreate
+    // PRs the user closed and spam creation attempts with no diff.
+    if git_sync_push_result_pushed(result) == Some(false) {
+        return;
+    }
+    let row = match sqlx::query!(
+        r#"SELECT
+            args->'__git_sync_open_pr' as "marker",
+            args->>'repo_url_resource_path' as "repo_path",
+            args->>'parent_workspace_id' as "parent_workspace_id",
+            args->>'dev_workspace_label' as "dev_workspace_label",
+            args->>'parent_dev_workspace_label' as "parent_dev_workspace_label",
+            COALESCE((args->'use_individual_branch')::bool, false) as "use_individual_branch!",
+            COALESCE((args->'group_by_folder')::bool, false) as "group_by_folder!",
+            COALESCE(args->'items'->0->>'path', args->>'path', '') as "item_path!",
+            COALESCE(args->'items'->0->>'parent_path', args->>'parent_path', '') as "item_parent_path!",
+            COALESCE(args->'items'->0->>'path_type', args->>'path_type', '') as "path_type!",
+            COALESCE(args->'items'->0->>'commit_msg', args->>'commit_msg', '') as "commit_msg!"
+        FROM v2_job WHERE id = $1"#,
+        job_id
+    )
+    .fetch_optional(db)
+    .await
+    {
+        Ok(Some(r)) => r,
+        Ok(None) => return,
+        Err(e) => {
+            tracing::error!("git sync PR: failed to read job args: {e:#}");
+            return;
+        }
+    };
+    if row.marker.is_none() {
+        return;
+    }
+    // Runtime Enterprise gate, like the poller: the toggles may have been set
+    // while a license was active (or written directly), and this hook drives
+    // GitHub API calls with the installation token.
+    if !matches!(
+        windmill_common::ee_oss::get_license_plan().await,
+        windmill_common::ee_oss::LicensePlan::Enterprise
+    ) {
+        tracing::warn!(
+            "git sync PR: skipping PR creation for {workspace_id}: requires an Enterprise license"
+        );
+        return;
+    }
+    let Some(repo_path) = row.repo_path else {
+        return;
+    };
+
+    // Base = the tracked branch (resource branch, else the repo default). Also
+    // acts as the app-backed gate: PR creation needs the installation token.
+    let base = match windmill_common::git_sync_ee::get_app_repo_head_for_autopull(
+        db,
+        workspace_id,
+        &repo_path,
+    )
+    .await
+    {
+        Ok(Some((branch, _))) => branch,
+        Ok(None) => {
+            tracing::warn!(
+                "git sync PR: repo {repo_path} in {workspace_id} has a PR-on-deploy toggle set but is not GitHub-App-backed; skipping (connect the repo through the GitHub App, or use the open-pr-on-commit workflow)"
+            );
+            return;
+        }
+        Err(e) => {
+            tracing::warn!("git sync PR: could not resolve base branch for {repo_path}: {e:#}");
+            return;
+        }
+    };
+
+    let Some(head) = git_sync_deploy_pr_head_branch(
+        workspace_id,
+        row.parent_workspace_id.as_deref(),
+        row.dev_workspace_label.as_deref(),
+        &base,
+        row.use_individual_branch,
+        row.group_by_folder,
+        &row.item_path,
+        &row.item_parent_path,
+        &row.path_type,
+    ) else {
+        return;
+    };
+
+    let repo_url = match windmill_common::git_sync_ee::resolve_repo_url_interpolated(
+        db,
+        workspace_id,
+        &repo_path,
+    )
+    .await
+    {
+        Ok(url) => url,
+        Err(e) => {
+            tracing::warn!("git sync PR: could not resolve repo url for {repo_path}: {e:#}");
+            return;
+        }
+    };
+    // A fork of a dev workspace diverged from the dev's label branch, so its PR
+    // merges back there; everything else targets the tracked branch.
+    let pr_base = row.parent_dev_workspace_label.as_deref().unwrap_or(&base);
+    match windmill_common::git_sync_ee::ensure_pull_request(
+        db,
+        workspace_id,
+        &repo_url,
+        &head,
+        pr_base,
+        &row.commit_msg,
+    )
+    .await
+    {
+        Ok(()) => {
+            persist_git_sync_open_pr_error(db, workspace_id, &repo_path, None).await;
+        }
+        Err(e) => {
+            tracing::warn!(
+                "git sync PR: failed to open PR {head} -> {pr_base} for {repo_path}: {e:#}"
+            );
+            let msg: String = format!("{e:#}").chars().take(400).collect();
+            persist_git_sync_open_pr_error(db, workspace_id, &repo_path, Some(msg)).await;
+        }
+    }
+}
+
+/// Best-effort: record (or clear) the last PR-creation failure on the repo's
+/// settings so the toggle can explain a silent no-op in the UI (the usual
+/// cause is a GitHub App installation that hasn't approved the pull-request
+/// permission yet). Merges into a fresh read of the row, only writes on change.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+async fn persist_git_sync_open_pr_error(
+    db: &DB,
+    workspace_id: &str,
+    repo_path: &str,
+    error: Option<String>,
+) {
+    // Single targeted update (like the EE auto-pull status writer): a full
+    // read-modify-write of the column would race the poller's concurrent
+    // last_synced_sha/last_pull_status writes and silently clobber them.
+    let bare_path = repo_path.trim_start_matches("$res:");
+    let result: error::Result<()> = async {
+        sqlx::query!(
+            r#"
+            UPDATE workspace_settings
+            SET git_sync = jsonb_set(
+                git_sync,
+                '{repositories}',
+                (SELECT jsonb_agg(
+                    CASE WHEN elem->>'git_repo_resource_path' IN ($2, '$res:' || $2)
+                        THEN CASE WHEN $3::text IS NULL THEN elem - 'open_pr_error'
+                             ELSE jsonb_set(elem, '{open_pr_error}', to_jsonb($3::text), true) END
+                        ELSE elem END)
+                 FROM jsonb_array_elements(git_sync->'repositories') AS elem)
+            )
+            WHERE workspace_id = $1
+              AND jsonb_typeof(git_sync->'repositories') = 'array'
+            "#,
+            workspace_id,
+            bare_path,
+            error.as_deref(),
+        )
+        .execute(db)
+        .await?;
+        Ok(())
+    }
+    .await;
+    if let Err(e) = result {
+        tracing::warn!("git sync PR: failed to persist open_pr_error for {repo_path}: {e:#}");
+    }
+}
+
+/// When a git-sync pull job carrying a check marker completes, post the outcome
+/// to its GitHub check run: the PR diff preview (`__git_sync_pr_check`, phase 4)
+/// or the live deploy status (`__git_sync_deploy_check`, phase 6).
+/// A one-line description of the repo's sync filters, appended to an "in sync"
+/// PR verdict: a PR that only touches files outside these paths deploys
+/// nothing on merge, which otherwise looks like a wrong verdict.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+fn format_git_sync_scope_note(include: &[String], exclude: &[String]) -> Option<String> {
+    if include.is_empty() {
+        return None;
+    }
+    let fmt = |paths: &[String]| {
+        paths
+            .iter()
+            .map(|p| format!("`{p}`"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let mut note = format!(
+        "\n\nOnly files matching this repository's sync filters deploy on merge: {}",
+        fmt(include)
+    );
+    if !exclude.is_empty() {
+        note.push_str(&format!(" (excluding {})", fmt(exclude)));
+    }
+    note.push('.');
+    Some(note)
+}
+
+#[cfg(all(feature = "enterprise", feature = "private"))]
+async fn git_sync_repo_scope_note(
+    db: &DB,
+    workspace_id: &str,
+    repo_path: Option<&str>,
+) -> Option<String> {
+    let repo_path = repo_path?;
+    let settings = sqlx::query_scalar!(
+        "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+        workspace_id
+    )
+    .fetch_optional(db)
+    .await
+    .ok()?
+    .flatten()?;
+    let settings: windmill_common::workspaces::WorkspaceGitSyncSettings =
+        serde_json::from_value(settings).ok()?;
+    // Job args carry the bare resource path; stored settings keep the $res: prefix.
+    let repo = settings.repositories.iter().find(|r| {
+        r.git_repo_resource_path.trim_start_matches("$res:")
+            == repo_path.trim_start_matches("$res:")
+    })?;
+    let s = repo.settings.as_ref()?;
+    format_git_sync_scope_note(
+        &s.include_path,
+        s.exclude_path.as_deref().unwrap_or_default(),
+    )
+}
+
+#[cfg(all(feature = "enterprise", feature = "private"))]
+async fn maybe_post_git_sync_check(
+    db: &DB,
+    job_id: &uuid::Uuid,
+    workspace_id: &str,
+    success: bool,
+    result_raw: &str,
+) {
+    // Only git-sync pull jobs carry one of these markers; everything else no-ops.
+    let row = match sqlx::query!(
+        r#"SELECT args->'__git_sync_pr_check' AS "pr", args->'__git_sync_deploy_check' AS "deploy",
+           args->>'repo_url_resource_path' AS "repo_path"
+           FROM v2_job WHERE id = $1"#,
+        job_id
+    )
+    .fetch_optional(db)
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!("git sync-check: failed to read job args: {e:#}");
+            return;
+        }
+    };
+    let Some(row) = row else {
+        return;
+    };
+    // A PR dry-run and a deploy pull are mutually exclusive markers.
+    let (is_deploy, marker) = match (row.pr, row.deploy) {
+        (Some(pr), _) => (false, pr),
+        (None, Some(deploy)) => (true, deploy),
+        (None, None) => return,
+    };
+    let Ok(mut check) = serde_json::from_value::<GitSyncCheck>(marker) else {
+        return;
+    };
+    // Markers carry the literal resource URL (job args are persisted, so a
+    // `$var:`-resolved URL must not land there); interpolate before calling
+    // GitHub.
+    check.repo_url =
+        match windmill_common::variables::get_variable_or_self(check.repo_url, db, workspace_id)
+            .await
+        {
+            Ok(u) => u,
+            Err(e) => {
+                tracing::error!("git sync-check: cannot interpolate repo url: {e:#}");
+                return;
+            }
+        };
+    // "In sync" on a PR that visibly changes files reads as a bug when those
+    // files are outside the repo's sync filters — say what the scope is.
+    let scope_note = if !is_deploy && success {
+        git_sync_repo_scope_note(db, workspace_id, row.repo_path.as_deref()).await
+    } else {
+        None
+    };
+
+    let (conclusion, title, summary): (&str, String, String) = if is_deploy {
+        // Phase 6: real deploy pull -> "Deployed N changes" / "In sync" / failure.
+        if !success {
+            (
+                "failure",
+                format!("Deploy to {} failed", workspace_id),
+                "Deploying the latest commit failed. See the job in Windmill for details."
+                    .to_string(),
+            )
+        } else {
+            match parse_git_sync_changes(result_raw) {
+                Some((changes, settings_changed)) if changes.is_empty() && !settings_changed => (
+                    "success",
+                    format!("In sync with {}", workspace_id),
+                    format!(
+                        "No changes to deploy to `{}` from this commit.",
+                        workspace_id
+                    ),
+                ),
+                Some((changes, settings_changed)) => {
+                    let mut lines = vec![format!(
+                        "Deployed {} change(s) to `{}`:\n",
+                        changes.len(),
+                        workspace_id
+                    )];
+                    lines.extend(format_change_list(&changes));
+                    if settings_changed {
+                        lines.push("\nWorkspace settings also changed.".to_string());
+                    }
+                    (
+                        "success",
+                        format!("Deployed {} change(s) to {}", changes.len(), workspace_id),
+                        lines.join("\n"),
+                    )
+                }
+                None => (
+                    "success",
+                    format!("Deployed to {}", workspace_id),
+                    format!("Windmill deployed the latest commit to `{}`.", workspace_id),
+                ),
+            }
+        }
+    } else {
+        // Phase 4: dry-run diff preview for a PR.
+        if !success {
+            (
+                "failure",
+                "Windmill diff failed".to_string(),
+                "The dry-run pull to compute the diff failed. See the job in Windmill for details."
+                    .to_string(),
+            )
+        } else {
+            match parse_git_sync_changes(result_raw) {
+                Some((changes, settings_changed)) if changes.is_empty() && !settings_changed => (
+                    "success",
+                    "In sync".to_string(),
+                    format!(
+                        "Merging this PR would make no changes to the workspace.{}",
+                        scope_note.as_deref().unwrap_or_default()
+                    ),
+                ),
+                Some((changes, settings_changed)) => {
+                    let mut lines = vec![format!(
+                        "Merging this PR would apply {} change(s) to the workspace:\n",
+                        changes.len()
+                    )];
+                    lines.extend(format_change_list(&changes));
+                    if settings_changed {
+                        lines.push(match check.wmill_yaml_changed {
+                            Some(true) => "\nThis PR changes wmill.yaml: pulling also applies the updated workspace settings.".to_string(),
+                            Some(false) => "\nIndependent of this PR, the workspace's git-sync settings differ from the repo's wmill.yaml and a pull updates them to match.".to_string(),
+                            None => "\nA pull also updates the workspace's git-sync settings to match the repo's wmill.yaml.".to_string(),
+                        });
+                    }
+                    (
+                        "neutral",
+                        format!("{} change(s) to deploy", changes.len()),
+                        lines.join("\n"),
+                    )
+                }
+                None => (
+                    "neutral",
+                    "Diff computed".to_string(),
+                    "Windmill computed a diff but could not summarize it.".to_string(),
+                ),
+            }
+        }
+    };
+
+    if let Err(e) = windmill_common::git_sync_ee::update_check_run(
+        db,
+        workspace_id,
+        &check.repo_url,
+        check.check_run_id,
+        conclusion,
+        &title,
+        &summary,
+    )
+    .await
+    {
+        tracing::error!("git sync-check: failed to update check run: {e:#}");
+    }
+
+    // Phase 4 also maintains ONE managed comment on the PR (Cloudflare
+    // deploy-preview style): upserted on every synchronize, so reviewers see the
+    // current diff without opening the Checks tab.
+    if !is_deploy {
+        if let Some(pr_number) = check.pr_number {
+            let marker = "<!-- windmill-diff -->";
+            let head = check
+                .head_sha
+                .as_deref()
+                .map(|s| &s[..s.len().min(7)])
+                .unwrap_or("latest");
+            let body = format!(
+                "{marker}\n### Windmill deploy preview\n\n| | |\n|---|---|\n| **Workspace** | `{workspace_id}` |\n| **Status** | {title} |\n| **Commit** | `{head}` |\n\n<details><summary>Details</summary>\n\n{summary}\n\n</details>"
+            );
+            if let Err(e) = windmill_common::git_sync_ee::upsert_pr_comment(
+                db,
+                workspace_id,
+                &check.repo_url,
+                pr_number,
+                marker,
+                &body,
+            )
+            .await
+            {
+                tracing::warn!("git sync-check: failed to upsert PR diff comment: {e:#}");
+            }
+        }
+    }
+}
+
 pub async fn process_completed_job(
     JobCompleted {
         job,
@@ -826,6 +1499,11 @@ pub async fn process_completed_job(
             from_cache.unwrap_or(false),
         )
         .await?;
+        #[cfg(all(feature = "enterprise", feature = "private"))]
+        if job.kind == JobKind::DeploymentCallback {
+            maybe_post_git_sync_check(db, &job_id, &workspace_id, true, result.get()).await;
+            maybe_open_git_sync_deploy_pr(db, &job_id, &workspace_id, result.get()).await;
+        }
 
         // Asset-trigger fan-out: best-effort, never propagates errors.
         // Internal eligibility checks gate to top-level Script/Preview runs;
@@ -933,6 +1611,11 @@ pub async fn process_completed_job(
             .await?;
             Arc::new(serde_json::value::to_raw_value(&wrapped).unwrap())
         };
+        #[cfg(all(feature = "enterprise", feature = "private"))]
+        if job.kind == JobKind::DeploymentCallback {
+            maybe_post_git_sync_check(db, &job.id, &job.workspace_id, false, result.get()).await;
+            maybe_reconcile_git_sync_auto_pull(db, &job.id, &job.workspace_id, false).await;
+        }
         if job.is_flow_step() {
             if let Some(parent_job) = job.parent_job {
                 tracing::error!(parent_flow = %parent_job, subflow = %job.id, "process completed job error, updating flow status");
@@ -1358,4 +2041,281 @@ pub fn extract_error_value(
         step_id,
         exit_code: Some(i),
     });
+}
+
+#[cfg(all(test, feature = "enterprise", feature = "private"))]
+mod git_sync_pr_tests {
+    use super::{git_sync_deploy_pr_head_branch, git_sync_push_result_pushed};
+
+    #[test]
+    fn user_and_group_items_get_no_promotion_branch() {
+        for path_type in ["user", "group"] {
+            assert_eq!(
+                git_sync_deploy_pr_head_branch(
+                    "ws",
+                    None,
+                    None,
+                    "main",
+                    true,
+                    false,
+                    "u/someone",
+                    "",
+                    path_type
+                ),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn scope_note_lists_filters() {
+        use super::format_git_sync_scope_note;
+        assert_eq!(format_git_sync_scope_note(&[], &[]), None);
+        assert_eq!(
+            format_git_sync_scope_note(&["f/**".into()], &[]).unwrap(),
+            "\n\nOnly files matching this repository's sync filters deploy on merge: `f/**`."
+        );
+        assert_eq!(
+            format_git_sync_scope_note(&["f/**".into(), "u/**".into()], &["f/pat/**".into()])
+                .unwrap(),
+            "\n\nOnly files matching this repository's sync filters deploy on merge: `f/**`, `u/**` (excluding `f/pat/**`)."
+        );
+    }
+
+    #[test]
+    fn push_result_pushed_flag() {
+        assert_eq!(
+            git_sync_push_result_pushed(r#"{"pushed": true}"#),
+            Some(true)
+        );
+        assert_eq!(
+            git_sync_push_result_pushed(r#"{"pushed": false}"#),
+            Some(false)
+        );
+        // Older hub script versions return null / no flag: undetermined.
+        assert_eq!(git_sync_push_result_pushed("null"), None);
+        assert_eq!(git_sync_push_result_pushed(r#"{"other": 1}"#), None);
+        assert_eq!(git_sync_push_result_pushed("not json"), None);
+    }
+
+    #[test]
+    fn fork_branch_wins_and_strips_the_id_prefix() {
+        // Generated fork id: branch suffix drops the wm-fork- prefix.
+        assert_eq!(
+            git_sync_deploy_pr_head_branch(
+                "wm-fork-abc",
+                Some("prod"),
+                None,
+                "main",
+                false,
+                false,
+                "",
+                "",
+                ""
+            ),
+            Some("wm-fork/main/abc".to_string())
+        );
+        // Dev workspace (prefix-less id, detected via parent): verbatim suffix.
+        assert_eq!(
+            git_sync_deploy_pr_head_branch(
+                "staging",
+                Some("prod"),
+                None,
+                "main",
+                false,
+                false,
+                "",
+                "",
+                ""
+            ),
+            Some("wm-fork/main/staging".to_string())
+        );
+        // Orphaned fork (parent deleted): the id prefix still identifies it.
+        assert_eq!(
+            git_sync_deploy_pr_head_branch(
+                "wm-fork-abc",
+                None,
+                None,
+                "main",
+                true,
+                false,
+                "f/x/y",
+                "",
+                "script"
+            ),
+            Some("wm-fork/main/abc".to_string())
+        );
+    }
+
+    #[test]
+    fn promotion_branch_matches_the_hub_script_formula() {
+        // Per-item form: wm_deploy/<ws>/<path_type>/<path with / -> __>.
+        assert_eq!(
+            git_sync_deploy_pr_head_branch(
+                "dev",
+                None,
+                None,
+                "main",
+                true,
+                false,
+                "f/folder/my_script",
+                "",
+                "script"
+            ),
+            Some("wm_deploy/dev/script/f__folder__my_script".to_string())
+        );
+        // Grouped-by-folder form: first two path segments joined by __.
+        assert_eq!(
+            git_sync_deploy_pr_head_branch(
+                "dev",
+                None,
+                None,
+                "main",
+                true,
+                true,
+                "f/folder/my_script",
+                "",
+                "script"
+            ),
+            Some("wm_deploy/dev/f__folder".to_string())
+        );
+        // Renamed object: falls back to the parent path.
+        assert_eq!(
+            git_sync_deploy_pr_head_branch(
+                "dev",
+                None,
+                None,
+                "main",
+                true,
+                false,
+                "",
+                "f/folder/old",
+                "script"
+            ),
+            Some("wm_deploy/dev/script/f__folder__old".to_string())
+        );
+    }
+
+    #[test]
+    fn no_branch_when_deploy_stays_on_base() {
+        // Workspace-wide mode commits straight to the tracked branch.
+        assert_eq!(
+            git_sync_deploy_pr_head_branch(
+                "dev", None, None, "main", false, false, "f/x/y", "", "script"
+            ),
+            None
+        );
+        // Promotion mode but no per-item ref (e.g. user/group objects).
+        assert_eq!(
+            git_sync_deploy_pr_head_branch("dev", None, None, "main", true, false, "", "", "user"),
+            None
+        );
+    }
+
+    #[test]
+    fn dev_workspace_label_branch_wins() {
+        // Dev workspaces deploy to their environment-label branch verbatim.
+        assert_eq!(
+            git_sync_deploy_pr_head_branch(
+                "staging-ws",
+                Some("prod"),
+                Some("staging"),
+                "main",
+                false,
+                false,
+                "",
+                "",
+                ""
+            ),
+            Some("staging".to_string())
+        );
+        // Label present even on a wm-fork-prefixed id: label still wins.
+        assert_eq!(
+            git_sync_deploy_pr_head_branch(
+                "wm-fork-x",
+                Some("prod"),
+                Some("dev"),
+                "main",
+                false,
+                false,
+                "",
+                "",
+                ""
+            ),
+            Some("dev".to_string())
+        );
+    }
+
+    #[test]
+    fn dev_workspace_promotion_uses_wm_deploy_branch() {
+        // Promotion on: a dev workspace gets per-item wm_deploy/** branches
+        // (namespaced by its own id), not its env-label branch.
+        assert_eq!(
+            git_sync_deploy_pr_head_branch(
+                "dev",
+                Some("prod"),
+                Some("dev"),
+                "main",
+                true,
+                false,
+                "f/folder/my_script",
+                "",
+                "script"
+            ),
+            Some("wm_deploy/dev/script/f__folder__my_script".to_string())
+        );
+        // Per-folder form still honored for a promotion dev workspace.
+        assert_eq!(
+            git_sync_deploy_pr_head_branch(
+                "dev",
+                Some("prod"),
+                Some("dev"),
+                "main",
+                true,
+                true,
+                "f/folder/my_script",
+                "",
+                "script"
+            ),
+            Some("wm_deploy/dev/f__folder".to_string())
+        );
+        // Promotion off: the env-label branch still wins.
+        assert_eq!(
+            git_sync_deploy_pr_head_branch(
+                "dev",
+                Some("prod"),
+                Some("dev"),
+                "main",
+                false,
+                false,
+                "f/x/y",
+                "",
+                "script"
+            ),
+            Some("dev".to_string())
+        );
+    }
+
+    #[test]
+    fn dev_promotion_user_group_items_open_no_pr() {
+        // User/group objects get no wm_deploy branch even on a dev workspace; the
+        // CLI isolates them to the env-label branch, so the backend opens no PR
+        // (never a PR from the env-label branch into the parent for these).
+        for path_type in ["user", "group"] {
+            assert_eq!(
+                git_sync_deploy_pr_head_branch(
+                    "dev",
+                    Some("prod"),
+                    Some("dev"),
+                    "main",
+                    true,
+                    false,
+                    "u/alice",
+                    "",
+                    path_type
+                ),
+                None
+            );
+        }
+    }
 }

@@ -16,6 +16,24 @@ use crate::server::endpoints::EndpointTool;
 /// Result type for backend operations using rmcp's ErrorData directly
 pub type BackendResult<T> = Result<T, ErrorData>;
 
+/// How a script/flow listing is narrowed by path at the SQL layer, *before* the
+/// `ITEMS_FETCH_MAX_LIMIT` cap applies.
+///
+/// This must be pushed into the query, not applied in Rust after the fetch: the
+/// listing is capped to the newest N rows, so a granular token whose in-scope
+/// items are not among those N would have them truncated away before any Rust
+/// filter ran (returning zero tools even though the items exist).
+#[derive(Debug, Clone, Copy)]
+pub enum PathFilter<'a> {
+    /// Raw `LIKE '{prefix}%'` prefix — used to resolve a hashed tool name back to
+    /// its full path.
+    Prefix(&'a str),
+    /// MCP scope patterns (`*`, an exact path, or an `x/*` subtree). Mirrors
+    /// `is_resource_allowed`: a `*` pattern matches everything, an empty list
+    /// matches nothing.
+    Patterns(&'a [String]),
+}
+
 /// Authentication context required by the MCP server
 pub trait McpAuth: Send + Sync + Clone + 'static {
     /// Get the username
@@ -62,22 +80,22 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
     // Listing Operations
     // ─────────────────────────────────────────────────────────────────
 
-    /// List scripts, optionally filtered to favorites only and/or by path prefix
+    /// List scripts, optionally filtered to favorites only and/or by path
     async fn list_scripts(
         &self,
         auth: &Self::Auth,
         workspace_id: &str,
         favorites_only: bool,
-        path_prefix: Option<&str>,
+        path_filter: Option<PathFilter<'_>>,
     ) -> BackendResult<Vec<ScriptInfo>>;
 
-    /// List flows, optionally filtered to favorites only and/or by path prefix
+    /// List flows, optionally filtered to favorites only and/or by path
     async fn list_flows(
         &self,
         auth: &Self::Auth,
         workspace_id: &str,
         favorites_only: bool,
-        path_prefix: Option<&str>,
+        path_filter: Option<PathFilter<'_>>,
     ) -> BackendResult<Vec<FlowInfo>>;
 
     /// List resource types in workspace

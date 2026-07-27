@@ -4,6 +4,7 @@
 	import { Highlight } from 'svelte-highlight'
 	import { json } from 'svelte-highlight/languages'
 	import { copyToClipboard, parseS3Object, roughSizeOfObject } from '$lib/utils'
+	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
 	import { base } from '$lib/base'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import { appendViewToken } from '$lib/viewToken'
@@ -44,8 +45,12 @@
 	import { getContext, hasContext, createEventDispatcher, onDestroy, untrack } from 'svelte'
 	import { toJsonStr } from '$lib/utils'
 	import { userStore } from '$lib/stores'
+	import { isOfflineReplay, isReplaying } from './recording/offlineReplay.svelte'
 	import ResultStreamDisplay from './ResultStreamDisplay.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import DOMPurify from 'dompurify'
+	import MarkupApprovalGate from './MarkupApprovalGate.svelte'
+	import type { MarkupTrust } from './apps/markupTrust'
 
 	const TABLE_MAX_SIZE = 5000000
 	const DISPLAY_MAX_SIZE = 100000
@@ -79,13 +84,26 @@
 		| 'pdf'
 		| undefined
 	let resultKind: ResultKind = $state()
+	/** Kinds whose renderer leaves the page: S3/ducklake previews fetch the file or
+	 * table, and `approval` renders buttons that `fetch` URLs carried in the result.
+	 * A recording is caller-supplied, so on the public page those would aim a
+	 * credentialed request at an arbitrary origin. */
+	const REPLAY_INERT_KINDS: ResultKind[] = ['s3object', 's3object-list', 'materialized', 'approval']
+	/** Kinds whose markup pulls subresources: DOMPurify stops scripting but keeps
+	 * `<img src>` and SVG `<image href>`, and `map` tiles are requests by
+	 * construction. Kinds absent here carry their bytes as `data:` and reach nothing.
+	 * Inert only on the public page, which promises to issue no requests. */
+	const OFFLINE_INERT_KINDS: ResultKind[] = ['markdown', 'html', 'svg', 'map']
 	let length = $state(1)
 
 	let hasBigInt = $state(false)
 
 	interface Props {
 		result: any
-		requireHtmlApproval?: boolean
+		/** How to treat `result.html` / `result.svg`. Defaults to sanitizing, which is
+		 * what every non-app caller wants. Low-code app display components pass
+		 * `getAppMarkupTrust()`. */
+		markupTrust?: MarkupTrust
 		filename?: string | undefined
 		disableExpand?: boolean
 		jobId?: string | undefined
@@ -110,7 +128,7 @@
 
 	let {
 		result,
-		requireHtmlApproval = false,
+		markupTrust = 'sanitize',
 		filename = undefined,
 		disableExpand = false,
 		jobId = undefined,
@@ -132,7 +150,6 @@
 		loading = false,
 		growVertical = false
 	}: Props = $props()
-	let enableHtml = $state(false)
 	let s3FileDisplayRawMode = $state(false)
 
 	// Build the image/PDF source URL for an S3 object. When `appPath` is set
@@ -344,7 +361,10 @@
 						keys.includes('filename') &&
 						keys.includes('autodownload')
 					) {
-						if (result.autodownload) {
+						// Not via REPLAY_INERT_KINDS: this download is a side effect *inside* kind
+						// inference, already done by the time a caller could reclassify. Replaying
+						// must never write caller-chosen bytes into the viewer's downloads.
+						if (result.autodownload && !isReplaying()) {
 							const a = document.createElement('a')
 
 							a.href = 'data:application/octet-stream;base64,' + result.file
@@ -431,6 +451,15 @@
 		} else {
 			return ''
 		}
+	}
+
+	// An html/svg result is attacker-authored: any member can return one and a
+	// higher-privileged user may view it. Every `{@html}` of result markup must go
+	// through here, or it becomes stored XSS (GHSA-gh2j-49rx-4464). `approval` renders
+	// verbatim too, so it must stay behind MarkupApprovalGate at the call site.
+	function renderResultMarkup(markup: string | { filename: string; content: string } | undefined) {
+		const str = contentOrRootString(markup) || ''
+		return markupTrust === 'sanitize' ? DOMPurify.sanitize(str) : str
 	}
 
 	function handleArrayOfObjectsHeaders(json: any) {
@@ -568,8 +597,19 @@
 
 	$effect(() => {
 		;[result]
+		const replaying = isReplaying()
+		const offlineReplay = isOfflineReplay()
 		untrack(() => {
 			resultKind = inferResultKind(result)
+			// A recording carries the result JSON, nothing the result points at, and a
+			// replay has no session to go get it: show the recorded value instead.
+			const inert =
+				(replaying && REPLAY_INERT_KINDS.includes(resultKind)) ||
+				(offlineReplay && OFFLINE_INERT_KINDS.includes(resultKind))
+			if (inert) {
+				resultKind = 'json'
+				largeObject = false
+			}
 		})
 	})
 	$effect(() => {
@@ -585,19 +625,27 @@
 		)
 	})
 
-	// Per-test breakdown of a managed `// materialize` run, rendered as a
-	// checklist above the raw result. On success it rides the result
-	// (`data_tests: [{ test, violating }]`, a one-row array). On failure the job
-	// result is the error, whose message is the worker's breakdown text — parsed
-	// back into the same shape so the checklist shows on both outcomes. Both
-	// formats are produced by this repo's worker (see duckdb_executor.rs); the
-	// derivation is inert (undefined) for every other DisplayResult use.
+	// Per-test breakdown of a managed `// materialize` run. On success it rides the
+	// result as `data_tests`; on failure the job result is the error, whose message
+	// is the worker's breakdown text, parsed back into the same shape so the
+	// checklist shows either way. Inert for every other DisplayResult use.
 	let dataTests = $derived.by(() => {
-		// Both structured shapes carry `[{ test, violating, sample? }]`; the
-		// sample (bounded violating-row rows) may arrive as a JSON string (the
-		// worker keeps it string-typed through the summary row) and is optional
-		// by contract — anything malformed degrades to no sample, never to a
-		// dropped checklist.
+		// `DataTestsResult` renders an item per entry, and the message-derived branch
+		// below builds them from *lines of text*, so no bound on the result's structure
+		// can see them. A run with this many tests is unreadable anyway, and the cap has
+		// to live where the parse happens rather than be predicted from the payload.
+		const MAX_RENDERED = 1000
+		// A per-test `sample` arrives as its own JSON string, so nothing that measures
+		// the enclosing result's structure can see inside it — parsing an 8 MB string of
+		// `{}` would allocate millions of objects before any row cap applied. Bound the
+		// text first, then the rows.
+		const MAX_SAMPLE_CHARS = 256 * 1024
+		const MAX_SAMPLE_ROWS = 1000
+		const capped = <T,>(tests: T[]): T[] =>
+			tests.length > MAX_RENDERED ? tests.slice(0, MAX_RENDERED) : tests
+		// Both shapes carry `[{ test, violating, sample? }]`. The sample may arrive as
+		// a JSON string and is optional by contract, so anything malformed degrades to
+		// no sample — never to a dropped checklist.
 		const normalize = (
 			dt: any
 		): Array<{ test: string; violating: number; sample?: Record<string, any>[] }> | undefined => {
@@ -619,13 +667,15 @@
 				let sample = x.sample
 				if (typeof sample === 'string') {
 					try {
-						sample = JSON.parse(sample)
+						sample = sample.length > MAX_SAMPLE_CHARS ? undefined : JSON.parse(sample)
 					} catch {
 						sample = undefined
 					}
 				}
 				if (!Array.isArray(sample) || !sample.every((r) => r && typeof r === 'object')) {
 					sample = undefined
+				} else if (sample.length > MAX_SAMPLE_ROWS) {
+					sample = sample.slice(0, MAX_SAMPLE_ROWS)
 				}
 				return { test: x.test, violating: x.violating, sample }
 			})
@@ -633,17 +683,18 @@
 		// Success: structured column on the summary row.
 		const row = Array.isArray(result) ? (result as any)?.[0] : (result as any)
 		const fromRow = normalize(row?.data_tests)
-		if (fromRow) return fromRow
+		if (fromRow) return capped(fromRow)
 		// Failure: the worker attaches the same structured breakdown (plus
 		// per-failed-test samples) to the error payload.
 		const fromError = normalize((result as any)?.error?.data_tests)
-		if (fromError) return fromError
+		if (fromError) return capped(fromError)
 		// Failure fallback for results predating the structured error payload:
 		// parse the worker's breakdown out of the error message.
 		const msg = (result as any)?.error?.message
 		if (typeof msg === 'string' && msg.includes('data tests failed on')) {
 			const out: Array<{ test: string; violating: number }> = []
 			for (const line of msg.split('\n')) {
+				if (out.length >= MAX_RENDERED) break
 				const fail = line.match(/^\s*✗\s*(.+?)\s*—\s*(\d+)\s+violating/)
 				const pass = line.match(/^\s*✓\s*(.+?)\s*$/)
 				if (fail) out.push({ test: fail[1], violating: parseInt(fail[2], 10) })
@@ -690,7 +741,7 @@
 				<DisplayResult
 					{noControls}
 					result={res}
-					{requireHtmlApproval}
+					{markupTrust}
 					{filename}
 					{disableExpand}
 					{jobId}
@@ -790,30 +841,16 @@
 					/>
 				{:else if !forceJson && resultKind === 'html'}
 					<div class="h-full">
-						{#if !requireHtmlApproval || enableHtml}
-							{@html result.html}
+						{#if markupTrust === 'approval'}
+							<MarkupApprovalGate>
+								{#snippet children()}
+									<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+									{@html renderResultMarkup(result.html)}
+								{/snippet}
+							</MarkupApprovalGate>
 						{:else}
-							<div class="font-main text-sm">
-								<div class="flex flex-col">
-									<div class="bg-red-400 py-1 rounded-t text-white font-bold text-center">
-										Warning
-									</div>
-									<p
-										class="text-primary mb-2 text-left border-2 !border-t-0 rounded-b border-red-400 overflow-auto p-1"
-										>Rendering HTML can expose you to <a
-											href="https://owasp.org/www-community/attacks/xss/"
-											target="_blank"
-											rel="noreferrer"
-											class="hover:underline">XSS attacks</a
-										>. Only enable it if you trust the author of the script.
-									</p>
-								</div>
-								<div class="center-center">
-									<Button unifiedSize="md" variant="default" on:click={() => (enableHtml = true)}>
-										Enable HTML rendering
-									</Button>
-								</div>
-							</div>
+							<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+							{@html renderResultMarkup(result.html)}
 						{/if}
 					</div>
 				{:else if !forceJson && resultKind === 'map'}
@@ -827,7 +864,7 @@
 					</div>
 				{:else if !forceJson && resultKind === 'png'}
 					<div class="h-full">
-						<img
+						<ExpandableImage
 							alt="png rendered"
 							class="w-auto h-full"
 							src="data:image/png;base64,{contentOrRootString(result.png)}"
@@ -835,21 +872,36 @@
 					</div>
 				{:else if !forceJson && resultKind === 'jpeg'}
 					<div class="h-full">
-						<img
+						<ExpandableImage
 							alt="jpeg rendered"
 							class="w-auto h-full"
 							src="data:image/jpeg;base64,{contentOrRootString(result.jpeg)}"
 						/>
 					</div>
 				{:else if !forceJson && resultKind === 'svg'}
-					<div
-						><a download="windmill.svg" href="data:text/plain;base64,{btoa(result.svg)}">Download</a
+					{@const svgMarkup = contentOrRootString(result.svg) || ''}
+					<div>
+						<a
+							download="windmill.svg"
+							href="data:image/svg+xml;charset=utf-8,{encodeURIComponent(svgMarkup)}">Download</a
 						>
 					</div>
-					<div class="h-full overflow-auto">{@html result.svg} </div>
+					<div class="h-full overflow-auto">
+						{#if markupTrust === 'approval'}
+							<MarkupApprovalGate>
+								{#snippet children()}
+									<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+									{@html renderResultMarkup(result.svg)}
+								{/snippet}
+							</MarkupApprovalGate>
+						{:else}
+							<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+							{@html renderResultMarkup(result.svg)}
+						{/if}
+					</div>
 				{:else if !forceJson && resultKind === 'gif'}
 					<div class="h-full">
-						<img
+						<ExpandableImage
 							alt="gif rendered"
 							class="w-auto h-full"
 							src="data:image/gif;base64,{contentOrRootString(result.gif)}"
@@ -1060,11 +1112,17 @@
 										{appPath}
 										s3resource={s3object?.s3}
 										storage={s3object?.storage}
+										presigned={s3object?.presigned}
 									/>
 								{/key}
 							{:else if s3object?.s3?.endsWith('.png') || s3object?.s3?.endsWith('.jpeg') || s3object?.s3?.endsWith('.jpg') || s3object?.s3?.endsWith('.webp')}
 								<div class="h-full mt-2">
-									<img alt="preview rendered" class="w-auto h-full" src={s3DisplayUrl(s3object)} />
+									<ExpandableImage
+										alt="preview rendered"
+										title={s3object?.s3}
+										class="w-auto h-full"
+										src={s3DisplayUrl(s3object)}
+									/>
 								</div>
 							{:else if s3object?.s3?.endsWith('.pdf')}
 								<div class="h-96 mt-2 border">
@@ -1116,6 +1174,7 @@
 											{appPath}
 											s3resource={s3object?.s3}
 											storage={s3object?.storage}
+											presigned={s3object?.presigned}
 										/>{:else}
 										<button
 											class="text-primary whitespace-nowrap flex gap-2 items-center"
@@ -1128,8 +1187,9 @@
 								{:else if s3object?.s3?.endsWith('.png') || s3object?.s3?.endsWith('.jpeg') || s3object?.s3?.endsWith('.jpg') || s3object?.s3?.endsWith('.webp')}
 									{#if seeS3PreviewFileFromList == s3object?.s3}
 										<div class="h-full mt-2">
-											<img
+											<ExpandableImage
 												alt="preview rendered"
+												title={s3object?.s3}
 												class="w-auto h-full"
 												src={s3DisplayUrl(s3object)}
 											/>
@@ -1279,7 +1339,7 @@
 				<DisplayResult
 					{noControls}
 					{result}
-					{requireHtmlApproval}
+					{markupTrust}
 					{filename}
 					{jobId}
 					{nodeId}

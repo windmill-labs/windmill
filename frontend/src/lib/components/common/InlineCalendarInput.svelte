@@ -63,9 +63,18 @@
 
 	type Props = (DateProps | RangeProps) & {
 		class?: string
+		// Portal the month/year dropdowns to the body so they escape an `overflow`
+		// ancestor (e.g. a scroll-contained popover). Off by default: in-flow.
+		portalSelects?: boolean
 	}
 
-	let { mode = 'date', value = $bindable(), class: className, ...rest }: Props = $props()
+	let {
+		mode = 'date',
+		value = $bindable(),
+		class: className,
+		portalSelects = false,
+		...rest
+	}: Props = $props()
 
 	const onClickBehavior = $derived(
 		mode === 'range' ? ((rest as RangeProps).onClickBehavior ?? 'set-range') : 'set-range'
@@ -425,14 +434,14 @@
 			<Select
 				class="basis-1/2"
 				inputClass="text-center !rounded-r-none !border-r-0"
-				disablePortal
+				disablePortal={!portalSelects}
 				bind:value={viewMonth}
 				items={MONTH_NAMES.map((name, i) => ({ label: name, value: i + 1 }))}
 			/>
 			<Select
 				class="basis-1/2"
 				inputClass="text-center !rounded-l-none !border-l-0"
-				disablePortal
+				disablePortal={!portalSelects}
 				bind:value={viewYear}
 				onCreateItem={(val) => (viewYear = parseInt(val) || viewYear)}
 				items={YEAR_LIST.map((year) => ({ label: year.toString(), value: year }))}

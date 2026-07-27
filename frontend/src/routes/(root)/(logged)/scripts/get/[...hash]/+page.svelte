@@ -16,13 +16,14 @@
 		copyToClipboard,
 		urlParamsToObject,
 		extractTagFromSharableHash,
-		isDynamicTag
+		interpolateTag,
+		isDynamicTag,
+		isTagTemplate
 	} from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import {
 		enterpriseLicense,
-		hubBaseUrlStore,
 		userStore,
 		userWorkspaces,
 		workspaceStore
@@ -61,7 +62,6 @@
 		Eye,
 		FolderOpen,
 		GitFork,
-		Globe2,
 		History,
 		Loader2,
 		Pen,
@@ -74,8 +74,6 @@
 		ChevronDown,
 		ChevronRight
 	} from 'lucide-svelte'
-	import { SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB } from '$lib/consts'
-	import { scriptToHubUrl } from '$lib/hub'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import ScriptVersionHistory from '$lib/components/ScriptVersionHistory.svelte'
@@ -263,9 +261,16 @@
 				return
 			}
 		}
-		// A carried tag is the previous run's resolved value; when the script's tag is
-		// dynamic, drop it so the backend re-resolves from the (possibly edited) args
-		if (carriedTag && isDynamicTag(script.tag)) {
+		// A carried non-template value equal to the resolution of the script's own dynamic
+		// tag for these args is not an override but the previous run's pinned resolution:
+		// drop it so the backend re-resolves from the (possibly edited) args. A differing
+		// value is a genuine user override and a template re-resolves at push, so both stay.
+		if (
+			carriedTag &&
+			isDynamicTag(script.tag) &&
+			!isTagTemplate(carriedTag) &&
+			interpolateTag(script.tag ?? '', $workspaceStore!, args) === carriedTag
+		) {
 			if (overrideTag === carriedTag) {
 				overrideTag = undefined
 				overrideTagNote = `tag ${script.tag} is resolved at run time, so the previous run's tag ${carriedTag} was not applied`
@@ -537,30 +542,6 @@
 				Icon: ChevronUpSquare,
 				onclick: () => {
 					deploymentDrawer?.openDrawer(script?.path ?? '', 'script')
-				}
-			})
-		}
-
-		if (SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB) {
-			menuItems.push({
-				label: 'Publish to Hub',
-				Icon: Globe2,
-				onclick: () => {
-					if (!script) return
-
-					window.open(
-						scriptToHubUrl(
-							script.content,
-							script.summary,
-							script.description ?? '',
-							script.kind,
-							script.language,
-							script.schema,
-							script.lock ?? '',
-							$hubBaseUrlStore
-						).toString(),
-						'_blank'
-					)
 				}
 			})
 		}
