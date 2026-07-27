@@ -1585,12 +1585,12 @@ export class WorkflowCtx {
     [k: string]: any;
   }> = [];
   private _suspended = false;
-  /** A suspend raised out of a step whose body threw. `StepSuspend` is an
-   *  `Error`, so the workflow's own `try { await step(...) } catch` — the very
-   *  shape a failing step is written for — swallows it, and the run would go on
-   *  to report `complete` with the step missing from `completed_steps`. Parked
-   *  here so the runner can re-throw it after the body returns. Python needs no
-   *  equivalent: `_StepSuspend` derives from `BaseException`. */
+  /** The last suspend this ctx raised. `StepSuspend` is an `Error`, so any
+   *  `try { await step(...) } catch` or `try { await someTask() } catch` in the
+   *  workflow body swallows it, and the run would go on to report a `complete`
+   *  whose step never reached `completed_steps`. Parked here so it can be
+   *  re-thrown at the next SDK call and by the runner after the body returns.
+   *  Python needs no equivalent: `_StepSuspend` derives from `BaseException`. */
   private _pendingSuspend: StepSuspend | null = null;
   /** When set, the task matching this key executes its inner function directly */
   _executingKey: string | null;
@@ -1684,7 +1684,7 @@ export class WorkflowCtx {
         this.pending = [];
         const names = steps.map(s => s.name).join(", ");
         console.log(`\n--- WAC: ${names} ---`);
-        throw new StepSuspend({
+        this._raiseSuspend({
           mode: steps.length > 1 ? "parallel" : "sequential",
           steps,
         });
@@ -1731,7 +1731,7 @@ export class WorkflowCtx {
 
     // Throw immediately — approval is always a blocking step
     console.log(`\n--- WAC: approval(${key}) ---`);
-    throw new StepSuspend({
+    this._raiseSuspend({
       mode: "approval",
       key,
       timeout: options?.timeout ?? 1800,
@@ -1754,7 +1754,7 @@ export class WorkflowCtx {
     }
 
     console.log(`\n--- WAC: sleep(${key}, ${seconds}s) ---`);
-    throw new StepSuspend({
+    this._raiseSuspend({
       mode: "sleep",
       key,
       seconds: Math.max(1, Math.round(seconds)),
@@ -1880,8 +1880,14 @@ export class WorkflowCtx {
       }
     }
 
-    const suspend = new StepSuspend({ mode: "inline_checkpoint", steps: [], key, result, started_at: startedAt, duration_ms: durationMs });
-    if (errored) this._pendingSuspend = suspend;
+    this._raiseSuspend({ mode: "inline_checkpoint", steps: [], key, result, started_at: startedAt, duration_ms: durationMs });
+  }
+
+  /** Raise a suspend, parking it so a body that catches it cannot make it
+   *  vanish. Every suspend this ctx raises goes through here. */
+  private _raiseSuspend(dispatchInfo: Record<string, any>): never {
+    const suspend = new StepSuspend(dispatchInfo);
+    this._pendingSuspend = suspend;
     throw suspend;
   }
 

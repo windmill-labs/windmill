@@ -29,6 +29,12 @@ class WorkflowCtx {
   private _pendingSuspend: StepSuspend | null = null;
   _executingKey: string | null;
 
+  private _raiseSuspend(dispatchInfo: Record<string, any>): never {
+    const suspend = new StepSuspend(dispatchInfo);
+    this._pendingSuspend = suspend;
+    throw suspend;
+  }
+
   private _rethrowSwallowedSuspend(): void {
     if (this._pendingSuspend) throw this._pendingSuspend;
   }
@@ -91,7 +97,7 @@ class WorkflowCtx {
         this._suspended = true;
         const steps = [...this.pending];
         this.pending = [];
-        throw new StepSuspend({
+        this._raiseSuspend({
           mode: steps.length > 1 ? "parallel" : "sequential",
           steps,
         });
@@ -119,7 +125,7 @@ class WorkflowCtx {
     if (this._executingKey !== null) {
       return { then: () => new Promise(() => {}) };
     }
-    throw new StepSuspend({
+    this._raiseSuspend({
       mode: "sleep",
       key,
       seconds: Math.max(1, Math.round(seconds)),
@@ -166,14 +172,12 @@ class WorkflowCtx {
         },
       };
     }
-    const suspend = new StepSuspend({
+    this._raiseSuspend({
       mode: "inline_checkpoint",
       steps: [],
       key,
       result,
     });
-    if (errored) this._pendingSuspend = suspend;
-    throw suspend;
   }
 }
 
@@ -1429,6 +1433,34 @@ describe("throwing inline step is checkpointed", () => {
     expect(result.type).toBe("inline_checkpoint");
     expect(result.key).toBe("step_0");
     expect(result.result).toEqual(marker);
+  });
+
+  test("a swallowed suspend from a succeeding step still reaches the runner", async () => {
+    const wf = workflow(async () => {
+      try {
+        await step("fine", () => 42);
+      } catch {
+        // a body that catches broadly must not be able to erase the suspend
+      }
+      return "never reached on the first run";
+    });
+    const result = await runWorkflow(wf, {}, []);
+    expect(result.type).toBe("inline_checkpoint");
+    expect(result.result).toBe(42);
+  });
+
+  test("a swallowed suspend from a task dispatch still reaches the runner", async () => {
+    const wf = workflow(async (x: number) => {
+      try {
+        await double(x);
+      } catch {
+        // ditto for task steps
+      }
+      return "never reached on the first run";
+    });
+    const result = await runWorkflow(wf, {}, [5]);
+    expect(result.type).toBe("dispatch");
+    expect(result.steps[0].key).toBe("step_0");
   });
 
   test("replay rethrows the error and does not hang", async () => {
