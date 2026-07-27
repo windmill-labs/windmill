@@ -12,6 +12,12 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { SecondsInput } from '$lib/components/common'
+	import Button from '$lib/components/common/button/Button.svelte'
+	import HighlightCode from '$lib/components/HighlightCode.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import s3Scripts from './s3Scripts/lib'
+	import { Database } from 'lucide-svelte'
 
 	import FlowRetries from './FlowRetries.svelte'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
@@ -21,7 +27,16 @@
 	import FlowModuleTimeout from './FlowModuleTimeout.svelte'
 	import FlowModuleDeleteAfterUse from './FlowModuleDeleteAfterUse.svelte'
 	import FlowModuleCache from './FlowModuleCache.svelte'
-	import { stepSettingsByKey, type StepSettingView } from '../flowStepSettings'
+	import { stepSettingsByKey, type StepSettingSummary } from '../flowStepSettings'
+
+	// The accordion also hosts a code helper (S3 snippets), which is not a step setting,
+	// so the row renderer takes the shared visual shape rather than a settings view.
+	type RowLike = {
+		key: string
+		label: string
+		icon: any
+		summary: StepSettingSummary
+	}
 	import FlowModuleDebounce from './FlowModuleDebounce.svelte'
 	import WorkspaceScriptSettingInfo from './WorkspaceScriptSettingInfo.svelte'
 
@@ -48,6 +63,8 @@
 		canEditWorkspaceScript?: boolean
 		workspaceScriptNoEditReason?: string | undefined
 		onEditWorkspaceScript?: () => void
+		/** Replace the inline script's code — provided by the step editor. */
+		onApplyS3Snippet?: (code: string) => void
 	}
 
 	let {
@@ -64,7 +81,8 @@
 		workspaceScriptError = undefined,
 		canEditWorkspaceScript = false,
 		workspaceScriptNoEditReason = undefined,
-		onEditWorkspaceScript
+		onEditWorkspaceScript,
+		onApplyS3Snippet
 	}: Props = $props()
 
 	// Accordion: at most one row open at a time.
@@ -81,6 +99,14 @@
 	const isFailure = $derived(selectedId.includes('failure'))
 	const isRawScript = $derived(flowModule.value.type === 'rawscript')
 	const isWorkspaceScript = $derived(flowModule.value.type === 'script')
+	const s3Language = $derived(
+		flowModule.value.type === 'rawscript' &&
+			(flowModule.value.language === 'python3' || flowModule.value.language === 'deno')
+			? flowModule.value.language
+			: undefined
+	)
+	let s3Kind = $state<'s3_client' | 'polars' | 'duckdb'>('s3_client')
+	const s3Snippet = $derived(s3Language ? s3Scripts[s3Language][s3Kind] : undefined)
 	const concurrencyOff = $derived(
 		!$enterpriseLicense ||
 			flowModule.value.type !== 'rawscript' ||
@@ -104,7 +130,7 @@
 	</div>
 {/snippet}
 
-{#snippet rowHeader(s: StepSettingView | undefined)}
+{#snippet rowHeader(s: RowLike | undefined)}
 	{#if s}
 		{@const Icon = s.icon}
 	<button
@@ -289,7 +315,7 @@
 										/>
 										<Label label="Max number of executions within the time window">
 											<input
-												disabled={!$enterpriseLicense}
+												disabled={concurrencyOff}
 												bind:value={flowModule.value.concurrent_limit}
 												type="number"
 												class="!w-24"
@@ -412,6 +438,49 @@
 					</div>
 				{/if}
 			</div>
+
+			{#if s3Language && onApplyS3Snippet}
+				<div>
+					{@render rowHeader({
+						key: 's3',
+						label: 'S3 snippets',
+						icon: Database,
+						summary: { text: s3Language === 'deno' ? 'S3 lite client' : 'Boto3, Polars, DuckDB', state: 'default' }
+					})}
+					{#if expanded === 's3'}
+						<div class="px-3 pb-3 pt-1 flex flex-col gap-2" transition:slide={{ duration: 120 }}>
+							<p class="text-xs text-tertiary">
+								Read and write S3 objects, and use Polars or DuckDB to run efficient ETL processes.
+							</p>
+							<div class="flex flex-row items-center justify-between gap-2">
+								<ToggleButtonGroup bind:selected={s3Kind} class="w-auto">
+									{#snippet children({ item })}
+										{#if s3Language === 'deno'}
+											<ToggleButton value="s3_client" small label="S3 lite client" {item} />
+										{:else}
+											<ToggleButton value="s3_client" small label="Boto3" {item} />
+											<ToggleButton value="polars" small label="Polars" {item} />
+											<ToggleButton value="duckdb" small label="DuckDB" {item} />
+										{/if}
+									{/snippet}
+								</ToggleButtonGroup>
+								<Button
+									size="xs"
+									variant="default"
+									on:click={() => s3Snippet && onApplyS3Snippet?.(s3Snippet)}
+								>
+									Apply snippet
+								</Button>
+							</div>
+							{#if s3Snippet}
+								<div class="overflow-auto max-h-64 border rounded-md">
+									<HighlightCode language={s3Language} code={s3Snippet} />
+								</div>
+							{/if}
+						</div>
+					{/if}
+				</div>
+			{/if}
 		</div>
 	</section>
 </div>

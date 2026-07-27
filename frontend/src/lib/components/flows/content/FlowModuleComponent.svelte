@@ -1169,6 +1169,7 @@
 									{:else if visibleSelected === 'advanced'}
 										<FlowModuleAdvancedSettings
 											bind:this={advancedSettings}
+											onApplyS3Snippet={(code) => editor?.setCode(code)}
 											bind:flowModule
 											{parentModule}
 											{previousModule}

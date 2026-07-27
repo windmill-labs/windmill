@@ -117,7 +117,7 @@
 
 	<div class="flex flex-col gap-4 mt-2">
 		<Label label="Delay in seconds">
-			<SecondsInput disabled={!$enterpriseLicense} bind:seconds={debounce_delay_s} />
+			<SecondsInput disabled={off} bind:seconds={debounce_delay_s} />
 		</Label>
 		<Label label="Custom debounce key (optional)">
 			{#snippet header()}
