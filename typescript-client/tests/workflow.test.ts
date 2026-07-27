@@ -1522,6 +1522,32 @@ describe("throwing inline step is checkpointed", () => {
     await expect(runWorkflow(wf, { _executing_key: "step_0" }, [])).rejects.toThrow("nope");
   });
 
+  test("a parked failure is re-raised at the next SDK call, not left to hang", async () => {
+    // A body that catches and carries on reaches an SDK call that, in child mode,
+    // never resolves — so without the re-raise the child parks there and hangs
+    // until timeout instead of reporting the failure. Raced against a deadline so
+    // that regression fails the test rather than wedging the suite.
+    const boom = task(async function boom() {
+      throw new TypeError("nope");
+    });
+    for (const carryOn of [() => double(1), () => sleep(1)]) {
+      const wf = workflow(async () => {
+        try {
+          await boom();
+        } catch {
+          // swallowed on purpose
+        }
+        await carryOn();
+        return "unreachable";
+      });
+      const run = Promise.race([
+        runWorkflow(wf, { _executing_key: "step_0" }, []),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("parked")), 500)),
+      ]);
+      await expect(run).rejects.toThrow("nope");
+    }
+  });
+
   test("a swallowed suspend from a task dispatch still reaches the runner", async () => {
     const wf = workflow(async (x: number) => {
       try {

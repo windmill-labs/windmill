@@ -2679,7 +2679,7 @@ class _StepFailure(BaseException):
     That exception *is* the round's result, so a broad ``except Exception`` in the
     body must not be able to turn it into a successful complete — the parent would
     then record the caught branch's value as the step result. BaseException for the
-    same reason ``_StepSuspend`` is.
+    same reason ``_StepSuspend`` is; a bare ``except:`` still swallows both.
     """
 
     def __init__(self, exc: BaseException):
