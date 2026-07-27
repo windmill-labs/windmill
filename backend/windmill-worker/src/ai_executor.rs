@@ -47,7 +47,9 @@ use windmill_queue::{cancel_single_job, CanceledBy, MiniPulledJob};
 
 use crate::{
     ai::stream_event_processor::StreamEventProcessor,
-    common::{build_args_map, resolve_job_timeout, OccupancyMetrics, StreamNotifier},
+    common::{
+        build_args_map, resolve_job_timeout, transform_json_value, OccupancyMetrics, StreamNotifier,
+    },
     handle_child::{run_future_with_polling_update_job_poller_graceful, GracefulPollOutcome},
 };
 
@@ -119,7 +121,6 @@ async fn find_ai_agent_tool_module_in_parent_agent(
     parent_agent_step_id: &str,
     tool_module_id: &str,
     client: &AuthedClient,
-    job_id: uuid::Uuid,
 ) -> Result<Option<FlowModule>, Error> {
     let Some(parent_agent_module) = find_module_by_id(modules, parent_agent_step_id)? else {
         return Ok(None);
@@ -136,11 +137,9 @@ async fn find_ai_agent_tool_module_in_parent_agent(
         let agent_path = agent_ref
             .trim_start_matches("$res:")
             .trim_start_matches("res://");
+        // Definitions only: resolving their defaults here would hit the same inaccessible resources.
         let resource_value = client
-            .get_resource_value_interpolated::<serde_json::Value>(
-                agent_path,
-                Some(job_id.to_string()),
-            )
+            .get_resource_value::<serde_json::Value>(agent_path)
             .await
             .map_err(|e| {
                 Error::internal_err(format!(
@@ -346,7 +345,6 @@ pub async fn handle_ai_agent_job(
             parent_agent_step_id,
             flow_step_id,
             client,
-            job.id,
         )
         .await?
     } else {
@@ -381,11 +379,11 @@ pub async fn handle_ai_agent_job(
         let agent_path = agent_ref
             .trim_start_matches("$res:")
             .trim_start_matches("res://");
+        // Read raw and interpolate only the brain below. Interpolating the whole resource would also
+        // resolve each tool's default `$res:`/`$var:`, which a host flow may be overriding and which
+        // may be unreadable to whoever runs this flow — an unused tool could then fail the agent.
         let resource_value = client
-            .get_resource_value_interpolated::<serde_json::Value>(
-                agent_path,
-                Some(job.id.to_string()),
-            )
+            .get_resource_value::<serde_json::Value>(agent_path)
             .await
             .map_err(|e| {
                 Error::internal_err(format!(
@@ -418,12 +416,21 @@ pub async fn handle_ai_agent_job(
             None => Vec::new(),
         };
         overlay_tool_inputs(&mut tools, &tool_inputs);
-        let args = serde_json::from_value::<AIAgentArgs>(serde_json::Value::Object(config))
-            .map_err(|e| {
-                Error::internal_err(format!(
-                    "invalid ai_agent resource config {agent_path}: {e}"
-                ))
-            })?;
+        let brain = transform_json_value(
+            "ai_agent",
+            client,
+            &job.workspace_id,
+            serde_json::Value::Object(config),
+            job,
+            conn,
+            0,
+        )
+        .await?;
+        let args = serde_json::from_value::<AIAgentArgs>(brain).map_err(|e| {
+            Error::internal_err(format!(
+                "invalid ai_agent resource config {agent_path}: {e}"
+            ))
+        })?;
         (args, tools)
     } else {
         let args = serde_json::from_str::<AIAgentArgs>(&serde_json::to_string(&local_args)?)?;

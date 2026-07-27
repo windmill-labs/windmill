@@ -35,6 +35,10 @@ input editors (prop picker included) and a read-only view of its code — edits 
 
 Sharing works through standard resource folder permissions (save agents under `f/...`).
 
+Only the agent's brain is interpolated when the step runs. A tool's own `$res:`/`$var:` defaults are
+left alone and resolved when that tool executes, so a host flow can override a default pointing at a
+resource it cannot read — and an unused tool whose default is inaccessible never fails the agent.
+
 ## Resolution is live, not pinned
 
 A linked step resolves its agent resource when the step runs — that is what makes an edit propagate
