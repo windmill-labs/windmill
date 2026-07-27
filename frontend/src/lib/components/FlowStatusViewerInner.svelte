@@ -64,9 +64,9 @@
 	import { publishLinkedAgentTools } from './flows/flowState'
 	import {
 		getLinkedAgentTools,
-		linkedAgentToolsForScope,
-		linkedAgentToolsVersion,
-		linkedToolsScope
+		linkedToolsScope,
+		releaseLinkedToolsScope,
+		retainLinkedToolsScope
 	} from './flows/linkedAgentToolsStore.svelte'
 
 	let {
@@ -278,24 +278,18 @@
 	// resource sharing the path. The store scope stays keyed on `workspace` so it still matches what
 	// FlowGraphV2 reads; the job id in the key already makes the bucket unique.
 	let agentFetchWorkspace = $derived(workspaceId ?? job?.workspace_id ?? $workspaceStore)
-	// What this viewer last published, so a store change can be told apart from a link change.
-	let publishedKey: string | undefined = undefined
+	// Hold this scope for as long as the viewer is mounted, so the store's cap can't drop tools the
+	// run still needs (nothing would refetch them — the set of linked steps hasn't changed).
+	$effect(() => {
+		const scope = linkedToolsViewScope
+		retainLinkedToolsScope(scope)
+		return () => releaseLinkedToolsScope(scope)
+	})
 	$effect(() => {
 		const refs = linkedAgentRefs
 		const ws = agentFetchWorkspace
 		const scope = linkedToolsViewScope
-		// Track the store: one bucket exists per mounted nested job, hidden ones included, so this
-		// scope can be evicted by the cap while still displayed, and nothing else would refetch it.
-		// Publishing always writes a key (even when the agent resolves to no tools), so republishing
-		// on an empty bucket settles instead of looping.
-		linkedAgentToolsVersion()
-		const evicted = refs !== '' && Object.keys(linkedAgentToolsForScope(scope)).length === 0
 		untrack(() => {
-			const key = `${scope}|${refs}`
-			if (key === publishedKey && !evicted) {
-				return
-			}
-			publishedKey = key
 			for (const entry of refs ? refs.split('\u0001') : []) {
 				const [moduleId, agentPath] = entry.split('\u0000')
 				publishLinkedAgentTools(agentPath, ws, scope, moduleId)

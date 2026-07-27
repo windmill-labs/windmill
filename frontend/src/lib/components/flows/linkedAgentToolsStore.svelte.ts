@@ -26,10 +26,33 @@ function noteScopeRead(scope: string) {
 	scopeOrder = [...scopeOrder.filter((s) => s !== scope), scope]
 }
 
+// Scopes a mounted view is currently relying on. A run viewer keeps one per nested job, hidden ones
+// included, so the cap alone would evict buckets still in use — and restoring one would evict
+// another, forever. Retained scopes are never evicted; the cap yields to correctness.
+const retainedScopes = new Map<string, number>()
+
+export function retainLinkedToolsScope(scope: string) {
+	retainedScopes.set(scope, (retainedScopes.get(scope) ?? 0) + 1)
+}
+
+export function releaseLinkedToolsScope(scope: string) {
+	const next = (retainedScopes.get(scope) ?? 0) - 1
+	if (next > 0) {
+		retainedScopes.set(scope, next)
+	} else {
+		retainedScopes.delete(scope)
+	}
+}
+
 function touchScope(scope: string) {
 	scopeOrder = [...scopeOrder.filter((s) => s !== scope), scope]
 	while (scopeOrder.length > MAX_SCOPES) {
-		delete byScope[scopeOrder.shift()!]
+		const victim = scopeOrder.find((s) => !retainedScopes.has(s))
+		if (victim === undefined) {
+			break
+		}
+		scopeOrder = scopeOrder.filter((s) => s !== victim)
+		delete byScope[victim]
 	}
 }
 
