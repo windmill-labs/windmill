@@ -1,9 +1,45 @@
 """Tests for the Workflow-as-Code SDK."""
 
 import asyncio
+import json
 import pytest
 
+from datetime import datetime, timezone
+
 from wmill.client import WorkflowCtx, _StepSuspend, TaskError, workflow, task, step, sleep, parallel, wait_for_approval, _run_workflow, _run_workflow_async
+
+
+class _StubInlineClient:
+    """Stands in for the httpx client the inline fast path POSTs with.
+
+    Decodes each request body, so a test sees exactly the JSON that reaches
+    ``/jobs/wac/inline_checkpoint`` — and therefore what a replay reads back.
+    """
+
+    def __init__(self):
+        self.posted = []
+
+    async def post(self, url, content=None):
+        self.posted.append(json.loads(content))
+
+        class _Response:
+            def raise_for_status(self):
+                pass
+
+        return _Response()
+
+    async def aclose(self):
+        pass
+
+
+def _set_inline_fast_path_env(monkeypatch):
+    for var, val in (
+        ("WM_JOB_ID", "job-1"),
+        ("WM_WORKSPACE", "admins"),
+        ("BASE_INTERNAL_URL", "http://localhost:8000"),
+        ("WM_TOKEN", "tok"),
+    ):
+        monkeypatch.setenv(var, val)
 
 
 @task
@@ -956,31 +992,14 @@ class TestRaisingInlineStepIsCheckpointed:
         the same ``TaskError`` a replay rebuilds from the marker — raising the
         original ``ValueError`` here would make ``except ValueError:`` catch on
         this run and miss on the next one."""
-        for var, val in (
-            ("WM_JOB_ID", "job-1"),
-            ("WM_WORKSPACE", "admins"),
-            ("BASE_INTERNAL_URL", "http://localhost:8000"),
-            ("WM_TOKEN", "tok"),
-        ):
-            monkeypatch.setenv(var, val)
+        _set_inline_fast_path_env(monkeypatch)
 
-        posted = []
-
-        class _StubResponse:
-            def raise_for_status(self):
-                pass
-
-        class _StubClient:
-            async def post(self, url, json=None):
-                posted.append(json)
-                return _StubResponse()
-
-            async def aclose(self):
-                pass
+        stub = _StubInlineClient()
+        posted = stub.posted
 
         async def run():
             ctx = WorkflowCtx({})
-            ctx._inline_http_client = _StubClient()
+            ctx._inline_http_client = stub
             with pytest.raises(TaskError, match="boom") as live:
                 await ctx._run_inline_step("risky", self._boom)
             # ...and the replay of that very checkpoint raises the same thing.
@@ -1011,6 +1030,40 @@ class TestRaisingInlineStepIsCheckpointed:
         r = asyncio.run(run())
         assert r["type"] == "complete"
         assert r["result"] == 10
+
+
+class TestInlineStepRoundParity:
+    """The round that runs a ``step()`` body must see what a replay sees.
+
+    The fast path returns the value it checkpointed, not the in-memory one:
+    a workflow branching on a datetime attribute or a tuple would otherwise
+    take one path on the round that ran the body and another on every replay,
+    which can change which tasks get dispatched, not just crash later.
+    """
+
+    CASES = [
+        ("dt", lambda: datetime(2026, 1, 1, tzinfo=timezone.utc), "2026-01-01 00:00:00+00:00"),
+        ("pair", lambda: (1, 2), [1, 2]),
+        ("aset", lambda: {1, 2}, "{1, 2}"),
+        ("intkeys", lambda: {1: "a"}, {"1": "a"}),
+    ]
+
+    def test_live_round_matches_checkpoint_and_replay(self, monkeypatch):
+        _set_inline_fast_path_env(monkeypatch)
+
+        async def run():
+            for key, fn, expected in self.CASES:
+                stub = _StubInlineClient()
+                ctx = WorkflowCtx({})
+                ctx._inline_http_client = stub
+                live = await ctx._run_inline_step(key, fn)
+                checkpointed = stub.posted[0]["result"]
+                assert checkpointed == expected
+                assert live == expected and type(live) is type(expected)
+                replayed = WorkflowCtx({"completed_steps": {key: checkpointed}})
+                assert await replayed._run_inline_step(key, fn) == live
+
+        asyncio.run(run())
 
 
 # =====================================================================

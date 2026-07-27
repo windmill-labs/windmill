@@ -1546,6 +1546,15 @@ function stepErrorFromMarker(marker: any, name: string): Error {
   return err;
 }
 
+/** Encode a checkpoint payload the way the worker wrapper does on the suspend
+ *  path, so both arms record the same bytes for the same step. `undefined` maps
+ *  to null rather than dropping the key. */
+function encodeCheckpointPayload(payload: Record<string, any>): string {
+  return JSON.stringify(payload, (_key, value) =>
+    typeof value === "undefined" ? null : value,
+  );
+}
+
 export interface TaskOptions {
   timeout?: number;
   tag?: string;
@@ -1825,7 +1834,25 @@ export class WorkflowCtx {
       fastPathFlagRaw !== "no";
     const jobId = getEnv("WM_JOB_ID");
     const workspace = getEnv("WM_WORKSPACE");
+    let payload: string | undefined;
     if (fastPathEnabled && jobId && workspace && OpenAPI.BASE && OpenAPI.TOKEN) {
+      try {
+        payload = encodeCheckpointPayload({
+          key,
+          result,
+          started_at: startedAt,
+          duration_ms: durationMs,
+        });
+      } catch (e) {
+        // Circular reference, un-encodable BigInt, throwing toJSON: nothing to
+        // checkpoint, so leave it to the suspend path and its own encoder.
+        console.log(
+          `WAC v2 inline fast path could not serialize key ${key}, falling back to suspend: ${e}`,
+        );
+      }
+    }
+    if (payload !== undefined) {
+      const body = payload;
       const chainTail = this._inlineChain.then(async () => {
         const ctrl = new AbortController();
         const t = setTimeout(() => ctrl.abort(), 10_000);
@@ -1838,12 +1865,7 @@ export class WorkflowCtx {
                 "Content-Type": "application/json",
                 Authorization: `Bearer ${OpenAPI.TOKEN}`,
               },
-              body: JSON.stringify({
-                key,
-                result,
-                started_at: startedAt,
-                duration_ms: durationMs,
-              }),
+              body,
               signal: ctrl.signal,
             },
           );
@@ -1874,7 +1896,11 @@ export class WorkflowCtx {
         if (errored) {
           throw Object.assign(stepErrorFromMarker(result, name), { cause: stepError });
         }
-        return result as T;
+        // Return what a replay returns — the checkpointed value — not the
+        // in-memory one: a Date comes back as a string, a Map as `{}`, so
+        // handing back the live object would let the round that ran the body
+        // branch on a type no other round ever sees.
+        return JSON.parse(body).result as T;
       }
     }
 
@@ -1916,6 +1942,14 @@ export async function sleep(seconds: number): Promise<void> {
   await new Promise((r) => setTimeout(r, seconds * 1000));
 }
 
+/**
+ * Execute `fn` inline and checkpoint the result. On replay the cached value is
+ * returned without re-executing `fn`.
+ *
+ * The returned value is always the checkpointed one — `fn`'s result encoded as
+ * JSON and decoded back — so every round of the workflow sees the same thing.
+ * A `Date` comes back as a string, a `Map` as `{}`.
+ */
 export async function step<T>(name: string, fn: () => T | Promise<T>): Promise<T> {
   const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
   if (ctx) {

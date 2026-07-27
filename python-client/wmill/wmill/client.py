@@ -2920,7 +2920,23 @@ class WorkflowCtx:
         _token = os.environ.get("WM_TOKEN")
         if _fast_path_enabled and _job_id and _workspace and _base and _token:
             _fast_path_ok = False
+            _replay_result = None
             try:
+                # ``default=str`` mirrors the encoder the worker wrapper uses on
+                # the suspend path, so both arms checkpoint the same bytes for
+                # the same step — and a value json can't encode natively (a
+                # datetime, a set) goes through the fast path instead of
+                # silently degrading to a suspend round.
+                _payload = _json_mod.dumps(
+                    {
+                        "key": key,
+                        "result": result,
+                        "started_at": started_at,
+                        "duration_ms": duration_ms,
+                    },
+                    default=str,
+                )
+                _replay_result = _json_mod.loads(_payload)["result"]
                 if self._inline_lock is None:
                     self._inline_lock = _asyncio.Lock()
                 # Lock wraps only the POST, not fn() above — concurrent
@@ -2937,12 +2953,7 @@ class WorkflowCtx:
                         )
                     _resp = await self._inline_http_client.post(
                         f"{_base}/api/w/{_workspace}/jobs/wac/inline_checkpoint/{_job_id}",
-                        json={
-                            "key": key,
-                            "result": result,
-                            "started_at": started_at,
-                            "duration_ms": duration_ms,
-                        },
+                        content=_payload,
                     )
                     _resp.raise_for_status()
                 _fast_path_ok = True
@@ -2960,7 +2971,11 @@ class WorkflowCtx:
                 # run and miss on the next. ``__cause__`` is for tracebacks only.
                 if step_error is not None:
                     raise _step_error_from_marker(result, name) from step_error
-                return result
+                # Return what a replay returns — the checkpointed value — not
+                # the in-memory one: a tuple comes back as a list, a datetime as
+                # a string, so handing back the live object would let the round
+                # that ran the body branch on a type no other round ever sees.
+                return _replay_result
 
         raise _StepSuspend({
             "mode": "inline_checkpoint",
@@ -3170,6 +3185,10 @@ async def step(name: str, fn):
     On replay the cached value is returned without re-executing ``fn``.
     Use for lightweight deterministic operations (timestamps, random IDs,
     config reads) that should not incur the overhead of a child job.
+
+    The returned value is always the checkpointed one — ``fn``'s result
+    encoded as JSON and decoded back — so every round of the workflow sees
+    the same thing. A ``datetime`` comes back as a string, a tuple as a list.
     """
     ctx: WorkflowCtx | None = _workflow_ctx.get(None)
     if ctx is not None:
