@@ -1,9 +1,7 @@
 import type { SupportedLanguage } from '$lib/common'
 
 export type FlowBuilderWhitelabelCustomUi = {
-	/** Width-responsive step-details panel: below the breakpoint the pane becomes a
-	 *  modal, and the docked pane gains a detach header. Defaults on; whitelabel
-	 *  embeds set false to keep the classic always-docked pane. */
+	/** Opt out of FlowEditor's `modalPanel` to keep the classic always-docked pane. */
 	modalPanel?: boolean
 	topBar?: {
 		path?: boolean

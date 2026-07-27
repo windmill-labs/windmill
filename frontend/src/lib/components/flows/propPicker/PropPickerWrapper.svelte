@@ -157,7 +157,6 @@
 					{pickableProperties}
 					allowCopy={!notSelectable && !$propPickerConfig}
 					on:select={({ detail }) => {
-						// console.log('selecting', detail)
 						dispatch('select', detail)
 						if ($propPickerConfig?.onSelect(detail)) {
 							$propPickerConfig?.clearFocus()
