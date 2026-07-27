@@ -4,7 +4,7 @@
 	// makes it worth having here: nodes go amber then green as dbt walks the DAG,
 	// where the alternative is reading `N of M OK created` out of the log.
 	import { onDestroy } from 'svelte'
-	import { OpenAPI, AssetService } from '$lib/gen'
+	import { OpenAPI, JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
 	import type { AssetGraphResponse } from '$lib/components/assets/AssetGraph/types'
@@ -68,7 +68,7 @@
 		const ws = $workspaceStore
 		if (!ws || !jobId) return
 		try {
-			const rows = await AssetService.getRunProgress({ workspace: ws, jobId })
+			const rows = await JobService.getRunProgress({ workspace: ws, id: jobId })
 			const next = new Map<string, 'running' | 'materialized' | 'failed'>()
 			for (const r of rows) next.set(`asset:${r.asset_kind}:${r.asset_path}`, r.status)
 			assetRunStatus = next

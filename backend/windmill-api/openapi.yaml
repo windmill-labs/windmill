@@ -22784,7 +22784,7 @@ paths:
                 items:
                   $ref: "#/components/schemas/MaterializedPartition"
 
-  /w/{workspace}/assets/run_progress/{job_id}:
+  /w/{workspace}/jobs/run_progress/{id}:
     get:
       summary: List the per-relation progress one job has recorded so far
       description: >
@@ -22794,10 +22794,10 @@ paths:
         gets an empty list.
       operationId: getRunProgress
       tags:
-        - asset
+        - job
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - name: job_id
+        - name: id
           in: path
           required: true
           description: The job whose per-relation progress to read

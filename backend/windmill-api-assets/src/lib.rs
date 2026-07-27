@@ -39,7 +39,6 @@ pub fn workspaced_service() -> Router {
         .route("/asset_schemas", get(list_asset_schemas))
         .route("/record_materialization", post(record_materialization))
         .route("/macros", get(list_macros))
-        .route("/run_progress/{job_id}", get(run_progress))
 }
 
 // One registry macro, with its full definition — drives the macro-explorer
@@ -123,61 +122,6 @@ async fn list_partitions(
     .await?;
     tx.commit().await?;
     Ok(Json(rows))
-}
-
-/// Per-relation state of one job, so a graph can move while the job is running.
-///
-/// The worker records these as it goes -- `running` when a model starts,
-/// `materialized` or `failed` when it ends -- but nothing rendered them: the
-/// graph response carries a relation's identity, not what a particular run is
-/// doing to it. A retry rewrites the same rows, so a node moves back to
-/// `running` and on to its new outcome without anything extra here.
-///
-/// `materialized_partition` is keyed by relation and holds its CURRENT state,
-/// so filtering by `job_id` returns exactly the relations this job last
-/// touched, which is what the run page asks about.
-#[derive(Serialize, Debug)]
-struct AssetProgress {
-    asset_kind: AssetKind,
-    asset_path: String,
-    status: String,
-    row_count: Option<i64>,
-    error: Option<String>,
-}
-
-async fn run_progress(
-    authed: ApiAuthed,
-    Path((w_id, job_id)): Path<(String, uuid::Uuid)>,
-    Extension(user_db): Extension<UserDB>,
-) -> JsonResult<Vec<AssetProgress>> {
-    // `materialized_partition` has no RLS, so `user_db` alone would let any
-    // workspace member read any job's relations by guessing its id. The JOIN is
-    // the authorization: `v2_job` does have per-user policies, so a caller who
-    // cannot see the job sees no rows for it.
-    let mut tx = user_db.begin(&authed).await?;
-    let rows = sqlx::query!(
-        "SELECT mp.asset_kind AS \"asset_kind: AssetKind\", mp.asset_path,
-                mp.status::text AS \"status!\", mp.row_count, mp.error
-           FROM materialized_partition mp
-           JOIN v2_job j ON j.id = mp.job_id AND j.workspace_id = mp.workspace_id
-          WHERE mp.workspace_id = $1 AND mp.job_id = $2",
-        w_id,
-        job_id
-    )
-    .fetch_all(&mut *tx)
-    .await?;
-    tx.commit().await?;
-    Ok(Json(
-        rows.into_iter()
-            .map(|r| AssetProgress {
-                asset_kind: r.asset_kind,
-                asset_path: r.asset_path,
-                status: r.status,
-                row_count: r.row_count,
-                error: r.error,
-            })
-            .collect(),
-    ))
 }
 
 // Only the EE `backfill` module reads the fields; the OSS stub errors without

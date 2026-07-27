@@ -134,6 +134,7 @@ pub fn workspaced_service() -> Router {
         ServiceBuilder::new().layer(axum::middleware::from_fn(add_webhook_allowed_origin));
 
     Router::new()
+        .route("/run_progress/{id}", get(get_run_progress))
         .route(
             "/run/f/{*script_path}",
             post(run_flow_by_path)
@@ -756,6 +757,68 @@ async fn get_scheduled_for(
 
     let scheduled_for = not_found_if_none(scheduled_for, "QueuedJob", &id.to_string())?;
     Ok(Json(scheduled_for.timestamp_millis()))
+}
+
+/// Per-relation progress of one job, for a graph that moves while it runs.
+///
+/// The worker records these as it goes -- `running` when a model starts,
+/// `materialized` or `failed` when it ends -- but nothing rendered them: the
+/// asset graph carries a relation's identity, not what a particular run is doing
+/// to it. A retry rewrites the same rows, so a node moves back to `running` and
+/// on to its new outcome without anything extra here.
+#[derive(Serialize, Debug)]
+struct AssetProgress {
+    asset_kind: windmill_common::assets::AssetKind,
+    asset_path: String,
+    status: String,
+    row_count: Option<i64>,
+    error: Option<String>,
+}
+
+/// Lives with the job routes, not the asset ones, because it is job-scoped and
+/// `require_job_read_access` is what gates it: `materialized_partition` has no
+/// RLS, and RLS alone would not enforce a scoped token's tag filter or the
+/// app-embed cutoff, which that helper adds on top.
+async fn get_run_progress(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, job_id)): Path<(String, Uuid)>,
+) -> error::JsonResult<Vec<AssetProgress>> {
+    let created_by = sqlx::query_scalar!(
+        "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
+        job_id,
+        &w_id
+    )
+    .fetch_optional(&db)
+    .await?;
+    let Some(created_by) = created_by else {
+        return Ok(Json(vec![]));
+    };
+    require_job_read_access(&db, &user_db, &authed, &w_id, &job_id, &created_by, None).await?;
+    let mut tx = user_db.begin(&authed).await?;
+    let rows = sqlx::query!(
+        "SELECT asset_kind AS \"asset_kind: windmill_common::assets::AssetKind\", asset_path,
+                status::text AS \"status!\", row_count, error
+           FROM materialized_partition
+          WHERE workspace_id = $1 AND job_id = $2",
+        w_id,
+        job_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| AssetProgress {
+                asset_kind: r.asset_kind,
+                asset_path: r.asset_path,
+                status: r.status,
+                row_count: r.row_count,
+                error: r.error,
+            })
+            .collect(),
+    ))
 }
 
 async fn get_flow_job_debug_info(

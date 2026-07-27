@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT mp.asset_kind AS \"asset_kind: AssetKind\", mp.asset_path,\n                mp.status::text AS \"status!\", mp.row_count, mp.error\n           FROM materialized_partition mp\n           JOIN v2_job j ON j.id = mp.job_id AND j.workspace_id = mp.workspace_id\n          WHERE mp.workspace_id = $1 AND mp.job_id = $2",
+  "query": "SELECT asset_kind AS \"asset_kind: windmill_common::assets::AssetKind\", asset_path,\n                status::text AS \"status!\", row_count, error\n           FROM materialized_partition\n          WHERE workspace_id = $1 AND job_id = $2",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "asset_kind: AssetKind",
+        "name": "asset_kind: windmill_common::assets::AssetKind",
         "type_info": {
           "Custom": {
             "name": "asset_kind",
@@ -58,5 +58,5 @@
       true
     ]
   },
-  "hash": "e82ec7d8079f90a9aa239743ee4b9ffe9c9ff74ca008f4e1551da912b92149ea"
+  "hash": "ea42e1f5eb51c4732400b5abd63b2c2abecd89d69a883ff839a8c80da6abc217"
 }
