@@ -2705,19 +2705,24 @@ class TaskError(Exception):
         self.result = result
 
 
+def _step_error_stack(exc: BaseException) -> str:
+    """The traceback of a failed ``step()`` body, formatted the way the python
+    executor formats a failed job's: frames only, and the frame that called into
+    the user's code dropped. Here that first frame is ``_run_inline_step``'s own
+    ``result = fn()``, the counterpart of the generated wrapper frame the
+    executor strips, so a step's stack and a task's stack read alike."""
+    return "".join(_traceback.format_tb(exc.__traceback__)[1:]).strip()
+
+
 def _step_error_marker(key: str, exc: BaseException) -> dict:
     """Serialize a failed ``step()`` body into the ``__wmill_error`` marker that
     task failures also use, so it can be stored in ``completed_steps``.
 
-    ``result`` carries the ``{"error": {"name", "message", "stack"}}`` a failed
-    child job reports, so an ``except TaskError`` reads one shape no matter
-    where the failure came from. The traceback belongs in there rather than on
-    ``__cause__``: a replay rebuilds the exception from this marker alone, and
-    whatever a handler can branch on has to survive that."""
+    The marker's final shape is decided by the backend (``wac_failure_record``),
+    which normalizes task failures through the same function; what is built here
+    is the raw material plus the envelope the backend recognizes."""
     error = {"name": type(exc).__name__, "message": str(exc)}
-    stack = "".join(
-        _traceback.format_exception(type(exc), exc, exc.__traceback__)
-    ).strip()
+    stack = _step_error_stack(exc)
     if stack:
         error["stack"] = stack
     return {
@@ -2921,8 +2926,9 @@ class WorkflowCtx:
         t0 = _time_mod.monotonic()
         # A raised step still has to reach ``completed_steps``, or a replay with
         # ``_executing_key`` set finds nothing recorded and parks forever on the
-        # ``_asyncio.Future()`` above. ``_StepSuspend`` and ``CancelledError`` are
-        # ``BaseException``, so they pass through untouched.
+        # ``_asyncio.Future()`` above. The control-flow signals (``_StepSuspend``,
+        # ``_StepFailure``) and ``CancelledError`` are ``BaseException``, so they
+        # pass through untouched.
         step_failed = False
         try:
             result = fn()
@@ -2931,6 +2937,14 @@ class WorkflowCtx:
         except Exception as _exc:
             step_failed = True
             result = _step_error_marker(key, _exc)
+            # The failure is reported as a value from here on, so nothing else
+            # prints the traceback. Without this a step that fails and is never
+            # caught leaves a job log whose deepest frame is inside this client.
+            print(f"--- WAC: {key} failed ---")
+            print(f"{type(_exc).__name__}: {_exc}")
+            _step_stack = result["result"]["error"].get("stack")
+            if _step_stack:
+                print(_step_stack)
         duration_ms = int((_time_mod.monotonic() - t0) * 1000)
 
         # Fast path: POST the delta to the new per-job API endpoint and return
@@ -2948,6 +2962,7 @@ class WorkflowCtx:
         _token = os.environ.get("WM_TOKEN")
         if _fast_path_enabled and _job_id and _workspace and _base and _token:
             _fast_path_ok = False
+            _stored_failure = None
             try:
                 if self._inline_lock is None:
                     self._inline_lock = _asyncio.Lock()
@@ -2973,6 +2988,16 @@ class WorkflowCtx:
                         },
                     )
                     _resp.raise_for_status()
+                    if step_failed:
+                        # The backend normalizes the failure before storing it,
+                        # and hands back what it stored. Raising from that, not
+                        # from the marker posted above, is what makes this round
+                        # and every replay read the same record even if the two
+                        # sides ever disagree about how to build one.
+                        try:
+                            _stored_failure = (_resp.json() or {}).get("failure")
+                        except Exception:
+                            _stored_failure = None
                 _fast_path_ok = True
             except Exception as _e:
                 logger.info(
@@ -2982,14 +3007,18 @@ class WorkflowCtx:
                 )
                 # fall through to the legacy suspend path
             if _fast_path_ok:
-                # Raise what a replay would rebuild from the marker, never the
+                # Raise what a replay would rebuild from the record, never the
                 # original: a replay cannot reconstruct the original type, so
                 # raising it here would make ``except ValueError:`` catch on this
                 # run and miss on the next. Nothing is chained onto
                 # ``__cause__`` for the same reason — the traceback a replay can
-                # still show is in ``result["error"]["stack"]``.
+                # still show is in ``result["error"]["stack"]``. ``_stored_failure``
+                # is None against a backend that predates the echoed record; the
+                # locally built marker is then the best available guess at it.
                 if step_failed:
-                    raise _task_error_from_marker(result, f"Step '{name}' failed")
+                    raise _task_error_from_marker(
+                        _stored_failure or result, f"Step '{name}' failed"
+                    )
                 return result
 
         raise _StepSuspend({

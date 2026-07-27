@@ -5,6 +5,11 @@
  */
 import { expect, test, describe } from "bun:test";
 
+// The two functions that decide what a caught failure looks like come from the
+// shipped module, not from the mirror below: they are what drifted from the
+// backend's shape before, so a copy of them here would guard nothing.
+import { stepErrorMarker, taskErrorFromMarker } from "../wacError";
+
 // --- Inline SDK (mirrors client.ts implementation) ---
 
 class StepSuspend extends Error {
@@ -12,24 +17,6 @@ class StepSuspend extends Error {
     super("__step_suspend__");
     this.name = "StepSuspend";
   }
-}
-
-function stepErrorMarker(key: string, e: unknown): Record<string, any> {
-  const message = e instanceof Error ? e.message : String(e);
-  const name = e instanceof Error ? (e.constructor?.name ?? e.name) : typeof e;
-  const error: Record<string, any> = { name, message };
-  const stack = e instanceof Error ? e.stack : undefined;
-  if (stack) error.stack = stack;
-  return { __wmill_error: true, message, step_key: key, result: { error } };
-}
-
-function taskErrorFromMarker(marker: any, fallbackMessage: string): Error {
-  const err = new Error(marker?.message || fallbackMessage);
-  err.name = "TaskError";
-  (err as any).result = marker?.result;
-  (err as any).step_key = marker?.step_key;
-  (err as any).child_job_id = marker?.child_job_id;
-  return err;
 }
 
 let _workflowCtx: WorkflowCtx | null = null;
@@ -1482,6 +1469,25 @@ describe("throwing inline step is checkpointed", () => {
     const result = await runWorkflow(wf, {}, []);
     expect(result.type).toBe("inline_checkpoint");
     expect(result.result).toBe(42);
+  });
+
+  // The backend records `name: e.name` for a failed child job
+  // (bun_executor.rs). A step reporting the constructor name instead would make
+  // the same failure read differently depending on whether it ran as a task or
+  // as a step, in the one field handlers are told to branch on.
+  test("error.name is e.name, as a failed child job reports it", async () => {
+    class MyError extends Error {}
+    const unnamed = stepErrorMarker("k", new MyError("boom"));
+    expect(unnamed.result.error.name).toBe("Error");
+
+    class NamedError extends Error {
+      name = "NamedError";
+    }
+    const named = stepErrorMarker("k", new NamedError("boom"));
+    expect(named.result.error.name).toBe("NamedError");
+
+    const domish = Object.assign(new Error("aborted"), { name: "AbortError" });
+    expect(stepErrorMarker("k", domish).result.error.name).toBe("AbortError");
   });
 
   test("a replayed step failure is named TaskError, like the python client", async () => {

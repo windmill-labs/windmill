@@ -976,7 +976,12 @@ class TestRaisingInlineStepIsCheckpointed:
         assert r["type"] == "inline_checkpoint"
         assert r["key"] == "risky"
         assert self._without_stack(r["result"]) == self.MARKER
-        assert "ValueError: boom" in r["result"]["result"]["error"]["stack"]
+        stack = r["result"]["result"]["error"]["stack"]
+        # Frames only and the SDK's own `result = fn()` frame dropped, the way
+        # the python executor formats a failed job's stack.
+        assert 'raise ValueError("boom")' in stack
+        assert "result = fn()" not in stack
+        assert not stack.startswith("Traceback")
 
     def test_fast_path_posts_error_and_raises_the_replay_exception(self, monkeypatch):
         """The default path: the checkpoint is POSTed and the workflow body gets
@@ -995,13 +1000,25 @@ class TestRaisingInlineStepIsCheckpointed:
         posted = []
 
         class _StubResponse:
+            def __init__(self, body):
+                self._body = body
+
             def raise_for_status(self):
                 pass
 
+            def json(self):
+                return self._body
+
         class _StubClient:
+            """Stands in for the endpoint, which normalizes the failure and
+            echoes back what it stored. The echo deliberately differs from what
+            was posted so the assertions below can tell which copy the client
+            raised from."""
+
             async def post(self, url, json=None):
                 posted.append(json)
-                return _StubResponse()
+                stored = {**json["result"], "message": "normalized by the backend"}
+                return _StubResponse({"failure": stored})
 
             async def aclose(self):
                 pass
@@ -1009,16 +1026,21 @@ class TestRaisingInlineStepIsCheckpointed:
         async def run():
             ctx = WorkflowCtx({})
             ctx._inline_http_client = _StubClient()
-            with pytest.raises(TaskError, match="boom") as live:
+            with pytest.raises(TaskError) as live:
                 await ctx._run_inline_step("risky", self._boom)
-            # ...and the replay of that very checkpoint raises the same thing.
-            written = posted[0]["result"]
-            replayed = WorkflowCtx({"completed_steps": {"risky": written}})
-            with pytest.raises(TaskError, match="boom") as replay:
+            # The live round raised from the record the backend stored, not from
+            # the marker it posted: that is what keeps the two rounds identical
+            # even if the SDK and the backend ever build a record differently.
+            stored = {**posted[0]["result"], "message": "normalized by the backend"}
+            assert str(live.value) == "normalized by the backend"
+
+            # ...and the replay of that very record raises the same thing.
+            replayed = WorkflowCtx({"completed_steps": {"risky": stored}})
+            with pytest.raises(TaskError) as replay:
                 await replayed._run_inline_step("risky", self._boom)
             assert type(live.value) is type(replay.value)
             assert live.value.args == replay.value.args
-            assert live.value.result == replay.value.result == written["result"]
+            assert live.value.result == replay.value.result == stored["result"]
             assert live.value.step_key == replay.value.step_key == "risky"
             # A step has no child job to name, and nothing hangs off __cause__:
             # a replay has no original exception to chain, so neither round does.
