@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT username FROM password WHERE email = 'renamed@windmill.dev'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "username",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "3c5e00d0e79fa518a95b05a00e75dbd96d7852ad340759252de4dcb57ad22a43"
+}

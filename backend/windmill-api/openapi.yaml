@@ -732,6 +732,38 @@ paths:
               schema:
                 type: string
 
+  /users/change_email/{email}:
+    post:
+      summary: global change user email (require super admin)
+      operationId: globalUserChangeEmail
+      tags:
+        - user
+      parameters:
+        - name: email
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: new email
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                new_email:
+                  type: string
+              required:
+                - new_email
+      responses:
+        "200":
+          description: user email changed
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /users/delete/{email}:
     delete:
       summary: global delete user (require super admin)

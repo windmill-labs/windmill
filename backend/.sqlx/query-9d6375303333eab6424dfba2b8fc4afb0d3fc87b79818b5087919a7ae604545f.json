@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE gcp_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9d6375303333eab6424dfba2b8fc4afb0d3fc87b79818b5087919a7ae604545f"
+}
