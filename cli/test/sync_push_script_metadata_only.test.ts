@@ -74,7 +74,8 @@ test(
         tempDir,
       );
       expect(result.code).toBe(1);
-      expect(result.stdout + result.stderr).toContain(
+      // The push echoes local paths with the platform separator (`\` on Windows).
+      expect((result.stdout + result.stderr).replaceAll("\\", "/")).toContain(
         "f/test/orphan.script.yaml",
       );
 

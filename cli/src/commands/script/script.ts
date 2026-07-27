@@ -262,6 +262,20 @@ export async function findResourceFile(path: string) {
   return validCandidates[0];
 }
 
+// The separator is whatever the local filesystem uses, so both are accepted:
+// on Windows these paths reach us as `my_script__mod\script.yaml`.
+const MODULE_ENTRY_META_RE = /([\\/])script\.(yaml|json|lock)$/;
+
+/**
+ * Whether a path is a module folder's own metadata file (`__mod/script.yaml`).
+ * `isModuleEntryPoint` already pins the file to `script.*` directly under
+ * `__mod/`, so this only narrows it to the metadata extensions: a `script.yaml`
+ * nested deeper in the module tree is a module file, not the script's metadata.
+ */
+function isModuleEntryMetadata(p: string): boolean {
+  return isModuleEntryPoint(p) && MODULE_ENTRY_META_RE.test(p);
+}
+
 export async function handleScriptMetadata(
   path: string,
   workspace: Workspace,
@@ -276,14 +290,7 @@ export async function handleScriptMetadata(
   const isFlatMeta = path.endsWith(".script.json") ||
     path.endsWith(".script.yaml") ||
     path.endsWith(".script.lock");
-  // Folder layout: my_script__mod/script.yaml. Only the entry point counts —
-  // a script.yaml nested deeper in the module tree is a module file, not the
-  // script's metadata.
-  const isFolderMeta = !isFlatMeta && isModuleEntryPoint(path) && (
-    path.endsWith("/script.yaml") ||
-    path.endsWith("/script.json") ||
-    path.endsWith("/script.lock")
-  );
+  const isFolderMeta = !isFlatMeta && isModuleEntryMetadata(path);
   if (isFlatMeta || isFolderMeta) {
     const contentPath = await findContentFile(path);
     return handleFile(
@@ -884,12 +891,10 @@ export class UnresolvableScriptContentFileError extends Error {}
 
 export async function findContentFile(filePath: string) {
   // Folder layout: __mod/script.yaml -> __mod/script.ts
-  const isModuleFolderMeta =
-    isModuleEntryPoint(filePath) &&
-    (filePath.endsWith("/script.yaml") || filePath.endsWith("/script.json") || filePath.endsWith("/script.lock"));
+  const isModuleFolderMeta = isModuleEntryMetadata(filePath);
   const toCandidate = (ext: string) =>
     isModuleFolderMeta
-      ? filePath.replace(/\/script\.(yaml|json|lock)$/, "/script" + ext)
+      ? filePath.replace(MODULE_ENTRY_META_RE, "$1script" + ext)
       : filePath.endsWith("script.json")
       ? filePath.replace(".script.json", ext)
       : filePath.endsWith("script.lock")
