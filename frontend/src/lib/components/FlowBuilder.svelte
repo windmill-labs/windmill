@@ -49,7 +49,11 @@
 	import WorkspaceScriptSettingsDrawer from './flows/content/WorkspaceScriptSettingsDrawer.svelte'
 	import FlowEditorDrawer from './flows/content/FlowEditorDrawer.svelte'
 	import { dfs as dfsApply } from './flows/dfs'
-	import { claimLinkedToolsFetch, publishLinkedAgentTools } from './flows/flowState'
+	import {
+		claimLinkedToolsFetch,
+		invalidateLinkedToolsFetches,
+		publishLinkedAgentTools
+	} from './flows/flowState'
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
@@ -568,11 +572,16 @@
 			(flowStore.val as { path?: string }).path ?? $pathStore
 		)
 		untrack(() => {
+			// Kill the source scope's in-flight fetches first: they still hold a valid generation for
+			// that key, so one landing later would publish there and be swept forward on top of a link
+			// resolved since under the destination scope.
 			if (scope !== prevLinkedToolsScope) {
+				invalidateLinkedToolsFetches(prevLinkedToolsScope)
 				migrateLinkedAgentToolsScope(prevLinkedToolsScope, scope)
 				prevLinkedToolsScope = scope
 			}
 			if (docScope !== scope) {
+				invalidateLinkedToolsFetches(docScope)
 				migrateLinkedAgentToolsScope(docScope, scope)
 			}
 		})

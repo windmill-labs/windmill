@@ -126,6 +126,18 @@ export async function publishLinkedAgentTools(
 	}
 }
 
+/** Supersede every in-flight fetch for a scope. A rename moves the bucket to a new key, so a fetch
+ * still running against the old one would publish there and then be swept forward over tools that
+ * resolved later under the new key. */
+export function invalidateLinkedToolsFetches(scope: string) {
+	const prefix = `${scope}:`
+	for (const key of linkedToolFetchGen.keys()) {
+		if (key.startsWith(prefix)) {
+			linkedToolFetchGen.set(key, (linkedToolFetchGen.get(key) ?? 0) + 1)
+		}
+	}
+}
+
 /** Supersede any in-flight fetch for this (scope, module) and return the new generation. Anything
  * that publishes or clears tools outside `publishLinkedAgentTools` must claim first, or an older
  * fetch still passes its own check and overwrites the newer result. */
