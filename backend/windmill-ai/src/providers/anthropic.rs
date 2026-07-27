@@ -544,10 +544,14 @@ impl AnthropicQueryBuilder {
             }
         }
 
+        // Exactly one auth header, matching `get_auth_headers`: Vertex takes an
+        // OAuth bearer token, every other Messages endpoint takes x-api-key.
+        // Gateways in front of Anthropic reject requests carrying both.
         if let Some(api_key) = credentials.api_key.as_ref() {
-            headers.push(("authorization".to_string(), format!("Bearer {}", api_key)));
-            if !is_vertex {
-                headers.push(("X-API-Key".to_string(), api_key.clone()));
+            if is_vertex {
+                headers.push(("authorization".to_string(), format!("Bearer {}", api_key)));
+            } else {
+                headers.push(("x-api-key".to_string(), api_key.clone()));
             }
         }
 
@@ -953,12 +957,12 @@ mod tests {
         assert_eq!(request.method, Method::POST);
         assert_eq!(request.url, "https://api.anthropic.com/v1/messages");
         assert_eq!(request.body, body.to_vec());
-        assert!(has_header(
-            &request.headers,
-            "authorization",
-            "Bearer api-key"
-        ));
-        assert!(has_header(&request.headers, "X-API-Key", "api-key"));
+        assert!(has_header(&request.headers, "x-api-key", "api-key"));
+        // Anthropic gateways reject requests that carry both credentials.
+        assert!(!request
+            .headers
+            .iter()
+            .any(|(header_name, _)| header_name.eq_ignore_ascii_case("authorization")));
         assert!(has_header(
             &request.headers,
             "anthropic-version",
@@ -1176,6 +1180,6 @@ mod tests {
             request.url,
             "https://wm-test-ai.services.ai.azure.com/anthropic/v1/messages"
         );
-        assert!(has_header(&request.headers, "X-API-Key", "api-key"));
+        assert!(has_header(&request.headers, "x-api-key", "api-key"));
     }
 }
