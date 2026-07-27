@@ -30,7 +30,11 @@
 		)
 	)
 
-	let result = $derived(flowStateStore.val[flowModule.id]?.previewResult)
+	// The worker evaluates skip_if before this step runs, passing the last job result,
+	// so `result` here is the previous step's output — not this step's.
+	let result = $derived(
+		previousModule ? flowStateStore.val[previousModule.id]?.previewResult : undefined
+	)
 
 	let isSkipEnabled = $derived(Boolean(flowModule.skip_if))
 </script>
@@ -67,7 +71,7 @@
 			}
 			pickableProperties={stepPropPicker.pickableProperties}
 			{result}
-			extraLib={stepPropPicker.extraLib}
+			extraLib={`declare const result = ${JSON.stringify(result)};\n` + stepPropPicker.extraLib}
 		/>
 	</div>
 </div>

@@ -1,12 +1,8 @@
 import type { Node } from '@xyflow/svelte'
 
-/** Options carried alongside a `selectId` call so a consumer (e.g. FlowEditor's
- * modal panel) can react beyond the plain id.
- * `openPanel: true` requests the panel even when the id wouldn't otherwise trigger
- * it (e.g. a freshly created agent tool, whose module-style id isn't a flow-level
- * panel target). `false` marks a selection that is a side effect rather than a
- * request to see it — what remains selected after a delete — and suppresses the
- * panel even for ids that normally open it. Omitted leaves the default rules. */
+/** Intent attached to a `selectId` call. `true` opens the panel even for ids that
+ * would not normally trigger it; `false` marks an incidental selection (what remains
+ * after a delete) and keeps it shut; omitted uses the default rules. */
 export type SelectIntentOptions = {
 	openPanel?: boolean
 }

@@ -217,14 +217,14 @@ const SPECS: { key: StepSettingKey; spec: SettingSpec }[] = [
 			configured: (m, ctx) =>
 				isWorkspaceScript(m)
 					? ctx.referenced?.concurrent_limit != undefined && ctx.referenced.concurrent_limit > 0
-					: Boolean(inlineConcurrentLimit(m)),
+					: (inlineConcurrentLimit(m) ?? 0) > 0,
 			summarize: (m, ctx) => {
 				if (isWorkspaceScript(m)) {
 					const l = ctx.referenced?.concurrent_limit
 					return l != undefined && l > 0 ? cfg(`Max ${l}`) : def('None')
 				}
 				const l = inlineConcurrentLimit(m)
-				if (!l) return def('None')
+				if (l == undefined || l <= 0) return def('None')
 				const key = m.value.type === 'rawscript' ? m.value.custom_concurrency_key : undefined
 				return cfg(`Max ${l}${key ? ' per key' : ''}`)
 			}
@@ -249,7 +249,7 @@ const SPECS: { key: StepSettingKey; spec: SettingSpec }[] = [
 			configured: (m, ctx) =>
 				isWorkspaceScript(m)
 					? ctx.referenced?.cache_ttl != undefined && ctx.referenced.cache_ttl > 0
-					: Boolean(m.cache_ttl),
+					: (m.cache_ttl ?? 0) > 0,
 			summarize: (m, ctx) => {
 				const ttl = isWorkspaceScript(m) ? ctx.referenced?.cache_ttl : m.cache_ttl
 				return ttl != undefined && ttl > 0 ? cfg(formatDur(ttl)) : def('Off')

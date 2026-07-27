@@ -54,6 +54,25 @@ describe('describeStepSettings', () => {
 		expect(on['cache']?.configured).toBe(true)
 	})
 
+	it('treats non-positive inline concurrency and cache as unset, like the runtime does', () => {
+		const s = stepSettingsByKey(
+			step({
+				cache_ttl: -1,
+				value: {
+					type: 'rawscript',
+					language: 'bun',
+					content: '',
+					input_transforms: {},
+					concurrent_limit: -1
+				}
+			} as Partial<FlowModule>)
+		)
+		expect(s['concurrency']?.configured).toBe(false)
+		expect(s['concurrency']?.summary.text).toBe('None')
+		expect(s['cache']?.configured).toBe(false)
+		expect(s['cache']?.summary.text).toBe('Off')
+	})
+
 	it('omits settings that do not apply to the step type', () => {
 		const subflow = step({ value: { type: 'flow', path: 'u/me/f' } as any })
 		expect(describeStepSettings(subflow).some((s) => s.key === 'concurrency')).toBe(false)
