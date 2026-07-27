@@ -12,6 +12,7 @@
 	import { initHistory, redo, undo } from '$lib/history.svelte'
 	import {
 		clearLinkedAgentTools,
+		linkedAgentToolsForScope,
 		linkedToolsScope,
 		linkedAgentToolsVersion,
 		migrateLinkedAgentToolsScope
@@ -572,20 +573,35 @@
 			(flowStore.val as { path?: string }).path ?? $pathStore
 		)
 		untrack(() => {
-			// Kill the source scope's in-flight fetches first: they still hold a valid generation for
-			// that key, so one landing later would publish there and be swept forward on top of a link
-			// resolved since under the destination scope.
 			if (scope !== prevLinkedToolsScope) {
-				invalidateLinkedToolsFetches(prevLinkedToolsScope)
-				migrateLinkedAgentToolsScope(prevLinkedToolsScope, scope)
+				sweepLinkedToolsScope(prevLinkedToolsScope, scope, opWorkspace)
 				prevLinkedToolsScope = scope
 			}
 			if (docScope !== scope) {
-				invalidateLinkedToolsFetches(docScope)
-				migrateLinkedAgentToolsScope(docScope, scope)
+				sweepLinkedToolsScope(docScope, scope, opWorkspace)
 			}
 		})
 	})
+
+	function sweepLinkedToolsScope(from: string, to: string, ws: string | undefined) {
+		if (Object.keys(linkedAgentToolsForScope(from)).length === 0) {
+			return
+		}
+		// A fetch still running against `from` holds a valid generation there, so it would publish
+		// into the old bucket and be swept forward over a link resolved since under `to`.
+		invalidateLinkedToolsFetches(from)
+		migrateLinkedAgentToolsScope(from, to)
+		// That also cancelled fetches which were perfectly current — a link still loading when the
+		// rename landed. Anything with no tools in `to` is exactly those, so resolve them again.
+		const entries = linkedAgentEntries(linkedAgentRefs)
+		const resolved = linkedAgentToolsForScope(to)
+		for (const [moduleId, agentPath] of entries) {
+			if (resolved[moduleId] === undefined) {
+				publishLinkedAgentTools(agentPath, ws, to, moduleId)
+			}
+		}
+		publishedAgentByModule = entries
+	}
 
 	// Re-resolve linked agents whenever the set of links changes. Wholesale replacements — undo/redo,
 	// YAML or AI apply, session restore — swap `agent` without re-running initFlowState, and the step

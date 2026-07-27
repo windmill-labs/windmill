@@ -256,11 +256,9 @@
 	})
 
 	// A linked agent persists no tools on the module, so this read-only viewer resolves them from the
-	// resource: without them the graph draws no tool nodes and the log labels no tool call with the
-	// definition that ran. Scope must match what FlowGraphV2 reads below.
-	// Keyed by job, not flow path: this viewer also renders inside the editor's preview pane, and
-	// sharing the editor's `${ws}:${flow path}` bucket would let an older run's agent overwrite the
-	// tool nodes of the flow being edited.
+	// resource. Keyed by job rather than flow path: it also renders in the editor's preview pane,
+	// where sharing the editor's `${ws}:${flow path}` bucket would let an older run's agent overwrite
+	// the tool nodes of the flow being edited.
 	let linkedToolsViewScope = $derived(linkedToolsScope(workspace, `job:${job?.id ?? ''}`))
 	// Flattened to a string so polling a running flow — which replaces `job` every tick — only
 	// re-fetches when the set of linked steps actually changes.
