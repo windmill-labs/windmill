@@ -511,3 +511,74 @@ async fn test_user_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_change_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let global_base = format!("http://localhost:{port}/api/users");
+
+    let change_email = |email: &str, new_email: &str| {
+        authed(client().post(format!("{global_base}/change_email/{email}")))
+            .json(&json!({ "new_email": new_email }))
+            .send()
+    };
+
+    sqlx::query!("UPDATE password SET username = 'test-user-2' WHERE email = 'test2@windmill.dev'")
+        .execute(&db)
+        .await?;
+
+    let resp = change_email("test2@windmill.dev", "renamed@windmill.dev")
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "change_email: {}", resp.text().await?);
+
+    // The account row is moved, not recreated, so the instance-wide username and the workspace
+    // membership follow the new address.
+    let username =
+        sqlx::query_scalar!("SELECT username FROM password WHERE email = 'renamed@windmill.dev'")
+            .fetch_one(&db)
+            .await?;
+    assert_eq!(username.as_deref(), Some("test-user-2"));
+
+    let workspaces =
+        sqlx::query_scalar!("SELECT workspace_id FROM usr WHERE email = 'renamed@windmill.dev'")
+            .fetch_all(&db)
+            .await?;
+    assert_eq!(workspaces, vec!["test-workspace".to_string()]);
+
+    let old_rows =
+        sqlx::query_scalar!("SELECT COUNT(*) FROM password WHERE email = 'test2@windmill.dev'")
+            .fetch_one(&db)
+            .await?;
+    assert_eq!(old_rows, Some(0));
+
+    // Moving onto an address that already has an account would merge two identities.
+    let resp = change_email("test3@windmill.dev", "renamed@windmill.dev")
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+
+    let resp = change_email("test3@windmill.dev", "not-an-email")
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+
+    let resp = change_email("nobody@windmill.dev", "somebody@windmill.dev")
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 404);
+
+    // Only super admins may move an account.
+    let resp = client()
+        .post(format!("{global_base}/change_email/test3@windmill.dev"))
+        .header("Authorization", "Bearer SECRET_TOKEN_3")
+        .json(&json!({ "new_email": "hijacked@windmill.dev" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 401);
+
+    Ok(())
+}
