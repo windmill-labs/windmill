@@ -196,8 +196,7 @@ describe('createRawAppFromScript', () => {
 	})
 
 	// Every global the template names is an identifier a schema property could
-	// shadow, so each one has to be reserved. Three review rounds found this the
-	// hard way (`JSON`, then `undefined`, then `Math`/`Array`); this pins it.
+	// shadow, so each one has to be reserved.
 	it('reserves every global the generated source names', () => {
 		const app = createRawAppFromScript('u/dev/s', 'T', {
 			type: 'object',
@@ -253,7 +252,8 @@ describe('createRawAppFromScript', () => {
 		const appTsx = app.value.files['/App.tsx']
 		// `genWmillTs` types this `string[]`, so scalar state would not compile.
 		expect(appTsx).toContain("const [tags, setTags] = useState(['a'] as string[])")
-		expect(appTsx).toContain('multiple')
+		// `required` does constrain a `<select multiple>`, so the marker is enforced.
+		expect(appTsx).toMatch(/multiple\n\t+required/)
 		expect(appTsx).toContain('[...e.target.selectedOptions].map((o) => o.value)')
 		expect(appTsx).toContain('tags,')
 	})

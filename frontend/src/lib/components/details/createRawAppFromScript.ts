@@ -320,7 +320,9 @@ function toFields(schema: Record<string, any> | undefined): Field[] {
 function fieldInput(field: Field): string {
 	// The `*` marker is only decorative without this: the browser has to block
 	// the submit, else an empty required field posts '' (or NaN) and fails
-	// server-side. A checkbox is excluded — `required` there would force it on.
+	// server-side. Two exemptions: `required` on a checkbox would force it on, and
+	// a required single `<select>` always carries a real selection already. A
+	// `<select multiple>` can be empty, so it does take the attribute.
 	const req =
 		field.required && field.kind !== 'boolean' && field.kind !== 'enum'
 			? '\n\t\t\t\t\t\trequired'
@@ -354,7 +356,7 @@ ${field.required ? '' : '						<option value=""></option>\n'}${field.enumValues.
 			// identifier an argument could shadow, so the template names none.
 			return `<select
 						className="field-input field-multiselect"
-						multiple
+						multiple${req}
 						size={${Math.min(field.enumValues.length, 6)}}
 						value={${field.local}}
 						onChange={(e) =>
