@@ -1073,10 +1073,10 @@ components:
               description: |
                 Number. Limits how many times the agent can loop through reasoning and tool use.
                 Range: 1-1000.
+          # Only the flow-local inputs are always present: a step linked to an `ai_agent` resource
+          # (see `agent`) keeps just those and takes provider/output_type from the resource.
           required:
-            - provider
             - user_message
-            - output_type
         tools:
           type: array
           description: Array of tools the agent can use. The agent decides which tools to call based on the task

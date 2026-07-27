@@ -174,6 +174,33 @@
 		}
 	}
 
+	function stripResourcePrefix(ref: string): string {
+		return ref.replace(/^\$res:/, '').replace(/^res:\/\//, '')
+	}
+
+	// A saved agent bundles its tools, which reference workspace objects by bare path rather than
+	// `$res:` — invisible to the generic value walk. A nested linked agent is queued as a resource
+	// and recursed into, so its own provider and tools follow too.
+	function agentResourceDependencies(value: any): { kind: Kind; path: string }[] {
+		const result: { kind: Kind; path: string }[] = []
+		for (const tool of (value?.tools ?? []) as any[]) {
+			const v = tool?.value
+			if (typeof v !== 'object' || v == null) continue
+			if (typeof v.resource_path == 'string' && v.resource_path) {
+				result.push({ kind: 'resource', path: v.resource_path })
+			} else if (v.type == 'script' && typeof v.path == 'string' && v.path) {
+				if (!v.path.startsWith('hub/')) {
+					result.push({ kind: 'script', path: v.path })
+				}
+			} else if (v.type == 'flow' && typeof v.path == 'string' && v.path) {
+				result.push({ kind: 'flow', path: v.path })
+			} else if (v.type == 'aiagent' && typeof v.agent == 'string' && v.agent) {
+				result.push({ kind: 'resource', path: stripResourcePrefix(v.agent) })
+			}
+		}
+		return result
+	}
+
 	async function getDependencies(
 		kind: Kind,
 		path: string
@@ -217,10 +244,7 @@
 						// A linked agent step holds its brain and tools in this resource, so the target
 						// workspace needs it or every run of the deployed flow fails to resolve the step.
 						if (x.value.agent) {
-							result.push({
-								kind: 'resource',
-								path: x.value.agent.replace(/^\$res:/, '').replace(/^res:\/\//, '')
-							})
+							result.push({ kind: 'resource', path: stripResourcePrefix(x.value.agent) })
 						}
 					}
 					return result
@@ -255,17 +279,26 @@
 				return result
 			} else if (kind == 'resource') {
 				const res = await ResourceService.getResource({ workspace: $workspaceStore!, path })
-				function recObj(obj: any) {
-					if (typeof obj == 'string' && obj.startsWith('$var:')) {
-						return [{ kind: 'variable', path: obj.substring(5) }]
-					} else if (typeof obj == 'object') {
+				function recObj(obj: any): { kind: Kind; path: string }[] {
+					if (typeof obj == 'string') {
+						if (obj.startsWith('$var:')) {
+							return [{ kind: 'variable', path: obj.substring(5) }]
+						} else if (obj.startsWith('$res:')) {
+							return [{ kind: 'resource', path: obj.substring(5) }]
+						}
+						return []
+					} else if (typeof obj == 'object' && obj != null) {
 						return Object.values(obj).flatMap((x) => recObj(x))
 					} else {
 						return []
 					}
 				}
 
-				return [...recObj(res.value), { kind: 'resource_type', path: res.resource_type }]
+				return [
+					...recObj(res.value),
+					...(res.resource_type == 'ai_agent' ? agentResourceDependencies(res.value) : []),
+					{ kind: 'resource_type' as Kind, path: res.resource_type }
+				]
 			} else if (kind == 'trigger') {
 				if (additionalInformation?.triggers) {
 					return getTriggerDependency(additionalInformation.triggers.kind, path, $workspaceStore!)
