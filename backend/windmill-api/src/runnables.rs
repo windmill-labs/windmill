@@ -587,24 +587,32 @@ fn owner_prefix_range(alias: &str) -> String {
 /// predicates per row, which no index serves. The one case `path` cannot express
 /// is an item shared individually out of an otherwise unreadable owner; those
 /// owners are recovered by a second `extra_perms` pass over the GIN indexes.
+///
+/// The share pass's GIN indexes are on `extra_perms` alone, so on a multi-tenant
+/// instance its bitmap matches grantee keys (`g/all` exists in every workspace)
+/// across workspaces and `workspace_id` is only a recheck. Scoping the index
+/// would need `btree_gin`, a contrib extension self-hosted installs can't be
+/// assumed to have; the RLS policies already scan these indexes the same way.
 async fn count_runnables_by_owner(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Query(q): Query<CountRunnablesQuery>,
 ) -> JsonResult<RunnableCountsResponse> {
-    let mut kinds: Vec<&str> = match q.kinds.as_deref() {
+    let kinds: Vec<&str> = match q.kinds.as_deref() {
         None | Some("") => vec!["script", "flow", "app"],
-        Some(csv) => csv
-            .split(',')
-            .map(|s| s.trim())
-            .filter(|s| ["script", "flow", "app"].contains(s))
-            .collect(),
+        // Deduplicated: every kind becomes its own count subquery, so a repeated
+        // entry would both double that kind's count and multiply the scans.
+        Some(csv) => {
+            let mut ks: Vec<&str> = vec![];
+            for k in csv.split(',').map(|s| s.trim()) {
+                if ["script", "flow", "app"].contains(&k) && !ks.contains(&k) {
+                    ks.push(k);
+                }
+            }
+            ks
+        }
     };
-    // Operators may only see scripts, matching list_runnables.
-    if authed.is_operator {
-        kinds.retain(|k| *k == "script");
-    }
     if kinds.is_empty() {
         return Ok(Json(RunnableCountsResponse { counts: HashMap::new() }));
     }
@@ -654,30 +662,71 @@ async fn count_runnables_by_owner(
         _ => "app",
     };
 
-    // Pass 1 — prefix counts for every owner the caller reads wholesale.
-    // $1 = workspace, $2 = is_admin, $3 = readable folder names, $4 = username.
+    // `SELECT owner, count(*) ... GROUP BY owner` over a set of per-kind path
+    // selects — the shape both the admin sweep and the share pass end in.
+    let grouped_by_owner = |branches: Vec<String>| -> String {
+        format!(
+            "SELECT split_part(p.path, '/', 1) || '/' || split_part(p.path, '/', 2) AS owner, \
+                    count(*)::bigint AS count \
+             FROM ({}) p GROUP BY 1",
+            branches.join(" UNION ALL ")
+        )
+    };
+
+    let mut counts: HashMap<String, i64> = HashMap::new();
+
+    if authed.is_admin {
+        // Admins read the whole workspace, so one grouped scan per kind is the
+        // cheapest shape. Enumerating owners and prefix-scanning each instead
+        // would cost one scan per folder AND per member, growing with headcount
+        // rather than with content.
+        // $1 = workspace.
+        let mut binds: Vec<String> = vec![];
+        let branches: Vec<String> = kinds
+            .iter()
+            .map(|kind| {
+                let alias = "t";
+                let w = kind_filters(kind, alias, 1, &mut binds);
+                format!(
+                    "SELECT {alias}.path FROM {} {alias} WHERE {}",
+                    table_of(kind),
+                    w.join(" AND ")
+                )
+            })
+            .collect();
+        let sql = grouped_by_owner(branches);
+        let mut query = sqlx::query_as::<_, OwnerCount>(&sql).bind(&w_id);
+        for b in &binds {
+            query = query.bind(b);
+        }
+        for r in query.fetch_all(&db).await? {
+            counts.insert(r.owner, r.count);
+        }
+        counts.retain(|_, c| *c > 0);
+        return Ok(Json(RunnableCountsResponse { counts }));
+    }
+
+    // Pass 1 — prefix counts for the owners the caller reads wholesale: their
+    // folders and their own user space, a set bounded by the grants they hold.
+    // $1 = workspace, $2 = readable folder names, $3 = username.
     let mut binds: Vec<String> = vec![];
     let terms: Vec<String> = kinds
         .iter()
         .map(|kind| {
             let alias = "t";
-            let mut w = kind_filters(kind, alias, 4, &mut binds);
+            let mut w = kind_filters(kind, alias, 3, &mut binds);
             w.push(owner_prefix_range(alias));
             format!(
-                "(SELECT count(*) FROM {} {} WHERE {})",
+                "(SELECT count(*) FROM {} {alias} WHERE {})",
                 table_of(kind),
-                alias,
                 w.join(" AND ")
             )
         })
         .collect();
-    // The own-user-space arm is unconditional: a superadmin outside the
-    // workspace has no `usr` row but still gets their node counted.
     let sql = format!(
         "WITH owners(owner) AS ( \
-           SELECT 'f/' || name FROM folder WHERE workspace_id = $1 AND ($2 OR name = ANY($3)) \
-           UNION SELECT 'u/' || username FROM usr WHERE workspace_id = $1 AND ($2 OR username = $4) \
-           UNION SELECT 'u/' || $4 \
+           SELECT 'f/' || name FROM folder WHERE workspace_id = $1 AND name = ANY($2) \
+           UNION SELECT 'u/' || $3 \
          ) \
          SELECT o.owner AS owner, ({})::bigint AS count FROM owners o",
         terms.join(" + ")
@@ -685,58 +734,44 @@ async fn count_runnables_by_owner(
     let readable_folders: Vec<String> = authed.folders.iter().map(|f| f.0.clone()).collect();
     let mut query = sqlx::query_as::<_, OwnerCount>(&sql)
         .bind(&w_id)
-        .bind(authed.is_admin)
         .bind(&readable_folders)
         .bind(&authed.username);
     for b in &binds {
         query = query.bind(b);
     }
-    let mut counts: HashMap<String, i64> = query
-        .fetch_all(&db)
-        .await?
-        .into_iter()
-        .map(|r| (r.owner, r.count))
-        .collect();
+    for r in query.fetch_all(&db).await? {
+        counts.insert(r.owner, r.count);
+    }
 
     // Pass 2 — owners the caller only reaches through an individual share.
-    // Admins already have every owner from pass 1.
-    if !authed.is_admin {
-        let mut grantees = vec![format!("u/{}", authed.username)];
-        grantees.extend(authed.groups.iter().map(|g| format!("g/{}", g)));
-        // $1 = workspace, $2 = the caller's grantee keys.
-        let mut binds: Vec<String> = vec![];
-        let branches: Vec<String> = kinds
-            .iter()
-            .map(|kind| {
-                let alias = "t";
-                let mut w = kind_filters(kind, alias, 2, &mut binds);
-                w.push(format!("{alias}.extra_perms ?| $2"));
-                format!(
-                    "SELECT {}.path FROM {} {} WHERE {}",
-                    alias,
-                    table_of(kind),
-                    alias,
-                    w.join(" AND ")
-                )
-            })
-            .collect();
-        let sql = format!(
-            "SELECT split_part(s.path, '/', 1) || '/' || split_part(s.path, '/', 2) AS owner, \
-                    count(*)::bigint AS count \
-             FROM ({}) s GROUP BY 1",
-            branches.join(" UNION ALL ")
-        );
-        let mut query = sqlx::query_as::<_, OwnerCount>(&sql)
-            .bind(&w_id)
-            .bind(&grantees);
-        for b in &binds {
-            query = query.bind(b);
-        }
-        for r in query.fetch_all(&db).await? {
-            // Owners already in `counts` were counted whole in pass 1, shares
-            // included — only the ones missing there are added here.
-            counts.entry(r.owner).or_insert(r.count);
-        }
+    // $1 = workspace, $2 = the caller's grantee keys.
+    let mut grantees = vec![format!("u/{}", authed.username)];
+    grantees.extend(authed.groups.iter().map(|g| format!("g/{}", g)));
+    let mut binds: Vec<String> = vec![];
+    let branches: Vec<String> = kinds
+        .iter()
+        .map(|kind| {
+            let alias = "t";
+            let mut w = kind_filters(kind, alias, 2, &mut binds);
+            w.push(format!("{alias}.extra_perms ?| $2"));
+            format!(
+                "SELECT {alias}.path FROM {} {alias} WHERE {}",
+                table_of(kind),
+                w.join(" AND ")
+            )
+        })
+        .collect();
+    let sql = grouped_by_owner(branches);
+    let mut query = sqlx::query_as::<_, OwnerCount>(&sql)
+        .bind(&w_id)
+        .bind(&grantees);
+    for b in &binds {
+        query = query.bind(b);
+    }
+    for r in query.fetch_all(&db).await? {
+        // Owners already in `counts` were counted whole in pass 1, shares
+        // included — only the ones missing there are added here.
+        counts.entry(r.owner).or_insert(r.count);
     }
 
     counts.retain(|_, c| *c > 0);

@@ -56,8 +56,8 @@ async fn counts_from_list(port: u16, token: &str) -> HashMap<String, i64> {
     out
 }
 
-async fn counts_endpoint(port: u16, token: &str) -> HashMap<String, i64> {
-    let url = format!("http://localhost:{port}/api/w/test-workspace/runnables/counts");
+async fn counts_endpoint_q(port: u16, token: &str, query: &str) -> HashMap<String, i64> {
+    let url = format!("http://localhost:{port}/api/w/test-workspace/runnables/counts?{query}");
     let resp = authed(client().get(&url), token).send().await.unwrap();
     assert_eq!(resp.status(), 200, "counts should succeed");
     let body: serde_json::Value = resp.json().await.unwrap();
@@ -67,6 +67,10 @@ async fn counts_endpoint(port: u16, token: &str) -> HashMap<String, i64> {
         .iter()
         .map(|(k, v)| (k.clone(), v.as_i64().unwrap()))
         .collect()
+}
+
+async fn counts_endpoint(port: u16, token: &str) -> HashMap<String, i64> {
+    counts_endpoint_q(port, token, "").await
 }
 
 async fn insert_script(
@@ -185,11 +189,39 @@ async fn test_runnable_counts_match_rls_listing(db: Pool<Postgres>) -> anyhow::R
          the own user space, and the two shares out of f/secret"
     );
 
-    // An admin bypasses RLS entirely, so the counts must widen to the whole workspace.
+    // An admin bypasses RLS entirely (and takes the grouped whole-workspace path
+    // rather than the per-owner prefix scans), so the counts must widen accordingly.
     assert_eq!(
         counts_endpoint(port, "SECRET_TOKEN").await,
         counts_from_list(port, "SECRET_TOKEN").await,
         "admin counts must match the RLS-enforced listing"
+    );
+
+    // Every kind is its own count subquery, so a repeated entry must not be counted
+    // twice (nor multiply the scans).
+    assert_eq!(
+        counts_endpoint_q(port, "SECRET_TOKEN_2", "kinds=script,script").await,
+        counts_endpoint_q(port, "SECRET_TOKEN_2", "kinds=script").await,
+        "duplicate kinds must not double the counts"
+    );
+
+    // Operators see flows and apps like anyone else; only library scripts are hidden
+    // from them. (test-user-3 has no grants, so their own space is the whole story.)
+    sqlx::query("UPDATE usr SET operator = true WHERE workspace_id = 'test-workspace' AND username = 'test-user-3'")
+        .execute(&db)
+        .await?;
+    sqlx::query(
+        "INSERT INTO flow (workspace_id, path, summary, description, value, edited_by, schema, archived)
+         VALUES ('test-workspace', 'u/test-user-3/fl', '', '', '{}'::jsonb, 'test-user-3', '{}'::json, false)",
+    )
+    .execute(&db)
+    .await?;
+    insert_script(&db, 9000009, "u/test-user-3/lib", "{}", Some("lib")).await?;
+    assert_eq!(
+        counts_endpoint_q(port, "SECRET_TOKEN_3", "include_without_main=true").await,
+        HashMap::from([("u/test-user-3".to_string(), 1)]),
+        "an operator's flow must be counted, and library scripts stay hidden from them \
+         even when asked for"
     );
     Ok(())
 }

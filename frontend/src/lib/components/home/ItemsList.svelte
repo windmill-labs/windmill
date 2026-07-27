@@ -1519,6 +1519,7 @@
 					allFolders={treeInjectFolders}
 					allUsers={treeInjectUsers}
 					ownerCounts={treeLazyMode ? ownerCounts : undefined}
+					selfUsername={$userStore?.username}
 					ownerLoad={treeLazyMode ? ownerLoad : undefined}
 					onExpandOwner={treeLazyMode ? loadOwnerItems : undefined}
 					onCollapseOwner={treeLazyMode ? collapseOwner : undefined}

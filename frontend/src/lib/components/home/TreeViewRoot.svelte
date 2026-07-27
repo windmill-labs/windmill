@@ -28,6 +28,9 @@
 		// by full prefix; owners holding none are absent. Undefined while it loads or
 		// when it doesn't apply, in which case every owner is injected as before.
 		ownerCounts?: Record<string, number>
+		// The viewer's own username: their personal space is a fixture of the tree and
+		// stays even when empty, so they have somewhere to create into.
+		selfUsername?: string
 		ownerLoad?: Record<
 			string,
 			{ cursor?: string; hasMore: boolean; loading: boolean; loaded: boolean; count: number }
@@ -50,6 +53,7 @@
 		allFolders = [],
 		allUsers = [],
 		ownerCounts,
+		selfUsername,
 		ownerLoad,
 		onExpandOwner,
 		onCollapseOwner
@@ -65,6 +69,7 @@
 		allFolders
 		allUsers
 		ownerCounts
+		selfUsername
 		untrack(() => {
 			// While searching, `items` is already relevance-ranked and the sort
 			// selector is disabled, so keep that order: a no-op leaf comparator
@@ -107,7 +112,9 @@
 				const missingUsers: { username: string; items: [] }[] = []
 				for (const username of allUsers) {
 					if (presentUsers.has(username)) continue
-					if (isEmptyOwner(`u/${username}`)) continue
+					// Your own space is exempt from the drop: it's where you create, so it
+					// stays visible (as "0 items") when empty rather than disappearing.
+					if (username !== selfUsername && isEmptyOwner(`u/${username}`)) continue
 					presentUsers.add(username)
 					missingUsers.push({ username, items: [] })
 				}
