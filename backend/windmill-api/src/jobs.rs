@@ -530,29 +530,14 @@ async fn cancel_job_api(
     Path((w_id, id)): Path<(String, Uuid)>,
     Json(CancelJob { reason }): Json<CancelJob>,
 ) -> error::Result<String> {
+    // Cancelling needs the same per-job access as reading: own job, admin, or RLS-visible
+    // directly/through a flow ancestor — which also confines app embed tokens to the
+    // component runs they launched. No `view_token`: a share link grants read, never the
+    // right to kill someone else's run. Anonymous callers are instead confined to
+    // anonymous-created jobs by `cancel_job`'s `require_anonymous`.
     if let Some(authed) = opt_authed.as_ref() {
-        // App embed tokens (the sandboxed app iframe) carry the viewer's identity but may
-        // cancel ONLY jobs they launched — their app's component runs, stamped
-        // created_by == viewer — never the viewer's other visible runs. NotFound (not 403)
-        // so the untrusted app can't probe job existence.
-        if windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref()) {
-            let created_by = sqlx::query_scalar!(
-                "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
-                id,
-                &w_id
-            )
-            .fetch_optional(&db)
-            .await?;
-            if created_by.as_deref() != Some(authed.username.as_str()) {
-                return Err(Error::NotFound(format!("Job {id} not found")));
-            }
-        }
-        // Cancelling a job requires the same per-job access as reading it: you launched it,
-        // you are an admin, or it is RLS-visible to you directly or through a flow ancestor.
         require_job_update_read_access(&db, &user_db, authed, &w_id, &id, None).await?;
     }
-    // Anonymous callers are gated by `cancel_job`'s `require_anonymous`: they may only
-    // cancel jobs created by `anonymous`.
 
     let tx = db.begin().await?;
 
@@ -661,6 +646,31 @@ async fn cancel_persistent_script_api(
     Ok(())
 }
 
+/// The job a force-cancel of `id` actually kills: `cancel_job(force_cancel = true)` walks
+/// up to the highest still-queued ancestor and cancels that one instead. Falls back to
+/// `id` when it is not queued (the cancel is then a no-op anyway).
+async fn force_cancel_target(db: &DB, w_id: &str, id: Uuid) -> error::Result<Uuid> {
+    let target = sqlx::query_scalar!(
+        r#"WITH RECURSIVE queued_ancestors AS (
+            SELECT j.id, j.parent_job, 0 AS depth
+            FROM v2_job j JOIN v2_job_queue q USING (id)
+            WHERE j.id = $1 AND j.workspace_id = $2
+          UNION ALL
+            SELECT j.id, j.parent_job, a.depth + 1
+            FROM queued_ancestors a
+            JOIN v2_job j ON j.id = a.parent_job AND j.workspace_id = $2
+            JOIN v2_job_queue q ON q.id = j.id
+            WHERE a.depth < 500
+        )
+        SELECT id AS "id!" FROM queued_ancestors ORDER BY depth DESC LIMIT 1"#,
+        id,
+        w_id,
+    )
+    .fetch_optional(db)
+    .await?;
+    Ok(target.unwrap_or(id))
+}
+
 async fn force_cancel(
     OptAuthed(opt_authed): OptAuthed,
     tokened: OptTokened,
@@ -669,9 +679,12 @@ async fn force_cancel(
     Path((w_id, id)): Path<(String, Uuid)>,
     Json(CancelJob { reason }): Json<CancelJob>,
 ) -> error::Result<String> {
+    // Same per-job access as `cancel_job_api`, but on the job force-cancel actually kills.
+    // Read visibility is inherited *down* the flow chain, so gating on `id` would let a
+    // caller who can only see an inner step kill a root flow hidden from them.
     if let Some(authed) = opt_authed.as_ref() {
-        // Same per-job access as reading the job, mirroring `cancel_job_api`.
-        require_job_update_read_access(&db, &user_db, authed, &w_id, &id, None).await?;
+        let target = force_cancel_target(&db, &w_id, id).await?;
+        require_job_update_read_access(&db, &user_db, authed, &w_id, &target, None).await?;
     }
 
     let tx = db.begin().await?;

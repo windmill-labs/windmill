@@ -25,7 +25,9 @@
 //!   - unauthenticated behavior is unchanged: anonymous jobs readable, the
 //!     non-anonymous victim job rejected,
 //!   - `queue/cancel` and `queue/force_cancel` are gated by that same access, so
-//!     a viewer cannot kill a run hidden from them while its owner still can.
+//!     a viewer cannot kill a run hidden from them while its owner still can, and
+//!     force cancel gates on the ancestor it actually kills rather than the id in
+//!     the URL.
 
 use sqlx::{Pool, Postgres};
 use windmill_test_utils::*;
@@ -44,6 +46,9 @@ const RUNNING_JOB: &str = "77777777-7777-7777-7777-777777777777";
 const EMBED_OWN_JOB: &str = "12121212-1212-1212-1212-121212121212";
 // A QUEUED job launched by the embed viewer (created_by test-user) — cancelable by it.
 const EMBED_OWN_QUEUED: &str = "13131313-1313-1313-1313-131313131313";
+// Queued sub-flow test-user-3 can see (folder `shared`), whose parent top flow they
+// cannot. Force cancel walks up to that parent.
+const QUEUED_VISIBLE_MID: &str = "55555555-5555-5555-5555-555555555555";
 
 // Secrets that must never leak to an unauthorized viewer.
 const RESULT_SECRET: &str = "RESULT_SECRET";
@@ -624,6 +629,31 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
     assert!(
         status.is_success(),
         "owner must still cancel their own job (got {status}): {body}"
+    );
+
+    // Force cancel kills the highest queued ancestor, not the job named in the URL, so it
+    // must authorize that ancestor: the viewer can see the sub-flow (asserted first, or the
+    // denial below would prove nothing) but not the top flow force-cancelling it would kill.
+    let (status, body) = get(
+        &base,
+        &format!("get/{QUEUED_VISIBLE_MID}"),
+        Some("SECRET_TOKEN_3"),
+    )
+    .await;
+    assert!(
+        status.is_success(),
+        "viewer must be able to read the sub-flow (got {status}): {body}"
+    );
+    let (status, body) = post(
+        &base,
+        &format!("queue/force_cancel/{QUEUED_VISIBLE_MID}"),
+        Some("SECRET_TOKEN_3"),
+    )
+    .await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::FORBIDDEN,
+        "viewer must not force-cancel up into a flow they cannot see (got {status}): {body}"
     );
 
     Ok(())
