@@ -1010,9 +1010,9 @@ async sleep(seconds: number): Promise<void>
  * 
  * \`fn\`'s result is encoded as JSON and decoded back before it is returned, so
  * the round that runs the body sees the same types every replay sees: a \`Date\`
- * comes back as a string, a \`Map\` as \`{}\`.
+ * comes back as a string, a \`Map\` as \`{}\`. {@link Jsonified} is that shape.
  */
-async step<T>(name: string, fn: () => T | Promise<T>): Promise<T>
+async step<T>(name: string, fn: () => T | Promise<T>): Promise<Jsonified<T>>
 
 /**
  * Create a task that dispatches to a separate Windmill script.
@@ -1810,9 +1810,9 @@ async sleep(seconds: number): Promise<void>
  * 
  * \`fn\`'s result is encoded as JSON and decoded back before it is returned, so
  * the round that runs the body sees the same types every replay sees: a \`Date\`
- * comes back as a string, a \`Map\` as \`{}\`.
+ * comes back as a string, a \`Map\` as \`{}\`. {@link Jsonified} is that shape.
  */
-async step<T>(name: string, fn: () => T | Promise<T>): Promise<T>
+async step<T>(name: string, fn: () => T | Promise<T>): Promise<Jsonified<T>>
 
 /**
  * Create a task that dispatches to a separate Windmill script.
@@ -2704,9 +2704,9 @@ async sleep(seconds: number): Promise<void>
  * 
  * \`fn\`'s result is encoded as JSON and decoded back before it is returned, so
  * the round that runs the body sees the same types every replay sees: a \`Date\`
- * comes back as a string, a \`Map\` as \`{}\`.
+ * comes back as a string, a \`Map\` as \`{}\`. {@link Jsonified} is that shape.
  */
-async step<T>(name: string, fn: () => T | Promise<T>): Promise<T>
+async step<T>(name: string, fn: () => T | Promise<T>): Promise<Jsonified<T>>
 
 /**
  * Create a task that dispatches to a separate Windmill script.
@@ -6574,9 +6574,9 @@ export function workflow<T>(fn: (...args: any[]) => Promise<T>)
  *
  * \`fn\`'s result is encoded as JSON and decoded back before it is returned, so
  * the round that runs the body sees the same types every replay sees: a \`Date\`
- * comes back as a string, a \`Map\` as \`{}\`.
+ * comes back as a string, a \`Map\` as \`{}\`. {@link Jsonified} is that shape.
  */
-export async function step<T>(name: string, fn: () => T | Promise<T>): Promise<T>
+export async function step<T>(name: string, fn: () => T | Promise<T>): Promise<Jsonified<T>>
 
 export async function sleep(seconds: number): Promise<void>
 

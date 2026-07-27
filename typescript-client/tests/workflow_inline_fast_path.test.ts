@@ -26,6 +26,7 @@ mock.module("../core/OpenAPI", () => ({
 }));
 
 const { WorkflowCtx } = await import("../client.ts");
+import type { Jsonified } from "../client.ts";
 
 process.env.WM_JOB_ID = "job-1";
 process.env.WM_WORKSPACE = "admins";
@@ -69,3 +70,23 @@ describe("inline step round parity", () => {
     });
   }
 });
+
+// `Jsonified` must describe the values asserted above, or `step()` advertises a
+// type it never returns. `bun test` strips types, and tsconfig only covers
+// `src/`, so these are checked with `npx tsc --ignoreConfig --noEmit --strict
+// --allowImportingTsExtensions <this file>` (its bun:test / process errors are noise).
+type Exact<A, B> = (<G>() => G extends A ? 1 : 2) extends <G>() => G extends B ? 1 : 2
+  ? true
+  : false;
+const _assertType = <E extends true>(_: E) => {};
+
+_assertType<Exact<Jsonified<Date>, string>>(true);
+_assertType<Exact<Jsonified<Map<string, number>>, Record<string, never>>>(true);
+_assertType<Exact<Jsonified<Set<number>>, Record<string, never>>>(true);
+_assertType<Exact<Jsonified<{ a: number; b: undefined }>, { a: number; b: null }>>(true);
+_assertType<Exact<Jsonified<void>, null>>(true);
+// Shapes JSON does preserve must survive untouched, methods aside.
+_assertType<Exact<Jsonified<[number, Date]>, [number, string]>>(true);
+_assertType<
+  Exact<Jsonified<{ id: number; at: Date; run(): void }>, { id: number; at: string }>
+>(true);

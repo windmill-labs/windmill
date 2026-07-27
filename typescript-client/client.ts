@@ -1546,6 +1546,45 @@ function stepErrorFromMarker(marker: any, name: string): Error {
   return err;
 }
 
+/**
+ * What a value looks like after the JSON round trip a checkpoint performs:
+ * `Date` → string, `Map`/`Set` → `{}`, `undefined` → null, methods gone.
+ *
+ * Mirrors `encodeCheckpointPayload` below — keep the two in step, or `step()`
+ * starts describing a value it does not return.
+ */
+export type Jsonified<T> =
+  // `any` in, `any` out: distributing over it yields a useless union.
+  0 extends 1 & T
+    ? any
+    : T extends string | number | boolean | null
+      ? T
+      : T extends undefined | void | symbol | ((...args: any[]) => any)
+        ? null
+        : // The bun wrapper installs `BigInt.prototype.toJSON`.
+          T extends bigint
+          ? string
+          : T extends { toJSON(): infer R }
+            ? Jsonified<R>
+            : // Neither has own enumerable entries, so both serialize to `{}`.
+              T extends ReadonlyMap<any, any> | ReadonlySet<any>
+              ? Record<string, never>
+              : // Arrays before objects, and without an `as` clause: key
+                // remapping would drop the array/tuple shape.
+                T extends readonly any[]
+                ? { [K in keyof T]: Jsonified<T[K]> }
+                : // Methods and symbol keys are dropped: `JSON.stringify` walks
+                  // own enumerable string keys only.
+                  T extends object
+                  ? {
+                      [K in keyof T as K extends symbol
+                        ? never
+                        : T[K] extends (...args: any[]) => any
+                          ? never
+                          : K]: Jsonified<T[K]>;
+                    }
+                  : never;
+
 /** Encode a checkpoint payload the way the worker wrapper does on the suspend
  *  path, so both arms record the same value for the same step. `undefined` maps
  *  to null rather than dropping the key. */
@@ -1949,14 +1988,17 @@ export async function sleep(seconds: number): Promise<void> {
  *
  * `fn`'s result is encoded as JSON and decoded back before it is returned, so
  * the round that runs the body sees the same types every replay sees: a `Date`
- * comes back as a string, a `Map` as `{}`.
+ * comes back as a string, a `Map` as `{}`. {@link Jsonified} is that shape.
  */
-export async function step<T>(name: string, fn: () => T | Promise<T>): Promise<T> {
+export async function step<T>(name: string, fn: () => T | Promise<T>): Promise<Jsonified<T>> {
   const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
   if (ctx) {
-    return ctx._runInlineStep(name, fn);
+    return ctx._runInlineStep(name, fn) as Promise<Jsonified<T>>;
   }
-  return fn();
+  // Outside a workflow nothing is checkpointed and nothing ever replays, so
+  // `fn`'s value is handed back untouched — the annotation describes the only
+  // context where the distinction can be observed.
+  return fn() as Jsonified<T> | Promise<Jsonified<T>>;
 }
 
 /**
