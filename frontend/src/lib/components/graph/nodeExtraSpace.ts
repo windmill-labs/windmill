@@ -40,6 +40,9 @@ export function computeNodeExtraSpace(
 		groupDisplayState: GroupDisplayState
 		insertable: boolean
 		flowModuleStates: Record<string, GraphModuleState> | undefined
+		// A linked agent's tools live in the store, not on the module, so its own `tools` is empty:
+		// without these the layout reserves no room and the tool nodes overlap the node above.
+		linkedAgentTools: Record<string, unknown[]> | undefined
 	}
 ): Map<string, ExtraSpace> | undefined {
 	const extraSpace = new Map<string, ExtraSpace>()
@@ -77,7 +80,9 @@ export function computeNodeExtraSpace(
 			extraSpace.set(node.id, { ...prev, bottom: prev.bottom + space })
 		} else {
 			// Edit mode: tools above
-			const tools = mod.value.tools ?? []
+			const tools = mod.value.agent
+				? (opts.linkedAgentTools?.[node.id] ?? [])
+				: (mod.value.tools ?? [])
 			const totalRows = Math.ceil(tools.length / MAX_TOOLS_PER_ROW) + (opts.insertable ? 1 : 0)
 			const space = AI_TOOL_BASE_OFFSET + AI_TOOL_ROW_OFFSET * totalRows
 			const prev = extraSpace.get(node.id) ?? { top: 0, bottom: 0, left: 0, right: 0 }

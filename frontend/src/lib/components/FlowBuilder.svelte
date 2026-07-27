@@ -595,20 +595,28 @@
 	// initFlowState has already resolved those — starting empty would clear and refetch every step
 	// on the first run.
 	let publishedAgentByModule = untrack(() => linkedAgentEntries(linkedAgentRefs))
+	let publishedLinkedToolsScope = untrack(() => linkedToolsScope(opWorkspace, $pathStore))
 	$effect(() => {
 		const refs = linkedAgentRefs
 		const ws = opWorkspace
 		const scope = linkedToolsScope(opWorkspace, $pathStore)
 		untrack(() => {
 			const next = linkedAgentEntries(refs)
+			if (scope !== publishedLinkedToolsScope) {
+				// A rename: the sweep above carries the resolved buckets over, so nothing to re-resolve.
+				publishedLinkedToolsScope = scope
+				publishedAgentByModule = next
+				return
+			}
 			for (const [moduleId, agentPath] of next) {
+				if (publishedAgentByModule.get(moduleId) === agentPath) {
+					continue
+				}
 				// Drop the previous agent's tools up front: the fetch below lands later, and until it
 				// does the graph and the step's binding editor would otherwise still be showing — and
 				// writing overrides against — the tool ids of the agent that was just replaced.
-				if (publishedAgentByModule.get(moduleId) !== agentPath) {
-					claimLinkedToolsFetch(scope, moduleId)
-					clearLinkedAgentTools(scope, moduleId)
-				}
+				claimLinkedToolsFetch(scope, moduleId)
+				clearLinkedAgentTools(scope, moduleId)
 				publishLinkedAgentTools(agentPath, ws, scope, moduleId)
 			}
 			publishedAgentByModule = next

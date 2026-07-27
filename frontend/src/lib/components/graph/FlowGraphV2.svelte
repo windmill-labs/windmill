@@ -690,7 +690,8 @@
 			noteTextHeights,
 			groupDisplayState,
 			insertable,
-			flowModuleStates
+			flowModuleStates,
+			linkedAgentTools: linkedAgentToolsForScope(linkedToolsScope(workspace, linkedToolsPath ?? path))
 		})
 
 		// Layout with extra space baked into sugiyama
