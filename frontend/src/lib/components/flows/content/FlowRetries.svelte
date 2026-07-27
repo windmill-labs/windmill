@@ -54,8 +54,14 @@
 	// When retries are toggled off the config is still shown (read-only) so the row
 	// isn't empty: fall back to sensible defaults and force the "constant" tab.
 	let retriesOff = $derived(!(delayType === 'constant' || delayType === 'exponential'))
-	let cfgDisabled = $derived(disabled || retriesOff)
 	let displayDelayType = $derived(delayType === 'exponential' ? 'exponential' : 'constant')
+	// The shown branch's config must actually exist, or its inputs would bind to the
+	// display fallback below and silently discard every keystroke. Switching tabs seeds
+	// it; an external rewrite of `retry` can leave it missing.
+	let shownBranchMissing = $derived(
+		displayDelayType === 'constant' ? !flowModuleRetry?.constant : !flowModuleRetry?.exponential
+	)
+	let cfgDisabled = $derived(disabled || retriesOff || shownBranchMissing)
 	let displayRetry = $derived(
 		flowModuleRetry ?? {
 			constant: { attempts: 1, seconds: 5 },
@@ -281,11 +287,7 @@
 				</div>
 				<div class="text-xs font-bold !mt-2">Multiplier</div>
 				<span class="text-xs text-primary">delay = multiplier * base ^ (number of attempt)</span>
-				<input
-					disabled={cfgDisabled}
-					bind:value={displayExponential.multiplier}
-					type="number"
-				/>
+				<input disabled={cfgDisabled} bind:value={displayExponential.multiplier} type="number" />
 				<div class="text-xs font-bold !mt-2">Base (in seconds)</div>
 				<input
 					disabled={cfgDisabled}

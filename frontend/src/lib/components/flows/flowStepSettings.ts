@@ -66,6 +66,7 @@ export function isTriggerStep(module: FlowModule | undefined): boolean {
 }
 
 const def = (text: string): StepSettingSummary => ({ text, state: 'default' })
+const inv = (text: string): StepSettingSummary => ({ text, state: 'invalid' })
 const cfg = (text: string, mono = false): StepSettingSummary => ({
 	text,
 	state: 'configured',
@@ -103,11 +104,14 @@ type SettingSpec = {
 const isWorkspaceScript = (mod: FlowModule) => mod.value.type === 'script'
 const inlineConcurrentLimit = (mod: FlowModule) =>
 	mod.value.type === 'rawscript' ? mod.value.concurrent_limit : undefined
+const effectiveCacheTtl = (mod: FlowModule, ctx: Ctx) =>
+	mod.cache_ttl ?? (isWorkspaceScript(mod) ? ctx.referenced?.cache_ttl : undefined)
 
-/** Whether an inline step's own concurrency limit is on. The setting editor shares this
- *  with the summary so a rejected value can't read as "None" while its controls stay live. */
+/** Whether an inline step carries a concurrency limit at all. The setting editor keeps its
+ *  controls live on presence, so clearing the field mid-edit can't disable the input. A
+ *  present-but-non-positive limit is surfaced as invalid rather than silently as "None". */
 export function hasInlineConcurrency(mod: FlowModule): boolean {
-	return (inlineConcurrentLimit(mod) ?? 0) > 0
+	return inlineConcurrentLimit(mod) != undefined
 }
 
 /** Canonical order — every surface lists settings in this sequence. */
@@ -223,14 +227,15 @@ const SPECS: { key: StepSettingKey; spec: SettingSpec }[] = [
 			configured: (m, ctx) =>
 				isWorkspaceScript(m)
 					? ctx.referenced?.concurrent_limit != undefined && ctx.referenced.concurrent_limit > 0
-					: hasInlineConcurrency(m),
+					: (inlineConcurrentLimit(m) ?? 0) > 0,
 			summarize: (m, ctx) => {
 				if (isWorkspaceScript(m)) {
 					const l = ctx.referenced?.concurrent_limit
 					return l != undefined && l > 0 ? cfg(`Max ${l}`) : def('None')
 				}
 				const l = inlineConcurrentLimit(m)
-				if (l == undefined || l <= 0) return def('None')
+				if (l == undefined) return def('None')
+				if (l <= 0) return inv('Invalid limit')
 				const key = m.value.type === 'rawscript' ? m.value.custom_concurrency_key : undefined
 				return cfg(`Max ${l}${key ? ' per key' : ''}`)
 			}
@@ -252,12 +257,11 @@ const SPECS: { key: StepSettingKey; spec: SettingSpec }[] = [
 		spec: {
 			label: 'Cache results',
 			icon: Database,
-			configured: (m, ctx) =>
-				isWorkspaceScript(m)
-					? ctx.referenced?.cache_ttl != undefined && ctx.referenced.cache_ttl > 0
-					: (m.cache_ttl ?? 0) > 0,
+			// The worker takes the module's cache_ttl over the referenced script's, so a
+			// module-level TTL must show here even for a workspace-script step.
+			configured: (m, ctx) => (effectiveCacheTtl(m, ctx) ?? 0) > 0,
 			summarize: (m, ctx) => {
-				const ttl = isWorkspaceScript(m) ? ctx.referenced?.cache_ttl : m.cache_ttl
+				const ttl = effectiveCacheTtl(m, ctx)
 				return ttl != undefined && ttl > 0 ? cfg(formatDur(ttl)) : def('Off')
 			}
 		}
@@ -317,6 +321,8 @@ export function stepSettingsByKey(
 
 /** How a trigger step decides it has nothing to process. Stored on the step at
  *  creation, so changing it only affects newly created steps. */
+// Falsy-or-empty, not `result == undefined`: a trigger returning nothing new may say so
+// with any empty value, and stopping is always the right response.
 const TRIGGER_STOP_EXPR = '!result || (Array.isArray(result) && result.length == 0)'
 
 /** The config a setting is seeded with when it is switched on. Read by the setting

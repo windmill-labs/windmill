@@ -12,7 +12,9 @@ export type SelectIntentOptions = {
 const FLOW_LEVEL_PANEL_IDS = new Set(['constants', 'failure', 'preprocessor', 'Input', 'Result'])
 
 export function isFlowLevelPanelTarget(id: string): boolean {
-	return id.startsWith('settings') || FLOW_LEVEL_PANEL_IDS.has(id)
+	// 'settings-' prefixed, not 'settings' prefixed: step ids are user-editable, so a
+	// step renamed settings_v2 must not be mistaken for the flow's settings panel.
+	return id === 'settings' || id.startsWith('settings-') || FLOW_LEVEL_PANEL_IDS.has(id)
 }
 
 export class SelectionManager {

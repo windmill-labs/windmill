@@ -96,11 +96,10 @@
 	let panelWidth = $state(0)
 	let narrow = $derived(panelWidth > 0 && panelWidth < 560)
 
-	/** Reveal one setting's row. `key` is a StepSettingKey, so callers that name a
-	 *  setting (node-header quick-toggles, the AI tool's openTab intent) must use
-	 *  those keys — 'runtime' is the one alias kept for the concurrency row. */
+	/** Reveal one setting's row. `key` is a StepSettingKey, so the AI tool's openTab
+	 *  intent must name settings with those keys. */
 	export function openSetting(key: string) {
-		expanded = key === 'runtime' ? 'concurrency' : key
+		expanded = key
 	}
 
 	// Exact id: only the flow's error handler is 'failure'; a step the user named

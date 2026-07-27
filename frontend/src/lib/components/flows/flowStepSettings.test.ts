@@ -54,7 +54,18 @@ describe('describeStepSettings', () => {
 		expect(on['cache']?.configured).toBe(true)
 	})
 
-	it('treats non-positive inline concurrency and cache as unset, like the runtime does', () => {
+	it("prefers the module's own cache_ttl over the referenced script's, like the worker", () => {
+		const mod = step({
+			cache_ttl: 3600,
+			value: { type: 'script', path: 'u/me/s', input_transforms: {} } as any
+		})
+		// No referenced settings loaded yet (the graph badges never load them), so a
+		// module-level TTL has to stand on its own here.
+		expect(stepSettingsByKey(mod)['cache']?.configured).toBe(true)
+		expect(stepSettingsByKey(mod, { cache_ttl: 60 })['cache']?.summary.text).toBe('1 h')
+	})
+
+	it('reports a non-positive inline concurrency as invalid, not as unset', () => {
 		const s = stepSettingsByKey(
 			step({
 				cache_ttl: -1,
@@ -67,8 +78,10 @@ describe('describeStepSettings', () => {
 				}
 			} as Partial<FlowModule>)
 		)
+		// The runtime ignores it, so it is not configured — but saying "None" would hide
+		// a value the user typed, and the setting editor keeps its controls live on it.
 		expect(s['concurrency']?.configured).toBe(false)
-		expect(s['concurrency']?.summary.text).toBe('None')
+		expect(s['concurrency']?.summary).toMatchObject({ text: 'Invalid limit', state: 'invalid' })
 		expect(s['cache']?.configured).toBe(false)
 		expect(s['cache']?.summary.text).toBe('Off')
 	})
