@@ -29,6 +29,7 @@
 	import { claimLinkedToolsFetch } from '../flowState'
 	import type { AgentTool as AgentToolStrict } from '../agentToolUtils'
 	import { resource } from 'runed'
+	import { untrack } from 'svelte'
 
 	let {
 		agent = $bindable(),
@@ -128,9 +129,11 @@
 	// at load; here we refresh the one being edited when its link changes (or clear it on unlink), so
 	// its tool nodes update without reloading the flow.
 	let toolScope = $derived(linkedToolsScope(ws, flowPath))
-	// The agent this component last published for, so a link change can be told apart from a step
-	// whose tools were resolved at flow load. Deliberately not reactive: it tracks what was written.
-	let publishedFor: string | undefined = undefined
+	// The agent the store's tools currently belong to, so a link change can be told apart from a step
+	// whose tools were resolved at flow load. Seeded from the link at mount, because initFlowState
+	// has already published for it — leaving it unset would miss a link change that lands before this
+	// component's own request. Deliberately not reactive: it tracks what was written.
+	let publishedFor: string | undefined = untrack(() => agent)
 	$effect(() => {
 		if (!agent) {
 			// Claim first: an in-flight fetch for the previous link would otherwise still pass its own
@@ -272,6 +275,11 @@
 				? tools === forkMarker
 				: getAgentEditingPath(tools) === savingEditPath
 		if (!sameSession) {
+			// The resource is written either way; say so, or the drawer just closes with no outcome.
+			sendUserToast(
+				`Saved ${path}, but the step changed while saving — it was not linked to the agent`,
+				true
+			)
 			return false
 		}
 		// Edits made while the save was in flight aren't in the resource; linking now would strip them

@@ -2148,7 +2148,7 @@
 														module && module.value.type === 'aiagent'
 															? module.value.agent
 																? getLinkedAgentTools(linkedToolsViewScope, module.id)
-																: module.value.tools
+																: (module.value.tools ?? [])
 															: undefined}
 													{@const parentLoopsPrefix = getParentLoopsPrefix(module?.id ?? '')}
 													{#if node.flow_jobs_results}
