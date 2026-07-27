@@ -255,8 +255,6 @@
 					on:delete
 					on:move
 					onUpdateMock={(mock) => {
-						console.log('onUpdateMock', mock)
-
 						mod.mock = mock
 						onUpdateMock?.({ id: mod.id, mock })
 					}}
