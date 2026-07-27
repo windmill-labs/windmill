@@ -1069,7 +1069,12 @@
 			) {
 				e.preventDefault()
 				aiChatManager.dequeueMessage()
-			} else if (recallLastSentMessage()) {
+			} else if (!aiChatManager.loading && recallLastSentMessage()) {
+				// History recall waits for the in-flight turn: during send preflight
+				// the optimistic bubble exists but its stored images and context
+				// land later, so recalling now would return an incomplete copy.
+				// Dequeueing above stays available — the queue is composer state,
+				// not history.
 				e.preventDefault()
 			}
 		}
