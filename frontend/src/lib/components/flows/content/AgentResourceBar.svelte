@@ -60,11 +60,9 @@
 	let description = $state('')
 	let saving = $state(false)
 	let pickerValue: string | undefined = $state(undefined)
-	// Set when the step was forked from a saved agent for editing: it's now an editable standalone
-	// step, but "Save changes" upserts back to this path (and re-links), propagating to all flows.
-	// Kept in an external store (not local state) so it survives this component unmounting when
-	// another node is selected; validated against the forked `tools` identity so a stale entry
-	// can't resurface after undo/session restores or in another flow (see agentEditStore).
+	// The path "Save changes" upserts back to, for a step forked from a saved agent. Lives in an
+	// external store so it survives this component unmounting when another node is selected, keyed
+	// by the forked `tools` identity so a stale entry can't resurface (see agentEditStore).
 	let editingPath = $derived(getAgentEditingPath(tools))
 
 	type LinkedInfo = {
@@ -338,12 +336,10 @@
 		}
 	}
 
-	// Copy the linked resource's brain + tools into the step, turning it back into a standalone
-	// editable agent. Shared by Unlink (diverge here) and Edit (edit the saved agent itself).
-	// Unlink folds the host flow's tool_inputs overrides into the tools (the standalone step keeps
-	// its effective bindings) and clears them. Edit must NOT fold: it edits the shared defaults, so
-	// it starts from the resource's own tools and preserves tool_inputs so this flow's overrides
-	// survive the re-link after Save changes instead of being promoted into the agent.
+	// Copy the resource's brain + tools into the step, for Unlink (diverge here) and Edit (change the
+	// saved agent). Unlink folds this flow's tool_inputs into the tools and clears them, so the
+	// standalone step keeps its bindings; Edit must not fold, or those overrides would be promoted
+	// into the shared agent instead of surviving the re-link.
 	async function forkFromResource(foldOverrides: boolean): Promise<string | undefined> {
 		if (!ws || !agent) {
 			return undefined

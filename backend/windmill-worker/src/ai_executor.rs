@@ -398,15 +398,6 @@ pub async fn handle_ai_agent_job(
                 )))
             }
         };
-        // Overlay flow-local inputs onto the agent brain.
-        for key in ["user_message", "user_attachments"] {
-            if let Some(v) = local_args.get(key) {
-                config.insert(
-                    key.to_string(),
-                    serde_json::from_str(v.get()).unwrap_or(serde_json::Value::Null),
-                );
-            }
-        }
         let mut tools = match config.remove("tools") {
             Some(t) => serde_json::from_value::<Vec<AgentTool>>(t).map_err(|e| {
                 Error::internal_err(format!(
@@ -426,11 +417,31 @@ pub async fn handle_ai_agent_job(
             0,
         )
         .await?;
-        let args = serde_json::from_value::<AIAgentArgs>(brain).map_err(|e| {
-            Error::internal_err(format!(
-                "invalid ai_agent resource config {agent_path}: {e}"
-            ))
-        })?;
+        let mut brain = match brain {
+            serde_json::Value::Object(map) => map,
+            _ => {
+                return Err(Error::internal_err(format!(
+                    "ai_agent resource {agent_path} must be a JSON object"
+                )))
+            }
+        };
+        // Only after interpolating the resource: these are caller-controlled and already resolved by
+        // build_args_map, so passing them through it again would expand contextual values —
+        // `$WM_TOKEN` in a user message would reach the model provider.
+        for key in ["user_message", "user_attachments"] {
+            if let Some(v) = local_args.get(key) {
+                brain.insert(
+                    key.to_string(),
+                    serde_json::from_str(v.get()).unwrap_or(serde_json::Value::Null),
+                );
+            }
+        }
+        let args = serde_json::from_value::<AIAgentArgs>(serde_json::Value::Object(brain))
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "invalid ai_agent resource config {agent_path}: {e}"
+                ))
+            })?;
         (args, tools)
     } else {
         let args = serde_json::from_str::<AIAgentArgs>(&serde_json::to_string(&local_args)?)?;

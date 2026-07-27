@@ -14,8 +14,8 @@ every workspace via the standard cached-resource-type sync, like other built-in 
 `tool_inputs` map (per-tool host-flow input overrides). When `agent` is set:
 
 - The brain config and tools are resolved at runtime from the resource
-  (`windmill-worker/src/ai_executor.rs`, via `get_resource_value_interpolated` — nested
-  provider `$res:` credentials resolve automatically).
+  (`windmill-worker/src/ai_executor.rs`): the brain is interpolated, so a nested provider `$res:`
+  credential resolves automatically.
 - The step keeps only the flow-local inputs (`user_message`, `user_attachments`) in its own
   `input_transforms`; the brain and tools stay in the resource (read-only in the step).
 - The agent carries its tools' default input bindings verbatim as authored (static, AI-filled,

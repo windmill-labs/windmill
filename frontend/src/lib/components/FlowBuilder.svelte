@@ -618,9 +618,24 @@
 	// binding against) the previous agent's tools.
 	let linkedAgentRefs = $derived(
 		dfsApply(flowStore.val.value?.modules ?? [], (m) => m, { skipToolNodes: true })
-			.map((m) => {
-				const value = m?.value as { type?: string; agent?: string } | undefined
-				return value?.type === 'aiagent' && value.agent ? `${m.id}\u0000${value.agent}` : undefined
+			.flatMap((m) => {
+				const value = m?.value as
+					| { type?: string; agent?: string; tools?: { id: string; value?: unknown }[] }
+					| undefined
+				if (value?.type !== 'aiagent') {
+					return []
+				}
+				const refs = value.agent ? [`${m.id}\u0000${value.agent}`] : []
+				// A linked agent nested as a tool is invisible to the walk above (tool nodes are skipped
+				// so resource-owned ids can't alias flow modules), yet it has its own store entry under
+				// the ancestry-qualified key the step editor writes.
+				for (const tool of value.tools ?? []) {
+					const nested = tool?.value as { type?: string; agent?: string } | undefined
+					if (nested?.type === 'aiagent' && nested.agent) {
+						refs.push(`${m.id}/${tool.id}\u0000${nested.agent}`)
+					}
+				}
+				return refs
 			})
 			.filter((x): x is string => x !== undefined)
 			.join('\u0001')
