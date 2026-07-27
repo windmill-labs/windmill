@@ -34,12 +34,16 @@
 		properties: {
 			iter: {
 				type: 'object',
+				description: 'The iteration to simulate, exposed to the steps below as flow_input.iter',
 				properties: {
 					index: {
-						type: 'number'
+						type: 'integer',
+						min: 0,
+						description: 'Position in the iterated list. The first iteration is 0.'
 					},
 					value: {
-						type: 'object'
+						type: 'object',
+						description: 'The item of the iterated list this iteration receives.'
 					}
 				}
 			}
@@ -53,9 +57,13 @@
 		properties: {
 			iter: {
 				type: 'object',
+				description: 'The iteration to simulate, exposed to the steps below as flow_input.iter',
 				properties: {
 					index: {
-						type: 'number'
+						type: 'integer',
+						min: 0,
+						description:
+							'How many iterations have already run. The first iteration is 0. A while loop sets iter.value to this same number.'
 					}
 				}
 			}
