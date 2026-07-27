@@ -252,12 +252,13 @@
 					<div>
 						<Button
 							variant={!showEditButton ? 'default' : 'subtle'}
-							wrapperClasses="w-32"
+							wrapperClasses="max-w-48"
 							unifiedSize="md"
 							startIcon={{ icon: GitFork }}
 							href={buildForkEditUrl('script', script.path)}
 						>
-							{editInForkLabel($workspaceStore, $userWorkspaces)}
+							{@const label = editInForkLabel($workspaceStore, $userWorkspaces)}
+							<span class="truncate" title={label}>{label}</span>
 						</Button>
 					</div>
 				{/if}
