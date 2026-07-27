@@ -546,8 +546,8 @@ async fn update_tutorial_progress(
 }
 
 #[derive(Deserialize)]
-pub struct ListUsernamesQuery {
-    pub non_empty: Option<bool>,
+struct ListUsernamesQuery {
+    non_empty: Option<bool>,
 }
 
 async fn list_usernames(
@@ -556,27 +556,33 @@ async fn list_usernames(
     Path(w_id): Path<String>,
     Query(lq): Query<ListUsernamesQuery>,
 ) -> JsonResult<Vec<String>> {
+    let non_empty = lq.non_empty.unwrap_or(false);
     if *CLOUD_HOSTED && w_id == "demo" {
-        return Ok(Json(vec![
-            authed.username,
-            "other_usernames_redacted_in_demo_workspace".to_string(),
-        ]));
+        // The placeholder stands in for the users this workspace won't enumerate; it
+        // is not a real user with runnables, so a non_empty listing drops it and
+        // keeps only the caller's own space.
+        let mut names = vec![authed.username];
+        if !non_empty {
+            names.push("other_usernames_redacted_in_demo_workspace".to_string());
+        }
+        return Ok(Json(names));
     }
     let mut tx = user_db.begin(&authed).await?;
-    let rows = if lq.non_empty.unwrap_or(false) {
+    let rows = if non_empty {
         // Only users whose personal space holds at least one non-archived
         // script/flow/app (the kinds the homepage lists) — a single scan per table
-        // semi-joined on the owner segment. Runs under the user's RLS, so a user whose
-        // items the caller cannot read counts as empty for them.
-        sqlx::query_scalar::<_, String>(
-            "SELECT username FROM usr WHERE workspace_id = $1 AND username IN ( \
-             SELECT split_part(path, '/', 2) FROM script WHERE workspace_id = $1 AND path LIKE 'u/%' AND archived = false \
-             UNION SELECT split_part(path, '/', 2) FROM flow WHERE workspace_id = $1 AND path LIKE 'u/%' AND archived = false \
-             UNION SELECT split_part(path, '/', 2) FROM app WHERE workspace_id = $1 AND path LIKE 'u/%')",
-        )
-        .bind(&w_id)
-        .fetch_all(&mut *tx)
-        .await?
+        // semi-joined on the owner segment. RLS and the token's runnable read scopes
+        // both apply inside the subquery, so a user whose items the caller cannot
+        // read counts as empty for them.
+        let mut arr_binds: Vec<Vec<String>> = vec![];
+        let sub = windmill_api_auth::non_empty_owner_subquery(&authed, "u/", 2, &mut arr_binds);
+        let sql =
+            format!("SELECT username FROM usr WHERE workspace_id = $1 AND username IN ({sub})");
+        let mut query = sqlx::query_scalar::<_, String>(&sql).bind(&w_id);
+        for arr in arr_binds {
+            query = query.bind(arr);
+        }
+        query.fetch_all(&mut *tx).await?
     } else {
         sqlx::query_scalar!("SELECT username from usr WHERE workspace_id = $1", &w_id)
             .fetch_all(&mut *tx)

@@ -16,8 +16,8 @@ use axum::{
 use lazy_static::lazy_static;
 use regex::Regex;
 use windmill_api_auth::{
-    build_scope_path_filter, build_scope_path_predicate, check_scopes, ApiAuthed, AuthCache,
-    ScopePathFilter, Tokened,
+    build_scope_path_filter, build_scope_path_predicate, check_scopes, non_empty_owner_subquery,
+    ApiAuthed, AuthCache, ScopePathFilter, Tokened,
 };
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
@@ -130,8 +130,8 @@ async fn list_folders(
     Ok(Json(rows))
 }
 #[derive(Deserialize)]
-pub struct ListFoldernamesQuery {
-    pub non_empty: Option<bool>,
+struct ListFoldernamesQuery {
+    non_empty: Option<bool>,
 }
 
 async fn list_foldernames(
@@ -150,20 +150,20 @@ async fn list_foldernames(
     // LIMIT would let a page return fewer than per_page while authorized folders remain
     // on later DB pages, stopping such a caller early.)
     let mut sql = String::from("SELECT name FROM folder WHERE workspace_id = $1");
+    // Dynamic binds are all text[] arrays, appended in order after the three fixed
+    // binds ($1 workspace, $2 limit, $3 offset).
+    let mut arr_binds: Vec<Vec<String>> = vec![];
     if lq.non_empty.unwrap_or(false) {
         // Only folders holding at least one non-archived script/flow/app (the kinds the
         // homepage lists) — a single scan per table semi-joined on the owner segment,
-        // rather than a correlated probe per folder. Runs under the user's RLS, so a
-        // folder whose items the caller cannot read counts as empty for them.
-        sql.push_str(
-            " AND name IN ( \
-             SELECT split_part(path, '/', 2) FROM script WHERE workspace_id = $1 AND path LIKE 'f/%' AND archived = false \
-             UNION SELECT split_part(path, '/', 2) FROM flow WHERE workspace_id = $1 AND path LIKE 'f/%' AND archived = false \
-             UNION SELECT split_part(path, '/', 2) FROM app WHERE workspace_id = $1 AND path LIKE 'f/%')",
-        );
+        // rather than a correlated probe per folder. RLS and the token's runnable read
+        // scopes both apply inside the subquery, so a folder whose items the caller
+        // cannot read counts as empty for them.
+        let sub = non_empty_owner_subquery(&authed, "f/", 4 + arr_binds.len(), &mut arr_binds);
+        sql.push_str(&format!(" AND name IN ({sub})"));
     }
-    let restricted = match build_scope_path_filter(&authed, "folders", "read") {
-        ScopePathFilter::AllowAll => None,
+    match build_scope_path_filter(&authed, "folders", "read") {
+        ScopePathFilter::AllowAll => {}
         ScopePathFilter::Restricted { exact, prefix } => {
             // A prefix grant also authorizes the folder at the prefix itself.
             let mut eq = exact;
@@ -179,18 +179,23 @@ async fn list_foldernames(
                     )
                 })
                 .collect();
-            sql.push_str(" AND (('f/' || name) = ANY($4) OR ('f/' || name) LIKE ANY($5))");
-            Some((eq, like))
+            let e = format!("${}", 4 + arr_binds.len());
+            arr_binds.push(eq);
+            let l = format!("${}", 4 + arr_binds.len());
+            arr_binds.push(like);
+            sql.push_str(&format!(
+                " AND (('f/' || name) = ANY({e}) OR ('f/' || name) LIKE ANY({l}))"
+            ));
         }
-    };
+    }
     sql.push_str(" ORDER BY name asc LIMIT $2 OFFSET $3");
 
     let mut query = sqlx::query_scalar::<_, String>(&sql)
         .bind(&w_id)
         .bind(per_page as i64)
         .bind(offset as i64);
-    if let Some((eq, like)) = restricted {
-        query = query.bind(eq).bind(like);
+    for arr in arr_binds {
+        query = query.bind(arr);
     }
     let rows = query.fetch_all(&mut *tx).await?;
 

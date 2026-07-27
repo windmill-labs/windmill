@@ -594,6 +594,59 @@ pub fn build_scope_path_filter(authed: &ApiAuthed, domain: &str, action: &str) -
     ScopePathFilter::Restricted { exact, prefix }
 }
 
+/// SQL subquery selecting the owner segment (`split_part(path, '/', 2)`) of every
+/// non-archived script/flow/app under `path_prefix` (`"f/"` or `"u/"`) that the
+/// token may read. Used by the `non_empty` variants of the folder/username listings.
+/// RLS doesn't honor token path scopes, so each branch embeds its domain's read
+/// grant — otherwise a token scoped to a subset of runnables could learn that
+/// out-of-scope runnables exist. The caller must bind the workspace id as `$1`;
+/// the text[] values pushed onto `arr_binds` must be bound in order, numbered from
+/// `first_bind`.
+pub fn non_empty_owner_subquery(
+    authed: &ApiAuthed,
+    path_prefix: &str,
+    first_bind: usize,
+    arr_binds: &mut Vec<Vec<String>>,
+) -> String {
+    debug_assert!(matches!(path_prefix, "f/" | "u/"));
+    let escape_like = |s: &str| {
+        s.replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_")
+    };
+    let scope_pred = |domain: &str, arr_binds: &mut Vec<Vec<String>>| -> String {
+        match build_scope_path_filter(authed, domain, "read") {
+            ScopePathFilter::AllowAll => String::new(),
+            ScopePathFilter::Restricted { exact, prefix } => {
+                if exact.is_empty() && prefix.is_empty() {
+                    return " AND false".to_string();
+                }
+                // A prefix grant covers the path at the prefix itself too.
+                let like: Vec<String> = prefix
+                    .iter()
+                    .map(|p| format!("{}/%", escape_like(p)))
+                    .collect();
+                let mut eq = exact;
+                eq.extend(prefix);
+                let e = format!("${}", first_bind + arr_binds.len());
+                arr_binds.push(eq);
+                let l = format!("${}", first_bind + arr_binds.len());
+                arr_binds.push(like);
+                format!(" AND (path = ANY({e}) OR path LIKE ANY({l}))")
+            }
+        }
+    };
+    let s = scope_pred("scripts", arr_binds);
+    let f = scope_pred("flows", arr_binds);
+    let a = scope_pred("apps", arr_binds);
+    format!(
+        "SELECT split_part(path, '/', 2) FROM script WHERE workspace_id = $1 AND path LIKE '{pp}%' AND archived = false{s} \
+         UNION SELECT split_part(path, '/', 2) FROM flow WHERE workspace_id = $1 AND path LIKE '{pp}%' AND archived = false{f} \
+         UNION SELECT split_part(path, '/', 2) FROM app WHERE workspace_id = $1 AND path LIKE '{pp}%'{a}",
+        pp = path_prefix
+    )
+}
+
 pub async fn require_devops_role(db: &DB, email: &str) -> error::Result<()> {
     let is_devops = is_devops_email(db, email).await?;
 

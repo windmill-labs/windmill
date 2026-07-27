@@ -488,6 +488,11 @@
 		// late responses can't overwrite the fresh ones.
 		treeGen++
 		const toReload = treeLazyMode ? [...openOwners] : []
+		// The non_empty-filtered owner lists depend on workspace content, so a row
+		// mutation can change them: moving an item into a previously-empty folder must
+		// surface that folder's node, and emptying a folder must drop it.
+		folderNamesRes.refetch()
+		usernamesRes.refetch()
 		await loadRunnables(true)
 		// force: the owners are still marked loaded, so re-fetch their first page and
 		// swap it in place (loadOwnerItems replaces each owner's rows atomically — the
