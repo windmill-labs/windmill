@@ -562,8 +562,19 @@ async fn test_change_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
             .await?;
     assert_eq!(old_rows, Some(0));
 
-    // Moving onto an address that already has an account would merge two identities.
+    // Moving onto an address that already has an account would merge two identities. Login
+    // lowercases what it is given, so a case-only difference collides just the same.
     let resp = change_email("test3@windmill.dev", "renamed@windmill.dev")
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+
+    sqlx::query!(
+        "UPDATE password SET email = 'Legacy@windmill.dev' WHERE email = 'renamed@windmill.dev'"
+    )
+    .execute(&db)
+    .await?;
+    let resp = change_email("test3@windmill.dev", "legacy@windmill.dev")
         .await
         .unwrap();
     assert_eq!(resp.status(), 400);

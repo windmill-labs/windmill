@@ -1735,9 +1735,15 @@ async fn change_user_email(
     .await?;
     let username = not_found_if_none(username, "user", &old_email)?;
 
+    // Compared case-insensitively: login lowercases what it is given, so an account stored with
+    // uppercase would be shadowed by a lowercase twin rather than collide with it. The moved
+    // account is excluded so that normalizing its own address to lowercase stays allowed.
     let taken = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM password WHERE email = $1 UNION ALL SELECT 1 FROM usr WHERE email = $1)",
-        &new_email
+        "SELECT EXISTS(
+            SELECT 1 FROM password WHERE lower(email) = $1 AND email <> $2
+            UNION ALL SELECT 1 FROM usr WHERE lower(email) = $1 AND email <> $2)",
+        &new_email,
+        &old_email
     )
     .fetch_one(&mut *tx)
     .await?
