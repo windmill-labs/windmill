@@ -173,6 +173,38 @@ describe('createRawAppFromScript', () => {
 		expect(app.value.files['/App.tsx']).toContain('"user\'s-name": user_s_name')
 	})
 
+	it('keeps an array enum an array', () => {
+		const app = createRawAppFromScript('u/dev/s', undefined, {
+			type: 'object',
+			required: ['tags'],
+			properties: {
+				tags: { type: 'array', items: { type: 'string' }, enum: ['a', 'b'], default: ['a'] }
+			}
+		})
+		const appTsx = app.value.files['/App.tsx']
+		// `genWmillTs` types this `string[]`, so scalar state would not compile.
+		expect(appTsx).toContain("const [tags, setTags] = useState(['a'] as string[])")
+		expect(appTsx).toContain('multiple')
+		expect(appTsx).toContain('Array.from(e.target.selectedOptions, (o) => o.value)')
+		expect(appTsx).toContain('tags,')
+	})
+
+	it('lets an optional enum fall back to the runnable default', () => {
+		const app = createRawAppFromScript('u/dev/s', undefined, {
+			type: 'object',
+			required: ['req'],
+			properties: {
+				req: { type: 'string', enum: ['x', 'y'] },
+				opt: { type: 'string', enum: ['x', 'y'] }
+			}
+		})
+		const appTsx = app.value.files['/App.tsx']
+		expect(appTsx).toContain("const [req, setReq] = useState('x')")
+		expect(appTsx).toContain("const [opt, setOpt] = useState('')")
+		expect(appTsx).toContain("opt: opt === '' ? undefined : opt")
+		expect(appTsx).toContain('<option value=""></option>')
+	})
+
 	it('passes enum values through JSX unchanged', () => {
 		const app = createRawAppFromScript('u/dev/s', 'Tom &amp; Jerry', {
 			type: 'object',
@@ -201,7 +233,9 @@ describe('createRawAppFromScript', () => {
 		const appTsx = app.value.files['/App.tsx']
 		expect(appTsx).toContain('<option value="fast">Fast (cached)</option>')
 		expect(appTsx).toContain('<option value="slow">Slow (fresh)</option>')
-		expect(appTsx).toContain("const [mode, setMode] = useState('fast')")
+		// Optional, so it seeds blank and offers an empty option; see the
+		// optional-enum case below.
+		expect(appTsx).toContain("const [mode, setMode] = useState('')")
 		expect(appTsx).not.toContain('[object Object]')
 	})
 })

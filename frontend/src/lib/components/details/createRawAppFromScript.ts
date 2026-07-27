@@ -11,7 +11,15 @@ export type RawAppImport = {
 	}
 }
 
-type FieldKind = 'text' | 'password' | 'resource' | 'number' | 'boolean' | 'enum' | 'json'
+type FieldKind =
+	| 'text'
+	| 'password'
+	| 'resource'
+	| 'number'
+	| 'boolean'
+	| 'enum'
+	| 'multienum'
+	| 'json'
 
 /** Schema enums are either bare values or `{ value, label }` pairs; the option
  *  submits `value` and displays `label`. */
@@ -152,9 +160,21 @@ function isResourceProp(prop: any): boolean {
 	return typeof prop?.format === 'string' && prop.format.startsWith('resource-')
 }
 
+/** Options live on the property for a scalar enum and on `items` for an array
+ *  one; either shape may carry them. */
+function enumSource(prop: any): any[] {
+	if (Array.isArray(prop?.enum) && prop.enum.length > 0) return prop.enum
+	if (Array.isArray(prop?.items?.enum) && prop.items.enum.length > 0) return prop.items.enum
+	return []
+}
+
 function fieldKind(prop: any): FieldKind {
 	if (isResourceProp(prop)) return 'resource'
-	if (Array.isArray(prop?.enum) && prop.enum.length > 0) return 'enum'
+	if (enumSource(prop).length > 0) {
+		// An array-typed enum is a multiselect: `genWmillTs` types it `string[]`,
+		// so a scalar `<select>` would generate state the runnable call rejects.
+		return prop?.type === 'array' ? 'multienum' : 'enum'
+	}
 	if (prop?.type === 'boolean') return 'boolean'
 	if (prop?.type === 'number' || prop?.type === 'integer') return 'number'
 	if (prop?.type === 'string') return prop.password === true ? 'password' : 'text'
@@ -225,7 +245,7 @@ function toFields(schema: Record<string, any> | undefined): Field[] {
 			kind === 'number' || kind === 'json' ? `${key}Text` : key,
 			taken
 		)
-		const enumValues: EnumOption[] = (Array.isArray(prop.enum) ? prop.enum : []).map((v: any) =>
+		const enumValues: EnumOption[] = enumSource(prop).map((v: any) =>
 			v != undefined && typeof v === 'object'
 				? { value: String(v.value), label: String(v.label ?? v.value) }
 				: { value: String(v), label: String(v) }
@@ -247,10 +267,17 @@ function toFields(schema: Record<string, any> | undefined): Field[] {
 			arg = isRequired
 				? `JSON.parse(${local})`
 				: `${local}.trim() === '' ? undefined : JSON.parse(${local})`
+		} else if (kind === 'multienum') {
+			const defaults = Array.isArray(prop.default) ? prop.default.map((v: any) => String(v)) : []
+			// Annotated: `useState([])` alone infers `never[]`.
+			init = `[${defaults.map(str).join(', ')}] as string[]`
+			arg = isRequired ? local : `${local}.length === 0 ? undefined : ${local}`
 		} else if (kind === 'enum') {
-			// A select always has a selection, so it never submits an empty value.
-			init = str(typeof prop.default === 'string' ? prop.default : (enumValues[0]?.value ?? ''))
-			arg = local
+			// An optional enum gets a blank option so the runnable's own default
+			// stays reachable; a required one always carries a real selection.
+			const seed = typeof prop.default === 'string' ? prop.default : ''
+			init = str(seed !== '' || !isRequired ? seed : (enumValues[0]?.value ?? ''))
+			arg = isRequired ? local : `${local} === '' ? undefined : ${local}`
 		} else if (kind === 'resource') {
 			// Starts empty, never at a bare `$res:`: an untouched optional field has
 			// to read as omitted, and an untouched required one has to trip the
@@ -310,6 +337,18 @@ function fieldInput(field: Field): string {
 						className="field-input"
 						value={${field.local}}
 						onChange={(e) => ${field.setter}(e.target.value)}
+					>
+${field.required ? '' : '						<option value=""></option>\n'}${field.enumValues.map((o) => `						<option value=${jsxAttr(o.value)}>${jsxText(o.label)}</option>`).join('\n')}
+					</select>`
+		case 'multienum':
+			return `<select
+						className="field-input field-multiselect"
+						multiple
+						size={Math.min(${field.enumValues.length}, 6)}
+						value={${field.local}}
+						onChange={(e) =>
+							${field.setter}(Array.from(e.target.selectedOptions, (o) => o.value))
+						}
 					>
 ${field.enumValues.map((o) => `						<option value=${jsxAttr(o.value)}>${jsxText(o.label)}</option>`).join('\n')}
 					</select>`
@@ -536,6 +575,10 @@ body {
 	font-family: inherit;
 	background: var(--bg);
 	color: var(--fg);
+}
+
+.field-multiselect {
+	min-height: 72px;
 }
 
 .field-textarea {
