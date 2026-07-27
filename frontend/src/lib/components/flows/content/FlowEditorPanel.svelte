@@ -123,7 +123,7 @@
 		{noEditor}
 		disabled={disabledFlowInputs}
 		on:openTriggers={(ev) => {
-			selectionManager.selectId('Trigger')
+			selectionManager.selectId('Trigger', { openPanel: true })
 			handleSelectTriggerFromKind(triggersState, triggersCount, savedFlow?.path, ev.detail.kind)
 			showCaptureHint.set(true)
 		}}

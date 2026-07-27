@@ -138,14 +138,10 @@
 	// reached via toolbar buttons / dedicated nodes, not step-node double-clicks. In
 	// modal mode a single click on any of them should open the modal too — step
 	// modules stay double-click-only so graph select/drag doesn't pop the modal.
-	const NON_MODULE_PANEL_IDS = new Set([
-		'constants',
-		'failure',
-		'preprocessor',
-		'Input',
-		'Trigger',
-		'Result'
-	])
+	// The Triggers node is a graph node like any step: selecting it does not open the
+	// panel, double-clicking does. Picking a specific trigger inside it asks for the
+	// panel explicitly via `openPanel`.
+	const NON_MODULE_PANEL_IDS = new Set(['constants', 'failure', 'preprocessor', 'Input', 'Result'])
 	function isNonModulePanelTarget(id: string): boolean {
 		return id.startsWith('settings') || NON_MODULE_PANEL_IDS.has(id)
 	}
