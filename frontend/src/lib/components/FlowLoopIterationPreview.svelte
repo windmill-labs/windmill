@@ -72,11 +72,11 @@
 		type: 'object'
 	}
 
-	// A real while loop always sets iter.value to iter.index, and its first iteration runs
-	// at index 0. The preview flow holds only the loop body, so nothing else supplies that
-	// context: mirror the value and default the index so a preview matches an actual run.
+	// A real while loop always sets iter.value to iter.index, and counts whole iterations from
+	// 0. The preview flow holds only the loop body, so nothing else supplies that context:
+	// mirror the value and clamp to a whole, non-negative index so a preview matches a run.
 	function withWhileLoopIter(args: Record<string, any>): Record<string, any> {
-		const index = args.iter?.index ?? 0
+		const index = Math.max(0, Math.floor(args.iter?.index ?? 0))
 		return { ...args, iter: { ...args.iter, index, value: index } }
 	}
 
