@@ -1802,7 +1802,10 @@ pub async fn handle_bun_job(
         // Kept comment-free — this string is written out per job.
         // `_takePendingSuspend` returns a StepSuspend the body caught and swallowed
         // (it is an `Error`), so honour it instead of reporting a `complete` whose
-        // step never reached the checkpoint. Optional: npm clients may predate it.
+        // step never reached the checkpoint. `_takePendingStepFailure` does the same
+        // for the exception raised by the step a child round executes directly: it is
+        // the round's result, not something the body may handle, so a broad catch must
+        // not turn it into a successful `complete`. Optional: npm clients may predate them.
         let wrapper_content = if is_wac_v2 {
             format!(
                 r#"
@@ -1847,6 +1850,10 @@ async function run() {{
     try {{
         const result = await workflowFn(...argsArr);
         setWorkflowCtx(null);
+        const failed = ctx._takePendingStepFailure?.();
+        if (failed) {{
+            throw failed.error;
+        }}
         const swallowed = ctx._takePendingSuspend?.();
         if (swallowed) {{
             throw swallowed;
@@ -1874,6 +1881,10 @@ async function run() {{
                 return {{ type: "sleep", key: dispatch.key, seconds: dispatch.seconds }};
             }}
             return {{ type: "dispatch", mode: dispatch.mode ?? "sequential", steps: dispatch.steps ?? [] }};
+        }}
+        const failed = ctx._takePendingStepFailure?.();
+        if (failed) {{
+            throw failed.error;
         }}
         throw e;
     }}

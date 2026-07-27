@@ -1594,6 +1594,12 @@ export class WorkflowCtx {
    *  `complete` whose step never reached `completed_steps`. Python is immune:
    *  `_StepSuspend` derives from `BaseException`. */
   private _pendingSuspend: StepSuspend | null = null;
+  /** The failure raised by the step this child round is executing. In child
+   *  mode that exception *is* the round's result, so a `catch` in the workflow
+   *  body must not be able to turn it into a `complete` — the parent would then
+   *  record the caught branch's value as a successful step. Boxed because the
+   *  thrown value may be any falsy value. */
+  private _pendingStepFailure: { error: unknown } | null = null;
   /** When set, the task matching this key executes its inner function directly */
   _executingKey: string | null;
   /** Serializes fast-path POSTs across concurrent step() calls within one
@@ -1635,7 +1641,7 @@ export class WorkflowCtx {
     dispatch_type: string = "inline",
     options?: TaskOptions,
   ): PromiseLike<any> {
-    this._rethrowSwallowedSuspend();
+    this._rethrowSwallowed();
     const key = this._allocKey(name || script || "step");
 
     if (key in this.completed) {
@@ -1707,7 +1713,7 @@ export class WorkflowCtx {
     selfApproval?: boolean;
     key?: string;
   }): PromiseLike<{ value: any; approver: string; approved: boolean }> {
-    this._rethrowSwallowedSuspend();
+    this._rethrowSwallowed();
     if (options?.key !== undefined) assertUsableStepKey(options.key, "waitForApproval key");
     const key = this._allocKey(options?.key || "approval");
 
@@ -1745,7 +1751,7 @@ export class WorkflowCtx {
   }
 
   _sleep(seconds: number): PromiseLike<void> {
-    this._rethrowSwallowedSuspend();
+    this._rethrowSwallowed();
     const key = this._allocKey("sleep");
 
     if (key in this.completed) {
@@ -1766,7 +1772,7 @@ export class WorkflowCtx {
   }
 
   async _runInlineStep<T>(name: string, fn: () => T | Promise<T>): Promise<T> {
-    this._rethrowSwallowedSuspend();
+    this._rethrowSwallowed();
     const key = this._allocKey(name || "step");
 
     if (key in this.completed) {
@@ -1889,11 +1895,20 @@ export class WorkflowCtx {
     throw suspend;
   }
 
-  /** Re-throw a swallowed suspend at the next SDK call. It happened before
-   *  whatever the body is doing now, so it wins: the run is unwinding either
-   *  way and everything after it re-runs on the replay. Left set, so a body
-   *  that catches in a loop can't swallow it a second time. */
-  private _rethrowSwallowedSuspend(): void {
+  /** Raise the executing step's failure, parking it so a body that catches it
+   *  cannot make it vanish. Child mode only — in a parent round a task failure
+   *  is an ordinary `TaskError` the body may handle. */
+  _raiseStepFailure(error: unknown): never {
+    this._pendingStepFailure = { error };
+    throw error;
+  }
+
+  /** Re-throw a swallowed suspend or step failure at the next SDK call. It
+   *  happened before whatever the body is doing now, so it wins: the run is
+   *  unwinding either way and everything after it re-runs on the replay. Left
+   *  set, so a body that catches in a loop can't swallow it a second time. */
+  private _rethrowSwallowed(): void {
+    if (this._pendingStepFailure) throw this._pendingStepFailure.error;
     if (this._pendingSuspend) throw this._pendingSuspend;
   }
 
@@ -1904,6 +1919,14 @@ export class WorkflowCtx {
     const s = this._pendingSuspend;
     this._pendingSuspend = null;
     return s;
+  }
+
+  /** Same for the executing step's failure: the runner re-throws it so the
+   *  child job fails instead of reporting the caught branch as the result. */
+  _takePendingStepFailure(): { error: unknown } | null {
+    const f = this._pendingStepFailure;
+    this._pendingStepFailure = null;
+    return f;
   }
 }
 
@@ -1978,7 +2001,13 @@ export function task<T extends (...args: any[]) => Promise<any>>(
       // and throw StepSuspend with mode "step_complete" to signal that we're done
       if ((stepResult as any)?._execute_directly) {
         return (async () => {
-          const result = await fn(...args);
+          let result: any;
+          try {
+            result = await fn(...args);
+          } catch (e) {
+            if ((e as any)?.name === "StepSuspend" || e instanceof StepSuspend) throw e;
+            ctx._raiseStepFailure(e);
+          }
           ctx._raiseSuspend({ mode: "step_complete", steps: [], result });
         })();
       }
