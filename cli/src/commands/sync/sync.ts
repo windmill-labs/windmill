@@ -4650,6 +4650,26 @@ export async function push(
                 );
                 continue;
               }
+              // A script deploys through its content file, which is normally in
+              // the same group — but not always (excludes can filter it out).
+              // Resolving it from disk keeps the deploy idempotent (via
+              // alreadySynced) and makes an unaccompanied metadata file raise
+              // instead of being counted as a change that reached the remote.
+              if (
+                !isRawAppFile(change.path) &&
+                (await handleScriptMetadata(
+                  change.path,
+                  workspace,
+                  alreadySynced,
+                  opts.message,
+                  rawWorkspaceDependencies,
+                  codebases,
+                  opts,
+                  permissionedAsContext,
+                ))
+              ) {
+                continue;
+              }
               if (
                 !isRawAppFile(change.path) &&
                 (change.path.endsWith(".script.json") ||

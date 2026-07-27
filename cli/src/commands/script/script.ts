@@ -876,13 +876,15 @@ export async function findContentFile(filePath: string) {
   // Folder layout: __mod/script.yaml -> __mod/script.ts
   const isModuleFolderMeta =
     filePath.endsWith("/script.yaml") || filePath.endsWith("/script.json") || filePath.endsWith("/script.lock");
-  const candidates = isModuleFolderMeta
-    ? exts.map((x) => filePath.replace(/\/script\.(yaml|json|lock)$/, "/script" + x))
-    : filePath.endsWith("script.json")
-    ? exts.map((x) => filePath.replace(".script.json", x))
-    : filePath.endsWith("script.lock")
-    ? exts.map((x) => filePath.replace(".script.lock", x))
-    : exts.map((x) => filePath.replace(".script.yaml", x));
+  const toCandidate = (ext: string) =>
+    isModuleFolderMeta
+      ? filePath.replace(/\/script\.(yaml|json|lock)$/, "/script" + ext)
+      : filePath.endsWith("script.json")
+      ? filePath.replace(".script.json", ext)
+      : filePath.endsWith("script.lock")
+      ? filePath.replace(".script.lock", ext)
+      : filePath.replace(".script.yaml", ext);
+  const candidates = exts.map(toCandidate);
 
   const validCandidates = (
     await Promise.all(
@@ -906,7 +908,10 @@ export async function findContentFile(filePath: string) {
   }
   if (validCandidates.length < 1) {
     throw new Error(
-      `No content path given and no content file found for ${filePath}.`
+      `No script file found next to ${filePath} — a script cannot be deployed from its metadata alone. ` +
+        `Add the matching script file (e.g. ${toCandidate(".ts")} or ${toCandidate(
+          ".py"
+        )}) or remove ${filePath}.`
     );
   }
   return validCandidates[0];
