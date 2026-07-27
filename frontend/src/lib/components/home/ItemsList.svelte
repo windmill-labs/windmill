@@ -460,6 +460,10 @@
 	function collapseOwner(owner: string): void {
 		openOwners.delete(owner)
 	}
+	// The `f/<folder>` / `u/<user>` prefix a path belongs to.
+	function ownerOf(path: string): string {
+		return path.split('/').slice(0, 2).join('/')
+	}
 	// Reload the merged list once and re-fetch the owners that are currently expanded so
 	// they don't go blank. Used both for row mutations (create/edit/archive/move/share)
 	// and for in-place scope changes (sort/archive/library/kind): those keep the tree in
@@ -472,6 +476,16 @@
 		// late responses can't overwrite the fresh ones.
 		treeGen++
 		const toReload = treeLazyMode ? [...openOwners] : []
+		// Only the open owners are re-fetched below; a collapsed one keeps its rows as a
+		// cache, which this reload invalidates. Left in place they would outlive the scope
+		// they were loaded for: the owner stays grouped (so it keeps a node the new counts
+		// say is empty) and, since it is still marked loaded, expanding it again shows the
+		// previous scope's items instead of re-fetching. Drop them and let expand reload.
+		if (treeLazyMode) {
+			const open = new Set(toReload)
+			treeOwnerItems = treeOwnerItems.filter((x) => open.has(ownerOf(x.path)))
+			ownerLoad = Object.fromEntries(Object.entries(ownerLoad).filter(([o]) => open.has(o)))
+		}
 		await loadRunnables(true)
 		// force: the owners are still marked loaded, so re-fetch their first page and
 		// swap it in place (loadOwnerItems replaces each owner's rows atomically — the
