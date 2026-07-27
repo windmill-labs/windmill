@@ -32,8 +32,7 @@
 				<input bind:value={branch.summary} placeholder={'Summary'} />
 			</div>
 		{/snippet}
-		<div class="overflow-hidden flex-grow">
-			<h3 class="p-2">Predicate expression</h3>
+		<div class="flex h-full min-h-0 flex-col overflow-auto p-4">
 			<BranchPredicateEditor
 				{branch}
 				{parentModule}

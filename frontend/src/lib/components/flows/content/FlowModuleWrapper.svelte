@@ -19,6 +19,7 @@
 	import FlowBranchesAllWrapper from './FlowBranchesAllWrapper.svelte'
 	import FlowBranchesOneWrapper from './FlowBranchesOneWrapper.svelte'
 	import FlowWhileLoop from './FlowWhileLoop.svelte'
+	import FlowCard from '../common/FlowCard.svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { formatCron } from '$lib/utils'
 	import AgentToolWrapper from './AgentToolWrapper.svelte'
@@ -235,9 +236,14 @@
 	{/each}
 {:else if flowModule.value.type === 'branchone'}
 	{#if selectedId === `${flowModule?.id}-branch-default`}
-		<div class="p-2">
-			<h3 class="mb-4">Default branch</h3>
-			Nothing to configure, this is the default branch if none of the predicates are met.
+		<div class="h-full flex flex-col">
+			<FlowCard {noEditor} title="Default branch">
+				<div class="p-4">
+					<p class="text-xs text-tertiary">
+						Nothing to configure — this branch runs when none of the predicates match.
+					</p>
+				</div>
+			</FlowCard>
 		</div>
 	{:else}
 		{#each flowModule.value.default as _, index}

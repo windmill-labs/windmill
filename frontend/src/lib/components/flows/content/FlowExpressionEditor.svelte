@@ -1,6 +1,7 @@
 <script lang="ts">
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import Button from '$lib/components/common/button/Button.svelte'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import PropPicker from '$lib/components/propertyPicker/PropPicker.svelte'
@@ -115,10 +116,16 @@
 		placement="bottom-start"
 		closeOnOutsideClick
 		contentClasses="rounded-md border bg-surface shadow-lg overflow-hidden"
-		class="flex h-7 items-center justify-center rounded-md border bg-surface px-2 font-normal text-secondary hover:bg-surface-hover hover:text-primary"
 	>
 		{#snippet trigger()}
-			<Plug size={13} />
+			<Button
+				variant="default"
+				unifiedSize="sm"
+				nonCaptureEvent
+				iconOnly
+				startIcon={{ icon: Plug }}
+				title="Insert a property from a previous step"
+			/>
 		{/snippet}
 		{#snippet content()}
 			<div class="max-h-80 w-72 overflow-auto p-2">
