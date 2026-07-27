@@ -1206,7 +1206,14 @@
 				historyManager.markPendingChanges()
 			}
 		} else if (e.data.type === 'getBundle') {
-			getBundleResolve?.(e.data.bundle)
+			// The UI Builder omits `css` entirely when the app has no styles. Saving
+			// `undefined` drops the multipart field, and the backend then stores no
+			// css blob at all for that version — see `rawAppBundlerBridge`, which
+			// guards the same message for the chat/draft path.
+			getBundleResolve?.({
+				js: String(e.data.bundle?.js ?? ''),
+				css: String(e.data.bundle?.css ?? '')
+			})
 		} else if (e.data.type === 'updateModules') {
 			modules = e.data.modules
 		} else if (e.data.type === 'setActiveDocument') {
