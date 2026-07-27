@@ -302,17 +302,17 @@
 		{/if}
 	{/each}
 {:else if flowModule.value.type === 'aiagent'}
-	{#each flowModule.value.tools as tool, toolIndex (toolIndex)}
+	{#each flowModule.value.tools ?? [] as tool, toolIndex (toolIndex)}
 		{#if selectedId === tool.id}
 			<AgentToolWrapper
 				{noEditor}
-				bind:tool={flowModule.value.tools[toolIndex]}
+				bind:tool={flowModule.value.tools![toolIndex]}
 				parentModule={flowModule}
 				{previousModule}
 				{enableAi}
 				{forceTestTab}
 				{highlightArg}
-				siblingToolNames={flowModule.value.tools.map((t) => t.summary ?? '')}
+				siblingToolNames={flowModule.value.tools!.map((t) => t.summary ?? '')}
 			/>
 		{/if}
 	{/each}

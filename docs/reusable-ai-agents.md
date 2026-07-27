@@ -34,3 +34,17 @@ input editors (prop picker included) and a read-only view of its code — edits 
 `tool_inputs`.
 
 Sharing works through standard resource folder permissions (save agents under `f/...`).
+
+## Dependencies and locks
+
+A linked step carries `tools: []`, and no dependency job ever visits the `ai_agent` resource, so the
+tool scripts inside it are outside the lockfile and dependency-map pipelines: `lock_modules` has
+nothing to lock on the step, and `FlowValue::traverse_leafs` sees no leaf for them. Consequences:
+
+- Raw-script tools saved into an agent keep whatever `lock` they had on the authoring step (`null`
+  if that step was never deployed), and every linked flow resolves their dependencies at job time.
+- Script tools referenced by path are invisible to redeploy cascades — republishing such a script
+  does not re-lock the flows that link the agent.
+
+Deploying a linked flow to another workspace pulls the `ai_agent` resource in as a dependency, but
+not the provider resource it references (`$res:` inside a resource value is not traversed).

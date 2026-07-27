@@ -96,18 +96,20 @@ function findAgentToolOwnerInNode(
 		return undefined
 	}
 
-	const toolIndex = node.value.tools.findIndex((tool) => tool.id === toolId)
+	// Absent for a linked agent, whose tools live in the resource rather than on the module.
+	const tools = node.value.tools ?? []
+	const toolIndex = tools.findIndex((tool) => tool.id === toolId)
 	if (toolIndex !== -1) {
 		return {
 			agentId: node.id,
-			tools: node.value.tools,
+			tools,
 			toolIndex,
-			tool: node.value.tools[toolIndex],
+			tool: tools[toolIndex],
 			depth: depth + 1
 		}
 	}
 
-	for (const tool of node.value.tools) {
+	for (const tool of tools) {
 		if (!isFlowModuleTool(tool)) {
 			continue
 		}
@@ -153,7 +155,7 @@ function collectFlowNodeIdsFromNode(node: FlowNodeLike): string[] {
 	}
 
 	if (node.value.type === 'aiagent') {
-		for (const tool of node.value.tools) {
+		for (const tool of node.value.tools ?? []) {
 			ids.push(...collectAgentToolIds(tool))
 		}
 	}

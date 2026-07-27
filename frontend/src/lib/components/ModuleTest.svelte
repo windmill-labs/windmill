@@ -146,9 +146,8 @@
 						modules: [
 							{
 								id: mod.id,
-								// `agent`/`tool_inputs` aren't in the generated FlowModuleValue type; cast to
-								// carry them through. A linked step has no tools of its own, so the resource's
-								// tools and their host bindings are resolved server-side from these.
+								// A linked step has no tools of its own: the resource's tools and their host
+								// bindings are resolved server-side from `agent`/`tool_inputs`.
 								value: {
 									type: 'aiagent',
 									...(agentVal.agent

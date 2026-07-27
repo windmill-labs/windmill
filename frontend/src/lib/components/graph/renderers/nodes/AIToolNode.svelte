@@ -103,7 +103,7 @@
 			const isLinkedAgent = !!node.data.module.value.agent
 			const sourceTools = isLinkedAgent
 				? (linkedAgentTools?.[node.data.module.id] ?? [])
-				: node.data.module.value.tools
+				: (node.data.module.value.tools ?? [])
 			let tools: {
 				id: string
 				name: string

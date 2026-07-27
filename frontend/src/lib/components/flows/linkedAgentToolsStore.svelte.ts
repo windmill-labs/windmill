@@ -9,6 +9,20 @@ import type { AgentTool } from './agentToolUtils'
 // time (e.g. an editor and an embedded flow preview) from aliasing each other's tools.
 let byScope = $state<Record<string, Record<string, AgentTool[]>>>({})
 
+// Nothing drops a scope when its flow stops being displayed, so a long-lived tab would otherwise
+// retain every flow it ever visited (raw tool script contents included). Evict least-recently-
+// published scopes past this cap, set far above the handful a single view can show at once so a
+// still-displayed flow can never lose its tool nodes to eviction.
+const MAX_SCOPES = 32
+let scopeOrder: string[] = []
+
+function touchScope(scope: string) {
+	scopeOrder = [...scopeOrder.filter((s) => s !== scope), scope]
+	while (scopeOrder.length > MAX_SCOPES) {
+		delete byScope[scopeOrder.shift()!]
+	}
+}
+
 /**
  * Scope key for the store: workspace + flow path. Flow paths repeat across workspaces, so a late
  * async resolution from a previous workspace must land in its own bucket instead of overwriting
@@ -30,6 +44,7 @@ export function setLinkedAgentTools(scope: string, moduleId: string, tools: Agen
 	// else the version bump would retrigger the graph recompute in a loop.
 	if (deepEqual(byScope[scope]?.[moduleId], tools)) return
 	byScope[scope] = { ...(byScope[scope] ?? {}), [moduleId]: tools }
+	touchScope(scope)
 	version++
 }
 
@@ -40,6 +55,8 @@ export function migrateLinkedAgentToolsScope(oldScope: string, newScope: string)
 	if (oldScope === newScope || byScope[oldScope] === undefined) return
 	byScope[newScope] = { ...(byScope[newScope] ?? {}), ...(byScope[oldScope] ?? {}) }
 	delete byScope[oldScope]
+	scopeOrder = scopeOrder.filter((s) => s !== oldScope)
+	touchScope(newScope)
 	version++
 }
 

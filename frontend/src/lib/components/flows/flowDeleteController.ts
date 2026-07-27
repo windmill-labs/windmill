@@ -8,7 +8,7 @@ import type { StateStore } from '$lib/utils'
 import { createDeletePlan, removeDeletePlanTools, type DeletePlan } from './flowDeleteUtils'
 import type { FlowState } from './flowState'
 import { deleteFlowStateById } from './flowStateUtils.svelte'
-import { refreshFlowStateStore } from './agentEditStore.svelte'
+import { refreshFlowStateStore } from './flowStoreRefresh.svelte'
 
 export type PreparedDeleteRequest = {
 	plan: DeletePlan

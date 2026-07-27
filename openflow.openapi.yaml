@@ -1115,7 +1115,6 @@ components:
           type: boolean
           description: If true, the agent can execute multiple tool calls in parallel
       required:
-        - tools
         - type
         - input_transforms
 

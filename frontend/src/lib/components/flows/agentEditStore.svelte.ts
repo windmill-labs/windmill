@@ -6,9 +6,7 @@
 // Edit assigns a fresh array (unique per fork, including nested editors reusing a module id),
 // in-place edits keep it, and wholesale state replacement (undo, session drafts) yields new
 // objects that simply never match — a stale entry can't resurface as a phantom Editing banner.
-import type { FlowModule, OpenFlow } from '$lib/gen'
-import { refreshStateStore } from '$lib/svelte5Utils.svelte'
-import type { StateStore } from '$lib/utils'
+import type { FlowModule } from '$lib/gen'
 
 type Entry = { path: string; marker: object }
 
@@ -25,17 +23,6 @@ export function setAgentEditingPath(marker: object | undefined, path: string | u
 	if (!marker) return
 	const rest = entries.filter((e) => e.marker !== marker)
 	entries = path ? [...rest.slice(-(MAX_ENTRIES - 1)), { marker, path }] : rest
-}
-
-// Refresh the flow store without dropping an in-progress agent Editing session: use at every
-// content-preserving refresh site (structural edits, schema/failure/mock changes) where a bare
-// refreshStateStore clone would break the marker identity above. Content-changing replacements
-// (undo, YAML/diff/AI apply, session restores) stay bare so stale edit state keeps invalidating.
-export function refreshFlowStateStore(flowStore: StateStore<OpenFlow>) {
-	reanchorAgentEditsAcross(
-		() => flowStore.val.value?.modules,
-		() => refreshStateStore(flowStore)
-	)
 }
 
 // Carry edit state across a wholesale clone of the flow: the clone replaces every `tools` array

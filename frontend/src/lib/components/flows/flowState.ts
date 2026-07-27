@@ -90,15 +90,7 @@ async function mapFlowModule(
 			// the graph can render its tool nodes. They are display-only (their inputs are edited in
 			// the step panel, which infers schemas itself), so no per-tool module state is loaded —
 			// resource tool ids are not flow-unique and must not key into the flow state.
-			const genKey = `${scope}:${flowModule.id}`
-			const gen = (linkedToolFetchGen.get(genKey) ?? 0) + 1
-			linkedToolFetchGen.set(genKey, gen)
-			const tools = await resolveLinkedAgentTools(agentRef, workspace)
-			// Un-awaited re-inits (session-draft sync) race these fetches; only the latest may
-			// publish, else a superseded link's tools overwrite the newer one.
-			if (linkedToolFetchGen.get(genKey) === gen) {
-				setLinkedAgentTools(scope, flowModule.id, tools)
-			}
+			await publishLinkedAgentTools(agentRef, workspace, scope, flowModule.id)
 		} else {
 			await Promise.all(
 				(value.tools ?? []).filter(isFlowModuleTool).map(async (tool) => {
@@ -113,6 +105,25 @@ async function mapFlowModule(
 	} else {
 		const flowModuleState = await loadFlowModuleState(flowModule, workspace)
 		modulesState[flowModule.id] = flowModuleState
+	}
+}
+
+// Resolve a linked agent's tools and publish them into the store. Concurrent re-resolutions of the
+// same (scope, module) race — un-awaited re-inits from session-draft sync, or a link swapped while
+// the previous fetch is in flight — so only the latest may publish, else a superseded agent's tools
+// overwrite the newer one.
+export async function publishLinkedAgentTools(
+	agentRef: string,
+	workspace: string | undefined,
+	scope: string,
+	moduleId: string
+) {
+	const genKey = `${scope}:${moduleId}`
+	const gen = (linkedToolFetchGen.get(genKey) ?? 0) + 1
+	linkedToolFetchGen.set(genKey, gen)
+	const tools = await resolveLinkedAgentTools(agentRef, workspace)
+	if (linkedToolFetchGen.get(genKey) === gen) {
+		setLinkedAgentTools(scope, moduleId, tools)
 	}
 }
 

@@ -434,7 +434,12 @@ pub async fn handle_ai_agent_job(
         (args, tools)
     } else {
         let args = serde_json::from_str::<AIAgentArgs>(&serde_json::to_string(&local_args)?)?;
-        (args, module_tools)
+        // "Edit" on a linked step clears `agent` but keeps the host's `tool_inputs` until Save or
+        // Cancel folds them back, so overlay them here too: a flow persisted mid-edit must still
+        // bind its tools to this flow's context rather than the agent author's.
+        let mut tools = module_tools;
+        overlay_tool_inputs(&mut tools, &tool_inputs);
+        (args, tools)
     };
 
     // Nesting is capped at flow → agent → nested agent. When this job is itself a nested tool,

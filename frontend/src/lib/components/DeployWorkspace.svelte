@@ -213,6 +213,15 @@
 						if (x.value.path) {
 							result.push({ kind: 'flow', path: x.value.path })
 						}
+					} else if (x.value.type == 'aiagent') {
+						// A linked agent step holds its brain and tools in this resource, so the target
+						// workspace needs it or every run of the deployed flow fails to resolve the step.
+						if (x.value.agent) {
+							result.push({
+								kind: 'resource',
+								path: x.value.agent.replace(/^\$res:/, '').replace(/^res:\/\//, '')
+							})
+						}
 					}
 					return result
 				})

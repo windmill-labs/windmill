@@ -98,7 +98,7 @@
 			/>
 		{:else if mod.value.type === 'aiagent' && logJob?.type === 'CompletedJob'}
 			<AiAgentLogViewer
-				tools={mod.value.tools}
+				tools={mod.value.tools ?? []}
 				agentJob={{
 					...logJob,
 					type: 'CompletedJob'

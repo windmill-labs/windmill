@@ -7,7 +7,7 @@
 	import { insertNewFailureModule } from '$lib/components/flows/flowStateUtils.svelte'
 	import type { RawScript, ScriptLang } from '$lib/gen'
 	import { twMerge } from 'tailwind-merge'
-	import { refreshFlowStateStore } from '$lib/components/flows/agentEditStore.svelte'
+	import { refreshFlowStateStore } from '$lib/components/flows/flowStoreRefresh.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import DiffActionBar from './DiffActionBar.svelte'
 	import { getNodeColorClasses, aiActionToNodeState } from '$lib/components/graph'
