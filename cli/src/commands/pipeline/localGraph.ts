@@ -557,10 +557,6 @@ export async function collectScripts(
   return out;
 }
 
-// Build the full pipeline asset-graph from local files in `f/<folder>/`.
-// Only `// pipeline` scripts become graph nodes (pipeline membership), mirroring
-// the deployed graph endpoint. Returns the graph plus the in-pipeline scripts'
-// content (the dev watcher pushes the latter; the runner re-reads it for preview).
 /**
  * The pipeline's view of a deployed graph whose folder also holds a dbt project.
  *
@@ -630,6 +626,10 @@ export function hideDbtRunnables<G extends DbtFilterableGraph>(graph: G): G {
   };
 }
 
+// Build the full pipeline asset-graph from local files in `f/<folder>/`.
+// Only `// pipeline` scripts become graph nodes (pipeline membership), mirroring
+// the deployed graph endpoint. Returns the graph plus the in-pipeline scripts'
+// content (the dev watcher pushes the latter; the runner re-reads it for preview).
 export async function buildLocalPipelineGraph(args: {
   root: string;
   folder: string;

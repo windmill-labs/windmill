@@ -93,6 +93,13 @@ pub struct DbtRunResult {
     pub command: String,
     pub totals: DbtTotals,
     pub nodes: Vec<DbtNodeResult>,
+    /// The `table://` paths this run materialized. The cascade dispatches these
+    /// rather than the script's deploy-time write set, so a `select`-narrowed
+    /// run wakes only the consumers of what it rebuilt. Empty is meaningful —
+    /// a run that built nothing dispatches nothing — so it is always present,
+    /// and its absence (a job from before this field, a non-dbt producer) is
+    /// what makes the dispatcher fall back to the full set.
+    pub materialized: Vec<String>,
 }
 
 #[derive(Serialize, Debug, Default)]
@@ -371,9 +378,9 @@ pub async fn handle_dbt_job(
     save_run_state(&prepared, &job.workspace_id, &job.id, &inv, conn)
         .await
         .ok();
-    reconcile_materializations(&prepared, &results, job, conn).await;
+    let materialized = reconcile_materializations(&prepared, &results, job, conn).await;
 
-    let result = build_result(&prepared, &command, results);
+    let result = build_result(&prepared, &command, results, materialized);
     match run {
         Ok(()) => Ok(to_raw_value(&result)),
         Err(e) => {
@@ -1822,14 +1829,20 @@ fn parse_node_event(
 /// the tailer has been updating are re-stated here from the authoritative
 /// artifact, which both fills in `row_count` and gives those engines per-model
 /// state — just at the end of the run rather than during it.
+///
+/// Returns the relations this run MATERIALIZED, which the cascade needs as a
+/// fact about this job. `materialized_partition` cannot answer that: it holds
+/// one row per relation and the newest writer takes it, so a concurrent run
+/// over the same model erases this one's claim to it.
 async fn reconcile_materializations(
     p: &PreparedProject,
     results: &[DbtNodeResult],
     job: &MiniPulledJob,
     conn: &Connection,
-) {
+) -> Vec<String> {
+    let mut materialized = Vec::new();
     let Some(resource_path) = p.resource_path.as_deref() else {
-        return;
+        return materialized;
     };
     for r in results {
         let Some(path) = asset_path_of_relation(
@@ -1887,7 +1900,15 @@ async fn reconcile_materializations(
         if let Err(e) = recorded {
             tracing::warn!("recording the materialization of {path} failed: {e}");
         }
+        // Reported whether or not the record landed: this is what dbt built, and
+        // a failed bookkeeping call must not silence the cascade.
+        if status == MaterializationStatus::Materialized {
+            materialized.push(path);
+        }
     }
+    materialized.sort();
+    materialized.dedup();
+    materialized
 }
 
 /// `"db"."schema"."name"` from dbt into the `table://` path of the relation,
@@ -1967,7 +1988,12 @@ async fn read_run_results(project_dir: &Path) -> Vec<DbtNodeResult> {
         .collect()
 }
 
-fn build_result(p: &PreparedProject, command: &str, nodes: Vec<DbtNodeResult>) -> DbtRunResult {
+fn build_result(
+    p: &PreparedProject,
+    command: &str,
+    nodes: Vec<DbtNodeResult>,
+    materialized: Vec<String>,
+) -> DbtRunResult {
     let mut totals = DbtTotals { total: nodes.len(), ..Default::default() };
     for n in &nodes {
         match classify_status(&n.status) {
@@ -1983,6 +2009,7 @@ fn build_result(p: &PreparedProject, command: &str, nodes: Vec<DbtNodeResult>) -
         command: command.to_string(),
         totals,
         nodes,
+        materialized,
     }
 }
 

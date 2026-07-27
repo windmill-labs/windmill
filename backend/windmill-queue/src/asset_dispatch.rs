@@ -58,16 +58,15 @@ use serde::Serialize;
 use serde_json::value::RawValue;
 use sqlx::types::Json;
 use sqlx::{Pool, Postgres};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use uuid::Uuid;
 use windmill_common::assets::{parse_asset_trigger_ref, AssetKind};
-use windmill_common::scripts::ScriptLang;
 use windmill_common::error::{self, Result};
 use windmill_common::get_latest_deployed_hash_for_path;
 use windmill_common::jobs::{JobKind, JobPayload, JobTriggerKind};
 use windmill_common::partition::PARTITION_ARG;
-use windmill_common::scripts::ScriptHash;
+use windmill_common::scripts::{ScriptHash, ScriptLang};
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::users::{get_email_from_permissioned_as, username_to_permissioned_as};
 use windmill_common::worker::to_raw_value;
@@ -233,32 +232,29 @@ pub async fn dispatch_asset_triggers(db: &DB, job: &MiniCompletedJob) -> Dispatc
     }
 }
 
-/// The subset of a dbt job's deploy-time writes that this run actually
-/// materialized, per the rows the worker recorded against this `job_id`.
+/// The relations a dbt run reports having materialized, as recorded in its own
+/// result.
 ///
-/// A run that recorded nothing is left alone rather than silenced: an agent
-/// worker whose reconciliation call failed, or an engine that wrote no rows,
-/// must still cascade the way it did before per-relation recording existed.
-async fn narrow_to_materialized(
-    db: &DB,
-    job: &MiniCompletedJob,
-    writes: Vec<(AssetKind, String)>,
-) -> Result<Vec<(AssetKind, String)>> {
-    let rows = sqlx::query!(
-        "SELECT asset_kind AS \"asset_kind!: AssetKind\", asset_path
-           FROM materialized_partition
-          WHERE workspace_id = $1 AND job_id = $2 AND status = 'materialized'",
+/// `None` means the run said nothing — a job from before the field existed, or
+/// a result that is not a dbt run — and the caller then dispatches the whole
+/// deploy-time write set, as it did before selective narrowing.
+///
+/// `Some(empty)` is a real answer, not a missing one: a selection matching no
+/// model, or one resolving to tests only, builds nothing and must wake nobody.
+/// Reading this from the job's own result rather than from
+/// `materialized_partition` is what makes it a fact about THIS run — that table
+/// keeps one row per relation and the newest writer takes it, so a concurrent
+/// run over the same model would erase this one's claim to it.
+async fn dbt_materialized_writes(db: &DB, job: &MiniCompletedJob) -> Result<Option<Vec<String>>> {
+    let row = sqlx::query_scalar!(
+        "SELECT result->'materialized' FROM v2_job_completed WHERE workspace_id = $1 AND id = $2",
         job.workspace_id,
         job.id
     )
-    .fetch_all(db)
-    .await?;
-    if rows.is_empty() {
-        return Ok(writes);
-    }
-    let built: std::collections::HashSet<(AssetKind, String)> =
-        rows.into_iter().map(|r| (r.asset_kind, r.asset_path)).collect();
-    Ok(writes.into_iter().filter(|w| built.contains(w)).collect())
+    .fetch_optional(db)
+    .await?
+    .flatten();
+    Ok(row.and_then(|v| serde_json::from_value::<Vec<String>>(v).ok()))
 }
 
 async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult> {
@@ -295,12 +291,17 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
     // A dbt run may build a subset of its project: `select` / `exclude` narrow
     // the invocation, but `writes` is the deploy-time set for the whole project,
     // so dispatching all of it would wake subscribers of relations this run did
-    // not rebuild. The run records what it actually materialized, so intersect
-    // with that. Scoped to dbt because it is the only producer whose write set
-    // is decided per run: for every other language `writes` IS what ran, and
-    // most record no per-relation rows at all.
+    // not rebuild. The run reports what it materialized, so intersect with that.
+    // Scoped to dbt because it is the only producer whose write set is decided
+    // per run — for every other language `writes` IS what ran.
     let writes = match job.script_lang {
-        Some(ScriptLang::Dbt) => narrow_to_materialized(db, job, writes).await?,
+        Some(ScriptLang::Dbt) => match dbt_materialized_writes(db, job).await? {
+            Some(built) => {
+                let built: HashSet<&str> = built.iter().map(String::as_str).collect();
+                writes.into_iter().filter(|(_, p)| built.contains(p.as_str())).collect()
+            }
+            None => writes,
+        },
         _ => writes,
     };
     if writes.is_empty() {

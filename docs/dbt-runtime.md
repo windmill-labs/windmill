@@ -356,13 +356,17 @@ versioned with the descriptor, so a redeploy from git carries it.
 
 `select`/`exclude`/`selector` are passed **verbatim** to dbt. Do not reimplement
 the selector grammar; Cosmos's manifest path had to, and it is a recurring source
-of divergence. `select` and `vars` are overridable per run via job args. One boundary to know:
-the **cascade follows the deployed descriptor**, not the run — for both of them. Asset rows are
-written at deploy like every other language's, so narrowing `select` for an
-ad-hoc run still notifies consumers of the models it skipped, and widening it
-does not notify consumers of the extra ones. Treat the run-arg overrides as what
-they are — an ad-hoc scope — and split the project into several scripts
-(decision 6) when the *graph* should differ.
+of divergence. `select` and `vars` are overridable per run via job args, and the cascade
+follows the run: a dbt job reports the relations it materialized, and dispatch
+notifies the consumers of those rather than of the script's whole deploy-time
+write set. Narrowing `select` therefore leaves the skipped models' consumers
+alone, and a selection that builds nothing wakes nobody.
+
+The **graph** is still the deployed descriptor's. Widening `select` past what
+the descriptor declares notifies nobody for the extra models, because no asset
+row ties them to this script — asset rows are written at deploy, like every
+other language's. Split the project into several scripts (decision 6) when the
+graph itself should differ.
 
 A `vars` override is the same: gating the graph refresh on it would leave that
 override's relations recorded for the next default run, which then builds the

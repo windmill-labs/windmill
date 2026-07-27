@@ -114,42 +114,6 @@ pub async fn provision_engine(
     }
 }
 
-#[cfg(test)]
-mod core1x_tests {
-    use super::*;
-
-    // Several adapters cap the dbt-core they accept BELOW the version this
-    // runtime would otherwise ask for (dbt-mysql at ~=1.7, dbt-oracle and
-    // dbt-databricks below 1.12), and dbt-salesforce has no 1.x package at all.
-    // Pinning core independently of the adapter made those projects fail at
-    // provisioning with a resolver dump, so the install asks for a ceiling and
-    // lets the adapter decide.
-    #[test]
-    fn every_adapter_either_names_a_package_or_is_fusion_only() {
-        for a in [
-            DbtAdapter::Postgres,
-            DbtAdapter::Redshift,
-            DbtAdapter::Mysql,
-            DbtAdapter::Duckdb,
-            DbtAdapter::Clickhouse,
-            DbtAdapter::Snowflake,
-            DbtAdapter::Bigquery,
-            DbtAdapter::Databricks,
-            DbtAdapter::Mssql,
-            DbtAdapter::OracleDB,
-        ] {
-            assert!(
-                !a.pip_package().is_empty(),
-                "{} must name a pip package for dbt-core 1.x",
-                a.name()
-            );
-        }
-        // Fusion has it built in, and there is no package to install.
-        assert!(DbtAdapter::Salesforce.pip_package().is_empty());
-        assert_eq!(DbtAdapter::Salesforce.name(), "salesforce");
-    }
-}
-
 /// A uv venv per (dbt version, adapter): the adapter is a separate pip package
 /// and installing every adapter into one venv would make their transitive
 /// dependency sets fight.
@@ -680,4 +644,41 @@ async fn run_tool(
         )));
     }
     Ok(())
+}
+
+
+#[cfg(test)]
+mod core1x_tests {
+    use super::*;
+
+    // Several adapters cap the dbt-core they accept BELOW the version this
+    // runtime would otherwise ask for (dbt-mysql at ~=1.7, dbt-oracle and
+    // dbt-databricks below 1.12), and dbt-salesforce has no 1.x package at all.
+    // Pinning core independently of the adapter made those projects fail at
+    // provisioning with a resolver dump, so the install asks for a ceiling and
+    // lets the adapter decide.
+    #[test]
+    fn every_adapter_either_names_a_package_or_is_fusion_only() {
+        for a in [
+            DbtAdapter::Postgres,
+            DbtAdapter::Redshift,
+            DbtAdapter::Mysql,
+            DbtAdapter::Duckdb,
+            DbtAdapter::Clickhouse,
+            DbtAdapter::Snowflake,
+            DbtAdapter::Bigquery,
+            DbtAdapter::Databricks,
+            DbtAdapter::Mssql,
+            DbtAdapter::OracleDB,
+        ] {
+            assert!(
+                !a.pip_package().is_empty(),
+                "{} must name a pip package for dbt-core 1.x",
+                a.name()
+            );
+        }
+        // Fusion has it built in, and there is no package to install.
+        assert!(DbtAdapter::Salesforce.pip_package().is_empty());
+        assert_eq!(DbtAdapter::Salesforce.name(), "salesforce");
+    }
 }
