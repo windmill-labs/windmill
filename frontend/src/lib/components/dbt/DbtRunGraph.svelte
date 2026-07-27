@@ -9,6 +9,8 @@
 	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
 	import type { AssetGraphResponse } from '$lib/components/assets/AssetGraph/types'
 	import { Loader2 } from 'lucide-svelte'
+	import HighlightCode from '$lib/components/HighlightCode.svelte'
+	import type { AssetGraphNodeData } from '$lib/components/assets/AssetGraph/types'
 
 	let {
 		scriptPath,
@@ -64,8 +66,10 @@
 	})
 	onDestroy(() => clearInterval(timer))
 
-	// A run page is about one script, so the graph is its runnable plus the
-	// relations it reads and writes — a folder's other projects are noise here.
+	// A run page is about one script, so the graph is the relations it reads and
+	// writes — a folder's other projects are noise here, and so is a node for the
+	// script itself: on the pipeline page that node distinguishes one project
+	// from another, but here the whole graph already IS that project.
 	let scoped = $derived.by(() => {
 		if (!raw) return undefined
 		const edges = raw.edges.filter((e) => e.runnable_path === scriptPath)
@@ -73,9 +77,9 @@
 		const assetIds = new Set(edges.map((e) => `${e.asset_kind}:${e.asset_path}`))
 		return {
 			...raw,
-			runnables: raw.runnables.filter((r) => r.path === scriptPath),
+			runnables: [],
 			assets: raw.assets.filter((a) => assetIds.has(`${a.kind}:${a.path}`)),
-			edges,
+			edges: [],
 			triggers: [],
 			// `ref()` lineage between two of this project's own models is the shape
 			// of the dbt DAG, so it is the one edge set worth keeping whole.
@@ -89,7 +93,38 @@
 	// No `resolveGraph`: that merges drafts and live editor buffers into the
 	// persisted graph, and a run page has neither. The response is the graph.
 	let graph = $derived(scoped)
+
+	// The transform behind the selected relation. dbt's own DAG node is the model
+	// — the SQL and the table it writes are one thing — so a graph of relations
+	// alone leaves out what a reader came to see.
+	let selection = $state<AssetGraphNodeData | undefined>(undefined)
+	let selectedDbt = $derived.by(() => {
+		const sel = selection
+		if (sel?.kind !== 'asset') return undefined
+		return graph?.assets.find((a) => a.kind === sel.asset_kind && a.path === sel.path)?.dbt
+	})
 </script>
+
+{#snippet sqlPane()}
+	{#if selectedDbt?.raw_code}
+		<div class="border-t flex flex-col min-h-0 max-h-72">
+			<div
+				class="shrink-0 flex items-center gap-2 px-2 py-1 text-2xs border-b bg-surface-secondary text-secondary"
+			>
+				<span class="font-mono truncate"
+					>{selectedDbt.original_file_path ?? selectedDbt.unique_id}</span
+				>
+				{#if selectedDbt.materialized}
+					<span class="shrink-0 opacity-70">{selectedDbt.materialized}</span>
+				{/if}
+				<span class="ml-auto shrink-0 opacity-70">read-only · edit locally</span>
+			</div>
+			<div class="flex-1 min-h-0 overflow-auto">
+				<HighlightCode language="sql" code={selectedDbt.raw_code} />
+			</div>
+		</div>
+	{/if}
+{/snippet}
 
 {#if loading}
 	<div class="flex items-center gap-2 text-xs text-secondary p-3">
@@ -104,7 +139,16 @@
 		<span class="font-mono">profile.resource</span> has no warehouse identity to key them on.
 	</div>
 {:else}
-	<div class="h-80 border rounded overflow-hidden">
-		<AssetGraphCanvas {graph} showMinimap={false} scrollZoom={false} />
+	<div class="border rounded overflow-hidden flex flex-col">
+		<div class="h-80">
+			<AssetGraphCanvas
+				{graph}
+				{selection}
+				onselect={(s) => (selection = s)}
+				showMinimap={false}
+				scrollZoom={false}
+			/>
+		</div>
+		{@render sqlPane()}
 	</div>
 {/if}
