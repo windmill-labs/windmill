@@ -10564,6 +10564,14 @@ paths:
           description: opaque keyset cursor from a previous page's next_cursor
           schema:
             type: string
+        - name: include_draft_only
+          in: query
+          description: >-
+            also list the caller's drafts at paths with no deployed row, sorted
+            and paginated with the deployed ones. Ignored for operators, in the
+            archived view, and under a label filter (a draft carries no labels).
+          schema:
+            type: boolean
       responses:
         "200":
           description: a page of merged, ordered runnables
@@ -10596,6 +10604,13 @@ paths:
         - name: include_without_main
           in: query
           description: include library scripts (no runnable main)
+          schema:
+            type: boolean
+        - name: include_draft_only
+          in: query
+          description: >-
+            also count the caller's drafts at paths with no deployed row,
+            matching the same flag on /runnables/list
           schema:
             type: boolean
       responses:
