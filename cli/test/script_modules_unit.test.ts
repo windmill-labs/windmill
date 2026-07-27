@@ -350,6 +350,19 @@ describe("findContentFile", () => {
     );
   });
 
+  // `isModuleEntryPoint` treats `\` as a separator on every platform, so
+  // findContentFile must too or it rejects every Windows module path. Runnable
+  // on POSIX because there the backslash is merely part of the file name.
+  test("resolves a module entry point written with a backslash separator", async () => {
+    const meta = path.join(tempDir, "my_script__mod") + "\\script.yaml";
+    const content = path.join(tempDir, "my_script__mod") + "\\script.ts";
+    fs.mkdirSync(path.dirname(meta), { recursive: true });
+    fs.writeFileSync(content, "export async function main() {}\n");
+    fs.writeFileSync(meta, "summary: ''\n");
+
+    expect(await findContentFile(meta)).toBe(content);
+  });
+
   // sync push catches UnresolvableScriptContentFileError to record the change as
   // failed and carry on; any other error aborts the whole push, so every branch
   // that simply cannot pair a metadata file with one script file must use it.
