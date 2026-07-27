@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.773.0](https://github.com/windmill-labs/windmill/compare/v1.772.0...v1.773.0) (2026-07-27)
+
+
+### Features
+
+* list draft-only runnables on the homepage again ([#10361](https://github.com/windmill-labs/windmill/issues/10361)) ([7973549](https://github.com/windmill-labs/windmill/commit/7973549e7f34266dcce6e53edf6d3276015ced70))
+
 ## [1.772.0](https://github.com/windmill-labs/windmill/compare/v1.771.1...v1.772.0) (2026-07-27)
 
 
