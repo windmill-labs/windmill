@@ -10,7 +10,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import FlowLogViewerWrapper from './FlowLogViewerWrapper.svelte'
 	import { z } from 'zod'
-	import { onMount } from 'svelte'
+	import { untrack } from 'svelte'
 	import type { AgentTool } from './flows/agentToolUtils'
 
 	type AgentActionWithContent = NonNullable<FlowStatusModule['agent_actions']>[number] & {
@@ -116,7 +116,7 @@
 	}
 
 	let job: Partial<Job> | undefined = $state(undefined)
-	async function loadToolCalls() {
+	async function loadToolCalls(agentJob: Props['agentJob'], tools: AgentTool[]) {
 		let parsedResult = resultSchema.safeParse(agentJob.result)
 		if (!parsedResult.success) {
 			console.error('Invalid result', parsedResult.error)
@@ -207,8 +207,20 @@
 		}
 	}
 
-	onMount(() => {
-		loadToolCalls()
+	// Rebuild when the inputs change, not only on mount: a linked agent's tools resolve
+	// asynchronously after the first render, and switching between completed runs reuses this
+	// component — either would otherwise keep the first snapshot. Keyed by value, because callers
+	// rebuild the `agentJob` object on every render and identity alone would reload in a loop.
+	let reloadKey = $derived(
+		`${agentJob?.id ?? ''}|${tools.length}|${tools.map((t) => t.summary ?? '').join('\u0000')}`
+	)
+	$effect(() => {
+		reloadKey
+		untrack(() => {
+			if (agentJob) {
+				loadToolCalls(agentJob, tools)
+			}
+		})
 	})
 </script>
 

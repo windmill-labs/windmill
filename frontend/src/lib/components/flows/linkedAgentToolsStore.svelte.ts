@@ -16,6 +16,16 @@ let byScope = $state<Record<string, Record<string, AgentTool[]>>>({})
 const MAX_SCOPES = 32
 let scopeOrder: string[] = []
 
+// Recency on read, so a scope still being displayed isn't evicted by unrelated publishes (a run
+// viewer opens one bucket per nested job). Only reorders the plain recency list — evicting here
+// would mutate reactive state during a render.
+function noteScopeRead(scope: string) {
+	if (byScope[scope] === undefined) return
+	const last = scopeOrder[scopeOrder.length - 1]
+	if (last === scope) return
+	scopeOrder = [...scopeOrder.filter((s) => s !== scope), scope]
+}
+
 function touchScope(scope: string) {
 	scopeOrder = [...scopeOrder.filter((s) => s !== scope), scope]
 	while (scopeOrder.length > MAX_SCOPES) {
@@ -69,12 +79,14 @@ export function clearLinkedAgentTools(scope: string, moduleId: string) {
 }
 
 export function getLinkedAgentTools(scope: string, moduleId: string): AgentTool[] {
+	noteScopeRead(scope)
 	return byScope[scope]?.[moduleId] ?? []
 }
 
 /** Reactive snapshot of one scope's module→tools map — read this where a computation must react to
  * resolution (the graph passes it to computeAIToolNodes, which indexes it by module id). */
 export function linkedAgentToolsForScope(scope: string): Record<string, AgentTool[]> {
+	noteScopeRead(scope)
 	return byScope[scope] ?? {}
 }
 

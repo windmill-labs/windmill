@@ -105,11 +105,18 @@
 			return { ws, path, config: cfg, tools, providerPath, providerOk }
 		}
 	)
-	// Discard a result that belongs to a link the step no longer has.
+	// Retain the last result that matched the current link. Discarding a superseded one outright
+	// would blank the card, because a stale response for a previous agent replaces
+	// `linkedResource.current` and nothing refetches the one actually linked.
+	let loadedInfo = $state<LinkedInfo | undefined>(undefined)
+	$effect(() => {
+		const current = linkedResource.current
+		if (current && current.ws === ws && current.path === agent) {
+			loadedInfo = current
+		}
+	})
 	let linkedInfo = $derived(
-		linkedResource.current?.ws === ws && linkedResource.current?.path === agent
-			? linkedResource.current
-			: undefined
+		loadedInfo?.ws === ws && loadedInfo?.path === agent ? loadedInfo : undefined
 	)
 	let inheritedTools = $derived(linkedInfo?.tools ?? [])
 	let brainParams = $derived(summarizeAgentBrain(linkedInfo?.config))
