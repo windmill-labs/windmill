@@ -34,16 +34,16 @@
 		properties: {
 			iter: {
 				type: 'object',
-				description: 'The iteration to simulate, exposed to the steps below as flow_input.iter',
+				description: 'The loop iterator, exposed to the steps below as flow_input.iter',
 				properties: {
 					index: {
 						type: 'integer',
 						min: 0,
-						description: 'Position in the iterated list. The first iteration is 0.'
+						description: "Position in the iterator's sequence. The first iteration is 0."
 					},
 					value: {
 						type: 'object',
-						description: 'The item of the iterated list this iteration receives.'
+						description: "The element of the iterator's sequence this iteration receives."
 					}
 				}
 			}
@@ -57,13 +57,13 @@
 		properties: {
 			iter: {
 				type: 'object',
-				description: 'The iteration to simulate, exposed to the steps below as flow_input.iter',
+				description: 'The loop iterator, exposed to the steps below as flow_input.iter',
 				properties: {
 					index: {
 						type: 'integer',
 						min: 0,
 						description:
-							'How many iterations have already run. The first iteration is 0. A while loop sets iter.value to this same number.'
+							'How many iterations have already run. The first iteration is 0. A while loop has no sequence, so it sets iter.value to this same number.'
 					}
 				}
 			}
@@ -72,7 +72,7 @@
 		type: 'object'
 	}
 
-	// A real while-loop iteration always sets iter.value to iter.index, and the first one runs
+	// A real while loop always sets iter.value to iter.index, and its first iteration runs
 	// at index 0. The preview flow holds only the loop body, so nothing else supplies that
 	// context: mirror the value and default the index so a preview matches an actual run.
 	function withWhileLoopIter(args: Record<string, any>): Record<string, any> {
