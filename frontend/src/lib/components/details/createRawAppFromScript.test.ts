@@ -128,8 +128,6 @@ describe('createRawAppFromScript', () => {
 			// prototype and the property would not exist at all.
 			properties: { ['__proto__']: { type: 'number' } }
 		})
-		// `__proto__: value` in an object literal sets the prototype instead of
-		// creating the argument, so it has to be a computed key.
 		expect(app.value.files['/App.tsx']).toContain("['__proto__']: Number(__proto__Text)")
 	})
 
@@ -144,6 +142,34 @@ describe('createRawAppFromScript', () => {
 		expect(appTsx).toContain('req,')
 		// The required marker has to be enforced, not just drawn.
 		expect(appTsx).toMatch(/type="text"\n\t+required\n\t+value=\{req\}/)
+	})
+
+	it('lets a resource argument through as a user-supplied resource', () => {
+		const app = createRawAppFromScript('u/dev/s', undefined, {
+			type: 'object',
+			required: ['db'],
+			properties: { db: { type: 'object', format: 'resource-postgresql' } }
+		})
+		// Without `allowUserResources` the backend swaps the submitted `$res:`
+		// reference for a placeholder and the argument never resolves.
+		expect(app.value.runnables['s'].fields).toEqual({
+			db: { type: 'user', value: undefined, allowUserResources: true }
+		})
+		const appTsx = app.value.files['/App.tsx']
+		expect(appTsx).toContain("const [db, setDb] = useState('$res:')")
+		expect(appTsx).toContain('resource path, e.g. $res:u/user/my_postgresql')
+	})
+
+	it('passes enum values through JSX unchanged', () => {
+		const app = createRawAppFromScript('u/dev/s', 'Tom &amp; Jerry', {
+			type: 'object',
+			properties: { mode: { type: 'string', enum: ['a&amp;b', 'plain'] } }
+		})
+		const appTsx = app.value.files['/App.tsx']
+		// A plain attribute/text would let JSX decode the entity, so the runnable
+		// would receive `a&b` instead of the schema's `a&amp;b`.
+		expect(appTsx).toContain("<option value={'a&amp;b'}>{'a&amp;b'}</option>")
+		expect(appTsx).toContain('<h1 className="app-title">{\'Tom &amp; Jerry\'}</h1>')
 	})
 
 	it('keeps value and label apart for labeled enums', () => {

@@ -11,7 +11,7 @@ export type RawAppImport = {
 	}
 }
 
-type FieldKind = 'text' | 'password' | 'number' | 'boolean' | 'enum' | 'json'
+type FieldKind = 'text' | 'password' | 'resource' | 'number' | 'boolean' | 'enum' | 'json'
 
 /** Schema enums are either bare values or `{ value, label }` pairs; the option
  *  submits `value` and displays `label`. */
@@ -30,6 +30,10 @@ type Field = {
 	/** Schema `password` flag: masks the input and marks the runnable field
 	 *  sensitive, which is what puts it in the policy's `sensitive_inputs`. */
 	sensitive: boolean
+	/** `format: resource-*`. Without the matching field flag the backend replaces
+	 *  a submitted `$res:` reference with a placeholder, so the arg never
+	 *  resolves. */
+	allowUserResources: boolean
 	enumValues: EnumOption[]
 	/** `useState(...)` initial value, as TS source. */
 	init: string
@@ -144,7 +148,12 @@ function setterName(local: string): string {
 	return `set${local.charAt(0).toUpperCase()}${local.slice(1)}`
 }
 
+function isResourceProp(prop: any): boolean {
+	return typeof prop?.format === 'string' && prop.format.startsWith('resource-')
+}
+
 function fieldKind(prop: any): FieldKind {
+	if (isResourceProp(prop)) return 'resource'
 	if (Array.isArray(prop?.enum) && prop.enum.length > 0) return 'enum'
 	if (prop?.type === 'boolean') return 'boolean'
 	if (prop?.type === 'number' || prop?.type === 'integer') return 'number'
@@ -167,16 +176,35 @@ function str(value: string): string {
 	return JSON.stringify(value)
 }
 
-/** JSX text that would otherwise be swallowed by the parser (`{`, `<`, `}`)
- *  goes through an expression container. */
+/** JSX text that would otherwise be swallowed by the parser (`{`, `<`, `}`) or
+ *  rewritten by it (`&` starts an entity, so a literal `&amp;` would decode to
+ *  `&`) goes through an expression container, which JSX copies verbatim. */
 function jsxText(value: string): string {
-	return /^[^{}<>]*$/.test(value) ? value : `{${str(value)}}`
+	return /^[^{}<>&]*$/.test(value) ? value : `{${str(value)}}`
 }
 
 /** JSX attribute value: a plain quoted string when it can be, an expression
- *  container otherwise. */
+ *  container otherwise. Entities decode in attributes too, so `&` disqualifies
+ *  the plain form — an enum value must reach the runnable unchanged. */
 function jsxAttr(value: string): string {
-	return /^[^"{}<>\n]*$/.test(value) ? `"${value}"` : `{${str(value)}}`
+	return /^[^"{}<>&\n]*$/.test(value) ? `"${value}"` : `{${str(value)}}`
+}
+
+/** The schema's own description, plus what the control can't convey on its own:
+ *  which resource type to point at, and that an object-typed secret is stored
+ *  encrypted even though its textarea shows it in the clear (the platform's own
+ *  ArgInput says the same rather than masking it). */
+function fieldHint(prop: any, kind: FieldKind): string | undefined {
+	const own =
+		typeof prop.description === 'string' && prop.description !== '' ? prop.description : undefined
+	let extra: string | undefined
+	if (kind === 'resource') {
+		extra = `resource path, e.g. $res:u/user/my_${String(prop.format).slice('resource-'.length)}`
+	} else if (kind === 'json' && prop.password === true) {
+		extra = 'stored as a secret on submit'
+	}
+	if (!extra) return own
+	return own ? `${own} (${extra})` : extra
 }
 
 function toFields(schema: Record<string, any> | undefined): Field[] {
@@ -223,6 +251,9 @@ function toFields(schema: Record<string, any> | undefined): Field[] {
 			// A select always has a selection, so it never submits an empty value.
 			init = str(typeof prop.default === 'string' ? prop.default : (enumValues[0]?.value ?? ''))
 			arg = local
+		} else if (kind === 'resource') {
+			init = str(typeof prop.default === 'string' ? prop.default : '$res:')
+			arg = isRequired ? local : `${local} === '' ? undefined : ${local}`
 		} else {
 			init = str(typeof prop.default === 'string' ? prop.default : '')
 			// Blank optional text is "unset", so the runnable's own default applies
@@ -236,12 +267,10 @@ function toFields(schema: Record<string, any> | undefined): Field[] {
 			local,
 			setter,
 			label: typeof prop.title === 'string' && prop.title !== '' ? prop.title : key,
-			description:
-				typeof prop.description === 'string' && prop.description !== ''
-					? prop.description
-					: undefined,
+			description: fieldHint(prop, kind),
 			required: isRequired,
 			sensitive: prop.password === true,
+			allowUserResources: isResourceProp(prop),
 			enumValues,
 			init,
 			arg
@@ -284,6 +313,13 @@ ${field.enumValues.map((o) => `						<option value=${jsxAttr(o.value)}>${jsxText
 			return `<textarea
 						className="field-input field-textarea"
 						rows={4}${req}
+						value={${field.local}}
+						onChange={(e) => ${field.setter}(e.target.value)}
+					/>`
+		case 'resource':
+			return `<input
+						className="field-input"
+						type="text"${req}
 						value={${field.local}}
 						onChange={(e) => ${field.setter}(e.target.value)}
 					/>`
@@ -558,13 +594,22 @@ function createRawApp(opts: {
 	const runnableId = runnableIdFromPath(path)
 	const fields = toFields(schema)
 	const title = summary && summary !== '' ? summary : path
-	// `updateRawAppPolicy` derives the policy's `sensitive_inputs` from the
-	// runnable's fields, so a password argument has to be declared here or the
-	// secret lands in the job args in the clear.
+	// `updateRawAppPolicy` derives the policy's `sensitive_inputs` and
+	// `allow_user_resources` from the runnable's fields, so an argument has to be
+	// declared here or the secret lands in the job args in the clear / the
+	// submitted `$res:` reference is replaced by a placeholder.
 	const runnableFields = Object.fromEntries(
 		fields
-			.filter((f) => f.sensitive)
-			.map((f) => [f.key, { type: 'user', value: undefined, sensitive: true }])
+			.filter((f) => f.sensitive || f.allowUserResources)
+			.map((f) => [
+				f.key,
+				{
+					type: 'user',
+					value: undefined,
+					...(f.sensitive ? { sensitive: true } : {}),
+					...(f.allowUserResources ? { allowUserResources: true } : {})
+				}
+			])
 	)
 
 	return {
