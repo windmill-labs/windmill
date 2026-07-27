@@ -690,11 +690,14 @@
 		if (!includeWithoutMain) f.push('library scripts hidden')
 		return f
 	})
-	// Pipeline folders qualify for a chip whenever a pipeline can show under the current
-	// kind. Unlike `visiblePipelineFolders` this ignores the selected owner — the chips are
-	// how you switch owners, so they must not narrow to the current one.
+	// Pipeline folders qualify for a chip whenever a pipeline can render: the kind must admit
+	// one and no label filter may be active, since pipelines carry no labels. Unlike
+	// `visiblePipelineFolders` this ignores the selected owner — the chips are how you switch
+	// owners, so they must not narrow to the current one.
 	let chipPipelineFolders = $derived(
-		itemKind === 'all' || itemKind === 'script' ? pipelineFolders : new Set<string>()
+		(itemKind === 'all' || itemKind === 'script') && labelFilter == undefined
+			? pipelineFolders
+			: new Set<string>()
 	)
 	// Owner chips: only the owners actually holding something the user can see, your own
 	// space first and the rest most-populated first. A chip for an empty owner filters to
@@ -704,6 +707,9 @@
 		const self = $userStore?.username ? `u/${$userStore.username}` : undefined
 		const loaded = filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? []
 		if (ownerCounts == undefined) {
+			// Counts still in flight: the folder/user lists resolve first, so painting the full
+			// list here would show the wall this drops and snap to the ranked set a tick later.
+			if (!archived && ownerCountsRes.loading) return []
 			// No counts (archived view, or the request failed): every owner, alphabetically.
 			return Array.from(new Set([...allFolderOwners, ...allUserOwners, ...loaded])).sort()
 		}
@@ -712,15 +718,27 @@
 		// count, so it adds one where it renders — as in the tree node's own label.
 		for (const f of chipPipelineFolders) counted.set(`f/${f}`, (counted.get(`f/${f}`) ?? 0) + 1)
 		// No owner counts below what the loaded window already shows for it: the endpoint
-		// leaves out pipeline members and drafts, and a listed item must keep its chip.
+		// leaves pipeline members out, and a listed item must keep its chip.
 		const onScreen = new Map<string, number>()
 		for (const o of loaded) onScreen.set(o, (onScreen.get(o) ?? 0) + 1)
 		for (const [o, n] of onScreen) counted.set(o, Math.max(counted.get(o) ?? 0, n))
-		return [...counted.keys()].sort((a, b) => {
-			if (a === self) return -1
-			if (b === self) return 1
-			return (counted.get(b) ?? 0) - (counted.get(a) ?? 0) || cmp(a, b)
-		})
+		return (
+			[...counted.keys()]
+				// The user-folder restriction drops other users' rows from the list, so their chips
+				// would filter to nothing — the same rule `filterItemsPathsBaseOnUserFilters` applies.
+				.filter(
+					(o) =>
+						!filterUserFolders ||
+						!filterUserFoldersType ||
+						o.startsWith('f/') ||
+						(filterUserFoldersType === 'u/username and f/*' && o === self)
+				)
+				.sort((a, b) => {
+					if (a === self) return -1
+					if (b === self) return 1
+					return (counted.get(b) ?? 0) - (counted.get(a) ?? 0) || cmp(a, b)
+				})
+		)
 	})
 	// Reload from the server whenever an input the endpoint resolves changes: order,
 	// archived/library scope, kind, the selected owner/folder, or entering/leaving
@@ -755,7 +773,7 @@
 				})
 				return res.counts
 			} catch {
-				// Best-effort: without counts the tree and the chips show every owner, as before.
+				// Best-effort: without counts the tree and the chips fall back to every owner.
 				return undefined
 			}
 		}

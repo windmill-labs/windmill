@@ -75,17 +75,19 @@
 	)
 
 	let expanded = $state(false)
-	let hiddenCount = $derived(
-		maxDisplayed == undefined ? 0 : Math.max(0, filtersAndSelected.length - maxDisplayed)
-	)
-	let displayedFilters = $derived.by(() => {
-		if (expanded || hiddenCount === 0) return filtersAndSelected
+	let truncated = $derived.by(() => {
+		if (maxDisplayed == undefined || filtersAndSelected.length <= maxDisplayed)
+			return filtersAndSelected
 		const shown = filtersAndSelected.slice(0, maxDisplayed)
 		// Clicking the selected chip is how the filter is cleared, so it is never truncated
 		// away, however far down the order it sits.
 		if (selectedFilter && !shown.includes(selectedFilter)) shown.push(selectedFilter)
 		return shown
 	})
+	// Derived from what is actually withheld, so the selected chip kept above never counts
+	// as hidden — otherwise the toggle offers to reveal a chip that is already on screen.
+	let hiddenCount = $derived(filtersAndSelected.length - truncated.length)
+	let displayedFilters = $derived(expanded ? filtersAndSelected : truncated)
 </script>
 
 {#if Array.isArray(filtersAndSelected) && filtersAndSelected.length > 0}
