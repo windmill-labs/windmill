@@ -1521,24 +1521,35 @@ export class StepSuspend extends Error {
 }
 
 /** Serialize a failed `step()` body into the `__wmill_error` marker that task
- *  failures also use, so it can be stored in `completed_steps`. */
+ *  failures also use, so it can be stored in `completed_steps`.
+ *
+ *  `result` carries the `{ error: { name, message, stack } }` a failed child job
+ *  reports, so a catch block reads one shape no matter where the failure came
+ *  from. The stack belongs in there rather than on `cause`: a replay rebuilds
+ *  the error from this marker alone, and whatever a handler can branch on has
+ *  to survive that. */
 function stepErrorMarker(key: string, e: unknown): Record<string, any> {
   const message = e instanceof Error ? e.message : String(e);
   // Constructor name, not `e.name`: a `class MyError extends Error {}` that
   // never assigns `this.name` reports "Error", which would make the same
   // failure read as `MyError` in the python client and `Error` here.
-  const type = e instanceof Error ? (e.constructor?.name ?? e.name) : typeof e;
-  return { __wmill_error: true, message, step_key: key, result: { error: message, type } };
+  const name = e instanceof Error ? (e.constructor?.name ?? e.name) : typeof e;
+  const error: Record<string, any> = { name, message };
+  const stack = e instanceof Error ? e.stack : undefined;
+  if (stack) error.stack = stack;
+  return { __wmill_error: true, message, step_key: key, result: { error } };
 }
 
-/** Rebuild the error a failed step throws. Both the run that produced the
- *  failure and every later replay go through here, so a workflow's catch block
- *  sees the same shape either way. */
-function stepErrorFromMarker(marker: any, name: string): Error {
-  const err = new Error(marker?.message || `Step '${name}' failed`);
-  // Matches the python client, which raises TaskError here; the failed body's
-  // own type stays in `result.type`. Keeps a failed job's serialized error
-  // identical across the two languages.
+/** Rebuild the error a failed task or step throws. The run that produced the
+ *  failure and every later replay go through here: a catch is control flow,
+ *  `workflow()` re-runs its body from the top every round, so a handler that
+ *  branches on the failure it caught must be handed the same thing in every
+ *  round or it dispatches different tasks on the way back. */
+function taskErrorFromMarker(marker: any, fallbackMessage: string): Error {
+  const err = new Error(marker?.message || fallbackMessage);
+  // Matches the python client, which raises TaskError here; the failing body's
+  // own type stays in `result.error.name`. Keeps a failed job's serialized
+  // error identical across the two languages.
   err.name = "TaskError";
   (err as any).result = marker?.result;
   (err as any).step_key = marker?.step_key;
@@ -1646,11 +1657,7 @@ export class WorkflowCtx {
     if (key in this.completed) {
       const value = this.completed[key];
       if (value && typeof value === "object" && (value as any).__wmill_error) {
-        const err = new Error((value as any).message || `Task '${name}' failed`);
-        err.name = "TaskError";
-        (err as any).result = (value as any).result;
-        (err as any).step_key = (value as any).step_key;
-        (err as any).child_job_id = (value as any).child_job_id;
+        const err = taskErrorFromMarker(value, `Task '${name}' failed`);
         return { then: (_resolve: any, reject?: any) => { if (reject) reject(err); else throw err; } } as PromiseLike<any>;
       }
       return { then: (resolve: any) => resolve(value) };
@@ -1777,7 +1784,7 @@ export class WorkflowCtx {
     if (key in this.completed) {
       const value = this.completed[key];
       if (value && typeof value === "object" && (value as any).__wmill_error) {
-        throw stepErrorFromMarker(value, name);
+        throw taskErrorFromMarker(value, `Step '${name}' failed`);
       }
       return value as T;
     }
@@ -1795,14 +1802,12 @@ export class WorkflowCtx {
     // never-resolving promise above. A nested StepSuspend is control flow,
     // not a step failure.
     let result: T;
-    let stepError: unknown;
     let errored = false;
     try {
       result = await fn();
     } catch (e) {
       if ((e as any)?.name === "StepSuspend" || e instanceof StepSuspend) throw e;
       errored = true;
-      stepError = e;
       result = stepErrorMarker(key, e) as any;
     }
     const durationMs = Date.now() - t0;
@@ -1875,9 +1880,10 @@ export class WorkflowCtx {
         // Throw what a replay would rebuild from the marker, never the
         // original: a replay cannot reconstruct the original type, so throwing
         // it here would match `e instanceof TypeError` on this run and miss on
-        // the next. `cause` is for logging only — absent on replay.
+        // the next. Nothing is attached to `cause` for the same reason — the
+        // stack a replay can still show is in `result.error.stack`.
         if (errored) {
-          throw Object.assign(stepErrorFromMarker(result, name), { cause: stepError });
+          throw taskErrorFromMarker(result, `Step '${name}' failed`);
         }
         return result as T;
       }

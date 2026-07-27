@@ -2654,6 +2654,7 @@ def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]:
 
 import asyncio as _asyncio
 import contextvars as _contextvars
+import traceback as _traceback
 
 
 def _assert_usable_step_key(key: str, what: str) -> None:
@@ -2687,15 +2688,17 @@ class _StepFailure(BaseException):
 
 
 class TaskError(Exception):
-    """Raised when a WAC task step failed.
+    """Raised when a WAC ``task`` or ``step`` failed.
 
     Attributes:
         step_key: The checkpoint key of the failed step.
-        child_job_id: The UUID of the failed child job.
-        result: The error result from the child job.
+        child_job_id: The UUID of the failed child job, or ``None`` for a
+            ``step()``, which runs in the workflow job and has no child job.
+        result: ``{"error": {"name", "message", "stack"?}}`` — the same shape
+            whether a task or a step failed.
     """
 
-    def __init__(self, message: str, *, step_key: str = "", child_job_id: str = "", result=None):
+    def __init__(self, message: str, *, step_key: str = "", child_job_id: Optional[str] = None, result=None):
         super().__init__(message)
         self.step_key = step_key
         self.child_job_id = child_job_id
@@ -2704,23 +2707,37 @@ class TaskError(Exception):
 
 def _step_error_marker(key: str, exc: BaseException) -> dict:
     """Serialize a failed ``step()`` body into the ``__wmill_error`` marker that
-    task failures also use, so it can be stored in ``completed_steps``."""
+    task failures also use, so it can be stored in ``completed_steps``.
+
+    ``result`` carries the ``{"error": {"name", "message", "stack"}}`` a failed
+    child job reports, so an ``except TaskError`` reads one shape no matter
+    where the failure came from. The traceback belongs in there rather than on
+    ``__cause__``: a replay rebuilds the exception from this marker alone, and
+    whatever a handler can branch on has to survive that."""
+    error = {"name": type(exc).__name__, "message": str(exc)}
+    stack = "".join(
+        _traceback.format_exception(type(exc), exc, exc.__traceback__)
+    ).strip()
+    if stack:
+        error["stack"] = stack
     return {
         "__wmill_error": True,
         "message": str(exc),
         "step_key": key,
-        "result": {"error": str(exc), "type": type(exc).__name__},
+        "result": {"error": error},
     }
 
 
-def _step_error_from_marker(marker: dict, name: str) -> TaskError:
-    """Rebuild the exception a failed step raises. Both the run that produced the
-    failure and every later replay go through here, so a workflow's ``except``
-    clauses see the same type either way."""
+def _task_error_from_marker(marker: dict, fallback_message: str) -> TaskError:
+    """Rebuild the exception a failed task or step raises. The run that produced
+    the failure and every later replay go through here: ``except`` is control
+    flow, ``@workflow`` re-runs its body from the top every round, so a handler
+    that branches on the failure it caught must be handed the same thing in
+    every round or it dispatches different tasks on the way back."""
     return TaskError(
-        marker.get("message", f"Step '{name}' failed"),
+        marker.get("message") or fallback_message,
         step_key=marker.get("step_key", ""),
-        child_job_id=marker.get("child_job_id", ""),
+        child_job_id=marker.get("child_job_id"),
         result=marker.get("result"),
     )
 
@@ -2785,12 +2802,7 @@ class WorkflowCtx:
         if key in self._completed:
             val = self._completed[key]
             if isinstance(val, dict) and val.get("__wmill_error"):
-                raise TaskError(
-                    val.get("message", f"Task '{name}' failed"),
-                    step_key=val.get("step_key", ""),
-                    child_job_id=val.get("child_job_id", ""),
-                    result=val.get("result"),
-                )
+                raise _task_error_from_marker(val, f"Task '{name}' failed")
             return self._resolved(val)
 
         if self._executing_key is not None:
@@ -2897,7 +2909,7 @@ class WorkflowCtx:
         if key in self._completed:
             val = self._completed[key]
             if isinstance(val, dict) and val.get("__wmill_error"):
-                raise _step_error_from_marker(val, name)
+                raise _task_error_from_marker(val, f"Step '{name}' failed")
             return val
 
         if self._executing_key is not None:
@@ -2911,13 +2923,13 @@ class WorkflowCtx:
         # ``_executing_key`` set finds nothing recorded and parks forever on the
         # ``_asyncio.Future()`` above. ``_StepSuspend`` and ``CancelledError`` are
         # ``BaseException``, so they pass through untouched.
-        step_error: Optional[Exception] = None
+        step_failed = False
         try:
             result = fn()
             if _asyncio.iscoroutine(result):
                 result = await result
         except Exception as _exc:
-            step_error = _exc
+            step_failed = True
             result = _step_error_marker(key, _exc)
         duration_ms = int((_time_mod.monotonic() - t0) * 1000)
 
@@ -2973,9 +2985,11 @@ class WorkflowCtx:
                 # Raise what a replay would rebuild from the marker, never the
                 # original: a replay cannot reconstruct the original type, so
                 # raising it here would make ``except ValueError:`` catch on this
-                # run and miss on the next. ``__cause__`` is for tracebacks only.
-                if step_error is not None:
-                    raise _step_error_from_marker(result, name) from step_error
+                # run and miss on the next. Nothing is chained onto
+                # ``__cause__`` for the same reason — the traceback a replay can
+                # still show is in ``result["error"]["stack"]``.
+                if step_failed:
+                    raise _task_error_from_marker(result, f"Step '{name}' failed")
                 return result
 
         raise _StepSuspend({

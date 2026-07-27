@@ -14,6 +14,24 @@ class StepSuspend extends Error {
   }
 }
 
+function stepErrorMarker(key: string, e: unknown): Record<string, any> {
+  const message = e instanceof Error ? e.message : String(e);
+  const name = e instanceof Error ? (e.constructor?.name ?? e.name) : typeof e;
+  const error: Record<string, any> = { name, message };
+  const stack = e instanceof Error ? e.stack : undefined;
+  if (stack) error.stack = stack;
+  return { __wmill_error: true, message, step_key: key, result: { error } };
+}
+
+function taskErrorFromMarker(marker: any, fallbackMessage: string): Error {
+  const err = new Error(marker?.message || fallbackMessage);
+  err.name = "TaskError";
+  (err as any).result = marker?.result;
+  (err as any).step_key = marker?.step_key;
+  (err as any).child_job_id = marker?.child_job_id;
+  return err;
+}
+
 let _workflowCtx: WorkflowCtx | null = null;
 
 class WorkflowCtx {
@@ -79,11 +97,7 @@ class WorkflowCtx {
     if (key in this.completed) {
       const value = this.completed[key];
       if (value && typeof value === "object" && (value as any).__wmill_error) {
-        const err = new Error((value as any).message || `Task '${name}' failed`);
-        err.name = "TaskError";
-        (err as any).result = (value as any).result;
-        (err as any).step_key = (value as any).step_key;
-        (err as any).child_job_id = (value as any).child_job_id;
+        const err = taskErrorFromMarker(value, `Task '${name}' failed`);
         return { then: (_resolve: any, reject?: any) => { if (reject) reject(err); else throw err; } };
       }
       return { then: (resolve: any) => resolve(value) };
@@ -157,10 +171,7 @@ class WorkflowCtx {
     if (key in this.completed) {
       const value = this.completed[key];
       if (value && typeof value === "object" && (value as any).__wmill_error) {
-        const err = new Error((value as any).message || `Step '${name}' failed`);
-        err.name = "TaskError";
-        (err as any).result = (value as any).result;
-        throw err;
+        throw taskErrorFromMarker(value, `Step '${name}' failed`);
       }
       return value as T;
     }
@@ -170,22 +181,11 @@ class WorkflowCtx {
     }
 
     let result: any;
-    let errored = false;
     try {
       result = await fn();
     } catch (e: any) {
       if (e?.name === "StepSuspend" || e instanceof StepSuspend) throw e;
-      errored = true;
-      const message = e instanceof Error ? e.message : String(e);
-      result = {
-        __wmill_error: true,
-        message,
-        step_key: key,
-        result: {
-          error: message,
-          type: e instanceof Error ? (e.constructor?.name ?? e.name) : typeof e,
-        },
-      };
+      result = stepErrorMarker(key, e);
     }
     this._raiseSuspend({
       mode: "inline_checkpoint",
@@ -1415,11 +1415,18 @@ describe("error propagation via __wmill_error marker", () => {
 // _executingKey set, reaches the unrecorded key, and parks on the
 // never-resolving promise forever.
 describe("throwing inline step is checkpointed", () => {
+  // A failed child job reports `{ error: { name, message, stack } }`, and a
+  // failed step() has to be indistinguishable from it. The stack is a
+  // JS stack string, asserted separately.
   const marker = {
     __wmill_error: true,
     message: "boom",
     step_key: "step_0",
-    result: { error: "boom", type: "TypeError" },
+    result: { error: { name: "TypeError", message: "boom" } },
+  };
+  const withoutStack = (m: any) => {
+    const { stack, ...error } = m.result.error;
+    return { ...m, result: { ...m.result, error } };
   };
 
   // The workflow body catches — the shape a failing step is written for, and
@@ -1450,7 +1457,8 @@ describe("throwing inline step is checkpointed", () => {
     expect(caught).toBeInstanceOf(StepSuspend);
     expect(caught.dispatchInfo.mode).toBe("inline_checkpoint");
     expect(caught.dispatchInfo.key).toBe("step_0");
-    expect(caught.dispatchInfo.result).toEqual(marker);
+    expect(withoutStack(caught.dispatchInfo.result)).toEqual(marker);
+    expect(caught.dispatchInfo.result.result.error.stack).toContain("TypeError: boom");
   });
 
   test("a swallowed suspend still reaches the runner", async () => {
@@ -1459,7 +1467,7 @@ describe("throwing inline step is checkpointed", () => {
     const result = await runWorkflow(catchingWf(), {}, [5]);
     expect(result.type).toBe("inline_checkpoint");
     expect(result.key).toBe("step_0");
-    expect(result.result).toEqual(marker);
+    expect(withoutStack(result.result)).toEqual(marker);
   });
 
   test("a swallowed suspend from a succeeding step still reaches the runner", async () => {
@@ -1485,8 +1493,15 @@ describe("throwing inline step is checkpointed", () => {
       caught = e;
     }
     expect(`${caught.name}: ${caught.message}`).toBe("TaskError: boom");
-    // the failing body's own type stays addressable here
-    expect(caught.result).toEqual({ error: "boom", type: "TypeError" });
+    // the failing body's own type stays addressable here, in the shape a
+    // failed task hands over too
+    expect(caught.result).toEqual({ error: { name: "TypeError", message: "boom" } });
+    expect(caught.step_key).toBe("step_0");
+    // a step runs in the workflow job, so there is no child job to name
+    expect(caught.child_job_id).toBeUndefined();
+    // nothing is chained onto `cause`: a replay has no original error to
+    // chain, so neither round does
+    expect(caught.cause).toBeUndefined();
   });
 
   test("a child job cannot swallow its own completion signal", async () => {

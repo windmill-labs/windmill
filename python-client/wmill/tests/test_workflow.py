@@ -940,12 +940,20 @@ class TestRaisingInlineStepIsCheckpointed:
     on the never-resolving future forever.
     """
 
+    # A failed child job reports `{"error": {"name", "message", "stack"}}`, and a
+    # failed step() has to be indistinguishable from it. The stack is a traceback
+    # string, asserted separately.
     MARKER = {
         "__wmill_error": True,
         "message": "boom",
         "step_key": "risky",
-        "result": {"error": "boom", "type": "ValueError"},
+        "result": {"error": {"name": "ValueError", "message": "boom"}},
     }
+
+    @staticmethod
+    def _without_stack(marker: dict) -> dict:
+        error = {k: v for k, v in marker["result"]["error"].items() if k != "stack"}
+        return {**marker, "result": {**marker["result"], "error": error}}
 
     @staticmethod
     def _boom():
@@ -967,13 +975,15 @@ class TestRaisingInlineStepIsCheckpointed:
         r = _run_workflow(self._wf(), {}, {"x": 5})
         assert r["type"] == "inline_checkpoint"
         assert r["key"] == "risky"
-        assert r["result"] == self.MARKER
+        assert self._without_stack(r["result"]) == self.MARKER
+        assert "ValueError: boom" in r["result"]["result"]["error"]["stack"]
 
     def test_fast_path_posts_error_and_raises_the_replay_exception(self, monkeypatch):
         """The default path: the checkpoint is POSTed and the workflow body gets
         the same ``TaskError`` a replay rebuilds from the marker — raising the
         original ``ValueError`` here would make ``except ValueError:`` catch on
-        this run and miss on the next one."""
+        this run and miss on the next one. ``except`` is control flow, so
+        anything a handler can branch on has to be identical in both rounds."""
         for var, val in (
             ("WM_JOB_ID", "job-1"),
             ("WM_WORKSPACE", "admins"),
@@ -1002,18 +1012,23 @@ class TestRaisingInlineStepIsCheckpointed:
             with pytest.raises(TaskError, match="boom") as live:
                 await ctx._run_inline_step("risky", self._boom)
             # ...and the replay of that very checkpoint raises the same thing.
-            replayed = WorkflowCtx({"completed_steps": {"risky": self.MARKER}})
+            written = posted[0]["result"]
+            replayed = WorkflowCtx({"completed_steps": {"risky": written}})
             with pytest.raises(TaskError, match="boom") as replay:
                 await replayed._run_inline_step("risky", self._boom)
             assert type(live.value) is type(replay.value)
             assert live.value.args == replay.value.args
-            assert live.value.result == replay.value.result == self.MARKER["result"]
-            assert isinstance(live.value.__cause__, ValueError)
+            assert live.value.result == replay.value.result == written["result"]
+            assert live.value.step_key == replay.value.step_key == "risky"
+            # A step has no child job to name, and nothing hangs off __cause__:
+            # a replay has no original exception to chain, so neither round does.
+            assert live.value.child_job_id is replay.value.child_job_id is None
+            assert live.value.__cause__ is replay.value.__cause__ is None
 
         asyncio.run(run())
         assert len(posted) == 1
         assert posted[0]["key"] == "risky"
-        assert posted[0]["result"] == self.MARKER
+        assert self._without_stack(posted[0]["result"]) == self.MARKER
 
     def test_replay_reraises_and_does_not_hang(self):
         checkpoint = {
