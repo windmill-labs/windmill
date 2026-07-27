@@ -407,10 +407,8 @@ class TestChildMode:
         assert result["result"] == 14
 
     def test_child_cannot_swallow_the_failure_of_the_step_it_executes(self):
-        # The failure of the step a child round runs directly IS that round's
-        # result. If `except Exception` could catch it, the child would report
-        # a success returning "swallowed", the parent would record that as the
-        # step's value, and `await boom()` there would never raise.
+        # If `except Exception` could catch it, the child would report a success
+        # returning "swallowed" and the parent would record that as the step's value.
         @task
         async def boom():
             raise ValueError("nope")

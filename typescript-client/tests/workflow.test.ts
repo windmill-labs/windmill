@@ -1506,10 +1506,8 @@ describe("throwing inline step is checkpointed", () => {
   });
 
   test("a child job cannot swallow the failure of the step it executes", async () => {
-    // The failure of the step a child round runs directly IS that round's
-    // result. Without parking, the catch below turns the child into a success
-    // returning "swallowed", the parent records that as the step's value, and
-    // `await boom()` there never throws.
+    // Without parking, the catch below turns the child into a success returning
+    // "swallowed" and the parent records that as the step's value.
     const boom = task(async function boom() {
       throw new TypeError("nope");
     });

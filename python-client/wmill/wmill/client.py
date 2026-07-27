@@ -2676,10 +2676,10 @@ class _StepSuspend(BaseException):
 class _StepFailure(BaseException):
     """Carries the exception raised by the step a child round executes directly.
 
-    That exception *is* the round's result, so a broad ``except Exception`` in
-    the workflow body must not be able to turn it into a successful complete —
-    the parent would then record the caught branch's value as the step result.
-    Inherits from BaseException for the same reason ``_StepSuspend`` does.
+    That exception *is* the round's result, so a broad ``except Exception`` in the
+    body must not be able to turn it into a successful complete — the parent would
+    then record the caught branch's value as the step result. BaseException for the
+    same reason ``_StepSuspend`` is.
     """
 
     def __init__(self, exc: BaseException):

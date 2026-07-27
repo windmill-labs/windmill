@@ -1800,12 +1800,9 @@ pub async fn handle_bun_job(
         };
 
         // Kept comment-free — this string is written out per job.
-        // `_takePendingSuspend` returns a StepSuspend the body caught and swallowed
-        // (it is an `Error`), so honour it instead of reporting a `complete` whose
-        // step never reached the checkpoint. `_takePendingStepFailure` does the same
-        // for the exception raised by the step a child round executes directly: it is
-        // the round's result, not something the body may handle, so a broad catch must
-        // not turn it into a successful `complete`. Optional: npm clients may predate them.
+        // `_takePendingStepFailure` / `_takePendingSuspend` hand back what the body
+        // caught and swallowed; honour them instead of reporting a `complete` (see
+        // `_pendingStepFailure` in client.ts). Optional: npm clients may predate them.
         let wrapper_content = if is_wac_v2 {
             format!(
                 r#"

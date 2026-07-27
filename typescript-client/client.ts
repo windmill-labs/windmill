@@ -1594,11 +1594,10 @@ export class WorkflowCtx {
    *  `complete` whose step never reached `completed_steps`. Python is immune:
    *  `_StepSuspend` derives from `BaseException`. */
   private _pendingSuspend: StepSuspend | null = null;
-  /** The failure raised by the step this child round is executing. In child
-   *  mode that exception *is* the round's result, so a `catch` in the workflow
-   *  body must not be able to turn it into a `complete` — the parent would then
-   *  record the caught branch's value as a successful step. Boxed because the
-   *  thrown value may be any falsy value. */
+  /** The failure raised by the step this child round is executing. That exception
+   *  *is* the round's result, so a `catch` in the body must not be able to turn it
+   *  into a `complete` — the parent would then record the caught branch's value as
+   *  a successful step. Boxed: the thrown value may be any falsy value. */
   private _pendingStepFailure: { error: unknown } | null = null;
   /** When set, the task matching this key executes its inner function directly */
   _executingKey: string | null;
@@ -1895,9 +1894,8 @@ export class WorkflowCtx {
     throw suspend;
   }
 
-  /** Raise the executing step's failure, parking it so a body that catches it
-   *  cannot make it vanish. Child mode only — in a parent round a task failure
-   *  is an ordinary `TaskError` the body may handle. */
+  /** Park then raise the executing step's failure. Child mode only — in a parent
+   *  round a task failure is an ordinary `TaskError` the body may handle. */
   _raiseStepFailure(error: unknown): never {
     this._pendingStepFailure = { error };
     throw error;
@@ -1921,8 +1919,7 @@ export class WorkflowCtx {
     return s;
   }
 
-  /** Same for the executing step's failure: the runner re-throws it so the
-   *  child job fails instead of reporting the caught branch as the result. */
+  /** Same for the executing step's failure, so the runner can fail the child job. */
   _takePendingStepFailure(): { error: unknown } | null {
     const f = this._pendingStepFailure;
     this._pendingStepFailure = null;
