@@ -1799,6 +1799,13 @@ pub async fn handle_bun_job(
             format!("argsObjToArr(args)")
         };
 
+        // Kept free of comments — this whole string is written out per job.
+        //
+        // `_takePendingSuspend` hands back a StepSuspend the workflow body caught
+        // and swallowed (it is an `Error`, so a plain `try/catch` eats it); honour
+        // it rather than reporting a `complete` whose step never reached the
+        // checkpoint. Called optionally: the client resolves from npm and may
+        // predate the method.
         let wrapper_content = if is_wac_v2 {
             format!(
                 r#"
@@ -1843,10 +1850,6 @@ async function run() {{
     try {{
         const result = await workflowFn(...argsArr);
         setWorkflowCtx(null);
-        // A StepSuspend is an Error, so a `try/catch` in the workflow body can
-        // swallow it. Honour it here rather than reporting a `complete` whose
-        // step never reached the checkpoint. Optional call: the client is
-        // resolved from npm and may predate this method.
         const swallowed = ctx._takePendingSuspend?.();
         if (swallowed) {{
             throw swallowed;
