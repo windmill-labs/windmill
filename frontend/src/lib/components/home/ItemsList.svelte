@@ -85,14 +85,6 @@
 	type TableApp = TableItem<ListableApp, 'app'>
 	type TableRawApp = TableItem<ListableRawApp, 'raw_app'>
 
-	// A dbt script is a pipeline member the deploy marks automatically, but
-	// unlike a canvas-authored node it is also the artifact you open and edit —
-	// its content is the project descriptor. So it keeps its own list entry
-	// alongside the folder's Pipeline entry.
-	function isDbtMember(it: { language?: string }): boolean {
-		return it.language === 'dbt'
-	}
-
 	// Folders that are data pipelines, surfaced as their own "Pipeline" entry
 	// (the member scripts are folded into it, not listed individually). Two
 	// sources: deployed pipelines (folders with ≥1 `auto_kind='pipeline'` script,
@@ -294,12 +286,7 @@
 				if (it.auto_kind === 'pipeline') {
 					const m = it.path.match(/^f\/([^/]+)\//)
 					if (m) memberFolders.add(m[1])
-					// A dbt script keeps its own entry: it is the unit you edit
-					// (a descriptor with its own settings, triggers and run
-					// form), not a node authored inside the pipeline canvas —
-					// and a dbt script outside a folder has no pipeline entry
-					// to be folded into at all.
-					if (!isDbtMember(it)) continue
+					continue
 				}
 				s.push({ ...mapRunnable(it), ord: fetchOrd++ } as TableScript)
 			} else if (it.type === 'flow') {
@@ -334,7 +321,7 @@
 			if (it.type === 'script' && it.auto_kind === 'pipeline') {
 				const m = it.path.match(/^f\/([^/]+)\//)
 				if (m) memberFolders.add(m[1])
-				if (!isDbtMember(it)) continue
+				continue
 			}
 			if (have.has(itemKey(it))) continue
 			// Appended after the browse window; a higher ord keeps them after it (search
@@ -454,9 +441,8 @@
 		const merged = [...base]
 		for (const it of res.items ?? []) {
 			// Pipeline-member scripts are folded into their folder's Pipeline entry, so
-			// they never render as their own tree leaf (visiblePipelineFolders drives it)
-			// — except dbt, which stays editable in its own right.
-			if (it.type === 'script' && it.auto_kind === 'pipeline' && !isDbtMember(it)) continue
+			// they never render as their own tree leaf (visiblePipelineFolders drives it).
+			if (it.type === 'script' && it.auto_kind === 'pipeline') continue
 			if (have.has(itemKey(it))) continue
 			merged.push({ ...toTreeItem(it), ord: fetchOrd++ })
 		}

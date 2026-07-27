@@ -1,0 +1,74 @@
+import { describe, it, expect } from 'vitest'
+import { hideDbtRunnables } from './hideDbtRunnables'
+import type { AssetGraphResponse } from './types'
+
+// A folder holding both a dbt project (2 models, one of them a shared mart) and
+// a pipeline member that reads that mart.
+function graph(): AssetGraphResponse {
+	return {
+		assets: [
+			{ kind: 'table', path: 'u/a/wh/s/stg_orders', dbt: { unique_id: 'model.p.stg_orders' } },
+			{ kind: 'table', path: 'u/a/wh/s/fct_orders', dbt: { unique_id: 'model.p.fct_orders' } },
+			{ kind: 's3object', path: 'out.csv' }
+		] as AssetGraphResponse['assets'],
+		runnables: [
+			{ path: 'f/x/dbtproj', usage_kind: 'script', dbt: { model_count: 2 } },
+			{ path: 'f/x/report', usage_kind: 'script', in_pipeline: true }
+		],
+		edges: [
+			{
+				runnable_path: 'f/x/dbtproj',
+				runnable_kind: 'script',
+				asset_kind: 'table',
+				asset_path: 'u/a/wh/s/stg_orders',
+				access_type: 'w'
+			},
+			{
+				runnable_path: 'f/x/dbtproj',
+				runnable_kind: 'script',
+				asset_kind: 'table',
+				asset_path: 'u/a/wh/s/fct_orders',
+				access_type: 'w'
+			},
+			{
+				runnable_path: 'f/x/report',
+				runnable_kind: 'script',
+				asset_kind: 'table',
+				asset_path: 'u/a/wh/s/fct_orders',
+				access_type: 'r'
+			}
+		],
+		triggers: [
+			{
+				trigger_kind: 'asset',
+				asset_kind: 'table',
+				asset_path: 'u/a/wh/s/fct_orders',
+				runnable_kind: 'script',
+				runnable_path: 'f/x/report'
+			}
+		],
+		dbt_edges: [{ from_asset_path: 'u/a/wh/s/stg_orders', to_asset_path: 'u/a/wh/s/fct_orders' }]
+	}
+}
+
+describe('hideDbtRunnables', () => {
+	it('drops the dbt script node and its write edges', () => {
+		const g = hideDbtRunnables(graph())
+		expect(g.runnables.map((r) => r.path)).toEqual(['f/x/report'])
+		expect(g.edges.map((e) => e.runnable_path)).toEqual(['f/x/report'])
+	})
+
+	it('keeps every model and its ref() lineage — the tables are the pipeline’s business', () => {
+		const g = hideDbtRunnables(graph())
+		expect(g.assets).toHaveLength(3)
+		expect(g.dbt_edges).toHaveLength(1)
+		// The cascade edge from the mart to its consumer is what survives.
+		expect(g.triggers).toHaveLength(1)
+	})
+
+	it('is a no-op on a folder with no dbt project', () => {
+		const base = graph()
+		const plain = { ...base, runnables: base.runnables.filter((r) => !r.dbt) }
+		expect(hideDbtRunnables(plain)).toBe(plain)
+	})
+})

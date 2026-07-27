@@ -1471,11 +1471,17 @@ async fn create_script_internal<'c>(
         } else {
             None
         };
-    // A dbt script materializes warehouse tables, which is what pipeline
-    // membership means — so it is a member without the bare `// pipeline`
-    // marker, the same way a macro library is. Its content is a YAML descriptor
-    // with no natural place to put the marker anyway.
-    let in_pipeline = pipeline_annotations.in_pipeline || ns.language == ScriptLang::Dbt;
+    // A dbt script is deliberately NOT a pipeline member. It materializes
+    // warehouse tables, so it looks like one, but pipeline membership carries an
+    // editor whose premise is that you author the transforms in it — and a dbt
+    // project is authored in a local `dbt run`/`dbt test` loop, with Windmill as
+    // the runner and viewer. Enrolling it put a dbt project in the pipeline
+    // editor and blurred which of the two a folder holds.
+    //
+    // Its models are still `table://` assets in the shared graph: that is what
+    // makes a native script reading one of them cascade from the dbt run, and it
+    // is independent of pipeline membership.
+    let in_pipeline = pipeline_annotations.in_pipeline && ns.language != ScriptLang::Dbt;
     // `// trigger all` → AND join barrier (else OR, the default).
     let pipeline_join_all = !pipeline_annotations.join_mode.is_any();
     // Script-level `// debounce <dur>` default; a per-`// on debounce=`

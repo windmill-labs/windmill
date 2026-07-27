@@ -36,6 +36,7 @@
 		type ColumnLineageGraph
 	} from '$lib/components/assets/AssetGraph/columnLineageGraph'
 	import { resolveGraph } from '$lib/components/assets/AssetGraph/resolveGraph'
+	import { hideDbtRunnables } from '$lib/components/assets/AssetGraph/hideDbtRunnables'
 	import { buildSchemaContractContext } from '$lib/components/assets/AssetGraph/schemaContracts'
 	import {
 		computeDownstreamClosure,
@@ -2231,7 +2232,7 @@
 				signal
 			})
 			if (!res.ok) throw new Error(`GET /assets/graph → ${res.status}`)
-			return (await res.json()) as AssetGraphResponse
+			return hideDbtRunnables((await res.json()) as AssetGraphResponse)
 		}
 	)
 
