@@ -72,7 +72,9 @@
 	// swallows access errors and publishes [], so an inaccessible agent simply shows no tool nodes
 	// (its label still names the link) — this never affects a run.
 	$effect(() => {
-		const modules = dfs(flow?.value?.modules ?? [], (m) => m)
+		// Flow modules only: resource-imported tool ids are not flow-global, so publishing a nested
+		// linked agent under its bare id would supersede a top-level step that happens to share it.
+		const modules = dfs(flow?.value?.modules ?? [], (m) => m, { skipToolNodes: true })
 		const ws = workspace
 		untrack(() => {
 			for (const m of modules) {

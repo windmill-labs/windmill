@@ -9,10 +9,9 @@ import type { AgentTool } from './agentToolUtils'
 // time (e.g. an editor and an embedded flow preview) from aliasing each other's tools.
 let byScope = $state<Record<string, Record<string, AgentTool[]>>>({})
 
-// Nothing drops a scope when its flow stops being displayed, so a long-lived tab would otherwise
-// retain every flow it ever visited (raw tool script contents included). Evict least-recently-
-// published scopes past this cap, set far above the handful a single view can show at once so a
-// still-displayed flow can never lose its tool nodes to eviction.
+// A long-lived tab would otherwise keep every flow it ever visited (raw tool script contents
+// included). Past this cap the least recently used scope is evicted, skipping any a mounted view
+// still holds.
 const MAX_SCOPES = 32
 let scopeOrder: string[] = []
 
@@ -42,10 +41,12 @@ export function releaseLinkedToolsScope(scope: string) {
 	} else {
 		retainedScopes.delete(scope)
 	}
+	// Scopes skipped while retained are otherwise never reconsidered, leaving the store over the cap
+	// for the tab's life once enough views have been closed.
+	evictOverCap()
 }
 
-function touchScope(scope: string) {
-	scopeOrder = [...scopeOrder.filter((s) => s !== scope), scope]
+function evictOverCap() {
 	while (scopeOrder.length > MAX_SCOPES) {
 		const victim = scopeOrder.find((s) => !retainedScopes.has(s))
 		if (victim === undefined) {
@@ -54,6 +55,11 @@ function touchScope(scope: string) {
 		scopeOrder = scopeOrder.filter((s) => s !== victim)
 		delete byScope[victim]
 	}
+}
+
+function touchScope(scope: string) {
+	scopeOrder = [...scopeOrder.filter((s) => s !== scope), scope]
+	evictOverCap()
 }
 
 /**

@@ -265,7 +265,9 @@
 	// Flattened to a string so polling a running flow — which replaces `job` every tick — only
 	// re-fetches when the set of linked steps actually changes.
 	let linkedAgentRefs = $derived(
-		dfs(job?.raw_flow?.modules ?? [], (m) => m)
+		// Flow modules only: resource-imported tool ids are not flow-global, so publishing a nested
+		// linked agent under its bare id would supersede a top-level step that happens to share it.
+		dfs(job?.raw_flow?.modules ?? [], (m) => m, { skipToolNodes: true })
 			.map((m) => {
 				const value = m?.value as { type?: string; agent?: string } | undefined
 				return value?.type === 'aiagent' && value.agent ? `${m.id}\u0000${value.agent}` : undefined
@@ -273,10 +275,10 @@
 			.filter((x): x is string => x !== undefined)
 			.join('\u0001')
 	)
-	// The run's own workspace, not the navigation one: session and fork previews render this viewer
-	// with `workspaceId` pointing elsewhere, and resolving there finds nothing — or an unrelated
-	// resource sharing the path. The store scope stays keyed on `workspace` so it still matches what
-	// FlowGraphV2 reads; the job id in the key already makes the bucket unique.
+	// Session and fork previews render this viewer against another workspace, passed as `workspaceId`;
+	// resolving in the navigation one finds nothing, or an unrelated resource sharing the path. The
+	// store scope stays keyed on `workspace` to match what FlowGraphV2 reads — the job id in the key
+	// already makes the bucket unique.
 	let agentFetchWorkspace = $derived(workspaceId ?? job?.workspace_id ?? $workspaceStore)
 	// Hold this scope for as long as the viewer is mounted, so the store's cap can't drop tools the
 	// run still needs (nothing would refetch them — the set of linked steps hasn't changed).
