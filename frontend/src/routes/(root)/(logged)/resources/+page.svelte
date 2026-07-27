@@ -123,6 +123,7 @@
 	let supabaseConnect: SupabaseConnect | undefined = $state(undefined)
 	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
 	let deleteIsLinked = $state(false)
+	let deletePath = $state('')
 	let loading = $state({
 		resources: true,
 		types: true
@@ -644,7 +645,10 @@
 	}}
 >
 	<div class="flex flex-col w-full space-y-4">
-		<span>Are you sure you want to remove this resource?</span>
+		<span
+			>Are you sure you want to remove <span class="font-semibold break-all">{deletePath}</span
+			>?</span
+		>
 		{#if deleteIsLinked}
 			<Alert type="warning" title="Linked variable">
 				This resource is linked with a variable of the same path. The linked variable will also be
@@ -1225,6 +1229,7 @@
 																deleteResource(path, account)
 															} else {
 																deleteIsLinked = is_linked ?? false
+																deletePath = path
 																deleteConfirmedCallback = () => {
 																	deleteResource(path, account)
 																}
