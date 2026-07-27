@@ -16,6 +16,7 @@
 
 	let editedEmail: string | undefined = $state(undefined)
 	let newEmail = $derived((editedEmail ?? email).trim())
+	let changed = $derived(!!newEmail && newEmail !== email)
 	let loading = $state(false)
 
 	const dispatch = createEventDispatcher()
@@ -53,17 +54,20 @@
 		bind:value={() => editedEmail ?? email, (v) => (editedEmail = String(v))}
 	/>
 
-	<Alert title="What is preserved" class="mt-2 mb-2" size="xs">
-		The account keeps its instance-wide username{username ? ` (${username})` : ''}, role, workspace
-		memberships, drafts and tokens. Audit logs keep the previous email, pending password reset links
-		are invalidated, and an SSO user must be able to sign in with the new email.
-	</Alert>
+	{#if changed}
+		<Alert title="What is preserved" class="mt-2 mb-2" size="xs">
+			The account keeps its instance-wide username{username ? ` (${username})` : ''}, role,
+			workspace memberships, drafts and tokens. Past runs and audit logs keep the previous email,
+			pending password reset links are invalidated, and an SSO user must be able to sign in with the
+			new email.
+		</Alert>
+	{/if}
 
 	<Button
 		variant="default"
 		unifiedSize="md"
 		btnClasses="mt-2"
-		disabled={!newEmail || newEmail === email}
+		disabled={!changed}
 		{loading}
 		on:click={() => changeEmail()}
 	>
