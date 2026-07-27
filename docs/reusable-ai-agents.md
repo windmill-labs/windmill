@@ -46,5 +46,5 @@ nothing to lock on the step, and `FlowValue::traverse_leafs` sees no leaf for th
 - Script tools referenced by path are invisible to redeploy cascades — republishing such a script
   does not re-lock the flows that link the agent.
 
-Deploying a linked flow to another workspace pulls the `ai_agent` resource in as a dependency, but
-not the provider resource it references (`$res:` inside a resource value is not traversed).
+Deploying a linked flow to another workspace pulls the `ai_agent` resource in as a dependency, and
+from there its provider resource and its tools' scripts, flows, MCP resources and nested agents.

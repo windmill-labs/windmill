@@ -179,23 +179,27 @@
 	}
 
 	// A saved agent bundles its tools, which reference workspace objects by bare path rather than
-	// `$res:` — invisible to the generic value walk. A nested linked agent is queued as a resource
-	// and recursed into, so its own provider and tools follow too.
+	// `$res:` — invisible to the generic value walk. A nested *linked* agent is queued as a resource
+	// and recursed into; a nested *inline* one carries its tools here, so recurse into them too.
 	function agentResourceDependencies(value: any): { kind: Kind; path: string }[] {
 		const result: { kind: Kind; path: string }[] = []
 		for (const tool of (value?.tools ?? []) as any[]) {
 			const v = tool?.value
 			if (typeof v !== 'object' || v == null) continue
 			if (typeof v.resource_path == 'string' && v.resource_path) {
-				result.push({ kind: 'resource', path: v.resource_path })
+				result.push({ kind: 'resource', path: stripResourcePrefix(v.resource_path) })
 			} else if (v.type == 'script' && typeof v.path == 'string' && v.path) {
 				if (!v.path.startsWith('hub/')) {
 					result.push({ kind: 'script', path: v.path })
 				}
 			} else if (v.type == 'flow' && typeof v.path == 'string' && v.path) {
 				result.push({ kind: 'flow', path: v.path })
-			} else if (v.type == 'aiagent' && typeof v.agent == 'string' && v.agent) {
-				result.push({ kind: 'resource', path: stripResourcePrefix(v.agent) })
+			} else if (v.type == 'aiagent') {
+				if (typeof v.agent == 'string' && v.agent) {
+					result.push({ kind: 'resource', path: stripResourcePrefix(v.agent) })
+				} else {
+					result.push(...agentResourceDependencies(v))
+				}
 			}
 		}
 		return result
