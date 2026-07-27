@@ -11,7 +11,7 @@ export type RawAppImport = {
 	}
 }
 
-type FieldKind = 'text' | 'number' | 'boolean' | 'enum' | 'json'
+type FieldKind = 'text' | 'password' | 'number' | 'boolean' | 'enum' | 'json'
 
 /** Schema enums are either bare values or `{ value, label }` pairs; the option
  *  submits `value` and displays `label`. */
@@ -27,6 +27,9 @@ type Field = {
 	label: string
 	description: string | undefined
 	required: boolean
+	/** Schema `password` flag: masks the input and marks the runnable field
+	 *  sensitive, which is what puts it in the policy's `sensitive_inputs`. */
+	sensitive: boolean
 	enumValues: EnumOption[]
 	/** `useState(...)` initial value, as TS source. */
 	init: string
@@ -145,7 +148,7 @@ function fieldKind(prop: any): FieldKind {
 	if (Array.isArray(prop?.enum) && prop.enum.length > 0) return 'enum'
 	if (prop?.type === 'boolean') return 'boolean'
 	if (prop?.type === 'number' || prop?.type === 'integer') return 'number'
-	if (prop?.type === 'string') return 'text'
+	if (prop?.type === 'string') return prop.password === true ? 'password' : 'text'
 	return 'json'
 }
 
@@ -216,10 +219,15 @@ function toFields(schema: Record<string, any> | undefined): Field[] {
 			arg = isRequired
 				? `JSON.parse(${local})`
 				: `${local}.trim() === '' ? undefined : JSON.parse(${local})`
-		} else {
-			const fallback = kind === 'enum' ? (enumValues[0]?.value ?? '') : ''
-			init = str(typeof prop.default === 'string' ? prop.default : fallback)
+		} else if (kind === 'enum') {
+			// A select always has a selection, so it never submits an empty value.
+			init = str(typeof prop.default === 'string' ? prop.default : (enumValues[0]?.value ?? ''))
 			arg = local
+		} else {
+			init = str(typeof prop.default === 'string' ? prop.default : '')
+			// Blank optional text is "unset", so the runnable's own default applies
+			// rather than an empty string overriding it.
+			arg = isRequired ? local : `${local} === '' ? undefined : ${local}`
 		}
 
 		return {
@@ -233,6 +241,7 @@ function toFields(schema: Record<string, any> | undefined): Field[] {
 					? prop.description
 					: undefined,
 			required: isRequired,
+			sensitive: prop.password === true,
 			enumValues,
 			init,
 			arg
@@ -241,6 +250,13 @@ function toFields(schema: Record<string, any> | undefined): Field[] {
 }
 
 function fieldInput(field: Field): string {
+	// The `*` marker is only decorative without this: the browser has to block
+	// the submit, else an empty required field posts '' (or NaN) and fails
+	// server-side. A checkbox is excluded — `required` there would force it on.
+	const req =
+		field.required && field.kind !== 'boolean' && field.kind !== 'enum'
+			? '\n\t\t\t\t\t\trequired'
+			: ''
 	switch (field.kind) {
 		case 'boolean':
 			return `<input
@@ -252,7 +268,7 @@ function fieldInput(field: Field): string {
 		case 'number':
 			return `<input
 						className="field-input"
-						type="number"
+						type="number"${req}
 						value={${field.local}}
 						onChange={(e) => ${field.setter}(e.target.value)}
 					/>`
@@ -267,14 +283,22 @@ ${field.enumValues.map((o) => `						<option value=${jsxAttr(o.value)}>${jsxText
 		case 'json':
 			return `<textarea
 						className="field-input field-textarea"
-						rows={4}
+						rows={4}${req}
+						value={${field.local}}
+						onChange={(e) => ${field.setter}(e.target.value)}
+					/>`
+		case 'password':
+			return `<input
+						className="field-input"
+						type="password"
+						autoComplete="off"${req}
 						value={${field.local}}
 						onChange={(e) => ${field.setter}(e.target.value)}
 					/>`
 		default:
 			return `<input
 						className="field-input"
-						type="text"
+						type="text"${req}
 						value={${field.local}}
 						onChange={(e) => ${field.setter}(e.target.value)}
 					/>`
@@ -306,8 +330,16 @@ function generateAppTsx(opts: {
 		.join('\n')
 	const args = fields
 		.map((f) => {
+			// Shorthand is an own property even for `__proto__`; the `key: value`
+			// form is not — there it sets the prototype and the argument never
+			// reaches the runnable, so that one key needs a computed key.
 			if (f.arg === f.key) return `				${f.key}`
-			const key = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(f.key) ? f.key : str(f.key)
+			const key =
+				f.key === '__proto__'
+					? `[${str(f.key)}]`
+					: /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(f.key)
+						? f.key
+						: str(f.key)
 			return `				${key}: ${f.arg}`
 		})
 		.join(',\n')
@@ -526,6 +558,14 @@ function createRawApp(opts: {
 	const runnableId = runnableIdFromPath(path)
 	const fields = toFields(schema)
 	const title = summary && summary !== '' ? summary : path
+	// `updateRawAppPolicy` derives the policy's `sensitive_inputs` from the
+	// runnable's fields, so a password argument has to be declared here or the
+	// secret lands in the job args in the clear.
+	const runnableFields = Object.fromEntries(
+		fields
+			.filter((f) => f.sensitive)
+			.map((f) => [f.key, { type: 'user', value: undefined, sensitive: true }])
+	)
 
 	return {
 		summary: title,
@@ -547,7 +587,7 @@ function createRawApp(opts: {
 					runType,
 					path,
 					schema: schema ?? {},
-					fields: {}
+					fields: runnableFields
 				}
 			}
 		}

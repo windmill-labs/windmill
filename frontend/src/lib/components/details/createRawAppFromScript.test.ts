@@ -106,6 +106,46 @@ describe('createRawAppFromScript', () => {
 		expect(appTsx).toContain('{error !== undefined &&')
 	})
 
+	it('masks password arguments and declares them sensitive on the runnable', () => {
+		const app = createRawAppFromScript('u/dev/s', undefined, {
+			type: 'object',
+			required: ['token'],
+			properties: { token: { type: 'string', password: true }, plain: { type: 'string' } }
+		})
+		expect(app.value.files['/App.tsx']).toContain('type="password"')
+		// The policy's `sensitive_inputs` is derived from these fields, so without
+		// them the secret is stored in the job args in the clear.
+		expect(app.value.runnables['s'].fields).toEqual({
+			token: { type: 'user', value: undefined, sensitive: true }
+		})
+	})
+
+	it('passes a __proto__ argument as an own property', () => {
+		const app = createRawAppFromScript('u/dev/s', undefined, {
+			type: 'object',
+			required: ['__proto__'],
+			// Computed key: a plain `__proto__:` here would set this literal's
+			// prototype and the property would not exist at all.
+			properties: { ['__proto__']: { type: 'number' } }
+		})
+		// `__proto__: value` in an object literal sets the prototype instead of
+		// creating the argument, so it has to be a computed key.
+		expect(app.value.files['/App.tsx']).toContain("['__proto__']: Number(__proto__Text)")
+	})
+
+	it('omits blank optional text instead of sending an empty string', () => {
+		const app = createRawAppFromScript('u/dev/s', undefined, {
+			type: 'object',
+			required: ['req'],
+			properties: { req: { type: 'string' }, opt: { type: 'string' } }
+		})
+		const appTsx = app.value.files['/App.tsx']
+		expect(appTsx).toContain("opt: opt === '' ? undefined : opt")
+		expect(appTsx).toContain('req,')
+		// The required marker has to be enforced, not just drawn.
+		expect(appTsx).toMatch(/type="text"\n\t+required\n\t+value=\{req\}/)
+	})
+
 	it('keeps value and label apart for labeled enums', () => {
 		const app = createRawAppFromScript('u/dev/s', undefined, {
 			type: 'object',
