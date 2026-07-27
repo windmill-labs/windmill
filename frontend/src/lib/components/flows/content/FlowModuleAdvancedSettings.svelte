@@ -17,7 +17,7 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import s3Scripts from './s3Scripts/lib'
-	import { Database } from 'lucide-svelte'
+	import { Database, Pin } from 'lucide-svelte'
 
 	import FlowRetries from './FlowRetries.svelte'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
@@ -38,6 +38,7 @@
 		summary: StepSettingSummary
 	}
 	import FlowModuleDebounce from './FlowModuleDebounce.svelte'
+	import FlowModuleMock from './FlowModuleMock.svelte'
 	import WorkspaceScriptSettingInfo from './WorkspaceScriptSettingInfo.svelte'
 
 	const { pathStore } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -438,6 +439,24 @@
 					</div>
 				{/if}
 			</div>
+
+			{#if loopSubset}
+				<div>
+					{@render rowHeader({
+						key: 'mock',
+						label: 'Pinned output',
+						icon: Pin,
+						summary: flowModule.mock?.enabled
+							? { text: 'Pinned', state: 'configured' }
+							: { text: 'Off', state: 'default' }
+					})}
+					{#if expanded === 'mock'}
+						<div class="px-3 pb-3 pt-1" transition:slide={{ duration: 120 }}>
+							<FlowModuleMock bind:flowModule />
+						</div>
+					{/if}
+				</div>
+			{/if}
 
 			{#if s3Language && onApplyS3Snippet}
 				<div>
