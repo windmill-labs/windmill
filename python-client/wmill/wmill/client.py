@@ -2922,9 +2922,9 @@ class WorkflowCtx:
             _fast_path_ok = False
             _replay_result = None
             try:
-                # ``default=str`` mirrors the encoder the worker wrapper uses on
-                # the suspend path, so both arms checkpoint the same bytes for
-                # the same step — and a value json can't encode natively (a
+                # ``default=str`` is the encoder the worker wrapper uses on the
+                # suspend path, so both arms checkpoint the same value for the
+                # same step — and a value json can't encode natively (a
                 # datetime, a set) goes through the fast path instead of
                 # silently degrading to a suspend round.
                 _payload = _json_mod.dumps(
@@ -2971,10 +2971,13 @@ class WorkflowCtx:
                 # run and miss on the next. ``__cause__`` is for tracebacks only.
                 if step_error is not None:
                     raise _step_error_from_marker(result, name) from step_error
-                # Return what a replay returns — the checkpointed value — not
-                # the in-memory one: a tuple comes back as a list, a datetime as
-                # a string, so handing back the live object would let the round
+                # Return the JSON round trip of what was checkpointed, not the
+                # in-memory value: a tuple comes back as a list, a datetime as a
+                # string, so handing back the live object would let the round
                 # that ran the body branch on a type no other round ever sees.
+                # A replay reads the value back out of jsonb, which normalizes
+                # further (key order, int precision) — this closes the type gap,
+                # not every last difference.
                 return _replay_result
 
         raise _StepSuspend({
@@ -3186,9 +3189,9 @@ async def step(name: str, fn):
     Use for lightweight deterministic operations (timestamps, random IDs,
     config reads) that should not incur the overhead of a child job.
 
-    The returned value is always the checkpointed one — ``fn``'s result
-    encoded as JSON and decoded back — so every round of the workflow sees
-    the same thing. A ``datetime`` comes back as a string, a tuple as a list.
+    ``fn``'s result is encoded as JSON and decoded back before it is returned,
+    so the round that runs the body sees the same types every replay sees:
+    a ``datetime`` comes back as a string, a tuple as a list.
     """
     ctx: WorkflowCtx | None = _workflow_ctx.get(None)
     if ctx is not None:

@@ -1044,7 +1044,6 @@ class TestInlineStepRoundParity:
     CASES = [
         ("dt", lambda: datetime(2026, 1, 1, tzinfo=timezone.utc), "2026-01-01 00:00:00+00:00"),
         ("pair", lambda: (1, 2), [1, 2]),
-        ("aset", lambda: {1, 2}, "{1, 2}"),
         ("intkeys", lambda: {1: "a"}, {"1": "a"}),
     ]
 

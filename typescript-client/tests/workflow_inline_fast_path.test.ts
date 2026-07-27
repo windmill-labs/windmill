@@ -52,6 +52,8 @@ describe("inline step round parity", () => {
     ["map", () => new Map([["a", 1]]), {}],
     ["set", () => new Set([1, 2]), {}],
     ["undefined-prop", () => ({ a: 1, b: undefined }), { a: 1, b: null }],
+    // A body that returns nothing — `step("notify", () => { sendEmail() })`.
+    ["nothing", () => undefined, null],
   ];
 
   for (const [name, fn, expected] of cases) {
