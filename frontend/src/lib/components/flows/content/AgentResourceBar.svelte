@@ -212,7 +212,9 @@
 
 	// Create or update the `ai_agent` resource at `path` from the step's current brain + tools, then
 	// link the step to it.
-	async function persist(path: string, description?: string) {
+	// Returns false when the resource was written but the step was left alone, so callers can skip
+	// the success toast that would otherwise bury the explanation.
+	async function persist(path: string, description?: string): Promise<boolean> {
 		const dropped = nonStaticBrainKeys(inputTransforms)
 		if (providerSaveError) {
 			throw new Error(providerSaveError)
@@ -270,7 +272,7 @@
 				? tools === forkMarker
 				: getAgentEditingPath(tools) === savingEditPath
 		if (!sameSession) {
-			return
+			return false
 		}
 		// Edits made while the save was in flight aren't in the resource; linking now would strip them
 		// from the step too, losing them entirely. Keep the step as-is and let the user save again.
@@ -279,7 +281,7 @@
 				`Saved ${path}, but changes made while saving are not in it — save again to include them`,
 				true
 			)
-			return
+			return false
 		}
 		agent = path
 		// Clear the edit entry while `tools` is still the fork's marker, before it's reassigned.
@@ -288,6 +290,7 @@
 		// The brain + tools now live in the resource; a linked step keeps only the flow-local inputs.
 		tools = []
 		inputTransforms = flowLocalInputs(inputTransforms)
+		return true
 	}
 
 	async function saveAsAgent() {
@@ -297,9 +300,11 @@
 		saving = true
 		try {
 			const updating = newPath === editingPath
-			await persist(newPath, description)
+			const linked = await persist(newPath, description)
 			saveDrawer?.closeDrawer()
-			sendUserToast(updating ? `Updated agent ${newPath}` : `Saved reusable agent ${newPath}`)
+			if (linked) {
+				sendUserToast(updating ? `Updated agent ${newPath}` : `Saved reusable agent ${newPath}`)
+			}
 		} catch (e) {
 			sendUserToast(`Failed to save agent: ${e}`, true)
 		} finally {
@@ -315,8 +320,9 @@
 		saving = true
 		const path = editingPath
 		try {
-			await persist(path)
-			sendUserToast(`Updated agent ${path}`)
+			if (await persist(path)) {
+				sendUserToast(`Updated agent ${path}`)
+			}
 		} catch (e) {
 			sendUserToast(`Failed to update agent: ${e}`, true)
 		} finally {
