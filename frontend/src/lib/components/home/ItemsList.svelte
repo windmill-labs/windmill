@@ -476,6 +476,10 @@
 	function collapseOwner(owner: string): void {
 		openOwners.delete(owner)
 	}
+	// The `f/<folder>` / `u/<user>` prefix a path belongs to.
+	function ownerOf(path: string): string {
+		return path.split('/').slice(0, 2).join('/')
+	}
 	// Reload the merged list once and re-fetch the owners that are currently expanded so
 	// they don't go blank. Used both for row mutations (create/edit/archive/move/share)
 	// and for in-place scope changes (sort/archive/library/kind): those keep the tree in
@@ -484,14 +488,15 @@
 	// change (owner/search) has switched the tree out of lazy mode, there's nothing to
 	// re-fetch — the tree remounts and groups the global stream instead.
 	// For row mutations (create/edit/archive/move/share): the non_empty-filtered
-	// owner lists depend on workspace content, so a mutation can change them —
-	// moving an item into a previously-empty folder must surface that folder's
-	// node, and emptying a folder must drop it. Scope changes (sort/kind/archived
-	// via the reload $effect) go through reloadItems directly: content is unchanged
-	// there, and the resources already refetch on their own `archived` dep.
+	// owner lists and the per-owner counts depend on workspace content, so a
+	// mutation can change them — moving an item into a previously-empty folder must
+	// surface that folder's node, and emptying a folder must drop it. Scope changes
+	// (sort/kind/archived via the reload $effect) go through reloadItems directly:
+	// content is unchanged there, and the resources key on the scope themselves.
 	async function onItemMutated(): Promise<void> {
 		folderNamesRes.refetch()
 		usernamesRes.refetch()
+		void ownerCountsRes.refetch()
 		await reloadItems()
 	}
 
@@ -500,6 +505,16 @@
 		// late responses can't overwrite the fresh ones.
 		treeGen++
 		const toReload = treeLazyMode ? [...openOwners] : []
+		// Only the open owners are re-fetched below; a collapsed one keeps its rows as a
+		// cache, which this reload invalidates. Left in place they would outlive the scope
+		// they were loaded for: the owner stays grouped (so it keeps a node the new counts
+		// say is empty) and, since it is still marked loaded, expanding it again shows the
+		// previous scope's items instead of re-fetching. Drop them and let expand reload.
+		if (treeLazyMode) {
+			const open = new Set(toReload)
+			treeOwnerItems = treeOwnerItems.filter((x) => open.has(ownerOf(x.path)))
+			ownerLoad = Object.fromEntries(Object.entries(ownerLoad).filter(([o]) => open.has(o)))
+		}
 		await loadRunnables(true)
 		// force: the owners are still marked loaded, so re-fetch their first page and
 		// swap it in place (loadOwnerItems replaces each owner's rows atomically — the
@@ -720,7 +735,57 @@
 	let treeLazyMode = $derived(
 		treeView && !searching && ownerFilter == undefined && labelFilter == undefined
 	)
-	let treeInjectFolders = $derived(treeLazyMode ? (folderNamesRes.current ?? []) : [])
+	// How many runnables each owner (`f/<folder>` / `u/<user>`) holds for this user,
+	// in one request. It labels every node up front — a lazy owner's own count is
+	// unknown until it's expanded — and lets the tree drop the owners holding
+	// nothing instead of listing every workspace folder. Owners with none are
+	// omitted from the response, so an absent key means empty. Skipped outside lazy
+	// mode (the other modes group already-loaded rows) and in the archived view,
+	// which the endpoint doesn't count.
+	let ownerCountsRes = resource(
+		[
+			() => $workspaceStore,
+			() => treeLazyMode,
+			() => archived,
+			() => itemKind,
+			() => includeWithoutMain
+		],
+		async ([ws, lazyMode, showArchived, kind, withoutMain]) => {
+			if (!ws || !lazyMode || showArchived) return undefined
+			try {
+				const res = await ScriptService.countRunnablesByOwner({
+					workspace: ws,
+					kinds: kind !== 'all' ? kind : undefined,
+					includeWithoutMain: withoutMain ? true : undefined
+				})
+				return res.counts
+			} catch {
+				// Best-effort: without counts the tree shows every owner, as before.
+				return undefined
+			}
+		}
+	)
+	let ownerCounts = $derived(ownerCountsRes.current)
+	// The counts decide which owners the tree renders, so drawing it before they land
+	// would show every workspace folder and then prune it away. Hold the skeleton
+	// until the first response instead — it is fetched in parallel with the listing,
+	// so it costs no extra wait in practice. Only the first load gates: `current`
+	// survives a refetch, so an in-place scope change refreshes without flashing.
+	let treeCountsPending = $derived(
+		treeLazyMode && ownerCountsRes.current == undefined && ownerCountsRes.loading
+	)
+
+	// Owners the counts found the user has something in, split by kind. They cover
+	// what the folder/username lists miss: an item shared individually out of a
+	// folder or user space the user is otherwise not a member of.
+	function countOwners(kind: 'f' | 'u'): string[] {
+		return Object.keys(ownerCounts ?? {})
+			.filter((k) => k.startsWith(`${kind}/`))
+			.map((k) => k.slice(2))
+	}
+	let treeInjectFolders = $derived(
+		treeLazyMode ? [...new Set([...(folderNamesRes.current ?? []), ...countOwners('f')])] : []
+	)
 	let treeInjectUsers = $derived.by(() => {
 		// "Only f/*" hides every user namespace; "u/<you> and f/*" keeps just your own.
 		if (!treeLazyMode) return []
@@ -731,7 +796,10 @@
 		// and it must not vanish under a name sort whose first page is all folders.
 		if ($userStore?.username) s.add($userStore.username)
 		// Other users only when no user-folder restriction is active.
-		if (!filterUserFolders) for (const u of usernamesRes.current ?? []) s.add(u)
+		if (!filterUserFolders) {
+			for (const u of usernamesRes.current ?? []) s.add(u)
+			for (const u of countOwners('u')) s.add(u)
+		}
 		return [...s]
 	})
 	// The bottom "load more" only pages the *global* stream, which in lazy mode holds
@@ -1453,7 +1521,7 @@
 		{/if}
 	</div>
 	<div>
-		{#if filteredItems == undefined}
+		{#if filteredItems == undefined || treeCountsPending}
 			<div class="mt-4"></div>
 			<Skeleton layout={[[2], 1]} />
 			{#each new Array(6) as _}
@@ -1491,6 +1559,8 @@
 					pipelineFolders={visiblePipelineFolders}
 					allFolders={treeInjectFolders}
 					allUsers={treeInjectUsers}
+					ownerCounts={treeLazyMode ? ownerCounts : undefined}
+					selfUsername={$userStore?.username}
 					ownerLoad={treeLazyMode ? ownerLoad : undefined}
 					onExpandOwner={treeLazyMode ? loadOwnerItems : undefined}
 					onCollapseOwner={treeLazyMode ? collapseOwner : undefined}

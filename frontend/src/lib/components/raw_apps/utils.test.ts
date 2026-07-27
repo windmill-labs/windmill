@@ -47,6 +47,27 @@ describe('genWmillTs', () => {
 
 		expect(dts).toContain('myflow: (args: { string_input: string }) => Promise<any>;')
 	})
+
+	it('quotes flow input names that are not valid identifiers', () => {
+		const runnables: Record<string, Runnable> = {
+			myflow: {
+				type: 'path',
+				runType: 'flow',
+				path: 'u/dev/my_flow',
+				name: 'My flow',
+				schema: {
+					type: 'object',
+					required: ['user-name'],
+					properties: { 'user-name': { type: 'string' } }
+				},
+				fields: {}
+			}
+		}
+
+		// `user-name: string` is unparseable, so the whole generated d.ts is
+		// rejected and every backend call in the editor loses its types.
+		expect(genWmillTs(runnables)).toContain('myflow: (args: { "user-name": string })')
+	})
 })
 
 describe('normalizeRawAppRuntimeLogs', () => {

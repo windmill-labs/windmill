@@ -6,6 +6,15 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+lazy_static::lazy_static! {
+    /// Matches the non-quoted, non-IP-literal subset of the `proper_email` CHECK constraint
+    /// carried by `usr` and `workspace_invite`, so anything accepted here is accepted by those
+    /// tables too.
+    pub static ref VALID_EMAIL: regex::Regex = regex::Regex::new(
+        r"^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$"
+    ).unwrap();
+}
+
 pub const SUPERADMIN_SECRET_EMAIL: &str = "superadmin_secret@windmill.dev";
 pub const SUPERADMIN_NOTIFICATION_EMAIL: &str = "superadmin_notification@windmill.dev";
 pub const SUPERADMIN_SYNC_EMAIL: &str = "superadmin_sync@windmill.dev";
@@ -165,6 +174,27 @@ mod tests {
         );
         assert_eq!(username_to_permissioned_as("group-all"), "g/all");
         assert_eq!(username_to_permissioned_as("group-my-team"), "g/my-team");
+    }
+
+    #[test]
+    fn test_valid_email() {
+        for email in [
+            "alice@example.com",
+            "alice.bob+tag@sub.example.co.uk",
+            "a_b-c!#$%&'*+/=?^_`{|}~@example.com",
+        ] {
+            assert!(VALID_EMAIL.is_match(email), "{email} should be valid");
+        }
+        for email in [
+            "alice",
+            "alice@example",
+            "alice@@example.com",
+            "alice @example.com",
+            "alice@example.com\nbob@example.com",
+            "",
+        ] {
+            assert!(!VALID_EMAIL.is_match(email), "{email} should be invalid");
+        }
     }
 
     #[test]

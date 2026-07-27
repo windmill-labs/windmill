@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO notify_event (channel, payload) SELECT 'notify_token_invalidation', token_prefix FROM token WHERE email = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a718367f00f7dc0280ab297ff66a939f930eb2a43beac528fd3b5fb6add5e251"
+}

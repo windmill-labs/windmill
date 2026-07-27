@@ -1866,7 +1866,7 @@ async fn inspect_fork_catalog(
     );
     let table_rows = client.query(&qt, &[]).await;
     drop(client);
-    let _ = join_handle.await;
+    let _ = crate::shutdown_pg_connection(join_handle).await;
 
     existing_schemas.extend(
         same_catalog_res
@@ -1920,7 +1920,7 @@ async fn inspect_fork_catalog(
             let join_handle = tokio::spawn(async move { connection.await });
             let res = query_schemas(&client, schemas).await;
             drop(client);
-            let _ = join_handle.await;
+            let _ = crate::shutdown_pg_connection(join_handle).await;
             res.map_err(|e| Error::internal_err(format!("{e}")))
         }
         .await;

@@ -732,6 +732,38 @@ paths:
               schema:
                 type: string
 
+  /users/change_email/{email}:
+    post:
+      summary: global change user email (require super admin)
+      operationId: globalUserChangeEmail
+      tags:
+        - user
+      parameters:
+        - name: email
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: new email
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                new_email:
+                  type: string
+              required:
+                - new_email
+      responses:
+        "200":
+          description: user email changed
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /users/delete/{email}:
     delete:
       summary: global delete user (require super admin)
@@ -10555,6 +10587,42 @@ paths:
                       $ref: "#/components/schemas/RunnableItem"
                   next_cursor:
                     type: string
+  /w/{workspace}/runnables/counts:
+    get:
+      summary: count runnables per owner (folder or user space)
+      operationId: countRunnablesByOwner
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: kinds
+          in: query
+          description: comma-separated subset of script,flow,app (default all)
+          schema:
+            type: string
+        - name: include_without_main
+          in: query
+          description: include library scripts (no runnable main)
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: >-
+            number of runnables per owner prefix, empty owners omitted. Excludes
+            data-pipeline member scripts, which are listed as their folder's
+            single pipeline entry rather than as runnables.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - counts
+                properties:
+                  counts:
+                    type: object
+                    description: owner prefix (f/<folder> or u/<user>) to count
+                    additionalProperties:
+                      type: integer
   /w/{workspace}/flows/list:
     get:
       summary: list all flows

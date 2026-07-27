@@ -2689,6 +2689,29 @@ class TaskError(Exception):
         self.result = result
 
 
+def _step_error_marker(key: str, exc: BaseException) -> dict:
+    """Serialize a failed ``step()`` body into the ``__wmill_error`` marker that
+    task failures also use, so it can be stored in ``completed_steps``."""
+    return {
+        "__wmill_error": True,
+        "message": str(exc),
+        "step_key": key,
+        "result": {"error": str(exc), "type": type(exc).__name__},
+    }
+
+
+def _step_error_from_marker(marker: dict, name: str) -> TaskError:
+    """Rebuild the exception a failed step raises. Both the run that produced the
+    failure and every later replay go through here, so a workflow's ``except``
+    clauses see the same type either way."""
+    return TaskError(
+        marker.get("message", f"Step '{name}' failed"),
+        step_key=marker.get("step_key", ""),
+        child_job_id=marker.get("child_job_id", ""),
+        result=marker.get("result"),
+    )
+
+
 _workflow_ctx: _contextvars.ContextVar["WorkflowCtx"] = _contextvars.ContextVar(
     "_workflow_ctx"
 )
@@ -2858,12 +2881,7 @@ class WorkflowCtx:
         if key in self._completed:
             val = self._completed[key]
             if isinstance(val, dict) and val.get("__wmill_error"):
-                raise TaskError(
-                    val.get("message", f"Step '{name}' failed"),
-                    step_key=val.get("step_key", ""),
-                    child_job_id=val.get("child_job_id", ""),
-                    result=val.get("result"),
-                )
+                raise _step_error_from_marker(val, name)
             return val
 
         if self._executing_key is not None:
@@ -2873,9 +2891,18 @@ class WorkflowCtx:
         started_at = _dt.now(_tz.utc).isoformat()
         print(f"WM_WAC_STEP: {_json_mod.dumps({'key': key, 'started_at': started_at})}")
         t0 = _time_mod.monotonic()
-        result = fn()
-        if _asyncio.iscoroutine(result):
-            result = await result
+        # A raised step still has to reach ``completed_steps``, or a replay with
+        # ``_executing_key`` set finds nothing recorded and parks forever on the
+        # ``_asyncio.Future()`` above. ``_StepSuspend`` and ``CancelledError`` are
+        # ``BaseException``, so they pass through untouched.
+        step_error: Optional[Exception] = None
+        try:
+            result = fn()
+            if _asyncio.iscoroutine(result):
+                result = await result
+        except Exception as _exc:
+            step_error = _exc
+            result = _step_error_marker(key, _exc)
         duration_ms = int((_time_mod.monotonic() - t0) * 1000)
 
         # Fast path: POST the delta to the new per-job API endpoint and return
@@ -2892,6 +2919,7 @@ class WorkflowCtx:
         _base = os.environ.get("BASE_INTERNAL_URL")
         _token = os.environ.get("WM_TOKEN")
         if _fast_path_enabled and _job_id and _workspace and _base and _token:
+            _fast_path_ok = False
             try:
                 if self._inline_lock is None:
                     self._inline_lock = _asyncio.Lock()
@@ -2917,7 +2945,7 @@ class WorkflowCtx:
                         },
                     )
                     _resp.raise_for_status()
-                return result
+                _fast_path_ok = True
             except Exception as _e:
                 logger.info(
                     "WAC v2 inline fast path failed for key %s, falling back to suspend: %s",
@@ -2925,6 +2953,14 @@ class WorkflowCtx:
                     _e,
                 )
                 # fall through to the legacy suspend path
+            if _fast_path_ok:
+                # Raise what a replay would rebuild from the marker, never the
+                # original: a replay cannot reconstruct the original type, so
+                # raising it here would make ``except ValueError:`` catch on this
+                # run and miss on the next. ``__cause__`` is for tracebacks only.
+                if step_error is not None:
+                    raise _step_error_from_marker(result, name) from step_error
+                return result
 
         raise _StepSuspend({
             "mode": "inline_checkpoint",
