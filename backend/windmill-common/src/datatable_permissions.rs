@@ -604,6 +604,22 @@ async fn drop_or_disable_on_target(
     Ok(DropOutcome::Dropped)
 }
 
+/// Decrypt with the cached workspace cipher, refreshing the cache once on
+/// failure: around a key rotation a process can hold the previous cipher
+/// cached for up to its TTL, and treating that as corruption would make
+/// revocation lose its pointer to a recorded target.
+async fn decrypt_with_refresh(db: &DB, w_id: &str, value: String) -> Result<String> {
+    let mc = build_crypt(db, w_id).await?;
+    match decrypt(&mc, value.clone()) {
+        Ok(v) => Ok(v),
+        Err(_) => {
+            crate::variables::WORKSPACE_CRYPT_CACHE.remove(w_id);
+            let mc = build_crypt(db, w_id).await?;
+            decrypt(&mc, value)
+        }
+    }
+}
+
 /// Decode a bookkeeping row's stored owner target, if any.
 async fn decode_stored_target(
     db: &DB,
@@ -611,8 +627,7 @@ async fn decode_stored_target(
     owner_creds: Option<String>,
 ) -> Option<StoredOwnerTarget> {
     let encrypted = owner_creds?;
-    let mc = build_crypt(db, w_id).await.ok()?;
-    let json = decrypt(&mc, encrypted).ok()?;
+    let json = decrypt_with_refresh(db, w_id, encrypted).await.ok()?;
     serde_json::from_str(&json).ok()
 }
 
@@ -644,16 +659,27 @@ async fn ensure_ephemeral_role(
     .fetch_optional(db)
     .await?
     {
-        let mc = build_crypt(db, w_id).await?;
-        let password = decrypt(&mc, row.password)?;
-        if let Some(stored) = decode_stored_target(db, w_id, row.owner_creds).await {
-            let mut pg = stored.pg;
-            pg.user = Some(role);
-            pg.password = Some(password);
-            return Ok(pg);
+        let password = decrypt_with_refresh(db, w_id, row.password).await?;
+        // Serve the CURRENTLY configured connection settings: TLS/verification
+        // edits on the resource must apply on next access even though they
+        // don't change the physical identity in the perms hash. A recorded
+        // target on a different physical database means a re-point is pending
+        // — fall through to the slow path, which revokes there first.
+        let stored = decode_stored_target(db, w_id, row.owner_creds).await;
+        let config = get_datatable_config(db, w_id, datatable).await?;
+        let current: PgDatabase =
+            serde_json::from_value(datatable_shared_resource(db, w_id, &config).await?)
+                .map_err(|e| Error::internal_err(format!("parsing data table owner creds: {e}")))?;
+        if let Some(stored) = stored {
+            if same_target(&stored.pg, &current) {
+                let mut pg = current;
+                pg.user = Some(role);
+                pg.password = Some(password);
+                return Ok(pg);
+            }
         }
-        // Legacy row without a recorded target: fall through to the slow path
-        // to rebuild it.
+        // Re-point pending or legacy row without a recorded target: rebuild
+        // through the slow path.
     }
 
     // Slow path: (re)create the role under a per-role advisory lock on the
@@ -732,8 +758,7 @@ async fn ensure_ephemeral_role(
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
-        let mc = build_crypt(db, w_id).await?;
-        let password = decrypt(&mc, password)?;
+        let password = decrypt_with_refresh(db, w_id, password).await?;
         let mut pg = owner.clone();
         pg.user = Some(role);
         pg.password = Some(password);
@@ -941,7 +966,7 @@ async fn cleanup_one_expired_role(db: &DB, role: &str, w_id: &str, datatable: &s
     match resolve_role_target(db, w_id, datatable, row.owner_creds).await {
         Some((owner, is_instance)) => {
             if matches!(
-                drop_or_disable_on_target(db, &owner, is_instance, role).await?,
+                drop_or_disable_with_instance_fallback(db, &owner, is_instance, role).await?,
                 DropOutcome::SkippedActive
             ) {
                 return Ok(());
@@ -1085,6 +1110,47 @@ async fn disable_role_login(client: &tokio_postgres::Client, role: &str) -> Resu
         .map_err(|e| pg_err(&format!("disabling login of ephemeral role {role}"), e))
 }
 
+/// [`drop_or_disable_on_target`], with a recovery path for instance targets
+/// whose database no longer exists (fork database dropped, superadmin
+/// instance-DB drop): connecting would fail forever and wedge revocation —
+/// but roles are cluster-wide on the main cluster and a vanished database
+/// takes every privilege granted in it along, so a bare guarded drop from the
+/// main pool is a complete revocation there.
+async fn drop_or_disable_with_instance_fallback(
+    db: &DB,
+    owner: &PgDatabase,
+    is_instance: bool,
+    role: &str,
+) -> Result<DropOutcome> {
+    match drop_or_disable_on_target(db, owner, is_instance, role).await {
+        Ok(outcome) => Ok(outcome),
+        Err(e) if is_instance => {
+            let db_exists = sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1) AS \"e!\"",
+                &owner.dbname
+            )
+            .fetch_one(db)
+            .await?;
+            if db_exists {
+                return Err(e);
+            }
+            if !role.starts_with(DATATABLE_EPHEMERAL_ROLE_PREFIX) {
+                return Err(Error::internal_err(format!(
+                    "refusing to drop role '{role}' without the reserved prefix"
+                )));
+            }
+            sqlx::query(&format!("DROP ROLE IF EXISTS {}", quote_ident(role)))
+                .execute(db)
+                .await
+                .map_err(|e| {
+                    Error::internal_err(format!("dropping role {role} on main cluster: {e:#}"))
+                })?;
+            Ok(DropOutcome::Dropped)
+        }
+        Err(e) => Err(e),
+    }
+}
+
 /// Where a role must be revoked: the stored owner target from its bookkeeping
 /// row when present (survives resource/config re-points), else the currently
 /// configured database. When the stored and configured targets are the same
@@ -1157,7 +1223,7 @@ async fn teardown_role(
     if let Some((owner, is_instance)) = resolve_role_target(db, w_id, datatable, owner_creds).await
     {
         if matches!(
-            drop_or_disable_on_target(db, &owner, is_instance, role).await?,
+            drop_or_disable_with_instance_fallback(db, &owner, is_instance, role).await?,
             DropOutcome::SkippedActive
         ) {
             // Keep the bookkeeping row: this teardown runs on grant revocation,

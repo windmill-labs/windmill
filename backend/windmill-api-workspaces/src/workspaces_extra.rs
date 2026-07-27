@@ -1286,6 +1286,27 @@ pub async fn drop_forked_datatable_databases(
             _ => continue,
         };
 
+        // Revoke the data table's ephemeral roles before dropping its
+        // database: their open connections would block the drop, and leftover
+        // roles would need the sweep's database-gone fallback to be reaped.
+        match windmill_common::datatable_permissions::snapshot_datatable_roles(
+            &db,
+            &w_id,
+            Some(dt_name),
+        )
+        .await
+        {
+            Ok(snapshot) => {
+                windmill_common::datatable_permissions::teardown_snapshot_roles_best_effort(
+                    &db, &w_id, snapshot,
+                )
+                .await
+            }
+            Err(e) => {
+                tracing::warn!("snapshotting roles of datatable://{dt_name} before drop: {e:#}")
+            }
+        }
+
         if dt.database.resource_type
             == windmill_common::workspaces::DataTableCatalogResourceType::Instance
         {

@@ -4789,13 +4789,26 @@ async fn set_encryption_key(
         // Data table ephemeral-role bookkeeping stores workspace-key-encrypted
         // secrets too (role password + recorded owner credentials). Left
         // un-rotated they become undecryptable, and revocation could no longer
-        // reach a role's recorded cluster after a later re-point.
+        // reach a role's recorded cluster after a later re-point. The
+        // workspace lock keeps role creation from inserting old-key
+        // ciphertext after this scan; the per-role locks keep an in-flight
+        // teardown/sweep from acting across the key switch. Held to commit.
+        sqlx::query(windmill_common::datatable_permissions::WORKSPACE_ROLES_LOCK)
+            .bind(&w_id)
+            .execute(&mut *tx)
+            .await?;
         let dt_roles = sqlx::query!(
             "SELECT role_name, password, owner_creds FROM datatable_ephemeral_role WHERE workspace_id = $1",
             w_id
         )
         .fetch_all(&mut *tx)
         .await?;
+        for row in &dt_roles {
+            sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('wm_dt_role:' || $1, 0))")
+                .bind(&row.role_name)
+                .execute(&mut *tx)
+                .await?;
+        }
         for row in dt_roles {
             let password = encrypt(
                 &new_encryption_key,
