@@ -58,7 +58,7 @@ use serde::Serialize;
 use serde_json::value::RawValue;
 use sqlx::types::Json;
 use sqlx::{Pool, Postgres};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
 use windmill_common::assets::{parse_asset_trigger_ref, AssetKind};
@@ -232,31 +232,6 @@ pub async fn dispatch_asset_triggers(db: &DB, job: &MiniCompletedJob) -> Dispatc
     }
 }
 
-/// The relations a dbt run reports having materialized, as recorded in its own
-/// result.
-///
-/// `None` means the run said nothing — a job from before the field existed, or
-/// a result that is not a dbt run — and the caller then dispatches the whole
-/// deploy-time write set, as it did before selective narrowing.
-///
-/// `Some(empty)` is a real answer, not a missing one: a selection matching no
-/// model, or one resolving to tests only, builds nothing and must wake nobody.
-/// Reading this from the job's own result rather than from
-/// `materialized_partition` is what makes it a fact about THIS run — that table
-/// keeps one row per relation and the newest writer takes it, so a concurrent
-/// run over the same model would erase this one's claim to it.
-async fn dbt_materialized_writes(db: &DB, job: &MiniCompletedJob) -> Result<Option<Vec<String>>> {
-    let row = sqlx::query_scalar!(
-        "SELECT result->'materialized' FROM v2_job_completed WHERE workspace_id = $1 AND id = $2",
-        job.workspace_id,
-        job.id
-    )
-    .fetch_optional(db)
-    .await?
-    .flatten();
-    Ok(row.and_then(|v| serde_json::from_value::<Vec<String>>(v).ok()))
-}
-
 async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult> {
     if !is_eligible_kind(job) {
         return Ok(DispatchResult::default());
@@ -270,6 +245,18 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
     if job.parent_job.is_some() && !is_native_retry_attempt(db, job).await? {
         return Ok(DispatchResult::default());
     }
+    // A dbt run records the relations it builds, so it looks like a producer
+    // here — but dbt does not trigger downstream runs. Its own DAG is dbt's to
+    // order; the only thing a cascade would add is waking Windmill scripts that
+    // read a mart, and nothing outside dbt can declare a `table://` write, so
+    // that edge exists in one direction only. Cascading from a project whose
+    // per-run selection can build any subset of itself needs a per-run write set
+    // to be correct, which is a design worth doing deliberately rather than
+    // inferring. Until then dbt materializes and reports; it does not dispatch.
+    if job.script_lang == Some(ScriptLang::Dbt) {
+        return Ok(DispatchResult::default());
+    }
+
     let runnable_path = match job.runnable_path.as_deref() {
         Some(p) if !p.is_empty() => p,
         _ => return Ok(DispatchResult::default()),
@@ -288,25 +275,6 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
         return Ok(DispatchResult::default());
     };
 
-    // A dbt run may build a subset of its project: `select` / `exclude` narrow
-    // the invocation, but `writes` is the deploy-time set for the whole project,
-    // so dispatching all of it would wake subscribers of relations this run did
-    // not rebuild. The run reports what it materialized, so intersect with that.
-    // Scoped to dbt because it is the only producer whose write set is decided
-    // per run — for every other language `writes` IS what ran.
-    let writes = match job.script_lang {
-        Some(ScriptLang::Dbt) => match dbt_materialized_writes(db, job).await? {
-            Some(built) => {
-                let built: HashSet<&str> = built.iter().map(String::as_str).collect();
-                writes.into_iter().filter(|(_, p)| built.contains(p.as_str())).collect()
-            }
-            None => writes,
-        },
-        _ => writes,
-    };
-    if writes.is_empty() {
-        return Ok(DispatchResult::default());
-    }
 
     let args = fetch_args(db, &job.workspace_id, job.id).await?;
     if read_skip_arg(args.as_ref()) {

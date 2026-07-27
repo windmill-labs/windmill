@@ -93,13 +93,6 @@ pub struct DbtRunResult {
     pub command: String,
     pub totals: DbtTotals,
     pub nodes: Vec<DbtNodeResult>,
-    /// The `table://` paths this run materialized. The cascade dispatches these
-    /// rather than the script's deploy-time write set, so a `select`-narrowed
-    /// run wakes only the consumers of what it rebuilt. Empty is meaningful —
-    /// a run that built nothing dispatches nothing — so it is always present,
-    /// and its absence (a job from before this field, a non-dbt producer) is
-    /// what makes the dispatcher fall back to the full set.
-    pub materialized: Vec<String>,
 }
 
 #[derive(Serialize, Debug, Default)]
@@ -178,8 +171,8 @@ pub async fn handle_dbt_job(
     )
     .await?;
 
-    // Before any invocation: a per-run graph has to be re-ingested for the run's
-    // writes to dispatch correctly, and an agent worker reaches the DB only
+    // Before any invocation: a per-run graph has to be re-ingested for this run's
+    // models to be the ones shown, and an agent worker reaches the DB only
     // through the API. Refusing after `dbt build` would leave the warehouse
     // written and the job failed, and a retry would repeat the write.
     if prepared.graph_is_per_run
@@ -234,10 +227,10 @@ pub async fn handle_dbt_job(
     };
 
     // A per-run graph is ingested BEFORE the build, from a `dbt parse` with this
-    // run's vars: asset dispatch fans out from the stored rows the moment the
-    // job completes. Concurrent runs of one dynamic script still race
-    // on the path-keyed rows; that needs a per-job dispatch snapshot
-    // (docs/dbt-runtime.md).
+    // run's vars, so the models shown are the ones about to be built rather than
+    // the previous run's. The rows are keyed by script path, so concurrent runs
+    // of one dynamic script overwrite each other's — the last to parse wins the
+    // display (docs/dbt-runtime.md).
     if prepared.graph_is_per_run {
         if command != "retry" {
             run_dbt_parse(
@@ -378,9 +371,9 @@ pub async fn handle_dbt_job(
     save_run_state(&prepared, &job.workspace_id, &job.id, &inv, conn)
         .await
         .ok();
-    let materialized = reconcile_materializations(&prepared, &results, job, conn).await;
+    reconcile_materializations(&prepared, &results, job, conn).await;
 
-    let result = build_result(&prepared, &command, results, materialized);
+    let result = build_result(&prepared, &command, results);
     match run {
         Ok(()) => Ok(to_raw_value(&result)),
         Err(e) => {
@@ -786,7 +779,7 @@ pub async fn prepare_project(
     //
     // A per-run `vars` override is deliberately NOT here: gating on it would
     // leave the override's graph in place for the next default run, which then
-    // builds the descriptor's relations and dispatches from the override's.
+    // builds the descriptor's relations while the graph shows the override's.
     let has_placeholder = |v: &str| v.contains("{{");
     let graph_is_per_run = descriptor
         .vars
@@ -1829,20 +1822,14 @@ fn parse_node_event(
 /// the tailer has been updating are re-stated here from the authoritative
 /// artifact, which both fills in `row_count` and gives those engines per-model
 /// state — just at the end of the run rather than during it.
-///
-/// Returns the relations this run MATERIALIZED, which the cascade needs as a
-/// fact about this job. `materialized_partition` cannot answer that: it holds
-/// one row per relation and the newest writer takes it, so a concurrent run
-/// over the same model erases this one's claim to it.
 async fn reconcile_materializations(
     p: &PreparedProject,
     results: &[DbtNodeResult],
     job: &MiniPulledJob,
     conn: &Connection,
-) -> Vec<String> {
-    let mut materialized = Vec::new();
+) {
     let Some(resource_path) = p.resource_path.as_deref() else {
-        return materialized;
+        return;
     };
     for r in results {
         let Some(path) = asset_path_of_relation(
@@ -1900,15 +1887,7 @@ async fn reconcile_materializations(
         if let Err(e) = recorded {
             tracing::warn!("recording the materialization of {path} failed: {e}");
         }
-        // Reported whether or not the record landed: this is what dbt built, and
-        // a failed bookkeeping call must not silence the cascade.
-        if status == MaterializationStatus::Materialized {
-            materialized.push(path);
-        }
     }
-    materialized.sort();
-    materialized.dedup();
-    materialized
 }
 
 /// `"db"."schema"."name"` from dbt into the `table://` path of the relation,
@@ -1988,12 +1967,7 @@ async fn read_run_results(project_dir: &Path) -> Vec<DbtNodeResult> {
         .collect()
 }
 
-fn build_result(
-    p: &PreparedProject,
-    command: &str,
-    nodes: Vec<DbtNodeResult>,
-    materialized: Vec<String>,
-) -> DbtRunResult {
+fn build_result(p: &PreparedProject, command: &str, nodes: Vec<DbtNodeResult>) -> DbtRunResult {
     let mut totals = DbtTotals { total: nodes.len(), ..Default::default() };
     for n in &nodes {
         match classify_status(&n.status) {
@@ -2009,7 +1983,6 @@ fn build_result(
         command: command.to_string(),
         totals,
         nodes,
-        materialized,
     }
 }
 
@@ -2091,10 +2064,10 @@ async fn ingest_from_run(
             .unwrap_or(GraphPublisher::Unversioned),
     )
     .await?;
-    // Synchronously, not through the notify poller: dispatch for THIS job runs
-    // in this process once the job completes, and the poll is seconds away, so
-    // a fast build would otherwise fan out from the pre-refresh cache. The
-    // `notify_event` the transaction emitted still reaches every other process.
+    // Synchronously, not through the notify poller: the ingest just rewrote this
+    // script's `asset` rows and the poll is seconds away, so anything in this
+    // process reading the producer map meanwhile would see the pre-refresh copy.
+    // The `notify_event` the transaction emitted still reaches every other process.
     windmill_queue::asset_dispatch::ASSET_PRODUCER_WRITES_CACHE.remove(&job.workspace_id);
     Ok(())
 }
@@ -2960,13 +2933,10 @@ fn classify_status(status: &str) -> DbtNodeOutcome {
 /// counts too — dbt spells that for a node that built but whose tests failed,
 /// and its retry redoes the node.
 ///
-/// Tests count as well, which they did not while a successful job dispatched
-/// its whole deploy-time write set: a test-only retry materialises nothing, so
-/// it would have woken every downstream consumer for relations no one touched.
-/// The cascade now dispatches what the run reports having materialized, so a
-/// test-only retry wakes nobody on its own — and refusing it was blocking the
-/// case `test_behavior: after_all` produces, where a failing test is the whole
-/// of `run_results.json`.
+/// Tests count too, and they are the common case: with
+/// `test_behavior: after_all` a failing test is the whole of
+/// `run_results.json`, so requiring a relation-writing node would refuse the
+/// retry exactly when it is wanted.
 fn has_retryable_node(run_results: &str) -> bool {
     serde_json::from_str::<RunResults>(run_results)
         .map(|r| {
@@ -3557,12 +3527,8 @@ mod tests {
                 "{retryable} must be retryable"
             );
         }
-        // Failed TESTS alone are retryable, and `test_behavior: after_all` is
-        // exactly how `run_results.json` comes to describe tests alone. This was
-        // refused while a successful job dispatched its whole deploy-time write
-        // set — a test-only retry materialises nothing, so it would have woken
-        // every consumer for relations no one touched. The cascade now
-        // dispatches what the run reports materializing, so it wakes nobody.
+        // Failed TESTS alone are retryable: `test_behavior: after_all` is exactly
+        // how `run_results.json` comes to describe tests alone.
         let tests_only = r#"{"results":[
             {"unique_id":"test.p.not_null_orders_id.ab","status":"fail"},
             {"unique_id":"test.p.unique_orders_id.cd","status":"error"}]}"#;

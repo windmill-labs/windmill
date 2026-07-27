@@ -139,9 +139,11 @@ Asset identity has to be the **physical relation**, not the tool that produced i
 If a dbt mart registers as `dbt://analytics/orders_daily` while a native DuckDB
 script reads `table://snowflake_prod/analytics/orders_daily`, those are unrelated
 URIs, no edge forms, and dbt becomes an island in the graph. That is the
-BashOperator outcome with extra steps. Keying on the relation is what makes the
-existing cascade dispatch fire across the dbt boundary, which is the whole
-differentiator.
+BashOperator outcome with extra steps. Keying on the relation is what lets a
+native script reading a mart share a node with the dbt model that builds it, so
+the lineage is one graph rather than two.
+
+A dbt run does **not** trigger those readers. See "no cascade from dbt" below.
 
 So: `table://<resource_path>/<schema>/<name>`, one new `AssetKind`, resolved from
 the profile's target so two scripts pointing at the same warehouse agree on
@@ -194,38 +196,55 @@ The one case that cannot be settled at deploy is a descriptor that is dynamic by
 construction: a `vars` value spelled with a `{{ placeholder }}`, or an `env`
 value spelled `$var:` (re-resolved every run). dbt vars can steer `enabled`,
 aliases, schemas, databases and materializations, so for those the deploy cannot
-know what will run and the graph is re-ingested from every run's own manifest. Since asset dispatch fans out
-from the stored rows, a run that cannot refresh them fails rather than cascading
-from a stale graph — which also means those descriptors cannot run on an agent
-worker, whose only DB access is through the API.
+know what will run and the graph is re-ingested from every run's own manifest. A
+run that cannot refresh those rows fails rather than showing a stale graph —
+which also means those descriptors cannot run on an agent worker, whose only DB
+access is through the API.
 
 Agent workers are further limited: any dbt script whose profile Windmill resolves
 is refused there, because the agent can neither read the relation root the graph
 was ingested against nor re-ingest it — so a profile changed since the last
-ingest would cascade from the wrong relations with nothing to detect it. A
-project bringing its own `profiles.yml` has no root for Windmill to track and
-runs there normally.
+ingest would leave the graph naming relations the run never touched, with nothing
+to detect it. A project bringing its own `profiles.yml` has no root for Windmill
+to track and runs there normally.
 
 The refresh happens **before** the build, from a `dbt parse` with this run's own
-vars and env — not after it. Dispatch fans out from the stored rows once the job
-completes, so refreshing afterwards leaves a window in which those rows still
-describe the previous run. The producer-writes cache is invalidated in-process
-at the same moment rather than waiting for the notify poll, since the dispatch
-for that job runs in the process that just refreshed.
+vars and env, so a run in flight is already showing the models it is building.
 
 Boundary that remains: the rows are keyed by script path, so **two concurrent
-runs of one dynamic script race** — each overwrites the other's before either
-dispatches, and a job can notify the other run's consumers. Give such a script a
-concurrency limit of 1. Removing the race entirely means dispatching from a
-per-job snapshot of what the run actually wrote, which is a change to the shared
-cascade rather than to dbt.
+runs of one dynamic script overwrite each other's** — the last to parse wins, and
+the graph shows its models for both. Give such a script a concurrency limit of 1.
+Fixing it properly means storing the graph per job rather than per path.
 
 Re-ingesting is nearly free: the run parses the project (about a second) before
 building it and ingests that manifest.
 
 The parse is what makes a newly added model appear in the same run that builds
-it, rather than one run late: the graph is written before the build, so the
-dispatch that follows sees this run's models.
+it, rather than one run late: the graph is written before the build, so the run
+page shows the model while it is being built.
+
+## No cascade from dbt
+
+A finished dbt run does not trigger anything. Its models are recorded, drawn and
+tracked; they do not fan out.
+
+dbt already orders its own DAG, so a cascade would only ever add one thing:
+waking a Windmill script that reads a mart. That edge is real but narrow, and
+only half of it exists — nothing outside dbt can declare a `table://` write
+(`// materialize` accepts DuckLake targets only), so the reverse direction, an
+ingestion script waking a dbt project, cannot be expressed at all.
+
+Against that, dispatching correctly from dbt is not cheap. A run's `select` can
+build any subset of the project, so the deploy-time write set is not what ran;
+using it wakes consumers of relations the run never touched, and narrowing it
+needs a per-job record of what was built, which the per-relation state table
+cannot supply (it keeps one row per relation, stamped with the last writer).
+
+So dbt materializes and reports, and `asset_dispatch` returns early for
+`ScriptLang::Dbt`. A `# on table://<mart>` annotation still renders the reader
+beside the model in the graph; it does not fire. Wiring it up later means
+deciding what a selective run should notify — that decision is the work, not the
+plumbing.
 
 ## Where the dbt project lives
 
@@ -356,21 +375,15 @@ versioned with the descriptor, so a redeploy from git carries it.
 
 `select`/`exclude`/`selector` are passed **verbatim** to dbt. Do not reimplement
 the selector grammar; Cosmos's manifest path had to, and it is a recurring source
-of divergence. `select` and `vars` are overridable per run via job args, and the cascade
-follows the run: a dbt job reports the relations it materialized, and dispatch
-notifies the consumers of those rather than of the script's whole deploy-time
-write set. Narrowing `select` therefore leaves the skipped models' consumers
-alone, and a selection that builds nothing wakes nobody.
-
-The **graph** is still the deployed descriptor's. Widening `select` past what
-the descriptor declares notifies nobody for the extra models, because no asset
-row ties them to this script — asset rows are written at deploy, like every
-other language's. Split the project into several scripts (decision 6) when the
-graph itself should differ.
+of divergence. `select` and `vars` are overridable per run via job args. The **graph** stays the
+deployed descriptor's: asset rows are written at deploy, like every other
+language's, so a run-arg override changes what gets built without changing what
+the graph says the script owns. Split the project into several scripts
+(decision 6) when the graph itself should differ.
 
 A `vars` override is the same: gating the graph refresh on it would leave that
 override's relations recorded for the next default run, which then builds the
-descriptor's and dispatches from the override's. What DOES refresh per run is a
+descriptor's while the graph shows the override's. What DOES refresh per run is a
 property of the descriptor — a `{{ }}` placeholder in `vars` or a `$var:` value
 in `env` — because those are dynamic on every run, not just the one that passed
 an argument.
@@ -381,9 +394,9 @@ shared with the Ansible executor). The syntax is `{{ arg_name }}`.
 `select`/`exclude` also scope **what the script owns in the graph**, resolved by
 asking dbt (`dbt ls --output json`) rather than by interpreting the selector
 string. Without that a narrowly-selected script registers as the producer of
-every model in the project and its cascade fires downstream of models it never
-builds. Running several scripts with different selections
-only composes because of this.
+every model in the project, and two scripts splitting one project would each
+claim all of it. Running several scripts with different selections only composes
+because of this.
 
 ## Deploy path
 
@@ -538,12 +551,11 @@ Against a real dbt project (jaffle_shop shape) and the local Postgres:
    rebuild already-successful models.
 5. **Graph ingest**: after deploy, model assets and `ref()` edges exist; a native
    script reading one of the marts gets an edge to it.
-6. **Cross-boundary cascade**: a dbt mart write triggers a downstream native
-   pipeline script declaring a read on it.
+6. **Shared node**: a native script declaring `# on table://<mart>` renders as a
+   reader of the same node the dbt model writes. It is not triggered by the dbt
+   run (see "no cascade from dbt").
 7. **Selection**: descriptor `select`/`exclude`, and a run-arg override, each
-   build only the expected subset. `dbt_command` offers `build` and `retry`
-   only: a command building a subset of the registered writes would notify
-   consumers of relations it left stale.
+   build only the expected subset.
 8. **Dynamic descriptors**: a `{{ }}` placeholder in `vars` re-ingests the graph
    from the run's own manifest, so a model that placeholder enables appears in
    the same run that builds it.
