@@ -2,6 +2,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import FlowExpressionEditor from './FlowExpressionEditor.svelte'
 	import type { FlowModule } from '$lib/gen'
+	import { stepSettingDefaults } from '../flowStepSettings'
 	import type { FlowEditorContext } from '../types'
 	import { getContext } from 'svelte'
 	import { getStepPropPicker } from '../previousResults'
@@ -43,9 +44,7 @@
 			if (isSkipEnabled && flowModule.skip_if) {
 				flowModule.skip_if = undefined
 			} else {
-				flowModule.skip_if = {
-					expr: 'false'
-				}
+				flowModule.skip_if = stepSettingDefaults('skip')
 			}
 		}}
 		options={{

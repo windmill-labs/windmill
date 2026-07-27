@@ -82,14 +82,6 @@ export type GraphEventHandlers = {
 
 export type SimplifiableFlow = { simplifiedFlow: boolean }
 
-export function isTriggerStep(module: FlowModule | undefined): boolean {
-	return (
-		module?.value != undefined &&
-		(module.value.type === 'script' || module.value.type === 'rawscript') &&
-		module.value.is_trigger === true
-	)
-}
-
 export function buildPrefix(prefix: string | undefined, id: string): string {
 	return (prefix ?? '') + id + ':'
 }

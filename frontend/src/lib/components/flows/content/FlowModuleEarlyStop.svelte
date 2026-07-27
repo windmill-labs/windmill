@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Toggle from '$lib/components/Toggle.svelte'
+	import { stepSettingDefaults } from '../flowStepSettings'
 	import FlowExpressionEditor from './FlowExpressionEditor.svelte'
 	import type { Flow, FlowModule } from '$lib/gen'
 	import type { ExtendedOpenFlow, FlowEditorContext } from '../types'
@@ -84,12 +85,7 @@
 					if (isStopAfterIfEnabled && flowModule.stop_after_if) {
 						flowModule.stop_after_if = undefined
 					} else {
-						flowModule.stop_after_if = {
-							expr: 'result == undefined',
-							skip_if_stopped: false,
-							error_message: undefined,
-							error_include_result: false
-						}
+						flowModule.stop_after_if = stepSettingDefaults('early-stop')
 					}
 				}}
 				options={{
@@ -200,12 +196,7 @@
 					if (isStopAfterAllIterationsEnabled && flowModule.stop_after_all_iters_if) {
 						flowModule.stop_after_all_iters_if = undefined
 					} else {
-						flowModule.stop_after_all_iters_if = {
-							expr: 'result == undefined',
-							skip_if_stopped: false,
-							error_message: undefined,
-							error_include_result: false
-						}
+						flowModule.stop_after_all_iters_if = stepSettingDefaults('early-stop')
 					}
 				}}
 				options={{

@@ -3,6 +3,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 
 	import type { FlowModule } from '$lib/gen'
+	import { stepSettingDefaults } from '../flowStepSettings'
 	import { SecondsInput } from '../../common'
 	import WorkspaceScriptSettingInfo from './WorkspaceScriptSettingInfo.svelte'
 
@@ -58,7 +59,7 @@
 				if (isCacheEnabled && flowModule.cache_ttl != undefined) {
 					flowModule.cache_ttl = undefined
 				} else {
-					flowModule.cache_ttl = 600
+					flowModule.cache_ttl = stepSettingDefaults('cache')
 				}
 			}}
 			options={{

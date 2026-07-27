@@ -1,24 +1,9 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import { slide } from 'svelte/transition'
-	import {
-		RefreshCw,
-		ShieldAlert,
-		Timer,
-		Gauge,
-		ChevronsUp,
-		Database,
-		Combine,
-		Trash2,
-		SkipForward,
-		CircleStop,
-		Hand,
-		Moon,
-		ChevronRight
-	} from 'lucide-svelte'
+	import { ChevronRight } from 'lucide-svelte'
 	import { enterpriseLicense } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
-	import { validateRetryConfig } from '$lib/utils'
 	import type { FlowModule } from '$lib/gen'
 	import type { FlowEditorContext } from '../types'
 
@@ -36,6 +21,7 @@
 	import FlowModuleTimeout from './FlowModuleTimeout.svelte'
 	import FlowModuleDeleteAfterUse from './FlowModuleDeleteAfterUse.svelte'
 	import FlowModuleCache from './FlowModuleCache.svelte'
+	import { stepSettingsByKey, type StepSettingView } from '../flowStepSettings'
 	import FlowModuleDebounce from './FlowModuleDebounce.svelte'
 	import WorkspaceScriptSettingInfo from './WorkspaceScriptSettingInfo.svelte'
 
@@ -101,107 +87,15 @@
 			!flowModule.value.concurrent_limit
 	)
 
-	type Summary = { text: string; state: 'configured' | 'default' | 'invalid'; mono?: boolean }
-	const def = (text: string): Summary => ({ text, state: 'default' })
-	const cfg = (text: string, mono = false): Summary => ({ text, state: 'configured', mono })
-
-	function formatDur(s: number | undefined): string {
-		if (s == null) return ''
-		if (s < 60) return `${s}s`
-		if (s < 3600) return `${Math.round(s / 60)} min`
-		return `${Math.round(s / 3600)} h`
-	}
-
-	function exprSummary(expr: string | undefined): Summary {
-		const e = expr?.trim()
-		if (!e) return def('Off')
-		return e.length <= 24 ? cfg(e, true) : cfg('Expression set')
-	}
-
-	const retriesSummary = $derived.by((): Summary => {
-		const r = flowModule.retry
-		const c = r?.constant?.attempts ?? 0
-		const e = r?.exponential?.attempts ?? 0
-		if (!c && !e) return def('None')
-		if (validateRetryConfig(r)) return { text: 'Invalid', state: 'invalid' }
-		return e
-			? cfg(`${e} attempt${e > 1 ? 's' : ''}, exponential`)
-			: cfg(`${c} attempt${c > 1 ? 's' : ''}, constant`)
-	})
-
-	const errorHandlingSummary = $derived(
-		flowModule.continue_on_error ? cfg('Continue on error') : def('Off')
+	// Every surface that answers "is this setting configured, and what is it called?"
+	// reads flowStepSettings, so these rows and the graph badges cannot disagree.
+	const settings = $derived(
+		stepSettingsByKey(flowModule, {
+			concurrent_limit: referencedConcurrentLimit,
+			concurrency_time_window_s: referencedConcurrencyTimeWindowS,
+			cache_ttl: workspaceScriptCacheTtl
+		})
 	)
-
-	const timeoutSummary = $derived.by((): Summary => {
-		const t = flowModule.timeout
-		if (t == null) return def('None')
-		if (typeof t === 'number') return cfg(formatDur(t))
-		if (t.type === 'static') {
-			const v = Number(t.value)
-			return Number.isFinite(v) ? cfg(formatDur(v)) : cfg('Dynamic')
-		}
-		return cfg('Dynamic')
-	})
-
-	const concurrencySummary = $derived.by((): Summary => {
-		if (isWorkspaceScript)
-			return referencedConcurrentLimit != undefined
-				? cfg(`Max ${referencedConcurrentLimit}`)
-				: def('None')
-		if (flowModule.value.type !== 'rawscript' || !flowModule.value.concurrent_limit)
-			return def('None')
-		return cfg(
-			`Max ${flowModule.value.concurrent_limit}${flowModule.value.custom_concurrency_key ? ' per key' : ''}`
-		)
-	})
-
-	const prioritySummary = $derived(
-		flowModule.priority && flowModule.priority > 0 ? cfg('High priority') : def('Off')
-	)
-
-	const cacheSummary = $derived(
-		isWorkspaceScript
-			? workspaceScriptCacheTtl != undefined
-				? cfg(formatDur(workspaceScriptCacheTtl))
-				: def('Off')
-			: flowModule.cache_ttl
-				? cfg(formatDur(flowModule.cache_ttl))
-				: def('Off')
-	)
-
-	const debounceSummary = $derived.by((): Summary => {
-		const d = flowModule.debouncing?.debounce_delay_s
-		return d ? cfg(`${formatDur(d)} debounce`) : def('Off')
-	})
-
-	const lifetimeSummary = $derived.by((): Summary => {
-		const s = flowModule.delete_after_secs
-		if (s == null) return def('Off')
-		return s === 0 ? cfg('Delete now') : cfg(`Delete after ${formatDur(s)}`)
-	})
-
-	const skipSummary = $derived(exprSummary(flowModule.skip_if?.expr))
-	const earlyStopSummary = $derived(
-		exprSummary(flowModule.stop_after_if?.expr ?? flowModule.stop_after_all_iters_if?.expr)
-	)
-
-	const suspendSummary = $derived.by((): Summary => {
-		const su = flowModule.suspend
-		if (!su) return def('Off')
-		const n = su.required_events ?? 1
-		return cfg(`${n} approval${n > 1 ? 's' : ''}`)
-	})
-
-	const sleepSummary = $derived.by((): Summary => {
-		const s = flowModule.sleep
-		if (!s) return def('Off')
-		if (s.type === 'static') {
-			const v = Number(s.value)
-			return Number.isFinite(v) && v > 0 ? cfg(`${formatDur(v)} after`) : def('Off')
-		}
-		return cfg('Dynamic')
-	})
 </script>
 
 {#snippet sectionHeader(title: string)}
@@ -210,46 +104,49 @@
 	</div>
 {/snippet}
 
-{#snippet rowHeader(key: string, Icon: any, label: string, summary: Summary)}
+{#snippet rowHeader(s: StepSettingView | undefined)}
+	{#if s}
+		{@const Icon = s.icon}
 	<button
 		type="button"
-		aria-expanded={expanded === key}
-		onclick={() => (expanded = expanded === key ? undefined : key)}
+		aria-expanded={expanded === s.key}
+		onclick={() => (expanded = expanded === s.key ? undefined : s.key)}
 		class="flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-surface-hover"
 	>
 		<Icon size={16} class="shrink-0 text-secondary" />
 		<div class="flex min-w-0 grow flex-col">
-			<span class="text-xs font-normal leading-tight text-emphasis">{label}</span>
-			{#if narrow && summary.state !== 'default'}
+			<span class="text-xs font-normal leading-tight text-emphasis">{s.label}</span>
+			{#if narrow && s.summary.state !== 'default'}
 				<span
-					class="mt-0.5 truncate text-xs font-normal leading-tight {summary.mono
+					class="mt-0.5 truncate text-xs font-normal leading-tight {s.summary.mono
 						? 'font-mono'
-						: ''} {summary.state === 'invalid' ? 'text-red-500' : 'text-accent'}"
+						: ''} {s.summary.state === 'invalid' ? 'text-red-500' : 'text-accent'}"
 				>
-					{summary.text}
+					{s.summary.text}
 				</span>
 			{/if}
 		</div>
 		{#if !narrow}
 			<span
-				class="min-w-0 truncate text-xs font-normal {summary.mono && summary.state === 'configured'
+				class="min-w-0 truncate text-xs font-normal {s.summary.mono && s.summary.state === 'configured'
 					? 'font-mono'
-					: ''} {summary.state === 'configured'
+					: ''} {s.summary.state === 'configured'
 					? 'text-accent'
-					: summary.state === 'invalid'
+					: s.summary.state === 'invalid'
 						? 'text-red-500'
 						: 'text-emphasis'}"
 			>
-				{summary.text}
+				{s.summary.text}
 			</span>
 		{/if}
 		<ChevronRight
 			size={14}
-			class="shrink-0 text-tertiary transition-transform duration-150 {expanded === key
+			class="shrink-0 text-tertiary transition-transform duration-150 {expanded === s.key
 				? 'rotate-90'
 				: ''}"
 		/>
 	</button>
+	{/if}
 {/snippet}
 
 <div
@@ -263,7 +160,7 @@
 				class="divide-y divide-border-light/50 overflow-hidden rounded-md border border-border-light/50 bg-surface-tertiary"
 			>
 				<div>
-					{@render rowHeader('skip', SkipForward, 'Skip if', skipSummary)}
+					{@render rowHeader(settings['skip'])}
 					{#if expanded === 'skip'}
 						<div class="px-3 pb-3 pt-1" transition:slide={{ duration: 120 }}>
 							<FlowModuleSkip bind:flowModule {parentModule} {previousModule} />
@@ -272,7 +169,7 @@
 				</div>
 
 				<div>
-					{@render rowHeader('early-stop', CircleStop, 'Early stop / break', earlyStopSummary)}
+					{@render rowHeader(settings['early-stop'])}
 					{#if expanded === 'early-stop'}
 						<div class="px-3 pb-3 pt-1" transition:slide={{ duration: 120 }}>
 							<FlowModuleEarlyStop bind:flowModule />
@@ -281,7 +178,7 @@
 				</div>
 
 				<div>
-					{@render rowHeader('suspend', Hand, 'Suspend / approval', suspendSummary)}
+					{@render rowHeader(settings['suspend'])}
 					{#if expanded === 'suspend'}
 						<div class="px-3 pb-3 pt-1" transition:slide={{ duration: 120 }}>
 							<FlowModuleSuspend previousModuleId={previousModule?.id} bind:flowModule />
@@ -290,7 +187,7 @@
 				</div>
 
 				<div>
-					{@render rowHeader('sleep', Moon, 'Sleep', sleepSummary)}
+					{@render rowHeader(settings['sleep'])}
 					{#if expanded === 'sleep'}
 						<div class="px-3 pb-3 pt-1" transition:slide={{ duration: 120 }}>
 							<FlowModuleSleep previousModuleId={previousModule?.id} bind:flowModule />
@@ -308,7 +205,7 @@
 		>
 			{#if !loopSubset}
 				<div>
-					{@render rowHeader('retries', RefreshCw, 'Retries', retriesSummary)}
+					{@render rowHeader(settings['retries'])}
 					{#if expanded === 'retries'}
 						<div class="px-3 pb-3 pt-1" transition:slide={{ duration: 120 }}>
 							<FlowRetries bind:flowModuleRetry={flowModule.retry} bind:flowModule />
@@ -317,7 +214,7 @@
 				</div>
 
 				<div>
-					{@render rowHeader('error-handling', ShieldAlert, 'Error handling', errorHandlingSummary)}
+					{@render rowHeader(settings['error-handling'])}
 					{#if expanded === 'error-handling'}
 						<div class="px-3 pb-3 pt-1" transition:slide={{ duration: 120 }}>
 							<Toggle
@@ -335,7 +232,7 @@
 				</div>
 
 				<div>
-					{@render rowHeader('timeout', Timer, 'Timeout', timeoutSummary)}
+					{@render rowHeader(settings['timeout'])}
 					{#if expanded === 'timeout'}
 						<div class="px-3 pb-3 pt-1" transition:slide={{ duration: 120 }}>
 							<FlowModuleTimeout previousModuleId={previousModule?.id} bind:flowModule />
@@ -345,7 +242,7 @@
 
 				{#if isRawScript || isWorkspaceScript}
 					<div>
-						{@render rowHeader('concurrency', Gauge, 'Concurrency limit', concurrencySummary)}
+						{@render rowHeader(settings['concurrency'])}
 						{#if expanded === 'concurrency'}
 							<div class="px-3 pb-3 pt-1" transition:slide={{ duration: 120 }}>
 								{#if flowModule.value.type === 'script'}
@@ -428,7 +325,7 @@
 				{/if}
 
 				<div>
-					{@render rowHeader('priority', ChevronsUp, 'Priority', prioritySummary)}
+					{@render rowHeader(settings['priority'])}
 					{#if expanded === 'priority'}
 						<div class="px-3 pb-3 pt-1" transition:slide={{ duration: 120 }}>
 							<div class="flex flex-col gap-3">
@@ -481,7 +378,7 @@
 				</div>
 
 				<div>
-					{@render rowHeader('cache', Database, 'Cache results', cacheSummary)}
+					{@render rowHeader(settings['cache'])}
 					{#if expanded === 'cache'}
 						<div class="px-3 pb-3 pt-1" transition:slide={{ duration: 120 }}>
 							<FlowModuleCache
@@ -498,7 +395,7 @@
 				</div>
 
 				<div>
-					{@render rowHeader('debounce', Combine, 'Debounce', debounceSummary)}
+					{@render rowHeader(settings['debounce'])}
 					{#if expanded === 'debounce'}
 						<div class="px-3 pb-3 pt-1" transition:slide={{ duration: 120 }}>
 							<FlowModuleDebounce bind:flowModule {selectedId} />
@@ -508,7 +405,7 @@
 			{/if}
 
 			<div>
-				{@render rowHeader('lifetime', Trash2, 'Lifetime', lifetimeSummary)}
+				{@render rowHeader(settings['lifetime'])}
 				{#if expanded === 'lifetime'}
 					<div class="px-3 pb-3 pt-1" transition:slide={{ duration: 120 }}>
 						<FlowModuleDeleteAfterUse bind:flowModule disabled={!$enterpriseLicense} />

@@ -3,6 +3,7 @@
 	import { type FlowModule } from '$lib/gen'
 	import { getContext } from 'svelte'
 
+	import { stepSettingDefaults } from '$lib/components/flows/flowStepSettings'
 	import type { FlowEditorContext } from '../types'
 	import FlowLoop from './FlowLoop.svelte'
 	import FlowModuleComponent from './FlowModuleComponent.svelte'
@@ -90,10 +91,7 @@
 			}
 		}
 
-		module.stop_after_if = {
-			expr: 'result == undefined || Array.isArray(result) && result.length == 0',
-			skip_if_stopped: true
-		}
+		module.stop_after_if = stepSettingDefaults('early-stop', 'trigger')
 	}
 	async function createModuleFromScript(
 		path: string,
@@ -111,7 +109,7 @@
 		)
 
 		if (kind == 'approval') {
-			module.suspend = { required_events: 1, timeout: 1800 }
+			module.suspend = stepSettingDefaults('suspend')
 		}
 
 		if (kind == 'trigger') {
@@ -191,7 +189,7 @@
 					}
 
 					if (kind == 'approval') {
-						module.suspend = { required_events: 1, timeout: 1800 }
+						module.suspend = stepSettingDefaults('suspend')
 					}
 
 					flowModule = module

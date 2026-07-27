@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { FlowService, type FlowModule, type FlowNote, type Job, type OpenFlow } from '../../gen'
 	import { AI_OR_ASSET_NODE_TYPES, NODE, type GraphModuleState } from '.'
+	import { isTriggerStep } from '$lib/components/flows/flowStepSettings'
 	import { getContext, onDestroy, onMount, tick, untrack, type Snippet } from 'svelte'
 	import { createFlowDiffManager } from '../flows/flowDiffManager.svelte'
 
@@ -19,7 +20,6 @@
 	} from '@xyflow/svelte'
 	import {
 		graphBuilder,
-		isTriggerStep,
 		type InlineScript,
 		type InsertKind,
 		type NodeLayout,

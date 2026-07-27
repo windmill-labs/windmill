@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Toggle from '$lib/components/Toggle.svelte'
 	import type { FlowModule } from '$lib/gen'
+	import { stepSettingDefaults } from '../flowStepSettings'
 	import { SecondsInput } from '$lib/components/common'
 
 	interface Props {
@@ -28,7 +29,7 @@
 			if (enabled) {
 				flowModule.delete_after_secs = undefined
 			} else {
-				flowModule.delete_after_secs = 0
+				flowModule.delete_after_secs = stepSettingDefaults('lifetime')
 			}
 		}}
 		options={{

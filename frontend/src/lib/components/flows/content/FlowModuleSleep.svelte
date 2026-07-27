@@ -3,6 +3,7 @@
 	import type SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import type { FlowModule } from '$lib/gen'
+	import { stepSettingDefaults } from '../flowStepSettings'
 	import { emptySchema } from '$lib/utils'
 	import { getContext } from 'svelte'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
@@ -53,10 +54,7 @@
 			if (isSleepEnabled && flowModule.sleep != undefined) {
 				flowModule.sleep = undefined
 			} else {
-				flowModule.sleep = {
-					type: 'static',
-					value: 0
-				}
+				flowModule.sleep = stepSettingDefaults('sleep')
 			}
 		}}
 		options={{

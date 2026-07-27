@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Toggle from '$lib/components/Toggle.svelte'
+	import { stepSettingDefaults } from '../flowStepSettings'
 	import InputTransformForm from '$lib/components/InputTransformForm.svelte'
 	import type SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { getContext, tick, untrack } from 'svelte'
@@ -79,10 +80,7 @@
 			if (isSuspendEnabled && flowModule.suspend != undefined) {
 				flowModule.suspend = undefined
 			} else {
-				flowModule.suspend = {
-					required_events: 1,
-					timeout: 1800
-				}
+				flowModule.suspend = stepSettingDefaults('suspend')
 			}
 		}}
 		options={{

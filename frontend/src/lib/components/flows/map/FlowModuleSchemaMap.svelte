@@ -17,6 +17,7 @@
 	} from '$lib/components/flows/flowStateUtils.svelte'
 	import type { FlowModule, Job, ScriptLang } from '$lib/gen'
 	import { emptyFlowModuleState } from '../utils.svelte'
+	import { stepSettingDefaults } from '../flowStepSettings'
 
 	import { dfs } from '../dfs'
 	import { nextId, copyId } from '../flowModuleNextId'
@@ -204,15 +205,12 @@
 		flowStateStore.val[module.id] = state
 
 		if (kind == 'approval') {
-			module.suspend = { required_events: 1, timeout: 1800 }
+			module.suspend = stepSettingDefaults('suspend')
 		} else if (kind == 'trigger') {
-			module.stop_after_if = {
-				expr: '!result || (Array.isArray(result) && result.length == 0)',
-				skip_if_stopped: true
-			}
+			module.stop_after_if = stepSettingDefaults('early-stop', 'trigger')
 		} else if (kind == 'end') {
 			module.summary = 'Terminate flow'
-			module.stop_after_if = { skip_if_stopped: false, expr: 'true' }
+			module.stop_after_if = stepSettingDefaults('early-stop', 'end')
 		}
 
 		return module
