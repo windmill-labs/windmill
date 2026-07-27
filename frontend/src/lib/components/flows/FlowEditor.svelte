@@ -28,7 +28,7 @@
 	import type { Snippet } from 'svelte'
 	import { Button } from '../common'
 	import Badge from '../common/badge/Badge.svelte'
-	import { Maximize2, MousePointerClick, PanelRight, X } from 'lucide-svelte'
+	import { MousePointerClick, PanelRight, PictureInPicture2, X } from 'lucide-svelte'
 	const { flowStore, selectionManager } = getContext<FlowEditorContext>('FlowEditorContext')
 	const sessionScopedManager = getContext<AIChatManager>('aiChatManager')
 	const aiChatManager = sessionScopedManager ?? singletonAiChatManager
@@ -321,23 +321,38 @@
 							<WindmillIcon height="40px" width="40px" spin="fast" />
 						</div>
 					</div>
-				{:else}
-					{#if allowModalPanel}
-						<div class="absolute top-2 right-2 z-30">
-							<Button
-								size="xs2"
-								color="light"
-								variant="border"
-								iconOnly
-								startIcon={{ icon: Maximize2 }}
-								title="Open panel in a modal"
-								on:click={() => {
-									panelMode = 'modal'
-									panelModalOpen = true
-								}}
-							/>
+				{:else if allowModalPanel}
+					<!-- Same header as the modal (step id + actions) so docking/detaching
+					     swaps the container without changing the panel chrome. -->
+					<div class="flex h-full flex-col">
+						<div class="flex items-center justify-between gap-2 border-b px-2 py-1">
+							<Badge
+								color="indigo"
+								wrapperClass="min-w-0 max-w-full"
+								baseClass="!px-1"
+								title={selectionManager.getSelectedId()}
+							>
+								<span class="max-w-full truncate text-2xs">{selectionManager.getSelectedId()}</span>
+							</Badge>
+							<div class="flex items-center gap-0.5">
+								<Button
+									size="xs2"
+									variant="subtle"
+									iconOnly
+									startIcon={{ icon: PictureInPicture2 }}
+									title="Detach into a modal"
+									on:click={() => {
+										panelMode = 'modal'
+										panelModalOpen = true
+									}}
+								/>
+							</div>
 						</div>
-					{/if}
+						<div class="min-h-0 flex-1 overflow-auto">
+							{@render panelBody()}
+						</div>
+					</div>
+				{:else}
 					{@render panelBody()}
 				{/if}
 			</Pane>

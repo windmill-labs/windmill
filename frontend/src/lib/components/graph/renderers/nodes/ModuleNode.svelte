@@ -1,11 +1,13 @@
 <script lang="ts">
 	import MapItem from '$lib/components/flows/map/MapItem.svelte'
-	import { GitBranchPlus, Move, Copy, Trash2, StickyNote } from 'lucide-svelte'
+	import { GitBranchPlus, Move, Copy, Trash2, StickyNote, PictureInPicture2 } from 'lucide-svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { ModuleN } from '../../graphBuilder.svelte'
 	import { jobToGraphModuleState } from '$lib/components/modulesTest.svelte'
 	import { getNoteEditorContext } from '../../noteEditor.svelte'
 	import { isMac, type Item } from '$lib/utils'
+	import { getContext } from 'svelte'
+	import { getGraphContext } from '../../graphContext'
 
 	interface Props {
 		data: ModuleN['data']
@@ -49,9 +51,24 @@
 
 	let isPreprocessor = $derived(data.id === 'preprocessor')
 
+	// In modal-panel mode (sessions) step details only open on double-click, so
+	// surface the same action in the ellipsis menu with the gesture as shortcut.
+	const stepExploreHint = getContext<(() => boolean) | undefined>('flowGraphStepExploreHint')
+	const selectionManager = getGraphContext()?.selectionManager
+
 	const menuItems: Item[] = $derived(
 		data.editMode
 			? [
+					...(stepExploreHint?.()
+						? [
+								{
+									displayName: 'Open details',
+									icon: PictureInPicture2,
+									shortcut: 'Double click',
+									action: () => selectionManager?.selectId(data.id, { openPanel: true })
+								}
+							]
+						: []),
 					...(isPreprocessor
 						? []
 						: [
