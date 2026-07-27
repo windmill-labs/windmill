@@ -345,10 +345,13 @@
 			return undefined
 		}
 		const path = agent
+		// `tools` is one array per module value, so it identifies the step itself — the path alone
+		// would not, since a replacement can carry the same link.
+		const stepMarker = tools
 		const res = await ResourceService.getResource({ workspace: ws, path })
 		// The module may have been replaced while the fetch was in flight (undo, session drafts);
 		// applying a stale fork would overwrite the restored state and recreate the Editing target.
-		if (agent !== path) {
+		if (agent !== path || tools !== stepMarker) {
 			return undefined
 		}
 		const cfg = (res.value ?? {}) as AIAgentConfig
