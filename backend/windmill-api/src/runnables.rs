@@ -555,7 +555,8 @@ struct CountRunnablesQuery {
 
 #[derive(Serialize)]
 struct RunnableCountsResponse {
-    /// Owner prefix (`f/<folder>` or `u/<user>`) -> number of visible runnables.
+    /// Owner prefix (`f/<folder>` or `u/<user>`) -> number of visible runnables,
+    /// counting what the tree lists as a row (see the pipeline note below).
     /// Owners with none are omitted so the tree can hide them.
     counts: HashMap<String, i64>,
 }
@@ -617,11 +618,18 @@ async fn count_runnables_by_owner(
             match kind {
                 "script" => {
                     w.push(format!("{alias}.archived = false"));
+                    // `pipeline` members are always excluded: the tree folds them into
+                    // their folder's single "Pipeline" entry and never lists them as
+                    // rows, so counting them would promise items that never appear.
+                    // `lib` follows the caller's include_without_main, as in the listing.
+                    let mut hidden = vec!["'pipeline'"];
                     if !with_libs {
-                        w.push(format!(
-                            "({alias}.auto_kind IS NULL OR {alias}.auto_kind <> 'lib')"
-                        ));
+                        hidden.push("'lib'");
                     }
+                    w.push(format!(
+                        "({alias}.auto_kind IS NULL OR {alias}.auto_kind NOT IN ({}))",
+                        hidden.join(", ")
+                    ));
                     if let Some(s) = scope_path_predicate(&authed, "scripts", alias, base, binds) {
                         w.push(s);
                     }

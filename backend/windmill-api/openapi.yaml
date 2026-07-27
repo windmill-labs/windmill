@@ -10568,7 +10568,10 @@ paths:
             type: boolean
       responses:
         "200":
-          description: number of runnables per owner prefix, empty owners omitted
+          description: >-
+            number of runnables per owner prefix, empty owners omitted. Excludes
+            data-pipeline member scripts, which are listed as their folder's
+            single pipeline entry rather than as runnables.
           content:
             application/json:
               schema:
