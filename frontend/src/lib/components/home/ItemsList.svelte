@@ -483,16 +483,23 @@
 	// re-fetch reloads each open owner's items in the new order/filter. When a mode
 	// change (owner/search) has switched the tree out of lazy mode, there's nothing to
 	// re-fetch — the tree remounts and groups the global stream instead.
+	// For row mutations (create/edit/archive/move/share): the non_empty-filtered
+	// owner lists depend on workspace content, so a mutation can change them —
+	// moving an item into a previously-empty folder must surface that folder's
+	// node, and emptying a folder must drop it. Scope changes (sort/kind/archived
+	// via the reload $effect) go through reloadItems directly: content is unchanged
+	// there, and the resources already refetch on their own `archived` dep.
+	async function onItemMutated(): Promise<void> {
+		folderNamesRes.refetch()
+		usernamesRes.refetch()
+		await reloadItems()
+	}
+
 	async function reloadItems(): Promise<void> {
 		// Invalidate any in-flight owner loads from the previous sort/filter so their
 		// late responses can't overwrite the fresh ones.
 		treeGen++
 		const toReload = treeLazyMode ? [...openOwners] : []
-		// The non_empty-filtered owner lists depend on workspace content, so a row
-		// mutation can change them: moving an item into a previously-empty folder must
-		// surface that folder's node, and emptying a folder must drop it.
-		folderNamesRes.refetch()
-		usernamesRes.refetch()
 		await loadRunnables(true)
 		// force: the owners are still marked loaded, so re-fetch their first page and
 		// swap it in place (loadOwnerItems replaces each owner's rows atomically — the
@@ -1488,11 +1495,11 @@
 					onExpandOwner={treeLazyMode ? loadOwnerItems : undefined}
 					onCollapseOwner={treeLazyMode ? collapseOwner : undefined}
 					isSearching={filter !== ''}
-					on:scriptChanged={reloadItems}
-					on:flowChanged={reloadItems}
-					on:appChanged={reloadItems}
-					on:rawAppChanged={reloadItems}
-					on:reload={reloadItems}
+					on:scriptChanged={onItemMutated}
+					on:flowChanged={onItemMutated}
+					on:appChanged={onItemMutated}
+					on:rawAppChanged={onItemMutated}
+					on:reload={onItemMutated}
 					{showCode}
 				/>
 			{/key}
@@ -1512,11 +1519,11 @@
 				{#each displayedItems as item, i (item.type + '/' + item.path + (item.hash ? '/' + item.hash : ''))}
 					<Item
 						{item}
-						on:scriptChanged={reloadItems}
-						on:flowChanged={reloadItems}
-						on:appChanged={reloadItems}
-						on:rawAppChanged={reloadItems}
-						on:reload={reloadItems}
+						on:scriptChanged={onItemMutated}
+						on:flowChanged={onItemMutated}
+						on:appChanged={onItemMutated}
+						on:rawAppChanged={onItemMutated}
+						on:reload={onItemMutated}
 						{showCode}
 						showEditButton={showEditButtons}
 						keyboardSelected={selectedIndex === i}
