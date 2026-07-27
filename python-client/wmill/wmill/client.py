@@ -2673,6 +2673,19 @@ class _StepSuspend(BaseException):
         self.dispatch_info = dispatch_info
 
 
+class _StepFailure(BaseException):
+    """Carries the exception raised by the step a child round executes directly.
+
+    That exception *is* the round's result, so a broad ``except Exception`` in the
+    body must not be able to turn it into a successful complete — the parent would
+    then record the caught branch's value as the step result. BaseException for the
+    same reason ``_StepSuspend`` is; a bare ``except:`` still swallows both.
+    """
+
+    def __init__(self, exc: BaseException):
+        self.exc = exc
+
+
 class TaskError(Exception):
     """Raised when a WAC task step failed.
 
@@ -2799,9 +2812,12 @@ class WorkflowCtx:
         return value
 
     async def _execute_directly(self, func, **kwargs):
-        result = func(**kwargs)
-        if _asyncio.iscoroutine(result):
-            result = await result
+        try:
+            result = func(**kwargs)
+            if _asyncio.iscoroutine(result):
+                result = await result
+        except Exception as exc:
+            raise _StepFailure(exc) from exc
         raise _StepSuspend({"mode": "step_complete", "steps": [], "result": result})
 
     async def _never_resolve(self):
@@ -3266,6 +3282,9 @@ async def _run_workflow_async(func, checkpoint: dict, input_args: dict):
                 "steps": steps,
             }
         return {"type": "complete", "result": result}
+    except _StepFailure as e:
+        # Re-raise the step's own exception so the child job fails with it.
+        raise e.exc
     except _StepSuspend as e:
         info = e.dispatch_info
         mode = info.get("mode")

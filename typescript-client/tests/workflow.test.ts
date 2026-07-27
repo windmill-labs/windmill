@@ -27,6 +27,7 @@ class WorkflowCtx {
   }> = [];
   private _suspended = false;
   private _pendingSuspend: StepSuspend | null = null;
+  private _pendingStepFailure: { error: unknown } | null = null;
   _executingKey: string | null;
 
   _raiseSuspend(dispatchInfo: Record<string, any>): never {
@@ -35,7 +36,13 @@ class WorkflowCtx {
     throw suspend;
   }
 
-  private _rethrowSwallowedSuspend(): void {
+  _raiseStepFailure(error: unknown): never {
+    this._pendingStepFailure = { error };
+    throw error;
+  }
+
+  private _rethrowSwallowed(): void {
+    if (this._pendingStepFailure) throw this._pendingStepFailure.error;
     if (this._pendingSuspend) throw this._pendingSuspend;
   }
 
@@ -43,6 +50,12 @@ class WorkflowCtx {
     const s = this._pendingSuspend;
     this._pendingSuspend = null;
     return s;
+  }
+
+  _takePendingStepFailure(): { error: unknown } | null {
+    const f = this._pendingStepFailure;
+    this._pendingStepFailure = null;
+    return f;
   }
 
   constructor(checkpoint: Record<string, any> = {}) {
@@ -60,7 +73,7 @@ class WorkflowCtx {
     args: Record<string, any> = {},
     options?: Record<string, any>,
   ): PromiseLike<any> {
-    this._rethrowSwallowedSuspend();
+    this._rethrowSwallowed();
     const key = this._allocKey();
 
     if (key in this.completed) {
@@ -118,7 +131,7 @@ class WorkflowCtx {
   }
 
   _sleep(seconds: number): PromiseLike<void> {
-    this._rethrowSwallowedSuspend();
+    this._rethrowSwallowed();
     const key = this._allocKey();
     if (key in this.completed) {
       return { then: (resolve: any) => resolve(undefined) };
@@ -138,7 +151,7 @@ class WorkflowCtx {
     name: string,
     fn: () => T | Promise<T>
   ): Promise<T> {
-    this._rethrowSwallowedSuspend();
+    this._rethrowSwallowed();
     const key = this._allocKey();
 
     if (key in this.completed) {
@@ -231,7 +244,13 @@ function task<T extends (...args: any[]) => Promise<any>>(
       const stepResult = ctx._nextStep(taskName, script, kwargs, taskOptions);
       if ((stepResult as any)?._execute_directly) {
         return (async () => {
-          const result = await fn(...args);
+          let result: any;
+          try {
+            result = await fn(...args);
+          } catch (e: any) {
+            if (e?.name === "StepSuspend" || e instanceof StepSuspend) throw e;
+            ctx._raiseStepFailure(e);
+          }
           ctx._raiseSuspend({
             mode: "step_complete",
             steps: [],
@@ -302,7 +321,10 @@ async function runWorkflow(
   _workflowCtx = ctx;
   try {
     const result = await fn(...args);
-    // Mirrors bun_executor.rs: honour a suspend the body caught and swallowed.
+    // Mirrors bun_executor.rs: honour a step failure or suspend the body caught
+    // and swallowed.
+    const failed = ctx._takePendingStepFailure?.();
+    if (failed) throw failed.error;
     const swallowed = ctx._takePendingSuspend?.();
     if (swallowed) throw swallowed;
     // Flush unawaited tasks
@@ -336,6 +358,8 @@ async function runWorkflow(
       }
       return { type: "dispatch", ...info };
     }
+    const failed = ctx._takePendingStepFailure?.();
+    if (failed) throw failed.error;
     throw e;
   } finally {
     _workflowCtx = null;
@@ -1479,6 +1503,49 @@ describe("throwing inline step is checkpointed", () => {
     const result = await runWorkflow(wf, { _executing_key: "step_0" }, [5]);
     expect(result.type).toBe("complete");
     expect(result.result).toBe(10);
+  });
+
+  test("a child job cannot swallow the failure of the step it executes", async () => {
+    // Without parking, the catch below turns the child into a success returning
+    // "swallowed" and the parent records that as the step's value.
+    const boom = task(async function boom() {
+      throw new TypeError("nope");
+    });
+    const wf = workflow(async () => {
+      try {
+        await boom();
+      } catch {
+        return "swallowed";
+      }
+      return "unreachable";
+    });
+    await expect(runWorkflow(wf, { _executing_key: "step_0" }, [])).rejects.toThrow("nope");
+  });
+
+  test("a parked failure is re-raised at the next SDK call, not left to hang", async () => {
+    // A body that catches and carries on reaches an SDK call that, in child mode,
+    // never resolves — so without the re-raise the child parks there and hangs
+    // until timeout instead of reporting the failure. Raced against a deadline so
+    // that regression fails the test rather than wedging the suite.
+    const boom = task(async function boom() {
+      throw new TypeError("nope");
+    });
+    for (const carryOn of [() => double(1), () => sleep(1)]) {
+      const wf = workflow(async () => {
+        try {
+          await boom();
+        } catch {
+          // swallowed on purpose
+        }
+        await carryOn();
+        return "unreachable";
+      });
+      const run = Promise.race([
+        runWorkflow(wf, { _executing_key: "step_0" }, []),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("parked")), 500)),
+      ]);
+      await expect(run).rejects.toThrow("nope");
+    }
   });
 
   test("a swallowed suspend from a task dispatch still reaches the runner", async () => {
