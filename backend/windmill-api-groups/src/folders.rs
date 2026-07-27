@@ -159,7 +159,7 @@ async fn list_foldernames(
         // rather than a correlated probe per folder. RLS and the token's runnable read
         // scopes both apply inside the subquery, so a folder whose items the caller
         // cannot read counts as empty for them.
-        let sub = non_empty_owner_subquery(&authed, "f/", 4 + arr_binds.len(), &mut arr_binds);
+        let sub = non_empty_owner_subquery(&authed, "f/", 4, &mut arr_binds);
         sql.push_str(&format!(" AND name IN ({sub})"));
     }
     match build_scope_path_filter(&authed, "folders", "read") {

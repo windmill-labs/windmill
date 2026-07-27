@@ -600,15 +600,18 @@ pub fn build_scope_path_filter(authed: &ApiAuthed, domain: &str, action: &str) -
 /// RLS doesn't honor token path scopes, so each branch embeds its domain's read
 /// grant — otherwise a token scoped to a subset of runnables could learn that
 /// out-of-scope runnables exist. The caller must bind the workspace id as `$1`;
-/// the text[] values pushed onto `arr_binds` must be bound in order, numbered from
-/// `first_bind`.
+/// each text[] value pushed onto `arr_binds` is numbered `first_bind` + its index
+/// in `arr_binds` (so `first_bind` is the placeholder of `arr_binds[0]`, whether or
+/// not entries already exist), and all of them must be bound in order.
 pub fn non_empty_owner_subquery(
     authed: &ApiAuthed,
     path_prefix: &str,
     first_bind: usize,
     arr_binds: &mut Vec<Vec<String>>,
 ) -> String {
-    debug_assert!(matches!(path_prefix, "f/" | "u/"));
+    // Hard assert: `path_prefix` is interpolated into SQL, so the contract must
+    // hold in release builds too.
+    assert!(matches!(path_prefix, "f/" | "u/"));
     let escape_like = |s: &str| {
         s.replace('\\', "\\\\")
             .replace('%', "\\%")
@@ -1245,6 +1248,38 @@ mod tests {
             scopes: scopes.map(|v| v.into_iter().map(String::from).collect()),
             ..Default::default()
         }
+    }
+
+    // The subquery must fail CLOSED: a scoped token with no grant for a domain gets
+    // `AND false` on that branch, and placeholder numbering must stay contiguous
+    // across the domains that do push binds.
+    #[test]
+    fn non_empty_owner_subquery_scoped_token() {
+        let authed = authed_with_scopes(Some(vec!["scripts:read:f/occupied/*"]));
+        let mut arr_binds: Vec<Vec<String>> = vec![];
+        let sub = non_empty_owner_subquery(&authed, "f/", 4, &mut arr_binds);
+        // scripts: restricted -> two binds ($4 eq, $5 like); flows/apps: no grant -> false.
+        assert!(sub.contains("FROM script") && sub.contains("path = ANY($4) OR path LIKE ANY($5)"));
+        assert!(sub.contains(
+            "FROM flow WHERE workspace_id = $1 AND path LIKE 'f/%' AND archived = false AND false"
+        ));
+        assert!(sub.contains("FROM app WHERE workspace_id = $1 AND path LIKE 'f/%' AND false"));
+        assert_eq!(
+            arr_binds,
+            vec![
+                vec!["f/occupied".to_string()],
+                vec!["f/occupied/%".to_string()]
+            ]
+        );
+    }
+
+    #[test]
+    fn non_empty_owner_subquery_unscoped_token() {
+        let authed = authed_with_scopes(None);
+        let mut arr_binds: Vec<Vec<String>> = vec![];
+        let sub = non_empty_owner_subquery(&authed, "u/", 2, &mut arr_binds);
+        assert!(arr_binds.is_empty());
+        assert!(!sub.contains("AND false") && !sub.contains("$2"));
     }
 
     // Regression tests for the Preview path traversal: a Preview's path skips the
