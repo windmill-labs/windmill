@@ -55,6 +55,9 @@ describe("inline step round parity", () => {
     ["undefined-prop", () => ({ a: 1, b: undefined }), { a: 1, b: null }],
     // A body that returns nothing — `step("notify", () => { sendEmail() })`.
     ["nothing", () => undefined, null],
+    // `JSON.stringify` drops the key for these, and a checkpoint with no
+    // `result` is one neither the endpoint nor the worker can parse.
+    ["function", () => () => 1, null],
   ];
 
   for (const [name, fn, expected] of cases) {

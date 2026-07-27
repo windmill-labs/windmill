@@ -816,6 +816,10 @@ def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]
 # - **v1 (WM_JOB_ID set, no @workflow)**: dispatches via HTTP API.
 # - **Standalone**: executes the function body directly.
 # 
+# A task runs as its own job, so its result is always encoded as JSON and
+# decoded back before the caller sees it: a ``datetime`` comes back as a
+# string, a tuple as a list.
+# 
 # Usage::
 # 
 #     @task

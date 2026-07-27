@@ -2378,6 +2378,10 @@ def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]
 # - **v1 (WM_JOB_ID set, no @workflow)**: dispatches via HTTP API.
 # - **Standalone**: executes the function body directly.
 # 
+# A task runs as its own job, so its result is always encoded as JSON and
+# decoded back before the caller sees it: a \`\`datetime\`\` comes back as a
+# string, a tuple as a list.
+# 
 # Usage::
 # 
 #     @task
@@ -2514,6 +2518,10 @@ export async function getResumeUrls(approver?: string, flowLevel?: boolean): Pro
  *
  * Inside a \`workflow()\`, calling a task dispatches it as a step.
  * Outside a workflow, the function body executes directly.
+ *
+ * A task runs as its own job, so its result is always encoded as JSON and
+ * decoded back before the caller sees it: a \`Date\` comes back as a string, a
+ * \`Map\` as \`{}\`. {@link JsonifiedFn} is that shape.
  */
 export function task<T extends (...args: any[]) => Promise<any>>(fnOrPath: T | string, maybeFnOrOptions?: T | TaskOptions, maybeOptions?: TaskOptions,): JsonifiedFn<T>
 
@@ -2643,6 +2651,10 @@ def get_resume_urls(approver: str = None, flow_level: bool = None) -> dict
 # - **v2 (inside @workflow)**: dispatches as a checkpoint step.
 # - **v1 (WM_JOB_ID set, no @workflow)**: dispatches via HTTP API.
 # - **Standalone**: executes the function body directly.
+#
+# A task runs as its own job, so its result is always encoded as JSON and
+# decoded back before the caller sees it: a \`\`datetime\`\` comes back as a
+# string, a tuple as a list.
 #
 # Usage::
 #

@@ -1590,13 +1590,12 @@ export type Jsonified<T> =
                     : never;
 
 /** Encode a checkpoint payload the way the worker wrapper does on the suspend
- *  path, so both arms record the same value for the same step. `undefined` maps
- *  to null rather than dropping the key, and a bigint to its digits — the
- *  wrapper gets the latter from the `BigInt.prototype.toJSON` it installs,
- *  which does not exist when the SDK runs outside a job. */
+ *  path, so both arms record the same value for the same step. Every value
+ *  `JSON.stringify` would drop the key for maps to null instead: the endpoint
+ *  and `WacOutput::InlineCheckpoint` both require a `result`. */
 function encodeCheckpointPayload(payload: Record<string, any>): string {
   return JSON.stringify(payload, (_key, value) =>
-    typeof value === "undefined"
+    typeof value === "undefined" || typeof value === "function" || typeof value === "symbol"
       ? null
       : typeof value === "bigint"
         ? value.toString()
@@ -1608,10 +1607,7 @@ function encodeCheckpointPayload(payload: Record<string, any>): string {
  *  the paths that never persist anything still hand back the shape the ones
  *  that do would. */
 function jsonRoundTrip<T>(value: T): Jsonified<T> {
-  const decoded = JSON.parse(encodeCheckpointPayload({ value }));
-  // A function or symbol makes `JSON.stringify` drop the key outright. The
-  // suspend path turns that into null (`dispatch.result ?? null`), so match it.
-  return "value" in decoded ? decoded.value : null;
+  return JSON.parse(encodeCheckpointPayload({ value })).value;
 }
 
 /**
@@ -1619,10 +1615,8 @@ function jsonRoundTrip<T>(value: T): Jsonified<T> {
  * boundary — the child job's result is read back from the checkpoint, and the
  * v1 path reads it back from the API — so only {@link Jsonified} of it survives.
  *
- * Rebuilding the signature instantiates a generic task's type parameters at
- * their constraints, so `task(async <X>(x: X) => x)` types as
- * `(x: unknown) => Promise<unknown>`. Nothing is lost that survived the trip:
- * arguments and results are serialized to reach the job either way.
+ * A generic task's type parameters instantiate at their constraints here; they
+ * would not have survived the trip through JSON either way.
  */
 export type JsonifiedFn<T extends (...args: any[]) => Promise<any>> = (
   ...args: Parameters<T>
@@ -1917,13 +1911,7 @@ export class WorkflowCtx {
           started_at: startedAt,
           duration_ms: durationMs,
         });
-        const decoded = JSON.parse(payload);
-        // A function or symbol result makes `JSON.stringify` drop the key, and
-        // a payload with no `result` is not one the endpoint accepts.
-        if (!("result" in decoded)) {
-          throw new Error("step result is not JSON-serializable");
-        }
-        checkpointed = decoded.result;
+        checkpointed = JSON.parse(payload).result;
       } catch (e) {
         // Circular reference or a throwing toJSON. The wrapper on the suspend
         // path uses the same replacer and fails the same way, so falling
@@ -2054,6 +2042,10 @@ export async function step<T>(
  *
  * Inside a `workflow()`, calling a task dispatches it as a step.
  * Outside a workflow, the function body executes directly.
+ *
+ * A task runs as its own job, so its result is always encoded as JSON and
+ * decoded back before the caller sees it: a `Date` comes back as a string, a
+ * `Map` as `{}`. {@link JsonifiedFn} is that shape.
  */
 export function task<T extends (...args: any[]) => Promise<any>>(
   fnOrPath: T | string,

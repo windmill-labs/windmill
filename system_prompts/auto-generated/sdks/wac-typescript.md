@@ -31,6 +31,10 @@ export async function getResumeUrls(approver?: string, flowLevel?: boolean): Pro
  *
  * Inside a `workflow()`, calling a task dispatches it as a step.
  * Outside a workflow, the function body executes directly.
+ *
+ * A task runs as its own job, so its result is always encoded as JSON and
+ * decoded back before the caller sees it: a `Date` comes back as a string, a
+ * `Map` as `{}`. {@link JsonifiedFn} is that shape.
  */
 export function task<T extends (...args: any[]) => Promise<any>>(fnOrPath: T | string, maybeFnOrOptions?: T | TaskOptions, maybeOptions?: TaskOptions,): JsonifiedFn<T>
 
