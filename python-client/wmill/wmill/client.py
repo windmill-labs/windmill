@@ -2923,10 +2923,9 @@ class WorkflowCtx:
             _replay_result = None
             try:
                 # ``default=str`` is the encoder the worker wrapper uses on the
-                # suspend path, so both arms checkpoint the same value for the
-                # same step — and a value json can't encode natively (a
-                # datetime, a set) goes through the fast path instead of
-                # silently degrading to a suspend round.
+                # suspend path, so both arms checkpoint the same value — and a
+                # datetime or set takes the fast path instead of silently
+                # degrading to a suspend round.
                 _payload = _json_mod.dumps(
                     {
                         "key": key,
@@ -2971,13 +2970,10 @@ class WorkflowCtx:
                 # run and miss on the next. ``__cause__`` is for tracebacks only.
                 if step_error is not None:
                     raise _step_error_from_marker(result, name) from step_error
-                # Return the JSON round trip of what was checkpointed, not the
-                # in-memory value: a tuple comes back as a list, a datetime as a
-                # string, so handing back the live object would let the round
-                # that ran the body branch on a type no other round ever sees.
-                # A replay reads the value back out of jsonb, which normalizes
-                # further (key order, int precision) — this closes the type gap,
-                # not every last difference.
+                # Return the round trip of what was checkpointed, never the
+                # in-memory value: handing back the live object would let the
+                # round that ran the body branch on a type — tuple, datetime —
+                # that no replay of it ever sees.
                 return _replay_result
 
         raise _StepSuspend({

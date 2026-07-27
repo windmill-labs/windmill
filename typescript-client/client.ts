@@ -1844,8 +1844,10 @@ export class WorkflowCtx {
           duration_ms: durationMs,
         });
       } catch (e) {
-        // Circular reference, un-encodable BigInt, throwing toJSON: nothing to
-        // checkpoint, so leave it to the suspend path and its own encoder.
+        // Circular reference, un-encodable BigInt, throwing toJSON. The
+        // wrapper on the suspend path uses the same replacer and fails the
+        // same way, so falling through keeps the failure where it was before
+        // the fast path existed.
         console.log(
           `WAC v2 inline fast path could not serialize key ${key}, falling back to suspend: ${e}`,
         );
@@ -1896,12 +1898,9 @@ export class WorkflowCtx {
         if (errored) {
           throw Object.assign(stepErrorFromMarker(result, name), { cause: stepError });
         }
-        // Return the JSON round trip of what was checkpointed, not the
-        // in-memory value: a Date comes back as a string, a Map as `{}`, so
-        // handing back the live object would let the round that ran the body
-        // branch on a type no other round ever sees. A replay reads the value
-        // back out of jsonb, which normalizes further (key order, int
-        // precision) — this closes the type gap, not every last difference.
+        // Return the round trip of what was checkpointed, never the in-memory
+        // value: handing back the live object would let the round that ran the
+        // body branch on a type — Date, Map — that no replay of it ever sees.
         return JSON.parse(body).result as T;
       }
     }
