@@ -69,7 +69,11 @@
 
 	const fakeModuleStates: Record<string, GraphModuleState> = $state({})
 
-	async function loadMissingJobs(agentActions: AgentActionWithContent[]) {
+	async function loadMissingJobs(
+		agentActions: AgentActionWithContent[],
+		gen: number
+	): Promise<Record<string, GraphModuleState>> {
+		const states: Record<string, GraphModuleState> = {}
 		const promises = agentActions.map(async (toolCall, idx) => {
 			if (toolCall.type === 'tool_call') {
 				let job: Job | undefined = storedToolCallJobs?.[idx]
@@ -80,30 +84,33 @@
 						workspace: workspaceId ?? $workspaceStore!
 					})
 				}
-				fakeModuleStates[idx.toString()] = {
+				states[idx.toString()] = {
 					args: job.args,
 					type: job['success'] ? 'Success' : 'Failure',
 					logs: job.logs,
 					result: job['result'],
 					job_id: toolCall.job_id
 				}
-				onToolJobLoaded?.(job, idx)
+				// Keyed by index in the parent's cache, so a superseded run must not write into it.
+				if (gen === loadGen) {
+					onToolJobLoaded?.(job, idx)
+				}
 			} else if (toolCall.type === 'mcp_tool_call') {
-				fakeModuleStates[idx.toString()] = {
+				states[idx.toString()] = {
 					type: 'Success',
 					args: toolCall.arguments ?? {},
 					logs: '',
 					result: toolCall.content
 				}
 			} else if (toolCall.type === 'web_search') {
-				fakeModuleStates[idx.toString()] = {
+				states[idx.toString()] = {
 					type: 'Success',
 					args: {},
 					logs: '',
 					result: toolCall.content
 				}
 			} else {
-				fakeModuleStates[idx.toString()] = {
+				states[idx.toString()] = {
 					type: 'Success',
 					args: {},
 					logs: '',
@@ -113,10 +120,15 @@
 		})
 
 		await Promise.all(promises)
+		return states
 	}
 
 	let job: Partial<Job> | undefined = $state(undefined)
+	// Every prop change starts another load; only the newest may write the shared view, else a
+	// slower reload for a previous run restores its logs over the one now selected.
+	let loadGen = 0
 	async function loadToolCalls(agentJob: Props['agentJob'], tools: AgentTool[]) {
+		const gen = ++loadGen
 		let parsedResult = resultSchema.safeParse(agentJob.result)
 		if (!parsedResult.success) {
 			console.error('Invalid result', parsedResult.error)
@@ -154,7 +166,14 @@
 			)
 			.filter((m) => m !== undefined)
 
-		await loadMissingJobs(agentActions)
+		const states = await loadMissingJobs(agentActions, gen)
+		if (gen !== loadGen) {
+			return
+		}
+		for (const key of Object.keys(fakeModuleStates)) {
+			delete fakeModuleStates[key]
+		}
+		Object.assign(fakeModuleStates, states)
 
 		job = {
 			...agentJob,

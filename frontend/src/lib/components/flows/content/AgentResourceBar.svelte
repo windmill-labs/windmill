@@ -127,21 +127,31 @@
 	// at load; here we refresh the one being edited when its link changes (or clear it on unlink), so
 	// its tool nodes update without reloading the flow.
 	let toolScope = $derived(linkedToolsScope(ws, flowPath))
+	// The agent this component last published for, so a link change can be told apart from a step
+	// whose tools were resolved at flow load. Deliberately not reactive: it tracks what was written.
+	let publishedFor: string | undefined = undefined
 	$effect(() => {
 		if (!agent) {
 			// Claim first: an in-flight fetch for the previous link would otherwise still pass its own
 			// generation check and re-add the tools we just cleared.
 			claimLinkedToolsFetch(toolScope, moduleId)
 			clearLinkedAgentTools(toolScope, moduleId)
+			publishedFor = undefined
 			return
 		}
-		// Publish only once the resource has loaded — don't clobber the load-time tools with [] while
-		// the fetch is in flight, which would flicker the tool nodes out of the graph on selection.
 		const loaded = linkedInfo
 		if (loaded) {
 			claimLinkedToolsFetch(toolScope, moduleId)
 			// linkedResource types tools loosely; they are the same resource tools the store holds.
 			setLinkedAgentTools(toolScope, moduleId, loaded.tools as AgentToolStrict[])
+			publishedFor = agent
+		} else if (publishedFor !== undefined && publishedFor !== agent) {
+			// The link moved and the new agent hasn't resolved (or failed to): what's stored belongs to
+			// the previous one, and binding its tool ids here would persist overrides for the wrong
+			// tools. Tools resolved at flow load stay put — publishedFor is unset then, so no flicker.
+			claimLinkedToolsFetch(toolScope, moduleId)
+			clearLinkedAgentTools(toolScope, moduleId)
+			publishedFor = undefined
 		}
 	})
 
