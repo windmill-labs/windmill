@@ -84,6 +84,11 @@ describe("inline step round parity", () => {
         return { at: new Date("2026-01-01T00:00:00Z") };
       });
       expect(await makePair()).toEqual({ at: "2026-01-01T00:00:00.000Z" });
+      // No `BigInt.prototype.toJSON` outside the worker wrapper, so the
+      // encoder has to handle bigint itself or this throws.
+      expect(await step("big", () => ({ n: 2n ** 70n }))).toEqual({
+        n: "1180591620717411303424",
+      });
     } finally {
       process.env.WM_JOB_ID = jobId;
     }
@@ -109,6 +114,13 @@ _assertType<Exact<Jsonified<[number, Date]>, [number, string]>>(true);
 _assertType<
   Exact<Jsonified<{ id: number; at: Date; run(): void }>, { id: number; at: string }>
 >(true);
+
+// `unknown` is the idiomatic JSON-blob annotation and must survive as itself:
+// collapsing to `never` would make any downstream assignment typecheck.
+_assertType<Exact<Jsonified<unknown>, unknown>>(true);
+_assertType<Exact<Jsonified<Record<string, unknown>>, Record<string, unknown>>>(true);
+_assertType<Exact<Jsonified<unknown[]>, unknown[]>>(true);
+_assertType<Exact<Jsonified<bigint>, string>>(true);
 
 // A task's result always crosses JSON too — the checkpoint on the workflow
 // path, the API on the v1 path — while its arguments stay checked.

@@ -1557,40 +1557,50 @@ export type Jsonified<T> =
   // `any` in, `any` out: distributing over it yields a useless union.
   0 extends 1 & T
     ? any
-    : T extends string | number | boolean | null
-      ? T
-      : T extends undefined | void | symbol | ((...args: any[]) => any)
-        ? null
-        : // The bun wrapper installs `BigInt.prototype.toJSON`.
-          T extends bigint
-          ? string
-          : T extends { toJSON(): infer R }
-            ? Jsonified<R>
-            : // Neither has own enumerable entries, so both serialize to `{}`.
-              T extends ReadonlyMap<any, any> | ReadonlySet<any>
-              ? Record<string, never>
-              : // Arrays before objects, and without an `as` clause: key
-                // remapping would drop the array/tuple shape.
-                T extends readonly any[]
-                ? { [K in keyof T]: Jsonified<T[K]> }
-                : // Methods and symbol keys are dropped: `JSON.stringify` walks
-                  // own enumerable string keys only.
-                  T extends object
-                  ? {
-                      [K in keyof T as K extends symbol
-                        ? never
-                        : T[K] extends (...args: any[]) => any
+    : // `unknown` is the idiomatic annotation for a JSON blob, and it matches
+      // no branch below — without this it would reach `never`, which is
+      // assignable to everything and so hides real mismatches.
+      unknown extends T
+      ? unknown
+      : T extends string | number | boolean | null
+        ? T
+        : T extends undefined | void | symbol | ((...args: any[]) => any)
+          ? null
+          : T extends bigint
+            ? string
+            : T extends { toJSON(): infer R }
+              ? Jsonified<R>
+              : // Neither has own enumerable entries, so both serialize to `{}`.
+                T extends ReadonlyMap<any, any> | ReadonlySet<any>
+                ? Record<string, never>
+                : // Arrays before objects, and without an `as` clause: key
+                  // remapping would drop the array/tuple shape.
+                  T extends readonly any[]
+                  ? { [K in keyof T]: Jsonified<T[K]> }
+                  : // Methods and symbol keys are dropped: `JSON.stringify`
+                    // walks own enumerable string keys only.
+                    T extends object
+                    ? {
+                        [K in keyof T as K extends symbol
                           ? never
-                          : K]: Jsonified<T[K]>;
-                    }
-                  : never;
+                          : T[K] extends (...args: any[]) => any
+                            ? never
+                            : K]: Jsonified<T[K]>;
+                      }
+                    : never;
 
 /** Encode a checkpoint payload the way the worker wrapper does on the suspend
  *  path, so both arms record the same value for the same step. `undefined` maps
- *  to null rather than dropping the key. */
+ *  to null rather than dropping the key, and a bigint to its digits — the
+ *  wrapper gets the latter from the `BigInt.prototype.toJSON` it installs,
+ *  which does not exist when the SDK runs outside a job. */
 function encodeCheckpointPayload(payload: Record<string, any>): string {
   return JSON.stringify(payload, (_key, value) =>
-    typeof value === "undefined" ? null : value,
+    typeof value === "undefined"
+      ? null
+      : typeof value === "bigint"
+        ? value.toString()
+        : value,
   );
 }
 
@@ -1598,13 +1608,21 @@ function encodeCheckpointPayload(payload: Record<string, any>): string {
  *  the paths that never persist anything still hand back the shape the ones
  *  that do would. */
 function jsonRoundTrip<T>(value: T): Jsonified<T> {
-  return JSON.parse(encodeCheckpointPayload({ value })).value;
+  const decoded = JSON.parse(encodeCheckpointPayload({ value }));
+  // A function or symbol makes `JSON.stringify` drop the key outright. The
+  // suspend path turns that into null (`dispatch.result ?? null`), so match it.
+  return "value" in decoded ? decoded.value : null;
 }
 
 /**
  * A task function as its callers see it. A task's result always crosses a JSON
  * boundary — the child job's result is read back from the checkpoint, and the
  * v1 path reads it back from the API — so only {@link Jsonified} of it survives.
+ *
+ * Rebuilding the signature instantiates a generic task's type parameters at
+ * their constraints, so `task(async <X>(x: X) => x)` types as
+ * `(x: unknown) => Promise<unknown>`. Nothing is lost that survived the trip:
+ * arguments and results are serialized to reach the job either way.
  */
 export type JsonifiedFn<T extends (...args: any[]) => Promise<any>> = (
   ...args: Parameters<T>
@@ -1890,6 +1908,7 @@ export class WorkflowCtx {
     const jobId = getEnv("WM_JOB_ID");
     const workspace = getEnv("WM_WORKSPACE");
     let payload: string | undefined;
+    let checkpointed: any;
     if (fastPathEnabled && jobId && workspace && OpenAPI.BASE && OpenAPI.TOKEN) {
       try {
         payload = encodeCheckpointPayload({
@@ -1898,11 +1917,18 @@ export class WorkflowCtx {
           started_at: startedAt,
           duration_ms: durationMs,
         });
+        const decoded = JSON.parse(payload);
+        // A function or symbol result makes `JSON.stringify` drop the key, and
+        // a payload with no `result` is not one the endpoint accepts.
+        if (!("result" in decoded)) {
+          throw new Error("step result is not JSON-serializable");
+        }
+        checkpointed = decoded.result;
       } catch (e) {
-        // Circular reference, un-encodable BigInt, throwing toJSON. The
-        // wrapper on the suspend path uses the same replacer and fails the
-        // same way, so falling through keeps the failure where it was before
-        // the fast path existed.
+        // Circular reference or a throwing toJSON. The wrapper on the suspend
+        // path uses the same replacer and fails the same way, so falling
+        // through keeps the failure where it was before the fast path existed.
+        payload = undefined;
         console.log(
           `WAC v2 inline fast path could not serialize key ${key}, falling back to suspend: ${e}`,
         );
@@ -1956,7 +1982,7 @@ export class WorkflowCtx {
         // Return the round trip of what was checkpointed, never the in-memory
         // value: handing back the live object would let the round that ran the
         // body branch on a type — Date, Map — that no replay of it ever sees.
-        return JSON.parse(body).result as T;
+        return checkpointed as T;
       }
     }
 
