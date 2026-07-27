@@ -2278,14 +2278,19 @@ async fn claim_graph_publication(
     // PREVIOUS version while this one is being deployed, so every deploy would
     // look superseded.
     let latest = sqlx::query_scalar!(
-        "SELECT hash FROM script WHERE workspace_id = $1 AND path = $2 AND deleted = false \
+        "SELECT hash FROM script WHERE workspace_id = $1 AND path = $2 \
+           AND deleted = false AND archived = false \
          ORDER BY created_at DESC LIMIT 1",
         w_id,
         script_path
     )
     .fetch_optional(&mut **tx)
     .await?;
-    Ok(latest.is_none_or(|latest| latest == mine))
+    // No live version left means the script was archived or deleted while this
+    // job ran, and the deploy path has already cleared its graph. Publishing now
+    // would put the asset, provenance and subscription rows back with nothing
+    // left to remove them, so a missing row is a refusal, not a free pass.
+    Ok(latest.is_some_and(|latest| latest == mine))
 }
 
 /// The node set the descriptor's selection resolves to, or `None` when it
@@ -2951,17 +2956,17 @@ fn classify_status(status: &str) -> DbtNodeOutcome {
 ///
 /// Two conditions, and both matter.
 ///
-/// Retryable at all is dbt's own rule: `error`, `fail` and `skipped`. A
-/// `partial success` counts too — dbt spells that for a node that built but
-/// whose tests failed, and its retry redoes the node.
+/// The rule is dbt's own: `error`, `fail` and `skipped`. A `partial success`
+/// counts too — dbt spells that for a node that built but whose tests failed,
+/// and its retry redoes the node.
 ///
-/// And the node has to produce a relation. A retry selecting only `test.*`
-/// nodes reruns tests, materialises nothing and succeeds, but a successful dbt
-/// job dispatches every deploy-time write, so it would wake every downstream
-/// consumer for relations no one touched. That is the same false cascade that
-/// keeps `test` out of `DBT_COMMANDS`, reached the other way: with
-/// `test_behavior: after_all`, a failing test is what `run_results.json` ends
-/// up describing.
+/// Tests count as well, which they did not while a successful job dispatched
+/// its whole deploy-time write set: a test-only retry materialises nothing, so
+/// it would have woken every downstream consumer for relations no one touched.
+/// The cascade now dispatches what the run reports having materialized, so a
+/// test-only retry wakes nobody on its own — and refusing it was blocking the
+/// case `test_behavior: after_all` produces, where a failing test is the whole
+/// of `run_results.json`.
 fn has_retryable_node(run_results: &str) -> bool {
     serde_json::from_str::<RunResults>(run_results)
         .map(|r| {
@@ -2970,7 +2975,7 @@ fn has_retryable_node(run_results: &str) -> bool {
                     classify_status(&n.status),
                     DbtNodeOutcome::Failed | DbtNodeOutcome::Skipped
                 );
-                retryable && writes_a_relation(&n.unique_id)
+                retryable
             })
         })
         // Unreadable results are not "nothing to retry": let dbt decide rather
@@ -2978,17 +2983,6 @@ fn has_retryable_node(run_results: &str) -> bool {
         .unwrap_or(true)
 }
 
-/// Whether a dbt `unique_id` names a node that materialises something.
-///
-/// The prefix IS the resource type — dbt builds these ids as
-/// `<resource_type>.<package>.<name>`. `test`, `analysis`, `unit_test`,
-/// `source` and `exposure` write nothing.
-fn writes_a_relation(unique_id: &str) -> bool {
-    matches!(
-        unique_id.split('.').next().unwrap_or_default(),
-        "model" | "seed" | "snapshot"
-    )
-}
 
 /// Append `--vars` if the descriptor (or the run) declares any.
 fn add_vars(cmd: &mut Command, descriptor: &DbtDescriptor, inv: &Invocation) -> error::Result<()> {
@@ -3563,18 +3557,20 @@ mod tests {
                 "{retryable} must be retryable"
             );
         }
-        // A failed TEST is retryable to dbt but writes nothing, so a retry of
-        // it would succeed having materialised nothing and still dispatch every
-        // deploy-time write. `test_behavior: after_all` is exactly how
-        // `run_results.json` comes to describe tests alone.
+        // Failed TESTS alone are retryable, and `test_behavior: after_all` is
+        // exactly how `run_results.json` comes to describe tests alone. This was
+        // refused while a successful job dispatched its whole deploy-time write
+        // set — a test-only retry materialises nothing, so it would have woken
+        // every consumer for relations no one touched. The cascade now
+        // dispatches what the run reports materializing, so it wakes nobody.
         let tests_only = r#"{"results":[
             {"unique_id":"test.p.not_null_orders_id.ab","status":"fail"},
             {"unique_id":"test.p.unique_orders_id.cd","status":"error"}]}"#;
-        assert!(!has_retryable_node(tests_only));
-        let with_a_model = r#"{"results":[
-            {"unique_id":"test.p.not_null_orders_id.ab","status":"fail"},
-            {"unique_id":"snapshot.p.customers","status":"skipped"}]}"#;
-        assert!(has_retryable_node(with_a_model));
+        assert!(has_retryable_node(tests_only));
+        // A passing test-only run still has nothing to retry.
+        let tests_passed = r#"{"results":[
+            {"unique_id":"test.p.not_null_orders_id.ab","status":"pass"}]}"#;
+        assert!(!has_retryable_node(tests_passed));
         // Unreadable results let dbt decide rather than refusing a retry the
         // user may well need.
         assert!(has_retryable_node("not json"));
