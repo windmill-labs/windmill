@@ -312,16 +312,13 @@
         immediateChildStepTypes:
           - id: increment_counter
             type: rawscript
-    moduleFieldRules:
-      - id: count_until_target
-        path: stop_after_if.expr
-        equals: result >= flow_input.target
   judgeChecklist:
     - "the input schema includes a number field named `target`"
     - "the top-level while loop step is named `count_until_target`"
     - "`count_until_target` contains a single increment step named `increment_counter`"
-    - "`count_until_target` uses module-level `stop_after_if` to stop when the counter reaches `target`"
-    - "`increment_counter` uses `flow_input.iter.value` or an equivalent loop-state expression and falls back to `0` on the first iteration"
+    - "`count_until_target` uses module-level `stop_after_if` to stop when the counter reaches `target`. Facts for judging: in Windmill, `stop_after_if` on the whileloopflow module is evaluated after every iteration against that iteration's result (`result`), so both condition shapes are fully correct and equally acceptable: comparing the result's counter to `target` (e.g. `result.counter >= flow_input.target`) or checking a boolean the inner step returns (e.g. `result.done === true`). Do not deduct points for choosing either shape"
+    - "`increment_counter` derives the counter from the iteration index (`flow_input.iter.index`, or `flow_input.iter.value` which equals the index in while loops)"
+    - "the loop terminates: no expression reads a previous iteration's result (e.g. `flow_input.iter.value.<field>` or `results.<inner_step>`) — while loops carry no state between iterations, so such a counter would never advance"
     - "`return_final_counter` returns the final counter value"
 
 - id: flow-test11-preprocessor-and-failure-handler

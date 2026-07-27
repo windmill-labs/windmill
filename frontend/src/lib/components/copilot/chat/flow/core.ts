@@ -974,6 +974,48 @@ set_flow_json({
 })
 \`\`\`
 
+**Example - Flow with while loop:**
+
+While loops have no cross-iteration state: \`flow_input.iter.value\` equals \`flow_input.iter.index\` (a plain number: 0, 1, 2, ...), and inner steps cannot read previous iterations' results. Expressions like \`flow_input.iter.value.count\` or \`results.<inner_step>\` do NOT read the previous iteration — they evaluate to undefined/null, so a counter built on them never advances and the loop never terminates. Derive state from \`flow_input.iter.index\` instead. To terminate, set \`stop_after_if\` on the whileloopflow module itself — there \`result\` is the last iteration's result (the return of the iteration's final step).
+
+\`\`\`javascript
+set_flow_json({
+  modules: [
+    {
+      id: "count_up",
+      summary: "Increment until target",
+      value: {
+        type: "whileloopflow",
+        skip_failures: false,
+        modules: [
+          {
+            id: "tick",
+            summary: "Compute current count",
+            value: {
+              type: "rawscript",
+              language: "bun",
+              content: "export async function main(count: number, target: number) { return { count, done: count >= target }; }",
+              input_transforms: {
+                count: { type: "javascript", expr: "flow_input.iter.index + 1" },
+                target: { type: "javascript", expr: "flow_input.target" }
+              }
+            }
+          }
+        ]
+      },
+      stop_after_if: { expr: "result.done", skip_if_stopped: false }
+    }
+  ],
+  schema: {
+    type: "object",
+    properties: {
+      target: { type: "number", description: "Stop when the count reaches this value" }
+    },
+    required: ["target"]
+  }
+})
+\`\`\`
+
 **Example - Flow with branches (branchone):**
 \`\`\`javascript
 set_flow_json({
