@@ -132,6 +132,9 @@
 		moduleActions?: Record<string, ModuleActionInfo>
 		selectionManager?: SelectionManager
 		path?: string | undefined
+		// Flow path for the linked-agent tools bucket. Separate from `path` because that one also
+		// drives the Trigger node, which read-only viewers must not render.
+		linkedToolsPath?: string | undefined
 		newFlow?: boolean
 		insertable?: boolean
 		earlyStop?: boolean
@@ -235,6 +238,7 @@
 		moduleActions = undefined,
 		selectionManager: selectionManagerProp = undefined,
 		path = undefined,
+		linkedToolsPath = undefined,
 		newFlow = false,
 		insertable = false,
 		earlyStop = false,
@@ -708,7 +712,7 @@
 			eventHandler,
 			insertable,
 			flowModuleStates,
-			linkedAgentToolsForScope(linkedToolsScope(workspace, path))
+			linkedAgentToolsForScope(linkedToolsScope(workspace, linkedToolsPath ?? path))
 		)
 
 		let finalNodes: (Node & NodeLayout)[] = [

@@ -1991,7 +1991,7 @@
 									earlyStop={job.raw_flow?.skip_expr !== undefined}
 									cache={job.raw_flow?.cache_ttl !== undefined}
 									modules={job.raw_flow?.modules ?? []}
-									path={job?.script_path}
+									linkedToolsPath={job?.script_path}
 									notes={notesProp ?? job.raw_flow?.notes ?? []}
 									groups={groupsProp ?? job.raw_flow?.groups}
 									failureModule={job.raw_flow?.failure_module}

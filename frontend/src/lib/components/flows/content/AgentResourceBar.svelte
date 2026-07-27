@@ -223,9 +223,14 @@
 				}
 			})
 		}
-		// A content-preserving refresh may have re-anchored the marker onto a clone of `tools`, which
-		// is still this session; anything else is not.
-		if (getAgentEditingPath(tools) !== savingEditPath) {
+		// Editing: a content-preserving refresh may have re-anchored the marker onto a clone of
+		// `tools`, which is still this session; a cleared or different path is not. Saving a
+		// standalone step has no marker to track, so only the fork's own array identifies it.
+		const sameSession =
+			savingEditPath === undefined
+				? tools === forkMarker
+				: getAgentEditingPath(tools) === savingEditPath
+		if (!sameSession) {
 			return
 		}
 		agent = path
