@@ -288,11 +288,15 @@ pub async fn handle_dbt_job(
     // persist and no worker to land back on.
     if let Some(policy) = descriptor.retry_failed_nodes.filter(|_| run.is_err()) {
         for attempt in 1..=policy.attempts() {
+            // A cancelled or timed-out job must not start another warehouse
+            // write: its failure is not the transient kind this retries, and
+            // the slot is supposed to be going away. The wait itself re-checks,
+            // since a cancel most likely arrives during it.
             if !current_results_are_retryable(&prepared).await {
                 break;
             }
-            if policy.delay_seconds > 0 {
-                tokio::time::sleep(std::time::Duration::from_secs(policy.delay_seconds)).await;
+            if !sleep_before_retry(policy.delay_seconds, &job.id, conn, deadline).await {
+                break;
             }
             append_logs(
                 &job.id,
@@ -2729,10 +2733,30 @@ async fn restore_run_state(
                 .to_string(),
         )
     };
-    let Ok(generation) = tokio::fs::read_to_string(dir.join(CURRENT_GENERATION)).await else {
-        // Nothing on this worker: fall back to the durable copy, which is what
-        // lets a retry land anywhere in the group.
-        return restore_from_db(p, descriptor, w_id, inv, ctx, job_id, conn, no_state()).await;
+    // The database row is the authoritative latest state: it is written by
+    // whichever worker ran last, while this worker's `current` names only the
+    // last run IT saw. Preferring the local copy would let a retry routed back
+    // to an idle worker resume an older invocation than the one that just
+    // failed elsewhere. The local snapshot is used only when it names that same
+    // run, where it is a pure fast path — it already holds the manifest, so the
+    // restore skips the `dbt parse` that re-deriving one costs.
+    let latest_job = match conn {
+        Connection::Sql(db) => sqlx::query_scalar!(
+            "SELECT job_id FROM dbt_run_state WHERE workspace_id = $1 AND script_path = $2",
+            w_id,
+            &p.script_path
+        )
+        .fetch_optional(db)
+        .await?
+        .flatten(),
+        // An agent worker cannot read it; its local copy is all there is.
+        Connection::Http(_) => None,
+    };
+    let generation = match tokio::fs::read_to_string(dir.join(CURRENT_GENERATION)).await {
+        Ok(g) if latest_job.is_none_or(|id| g.trim() == format!("gen-{id}")) => g,
+        _ => {
+            return restore_from_db(p, descriptor, w_id, inv, ctx, job_id, conn, no_state()).await
+        }
     };
     let snapshot = dir.join(generation.trim());
     let saved_results = tokio::fs::read_to_string(snapshot.join("run_results.json"))
@@ -2764,6 +2788,56 @@ async fn restore_run_state(
         .into_iter()
         .filter_map(|(k, v)| Some((k, RawValue::from_string(v).ok()?)))
         .collect())
+}
+
+/// Wait between retries, giving up if the job is cancelled or runs out of time.
+///
+/// Returns whether the retry should still happen. A plain sleep would hold the
+/// worker slot for the whole delay after a cancel and then start another dbt
+/// process on the far side of it.
+///
+/// The cancellation is READ FROM THE DATABASE each second rather than from
+/// `canceled_by`: that is only written by the job poller, which runs alongside a
+/// child process and so is not running here. Re-reading it would report the
+/// state as of the failed attempt and miss every cancel issued during the wait,
+/// which is the whole window this exists to cover.
+async fn sleep_before_retry(
+    delay_seconds: u64,
+    job_id: &Uuid,
+    conn: &Connection,
+    deadline: JobDeadline,
+) -> bool {
+    let mut left = delay_seconds;
+    loop {
+        if deadline.is_expired() || job_is_canceled(job_id, conn).await {
+            return false;
+        }
+        if left == 0 {
+            return true;
+        }
+        let step = left.min(1);
+        tokio::time::sleep(std::time::Duration::from_secs(step)).await;
+        left -= step;
+    }
+}
+
+/// Whether the job has been cancelled, as of now.
+///
+/// An agent worker has no database, and its cancellation arrives through the
+/// poller it cannot run here either; it reports "not cancelled" and the retry
+/// is bounded by the deadline alone.
+async fn job_is_canceled(job_id: &Uuid, conn: &Connection) -> bool {
+    let Connection::Sql(db) = conn else {
+        return false;
+    };
+    sqlx::query_scalar!(
+        "SELECT canceled_by IS NOT NULL AS \"canceled!\" FROM v2_job_queue WHERE id = $1",
+        job_id
+    )
+    .fetch_optional(db)
+    .await
+    .map(|v| v == Some(true))
+    .unwrap_or(false)
 }
 
 /// Whether the artifacts in the job directory still name something to retry.

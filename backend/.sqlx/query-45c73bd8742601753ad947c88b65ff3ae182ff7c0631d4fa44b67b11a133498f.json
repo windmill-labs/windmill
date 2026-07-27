@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE pipeline_freshness_state\n        SET attempts = attempts + 1,\n            last_push_at = now(),\n            next_attempt_at = now()\n                + (LEAST($3::bigint, $4::bigint * (1::bigint << LEAST(attempts + 1, 20)))::text\n                   || ' seconds')::interval\n        WHERE workspace_id = $1 AND script_path = $2 AND next_attempt_at <= now()\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "45c73bd8742601753ad947c88b65ff3ae182ff7c0631d4fa44b67b11a133498f"
+}

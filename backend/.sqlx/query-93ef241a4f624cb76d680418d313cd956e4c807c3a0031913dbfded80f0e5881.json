@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE variable SET value = 'CLEARED' WHERE is_secret = true",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "93ef241a4f624cb76d680418d313cd956e4c807c3a0031913dbfded80f0e5881"
+}

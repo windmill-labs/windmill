@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO app (workspace_id, path, summary, policy, versions, extra_perms)\n         VALUES ('test-workspace', 'f/shared/dashboard', 'Dashboard app', '{}', ARRAY[1::bigint], '{}')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "6e4afbd2931a2d96b99b88a270388006066c83a2697913e43dc3c3db4bd4bd2e"
+}

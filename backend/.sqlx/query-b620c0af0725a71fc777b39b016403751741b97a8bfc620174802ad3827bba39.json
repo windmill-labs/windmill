@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO workspace_settings (workspace_id) VALUES ('wm-fork-test-workspace')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "b620c0af0725a71fc777b39b016403751741b97a8bfc620174802ad3827bba39"
+}

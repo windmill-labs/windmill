@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM join_pending_inputs jpi\n         USING (\n             SELECT workspace_id, subscriber_path, partition\n             FROM join_pending_inputs\n             GROUP BY workspace_id, subscriber_path, partition\n             HAVING max(received_at) <= now() - ($1::bigint::text || ' s')::interval\n         ) stale\n         WHERE jpi.workspace_id = stale.workspace_id\n           AND jpi.subscriber_path = stale.subscriber_path\n           AND jpi.partition = stale.partition",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3c8a2389c47131ed89ec9069b2ebe15b103cf1344b7c84069e615181508913e9"
+}

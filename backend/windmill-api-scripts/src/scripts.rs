@@ -2085,6 +2085,11 @@ async fn create_script_internal<'c>(
             // so a rename would leave the old path's nodes describing
             // relations a script later created there does not produce.
             windmill_common::dbt_manifest::clear_dbt_manifest(&mut tx, &w_id, old).await?;
+            // The saved retry state travels rather than being cleared: nothing
+            // regenerates it, so dropping it would throw away a resumable
+            // failure for what is only a rename.
+            windmill_common::dbt_manifest::move_dbt_run_state(&mut tx, &w_id, old, &ns.path)
+                .await?;
         }
     }
     for spec in &pipeline_triggers {
@@ -3192,6 +3197,7 @@ async fn archive_script_by_path(
     // The dbt sidecar is keyed by script path with no FK, so an archived dbt
     // script would keep supplying provenance for relations it no longer owns.
     windmill_common::dbt_manifest::clear_dbt_manifest(&mut tx, &w_id, path).await?;
+    windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, path).await?;
     // Pipeline event hygiene: an archived script must not be triggered by
     // anything. Wipe declared `// on ...` edges (asset-event subscribers
     // look these up).
@@ -3275,6 +3281,7 @@ async fn archive_script_by_hash(
     check_scopes(&authed, || format!("scripts:write:{}", &script.path))?;
     clear_static_asset_usage_by_script_hash(&mut *tx, &w_id, hash).await?;
     windmill_common::dbt_manifest::clear_dbt_manifest_by_script_hash(&mut tx, &w_id, hash).await?;
+    windmill_common::dbt_manifest::clear_dbt_run_state_by_script_hash(&mut tx, &w_id, hash).await?;
     // Pipeline event hygiene: archived scripts must not be triggered by
     // anything. Wipe declared `// on ...` edges.
     clear_script_triggers(&mut *tx, &w_id, &script.path, AssetUsageKind::Script).await?;
@@ -3340,6 +3347,7 @@ async fn delete_script_by_hash(
 
     clear_static_asset_usage_by_script_hash(&mut *tx, &w_id, hash).await?;
     windmill_common::dbt_manifest::clear_dbt_manifest_by_script_hash(&mut tx, &w_id, hash).await?;
+    windmill_common::dbt_manifest::clear_dbt_run_state_by_script_hash(&mut tx, &w_id, hash).await?;
     // Pipeline event hygiene: a deleted script must not be triggered by
     // anything. Wipe declared `// on ...` edges. Idempotent — safe even if
     // the script was never a pipeline member.
@@ -3424,10 +3432,11 @@ async fn delete_script_by_path(
     .fetch_all(&mut *tx)
     .await?;
 
-    // Before the DELETE: `clear_dbt_manifest` keys on the path, and the sidecar
-    // has no script foreign key, so provenance left behind here would attach
-    // itself to whatever is created at this path next.
+    // Before the DELETE: both are keyed on the path with no script foreign key,
+    // so anything left behind here would attach itself to whatever is created
+    // at this path next.
     windmill_common::dbt_manifest::clear_dbt_manifest(&mut tx, &w_id, path).await?;
+    windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, path).await?;
 
     let script = sqlx::query_scalar!(
         "DELETE FROM script WHERE path = $1 AND workspace_id = $2 RETURNING path",
@@ -3592,9 +3601,10 @@ async fn delete_scripts_bulk(
         }
     }
 
-    // Same reason as the single-path delete: the sidecar has no foreign key.
+    // Same reason as the single-path delete: neither has a foreign key.
     for p in &request.paths {
         windmill_common::dbt_manifest::clear_dbt_manifest(&mut tx, &w_id, p).await?;
+        windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, p).await?;
     }
 
     let mut deleted_paths = sqlx::query_scalar!(

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE pipeline_freshness_state SET next_attempt_at = now() - interval '1 second'\n         WHERE workspace_id = $1 AND script_path = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6d81570849980f316b08487a03f6017386cf2767c953e0d152e7983a00218c6f"
+}

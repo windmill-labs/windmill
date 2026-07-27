@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE workspace_fork_deployment_request_comment c\n            SET obsolete = true\n            FROM workspace_fork_deployment_request r\n            WHERE c.request_id = r.id\n              AND r.fork_workspace_id = $1\n              AND r.closed_at IS NULL\n              AND c.anchor_kind = $2\n              AND c.anchor_path = $3\n              AND c.obsolete = false\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "25bef98423d075337bc6cdcd88b0a7962fd4e1d96e06a5162d248da21566ccbe"
+}

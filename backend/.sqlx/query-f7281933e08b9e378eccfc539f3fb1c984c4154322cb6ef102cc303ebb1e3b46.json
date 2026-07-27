@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO background_task_state (name, value) VALUES ($1, $2)\n                     ON CONFLICT (name) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f7281933e08b9e378eccfc539f3fb1c984c4154322cb6ef102cc303ebb1e3b46"
+}

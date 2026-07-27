@@ -729,6 +729,16 @@ impl JobDeadline {
         Self(Some(Instant::now() + d))
     }
 
+    /// Whether the job's wall clock is already spent.
+    ///
+    /// Distinct from `remaining_secs`, which deliberately never reports zero:
+    /// an expired budget still has to hand the next phase a positive timeout so
+    /// the poller fires. A caller deciding whether to START more work needs the
+    /// honest answer.
+    pub fn is_expired(&self) -> bool {
+        self.0.is_some_and(|d| d <= Instant::now())
+    }
+
     pub fn remaining_secs(&self) -> Option<i32> {
         let deadline = self.0?;
         // A non-positive timeout reads as "unset" downstream, so an expired

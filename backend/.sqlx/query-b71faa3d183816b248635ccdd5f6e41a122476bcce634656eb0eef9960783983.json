@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            EXISTS(SELECT 1 FROM workspace WHERE deleted = false) as \"has_workspace!\",\n            EXISTS(SELECT 1 FROM script WHERE archived = false AND deleted = false) as \"has_script!\",\n            EXISTS(SELECT 1 FROM flow WHERE archived = false) as \"has_flow!\",\n            EXISTS(SELECT 1 FROM app) as \"has_app!\",\n            EXISTS(SELECT 1 FROM schedule WHERE enabled = true) as \"has_schedule!\",\n            EXISTS(SELECT 1 FROM v2_job_completed) as \"has_job_run!\",\n            (SELECT COUNT(*) FROM password) > 1 as \"has_multiple_users!\",\n            EXISTS(SELECT 1 FROM resource) as \"has_resource!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "has_workspace!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "has_script!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "has_flow!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "has_app!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "has_schedule!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "has_job_run!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "has_multiple_users!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "has_resource!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "b71faa3d183816b248635ccdd5f6e41a122476bcce634656eb0eef9960783983"
+}

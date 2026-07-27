@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH dk AS (\n                INSERT INTO debounce_key (job_id, key)\n                VALUES ($1, $2)\n                ON CONFLICT (key)\n                DO UPDATE SET\n                    previous_job_id = CASE WHEN EXISTS\n                        (SELECT 1 FROM v2_job_queue q WHERE q.id = debounce_key.job_id AND q.running)\n                        THEN NULL ELSE debounce_key.job_id END,\n                    job_id = EXCLUDED.job_id,\n                    debounced_times = CASE WHEN EXISTS\n                        (SELECT 1 FROM v2_job_queue q WHERE q.id = debounce_key.job_id AND q.running)\n                        THEN 0 ELSE debounce_key.debounced_times + 1 END,\n                    first_started_at = CASE WHEN EXISTS\n                        (SELECT 1 FROM v2_job_queue q WHERE q.id = debounce_key.job_id AND q.running)\n                        THEN now() ELSE debounce_key.first_started_at END\n                RETURNING debounced_times, first_started_at, previous_job_id AS job_id_to_debounce\n            ), _batch AS (\n                INSERT INTO v2_job_debounce_batch (id, debounce_batch)\n                SELECT $1, COALESCE(\n                    (SELECT debounce_batch FROM v2_job_debounce_batch WHERE id = dk.job_id_to_debounce LIMIT 1),\n                    nextval('debounce_batch_seq'))\n                FROM dk\n            )\n            SELECT debounced_times, first_started_at, job_id_to_debounce FROM dk\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "debounced_times",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "first_started_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "job_id_to_debounce",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "f04f84ac63e98566311245a40a8dd83166a32ae4370a4f1ca622b8535c930ea2"
+}

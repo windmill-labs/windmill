@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COALESCE((SELECT COUNT(*) FROM jsonb_object_keys(job_uuids)), 0)\n             FROM concurrency_counter WHERE concurrency_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "coalesce",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "e59a15166ccacc601d059f2da379fe3ecc4cf60e4a928acaaa78da3ed65949b7"
+}

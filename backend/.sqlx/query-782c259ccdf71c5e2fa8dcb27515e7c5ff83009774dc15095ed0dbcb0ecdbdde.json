@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO script (workspace_id, hash, path, content, language, kind, created_by, schema, summary, description, lock, ws_error_handler_muted)\n        VALUES ('test-workspace', $1, 'f/test/muted_failing_script', 'export function main() { throw new Error(\"fail\"); }', 'deno', 'script', 'test-user', '{}', '', '', '', true)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "782c259ccdf71c5e2fa8dcb27515e7c5ff83009774dc15095ed0dbcb0ecdbdde"
+}

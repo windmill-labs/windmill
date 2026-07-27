@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(*) \n                    FROM worker_ping \n                    WHERE worker_group LIKE $1 AND ping_at > now() - INTERVAL '2 minutes'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "8dd1de2aca8c6c9ffaddd2c41c3a614a50fa5fd03c2d3b9a41bd85a7f156345e"
+}

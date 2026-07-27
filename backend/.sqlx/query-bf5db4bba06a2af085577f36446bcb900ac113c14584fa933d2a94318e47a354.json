@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO v2_job_debounce_batch (id, debounce_batch)\n             SELECT $1, debounce_batch FROM v2_job_debounce_batch WHERE id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bf5db4bba06a2af085577f36446bcb900ac113c14584fa933d2a94318e47a354"
+}

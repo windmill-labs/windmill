@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM skip_workspace_diff_tally",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "8eb5866b6279cb386bbeb7c387a7c731317199b28694a9c3e04028ef1f1d7500"
+}

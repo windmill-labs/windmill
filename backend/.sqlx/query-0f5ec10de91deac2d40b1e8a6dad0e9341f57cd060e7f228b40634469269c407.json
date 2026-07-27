@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH bounds AS (\n                SELECT ($2::bigint % 4294967296)::text::xid AS prev_xid,\n                       ($3::bigint % 4294967296)::text::xid AS cur_xid,\n                       $1::timestamptz AS ts_floor\n            ),\n            batch AS (\n                SELECT workspace_id, id, timestamp, username, operation,\n                       action_kind::text AS action_kind, resource, parameters, email, span\n                FROM audit_partitioned, bounds b\n                WHERE timestamp >= b.ts_floor\n                  AND age(xmin) > age(b.cur_xid)\n                  AND age(xmin) <= age(b.prev_xid)\n                ORDER BY id\n            )\n            SELECT to_char(timestamp AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS \"day!\",\n                   string_agg(row_to_json(batch)::text, E'\\n' ORDER BY id) AS \"ndjson!\",\n                   max(id) AS \"max_id!\",\n                   max(timestamp) AS \"max_ts!\"\n            FROM batch\n            GROUP BY 1\n            ORDER BY 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "day!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "ndjson!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "max_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "max_ts!",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "0f5ec10de91deac2d40b1e8a6dad0e9341f57cd060e7f228b40634469269c407"
+}

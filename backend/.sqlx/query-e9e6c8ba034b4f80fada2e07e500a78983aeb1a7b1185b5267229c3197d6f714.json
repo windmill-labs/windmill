@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE resource SET value = $1\n         WHERE workspace_id = 'wm-fork-test-workspace' AND path = 'f/shared/resource_to_modify'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e9e6c8ba034b4f80fada2e07e500a78983aeb1a7b1185b5267229c3197d6f714"
+}

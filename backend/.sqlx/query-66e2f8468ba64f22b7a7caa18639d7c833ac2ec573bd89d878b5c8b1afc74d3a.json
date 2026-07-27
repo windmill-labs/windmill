@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            workspace_id,\n            auto_invite->'instance_groups_roles' as instance_groups_roles,\n            auto_invite->'instance_groups' as instance_groups_json\n        FROM workspace_settings\n        WHERE\n            auto_invite->'instance_groups' IS NOT NULL\n            AND auto_invite->'instance_groups' ? $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "instance_groups_roles",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 2,
+        "name": "instance_groups_json",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "66e2f8468ba64f22b7a7caa18639d7c833ac2ec573bd89d878b5c8b1afc74d3a"
+}

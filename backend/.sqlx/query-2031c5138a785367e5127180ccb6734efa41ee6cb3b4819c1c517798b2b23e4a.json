@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE email_trigger SET script_path = $1, local_part = $2 WHERE workspace_id = $3 AND path = $4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2031c5138a785367e5127180ccb6734efa41ee6cb3b4819c1c517798b2b23e4a"
+}

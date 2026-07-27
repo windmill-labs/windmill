@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO skip_workspace_diff_tally (workspace_id) VALUES ('wm-fork-test-workspace')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "5c2d1ae706e997bbca27dadb99cc0d55ffba53bc23ae69181a0d671c640b9ba7"
+}

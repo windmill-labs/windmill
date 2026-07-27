@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO workspace_settings\n                 (workspace_id, slack_team_id, slack_name, slack_email)\n                 VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id) DO UPDATE SET slack_team_id = EXCLUDED.slack_team_id, slack_name = EXCLUDED.slack_name, slack_email = EXCLUDED.slack_email",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7dcc77eb6da5863f7a25ab6ad83d270e5e8a52540da1726aa875fcbe2517f16a"
+}

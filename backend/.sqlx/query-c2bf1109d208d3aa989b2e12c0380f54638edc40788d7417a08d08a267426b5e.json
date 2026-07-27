@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO resource (workspace_id, path, value, resource_type, extra_perms, created_by)\n         VALUES ('test-workspace', $1, $2, $3, '{}'::jsonb, 'test-user')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Jsonb",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c2bf1109d208d3aa989b2e12c0380f54638edc40788d7417a08d08a267426b5e"
+}

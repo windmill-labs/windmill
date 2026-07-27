@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up, code_down) VALUES ($1, $2, $3, 'initial', $4, NULL)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b96c1a720654ae8ae52e8098cc18d887920beaec97696a17da020a2adfb052f0"
+}

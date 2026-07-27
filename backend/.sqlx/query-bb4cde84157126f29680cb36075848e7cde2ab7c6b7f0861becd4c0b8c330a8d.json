@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE workspace_settings\n        SET error_handler = '{\"path\": \"script/f/test/error_handler\"}'::jsonb\n        WHERE workspace_id = 'test-workspace'\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "bb4cde84157126f29680cb36075848e7cde2ab7c6b7f0861becd4c0b8c330a8d"
+}

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO variable (workspace_id, path, value, is_secret, description, extra_perms, account)\n            VALUES ($1, $2, $3, true, '', '{}'::jsonb, NULL)\n            ON CONFLICT (workspace_id, path) DO UPDATE SET value = EXCLUDED.value\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b876f26ce90e30c3510eacddb03d9dd26fac05d18183f2d623ac91ea3876dd5c"
+}

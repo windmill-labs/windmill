@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO concurrency_counter(concurrency_id, job_uuids)\n             VALUES ($1, $2)\n             ON CONFLICT (concurrency_id)\n             DO UPDATE SET job_uuids = jsonb_set(concurrency_counter.job_uuids, array[$3], '{}')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Jsonb",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "864f73293d110474bd5544afc92f9060c7677542b0ce3240df214935dccbf509"
+}

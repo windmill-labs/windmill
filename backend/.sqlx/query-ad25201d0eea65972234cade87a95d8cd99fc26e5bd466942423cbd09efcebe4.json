@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO azure_trigger (\n                azure_resource_path, azure_mode, scope_resource_id, topic_name,\n                subscription_name, event_type_filters,\n                push_auth_config, workspace_id, path, script_path, is_flow,\n                permissioned_as, mode, edited_by, email,\n                error_handler_path, error_handler_args, retry\n            ) VALUES (\n                $1, $2, $3, $4, $5, $6, $7,\n                $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18\n            )\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        {
+          "Custom": {
+            "name": "azure_trigger_mode",
+            "kind": {
+              "Enum": [
+                "basic_push",
+                "namespace_push",
+                "namespace_pull"
+              ]
+            }
+          }
+        },
+        "Text",
+        "Varchar",
+        "Varchar",
+        "Jsonb",
+        "Jsonb",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Bool",
+        "Varchar",
+        {
+          "Custom": {
+            "name": "trigger_mode",
+            "kind": {
+              "Enum": [
+                "enabled",
+                "disabled",
+                "suspended"
+              ]
+            }
+          }
+        },
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Jsonb",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ad25201d0eea65972234cade87a95d8cd99fc26e5bd466942423cbd09efcebe4"
+}

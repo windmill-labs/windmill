@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO http_trigger (workspace_id, path, edited_by, edited_at, route_path,\n            route_path_key, script_path, is_flow, http_method, request_type,\n            authentication_method, mode, permissioned_as)\n         VALUES\n         ('test-workspace', 'f/rt/runtime_only', 'test-user', NOW(), 'foo', 'foo',\n            'f/scripts/y', false, 'get', 'sync',\n            'none', 'enabled', 'u/test-user'),\n         ('wm-fork-test-workspace', 'f/rt/runtime_only', 'test-user', NOW(), 'foo', 'foo',\n            'f/scripts/y', false, 'get', 'sync',\n            'none', 'disabled', 'u/test-user')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "fdcfa286819f77f9e147599036ef4bd26057dc6792a9952678e5b785e4fff9a4"
+}
