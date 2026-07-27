@@ -108,6 +108,10 @@
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const selectedId = $derived(selectionManager.getSelectedId())
+	// One shared instance for a module that carries no `tools`: a fresh [] per read would give the
+	// agent editor an unstable identity, and its save guard uses that to detect a replaced step.
+	const NO_TOOLS: NonNullable<Extract<FlowModule['value'], { type: 'aiagent' }>['tools']> = []
+
 	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
 
 	interface Props {
@@ -145,6 +149,14 @@
 		toolDescription = $bindable(undefined),
 		siblingToolNames = undefined
 	}: Props = $props()
+
+	// Key for the linked-agent tools store. Ancestry-qualified for a nested agent tool, whose id
+	// comes from a resource and is not flow-global — it could otherwise alias a top-level step and
+	// read, then overwrite, that step's tools. Flow modules keep their bare id, which is what the
+	// graph looks them up by.
+	let linkedToolsModuleId = $derived(
+		parentModule?.value?.type === 'aiagent' ? `${parentModule.id}/${flowModule.id}` : flowModule.id
+	)
 
 	let workspaceScriptTag: string | undefined = $state(undefined)
 	let workspaceScriptLang: ScriptLang | undefined = $state(undefined)
@@ -1128,7 +1140,7 @@
 													<!-- Inside the wrapper so the card scrolls with the inputs (a single
 													scroll region) instead of stacking a second scrollbar above it. -->
 													<AgentResourceBar
-														moduleId={flowModule.id}
+														moduleId={linkedToolsModuleId}
 														opWorkspace={opWs}
 														flowPath={$pathStore}
 														bind:agent={
@@ -1153,8 +1165,8 @@
 														bind:tools={
 															() =>
 																flowModule.value.type === 'aiagent'
-																	? (flowModule.value.tools ?? [])
-																	: [],
+																	? (flowModule.value.tools ?? NO_TOOLS)
+																	: NO_TOOLS,
 															(v) => {
 																if (flowModule.value.type === 'aiagent') {
 																	flowModule.value.tools = v
@@ -1214,7 +1226,7 @@
 													<AgentToolBindings
 														tools={getLinkedAgentTools(
 															linkedToolsScope(opWs, $pathStore),
-															flowModule.id
+															linkedToolsModuleId
 														)}
 														pickableProperties={stepPropPicker.pickableProperties}
 														extraLib={stepPropPicker.extraLib}
@@ -1679,7 +1691,7 @@
 											{scriptProgress}
 											mod={flowModule}
 											linkedAgentTools={agentLinked
-												? getLinkedAgentTools(linkedToolsScope(opWs, $pathStore), flowModule.id)
+												? getLinkedAgentTools(linkedToolsScope(opWs, $pathStore), linkedToolsModuleId)
 												: undefined}
 											{testIsLoading}
 											disableMock={preprocessorModule || failureModule}
