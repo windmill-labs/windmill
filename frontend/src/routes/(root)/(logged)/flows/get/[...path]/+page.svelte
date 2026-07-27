@@ -77,7 +77,12 @@
 	import { twMerge } from 'tailwind-merge'
 	import CiTestResults from '$lib/components/CiTestResults.svelte'
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
-	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
+	import {
+	buildForkEditUrl,
+	editInForkAllowed,
+	editInForkLabel,
+	onEditInForkClick
+} from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 
 	let flow: Flow | undefined = $state()
@@ -316,6 +321,7 @@
 				label: editInForkLabel($workspaceStore, $userWorkspaces),
 				buttonProps: {
 					href: buildForkEditUrl('flow', flow.path),
+					onClick: (e: Event | undefined) => onEditInForkClick(e, 'flow', flow.path),
 					unifiedSize: 'md',
 					variant: !showEditButtons ? 'default' : 'subtle',
 					startIcon: GitFork

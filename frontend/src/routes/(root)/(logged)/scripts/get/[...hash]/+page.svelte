@@ -95,7 +95,12 @@
 	import TriggersEditor from '$lib/components/triggers/TriggersEditor.svelte'
 	import { Triggers } from '$lib/components/triggers/triggers.svelte'
 	import { page } from '$app/state'
-	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
+	import {
+	buildForkEditUrl,
+	editInForkAllowed,
+	editInForkLabel,
+	onEditInForkClick
+} from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 	import { isWorkflowAsCode } from '$lib/components/graph/wacToFlow'
 	import WacDiagram from '$lib/components/graph/WacDiagram.svelte'
@@ -401,6 +406,7 @@
 				label: editInForkLabel($workspaceStore, $userWorkspaces),
 				buttonProps: {
 					href: buildForkEditUrl('script', script.path),
+					onClick: (e: Event | undefined) => onEditInForkClick(e, 'script', script.path),
 					unifiedSize: 'md',
 					variant: !showEditButtons ? 'default' : 'subtle',
 					startIcon: GitFork

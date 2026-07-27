@@ -103,7 +103,12 @@
 	import { useNestedRestartState } from '$lib/components/useNestedRestartState.svelte'
 	import JobOtelTraces from '$lib/components/JobOtelTraces.svelte'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
-	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
+	import {
+		buildForkEditUrl,
+		editInForkAllowed,
+		editInForkLabel,
+		onEditInForkClick
+	} from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 	let job: (Job & { result?: any; result_stream?: string }) | undefined = $state()
 	let jobUpdateLastFetch: Date | undefined = $state()
@@ -830,6 +835,8 @@
 					{#if !showEditButton && !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces)}
 						<Button
 							href={buildForkEditUrl(isScript ? 'script' : 'flow', job?.script_path ?? '')}
+							onClick={(e) =>
+								onEditInForkClick(e, isScript ? 'script' : 'flow', job?.script_path ?? '')}
 							unifiedSize="md"
 							variant="default"
 							size="sm"

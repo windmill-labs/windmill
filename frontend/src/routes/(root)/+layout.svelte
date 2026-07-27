@@ -39,10 +39,23 @@
 		"Client got disposed and can't be restarted."
 	]
 
+	// This is the only load of the workspace list for the whole session, and an
+	// empty `$userWorkspaces` degrades silently rather than erroring: the "edit in
+	// dev workspace" affordance falls back to a generic "Edit in fork", the
+	// no-direct-deploy alert loses its dev-workspace wording, the fork banner
+	// disappears. Retry a failed load instead of leaving the tab in that state.
+	const WORKSPACE_LIST_RETRY_DELAYS_MS = [1000, 3000, 8000]
 	async function setUserWorkspaceStore() {
-		const list = await WorkspaceService.listUserWorkspaces()
-		$usersWorkspaceStore = list
-		return list
+		for (let attempt = 0; ; attempt++) {
+			try {
+				$usersWorkspaceStore = await WorkspaceService.listUserWorkspaces()
+				return
+			} catch (e) {
+				if (attempt >= WORKSPACE_LIST_RETRY_DELAYS_MS.length) throw e
+				console.error('could not load workspace list, retrying', e)
+				await new Promise((r) => setTimeout(r, WORKSPACE_LIST_RETRY_DELAYS_MS[attempt]))
+			}
+		}
 	}
 
 	// A fork deleted remotely while the tab was open leaves the client pointing at a

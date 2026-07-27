@@ -1,12 +1,17 @@
 <script lang="ts">
 	import { GitFork, Pen } from 'lucide-svelte'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
-	import { buildForkEditUrl, editInForkLabel } from '$lib/utils/editInFork'
+	import {
+		buildForkEditUrl,
+		editInForkLabel,
+		onEditInForkClick,
+		type ItemType
+	} from '$lib/utils/editInFork'
 	import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
 	import Button from '../button/Button.svelte'
 
 	interface Props {
-		itemType: 'script' | 'flow' | 'app' | 'raw_app'
+		itemType: ItemType
 		path: string
 	}
 
@@ -26,6 +31,7 @@
 		unifiedSize="md"
 		startIcon={{ icon: Pen }}
 		href={buildForkEditUrl(itemType, path)}
+		onClick={(e) => onEditInForkClick(e, itemType, path)}
 	>
 		{#if dev}
 			<span class="inline-flex items-center gap-1 min-w-0">

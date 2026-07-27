@@ -88,6 +88,10 @@
 		/** False while the (async) chatMask is still loading. The select-all default
 		 * waits for this so it doesn't race the mask. Defaults to true. */
 		chatMaskReady?: boolean
+		/** Whether the mask also scopes the update direction (parent→fork). True only
+		 * for an explicit `?items=` deep link, which can legitimately name items to
+		 * pull in — a session's mask never can (see the preselect rule below). */
+		maskAppliesToUpdate?: boolean
 		/** Selecting `draft` asks the page to swap us out for CompareDrafts;
 		 * deploy_to/update are handled internally but reported so the page can
 		 * remember the direction. */
@@ -108,6 +112,7 @@
 		draftKeys = new Set<string>(),
 		chatMask,
 		chatMaskReady = true,
+		maskAppliesToUpdate = false,
 		onModeSelected,
 		onChanged
 	}: Props = $props()
@@ -817,8 +822,10 @@
 		// Items with a pending draft are also left out by default: the deployed
 		// version (not the draft) is what moves, so we make the user opt in.
 		// The update direction (parent→fork) is never something the chat caused, so
-		// when scoped to a chat's items (chatMask set) preselect nothing there.
-		if (chatMask && !mergeIntoParent) {
+		// when scoped to a chat's items (chatMask set) preselect nothing there —
+		// unless the mask came in as an explicit `?items=` deep link, which names
+		// what to pull.
+		if (chatMask && !mergeIntoParent && !maskAppliesToUpdate) {
 			selectedItems = []
 			return
 		}

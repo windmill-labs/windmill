@@ -53,7 +53,11 @@
 	// Which fork direction to restore when switching back from draft mode. The
 	// merged toggle (CompareModeToggle, rendered inside each card) reports its
 	// selection here; the page only swaps which comparison component is shown.
-	let forkDirection = $state<'deploy_to' | 'update'>('deploy_to')
+	// Seeded from `?direction=update` so a deep link can land on the pull-from-parent
+	// side (built by the "not in the dev workspace yet" prompt).
+	let forkDirection = $state<'deploy_to' | 'update'>(
+		page.url.searchParams.get('direction') === 'update' ? 'update' : 'deploy_to'
+	)
 
 	// Explicit preselection via `?items=<kind:path,...>` (built by the chat's
 	// open_page tool). Parsed synchronously from the live URL so it can never race
@@ -356,6 +360,7 @@
 			{draftKeys}
 			{chatMask}
 			{chatMaskReady}
+			maskAppliesToUpdate={urlItemsMask !== undefined}
 			onChanged={refreshCounts}
 			onModeSelected={selectMode}
 		/>

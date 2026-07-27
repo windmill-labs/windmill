@@ -34,7 +34,7 @@
 	import AppDeploymentHistory from '$lib/components/apps/editor/AppDeploymentHistory.svelte'
 	import { isDeployable } from '$lib/utils_deployable'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
-	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
+	import { editInForkAllowed, editInForkLabel, onEditInForkClick } from '$lib/utils/editInFork'
 	import EditInForkButton from './EditInForkButton.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 
@@ -227,7 +227,9 @@
 					{
 						displayName: editInForkLabel($workspaceStore, $userWorkspaces),
 						icon: GitFork,
-						href: buildForkEditUrl(app.raw_app ? 'raw_app' : 'app', path),
+						// No `href`: the handler resolves the destination asynchronously, and a melt
+						// menu item's anchor navigates before a delegated onclick can preventDefault it.
+						action: (e) => onEditInForkClick(e, app.raw_app ? 'raw_app' : 'app', path),
 						hide:
 							$userStore?.operator ||
 							isCloudHosted() ||

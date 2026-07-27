@@ -79,7 +79,7 @@
 	import AppEditorHeaderDeploy from './AppEditorHeaderDeploy.svelte'
 	import { computeSecretUrl } from './appDeploy.svelte'
 	import { updatePolicy } from './appPolicy'
-	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
+	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 
 	interface Props {
@@ -1142,7 +1142,7 @@
 									{
 										label: editInForkLabel($workspaceStore, $userWorkspaces),
 										onClick: () => {
-											window.open(buildForkEditUrl('app', $appPath))
+											openEditInFork('app', $appPath)
 										}
 									}
 								]

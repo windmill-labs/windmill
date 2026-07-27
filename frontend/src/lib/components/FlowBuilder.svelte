@@ -99,7 +99,7 @@
 	import type { FlowBuilderProps } from './flow_builder'
 	import { ModulesTestStates } from './modulesTest.svelte'
 	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from './flows/FlowAssetsHandler.svelte'
-	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
+	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 	import { UserDraft } from '$lib/userDraft.svelte'
 
@@ -797,7 +797,7 @@
 		) {
 			dropdownItems.push({
 				label: editInForkLabel(opWorkspace, $userWorkspaces),
-				onClick: () => window.open(buildForkEditUrl('flow', initialPath))
+				onClick: () => openEditInFork('flow', initialPath)
 			})
 		}
 	}
