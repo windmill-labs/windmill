@@ -875,12 +875,12 @@ async function createScript(
 }
 
 /**
- * A script metadata file could not be paired with a script file on disk, so
- * nothing can be deployed for it. Distinct from a deploy that reached the
- * remote and was rejected: callers that can carry on with the rest of a
+ * A script metadata file could not be paired with exactly one script file on
+ * disk, so nothing can be deployed for it. Distinct from a deploy that reached
+ * the remote and was rejected: callers that can carry on with the rest of a
  * changeset catch this specifically.
  */
-export class MissingScriptContentFileError extends Error {}
+export class UnresolvableScriptContentFileError extends Error {}
 
 export async function findContentFile(filePath: string) {
   // Folder layout: __mod/script.yaml -> __mod/script.ts
@@ -899,7 +899,7 @@ export async function findContentFile(filePath: string) {
   // module-entry metadata, which would make toCandidate the identity function
   // and "resolve" the input to itself.
   if (!isModuleFolderMeta && !/\.script\.(yaml|json|lock)$/.test(filePath)) {
-    throw new MissingScriptContentFileError(
+    throw new UnresolvableScriptContentFileError(
       `${filePath} is not a script metadata file — no script file can be resolved from it.`
     );
   }
@@ -920,13 +920,13 @@ export async function findContentFile(filePath: string) {
     .filter((x) => x.file)
     .map((x) => x.path);
   if (validCandidates.length > 1) {
-    throw new Error(
-      "No content path given and more than one candidate found: " +
-        validCandidates.join(", ")
+    throw new UnresolvableScriptContentFileError(
+      `Multiple script files found next to ${filePath}: ${validCandidates.join(", ")} — ` +
+        `cannot tell which one the metadata belongs to. Keep exactly one.`
     );
   }
   if (validCandidates.length < 1) {
-    throw new MissingScriptContentFileError(
+    throw new UnresolvableScriptContentFileError(
       `No script file found next to ${filePath} — a script cannot be deployed from its metadata alone. ` +
         `Add the matching script file (e.g. ${toCandidate(".ts")} or ${toCandidate(
           ".py"

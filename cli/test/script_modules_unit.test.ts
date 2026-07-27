@@ -18,6 +18,7 @@ import {
   writeModulesToDisk,
   readModulesFromDisk,
   findContentFile,
+  UnresolvableScriptContentFileError,
 } from "../src/commands/script/script.ts";
 import { getTypeStrFromPath } from "../src/types.ts";
 
@@ -346,6 +347,30 @@ describe("findContentFile", () => {
 
     expect(await findContentFile(path.join(modDir, "script.yaml"))).toBe(
       path.join(modDir, "script.ts")
+    );
+  });
+
+  // sync push catches UnresolvableScriptContentFileError to record the change as
+  // failed and carry on; any other error aborts the whole push, so every branch
+  // that simply cannot pair a metadata file with one script file must use it.
+  test("signals every unpairable case with UnresolvableScriptContentFileError", async () => {
+    const dir = path.join(tempDir, "f", "test");
+    fs.mkdirSync(dir, { recursive: true });
+
+    // no script file at all
+    const orphan = path.join(dir, "orphan.script.yaml");
+    fs.writeFileSync(orphan, "summary: ''\n");
+    await expect(findContentFile(orphan)).rejects.toBeInstanceOf(
+      UnresolvableScriptContentFileError
+    );
+
+    // two script files, so the metadata cannot name one
+    const ambiguous = path.join(dir, "both.script.yaml");
+    fs.writeFileSync(ambiguous, "summary: ''\n");
+    fs.writeFileSync(path.join(dir, "both.ts"), "export async function main() {}\n");
+    fs.writeFileSync(path.join(dir, "both.py"), "def main():\n    pass\n");
+    await expect(findContentFile(ambiguous)).rejects.toBeInstanceOf(
+      UnresolvableScriptContentFileError
     );
   });
 

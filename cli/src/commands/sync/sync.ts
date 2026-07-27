@@ -40,7 +40,7 @@ import {
   findContentFile,
   findResourceFile,
   handleScriptMetadata,
-  MissingScriptContentFileError,
+  UnresolvableScriptContentFileError,
   removeExtensionToPath,
   filePathExtensionFromContentType,
 } from "../script/script.ts";
@@ -4674,7 +4674,7 @@ export async function push(
                     permissionedAsContext,
                   );
                 } catch (e) {
-                  if (!(e instanceof MissingScriptContentFileError)) {
+                  if (!(e instanceof UnresolvableScriptContentFileError)) {
                     throw e;
                   }
                   // Nothing deployable here, but the rest of the changeset is
