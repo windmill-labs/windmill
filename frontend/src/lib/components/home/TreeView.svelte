@@ -28,6 +28,7 @@
 		// Position of this node among the rendered root nodes; "expand all" only
 		// auto-loads the first EXPAND_ALL_LOAD_LIMIT of them (see the effect below).
 		rootIndex?: number
+		showEditButton?: boolean
 	}
 
 	let {
@@ -40,7 +41,8 @@
 		ownerLoad,
 		onExpandOwner,
 		onCollapseOwner,
-		rootIndex = 0
+		rootIndex = 0,
+		showEditButton = true
 	}: Props = $props()
 
 	// Bounds the request burst from "expand all": however many root owners are rendered
@@ -213,6 +215,7 @@
 						on:rawAppChanged
 						on:reload
 						{showCode}
+						{showEditButton}
 						depth={depth + 1}
 					/>
 				{/each}
@@ -254,6 +257,7 @@
 	<Item
 		{item}
 		{showCode}
+		{showEditButton}
 		on:scriptChanged
 		on:flowChanged
 		on:appChanged

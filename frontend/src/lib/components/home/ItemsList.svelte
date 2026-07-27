@@ -1475,6 +1475,7 @@
 					on:rawAppChanged={reloadItems}
 					on:reload={reloadItems}
 					{showCode}
+					showEditButton={showEditButtons}
 				/>
 			{/key}
 		{:else}

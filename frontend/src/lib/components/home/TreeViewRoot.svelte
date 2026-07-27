@@ -30,6 +30,7 @@
 		>
 		onExpandOwner?: (owner: string, more?: boolean) => void
 		onCollapseOwner?: (owner: string) => void
+		showEditButton?: boolean
 	}
 
 	let {
@@ -47,7 +48,8 @@
 		allUsers = [],
 		ownerLoad,
 		onExpandOwner,
-		onCollapseOwner
+		onCollapseOwner,
+		showEditButton = true
 	}: Props = $props()
 
 	let groupedItems: ReturnType<typeof groupItems> | 'loading' = $state('loading')
@@ -150,6 +152,7 @@
 					on:rawAppChanged
 					on:reload
 					{showCode}
+					{showEditButton}
 				/>
 			{/if}
 		{/each}
