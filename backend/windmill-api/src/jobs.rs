@@ -526,15 +526,15 @@ async fn cancel_job_api(
     OptAuthed(opt_authed): OptAuthed,
     opt_tokened: OptTokened,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, id)): Path<(String, Uuid)>,
     Json(CancelJob { reason }): Json<CancelJob>,
 ) -> error::Result<String> {
-    // App embed tokens (the sandboxed app iframe) may cancel ONLY jobs they launched
-    // — their app's component runs, stamped created_by == viewer. cancel_job_api has
-    // no other per-job ownership check, so without this an embed token (which carries
-    // the viewer's identity) could cancel any job by id. NotFound (not 403) so the
-    // untrusted app can't probe job existence.
     if let Some(authed) = opt_authed.as_ref() {
+        // App embed tokens (the sandboxed app iframe) carry the viewer's identity but may
+        // cancel ONLY jobs they launched — their app's component runs, stamped
+        // created_by == viewer — never the viewer's other visible runs. NotFound (not 403)
+        // so the untrusted app can't probe job existence.
         if windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref()) {
             let created_by = sqlx::query_scalar!(
                 "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
@@ -547,7 +547,12 @@ async fn cancel_job_api(
                 return Err(Error::NotFound(format!("Job {id} not found")));
             }
         }
+        // Cancelling a job requires the same per-job access as reading it: you launched it,
+        // you are an admin, or it is RLS-visible to you directly or through a flow ancestor.
+        require_job_update_read_access(&db, &user_db, authed, &w_id, &id, None).await?;
     }
+    // Anonymous callers are gated by `cancel_job`'s `require_anonymous`: they may only
+    // cancel jobs created by `anonymous`.
 
     let tx = db.begin().await?;
 
@@ -660,9 +665,15 @@ async fn force_cancel(
     OptAuthed(opt_authed): OptAuthed,
     tokened: OptTokened,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, id)): Path<(String, Uuid)>,
     Json(CancelJob { reason }): Json<CancelJob>,
 ) -> error::Result<String> {
+    if let Some(authed) = opt_authed.as_ref() {
+        // Same per-job access as reading the job, mirroring `cancel_job_api`.
+        require_job_update_read_access(&db, &user_db, authed, &w_id, &id, None).await?;
+    }
+
     let tx = db.begin().await?;
 
     let audit_author: AuditAuthor = match opt_authed.as_ref() {
