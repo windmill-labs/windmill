@@ -1,19 +1,24 @@
 import {
 	AzureTriggerService,
+	EmailTriggerService,
 	GcpTriggerService,
 	HttpTriggerService,
 	KafkaTriggerService,
 	MqttTriggerService,
+	AmqpTriggerService,
 	NatsTriggerService,
 	PostgresTriggerService,
 	ScheduleService,
+	SettingService,
 	SqsTriggerService,
 	WebsocketTriggerService,
 	type AzureTriggerData,
 	type GcpTriggerData,
+	type NewEmailTrigger,
 	type NewHttpTrigger,
 	type NewKafkaTrigger,
 	type NewMqttTrigger,
+	type NewAmqpTrigger,
 	type NewNatsTrigger,
 	type NewPostgresTrigger,
 	type NewSchedule,
@@ -45,9 +50,11 @@ type TriggerRequestByKind = {
 	nats: NewNatsTrigger
 	postgres: NewPostgresTrigger
 	mqtt: NewMqttTrigger
+	amqp: NewAmqpTrigger
 	sqs: NewSqsTrigger
 	gcp: GcpTriggerData
 	azure: AzureTriggerData
+	email: NewEmailTrigger
 }
 type TriggerRequestBody = TriggerRequestByKind[TriggerKind]
 
@@ -114,7 +121,7 @@ const createScheduleToolDef = createToolDef(
 const createTriggerToolDef = createToolDef(
 	createTriggerToolSchema,
 	'create_trigger',
-	'Create a trigger for the current script or flow.',
+	'Create a trigger for the current script or flow. For an email trigger (kind "email"), config.local_part is the local part of the receiving address (before the @); the tool reports the full address on success. Email triggers require email triggering to be configured on the instance — if it is not, the tool returns setup guidance instead of creating one.',
 	{ strict: false }
 )
 
@@ -155,6 +162,12 @@ const triggerConfigs = {
 		create: (data: { workspace: string; requestBody: NewMqttTrigger }) =>
 			MqttTriggerService.createMqttTrigger(data)
 	},
+	amqp: {
+		label: 'AMQP trigger',
+		requestSchema: triggerRequestSchemas.amqp as z.ZodType<NewAmqpTrigger>,
+		create: (data: { workspace: string; requestBody: NewAmqpTrigger }) =>
+			AmqpTriggerService.createAmqpTrigger(data)
+	},
 	sqs: {
 		label: 'SQS trigger',
 		requestSchema: triggerRequestSchemas.sqs as z.ZodType<NewSqsTrigger>,
@@ -172,6 +185,12 @@ const triggerConfigs = {
 		requestSchema: triggerRequestSchemas.azure as z.ZodType<AzureTriggerData>,
 		create: (data: { workspace: string; requestBody: AzureTriggerData }) =>
 			AzureTriggerService.createAzureTrigger(data)
+	},
+	email: {
+		label: 'Email trigger',
+		requestSchema: triggerRequestSchemas.email as z.ZodType<NewEmailTrigger>,
+		create: (data: { workspace: string; requestBody: NewEmailTrigger }) =>
+			EmailTriggerService.createEmailTrigger(data)
 	}
 } satisfies {
 	[K in TriggerKind]: {
@@ -302,12 +321,47 @@ const createScheduleTool: Tool<any> = {
 				})
 				return JSON.stringify(toolResult)
 			} catch (error) {
-				throw new Error(`Failed to create schedule "${requestBody.path}": ${formatToolError(error)}`)
+				throw new Error(
+					`Failed to create schedule "${requestBody.path}": ${formatToolError(error)}`
+				)
 			}
 		} catch (error) {
 			return setToolError(toolCallbacks, toolId, error)
 		}
 	}
+}
+
+const EMAIL_TRIGGER_DOCS = 'https://windmill.dev/docs/advanced/email_triggers'
+
+type EmailTriggerAvailability =
+	| { available: true; domain: string }
+	| { available: false; hint: string }
+
+/**
+ * Email triggers only work once an instance superadmin has stood up an SMTP
+ * server forwarding to Windmill and set the `email_domain` global setting
+ * (readable by any authed user). When it is unset the create call would fail
+ * opaquely, so we surface actionable, role-aware setup guidance instead.
+ */
+async function resolveEmailTriggerAvailability(): Promise<EmailTriggerAvailability> {
+	let emailDomain: unknown
+	try {
+		emailDomain = await SettingService.getGlobal({ key: 'email_domain' })
+	} catch {
+		emailDomain = undefined
+	}
+	if (typeof emailDomain === 'string' && emailDomain.trim() !== '') {
+		return { available: true, domain: emailDomain }
+	}
+	const [{ get }, { userStore }] = await Promise.all([
+		import('svelte/store'),
+		import('$lib/stores')
+	])
+	const isSuperadmin = get(userStore)?.is_super_admin ?? false
+	const hint = isSuperadmin
+		? `Email triggering is not set up on this instance yet, so no email trigger was created. As a superadmin, enable it: run an SMTP server that forwards inbound mail to Windmill and set the "email_domain" instance setting (Instance settings). See ${EMAIL_TRIGGER_DOCS}. Once configured, ask again and I will create the trigger.`
+		: `Email triggering is not set up on this instance yet, so no email trigger was created. Ask an instance superadmin to enable it: they need to run an SMTP server that forwards inbound mail to Windmill and set the "email_domain" instance setting. See ${EMAIL_TRIGGER_DOCS}. Once it is configured, ask again and I will create the trigger.`
+	return { available: false, hint }
 }
 
 const createTriggerTool: Tool<any> = {
@@ -331,22 +385,52 @@ const createTriggerTool: Tool<any> = {
 				triggerConfig.label
 			)
 
+			let emailDomain: string | undefined
+			if (parsedArgs.kind === 'email') {
+				// `workspaced_local_part` maps to a NOT NULL column; the model may omit it,
+				// so default it here before the request is sent, not just when formatting the address.
+				const emailBody = requestBody as NewEmailTrigger
+				emailBody.workspaced_local_part = emailBody.workspaced_local_part ?? false
+				const availability = await resolveEmailTriggerAvailability()
+				if (!availability.available) {
+					toolCallbacks.setToolStatus(toolId, {
+						content: availability.hint,
+						isLoading: false,
+						needsConfirmation: false
+					})
+					return availability.hint
+				}
+				emailDomain = availability.domain
+			}
+
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Creating ${triggerConfig.label} "${requestBody.path}"...`
 			})
 			try {
 				const result = await triggerConfig.create({ workspace, requestBody } as never)
 				const targetKind = getActionTargetKind(requestBody.is_flow)
+				const emailAddress =
+					parsedArgs.kind === 'email' && emailDomain !== undefined
+						? (await import('$lib/components/triggers/email/utils')).getEmailAddress(
+								(requestBody as NewEmailTrigger).local_part,
+								(requestBody as NewEmailTrigger).workspaced_local_part ?? false,
+								workspace,
+								emailDomain
+							)
+						: undefined
 				const toolResult = {
 					success: true,
 					kind: parsedArgs.kind,
 					path: requestBody.path,
 					target_path: requestBody.script_path,
 					target_kind: targetKind,
-					backend_result: result
+					backend_result: result,
+					...(emailAddress ? { email_address: emailAddress } : {})
 				}
 				toolCallbacks.setToolStatus(toolId, {
-					content: `Created ${triggerConfig.label} "${requestBody.path}"`,
+					content: emailAddress
+						? `Created ${triggerConfig.label} "${requestBody.path}" (send email to ${emailAddress})`
+						: `Created ${triggerConfig.label} "${requestBody.path}"`,
 					result: toolResult,
 					actions: [
 						createOpenTriggerAction(

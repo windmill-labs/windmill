@@ -3,6 +3,7 @@ import type { SupportedLanguage } from '$lib/common'
 export type FlowBuilderWhitelabelCustomUi = {
 	topBar?: {
 		path?: boolean
+		editablePath?: boolean
 		export?: boolean
 		history?: boolean
 		aiBuilder?: boolean
@@ -121,6 +122,7 @@ export type EditorBarUi = {
 	s3object?: boolean
 	database?: boolean
 	ducklake?: boolean
+	metrics?: boolean
 	dataTable?: boolean
 	debug?: boolean
 	history?: boolean

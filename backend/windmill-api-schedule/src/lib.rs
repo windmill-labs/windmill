@@ -16,7 +16,9 @@ use serde::{Deserialize, Serialize};
 use sql_builder::{prelude::Bind, SqlBuilder};
 use sqlx::{Postgres, Transaction};
 use std::str::FromStr;
-use windmill_api_auth::{check_scopes, maybe_refresh_folders, require_super_admin, ApiAuthed};
+use windmill_api_auth::{
+    build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_super_admin, ApiAuthed,
+};
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::DB;
@@ -911,6 +913,9 @@ async fn list_schedule(
         }
     }
 
+    let allowed = build_scope_path_predicate(&authed, "schedules", "read");
+    rows.retain(|r| allowed(&r.path));
+
     Ok(Json(rows))
 }
 
@@ -958,7 +963,10 @@ async fn list_schedule_with_jobs(
     .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
-    Ok(Json(rows))
+    let allowed = build_scope_path_predicate(&authed, "schedules", "read");
+    Ok(Json(
+        rows.into_iter().filter(|r| allowed(&r.path)).collect(),
+    ))
 }
 
 // SELECT id, title AS item_title, t.tag_array

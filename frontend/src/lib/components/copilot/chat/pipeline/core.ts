@@ -53,15 +53,21 @@ export interface PipelineAIChatHelpers {
 	getPipelineContext: () => PipelineContext
 	/** Read a node's source (the in-flight draft body if one exists, else deployed). */
 	getNodeBody: (path: string) => Promise<{ language: ScriptLang; content: string } | undefined>
-	/** Create a brand-new pipeline node as an unsaved draft on the canvas. */
+	/** Create a brand-new pipeline node as an unsaved draft on the canvas.
+	 * Returns the asset lineage inferred from the node (as URIs) so the caller can
+	 * confirm the intended edges formed without a separate graph read. */
 	proposeNode: (input: {
 		path: string
 		language: ScriptLang
 		content: string
 		outputKind?: PipelineOutputKind
-	}) => Promise<{ path: string }>
-	/** Replace an existing node's body, applied as an unsaved draft. */
-	editNode: (path: string, content: string) => Promise<void>
+	}) => Promise<{ path: string; detectedReads: string[]; detectedWrites: string[] }>
+	/** Replace an existing node's body, applied as an unsaved draft. Returns the
+	 * re-inferred asset lineage (URIs) so the caller sees the effect of the edit. */
+	editNode: (
+		path: string,
+		content: string
+	) => Promise<{ detectedReads: string[]; detectedWrites: string[] }>
 	/** Discard the unsaved draft at a path (undo a build_pipeline_node). */
 	removeProposedNode: (path: string) => Promise<void>
 	/** Preview-run a node (draft body preferred). Returns the started job id. */
@@ -184,9 +190,20 @@ const testPipelineNodeToolDef = createToolDef(
 	{ strict: false }
 )
 
-// ----------------------------------------------------------------------------
-// Tool set
-// ----------------------------------------------------------------------------
+// Summarize the asset lineage the parser inferred from a just-applied node so the
+// model gets same-turn feedback on whether its intended edges formed. An empty
+// result is the useful signal: a write/read expressed via a variable or dynamic
+// path is not detected, so no lineage edge forms — flag it rather than let the
+// model discover it only on a later graph read.
+function inferredLineageNote(reads: string[], writes: string[]): string {
+	const parts: string[] = []
+	if (writes.length) parts.push(`writes ${writes.join(', ')}`)
+	if (reads.length) parts.push(`reads ${reads.join(', ')}`)
+	if (parts.length === 0) {
+		return ' No storage-asset read or write was inferred from it — if this node is meant to feed or consume another node, make sure the asset reference is a string literal (a variable, f-string, or computed path is not detected, so no lineage edge forms).'
+	}
+	return ` Inferred lineage: ${parts.join('; ')}.`
+}
 
 export const pipelineTools: Tool<PipelineToolHelpers>[] = [
 	{
@@ -225,7 +242,7 @@ export const pipelineTools: Tool<PipelineToolHelpers>[] = [
 			const pipeline = requirePipeline(helpers)
 			const { path, language, content, output_kind } = buildPipelineNodeSchema.parse(args)
 			toolCallbacks.setToolStatus(toolId, { content: `Building node '${path}'...` })
-			await pipeline.proposeNode({
+			const { detectedReads, detectedWrites } = await pipeline.proposeNode({
 				path,
 				language: language as ScriptLang,
 				content,
@@ -235,7 +252,7 @@ export const pipelineTools: Tool<PipelineToolHelpers>[] = [
 				content: `Added draft node '${path}'`,
 				result: 'Success'
 			})
-			return `Pipeline node '${path}' added as an unsaved draft on the canvas. It is not deployed — the user deploys it.`
+			return `Pipeline node '${path}' added as an unsaved draft on the canvas. It is not deployed — the user deploys it.${inferredLineageNote(detectedReads, detectedWrites)}`
 		}
 	},
 	{
@@ -258,12 +275,12 @@ export const pipelineTools: Tool<PipelineToolHelpers>[] = [
 				replace_all ?? false,
 				'node source'
 			)
-			await pipeline.editNode(path, updated)
+			const { detectedReads, detectedWrites } = await pipeline.editNode(path, updated)
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Edited draft '${path}'`,
 				result: 'Success'
 			})
-			return `Pipeline node '${path}' updated as an unsaved draft on the canvas (not deployed).`
+			return `Pipeline node '${path}' updated as an unsaved draft on the canvas (not deployed).${inferredLineageNote(detectedReads, detectedWrites)}`
 		}
 	},
 	{
@@ -319,8 +336,9 @@ export function getPipelinePromptSection(ctx: PipelineContext): string {
 Data Pipeline editor (ACTIVE):
 - The user has the /pipeline/${ctx.folder} editor open. A pipeline is a DAG of scripts (nodes) connected by storage assets (DuckLake tables, data tables, S3 objects, volumes, resources) and execution triggers.
 - Annotations are top-of-file comments in the NODE'S OWN comment syntax: \`--\` for SQL (duckdb/postgresql), \`#\` for python3/bash, \`//\` for bun/TS. The \`//\` shown below is the TS form — translate it (a \`// pipeline\` line in a SQL node is a syntax error that won't deploy).
-- A script becomes a pipeline node when its source starts with the \`// pipeline\` annotation. Declare execution-DAG inputs with \`// on <asset-uri | schedule | webhook | email | kafka | mqtt | nats | postgres | sqs | gcp | data_upload>\` (e.g. \`// on ducklake://main/orders\`). Outputs are inferred from what the body writes (wmill SDK calls / SQL CREATE TABLE / writeS3File); declare a managed output with \`// materialize <asset-uri>\`. Optional badges: \`// partitioned <daily|hourly|weekly|monthly|dynamic>\`, \`// freshness <duration>\`, \`// tag <name>\`, \`// retry <count> [delay]\`, \`// data_test <kind> ...\`.
+- A script becomes a pipeline node when its source starts with the \`// pipeline\` annotation. Declare execution-DAG inputs with \`// on <asset-uri | schedule | webhook | email | kafka | mqtt | amqp | nats | postgres | sqs | gcp | data_upload>\` (e.g. \`// on ducklake://main/orders\`). Outputs are inferred from what the body writes (wmill SDK calls / SQL CREATE TABLE / writeS3File); declare a managed output with \`// materialize <asset-uri>\`. Optional badges: \`// partitioned <daily|hourly|weekly|monthly|dynamic>\`, \`// freshness <duration>\`, \`// tag <name>\`, \`// retry <count> [delay]\`, \`// data_test <kind> ...\`, \`// measure <name> = <agg> [where <pred>]\`, \`// dimension <name> = <expr>\`.
 - \`materialize\` (the managed output): \`// materialize <asset-uri>\` means the runtime writes the node's output table FOR you — write the body as a single SELECT and the runtime wraps it in the create/replace, so do NOT also write your own CREATE TABLE / INSERT. IMPORTANT: \`// materialize\` is **DuckDB-only** and its target MUST be a DuckLake table (\`ducklake://<name>/<table>\`) — deploy rejects it on any other language or target. For a \`python3\`/\`bun\`/\`postgresql\` node, do NOT use \`// materialize\`; write the output via the SDK instead (e.g. \`wmill.writeS3File(...)\`, a \`CREATE TABLE\` in postgresql, or \`wmill.databaseUrlFromResource\`/ducklake helpers) and let the output be inferred. Reach for \`duckdb\` when a node should materialize a DuckLake table. Write strategy: with no option it REPLACES the whole table each run (full refresh; the only mode whose output columns may change); \`// materialize <uri> append\` INSERT-appends rows (incremental); \`// materialize <uri> key=<col>\` merges/upserts on \`<col>\`. \`// materialize manual <uri>\` opts OUT of managed writes — the script writes its own DDL and the annotation only records the output asset for lineage. \`materialize\` is paired with partitioning for incremental pipelines: a \`// partitioned <daily|hourly|weekly|monthly|dynamic>\` node runs once per partition (append/merge into a fixed-schema table), and the \`{partition}\` token — usable in any asset URI AND in the body SQL — is substituted with the current partition's IDENTITY string at run time. To filter the source to the active slice on a time grain, use the runtime-injected macro: \`WHERE wm_partition(<ts_col>) = {partition}\`. \`wm_partition(ts)\` buckets a timestamp with the exact identity format the runtime used (daily/hourly/weekly/monthly), so it always matches and you never hand-write a \`strftime\` format. Do NOT write \`= TIMESTAMP {partition}\`: the identity string is not a valid timestamp literal for hourly/weekly/monthly and errors at runtime. For \`dynamic\` partitioning the identity is your caller-supplied key (not a timestamp, no macro), so filter on it directly: \`WHERE <your_key_col> = {partition}\`. \`materialize\` is an output DECLARATION on the node — it is not a command; there is no "materialize run".
+- \`measure\` / \`dimension\` (declared metrics): on a node that materializes a DuckLake table, \`// measure <name> = <aggregate> [where <predicate>]\` names the canonical way to aggregate that table (e.g. \`// measure revenue = sum(amount) where not is_refund\`), and \`// dimension <name> = <expr>\` names a way to slice it (e.g. \`// dimension region = region\`, \`// dimension month = date_trunc('month', ordered_at)\`). They execute nothing: they are catalogued at deploy so the editor and other agents can reuse the definition instead of re-deriving it and silently disagreeing. Keep the predicate in the \`where\` clause rather than folding it into the aggregate: it is rendered as \`<agg> FILTER (WHERE <pred>)\`, which is what lets two measures with different predicates sit under one GROUP BY. DuckLake-only, and only meaningful next to \`// materialize\`. Declare one when a number carries a judgement call someone else would get wrong (refunds excluded, test rows dropped, which column is the amount); do NOT blanket every table with measures, an obvious \`count(*)\` earns nothing. To USE a metric another node declares, read that node with read_pipeline_node and reuse its exact expression rather than guessing it.
 - Use get_pipeline_graph to see the current nodes/assets/triggers, and read_pipeline_node before editing one.
 - Build new nodes with build_pipeline_node and edit existing ones with edit_pipeline_node. These apply directly as unsaved drafts on the canvas (like the flow/script editor applies AI edits) — they DO NOT deploy. There is no separate Accept/Reject step. Prefer these over the generic write_script/edit_script draft tools while a pipeline is open.
 - Reuse existing asset paths from the graph when wiring a downstream node to an upstream one (read the upstream's write asset, then \`// on\` that same URI).

@@ -93,6 +93,10 @@ pub enum DeployedObject {
         path: String,
         parent_path: Option<String>,
     },
+    AmqpTrigger {
+        path: String,
+        parent_path: Option<String>,
+    },
     SqsTrigger {
         path: String,
         parent_path: Option<String>,
@@ -144,6 +148,7 @@ impl DeployedObject {
             DeployedObject::NatsTrigger { path, .. } => path.to_owned(),
             DeployedObject::PostgresTrigger { path, .. } => path.to_owned(),
             DeployedObject::MqttTrigger { path, .. } => path.to_owned(),
+            DeployedObject::AmqpTrigger { path, .. } => path.to_owned(),
             DeployedObject::SqsTrigger { path, .. } => path.to_owned(),
             DeployedObject::GcpTrigger { path, .. } => path.to_owned(),
             DeployedObject::AzureTrigger { path, .. } => path.to_owned(),
@@ -186,6 +191,7 @@ impl DeployedObject {
             DeployedObject::NatsTrigger { parent_path, .. } => parent_path.to_owned(),
             DeployedObject::PostgresTrigger { parent_path, .. } => parent_path.to_owned(),
             DeployedObject::MqttTrigger { parent_path, .. } => parent_path.to_owned(),
+            DeployedObject::AmqpTrigger { parent_path, .. } => parent_path.to_owned(),
             DeployedObject::SqsTrigger { parent_path, .. } => parent_path.to_owned(),
             DeployedObject::GcpTrigger { parent_path, .. } => parent_path.to_owned(),
             DeployedObject::AzureTrigger { parent_path, .. } => parent_path.to_owned(),
@@ -216,6 +222,7 @@ impl DeployedObject {
             DeployedObject::NatsTrigger { .. } => "nats_trigger",
             DeployedObject::PostgresTrigger { .. } => "postgres_trigger",
             DeployedObject::MqttTrigger { .. } => "mqtt_trigger",
+            DeployedObject::AmqpTrigger { .. } => "amqp_trigger",
             DeployedObject::SqsTrigger { .. } => "sqs_trigger",
             DeployedObject::GcpTrigger { .. } => "gcp_trigger",
             DeployedObject::AzureTrigger { .. } => "azure_trigger",
@@ -445,6 +452,10 @@ mod tests {
         assert_eq!(
             DeployedObject::MqttTrigger { path: "t".to_string(), parent_path: None }.get_kind(),
             "mqtt_trigger"
+        );
+        assert_eq!(
+            DeployedObject::AmqpTrigger { path: "t".to_string(), parent_path: None }.get_kind(),
+            "amqp_trigger"
         );
         assert_eq!(
             DeployedObject::SqsTrigger { path: "t".to_string(), parent_path: None }.get_kind(),

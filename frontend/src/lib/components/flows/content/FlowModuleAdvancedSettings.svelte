@@ -37,6 +37,7 @@
 	import FlowModuleDeleteAfterUse from './FlowModuleDeleteAfterUse.svelte'
 	import FlowModuleCache from './FlowModuleCache.svelte'
 	import FlowModuleDebounce from './FlowModuleDebounce.svelte'
+	import WorkspaceScriptSettingInfo from './WorkspaceScriptSettingInfo.svelte'
 
 	const { pathStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -50,6 +51,17 @@
 		/** For loop modules: keep only the subset of settings loops support
 		 *  (Flow control rows + Lifetime), hiding the rest of Execution policy. */
 		loopSubset?: boolean
+		// For workspace-script steps: the concurrency/cache settings currently set on
+		// the referenced script, and a shortcut to edit them. Undefined for
+		// inline/subflow steps.
+		referencedConcurrentLimit?: number | undefined
+		referencedConcurrencyTimeWindowS?: number | undefined
+		workspaceScriptCacheTtl?: number | undefined
+		loadingWorkspaceScript?: boolean
+		workspaceScriptError?: string | undefined
+		canEditWorkspaceScript?: boolean
+		workspaceScriptNoEditReason?: string | undefined
+		onEditWorkspaceScript?: () => void
 	}
 
 	let {
@@ -58,7 +70,15 @@
 		previousModule = undefined,
 		selectedId,
 		embedded = false,
-		loopSubset = false
+		loopSubset = false,
+		referencedConcurrentLimit = undefined,
+		referencedConcurrencyTimeWindowS = undefined,
+		workspaceScriptCacheTtl = undefined,
+		loadingWorkspaceScript = false,
+		workspaceScriptError = undefined,
+		canEditWorkspaceScript = false,
+		workspaceScriptNoEditReason = undefined,
+		onEditWorkspaceScript
 	}: Props = $props()
 
 	// Accordion: at most one row open at a time.
@@ -74,6 +94,7 @@
 
 	const isFailure = $derived(selectedId.includes('failure'))
 	const isRawScript = $derived(flowModule.value.type === 'rawscript')
+	const isWorkspaceScript = $derived(flowModule.value.type === 'script')
 	const concurrencyOff = $derived(
 		!$enterpriseLicense ||
 			flowModule.value.type !== 'rawscript' ||
@@ -124,6 +145,10 @@
 	})
 
 	const concurrencySummary = $derived.by((): Summary => {
+		if (isWorkspaceScript)
+			return referencedConcurrentLimit != undefined
+				? cfg(`Max ${referencedConcurrentLimit}`)
+				: def('None')
 		if (flowModule.value.type !== 'rawscript' || !flowModule.value.concurrent_limit)
 			return def('None')
 		return cfg(
@@ -136,7 +161,13 @@
 	)
 
 	const cacheSummary = $derived(
-		flowModule.cache_ttl ? cfg(formatDur(flowModule.cache_ttl)) : def('Off')
+		isWorkspaceScript
+			? workspaceScriptCacheTtl != undefined
+				? cfg(formatDur(workspaceScriptCacheTtl))
+				: def('Off')
+			: flowModule.cache_ttl
+				? cfg(formatDur(flowModule.cache_ttl))
+				: def('Off')
 	)
 
 	const debounceSummary = $derived.by((): Summary => {
@@ -312,12 +343,31 @@
 					{/if}
 				</div>
 
-				{#if isRawScript}
+				{#if isRawScript || isWorkspaceScript}
 					<div>
 						{@render rowHeader('concurrency', Gauge, 'Concurrency limit', concurrencySummary)}
 						{#if expanded === 'concurrency'}
 							<div class="px-3 pb-3 pt-1" transition:slide={{ duration: 120 }}>
-								{#if flowModule.value.type === 'rawscript'}
+								{#if flowModule.value.type === 'script'}
+									<WorkspaceScriptSettingInfo
+										label="Concurrency limit"
+										active={referencedConcurrentLimit != undefined}
+										valueText={referencedConcurrentLimit != undefined
+											? `Max ${referencedConcurrentLimit} execution${
+													referencedConcurrentLimit === 1 ? '' : 's'
+												}${
+													referencedConcurrencyTimeWindowS != undefined
+														? ` within ${referencedConcurrencyTimeWindowS}s`
+														: ''
+												}`
+											: undefined}
+										loading={loadingWorkspaceScript}
+										error={workspaceScriptError}
+										canEdit={canEditWorkspaceScript}
+										noEditReason={workspaceScriptNoEditReason}
+										onEdit={onEditWorkspaceScript}
+									/>
+								{:else if flowModule.value.type === 'rawscript'}
 									<div class="flex flex-col gap-3">
 										<Toggle
 											size="xs"
@@ -434,7 +484,15 @@
 					{@render rowHeader('cache', Database, 'Cache results', cacheSummary)}
 					{#if expanded === 'cache'}
 						<div class="px-3 pb-3 pt-1" transition:slide={{ duration: 120 }}>
-							<FlowModuleCache bind:flowModule />
+							<FlowModuleCache
+								bind:flowModule
+								{workspaceScriptCacheTtl}
+								{loadingWorkspaceScript}
+								{workspaceScriptError}
+								{canEditWorkspaceScript}
+								{workspaceScriptNoEditReason}
+								{onEditWorkspaceScript}
+							/>
 						</div>
 					{/if}
 				</div>

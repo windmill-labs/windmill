@@ -25,7 +25,7 @@ use std::time::Instant;
 use tokio::io::AsyncReadExt;
 use tower::ServiceBuilder;
 use url::Url;
-#[cfg(all(feature = "enterprise", feature = "smtp"))]
+#[cfg(all(feature = "enterprise", feature = "instance_smtp"))]
 use windmill_common::auth::is_super_admin_email;
 use windmill_common::auth::TOKEN_PREFIX_LEN;
 #[cfg(feature = "run_inline")]
@@ -54,7 +54,7 @@ use windmill_common::workspace_dependencies::{
     RawWorkspaceDependencies, MIN_VERSION_WORKSPACE_DEPENDENCIES,
 };
 use windmill_common::DYNAMIC_INPUT_CACHE;
-#[cfg(all(feature = "enterprise", feature = "smtp"))]
+#[cfg(all(feature = "enterprise", feature = "instance_smtp"))]
 use windmill_common::{email_oss::send_email_html, server::load_smtp_config};
 use windmill_object_store::upload_artifact_to_store;
 #[cfg(feature = "run_inline")]
@@ -325,6 +325,14 @@ pub fn workspaced_service() -> Router {
             post(delete_completed_job).layer(cors.clone()),
         )
         .route(
+            "/completed/resolve",
+            post(resolve_completed_jobs).layer(cors.clone()),
+        )
+        .route(
+            "/completed/unresolve",
+            post(unresolve_completed_jobs).layer(cors.clone()),
+        )
+        .route(
             "/flow/resume/{id}",
             post(resume_suspended_flow_as_owner).layer(cors.clone()),
         )
@@ -341,6 +349,10 @@ pub fn workspaced_service() -> Router {
         .route(
             "/resume_urls/{job_id}/{resume_id}",
             get(get_resume_urls).layer(cors.clone()),
+        )
+        .route(
+            "/wac_approval_urls/{job_id}/{step_key}",
+            get(get_wac_approval_urls).layer(cors.clone()),
         )
         .route(
             "/result_by_id/{job_id}/{node_id}",
@@ -514,27 +526,17 @@ async fn cancel_job_api(
     OptAuthed(opt_authed): OptAuthed,
     opt_tokened: OptTokened,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, id)): Path<(String, Uuid)>,
     Json(CancelJob { reason }): Json<CancelJob>,
 ) -> error::Result<String> {
-    // App embed tokens (the sandboxed app iframe) may cancel ONLY jobs they launched
-    // — their app's component runs, stamped created_by == viewer. cancel_job_api has
-    // no other per-job ownership check, so without this an embed token (which carries
-    // the viewer's identity) could cancel any job by id. NotFound (not 403) so the
-    // untrusted app can't probe job existence.
+    // Cancelling needs the same per-job access as reading: own job, admin, or RLS-visible
+    // directly/through a flow ancestor — which also confines app embed tokens to the
+    // component runs they launched. No `view_token`: a share link grants read, never the
+    // right to kill someone else's run. Anonymous callers are instead confined to
+    // anonymous-created jobs by `cancel_job`'s `require_anonymous`.
     if let Some(authed) = opt_authed.as_ref() {
-        if windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref()) {
-            let created_by = sqlx::query_scalar!(
-                "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
-                id,
-                &w_id
-            )
-            .fetch_optional(&db)
-            .await?;
-            if created_by.as_deref() != Some(authed.username.as_str()) {
-                return Err(Error::NotFound(format!("Job {id} not found")));
-            }
-        }
+        require_job_update_read_access(&db, &user_db, authed, &w_id, &id, None).await?;
     }
 
     let tx = db.begin().await?;
@@ -644,13 +646,61 @@ async fn cancel_persistent_script_api(
     Ok(())
 }
 
+/// Bounds the ancestor walk below so a cyclic `parent_job` chain cannot spin forever.
+/// `cancel_job` itself is unbounded, so a chain longer than this would leave the two
+/// disagreeing about which job gets killed — hence the fail-closed error.
+const FORCE_CANCEL_MAX_ANCESTOR_DEPTH: i32 = 500;
+
+/// The job a force-cancel of `id` actually kills: `cancel_job(force_cancel = true)` walks
+/// up to the highest still-queued ancestor and cancels that one instead. Falls back to
+/// `id` when it is not queued (the cancel is then a no-op anyway).
+async fn force_cancel_target(db: &DB, w_id: &str, id: Uuid) -> error::Result<Uuid> {
+    let target = sqlx::query!(
+        r#"WITH RECURSIVE queued_ancestors AS (
+            SELECT j.id, j.parent_job, 0 AS depth
+            FROM v2_job j JOIN v2_job_queue q USING (id)
+            WHERE j.id = $1 AND j.workspace_id = $2
+          UNION ALL
+            SELECT j.id, j.parent_job, a.depth + 1
+            FROM queued_ancestors a
+            JOIN v2_job j ON j.id = a.parent_job AND j.workspace_id = $2
+            JOIN v2_job_queue q ON q.id = j.id
+            WHERE a.depth < $3
+        )
+        SELECT id AS "id!", depth AS "depth!" FROM queued_ancestors ORDER BY depth DESC LIMIT 1"#,
+        id,
+        w_id,
+        FORCE_CANCEL_MAX_ANCESTOR_DEPTH,
+    )
+    .fetch_optional(db)
+    .await?;
+    match target {
+        None => Ok(id),
+        // Truncated: we cannot prove which job the cancel would reach, so refuse rather
+        // than authorize an ancestor that may not be the one killed.
+        Some(r) if r.depth >= FORCE_CANCEL_MAX_ANCESTOR_DEPTH => Err(Error::internal_err(format!(
+            "flow nesting above job {id} is too deep to authorize a force cancel"
+        ))),
+        Some(r) => Ok(r.id),
+    }
+}
+
 async fn force_cancel(
     OptAuthed(opt_authed): OptAuthed,
     tokened: OptTokened,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, id)): Path<(String, Uuid)>,
     Json(CancelJob { reason }): Json<CancelJob>,
 ) -> error::Result<String> {
+    // Same per-job access as `cancel_job_api`, but on the job force-cancel actually kills.
+    // Read visibility is inherited *down* the flow chain, so gating on `id` would let a
+    // caller who can only see an inner step kill a root flow hidden from them.
+    if let Some(authed) = opt_authed.as_ref() {
+        let target = force_cancel_target(&db, &w_id, id).await?;
+        require_job_update_read_access(&db, &user_db, authed, &w_id, &target, None).await?;
+    }
+
     let tx = db.begin().await?;
 
     let audit_author: AuditAuthor = match opt_authed.as_ref() {
@@ -1424,6 +1474,11 @@ macro_rules! get_job_query {
             "v2_job_completed.duration_ms, v2_job_completed.completed_at, CASE WHEN status = 'success' OR status = 'skipped' THEN true ELSE false END as success, result_columns, deleted, status = 'skipped' as is_skipped, \
             v2_job.labels, \
             EXISTS(SELECT 1 FROM native_retry_attempt WHERE job_id = v2_job.id) as is_retry, \
+            EXISTS(SELECT 1 FROM job_resolution WHERE job_id = v2_job_completed.id) as resolved, \
+            (SELECT resolved_by FROM job_resolution WHERE job_id = v2_job_completed.id) as resolved_by, \
+            (SELECT resolved_at FROM job_resolution WHERE job_id = v2_job_completed.id) as resolved_at, \
+            (SELECT note FROM job_resolution WHERE job_id = v2_job_completed.id) as resolution_note, \
+            (SELECT automatic FROM job_resolution WHERE job_id = v2_job_completed.id) as resolved_automatically, \
             CASE WHEN result is null or pg_column_size(result) < 90000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result",
             "",
         )
@@ -1692,7 +1747,7 @@ impl<'a> GetQuery<'a> {
     }
 }
 
-#[cfg(all(feature = "smtp", feature = "enterprise"))]
+#[cfg(all(feature = "instance_smtp", feature = "enterprise"))]
 async fn send_workspace_trigger_failure_email_notification(
     db: &DB,
     w_id: &str,
@@ -1855,7 +1910,7 @@ struct SendEmail {
     error: Value,
 }
 
-#[cfg(all(feature = "enterprise", feature = "smtp"))]
+#[cfg(all(feature = "enterprise", feature = "instance_smtp"))]
 async fn send_email_with_instance_smtp(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1913,7 +1968,7 @@ async fn send_email_with_instance_smtp(
     Ok(Json(resp))
 }
 
-#[cfg(not(all(feature = "enterprise", feature = "smtp")))]
+#[cfg(not(all(feature = "enterprise", feature = "instance_smtp")))]
 async fn send_email_with_instance_smtp(
     _authed: ApiAuthed,
     Extension(_db): Extension<DB>,
@@ -2783,7 +2838,10 @@ async fn list_filtered_job_uuids(
         false,
         get_scope_tags(&authed),
     );
-    let query = if lq.status.is_some() {
+    // Same reasoning as the runs-list union gate: "resolved only" is a completed-jobs
+    // concept, so unioning the queue would feed queued jobs into bulk actions taken
+    // under that filter. "hide resolved" must still keep them.
+    let query = if lq.status.is_some() || lq.resolved == Some(true) {
         sqlb.subquery()?
     } else {
         let sqlb2 = list_queue_jobs_query(
@@ -3012,6 +3070,10 @@ async fn list_jobs(
         && lq.label.is_none()
         && lq.result.is_none()
         && !lq.is_skipped.unwrap_or(false)
+        // Only "resolved = true" forces completed-only: queued jobs would otherwise leak
+        // into a resolved-only view. "resolved = false" (hide resolved) must keep them,
+        // since a running job has no resolution to hide.
+        && lq.resolved != Some(true)
         && lq.created_before.is_none()
         && lq.started_before.is_none()
         && lq.created_or_started_before.is_none()
@@ -3192,17 +3254,9 @@ async fn resume_suspended(
     }
 
     // Check approval conditions
-    let approval_conditions = if is_wac {
-        flow.flow_status
-            .as_ref()
-            .and_then(|v| v.get("approval_conditions"))
-            .and_then(|v| serde_json::from_value::<ApprovalConditions>(v.clone()).ok())
-    } else {
-        flow.flow_status
-            .as_ref()
-            .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok())
-            .and_then(|fs| fs.approval_conditions)
-    };
+    let approval_conditions = extract_approval_conditions(flow.flow_status.as_ref(), is_wac);
+
+    let trigger_email = flow.email.as_deref().unwrap_or("");
 
     if let Some(ref ac) = approval_conditions {
         if ac.user_auth_required && opt_authed.is_none() {
@@ -3214,6 +3268,13 @@ async fn resume_suspended(
 
     // If logged in, check authorization rules
     if let Some(ref authed) = opt_authed {
+        // self_approval_disabled applies to owners too (only admins are exempt), so it is
+        // enforced before the owner shortcut below. A token-only (anonymous) resume is treated as
+        // capability-based and intentionally not gated here; see resume_suspended_job.
+        if let Some(ref ac) = approval_conditions {
+            require_not_self_approval(authed, ac, trigger_email)?;
+        }
+
         let is_admin = authed.is_admin;
         let is_owner = flow
             .script_path
@@ -3222,7 +3283,6 @@ async fn resume_suspended(
             .unwrap_or(false);
 
         if !is_admin && !is_owner {
-            let trigger_email = flow.email.as_deref().unwrap_or("");
             conditionally_require_authed_user(
                 Some(authed.clone()),
                 approval_conditions.clone(),
@@ -3347,10 +3407,11 @@ struct ApprovalInfo {
 }
 
 /// Whether `opt_authed` is allowed to approve — and therefore view — this approval step.
-/// Mirrors the authorization performed at the resume boundary: workspace admins and owners
-/// of the runnable always qualify; otherwise the approval conditions (user_auth_required /
-/// user_groups_required / self_approval_disabled) decide. When the step does not require auth,
-/// an anonymous (token-only) caller qualifies.
+/// Mirrors the authorization performed at the resume boundary: workspace admins always qualify;
+/// self_approval_disabled then bars the triggerer even when they own the runnable; otherwise
+/// owners qualify and the remaining approval conditions (user_auth_required /
+/// user_groups_required) decide. When the step does not require auth, an anonymous (token-only)
+/// caller qualifies.
 fn can_approve_step(
     opt_authed: &Option<ApiAuthed>,
     approval_conditions: &Option<ApprovalConditions>,
@@ -3361,6 +3422,12 @@ fn can_approve_step(
         Some(authed) => {
             if authed.is_admin {
                 return true;
+            }
+            // self_approval_disabled applies to owners too, so it gates the owner shortcut.
+            if let Some(ref ac) = approval_conditions {
+                if require_not_self_approval(authed, ac, trigger_email).is_err() {
+                    return false;
+                }
             }
             let is_owner = script_path
                 .map(|p| require_owner_of_path(authed, p).is_ok())
@@ -3648,8 +3715,10 @@ async fn resume_suspended_job_internal(
     // Get flow info - works for step-level, flow-level, and WAC approval
     let (flow_info, is_flow_level, is_wac) = get_flow_info_for_resume(job_id, &db).await?;
 
-    // HMAC secret = full capability. Skip approval_conditions checks.
-    // Authorization rules are enforced by the new resume_suspended endpoint instead.
+    // HMAC secret = full capability. Skip approval_conditions checks: possession of the full
+    // resume URL is the authorization (it is only disclosed to intended approvers, e.g. when a
+    // step returns it). Identity-based rules, including self_approval_disabled, are enforced by
+    // the resume_suspended endpoint instead.
 
     let exists = sqlx::query_scalar!(
         r#"
@@ -3677,6 +3746,13 @@ async fn resume_suspended_job_internal(
     };
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
+    // Inside the transaction that inserts the row and moves the suspend counter:
+    // validating earlier would let the workflow resolve this step and suspend on the
+    // next one in between, so a stale request would wake that later step instead.
+    if is_wac {
+        reject_mismatched_wac_approval(&mut tx, flow_info.id, resume_id).await?;
+    }
+
     insert_resume_job(
         resume_id,
         job_id,
@@ -3696,15 +3772,17 @@ async fn resume_suspended_job_internal(
         .execute(&mut *tx)
         .await?;
     } else if is_wac {
-        // WAC approval: decrement suspend counter directly on the WAC parent job
-        if flow_info.suspend > 0 {
-            sqlx::query!(
-                "UPDATE v2_job_queue SET suspend = GREATEST(suspend - 1, 0) WHERE id = $1",
-                flow_info.id,
-            )
-            .execute(&mut *tx)
-            .await?;
-        }
+        // WAC approval: decrement suspend counter directly on the WAC parent job.
+        // `flow_info.suspend` was read before this transaction took the queue-row
+        // lock, so gating on it would skip the decrement for a workflow that
+        // suspended in between and leave the approval parked until timeout.
+        sqlx::query!(
+            "UPDATE v2_job_queue SET suspend = GREATEST(suspend - 1, 0) \
+             WHERE id = $1 AND suspend > 0",
+            flow_info.id,
+        )
+        .execute(&mut *tx)
+        .await?;
     } else if is_flow_level {
         // For flow-level resumes, decrement the suspend counter if the flow is currently suspended
         // The approval will be matched when the worker checks for resumes (both step-level and flow-level)
@@ -4095,6 +4173,45 @@ pub async fn get_suspended_job_flow(
     Ok(Json(SuspendedJobFlow { job: flow, approvers, view_token }).into_response())
 }
 
+/// Read the step's approval_conditions from the suspended flow status. For classic flows they
+/// live inside the deserialized `FlowStatus`; for workflow-as-code they are a top-level
+/// `approval_conditions` key in the status JSON.
+fn extract_approval_conditions(
+    flow_status: Option<&serde_json::Value>,
+    is_wac: bool,
+) -> Option<ApprovalConditions> {
+    if is_wac {
+        flow_status
+            .and_then(|v| v.get("approval_conditions"))
+            .and_then(|v| serde_json::from_value::<ApprovalConditions>(v.clone()).ok())
+    } else {
+        flow_status
+            .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok())
+            .and_then(|fs| fs.approval_conditions)
+    }
+}
+
+/// The flow's triggerer may not approve their own suspended step when the step sets
+/// `self_approval_disabled`. Only admins are exempt: owning the runnable does not grant
+/// the right to approve your own run, so this must be enforced at every resume boundary
+/// independently of the owner shortcut (which only waives user_auth_required /
+/// user_groups_required).
+fn require_not_self_approval(
+    authed: &ApiAuthed,
+    approval_conditions: &ApprovalConditions,
+    trigger_email: &str,
+) -> error::Result<()> {
+    if approval_conditions.self_approval_disabled
+        && !authed.is_admin
+        && authed.email.eq(trigger_email)
+    {
+        return Err(Error::PermissionDenied(
+            "Self-approval is disabled for this flow step".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 fn conditionally_require_authed_user(
     _authed: Option<ApiAuthed>,
     approval_conditions_opt: Option<ApprovalConditions>,
@@ -4106,14 +4223,8 @@ fn conditionally_require_authed_user(
     let approval_conditions = approval_conditions_opt.unwrap();
 
     // Check self-approval independently of user_auth_required
-    if approval_conditions.self_approval_disabled {
-        if let Some(ref authed) = _authed {
-            if !authed.is_admin && authed.email.eq(_trigger_email) {
-                return Err(Error::PermissionDenied(
-                    "Self-approval is disabled for this flow step".to_string(),
-                ));
-            }
-        }
+    if let Some(ref authed) = _authed {
+        require_not_self_approval(authed, &approval_conditions, _trigger_email)?;
     }
 
     if approval_conditions.user_auth_required {
@@ -4266,6 +4377,180 @@ pub async fn get_resume_urls(
         Query(approver),
     )
     .await
+}
+
+/// Resume URLs bound to one `wait_for_approval(key=...)` step of a running
+/// Workflow-as-Code job, so the workflow can route the request through its own
+/// channel instead of the built-in ones. Same authority as `get_resume_urls`:
+/// only the `resume_id` derivation differs, and it is the one the worker will
+/// use when that step suspends.
+pub async fn get_wac_approval_urls(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, job_id, step_key)): Path<(String, Uuid, String)>,
+    Query(approver): Query<QueryApprover>,
+) -> error::JsonResult<ResumeUrls> {
+    if step_key.trim().is_empty() {
+        return Err(Error::BadRequest(
+            "step_key must be the key of a wait_for_approval step".to_string(),
+        ));
+    }
+    let flow_path = resume_target_flow_path(&db, &w_id, job_id).await?;
+    check_scopes(&authed, || format!("jobs:run:flows:{}", flow_path))?;
+
+    // This handler writes to the job's status row, so the job must actually be in
+    // the caller's workspace — `v2_job_status` is keyed by job id alone and would
+    // otherwise take a write aimed at another workspace's job.
+    let in_workspace = sqlx::query_scalar!(
+        "SELECT EXISTS (SELECT 1 FROM v2_job WHERE id = $1 AND workspace_id = $2)",
+        job_id,
+        w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(false);
+    if !in_workspace {
+        return Err(Error::NotFound(format!("job {job_id} not found")));
+    }
+
+    // The approval belongs to the WAC parent, but WM_JOB_ID is the child job when
+    // this is called from inside a task() rather than a step(). Resolve up so the
+    // URL still targets the workflow that will suspend.
+    let job_id = get_flow_id_for_job(&db, job_id).await.unwrap_or(job_id);
+
+    // The write below is what the run page keys its WAC timeline off, so it must not
+    // land on a job that has no WAC status. Rules out flows and step/child jobs; a
+    // WAC parent is itself a script job, so a plain script is indistinguishable here
+    // and still passes — it simply never mints, since only the SDK calls this.
+    let is_wac = sqlx::query_scalar!(
+        r#"SELECT (kind::text NOT IN ('flow', 'flowpreview', 'flownode', 'singlestepflow')
+                   AND parent_job IS NULL) AS "is_wac!"
+           FROM v2_job WHERE id = $1"#,
+        job_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .unwrap_or(false);
+    if !is_wac {
+        return Err(Error::BadRequest(format!(
+            "job {job_id} is not a workflow-as-code job"
+        )));
+    }
+
+    let resume_id = windmill_common::wac::approval_resume_id(&step_key);
+
+    // Remember which steps have a minted URL in circulation. A workflow may mint
+    // several up front, and the resume path uses this to tell "URL for the step
+    // awaiting approval" apart from "URL for some other step of this workflow",
+    // which it otherwise cannot: the interactive channels sign random resume_ids
+    // and must keep resuming whatever step is pending.
+    //
+    // Record first, then look for a collision, both in one transaction: the upsert
+    // takes the row lock, so a concurrent mint of a colliding key is serialized
+    // behind it and sees this key rather than racing past an earlier read. Upsert
+    // because a workflow can mint before any step has checkpointed, and a bare
+    // UPDATE would silently match nothing and leave the link unbound.
+    let mut tx = db.begin().await?;
+    sqlx::query(
+        "INSERT INTO v2_job_status (id, workflow_as_code_status)
+         VALUES ($1, jsonb_build_object('_minted_approval_keys',
+                    jsonb_build_object($2::text, true)))
+         ON CONFLICT (id) DO UPDATE SET workflow_as_code_status = jsonb_set(
+            COALESCE(v2_job_status.workflow_as_code_status, '{}'::jsonb),
+            ARRAY['_minted_approval_keys'],
+            COALESCE(v2_job_status.workflow_as_code_status->'_minted_approval_keys', '{}'::jsonb)
+                || jsonb_build_object($2::text, true)
+        )",
+    )
+    .bind(job_id)
+    .bind(&step_key)
+    .execute(&mut *tx)
+    .await?;
+
+    // Two keys sharing a resume_id share one resume_job row and one capability, and
+    // the binding check could not tell which of them a link was minted for.
+    if let Some(other) = sqlx::query_scalar::<_, String>(
+        "SELECT jsonb_object_keys(
+            COALESCE(workflow_as_code_status->'_minted_approval_keys', '{}'::jsonb))
+         FROM v2_job_status WHERE id = $1",
+    )
+    .bind(job_id)
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
+    .find(|k| *k != step_key && windmill_common::wac::approval_resume_id(k) == resume_id)
+    {
+        tx.rollback().await?;
+        return Err(Error::BadRequest(format!(
+            "step key `{step_key}` collides with `{other}` on the same resume id; rename one"
+        )));
+    }
+    tx.commit().await?;
+
+    get_resume_urls_internal(
+        Extension(db),
+        Path((w_id, job_id, resume_id)),
+        Query(approver),
+    )
+    .await
+}
+
+/// A WAC resume URL minted for a named `wait_for_approval` step is accepted only
+/// while that step is the one awaiting approval. Approval rows are consumed
+/// oldest-first regardless of resume_id (WIN-2241 — required so Slack/Teams/the
+/// approval page, which sign random ids, keep working), so a row banked at any
+/// other moment is picked up by whichever approval is reached first, silently
+/// answering it with this approver's response. Unbound resume_ids are untouched.
+async fn reject_mismatched_wac_approval(
+    tx: &mut Transaction<'_, Postgres>,
+    job_id: Uuid,
+    resume_id: u32,
+) -> Result<(), Error> {
+    // Lock the queue row the worker also writes when it suspends on the next step,
+    // so the pending step read below cannot change before this transaction commits.
+    sqlx::query("SELECT 1 FROM v2_job_queue WHERE id = $1 FOR UPDATE")
+        .bind(job_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+
+    let status: Option<sqlx::types::Json<WacApprovalBinding>> = sqlx::query_scalar(
+        "SELECT jsonb_build_object(
+            'minted', COALESCE(workflow_as_code_status->'_minted_approval_keys', '{}'::jsonb),
+            'pending', workflow_as_code_status->'_checkpoint'->'pending_steps'
+         ) FROM v2_job_status WHERE id = $1",
+    )
+    .bind(job_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    let Some(sqlx::types::Json(binding)) = status else {
+        return Ok(());
+    };
+    let awaiting = binding.pending.as_ref().filter(|p| p.mode == "approval");
+    let bound_to = binding
+        .minted
+        .keys()
+        .find(|k| windmill_common::wac::approval_resume_id(k) == resume_id);
+
+    // A bound link is only ever valid while its own step is the one awaiting
+    // approval. Accepting it at any other time — including while the workflow is
+    // still running toward that step — leaves a row that the next approval to be
+    // reached consumes, whichever step that is.
+    match (bound_to, awaiting) {
+        (Some(step), pending) if !pending.is_some_and(|p| p.keys.iter().any(|k| k == step)) => {
+            Err(Error::BadRequest(format!(
+                "this approval link is bound to step `{step}`, which is not currently awaiting \
+                 approval"
+            )))
+        }
+        _ => Ok(()),
+    }
+}
+
+#[derive(Deserialize)]
+struct WacApprovalBinding {
+    minted: std::collections::HashMap<String, serde_json::Value>,
+    pending: Option<windmill_common::wac::WacPendingSteps>,
 }
 
 pub async fn get_resume_urls_internal(
@@ -9600,6 +9885,213 @@ async fn delete_completed_job<'a>(
         Path((w_id, id)),
     )
     .await;
+}
+
+#[derive(Deserialize)]
+struct ResolveJobsRequest {
+    job_ids: Vec<Uuid>,
+    note: Option<String>,
+    /// Id of a later successful run of the same runnable, when the caller claims the failure
+    /// was superseded. Evidence rather than an assertion: the claim is proven in SQL below and
+    /// the wording it produces belongs to the server, so this cannot attach arbitrary text to a
+    /// failure nor stamp provenance onto one that was never re-run.
+    superseded_by: Option<Uuid>,
+}
+
+/// Provenance Windmill established itself, as opposed to a person's explanation, which is why
+/// this is recorded outside enterprise while a typed note is not.
+const SUPERSEDED_NOTE: &str = "Superseded by a successful re-run";
+
+/// Bounded so the per-id audit rows written below stay bounded too.
+const MAX_RESOLUTION_BATCH: usize = 1000;
+/// The note is copied onto every row the request resolves, so its size multiplies by the
+/// batch size. Bounded to keep a single call from writing an outsized amount of TOAST/WAL.
+/// Counted in characters, not bytes, so the limit matches what the client and the OpenAPI
+/// `maxLength` count and a non-ASCII note never fails a check it appeared to pass.
+const MAX_RESOLUTION_NOTE_LEN: usize = 2000;
+
+/// Who resolved a failure and why is enterprise-only, mirroring `audit_log` being a no-op
+/// outside EE: CE records *that* a failure was handled, EE records the accountability. The
+/// resolution itself, the filter and the automatic retry sweep are unaffected, so gating
+/// stays on this write and never reaches the runs-list read path.
+/// The runtime license check matters as much as the feature gate: an EE binary keeps the
+/// `enterprise` feature when its key expires, so without this a direct API client could keep
+/// persisting attribution the UI has already stopped offering.
+#[cfg(feature = "enterprise")]
+fn resolution_attribution<'a>(
+    authed: &'a ApiAuthed,
+    note: Option<&'a str>,
+) -> (Option<&'a str>, Option<&'a str>) {
+    if !windmill_common::ee_oss::LICENSE_KEY_VALID.load(std::sync::atomic::Ordering::Relaxed) {
+        return (None, None);
+    }
+    (Some(authed.username.as_str()), note)
+}
+
+#[cfg(not(feature = "enterprise"))]
+fn resolution_attribution<'a>(
+    _authed: &'a ApiAuthed,
+    _note: Option<&'a str>,
+) -> (Option<&'a str>, Option<&'a str>) {
+    (None, None)
+}
+
+fn check_resolution_request(
+    authed: &ApiAuthed,
+    job_ids: &[Uuid],
+    note: Option<&str>,
+) -> error::Result<()> {
+    if authed.is_operator {
+        return Err(error::Error::NotAuthorized(
+            "Operators cannot resolve jobs".to_string(),
+        ));
+    }
+    if job_ids.len() > MAX_RESOLUTION_BATCH {
+        return Err(error::Error::BadRequest(format!(
+            "Cannot resolve more than {MAX_RESOLUTION_BATCH} jobs at once, got {}",
+            job_ids.len()
+        )));
+    }
+    if let Some(note) = note {
+        let len = note.chars().count();
+        if len > MAX_RESOLUTION_NOTE_LEN {
+            return Err(error::Error::BadRequest(format!(
+                "Resolution note cannot exceed {MAX_RESOLUTION_NOTE_LEN} characters, got {len}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Marks failed jobs as handled. Returns the ids actually affected: an id that is not
+/// visible to the caller, carries an out-of-scope tag, or did not fail is silently
+/// absent rather than an error, so a bulk selection never fails as a whole.
+async fn resolve_completed_jobs(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<ResolveJobsRequest>,
+) -> error::JsonResult<Vec<Uuid>> {
+    check_resolution_request(&authed, &req.job_ids, req.note.as_deref())?;
+    let mut tx = user_db.begin(&authed).await?;
+    let tags = get_scope_tags(&authed);
+    let (resolved_by, typed_note) = resolution_attribution(&authed, req.note.as_deref());
+    let system_note = req.superseded_by.map(|_| SUPERSEDED_NOTE);
+    // The join on v2_job is what authorizes this write: v2_job_completed has RLS
+    // disabled, so v2_job's policies are the only thing scoping rows to the caller.
+    // `status = 'failure'` keeps the invariant that only a failure can be resolved.
+    let resolved = sqlx::query_scalar!(
+        "INSERT INTO job_resolution (job_id, workspace_id, resolved_by, note, automatic)
+            SELECT c.id, c.workspace_id, $4, COALESCE($5, $7), false
+                FROM v2_job_completed c
+                JOIN v2_job j ON j.id = c.id
+                WHERE c.id = ANY($1)
+                    AND c.workspace_id = $2
+                    AND ($3::TEXT[] IS NULL OR j.tag = ANY($3))
+                    AND c.status = 'failure'
+                    -- Resolution is a top-level triage state: a step resolved on its own
+                    -- would render orange inside a flow whose status is still red.
+                    AND j.flow_step_id IS NULL
+                    -- A supersession claim has to be proven, not trusted: a later success of the
+                    -- same identified runnable, itself visible to the caller. An unproven claim
+                    -- resolves nothing, so the caller learns it was rejected instead of having
+                    -- the fiction recorded as provenance.
+                    AND ($6::UUID IS NULL OR EXISTS (
+                        SELECT 1 FROM v2_job_completed sc
+                            JOIN v2_job sj ON sj.id = sc.id
+                            WHERE sc.id = $6
+                                AND sc.workspace_id = $2
+                                -- Tag scope is a read restriction enforced outside RLS, so it has
+                                -- to bind the evidence as well: otherwise the result reveals
+                                -- whether an out-of-scope run succeeded.
+                                AND ($3::TEXT[] IS NULL OR sj.tag = ANY($3))
+                                AND sc.status = 'success'
+                                AND sc.completed_at >= c.completed_at
+                                AND (j.runnable_id IS NOT NULL OR j.runnable_path IS NOT NULL)
+                                AND sj.runnable_id IS NOT DISTINCT FROM j.runnable_id
+                                AND sj.runnable_path IS NOT DISTINCT FROM j.runnable_path
+                    ))
+            ON CONFLICT (job_id) DO UPDATE SET
+                resolved_at = now(),
+                -- Both COALESCEd: `resolution_attribution` returns NULLs outside EE and once the
+                -- licence lapses, and bulk selections routinely include already-resolved rows,
+                -- so overwriting would erase metadata recorded while it was valid. Clear either
+                -- by unresolving first.
+                resolved_by = COALESCE($4, job_resolution.resolved_by),
+                -- A person's explanation replaces what was there; machine provenance only fills
+                -- a blank, so re-running an already-explained failure never erases their words.
+                note = COALESCE($5, job_resolution.note, $7),
+                -- A human taking over an automatic resolution makes it no longer automatic.
+                automatic = false
+            RETURNING job_id",
+        &req.job_ids,
+        &w_id,
+        tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
+        resolved_by,
+        typed_note,
+        req.superseded_by,
+        system_note,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    for id in &resolved {
+        audit_log(
+            &mut *tx,
+            &authed,
+            "jobs.resolve",
+            ActionKind::Update,
+            &w_id,
+            Some(&id.to_string()),
+            None,
+        )
+        .await?;
+    }
+
+    tx.commit().await?;
+    Ok(Json(resolved))
+}
+
+async fn unresolve_completed_jobs(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<ResolveJobsRequest>,
+) -> error::JsonResult<Vec<Uuid>> {
+    check_resolution_request(&authed, &req.job_ids, None)?;
+    let mut tx = user_db.begin(&authed).await?;
+    let tags = get_scope_tags(&authed);
+    let unresolved = sqlx::query_scalar!(
+        "DELETE FROM job_resolution r
+            USING v2_job_completed c
+            JOIN v2_job j ON j.id = c.id
+            WHERE r.job_id = c.id
+                AND c.id = ANY($1)
+                AND c.workspace_id = $2
+                AND ($3::TEXT[] IS NULL OR j.tag = ANY($3))
+            RETURNING r.job_id",
+        &req.job_ids,
+        &w_id,
+        tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    for id in &unresolved {
+        audit_log(
+            &mut *tx,
+            &authed,
+            "jobs.unresolve",
+            ActionKind::Update,
+            &w_id,
+            Some(&id.to_string()),
+            None,
+        )
+        .await?;
+    }
+
+    tx.commit().await?;
+    Ok(Json(unresolved))
 }
 
 async fn get_otel_traces(

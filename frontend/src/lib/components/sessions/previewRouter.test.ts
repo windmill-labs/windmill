@@ -2,11 +2,26 @@ import { describe, it, expect } from 'vitest'
 import {
 	artifactUrl,
 	draftFriendlyLeaf,
+	matchReusablePage,
 	parseArtifactRoute,
 	parsePreviewItemRoute,
 	previewLocationLabel,
 	resolvePreviewTab
 } from './previewRouter'
+
+describe('matchReusablePage', () => {
+	it('matches curated pages and the compare page, ignoring query params', () => {
+		expect(matchReusablePage('/runs?path=f/a/b')?.path).toBe('/runs')
+		expect(matchReusablePage('/forks/compare?workspace_id=ws&items=script:f/a/b')?.path).toBe(
+			'/forks/compare'
+		)
+		expect(previewLocationLabel('/forks/compare?workspace_id=ws')).toBe('Compare & Deploy')
+	})
+
+	it('does not match trigger pages (they dedupe on exact URL)', () => {
+		expect(matchReusablePage('/kafka_triggers')).toBeUndefined()
+	})
+})
 
 describe('parsePreviewItemRoute', () => {
 	it('maps edit/get routes to item kinds', () => {

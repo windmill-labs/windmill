@@ -174,6 +174,40 @@ describe("validateToolExpectations", () => {
     expect(checks.every((check) => check.passed)).toBe(true);
   });
 
+  it("accepts a stringIncludesAnyOf substring inside an array-valued field", () => {
+    const checks = validateToolExpectations({
+      run: {
+        success: true,
+        actual: {},
+        assistantMessageCount: 1,
+        toolCallCount: 1,
+        toolsUsed: ["open_page"],
+        toolCallDetails: [
+          {
+            name: "open_page",
+            arguments: {
+              page: "compare",
+              items: ["script:f/evals/global/compare_review_demo"],
+            },
+          },
+        ],
+        skillsInvoked: [],
+      },
+      toolExpect: {
+        requiredToolsUsed: ["open_page"],
+        toolCallArgs: [
+          {
+            tool: "open_page",
+            field: "items",
+            stringIncludesAnyOf: ["f/evals/global/compare_review_demo"],
+          },
+        ],
+      },
+    });
+
+    expect(checks.every((check) => check.passed)).toBe(true);
+  });
+
   it("accepts stringIncludesAnyOf when only one of several calls matches", () => {
     // Existential: a mutation mixed with verification SELECTs still passes.
     const checks = validateToolExpectations({

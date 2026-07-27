@@ -20,6 +20,11 @@ import type { AssetGraphResponse } from './types'
 export const CASCADE_POLL_INTERVAL_MS = 1000
 export const CASCADE_JOB_TIMEOUT_MS = 30 * 60 * 1000
 
+// Data-asset kinds a pipeline graph resolves — the `asset_kinds` filter for the
+// `/assets/graph` fetch. Shared so the pipeline editor and deploy-to-hub request
+// the same nodes/edges (and can't silently diverge when a kind is added).
+export const DATA_ASSET_KINDS = ['s3object', 'ducklake', 'datatable', 'volume']
+
 export type LocalScriptContent = {
 	content: string
 	language: Preview['language']
