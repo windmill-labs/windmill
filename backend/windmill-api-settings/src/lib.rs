@@ -1727,12 +1727,7 @@ async fn setup_custom_instance_pg_database_inner(
     logs.grant_permissions = "OK".to_string();
 
     drop(client); // /!\ Drop before joining to avoid deadlock
-    join_handle
-        .await
-        .map_err(|e| error::Error::ExecutionErr(format!("join error: {}", e.to_string())))?
-        .map_err(|e| {
-            error::Error::ExecutionErr(format!("tokio_postgres error: {}", e.to_string()))
-        })?;
+    windmill_common::shutdown_pg_connection(join_handle).await?;
 
     Ok(())
 }
