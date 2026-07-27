@@ -1072,7 +1072,8 @@ impl PgDatabase {
 const PG_CONNECTION_SHUTDOWN_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Wind down the task driving a `tokio_postgres` connection after its `Client` has been dropped,
-/// surfacing whatever error the connection ended with.
+/// surfacing whatever error the connection ended with. A teardown that has to be aborted is
+/// reported as success — the work the client did is already done and complete.
 ///
 /// The task only finishes once the exchange the client left behind (its Terminate, and any
 /// still-unanswered request) has been settled by the peer. A connection proxy that stops
@@ -1103,7 +1104,7 @@ pub async fn shutdown_pg_connection(
 
 #[cfg(test)]
 mod pg_connection_shutdown_tests {
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn gives_up_on_a_connection_task_that_never_finishes() {
         let never_finishes = tokio::spawn(std::future::pending());
         assert!(super::shutdown_pg_connection(never_finishes).await.is_ok());
