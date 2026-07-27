@@ -509,26 +509,61 @@
 		focusInput()
 	}
 
-	/** Copy the last sent message (all four draft lanes) into the composer.
-	 * The conversation is left untouched — resending creates a new message,
-	 * unlike the bubble's edit pencil which rewinds the conversation. */
+	/** Copy the last sent message (all four draft lanes + context chips) into
+	 * the composer. The conversation is left untouched — resending creates a new
+	 * message, unlike the bubble's edit pencil which rewinds the conversation. */
 	function recallLastSentMessage(): boolean {
 		const messages = aiChatManager.displayMessages
 		for (let i = messages.length - 1; i >= 0; i--) {
 			const message = messages[i]
+			if (message.role !== 'user') continue
+			// Images come from the stored turn, never the bubble: a provider
+			// rejection strips them from history while the bubble keeps its copy,
+			// and recalling that copy would re-attach the refused image.
+			const images = aiChatManager.storedImages(i) ?? []
+			// A context-only turn (GLOBAL allows text-free sends with chips) counts
+			// as recallable — skipping it would resurrect an older prompt instead
+			// of the message actually sent last.
 			if (
-				message.role === 'user' &&
-				(message.content || message.images?.length || message.files?.length)
-			) {
-				draft.replace({
-					text: message.content,
-					pastes: message.pastes,
-					images: message.images,
-					files: message.files
-				})
-				focusInput()
-				return true
+				!(
+					message.content ||
+					images.length ||
+					message.files?.length ||
+					message.contextElements?.length
+				)
+			)
+				continue
+			draft.replace({
+				text: message.content,
+				pastes: message.pastes,
+				images
+			})
+			// The recalled message stays in the transcript, so its files still
+			// count against the conversation budget — re-admit them instead of
+			// copying, or resending would blow past MAX_CONVERSATION_FILE_BYTES.
+			if (message.files?.length) {
+				const budget =
+					MAX_CONVERSATION_FILE_BYTES - aiChatManager.attachmentBytesExcluding(composerKey)
+				const { droppedAtBudget } = draft.addFiles(message.files, budget)
+				if (droppedAtBudget > 0) {
+					const mb = Math.round(MAX_CONVERSATION_FILE_BYTES / 1_000_000)
+					sendUserToast(
+						`${droppedAtBudget} file(s) not recalled — this conversation reached its ${mb}MB attachment budget.`,
+						true
+					)
+				}
 			}
+			// Chips usually persist in the selection across sends, but the user may
+			// have removed some since — merge the message's chips back in (union,
+			// like dequeue) rather than replace, so chips selected since survive.
+			const missingContext = (message.contextElements ?? []).filter(
+				(c) => !selectedContext.some((s) => isSameContextElement(s, c))
+			)
+			if (missingContext.length > 0) {
+				selectedContext = [...selectedContext, ...missingContext]
+			}
+			focusInput()
+			return true
 		}
 		return false
 	}
