@@ -305,7 +305,6 @@
         type: rawscript
     moduleRules:
       - id: count_until_target
-        hasStopAfterIf: true
         hasStopAfterAllItersIf: false
         exactImmediateChildStepIds:
           - increment_counter
@@ -316,9 +315,9 @@
     - "the input schema includes a number field named `target`"
     - "the top-level while loop step is named `count_until_target`"
     - "`count_until_target` contains a single increment step named `increment_counter`"
-    - "`count_until_target` uses module-level `stop_after_if` to stop when the counter reaches `target`. Facts for judging: in Windmill, `stop_after_if` on the whileloopflow module is evaluated after every iteration against that iteration's result (`result`), so both condition shapes are fully correct and equally acceptable: comparing the result's counter to `target` (e.g. `result.counter >= flow_input.target`) or checking a boolean the inner step returns (e.g. `result.done === true`). Do not deduct points for choosing either shape"
-    - "`increment_counter` derives the counter from the iteration index (`flow_input.iter.index`, or `flow_input.iter.value` which equals the index in while loops)"
-    - "the loop terminates: no expression reads a previous iteration's result (e.g. `flow_input.iter.value.<field>` or `results.<inner_step>`) — while loops carry no state between iterations, so such a counter would never advance"
+    - "the loop stops when the counter reaches `target` via a `stop_after_if` on the loop module or on `increment_counter` — both placements are valid per-iteration breaks in Windmill, and both condition shapes are equally acceptable: comparing the result's counter to `target` (e.g. `result.counter >= flow_input.target`) or checking a boolean the step returns (e.g. `result.done === true`). Do not deduct points for these choices"
+    - "`increment_counter` uses valid while-loop state: either a counter derived from the iteration index (`flow_input.iter.index`, or `flow_input.iter.value` which equals the index in while loops), or its own previous result via `results.increment_counter` with a first-iteration fallback — the `results` form is only valid if `stop_after_if` sits on `increment_counter` itself (a single-step body with the stop condition on the loop module does not resolve `results` across iterations)"
+    - "the loop terminates: fail this if any expression reads a field off `flow_input.iter.value` (it is a plain number, so e.g. `flow_input.iter.value.counter` never advances), or if the single-step body reads `results.increment_counter` while `stop_after_if` sits on the loop module (in that configuration `results.increment_counter` is null on every iteration)"
     - "`return_final_counter` returns the final counter value"
 
 - id: flow-test11-preprocessor-and-failure-handler
