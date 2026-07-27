@@ -23,6 +23,9 @@
 			string,
 			{ cursor?: string; hasMore: boolean; loading: boolean; loaded: boolean; count: number }
 		>
+		// Server-side total of visible items per owner prefix; lets a collapsed,
+		// not-yet-loaded owner show its item count.
+		ownerCounts?: Record<string, number>
 		onExpandOwner?: (owner: string, more?: boolean) => void
 		onCollapseOwner?: (owner: string) => void
 		// Position of this node among the rendered root nodes; "expand all" only
@@ -38,6 +41,7 @@
 		isSearching = false,
 		pipelineFolders,
 		ownerLoad,
+		ownerCounts,
 		onExpandOwner,
 		onCollapseOwner,
 		rootIndex = 0
@@ -79,6 +83,21 @@
 	// whose items are already grouped from the loaded window.
 	let isLazyOwner = $derived(ownerKey != undefined && ownerLoad != undefined)
 	let ownerState = $derived(ownerKey != undefined ? ownerLoad?.[ownerKey] : undefined)
+	// Server total for this owner (all descendants). A loaded counts map with no
+	// entry for this owner means it has no visible items — a real 0, not unknown.
+	let totalCount = $derived(
+		ownerKey != undefined && ownerCounts != undefined ? (ownerCounts[ownerKey] ?? 0) : undefined
+	)
+	// Known to have nothing to reveal: zero server-counted items, none loaded, and
+	// no Pipeline entry (a pipeline folder shows a Pipeline row despite 0 counted
+	// items). Such a node is inert — no toggle, no chevron.
+	let isEmptyOwner = $derived(
+		isLazyOwner &&
+			totalCount === 0 &&
+			(isFolder(item) || isUser(item)) &&
+			item.items.length === 0 &&
+			!hasPipeline
+	)
 
 	let showMax = $state(15)
 	// A lazy owner paginates server-side ("Load more"), so when opened on its own it
@@ -144,8 +163,11 @@
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
-			onclick={toggleOwner}
-			class="px-4 py-2 border-b w-full flex flex-row items-center justify-between cursor-pointer"
+			onclick={isEmptyOwner ? undefined : toggleOwner}
+			class={twMerge(
+				'px-4 py-2 border-b w-full flex flex-row items-center justify-between',
+				isEmptyOwner ? '' : 'cursor-pointer'
+			)}
 		>
 			<div
 				class={twMerge('flex flex-row items-center gap-4 text-sm font-semibold')}
@@ -166,8 +188,13 @@
 						{#if isUser(item)}u/{item.username}{:else}{#if depth === 0}f/{/if}{item.folderName}{/if}
 					</span>
 					<div class="text-2xs font-normal text-secondary whitespace-nowrap">
-						{#if isLazyOwner && !ownerState?.loaded}
-							<!-- Lazy owner not expanded yet: its true item count is unknown until
+						{#if isLazyOwner && totalCount != undefined}
+							<!-- Lazy owner with a known server total: show it in every state (collapsed
+							     or expanded) so the number doesn't jump on expand — item.items.length
+							     counts only direct children (a subfolder collapses to one entry). -->
+							({pluralize(totalCount, ' item')})
+						{:else if isLazyOwner && !ownerState?.loaded}
+							<!-- Lazy owner, counts not available: its item count is unknown until
 							     loaded, so showing "(0 items)" would be misleading. -->
 							&nbsp;
 						{:else if isLazyOwner && ownerState?.hasMore}
@@ -178,13 +205,15 @@
 					</div>
 				</div>
 			</div>
-			<button class="w-full flex flex-row-reverse">
-				{#if opened}
-					<ChevronUp size={16} />
-				{:else}
-					<ChevronDown size={16} />
-				{/if}
-			</button>
+			{#if !isEmptyOwner}
+				<button class="w-full flex flex-row-reverse">
+					{#if opened}
+						<ChevronUp size={16} />
+					{:else}
+						<ChevronDown size={16} />
+					{/if}
+				</button>
+			{/if}
 		</div>
 		{#if opened || isSearching}
 			<div>
@@ -229,10 +258,12 @@
 					</div>
 				{/if}
 				{#if ownerKey != undefined}
-					{#if ownerState?.loading && item.items.length === 0}
+					{#if ownerState?.loading && item.items.length === 0 && totalCount !== 0}
 						<!-- Show the spinner only on the first load, when there's nothing yet. A
 						     re-sort/re-filter re-fetch keeps the old rows visible and swaps them
-						     in place, so flashing "Loading…" under them would just be noise. -->
+						     in place, so flashing "Loading…" under them would just be noise.
+						     Same for an owner the server counted as empty: its fetch can only
+						     come back empty, so "Loading…" then nothing reads as a glitch. -->
 						<div class="text-center text-xs py-2 text-secondary">Loading…</div>
 					{:else if !ownerState?.loading && ownerState?.hasMore && effectiveMax >= item.items.length}
 						<!-- Fetch the next server page only once every already-loaded row is shown

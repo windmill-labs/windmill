@@ -28,6 +28,9 @@
 			string,
 			{ cursor?: string; hasMore: boolean; loading: boolean; loaded: boolean; count: number }
 		>
+		// Total visible items per owner prefix (server-side count), so a not-yet-loaded
+		// owner's header can still show its item count.
+		ownerCounts?: Record<string, number>
 		onExpandOwner?: (owner: string, more?: boolean) => void
 		onCollapseOwner?: (owner: string) => void
 	}
@@ -46,6 +49,7 @@
 		allFolders = [],
 		allUsers = [],
 		ownerLoad,
+		ownerCounts,
 		onExpandOwner,
 		onCollapseOwner
 	}: Props = $props()
@@ -142,6 +146,7 @@
 					{item}
 					{pipelineFolders}
 					{ownerLoad}
+					{ownerCounts}
 					{onExpandOwner}
 					{onCollapseOwner}
 					on:scriptChanged

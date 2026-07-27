@@ -10548,6 +10548,47 @@ paths:
                       $ref: "#/components/schemas/RunnableItem"
                   next_cursor:
                     type: string
+
+  /w/{workspace}/runnables/count_by_owner:
+    get:
+      summary: count visible runnables per top-level owner (f/<folder> or u/<user>)
+      operationId: countRunnablesByOwner
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: kinds
+          in: query
+          description: comma-separated subset of script,flow,app (default all)
+          schema:
+            type: string
+        - name: show_archived
+          in: query
+          schema:
+            type: boolean
+        - name: include_without_main
+          in: query
+          description: include library scripts (no runnable main)
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: total runnables per owner prefix (owners with no visible items are omitted)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - owner
+                    - count
+                  properties:
+                    owner:
+                      type: string
+                      description: "top-level owner prefix: f/<folder> or u/<user>"
+                    count:
+                      type: integer
   /w/{workspace}/flows/list:
     get:
       summary: list all flows

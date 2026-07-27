@@ -38,7 +38,9 @@ use windmill_types::scripts::ScriptHash;
 use windmill_types::user_drafts::DraftUserRef;
 
 pub fn workspaced_service() -> Router {
-    Router::new().route("/list", get(list_runnables))
+    Router::new()
+        .route("/list", get(list_runnables))
+        .route("/count_by_owner", get(count_runnables_by_owner))
 }
 
 #[derive(Deserialize)]
@@ -159,6 +161,40 @@ fn decode_cursor(raw: &str) -> Result<Cursor, Error> {
         .decode(raw)
         .map_err(|_| Error::BadRequest("invalid cursor".to_string()))?;
     serde_json::from_slice(&bytes).map_err(|_| Error::BadRequest("invalid cursor".to_string()))
+}
+
+/// Fine-grained scoped tokens (e.g. `scripts:read:f/foo/*`) must be confined to
+/// their granted paths. RLS alone doesn't honor token scopes, so push the
+/// per-domain path grant into SQL (empty grant -> the branch matches nothing).
+/// Unscoped sessions -> AllowAll -> no predicate. `fixed_params` is the number
+/// of placeholders bound before `binds` (binds[0] becomes `$fixed_params+1`).
+fn scope_where(
+    filter: ScopePathFilter,
+    binds: &mut Vec<String>,
+    fixed_params: usize,
+) -> Option<String> {
+    match filter {
+        ScopePathFilter::AllowAll => None,
+        ScopePathFilter::Restricted { exact, prefix } => {
+            let mut terms: Vec<String> = vec![];
+            for e in exact {
+                binds.push(e);
+                terms.push(format!("o.path = ${}", fixed_params + binds.len()));
+            }
+            for pre in prefix {
+                binds.push(pre.clone());
+                let pe = format!("${}", fixed_params + binds.len());
+                binds.push(format!("{}/%", escape_like(&pre)));
+                let pl = format!("${}", fixed_params + binds.len());
+                terms.push(format!("(o.path = {} OR o.path LIKE {})", pe, pl));
+            }
+            Some(if terms.is_empty() {
+                "false".to_string()
+            } else {
+                format!("({})", terms.join(" OR "))
+            })
+        }
+    }
 }
 
 /// Escape LIKE/ILIKE wildcards so a caller value (search term, path/scope
@@ -329,34 +365,6 @@ async fn list_runnables(
         None => None,
     };
 
-    // Fine-grained scoped tokens (e.g. `scripts:read:f/foo/*`) must be confined to
-    // their granted paths. RLS alone doesn't honor token scopes, so push the
-    // per-domain path grant into SQL (empty grant -> the branch matches nothing).
-    // Unscoped sessions -> AllowAll -> no predicate.
-    let scope_where = |filter: ScopePathFilter, binds: &mut Vec<String>| -> Option<String> {
-        match filter {
-            ScopePathFilter::AllowAll => None,
-            ScopePathFilter::Restricted { exact, prefix } => {
-                let mut terms: Vec<String> = vec![];
-                for e in exact {
-                    binds.push(e);
-                    terms.push(format!("o.path = ${}", 3 + binds.len()));
-                }
-                for pre in prefix {
-                    binds.push(pre.clone());
-                    let pe = format!("${}", 3 + binds.len());
-                    binds.push(format!("{}/%", escape_like(&pre)));
-                    let pl = format!("${}", 3 + binds.len());
-                    terms.push(format!("(o.path = {} OR o.path LIKE {})", pe, pl));
-                }
-                Some(if terms.is_empty() {
-                    "false".to_string()
-                } else {
-                    format!("({})", terms.join(" OR "))
-                })
-            }
-        }
-    };
     // Only push scope binds for kinds whose branch is actually included: a scoped token
     // with e.g. `kinds=script` omits the flow/app branches, so binding their scope values
     // (which no SQL references) would make the parameter count mismatch and 500.
@@ -364,6 +372,7 @@ async fn list_runnables(
         scope_where(
             build_scope_path_filter(&authed, "scripts", "read"),
             &mut binds,
+            3,
         )
     } else {
         None
@@ -372,12 +381,17 @@ async fn list_runnables(
         scope_where(
             build_scope_path_filter(&authed, "flows", "read"),
             &mut binds,
+            3,
         )
     } else {
         None
     };
     let app_scope = if kinds.contains(&"app") {
-        scope_where(build_scope_path_filter(&authed, "apps", "read"), &mut binds)
+        scope_where(
+            build_scope_path_filter(&authed, "apps", "read"),
+            &mut binds,
+            3,
+        )
     } else {
         None
     };
@@ -534,4 +548,125 @@ async fn list_runnables(
     tx.commit().await?;
 
     Ok(Json(ListRunnablesResponse { items, next_cursor }))
+}
+
+#[derive(Deserialize)]
+struct CountByOwnerQuery {
+    /// Comma-separated subset of `script,flow,app`; omitted means all.
+    kinds: Option<String>,
+    show_archived: Option<bool>,
+    /// Include library scripts (no runnable main). Ignored for flows/apps.
+    include_without_main: Option<bool>,
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+struct OwnerCount {
+    /// Top-level owner prefix: `f/<folder>` or `u/<user>`.
+    owner: String,
+    count: i64,
+}
+
+/// Total visible runnables per top-level owner, under the same visibility
+/// predicates as `list_runnables` (RLS, token scopes, archived/library/kind
+/// filters). The homepage tree loads owners lazily, so this is what lets a
+/// collapsed folder/user show its item count before ever being expanded.
+async fn count_runnables_by_owner(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Query(q): Query<CountByOwnerQuery>,
+) -> JsonResult<Vec<OwnerCount>> {
+    let show_archived = q.show_archived.unwrap_or(false);
+    let mut kinds: Vec<&str> = match q.kinds.as_deref() {
+        None | Some("") => vec!["script", "flow", "app"],
+        Some(csv) => csv
+            .split(',')
+            .map(|s| s.trim())
+            .filter(|s| ["script", "flow", "app"].contains(s))
+            .collect(),
+    };
+    // Apps carry no `archived` column and are never listed as archived.
+    if show_archived {
+        kinds.retain(|k| *k != "app");
+    }
+    let archived_pred = if show_archived {
+        "o.archived = true"
+    } else {
+        "o.archived = false"
+    };
+
+    let mut binds: Vec<String> = vec![];
+    let mut branches: Vec<String> = vec![];
+    for kind in &kinds {
+        let mut w: Vec<String> = vec!["o.workspace_id = $1".to_string()];
+        match *kind {
+            "script" => {
+                if !q.include_without_main.unwrap_or(false) || authed.is_operator {
+                    w.push("(o.auto_kind IS NULL OR o.auto_kind <> 'lib')".to_string());
+                }
+                w.push(archived_pred.to_string());
+                if show_archived {
+                    // Same as list_runnables: only a path whose LATEST version row is
+                    // archived belongs in the archived view (superseded versions of an
+                    // active path are archived=true too and must not be counted).
+                    w.push(
+                        "o.ctid = (SELECT ctid FROM script s2 WHERE s2.path = o.path \
+                         AND s2.workspace_id = o.workspace_id ORDER BY s2.created_at DESC LIMIT 1)"
+                            .to_string(),
+                    );
+                }
+                if let Some(s) = scope_where(
+                    build_scope_path_filter(&authed, "scripts", "read"),
+                    &mut binds,
+                    1,
+                ) {
+                    w.push(s);
+                }
+            }
+            "flow" => {
+                w.push(archived_pred.to_string());
+                if let Some(s) = scope_where(
+                    build_scope_path_filter(&authed, "flows", "read"),
+                    &mut binds,
+                    1,
+                ) {
+                    w.push(s);
+                }
+            }
+            "app" => {
+                if let Some(s) = scope_where(
+                    build_scope_path_filter(&authed, "apps", "read"),
+                    &mut binds,
+                    1,
+                ) {
+                    w.push(s);
+                }
+            }
+            _ => continue,
+        }
+        branches.push(format!(
+            "SELECT o.path FROM {kind} o WHERE {}",
+            w.join(" AND ")
+        ));
+    }
+    if branches.is_empty() {
+        return Ok(Json(vec![]));
+    }
+
+    let sql = format!(
+        "SELECT split_part(path, '/', 1) || '/' || split_part(path, '/', 2) AS owner, \
+                COUNT(*) AS count \
+         FROM ({}) q GROUP BY 1",
+        branches.join(" UNION ALL ")
+    );
+
+    let mut tx = user_db.begin(&authed).await?;
+    let mut query = sqlx::query_as::<_, OwnerCount>(&sql).bind(&w_id);
+    for b in &binds {
+        query = query.bind(b);
+    }
+    let rows = query.fetch_all(&mut *tx).await?;
+    tx.commit().await?;
+
+    Ok(Json(rows))
 }

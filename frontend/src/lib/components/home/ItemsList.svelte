@@ -477,6 +477,8 @@
 		// swap it in place (loadOwnerItems replaces each owner's rows atomically — the
 		// old rows stay visible until the new ones arrive, so nothing blanks mid-reorder).
 		for (const o of toReload) loadOwnerItems(o, false, true)
+		// Row mutations (create/archive/delete/move) change per-owner totals too.
+		if (treeLazyMode) ownerCountsRes.refetch()
 	}
 
 	function filterItemsPathsBaseOnUserFilters(
@@ -716,6 +718,35 @@
 	// and each folder paginates within itself; users past the window are reached via
 	// their owner chip.
 	let treeGlobalHasMore = $derived(ownerFilter != undefined && !searching ? hasMoreServer : false)
+	// Per-owner totals for the lazy tree, fetched up front (one grouped COUNT, same
+	// visibility filters as the stream) so a collapsed owner's header can show its
+	// item count before it's ever expanded — its rows only load on expand.
+	// `undefined` (pre-load or on failure) keeps headers blank rather than showing
+	// a misleading 0.
+	let ownerCountsRes = resource(
+		() => ({
+			ws: $workspaceStore,
+			lazy: treeLazyMode,
+			archived,
+			includeWithoutMain,
+			itemKind
+		}),
+		async ({ ws, lazy, archived, includeWithoutMain, itemKind }) => {
+			if (!ws || !lazy) return undefined
+			try {
+				const counts = await ScriptService.countRunnablesByOwner({
+					workspace: ws,
+					showArchived: archived ? true : undefined,
+					includeWithoutMain: includeWithoutMain ? true : undefined,
+					kinds: itemKind !== 'all' ? itemKind : undefined
+				})
+				return Object.fromEntries(counts.map((c) => [c.owner, c.count]))
+			} catch {
+				return undefined // best-effort: headers fall back to blank until expanded
+			}
+		}
+	)
+	let ownerCounts = $derived(ownerCountsRes.current)
 	$effect(() => {
 		if ($userStore && $workspaceStore) {
 			;[archived, includeWithoutMain, sortOrder, searching, ownerFilter, itemKind]
@@ -1466,6 +1497,7 @@
 					allFolders={treeInjectFolders}
 					allUsers={treeInjectUsers}
 					ownerLoad={treeLazyMode ? ownerLoad : undefined}
+					ownerCounts={treeLazyMode ? ownerCounts : undefined}
 					onExpandOwner={treeLazyMode ? loadOwnerItems : undefined}
 					onCollapseOwner={treeLazyMode ? collapseOwner : undefined}
 					isSearching={filter !== ''}
