@@ -7,7 +7,7 @@ import type { ItemType } from './editInFork'
  * doesn't have yet. Held globally so the confirmation renders once in the logged
  * layout instead of per item row.
  */
-export type PullIntoDevModalState = {
+export type UpdateDevWorkspaceModalState = {
 	itemType: ItemType
 	itemPath: string
 	devWorkspaceId: string
@@ -15,6 +15,7 @@ export type PullIntoDevModalState = {
 	prodWorkspaceId: string
 }
 
-export let pullIntoDevModal: StateStore<PullIntoDevModalState | undefined> = createState({
-	val: undefined
-})
+export let updateDevWorkspaceModal: StateStore<UpdateDevWorkspaceModalState | undefined> =
+	createState({
+		val: undefined
+	})

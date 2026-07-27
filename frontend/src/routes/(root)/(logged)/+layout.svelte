@@ -20,7 +20,7 @@
 	import { SIDEBAR_BG, SIDEBAR_BG_DARK } from '$lib/components/sidebar/sidebarChrome'
 	import CriticalAlertModal from '$lib/components/sidebar/CriticalAlertModal.svelte'
 	import ForkConflictModal from '$lib/components/ForkConflictModal.svelte'
-	import PullIntoDevWorkspaceModal from '$lib/components/PullIntoDevWorkspaceModal.svelte'
+	import UpdateDevWorkspaceModal from '$lib/components/UpdateDevWorkspaceModal.svelte'
 	import {
 		enterpriseLicense,
 		isPremiumStore,
@@ -1343,7 +1343,7 @@
 
 <ForkConflictModal />
 
-<PullIntoDevWorkspaceModal />
+<UpdateDevWorkspaceModal />
 
 <Modal2
 	title="Forking {$workspaceStore}"

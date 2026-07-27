@@ -4,7 +4,7 @@
 	import { base } from '$lib/base'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
-	import { pullIntoDevModal } from '$lib/utils/editInForkModal.svelte'
+	import { updateDevWorkspaceModal } from '$lib/utils/editInForkModal.svelte'
 	import { devWorkspaceItemUrl } from '$lib/utils/editInFork'
 	import {
 		checkDeployPermission,
@@ -16,9 +16,9 @@
 	import { COMPARE_ITEMS_PARAM } from '$lib/components/sessions/modifiedItemsMask'
 	import { resource } from 'runed'
 
-	const pending = $derived(pullIntoDevModal.val)
+	const pending = $derived(updateDevWorkspaceModal.val)
 
-	let copying = $state(false)
+	let updating = $state(false)
 
 	// Re-checked per opened item: the modal is mounted for the whole session and the
 	// rules can change under it.
@@ -30,7 +30,7 @@
 	const permission = $derived(permissionRes.current)
 
 	// The compare page's update direction (prod -> dev) with this one item preselected,
-	// so "the copy needs more than this item" stays one click away.
+	// so "this item needs more than itself" stays one click away.
 	const compareHref = $derived(
 		pending
 			? `${base}/forks/compare?workspace_id=${encodeURIComponent(pending.devWorkspaceId)}` +
@@ -43,15 +43,15 @@
 	const canDeploy = $derived(permission?.ok !== false)
 
 	function close() {
-		pullIntoDevModal.val = undefined
+		updateDevWorkspaceModal.val = undefined
 	}
 
 	/**
 	 * Deploying `f/<folder>/<name>` into a workspace that has no `<folder>` succeeds but leaves the
 	 * item orphaned — it lands with no folder to carry its permissions. The compare page avoids this
 	 * because its diff lists the folder as its own item and deploys `folder:` entries first; a
-	 * single-item copy has to pull the folder itself. Anything else the item needs (resources,
-	 * variables, resource types) is still the compare page's job, exactly as it is for an update.
+	 * single-item update has to bring the folder itself. Anything else the item needs (resources,
+	 * variables, resource types) is still the compare page's job, exactly as it is there.
 	 */
 	async function ensureFolder(req: NonNullable<typeof pending>): Promise<DeployResult> {
 		const folder = req.itemPath.match(/^f\/([^/]+)\//)?.[1]
@@ -79,7 +79,7 @@
 			await goto(compareHref)
 			return
 		}
-		copying = true
+		updating = true
 		// No `onBehalfOf`: the compare page's default is the deploying user's identity, and its other
 		// choices read the value the item already has in the target — which by definition it hasn't here.
 		let result = await ensureFolder(req)
@@ -91,12 +91,12 @@
 				workspaceTo: req.devWorkspaceId
 			})
 		}
-		copying = false
+		updating = false
 		if (!result.success) {
 			// Kept open: the compare-page link below is the way out when a lone item
-			// can't stand on its own (missing folder, resource, resource type...).
+			// can't stand on its own (missing resource, resource type...).
 			sendUserToast(
-				`Could not copy ${req.itemPath} to ${req.devWorkspaceName}: ${result.error}`,
+				`Could not update ${req.devWorkspaceName} with ${req.itemPath}: ${result.error}`,
 				true
 			)
 			return
@@ -109,9 +109,9 @@
 <ConfirmationModal
 	open={!!pending}
 	type="info"
-	title="Not in {pending?.devWorkspaceName} yet"
-	confirmationText={canDeploy ? 'Copy and edit' : 'Open compare page'}
-	loading={copying}
+	title="{pending?.devWorkspaceName} is behind on this item"
+	confirmationText={canDeploy ? 'Update and edit' : 'Open compare page'}
+	loading={updating}
 	onConfirmed={confirm}
 	onCanceled={close}
 >
@@ -119,17 +119,17 @@
 		<p>
 			<span class="font-mono">{pending.itemPath}</span>
 			exists in <b>{pending.prodWorkspaceId}</b> but not in its dev workspace
-			<b>{pending.devWorkspaceName}</b>, which is behind on it.
+			<b>{pending.devWorkspaceName}</b>.
 		</p>
 		{#if canDeploy}
 			<p class="mt-2">
-				Copy it over to edit it there, or
+				Update <b>{pending.devWorkspaceName}</b> with it to edit it there, or
 				<a href={compareHref} onclick={close}>review it on the compare page</a>
-				to pull it alongside everything else this workspace is behind on.
+				to update alongside everything else this workspace is behind on.
 			</p>
 		{:else if permission}
 			<div class="mt-2">
-				<Alert type="warning" size="xs" title="You can't deploy into {pending.devWorkspaceName}">
+				<Alert type="warning" size="xs" title="You can't update {pending.devWorkspaceName}">
 					{permission.reason}
 				</Alert>
 			</div>

@@ -11,7 +11,7 @@ import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
 import { isRuleActive, canUserBypassRuleKind } from '$lib/workspaceProtectionRules.svelte'
 import { goto } from '$lib/navigation'
 import { checkItemExists } from '$lib/utils_workspace_deploy'
-import { pullIntoDevModal } from '$lib/utils/editInForkModal.svelte'
+import { updateDevWorkspaceModal } from '$lib/utils/editInForkModal.svelte'
 
 export type ItemType = 'script' | 'flow' | 'app' | 'raw_app'
 
@@ -103,7 +103,8 @@ export function devWorkspaceItemUrl(
 /**
  * A dev workspace can be behind its prod, so the URL built at render time dead-ends on a not-found
  * page for any item prod has and dev doesn't. Resolve the destination at click time instead:
- * return it when the item is there, else raise the prompt offering to copy it over and return
+ * return it when the item is there, else raise the prompt offering to update the dev workspace with
+ * it and return
  * undefined. Shared by the row buttons and the editors' "Edit in <dev>" dropdown entries.
  */
 async function resolveEditInForkTarget(
@@ -120,7 +121,7 @@ async function resolveEditInForkTarget(
 		exists = true
 	}
 	if (exists) return devWorkspaceItemUrl(itemType, itemPath, dev.id)
-	pullIntoDevModal.val = {
+	updateDevWorkspaceModal.val = {
 		itemType,
 		itemPath,
 		devWorkspaceId: dev.id,
