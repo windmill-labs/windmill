@@ -1,6 +1,6 @@
 <script lang="ts">
 	import TreeView from './TreeView.svelte'
-	import { untrack } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
 
 	import { ChevronDown, ChevronUp, Folder, FolderTree, NetworkIcon, User } from 'lucide-svelte'
 	import Item from './Item.svelte'
@@ -135,6 +135,16 @@
 			}
 		})
 	})
+	// A node can go away without a collapse click — its owner dropped once the counts
+	// show it empty, or sliced out of the rendered window. Untracking it keeps the
+	// reload fan-out tied to what is actually on screen; without this a dropped owner
+	// stays registered and every later reload re-fetches it forever. Remounting
+	// re-registers it (see the collapseAll effect above).
+	onDestroy(() => {
+		const key = untrack(() => ownerKey)
+		if (key != undefined) onCollapseOwner?.(key)
+	})
+
 	let lastToggle = 0
 	function toggleOwner() {
 		// A double-click would otherwise toggle twice — expand then immediately collapse,
