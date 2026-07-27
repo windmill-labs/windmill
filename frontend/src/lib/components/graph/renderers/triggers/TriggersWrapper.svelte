@@ -8,8 +8,9 @@
 	import AddTriggersButton from '$lib/components/triggers/AddTriggersButton.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import Portal from '$lib/components/Portal.svelte'
-	import { flip, offset } from 'svelte-floating-ui/dom'
+	import { flip, offset, shift } from 'svelte-floating-ui/dom'
 	import { createFloatingActions, type ComputeConfig } from 'svelte-floating-ui'
+	import { clickOutside } from '$lib/utils'
 
 	interface Props {
 		path: string
@@ -44,7 +45,7 @@
 		strategy: 'fixed',
 		// @ts-ignore
 		placement: 'bottom',
-		middleware: [offset(8), flip()],
+		middleware: [offset(8), flip(), shift({ padding: 8 })],
 		autoUpdate: true
 	}
 
@@ -98,14 +99,27 @@
 	</button>
 </div>
 
+<svelte:window
+	onkeydown={(e) => {
+		if (showTriggerScriptPicker && e.key === 'Escape') {
+			e.stopPropagation()
+			showTriggerScriptPicker = false
+		}
+	}}
+/>
+
 {#if showTriggerScriptPicker}
 	<Portal target="#flow-editor">
+		<!-- Not a Popover: this opens from a menu item inside AddTriggersButton, which
+		     closes before the picker renders, so there is no trigger element to bind to.
+		     Same box and dismiss behaviour as the other module pickers. -->
 		<div
-			class="border rounded-lg shadow-lg bg-surface z5000"
-			style="position:absolute"
+			class="border rounded-lg shadow-lg bg-surface z5000 p-2 h-[400px]"
 			use:floatingContent
+			use:clickOutside={{ onClickOutside: () => (showTriggerScriptPicker = false) }}
 		>
 			<InsertModuleInner
+				small
 				{disableAi}
 				on:new={(e) => {
 					showTriggerScriptPicker = false
