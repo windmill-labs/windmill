@@ -577,35 +577,53 @@ export async function collectScripts(
 // `AssetGraph` so the bounded-cascade view of the same payload (`BCGraph`, a
 // narrower shape over identical JSON) passes through without a cast.
 type DbtFilterableGraph = {
-  runnables: { path: string; dbt?: unknown }[];
-  edges: { runnable_path: string }[];
-  triggers: { runnable_path: string }[];
+  runnables: { path: string; usage_kind: string; dbt?: unknown }[];
+  edges: { runnable_kind: string; runnable_path: string }[];
+  triggers: { runnable_kind: string; runnable_path: string }[];
   macro_edges?: { lib_path: string; consumer_path: string }[];
-  test_edges?: { producer_path: string; runnable_path: string }[];
+  test_edges?: {
+    producer_kind: string;
+    producer_path: string;
+    runnable_kind: string;
+    runnable_path: string;
+  }[];
 };
 
 export function hideDbtRunnables<G extends DbtFilterableGraph>(graph: G): G {
-  const dbtPaths = new Set(
-    (graph.runnables ?? []).filter((r) => r.dbt).map((r) => r.path),
+  // Keyed by `(usage_kind, path)`, the graph's identity for a runnable — a
+  // script and a flow may share a path, and keying on path alone would take the
+  // flow's node, edges and triggers down with the dbt script's.
+  const key = (usage_kind: string, path: string) => `${usage_kind}:${path}`;
+  const dbtKeys = new Set(
+    (graph.runnables ?? [])
+      .filter((r) => r.dbt)
+      .map((r) => key(r.usage_kind, r.path)),
   );
-  if (dbtPaths.size === 0) return graph;
-  const kept = (p: string) => !dbtPaths.has(p);
+  if (dbtKeys.size === 0) return graph;
+  const kept = (usage_kind: string, path: string) =>
+    !dbtKeys.has(key(usage_kind, path));
   return {
     ...graph,
-    runnables: graph.runnables.filter((r) => kept(r.path)),
-    edges: graph.edges.filter((e) => kept(e.runnable_path)),
-    triggers: graph.triggers.filter((t) => kept(t.runnable_path)),
+    runnables: graph.runnables.filter((r) => kept(r.usage_kind, r.path)),
+    edges: graph.edges.filter((e) => kept(e.runnable_kind, e.runnable_path)),
+    triggers: graph.triggers.filter((t) =>
+      kept(t.runnable_kind, t.runnable_path),
+    ),
+    // A macro library is a script; a dbt script defines no macros, so neither
+    // end can be a flow.
     ...(graph.macro_edges
       ? {
           macro_edges: graph.macro_edges.filter(
-            (m) => kept(m.lib_path) && kept(m.consumer_path),
+            (m) => kept("script", m.lib_path) && kept("script", m.consumer_path),
           ),
         }
       : {}),
     ...(graph.test_edges
       ? {
           test_edges: graph.test_edges.filter(
-            (t) => kept(t.producer_path) && kept(t.runnable_path),
+            (t) =>
+              kept(t.producer_kind, t.producer_path) &&
+              kept(t.runnable_kind, t.runnable_path),
           ),
         }
       : {}),

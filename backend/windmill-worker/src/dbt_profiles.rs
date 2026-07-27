@@ -113,8 +113,6 @@ impl DbtAdapter {
         }
     }
 
-    /// The pip package that provides the adapter for the bundled dbt-core 1.x
-    /// engine. The Rust engines ship their adapters in the binary.
     /// The adapter's name as a user would write it, for error messages.
     pub fn name(&self) -> &'static str {
         match self {
@@ -132,6 +130,13 @@ impl DbtAdapter {
         }
     }
 
+    /// The pip package providing this adapter for the dbt-core 1.x engine,
+    /// whose venv is provisioned on first use. The Rust engines ship their
+    /// adapters in the binary and never consult this.
+    ///
+    /// Empty means no such package exists: Salesforce is Fusion-only, and
+    /// `provision_core_1x` refuses it by name rather than asking uv to install
+    /// `""`. Pinned by `every_adapter_either_names_a_package_or_is_fusion_only`.
     pub fn pip_package(&self) -> &'static str {
         match self {
             DbtAdapter::Postgres => "dbt-postgres",

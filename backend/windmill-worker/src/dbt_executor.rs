@@ -1780,9 +1780,13 @@ fn parse_node_event(
         DbtNodeOutcome::Started => MaterializationStatus::Running,
         DbtNodeOutcome::Passed => MaterializationStatus::Materialized,
         DbtNodeOutcome::Failed => MaterializationStatus::Failed,
-        // `warn` is a passing test at reduced severity and `skipped` says
-        // nothing about the relation's state; neither is a materialization.
-        DbtNodeOutcome::Inconclusive => return None,
+        // `warn` is a passing test at reduced severity, and a node that never
+        // built says nothing about the relation's state; none is a
+        // materialization.
+        DbtNodeOutcome::Warn
+        | DbtNodeOutcome::Skipped
+        | DbtNodeOutcome::NoOp
+        | DbtNodeOutcome::Unknown => return None,
     };
     let path = windmill_common::dbt_manifest::table_asset_path(
         resource_path,
@@ -1966,10 +1970,10 @@ async fn read_run_results(project_dir: &Path) -> Vec<DbtNodeResult> {
 fn build_result(p: &PreparedProject, command: &str, nodes: Vec<DbtNodeResult>) -> DbtRunResult {
     let mut totals = DbtTotals { total: nodes.len(), ..Default::default() };
     for n in &nodes {
-        match (classify_status(&n.status), n.status.trim().to_ascii_lowercase().as_str()) {
-            (DbtNodeOutcome::Passed, _) => totals.success += 1,
-            (_, "warn") => totals.warn += 1,
-            (_, "skipped") => totals.skipped += 1,
+        match classify_status(&n.status) {
+            DbtNodeOutcome::Passed => totals.success += 1,
+            DbtNodeOutcome::Warn => totals.warn += 1,
+            DbtNodeOutcome::Skipped | DbtNodeOutcome::NoOp => totals.skipped += 1,
             _ => totals.error += 1,
         }
     }
@@ -1987,8 +1991,10 @@ fn render_failures(r: &DbtRunResult) -> String {
         .nodes
         .iter()
         .filter(|n| {
-            !matches!(classify_status(&n.status), DbtNodeOutcome::Passed)
-                && n.status.trim().to_ascii_lowercase() != "skipped"
+            matches!(
+                classify_status(&n.status),
+                DbtNodeOutcome::Failed | DbtNodeOutcome::Warn | DbtNodeOutcome::Unknown
+            )
         })
         .collect();
     if failed.is_empty() {
@@ -2885,8 +2891,19 @@ pub enum DbtNodeOutcome {
     Started,
     Passed,
     Failed,
-    /// `warn` and `skipped`: the run went on, and the relation is untouched.
-    Inconclusive,
+    /// `warn`: a test failed under a severity that does not fail the run. The
+    /// relation is untouched, but the node is worth showing.
+    Warn,
+    /// `skipped`: dbt did not run the node, usually because an upstream one
+    /// failed. Says nothing about the relation, and `dbt retry` redoes it.
+    Skipped,
+    /// `no-op`: the node ran and had nothing to do (an empty microbatch, a model
+    /// with no rows to build). Tallied with `skipped` — nothing was built — but
+    /// NOT retryable: dbt's own retry set is error / fail / skipped.
+    NoOp,
+    /// A status this dbt version spells some way we do not know. Counted as an
+    /// error rather than silently passing, but never used to settle a relation.
+    Unknown,
 }
 
 pub fn classify_status(status: &str) -> DbtNodeOutcome {
@@ -2896,7 +2913,10 @@ pub fn classify_status(status: &str) -> DbtNodeOutcome {
         // `partial success` builds the relation and then fails its tests: the
         // node is a failure, and the relation it wrote is real but suspect.
         "error" | "fail" | "runtime error" | "partial success" => DbtNodeOutcome::Failed,
-        _ => DbtNodeOutcome::Inconclusive,
+        "warn" => DbtNodeOutcome::Warn,
+        "skipped" => DbtNodeOutcome::Skipped,
+        "no-op" => DbtNodeOutcome::NoOp,
+        _ => DbtNodeOutcome::Unknown,
     }
 }
 
@@ -2919,8 +2939,10 @@ fn has_retryable_node(run_results: &str) -> bool {
     serde_json::from_str::<RunResults>(run_results)
         .map(|r| {
             r.results.iter().any(|n| {
-                let retryable = matches!(classify_status(&n.status), DbtNodeOutcome::Failed)
-                    || n.status.trim().to_ascii_lowercase() == "skipped";
+                let retryable = matches!(
+                    classify_status(&n.status),
+                    DbtNodeOutcome::Failed | DbtNodeOutcome::Skipped
+                );
                 retryable && writes_a_relation(&n.unique_id)
             })
         })
@@ -3480,15 +3502,17 @@ mod tests {
         for spelling in ["PARTIAL SUCCESS", " Partial Success ", "ERROR", "Pass"] {
             assert_ne!(
                 classify_status(spelling),
-                DbtNodeOutcome::Inconclusive,
+                DbtNodeOutcome::Unknown,
                 "{spelling} must classify"
             );
         }
         assert_eq!(classify_status("success"), DbtNodeOutcome::Passed);
         assert_eq!(classify_status("started"), DbtNodeOutcome::Started);
-        for inconclusive in ["warn", "skipped", "no-op"] {
-            assert_eq!(classify_status(inconclusive), DbtNodeOutcome::Inconclusive);
-        }
+        assert_eq!(classify_status("warn"), DbtNodeOutcome::Warn);
+        assert_eq!(classify_status("skipped"), DbtNodeOutcome::Skipped);
+        // `no-op` is not `skipped`: nothing was built either way, but dbt's
+        // retry set is error / fail / skipped, so a retry must not redo it.
+        assert_eq!(classify_status("no-op"), DbtNodeOutcome::NoOp);
     }
 
     #[test]

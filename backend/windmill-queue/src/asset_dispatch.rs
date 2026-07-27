@@ -62,6 +62,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
 use windmill_common::assets::{parse_asset_trigger_ref, AssetKind};
+use windmill_common::scripts::ScriptLang;
 use windmill_common::error::{self, Result};
 use windmill_common::get_latest_deployed_hash_for_path;
 use windmill_common::jobs::{JobKind, JobPayload, JobTriggerKind};
@@ -232,6 +233,34 @@ pub async fn dispatch_asset_triggers(db: &DB, job: &MiniCompletedJob) -> Dispatc
     }
 }
 
+/// The subset of a dbt job's deploy-time writes that this run actually
+/// materialized, per the rows the worker recorded against this `job_id`.
+///
+/// A run that recorded nothing is left alone rather than silenced: an agent
+/// worker whose reconciliation call failed, or an engine that wrote no rows,
+/// must still cascade the way it did before per-relation recording existed.
+async fn narrow_to_materialized(
+    db: &DB,
+    job: &MiniCompletedJob,
+    writes: Vec<(AssetKind, String)>,
+) -> Result<Vec<(AssetKind, String)>> {
+    let rows = sqlx::query!(
+        "SELECT asset_kind AS \"asset_kind!: AssetKind\", asset_path
+           FROM materialized_partition
+          WHERE workspace_id = $1 AND job_id = $2 AND status = 'materialized'",
+        job.workspace_id,
+        job.id
+    )
+    .fetch_all(db)
+    .await?;
+    if rows.is_empty() {
+        return Ok(writes);
+    }
+    let built: std::collections::HashSet<(AssetKind, String)> =
+        rows.into_iter().map(|r| (r.asset_kind, r.asset_path)).collect();
+    Ok(writes.into_iter().filter(|w| built.contains(w)).collect())
+}
+
 async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult> {
     if !is_eligible_kind(job) {
         return Ok(DispatchResult::default());
@@ -262,6 +291,21 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
     let Some(writes) = producers.get(runnable_path).cloned() else {
         return Ok(DispatchResult::default());
     };
+
+    // A dbt run may build a subset of its project: `select` / `exclude` narrow
+    // the invocation, but `writes` is the deploy-time set for the whole project,
+    // so dispatching all of it would wake subscribers of relations this run did
+    // not rebuild. The run records what it actually materialized, so intersect
+    // with that. Scoped to dbt because it is the only producer whose write set
+    // is decided per run: for every other language `writes` IS what ran, and
+    // most record no per-relation rows at all.
+    let writes = match job.script_lang {
+        Some(ScriptLang::Dbt) => narrow_to_materialized(db, job, writes).await?,
+        _ => writes,
+    };
+    if writes.is_empty() {
+        return Ok(DispatchResult::default());
+    }
 
     let args = fetch_args(db, &job.workspace_id, job.id).await?;
     if read_skip_arg(args.as_ref()) {

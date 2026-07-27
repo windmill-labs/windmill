@@ -48,14 +48,25 @@ the dominant way dbt is orchestrated today.
 
 ## Decision 1: engine toggle, and why the shipped default is not Fusion yet
 
-`engine: dbt-core-1x | dbt-core-2x | fusion` in the descriptor, defaulting to an
-instance setting so the default changes without a code change.
+`engine: dbt-core-1x | dbt-core-2x | fusion` in the descriptor. Omitted, it is
+`dbt-core-1x`, which runs today's projects untouched.
 
-| Engine | Distribution | License |
-|---|---|---|
-| `dbt-core-1x` | Bundled: uv venv, `dbt-core` 1.12 plus adapter | Apache 2.0 |
-| `dbt-core-2x` | Bundled: 47MB Rust binary | Apache 2.0 |
-| `fusion` | **Never bundled.** Fetched from dbt Labs on first use, cached | dbt Fusion engine license agreement |
+Only one engine is baked into the full images. The other two are fetched on
+first use and cached, for different reasons: 1.x cannot be baked because its
+adapter is a Python package chosen per project, and Fusion may not be.
+
+| Engine | Distribution | Cold start | License |
+|---|---|---|---|
+| `dbt-core-1x` (default) | Not bundled: a uv venv resolved per adapter on first use, then cached | One venv build per (core range, adapter) | Apache 2.0 |
+| `dbt-core-2x` | Bundled in the full images: one adapter-agnostic Rust binary | None | Apache 2.0 |
+| `fusion` | **Never bundled.** Fetched from dbt Labs on first use, cached | One download (~290MB) | dbt Fusion engine license agreement |
+
+The 1.x venv resolves `dbt-core>=1.8,<2.0.0` *together with* the adapter rather
+than pinning a core version, because several adapters cap below the newest core
+(dbt-oracle and dbt-databricks below 1.12) and an independent pin makes those
+projects unprovisionable. The lockfile records whichever version the resolver
+actually chose. Both bounds and each engine version are env-overridable
+(`DBT_CORE_1X_FLOOR`, `DBT_CORE_1X_CEILING`, `DBT_CORE_2X_VERSION`).
 
 Fusion is the fastest option and the toggle exists so users can choose it. Two
 things block making it the *shipped* default, both verifiable rather than matters

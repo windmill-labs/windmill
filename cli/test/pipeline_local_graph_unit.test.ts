@@ -982,7 +982,30 @@ test("hideDbtRunnables drops the dbt node from a deployed graph, keeping its rel
   expect(g.triggers).toHaveLength(1);
 });
 
+test("hideDbtRunnables keeps a flow sharing a path with the dbt script", () => {
+  // Runnable identity in the graph is `(usage_kind, path)`; a script and a flow
+  // may share a path, so only the dbt script may be removed.
+  const g = hideDbtRunnables({
+    runnables: [
+      { path: "f/x/proj", usage_kind: "script", dbt: { model_count: 1 } },
+      { path: "f/x/proj", usage_kind: "flow" },
+    ],
+    edges: [
+      { runnable_kind: "flow", runnable_path: "f/x/proj" },
+      { runnable_kind: "script", runnable_path: "f/x/proj" },
+    ],
+    triggers: [{ runnable_kind: "flow", runnable_path: "f/x/proj" }],
+  });
+  expect(g.runnables.map((r) => r.usage_kind)).toEqual(["flow"]);
+  expect(g.edges.map((e) => e.runnable_kind)).toEqual(["flow"]);
+  expect(g.triggers).toHaveLength(1);
+});
+
 test("hideDbtRunnables is a no-op when the folder has no dbt project", () => {
-  const g = { runnables: [{ path: "f/x/a" }], edges: [], triggers: [] };
+  const g = {
+    runnables: [{ path: "f/x/a", usage_kind: "script" }],
+    edges: [],
+    triggers: [],
+  };
   expect(hideDbtRunnables(g)).toBe(g);
 });

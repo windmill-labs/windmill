@@ -66,6 +66,31 @@ describe('hideDbtRunnables', () => {
 		expect(g.triggers).toHaveLength(1)
 	})
 
+	it('keeps a flow that shares a path with the dbt script', () => {
+		// A script and a flow may share a path; the graph keys runnables by
+		// `(usage_kind, path)`, so only the dbt script may be removed.
+		const base = graph()
+		const g = hideDbtRunnables({
+			...base,
+			runnables: [...base.runnables, { path: 'f/x/dbtproj', usage_kind: 'flow', in_pipeline: true }],
+			edges: [
+				...base.edges,
+				{
+					runnable_path: 'f/x/dbtproj',
+					runnable_kind: 'flow',
+					asset_kind: 's3object',
+					asset_path: 'flow-out.csv',
+					access_type: 'w'
+				}
+			]
+		})
+		expect(g.runnables.map((r) => `${r.usage_kind}:${r.path}`).sort()).toEqual([
+			'flow:f/x/dbtproj',
+			'script:f/x/report'
+		])
+		expect(g.edges.some((e) => e.runnable_kind === 'flow')).toBe(true)
+	})
+
 	it('is a no-op on a folder with no dbt project', () => {
 		const base = graph()
 		const plain = { ...base, runnables: base.runnables.filter((r) => !r.dbt) }

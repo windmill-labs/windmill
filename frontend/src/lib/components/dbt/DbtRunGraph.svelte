@@ -96,6 +96,12 @@
 				void loadProgress()
 				void load()
 			}, 2000)
+		// One last reading once the job is over, because the final states land
+		// after the last tick. Only `dbt-core-1x` streams node events at all: the
+		// other engines record every relation during end-of-run reconciliation, so
+		// without this their finished graph keeps whatever the last in-flight tick
+		// saw — usually nothing.
+		else void loadProgress()
 		return () => clearInterval(timer)
 	})
 	onDestroy(() => clearInterval(timer))

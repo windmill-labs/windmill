@@ -1,0 +1,44 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT asset_kind AS \"asset_kind!: AssetKind\", asset_path\n           FROM materialized_partition\n          WHERE workspace_id = $1 AND job_id = $2 AND status = 'materialized'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "asset_kind!: AssetKind",
+        "type_info": {
+          "Custom": {
+            "name": "asset_kind",
+            "kind": {
+              "Enum": [
+                "s3object",
+                "resource",
+                "variable",
+                "ducklake",
+                "datatable",
+                "volume",
+                "table"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "asset_path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "a02d7d19db17d6b3d2ade93917dbd7112d87cce91a307b53144fbec921fe2b59"
+}

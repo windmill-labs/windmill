@@ -33,20 +33,27 @@ lazy_static::lazy_static! {
         std::env::var("DBT_BUNDLED_DIR").unwrap_or_else(|_| "/usr/local/dbt".to_string());
     static ref UV_PATH: String =
         std::env::var("UV_PATH").unwrap_or_else(|_| "/usr/local/bin/uv".to_string());
-    /// Pinned so a worker's engine does not drift under running projects. Both
-    /// are overridable per instance for upgrades without a release.
-    /// The dbt-core range the 1.x engine supports. A RANGE, not a pin: the
-    /// adapter decides which core it can take, and several cap below the
-    /// default (dbt-oracle and dbt-databricks below 1.12). The floor is the CLI
-    /// this runtime invokes -- 1.7 rejects `--target` on `parse`, so resolving
-    /// down to it produces a working venv that then fails on flags, which is
-    /// worse than not resolving at all.
+    /// Bounds on the dbt-core the 1.x engine resolves. A RANGE, not a pin: the
+    /// adapter decides which core it can take, and several cap below the newest
+    /// (dbt-oracle and dbt-databricks below 1.12), so pinning core independently
+    /// makes those projects unprovisionable. The floor is the CLI this runtime
+    /// invokes -- 1.7 rejects `--target` on `parse`, so resolving down to it
+    /// produces a working venv that then fails on flags, which is worse than
+    /// not resolving at all.
+    ///
+    /// Every static in this group is env-overridable per instance, so an
+    /// operator can move an engine without waiting on a release.
     static ref DBT_CORE_1X_FLOOR: String =
         std::env::var("DBT_CORE_1X_FLOOR").unwrap_or_else(|_| "1.8".to_string());
     static ref DBT_CORE_1X_CEILING: String =
         std::env::var("DBT_CORE_1X_CEILING").unwrap_or_else(|_| "2.0.0".to_string());
+    /// Reported as the engine version only when the installed `dist-info` cannot
+    /// be read. It pins no install and is not in the cache key -- the resolved
+    /// range is -- so it must not be mistaken for the version that gets used.
     static ref DBT_CORE_1X_VERSION: String =
         std::env::var("DBT_CORE_1X_VERSION").unwrap_or_else(|_| "1.12.0".to_string());
+    /// Pinned, not ranged: the Rust engine ships its adapters in the binary, so
+    /// there is no adapter resolution to accommodate.
     static ref DBT_CORE_2X_VERSION: String =
         std::env::var("DBT_CORE_2X_VERSION").unwrap_or_else(|_| "2.0.0-alpha.5".to_string());
     static ref DBT_PYTHON_VERSION: String =
