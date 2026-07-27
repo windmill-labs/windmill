@@ -83,20 +83,18 @@
 	// whose items are already grouped from the loaded window.
 	let isLazyOwner = $derived(ownerKey != undefined && ownerLoad != undefined)
 	let ownerState = $derived(ownerKey != undefined ? ownerLoad?.[ownerKey] : undefined)
-	// Server total for this owner (all descendants). A loaded counts map with no
-	// entry for this owner means it has no visible items — a real 0, not unknown.
+	// Rows expanding this owner reveals: its server-counted descendants (a loaded
+	// counts map with no entry means a real 0, not unknown) plus the folder's own
+	// Pipeline row, which the count excludes because its member scripts fold into it.
 	let totalCount = $derived(
-		ownerKey != undefined && ownerCounts != undefined ? (ownerCounts[ownerKey] ?? 0) : undefined
+		ownerKey != undefined && ownerCounts != undefined
+			? (ownerCounts[ownerKey] ?? 0) + (hasPipeline ? 1 : 0)
+			: undefined
 	)
-	// Known to have nothing to reveal: zero server-counted items, none loaded, and
-	// no Pipeline entry (a pipeline folder shows a Pipeline row despite 0 counted
-	// items). Such a node is inert — no toggle, no chevron.
+	// Nothing to reveal — no counted descendants, no Pipeline row, nothing loaded.
+	// Such a node is inert: no toggle, no chevron.
 	let isEmptyOwner = $derived(
-		isLazyOwner &&
-			totalCount === 0 &&
-			(isFolder(item) || isUser(item)) &&
-			item.items.length === 0 &&
-			!hasPipeline
+		isLazyOwner && totalCount === 0 && (isFolder(item) || isUser(item)) && item.items.length === 0
 	)
 
 	let showMax = $state(15)

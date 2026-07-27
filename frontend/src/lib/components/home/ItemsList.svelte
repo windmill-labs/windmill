@@ -477,8 +477,11 @@
 		// swap it in place (loadOwnerItems replaces each owner's rows atomically — the
 		// old rows stay visible until the new ones arrive, so nothing blanks mid-reorder).
 		for (const o of toReload) loadOwnerItems(o, false, true)
-		// Row mutations (create/archive/delete/move) change per-owner totals too.
-		if (treeLazyMode) ownerCountsRes.refetch()
+	}
+	// A row mutation can move an owner's total, which no scope dependency reflects.
+	function reloadAfterMutation(): void {
+		ownerCountsGen++
+		reloadItems()
 	}
 
 	function filterItemsPathsBaseOnUserFilters(
@@ -718,6 +721,11 @@
 	// and each folder paginates within itself; users past the window are reached via
 	// their owner chip.
 	let treeGlobalHasMore = $derived(ownerFilter != undefined && !searching ? hasMoreServer : false)
+	// Bumped when a row mutation (create/archive/delete/move/share) changes the totals.
+	// Every other input the endpoint resolves is a dependency of the resource below, so
+	// scope changes re-fetch on their own — a sort change, which cannot move a total,
+	// fetches nothing.
+	let ownerCountsGen = $state(0)
 	// Per-owner totals for the lazy tree, fetched up front (one grouped COUNT, same
 	// visibility filters as the stream) so a collapsed owner's header can show its
 	// item count before it's ever expanded — its rows only load on expand.
@@ -729,9 +737,10 @@
 			lazy: treeLazyMode,
 			archived,
 			includeWithoutMain,
-			itemKind
+			itemKind,
+			gen: ownerCountsGen
 		}),
-		async ({ ws, lazy, archived, includeWithoutMain, itemKind }) => {
+		async ({ ws, lazy, archived, includeWithoutMain, itemKind }, _prev, { signal }) => {
 			if (!ws || !lazy) return undefined
 			try {
 				const counts = await ScriptService.countRunnablesByOwner({
@@ -740,8 +749,13 @@
 					includeWithoutMain: includeWithoutMain ? true : undefined,
 					kinds: itemKind !== 'all' ? itemKind : undefined
 				})
+				// The resource assigns whichever run settles last, so a slow response from
+				// a superseded scope would overwrite the current totals. Abort instead: the
+				// generated client takes no signal, so this is the only ordering guard.
+				signal.throwIfAborted()
 				return Object.fromEntries(counts.map((c) => [c.owner, c.count]))
-			} catch {
+			} catch (e) {
+				if (e instanceof DOMException && e.name === 'AbortError') throw e
 				return undefined // best-effort: headers fall back to blank until expanded
 			}
 		}
@@ -1501,11 +1515,11 @@
 					onExpandOwner={treeLazyMode ? loadOwnerItems : undefined}
 					onCollapseOwner={treeLazyMode ? collapseOwner : undefined}
 					isSearching={filter !== ''}
-					on:scriptChanged={reloadItems}
-					on:flowChanged={reloadItems}
-					on:appChanged={reloadItems}
-					on:rawAppChanged={reloadItems}
-					on:reload={reloadItems}
+					on:scriptChanged={reloadAfterMutation}
+					on:flowChanged={reloadAfterMutation}
+					on:appChanged={reloadAfterMutation}
+					on:rawAppChanged={reloadAfterMutation}
+					on:reload={reloadAfterMutation}
 					{showCode}
 				/>
 			{/key}
@@ -1525,11 +1539,11 @@
 				{#each displayedItems as item, i (item.type + '/' + item.path + (item.hash ? '/' + item.hash : ''))}
 					<Item
 						{item}
-						on:scriptChanged={reloadItems}
-						on:flowChanged={reloadItems}
-						on:appChanged={reloadItems}
-						on:rawAppChanged={reloadItems}
-						on:reload={reloadItems}
+						on:scriptChanged={reloadAfterMutation}
+						on:flowChanged={reloadAfterMutation}
+						on:appChanged={reloadAfterMutation}
+						on:rawAppChanged={reloadAfterMutation}
+						on:reload={reloadAfterMutation}
 						{showCode}
 						showEditButton={showEditButtons}
 						keyboardSelected={selectedIndex === i}

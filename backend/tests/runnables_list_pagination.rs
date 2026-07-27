@@ -481,3 +481,129 @@ async fn test_runnables_starred_pinned_first(db: Pool<Postgres>) -> anyhow::Resu
     );
     Ok(())
 }
+
+/// `owner -> count` from the count endpoint, sorted for stable comparison.
+async fn counts_by_owner_as(port: u16, query: &str, token: &str) -> Vec<(String, i64)> {
+    let url =
+        format!("http://localhost:{port}/api/w/test-workspace/runnables/count_by_owner?{query}");
+    let resp = authed(client().get(&url), token).send().await.unwrap();
+    assert_eq!(
+        resp.status(),
+        200,
+        "count_by_owner should succeed for {query}"
+    );
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let mut out: Vec<(String, i64)> = body
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| {
+            (
+                c["owner"].as_str().unwrap().to_string(),
+                c["count"].as_i64().unwrap(),
+            )
+        })
+        .collect();
+    out.sort();
+    out
+}
+
+/// The same tally, derived from the rows `list_runnables` actually returns.
+fn owner_tally(items: &[String]) -> Vec<(String, i64)> {
+    let mut map: std::collections::BTreeMap<String, i64> = Default::default();
+    for it in items {
+        let path = it.split_once(':').unwrap().1;
+        *map.entry(path.split('/').take(2).collect::<Vec<_>>().join("/"))
+            .or_default() += 1;
+    }
+    map.into_iter().collect()
+}
+
+/// `count_by_owner` hand-builds the same visibility predicates as `list_runnables`
+/// (kind/archived/library filters, RLS, token scopes). The two must agree: a count
+/// higher than the list is a promise of rows that never appear — and, for a
+/// restricted caller, a leak of how much they cannot see.
+#[sqlx::test(fixtures("base"))]
+async fn test_runnables_count_by_owner_matches_list(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+    seed_mixed(&base, &db).await?;
+
+    for query in ["", "kinds=script", "kinds=flow,app"] {
+        let listed = list_once(port, &format!("{query}&per_page=1000")).await;
+        assert_eq!(
+            counts_by_owner_as(port, query, "SECRET_TOKEN").await,
+            owner_tally(&listed),
+            "counts must match the listed rows for `{query}`, got listed {listed:?}"
+        );
+    }
+
+    // A repeated kind must not emit its branch twice and double every count.
+    assert_eq!(
+        counts_by_owner_as(port, "kinds=script,script", "SECRET_TOKEN").await,
+        counts_by_owner_as(port, "kinds=script", "SECRET_TOKEN").await,
+        "repeating a kind must not change the counts"
+    );
+
+    // Pipeline members are the one deliberate divergence from the list: the tree
+    // folds them into their folder's single Pipeline row, so counting each one
+    // would overstate what expanding reveals.
+    sqlx::query(
+        "UPDATE script SET auto_kind = 'pipeline' WHERE workspace_id = 'test-workspace' AND path = 'f/alpha/two'",
+    )
+    .execute(&db)
+    .await?;
+    let counts = counts_by_owner_as(port, "kinds=script", "SECRET_TOKEN").await;
+    assert_eq!(
+        counts.iter().find(|(o, _)| o == "f/alpha").map(|(_, c)| *c),
+        Some(1),
+        "a pipeline member must not be counted, got {counts:?}"
+    );
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_runnables_count_by_owner_hides_unreadable_owners(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+
+    // test-user-2, not -3: the auth cache is process-global and keyed by token, so
+    // reusing another test's token in this binary would hand it this user's context.
+    // One folder they may read, one they may not.
+    for (name, perms) in [
+        ("shared", json!({ "u/test-user-2": false })),
+        ("private", json!({})),
+    ] {
+        let r = authed(
+            client().post(format!("{base}/folders/create")),
+            "SECRET_TOKEN",
+        )
+        .json(&json!({ "name": name, "owners": ["u/test-user"], "extra_perms": perms }))
+        .send()
+        .await?;
+        assert_eq!(r.status(), 200, "create folder {name}: {}", r.text().await?);
+
+        let r = authed(
+            client().post(format!("{base}/scripts/create")),
+            "SECRET_TOKEN",
+        )
+        .json(&new_script(&format!("f/{name}/s"), "Script"))
+        .send()
+        .await?;
+        assert_eq!(r.status(), 201, "create script: {}", r.text().await?);
+    }
+
+    let counts = counts_by_owner_as(port, "", "SECRET_TOKEN_2").await;
+    assert_eq!(
+        counts,
+        vec![("f/shared".to_string(), 1)],
+        "a user must be counted only the owners they can read"
+    );
+    Ok(())
+}

@@ -597,13 +597,22 @@ async fn count_runnables_by_owner(
 
     let mut binds: Vec<String> = vec![];
     let mut branches: Vec<String> = vec![];
-    for kind in &kinds {
+    // Iterate the fixed kind list, not the caller's: `kinds=script,script` must not
+    // emit the branch twice (doubling every count and the query work).
+    for kind in ["script", "flow", "app"] {
+        if !kinds.contains(&kind) {
+            continue;
+        }
         let mut w: Vec<String> = vec!["o.workspace_id = $1".to_string()];
-        match *kind {
+        match kind {
             "script" => {
                 if !q.include_without_main.unwrap_or(false) || authed.is_operator {
                     w.push("(o.auto_kind IS NULL OR o.auto_kind <> 'lib')".to_string());
                 }
+                // A pipeline's member scripts collapse into their folder's single
+                // Pipeline row in the homepage tree, so counting them would promise
+                // more rows than expanding the folder reveals.
+                w.push("(o.auto_kind IS NULL OR o.auto_kind <> 'pipeline')".to_string());
                 w.push(archived_pred.to_string());
                 if show_archived {
                     // Same as list_runnables: only a path whose LATEST version row is
