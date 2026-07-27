@@ -99,6 +99,9 @@ lazy_static::lazy_static! {
                     (20260727093955, include_str!(
                         "../../migrations/20260727093955_runnable_owner_prefix_indexes.up.sql"
                     ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY")),
+                    (20260727151319, include_str!(
+                        "../../migrations/20260727151319_draft_only_listing_indexes.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY")),
                     ].into_iter().collect();
 }
 

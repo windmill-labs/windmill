@@ -27,6 +27,16 @@ export type UserItem = {
 	items: (ItemType | FolderItem)[]
 }
 
+/**
+ * Where an item belongs in the tree. A draft-only item is parked at a generated
+ * `u/<you>/draft_<uuid>` but names the path it will deploy to, and that is what the
+ * row shows and what the server counts it under — so the tree has to group by it too.
+ */
+export function treePath(item: ItemType): string {
+	const it = item as { draft_only?: boolean; draft_path?: string; path: string }
+	return (it.draft_only && it.draft_path) || it.path
+}
+
 function insertItemInFolder(
 	root: (ItemType | FolderItem | UserItem)[],
 	item: ItemType,
@@ -75,7 +85,7 @@ export function groupItems(
 	const root: (ItemType | FolderItem | UserItem)[] = []
 
 	items.forEach((item) => {
-		const pathSplit = item.path.split('/')
+		const pathSplit = treePath(item).split('/')
 		if (pathSplit[0] === 'u') {
 			const username = pathSplit[1]
 			let userItem = root.find((f): f is UserItem => 'username' in f && f.username === username) as

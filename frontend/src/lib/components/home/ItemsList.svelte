@@ -47,7 +47,7 @@
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import Item from './Item.svelte'
 	import TreeViewRoot from './TreeViewRoot.svelte'
-	import type { ItemType } from './treeViewUtils'
+	import { treePath, type ItemType } from './treeViewUtils'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { getContext, tick, untrack } from 'svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
@@ -260,6 +260,9 @@
 				// so a folder's full contents load on demand rather than relying on the
 				// folder happening to be within the loaded browse window.
 				pathStart: ownerFilter ? ownerFilter + '/' : undefined,
+				// Your own not-yet-deployed work belongs in the list you browse; the
+				// endpoint sorts and pages it with everything else.
+				includeDraftOnly: true,
 				perPage: 100,
 				cursor
 			})
@@ -419,6 +422,7 @@
 				includeWithoutMain: includeWithoutMain ? true : undefined,
 				kinds: itemKind !== 'all' ? itemKind : undefined,
 				pathStart: `${owner}/`,
+				includeDraftOnly: true,
 				perPage: 100,
 				cursor: more ? st?.cursor : undefined
 			})
@@ -483,7 +487,7 @@
 		// previous scope's items instead of re-fetching. Drop them and let expand reload.
 		if (treeLazyMode) {
 			const open = new Set(toReload)
-			treeOwnerItems = treeOwnerItems.filter((x) => open.has(ownerOf(x.path)))
+			treeOwnerItems = treeOwnerItems.filter((x) => open.has(ownerOf(treePath(x))))
 			ownerLoad = Object.fromEntries(Object.entries(ownerLoad).filter(([o]) => open.has(o)))
 		}
 		await loadRunnables(true)
@@ -769,7 +773,9 @@
 				const res = await ScriptService.countRunnablesByOwner({
 					workspace: ws,
 					kinds: kind !== 'all' ? kind : undefined,
-					includeWithoutMain: withoutMain ? true : undefined
+					includeWithoutMain: withoutMain ? true : undefined,
+					// Same scope as the listing, so a badge counts the rows behind it.
+					includeDraftOnly: true
 				})
 				return res.counts
 			} catch {
@@ -866,6 +872,7 @@
 					includeWithoutMain: withoutMain ? true : undefined,
 					kinds: kind !== 'all' ? kind : undefined,
 					pathStart: owner ? owner + '/' : undefined,
+					includeDraftOnly: true,
 					perPage: 1000
 				})
 			} catch {
@@ -912,6 +919,7 @@
 				includeWithoutMain: withoutMain ? true : undefined,
 				kinds: kind !== 'all' ? kind : undefined,
 				pathStart: owner ? owner + '/' : undefined,
+				includeDraftOnly: true,
 				perPage: 1000,
 				cursor
 			})
@@ -1308,7 +1316,12 @@
 	{filter}
 	items={preFilteredItems}
 	bind:filteredItems
-	f={(x) => (x.summary ? x.summary + ' (' + x.path + ')' : x.path)}
+	f={(x) => {
+		// A draft-only row is named by the path typed in the editor — its stored path is a
+		// generated `draft_<uuid>` nobody types into the search box.
+		const p = x.draft_only && x.draft_path ? x.draft_path : x.path
+		return x.summary ? x.summary + ' (' + p + ')' : p
+	}}
 	{opts}
 />
 
