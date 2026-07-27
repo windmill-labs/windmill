@@ -646,11 +646,16 @@ async fn cancel_persistent_script_api(
     Ok(())
 }
 
+/// Bounds the ancestor walk below so a cyclic `parent_job` chain cannot spin forever.
+/// `cancel_job` itself is unbounded, so a chain longer than this would leave the two
+/// disagreeing about which job gets killed — hence the fail-closed error.
+const FORCE_CANCEL_MAX_ANCESTOR_DEPTH: i32 = 500;
+
 /// The job a force-cancel of `id` actually kills: `cancel_job(force_cancel = true)` walks
 /// up to the highest still-queued ancestor and cancels that one instead. Falls back to
 /// `id` when it is not queued (the cancel is then a no-op anyway).
 async fn force_cancel_target(db: &DB, w_id: &str, id: Uuid) -> error::Result<Uuid> {
-    let target = sqlx::query_scalar!(
+    let target = sqlx::query!(
         r#"WITH RECURSIVE queued_ancestors AS (
             SELECT j.id, j.parent_job, 0 AS depth
             FROM v2_job j JOIN v2_job_queue q USING (id)
@@ -660,15 +665,24 @@ async fn force_cancel_target(db: &DB, w_id: &str, id: Uuid) -> error::Result<Uui
             FROM queued_ancestors a
             JOIN v2_job j ON j.id = a.parent_job AND j.workspace_id = $2
             JOIN v2_job_queue q ON q.id = j.id
-            WHERE a.depth < 500
+            WHERE a.depth < $3
         )
-        SELECT id AS "id!" FROM queued_ancestors ORDER BY depth DESC LIMIT 1"#,
+        SELECT id AS "id!", depth AS "depth!" FROM queued_ancestors ORDER BY depth DESC LIMIT 1"#,
         id,
         w_id,
+        FORCE_CANCEL_MAX_ANCESTOR_DEPTH,
     )
     .fetch_optional(db)
     .await?;
-    Ok(target.unwrap_or(id))
+    match target {
+        None => Ok(id),
+        // Truncated: we cannot prove which job the cancel would reach, so refuse rather
+        // than authorize an ancestor that may not be the one killed.
+        Some(r) if r.depth >= FORCE_CANCEL_MAX_ANCESTOR_DEPTH => Err(Error::internal_err(format!(
+            "flow nesting above job {id} is too deep to authorize a force cancel"
+        ))),
+        Some(r) => Ok(r.id),
+    }
 }
 
 async fn force_cancel(
