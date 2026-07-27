@@ -5260,7 +5260,9 @@ export async function push(
       );
     }
     if (failedChanges.length > 0) {
-      process.exit(1);
+      // Not process.exit: under Node a piped stdout write is async, so exiting
+      // here would truncate the JSON result mid-object for CI consumers.
+      process.exitCode = 1;
     }
   } else {
     // Dry-run with no changes reaches here (a ui/ diff would have made changes
