@@ -1,5 +1,10 @@
 <script lang="ts">
 	import { createEventDispatcher, untrack } from 'svelte'
+	import {
+		agentResourceDependencies,
+		aiAgentModuleDependencies,
+		collectTransformRefs
+	} from './deployDependencies'
 	import { base } from '$lib/base'
 	import { enterpriseLicense, superadmin, workspaceStore } from '$lib/stores'
 	import {
@@ -174,37 +179,6 @@
 		}
 	}
 
-	function stripResourcePrefix(ref: string): string {
-		return ref.replace(/^\$res:/, '').replace(/^res:\/\//, '')
-	}
-
-	// A saved agent bundles its tools, which reference workspace objects by bare path rather than
-	// `$res:` — invisible to the generic value walk. A nested *linked* agent is queued as a resource
-	// and recursed into; a nested *inline* one carries its tools here, so recurse into them too.
-	function agentResourceDependencies(value: any): { kind: Kind; path: string }[] {
-		const result: { kind: Kind; path: string }[] = []
-		for (const tool of (value?.tools ?? []) as any[]) {
-			const v = tool?.value
-			if (typeof v !== 'object' || v == null) continue
-			if (typeof v.resource_path == 'string' && v.resource_path) {
-				result.push({ kind: 'resource', path: stripResourcePrefix(v.resource_path) })
-			} else if (v.type == 'script' && typeof v.path == 'string' && v.path) {
-				if (!v.path.startsWith('hub/')) {
-					result.push({ kind: 'script', path: v.path })
-				}
-			} else if (v.type == 'flow' && typeof v.path == 'string' && v.path) {
-				result.push({ kind: 'flow', path: v.path })
-			} else if (v.type == 'aiagent') {
-				if (typeof v.agent == 'string' && v.agent) {
-					result.push({ kind: 'resource', path: stripResourcePrefix(v.agent) })
-				} else {
-					result.push(...agentResourceDependencies(v))
-				}
-			}
-		}
-		return result
-	}
-
 	async function getDependencies(
 		kind: Kind,
 		path: string
@@ -225,16 +199,13 @@
 				const flow = await FlowService.getFlowByPath({ workspace: $workspaceStore!, path })
 				return getAllModules(flow.value.modules, flow.value.failure_module).flatMap((x) => {
 					let result: { kind: Kind; path: string }[] = []
-					if (x.value.type == 'script' || x.value.type == 'rawscript' || x.value.type == 'flow') {
-						Object.values(x.value.input_transforms).forEach((y) => {
-							if (y.type == 'static' && typeof y.value == 'string') {
-								if (y.value.startsWith('$res:')) {
-									result.push({ kind: 'resource', path: y.value.substring(5) })
-								} else if (y.value.startsWith('$var:')) {
-									result.push({ kind: 'variable', path: y.value.substring(5) })
-								}
-							}
-						})
+					if (
+						x.value.type == 'script' ||
+						x.value.type == 'rawscript' ||
+						x.value.type == 'flow' ||
+						x.value.type == 'aiagent'
+					) {
+						result.push(...collectTransformRefs(x.value.input_transforms))
 					}
 					if (x.value.type == 'script') {
 						if (x.value.path && !x.value.path.startsWith('hub/')) {
@@ -247,9 +218,7 @@
 					} else if (x.value.type == 'aiagent') {
 						// A linked agent step holds its brain and tools in this resource, so the target
 						// workspace needs it or every run of the deployed flow fails to resolve the step.
-						if (x.value.agent) {
-							result.push({ kind: 'resource', path: stripResourcePrefix(x.value.agent) })
-						}
+						result.push(...aiAgentModuleDependencies(x.value))
 					}
 					return result
 				})

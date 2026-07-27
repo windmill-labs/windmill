@@ -24,6 +24,7 @@ rust-client/Cargo.toml
 
 # Symlinked cache directories (for git worktrees)
 backend/target
+node_modules/
 frontend/node_modules
 typescript-client/node_modules
 ai_evals/node_modules
