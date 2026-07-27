@@ -268,9 +268,14 @@
 			.filter((x): x is string => x !== undefined)
 			.join('\u0001')
 	)
+	// The run's own workspace, not the navigation one: session and fork previews render this viewer
+	// with `workspaceId` pointing elsewhere, and resolving there finds nothing — or an unrelated
+	// resource sharing the path. The store scope stays keyed on `workspace` so it still matches what
+	// FlowGraphV2 reads; the job id in the key already makes the bucket unique.
+	let agentFetchWorkspace = $derived(workspaceId ?? job?.workspace_id ?? $workspaceStore)
 	$effect(() => {
 		const refs = linkedAgentRefs
-		const ws = workspace
+		const ws = agentFetchWorkspace
 		const scope = linkedToolsViewScope
 		untrack(() => {
 			for (const entry of refs ? refs.split('\u0001') : []) {
