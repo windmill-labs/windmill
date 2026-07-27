@@ -65,6 +65,11 @@
 	let editingPath = $derived(getAgentEditingPath(tools))
 
 	type LinkedInfo = {
+		// What this result was fetched for. runed's resource neither aborts nor tags a superseded
+		// request, so a slow fetch for a previous link can land after a newer one: every consumer
+		// gates on these matching the current (ws, agent).
+		ws?: string
+		path?: string
 		config: AIAgentConfig
 		tools: AgentTool[]
 		providerPath?: string
@@ -78,7 +83,7 @@
 		() => ({ ws, path: agent }),
 		async ({ ws, path }): Promise<LinkedInfo> => {
 			if (!ws || !path) {
-				return { config: {}, tools: [], providerOk: true }
+				return { ws, path, config: {}, tools: [], providerOk: true }
 			}
 			const res = await ResourceService.getResource({ workspace: ws, path })
 			const cfg = (res.value ?? {}) as AIAgentConfig & { provider?: { resource?: string } }
@@ -96,13 +101,19 @@
 					providerOk = false
 				}
 			}
-			return { config: cfg, tools, providerPath, providerOk }
+			return { ws, path, config: cfg, tools, providerPath, providerOk }
 		}
 	)
-	let inheritedTools = $derived(linkedResource.current?.tools ?? [])
-	let brainParams = $derived(summarizeAgentBrain(linkedResource.current?.config))
-	let providerPath = $derived(linkedResource.current?.providerPath)
-	let providerOk = $derived(linkedResource.current?.providerOk ?? true)
+	// Discard a result that belongs to a link the step no longer has.
+	let linkedInfo = $derived(
+		linkedResource.current?.ws === ws && linkedResource.current?.path === agent
+			? linkedResource.current
+			: undefined
+	)
+	let inheritedTools = $derived(linkedInfo?.tools ?? [])
+	let brainParams = $derived(summarizeAgentBrain(linkedInfo?.config))
+	let providerPath = $derived(linkedInfo?.providerPath)
+	let providerOk = $derived(linkedInfo?.providerOk ?? true)
 
 	// Keep the graph's linked-tool store current for this step. flowState resolves every linked step
 	// at load; here we refresh the one being edited when its link changes (or clear it on unlink), so
@@ -115,7 +126,7 @@
 		}
 		// Publish only once the resource has loaded — don't clobber the load-time tools with [] while
 		// the fetch is in flight, which would flicker the tool nodes out of the graph on selection.
-		const loaded = linkedResource.current
+		const loaded = linkedInfo
 		if (loaded) {
 			// linkedResource types tools loosely; they are the same resource tools the store holds.
 			setLinkedAgentTools(toolScope, moduleId, loaded.tools as AgentToolStrict[])
@@ -326,8 +337,8 @@
 	}
 
 	// Cancel keeps the edits as a standalone step. Edit preserved the flow-local overrides for the
-	// re-link; on a standalone step the runtime ignores tool_inputs, so fold them into the tools
-	// (as Unlink does) to keep the step's effective bindings, and clear the now-inert map.
+	// re-link; fold them into the tools (as Unlink does) so the step owns its bindings outright,
+	// leaving nothing for the runtime's unlinked overlay to apply.
 	function cancelEdit() {
 		for (const tool of tools) {
 			const overrides = toolInputs?.[tool.id]

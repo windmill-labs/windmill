@@ -1678,6 +1678,9 @@
 											{testJob}
 											{scriptProgress}
 											mod={flowModule}
+											linkedAgentTools={agentLinked
+												? getLinkedAgentTools(linkedToolsScope(opWs, $pathStore), flowModule.id)
+												: undefined}
 											{testIsLoading}
 											disableMock={preprocessorModule || failureModule}
 											disableHistory={failureModule}
