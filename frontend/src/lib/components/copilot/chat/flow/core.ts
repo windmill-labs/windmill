@@ -976,7 +976,7 @@ set_flow_json({
 
 **Example - Flow with while loop:**
 
-While loops have no cross-iteration state: \`flow_input.iter.value\` equals \`flow_input.iter.index\` (a plain number: 0, 1, 2, ...), and inner steps cannot read previous iterations' results. Expressions like \`flow_input.iter.value.count\` or \`results.<inner_step>\` do NOT read the previous iteration — they evaluate to undefined/null, so a counter built on them never advances and the loop never terminates. Derive state from \`flow_input.iter.index\` instead. To terminate, set \`stop_after_if\` on the whileloopflow module itself — there \`result\` is the last iteration's result (the return of the iteration's final step).
+While loops have no cross-iteration state: \`flow_input.iter.value\` equals \`flow_input.iter.index\` (a plain number: 0, 1, 2, ...), and steps cannot read previous iterations' results — \`flow_input.iter.value.count\`, or a step's own \`results.<id>\` from the prior iteration, evaluate to undefined/null, so a counter built on them never advances and the loop never terminates. Derive state from \`flow_input.iter.index\` instead; later steps in the same iteration can still use \`results.<earlier_step>\` normally. To terminate, set \`stop_after_if\` on the whileloopflow module itself — there \`result\` is the last iteration's result (the return of the iteration's final step).
 
 \`\`\`javascript
 set_flow_json({

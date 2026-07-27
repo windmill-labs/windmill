@@ -168,7 +168,7 @@ value:
 - For `whileloopflow`, use module-level `stop_after_if` on the loop module itself when the loop should stop after an iteration result
 - Do NOT put `stop_after_if` inside `value` of a `whileloopflow`
 - `stop_after_all_iters_if` is for checks after the whole loop finishes, not the normal per-iteration break condition
-- A `whileloopflow` carries NO state between iterations: `flow_input.iter.value` is just the iteration index, and inner steps cannot read previous iterations' results — expressions like `flow_input.iter.value.<field>` or `results.<inner_step>` evaluate to undefined/null, so a loop whose stop condition depends on them never terminates
+- A `whileloopflow` carries NO state between iterations: `flow_input.iter.value` is just the iteration index, and steps cannot read previous iterations' results — `flow_input.iter.value.<field>`, or `results.<step_id>` pointing at a previous iteration (e.g. a step's own id), evaluate to undefined/null, so a loop whose stop condition depends on them never terminates. Within one iteration, later steps can reference earlier steps' results via `results.<step_id>` normally
 - Derive per-iteration state from `flow_input.iter.index` (e.g. a counter is `flow_input.iter.index + 1`); for state that cannot be derived from the index, persist it from inside the scripts (e.g. `wmill` state helpers)
 - If the user asks for a final scalar/object after a loop, add a normal step after the loop that extracts the final value from the loop result instead of returning the whole loop result array
 
