@@ -525,6 +525,38 @@ export function isScriptModulePath(p: string): boolean {
   return MODULE_SUFFIXES.some((suffix) => n.includes(suffix + "/"));
 }
 
+/** Per-file ceiling for a dbt project's bundle. Real dbt code is small (about
+ *  500 bytes median, 1.9 KB at p90 measured across dbt_utils), so this only
+ *  ever catches a committed dataset, which belongs in the warehouse rather than
+ *  in every version of the script. */
+export const MAX_MODULE_BYTES = 5 * 1024 * 1024;
+
+/**
+ * Whether a dbt project file is one the bundle carries.
+ *
+ * A dbt project's authored files are text. A binary one -- an image under
+ * `docs/`, a `.DS_Store`, a parquet seed -- would be read as mojibake and, if
+ * it carries a NUL, rejected by Postgres with an opaque `unsupported Unicode
+ * escape sequence`. Binary is detected the way `git` does it, by a NUL in the
+ * first 8000 bytes, rather than by extension, which `docs/` and stray dotfiles
+ * do not follow.
+ *
+ * The push, the staleness hash and the sync diff all ask this same question: a
+ * file one drops and another keeps is a change no push can ever resolve.
+ */
+export function isBundledModuleFile(fullPath: string): boolean {
+  let bytes: Buffer;
+  try {
+    bytes = fs.readFileSync(fullPath);
+  } catch {
+    // Unreadable is not the same as excluded. A pull asks this about files that
+    // do not exist locally yet, and answering "not carried" there would make
+    // sync ignore the whole incoming project and write nothing.
+    return true;
+  }
+  return !bytes.subarray(0, 8000).includes(0) && bytes.byteLength <= MAX_MODULE_BYTES;
+}
+
 /** Whether a path is inside a dbt project's module folder specifically: those
  *  files are taken verbatim, with no language inference. */
 export function isDbtModulePath(p: string): boolean {
@@ -616,10 +648,12 @@ export function isDbtGeneratedPath(p: string): boolean {
   const idx = n.indexOf(suffix);
   if (idx === -1) return false;
   const rel = n.slice(idx + suffix.length);
-  return isUnderGeneratedDir(
-    rel,
-    dbtGeneratedDirs(n.slice(0, idx + suffix.length - 1)),
-  );
+  if (isUnderGeneratedDir(rel, dbtGeneratedDirs(n.slice(0, idx + suffix.length - 1)))) {
+    return true;
+  }
+  // Not generated, but not carried either: the bundle drops it, so the diff
+  // must not keep offering it as a pending change.
+  return !isBundledModuleFile(p);
 }
 
 /**

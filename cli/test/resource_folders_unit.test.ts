@@ -40,6 +40,8 @@ import {
   dbtGeneratedDirs,
   isUnderGeneratedDir,
   isDbtModulePath,
+  isBundledModuleFile,
+  MAX_MODULE_BYTES,
 } from "../src/utils/resource_folders.ts";
 import { removeWorkerPrefix } from "../src/commands/worker-groups/worker-groups.ts";
 
@@ -743,5 +745,49 @@ describe("dbt module paths on either separator", () => {
 
   test("a path with no module folder has no base path", () => {
     expect(getScriptBasePathFromModulePath("f/x/proj.dbt.yaml")).toBeUndefined();
+  });
+});
+
+// The push, the staleness hash and the sync diff all ask this question. They
+// must agree: a file one drops and another keeps is a change no push resolves.
+describe("isBundledModuleFile", () => {
+  const fs = require("node:fs");
+  const os = require("node:os");
+  const nodePath = require("node:path");
+  let dir: string;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), "bundled-"));
+  });
+
+  const write = (name: string, data: Buffer | string) => {
+    const p = nodePath.join(dir, name);
+    fs.writeFileSync(p, data);
+    return p;
+  };
+
+  test("keeps text, including empty and unicode", () => {
+    expect(isBundledModuleFile(write("a.sql", "select 1\n"))).toBe(true);
+    expect(isBundledModuleFile(write("empty.sql", ""))).toBe(true);
+    expect(isBundledModuleFile(write("u.sql", "select 'café'\n"))).toBe(true);
+  });
+
+  test("drops a binary file, which a NUL identifies", () => {
+    expect(isBundledModuleFile(write("x.png", Buffer.from([0x89, 0x50, 0x00, 0x1a])))).toBe(
+      false,
+    );
+  });
+
+  test("drops a file over the per-file limit", () => {
+    expect(isBundledModuleFile(write("huge.csv", "x".repeat(MAX_MODULE_BYTES + 1)))).toBe(
+      false,
+    );
+  });
+
+  // A pull asks this about files that do not exist locally yet. Answering "not
+  // carried" there made sync ignore the whole incoming project and write
+  // nothing — the bundle silently vanished on every fresh checkout.
+  test("treats a missing file as carried, not as excluded", () => {
+    expect(isBundledModuleFile(nodePath.join(dir, "does-not-exist.sql"))).toBe(true);
   });
 });

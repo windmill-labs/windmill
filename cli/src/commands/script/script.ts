@@ -73,6 +73,8 @@ import {
   getModuleFolderSuffix,
   dbtGeneratedDirs,
   isUnderGeneratedDir,
+  isBundledModuleFile,
+  MAX_MODULE_BYTES,
   isModuleEntryPoint,
   getScriptBasePathFromModulePath,
   scriptPathToRemotePath,
@@ -724,11 +726,25 @@ export async function readModulesFromDisk(
       } else if (entry.isFile() && !entry.name.endsWith(".lock") && !isEntryPointFile(entry.name, isTopLevel)) {
         // Skip lock files — they're handled as the `lock` field on ScriptModule
         if (verbatim) {
+          // A dbt project's authored files are text. A binary one -- an image
+          // under `docs/`, a `.DS_Store`, a parquet seed -- would be read as
+          // mojibake and, if it carries a NUL, rejected by Postgres with an
+          // opaque `unsupported Unicode escape sequence`, which the push then
+          // reports as success. Skip it, loudly: dbt does not read it either.
+          const bytes = fs.readFileSync(fullPath);
+          if (!isBundledModuleFile(fullPath)) {
+            log.warn(
+              `Skipping ${relPath}: not a text file, or over the ` +
+                `${MAX_MODULE_BYTES / 1024 / 1024} MB per-file limit, so it is not part of the ` +
+                `dbt project the bundle carries`,
+            );
+            continue;
+          }
           // `language` is a required field of the API type and is not used for
           // these: the worker writes them to their relative path and dbt reads
           // the tree.
           modules[relPath] = {
-            content: readTextFileSync(fullPath),
+            content: bytes.toString("utf-8"),
             language: "dbt" as ScriptModule["language"],
           };
         } else if (exts.some((ext) => entry.name.endsWith(ext))) {

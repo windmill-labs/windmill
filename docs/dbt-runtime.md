@@ -294,7 +294,17 @@ script per project with per-run `select`, and treat two scripts as two projects
 **Seeds are the only thing that can bloat a version.** Measured on real dbt code,
 `.sql` files run about 500 bytes median and 1.9 KB at p90, so even a 5000-model
 project is a few MB before compression. A single committed CSV can exceed all of
-it, so the size guard names `seeds/` specifically rather than counting models.
+it, so the CLI drops any file over 5 MB from the bundle and says which, rather
+than counting models.
+
+**Only text is carried.** A dbt project's authored files are text; a binary one
+(an image under `docs/`, a stray `.DS_Store`, a parquet seed) is skipped with
+the reason. Left in, it would be read as mojibake and, if it carried a NUL,
+rejected by Postgres with an opaque `unsupported Unicode escape sequence`.
+Binary is detected the way `git` does it, by a NUL in the first 8000 bytes,
+because `docs/` and dotfiles do not follow extensions. The push, the staleness
+hash and the sync diff share one predicate: a file one drops and another keeps
+is a change no push can resolve.
 
 ## The script artifact
 

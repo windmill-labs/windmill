@@ -19,7 +19,7 @@ import {
   languageNeedsLock,
 } from "./script_common.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
-import { dbtGeneratedDirs, isUnderGeneratedDir, getModuleFolderSuffix, isModuleEntryPoint, scriptPathToRemotePath } from "./resource_folders.ts";
+import { dbtGeneratedDirs, isUnderGeneratedDir, isBundledModuleFile, getModuleFolderSuffix, isModuleEntryPoint, scriptPathToRemotePath } from "./resource_folders.ts";
 import { findCodebase, yamlOptions } from "../commands/sync/sync.ts";
 import { generateHash, readInlinePathSync, getHeaders, readTextFile, readTextFileSync } from "./utils.ts";
 import { detectAuthGatewayChallenge } from "./http_guards.ts";
@@ -1409,6 +1409,11 @@ async function computeModuleHashes(
           } catch {
             continue;
           }
+        } else if (!isBundledModuleFile(fullPath)) {
+          // Hash only what the push actually sends. Hashing a file the bundle
+          // drops would make the script permanently stale: every check would
+          // see a change no push can ever resolve.
+          continue;
         }
         const content = readTextFileSync(fullPath);
         const normalizedPath = normalizeLockPath(relPath);
