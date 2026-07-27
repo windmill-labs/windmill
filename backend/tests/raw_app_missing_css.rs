@@ -1,16 +1,15 @@
-//! Regression test for raw apps whose bundle has no stylesheet.
+//! Raw app bundles whose stylesheet is absent rather than empty.
 //!
 //! `create_app_raw` stores the `css` blob only when the multipart field is
 //! present, so an app built from sources with no styles has no `css` row at
-//! all. The read side used to 404 for that, and cross-workspace deploy
-//! re-fetches both bundle parts and treats the 404 as fatal — which made such
-//! an app permanently un-deployable, with nothing to self-heal it.
+//! all. Cross-workspace deploy re-fetches both bundle parts and treats a
+//! non-200 as fatal, so 404ing the stylesheet makes such an app un-deployable:
+//! absent means empty.
 //!
 //! This test pins down:
-//!   - a bundle stored without a `css` part serves an empty stylesheet, not 404
-//!     (the fix; pre-fix this 404'd and broke every deploy of the app),
-//!   - a bundle that does have styles still serves them byte-for-byte (the
-//!     tolerance must not start blanking real stylesheets), and
+//!   - a bundle stored without a `css` part serves an empty stylesheet,
+//!   - a bundle that has styles serves them byte-for-byte, so the tolerance
+//!     never blanks a real stylesheet, and
 //!   - a missing `js` blob still 404s — the tolerance must not leak to the
 //!     half of the bundle whose absence really is broken.
 
@@ -47,8 +46,8 @@ async fn test_raw_app_without_stylesheet_stays_readable(db: Pool<Postgres>) -> a
 
     let js_body = "console.log('app')";
 
-    // 1. Create a raw app with NO css part at all — exactly what a client that
-    //    omits the field produces, and the state the 16 broken versions are in.
+    // 1. Create a raw app with NO css part at all — what a client that omits
+    //    the field produces.
     let form = multipart::Form::new()
         .part("app", app_part("u/test-user/nocss")?)
         .part("js", multipart::Part::text(js_body));
