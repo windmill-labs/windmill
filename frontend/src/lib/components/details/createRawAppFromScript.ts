@@ -252,7 +252,11 @@ function toFields(schema: Record<string, any> | undefined): Field[] {
 			init = str(typeof prop.default === 'string' ? prop.default : (enumValues[0]?.value ?? ''))
 			arg = local
 		} else if (kind === 'resource') {
-			init = str(typeof prop.default === 'string' ? prop.default : '$res:')
+			// Starts empty, never at a bare `$res:`: an untouched optional field has
+			// to read as omitted, and an untouched required one has to trip the
+			// browser's `required` check rather than ask the backend to resolve an
+			// empty path. The hint carries the expected shape instead.
+			init = str(typeof prop.default === 'string' ? prop.default : '')
 			arg = isRequired ? local : `${local} === '' ? undefined : ${local}`
 		} else {
 			init = str(typeof prop.default === 'string' ? prop.default : '')
@@ -370,12 +374,15 @@ function generateAppTsx(opts: {
 			// form is not — there it sets the prototype and the argument never
 			// reaches the runnable, so that one key needs a computed key.
 			if (f.arg === f.key) return `				${f.key}`
+			// `str` may pick a template literal, which is not a legal property
+			// name, so keys always take JSON quoting rather than `str`.
+			const quoted = JSON.stringify(f.key)
 			const key =
 				f.key === '__proto__'
-					? `[${str(f.key)}]`
+					? `[${quoted}]`
 					: /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(f.key)
 						? f.key
-						: str(f.key)
+						: quoted
 			return `				${key}: ${f.arg}`
 		})
 		.join(',\n')

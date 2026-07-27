@@ -128,7 +128,7 @@ describe('createRawAppFromScript', () => {
 			// prototype and the property would not exist at all.
 			properties: { ['__proto__']: { type: 'number' } }
 		})
-		expect(app.value.files['/App.tsx']).toContain("['__proto__']: Number(__proto__Text)")
+		expect(app.value.files['/App.tsx']).toContain('["__proto__"]: Number(__proto__Text)')
 	})
 
 	it('omits blank optional text instead of sending an empty string', () => {
@@ -156,8 +156,21 @@ describe('createRawAppFromScript', () => {
 			db: { type: 'user', value: undefined, allowUserResources: true }
 		})
 		const appTsx = app.value.files['/App.tsx']
-		expect(appTsx).toContain("const [db, setDb] = useState('$res:')")
+		// Empty, not a bare `$res:`: an untouched optional field must read as
+		// omitted and an untouched required one must trip the `required` check.
+		expect(appTsx).toContain("const [db, setDb] = useState('')")
 		expect(appTsx).toContain('resource path, e.g. $res:u/user/my_postgresql')
+	})
+
+	it('quotes argument names that cannot be bare property keys', () => {
+		const app = createRawAppFromScript('u/dev/s', undefined, {
+			type: 'object',
+			required: ["user's-name"],
+			properties: { "user's-name": { type: 'string' } }
+		})
+		// `str` would pick a template literal here, which is not a legal property
+		// name, so the module would not compile.
+		expect(app.value.files['/App.tsx']).toContain('"user\'s-name": user_s_name')
 	})
 
 	it('passes enum values through JSX unchanged', () => {
