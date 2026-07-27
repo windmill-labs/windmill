@@ -1674,7 +1674,8 @@ struct ChangeUserEmail {
 }
 
 /// `workspace.owner`, `workspace_settings.slack_email` and `usage.id` hold an email in a
-/// `varchar(50)`; every other email column is `varchar(255)`.
+/// `varchar(50)`, and `v2_job.permissioned_as` in a `varchar(55)`; every other email column is
+/// `varchar(255)`. The strictest of the two bounds is used for all of them.
 const SHORT_EMAIL_COLUMN_MAX_LEN: usize = 50;
 const EMAIL_COLUMN_MAX_LEN: usize = 255;
 
@@ -1770,7 +1771,8 @@ async fn change_user_email(
             "SELECT EXISTS(
                 SELECT 1 FROM workspace WHERE owner = $1
                 UNION ALL SELECT 1 FROM workspace_settings WHERE slack_email = $1
-                UNION ALL SELECT 1 FROM usage WHERE id = $1 AND NOT is_workspace)",
+                UNION ALL SELECT 1 FROM usage WHERE id = $1 AND NOT is_workspace
+                UNION ALL SELECT 1 FROM v2_job WHERE permissioned_as = $1 AND id IN (SELECT id FROM v2_job_queue))",
             &old_email
         )
         .fetch_one(&mut *tx)
@@ -1778,7 +1780,7 @@ async fn change_user_email(
         .unwrap_or(false);
         if referenced_by_short_column {
             return Err(Error::BadRequest(format!(
-                "{new_email} is longer than {SHORT_EMAIL_COLUMN_MAX_LEN} characters and this user owns a workspace, a Slack connection or usage counters, whose columns cannot hold it"
+                "{new_email} is longer than {SHORT_EMAIL_COLUMN_MAX_LEN} characters and this user owns a workspace, a Slack connection, usage counters or a queued job, whose columns cannot hold it"
             )));
         }
     }
@@ -1996,6 +1998,24 @@ async fn change_user_email(
     // are the ones that go stale here; `u/{username}` rows are safe because the username is kept.
     sqlx::query!(
         "UPDATE app SET policy = jsonb_set(policy, ARRAY['on_behalf_of'], to_jsonb($1::text)) WHERE policy->>'on_behalf_of' = $2",
+        &new_email,
+        &old_email
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    // A folder's default rules are an ordered array, first match wins, so the rewrite has to
+    // preserve their order. A rule left on the old address makes `ensure_permissioned_as_exists`
+    // reject the creation of every runnable the rule matches.
+    sqlx::query!(
+        r#"UPDATE folder SET default_permissioned_as = (
+            SELECT jsonb_agg(
+                CASE WHEN rule->>'permissioned_as' = $2
+                     THEN jsonb_set(rule, ARRAY['permissioned_as'], to_jsonb($1::text))
+                     ELSE rule END
+                ORDER BY ord)
+            FROM jsonb_array_elements(default_permissioned_as) WITH ORDINALITY AS t(rule, ord))
+        WHERE default_permissioned_as @> jsonb_build_array(jsonb_build_object('permissioned_as', $2::text))"#,
         &new_email,
         &old_email
     )

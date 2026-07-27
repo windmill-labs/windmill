@@ -545,6 +545,13 @@ async fn test_change_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
     )
     .execute(&db)
     .await?;
+    sqlx::query!(
+        "INSERT INTO folder(workspace_id, name, display_name, owners, extra_perms, default_permissioned_as)
+         VALUES ('test-workspace', 'fold', 'fold', '{}', '{}'::jsonb,
+                 '[{\"path_glob\": \"a/**\", \"permissioned_as\": \"u/other\"}, {\"path_glob\": \"**\", \"permissioned_as\": \"test2@windmill.dev\"}]'::jsonb)"
+    )
+    .execute(&db)
+    .await?;
 
     let resp = change_email("test2@windmill.dev", "renamed@windmill.dev")
         .await
@@ -590,6 +597,17 @@ async fn test_change_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
         !policy.contains("test2@windmill.dev") && policy.contains("renamed@windmill.dev"),
         "app policy should carry only the new address: {policy}"
     );
+
+    // The rules keep their order, since the folder resolver takes the first glob that matches.
+    let rules = sqlx::query_scalar!(
+        "SELECT default_permissioned_as::text FROM folder WHERE workspace_id = 'test-workspace' AND name = 'fold'"
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or_default();
+    let rules: serde_json::Value = serde_json::from_str(&rules)?;
+    assert_eq!(rules[0]["permissioned_as"], "u/other");
+    assert_eq!(rules[1]["permissioned_as"], "renamed@windmill.dev");
 
     let old_rows =
         sqlx::query_scalar!("SELECT COUNT(*) FROM password WHERE email = 'test2@windmill.dev'")
