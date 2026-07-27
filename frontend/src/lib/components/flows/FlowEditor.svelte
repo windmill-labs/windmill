@@ -331,7 +331,10 @@
 								iconOnly
 								startIcon={{ icon: Maximize2 }}
 								title="Open panel in a modal"
-								on:click={() => (panelMode = 'modal')}
+								on:click={() => {
+									panelMode = 'modal'
+									panelModalOpen = true
+								}}
 							/>
 						</div>
 					{/if}
@@ -359,10 +362,10 @@
 	{#if panelMode === 'modal' && panelModalOpen}
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="absolute inset-0 z-40 flex" role="dialog">
+		<div class="absolute inset-0 z-40 flex justify-center p-2" role="dialog">
 			<div class="absolute inset-0 bg-black/20" onclick={() => (panelModalOpen = false)}></div>
 			<div
-				class="absolute inset-2 flex flex-col overflow-hidden rounded-md border bg-surface shadow-xl"
+				class="relative flex w-full max-w-4xl flex-col overflow-hidden rounded-md border bg-surface shadow-xl"
 			>
 				<div class="flex items-center justify-between gap-2 border-b px-2 py-1">
 					<Badge
