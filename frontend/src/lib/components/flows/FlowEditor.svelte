@@ -131,7 +131,9 @@
 	let panelModalOpen = $state(false)
 
 	function openPanelModalFromGraph(e: MouseEvent) {
-		if ((e.target as HTMLElement | null)?.closest('.svelte-flow__node')) {
+		// Only nodes that can take the selection, or the modal would open on whatever
+		// was selected before — asset and note nodes are deliberately unselectable.
+		if ((e.target as HTMLElement | null)?.closest('.svelte-flow__node.selectable')) {
 			panelModalOpen = true
 		}
 	}

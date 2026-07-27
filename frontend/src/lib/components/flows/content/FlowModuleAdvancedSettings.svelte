@@ -103,7 +103,9 @@
 		expanded = key === 'runtime' ? 'concurrency' : key
 	}
 
-	const isFailure = $derived(selectedId.includes('failure'))
+	// Exact id: only the flow's error handler is 'failure'; a step the user named
+	// something like handle_failure is an ordinary step and keeps every row.
+	const isFailure = $derived(selectedId === 'failure')
 	const isRawScript = $derived(flowModule.value.type === 'rawscript')
 	const isWorkspaceScript = $derived(flowModule.value.type === 'script')
 	const s3Language = $derived(
