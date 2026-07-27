@@ -574,33 +574,42 @@
 		)
 		untrack(() => {
 			if (scope !== prevLinkedToolsScope) {
-				sweepLinkedToolsScope(prevLinkedToolsScope, scope, opWorkspace)
+				sweepLinkedToolsScope(prevLinkedToolsScope, scope, opWorkspace, true)
 				prevLinkedToolsScope = scope
 			}
 			if (docScope !== scope) {
-				sweepLinkedToolsScope(docScope, scope, opWorkspace)
+				sweepLinkedToolsScope(docScope, scope, opWorkspace, false)
 			}
 		})
 	})
 
-	function sweepLinkedToolsScope(from: string, to: string, ws: string | undefined) {
-		if (Object.keys(linkedAgentToolsForScope(from)).length === 0) {
+	// `renamed` distinguishes the two sources. After a rename every fetch still running against the
+	// old scope is stale by definition, empty bucket or not — its result would land in a scope
+	// readers have left and be swept forward later. The doc-scope sweep has no such cut-off: fetches
+	// there belong to the refresh in progress, so it only acts once that scope holds something.
+	function sweepLinkedToolsScope(
+		from: string,
+		to: string,
+		ws: string | undefined,
+		renamed: boolean
+	) {
+		const sourceHasTools = Object.keys(linkedAgentToolsForScope(from)).length > 0
+		if (!renamed && !sourceHasTools) {
 			return
 		}
-		// A fetch still running against `from` holds a valid generation there, so it would publish
-		// into the old bucket and be swept forward over a link resolved since under `to`.
 		invalidateLinkedToolsFetches(from)
-		migrateLinkedAgentToolsScope(from, to)
-		// That also cancelled fetches which were perfectly current — a link still loading when the
-		// rename landed. Anything with no tools in `to` is exactly those, so resolve them again.
-		const entries = linkedAgentEntries(linkedAgentRefs)
+		if (sourceHasTools) {
+			migrateLinkedAgentToolsScope(from, to)
+		}
+		// Restart what that cancelled: a link still loading has nothing in `to`, whereas one whose
+		// tools migrated is already current. A link changed in the same tick keeps the old agent's
+		// tools here, so it is left for the watcher below, which compares links rather than presence.
 		const resolved = linkedAgentToolsForScope(to)
-		for (const [moduleId, agentPath] of entries) {
+		for (const [moduleId, agentPath] of linkedAgentEntries(linkedAgentRefs)) {
 			if (resolved[moduleId] === undefined) {
 				publishLinkedAgentTools(agentPath, ws, to, moduleId)
 			}
 		}
-		publishedAgentByModule = entries
 	}
 
 	// Re-resolve linked agents whenever the set of links changes. Wholesale replacements — undo/redo,

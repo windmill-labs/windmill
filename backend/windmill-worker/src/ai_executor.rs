@@ -374,14 +374,9 @@ pub async fn handle_ai_agent_job(
         ));
     };
 
-    // Hybrid linking: when the step references a saved `ai_agent` resource, the brain config
-    // (provider/model/system prompt/etc.) and the tool set come from that resource; only the
-    // flow-local inputs (user_message/user_attachments) come from the step. When not linked, the
-    // brain is the step's resolved input_transforms and the tools are the module's own.
-    // A linked agent's brain and tool set stay rigid (edit the resource to change them), but the
-    // step may bind those tools' inputs to *this* flow's context via `tool_inputs` — overlaid
-    // onto the resource tools below so the referenced agent is reusable across flows with
-    // different step graphs.
+    // A linked step takes its brain and tools from the resource and keeps only the flow-local
+    // inputs (user_message/user_attachments) of its own; both stay rigid, so the one thing it may
+    // bind to this flow is the tools' inputs, overlaid from `tool_inputs` below.
     let (args, tools): (AIAgentArgs, Vec<AgentTool>) = if let Some(agent_ref) = agent.as_deref() {
         let agent_path = agent_ref
             .trim_start_matches("$res:")

@@ -12,7 +12,7 @@
 		type AgentTool,
 		type FlowModuleTool
 	} from '../agentToolUtils'
-	import { toolInputOverrides } from '../agentResourceUtils'
+	import { flowLocalAgentSchema, toolInputOverrides } from '../agentResourceUtils'
 	import { loadSchemaFromModule } from '../flowInfers'
 
 	let {
@@ -82,7 +82,12 @@
 						loadSchemaFromModule(agentToolToFlowModule(t), ws)
 							.then(({ schema }) => {
 								if (defSnaps[t.id] === defSnap) {
-									schemas[t.id] = schema
+									// A nested agent that is itself linked takes its brain from its own resource;
+									// the runtime overlays only the flow-local inputs, so offering the rest here
+									// would collect overrides it silently drops.
+									const v = t.value as { type?: string; agent?: string } | undefined
+									schemas[t.id] =
+										v?.type === 'aiagent' && v.agent ? flowLocalAgentSchema(schema) : schema
 								}
 							})
 							.catch(() => {
