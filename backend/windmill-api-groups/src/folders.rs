@@ -129,11 +129,17 @@ async fn list_folders(
 
     Ok(Json(rows))
 }
+#[derive(Deserialize)]
+pub struct ListFoldernamesQuery {
+    pub non_empty: Option<bool>,
+}
+
 async fn list_foldernames(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
+    Query(lq): Query<ListFoldernamesQuery>,
 ) -> JsonResult<Vec<String>> {
     let (per_page, offset) = paginate(pagination);
     let mut tx = user_db.begin(&authed).await?;
@@ -144,6 +150,18 @@ async fn list_foldernames(
     // LIMIT would let a page return fewer than per_page while authorized folders remain
     // on later DB pages, stopping such a caller early.)
     let mut sql = String::from("SELECT name FROM folder WHERE workspace_id = $1");
+    if lq.non_empty.unwrap_or(false) {
+        // Only folders holding at least one non-archived script/flow/app (the kinds the
+        // homepage lists) — a single scan per table semi-joined on the owner segment,
+        // rather than a correlated probe per folder. Runs under the user's RLS, so a
+        // folder whose items the caller cannot read counts as empty for them.
+        sql.push_str(
+            " AND name IN ( \
+             SELECT split_part(path, '/', 2) FROM script WHERE workspace_id = $1 AND path LIKE 'f/%' AND archived = false \
+             UNION SELECT split_part(path, '/', 2) FROM flow WHERE workspace_id = $1 AND path LIKE 'f/%' AND archived = false \
+             UNION SELECT split_part(path, '/', 2) FROM app WHERE workspace_id = $1 AND path LIKE 'f/%')",
+        );
+    }
     let restricted = match build_scope_path_filter(&authed, "folders", "read") {
         ScopePathFilter::AllowAll => None,
         ScopePathFilter::Restricted { exact, prefix } => {

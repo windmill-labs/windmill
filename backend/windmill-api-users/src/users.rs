@@ -545,10 +545,16 @@ async fn update_tutorial_progress(
     Ok("tutorial progress updated".to_string())
 }
 
+#[derive(Deserialize)]
+pub struct ListUsernamesQuery {
+    pub non_empty: Option<bool>,
+}
+
 async fn list_usernames(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
+    Query(lq): Query<ListUsernamesQuery>,
 ) -> JsonResult<Vec<String>> {
     if *CLOUD_HOSTED && w_id == "demo" {
         return Ok(Json(vec![
@@ -557,9 +563,25 @@ async fn list_usernames(
         ]));
     }
     let mut tx = user_db.begin(&authed).await?;
-    let rows = sqlx::query_scalar!("SELECT username from usr WHERE workspace_id = $1", &w_id)
+    let rows = if lq.non_empty.unwrap_or(false) {
+        // Only users whose personal space holds at least one non-archived
+        // script/flow/app (the kinds the homepage lists) — a single scan per table
+        // semi-joined on the owner segment. Runs under the user's RLS, so a user whose
+        // items the caller cannot read counts as empty for them.
+        sqlx::query_scalar::<_, String>(
+            "SELECT username FROM usr WHERE workspace_id = $1 AND username IN ( \
+             SELECT split_part(path, '/', 2) FROM script WHERE workspace_id = $1 AND path LIKE 'u/%' AND archived = false \
+             UNION SELECT split_part(path, '/', 2) FROM flow WHERE workspace_id = $1 AND path LIKE 'u/%' AND archived = false \
+             UNION SELECT split_part(path, '/', 2) FROM app WHERE workspace_id = $1 AND path LIKE 'u/%')",
+        )
+        .bind(&w_id)
         .fetch_all(&mut *tx)
-        .await?;
+        .await?
+    } else {
+        sqlx::query_scalar!("SELECT username from usr WHERE workspace_id = $1", &w_id)
+            .fetch_all(&mut *tx)
+            .await?
+    };
     tx.commit().await?;
     Ok(Json(rows))
 }

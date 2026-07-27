@@ -124,12 +124,17 @@
 		new Set<string>([...(pipelineFoldersRes.current ?? []), ...pipelineMemberFolders])
 	)
 
-	// The workspace's full folder list, independent of which items are paged in,
-	// so the owner facet and tree show every folder even when its items sit far
-	// down the sorted stream. Cheap and cached per workspace.
+	let archived = $state(false)
+
+	// The workspace's folder list, independent of which items are paged in, so the
+	// owner facet and tree show a folder even when its items sit far down the sorted
+	// stream. Folders with no listable runnable are dropped server-side (non_empty)
+	// so auto-created/unused folders don't clutter the tree — except in the
+	// archived-only view, where a folder whose items are all archived would count as
+	// empty yet must stay reachable.
 	let folderNamesRes = resource(
-		() => $workspaceStore,
-		async (ws) => {
+		[() => $workspaceStore, () => archived],
+		async ([ws, archivedOnly]) => {
 			if (!ws) return [] as string[]
 			// Page to exhaustion: listFolderNames is capped per page, so a workspace
 			// with more folders than the cap would otherwise be truncated.
@@ -137,7 +142,12 @@
 			const all: string[] = []
 			try {
 				for (let page = 1; ; page++) {
-					const batch = await FolderService.listFolderNames({ workspace: ws, page, perPage })
+					const batch = await FolderService.listFolderNames({
+						workspace: ws,
+						page,
+						perPage,
+						nonEmpty: archivedOnly ? undefined : true
+					})
 					all.push(...batch)
 					if (batch.length < perPage) break
 				}
@@ -148,16 +158,22 @@
 		}
 	)
 	let allFolderOwners = $derived((folderNamesRes.current ?? []).map((f) => `f/${f}`))
-	// Every workspace username, so a user whose items sit beyond the loaded browse
-	// window is still a selectable owner chip (scoping the stream to `u/<user>/`).
-	// Without this, user owners would derive only from loaded rows and a user past
-	// the first page would be unreachable in the tree without searching.
+	// Every workspace username with listable runnables, so a user whose items sit
+	// beyond the loaded browse window is still a selectable owner chip (scoping the
+	// stream to `u/<user>/`). Without this, user owners would derive only from
+	// loaded rows and a user past the first page would be unreachable in the tree
+	// without searching. Users with no runnable are dropped server-side (non_empty)
+	// to keep the tree uncluttered — except in the archived-only view, same as the
+	// folder list above.
 	let usernamesRes = resource(
-		() => $workspaceStore,
-		async (ws) => {
+		[() => $workspaceStore, () => archived],
+		async ([ws, archivedOnly]) => {
 			if (!ws) return [] as string[]
 			try {
-				return await UserService.listUsernames({ workspace: ws })
+				return await UserService.listUsernames({
+					workspace: ws,
+					nonEmpty: archivedOnly ? undefined : true
+				})
 			} catch {
 				return [] as string[] // best-effort facet
 			}
@@ -586,8 +602,6 @@
 			firstElement.scrollTop = 0
 		}
 	}
-
-	let archived = $state(false)
 
 	const TREE_VIEW_SETTING_NAME = 'treeView'
 	const FILTER_USER_FOLDER_SETTING_NAME = 'filterUserFolders'

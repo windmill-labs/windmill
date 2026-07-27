@@ -5707,6 +5707,13 @@ paths:
         - user
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: non_empty
+          in: query
+          description:
+            only list usernames whose user space contains at least one non-archived
+            script, flow or app (default false)
+          schema:
+            type: boolean
       responses:
         "200":
           description: user
@@ -19581,6 +19588,13 @@ paths:
         - name: only_member_of
           in: query
           description: only list the folders the user is member of (default false)
+          schema:
+            type: boolean
+        - name: non_empty
+          in: query
+          description:
+            only list folders containing at least one non-archived script, flow
+            or app (default false)
           schema:
             type: boolean
       responses:
