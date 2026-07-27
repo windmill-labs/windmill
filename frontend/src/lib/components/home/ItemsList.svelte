@@ -733,6 +733,14 @@
 		}
 	)
 	let ownerCounts = $derived(ownerCountsRes.current)
+	// The counts decide which owners the tree renders, so drawing it before they land
+	// would show every workspace folder and then prune it away. Hold the skeleton
+	// until the first response instead — it is fetched in parallel with the listing,
+	// so it costs no extra wait in practice. Only the first load gates: `current`
+	// survives a refetch, so an in-place scope change refreshes without flashing.
+	let treeCountsPending = $derived(
+		treeLazyMode && ownerCountsRes.current == undefined && ownerCountsRes.loading
+	)
 
 	// Owners the counts found the user has something in, split by kind. They cover
 	// what the folder/username lists miss: an item shared individually out of a
@@ -1480,7 +1488,7 @@
 		{/if}
 	</div>
 	<div>
-		{#if filteredItems == undefined}
+		{#if filteredItems == undefined || treeCountsPending}
 			<div class="mt-4"></div>
 			<Skeleton layout={[[2], 1]} />
 			{#each new Array(6) as _}

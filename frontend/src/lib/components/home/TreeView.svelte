@@ -83,9 +83,15 @@
 	// whose items are already grouped from the loaded window.
 	let isLazyOwner = $derived(ownerKey != undefined && ownerLoad != undefined)
 	let ownerState = $derived(ownerKey != undefined ? ownerLoad?.[ownerKey] : undefined)
-	// The owner's true total, known without expanding it. Preferred over the loaded
-	// rows, which are one page deep and count a subfolder as a single child.
-	let ownerCount = $derived(ownerKey != undefined ? ownerCounts?.[ownerKey] : undefined)
+	// What this owner renders, known without expanding it. Preferred over the loaded
+	// rows, which are one page deep and count a subfolder as a single child. An owner
+	// missing from `ownerCounts` holds nothing (the response omits those), so it reads
+	// as 0 rather than unknown. The pipeline entry is a row of its own and its member
+	// scripts are excluded from the count, so it adds one where it renders.
+	let ownerCount = $derived.by(() => {
+		if (ownerKey == undefined || ownerCounts == undefined) return undefined
+		return (ownerCounts[ownerKey] ?? 0) + (hasPipeline ? 1 : 0)
+	})
 
 	let showMax = $state(15)
 	// A lazy owner paginates server-side ("Load more"), so when opened on its own it
