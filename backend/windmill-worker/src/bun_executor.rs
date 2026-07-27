@@ -1799,13 +1799,10 @@ pub async fn handle_bun_job(
             format!("argsObjToArr(args)")
         };
 
-        // Kept free of comments — this whole string is written out per job.
-        //
-        // `_takePendingSuspend` hands back a StepSuspend the workflow body caught
-        // and swallowed (it is an `Error`, so a plain `try/catch` eats it); honour
-        // it rather than reporting a `complete` whose step never reached the
-        // checkpoint. Called optionally: the client resolves from npm and may
-        // predate the method.
+        // Kept comment-free — this string is written out per job.
+        // `_takePendingSuspend` returns a StepSuspend the body caught and swallowed
+        // (it is an `Error`), so honour it instead of reporting a `complete` whose
+        // step never reached the checkpoint. Optional: npm clients may predate it.
         let wrapper_content = if is_wac_v2 {
             format!(
                 r#"

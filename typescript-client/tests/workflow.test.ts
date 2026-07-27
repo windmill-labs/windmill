@@ -29,7 +29,7 @@ class WorkflowCtx {
   private _pendingSuspend: StepSuspend | null = null;
   _executingKey: string | null;
 
-  private _raiseSuspend(dispatchInfo: Record<string, any>): never {
+  _raiseSuspend(dispatchInfo: Record<string, any>): never {
     const suspend = new StepSuspend(dispatchInfo);
     this._pendingSuspend = suspend;
     throw suspend;
@@ -67,6 +67,7 @@ class WorkflowCtx {
       const value = this.completed[key];
       if (value && typeof value === "object" && (value as any).__wmill_error) {
         const err = new Error((value as any).message || `Task '${name}' failed`);
+        err.name = "TaskError";
         (err as any).result = (value as any).result;
         (err as any).step_key = (value as any).step_key;
         (err as any).child_job_id = (value as any).child_job_id;
@@ -144,6 +145,7 @@ class WorkflowCtx {
       const value = this.completed[key];
       if (value && typeof value === "object" && (value as any).__wmill_error) {
         const err = new Error((value as any).message || `Step '${name}' failed`);
+        err.name = "TaskError";
         (err as any).result = (value as any).result;
         throw err;
       }
@@ -230,7 +232,7 @@ function task<T extends (...args: any[]) => Promise<any>>(
       if ((stepResult as any)?._execute_directly) {
         return (async () => {
           const result = await fn(...args);
-          throw new StepSuspend({
+          ctx._raiseSuspend({
             mode: "step_complete",
             steps: [],
             result,
@@ -1447,6 +1449,22 @@ describe("throwing inline step is checkpointed", () => {
     const result = await runWorkflow(wf, {}, []);
     expect(result.type).toBe("inline_checkpoint");
     expect(result.result).toBe(42);
+  });
+
+  test("a child job cannot swallow its own completion signal", async () => {
+    // The catch below is reached only if step_complete escapes the parking
+    // mechanism; the child would then report the catch branch as the result.
+    const wf = workflow(async (x: number) => {
+      try {
+        await double(x);
+      } catch {
+        return "swallowed";
+      }
+      return "unreachable";
+    });
+    const result = await runWorkflow(wf, { _executing_key: "step_0" }, [5]);
+    expect(result.type).toBe("complete");
+    expect(result.result).toBe(10);
   });
 
   test("a swallowed suspend from a task dispatch still reaches the runner", async () => {

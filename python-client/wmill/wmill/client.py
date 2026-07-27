@@ -2891,13 +2891,10 @@ class WorkflowCtx:
         started_at = _dt.now(_tz.utc).isoformat()
         print(f"WM_WAC_STEP: {_json_mod.dumps({'key': key, 'started_at': started_at})}")
         t0 = _time_mod.monotonic()
-        # A raised step still has to reach ``completed_steps``: if the workflow
-        # catches the exception and later suspends on a task, the replay reaches
-        # this key with ``_executing_key`` set, finds nothing recorded, and parks
-        # forever on the ``_asyncio.Future()`` above. Record the failure with the
-        # same ``__wmill_error`` marker task failures use, so the replay re-raises
-        # it as ``TaskError`` right here. ``_StepSuspend`` and ``CancelledError``
-        # are ``BaseException`` and so pass through untouched.
+        # A raised step still has to reach ``completed_steps``, or a replay with
+        # ``_executing_key`` set finds nothing recorded and parks forever on the
+        # ``_asyncio.Future()`` above. ``_StepSuspend`` and ``CancelledError`` are
+        # ``BaseException``, so they pass through untouched.
         step_error: Optional[Exception] = None
         try:
             result = fn()
@@ -2957,14 +2954,10 @@ class WorkflowCtx:
                 )
                 # fall through to the legacy suspend path
             if _fast_path_ok:
-                # The failure is checkpointed, so raise it into the still-running
-                # workflow body — as the very ``TaskError`` a replay would rebuild
-                # from the marker, never as the original exception. A replay can
-                # only reconstruct what the marker holds, so raising the original
-                # type here would make ``except ValueError:`` catch on this run
-                # and miss on the next one. ``__cause__`` carries the original for
-                # tracebacks only — it is absent on replay, so branching on it
-                # reintroduces that same split.
+                # Raise what a replay would rebuild from the marker, never the
+                # original: a replay cannot reconstruct the original type, so
+                # raising it here would make ``except ValueError:`` catch on this
+                # run and miss on the next. ``__cause__`` is for tracebacks only.
                 if step_error is not None:
                     raise _step_error_from_marker(result, name) from step_error
                 return result

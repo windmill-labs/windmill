@@ -1536,6 +1536,10 @@ function stepErrorMarker(key: string, e: unknown): Record<string, any> {
  *  sees the same shape either way. */
 function stepErrorFromMarker(marker: any, name: string): Error {
   const err = new Error(marker?.message || `Step '${name}' failed`);
+  // Matches the python client, which raises TaskError here; the failed body's
+  // own type stays in `result.type`. Keeps a failed job's serialized error
+  // identical across the two languages.
+  err.name = "TaskError";
   (err as any).result = marker?.result;
   (err as any).step_key = marker?.step_key;
   (err as any).child_job_id = marker?.child_job_id;
@@ -1586,11 +1590,9 @@ export class WorkflowCtx {
   }> = [];
   private _suspended = false;
   /** The last suspend this ctx raised. `StepSuspend` is an `Error`, so any
-   *  `try { await step(...) } catch` or `try { await someTask() } catch` in the
-   *  workflow body swallows it, and the run would go on to report a `complete`
-   *  whose step never reached `completed_steps`. Parked here so it can be
-   *  re-thrown at the next SDK call and by the runner after the body returns.
-   *  Python needs no equivalent: `_StepSuspend` derives from `BaseException`. */
+   *  `catch` in the workflow body swallows it and the run would report a
+   *  `complete` whose step never reached `completed_steps`. Python is immune:
+   *  `_StepSuspend` derives from `BaseException`. */
   private _pendingSuspend: StepSuspend | null = null;
   /** When set, the task matching this key executes its inner function directly */
   _executingKey: string | null;
@@ -1640,6 +1642,7 @@ export class WorkflowCtx {
       const value = this.completed[key];
       if (value && typeof value === "object" && (value as any).__wmill_error) {
         const err = new Error((value as any).message || `Task '${name}' failed`);
+        err.name = "TaskError";
         (err as any).result = (value as any).result;
         (err as any).step_key = (value as any).step_key;
         (err as any).child_job_id = (value as any).child_job_id;
@@ -1782,12 +1785,10 @@ export class WorkflowCtx {
     const startedAt = new Date().toISOString();
     console.log(`WM_WAC_STEP: ${JSON.stringify({ key, started_at: startedAt })}`);
     const t0 = Date.now();
-    // A thrown step still has to reach `completed_steps`: if the workflow
-    // catches the error and later suspends on a task, the replay reaches this
-    // key with `_executingKey` set, finds nothing recorded, and parks forever
-    // on the never-resolving promise above. Record the failure with the same
-    // `__wmill_error` marker task failures use, so the replay re-throws it
-    // right here. A nested StepSuspend is control flow, not a step failure.
+    // A thrown step still has to reach `completed_steps`, or a replay with
+    // `_executingKey` set finds nothing recorded and parks forever on the
+    // never-resolving promise above. A nested StepSuspend is control flow,
+    // not a step failure.
     let result: T;
     let stepError: unknown;
     let errored = false;
@@ -1866,13 +1867,10 @@ export class WorkflowCtx {
         // fall through to the legacy suspend path below
       }
       if (fastPathOk) {
-        // The failure is checkpointed, so throw it into the still-running
-        // workflow body — as the very error a replay would rebuild from the
-        // marker, never as the original. A replay can only reconstruct what the
-        // marker holds, so throwing the original here would let
-        // `catch (e) { if (e instanceof TypeError) }` match on this run and miss
-        // on the next one. `cause` carries the original for logging only — it is
-        // absent on replay, so branching on it reintroduces that same split.
+        // Throw what a replay would rebuild from the marker, never the
+        // original: a replay cannot reconstruct the original type, so throwing
+        // it here would match `e instanceof TypeError` on this run and miss on
+        // the next. `cause` is for logging only — absent on replay.
         if (errored) {
           throw Object.assign(stepErrorFromMarker(result, name), { cause: stepError });
         }
@@ -1884,8 +1882,8 @@ export class WorkflowCtx {
   }
 
   /** Raise a suspend, parking it so a body that catches it cannot make it
-   *  vanish. Every suspend this ctx raises goes through here. */
-  private _raiseSuspend(dispatchInfo: Record<string, any>): never {
+   *  vanish. Every suspend raised for this ctx must go through here. */
+  _raiseSuspend(dispatchInfo: Record<string, any>): never {
     const suspend = new StepSuspend(dispatchInfo);
     this._pendingSuspend = suspend;
     throw suspend;
@@ -1981,7 +1979,7 @@ export function task<T extends (...args: any[]) => Promise<any>>(
       if ((stepResult as any)?._execute_directly) {
         return (async () => {
           const result = await fn(...args);
-          throw new StepSuspend({ mode: "step_complete", steps: [], result });
+          ctx._raiseSuspend({ mode: "step_complete", steps: [], result });
         })();
       }
       return stepResult;
