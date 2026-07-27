@@ -8,8 +8,10 @@
 	import { devWorkspaceItemUrl } from '$lib/utils/editInFork'
 	import {
 		checkDeployPermission,
+		checkItemExists,
 		deployItem,
-		type DeployPermission
+		type DeployPermission,
+		type DeployResult
 	} from '$lib/utils_workspace_deploy'
 	import { COMPARE_ITEMS_PARAM } from '$lib/components/sessions/modifiedItemsMask'
 	import { resource } from 'runed'
@@ -44,6 +46,31 @@
 		pullIntoDevModal.val = undefined
 	}
 
+	/**
+	 * Deploying `f/<folder>/<name>` into a workspace that has no `<folder>` succeeds but leaves the
+	 * item orphaned — it lands with no folder to carry its permissions. The compare page avoids this
+	 * because its diff lists the folder as its own item and deploys `folder:` entries first; a
+	 * single-item copy has to pull the folder itself. Anything else the item needs (resources,
+	 * variables, resource types) is still the compare page's job, exactly as it is for an update.
+	 */
+	async function ensureFolder(req: NonNullable<typeof pending>): Promise<DeployResult> {
+		const folder = req.itemPath.match(/^f\/([^/]+)\//)?.[1]
+		if (!folder) return { success: true }
+		const folderPath = `f/${folder}`
+		try {
+			if (await checkItemExists('folder', folderPath, req.devWorkspaceId)) return { success: true }
+		} catch {
+			// Inconclusive: let the item deploy decide rather than blocking on the probe.
+			return { success: true }
+		}
+		return await deployItem({
+			kind: 'folder',
+			path: folderPath,
+			workspaceFrom: req.prodWorkspaceId,
+			workspaceTo: req.devWorkspaceId
+		})
+	}
+
 	async function confirm() {
 		const req = pending
 		if (!req) return
@@ -53,12 +80,17 @@
 			return
 		}
 		copying = true
-		const result = await deployItem({
-			kind: req.itemType,
-			path: req.itemPath,
-			workspaceFrom: req.prodWorkspaceId,
-			workspaceTo: req.devWorkspaceId
-		})
+		// No `onBehalfOf`: the compare page's default is the deploying user's identity, and its other
+		// choices read the value the item already has in the target — which by definition it hasn't here.
+		let result = await ensureFolder(req)
+		if (result.success) {
+			result = await deployItem({
+				kind: req.itemType,
+				path: req.itemPath,
+				workspaceFrom: req.prodWorkspaceId,
+				workspaceTo: req.devWorkspaceId
+			})
+		}
 		copying = false
 		if (!result.success) {
 			// Kept open: the compare-page link below is the way out when a lone item
