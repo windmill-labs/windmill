@@ -363,7 +363,12 @@
 	{/if}
 {/if}
 
-<DiffDrawer bind:this={diffDrawer} isFlow={itemKind === 'flow'} />
+<!-- Only reachable from the popover's "View Diff", which requires `actionsEnabled`.
+     Mounting it unconditionally would put a hidden drawer (portal + effects) on
+     every row of unpaginated lists like resources and variables. -->
+{#if actionsEnabled}
+	<DiffDrawer bind:this={diffDrawer} isFlow={itemKind === 'flow'} />
+{/if}
 
 {#if workspace && itemKind && path}
 	<MigrateLegacyDraftModal
