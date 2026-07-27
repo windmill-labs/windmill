@@ -222,52 +222,59 @@
 	</span>
 {/snippet}
 
-{#if showBadge}
-	<!-- inline-flex/items-center so the trigger button hugs the badge and lines up
-	     with sibling badges (a plain button is taller, dropping the pill ~2px). -->
-	<Popover
-		openOnHover={true}
-		debounceDelay={50}
-		enableFlyTransition
-		class="inline-flex items-center"
-		bind:isOpen={popoverOpen}
-	>
-		{#snippet trigger()}
-			{#if iconOnly}
-				<!-- Compact "has a draft" marker for tight spots like the diff-tree
-				     sidebar: a small indigo pencil + the author avatar(s). -->
-				<span class="inline-flex items-center gap-0.5" title={draft_only ? 'Draft only' : 'Draft'}>
-					<Pencil class="h-3 w-3 shrink-0 text-indigo-500 dark:text-indigo-400" />
-					{#if orderedUsers.length > 0}
-						{@render circleStack()}
-					{/if}
-				</span>
-			{:else}
-				<Badge small color="indigo" class="gap-0.5">
-					{#if orderedUsers.length > 0}
-						{@render circleStack()}
-					{/if}
-					{draft_only ? 'Draft only' : 'Draft'}
-				</Badge>
+{#snippet badge()}
+	{#if iconOnly}
+		<!-- Compact "has a draft" marker for tight spots like the diff-tree
+		     sidebar: a small indigo pencil + the author avatar(s). -->
+		<span class="inline-flex items-center gap-0.5" title={draft_only ? 'Draft only' : 'Draft'}>
+			<Pencil class="h-3 w-3 shrink-0 text-indigo-500 dark:text-indigo-400" />
+			{#if orderedUsers.length > 0}
+				{@render circleStack()}
 			{/if}
-		{/snippet}
-		{#snippet content()}
-			<div class="flex flex-col gap-2 min-w-[16rem] text-xs p-4 pb-1">
-				<p class="text-primary">
-					{#if draft_users.length > 0}
-						{draft_only ? 'Never deployed — only a draft exists.' : 'Deployed with drafts pending.'}
-					{:else if draft_only}
-						Never deployed and is only a draft
-					{:else}
-						Is deployed and has a draft
-					{/if}
+		</span>
+	{:else}
+		<Badge small color="indigo" class="gap-0.5">
+			{#if orderedUsers.length > 0}
+				{@render circleStack()}
+			{/if}
+			{draft_only ? 'Draft only' : 'Draft'}
+		</Badge>
+	{/if}
+{/snippet}
 
-					{#if onlyOwnDraft}
-						<br />
-						<span class="text-tertiary italic">Only you can see this {kindLabel}.</span>
-					{/if}
-				</p>
-				{#if draft_users.length > 0}
+{#if showBadge}
+	{#if draft_users.length === 0}
+		<!-- Nothing to click without owner rows, so a tooltip is the right shape:
+		     a popover here renders a focus-ringed card for a single sentence. -->
+		<Tooltip class="inline-flex items-center">
+			{@render badge()}
+			{#snippet text()}
+				{draft_only ? 'Never deployed and is only a draft' : 'Is deployed and has a draft'}
+			{/snippet}
+		</Tooltip>
+	{:else}
+		<!-- inline-flex/items-center so the trigger button hugs the badge and lines up
+		     with sibling badges (a plain button is taller, dropping the pill ~2px). -->
+		<Popover
+			openOnHover={true}
+			debounceDelay={50}
+			enableFlyTransition
+			class="inline-flex items-center"
+			bind:isOpen={popoverOpen}
+		>
+			{#snippet trigger()}
+				{@render badge()}
+			{/snippet}
+			{#snippet content()}
+				<div class="flex flex-col gap-2 min-w-[16rem] text-xs p-4 pb-1">
+					<p class="text-primary">
+						{draft_only ? 'Never deployed — only a draft exists.' : 'Deployed with drafts pending.'}
+
+						{#if onlyOwnDraft}
+							<br />
+							<span class="text-tertiary italic">Only you can see this {kindLabel}.</span>
+						{/if}
+					</p>
 					<ul class="flex flex-col divide-y border-t">
 						{#each orderedUsers as u, i (i)}
 							{@const isSelf = !!currentUsername && u.username === currentUsername}
@@ -347,10 +354,10 @@
 							</li>
 						{/each}
 					</ul>
-				{/if}
-			</div>
-		{/snippet}
-	</Popover>
+				</div>
+			{/snippet}
+		</Popover>
+	{/if}
 {/if}
 
 <DiffDrawer bind:this={diffDrawer} isFlow={itemKind === 'flow'} />
