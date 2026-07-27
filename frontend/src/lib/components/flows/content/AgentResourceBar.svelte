@@ -387,6 +387,8 @@
 			if (path) {
 				setAgentEditingPath(tools, undefined)
 				sendUserToast('Forked agent — its configuration was copied into this step')
+			} else {
+				sendUserToast('The step changed while loading the agent — nothing was unlinked', true)
 			}
 		} catch (e) {
 			sendUserToast(`Failed to unlink agent: ${e}`, true)
@@ -401,6 +403,8 @@
 			if (path) {
 				setAgentEditingPath(tools, path)
 				sendUserToast(`Editing ${path} — make changes, then Save changes to update it`)
+			} else {
+				sendUserToast('The step changed while loading the agent — try Edit again', true)
 			}
 		} catch (e) {
 			sendUserToast(`Failed to edit agent: ${e}`, true)
