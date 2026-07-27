@@ -2629,6 +2629,7 @@ export class AIChatManager {
 				// lets the history's blob store persist one copy for both.
 				images: images.length > 0 ? images : undefined,
 				files: files.length > 0 ? files : undefined,
+				synthetic: this.#autoResuming ? true : undefined,
 				index: this.messages.length // matching with actual messages index. not -1 because it's not yet added to the messages array
 			}
 		]

@@ -516,18 +516,20 @@
 		const messages = aiChatManager.displayMessages
 		for (let i = messages.length - 1; i >= 0; i--) {
 			const message = messages[i]
-			if (message.role !== 'user') continue
+			if (message.role !== 'user' || message.synthetic) continue
 			// Images come from the stored turn, never the bubble: a provider
 			// rejection strips them from history while the bubble keeps its copy,
 			// and recalling that copy would re-attach the refused image.
 			const images = aiChatManager.storedImages(i) ?? []
-			// A context-only turn (GLOBAL allows text-free sends with chips) counts
-			// as recallable — skipping it would resurrect an older prompt instead
-			// of the message actually sent last.
+			// Eligibility looks at the bubble, though: the last thing the user
+			// actually sent is the recall boundary, so a context-only turn (GLOBAL
+			// allows text-free sends with chips) recalls its chips, and a turn
+			// whose only image was provider-rejected recalls as empty — neither
+			// falls through and resurrects an older prompt.
 			if (
 				!(
 					message.content ||
-					images.length ||
+					message.images?.length ||
 					message.files?.length ||
 					message.contextElements?.length
 				)
