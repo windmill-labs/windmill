@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { createRawAppFromFlow, createRawAppFromScript } from './createRawAppFromScript'
+import {
+	RESERVED_LOCALS,
+	createRawAppFromFlow,
+	createRawAppFromScript
+} from './createRawAppFromScript'
 
 describe('createRawAppFromScript', () => {
 	it('builds a path runnable and a form calling it', () => {
@@ -162,6 +166,24 @@ describe('createRawAppFromScript', () => {
 		expect(appTsx).toContain('resource path, e.g. $res:u/user/my_postgresql')
 	})
 
+	it('omits untouched optional object and array fields', () => {
+		const app = createRawAppFromScript('u/dev/s', undefined, {
+			type: 'object',
+			required: ['reqObj'],
+			properties: {
+				reqObj: { type: 'object' },
+				optObj: { type: 'object' },
+				optArr: { type: 'array' }
+			}
+		})
+		const appTsx = app.value.files['/App.tsx']
+		// A pre-filled `{}` could never reach the omission branch, so an untouched
+		// field would override the runnable's own default.
+		expect(appTsx).toContain("const [optObjText, setOptObjText] = useState('')")
+		expect(appTsx).toContain("const [optArrText, setOptArrText] = useState('')")
+		expect(appTsx).toContain("const [reqObjText, setReqObjText] = useState('{}')")
+	})
+
 	it('quotes argument names that cannot be bare property keys', () => {
 		const app = createRawAppFromScript('u/dev/s', undefined, {
 			type: 'object',
@@ -171,6 +193,53 @@ describe('createRawAppFromScript', () => {
 		// `str` would pick a template literal here, which is not a legal property
 		// name, so the module would not compile.
 		expect(app.value.files['/App.tsx']).toContain('"user\'s-name": user_s_name')
+	})
+
+	// Every global the template names is an identifier a schema property could
+	// shadow, so each one has to be reserved. Three review rounds found this the
+	// hard way (`JSON`, then `undefined`, then `Math`/`Array`); this pins it.
+	it('reserves every global the generated source names', () => {
+		const app = createRawAppFromScript('u/dev/s', 'T', {
+			type: 'object',
+			required: ['a', 'tags'],
+			properties: {
+				a: { type: 'string' },
+				b: { type: 'number' },
+				c: { type: 'object' },
+				d: { type: 'boolean' },
+				tags: { type: 'array', items: { type: 'string' }, enum: ['x', 'y'] },
+				res: { type: 'object', format: 'resource-postgresql' },
+				pw: { type: 'string', password: true }
+			}
+		})
+		const src = app.value.files['/App.tsx']
+		const globals = [
+			'Array',
+			'BigInt',
+			'Boolean',
+			'Date',
+			'Error',
+			'Infinity',
+			'JSON',
+			'Map',
+			'Math',
+			'NaN',
+			'Number',
+			'Object',
+			'Promise',
+			'RegExp',
+			'Set',
+			'String',
+			'Symbol',
+			'console',
+			'globalThis',
+			'isNaN',
+			'parseFloat',
+			'parseInt',
+			'undefined'
+		]
+		const named = globals.filter((g) => new RegExp(`(?<![.\\w'"])${g}\\b`).test(src))
+		expect(named.filter((g) => !RESERVED_LOCALS.includes(g))).toEqual([])
 	})
 
 	it('keeps an array enum an array', () => {
@@ -185,7 +254,7 @@ describe('createRawAppFromScript', () => {
 		// `genWmillTs` types this `string[]`, so scalar state would not compile.
 		expect(appTsx).toContain("const [tags, setTags] = useState(['a'] as string[])")
 		expect(appTsx).toContain('multiple')
-		expect(appTsx).toContain('Array.from(e.target.selectedOptions, (o) => o.value)')
+		expect(appTsx).toContain('[...e.target.selectedOptions].map((o) => o.value)')
 		expect(appTsx).toContain('tags,')
 	})
 

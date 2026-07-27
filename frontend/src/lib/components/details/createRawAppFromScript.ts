@@ -54,7 +54,7 @@ type Field = {
 // these names gets suffixed, so it can neither redeclare nor shadow them (a
 // field named `JSON` would otherwise turn `JSON.stringify(result)` into a call
 // on the field's value).
-const RESERVED_LOCALS = [
+export const RESERVED_LOCALS = [
 	'React',
 	'useState',
 	'backend',
@@ -262,8 +262,16 @@ function toFields(schema: Record<string, any> | undefined): Field[] {
 			// argument is optional.
 			arg = isRequired ? `Number(${local})` : `${local} === '' ? undefined : Number(${local})`
 		} else if (kind === 'json') {
-			const fallback = prop.type === 'array' ? [] : {}
-			init = str(JSON.stringify(prop.default ?? fallback, null, 2))
+			// Only a required field is pre-filled with an empty collection: a
+			// non-blank optional textarea can never take the omission branch, so an
+			// untouched one would override the runnable's own default.
+			const seed =
+				prop.default != undefined
+					? JSON.stringify(prop.default, null, 2)
+					: isRequired
+						? JSON.stringify(prop.type === 'array' ? [] : {}, null, 2)
+						: ''
+			init = str(seed)
 			arg = isRequired
 				? `JSON.parse(${local})`
 				: `${local}.trim() === '' ? undefined : JSON.parse(${local})`
@@ -341,13 +349,16 @@ function fieldInput(field: Field): string {
 ${field.required ? '' : '						<option value=""></option>\n'}${field.enumValues.map((o) => `						<option value=${jsxAttr(o.value)}>${jsxText(o.label)}</option>`).join('\n')}
 					</select>`
 		case 'multienum':
+			// `size` is resolved here and the handler spreads rather than calling
+			// `Math.min` / `Array.from`: every global the template names is one more
+			// identifier an argument could shadow, so the template names none.
 			return `<select
 						className="field-input field-multiselect"
 						multiple
-						size={Math.min(${field.enumValues.length}, 6)}
+						size={${Math.min(field.enumValues.length, 6)}}
 						value={${field.local}}
 						onChange={(e) =>
-							${field.setter}(Array.from(e.target.selectedOptions, (o) => o.value))
+							${field.setter}([...e.target.selectedOptions].map((o) => o.value))
 						}
 					>
 ${field.enumValues.map((o) => `						<option value=${jsxAttr(o.value)}>${jsxText(o.label)}</option>`).join('\n')}
