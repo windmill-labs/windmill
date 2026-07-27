@@ -390,6 +390,32 @@ export async function checkItemExists(
   throw new Error(`Unknown kind: ${kind}`);
 }
 
+/**
+ * Fetch one part of a raw app's compiled bundle.
+ *
+ * A bundle with no styles may have no `css` blob stored at all, which older
+ * backends serve as a 404. Absent means empty, not broken — letting that reject
+ * makes such an app permanently un-deployable. Only `.css` and only a 404 are
+ * forgiven: swallowing auth/network failures would silently deploy the app with
+ * its styles stripped, and a missing `.js` is a genuinely broken bundle.
+ */
+export async function getRawAppBundlePart(
+  provider: DeployProvider,
+  secret: string,
+  ext: "js" | "css",
+  workspace: string
+): Promise<any> {
+  try {
+    return await provider.getRawAppData({
+      secretWithExtension: `${secret}.${ext}`,
+      workspace,
+    });
+  } catch (e: any) {
+    if (ext === "css" && e?.status === 404) return "";
+    throw e;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // deployItem
 // ---------------------------------------------------------------------------
@@ -480,14 +506,18 @@ export async function deployItem(
             workspace: workspaceFrom,
             path: app.path,
           });
-          const js = await provider.getRawAppData({
-            secretWithExtension: `${secret}.js`,
-            workspace: workspaceFrom,
-          });
-          const css = await provider.getRawAppData({
-            secretWithExtension: `${secret}.css`,
-            workspace: workspaceFrom,
-          });
+          const js = await getRawAppBundlePart(
+            provider,
+            secret,
+            "js",
+            workspaceFrom
+          );
+          const css = await getRawAppBundlePart(
+            provider,
+            secret,
+            "css",
+            workspaceFrom
+          );
           await provider.updateAppRaw({
             workspace: workspaceTo,
             path,
@@ -513,14 +543,18 @@ export async function deployItem(
             workspace: workspaceFrom,
             path: app.path,
           });
-          const js = await provider.getRawAppData({
-            secretWithExtension: `${secret}.js`,
-            workspace: workspaceFrom,
-          });
-          const css = await provider.getRawAppData({
-            secretWithExtension: `${secret}.css`,
-            workspace: workspaceFrom,
-          });
+          const js = await getRawAppBundlePart(
+            provider,
+            secret,
+            "js",
+            workspaceFrom
+          );
+          const css = await getRawAppBundlePart(
+            provider,
+            secret,
+            "css",
+            workspaceFrom
+          );
           await provider.createAppRaw({
             workspace: workspaceTo,
             formData: {
