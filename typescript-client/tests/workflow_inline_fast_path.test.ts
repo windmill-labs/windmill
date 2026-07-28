@@ -25,7 +25,7 @@ mock.module("../core/OpenAPI", () => ({
   OpenAPI: { BASE: "http://localhost:8000/api", TOKEN: "tok" },
 }));
 
-const { WorkflowCtx, step, task } = await import("../client.ts");
+const { WorkflowCtx, step, task, setWorkflowCtx } = await import("../client.ts");
 import type { Jsonified } from "../client.ts";
 
 process.env.WM_JOB_ID = "job-1";
@@ -99,6 +99,26 @@ describe("inline step round parity", () => {
       process.env.WM_JOB_ID = jobId;
     }
   });
+
+  test("a child job's task result is normalized before it is reported", async () => {
+    // The child runs the task body and reports it as `step_complete`, which the
+    // worker parses into `WacOutput::Complete { result: Value }` — no serde
+    // default, so a result whose key JSON.stringify drops fails the job.
+    const ctx = new WorkflowCtx({ _executing_key: "returnsFn" } as any);
+    setWorkflowCtx(ctx);
+    try {
+      const returnsFn = task(async function returnsFn() {
+        return () => 1;
+      });
+      const suspend: any = await returnsFn().then(
+        () => null,
+        (e: any) => e,
+      );
+      expect(suspend?.dispatchInfo).toMatchObject({ mode: "step_complete", result: null });
+    } finally {
+      setWorkflowCtx(null);
+    }
+  });
 });
 
 // `Jsonified` must describe the values asserted above, or `step()` advertises a
@@ -127,6 +147,8 @@ _assertType<Exact<Jsonified<unknown>, unknown>>(true);
 _assertType<Exact<Jsonified<Record<string, unknown>>, Record<string, unknown>>>(true);
 _assertType<Exact<Jsonified<unknown[]>, unknown[]>>(true);
 _assertType<Exact<Jsonified<bigint>, string>>(true);
+// Symbol-valued properties are dropped by the encoder, like methods.
+_assertType<Exact<Jsonified<{ a: number; s: symbol }>, { a: number }>>(true);
 
 // A task's result always crosses JSON too — the checkpoint on the workflow
 // path, the API on the v1 path — while its arguments stay checked.

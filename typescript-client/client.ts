@@ -1577,13 +1577,14 @@ export type Jsonified<T> =
                   // remapping would drop the array/tuple shape.
                   T extends readonly any[]
                   ? { [K in keyof T]: Jsonified<T[K]> }
-                  : // Methods and symbol keys are dropped: `JSON.stringify`
-                    // walks own enumerable string keys only.
+                  : // Symbol keys, methods and symbol values are all dropped:
+                    // `JSON.stringify` keeps own enumerable string keys whose
+                    // value it can represent.
                     T extends object
                     ? {
                         [K in keyof T as K extends symbol
                           ? never
-                          : T[K] extends (...args: any[]) => any
+                          : T[K] extends ((...args: any[]) => any) | symbol
                             ? never
                             : K]: Jsonified<T[K]>;
                       }
@@ -2098,7 +2099,7 @@ export function task<T extends (...args: any[]) => Promise<any>>(
       if ((stepResult as any)?._execute_directly) {
         return (async () => {
           const result = await fn(...args);
-          ctx._raiseSuspend({ mode: "step_complete", steps: [], result });
+          ctx._raiseSuspend({ mode: "step_complete", steps: [], result: checkpointableResult(result) });
         })();
       }
       return stepResult;
