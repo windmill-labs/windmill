@@ -955,6 +955,7 @@
 							scriptPath={job.script_path}
 							jobId={job.id}
 							running={job.type !== 'CompletedJob'}
+							result={job.type === 'CompletedJob' ? job.result : undefined}
 						/>
 					</div>
 				{/if}

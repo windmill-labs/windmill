@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseDbtRun, statusRank, splitUniqueId } from './parseDbtRun'
+import { parseDbtRun, relationOutcome, statusRank, splitUniqueId } from './parseDbtRun'
 
 const run = {
 	engine: 'dbt-core-1x',
@@ -74,5 +74,23 @@ describe('splitUniqueId', () => {
 		})
 		// A model whose name contains a dot keeps it: only tests carry the hash.
 		expect(splitUniqueId('model.jaffle.a.b').name).toBe('a.b')
+	})
+})
+
+describe('relationOutcome', () => {
+	it('agrees with the worker classifier on every status it names', () => {
+		expect(relationOutcome('started')).toBe('running')
+		for (const s of ['success', 'pass', 'PASS', ' Success ']) {
+			expect(relationOutcome(s)).toBe('materialized')
+		}
+		// `partial success` built the relation and then failed its tests; the
+		// worker records it failed, so the colour must agree.
+		for (const s of ['error', 'fail', 'runtime error', 'partial success', 'PARTIAL SUCCESS']) {
+			expect(relationOutcome(s)).toBe('failed')
+		}
+		// Nothing was built, so nothing is coloured.
+		for (const s of ['warn', 'skipped', 'no-op', 'something new']) {
+			expect(relationOutcome(s)).toBeUndefined()
+		}
 	})
 })

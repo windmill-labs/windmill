@@ -87,3 +87,31 @@ export function splitUniqueId(uniqueId: string): { kind: string; name: string } 
 	if (kind === 'test') name = name.replace(/\.[0-9a-f]{6,}$/, '')
 	return { kind, name: name || uniqueId }
 }
+
+/**
+ * What a node's status says happened to the relation it builds, or `undefined`
+ * when it says nothing.
+ *
+ * Mirrors the worker's `classify_status`, and must keep mirroring it: the two
+ * decide the same thing about the same string, one for the record it writes and
+ * one for the colour drawn over it. `warn`, `skipped` and `no-op` leave the
+ * relation untouched, so they get no colour rather than a misleading one.
+ */
+export function relationOutcome(
+	status: string
+): 'running' | 'materialized' | 'failed' | undefined {
+	switch (status.trim().toLowerCase()) {
+		case 'started':
+			return 'running'
+		case 'success':
+		case 'pass':
+			return 'materialized'
+		case 'error':
+		case 'fail':
+		case 'runtime error':
+		case 'partial success':
+			return 'failed'
+		default:
+			return undefined
+	}
+}

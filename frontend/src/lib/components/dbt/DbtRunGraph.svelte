@@ -5,6 +5,7 @@
 	// where the alternative is reading `N of M OK created` out of the log.
 	import { onDestroy } from 'svelte'
 	import { OpenAPI, JobService } from '$lib/gen'
+	import { parseDbtRun, relationOutcome } from './parseDbtRun'
 	import { workspaceStore } from '$lib/stores'
 	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
 	import type { AssetGraphResponse } from '$lib/components/assets/AssetGraph/types'
@@ -15,7 +16,8 @@
 	let {
 		scriptPath,
 		jobId,
-		running = false
+		running = false,
+		result
 	}: {
 		scriptPath: string
 		/** The run whose per-model progress to show. dbt records a state per
@@ -25,6 +27,9 @@
 		// While the job is in flight the graph is re-fetched, because the per-model
 		// materialization rows the worker writes are what move the nodes.
 		running?: boolean
+		/** The finished job's result. It carries a status per dbt node, which is
+		 *  what a completed run is coloured from — see `settled`. */
+		result?: unknown
 	} = $props()
 
 	// The graph endpoint is folder-scoped; a script outside `f/` has no folder and
@@ -59,10 +64,10 @@
 
 	// `asset:<kind>:<path>` -> what this run is doing to that relation. That is
 	// the id shape the canvas builds its nodes with; a bare `kind:path` looks
-	// right and silently never matches. Polled beside the
-	// graph so a node moves while the job runs; a retry rewrites the same rows,
-	// so a failed node returns to `running` and on to its new outcome by itself.
-	let assetRunStatus = $state<Map<string, 'running' | 'materialized' | 'failed'>>(new Map())
+	// right and silently never matches. Polled while the job runs; a retry
+	// rewrites the same rows, so a failed node returns to `running` and on to its
+	// new outcome by itself.
+	let polled = $state<Map<string, 'running' | 'materialized' | 'failed'>>(new Map())
 
 	async function loadProgress() {
 		const ws = $workspaceStore
@@ -71,7 +76,7 @@
 			const rows = await JobService.getRunProgress({ workspace: ws, id: jobId })
 			const next = new Map<string, 'running' | 'materialized' | 'failed'>()
 			for (const r of rows) next.set(`asset:${r.asset_kind}:${r.asset_path}`, r.status)
-			assetRunStatus = next
+			polled = next
 		} catch {
 			// A progress hiccup must not blank the graph.
 		}
@@ -96,12 +101,11 @@
 				void loadProgress()
 				void load()
 			}, 2000)
-		// One last reading once the job is over, because the final states land
-		// after the last tick. Only `dbt-core-1x` streams node events at all: the
-		// other engines record every relation during end-of-run reconciliation, so
-		// without this their finished graph keeps whatever the last in-flight tick
-		// saw — usually nothing.
-		else void loadProgress()
+		// A finished run is coloured from `settled`, which needs no request. The
+		// poll is the fallback for a run that never produced one — cancelled or
+		// killed, where dbt wrote no `run_results.json` — whose relations the
+		// worker settles in the table instead.
+		else if (!settled) void loadProgress()
 		return () => clearInterval(timer)
 	})
 	onDestroy(() => clearInterval(timer))
@@ -133,6 +137,38 @@
 	// No `resolveGraph`: that merges drafts and live editor buffers into the
 	// persisted graph, and a run page has neither. The response is the graph.
 	let graph = $derived(scoped)
+
+	// A finished run's own output, joined to the graph on dbt's `unique_id`.
+	//
+	// This is what makes an old run still render correctly. The alternative,
+	// reading the per-relation state table, cannot: that table keeps ONE row per
+	// relation stamped with whichever job wrote it last, so a later run silently
+	// takes the earlier one's models away. The result is the run's own, is stored
+	// with the job, and is deleted with it.
+	//
+	// `unique_id` is the join because it is what both sides already carry —
+	// matching on the warehouse relation name would mean redoing the worker's
+	// path derivation here.
+	let settled = $derived.by(() => {
+		if (running) return undefined
+		const run = parseDbtRun(result)
+		if (!run?.nodes?.length || !graph) return undefined
+		const assetByNode = new Map<string, string>()
+		for (const a of graph.assets) {
+			if (a.dbt?.unique_id) assetByNode.set(a.dbt.unique_id, `asset:${a.kind}:${a.path}`)
+		}
+		const out = new Map<string, 'running' | 'materialized' | 'failed'>()
+		for (const n of run.nodes) {
+			const id = assetByNode.get(n.unique_id)
+			const outcome = id && relationOutcome(n.status)
+			// A test or an analysis matches no relation, and a skipped node says
+			// nothing about one; both are left uncoloured rather than guessed at.
+			if (id && outcome) out.set(id, outcome)
+		}
+		return out.size > 0 ? out : undefined
+	})
+
+	let assetRunStatus = $derived(settled ?? polled)
 
 	// The transform behind the selected relation. dbt's own DAG node is the model
 	// — the SQL and the table it writes are one thing — so a graph of relations
