@@ -1364,9 +1364,31 @@ pub fn strip_json_nul(serialized: &str) -> Cow<'_, str> {
     Cow::Owned(String::from_utf8(out).expect("removing a NUL escape preserves valid UTF-8"))
 }
 
+/// Truncate `s` to at most `max_chars` characters, appending `...` when it was truncated.
+/// Slicing by byte index (`&s[..n]`) panics when `n` lands inside a multibyte character.
+pub fn truncate_with_ellipsis(s: &str, max_chars: usize) -> String {
+    match s.char_indices().nth(max_chars) {
+        Some((byte_idx, _)) => format!("{}...", &s[..byte_idx]),
+        None => s.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn truncate_with_ellipsis_handles_multibyte_at_boundary() {
+        // Byte 25 of this string falls inside a 2-byte 'а'; naive `&s[..25]` would panic.
+        let cyrillic = "а".repeat(30);
+        assert_eq!(
+            truncate_with_ellipsis(&cyrillic, 25),
+            format!("{}...", "а".repeat(25))
+        );
+        assert_eq!(truncate_with_ellipsis("ааааааааааааа", 25), "ааааааааааааа");
+        assert_eq!(truncate_with_ellipsis("abc", 3), "abc");
+        assert_eq!(truncate_with_ellipsis("abcd", 3), "abc...");
+    }
 
     // The 6-char JSON escape for U+0000: backslash + "u0000". Written via an
     // escaped backslash so no literal NUL byte ever appears in this source.
