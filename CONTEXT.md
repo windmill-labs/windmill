@@ -24,3 +24,15 @@ _Avoid_: poll script, trigger node, schedule step
 
 **Default predicate**:
 The `stop_after_if` expression seeded onto a trigger step at creation, encoding what "nothing new" looks like. One value, owned in one place, shared by every path that creates a trigger step.
+
+**Connect**:
+Arming an input so that the next property picked fills it. A property can be picked from the prop picker or, when the panel is docked beside the graph, by clicking a step node's output. At most one input is armed per panel, so a pick always has exactly one destination.
+_Avoid_: link, bind, plug (the icon is a plug; the action is connecting)
+
+**Step input**:
+One argument of a step, edited in the step's input form. Its prop picker is a pane beside the form, always visible, so previous results can be browsed without connecting.
+_Avoid_: argument field, param
+
+**Expression input**:
+Any other place a property can be picked into: the loop iterator, skip and early-stop predicates, the retry condition, a branch predicate, timeout. Its prop picker opens in a popover from the connect button rather than taking a pane.
+_Avoid_: JS field, code input
