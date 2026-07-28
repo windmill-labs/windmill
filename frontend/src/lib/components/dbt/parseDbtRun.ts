@@ -52,26 +52,50 @@ export function parseDbtRun(result: any): DbtRun | undefined {
 	}
 }
 
-/**
- * Ordering rank of a node's status: 0 failed, 1 warned, 2 skipped, 3 passed.
- *
- * `partial success` is dbt's word for a node that built but whose tests failed.
- * The worker counts it in `totals.error` and a retry redoes it, so showing it
- * green would contradict the job's own outcome and hide the message saying why.
- */
+/** Ordering rank of a node's status: 0 failed, 1 warned, 2 skipped, 3 passed. */
 export function statusRank(status: string): number {
-	switch (status.trim().toLowerCase()) {
-		case 'error':
-		case 'fail':
-		case 'runtime error':
-		case 'partial success':
+	switch (classifyStatus(status)) {
+		case 'failed':
 			return 0
-		case 'warn':
+		case 'warned':
 			return 1
 		case 'skipped':
 			return 2
 		default:
 			return 3
+	}
+}
+
+/**
+ * dbt's node status, reduced to the outcomes the UI distinguishes. The one
+ * place the status strings are listed: two readers below need different slices
+ * of the same vocabulary, and spelling it twice is how one gains a status the
+ * other does not know.
+ *
+ * `partial success` is dbt's word for a node that built but whose tests failed.
+ * The worker counts it in `totals.error` and a retry redoes it, so showing it
+ * green would contradict the job's own outcome and hide the message saying why.
+ */
+function classifyStatus(
+	status: string
+): 'started' | 'passed' | 'failed' | 'warned' | 'skipped' | 'other' {
+	switch (status.trim().toLowerCase()) {
+		case 'started':
+			return 'started'
+		case 'success':
+		case 'pass':
+			return 'passed'
+		case 'error':
+		case 'fail':
+		case 'runtime error':
+		case 'partial success':
+			return 'failed'
+		case 'warn':
+			return 'warned'
+		case 'skipped':
+			return 'skipped'
+		default:
+			return 'other'
 	}
 }
 
@@ -97,20 +121,16 @@ export function splitUniqueId(uniqueId: string): { kind: string; name: string } 
  * one for the colour drawn over it. `warn`, `skipped` and `no-op` leave the
  * relation untouched, so they get no colour rather than a misleading one.
  */
-export function relationOutcome(
-	status: string
-): 'running' | 'materialized' | 'failed' | undefined {
-	switch (status.trim().toLowerCase()) {
+export function relationOutcome(status: string): 'running' | 'materialized' | 'failed' | undefined {
+	switch (classifyStatus(status)) {
 		case 'started':
 			return 'running'
-		case 'success':
-		case 'pass':
+		case 'passed':
 			return 'materialized'
-		case 'error':
-		case 'fail':
-		case 'runtime error':
-		case 'partial success':
+		case 'failed':
 			return 'failed'
+		// `warn`, `skipped` and `no-op` say nothing about the relation: nothing
+		// was written, so its state is whatever the last run left.
 		default:
 			return undefined
 	}

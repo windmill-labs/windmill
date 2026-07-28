@@ -127,6 +127,10 @@
 	})
 	onDestroy(() => clearInterval(timer))
 
+	// Parsed once: five derivations below read it, and `result` is the whole
+	// `run_results.json` the job returned.
+	let run = $derived(parseDbtRun(result))
+
 	// A run page is about one script, so the graph is the relations it reads and
 	// writes — a folder's other projects are noise here, and so is a node for the
 	// script itself: on the pipeline page that node distinguishes one project
@@ -172,7 +176,6 @@
 	// but they are the upstream the run read.
 	let historical = $derived.by(() => {
 		if (running || !scoped) return undefined
-		const run = parseDbtRun(result)
 		if (!run?.nodes?.length) return undefined
 		const ran = new Set(run.nodes.map((n) => n.unique_id))
 		// dbt ids are `<resource_type>.<package>.<name>`, so the packages this run
@@ -211,7 +214,6 @@
 	// actually wrote.
 	let relationDrift = $derived.by(() => {
 		if (running || !graph) return 0
-		const run = parseDbtRun(result)
 		if (!run?.nodes?.length) return 0
 		const byId = new Map(
 			graph.assets
@@ -234,7 +236,6 @@
 	// deploy) so the count is stated rather than silently missing.
 	let goneSinceRun = $derived.by(() => {
 		if (running || !scoped) return 0
-		const run = parseDbtRun(result)
 		if (!run?.nodes?.length) return 0
 		const known = new Set(
 			scoped.assets.map((a) => a.dbt?.unique_id).filter((u): u is string => u != undefined)
@@ -265,7 +266,6 @@
 	// path derivation here.
 	let settled = $derived.by(() => {
 		if (running) return undefined
-		const run = parseDbtRun(result)
 		if (!run?.nodes?.length || !graph) return undefined
 		const assetByNode = new Map<string, string>()
 		for (const a of graph.assets) {
@@ -297,7 +297,6 @@
 		// relation two projects both materialize carries only one project's node.
 		// Showing that project's SQL under this run would be a different model's
 		// source; when this run names the node, it is this run's.
-		const run = parseDbtRun(result)
 		if (run?.nodes?.length && !run.nodes.some((n) => n.unique_id === dbt.unique_id)) {
 			return undefined
 		}
@@ -347,15 +346,21 @@
 		const startedAt = Date.now()
 		previews = { ...previews, [key]: { pending: true } }
 		try {
-			const id = await JobService.runScriptByPath({
-				workspace: ws,
-				path: scriptPath,
-				requestBody: {
-					dbt_command: 'show',
-					select: [splitUniqueId(key).name],
-					limit: 25
-				}
-			})
+			const requestBody = {
+				dbt_command: 'show',
+				select: [splitUniqueId(key).name],
+				limit: 25
+			}
+			// By HASH whenever the graph is pinned: the SQL on screen is that
+			// version's, and running the deployed one would show today's rows
+			// under it — or fail outright for a model since removed.
+			const id = scriptHash
+				? await JobService.runScriptByHash({
+						workspace: ws,
+						hash: String(scriptHash),
+						requestBody
+					})
+				: await JobService.runScriptByPath({ workspace: ws, path: scriptPath, requestBody })
 			// Polled rather than awaited: a preview is a job, and its engine may
 			// need provisioning on a cold worker.
 			for (let i = 0; i < 90; i++) {
@@ -399,7 +404,7 @@
 	let selectedRelation = $derived.by(() => {
 		const sel = selection
 		if (sel?.kind !== 'asset' || !selectedDbt) return undefined
-		const rel = parseDbtRun(result)?.nodes?.find(
+		const rel = run?.nodes?.find(
 			(n) => n.unique_id === selectedDbt!.unique_id
 		)?.relation_name
 		return rel ? splitRelation(rel).join('.') : undefined

@@ -167,6 +167,7 @@ pub async fn handle_dbt_job(
         &job.id,
         &job.workspace_id,
         job.runnable_path.as_deref().unwrap_or_default(),
+        job.runnable_id.map(|h| h.0),
         worker_name,
         conn,
         client,
@@ -507,6 +508,7 @@ pub async fn dbt_dep(
         job_id,
         w_id,
         script_path,
+        deploying_script_hash(db, job_id).await,
         worker_name,
         &conn,
         &client,
@@ -594,16 +596,30 @@ pub async fn dbt_dep(
         }
         !published
     } else {
-        // No warehouse identity, so nothing can be ingested — but the previous
-        // deploy's rows must still go. Leaving them means a descriptor edited
-        // to use its own profiles.yml keeps claiming ownership of relations it
-        // no longer describes, and keeps cascading from them.
+        // No warehouse identity, so nothing can be ingested — but this version's
+        // rows must still go. Leaving them means a descriptor edited to use its
+        // own profiles.yml keeps claiming ownership of relations it no longer
+        // describes, and keeps cascading from them.
+        //
+        // This VERSION's, not the path's: the ownership being given up is the
+        // path-keyed `asset` usages cleared on the next line, while every older
+        // version's graph is what its own finished runs still render. Wiping the
+        // path would empty those pages of models, SQL and lineage.
+        //
         // The clear is a publication too — a newer deploy's graph must not be
         // wiped by an older job that no longer describes the script.
         let mut tx = db.begin().await?;
         let published = claim_graph_publication(&mut tx, w_id, script_path, publisher).await?;
         if published {
-            windmill_common::dbt_manifest::clear_dbt_manifest(&mut tx, w_id, script_path).await?;
+            if let GraphPublisher::Version(hash) = publisher {
+                windmill_common::dbt_manifest::clear_dbt_manifest_version(
+                    &mut tx,
+                    w_id,
+                    script_path,
+                    hash,
+                )
+                .await?;
+            }
             windmill_common::assets::replace_static_asset_usage(&mut tx, w_id, script_path, &[])
                 .await?;
             tx.commit().await?;
@@ -799,6 +815,9 @@ pub async fn prepare_project(
     // across every dbt script in the workspace, so a retry resumes another
     // project's run_results.json.
     script_path: &str,
+    // The version this job runs, which is the one whose stored graph the drift
+    // check below must read. `None` for a preview, which has no stored graph.
+    script_hash: Option<i64>,
     worker_name: &str,
     conn: &Connection,
     client: &AuthedClient,
@@ -989,17 +1008,21 @@ pub async fn prepare_project(
     let mut ctx = JobCtx { mem_peak, canceled_by, occupancy_metrics, worker_name, deadline };
     // A profile resource moved — a changed schema, dataset or catalog — relocates
     // every relation the project builds, so the stored graph names ones that no
-    // longer exist. Compared against the graph AS STORED, not against the deploy
-    // lock: moving A→B then back to A matches the lock again while the stored
-    // graph is still at B.
+    // longer exist. Compared against THIS VERSION's graph as stored, not against
+    // the deploy lock: moving A→B then back to A matches the lock again while the
+    // stored graph is still at B. Scoped by hash because sibling versions of the
+    // path have rows of their own — an unscoped read can answer with a version
+    // this job is not running.
     match conn {
         Connection::Sql(db) => {
             if let Some(stored) = sqlx::query_scalar!(
                 "SELECT relation_root FROM dbt_node
-                  WHERE workspace_id = $1 AND script_path = $2 AND relation_root IS NOT NULL
+                  WHERE workspace_id = $1 AND script_path = $2 AND script_hash = $3
+                    AND relation_root IS NOT NULL
                   LIMIT 1",
                 w_id,
                 script_path,
+                script_hash,
             )
             .fetch_optional(db)
             .await?
@@ -2406,12 +2429,10 @@ enum GraphPublisher {
 
 /// Replace this script's graph, unless a newer version of it has been deployed.
 ///
-/// Returns whether it published. The check runs inside the same transaction as
-/// the writes and behind a lock every publisher for this path takes: checking
-/// first and writing after leaves a window where a newer job publishes in
-/// between and the older one overwrites it, which no later job repairs.
 /// Write one ingest: the sidecar rows and the `asset` usages the manifest
 /// implies. No subscriptions — a `table://` one could never fire.
+///
+/// Returns whether it published the path-keyed half.
 async fn persist_ingest(
     db: &sqlx::Pool<sqlx::Postgres>,
     w_id: &str,
@@ -2426,9 +2447,28 @@ async fn persist_ingest(
         return Ok(false);
     };
     let mut tx = db.begin().await?;
-    // The graph is written unconditionally: its rows are keyed by this version,
-    // so an older deploy finishing late cannot overwrite a newer one's, and its
-    // own runs still need their graph to render.
+    // A version archived or deleted while this job ran had its graph cleared by
+    // the route that did it. Both only soft-update `script`, so the foreign key
+    // still accepts these rows — and the pinned graph query deliberately serves
+    // archived versions, so re-inserting here republishes model SQL a user
+    // deleted. `FOR UPDATE` holds the row so an archive racing this waits and
+    // then clears what was written, rather than clearing first and losing.
+    let live = sqlx::query_scalar!(
+        "SELECT NOT deleted AND NOT archived FROM script
+          WHERE workspace_id = $1 AND hash = $2 FOR UPDATE",
+        w_id,
+        script_hash,
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten()
+    .unwrap_or(false);
+    if !live {
+        return Ok(false);
+    }
+    // The graph is written without regard to NEWER versions: its rows are keyed
+    // by this one, so an older deploy finishing late cannot overwrite a newer
+    // one's, and its own runs still need their graph to render.
     windmill_common::dbt_manifest::replace_dbt_manifest(
         &mut tx,
         w_id,
@@ -2577,8 +2617,8 @@ async fn resolve_selection(
     Ok(Some(set))
 }
 
-/// A failed command's stderr is quoted back to the user, so it is held in full
-/// only up to here; past it the tail is what says why the command failed.
+/// A failed command's stderr is quoted back to the user, so it is bounded — and
+/// what is kept is the TAIL, because dbt prints its error summary last.
 const CAPTURE_MAX_STDERR_BYTES: usize = 64 * 1024;
 
 /// Run a command for its stdout under the job's cancellation and timeout.
@@ -2642,9 +2682,9 @@ async fn run_capturing(
                         Ok(0) => out_open = false,
                         Ok(n) => {
                             if stdout.len() + n > max_stdout_bytes {
-                                // Kill before returning: the error propagates
-                                // past the poller that owns the child, so
-                                // `kill_on_drop` is not what stops it here.
+                                // Killed here rather than left to `kill_on_drop`
+                                // so the child is gone before the error unwinds,
+                                // not merely once this future is dropped.
                                 let _ = child.kill().await;
                                 return Err(Error::ExecutionErr(format!(
                                     "{name} produced more than {} MB of output. Narrow the \
@@ -2659,8 +2699,11 @@ async fn run_capturing(
                     r = stderr_pipe.read(&mut err_buf[..]), if err_open => match r {
                         Ok(0) => err_open = false,
                         Ok(n) => {
-                            let room = CAPTURE_MAX_STDERR_BYTES.saturating_sub(stderr.len());
-                            stderr.extend_from_slice(&err_buf[..n.min(room)]);
+                            stderr.extend_from_slice(&err_buf[..n]);
+                            if stderr.len() > CAPTURE_MAX_STDERR_BYTES {
+                                let excess = stderr.len() - CAPTURE_MAX_STDERR_BYTES;
+                                stderr.drain(..excess);
+                            }
                         }
                         Err(_) => err_open = false,
                     },
@@ -3375,31 +3418,35 @@ fn sole_placeholder(s: &str) -> Option<&str> {
 /// absent: argument-schema validation is opt-in, so `dbt_command: 1` would
 /// otherwise run the default command and `full_refresh: "false"` would still
 /// full-refresh — the caller silently getting something else than asked for.
-fn arg_str(args: &HashMap<String, Box<RawValue>>, k: &str) -> error::Result<Option<String>> {
+/// One job argument, absent when unset or JSON `null` — a schema-less run sends
+/// the key with a null rather than omitting it, and both mean "not given".
+/// A wrong TYPE is an error rather than an absence: argument-schema validation
+/// is opt-in, so reading it as unset would silently fall back to the
+/// descriptor's value instead of the one the caller asked for.
+fn arg<T: serde::de::DeserializeOwned>(
+    args: &HashMap<String, Box<RawValue>>,
+    k: &str,
+    expected: &str,
+) -> error::Result<Option<T>> {
     let Some(raw) = args.get(k).filter(|r| r.get().trim() != "null") else {
         return Ok(None);
     };
-    serde_json::from_str::<String>(raw.get())
-        .map(|s| Some(s).filter(|s| !s.is_empty()))
-        .map_err(|e| Error::BadRequest(format!("`{k}` must be a string: {e}")))
+    serde_json::from_str::<T>(raw.get())
+        .map(Some)
+        .map_err(|e| Error::BadRequest(format!("`{k}` must be {expected}: {e}")))
+}
+
+/// Empty reads as absent: it is what an untouched text field sends.
+fn arg_str(args: &HashMap<String, Box<RawValue>>, k: &str) -> error::Result<Option<String>> {
+    Ok(arg::<String>(args, k, "a string")?.filter(|s| !s.is_empty()))
 }
 
 fn arg_bool(args: &HashMap<String, Box<RawValue>>, k: &str) -> error::Result<Option<bool>> {
-    let Some(raw) = args.get(k).filter(|r| r.get().trim() != "null") else {
-        return Ok(None);
-    };
-    serde_json::from_str::<bool>(raw.get())
-        .map(Some)
-        .map_err(|e| Error::BadRequest(format!("`{k}` must be a boolean: {e}")))
+    arg(args, k, "a boolean")
 }
 
 fn arg_i64(args: &HashMap<String, Box<RawValue>>, k: &str) -> error::Result<Option<i64>> {
-    let Some(raw) = args.get(k).filter(|r| r.get().trim() != "null") else {
-        return Ok(None);
-    };
-    serde_json::from_str::<i64>(raw.get())
-        .map(Some)
-        .map_err(|e| Error::BadRequest(format!("`{k}` must be a whole number: {e}")))
+    arg(args, k, "a whole number")
 }
 
 /// The selectors a given invocation runs with: the descriptor's, unless the
@@ -3485,12 +3532,6 @@ pub(crate) fn digest(s: &str) -> String {
     format!("{:x}", h.finalize())[..32].to_string()
 }
 
-fn copy_dir_command(from: &Path, to: &Path) -> Command {
-    let mut cmd = Command::new("cp");
-    cmd.arg("-a").arg(format!("{}/.", from.display())).arg(to);
-    cmd
-}
-
 /// Copy a package tree, bounded by the job.
 ///
 /// The tree is the project's, so its size is not ours to assume: run it under
@@ -3508,7 +3549,8 @@ async fn copy_dir_watched(
     tokio::fs::create_dir_all(to)
         .await
         .map_err(|e| Error::internal_err(format!("creating {to:?}: {e}")))?;
-    let mut cmd = copy_dir_command(from, to);
+    let mut cmd = Command::new("cp");
+    cmd.arg("-a").arg(format!("{}/.", from.display())).arg(to);
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     let child = start_child_process(cmd, "cp", false).await?;
     handle_child(

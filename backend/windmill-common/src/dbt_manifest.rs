@@ -698,20 +698,29 @@ pub async fn move_dbt_run_state(
     Ok(())
 }
 
-/// The by-hash sibling of `clear_dbt_run_state`, for the archive and delete
-/// routes that only have a hash.
+/// Drop the saved retry state, but only once NO live version of the path is
+/// left.
+///
+/// `dbt_run_state`'s key is the path — there is one saved run per script, not
+/// one per version — so archiving or deleting a single version must not take it
+/// with them: the live version's `dbt retry` would be refused and the
+/// partial-failure resume lost. It does not need to be version-scoped either,
+/// because `identity` already refuses a resume whose project, warehouse or
+/// engine moved.
 ///
 /// See the mutator contract above: this authorizes nothing.
-pub async fn clear_dbt_run_state_by_script_hash(
+pub async fn clear_dbt_run_state_if_path_retired(
     tx: &mut Transaction<'_, Postgres>,
     workspace_id: &str,
-    script_hash: crate::scripts::ScriptHash,
+    script_path: &str,
 ) -> Result<()> {
     sqlx::query!(
-        "DELETE FROM dbt_run_state WHERE workspace_id = $1
-           AND script_path = (SELECT path FROM script WHERE hash = $2 AND workspace_id = $1)",
+        "DELETE FROM dbt_run_state WHERE workspace_id = $1 AND script_path = $2
+           AND NOT EXISTS (SELECT 1 FROM script
+                            WHERE workspace_id = $1 AND path = $2
+                              AND deleted = false AND archived = false)",
         workspace_id,
-        script_hash.0
+        script_path
     )
     .execute(&mut **tx)
     .await?;

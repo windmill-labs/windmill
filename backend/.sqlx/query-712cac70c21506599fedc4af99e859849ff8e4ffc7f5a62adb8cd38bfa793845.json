@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT relation_root FROM dbt_node\n                  WHERE workspace_id = $1 AND script_path = $2 AND script_hash = $3\n                    AND relation_root IS NOT NULL\n                  LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "relation_root",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "712cac70c21506599fedc4af99e859849ff8e4ffc7f5a62adb8cd38bfa793845"
+}
