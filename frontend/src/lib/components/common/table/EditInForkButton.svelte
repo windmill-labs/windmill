@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { GitFork, Pen } from 'lucide-svelte'
+	import { Pen } from 'lucide-svelte'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 	import {
 		buildForkEditUrl,
@@ -34,9 +34,9 @@
 		onClick={(e) => onEditInForkClick(e, itemType, path)}
 	>
 		{#if dev}
+			<!-- Split so only the workspace name ellipsizes — "Edit in" always stays whole. -->
 			<span class="inline-flex items-center gap-1 min-w-0">
 				<span class="shrink-0">Edit in</span>
-				<GitFork size={14} class="shrink-0" />
 				<span class="truncate">{dev.name}</span>
 			</span>
 		{:else}

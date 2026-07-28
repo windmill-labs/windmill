@@ -37,7 +37,6 @@
 		Code2,
 		ClipboardCopy,
 		GitBranch,
-		GitFork,
 		EllipsisVertical,
 		Share2
 	} from 'lucide-svelte'
@@ -840,8 +839,7 @@
 							unifiedSize="md"
 							variant="default"
 							size="sm"
-							startIcon={{ icon: GitFork }}
-							>{editInForkLabel($workspaceStore, $userWorkspaces)}</Button
+							startIcon={{ icon: Pen }}>{editInForkLabel($workspaceStore, $userWorkspaces)}</Button
 						>
 					{/if}
 				{/if}

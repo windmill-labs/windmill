@@ -90,11 +90,11 @@
 	import { Triggers } from '$lib/components/triggers/triggers.svelte'
 	import { page } from '$app/state'
 	import {
-	buildForkEditUrl,
-	editInForkAllowed,
-	editInForkLabel,
-	onEditInForkClick
-} from '$lib/utils/editInFork'
+		buildForkEditUrl,
+		editInForkAllowed,
+		editInForkLabel,
+		onEditInForkClick
+	} from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 	import { isWorkflowAsCode } from '$lib/components/graph/wacToFlow'
 	import WacDiagram from '$lib/components/graph/WacDiagram.svelte'
@@ -403,7 +403,7 @@
 					onClick: (e: Event | undefined) => onEditInForkClick(e, 'script', script.path),
 					unifiedSize: 'md',
 					variant: !showEditButtons ? 'default' : 'subtle',
-					startIcon: GitFork
+					startIcon: Pen
 				}
 			})
 		}
