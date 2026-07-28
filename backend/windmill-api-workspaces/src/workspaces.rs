@@ -34,6 +34,7 @@ use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
 use windmill_common::global_settings::HTTP_ROUTE_WORKSPACED_ROUTE;
+use windmill_common::query_builders::{render_db_quoted_identifier, DbType};
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::{
     build_crypt, decrypt, encrypt, SECRET_SALT, WORKSPACE_CRYPT_CACHE,
@@ -133,6 +134,10 @@ pub fn workspaced_service() -> Router {
             get(get_datatable_table_schema),
         )
         .route("/edit_datatable_config", post(edit_datatable_config))
+        .route(
+            "/test_datatable_connection/{datatable_name}",
+            get(test_datatable_connection),
+        )
         .merge(crate::datatable_migrations::routes())
         .route("/git_sync_enabled", get(get_git_sync_enabled))
         .route("/git_sync_deploy_mode", get(get_git_sync_deploy_mode))
@@ -2021,6 +2026,106 @@ struct DataTableTableSchema {
     schema_name: String,
     table_name: String,
     columns: ColumnMap,
+}
+
+#[derive(Serialize, Debug)]
+struct DataTableConnectionCheck {
+    /// The role the data table actually connects as, and the schema its
+    /// unqualified statements resolve to. Both are read from the server rather
+    /// than the resource, which need not spell either of them out.
+    user: String,
+    schema: Option<String>,
+    /// Whether that role can create tables in `schema` / schemas in the database.
+    can_create_table: bool,
+    can_create_schema: bool,
+    /// Whether the migration bookkeeping table is already present.
+    migrations_table_exists: bool,
+    /// Statements to run for the privileges that are missing, empty when there
+    /// are none. Windmill connects as the role that lacks them, so it can only
+    /// name them for a schema owner to run.
+    suggested_grants: Vec<String>,
+}
+
+/// Report what the data table's own database lets its role do. Surfacing this
+/// from the settings page is the difference between finding out here and finding
+/// out on a first schema change, when the failure reads as a Postgres refusal
+/// deep inside a migration.
+async fn test_datatable_connection(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, datatable_name)): Path<(String, String)>,
+) -> JsonResult<DataTableConnectionCheck> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let db_resource = get_datatable_resource_from_db_unchecked(&db, &w_id, &datatable_name).await?;
+    let pg_db: PgDatabase = serde_json::from_value(db_resource)
+        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
+    let (client, connection) = pg_db.connect(Some(&db)).await?;
+    let join_handle = tokio::spawn(async move { connection.await });
+
+    // One round trip, no side effects: `has_*_privilege` answers for the
+    // connected role without attempting the operation.
+    let rows = client
+        .simple_query(
+            "SELECT current_user AS usr, \
+                    current_schema() AS sch, \
+                    has_schema_privilege(current_schema(), 'CREATE') AS can_create_table, \
+                    has_database_privilege(current_database(), 'CREATE') AS can_create_schema, \
+                    to_regclass('_wm_migrations') IS NOT NULL AS has_migrations_table",
+        )
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to inspect data table privileges: {}",
+                pg_error_message(&e)
+            ))
+        });
+
+    drop(client);
+    let _ = windmill_common::shutdown_pg_connection(join_handle).await;
+
+    let row = rows?
+        .into_iter()
+        .find_map(|msg| match msg {
+            tokio_postgres::SimpleQueryMessage::Row(row) => Some(row),
+            _ => None,
+        })
+        .ok_or_else(|| Error::internal_err("Privilege query returned no row".to_string()))?;
+
+    let user = row.get("usr").unwrap_or_default().to_string();
+    let schema = row.get("sch").map(str::to_string);
+    let can_create_table = row.get("can_create_table") == Some("t");
+    let can_create_schema = row.get("can_create_schema") == Some("t");
+    let migrations_table_exists = row.get("has_migrations_table") == Some("t");
+
+    let quoted_user = render_db_quoted_identifier(&user, DbType::Postgresql);
+    let mut suggested_grants = Vec::new();
+    // A pre-created bookkeeping table makes CREATE optional for migration
+    // tracking, so only suggest the schema grant while it is genuinely needed.
+    if !can_create_table && !migrations_table_exists {
+        let target = schema.as_deref().unwrap_or("public");
+        suggested_grants.push(format!(
+            "GRANT CREATE ON SCHEMA {} TO {}",
+            render_db_quoted_identifier(target, DbType::Postgresql),
+            quoted_user
+        ));
+    }
+    if !can_create_schema {
+        suggested_grants.push(format!(
+            "GRANT CREATE ON DATABASE {} TO {}",
+            render_db_quoted_identifier(&pg_db.dbname, DbType::Postgresql),
+            quoted_user
+        ));
+    }
+
+    Ok(Json(DataTableConnectionCheck {
+        user,
+        schema,
+        can_create_table,
+        can_create_schema,
+        migrations_table_exists,
+        suggested_grants,
+    }))
 }
 
 async fn list_datatable_schemas(

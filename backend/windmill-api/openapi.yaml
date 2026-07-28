@@ -4633,6 +4633,48 @@ paths:
                 items:
                   $ref: "#/components/schemas/DataTableSchema"
 
+  /w/{workspace}/workspaces/test_datatable_connection/{datatable_name}:
+    get:
+      summary: check what the data table's database lets its role do
+      operationId: testDataTableConnection
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: connection and privilege report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    type: string
+                  schema:
+                    type: string
+                  can_create_table:
+                    type: boolean
+                  can_create_schema:
+                    type: boolean
+                  migrations_table_exists:
+                    type: boolean
+                  suggested_grants:
+                    type: array
+                    items:
+                      type: string
+                required:
+                  - user
+                  - can_create_table
+                  - can_create_schema
+                  - migrations_table_exists
+                  - suggested_grants
+
   /w/{workspace}/workspaces/list_datatable_tables:
     get:
       summary: list tables of all connected Datatables

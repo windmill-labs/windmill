@@ -51,7 +51,7 @@
 </script>
 
 <script lang="ts">
-	import { Plus } from 'lucide-svelte'
+	import { Plus, PlugZap } from 'lucide-svelte'
 
 	import Button from '../common/button/Button.svelte'
 
@@ -69,7 +69,12 @@
 	import { isCustomInstanceDbEnabled, getUnusedInstanceDbName } from './utils.svelte'
 	import { random_adj } from '../random_positive_adjetive'
 	import { sendUserToast } from '$lib/toast'
-	import { SettingService, WorkspaceService, type GetSettingsResponse } from '$lib/gen'
+	import {
+		SettingService,
+		WorkspaceService,
+		type GetSettingsResponse,
+		type TestDataTableConnectionResponse
+	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
@@ -89,6 +94,31 @@
 	}
 
 	let { dataTableSettings = $bindable() }: Props = $props()
+
+	// Result of the last "Test connection", shown under the table: the grant
+	// statements have to stay selectable, which rules out a toast.
+	let connectionCheck = $state<
+		| {
+				name: string
+				loading: boolean
+				report?: TestDataTableConnectionResponse
+				error?: string
+		  }
+		| undefined
+	>(undefined)
+
+	async function testConnection(name: string) {
+		connectionCheck = { name, loading: true }
+		try {
+			const report = await WorkspaceService.testDataTableConnection({
+				workspace: $workspaceStore ?? '',
+				datatableName: name
+			})
+			connectionCheck = { name, loading: false, report }
+		} catch (err) {
+			connectionCheck = { name, loading: false, error: err?.body ?? err?.message ?? String(err) }
+		}
+	}
 
 	let tableHeadNames = ['Name', 'Database', '', ''] as const
 	let tableHeadTooltips: Partial<Record<(typeof tableHeadNames)[number], string | undefined>> = {
@@ -305,6 +335,17 @@
 							datatable={dataTable.name}
 							disabled={!!dirtyMap[dataTable.name]}
 						/>
+						<Button
+							size="xs"
+							color="light"
+							variant="border"
+							startIcon={{ icon: PlugZap }}
+							iconOnly
+							disabled={!!dirtyMap[dataTable.name]}
+							loading={connectionCheck?.name === dataTable.name && connectionCheck.loading}
+							title="Test connection: check the database is reachable and its user can create tables"
+							on:click={() => testConnection(dataTable.name)}
+						/>
 						{#if dirtyMap[dataTable.name]}
 							<Popover
 								openOnHover
@@ -342,6 +383,46 @@
 		</Row>
 	</tbody>
 </DataTable>
+
+{#if connectionCheck && !connectionCheck.loading}
+	{@const report = connectionCheck.report}
+	{#if connectionCheck.error}
+		<Alert type="error" title="Could not connect to {connectionCheck.name}" class="mt-4" size="xs">
+			{connectionCheck.error}
+		</Alert>
+	{:else if report}
+		<Alert
+			type={report.suggested_grants.length > 0 ? 'warning' : 'success'}
+			title={report.suggested_grants.length > 0
+				? `${connectionCheck.name} is reachable but its user is missing privileges`
+				: `${connectionCheck.name} is reachable and its user can create tables`}
+			class="mt-4"
+			size="xs"
+		>
+			<div class="flex flex-col gap-2">
+				<div>
+					Connects as <span class="font-mono">{report.user}</span>{#if report.schema}, resolving
+						unqualified statements to schema <span class="font-mono">{report.schema}</span>{/if}.
+				</div>
+				{#if report.suggested_grants.length > 0}
+					<div>
+						Windmill connects as the role that lacks these privileges, so it cannot grant them
+						itself. Run as a schema owner or superuser on that database:
+					</div>
+					<pre class="whitespace-pre-wrap select-all text-xs"
+						>{report.suggested_grants.map((g) => `${g};`).join('\n')}</pre
+					>
+					{#if !report.can_create_table && !report.migrations_table_exists}
+						<div>
+							Alternatively, create the <span class="font-mono">_wm_migrations</span> bookkeeping table
+							yourself and grant only SELECT, INSERT, UPDATE, DELETE on it.
+						</div>
+					{/if}
+				{/if}
+			</div>
+		</Alert>
+	{/if}
+{/if}
 
 <SettingsFooter
 	class="mt-8"
