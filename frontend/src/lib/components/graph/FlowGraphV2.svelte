@@ -1307,11 +1307,23 @@
 		opacity: 0;
 	}
 
+	:global(.svelte-flow__controls) {
+		@apply rounded-md border bg-surface overflow-hidden;
+		box-shadow: none;
+	}
 	:global(.svelte-flow__controls-button) {
 		@apply bg-surface border-0;
+		width: 28px;
+		height: 28px;
 	}
 	:global(.svelte-flow__controls-button:hover) {
 		@apply bg-surface-hover;
+	}
+	/* xy-flow caps control glyphs at 12px, which leaves them smaller than every other
+	   icon in the editor. */
+	:global(.svelte-flow__controls-button svg) {
+		max-width: 16px;
+		max-height: 16px;
 	}
 
 	:global(.svelte-flow__edgelabel-renderer) {
