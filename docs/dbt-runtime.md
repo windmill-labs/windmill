@@ -223,6 +223,46 @@ The parse is what makes a newly added model appear in the same run that builds
 it, rather than one run late: the graph is written before the build, so the run
 page shows the model while it is being built.
 
+## What a share-link viewer sees, and the follow-up that fixes it
+
+A share link is not anonymous access: the token is HMAC'd with the workspace key
+and scoped to one job and its descendants, and `/jobs/run_progress` still
+requires an authenticated caller. It is an extra grant for a **logged-in user
+who lacks access to that job** — which is normally why someone was sent a link.
+
+Today the two halves of a dbt run page answer differently, because
+`/jobs/run_progress` honours the token and `/assets/graph` does not:
+
+- **No read on the script** (the usual case, since that is what the link is
+  working around): the `live` CTE matches nothing and the dbt half comes back
+  empty. The Models panel is blank while the progress rows exist beneath it.
+- **Read on the script but not the job**: the snapshot gate falls back to the
+  deployed graph, so the models shown are today's rather than the ones that run
+  built — visibly wrong for a dynamic descriptor.
+
+It errs closed, so this is a gap in what a shared page *shows*, not in what it
+protects.
+
+**Relaxing it leaks nothing new.** `v2_job_completed.result` already carries
+every node's `unique_id` and `relation_name`, and a share-link viewer can read
+it — so the model set and its relations are already visible to them. The only
+incremental thing in the graph is `raw_code`, and that is gated separately, on
+being able to see the `script` that produced it.
+
+So the fix is to let a validated view token authorise the graph's SHAPE for that
+job — nodes, edges and relation paths — while `raw_code` stays behind script
+RLS:
+
+1. Move `OptViewToken` and `validate_view_token` from `windmill-api` into
+   `windmill-api-auth`, which `windmill-api-assets` already depends on. Both are
+   self-contained: the validator needs only `get_workspace_key`, an HMAC and
+   `job_ancestor_chain_ids`.
+2. Have `asset_graph` accept `OptViewToken` and, when `dbt_job_id` is given and
+   the token validates for that job, satisfy both the `v2_job` gate and the
+   `live` script filter for that job's snapshot alone.
+3. Leave the `raw_code` CASE exactly as it is.
+4. Test that such a viewer gets the nodes and edges and a null `raw_code`.
+
 ## What a dbt job returns, and which half of it is a contract
 
 The result is `{engine, engine_version, command, totals, nodes}`, and each node

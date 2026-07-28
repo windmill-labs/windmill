@@ -1211,15 +1211,18 @@ async fn asset_graph(
                          -- paths, which a dynamic alias or schema can encode.
                          --
                          -- RLS only, where `/jobs/run_progress` also honours a
-                         -- share-link view token: `require_job_read_access` and
-                         -- `OptViewToken` live in `windmill-api`, which this
-                         -- crate cannot depend on. The two halves of a run page
-                         -- therefore disagree for a share-link viewer of a
-                         -- DYNAMIC run — progress describes what the run built,
-                         -- the graph falls back to the deployed set. It errs
-                         -- closed, so it is a gap in what a shared page shows,
-                         -- not in what it protects; closing it means moving that
-                         -- helper into a crate both can see.
+                         -- share-link view token. A share link is an extra grant
+                         -- for a logged-in user who lacks access to the job, so
+                         -- the two halves of a run page disagree for them: the
+                         -- progress loads and the graph does not. Without read
+                         -- on the script the `live` CTE matches nothing and the
+                         -- whole dbt half comes back EMPTY — a blank Models
+                         -- panel, not a fallback; with read on the script but
+                         -- not the job, this gate falls back to the deployed
+                         -- graph, which is the wrong model set for a dynamic
+                         -- run. See docs/dbt-runtime.md, "What a share-link
+                         -- viewer sees", for why relaxing this leaks nothing and
+                         -- what the fix looks like.
                          AND EXISTS (SELECT 1 FROM v2_job j
                                       WHERE j.id = g.job_id
                                         AND j.workspace_id = g.workspace_id))
@@ -1317,15 +1320,18 @@ async fn asset_graph(
                          -- paths, which a dynamic alias or schema can encode.
                          --
                          -- RLS only, where `/jobs/run_progress` also honours a
-                         -- share-link view token: `require_job_read_access` and
-                         -- `OptViewToken` live in `windmill-api`, which this
-                         -- crate cannot depend on. The two halves of a run page
-                         -- therefore disagree for a share-link viewer of a
-                         -- DYNAMIC run — progress describes what the run built,
-                         -- the graph falls back to the deployed set. It errs
-                         -- closed, so it is a gap in what a shared page shows,
-                         -- not in what it protects; closing it means moving that
-                         -- helper into a crate both can see.
+                         -- share-link view token. A share link is an extra grant
+                         -- for a logged-in user who lacks access to the job, so
+                         -- the two halves of a run page disagree for them: the
+                         -- progress loads and the graph does not. Without read
+                         -- on the script the `live` CTE matches nothing and the
+                         -- whole dbt half comes back EMPTY — a blank Models
+                         -- panel, not a fallback; with read on the script but
+                         -- not the job, this gate falls back to the deployed
+                         -- graph, which is the wrong model set for a dynamic
+                         -- run. See docs/dbt-runtime.md, "What a share-link
+                         -- viewer sees", for why relaxing this leaks nothing and
+                         -- what the fix looks like.
                          AND EXISTS (SELECT 1 FROM v2_job j
                                       WHERE j.id = g.job_id
                                         AND j.workspace_id = g.workspace_id))
