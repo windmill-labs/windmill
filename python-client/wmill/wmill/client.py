@@ -2772,33 +2772,36 @@ def _step_error_marker(key: str, exc: BaseException) -> dict:
     # there is — ``resp.raise_for_status()``, whose ``__dict__`` holds a request
     # and a response object — would otherwise fail to serialize and silently
     # drop every such failure onto the slow suspend-and-replay path.
-    # ``getattr``'s default only swallows ``AttributeError``; an exception
-    # overriding ``__getattribute__`` raises whatever it likes from this read.
+    # Everything about the failing exception can fight back, and this runs inside
+    # the ``except`` reporting it, so an escape replaces the user's error and
+    # skips the checkpoint. Only a genuine ``dict`` is walked: an overridden
+    # ``__dict__`` can raise on access, on ``.items()``, or yield non-pairs.
     try:
-        extra = getattr(exc, "__dict__", None)
+        _raw_extra = getattr(exc, "__dict__", None)
     except Exception:
-        extra = None
-    if extra:
-        # ``default`` is where json hands back the objects it cannot represent,
-        # and ``str()`` on a detached ORM row or a proxy over a closed
-        # connection raises in turn. This runs inside the ``except`` that is
-        # reporting the user's failure, so an escape here would replace their
-        # error with an unrelated one and skip the checkpoint entirely.
-        # Narrow: what json raises for something it cannot represent. A broader
-        # catch would hide a mistake in this function as a silently missing
-        # field, which is how it read before.
-        try:
-            # ``parse_constant`` catches the one thing ``default`` cannot: a
-            # float is serializable, so ``NaN``/``Infinity`` pass through as
-            # bare literals that are not JSON and that the backend's extractor
-            # rejects — taking the whole checkpoint down with them. Kept as
-            # their text rather than dropped, so the attribute still says
-            # something.
-            error["extra"] = json.loads(
-                json.dumps(extra, default=_safe_str), parse_constant=lambda c: c
-            )
-        except (TypeError, ValueError, RecursionError):
-            pass
+        _raw_extra = None
+    if type(_raw_extra) is dict and _raw_extra:
+        safe_extra = {}
+        for _k, _v in _raw_extra.items():
+            # Rebuilding the pair hashes the key again, so only the types json
+            # can represent, and exactly those: a subclass may define __hash__.
+            if type(_k) not in (str, int, float, bool, type(None)):
+                continue
+            # Per attribute so one bad value cannot take the rest, and as a pair
+            # so an int/bool/None key arrives as the string a replay reads.
+            # ``parse_constant`` catches what ``default`` cannot: a float is
+            # serializable, so NaN/Infinity would go out as invalid JSON.
+            try:
+                safe_extra.update(
+                    json.loads(
+                        json.dumps({_k: _v}, default=_safe_str),
+                        parse_constant=lambda c: c,
+                    )
+                )
+            except (TypeError, ValueError, RecursionError):
+                pass
+        if safe_extra:
+            error["extra"] = safe_extra
     return {
         "__wmill_error": True,
         "message": _safe_str(exc),
