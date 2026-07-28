@@ -30976,8 +30976,14 @@ components:
             type: string
           description: >
             Raw apps: scopes the app policy declares for the frontend SDK
-            token. The viewer renders these in the consent banner; token stays
-            absent until the endpoint is re-called with sdk_consent=true.
+            token. The viewer renders these in the permission prompt; token
+            stays absent until the endpoint is re-called with sdk_consent=true.
+        viewer_email:
+          type: string
+          nullable: true
+          description: >
+            The caller's own email, returned alongside sdk_scopes so the viewer
+            can key its stored "do not ask again" per person.
       required:
         - raw_app
         - sandbox

@@ -39,23 +39,38 @@ export function sdkScopeDescription(scope: string): string | undefined {
 	return FRONTEND_SDK_SCOPES.find((s) => s.value === scope)?.description
 }
 
-function sdkConsentKey(workspace: string, path: string): string {
-	return `wm_sdk_consent:${workspace}:${path}`
+// Keyed by viewer as well as app: this localStorage lives on the shared embedder
+// origin, so without the viewer one person's "do not ask again" would silently
+// suppress the prompt for the next person to use the same browser profile.
+function sdkConsentKey(viewer: string, workspace: string, path: string): string {
+	return `wm_sdk_consent:${viewer}:${workspace}:${path}`
 }
 
 /** True when a previously stored "do not ask again" consent covers every
- * declared scope. A later deploy that adds scopes re-triggers the banner. */
-export function hasStoredSdkConsent(workspace: string, path: string, scopes: string[]): boolean {
+ * declared scope. A later deploy that adds scopes re-triggers the prompt. */
+export function hasStoredSdkConsent(
+	viewer: string,
+	workspace: string,
+	path: string,
+	scopes: string[]
+): boolean {
 	try {
-		const stored = JSON.parse(localStorage.getItem(sdkConsentKey(workspace, path)) ?? 'null')
+		const stored = JSON.parse(
+			localStorage.getItem(sdkConsentKey(viewer, workspace, path)) ?? 'null'
+		)
 		return Array.isArray(stored) && scopes.every((s) => stored.includes(s))
 	} catch (_) {
 		return false
 	}
 }
 
-export function storeSdkConsent(workspace: string, path: string, scopes: string[]): void {
+export function storeSdkConsent(
+	viewer: string,
+	workspace: string,
+	path: string,
+	scopes: string[]
+): void {
 	try {
-		localStorage.setItem(sdkConsentKey(workspace, path), JSON.stringify(scopes))
+		localStorage.setItem(sdkConsentKey(viewer, workspace, path), JSON.stringify(scopes))
 	} catch (_) {}
 }

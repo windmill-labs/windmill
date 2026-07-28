@@ -179,7 +179,7 @@ export function unsandboxedRawAppHtml(
 	<link rel="stylesheet" href="${baseUrl}/api/w/${workspace}/apps_u/get_data/v/${secret}.css" />
 	<script>
 		${sdkEnv ? `window.process = { env: ${JSON.stringify(sdkEnv).replace(/</g, '\\u003c')} };` : ''}
-		window.ctx = ${ctx ? JSON.stringify(ctx) : 'undefined'};
+		window.ctx = ${ctx ? JSON.stringify(ctx).replace(/</g, '\\u003c') : 'undefined'};
 		(function () {
 			// Keep the parent URL hash in sync for shareable URLs.
 			function notifyParent() {

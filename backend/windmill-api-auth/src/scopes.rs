@@ -470,6 +470,17 @@ pub fn check_route_access(
     // whole `/users`, `/folders` and `/jobs` routers are CORS-enabled for the
     // opaque app iframe, so default-deny everything in those domains except the
     // intended routes — otherwise the token could enumerate/export workspace data.
+    if has_raw_app_sdk_sentinel(Some(token_scopes)) {
+        if let Some(suffix) = route_suffix.as_deref() {
+            if is_request_supplied_code_route(suffix) {
+                return Err(Error::PermissionDenied(
+                    "Access denied. A raw app frontend SDK token cannot run request-supplied code."
+                        .to_string(),
+                ));
+            }
+        }
+    }
+
     if has_app_embed_sentinel(Some(token_scopes)) {
         if let Some(suffix) = route_suffix.as_deref() {
             if app_embed_route_denied(required_domain, suffix) {
@@ -699,6 +710,37 @@ pub const APP_EMBED_SENTINEL: &str = "app_embed";
 /// so several handlers confine them to the app's own resources/runs.
 pub fn has_app_embed_sentinel(scopes: Option<&[String]>) -> bool {
     scopes.is_some_and(|s| s.iter().any(|x| x == APP_EMBED_SENTINEL))
+}
+
+/// Sentinel scope in raw-app frontend SDK tokens. Grants nothing itself;
+/// `check_route_access` uses it to deny the request-supplied-code endpoints that
+/// `jobs:run` would otherwise reach.
+pub const RAW_APP_SDK_SENTINEL: &str = "raw_app_sdk";
+
+pub fn has_raw_app_sdk_sentinel(scopes: Option<&[String]>) -> bool {
+    scopes.is_some_and(|s| s.iter().any(|x| x == RAW_APP_SDK_SENTINEL))
+}
+
+/// Endpoints that execute code supplied in the request body. `jobs:run` reaches
+/// them by design (they are the editor's preview surface), but a raw-app SDK
+/// token is handed to untrusted app JS and can be exfiltrated off-origin, so for
+/// it "run scripts and flows" must mean the deployed runnables the viewer can
+/// already run — not arbitrary code. Without this, a captured SDK token escalates
+/// to the viewer's full account: a preview job runs attacker-chosen code whose
+/// own ephemeral credential is unscoped and permissioned as the viewer.
+/// The SDK never calls these (its run helpers are all by path/hash).
+fn is_request_supplied_code_route(suffix: &str) -> bool {
+    const CODE_ROUTES: [&str; 6] = [
+        "jobs/run/preview",
+        "jobs/run_inline/preview",
+        "jobs/run_wait_result/preview",
+        "jobs/run/preview_bundle",
+        "jobs/run/preview_flow",
+        "jobs/run_wait_result/preview_flow",
+    ];
+    // `run/preview_bundle` / `preview_flow` also match the `run/preview` prefix;
+    // listing them is redundant but keeps the set readable as the route list.
+    CODE_ROUTES.iter().any(|p| suffix.starts_with(p))
 }
 
 /// Routes an app embed token (sentinel) is denied. Its broad scopes (`apps:run`,

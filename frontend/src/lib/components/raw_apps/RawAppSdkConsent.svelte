@@ -6,13 +6,17 @@
 
 	let {
 		scopes,
-		onContinue
+		onContinue,
+		onDecline
 	}: {
 		/** Scopes the app policy declares for its frontend SDK token. */
 		scopes: string[]
 		/** Fired when the viewer accepts; `dontAskAgain` persists the consent for
-		 * this app path so the banner is skipped until the declared scopes grow. */
+		 * this app path so the prompt is skipped until the declared scopes grow. */
 		onContinue: (dontAskAgain: boolean) => void
+		/** Fired when the viewer declines: the app still renders, its frontend code
+		 * just gets no token (SDK calls fail). */
+		onDecline: () => void
 	} = $props()
 
 	let dontAskAgain = $state(false)
@@ -39,7 +43,10 @@
 		</ul>
 		<div class="flex items-center justify-between gap-4 pt-2">
 			<Toggle bind:checked={dontAskAgain} size="xs" options={{ right: 'Do not ask again' }} />
-			<Button variant="accent" onclick={() => onContinue(dontAskAgain)}>Continue</Button>
+			<div class="flex items-center gap-2">
+				<Button variant="default" onclick={onDecline}>Open without granting</Button>
+				<Button variant="accent" onclick={() => onContinue(dontAskAgain)}>Continue</Button>
+			</div>
 		</div>
 	</div>
 </div>
