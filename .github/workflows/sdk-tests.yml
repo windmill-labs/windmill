@@ -1,0 +1,62 @@
+# The python and typescript SDK unit suites. Both existed for a long time
+# without any workflow running them, so a red test could sit on main unnoticed —
+# one did. They are fast and need no services, so they run on every PR touching
+# either client.
+name: SDK Tests
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "python-client/**"
+      - "typescript-client/**"
+      - ".github/workflows/sdk-tests.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "python-client/**"
+      - "typescript-client/**"
+      - ".github/workflows/sdk-tests.yml"
+
+jobs:
+  typescript-client:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # No build step: these suites are deliberately free of the generated API
+      # client, so they run against the sources as committed.
+      - name: Run tests
+        working-directory: ./typescript-client
+        run: bun test --timeout 120000 tests/
+
+  python-client:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      # The interpreter is named explicitly: on a clean checkout uv picks the
+      # runner's system python and stops with "not compatible with the locked
+      # Python requirement" rather than fetching one. Keep in step with
+      # `requires-python` in uv.lock.
+      - name: Install the interpreter the lockfile requires
+        run: uv python install 3.14
+
+      # `--frozen` so a drifted lockfile fails here rather than quietly
+      # resolving to something nobody has run.
+      - name: Run tests
+        working-directory: ./python-client/wmill
+        env:
+          PYTHONPATH: .
+        run: uv run --frozen --python 3.14 pytest tests/ -q
