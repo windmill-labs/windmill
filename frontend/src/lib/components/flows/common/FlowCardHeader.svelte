@@ -215,7 +215,9 @@
 			</span>
 		{/if}
 		{#if title}
-			<div class="text-sm font-semibold text-emphasis pr-2">{title}</div>
+			<!-- Absorbs the free space so the actions stay together on the right: with
+			     justify-between alone, adding the detach button centres them. -->
+			<div class="text-sm font-semibold text-emphasis pr-2 mr-auto">{title}</div>
 		{/if}
 		{@render children?.()}
 		{@render action?.()}
