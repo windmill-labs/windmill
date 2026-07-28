@@ -27,11 +27,16 @@ export const HIDDEN_RESOURCE_TYPES = new Set(['app_theme', 'state', 'cache'])
  * `resource-<x>` is also used for formats that are no resource type at all
  * (`resource-s3_object`) and for stale or misspelled ones. Publishing those to
  * the Hub would push an empty-schema type and a stub resource nothing can ever
- * fill, so an input-derived type only counts once the workspace declares it.
- * `known` is undefined while the workspace's type list hasn't loaded (or failed
- * to): validating against an empty set there would drop every legitimate type.
+ * fill, so an input-derived type only counts once the workspace declares it —
+ * the same bar `ArgInput` applies before rendering an arg as a resource picker.
+ *
+ * `known` is only authoritative once it holds something: undefined (still
+ * loading, or the call failed) and empty (a workspace whose type catalog was
+ * never synced from the Hub) both mean "no catalog to validate against", and
+ * filtering on one would drop every legitimate type instead.
  */
 export function inputResourceTypes(schema: unknown, known: Set<string> | undefined): string[] {
+	const validate = known !== undefined && known.size > 0
 	const out = new Set<string>()
 	const props = (schema as any)?.properties
 	if (props && typeof props === 'object') {
@@ -40,7 +45,7 @@ export function inputResourceTypes(schema: unknown, known: Set<string> | undefin
 			if (typeof fmt !== 'string' || !fmt.startsWith('resource-')) continue
 			const type = fmt.slice('resource-'.length)
 			if (HIDDEN_RESOURCE_TYPES.has(type)) continue
-			if (known && !known.has(type)) continue
+			if (validate && !known.has(type)) continue
 			out.add(type)
 		}
 	}

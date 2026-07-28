@@ -53,7 +53,11 @@ describe('inputResourceTypes', () => {
 	it('keeps only formats the workspace declares as a resource type', () => {
 		expect(inputResourceTypes(schema, new Set(['postgresql', 'stripe']))).toEqual(['postgresql'])
 	})
-	it('falls back to every non-hidden format while the type list is unknown', () => {
-		expect(inputResourceTypes(schema, undefined)).toEqual(['postgresql', 's3_object', 'postgres'])
+	// Undefined (still loading) and empty (a workspace that never synced the Hub's
+	// types) are both "no catalog" — validating would drop every legitimate type.
+	it('falls back to every non-hidden format without a type catalog', () => {
+		const all = ['postgresql', 's3_object', 'postgres']
+		expect(inputResourceTypes(schema, undefined)).toEqual(all)
+		expect(inputResourceTypes(schema, new Set())).toEqual(all)
 	})
 })
