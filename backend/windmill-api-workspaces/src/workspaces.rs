@@ -3374,9 +3374,16 @@ async fn check_dev_promotion_targets_parent_repo<'a>(
                 m.parent_workspace
             )
         } else {
+            // With no branch of its own there is nothing for the parent to add,
+            // so only offer the side of the advice that can be acted on.
+            let other_way = if m.branch.is_empty() {
+                String::new()
+            } else {
+                format!(", or add branch '{branch}' to the parent's git sync settings")
+            };
             format!(
                 "the parent workspace '{}' tracks it on {} '{}'. Set this repository's branch to \
-                 match, or add branch '{branch}' to the parent's git sync settings.",
+                 match{other_way}.",
                 m.parent_workspace,
                 if m.parent_branches.len() > 1 {
                     "branches"

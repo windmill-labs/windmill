@@ -600,11 +600,7 @@ export function createGitSyncContext(workspace: string) {
 			})
 		} catch (error: any) {
 			// Initialize the job entry if it doesn't exist (e.g., job creation failed)
-			const errorMessage =
-				(typeof error?.body === 'string' ? error.body : error?.body?.message) ||
-				error?.message ||
-				error?.toString() ||
-				'Failed to run test job'
+			const errorMessage = apiErrorMessage(error) || 'Failed to run test job'
 			if (!gitSyncTestJobs[idx]) {
 				gitSyncTestJobs[idx] = {
 					jobId: '',
