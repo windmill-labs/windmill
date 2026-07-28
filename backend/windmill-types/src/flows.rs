@@ -875,19 +875,17 @@ pub struct AgentTool {
     pub value: ToolValue,
 }
 
-// Convert FlowModule -> AgentTool
-impl From<FlowModule> for AgentTool {
-    fn from(flow_module: FlowModule) -> Self {
+impl AgentTool {
+    /// Fold a `FlowModule` that went through dependency locking back into the tool it came from.
+    /// `description` has no `FlowModule` counterpart, so it must be carried over from the
+    /// existing tool: rebuilding an `AgentTool` from the module alone drops it on every deploy.
+    pub fn update_from_module(&mut self, flow_module: FlowModule) {
         let module_value = serde_json::from_str::<FlowModuleValue>(flow_module.value.get())
             .unwrap_or(FlowModuleValue::Identity);
 
-        AgentTool {
-            id: flow_module.id,
-            summary: flow_module.summary,
-            // FlowModule has no dedicated tool description; it is carried on AgentTool only.
-            description: None,
-            value: ToolValue::FlowModule(module_value),
-        }
+        self.id = flow_module.id;
+        self.summary = flow_module.summary;
+        self.value = ToolValue::FlowModule(module_value);
     }
 }
 
@@ -1340,6 +1338,41 @@ mod tests {
         });
         let val: FlowValue = serde_json::from_value(input).unwrap();
         assert_eq!(val.modules.len(), 1);
+    }
+
+    #[test]
+    fn agent_tool_keeps_description_through_locking() {
+        // #10244: the dependency job rebuilds each tool from its locked FlowModule; the
+        // tool description lives only on AgentTool and must survive that round-trip.
+        let mut tool: AgentTool = serde_json::from_value(json!({
+            "id": "b",
+            "summary": "my_tool",
+            "description": "when to call me",
+            "value": {
+                "tool_type": "flowmodule",
+                "type": "rawscript",
+                "content": "def main(): return 1",
+                "language": "python3",
+                "input_transforms": {}
+            }
+        }))
+        .unwrap();
+
+        let mut locked: FlowModule = Option::<FlowModule>::from(&tool).unwrap();
+        locked.value = to_raw_value(&json!({
+            "type": "rawscript",
+            "content": "def main(): return 1",
+            "language": "python3",
+            "lock": "# py: 3.11",
+            "input_transforms": {}
+        }));
+        tool.update_from_module(locked);
+
+        assert_eq!(tool.description.as_deref(), Some("when to call me"));
+        assert_eq!(tool.summary.as_deref(), Some("my_tool"));
+        assert!(serde_json::to_string(&tool.value)
+            .unwrap()
+            .contains("# py: 3.11"));
     }
 
     #[test]
