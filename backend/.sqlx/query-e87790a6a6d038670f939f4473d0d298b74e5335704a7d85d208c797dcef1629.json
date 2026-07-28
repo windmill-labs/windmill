@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH keep AS (\n           SELECT workspace_id, path, hash FROM (\n             SELECT workspace_id, path, hash,\n                    row_number() OVER (PARTITION BY workspace_id, path\n                                           ORDER BY created_at DESC) AS rn\n               FROM script WHERE language = 'dbt'\n           ) s WHERE s.rn <= $1\n         )\n         DELETE FROM dbt_graph_snapshot g\n          WHERE g.job_id = '00000000-0000-0000-0000-000000000000'\n            AND NOT EXISTS (SELECT 1 FROM keep k\n                             WHERE k.workspace_id = g.workspace_id\n                               AND k.path = g.script_path AND k.hash = g.script_hash)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e87790a6a6d038670f939f4473d0d298b74e5335704a7d85d208c797dcef1629"
+}

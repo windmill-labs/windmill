@@ -8,7 +8,7 @@
 use sqlx::{Pool, Postgres};
 use windmill_common::dbt_manifest::{
     clear_dbt_manifest, clear_dbt_manifest_version, prune_dbt_run_graphs, replace_dbt_manifest,
-    IngestedManifest, IngestedNode, DEPLOYED_GRAPH,
+    IngestedManifest, IngestedNode, DEPLOYED_GRAPH, DEPLOYED_GRAPH_VERSIONS_KEPT,
 };
 
 const WS: &str = "test-workspace";
@@ -51,6 +51,18 @@ async fn nodes_for(db: &Pool<Postgres>, hash: i64, job: uuid::Uuid) -> i64 {
         WS,
         hash,
         job
+    )
+    .fetch_one(db)
+    .await
+    .unwrap()
+    .unwrap_or(0)
+}
+
+async fn markers_for_path(db: &Pool<Postgres>) -> i64 {
+    sqlx::query_scalar!(
+        "SELECT count(*) FROM dbt_graph_snapshot WHERE workspace_id = $1 AND script_path = $2",
+        WS,
+        PATH
     )
     .fetch_one(db)
     .await
@@ -275,4 +287,34 @@ async fn the_sweep_takes_old_snapshots_and_spares_the_version(db: Pool<Postgres>
         1,
         "and a version's own graph is never swept"
     );
+}
+
+/// A version's graph cannot expire on a clock — a run page is as old as its job
+/// — so growth is bounded by deploy COUNT instead. The newest deploys keep
+/// theirs; past that the oldest are reclaimed, which is what stops a CI that
+/// deploys on every commit from adding a model set per commit forever.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn only_the_newest_deploys_keep_their_graph(db: Pool<Postgres>) {
+    let over = DEPLOYED_GRAPH_VERSIONS_KEPT + 3;
+    for h in 1..=over {
+        deploy_script(&db, h).await;
+        let mut tx = db.begin().await.unwrap();
+        replace_dbt_manifest(&mut tx, WS, PATH, h, None, &manifest(&["a"]), "root")
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+    }
+    assert_eq!(markers_for_path(&db).await, over, "every deploy stored one");
+
+    prune_dbt_run_graphs(&db).await.unwrap();
+
+    assert_eq!(
+        markers_for_path(&db).await,
+        DEPLOYED_GRAPH_VERSIONS_KEPT,
+        "the bound holds"
+    );
+    // The newest is always among them: losing the live version's graph would
+    // empty the page of every run of it.
+    assert_eq!(nodes_for(&db, over, DEPLOYED_GRAPH).await, 1);
+    assert_eq!(nodes_for(&db, 1, DEPLOYED_GRAPH).await, 0, "the oldest is reclaimed");
 }

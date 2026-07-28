@@ -177,6 +177,19 @@ fn graph_digest(ingested: &IngestedManifest, relation_root: &str) -> String {
 /// insert a new row set instead of replacing one.
 pub const DEPLOYED_GRAPH: uuid::Uuid = uuid::Uuid::nil();
 
+/// How many deploys of one script keep their graph.
+///
+/// A version's graph is what its own finished runs render from, so it cannot
+/// expire on a clock — a run page is as old as its job. It is bounded by COUNT
+/// instead: the newest deploys keep theirs and older ones are dropped, which
+/// makes growth `versions x models` per path rather than unbounded in time. A CI
+/// deploying on every commit would otherwise add a full model set per commit and
+/// nothing would ever reclaim it.
+///
+/// Generous on purpose. Losing a graph empties that version's run pages, so the
+/// bound exists to stop unbounded growth, not to be reached in normal use.
+pub const DEPLOYED_GRAPH_VERSIONS_KEPT: i64 = 50;
+
 /// How long a run's graph snapshot outlives it. Only dynamic descriptors write
 /// one, and the run page is the only reader.
 pub const RUN_GRAPH_RETENTION_DAYS: i32 = 30;
@@ -220,6 +233,41 @@ pub async fn prune_dbt_run_graphs(db: &sqlx::Pool<Postgres>) -> Result<()> {
     )
     .execute(db)
     .await?;
+    // The version graphs beyond the keep-count. Ordered by the script's own
+    // `created_at`, so "newest" means newest deploy rather than newest ingest —
+    // a re-ingest by a late-finishing job must not promote an old version.
+    sqlx::query!(
+        "WITH keep AS (
+           SELECT workspace_id, path, hash FROM (
+             SELECT workspace_id, path, hash,
+                    row_number() OVER (PARTITION BY workspace_id, path
+                                           ORDER BY created_at DESC) AS rn
+               FROM script WHERE language = 'dbt'
+           ) s WHERE s.rn <= $1
+         )
+         DELETE FROM dbt_graph_snapshot g
+          WHERE g.job_id = '00000000-0000-0000-0000-000000000000'
+            AND NOT EXISTS (SELECT 1 FROM keep k
+                             WHERE k.workspace_id = g.workspace_id
+                               AND k.path = g.script_path AND k.hash = g.script_hash)",
+        DEPLOYED_GRAPH_VERSIONS_KEPT,
+    )
+    .execute(db)
+    .await?;
+    // Same shape as the snapshot sweep: the rows a marker no longer stands for.
+    for table in ["dbt_node", "dbt_edge"] {
+        sqlx::query(&format!(
+            "DELETE FROM {table} t
+              WHERE t.job_id = '00000000-0000-0000-0000-000000000000'
+                AND NOT EXISTS (SELECT 1 FROM dbt_graph_snapshot g
+                                 WHERE g.workspace_id = t.workspace_id
+                                   AND g.script_path = t.script_path
+                                   AND g.script_hash = t.script_hash
+                                   AND g.job_id = t.job_id)"
+        ))
+        .execute(db)
+        .await?;
+    }
     Ok(())
 }
 

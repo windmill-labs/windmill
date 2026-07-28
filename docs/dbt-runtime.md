@@ -270,8 +270,18 @@ exactly the graph the deploy stored, and storing that per run would duplicate an
 unchanging picture. Those runs write nothing and read the version's graph
 through the fallback; only a run whose model set really differs pays.
 
-Snapshots are the only rows with a retention story — 30 days, pruned by every
-dbt run, so no background sweep has to know about the table. The prune is
+Both halves have a retention story, and they differ because their readers do. A
+run's snapshot expires on a clock — 30 days — because the run page that reads it
+is transient. A VERSION's graph cannot: its reader is every finished run of that
+version, and a run page is as old as its job. So version graphs are bounded by
+deploy COUNT instead — the newest 50 per path keep theirs — which makes growth
+`versions x models` rather than unbounded in time. Without it a CI deploying on
+every commit adds a full model set per commit and nothing ever reclaims it. The
+bound is generous on purpose: reaching it empties that version's run pages, so
+it exists to stop unbounded growth rather than to be hit in normal use.
+
+Both are pruned by every dbt run, so no background sweep has to know about the
+tables. The prune is
 deliberately not hung off the progress reporter, which exists only for engines
 that emit node events: retention that stops working because an instance chose
 Fusion is not retention. A version's own graph lives as long as the version.
