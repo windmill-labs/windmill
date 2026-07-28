@@ -149,6 +149,22 @@ pub struct TestMetadata {
     pub namespace: Option<String>,
 }
 
+/// A content digest of the graph a row set describes.
+///
+/// Covers exactly what the graph renders from — the nodes, their `ref()` edges
+/// and the root the relations resolved under — so two ingests that would draw
+/// the same picture digest the same.
+fn graph_digest(ingested: &IngestedManifest, relation_root: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    relation_root.hash(&mut h);
+    serde_json::to_string(&ingested.nodes)
+        .unwrap_or_default()
+        .hash(&mut h);
+    format!("{:?}", ingested.edges).hash(&mut h);
+    format!("{:x}", h.finish())
+}
+
 /// The `job_id` of a graph that belongs to a deployed VERSION rather than to one
 /// run: what a static descriptor writes at deploy and all of its runs read.
 ///
@@ -597,6 +613,30 @@ pub async fn replace_dbt_manifest(
     relation_root: &str,
 ) -> Result<()> {
     let job_id = job_id.unwrap_or(DEPLOYED_GRAPH);
+    let digest = graph_digest(ingested, relation_root);
+    if job_id != DEPLOYED_GRAPH {
+        // A snapshot only earns its storage by DIFFERING from the version's
+        // graph. Marking a descriptor dynamic is conservative — a `{{ }}` in
+        // `vars` says the arguments feed dbt, not that they change which models
+        // exist — so the usual dynamic run resolves to the very graph the deploy
+        // stored. Writing it again per run is a full duplicate of a picture that
+        // never changed; the read falls back to the version's graph anyway.
+        let deployed = sqlx::query_scalar!(
+            "SELECT graph_digest FROM dbt_node
+              WHERE workspace_id = $1 AND script_path = $2 AND script_hash = $3
+                AND job_id = $4 LIMIT 1",
+            workspace_id,
+            script_path,
+            script_hash,
+            DEPLOYED_GRAPH,
+        )
+        .fetch_optional(&mut **tx)
+        .await?
+        .flatten();
+        if deployed.as_deref() == Some(digest.as_str()) {
+            return Ok(());
+        }
+    }
     // Scoped to THIS version AND this run: wiping the path would take every
     // other version's graph with it, and wiping the version would take every
     // other run's snapshot — both are what keying exists to prevent.
@@ -616,9 +656,9 @@ pub async fn replace_dbt_manifest(
             "INSERT INTO dbt_node (workspace_id, script_path, script_hash, job_id, unique_id, resource_type, name,
                  asset_path, materialized, materialize_strategy, unique_key, tags, description,
                  test_kind, test_column, test_args, severity, attached_node, columns, freshness,
-                 relation_root, raw_code, original_file_path)
+                 relation_root, raw_code, original_file_path, graph_digest)
              VALUES ($1, $2, $3, $23, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-                     $18, $19, $20, $21, $22)",
+                     $18, $19, $20, $21, $22, $24)",
             workspace_id,
             script_path,
             script_hash,
@@ -642,6 +682,7 @@ pub async fn replace_dbt_manifest(
             n.raw_code,
             n.original_file_path,
             job_id,
+            digest,
         )
         .execute(&mut **tx)
         .await?;

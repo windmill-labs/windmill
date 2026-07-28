@@ -163,6 +163,20 @@ pub async fn handle_dbt_job(
     // together through the whole executor, so passing them apart means each new
     // phase grows another five parameters and another copy of this literal.
     let mut ctx = JobCtx { mem_peak, canceled_by, occupancy_metrics, worker_name, deadline };
+    // Detached, and from EVERY dbt run rather than from the progress reporter:
+    // that reporter exists only for engines emitting node events, so hanging the
+    // prune off it left a Fusion-only or dbt-core-2x instance accumulating rows
+    // it would never delete. Retention that depends on an engine choice is not
+    // retention.
+    if let Connection::Sql(pool) = conn {
+        let (pool, prune_w_id) = (pool.clone(), job.workspace_id.clone());
+        tokio::spawn(async move {
+            prune_run_progress(&pool, &prune_w_id).await;
+            if let Err(e) = windmill_common::dbt_manifest::prune_dbt_run_graphs(&pool).await {
+                tracing::warn!("pruning dbt run graph snapshots: {e:#}");
+            }
+        });
+    }
     let prepared = prepare_project(
         &descriptor,
         inner_content,
@@ -1873,12 +1887,6 @@ fn spawn_progress_reporter(
     let default_database = p.default_database.clone();
     Some(tokio::spawn(async move {
         use tokio::io::{AsyncReadExt, AsyncSeekExt};
-        // Off the job's critical path, and cheap: one indexed delete per run is
-        // what keeps these tables bounded without a background sweep.
-        prune_run_progress(&db, &w_id).await;
-        if let Err(e) = windmill_common::dbt_manifest::prune_dbt_run_graphs(&db).await {
-            tracing::warn!("pruning dbt run graph snapshots: {e:#}");
-        }
         let mut offset = 0u64;
         // A tick can land mid-write, leaving a trailing partial line; hold it
         // over rather than dropping the event it belongs to.

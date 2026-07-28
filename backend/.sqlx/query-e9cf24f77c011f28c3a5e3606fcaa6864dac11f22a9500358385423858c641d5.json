@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT graph_digest FROM dbt_node\n              WHERE workspace_id = $1 AND script_path = $2 AND script_hash = $3\n                AND job_id = $4 LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "graph_digest",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "e9cf24f77c011f28c3a5e3606fcaa6864dac11f22a9500358385423858c641d5"
+}

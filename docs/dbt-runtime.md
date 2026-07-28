@@ -248,9 +248,19 @@ Postgres does not treat two NULLs as one key, so a re-ingest would accumulate ro
 sets instead of replacing one. The endpoint falls back to it whenever the job has
 no snapshot, which is why a run page can pass `dbt_job_id` unconditionally.
 
-Snapshots are the only rows with a retention story — 30 days, pruned by the runs
-that write them, so no background sweep has to know about the table. A version's
-own graph lives as long as the version.
+A snapshot is only written when it DIFFERS from the version's graph, compared by
+a digest of the nodes, edges and relation root. Marking a descriptor dynamic is
+conservative — a `{{ }}` in `vars` says the arguments reach dbt, not that they
+change which models exist — so the usual dynamic run (a date var) resolves to
+exactly the graph the deploy stored, and storing that per run would duplicate an
+unchanging picture. Those runs write nothing and read the version's graph
+through the fallback; only a run whose model set really differs pays.
+
+Snapshots are the only rows with a retention story — 30 days, pruned by every
+dbt run, so no background sweep has to know about the table. The prune is
+deliberately not hung off the progress reporter, which exists only for engines
+that emit node events: retention that stops working because an instance chose
+Fusion is not retention. A version's own graph lives as long as the version.
 
 Per DEPLOY, not per run: ten thousand runs of one version share one graph. The
 rows carry a composite foreign key to `script (workspace_id, hash)` with
