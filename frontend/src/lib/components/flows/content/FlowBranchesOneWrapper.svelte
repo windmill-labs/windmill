@@ -4,7 +4,7 @@
 	import type { BranchOne, FlowModule } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
 	import BranchPredicateEditor from './BranchPredicateEditor.svelte'
-	import FlowModuleAdvancedSettings from './FlowModuleAdvancedSettings.svelte'
+	import FlowRunSettings from './FlowRunSettings.svelte'
 	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
 
 	interface Props {
@@ -28,11 +28,11 @@
 		value = flowModule.value as BranchOne
 	})
 
-	let advancedSettings: FlowModuleAdvancedSettings | undefined = $state(undefined)
+	let runSettings: FlowRunSettings | undefined = $state(undefined)
 
 	useUiIntent(`branchone-${flowModule.id}`, {
 		openTab: (tab) => {
-			advancedSettings?.openSetting(tab)
+			runSettings?.openSetting(tab)
 		}
 	})
 </script>
@@ -91,10 +91,10 @@
 			</section>
 
 			<section>
-				<FlowModuleAdvancedSettings
+				<FlowRunSettings
 					embedded
 					loopSubset
-					bind:this={advancedSettings}
+					bind:this={runSettings}
 					bind:flowModule
 					{parentModule}
 					{previousModule}

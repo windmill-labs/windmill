@@ -13,7 +13,7 @@
 	import type { FlowModule, ForloopFlow, Job } from '$lib/gen'
 	import FlowLoopIterationPreview from '$lib/components/FlowLoopIterationPreview.svelte'
 	import IteratorGen from '$lib/components/copilot/IteratorGen.svelte'
-	import FlowModuleAdvancedSettings from './FlowModuleAdvancedSettings.svelte'
+	import FlowRunSettings from './FlowRunSettings.svelte'
 
 	import FlowExpressionEditor from './FlowExpressionEditor.svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
@@ -43,7 +43,7 @@
 
 	let editor: SimpleEditor | undefined = $state(undefined)
 	let parallelismEditor: SimpleEditor | undefined = $state(undefined)
-	let advancedSettings: FlowModuleAdvancedSettings | undefined = $state(undefined)
+	let runSettings: FlowRunSettings | undefined = $state(undefined)
 	let parallelismType: 'static' | 'javascript' | undefined = $state(
 		mod.value.type === 'forloopflow'
 			? mod.value.parallelism?.type === 'javascript'
@@ -69,7 +69,7 @@
 
 	useUiIntent(`forloopflow-${mod.id}`, {
 		openTab: (tab) => {
-			advancedSettings?.openSetting(tab)
+			runSettings?.openSetting(tab)
 		}
 	})
 
@@ -345,10 +345,10 @@
 			</section>
 
 			<section>
-				<FlowModuleAdvancedSettings
+				<FlowRunSettings
 					embedded
 					loopSubset
-					bind:this={advancedSettings}
+					bind:this={runSettings}
 					bind:flowModule={mod}
 					{parentModule}
 					{previousModule}

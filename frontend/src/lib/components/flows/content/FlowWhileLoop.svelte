@@ -9,7 +9,7 @@
 	import { Play } from 'lucide-svelte'
 	import type { FlowModule, Job, WhileloopFlow } from '$lib/gen'
 	import FlowLoopIterationPreview from '$lib/components/FlowLoopIterationPreview.svelte'
-	import FlowModuleAdvancedSettings from './FlowModuleAdvancedSettings.svelte'
+	import FlowRunSettings from './FlowRunSettings.svelte'
 	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
 
 	const { flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -23,7 +23,7 @@
 
 	let { mod = $bindable(), previousModule, parentModule, noEditor }: Props = $props()
 
-	let advancedSettings: FlowModuleAdvancedSettings | undefined = $state(undefined)
+	let runSettings: FlowRunSettings | undefined = $state(undefined)
 
 	let previewOpen = $state(false)
 	let jobId: string | undefined = $state(undefined)
@@ -33,7 +33,7 @@
 
 	useUiIntent(`whileloopflow-${mod.id}`, {
 		openTab: (tab) => {
-			advancedSettings?.openSetting(tab)
+			runSettings?.openSetting(tab)
 		}
 	})
 </script>
@@ -119,10 +119,10 @@
 			</section>
 
 			<section>
-				<FlowModuleAdvancedSettings
+				<FlowRunSettings
 					embedded
 					loopSubset
-					bind:this={advancedSettings}
+					bind:this={runSettings}
 					bind:flowModule={mod}
 					{parentModule}
 					{previousModule}

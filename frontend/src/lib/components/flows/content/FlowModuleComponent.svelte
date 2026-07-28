@@ -19,7 +19,7 @@
 	import { getContext, onDestroy, tick, untrack } from 'svelte'
 	import type { FlowEditorContext, FlowGraphAssetContext } from '../types'
 	import FlowModuleScript from './FlowModuleScript.svelte'
-	import FlowModuleAdvancedSettings from './FlowModuleAdvancedSettings.svelte'
+	import FlowRunSettings from './FlowRunSettings.svelte'
 	import { getFailureStepPropPicker, getStepPropPicker } from '../previousResults'
 	import { deepEqual } from 'fast-equals'
 	import Section from '$lib/components/Section.svelte'
@@ -150,7 +150,7 @@
 			flowModule.value.type === 'aiagent'
 	)
 	let visibleSelected = $derived(selected === 'chat' && !canShowChatTab ? 'inputs' : selected)
-	let advancedSettings: FlowModuleAdvancedSettings | undefined = $state()
+	let runSettings: FlowRunSettings | undefined = $state()
 	let validCode = $state(true)
 	let width = $state(1200)
 	let testJob: Job | undefined = $state(undefined)
@@ -281,7 +281,7 @@
 
 	function selectAdvanced(subtab: string) {
 		selected = 'advanced'
-		tick().then(() => advancedSettings?.openSetting(subtab))
+		tick().then(() => runSettings?.openSetting(subtab))
 	}
 
 	function setOmitOutputFromConversation(omit: boolean) {
@@ -1167,8 +1167,8 @@
 											</Section>
 										</div>
 									{:else if visibleSelected === 'advanced'}
-										<FlowModuleAdvancedSettings
-											bind:this={advancedSettings}
+										<FlowRunSettings
+											bind:this={runSettings}
 											onApplyS3Snippet={(code) => editor?.setCode(code)}
 											bind:flowModule
 											{parentModule}
