@@ -162,7 +162,9 @@ impl DbtAdapter {
     }
 
     /// Every adapter, for the tests that must cover all of them. The one list
-    /// there is: a second would be the thing that goes stale.
+    /// there is: a second would be the thing that goes stale. Test-only, so a
+    /// release build does not carry a table nothing reads.
+    #[cfg(test)]
     pub const ALL: &'static [DbtAdapter] = &[
         DbtAdapter::Postgres,
         DbtAdapter::Redshift,

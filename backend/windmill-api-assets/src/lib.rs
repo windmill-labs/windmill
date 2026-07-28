@@ -949,6 +949,10 @@ async fn asset_graph(
     Query(q): Query<GraphQuery>,
 ) -> JsonResult<AssetGraphResponse> {
     let mut tx = user_db.begin(&authed).await?;
+    // Built once: a scoped token's `scripts:read` paths decide whether a dbt
+    // node's SQL body may be returned, independently of the `assets:read` scope
+    // that authorizes this endpoint.
+    let dbt_source_scope = build_scope_path_predicate(&authed, "scripts", "read");
 
     let kind_filter: Option<Vec<AssetKind>> = q.asset_kinds.as_ref().map(|s| {
         s.split(',')
@@ -1477,9 +1481,17 @@ async fn asset_graph(
         {
             *dbt_model_count.entry(r.script_path.clone()).or_default() += 1;
         }
+        // The model's SQL and its path in the project are the SCRIPT's source.
+        // RLS says whether the caller may see that script, but not whether a
+        // scoped token may: this endpoint is authorized as `assets:read`, so a
+        // token deliberately narrowed to it would otherwise read source for
+        // scripts outside its `scripts:read` paths. Same predicate the macro
+        // endpoint above applies, and the shape of the relation is unaffected —
+        // only its body is withheld.
+        let source_allowed = dbt_source_scope(&r.script_path);
         let candidate = DbtAssetProvenance {
-            raw_code: r.raw_code.clone(),
-            original_file_path: r.original_file_path.clone(),
+            raw_code: r.raw_code.clone().filter(|_| source_allowed),
+            original_file_path: r.original_file_path.clone().filter(|_| source_allowed),
             unique_id: r.unique_id.clone(),
             resource_type: r.resource_type.clone(),
             materialized: r.materialized.clone(),
