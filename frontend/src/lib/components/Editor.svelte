@@ -1971,11 +1971,15 @@
 	})
 
 	onDestroy(() => {
+		// Materialize a *pending keystroke debounce* before tearing down, or whoever
+		// unmounts us (closing the step panel, switching steps) silently discards the
+		// last `changeTimeout` ms of typing. Both guards are load-bearing: with no
+		// pending timer Monaco is not the newer side (an external write may be), and
+		// before init `getCode()` is '' — flushing either one overwrites real content.
+		if (editor && timeoutModel !== undefined) {
+			updateCode()
+		}
 		valueAfterDispose = getCode()
-		// Materialize the trailing debounce before tearing down: whoever unmounts us
-		// (closing the step panel, switching steps) would otherwise silently discard
-		// everything typed in the last `changeTimeout` ms.
-		updateCode()
 		pasteCleanup?.()
 		destroyed = true
 		disposeMethod && disposeMethod()

@@ -61,6 +61,8 @@
 
 	let divEl: HTMLDivElement | null = null
 	let editor = $state<meditor.IStandaloneCodeEditor | null>(null)
+	// Instance-scoped so onDestroy can tell a pending keystroke debounce from none.
+	let timeoutModel: number | undefined = undefined
 	let model: meditor.ITextModel
 	let pasteListenerCleanup: (() => void) | undefined = undefined
 
@@ -408,10 +410,10 @@
 			pasteListenerCleanup = () => pasteTarget?.removeEventListener('keydown', onPasteKeydown, true)
 		}
 
-		let timeoutModel: number | undefined = undefined
 		editor.onDidChangeModelContent((event) => {
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
+				timeoutModel = undefined
 				updateCode()
 			}, 200)
 		})
@@ -620,10 +622,12 @@
 
 	onDestroy(() => {
 		try {
+			// Same guards as Editor: only a pending keystroke debounce is ours to flush.
+			if (editor && timeoutModel !== undefined) {
+				updateCode()
+			}
+			clearTimeout(timeoutModel)
 			valueAfterDispose = getCode()
-			// Same reason as Editor: a pending debounce must reach `code` before we go.
-			// A timer that fires after this is a no-op — getCode() returns the same text.
-			updateCode()
 			pasteListenerCleanup?.()
 			vimDisposable?.dispose()
 			model && model.dispose()

@@ -741,7 +741,9 @@
 					let ids = generateIds()
 					let idx = ids.indexOf(selectedIdStore!)
 					if (idx > -1 && idx < ids.length - 1) {
-						selectionManager.selectId(ids[idx + 1])
+						// Traversal, not a request to see any one panel: the ids list starts with
+						// flow-level entries, and opening the modal mid-walk swallows the arrows.
+						selectionManager.selectId(ids[idx + 1], { openPanel: false })
 						event.preventDefault()
 					}
 				}
@@ -752,7 +754,7 @@
 					let ids = generateIds()
 					let idx = ids.indexOf(selectedIdStore!)
 					if (idx > 0 && idx < ids.length) {
-						selectionManager.selectId(ids[idx - 1])
+						selectionManager.selectId(ids[idx - 1], { openPanel: false })
 						event.preventDefault()
 					}
 				}

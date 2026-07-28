@@ -99,8 +99,11 @@ type SettingSpec = {
 	summarize: (mod: FlowModule, ctx: Ctx) => StepSettingSummary
 }
 
-// Non-positive concurrency limits and cache TTLs are what the runtime treats as
-// unset, so they read as "not configured" here too — same rule as scriptSettings.
+// A value the step itself carries counts as configured even when the runtime would
+// ignore it — `summary` is what reports the no-op, and the setting editors keep their
+// controls live on presence so clearing a field mid-edit can't disable it. Only values
+// read off a referenced workspace script use the runtime's `> 0` test: nobody is typing
+// into those, and 0 there simply means the script has no limit.
 const isWorkspaceScript = (mod: FlowModule) => mod.value.type === 'script'
 const inlineConcurrentLimit = (mod: FlowModule) =>
 	mod.value.type === 'rawscript' ? mod.value.concurrent_limit : undefined
@@ -250,10 +253,12 @@ const SPECS: { key: StepSettingKey; spec: SettingSpec }[] = [
 		spec: {
 			label: 'Priority',
 			icon: ChevronsUp,
-			// 0 is how the runtime spells "no priority", so it is not a configured value.
-			configured: (m) => m.priority != undefined && m.priority > 0,
-			summarize: (m) =>
-				m.priority != undefined && m.priority > 0 ? cfg('High priority') : def('Off')
+			configured: (m) => m.priority !== undefined,
+			summarize: (m) => {
+				if (m.priority === undefined) return def('Off')
+				// 0 is how the runtime spells "no priority".
+				return m.priority > 0 ? cfg('High priority') : inv('No priority set')
+			}
 		}
 	},
 	{

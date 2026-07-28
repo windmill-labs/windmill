@@ -56,12 +56,28 @@
 	let retriesOff = $derived(!(delayType === 'constant' || delayType === 'exponential'))
 	let displayDelayType = $derived(delayType === 'exponential' ? 'exponential' : 'constant')
 	// The shown branch's config must actually exist, or its inputs would bind to the
-	// display fallback below and silently discard every keystroke. Switching tabs seeds
-	// it; an external rewrite of `retry` can leave it missing.
+	// display fallback below and silently discard every keystroke.
 	let shownBranchMissing = $derived(
 		displayDelayType === 'constant' ? !flowModuleRetry?.constant : !flowModuleRetry?.exponential
 	)
 	let cfgDisabled = $derived(disabled || retriesOff || shownBranchMissing)
+	// The kind selector never takes `shownBranchMissing`: switching kind is how the user
+	// reseeds a branch, so disabling it there would strand them with no way back.
+	let kindDisabled = $derived(disabled || retriesOff)
+
+	// An external rewrite (AI chat, a session edit) can swap the retry kind under a mounted
+	// row. Follow it, or the row would disable itself over a config that is perfectly valid.
+	$effect(() => {
+		const r = flowModuleRetry
+		if (!r) return
+		untrack(() => {
+			if (delayType === 'constant' && !r.constant && r.exponential) {
+				delayType = 'exponential'
+			} else if (delayType === 'exponential' && !r.exponential && r.constant) {
+				delayType = 'constant'
+			}
+		})
+	})
 	let displayRetry = $derived(
 		flowModuleRetry ?? {
 			constant: { attempts: 1, seconds: 5 },
@@ -166,8 +182,8 @@
 
 	<ToggleButtonGroup
 		selected={retriesOff ? displayDelayType : delayType}
-		disabled={cfgDisabled}
-		class={`${cfgDisabled ? 'disabled' : ''}`}
+		disabled={kindDisabled}
+		class={`${kindDisabled ? 'disabled' : ''}`}
 		on:selected={(e) => {
 			flowModuleRetry = undefined
 			if (e.detail === 'constant') {
