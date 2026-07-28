@@ -1233,6 +1233,10 @@ async fn asset_graph(
                   ) THEN n.original_file_path END AS original_file_path
              FROM dbt_node n
              JOIN live l ON l.path = n.script_path AND l.hash = n.script_hash
+             -- Every join onto `dbt_node` needs this, not just the scoping CTE:
+             -- `job_id` is part of the key, so without it each model comes back
+             -- once per retained snapshot plus once for the version's graph.
+             JOIN chosen ch ON ch.job_id = n.job_id
             WHERE n.workspace_id = $1
               -- Joined on BOTH columns: a dbt `unique_id` is project-local, so
               -- two projects with the same model name would otherwise pull each
@@ -1281,10 +1285,12 @@ async fn asset_graph(
              JOIN dbt_node p ON p.workspace_id = e.workspace_id
                             AND p.script_path = e.script_path
                             AND p.script_hash = e.script_hash
+                            AND p.job_id = ch.job_id
                             AND p.unique_id = e.parent_unique_id
              JOIN dbt_node c ON c.workspace_id = e.workspace_id
                             AND c.script_path = e.script_path
                             AND c.script_hash = e.script_hash
+                            AND c.job_id = ch.job_id
                             AND c.unique_id = e.child_unique_id
             WHERE e.workspace_id = $1
               AND p.asset_path IS NOT NULL AND c.asset_path IS NOT NULL

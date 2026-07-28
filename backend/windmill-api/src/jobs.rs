@@ -811,8 +811,32 @@ async fn get_run_progress(
     )
     .fetch_all(&mut *tx)
     .await?;
-    tx.commit().await?;
-    Ok(Json(
+    // An agent worker reaches the database only through the API, and records its
+    // outcomes with the shared `record_materialization`, which writes the
+    // relation-keyed table alone. Falling back to it there keeps those runs
+    // showing progress; it is the racy source, but an agent run that has no rows
+    // of its own is strictly better served by it than by nothing.
+    let rows = if rows.is_empty() {
+        sqlx::query!(
+            "SELECT asset_kind AS \"asset_kind: windmill_common::assets::AssetKind\", asset_path,
+                    status::text AS \"status!\", row_count, error
+               FROM materialized_partition
+              WHERE workspace_id = $1 AND job_id = $2",
+            w_id,
+            job_id
+        )
+        .fetch_all(&mut *tx)
+        .await?
+        .into_iter()
+        .map(|r| AssetProgress {
+            asset_kind: r.asset_kind,
+            asset_path: r.asset_path,
+            status: r.status,
+            row_count: r.row_count,
+            error: r.error,
+        })
+        .collect::<Vec<_>>()
+    } else {
         rows.into_iter()
             .map(|r| AssetProgress {
                 asset_kind: r.asset_kind,
@@ -821,8 +845,10 @@ async fn get_run_progress(
                 row_count: r.row_count,
                 error: r.error,
             })
-            .collect(),
-    ))
+            .collect::<Vec<_>>()
+    };
+    tx.commit().await?;
+    Ok(Json(rows))
 }
 
 async fn get_flow_job_debug_info(

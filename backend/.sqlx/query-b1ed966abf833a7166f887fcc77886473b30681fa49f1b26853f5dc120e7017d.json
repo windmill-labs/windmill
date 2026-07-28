@@ -1,0 +1,127 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH live AS (\n             -- The graph is stored per deployed VERSION, so this endpoint — which\n             -- describes the project as it is now — takes the newest live one per\n             -- path. Resolved once here rather than per row: a correlated lookup\n             -- on every node is what makes these queries fall over.\n             SELECT DISTINCT ON (s.path) s.path, s.hash\n               FROM script s\n              WHERE s.workspace_id = $1 AND s.language = 'dbt'\n                AND ($3::bigint IS NULL OR s.hash = $3)\n                -- A pinned version may be archived by now; that is precisely the\n                -- case a historical run needs, so the liveness filter applies\n                -- only when picking the current one.\n                AND ($3::bigint IS NOT NULL OR (s.deleted = false AND s.archived = false))\n              ORDER BY s.path, s.created_at DESC\n           ),\n           -- The run's own snapshot when it left one, the version's graph\n           -- otherwise. A static descriptor never snapshots, so all of its runs\n           -- fall through to the same rows.\n           chosen AS (\n             SELECT CASE WHEN $4::uuid IS NOT NULL AND EXISTS (\n                      SELECT 1 FROM dbt_node\n                       WHERE workspace_id = $1 AND job_id = $4)\n                    THEN $4::uuid\n                    ELSE '00000000-0000-0000-0000-000000000000'::uuid END AS job_id\n           ),\n           scoped AS (\n             SELECT n.script_path, n.unique_id FROM dbt_node n\n              JOIN live l ON l.path = n.script_path AND l.hash = n.script_hash\n              JOIN chosen ch ON ch.job_id = n.job_id\n              WHERE n.workspace_id = $1 AND n.asset_path IS NOT NULL\n                -- Unpinned, the scope is the relations in view: `asset` says\n                -- which of them this folder touches. Pinned, that table is the\n                -- WRONG scope — it holds one row set per path, describing the\n                -- current deploy, so a model this version had and the current one\n                -- dropped would be filtered out of its own run's graph. The\n                -- pinned version's nodes are the scope.\n                AND ($3::bigint IS NOT NULL OR n.asset_path IN (\n                  SELECT path FROM asset\n                   WHERE workspace_id = $1 AND kind = 'table'\n                     AND ($2::text IS NULL OR usage_path LIKE $2)))\n           )\n           SELECT n.script_path AS \"script_path!\", n.unique_id AS \"unique_id!\",\n                  n.resource_type AS \"resource_type!\", n.name AS \"name!\", n.asset_path,\n                  n.materialized, n.materialize_strategy, n.tags AS \"tags!\", n.description,\n                  n.test_kind, n.test_column, n.test_args, n.severity, n.attached_node,\n                  n.columns, n.freshness,\n                  -- The model's SQL is the project's source code, and this query\n                  -- deliberately reaches outside the requested folder so an\n                  -- in-scope consumer can explain the relation it reads. That is\n                  -- fine for the relation's shape, not for its body: `dbt_node`\n                  -- carries no RLS of its own, so the body is returned only when\n                  -- the caller can see the script that produced it. This runs in\n                  -- the authed transaction, so `script`'s RLS answers it.\n                  CASE WHEN EXISTS (\n                      SELECT 1 FROM script sc\n                       WHERE sc.workspace_id = n.workspace_id AND sc.path = n.script_path\n                  ) THEN n.raw_code END AS raw_code,\n                  CASE WHEN EXISTS (\n                      SELECT 1 FROM script sc\n                       WHERE sc.workspace_id = n.workspace_id AND sc.path = n.script_path\n                  ) THEN n.original_file_path END AS original_file_path\n             FROM dbt_node n\n             JOIN live l ON l.path = n.script_path AND l.hash = n.script_hash\n             -- Every join onto `dbt_node` needs this, not just the scoping CTE:\n             -- `job_id` is part of the key, so without it each model comes back\n             -- once per retained snapshot plus once for the version's graph.\n             JOIN chosen ch ON ch.job_id = n.job_id\n            WHERE n.workspace_id = $1\n              -- Joined on BOTH columns: a dbt `unique_id` is project-local, so\n              -- two projects with the same model name would otherwise pull each\n              -- other's rows.\n              AND (EXISTS (SELECT 1 FROM scoped s\n                            WHERE s.script_path = n.script_path\n                              AND s.unique_id = n.unique_id)\n                   OR EXISTS (SELECT 1 FROM scoped s\n                               WHERE s.script_path = n.script_path\n                                 AND s.unique_id = n.attached_node))\n            ORDER BY n.script_path, n.unique_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "script_path!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "unique_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "resource_type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "asset_path",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "materialized",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "materialize_strategy",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "tags!",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 8,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "test_kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "test_column",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "test_args",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 12,
+        "name": "severity",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "attached_node",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "columns",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 15,
+        "name": "freshness",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 16,
+        "name": "raw_code",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 17,
+        "name": "original_file_path",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "b1ed966abf833a7166f887fcc77886473b30681fa49f1b26853f5dc120e7017d"
+}

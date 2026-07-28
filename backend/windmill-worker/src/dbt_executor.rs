@@ -269,10 +269,10 @@ pub async fn handle_dbt_job(
 
     // A per-run graph is ingested BEFORE the build, from a `dbt parse` with this
     // run's vars, so the models shown are the ones about to be built rather than
-    // the previous run's. The rows are keyed by script path AND version, so two
-    // versions never collide — but concurrent runs of ONE version of a dynamic
-    // script still overwrite each other's, and the last to parse wins the
-    // display (docs/dbt-runtime.md).
+    // the previous run's. Rows are keyed by path, version AND job, so no two
+    // runs collide — what still belongs to the newest version alone is the
+    // path-keyed `asset` usage, which `claim_graph_publication` arbitrates
+    // (docs/dbt-runtime.md).
     // A read-only command builds nothing, so re-publishing the graph from it
     // would replace the last real run's models with a SELECT's.
     if prepared.graph_is_per_run && !windmill_parser_yaml::dbt::is_read_only_command(&command) {
@@ -1293,7 +1293,8 @@ async fn write_profiles(
         .await?;
         if let Some(declared) = declared.filter(|d| *d != actual) {
             return Err(Error::BadRequest(format!(
-                "`profile.type: {}` disagrees with `{}`, whose target uses `{}`. dbt connects                  with the file, so remove `profile.type` or correct it",
+                "`profile.type: {}` disagrees with `{}`, whose target uses `{}`. dbt connects \
+                 with the file, so remove `profile.type` or correct it",
                 declared.name(),
                 own,
                 actual.name(),
@@ -2185,6 +2186,38 @@ async fn terminalize_running_relations(
     .await
     {
         tracing::warn!("settling the models left running by {}: {e}", job.id);
+    }
+    // The run page reads `dbt_run_progress`, so both closing writes have to land
+    // there too. Without them a cancelled or killed run — which leaves no
+    // `run_results.json`, so the page falls back to this poll — shows every
+    // in-flight model still spinning for as long as the row is retained.
+    if let Err(e) = sqlx::query!(
+        "DELETE FROM dbt_run_progress
+          WHERE workspace_id = $1 AND job_id = $2 AND status = 'running'
+            AND asset_path = ANY($3)",
+        job.workspace_id,
+        job.id,
+        &reconciled.untouched
+    )
+    .execute(db)
+    .await
+    {
+        tracing::warn!("clearing the progress rows {} left untouched: {e}", job.id);
+    }
+    if let Err(e) = sqlx::query!(
+        "UPDATE dbt_run_progress
+            SET status = 'failed',
+                error = COALESCE(error, 'the run ended before this model finished')
+          WHERE workspace_id = $1 AND job_id = $2 AND status = 'running'
+            AND NOT (asset_path = ANY($3))",
+        job.workspace_id,
+        job.id,
+        &accounted
+    )
+    .execute(db)
+    .await
+    {
+        tracing::warn!("settling the progress rows left running by {}: {e}", job.id);
     }
 }
 
