@@ -1,3 +1,21 @@
+<script module lang="ts">
+	export interface S3TreeNode {
+		type: 'folder' | 'leaf'
+		full_key: string
+		display_name: string
+		collapsed: boolean
+		parentPath: string | undefined
+		nestingLevel: number
+		/** Direct children of a shallow-loaded folder, or keys seen under the
+		 * folder across flat listing pages. Undefined until known. */
+		count: number | undefined
+		/** Folders only: whether their direct children are in allFilesByKey. */
+		childrenLoaded?: boolean
+		/** Folders only: the shallow listing of their files was capped. */
+		truncated?: boolean
+	}
+</script>
+
 <script lang="ts">
 	import {
 		File as FileIcon,
@@ -39,6 +57,7 @@
 	import { Alert, Button } from './common'
 	import Section from './Section.svelte'
 	import { createEventDispatcher, untrack, type Snippet } from 'svelte'
+	import { SvelteSet } from 'svelte/reactivity'
 	import VirtualList from '@tutorlatin/svelte-tiny-virtual-list'
 	import TableSimple from './TableSimple.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
@@ -72,18 +91,7 @@
 		/** Browse this object storage resource directly instead of the workspace storage. */
 		s3ResourcePath?: string | undefined
 		uploadModalOpen?: boolean
-		allFilesByKey?: Record<
-			string,
-			{
-				type: 'folder' | 'leaf'
-				full_key: string
-				display_name: string
-				collapsed: boolean
-				parentPath: string | undefined
-				nestingLevel: number
-				count: number
-			}
-		>
+		allFilesByKey?: Record<string, S3TreeNode>
 		allowDelete?: boolean
 		replaceUnauthorizedWarning?: Snippet
 		listStoredFilesRequest?: (d: ListStoredFilesData) => CancelablePromise<ListStoredFilesResponse>
@@ -173,6 +181,20 @@
 
 	let filter = $state('')
 
+	// Set when the server answers a shallow request with a flat listing
+	// (advanced LFS permissions apply to this user): keep the flat paginated
+	// browsing in that case.
+	let shallowUnavailable = $state(false)
+	// Prefix search only works on flat listings, so a non-empty filter switches
+	// to them too.
+	let flatListing = $derived(filter.trim() !== '' || shallowUnavailable)
+	let anyTruncated = $state(false)
+	let loadingFolderKeys = new SvelteSet<string>()
+
+	function rootParentKey(): string | undefined {
+		return rootPath === '' ? undefined : rootPath
+	}
+
 	let timeout: number | undefined = undefined
 	let firstLoad = true
 
@@ -190,11 +212,49 @@
 	let lastKeyFolders: string[] = $state([])
 	async function loadFiles() {
 		fileListLoading = true
+		if (flatListing) {
+			await loadFilesFlat()
+			return
+		}
+		// Browse mode: shallow (delimiter-style) listing of the root level, so a
+		// folder with many objects cannot push its siblings out of the page.
+		const availableFiles = await listStoredFilesRequest({
+			workspace: ws!,
+			maxKeys,
+			prefix: rootPath === '' ? undefined : rootPath,
+			storage,
+			s3ResourcePath,
+			shallow: true
+		})
+		if (availableFiles.restricted_access !== false) {
+			fileListUnavailable = true
+			loadFileMetadataPlusPreviewAsync(selectedFileKey?.s3)
+			return
+		}
+		fileListUnavailable = false
+		if (availableFiles.folders === undefined) {
+			// The server answered with a flat page instead: keep flat browsing.
+			shallowUnavailable = true
+			processFlatPage(availableFiles)
+		} else {
+			processShallowResponse(availableFiles, rootParentKey())
+			// un-collapse the folders containing the selected file (if any),
+			// loading each level of its ancestor chain
+			if (selectedFileKey !== undefined && !emptyString(selectedFileKey.s3)) {
+				await expandAncestors(selectedFileKey.s3)
+			}
+		}
+		displayedFileKeys = [...new Set(displayedFileKeys)].sort()
+		fileListLoading = false
+		fileInfoLoading = false
+	}
+
+	async function loadFilesFlat() {
 		let availableFiles = await listStoredFilesRequest({
 			workspace: ws!,
 			maxKeys: maxKeys, // fixed pages of 1000 files for now
 			marker: page == 0 ? undefined : listMarkers[page - 1],
-			prefix: rootPath ?? (filter.trim() != '' ? filter : undefined),
+			prefix: rootPath !== '' ? rootPath : filter.trim() !== '' ? filter : undefined,
 			storage: storage,
 			s3ResourcePath
 		})
@@ -208,6 +268,13 @@
 			return
 		}
 		fileListUnavailable = false
+		processFlatPage(availableFiles)
+		displayedFileKeys = [...new Set(displayedFileKeys)].sort()
+		fileListLoading = false
+		fileInfoLoading = false
+	}
+
+	function processFlatPage(availableFiles: ListStoredFilesResponse) {
 		for (let [index, file_path] of availableFiles.windmill_large_files.entries()) {
 			if (regexFilter && !regexFilter.test(file_path.s3)) {
 				continue
@@ -231,8 +298,9 @@
 				}
 
 				nestingLevel = i * 2
-				if (allFilesByKey[current_path] !== undefined) {
-					allFilesByKey[current_path].count += 1
+				const existing = allFilesByKey[current_path]
+				if (existing !== undefined) {
+					existing.count = (existing.count ?? 0) + 1
 					continue
 				}
 				allFilesByKey[current_path] = {
@@ -242,7 +310,9 @@
 					collapsed: true, // folders collapsed by default
 					parentPath: parent_path,
 					nestingLevel: nestingLevel,
-					count: 1
+					count: 1,
+					// flat pages carry the whole subtree, expanding must not fetch
+					childrenLoaded: true
 				}
 				if (i == rootPathNestingLevel && current_path.startsWith(rootPath)) {
 					displayedFileKeys.push(current_path)
@@ -256,7 +326,7 @@
 			if (nextMarker) listMarkers.push(nextMarker)
 		}
 
-		// before returning, un-collapse the folders containing the selected file (if any)
+		// un-collapse the folders containing the selected file (if any)
 		if (selectedFileKey !== undefined && !emptyString(selectedFileKey.s3) && page === 0) {
 			let split_path = selectedFileKey.s3.split('/')
 			let current_path: string | undefined = undefined
@@ -277,9 +347,106 @@
 				}
 			}
 		}
-		displayedFileKeys = [...new Set(displayedFileKeys)].sort()
-		fileListLoading = false
-		fileInfoLoading = false
+	}
+
+	function processShallowResponse(
+		availableFiles: ListStoredFilesResponse,
+		parentKey: string | undefined
+	) {
+		let directCount = 0
+		for (const folder of availableFiles.folders ?? []) {
+			createShallowNode(folder, 'folder', parentKey)
+			directCount += 1
+		}
+		for (const file of availableFiles.windmill_large_files) {
+			// A zero-byte folder marker has the folder prefix itself as its key,
+			// and would render as a nameless row under its own folder.
+			if (file.s3 === '' || file.s3 === parentKey) {
+				continue
+			}
+			if (regexFilter && !regexFilter.test(file.s3)) {
+				continue
+			}
+			createShallowNode(file.s3, 'leaf', parentKey)
+			directCount += 1
+		}
+		if (availableFiles.truncated === true) {
+			anyTruncated = true
+		}
+		const parentNode = parentKey !== undefined ? allFilesByKey[parentKey] : undefined
+		if (parentNode !== undefined) {
+			parentNode.count = directCount
+			parentNode.childrenLoaded = true
+			parentNode.truncated = availableFiles.truncated === true
+		}
+	}
+
+	function createShallowNode(
+		full_key: string,
+		type: 'folder' | 'leaf',
+		parentPath: string | undefined
+	) {
+		if (allFilesByKey[full_key] !== undefined) {
+			return
+		}
+		displayedCount += 1
+		const split_path = full_key.split('/') // folder keys end with '/': last element is ''
+		const display_name =
+			type === 'folder' ? split_path[split_path.length - 2] : split_path[split_path.length - 1]
+		allFilesByKey[full_key] = {
+			type,
+			full_key,
+			display_name,
+			collapsed: true, // folders collapsed by default
+			parentPath,
+			nestingLevel: (split_path.length - (type === 'folder' ? 2 : 1)) * 2,
+			count: type === 'leaf' ? 1 : undefined,
+			childrenLoaded: type === 'leaf'
+		}
+		if (parentPath === rootParentKey()) {
+			displayedFileKeys.push(full_key)
+		}
+	}
+
+	async function loadShallowFolder(folderKey: string) {
+		const availableFiles = await listStoredFilesRequest({
+			workspace: ws!,
+			maxKeys,
+			prefix: folderKey,
+			storage,
+			s3ResourcePath,
+			shallow: true
+		})
+		if (availableFiles.restricted_access !== false || availableFiles.folders === undefined) {
+			return
+		}
+		processShallowResponse(availableFiles, folderKey)
+	}
+
+	// Walk the ancestor folders of fileKey below rootPath, loading and expanding
+	// each level so the selected file's node exists and is visible.
+	async function expandAncestors(fileKey: string) {
+		const split_path = fileKey.split('/')
+		let prefix = ''
+		for (let i = 0; i < split_path.length - 1; i++) {
+			prefix += split_path[i] + '/'
+			if (rootPath.startsWith(prefix)) {
+				continue // at or above the browsed root
+			}
+			const folder = allFilesByKey[prefix]
+			if (folder === undefined || folder.type !== 'folder') {
+				return // stale selection: the folder no longer exists
+			}
+			if (folder.childrenLoaded !== true) {
+				await loadShallowFolder(prefix)
+			}
+			folder.collapsed = false
+			for (const file_key in allFilesByKey) {
+				if (allFilesByKey[file_key].parentPath === prefix) {
+					displayedFileKeys.push(file_key)
+				}
+			}
+		}
 	}
 
 	async function loadFileMetadataPlusPreviewAsync(fileKey: string | undefined) {
@@ -373,26 +540,32 @@
 		selectedFileKey = { s3: '', storage }
 		const currentPage = page
 		await clearAndLoadFiles()
-		for (let i = 0; i < currentPage; i++) {
-			page = i + 1
-			await loadFiles()
-		}
-		const fileKeyFolders = fileKey.split('/').slice(0, -1)
-		let current_path: string | undefined = undefined
-		for (let i = 0; i < fileKeyFolders.length; i++) {
-			current_path =
-				current_path === undefined ? fileKeyFolders[i] : current_path + fileKeyFolders[i]
-			if (i < fileKeyFolders.length) {
-				current_path += '/'
+		if (!flatListing) {
+			// re-open the folder the deleted file was in (stops early if the
+			// deletion emptied it out of existence)
+			await expandAncestors(fileKey)
+		} else {
+			for (let i = 0; i < currentPage; i++) {
+				page = i + 1
+				await loadFiles()
 			}
-			const folder = allFilesByKey[current_path]
-			if (folder) {
-				folder.collapsed = false
-			}
-			for (let file_key in allFilesByKey) {
-				let file_info = allFilesByKey[file_key]
-				if (file_info.parentPath === current_path) {
-					displayedFileKeys.push(file_key)
+			const fileKeyFolders = fileKey.split('/').slice(0, -1)
+			let current_path: string | undefined = undefined
+			for (let i = 0; i < fileKeyFolders.length; i++) {
+				current_path =
+					current_path === undefined ? fileKeyFolders[i] : current_path + fileKeyFolders[i]
+				if (i < fileKeyFolders.length) {
+					current_path += '/'
+				}
+				const folder = allFilesByKey[current_path]
+				if (folder) {
+					folder.collapsed = false
+				}
+				for (let file_key in allFilesByKey) {
+					let file_info = allFilesByKey[file_key]
+					if (file_info.parentPath === current_path) {
+						displayedFileKeys.push(file_key)
+					}
 				}
 			}
 		}
@@ -406,6 +579,11 @@
 		displayedCount = 0
 		page = 0
 		listMarkers = []
+		anyTruncated = false
+		loadingFolderKeys.clear()
+		// re-detect on every reload: switching storage can change whether the
+		// server serves shallow listings
+		shallowUnavailable = false
 		fileMetadata = undefined
 		filePreview = undefined
 		if (!keepFilter) {
@@ -503,7 +681,7 @@
 		}
 	}
 
-	function selectItem(index: number, toggleCollapsed: boolean = true) {
+	async function selectItem(index: number, toggleCollapsed: boolean = true) {
 		let item_key = displayedFileKeys[index]
 		let item = allFilesByKey[item_key]
 		if (item.type === 'folder') {
@@ -512,6 +690,9 @@
 					s3: item_key,
 					storage
 				}
+			}
+			if (loadingFolderKeys.has(item_key)) {
+				return
 			}
 			if (toggleCollapsed) {
 				item.collapsed = !item.collapsed
@@ -531,6 +712,18 @@
 					displayedFileKeys.splice(index + 1, elt_to_remove)
 				}
 			} else {
+				if (item.childrenLoaded === false) {
+					loadingFolderKeys.add(item_key)
+					try {
+						await loadShallowFolder(item_key)
+					} catch (e) {
+						item.collapsed = true
+						sendUserToast(`Could not load folder content: ${e}`, true)
+						return
+					} finally {
+						loadingFolderKeys.delete(item_key)
+					}
+				}
 				// Re-add the currently hidden element to displayed_file_keys
 				for (let file_key in allFilesByKey) {
 					let file_info = allFilesByKey[file_key]
@@ -665,14 +858,23 @@
 												style={`margin-left: ${(2 + nestingLevel) * 0.25}rem;`}
 											>
 												{#if file_info.type === 'folder'}
-													{#if file_info.collapsed}<FolderClosed size={16} />{:else}<FolderOpen
+													{#if loadingFolderKeys.has(file_info.full_key)}<Loader2
 															size={16}
-														/>{/if}
+															class="animate-spin"
+														/>{:else if file_info.collapsed}<FolderClosed
+															size={16}
+														/>{:else}<FolderOpen size={16} />{/if}
 													<div class="truncate text-ellipsis w-56">
-														{file_info.display_name} ({file_info.count}{count % 1000 === 0 &&
-														lastKeyFolders[file_info.nestingLevel / 2] === file_info.display_name
-															? '+'
-															: ''} item{file_info.count === 1 ? '' : 's'})
+														{file_info.display_name}
+														{#if file_info.count !== undefined}
+															({file_info.count}{file_info.truncated ||
+															(flatListing &&
+																count % 1000 === 0 &&
+																lastKeyFolders[file_info.nestingLevel / 2] ===
+																	file_info.display_name)
+																? '+'
+																: ''} item{file_info.count === 1 ? '' : 's'})
+														{/if}
 													</div>
 												{:else}
 													<FileIcon size={16} />
@@ -693,6 +895,10 @@
 						{#if fileListLoading === true}
 							<div class="flex text-secondary mt-1 text-xs justify-center items-center w-full">
 								<Loader2 size={12} class="animate-spin mr-1" /> Loading content
+							</div>
+						{:else if !flatListing}
+							<div>
+								{displayedCount}{anyTruncated ? '+' : ''} item{displayedCount === 1 ? '' : 's'} loaded
 							</div>
 						{:else}
 							<div>

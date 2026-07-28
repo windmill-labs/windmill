@@ -21277,6 +21277,11 @@ paths:
           description: When set, list the files of this object storage resource instead of the workspace storage
           schema:
             type: string
+        - name: shallow
+          in: query
+          description: When true, list only the direct children of the prefix (delimiter-style listing) and return subfolder prefixes in `folders`
+          schema:
+            type: boolean
       responses:
         "200":
           description: List of file keys
@@ -21292,6 +21297,13 @@ paths:
                     items:
                       $ref: "#/components/schemas/WindmillLargeFile"
                   restricted_access:
+                    type: boolean
+                  folders:
+                    type: array
+                    description: Direct subfolder prefixes (only present for shallow listings)
+                    items:
+                      type: string
+                  truncated:
                     type: boolean
                 required:
                   - windmill_large_files
@@ -21407,6 +21419,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: shallow
+          in: query
+          description: When true, list only the direct children of the prefix (delimiter-style listing) and return subfolder prefixes in `folders`
+          schema:
+            type: boolean
       responses:
         "200":
           description: List of file keys
@@ -21422,6 +21439,13 @@ paths:
                     items:
                       $ref: "#/components/schemas/WindmillLargeFile"
                   restricted_access:
+                    type: boolean
+                  folders:
+                    type: array
+                    description: Direct subfolder prefixes (only present for shallow listings)
+                    items:
+                      type: string
+                  truncated:
                     type: boolean
                 required:
                   - windmill_large_files

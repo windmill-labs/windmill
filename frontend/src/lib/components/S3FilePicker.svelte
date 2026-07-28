@@ -3,7 +3,7 @@
 	import { Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import { tick } from 'svelte'
-	import S3FilePickerInner from './S3FilePickerInner.svelte'
+	import S3FilePickerInner, { type S3TreeNode } from './S3FilePickerInner.svelte'
 	import Select from './select/Select.svelte'
 	import { FileUp } from 'lucide-svelte'
 	import { SettingService } from '$lib/gen'
@@ -51,18 +51,7 @@
 	let ws = $derived(effectiveWorkspace ?? $workspaceStore)
 	let uploadModalOpen = $state(false)
 
-	let allFilesByKey: Record<
-		string,
-		{
-			type: 'folder' | 'leaf'
-			full_key: string
-			display_name: string
-			collapsed: boolean
-			parentPath: string | undefined
-			nestingLevel: number
-			count: number
-		}
-	> = $state({})
+	let allFilesByKey: Record<string, S3TreeNode> = $state({})
 
 	let secondaryStorageNames = resource(
 		() => ws,
