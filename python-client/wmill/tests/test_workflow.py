@@ -976,12 +976,20 @@ class TestRaisingInlineStepIsCheckpointed:
     on the never-resolving future forever.
     """
 
+    # A failed child job reports `{"error": {"name", "message", "stack"}}`, and a
+    # failed step() has to be indistinguishable from it. The stack is a traceback
+    # string, asserted separately.
     MARKER = {
         "__wmill_error": True,
         "message": "boom",
         "step_key": "risky",
-        "result": {"error": "boom", "type": "ValueError"},
+        "result": {"error": {"name": "ValueError", "message": "boom"}},
     }
+
+    @staticmethod
+    def _without_stack(marker: dict) -> dict:
+        error = {k: v for k, v in marker["result"]["error"].items() if k != "stack"}
+        return {**marker, "result": {**marker["result"], "error": error}}
 
     @staticmethod
     def _boom():
@@ -1003,36 +1011,205 @@ class TestRaisingInlineStepIsCheckpointed:
         r = _run_workflow(self._wf(), {}, {"x": 5})
         assert r["type"] == "inline_checkpoint"
         assert r["key"] == "risky"
-        assert r["result"] == self.MARKER
+        assert self._without_stack(r["result"]) == self.MARKER
+        stack = r["result"]["result"]["error"]["stack"]
+        # Frames only and the SDK's own `result = fn()` frame dropped, the way
+        # the python executor formats a failed job's stack.
+        assert 'raise ValueError("boom")' in stack
+        assert "result = fn()" not in stack
+        assert not stack.startswith("Traceback")
+
+    def test_custom_exception_attributes_survive_under_extra(self):
+        """A failed child job reports custom attributes under ``error.extra``;
+        a step dropping them would make the same exception carry less depending
+        on how it was run."""
+        from wmill.client import _step_error_marker
+
+        class HttpError(ValueError):
+            def __init__(self):
+                super().__init__("429")
+                self.code = 429
+
+        error = _step_error_marker("k", HttpError())["result"]["error"]
+        assert error["extra"] == {"code": 429}
+        assert error["name"] == "HttpError"
+        assert "extra" not in _step_error_marker("k", ValueError("plain"))["result"]["error"]
+
+    def test_unserializable_attributes_do_not_cost_the_fast_path(self):
+        """The fast-path POST serializes strictly, so an exception holding a
+        live object — ``resp.raise_for_status()`` is the common one — must not
+        make the marker unserializable and drop the step onto the slow path."""
+        import json as _json
+
+        from wmill.client import _step_error_marker
+
+        class Boom(Exception):
+            def __init__(self):
+                super().__init__("boom")
+                self.response = object()
+                self.status = 429
+
+        marker = _step_error_marker("k", Boom())
+        _json.dumps(marker)  # raises if an attribute leaked through unserialized
+        assert marker["result"]["error"]["extra"]["status"] == 429
+
+    def test_an_exception_whose_str_raises_still_reports(self):
+        """Every coercion of the user's exception runs inside the ``except``
+        reporting it, so one that raises would replace their failure with an
+        unrelated one and leave the step uncheckpointed."""
+        import json as _json
+
+        from wmill.client import _step_error_marker
+
+        class Hostile(Exception):
+            def __str__(self):
+                raise RuntimeError("cannot be rendered")
+
+        marker = _step_error_marker("k", Hostile())
+        _json.dumps(marker)
+        assert marker["result"]["error"]["name"] == "Hostile"
+        assert "unrepresentable" in marker["result"]["error"]["message"]
+
+        # ...including one that makes reading its own traceback raise
+        class HostileTraceback(Exception):
+            def __getattribute__(self, item):
+                if item == "__traceback__":
+                    raise RuntimeError("no traceback for you")
+                return super().__getattribute__(item)
+
+        marker = _step_error_marker("k", HostileTraceback())
+        _json.dumps(marker)
+        assert marker["result"]["error"]["name"] == "HostileTraceback"
+
+        # ...or reading its own attributes
+        class HostileDict(Exception):
+            def __getattribute__(self, item):
+                if item == "__dict__":
+                    raise RuntimeError("no attributes for you")
+                return super().__getattribute__(item)
+
+        marker = _step_error_marker("k", HostileDict())
+        _json.dumps(marker)
+        assert marker["result"]["error"]["name"] == "HostileDict"
+
+        # A float is serializable, so `default=` never sees NaN — it would go out
+        # as a bare `NaN` literal, which is not JSON and which the backend
+        # rejects, so the step could not be checkpointed at all.
+        class NotFinite(Exception):
+            def __init__(self):
+                super().__init__("nan")
+                self.value = float("nan")
+                self.limit = float("inf")
+
+        marker = _step_error_marker("k", NotFinite())
+        _json.dumps(marker, allow_nan=False)
+        assert marker["result"]["error"]["extra"] == {"value": "NaN", "limit": "Infinity"}
 
     def test_fast_path_posts_error_and_raises_the_replay_exception(self, monkeypatch):
         """The default path: the checkpoint is POSTed and the workflow body gets
         the same ``TaskError`` a replay rebuilds from the marker — raising the
         original ``ValueError`` here would make ``except ValueError:`` catch on
-        this run and miss on the next one."""
+        this run and miss on the next one. ``except`` is control flow, so
+        anything a handler can branch on has to be identical in both rounds."""
         _set_inline_fast_path_env(monkeypatch)
 
-        stub = _StubInlineClient()
+        class _EchoingStub(_StubInlineClient):
+            """The endpoint normalizes the failure before storing it and echoes
+            back what it stored. The echo deliberately differs from what was
+            posted, so the assertions below can tell which copy was raised from."""
+
+            async def post(self, url, content=None):
+                await super().post(url, content=content)
+                stored = {**self.posted[-1]["result"], "message": "normalized by the backend"}
+
+                class _Response:
+                    # the endpoint answers with a JSON body; a backend predating
+                    # the echo answers without one, which is how the client tells
+                    # "no echo" from "an echo it could not read"
+                    headers = {"content-type": "application/json"}
+
+                    def raise_for_status(self):
+                        pass
+
+                    def json(self):
+                        return {"failure": stored}
+
+                return _Response()
+
+        stub = _EchoingStub()
         posted = stub.posted
 
         async def run():
             ctx = WorkflowCtx({})
             ctx._inline_http_client = stub
-            with pytest.raises(TaskError, match="boom") as live:
+            with pytest.raises(TaskError) as live:
                 await ctx._run_inline_step("risky", self._boom)
-            # ...and the replay of that very checkpoint raises the same thing.
-            replayed = WorkflowCtx({"completed_steps": {"risky": self.MARKER}})
-            with pytest.raises(TaskError, match="boom") as replay:
+            # The live round raised from the record the backend stored, not from
+            # the marker it posted: that is what keeps the two rounds identical
+            # even if the SDK and the backend ever build a record differently.
+            stored = {**posted[0]["result"], "message": "normalized by the backend"}
+            assert str(live.value) == "normalized by the backend"
+
+            # ...and the replay of that very record raises the same thing.
+            replayed = WorkflowCtx({"completed_steps": {"risky": stored}})
+            with pytest.raises(TaskError) as replay:
                 await replayed._run_inline_step("risky", self._boom)
             assert type(live.value) is type(replay.value)
             assert live.value.args == replay.value.args
-            assert live.value.result == replay.value.result == self.MARKER["result"]
-            assert isinstance(live.value.__cause__, ValueError)
+            assert live.value.result == replay.value.result == stored["result"]
+            assert live.value.step_key == replay.value.step_key == "risky"
+            # A step has no child job to name, and nothing hangs off __cause__:
+            # a replay has no original exception to chain, so neither round does.
+            assert live.value.child_job_id is replay.value.child_job_id is None
+            assert live.value.__cause__ is replay.value.__cause__ is None
 
         asyncio.run(run())
         assert len(posted) == 1
         assert posted[0]["key"] == "risky"
-        assert posted[0]["result"] == self.MARKER
+        assert self._without_stack(posted[0]["result"]) == self.MARKER
+
+    def test_a_missing_echo_is_not_the_same_as_an_unreadable_one(self, monkeypatch):
+        """A backend predating the echo answers without a JSON body and the
+        locally checkpointed marker stands in. A JSON body that will not parse
+        means the stored record exists but is unknown, so the round has to end
+        and let the next one read whatever the backend actually kept."""
+        _set_inline_fast_path_env(monkeypatch)
+
+        def _client(headers, json_impl):
+            class _Response:
+                def raise_for_status(self):
+                    pass
+
+            _Response.headers = headers
+            _Response.json = json_impl
+
+            class _Client(_StubInlineClient):
+                async def post(self, url, content=None):
+                    await super().post(url, content=content)
+                    return _Response()
+
+            return _Client()
+
+        def _boom_json(self):
+            raise ValueError("not json")
+
+        async def run():
+            # no JSON body: the fast path still completes, raising the failure
+            ctx = WorkflowCtx({})
+            ctx._inline_http_client = _client({}, _boom_json)
+            with pytest.raises(TaskError):
+                await ctx._run_inline_step("risky", self._boom)
+
+            # a JSON body that will not parse: fall through to the suspend path
+            ctx = WorkflowCtx({})
+            ctx._inline_http_client = _client(
+                {"content-type": "application/json"}, _boom_json
+            )
+            with pytest.raises(_StepSuspend) as suspend:
+                await ctx._run_inline_step("risky", self._boom)
+            assert suspend.value.dispatch_info["key"] == "risky"
+
+        asyncio.run(run())
 
     def test_replay_reraises_and_does_not_hang(self):
         checkpoint = {

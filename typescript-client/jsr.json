@@ -3,7 +3,7 @@
   "version": "1.773.0",
   "exports": "./src/index.ts",
   "publish": {
-    "exclude": ["!src", "./s3Types.ts", "./sqlUtils.ts", "./client.ts"]
+    "exclude": ["!src", "./s3Types.ts", "./sqlUtils.ts", "./client.ts", "./wacError.ts"]
   },
   "license": "Apache-2.0"
 }

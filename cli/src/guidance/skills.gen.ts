@@ -6506,6 +6506,8 @@ Python: \`except Exception\` is safe around WAC calls because internal suspensio
 
 TypeScript: avoid broad \`try/catch\` around WAC SDK calls. The SDK uses an internal suspension error during initial dispatch; catching it can break workflow suspension. If a broad catch is unavoidable, rethrow internal suspension errors before handling business errors.
 
+A caught failure reads the same whether it came from a task or from a \`step()\`, and the same in the round that ran the failing body as in every round replaying it. It carries \`step_key\`, \`child_job_id\` (absent for a \`step()\`, which runs in the workflow job and has no child job), a \`message\` that is the failure's own message, and \`result\` = \`{"error": {"name", "message", "stack"?, "extra"?}}\`. \`name\`, \`message\` and \`stack\` are the fields that read the same whichever side failed; \`name\` and \`message\` are always there, \`stack\` only when the failure had a traceback to give. \`extra\` carries the failure's own custom fields (an exception's attributes, an error's properties) and is best-effort: it is absent when there were none, and a task can report entries a step does not, so read it defensively and don't branch on its absence. \`extra\` is dropped when it is too large to keep in the checkpoint, and \`extra_omitted: true\` says so — absent \`extra\` with no \`extra_omitted\` means the failure simply had no custom fields. Branch on those, not on the original exception type: the workflow body re-runs from the top every round and a replay rebuilds the failure from the checkpoint, so nothing outside that record survives. Python raises \`TaskError\`; TypeScript throws an \`Error\` named \`TaskError\` carrying the same fields. Nothing is chained onto \`__cause__\` / \`cause\` — the traceback is in \`result.error.stack\`, and is also printed to the job log when the step fails.
+
 
 ## TypeScript Workflow-as-Code API (windmill-client)
 
@@ -6644,14 +6646,19 @@ export async function parallel<T, R>(items: T[], fn: (item: T) => PromiseLike<R>
 Import: \`from wmill import workflow, task, task_script, task_flow, step, sleep, wait_for_approval, get_approval_urls, get_resume_urls, parallel, TaskError\`
 
 \`\`\`python
-# Raised when a WAC task step failed.
+# Raised when a WAC \`\`task\`\` or \`\`step\`\` failed.
 #
 # Attributes:
 #     step_key: The checkpoint key of the failed step.
-#     child_job_id: The UUID of the failed child job.
-#     result: The error result from the child job.
+#     child_job_id: The UUID of the failed child job, or \`\`None\`\` for a
+#         \`\`step()\`\`, which runs in the workflow job and has no child job.
+#     result: \`\`{"error": {"name", "message", "stack"?, "extra"?}}\`\` — the
+#         same shape whether a task or a step failed. \`\`name\`\` and \`\`message\`\`
+#         are always present; \`\`stack\`\` only when the failure had a traceback,
+#         and \`\`extra\`\` only when it carried custom fields of its own, dropped
+#         with \`\`extra_omitted: True\`\` beside it when too large to checkpoint.
 class TaskError(Exception):
-    def __init__(self, message: str, *, step_key: str = '', child_job_id: str = '', result = None)
+    def __init__(self, message: str, *, step_key: str = '', child_job_id: Optional[str] = None, result = None)
 
 # Get URLs needed for resuming a flow after suspension.
 #
