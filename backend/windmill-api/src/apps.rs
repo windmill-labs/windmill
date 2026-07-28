@@ -705,6 +705,20 @@ async fn get_raw_app_data(
         }
     }
 
+    // A bundle with no styles has no `css` row at all: the write side stores that
+    // blob only when the client sends the field. Absent means empty, not broken —
+    // 404ing here makes such an app permanently un-deployable, because a
+    // cross-workspace deploy re-fetches both parts and treats the 404 as fatal.
+    // A missing `js` is a genuinely broken bundle and must still 404.
+    //
+    // Logged at debug, not warn: for a style-less app this is the normal path and
+    // fires on every page load. It is the only trace distinguishing that case from
+    // a css blob lost by an object-store migration, which lands here identically.
+    if body.is_none() && file_type == "css" {
+        tracing::debug!(w_id = %w_id, app_version_id = %id, "no css bundle stored, serving empty stylesheet");
+        body = Some(Body::empty());
+    }
+
     if let Some(body) = body {
         // let stream = tokio_util::io::ReaderStream::new(file);
         let res = Response::builder()

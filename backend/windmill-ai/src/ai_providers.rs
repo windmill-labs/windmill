@@ -48,6 +48,13 @@ const AZURE_HOST_SUFFIXES: &[&str] = &[
 /// is the format `openai_azure_base_path` documents.
 const AZURE_DEPLOYMENTS_PATH: &str = "/openai/deployments";
 
+/// Where the deployment path starts in `base_url`, i.e. the end of the resource root.
+/// ASCII lowercasing preserves byte offsets, so the index is a char boundary in
+/// `base_url` and slicing on it cannot panic; `to_lowercase` would not be.
+fn azure_deployments_index(base_url: &str) -> Option<usize> {
+    base_url.to_ascii_lowercase().find(AZURE_DEPLOYMENTS_PATH)
+}
+
 /// Whether an OpenAI-API base URL is served by Azure, which authenticates with the
 /// `api-key` header and lays its routes out under `/openai/...`.
 ///
@@ -71,9 +78,7 @@ fn is_azure_endpoint(base_url: &str) -> bool {
     AZURE_HOST_SUFFIXES
         .iter()
         .any(|suffix| host.ends_with(suffix))
-        || base_url
-            .to_ascii_lowercase()
-            .contains(AZURE_DEPLOYMENTS_PATH)
+        || azure_deployments_index(base_url).is_some()
 }
 
 /// Empty string signals BedrockClient::from_env() to use the region from AWS environment/config
@@ -201,9 +206,9 @@ impl AIProvider {
     /// Build an Azure-style OpenAI-compatible URL (Azure OpenAI / Azure AI Foundry)
     /// for the given path. The resource base URL may be stored as the bare resource
     /// root (e.g. `https://<res>.services.ai.azure.com`) or with a legacy `/openai`
-    /// or `/openai/v1` suffix (older Foundry resources shipped that way); those forms
-    /// resolve to the canonical `<root>/openai/v1/<path>`. Any other explicit path
-    /// (e.g. an Azure OpenAI `.../openai/deployments/<id>` base) is preserved as-is
+    /// or `/openai/v1` suffix (older Foundry resources shipped that way), or as a
+    /// deployment path (`.../openai/deployments/<id>`). All of those resolve to the
+    /// canonical `<root>/openai/v1/<path>`. Any other explicit path is preserved as-is
     /// with only `/<path>` appended.
     pub fn build_azure_openai_url(base_url: &str, path: &str) -> String {
         let base_url = base_url.trim_end_matches('/');
@@ -211,15 +216,17 @@ impl AIProvider {
             format!("{}/{}", base_url, path)
         } else if base_url.ends_with("/openai") {
             format!("{}/v1/{}", base_url, path)
-        } else if base_url.ends_with("/deployments") {
-            format!("{}/v1/{}", base_url.trim_end_matches("/deployments"), path)
+        } else if let Some(index) = azure_deployments_index(base_url) {
+            // A base naming the deployment surface, pinned to a deployment or not,
+            // resolves to the resource root: that surface serves only with an
+            // `api-version` query and 404s without one, while the v1 surface takes
+            // the deployment from the request body.
+            format!("{}/openai/v1/{}", &base_url[..index], path)
         } else if Self::is_bare_host(base_url) {
             // A resource root with no path (Foundry convention, or an Azure OpenAI
             // resource root) targets the OpenAI-compatible v1 surface.
             format!("{}/openai/v1/{}", base_url, path)
         } else {
-            // Any other explicit base path (e.g. an Azure OpenAI deployment URL
-            // `.../openai/deployments/<id>`) is kept intact.
             format!("{}/{}", base_url, path)
         }
     }
@@ -252,6 +259,9 @@ impl AIProvider {
     /// both the current root-URL convention and legacy `/openai/v1`-style values.
     fn azure_foundry_root(base_url: &str) -> &str {
         let base_url = base_url.trim_end_matches('/');
+        if let Some(index) = azure_deployments_index(base_url) {
+            return &base_url[..index];
+        }
         for suffix in [
             "/openai/v1",
             "/anthropic/v1",
@@ -358,14 +368,13 @@ mod tests {
             ),
             "https://example.openai.azure.com/openai/v1/chat/completions"
         );
-        // An Azure OpenAI base that pins a specific deployment must be preserved
-        // as-is (not have /openai/v1 appended after the deployment id).
+        // A base pinned to a deployment resolves to the v1 surface too.
         assert_eq!(
             AIProvider::build_azure_openai_url(
                 "https://example.openai.azure.com/openai/deployments/my-deployment",
                 "chat/completions"
             ),
-            "https://example.openai.azure.com/openai/deployments/my-deployment/chat/completions"
+            "https://example.openai.azure.com/openai/v1/chat/completions"
         );
     }
 
@@ -417,6 +426,15 @@ mod tests {
         assert_eq!(
             AIProvider::build_azure_foundry_anthropic_url(
                 "https://wm-test-ai.services.ai.azure.com/openai/v1",
+                "messages"
+            ),
+            "https://wm-test-ai.services.ai.azure.com/anthropic/v1/messages"
+        );
+        // A deployment-pinned base recovers the same root, so a Claude model on such
+        // a resource is routed like every other model on it.
+        assert_eq!(
+            AIProvider::build_azure_foundry_anthropic_url(
+                "https://wm-test-ai.services.ai.azure.com/openai/deployments/claude-sonnet-5",
                 "messages"
             ),
             "https://wm-test-ai.services.ai.azure.com/anthropic/v1/messages"

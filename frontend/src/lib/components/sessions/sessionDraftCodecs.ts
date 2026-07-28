@@ -36,7 +36,7 @@ export function makeFlowCodec(
 			// stateStore is keyed by module_id; after an AI write the set of
 			// module ids may differ, so rebuild the UI state. This wipes per-module
 			// test args / preview output — a known v1 trade-off.
-			void initFlowState(store.val, stateStore, workspace)
+			void initFlowState(store.val, stateStore, workspace, store.val.path ?? '')
 		},
 		storeToDraft() {
 			return store.val

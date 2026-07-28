@@ -533,7 +533,7 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Azure OpenAI base path',
 			description:
-				'All workspaces using an OpenAI resource for Windmill AI will run on the specified deployed model. Format: https://{your-resource-name}.openai.azure.com/openai/deployments/{deployment-id}. <a href="https://www.windmill.dev/docs/core_concepts/ai_generation#azure-openai-advanced-models">Learn more</a>',
+				'All workspaces using an OpenAI resource for Windmill AI will run against the specified Azure resource. Format: https://{your-resource-name}.openai.azure.com/openai/deployments/{deployment-id} — keep the URL as stored; the model comes from each workspace\'s configured model list, whose entries must be your Azure deployment names. <a href="https://www.windmill.dev/docs/core_concepts/ai_generation#azure-openai-advanced-models">Learn more</a>',
 			key: 'openai_azure_base_path',
 			fieldType: 'text',
 			storage: 'setting',
