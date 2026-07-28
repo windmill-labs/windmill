@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { PanelRight } from 'lucide-svelte'
+	import GraphZoomControls from './GraphZoomControls.svelte'
 	import type { FlowPanelDetachContext } from '$lib/components/flows/types'
 	import { openedDrawers } from '$lib/components/common/drawer/Disposable.svelte'
 	import { FlowService, type FlowModule, type FlowNote, type Job, type OpenFlow } from '../../gen'
@@ -1206,21 +1207,25 @@
 						{@render leftHeader()}
 					</div>
 				{:else}
+					<!-- Their built-in glyphs are fill-based and sized differently from every other
+					     icon in the editor, so the bar is built from lucide throughout. -->
 					<Controls
 						class="wm-flow-controls"
 						position={controlsPosition === 'bottom' ? 'bottom-right' : 'top-right'}
 						orientation="horizontal"
+						showZoom={false}
+						showFitView={false}
 						showLock={false}
-						fitViewOptions={{ nodes: nodes.filter((n) => n.type !== 'note') }}
 					>
 						{#if panelDetach?.dockVisible()}
 							<Tooltip>
 								<ControlButton onclick={() => panelDetach?.dock()}>
-									<PanelRight size="14" />
+									<PanelRight size="12" />
 								</ControlButton>
 								{#snippet text()}Dock the step panel to the right{/snippet}
 							</Tooltip>
 						{/if}
+						<GraphZoomControls fitViewNodes={nodes.filter((n) => n.type !== 'note')} />
 						{#if multiSelectEnabled}
 							<div class="flex items-center gap-2">
 								<Tooltip>
@@ -1231,9 +1236,9 @@
 										}}
 									>
 										{#if selectionManager.mode === 'rect-select'}
-											<MousePointer size="14" />
+											<MousePointer size="12" />
 										{:else}
-											<Hand size="14" />
+											<Hand size="12" />
 										{/if}
 									</ControlButton>
 									{#snippet text()}
@@ -1317,8 +1322,8 @@
 	}
 	:global(.wm-flow-controls .svelte-flow__controls-button) {
 		@apply bg-surface text-primary;
-		width: 28px;
-		height: 28px;
+		width: 24px;
+		height: 24px;
 	}
 	:global(.wm-flow-controls .svelte-flow__controls-button:hover) {
 		@apply bg-surface-hover;
@@ -1329,15 +1334,12 @@
 	:global(.wm-flow-controls.horizontal .svelte-flow__controls-button:last-child) {
 		@apply border-r-0;
 	}
-	/* Their base caps glyphs at 12px, leaving them smaller than every other icon. */
+	/* Every glyph in this bar is lucide, so undo their base `fill: currentColor` — it beats
+	   lucide's inline fill="none" and would flood the stroke icons solid — and lift the
+	   12px cap that keeps them off the editor's icon scale. */
 	:global(.wm-flow-controls .svelte-flow__controls-button svg) {
-		max-width: 16px;
-		max-height: 16px;
-	}
-	/* Their base also sets `fill: currentColor`, which beats lucide's inline fill="none"
-	   and floods our stroke icons solid. xy-flow's own glyphs are fill-based, so this has
-	   to stay scoped to lucide. */
-	:global(.wm-flow-controls .svelte-flow__controls-button svg.lucide) {
+		max-width: 14px;
+		max-height: 14px;
 		fill: none;
 		stroke: currentColor;
 	}
