@@ -1716,8 +1716,8 @@ async fn setup_custom_instance_pg_database_inner(
 
     // Roles are cluster-wide, so the dedicated role used by postgres trigger connections is
     // provisioned on the main pool rather than on the new database. Reported as its own step
-    // rather than failing the setup: the database is usable for datatables without it, only
-    // postgres triggers are.
+    // rather than failing the setup: without the role the database still serves datatables, only
+    // postgres triggers on them break.
     match windmill_common::utils::ensure_custom_instance_replication_user(db).await {
         Ok(()) => logs.replication_user = "OK".to_string(),
         Err(e) => {

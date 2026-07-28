@@ -1079,10 +1079,15 @@ const GRANT_REPLICATION_CAPABILITY_PLPGSQL: &str = r#"
 
             IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'custom_instance_user') THEN
                 EXECUTE 'GRANT custom_instance_user TO custom_instance_replication_user';
-                -- Guarded: ALTER ROLE ... NOREPLICATION is itself superuser-only on PG <= 15,
-                -- even when the attribute is already unset.
+                -- Stripping REPLICATION off custom_instance_user is a cleanup, so it is both
+                -- guarded and best-effort: the clause is superuser-only on PG <= 15 even when the
+                -- attribute is already unset, and failing it must not roll back the role above.
                 IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'custom_instance_user' AND rolreplication) THEN
-                    EXECUTE 'ALTER ROLE custom_instance_user NOREPLICATION';
+                    BEGIN
+                        EXECUTE 'ALTER ROLE custom_instance_user NOREPLICATION';
+                    EXCEPTION WHEN insufficient_privilege THEN
+                        NULL;
+                    END;
                 END IF;
             END IF;
 "#;
@@ -1128,9 +1133,13 @@ lazy_static::lazy_static! {
     static ref REFRESH_CUSTOM_INSTANCE_REPLICATION_USER_SQL: String =
         provision_replication_user_sql("TRUE");
 
+    // The password test mirrors REPLICATION_PWD_READ_SQL, whose readers flatten a NULL away: a row
+    // holding a JSON null reads back as no password, so it must rotate rather than count as
+    // provisioned and strand the getter.
     static ref ENSURE_CUSTOM_INSTANCE_REPLICATION_USER_SQL: String = provision_replication_user_sql(
         "NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'custom_instance_replication_user')
-                OR NOT EXISTS (SELECT 1 FROM global_settings WHERE name = 'custom_instance_replication_pwd')"
+                OR NOT EXISTS (SELECT 1 FROM global_settings
+                    WHERE name = 'custom_instance_replication_pwd' AND value #>> '{}' IS NOT NULL)"
     );
 }
 

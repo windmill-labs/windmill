@@ -27,8 +27,9 @@ pub async fn custom_migrations(migrator: &mut CustomMigrator) -> Result<(), Erro
         tracing::error!(
             "Could not provision custom_instance_replication_user: {err:#}. Postgres triggers on \
              custom-instance datatables will not work until the role can open replication \
-             connections: grant the role owning DATABASE_URL either SUPERUSER, or (PG 16+) the \
-             REPLICATION attribute, or the replication role of your managed provider"
+             connections: grant the role owning DATABASE_URL either SUPERUSER or (PG 16+) the \
+             REPLICATION attribute. On AWS RDS this is handled by granting rds_replication, which \
+             requires no change; other managed providers are not covered"
         );
     }
 
