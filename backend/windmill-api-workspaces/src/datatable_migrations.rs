@@ -247,7 +247,7 @@ async fn ensure_wm_migrations_schema(client: &tokio_postgres::Client) -> Result<
         return Ok(());
     }
 
-    client
+    let Err(e) = client
         .batch_execute(
             "CREATE TABLE IF NOT EXISTS _wm_migrations (\
                 datatable TEXT NOT NULL, \
@@ -256,24 +256,49 @@ async fn ensure_wm_migrations_schema(client: &tokio_postgres::Client) -> Result<
                 PRIMARY KEY (datatable, version))",
         )
         .await
-        .map_err(|e| {
-            let mut msg = format!(
-                "Failed to ensure _wm_migrations table: {}",
-                pg_error_message(&e)
-            );
-            // A role with only table-level grants cannot create it: since Postgres
-            // 15 the `public` schema no longer grants CREATE to PUBLIC, so this is
-            // the usual failure on a bring-your-own database.
-            if e.code() == Some(&SqlState::INSUFFICIENT_PRIVILEGE) {
-                msg.push_str(
-                    ". Applied migrations are recorded in a `_wm_migrations` table in the \
-                     data table's own database, so its user needs to be able to create it \
-                     (e.g. GRANT CREATE ON SCHEMA public TO <user>)",
-                );
-            }
-            Error::internal_err(msg)
-        })?;
-    Ok(())
+    else {
+        return Ok(());
+    };
+
+    let mut msg = format!(
+        "Failed to ensure _wm_migrations table: {}",
+        pg_error_message(&e)
+    );
+    // A role with only table-level grants cannot create it: since Postgres 15 the
+    // `public` schema no longer grants CREATE to PUBLIC, so this is the usual
+    // failure on a bring-your-own database.
+    if e.code() == Some(&SqlState::INSUFFICIENT_PRIVILEGE) {
+        // Windmill connects as the role that lacks the privilege, so it cannot
+        // grant it: hand over the statement a schema owner has to run instead.
+        // It leads the message because the UI collapses everything past the
+        // first line or so behind a "Show more".
+        if let Some((user, schema)) = connection_identity(client).await {
+            msg.push_str(&format!(
+                ". Run: GRANT CREATE ON SCHEMA {schema} TO \"{user}\""
+            ));
+        }
+        msg.push_str(
+            ". Applied migrations are recorded in a `_wm_migrations` table in the data \
+             table's own database, so its user needs to be able to create it",
+        );
+    }
+    Err(Error::internal_err(msg))
+}
+
+/// The role and default schema of a data table connection, for grant hints.
+/// Both come from the server so the statement we suggest names what the
+/// connection actually resolves to, not what the resource happens to say.
+async fn connection_identity(client: &tokio_postgres::Client) -> Option<(String, String)> {
+    let rows = client
+        .simple_query("SELECT current_user AS usr, current_schema() AS sch")
+        .await
+        .ok()?;
+    rows.iter().find_map(|msg| match msg {
+        tokio_postgres::SimpleQueryMessage::Row(row) => {
+            Some((row.get("usr")?.to_string(), row.get("sch")?.to_string()))
+        }
+        _ => None,
+    })
 }
 
 /// Open a connection to a data table's own database and hold the session-level
