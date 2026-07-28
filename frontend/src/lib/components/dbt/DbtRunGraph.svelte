@@ -141,6 +141,10 @@
 				// somehow reports no progress at all.
 				if (raw?.dbt_snapshot_job === jobId || polled.size > 0 || graphTries >= 40) {
 					clearInterval(graphTimer)
+					// One last load on the way out. Progress proves the ingest
+					// happened; it does not prove the previous tick SAW it, and
+					// dbt's compile window is usually wider than one tick.
+					if (raw?.dbt_snapshot_job !== jobId) void load()
 					return
 				}
 				graphTries += 1
@@ -151,11 +155,20 @@
 				clearInterval(timer)
 			}
 		}
-		// A finished run is coloured from `settled`, which needs no request. The
-		// poll is the fallback for a run that never produced one — cancelled or
-		// killed, where dbt wrote no `run_results.json` — whose relations the
-		// worker settles in the table instead.
-		else if (!settled) void loadProgress()
+		// The run has finished. Load the graph once more unconditionally: the
+		// poll above gives up after a bounded number of tries, and provisioning
+		// plus `dbt deps` can outlast that on a cold worker — while engines that
+		// emit no node events never produce the progress that would have ended
+		// it early. Without this a snapshot written late is never displayed, and
+		// the page keeps the deployed fallback for good.
+		else {
+			void load()
+			// `settled` colours a finished run with no request. The poll is the
+			// fallback for one that produced no `run_results.json` at all —
+			// cancelled or killed — whose relations the worker settles in the
+			// table instead.
+			if (!settled) void loadProgress()
+		}
 		return () => clearInterval(timer)
 	})
 	onDestroy(() => clearInterval(timer))
@@ -381,9 +394,12 @@
 		try {
 			const requestBody = {
 				// The run's own arguments first, so a required `{{ }}` var resolves
-				// and an overridden one points at the relation on screen. The three
-				// below are the preview itself and always win.
+				// and an overridden one points at the relation on screen. The
+				// result's copy wins over the job's: a `dbt retry` job carries
+				// only `dbt_command`, and what it actually ran with is the failed
+				// run's arguments, which the worker restored and published here.
 				...(runArgs ?? {}),
+				...(run?.invocation_args ?? {}),
 				dbt_command: 'show',
 				select: [splitUniqueId(key).name],
 				// Cleared, not inherited: previewing a model the run excluded would

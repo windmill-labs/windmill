@@ -101,6 +101,16 @@ pub struct DbtRunResult {
     pub command: String,
     pub totals: DbtTotals,
     pub nodes: Vec<DbtNodeResult>,
+    /// The arguments this invocation ran with, as SUBMITTED — a `$var:` stays a
+    /// reference, so no resolved value (and no secret) is published.
+    ///
+    /// Present because a `dbt retry` restores the failed run's arguments inside
+    /// the worker and they are never written back to the retry job: its own
+    /// args are just `{"dbt_command": "retry"}`. Anything that needs to act on
+    /// what the run actually used — the row preview, which is a `dbt show` of
+    /// the same project — cannot get them from the job.
+    #[serde(skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub invocation_args: std::collections::HashMap<String, Box<RawValue>>,
 }
 
 #[derive(Serialize, Debug, Default)]
@@ -178,9 +188,16 @@ pub(crate) async fn handle_dbt_job(
     // retention.
     if let Connection::Sql(pool) = conn {
         let (pool, prune_w_id) = (pool.clone(), job.workspace_id.clone());
+        let prune_path = job.runnable_path.clone().unwrap_or_default();
         tokio::spawn(async move {
             prune_run_progress(&pool, &prune_w_id).await;
-            if let Err(e) = windmill_common::dbt_manifest::prune_dbt_run_graphs(&pool).await {
+            if let Err(e) = windmill_common::dbt_manifest::prune_dbt_run_graphs(
+                &pool,
+                &prune_path,
+                &prune_w_id,
+            )
+            .await
+            {
                 tracing::warn!("pruning dbt run graph snapshots: {e:#}");
             }
         });
@@ -442,7 +459,7 @@ pub(crate) async fn handle_dbt_job(
     let reconciled = reconcile_materializations(&prepared, &results, job, conn).await;
     terminalize_running_relations(job, &reconciled, conn).await;
 
-    let result = build_result(&prepared, &command, results);
+    let result = build_result(&prepared, &command, results, &inv);
     match run {
         Ok(()) => Ok(to_raw_value(&result)),
         Err(e) => {
@@ -2409,7 +2426,12 @@ async fn read_run_results(project_dir: &Path) -> Vec<DbtNodeResult> {
         .collect()
 }
 
-fn build_result(p: &PreparedProject, command: &str, nodes: Vec<DbtNodeResult>) -> DbtRunResult {
+fn build_result(
+    p: &PreparedProject,
+    command: &str,
+    nodes: Vec<DbtNodeResult>,
+    inv: &Invocation,
+) -> DbtRunResult {
     let mut totals = DbtTotals { total: nodes.len(), ..Default::default() };
     for n in &nodes {
         match classify_status(&n.status) {
@@ -2425,6 +2447,7 @@ fn build_result(p: &PreparedProject, command: &str, nodes: Vec<DbtNodeResult>) -
         command: command.to_string(),
         totals,
         nodes,
+        invocation_args: inv.raw_args.clone(),
     }
 }
 
@@ -2945,7 +2968,12 @@ async fn save_run_state(
     if p.script_path.is_empty() {
         return Ok(());
     }
-    let identity = format!("{}|{:x}|{:x}", p.run_identity(), inv.env_digest(), inv.resolved_args_digest());
+    let identity = format!(
+        "{}|{:x}{ARGS_DIGEST_TAG}{:x}",
+        p.run_identity(),
+        inv.env_digest(),
+        inv.resolved_args_digest()
+    );
     // The args as SUBMITTED, not as resolved: `build_args_map` turns `$var:` and
     // `$res:` into plaintext, and this row outlives the job. Persisting the
     // resolved value would leave a secret in the database and let a retry replay
@@ -3146,11 +3174,19 @@ impl Invocation {
 /// this caller has re-resolved them — which happens later, in `handle_dbt_job`.
 /// Comparing the whole string up front would refuse every retry.
 fn split_identity(identity: &str) -> (&str, Option<&str>) {
-    match identity.rsplit_once('|') {
+    // Tagged, not positional. The previous format was `<identity>|<env>`, so
+    // taking "everything after the last `|`" reads a pre-upgrade row's env
+    // digest as an arguments digest, leaves `<identity>` as the prefix, and
+    // rejects every saved failure on the instance as a different project.
+    match identity.split_once(ARGS_DIGEST_TAG) {
         Some((prefix, args)) => (prefix, Some(args)),
         None => (identity, None),
     }
 }
+
+/// Separates the resolved-arguments digest from the rest of a saved identity.
+/// A row written before it existed simply does not contain this.
+const ARGS_DIGEST_TAG: &str = "|args=";
 
 /// What an invocation was, so a later `dbt retry` can prove it is resuming the
 /// same thing rather than replaying failures somewhere else.
@@ -3836,13 +3872,14 @@ mod tests {
     // request carries only `dbt_command`.
     #[test]
     fn the_identity_splits_at_the_resolved_arguments() {
-        let (prefix, args) = split_identity("proj|wh|engine|deadbeef|c0ffee");
+        let (prefix, args) = split_identity("proj|wh|engine|deadbeef|args=c0ffee");
         assert_eq!(prefix, "proj|wh|engine|deadbeef");
         assert_eq!(args, Some("c0ffee"));
-        // A row written before the digest existed has no last segment to trust,
-        // and must still restore rather than be refused.
-        let (prefix, args) = split_identity("bare");
-        assert_eq!(prefix, "bare");
+        // A PRE-UPGRADE row, which ends in the env digest and has plenty of
+        // `|` in it. Splitting on the last one would take that digest for an
+        // arguments digest and make every saved failure unretryable.
+        let (prefix, args) = split_identity("proj|wh|engine|deadbeef");
+        assert_eq!(prefix, "proj|wh|engine|deadbeef");
         assert_eq!(args, None);
     }
 

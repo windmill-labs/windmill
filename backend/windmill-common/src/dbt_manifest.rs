@@ -199,9 +199,19 @@ pub const RUN_GRAPH_RETENTION_DAYS: i32 = 30;
 /// Called by the runs that write them, so this table needs no background sweep —
 /// the same shape `dbt_run_progress` uses.
 ///
-/// See the mutator contract above: this authorizes nothing. It touches only
-/// rows keyed to a job, never a version's own graph.
-pub async fn prune_dbt_run_graphs(db: &sqlx::Pool<Postgres>) -> Result<()> {
+/// Also drops the deploy graphs of the running script beyond
+/// `DEPLOYED_GRAPH_VERSIONS_KEPT`, which is the only reclamation those have.
+///
+/// See the mutator contract above: this authorizes nothing.
+pub async fn prune_dbt_run_graphs(
+    db: &sqlx::Pool<Postgres>,
+    // The script this run belongs to. The version sweep is scoped to it rather
+    // than run instance-wide: unscoped it seq-scans every version of every
+    // script on the instance, on every dbt run, and past the keep-count is a
+    // rare state — so nearly every execution paid for it to reclaim nothing.
+    script_path: &str,
+    workspace_id: &str,
+) -> Result<()> {
     // Markers first, then the rows they stand for: a marker outliving its nodes
     // would report a snapshot the reader then finds empty, which is the very
     // confusion the marker exists to remove. All three share one age predicate,
@@ -236,37 +246,45 @@ pub async fn prune_dbt_run_graphs(db: &sqlx::Pool<Postgres>) -> Result<()> {
     // The version graphs beyond the keep-count. Ordered by the script's own
     // `created_at`, so "newest" means newest deploy rather than newest ingest —
     // a re-ingest by a late-finishing job must not promote an old version.
-    sqlx::query!(
+    // Scoped to one (workspace, path), which `index_script_on_path_created_at`
+    // serves directly.
+    let retired = sqlx::query!(
         "WITH keep AS (
-           SELECT workspace_id, path, hash FROM (
-             SELECT workspace_id, path, hash,
-                    row_number() OVER (PARTITION BY workspace_id, path
-                                           ORDER BY created_at DESC) AS rn
-               FROM script WHERE language = 'dbt'
-           ) s WHERE s.rn <= $1
+           SELECT hash FROM script
+            WHERE workspace_id = $2 AND path = $3 AND language = 'dbt'
+            ORDER BY created_at DESC LIMIT $1
          )
          DELETE FROM dbt_graph_snapshot g
-          WHERE g.job_id = '00000000-0000-0000-0000-000000000000'
-            AND NOT EXISTS (SELECT 1 FROM keep k
-                             WHERE k.workspace_id = g.workspace_id
-                               AND k.path = g.script_path AND k.hash = g.script_hash)",
+          WHERE g.workspace_id = $2 AND g.script_path = $3
+            AND g.job_id = '00000000-0000-0000-0000-000000000000'
+            AND NOT EXISTS (SELECT 1 FROM keep k WHERE k.hash = g.script_hash)",
         DEPLOYED_GRAPH_VERSIONS_KEPT,
+        workspace_id,
+        script_path,
     )
     .execute(db)
-    .await?;
-    // Same shape as the snapshot sweep: the rows a marker no longer stands for.
-    for table in ["dbt_node", "dbt_edge"] {
-        sqlx::query(&format!(
-            "DELETE FROM {table} t
-              WHERE t.job_id = '00000000-0000-0000-0000-000000000000'
-                AND NOT EXISTS (SELECT 1 FROM dbt_graph_snapshot g
-                                 WHERE g.workspace_id = t.workspace_id
-                                   AND g.script_path = t.script_path
-                                   AND g.script_hash = t.script_hash
-                                   AND g.job_id = t.job_id)"
-        ))
-        .execute(db)
-        .await?;
+    .await?
+    .rows_affected();
+    // Only when a marker actually went. These two are the complement of every
+    // partial index here — all of them `WHERE job_id <> DEPLOYED` — so they are
+    // sequential scans, and past the keep-count is rare.
+    if retired > 0 {
+        for table in ["dbt_node", "dbt_edge"] {
+            sqlx::query(&format!(
+                "DELETE FROM {table} t
+                  WHERE t.workspace_id = $1 AND t.script_path = $2
+                    AND t.job_id = '00000000-0000-0000-0000-000000000000'
+                    AND NOT EXISTS (SELECT 1 FROM dbt_graph_snapshot g
+                                     WHERE g.workspace_id = t.workspace_id
+                                       AND g.script_path = t.script_path
+                                       AND g.script_hash = t.script_hash
+                                       AND g.job_id = t.job_id)"
+            ))
+            .bind(workspace_id)
+            .bind(script_path)
+            .execute(db)
+            .await?;
+        }
     }
     Ok(())
 }

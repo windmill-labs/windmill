@@ -17,6 +17,11 @@ export type DbtRun = {
 	command?: string
 	totals?: { total?: number; success?: number; error?: number; warn?: number; skipped?: number }
 	nodes?: DbtNode[]
+	/** The arguments the run actually used, as submitted. A `dbt retry` restores
+	 *  the failed run's arguments inside the worker, so the retry job's own args
+	 *  are only `{dbt_command: 'retry'}` — this is the sole way to recover what
+	 *  it really ran with. */
+	invocation_args?: Record<string, unknown>
 }
 
 /** The engines the worker stamps on a result. This is the discriminator: a

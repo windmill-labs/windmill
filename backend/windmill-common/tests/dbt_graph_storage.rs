@@ -278,7 +278,7 @@ async fn the_sweep_takes_old_snapshots_and_spares_the_version(db: Pool<Postgres>
         .unwrap();
     }
 
-    prune_dbt_run_graphs(&db).await.unwrap();
+    prune_dbt_run_graphs(&db, PATH, WS).await.unwrap();
 
     assert_eq!(nodes_for(&db, 1, old).await, 0, "the aged snapshot goes");
     assert_eq!(nodes_for(&db, 1, recent).await, 2, "the recent one stays");
@@ -306,7 +306,7 @@ async fn only_the_newest_deploys_keep_their_graph(db: Pool<Postgres>) {
     }
     assert_eq!(markers_for_path(&db).await, over, "every deploy stored one");
 
-    prune_dbt_run_graphs(&db).await.unwrap();
+    prune_dbt_run_graphs(&db, PATH, WS).await.unwrap();
 
     assert_eq!(
         markers_for_path(&db).await,
