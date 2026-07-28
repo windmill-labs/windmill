@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { ControlButton, useSvelteFlow, type Node } from '@xyflow/svelte'
 	import { Maximize, ZoomIn, ZoomOut } from 'lucide-svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { Tooltip } from '$lib/components/meltComponents'
 
 	interface Props {
 		/** Nodes to frame; notes are decorative and would skew the fit. */
