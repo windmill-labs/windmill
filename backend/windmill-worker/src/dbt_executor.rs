@@ -3154,13 +3154,6 @@ impl Invocation {
     }
 }
 
-/// The saved identity, split at the point resolution happens.
-///
-/// The project, warehouse, engine and env can be checked before anything is
-/// restored. The resolved-arguments digest cannot: the retry REQUEST carries
-/// only `dbt_command`, and the arguments to compare are the saved ones after
-/// this caller has re-resolved them — which happens later, in `handle_dbt_job`.
-/// Comparing the whole string up front would refuse every retry.
 /// A digest that survives a toolchain upgrade.
 ///
 /// These values are written into `dbt_run_state.identity` and compared by a
@@ -3178,6 +3171,13 @@ fn stable_digest<'a>(parts: impl Iterator<Item = &'a str>) -> String {
     format!("{:x}", h.finalize())
 }
 
+/// The saved identity, split at the point resolution happens.
+///
+/// The project, warehouse, engine and env can be checked before anything is
+/// restored. The resolved-arguments digest cannot: the retry REQUEST carries
+/// only `dbt_command`, and the arguments to compare are the saved ones after
+/// this caller has re-resolved them — which happens later, in `handle_dbt_job`.
+/// Comparing the whole string up front would refuse every retry.
 fn split_identity(identity: &str) -> (&str, Option<&str>) {
     // Tagged, not positional. The previous format was `<identity>|<env>`, so
     // taking "everything after the last `|`" reads a pre-upgrade row's env
