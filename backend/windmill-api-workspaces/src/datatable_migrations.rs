@@ -30,6 +30,7 @@ use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
 use windmill_common::error::{pg_error_message, Error, JsonResult, Result};
 use windmill_common::jobs::{JobPayload, RawCode};
+use windmill_common::query_builders::{render_db_quoted_identifier, DbType};
 use windmill_common::runnable_settings::{ConcurrencySettingsWithCustom, DebouncingSettings};
 use windmill_common::scripts::ScriptLang;
 use windmill_common::users::username_to_permissioned_as;
@@ -270,11 +271,15 @@ async fn ensure_wm_migrations_schema(client: &tokio_postgres::Client) -> Result<
     if e.code() == Some(&SqlState::INSUFFICIENT_PRIVILEGE) {
         // Windmill connects as the role that lacks the privilege, so it cannot
         // grant it: hand over the statement a schema owner has to run instead.
-        // It leads the message because the UI collapses everything past the
-        // first line or so behind a "Show more".
+        // Keep it ahead of the explanation below — the UI collapses everything
+        // past the first couple of lines behind a "Show more".
         if let Some((user, schema)) = connection_identity(client).await {
+            // Both come back unquoted, so a mixed-case or hyphenated name would
+            // otherwise render a statement that targets a different schema.
             msg.push_str(&format!(
-                ". Run: GRANT CREATE ON SCHEMA {schema} TO \"{user}\""
+                ". Run: GRANT CREATE ON SCHEMA {} TO {}",
+                render_db_quoted_identifier(&schema, DbType::Postgresql),
+                render_db_quoted_identifier(&user, DbType::Postgresql),
             ));
         }
         msg.push_str(

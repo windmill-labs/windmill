@@ -84,10 +84,9 @@ async fn test_run_migrations_without_create_privilege(db: Pool<Postgres>) -> any
         body.contains("permission denied for schema"),
         "the Postgres message should reach the caller, got: {body}"
     );
-    // Windmill connects as the role that lacks the grant, so it can only name the
-    // statement an operator has to run: it must be complete, not a placeholder.
+    // The suggested statement must be complete and quoted, not a placeholder.
     assert!(
-        body.contains(&format!("GRANT CREATE ON SCHEMA public TO \"{ROLE}\"")),
+        body.contains(&format!("GRANT CREATE ON SCHEMA \"public\" TO \"{ROLE}\"")),
         "the hint should name the actual role and schema, got: {body}"
     );
 
