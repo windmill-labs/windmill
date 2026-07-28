@@ -7,6 +7,7 @@ import {
 	Calendar,
 	Database,
 	FolderOpen,
+	GitCompareArrows,
 	Users,
 	Settings,
 	ScrollText
@@ -55,6 +56,7 @@ export type TriggerKind =
 	| 'gcp'
 	| 'azure'
 	| 'mqtt'
+	| 'amqp'
 	| 'email'
 
 export const TRIGGER_PAGES: Record<TriggerKind, { path: string; label: string; ee?: boolean }> = {
@@ -67,6 +69,7 @@ export const TRIGGER_PAGES: Record<TriggerKind, { path: string; label: string; e
 	gcp: { path: '/gcp_triggers', label: 'GCP Pub/Sub triggers', ee: true },
 	azure: { path: '/azure_triggers', label: 'Azure Event Grid triggers', ee: true },
 	mqtt: { path: '/mqtt_triggers', label: 'MQTT triggers' },
+	amqp: { path: '/amqp_triggers', label: 'AMQP triggers' },
 	email: { path: '/email_triggers', label: 'Email triggers' }
 }
 
@@ -74,6 +77,16 @@ export const TRIGGER_PAGES: Record<TriggerKind, { path: string; label: string; e
 export function triggerLabelForPath(path: string): string | undefined {
 	const clean = stripBase(path)
 	return Object.values(TRIGGER_PAGES).find((t) => t.path === clean)?.label
+}
+
+// The Compare & Deploy review page. Kept out of PREVIEW_PAGES (it's not a picker
+// destination — it's reached through the chat's open_page tool or a session's
+// Review button) but known here so preview tabs label it and reuse it on
+// param changes like the curated pages.
+export const COMPARE_PAGE: PreviewPage = {
+	label: 'Compare & Deploy',
+	path: '/forks/compare',
+	icon: GitCompareArrows
 }
 
 export const pageKey = (path: string) => `page:${path}`
@@ -94,13 +107,22 @@ export function matchPreviewPage(path: string): PreviewPage | undefined {
 	return PREVIEW_PAGES.find((p) => p.path === clean)
 }
 
+/** Match a preview href to a page whose tab should be re-pointed in place when
+ * only its query params change (the open_page filter-change behavior): the
+ * curated pages plus the compare page. Trigger pages are deliberately not
+ * matched — their tabs dedupe on the exact URL instead. */
+export function matchReusablePage(href: string): PreviewPage | undefined {
+	if (stripBase(href) === COMPARE_PAGE.path) return COMPARE_PAGE
+	return matchPreviewPage(href)
+}
+
 /** Human label for a preview tab's location — the workspace page name, trigger
  * page, run detail, or item path. Shared by the sessions tab strip and the
  * close_page matcher so both name a tab the same way. */
 export function previewLocationLabel(url: string): string {
 	const artifact = parseArtifactRoute(url)
 	if (artifact) return artifact.name || 'Artifact'
-	const page = matchPreviewPage(url)
+	const page = matchReusablePage(url)
 	if (page) return page.label
 	const trigger = triggerLabelForPath(url)
 	if (trigger) return trigger
@@ -186,7 +208,9 @@ export function resolvePreviewTab(url: string): PreviewSlot {
 	const artifact = parseArtifactRoute(url)
 	if (artifact) return { kind: 'artifact', id: artifact.id }
 	const pipelineFolder = parsePipelineRoute(url)
-	if (pipelineFolder) return { kind: 'editor', editorKind: 'pipeline', path: pipelineFolder }
+	if (pipelineFolder) {
+		return { kind: 'editor', editorKind: 'pipeline', path: pipelineFolder }
+	}
 	const route = parsePreviewItemRoute(url)
 	if (!route) return { kind: 'iframe' }
 	const editorKind: SessionTargetKind | undefined =

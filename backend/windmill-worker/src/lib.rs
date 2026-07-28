@@ -1,8 +1,8 @@
-#[cfg(all(feature = "enterprise", feature = "bigquery"))]
+#[cfg(feature = "bigquery")]
 mod bigquery_executor;
 #[cfg(all(feature = "enterprise", feature = "mssql"))]
 mod mssql_executor;
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "snowflake")]
 mod snowflake_executor;
 
 mod agent_workers;

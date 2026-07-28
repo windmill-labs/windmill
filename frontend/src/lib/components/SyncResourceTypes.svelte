@@ -6,13 +6,19 @@
 
 	interface Props {
 		onSynced?: () => void
+		// When set, the endpoint returns an explicit not-found error if the hub does
+		// not know this type (the sync itself still refreshes the whole list).
+		resourceType?: string
 	}
 
-	let { onSynced = undefined }: Props = $props()
+	let { onSynced = undefined, resourceType = undefined }: Props = $props()
 
 	let hubRtSync = usePromise(
 		async () => {
-			const res = await fetch('/api/settings/sync_cached_resource_types', { method: 'POST' })
+			const url = resourceType
+				? `/api/settings/sync_cached_resource_types?name=${encodeURIComponent(resourceType)}`
+				: '/api/settings/sync_cached_resource_types'
+			const res = await fetch(url, { method: 'POST' })
 			if (!res.ok) {
 				const body = await res.text()
 				throw new Error(body || res.statusText)

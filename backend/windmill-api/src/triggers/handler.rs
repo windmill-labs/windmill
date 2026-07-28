@@ -61,6 +61,16 @@ pub fn generate_trigger_routers() -> Router {
         );
     }
 
+    #[cfg(feature = "amqp_trigger")]
+    {
+        use crate::triggers::amqp::AmqpTrigger;
+
+        router = router.nest(
+            AmqpTrigger::ROUTE_PREFIX,
+            complete_trigger_routes(AmqpTrigger),
+        );
+    }
+
     #[cfg(all(feature = "enterprise", feature = "sqs_trigger", feature = "private"))]
     {
         use crate::triggers::sqs::SqsTrigger;
@@ -143,6 +153,7 @@ pub struct TriggersCount {
     nats_count: i64,
     postgres_count: i64,
     mqtt_count: i64,
+    amqp_count: i64,
     sqs_count: i64,
     gcp_count: i64,
     azure_count: i64,
@@ -244,6 +255,17 @@ pub async fn get_triggers_count_internal(
     };
     #[cfg(not(feature = "mqtt_trigger"))]
     let mqtt_count = 0;
+
+    #[cfg(feature = "amqp_trigger")]
+    let amqp_count = {
+        use crate::triggers::amqp::AmqpTrigger;
+        let count = AmqpTrigger
+            .trigger_count(&mut tx, w_id, is_flow, path)
+            .await;
+        count
+    };
+    #[cfg(not(feature = "amqp_trigger"))]
+    let amqp_count = 0;
 
     #[cfg(all(feature = "sqs_trigger", feature = "enterprise", feature = "private"))]
     let sqs_count = {
@@ -362,6 +384,7 @@ pub async fn get_triggers_count_internal(
         nats_count,
         postgres_count,
         mqtt_count,
+        amqp_count,
         gcp_count,
         azure_count,
         sqs_count,

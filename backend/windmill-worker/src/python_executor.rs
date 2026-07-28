@@ -2832,11 +2832,12 @@ pub async fn handle_python_reqs(
             };
 
             // Cross-process advisory lock. Best-effort: if the filesystem doesn't
-            // support flock we log and proceed — verify_wheel_record + job retry
-            // still guard correctness, just without the dedup.
-            #[cfg(unix)]
+            // support locking we log and proceed — verify_wheel_record + job retry
+            // still guard correctness, just without the dedup. Cross-platform
+            // (flock on unix, LockFileEx on windows) so agents sharing a wheel-cache
+            // dir on a Windows host serialize just as they do on unix.
             let _venv_file_lock: Option<std::fs::File> = {
-                use std::os::unix::io::AsRawFd;
+                use fs4::fs_std::FileExt;
                 let lock_path = format!("{venv_p}.lock");
                 if let Some(parent) = std::path::Path::new(&lock_path).parent() {
                     let _ = std::fs::create_dir_all(parent);
@@ -2844,17 +2845,17 @@ pub async fn handle_python_reqs(
                 match std::fs::OpenOptions::new().create(true).write(true).open(&lock_path) {
                     Ok(f) => {
                         // Bounded wait: a holder that crashes releases the lock (the
-                        // kernel drops it on fd close), but a live-but-stuck holder
+                        // OS drops it on handle close), but a live-but-stuck holder
                         // (e.g. uv wedged on a hung mount) would otherwise block us
                         // forever. After the cap, proceed degraded rather than hang —
                         // verify_wheel_record + retry still guard correctness.
                         const MAX_WAIT: std::time::Duration = std::time::Duration::from_secs(300);
                         let waited_since = std::time::Instant::now();
                         loop {
-                            match nix::fcntl::flock(f.as_raw_fd(), nix::fcntl::FlockArg::LockExclusiveNonblock) {
-                                Ok(()) => break Some(f),
-                                // EWOULDBLOCK == EAGAIN on Linux: another holder has the lock.
-                                Err(nix::errno::Errno::EWOULDBLOCK) => {
+                            match f.try_lock_exclusive() {
+                                Ok(true) => break Some(f),
+                                // Another holder has the lock.
+                                Ok(false) => {
                                     if waited_since.elapsed() >= MAX_WAIT {
                                         tracing::warn!(
                                             workspace_id = %w_id,
@@ -2876,7 +2877,7 @@ pub async fn handle_python_reqs(
                                 Err(e) => {
                                     tracing::warn!(
                                         workspace_id = %w_id,
-                                        "could not flock {lock_path}, proceeding without cross-process install lock: {e}"
+                                        "could not lock {lock_path}, proceeding without cross-process install lock: {e}"
                                     );
                                     break Some(f);
                                 }
@@ -3782,14 +3783,14 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
     #[tokio::test]
     async fn test_venv_file_lock_excludes_across_descriptions() {
-        // The cross-process layer: flock on a sibling `.lock` excludes a second
-        // independent open file description (i.e. another worker process) while
-        // held, and frees it on close. Mirrors the loop in handle_python_reqs.
-        use nix::fcntl::{flock, FlockArg};
-        use std::os::unix::io::AsRawFd;
+        // The cross-process layer: an advisory lock on a sibling `.lock` excludes a
+        // second independent open file handle (i.e. another worker process) while
+        // held, and frees it on close. Mirrors the loop in handle_python_reqs and
+        // must hold on every platform (flock on unix, LockFileEx on windows) — a
+        // Windows host running several agents against one wheel cache relies on it.
+        use fs4::fs_std::FileExt;
 
         let dir = std::env::temp_dir().join("wm_venv_lock_test");
         std::fs::create_dir_all(&dir).unwrap();
@@ -3800,24 +3801,28 @@ mod tests {
             .write(true)
             .open(&lock_path)
             .unwrap();
-        flock(f1.as_raw_fd(), FlockArg::LockExclusiveNonblock).unwrap();
+        assert!(
+            f1.try_lock_exclusive().unwrap(),
+            "first holder must acquire the lock"
+        );
 
-        // A second descriptor (stand-in for another process) cannot take it.
+        // A second handle (stand-in for another process) cannot take it.
         let f2 = std::fs::OpenOptions::new()
             .create(true)
             .write(true)
             .open(&lock_path)
             .unwrap();
-        assert_eq!(
-            flock(f2.as_raw_fd(), FlockArg::LockExclusiveNonblock),
-            Err(nix::errno::Errno::EWOULDBLOCK),
+        assert!(
+            !f2.try_lock_exclusive().unwrap(),
             "a second holder must be blocked while the lock is held"
         );
 
         // Releasing the first lets the second acquire it.
         drop(f1);
-        flock(f2.as_raw_fd(), FlockArg::LockExclusiveNonblock)
-            .expect("lock must be acquirable once the holder releases it");
+        assert!(
+            f2.try_lock_exclusive().unwrap(),
+            "lock must be acquirable once the holder releases it"
+        );
 
         drop(f2);
         let _ = std::fs::remove_file(&lock_path);

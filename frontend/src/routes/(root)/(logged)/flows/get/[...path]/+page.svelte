@@ -50,8 +50,7 @@
 
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
 	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
-	import { createAppFromFlow } from '$lib/components/details/createAppFromScript'
-	import { importStore } from '$lib/components/apps/store'
+	import { createRawAppFromFlow } from '$lib/components/details/createRawAppFromScript'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import FlowGraphViewerStep from '$lib/components/FlowGraphViewerStep.svelte'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
@@ -356,9 +355,11 @@
 				label: 'Build app',
 				buttonProps: {
 					onClick: async () => {
-						const app = createAppFromFlow(flow.path, flow.schema)
-						$importStore = JSON.parse(JSON.stringify(app))
-						await goto('/apps/add')
+						const app = createRawAppFromFlow(flow.path, flow.summary, flow.schema)
+						// /apps_raw/add hard-reloads (cross-origin isolation), so the
+						// in-memory importStore would be dropped; hand off via sessionStorage.
+						sessionStorage.setItem('rawAppImport', JSON.stringify(app))
+						await goto('/apps_raw/add')
 					},
 					unifiedSize: 'md',
 					variant: 'subtle',

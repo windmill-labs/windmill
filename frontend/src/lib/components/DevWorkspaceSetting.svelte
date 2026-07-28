@@ -57,7 +57,6 @@
 	// Cosmetic display label chosen when attaching an existing workspace as dev.
 	let attachLabel = $state<'dev' | 'staging'>('dev')
 	let busy = $state(false)
-	let labelBusy = $state(false)
 
 	// If this workspace already blocks direct deploy / forking through an existing protection rule, keep
 	// the matching lock toggle on but locked: attaching only manages its own reserved dev-workspace rule,
@@ -153,22 +152,6 @@
 		}
 	}
 
-	async function setLabel(label: 'dev' | 'staging') {
-		if (!$workspaceStore || label === devLabelKey(currentWs?.dev_workspace_label)) return
-		labelBusy = true
-		try {
-			await WorkspaceService.setDevWorkspaceLabel({
-				workspace: $workspaceStore,
-				requestBody: { dev_workspace_label: label }
-			})
-			usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-		} catch (e: any) {
-			sendUserToast(`Failed to update display label: ${e?.body ?? e}`, true)
-		} finally {
-			labelBusy = false
-		}
-	}
-
 	async function detach(devId: string) {
 		if (!$workspaceStore) return
 		busy = true
@@ -194,15 +177,11 @@
 			<b>{parentId}</b>. Promote changes from the home page banner or the Compare &amp; Deploy page.
 		</p>
 		<div class="text-2xs text-secondary">
-			Cosmetic label: <Badge color="indigo" small>{devBadgeText(currentLabel)}</Badge>
-			<button
-				type="button"
-				disabled={labelBusy}
-				class="text-secondary hover:text-primary hover:underline disabled:opacity-50"
-				onclick={() => setLabel(currentLabel === 'staging' ? 'dev' : 'staging')}
-			>
-				Change to {currentLabel === 'staging' ? 'dev' : 'staging'}
-			</button>
+			Environment: <Badge color="indigo" small>{devBadgeText(currentLabel)}</Badge>
+			<span class="ml-1">
+				Set when the workspace is created or attached. Git sync deploys to the
+				<span class="font-mono">{currentLabel}</span> branch.
+			</span>
 		</div>
 		<div>
 			<Button
@@ -254,7 +233,7 @@
 			/>
 		</div>
 		<div class="text-2xs text-secondary">
-			Cosmetic label: <Badge color="indigo" small>{devBadgeText(attachLabel)}</Badge>
+			Label: <Badge color="indigo" small>{devBadgeText(attachLabel)}</Badge>
 			<button
 				type="button"
 				class="text-secondary hover:text-primary hover:underline"

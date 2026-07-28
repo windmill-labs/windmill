@@ -1274,6 +1274,29 @@ class Windmill:
             params=params,
         ).json()
 
+    def get_approval_urls(self, step_key: str = "approval", approver: str = None) -> dict:
+        """Get the resume URLs bound to one ``wait_for_approval`` step of this workflow.
+
+        Args:
+            step_key: Checkpoint key of the approval step, as passed to
+                ``wait_for_approval(key=...)``
+            approver: Optional approver name
+
+        Returns:
+            Dictionary with approvalPage, resume, and cancel URLs
+        """
+        from urllib.parse import quote
+
+        _assert_usable_step_key(step_key, "get_approval_urls step_key")
+        job_id = os.environ.get("WM_JOB_ID") or "NO_ID"
+        # Omit rather than send `approver=`: an empty value is echoed into the
+        # returned URLs and recorded as the approver instead of "anonymous".
+        params = {"approver": approver} if approver is not None else {}
+        return self.get(
+            f"/w/{self.workspace}/jobs/wac_approval_urls/{job_id}/{quote(step_key, safe='')}",
+            params=params,
+        ).json()
+
     def request_interactive_slack_approval(
         self,
         slack_resource_path: str,
@@ -2028,6 +2051,33 @@ def get_resume_urls(approver: str = None, flow_level: bool = None) -> dict:
 
 
 @init_global_client
+def get_approval_urls(step_key: str = "approval", approver: str = None) -> dict:
+    """Get the resume/cancel/approval-page URLs bound to one ``wait_for_approval`` step.
+
+    Unlike :func:`get_resume_urls`, which signs a random nonce, these address the
+    very ``resume_job`` record the step's built-in approval buttons use, so they
+    are stable across replays and safe to embed in a custom notification.
+
+    Args:
+        step_key: Checkpoint key of the approval step, as passed to
+            ``wait_for_approval(key=...)``. Keys must be unique within a workflow;
+            reusing one raises rather than silently renaming it. The URL only
+            resumes while that step is awaiting approval; used at any other moment
+            it is rejected rather than banking a row a different approval would
+            consume. Send it ahead of time — approvers just cannot act before the
+            workflow reaches the step.
+            ``resume`` and ``cancel`` are step-bound; ``approvalPage`` is not — it
+            opens the job's approval page, which acts on whichever approval is
+            pending when it is used.
+        approver: Optional approver name
+
+    Returns:
+        Dictionary with approvalPage, resume, and cancel URLs
+    """
+    return _client.get_approval_urls(step_key, approver)
+
+
+@init_global_client
 def request_interactive_slack_approval(
     slack_resource_path: str,
     channel_id: str,
@@ -2606,12 +2656,34 @@ import asyncio as _asyncio
 import contextvars as _contextvars
 
 
+def _assert_usable_step_key(key: str, what: str) -> None:
+    """A step key travels as one path segment when its URLs are minted, so it must be
+    non-empty and free of ``/`` and dot segments — otherwise ``wait_for_approval``
+    would accept a key ``get_approval_urls`` can never address."""
+    k = key.strip()
+    if not k or k in (".", "..") or "/" in key or "\\" in key:
+        raise RuntimeError(f"{what} must be a non-empty step name without `/` or dot segments")
+
+
 class _StepSuspend(BaseException):
     """Raised to suspend workflow execution. Inherits from BaseException
     so it is not caught by bare `except Exception:` blocks."""
 
     def __init__(self, dispatch_info: dict):
         self.dispatch_info = dispatch_info
+
+
+class _StepFailure(BaseException):
+    """Carries the exception raised by the step a child round executes directly.
+
+    That exception *is* the round's result, so a broad ``except Exception`` in the
+    body must not be able to turn it into a successful complete — the parent would
+    then record the caught branch's value as the step result. BaseException for the
+    same reason ``_StepSuspend`` is; a bare ``except:`` still swallows both.
+    """
+
+    def __init__(self, exc: BaseException):
+        self.exc = exc
 
 
 class TaskError(Exception):
@@ -2630,6 +2702,36 @@ class TaskError(Exception):
         self.result = result
 
 
+def _json_round_trip(value):
+    """Put a value through the checkpoint's encoding without checkpointing it, so
+    the paths that never persist anything still hand back the shape the ones that
+    do would. ``default=str`` matches the worker wrapper's encoder."""
+    return json.loads(json.dumps(value, default=str))
+
+
+def _step_error_marker(key: str, exc: BaseException) -> dict:
+    """Serialize a failed ``step()`` body into the ``__wmill_error`` marker that
+    task failures also use, so it can be stored in ``completed_steps``."""
+    return {
+        "__wmill_error": True,
+        "message": str(exc),
+        "step_key": key,
+        "result": {"error": str(exc), "type": type(exc).__name__},
+    }
+
+
+def _step_error_from_marker(marker: dict, name: str) -> TaskError:
+    """Rebuild the exception a failed step raises. Both the run that produced the
+    failure and every later replay go through here, so a workflow's ``except``
+    clauses see the same type either way."""
+    return TaskError(
+        marker.get("message", f"Step '{name}' failed"),
+        step_key=marker.get("step_key", ""),
+        child_job_id=marker.get("child_job_id", ""),
+        result=marker.get("result"),
+    )
+
+
 _workflow_ctx: _contextvars.ContextVar["WorkflowCtx"] = _contextvars.ContextVar(
     "_workflow_ctx"
 )
@@ -2645,6 +2747,8 @@ class WorkflowCtx:
         checkpoint = checkpoint or {}
         self._completed: dict = checkpoint.get("completed_steps", {})
         self._counters: dict[str, int] = {}
+        # Every key handed out by _alloc_key, so distinct names can't alias one key.
+        self._used_keys: set[str] = set()
         self._pending: list = []
         self._executing_key: str | None = checkpoint.get("_executing_key")
         # Reuse a single httpx.AsyncClient across all fast-path step() calls
@@ -2666,10 +2770,20 @@ class WorkflowCtx:
         self._inline_lock: "_asyncio.Lock | None" = None
 
     def _alloc_key(self, name: str = "step") -> str:
-        """Name-based key: ``double`` for first call, ``double_2``, ``double_3`` for subsequent."""
+        """Name-based key: ``double`` for first call, ``double_2``, ``double_3`` for subsequent.
+
+        Suffixing alone can alias — a second ``step("x")`` and a first ``step("x_2")``
+        both want ``x_2`` — so keep bumping past keys already handed out. Allocation
+        order is fixed by the workflow body, so replays reproduce the same keys.
+        """
         n = self._counters.get(name, 0) + 1
+        key = name if n == 1 else f"{name}_{n}"
+        while key in self._used_keys:
+            n += 1
+            key = f"{name}_{n}"
         self._counters[name] = n
-        return name if n == 1 else f"{name}_{n}"
+        self._used_keys.add(key)
+        return key
 
     def _next_step(self, name: str, script: str, func=None, dispatch_type: str = "inline", _task_options: Optional[dict] = None, **kwargs):
         """Return an awaitable that either resolves from cache or suspends."""
@@ -2705,9 +2819,12 @@ class WorkflowCtx:
         return value
 
     async def _execute_directly(self, func, **kwargs):
-        result = func(**kwargs)
-        if _asyncio.iscoroutine(result):
-            result = await result
+        try:
+            result = func(**kwargs)
+            if _asyncio.iscoroutine(result):
+                result = await result
+        except Exception as exc:
+            raise _StepFailure(exc) from exc
         raise _StepSuspend({"mode": "step_complete", "steps": [], "result": result})
 
     async def _never_resolve(self):
@@ -2724,9 +2841,25 @@ class WorkflowCtx:
         )
 
     async def _wait_for_approval(
-        self, timeout: int = 1800, form: dict | None = None, self_approval: bool = True
+        self,
+        timeout: int = 1800,
+        form: dict | None = None,
+        self_approval: bool = True,
+        key: str | None = None,
     ):
-        key = self._alloc_key("approval")
+        if key is not None:
+            _assert_usable_step_key(key, "wait_for_approval key")
+        requested_key, key = key, self._alloc_key(key or "approval")
+
+        # An explicit key is an identifier callers mint URLs against, so silently
+        # renaming a duplicate to ``<key>_2`` would hand them a URL for the *first*
+        # step — which then fails with "resume request already sent" and parks the
+        # workflow until timeout. Unnamed approvals keep auto-numbering.
+        if requested_key and key != requested_key:
+            raise RuntimeError(
+                f'WAC step key "{requested_key}" is already used in this workflow. '
+                "Give each wait_for_approval() its own key so get_approval_urls() can address it."
+            )
 
         if key in self._completed:
             return self._completed[key]
@@ -2771,12 +2904,7 @@ class WorkflowCtx:
         if key in self._completed:
             val = self._completed[key]
             if isinstance(val, dict) and val.get("__wmill_error"):
-                raise TaskError(
-                    val.get("message", f"Step '{name}' failed"),
-                    step_key=val.get("step_key", ""),
-                    child_job_id=val.get("child_job_id", ""),
-                    result=val.get("result"),
-                )
+                raise _step_error_from_marker(val, name)
             return val
 
         if self._executing_key is not None:
@@ -2786,9 +2914,18 @@ class WorkflowCtx:
         started_at = _dt.now(_tz.utc).isoformat()
         print(f"WM_WAC_STEP: {_json_mod.dumps({'key': key, 'started_at': started_at})}")
         t0 = _time_mod.monotonic()
-        result = fn()
-        if _asyncio.iscoroutine(result):
-            result = await result
+        # A raised step still has to reach ``completed_steps``, or a replay with
+        # ``_executing_key`` set finds nothing recorded and parks forever on the
+        # ``_asyncio.Future()`` above. ``_StepSuspend`` and ``CancelledError`` are
+        # ``BaseException``, so they pass through untouched.
+        step_error: Optional[Exception] = None
+        try:
+            result = fn()
+            if _asyncio.iscoroutine(result):
+                result = await result
+        except Exception as _exc:
+            step_error = _exc
+            result = _step_error_marker(key, _exc)
         duration_ms = int((_time_mod.monotonic() - t0) * 1000)
 
         # Fast path: POST the delta to the new per-job API endpoint and return
@@ -2805,7 +2942,23 @@ class WorkflowCtx:
         _base = os.environ.get("BASE_INTERNAL_URL")
         _token = os.environ.get("WM_TOKEN")
         if _fast_path_enabled and _job_id and _workspace and _base and _token:
+            _fast_path_ok = False
+            _replay_result = None
             try:
+                # ``default=str`` is the encoder the worker wrapper uses on the
+                # suspend path, so both arms checkpoint the same value — and a
+                # datetime or set takes the fast path instead of silently
+                # degrading to a suspend round.
+                _payload = _json_mod.dumps(
+                    {
+                        "key": key,
+                        "result": result,
+                        "started_at": started_at,
+                        "duration_ms": duration_ms,
+                    },
+                    default=str,
+                )
+                _replay_result = _json_mod.loads(_payload)["result"]
                 if self._inline_lock is None:
                     self._inline_lock = _asyncio.Lock()
                 # Lock wraps only the POST, not fn() above — concurrent
@@ -2822,15 +2975,10 @@ class WorkflowCtx:
                         )
                     _resp = await self._inline_http_client.post(
                         f"{_base}/api/w/{_workspace}/jobs/wac/inline_checkpoint/{_job_id}",
-                        json={
-                            "key": key,
-                            "result": result,
-                            "started_at": started_at,
-                            "duration_ms": duration_ms,
-                        },
+                        content=_payload,
                     )
                     _resp.raise_for_status()
-                return result
+                _fast_path_ok = True
             except Exception as _e:
                 logger.info(
                     "WAC v2 inline fast path failed for key %s, falling back to suspend: %s",
@@ -2838,6 +2986,18 @@ class WorkflowCtx:
                     _e,
                 )
                 # fall through to the legacy suspend path
+            if _fast_path_ok:
+                # Raise what a replay would rebuild from the marker, never the
+                # original: a replay cannot reconstruct the original type, so
+                # raising it here would make ``except ValueError:`` catch on this
+                # run and miss on the next. ``__cause__`` is for tracebacks only.
+                if step_error is not None:
+                    raise _step_error_from_marker(result, name) from step_error
+                # Return the round trip of what was checkpointed, never the
+                # in-memory value: handing back the live object would let the
+                # round that ran the body branch on a type — tuple, datetime —
+                # that no replay of it ever sees.
+                return _replay_result
 
         raise _StepSuspend({
             "mode": "inline_checkpoint",
@@ -2869,6 +3029,10 @@ def task(
     - **v2 (inside @workflow)**: dispatches as a checkpoint step.
     - **v1 (WM_JOB_ID set, no @workflow)**: dispatches via HTTP API.
     - **Standalone**: executes the function body directly.
+
+    A task runs as its own job, so its result is always encoded as JSON and
+    decoded back before the caller sees it: a ``datetime`` comes back as a
+    string, a tuple as a list.
 
     Usage::
 
@@ -2942,8 +3106,19 @@ def task(
                 print(f"Task {func.__name__} ({child_job_id}) completed")
                 return job_result
 
-            # Standalone — execute directly
-            return func(*args, **kwargs)
+            # Standalone — execute directly, but round-trip the result: a task's
+            # value crosses JSON in every other path, so a local run must agree.
+            # This wrapper is sync, so an ``async def`` task hands back a
+            # coroutine here — round-tripping that would serialize the coroutine
+            # object itself.
+            result = func(*args, **kwargs)
+            if _asyncio.iscoroutine(result):
+
+                async def _round_trip_awaited():
+                    return _json_round_trip(await result)
+
+                return _round_trip_awaited()
+            return _json_round_trip(result)
 
         wrapper._is_task = True
         wrapper._task_path = task_path
@@ -3047,6 +3222,10 @@ async def step(name: str, fn):
     On replay the cached value is returned without re-executing ``fn``.
     Use for lightweight deterministic operations (timestamps, random IDs,
     config reads) that should not incur the overhead of a child job.
+
+    ``fn``'s result is encoded as JSON and decoded back before it is returned,
+    so the round that runs the body sees the same types every replay sees:
+    a ``datetime`` comes back as a string, a tuple as a list.
     """
     ctx: WorkflowCtx | None = _workflow_ctx.get(None)
     if ctx is not None:
@@ -3054,7 +3233,9 @@ async def step(name: str, fn):
     result = fn()
     if _asyncio.iscoroutine(result):
         result = await result
-    return result
+    # Outside a workflow nothing is checkpointed, but round-trip anyway: running
+    # the script locally must not hand back a shape a deployed run never sees.
+    return _json_round_trip(result)
 
 
 async def sleep(seconds: int):
@@ -3073,11 +3254,13 @@ async def wait_for_approval(
     timeout: int = 1800,
     form: dict | None = None,
     self_approval: bool = True,
+    key: str | None = None,
 ) -> dict:
     """Suspend the workflow and wait for an external approval.
 
-    Use ``get_resume_urls()`` (wrapped in ``step()``) to obtain
-    resume/cancel/approval URLs before calling this function.
+    Pass ``key`` to name the step, then ``get_approval_urls(key)`` yields the URLs
+    that resume exactly this approval — route them through your own channel.
+    Without a key the steps are named ``approval``, ``approval_2``, ...
 
     Returns a dict with ``value`` (form data), ``approver``, and ``approved``.
 
@@ -3085,16 +3268,19 @@ async def wait_for_approval(
         timeout: Approval timeout in seconds (default 1800).
         form: Optional form schema for the approval page.
         self_approval: Whether the user who triggered the flow can approve it (default True).
+        key: Optional checkpoint key naming this approval step.
 
     Example::
 
-        urls = await step("urls", lambda: get_resume_urls())
-        await step("notify", lambda: send_email(urls["approvalPage"]))
-        result = await wait_for_approval(timeout=3600)
+        urls = await step("urls", lambda: get_approval_urls("manager"))
+        await step("notify", lambda: send_email(urls["resume"], urls["cancel"]))
+        result = await wait_for_approval(key="manager", timeout=3600)
     """
     ctx: WorkflowCtx | None = _workflow_ctx.get(None)
     if ctx is not None:
-        return await ctx._wait_for_approval(timeout=timeout, form=form, self_approval=self_approval)
+        return await ctx._wait_for_approval(
+            timeout=timeout, form=form, self_approval=self_approval, key=key
+        )
     raise RuntimeError("wait_for_approval can only be called inside a @workflow")
 
 
@@ -3138,6 +3324,9 @@ async def _run_workflow_async(func, checkpoint: dict, input_args: dict):
                 "steps": steps,
             }
         return {"type": "complete", "result": result}
+    except _StepFailure as e:
+        # Re-raise the step's own exception so the child job fails with it.
+        raise e.exc
     except _StepSuspend as e:
         info = e.dispatch_info
         mode = info.get("mode")

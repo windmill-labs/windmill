@@ -93,6 +93,12 @@
 				extra: cloudHosted ? extra : undefined
 			},
 			{
+				displayName: 'AMQP',
+				action: () => onAddDraftTrigger?.('amqp'),
+				icon: triggerIconMap.amqp,
+				extra: cloudHosted ? extra : undefined
+			},
+			{
 				displayName: 'SQS',
 				action: () => onAddDraftTrigger?.('sqs'),
 				icon: triggerIconMap.sqs,

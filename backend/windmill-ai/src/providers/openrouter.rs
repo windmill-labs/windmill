@@ -143,6 +143,7 @@ impl QueryBuilder for OpenRouterQueryBuilder {
     }
 
     fn get_endpoint(&self, base_url: &str, _model: &str, _output_type: &OutputType) -> String {
+        let base_url = base_url.trim_end_matches('/');
         format!("{}/chat/completions", base_url)
     }
 

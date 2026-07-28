@@ -72,3 +72,69 @@ export function getModelContextWindow(model: string) {
 	// Trim/compaction logic needs a number; assume a conservative window when unknown.
 	return getKnownModelContextWindow(model) ?? 128000
 }
+
+/**
+ * Best-effort check that a model can accept image input. There is no per-model vision
+ * metadata in the codebase, so this is deliberately permissive: it returns true unless
+ * the model is a known text-only one that would 400 on an image part. Used to gate the
+ * image-attach affordance and the screenshot follow-up; when unsure it allows the image
+ * (the user explicitly attached it — better to try than to silently drop it).
+ */
+export function modelSupportsVision(
+	provider: AIProvider | undefined,
+	model: string | undefined
+): boolean {
+	if (!provider) return true
+	return !TEXT_ONLY_MODELS.has(`${provider}:${(model ?? '').toLowerCase()}`)
+}
+
+/**
+ * Models whose provider API refuses image content, matched by exact
+ * `provider:model` pair — not by id alone, because an id proves nothing about a
+ * different endpoint (a Custom AI deployment may serve a vision model under a
+ * name that collides with someone's text-only id, and there is no override).
+ *
+ * The question is not whether a model can see, but whether its provider's API
+ * accepts image parts — the two diverge, and the divergence is invisible from a
+ * name: DeepSeek V4 ships vision in its chat UI while its API has no image
+ * content type, and o3-mini gained vision in ChatGPT that the API never exposed.
+ * So this is a cache of one provider's API surface at one moment, and it rots.
+ * Wrong entries are asymmetric: a missing one costs a single turn and
+ * self-corrects (the request fails, the image is dropped, the user is told),
+ * while a wrong one blocks a working model with no override. Hence exact pairs
+ * only, and only where a provider doc says so.
+ *
+ * Substrings are specifically avoided: `mistral-large` would also match
+ * Mistral Large 3, which does take images, and `phi-4` would match
+ * Phi-4-multimodal, which does too.
+ */
+const TEXT_ONLY_MODELS = new Set([
+	'openai:o1-mini',
+	'openai:o3-mini',
+	'azure_openai:o1-mini',
+	'azure_openai:o3-mini',
+	'mistral:codestral-latest',
+	// deepseek — vision exists in their chat product, not in the API
+	'deepseek:deepseek-v4-pro',
+	'deepseek:deepseek-v4-flash',
+	'deepseek:deepseek-chat',
+	'deepseek:deepseek-reasoner',
+	'groq:llama-3.3-70b-versatile',
+	'groq:llama-3.1-8b-instant',
+	// gpt-oss (text-only everywhere it is hosted) — on groq it succeeds the two
+	// llama defaults above, which retire 2026-08-16
+	'groq:openai/gpt-oss-120b',
+	'groq:openai/gpt-oss-20b',
+	'openrouter:openai/gpt-oss-120b',
+	'openrouter:openai/gpt-oss-20b',
+	'togetherai:openai/gpt-oss-120b',
+	'togetherai:openai/gpt-oss-20b',
+	// azure_foundry serves DeepSeek-V4-Pro under the same id as deepseek's API
+	'azure_foundry:deepseek-v4-pro',
+	'azure_foundry:deepseek-r1',
+	'azure_foundry:llama-3.3-70b-instruct',
+	'azure_foundry:phi-4',
+	'azure_foundry:mistral-large-2411',
+	'openrouter:meta-llama/llama-3.2-3b-instruct:free',
+	'togetherai:meta-llama/llama-3.3-70b-instruct-turbo'
+])

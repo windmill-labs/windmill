@@ -18,6 +18,7 @@ import {
 	protectionRulesState
 } from '$lib/workspaceProtectionRules.svelte'
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
+import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { workspaceRootId } from './sessionScope.svelte'
 import { type DBSchema, type IDBPDatabase } from 'idb'
 import { userScopedDb } from '$lib/userScopedDb'
@@ -795,6 +796,7 @@ export async function commitSessionWorkspace(
 		// The draft prompt has been consumed as the first message.
 		delete s.draftPrompt
 		await putSession(s)
+		logFeatureUsage('ai_session', 'created', { key: 'fork', entityId: s.id, workspace: newId })
 		// The global workspaceStore is intentionally left untouched: the session
 		// chat targets its own workspace via AIChatManager.operatingWorkspace, so
 		// committing must not yank the user's active (navigation-mode) workspace.
@@ -809,6 +811,12 @@ export async function commitSessionWorkspace(
 	// The draft prompt has been consumed as the first message.
 	delete s.draftPrompt
 	await putSession(s)
+	// A picked workspace can itself be an existing fork — classify by root.
+	logFeatureUsage('ai_session', 'created', {
+		key: ws === s.workspace_root_id ? 'root' : 'fork',
+		entityId: s.id,
+		workspace: ws
+	})
 	// The global workspaceStore is intentionally left untouched (see the fork
 	// branch above): the session chat reads its committed workspace through the
 	// manager's workspace resolver, not the active workspaceStore.
@@ -958,8 +966,10 @@ export function setSessionArchived(id: string, archived: boolean) {
 	if (!s) return
 	const next = archived ? true : undefined
 	if (s.archived === next && (archived || !s.archivedByWorkspace)) return
-	if (archived) s.archived = true
-	else {
+	if (archived) {
+		s.archived = true
+		logFeatureUsage('ai_session', 'archived', { entityId: s.id, workspace: s.workspace_id })
+	} else {
 		delete s.archived
 		delete s.archivedByWorkspace
 	}
@@ -982,6 +992,7 @@ export function deleteSession(id: string) {
 	// GC any linked files and artifacts persisted for this session.
 	void deleteItemsForSession(id)
 	void deleteArtifactsForSession(id)
+	logFeatureUsage('ai_session', 'deleted', { entityId: id, workspace: s.workspace_id })
 }
 
 export function setSessionChatId(sessionId: string, chatId: string) {

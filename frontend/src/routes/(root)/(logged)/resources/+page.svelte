@@ -123,6 +123,7 @@
 	let supabaseConnect: SupabaseConnect | undefined = $state(undefined)
 	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
 	let deleteIsLinked = $state(false)
+	let deletePath = $state('')
 	let loading = $state({
 		resources: true,
 		types: true
@@ -605,13 +606,22 @@
 		}
 	})
 
-	onMount(() => {
-		let hash = page.url.hash
-		if (hash.startsWith('#/resource/')) {
-			console.log('hash', hash)
-			let path = hash.slice(11)
-			resourceEditor?.initEdit(path)
+	// Deep link: #/resource/<path> opens that resource's edit drawer. Reactive
+	// rather than onMount so a hash change on the already-mounted page (e.g. the
+	// AI session preview re-pointing its tab) opens the drawer too. Row links
+	// pre-set handledHash: their onclick already opens the drawer.
+	let handledHash = ''
+	$effect(() => {
+		const hash = page.url.hash
+		if (!hash.startsWith('#/resource/')) {
+			// Navigating away from a drawer target must clear the tracker, or
+			// re-targeting the same item later would be skipped as already handled.
+			handledHash = ''
+			return
 		}
+		if (hash === handledHash || !resourceEditor) return
+		handledHash = hash
+		resourceEditor.initEdit(hash.slice(11))
 	})
 
 	let showTable = $derived(
@@ -635,7 +645,10 @@
 	}}
 >
 	<div class="flex flex-col w-full space-y-4">
-		<span>Are you sure you want to remove this resource?</span>
+		<span
+			>Are you sure you want to remove <span class="font-semibold break-all">{deletePath}</span
+			>?</span
+		>
 		{#if deleteIsLinked}
 			<Alert type="warning" title="Linked variable">
 				This resource is linked with a variable of the same path. The linked variable will also be
@@ -999,12 +1012,14 @@
 								<Cell head>Resource type</Cell>
 								<Cell head>Description</Cell>
 								<Cell head />
-								<Cell head last />
+								<Cell head last stickyEnd />
 							</Row>
 						</Head>
 						<tbody class="divide-y bg-surface">
 							{#if filteredItems}
 								{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, marked, is_refreshed, labels, inherited_labels, ws_specific, draft_only, is_draft }}
+									{@const hasDraft =
+										getLocalDraftHint($workspaceStore, 'resource', path) ?? is_draft}
 									<Row>
 										<Cell first>
 											<SharedBadge {canWrite} extraPerms={extra_perms} />
@@ -1014,12 +1029,13 @@
 												<a
 													class="break-all"
 													href="#/resource/{path}"
-													onclick={() => resourceEditor?.initEdit?.(path)}
-													>{#if marked}{@html marked}{:else}{path}{/if}{(getLocalDraftHint($workspaceStore, 'resource', path) ?? is_draft) ? '*' : ''}</a
+													onclick={() => {
+														handledHash = `#/resource/${path}`
+														resourceEditor?.initEdit?.(path)
+													}}
+													>{#if marked}{@html marked}{:else}{path}{/if}{hasDraft ? '*' : ''}</a
 												>
-												{#if draft_only}
-													<DraftBadge draft_only is_draft={false} />
-												{/if}
+												<DraftBadge {draft_only} is_draft={hasDraft} />
 												{#if labels?.length}
 													<div class="flex items-center gap-0.5">
 														{#each labels as label}
@@ -1158,83 +1174,86 @@
 												{/if}
 											</div>
 										</Cell>
-										<Cell class="flex justify-end">
-											{#if path && assetCanBeExplored({ kind: 'resource', path }, { resource_type }) && !$userStore?.operator}
-												<ExploreAssetButton
-													asset={{ kind: 'resource', path }}
-													_resourceMetadata={{ resource_type }}
-													class="w-24"
-												/>
-											{/if}
-											<Dropdown
-												class="w-fit"
-												items={[
-													{
-														displayName: 'Permissions',
-														icon: Shield,
-														action: () => {
-															shareModal?.openDrawer?.(path, 'resource')
-														}
-													},
-													{
-														displayName: 'Edit',
-														icon: Pen,
-														disabled: !canWrite || !showCreateButtons,
-														action: () => {
-															resourceEditor?.initEdit?.(path)
-														}
-													},
-													...(!ws_specific && isDeployable('resource', path, deployUiSettings)
-														? [
-																{
-																	displayName: 'Deploy to prod/staging',
-																	icon: FileUp,
-																	action: () => {
-																		deploymentDrawer?.openDrawer(path, 'resource')
+										<Cell last stickyEnd>
+											<div class="flex justify-end">
+												{#if path && assetCanBeExplored({ kind: 'resource', path }, { resource_type }) && !$userStore?.operator}
+													<ExploreAssetButton
+														asset={{ kind: 'resource', path }}
+														_resourceMetadata={{ resource_type }}
+														class="w-24"
+													/>
+												{/if}
+												<Dropdown
+													class="w-fit"
+													items={[
+														{
+															displayName: 'Permissions',
+															icon: Shield,
+															action: () => {
+																shareModal?.openDrawer?.(path, 'resource')
+															}
+														},
+														{
+															displayName: 'Edit',
+															icon: Pen,
+															disabled: !canWrite || !showCreateButtons,
+															action: () => {
+																resourceEditor?.initEdit?.(path)
+															}
+														},
+														...(!ws_specific && isDeployable('resource', path, deployUiSettings)
+															? [
+																	{
+																		displayName: 'Deploy to prod/staging',
+																		icon: FileUp,
+																		action: () => {
+																			deploymentDrawer?.openDrawer(path, 'resource')
+																		}
 																	}
-																}
-															]
-														: []),
-													{
-														displayName: 'Delete',
-														disabled: !canWrite || !showCreateButtons,
-														icon: Trash,
-														type: 'delete',
-														action: (event) => {
-															// TODO
-															// @ts-ignore
-															if (event?.shiftKey) {
-																deleteResource(path, account)
-															} else {
-																deleteIsLinked = is_linked ?? false
-																deleteConfirmedCallback = () => {
+																]
+															: []),
+														{
+															displayName: 'Delete',
+															disabled: !canWrite || !showCreateButtons,
+															icon: Trash,
+															type: 'delete',
+															action: (event) => {
+																// TODO
+																// @ts-ignore
+																if (event?.shiftKey) {
 																	deleteResource(path, account)
+																} else {
+																	deleteIsLinked = is_linked ?? false
+																	deletePath = path
+																	deleteConfirmedCallback = () => {
+																		deleteResource(path, account)
+																	}
 																}
 															}
-														}
-													},
-													...(account != undefined
-														? [
-																{
-																	displayName: 'Refresh token',
-																	icon: RotateCw,
-																	action: async () => {
-																		await OauthService.refreshToken({
-																			workspace: $workspaceStore ?? '',
-																			id: account ?? 0,
-																			requestBody: {
-																				path
-																			}
-																		})
-																		sendUserToast('Token refreshed')
-																		loadResources()
+														},
+														...(account != undefined
+															? [
+																	{
+																		displayName: 'Refresh token',
+																		icon: RotateCw,
+																		action: async () => {
+																			await OauthService.refreshToken({
+																				workspace: $workspaceStore ?? '',
+																				id: account ?? 0,
+																				requestBody: {
+																					path
+																				}
+																			})
+																			sendUserToast('Token refreshed')
+																			loadResources()
+																		}
 																	}
-																}
-															]
-														: [])
-												]}
-											/>
-										</Cell>
+																]
+															: [])
+													]}
+												/>
+											</div></Cell
+										>
 									</Row>
 								{/each}
 							{/if}
@@ -1262,7 +1281,7 @@
 							<Row>
 								<Cell head first>Name</Cell>
 								<Cell head>Description</Cell>
-								<Cell head last />
+								<Cell head last stickyEnd />
 							</Row>
 						</Head>
 						<tbody class="divide-y bg-surface">
@@ -1298,7 +1317,7 @@
 												{removeMarkdown(truncate(description ?? '', 200))}
 											</span>
 										</Cell>
-										<Cell last>
+										<Cell last stickyEnd>
 											{#if !canWrite}
 												<Badge>
 													Shared globally

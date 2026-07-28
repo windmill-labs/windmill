@@ -23,6 +23,7 @@
 	import NoWorkerWithTagWarning from './runs/NoWorkerWithTagWarning.svelte'
 	import { JobService } from '$lib/gen'
 	import { WM_LOGS_SKIPPED } from '$lib/consts'
+	import { isReplaying } from './recording/offlineReplay.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import QueuePosition from './QueuePosition.svelte'
@@ -87,6 +88,11 @@
 
 	let loadedFromObjectStore = $state('')
 
+	// A replayed job only exists inside the recording: its logs are whatever was
+	// captured, so every path that would go ask the backend for more has to stay
+	// shut. `jobId` still comes through for the reset-on-change bookkeeping.
+	let replaying = $derived(isReplaying())
+
 	// `content` is the WM_LOGS_SKIPPED sentinel when the job was fetched with
 	// no_logs=true. If an older in-memory value accidentally has real bytes
 	// concatenated after the sentinel, treat that as skipped too and refetch.
@@ -94,10 +100,12 @@
 	let resolvedSkippedLogs: string | undefined = $state(undefined)
 	let fetchedSkippedJobId: string | undefined = $state(undefined)
 	let effectiveContent = $derived(isLogsSkipped ? resolvedSkippedLogs : content)
-	let resolvingSkippedLogs = $derived(isLogsSkipped && !!jobId && resolvedSkippedLogs === undefined)
+	let resolvingSkippedLogs = $derived(
+		isLogsSkipped && !!jobId && !replaying && resolvedSkippedLogs === undefined
+	)
 
 	$effect(() => {
-		if (!isLogsSkipped || !jobId || fetchedSkippedJobId === jobId) {
+		if (!isLogsSkipped || !jobId || replaying || fetchedSkippedJobId === jobId) {
 			return
 		}
 		const id = jobId
@@ -248,7 +256,10 @@
 	let truncatedContent = $derived(
 		truncateContent(effectiveContent, loadedFromObjectStore, LOG_LIMIT)
 	)
-	let prefixInfo = $derived(findPrefixInfo(truncatedContent))
+	// The "Show more..." button behind this reads the rest of the logs out of the
+	// instance's object store, which a replay has no access to; leaving `prefixInfo`
+	// unset renders the `[windmill]` line as the plain log line it is.
+	let prefixInfo = $derived(replaying ? undefined : findPrefixInfo(truncatedContent))
 	let downloadStartUrl = $derived(findStartUrl(truncatedContent, prefixInfo))
 	$effect.pre(() => {
 		truncatedContent && scrollToBottom()
@@ -363,7 +374,7 @@
 								<NoWorkerWithTagWarning {tagLabel} {tag} />
 							</div>
 						{/if}
-						{#if jobId}
+						{#if jobId && !replaying}
 							<QueuePosition {jobId} />
 						{/if}
 					</div>

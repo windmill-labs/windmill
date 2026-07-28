@@ -426,6 +426,30 @@ export const settings: Record<string, Setting[]> = {
 			cloudonly: false,
 			ee_only: 'Workspace fairness is an Enterprise feature.',
 			hideInQuickSetup: true
+		},
+		{
+			label: 'Max jobs queued per concurrency key',
+			description:
+				'Rejects new jobs once this many are already queued behind one concurrency key. Jobs sharing a key run at most <em>concurrent limit</em> at a time regardless of spare worker capacity, so a caller pushing faster than the key drains grows a backlog no capacity can absorb. Scoped per key, so a runaway producer cannot block the rest of the workspace. Set 0 to disable. Default 10000.',
+			key: 'concurrency_key_max_queued_jobs',
+			fieldType: 'number',
+			placeholder: '10000',
+			storage: 'setting',
+			cloudonly: true,
+			ee_only: '',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Max jobs queued per workspace',
+			description:
+				'Rejects new jobs once a workspace has this many queued in total, across every concurrency key and script. Guards against a single workspace flooding the queue generally, including from parallel for-loops. Applies even to premium workspaces. Jobs already queued still drain; only new pushes past the ceiling are rejected. Set 0 to disable. Default 20000.',
+			key: 'workspace_max_queued_jobs',
+			fieldType: 'number',
+			placeholder: '20000',
+			storage: 'setting',
+			cloudonly: true,
+			ee_only: '',
+			hideInQuickSetup: true
 		}
 	],
 	'Object Storage': [
@@ -509,7 +533,7 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Azure OpenAI base path',
 			description:
-				'All workspaces using an OpenAI resource for Windmill AI will run on the specified deployed model. Format: https://{your-resource-name}.openai.azure.com/openai/deployments/{deployment-id}. <a href="https://www.windmill.dev/docs/core_concepts/ai_generation#azure-openai-advanced-models">Learn more</a>',
+				'All workspaces using an OpenAI resource for Windmill AI will run against the specified Azure resource. Format: https://{your-resource-name}.openai.azure.com/openai/deployments/{deployment-id} — keep the URL as stored; the model comes from each workspace\'s configured model list, whose entries must be your Azure deployment names. <a href="https://www.windmill.dev/docs/core_concepts/ai_generation#azure-openai-advanced-models">Learn more</a>',
 			key: 'openai_azure_base_path',
 			fieldType: 'text',
 			storage: 'setting',
@@ -946,7 +970,7 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Ruff config (ruff.toml)',
 			description:
-				'Shared ruff.toml applied to the Python editor linter across the whole instance. The LSP container fetches this every minute and writes it next to edited files. See <a href="https://docs.astral.sh/ruff/configuration/">ruff docs</a>',
+				'Shared ruff.toml applied to the Python editor linter across the whole instance. The LSP container fetches this every minute and writes it next to edited files. Leave empty to use the Windmill default (<code>select = ["E4", "E7", "E9", "F"]</code>); anything set here replaces that default entirely. See <a href="https://docs.astral.sh/ruff/configuration/">ruff docs</a>',
 			key: 'ruff_config',
 			fieldType: 'codearea',
 			codeAreaLang: 'toml',

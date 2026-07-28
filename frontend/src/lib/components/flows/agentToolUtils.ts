@@ -6,7 +6,7 @@ export const SPECIAL_TOOL_KINDS = ['mcpTool', 'websearchTool', 'aiAgentTool'] as
 export type SpecialToolKind = (typeof SPECIAL_TOOL_KINDS)[number]
 
 // Type aliases for better readability
-export type AgentTool = AiAgent['tools'][number]
+export type AgentTool = NonNullable<AiAgent['tools']>[number]
 export type FlowModuleTool = AgentTool & { value: { tool_type: 'flowmodule' } & FlowModuleValue }
 export type AiAgentTool = AgentTool & {
 	value: { tool_type: 'flowmodule' } & { type: 'aiagent' } & FlowModuleValue

@@ -229,7 +229,6 @@ pub enum ToolChoice {
 }
 
 pub struct OpenAIQueryBuilder {
-    #[allow(dead_code)]
     provider_kind: AIProvider,
 }
 
@@ -518,9 +517,7 @@ impl QueryBuilder for OpenAIQueryBuilder {
         parser.parse_events(response).await?;
 
         // Convert OpenAI Responses usage to TokenUsage
-        let usage = parser
-            .usage
-            .map(|u| TokenUsage::new(u.input_tokens, u.output_tokens, u.total_tokens));
+        let usage = parser.usage.map(|u| u.to_token_usage());
 
         Ok(ParsedResponse::Text {
             content: if parser.accumulated_content.is_empty() {
@@ -580,16 +577,25 @@ impl QueryBuilder for OpenAIQueryBuilder {
     }
 
     fn get_endpoint(&self, base_url: &str, _model: &str, _output_type: &OutputType) -> String {
-        format!("{}/responses", base_url)
+        let base_url = base_url.trim_end_matches('/');
+        if self.provider_kind.is_azure(base_url) {
+            AIProvider::build_azure_openai_url(base_url, "responses")
+        } else {
+            format!("{}/responses", base_url)
+        }
     }
 
     fn get_auth_headers(
         &self,
         api_key: &str,
-        _base_url: &str,
+        base_url: &str,
         _output_type: &OutputType,
     ) -> Vec<(&'static str, String)> {
-        vec![("Authorization", format!("Bearer {}", api_key))]
+        if self.provider_kind.is_azure(base_url) {
+            vec![("api-key", api_key.to_string())]
+        } else {
+            vec![("Authorization", format!("Bearer {}", api_key))]
+        }
     }
 }
 
