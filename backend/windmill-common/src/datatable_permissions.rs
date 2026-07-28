@@ -815,7 +815,17 @@ async fn drop_or_disable_on_target(
     is_instance: bool,
     role: &str,
 ) -> Result<DropOutcome> {
-    let client = connect_target(owner, db).await?;
+    // On instance databases act as the main pool's user: a `CREATEROLE` role
+    // may only drop roles it created itself, so the dedicated owner role
+    // cannot clean up roles minted before an ownership transfer (or by a
+    // previous owner). The main user has authority over the whole cluster.
+    // External databases keep using the resource's own user, which created
+    // its roles and can therefore drop them.
+    let client = if is_instance {
+        connect_instance_db_as_superuser(db, &owner.dbname).await?
+    } else {
+        connect_target(owner, db).await?
+    };
     let active: i64 = client
         .query_one(
             "SELECT count(*) FROM pg_stat_activity WHERE usename = $1",
@@ -1041,13 +1051,29 @@ async fn ensure_ephemeral_role(
     }
 
     let client = connect_target(owner, db).await?;
-    if role_exists(&client, &role).await? {
+    // Role management on instance databases runs as the main pool's user (see
+    // `drop_or_disable_on_target`); grants below still run as the owner, which
+    // is what must appear in `ALTER DEFAULT PRIVILEGES FOR ROLE`.
+    let role_admin = if is_instance {
+        connect_instance_db_as_superuser(db, &owner.dbname).await?
+    } else {
+        connect_target(owner, db).await?
+    };
+    if role_exists(&role_admin, &role).await? {
         if is_instance {
             revoke_instance_connect(db, &owner.dbname, &role).await;
         }
-        guarded_drop_role(&client, &role).await?;
+        guarded_drop_role(&role_admin, &role).await?;
     }
-    create_role(db, &client, &role, &password, is_instance, &owner.dbname).await?;
+    create_role(
+        db,
+        &role_admin,
+        &role,
+        &password,
+        is_instance,
+        &owner.dbname,
+    )
+    .await?;
 
     if is_instance {
         harden_instance_databases(db, &owner.dbname).await?;
