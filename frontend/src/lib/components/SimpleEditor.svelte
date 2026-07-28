@@ -621,6 +621,9 @@
 	onDestroy(() => {
 		try {
 			valueAfterDispose = getCode()
+			// Same reason as Editor: a pending debounce must reach `code` before we go.
+			// A timer that fires after this is a no-op — getCode() returns the same text.
+			updateCode()
 			pasteListenerCleanup?.()
 			vimDisposable?.dispose()
 			model && model.dispose()

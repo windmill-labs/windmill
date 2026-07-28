@@ -83,12 +83,12 @@ describe('describeStepSettings', () => {
 				}
 			} as Partial<FlowModule>)
 		)
-		// The runtime ignores it, so it is not configured — but saying "None" would hide
-		// a value the user typed, and the setting editor keeps its controls live on it.
-		expect(s['concurrency']?.configured).toBe(false)
+		// `configured` means the step carries the config, so a value the user set counts
+		// even when the runtime ignores it — the summary is what says it is a no-op.
+		expect(s['concurrency']?.configured).toBe(true)
 		expect(s['concurrency']?.summary).toMatchObject({ text: 'Invalid limit', state: 'invalid' })
-		expect(s['cache']?.configured).toBe(false)
-		expect(s['cache']?.summary.text).toBe('Off')
+		expect(s['cache']?.configured).toBe(true)
+		expect(s['cache']?.summary).toMatchObject({ text: 'No TTL set', state: 'invalid' })
 	})
 
 	it('treats a cleared concurrency input as present, not as unset', () => {

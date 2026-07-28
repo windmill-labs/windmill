@@ -225,10 +225,13 @@ const SPECS: { key: StepSettingKey; spec: SettingSpec }[] = [
 			label: 'Concurrency limit',
 			icon: Gauge,
 			applies: (m) => m.value.type === 'rawscript' || m.value.type === 'script',
+			// Presence for the step's own limit (the user may be mid-edit, and `summary` says
+			// when it is a no-op), effectiveness for the referenced script's — a remote
+			// value nobody is typing into, where 0 just means the script has no limit.
 			configured: (m, ctx) =>
 				isWorkspaceScript(m)
 					? ctx.referenced?.concurrent_limit != undefined && ctx.referenced.concurrent_limit > 0
-					: (inlineConcurrentLimit(m) ?? 0) > 0,
+					: hasInlineConcurrency(m),
 			summarize: (m, ctx) => {
 				if (isWorkspaceScript(m)) {
 					const l = ctx.referenced?.concurrent_limit
@@ -260,10 +263,12 @@ const SPECS: { key: StepSettingKey; spec: SettingSpec }[] = [
 			icon: Database,
 			// The worker takes the module's cache_ttl over the referenced script's, so a
 			// module-level TTL must show here even for a workspace-script step.
-			configured: (m, ctx) => (effectiveCacheTtl(m, ctx) ?? 0) > 0,
+			configured: (m, ctx) =>
+				m.cache_ttl !== undefined || (isWorkspaceScript(m) && (ctx.referenced?.cache_ttl ?? 0) > 0),
 			summarize: (m, ctx) => {
 				const ttl = effectiveCacheTtl(m, ctx)
-				return ttl != undefined && ttl > 0 ? cfg(formatDur(ttl)) : def('Off')
+				if (ttl === undefined) return def('Off')
+				return ttl > 0 ? cfg(formatDur(ttl)) : inv('No TTL set')
 			}
 		}
 	},
@@ -272,10 +277,11 @@ const SPECS: { key: StepSettingKey; spec: SettingSpec }[] = [
 		spec: {
 			label: 'Debounce',
 			icon: Combine,
-			configured: (m) => Boolean(m.debouncing?.debounce_delay_s),
+			configured: (m) => m.debouncing?.debounce_delay_s !== undefined,
 			summarize: (m) => {
 				const d = m.debouncing?.debounce_delay_s
-				return d ? cfg(`${formatDur(d)} debounce`) : def('Off')
+				if (d === undefined) return def('Off')
+				return d > 0 ? cfg(`${formatDur(d)} debounce`) : inv('No delay set')
 			}
 		}
 	},

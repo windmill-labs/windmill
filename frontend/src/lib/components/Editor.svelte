@@ -1971,8 +1971,11 @@
 	})
 
 	onDestroy(() => {
-		console.log('destroying editor')
 		valueAfterDispose = getCode()
+		// Materialize the trailing debounce before tearing down: whoever unmounts us
+		// (closing the step panel, switching steps) would otherwise silently discard
+		// everything typed in the last `changeTimeout` ms.
+		updateCode()
 		pasteCleanup?.()
 		destroyed = true
 		disposeMethod && disposeMethod()
