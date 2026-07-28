@@ -208,6 +208,7 @@
 						</span>
 						<div class="border">
 							<PropPickerWrapper
+								popover={true}
 								{result}
 								displayContext={false}
 								pickableProperties={undefined}

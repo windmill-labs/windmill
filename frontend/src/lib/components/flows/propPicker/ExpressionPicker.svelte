@@ -39,7 +39,8 @@
 		inputMatches: writable(undefined),
 		exprBeingEdited: writable([]),
 		connectProp: () => {},
-		clearConnect: () => connect.disarm()
+		clearConnect: () => connect.disarm(),
+		pickerMode: () => 'popover' as const
 	})
 
 	let open = $state(false)

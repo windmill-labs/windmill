@@ -13,6 +13,10 @@
 		inputMatches: Writable<{ word: string; value: string }[] | undefined>
 		connectProp: (propName: string, onSelect: SelectCallback) => void
 		clearConnect: () => void
+		/** 'popover' hangs the picker off each input's own connect button instead of
+		 *  taking a pane — for single-argument settings rows, which are not the step's
+		 *  input form. */
+		pickerMode: () => 'pane' | 'popover'
 		exprBeingEdited: Writable<string[]>
 	}
 </script>
@@ -39,6 +43,9 @@
 		notSelectable?: boolean
 		noPadding?: boolean
 		paneClass?: string
+		/** Settings rows reuse the step-input form for one argument but are not the input
+		 *  form; their picker belongs in a popover. */
+		popover?: boolean
 		children?: import('svelte').Snippet
 	}
 
@@ -52,6 +59,7 @@
 		notSelectable = false,
 		noPadding = false,
 		paneClass = '',
+		popover = false,
 		children
 	}: Props = $props()
 
@@ -82,6 +90,7 @@
 		inputMatches,
 		connectProp: (propName, onSelect) => connect.arm({ id: propName, onSelect }),
 		clearConnect: connect.disarm,
+		pickerMode: () => (popover ? 'popover' : 'pane'),
 		exprBeingEdited: writable<string[]>([])
 	})
 
@@ -146,14 +155,22 @@
 		}
 	}}
 >
-	<Splitpanes class={$propPickerConfig ? 'splitpanes-remove-splitter' : ''}>
-		<Pane minSize={20} size={60} class={'relative !transition-none'}>
-			<div style="height: {rightPaneHeight}px;" class={noPadding ? '' : 'p-2'}>
-				{@render children?.()}
-			</div>
-		</Pane>
-		<Pane minSize={20} size={40} class="!transition-none z-1000 relative {paneClass}">
-			{@render pickerBody()}
-		</Pane>
-	</Splitpanes>
+	{#if popover}
+		<!-- The picker lives on each input's connect button here, so the row keeps its
+		     full width. -->
+		<div class={noPadding ? '' : 'p-2'}>
+			{@render children?.()}
+		</div>
+	{:else}
+		<Splitpanes class={$propPickerConfig ? 'splitpanes-remove-splitter' : ''}>
+			<Pane minSize={20} size={60} class={'relative !transition-none'}>
+				<div style="height: {rightPaneHeight}px;" class={noPadding ? '' : 'p-2'}>
+					{@render children?.()}
+				</div>
+			</Pane>
+			<Pane minSize={20} size={40} class="!transition-none z-1000 relative {paneClass}">
+				{@render pickerBody()}
+			</Pane>
+		</Splitpanes>
+	{/if}
 </div>

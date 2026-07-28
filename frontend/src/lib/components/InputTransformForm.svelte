@@ -38,6 +38,7 @@
 	import type { PickableProperties } from './flows/previousResults'
 	import { twMerge } from 'tailwind-merge'
 	import FlowPlugConnect from './FlowPlugConnect.svelte'
+	import ExpressionPicker from './flows/propPicker/ExpressionPicker.svelte'
 	import { deepEqual } from 'fast-equals'
 	import S3ArrayHelperButton from './S3ArrayHelperButton.svelte'
 	import { inputBorderClass } from './text_input/TextInput.svelte'
@@ -123,6 +124,7 @@
 	// Modal panel (sessions) suppresses the blue connect-ring animations.
 	const propPickerCtx = getContext<PropPickerContext | undefined>('PropPickerContext')
 	const suppressConnectAnimation = $derived(propPickerCtx?.inModalPanel?.() ?? false)
+	const pickerMode = $derived(propPickerWrapperContext?.pickerMode?.() ?? 'pane')
 	const {
 		inputMatches,
 		connectProp: focusProp,
@@ -563,7 +565,18 @@
 						/>
 					{/if}
 
-					{#if propPickerWrapperContext}
+					{#if propPickerWrapperContext && pickerMode === 'popover'}
+						<!-- Settings rows have no picker pane, so the properties hang off the
+						     button itself, exactly as the other expression inputs do. -->
+						<ExpressionPicker
+							id={argName}
+							{pickableProperties}
+							onSelect={(path) => {
+								connectProperty(path)
+								dispatch('change', { argName })
+							}}
+						/>
+					{:else if propPickerWrapperContext}
 						<FlowPlugConnect
 							wrapperClasses={twMerge(
 								'group-hover:opacity-100 transition-opacity',

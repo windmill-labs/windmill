@@ -68,11 +68,12 @@
 		{#if flowModule.sleep && schema.properties['sleep']}
 			<div class="border rounded-md overflow-auto">
 				<PropPickerWrapper
+					popover={true}
 					flow_input={stepPropPicker.pickableProperties.flow_input}
 					notSelectable
 					{result}
 					displayContext={false}
-					pickableProperties={undefined}
+					pickableProperties={stepPropPicker.pickableProperties}
 					on:select={({ detail }) => {
 						editor?.insertAtCursor(detail)
 						editor?.focus()

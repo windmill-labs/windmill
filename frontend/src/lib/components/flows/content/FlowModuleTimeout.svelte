@@ -79,6 +79,7 @@
 		{#if flowModule.timeout && schema.properties['timeout']}
 			<div class="border">
 				<PropPickerWrapper
+					popover={true}
 					flow_input={stepPropPicker.pickableProperties.flow_input}
 					notSelectable
 					pickableProperties={stepPropPicker.pickableProperties}

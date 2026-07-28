@@ -234,6 +234,7 @@
 		connectProp: () => {},
 		propPickerConfig: writable(undefined),
 		clearConnect: () => {},
+		pickerMode: () => 'popover' as const,
 		exprBeingEdited: writable([])
 	})
 </script>
