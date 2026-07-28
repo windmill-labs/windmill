@@ -2695,8 +2695,11 @@ class TaskError(Exception):
         step_key: The checkpoint key of the failed step.
         child_job_id: The UUID of the failed child job, or ``None`` for a
             ``step()``, which runs in the workflow job and has no child job.
-        result: ``{"error": {"name", "message", "stack"?}}`` — the same shape
-            whether a task or a step failed.
+        result: ``{"error": {"name", "message", "stack"?, "extra"?}}`` — the
+            same shape whether a task or a step failed. ``name`` and ``message``
+            are always present; ``stack`` only when the failure had a traceback,
+            and ``extra`` only when it carried custom fields of its own, dropped
+            with ``extra_omitted: True`` beside it when too large to checkpoint.
     """
 
     def __init__(self, message: str, *, step_key: str = "", child_job_id: Optional[str] = None, result=None):
@@ -3067,10 +3070,14 @@ class WorkflowCtx:
                         # from the marker posted above, is what makes this round
                         # and every replay read the same record even if the two
                         # sides ever disagree about how to build one.
-                        try:
+                        #
+                        # A backend predating the echo answers without a JSON
+                        # body, and the round-tripped marker below stands in. A
+                        # JSON body that will not parse is different: the record
+                        # may already be committed and its content is unknown,
+                        # so let it raise and take the suspend path instead.
+                        if "json" in _resp.headers.get("content-type", ""):
                             _stored_failure = (_resp.json() or {}).get("failure")
-                        except Exception:
-                            _stored_failure = None
                 _fast_path_ok = True
             except Exception as _e:
                 logger.info(
@@ -3089,8 +3096,11 @@ class WorkflowCtx:
                 # is None against a backend that predates the echoed record; the
                 # locally built marker is then the best available guess at it.
                 if step_failed:
+                    # ``_replay_result``, not ``result``: the fallback has to be
+                    # what the checkpoint holds, so the round that ran the body
+                    # reads what every replay of it will.
                     raise _task_error_from_marker(
-                        _stored_failure or result, f"Step '{name}' failed"
+                        _stored_failure or _replay_result, f"Step '{name}' failed"
                     )
                 # Return the round trip of what was checkpointed, never the
                 # in-memory value: handing back the live object would let the

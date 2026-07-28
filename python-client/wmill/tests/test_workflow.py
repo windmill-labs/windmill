@@ -1110,6 +1110,11 @@ class TestRaisingInlineStepIsCheckpointed:
                 stored = {**self.posted[-1]["result"], "message": "normalized by the backend"}
 
                 class _Response:
+                    # the endpoint answers with a JSON body; a backend predating
+                    # the echo answers without one, which is how the client tells
+                    # "no echo" from "an echo it could not read"
+                    headers = {"content-type": "application/json"}
+
                     def raise_for_status(self):
                         pass
 
@@ -1149,6 +1154,49 @@ class TestRaisingInlineStepIsCheckpointed:
         assert len(posted) == 1
         assert posted[0]["key"] == "risky"
         assert self._without_stack(posted[0]["result"]) == self.MARKER
+
+    def test_a_missing_echo_is_not_the_same_as_an_unreadable_one(self, monkeypatch):
+        """A backend predating the echo answers without a JSON body and the
+        locally checkpointed marker stands in. A JSON body that will not parse
+        means the stored record exists but is unknown, so the round has to end
+        and let the next one read whatever the backend actually kept."""
+        _set_inline_fast_path_env(monkeypatch)
+
+        def _client(headers, json_impl):
+            class _Response:
+                def raise_for_status(self):
+                    pass
+
+            _Response.headers = headers
+            _Response.json = json_impl
+
+            class _Client(_StubInlineClient):
+                async def post(self, url, content=None):
+                    await super().post(url, content=content)
+                    return _Response()
+
+            return _Client()
+
+        def _boom_json(self):
+            raise ValueError("not json")
+
+        async def run():
+            # no JSON body: the fast path still completes, raising the failure
+            ctx = WorkflowCtx({})
+            ctx._inline_http_client = _client({}, _boom_json)
+            with pytest.raises(TaskError):
+                await ctx._run_inline_step("risky", self._boom)
+
+            # a JSON body that will not parse: fall through to the suspend path
+            ctx = WorkflowCtx({})
+            ctx._inline_http_client = _client(
+                {"content-type": "application/json"}, _boom_json
+            )
+            with pytest.raises(_StepSuspend) as suspend:
+                await ctx._run_inline_step("risky", self._boom)
+            assert suspend.value.dispatch_info["key"] == "risky"
+
+        asyncio.run(run())
 
     def test_replay_reraises_and_does_not_hang(self):
         checkpoint = {

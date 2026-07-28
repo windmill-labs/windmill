@@ -1973,8 +1973,17 @@ export class WorkflowCtx {
           // back what it stored. Throwing from that, not from the marker posted
           // above, is what makes this round and every replay read the same
           // record even if the two sides ever disagree about how to build one.
-          // Undefined against a backend that predates the echoed record.
-          return await resp.json().then((b: any) => b?.failure).catch(() => undefined);
+          //
+          // A backend predating the echo answers without a JSON body; the
+          // caller then falls back to the round trip of what it posted. A JSON
+          // body we cannot read is different: the normalized record may already
+          // be committed and we do not know what it says, so let this reject
+          // and take the suspend path, where the next round reads whatever the
+          // backend actually stored.
+          if (!(resp.headers.get("content-type") ?? "").includes("json")) {
+            return undefined;
+          }
+          return (await resp.json())?.failure;
         } finally {
           clearTimeout(t);
         }
@@ -1999,7 +2008,11 @@ export class WorkflowCtx {
         // the next. Nothing is attached to `cause` for the same reason — the
         // stack a replay can still show is in `result.error.stack`.
         if (errored) {
-          throw taskErrorFromMarker(storedFailure ?? result, `Step '${name}' failed`);
+          // `checkpointed`, not `result`: against a backend with no echo the
+          // fallback still has to be what the checkpoint holds, or an `extra`
+          // carrying a Date reads as a Date now and as its ISO string on every
+          // replay — the divergence the success path below already avoids.
+          throw taskErrorFromMarker(storedFailure ?? checkpointed, `Step '${name}' failed`);
         }
         // Return the round trip of what was checkpointed, never the in-memory
         // value: handing back the live object would let the round that ran the
