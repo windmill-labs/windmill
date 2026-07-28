@@ -27,22 +27,24 @@
 	)
 </script>
 
-{#snippet button(onClick?: () => void)}
+{#snippet button(onClick?: () => void, inert = false)}
 	<Button
 		size="xs"
 		color="light"
 		btnClasses={twMerge('!px-2', aiChatScriptModeClasses)}
 		{onClick}
 		iconOnly
-		disabled={inSessionPane}
-		title={inSessionPane ? 'AI chat is driven by the session' : 'Open AI chat'}
+		disabled={inert}
+		title={inert ? 'AI chat is driven by the session' : 'Open AI chat'}
 		startIcon={{ icon: WandSparkles, classes: 'text-ai' }}
 		{...btnProps}
 	/>
 {/snippet}
 
 {#if inSessionPane && $copilotInfo.enabled}
-	{@render button()}
+	<!-- Inert: the session's own chat drives this step, so the per-step opener would be
+	     a second entry point to the same thing. -->
+	{@render button(undefined, true)}
 {:else if $copilotInfo.enabled}
 	{@render button(() => {
 		aiChatManager.openChat()
