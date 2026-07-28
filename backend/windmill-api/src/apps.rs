@@ -4918,12 +4918,13 @@ mod embed_token_tests {
             .includes(&required));
     }
 
-    /// The raw-app frontend SDK token is bounded by two properties: no `apps:*`
-    /// scope (so the Apps-domain mint endpoints are unreachable and a captured
-    /// token can't renew itself past its expiry), and the `raw_app_sdk` sentinel
-    /// (so `jobs:run` can't reach the request-supplied-code endpoints, which
-    /// would escalate a captured token to arbitrary execution as the viewer).
-    /// Lock both, plus the viewer-permissioned surface each curated scope grants.
+    /// The raw-app frontend SDK token is bounded by no `apps:*` scope (so the
+    /// Apps-domain mint endpoints are unreachable and a captured token can't renew
+    /// itself past its expiry) and by the `raw_app_sdk` sentinel (so `jobs:run`
+    /// can't reach the endpoints that run caller-supplied or caller-named code —
+    /// which would escalate a captured token to arbitrary execution as the viewer
+    /// — and `users:read` can't reach the workspace member directory).
+    /// Lock all of it, plus the viewer-permissioned surface each curated scope grants.
     #[test]
     fn frontend_sdk_scopes_reach_declared_domains_but_never_mint_routes() {
         // Mirror mint_raw_app_sdk_token: declared scopes + the narrowing sentinel.
@@ -4981,11 +4982,13 @@ mod embed_token_tests {
             ("/api/w/test/jobs/run/dependencies_async", "POST"),
             ("/api/w/test/jobs/run/flow_dependencies", "POST"),
             ("/api/w/test/jobs/run/flow_dependencies_async", "POST"),
-            // Replays a named queued preview job's raw code as the caller.
+            // Replay a named job's already-stored code as the caller: the queued
+            // preview's raw_code, or a completed preview flow's raw_flow.
             (
                 "/api/w/test/jobs/run/workflow_as_code/some-uuid/main",
                 "POST",
             ),
+            ("/api/w/test/jobs/restart/f/some-uuid", "POST"),
             // `users:read` is presented to the viewer as "read your identity", so
             // the workspace member directory must stay out of reach.
             ("/api/w/test/users/list", "GET"),

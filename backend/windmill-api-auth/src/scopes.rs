@@ -743,13 +743,16 @@ pub fn has_raw_app_sdk_sentinel(scopes: Option<&[String]>) -> bool {
 /// Without this, a captured SDK token escalates to the viewer's full account:
 /// these jobs run attacker-chosen code (or resolve and install attacker-chosen
 /// packages on a worker) and their own ephemeral credential is unscoped and
-/// permissioned as the viewer. `workflow_as_code` counts even though its body is
-/// just args: it copies the named queued job's `raw_code` into a new job without
-/// an ownership check, so a pre-staged preview job replays as the viewer.
+/// permissioned as the viewer. The last two count even though their bodies carry
+/// no code, because they re-run code a *named* job already holds:
+/// `workflow_as_code` copies the named queued job's `raw_code` into a new job
+/// with no ownership check, and restarting a completed preview flow re-runs its
+/// stored `raw_flow`. Either replays a pre-staged preview as the viewer, and the
+/// scope layer can't tell a preview restart from a deployed-flow one.
 /// The SDK never calls these — its run helpers are all by path/hash.
 fn is_request_supplied_code_route(suffix: &str) -> bool {
     // Prefixes, so the `_async` variants are covered too.
-    const CODE_ROUTES: [&str; 9] = [
+    const CODE_ROUTES: [&str; 10] = [
         "jobs/run/preview",
         "jobs/run_inline/preview",
         "jobs/run_wait_result/preview",
@@ -759,6 +762,7 @@ fn is_request_supplied_code_route(suffix: &str) -> bool {
         "jobs/run/dependencies",
         "jobs/run/flow_dependencies",
         "jobs/run/workflow_as_code",
+        "jobs/restart/f",
     ];
     CODE_ROUTES.iter().any(|p| suffix.starts_with(p))
 }
