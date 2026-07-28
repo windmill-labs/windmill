@@ -8,8 +8,11 @@
 //!  - `CREATE TABLE IF NOT EXISTS` checks CREATE on the schema *before* it
 //!    checks existence, so the run must probe for `_wm_migrations` first or an
 //!    unprivileged role can never migrate, even against a pre-created table.
+//!
+//! Plus the privilege report that surfaces the same state from workspace
+//! settings before anyone reaches a migration.
 
-use serde_json::json;
+use serde_json::{json, Value};
 use sqlx::{Pool, Postgres};
 
 use windmill_test_utils::*;
@@ -110,6 +113,100 @@ async fn test_run_migrations_without_create_privilege(db: Pool<Postgres>) -> any
         status, 200,
         "run should succeed on a pre-created table: {body}"
     );
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("datatable_migrations_grants"))]
+async fn test_datatable_connection_report(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    setup_unprivileged_datatable_role(&db).await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let url =
+        format!("http://localhost:{port}/api/w/dtmig-ws/workspaces/test_datatable_connection/main");
+
+    // The report is a privilege disclosure about the data table's database, so
+    // it stays behind the same bar as editing the data table config.
+    let resp = reqwest::Client::new()
+        .get(&url)
+        .header("Authorization", "Bearer DTMIG_USER_TOKEN")
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 403, "non-admins must not get the report");
+
+    let report: Value = authed(reqwest::Client::new().get(&url))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(report["user"], ROLE);
+    assert_eq!(report["schema"], "public");
+    assert_eq!(report["can_create_table"], false);
+    assert_eq!(report["can_create_schema"], false);
+    let grants = report["suggested_grants"].as_array().unwrap();
+    assert!(
+        grants
+            .iter()
+            .any(|g| g.as_str().unwrap()
+                == format!("GRANT CREATE ON SCHEMA \"public\" TO \"{ROLE}\"")),
+        "missing schema grant: {report}"
+    );
+    assert!(
+        grants
+            .iter()
+            .any(|g| g.as_str().unwrap().starts_with("GRANT CREATE ON DATABASE ")),
+        "missing database grant: {report}"
+    );
+
+    // A pre-created bookkeeping table lets migration *tracking* work, but the
+    // role still cannot create anything: the report must keep saying so rather
+    // than falling silent because nothing needs creating right now.
+    sqlx::raw_sql(&format!(
+        "CREATE TABLE _wm_migrations ( \
+            datatable TEXT NOT NULL, \
+            version BIGINT NOT NULL, \
+            installed_at TIMESTAMPTZ NOT NULL DEFAULT now(), \
+            PRIMARY KEY (datatable, version)); \
+         GRANT SELECT, INSERT, UPDATE, DELETE ON _wm_migrations TO {ROLE};"
+    ))
+    .execute(&db)
+    .await?;
+
+    let report: Value = authed(reqwest::Client::new().get(&url))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(report["migrations_table_exists"], true);
+    assert_eq!(report["can_create_table"], false);
+    assert!(
+        report["suggested_grants"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|g| g.as_str().unwrap().contains("ON SCHEMA")),
+        "an existing bookkeeping table must not suppress the schema grant: {report}"
+    );
+
+    // Granting the privileges clears the suggestions.
+    sqlx::raw_sql(&format!(
+        "GRANT CREATE ON SCHEMA public TO {ROLE}; \
+         GRANT CREATE ON DATABASE \"{}\" TO {ROLE};",
+        (*db.connect_options()).clone().get_database().unwrap()
+    ))
+    .execute(&db)
+    .await?;
+
+    let report: Value = authed(reqwest::Client::new().get(&url))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(report["can_create_table"], true);
+    assert_eq!(report["can_create_schema"], true);
+    assert_eq!(report["suggested_grants"].as_array().unwrap().len(), 0);
 
     Ok(())
 }

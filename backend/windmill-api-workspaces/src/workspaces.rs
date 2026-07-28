@@ -2038,7 +2038,9 @@ struct DataTableConnectionCheck {
     /// Whether that role can create tables in `schema` / schemas in the database.
     can_create_table: bool,
     can_create_schema: bool,
-    /// Whether the migration bookkeeping table is already present.
+    /// Whether the migration bookkeeping table is already present. Informative
+    /// only: it explains why migration *tracking* can work without CREATE, and
+    /// grants nothing beyond that.
     migrations_table_exists: bool,
     /// Statements to run for the privileges that are missing, empty when there
     /// are none. Windmill connects as the role that lacks them, so it can only
@@ -2100,9 +2102,9 @@ async fn test_datatable_connection(
 
     let quoted_user = render_db_quoted_identifier(&user, DbType::Postgresql);
     let mut suggested_grants = Vec::new();
-    // A pre-created bookkeeping table makes CREATE optional for migration
-    // tracking, so only suggest the schema grant while it is genuinely needed.
-    if !can_create_table && !migrations_table_exists {
+    // Suggest on the capability alone: an existing `_wm_migrations` spares only
+    // that one table, and says nothing about the tables a migration will create.
+    if !can_create_table {
         let target = schema.as_deref().unwrap_or("public");
         suggested_grants.push(format!(
             "GRANT CREATE ON SCHEMA {} TO {}",

@@ -23,3 +23,13 @@ INSERT INTO usr(workspace_id, email, username, is_admin, role) VALUES
 
 INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin)
     VALUES (encode(sha256('DTMIG_ADMIN_TOKEN'::bytea), 'hex'), 'DTMIG_ADM', 'DTMIG_ADMIN_TOKEN', 'dtmig-admin@windmill.dev', 't', true);
+
+-- Non-admin member, to pin that the privilege report stays admin-only.
+INSERT INTO password(email, password_hash, login_type, super_admin, verified, name, username)
+    VALUES ('dtmig-user@windmill.dev', 'x', 'password', false, true, 'DTMIG User', 'dtmig-user');
+
+INSERT INTO usr(workspace_id, email, username, is_admin, role) VALUES
+    ('dtmig-ws', 'dtmig-user@windmill.dev', 'dtmig-user', false, 'User');
+
+INSERT INTO token(token_hash, token_prefix, token, email, label)
+    VALUES (encode(sha256('DTMIG_USER_TOKEN'::bytea), 'hex'), 'DTMIG_USR', 'DTMIG_USER_TOKEN', 'dtmig-user@windmill.dev', 't');

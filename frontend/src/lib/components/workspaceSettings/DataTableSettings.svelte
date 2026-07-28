@@ -391,11 +391,12 @@
 			{connectionCheck.error}
 		</Alert>
 	{:else if report}
+		{@const fullyPrivileged = report.can_create_table && report.can_create_schema}
 		<Alert
-			type={report.suggested_grants.length > 0 ? 'warning' : 'success'}
-			title={report.suggested_grants.length > 0
-				? `${connectionCheck.name} is reachable but its user is missing privileges`
-				: `${connectionCheck.name} is reachable and its user can create tables`}
+			type={fullyPrivileged ? 'success' : 'warning'}
+			title={fullyPrivileged
+				? `${connectionCheck.name} is reachable and its user can create tables and schemas`
+				: `${connectionCheck.name} is reachable but its user is missing privileges`}
 			class="mt-4"
 			size="xs"
 		>
@@ -404,6 +405,20 @@
 					Connects as <span class="font-mono">{report.user}</span>{#if report.schema}, resolving
 						unqualified statements to schema <span class="font-mono">{report.schema}</span>{/if}.
 				</div>
+				<ul class="list-disc list-inside">
+					<li>
+						Create tables{report.schema ? ` in ${report.schema}` : ''}:
+						<span class="font-semibold">{report.can_create_table ? 'yes' : 'no'}</span>
+					</li>
+					<li>
+						Create schemas:
+						<span class="font-semibold">{report.can_create_schema ? 'yes' : 'no'}</span>
+					</li>
+					<li>
+						Migration bookkeeping table exists:
+						<span class="font-semibold">{report.migrations_table_exists ? 'yes' : 'no'}</span>
+					</li>
+				</ul>
 				{#if report.suggested_grants.length > 0}
 					<div>
 						Windmill connects as the role that lacks these privileges, so it cannot grant them
