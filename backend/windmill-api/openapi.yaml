@@ -21279,7 +21279,7 @@ paths:
             type: string
         - name: shallow
           in: query
-          description: When true, list only the direct children of the prefix (delimiter-style listing) and return subfolder prefixes in `folders`. Files of that level page via `marker`/`next_marker`.
+          description: When true, list only the direct children of the prefix (delimiter-style listing) and return subfolder prefixes in `folders`. The level's files and subfolders page via `marker`/`next_marker`.
           schema:
             type: boolean
       responses:
@@ -21300,7 +21300,7 @@ paths:
                     type: boolean
                   folders:
                     type: array
-                    description: Direct subfolder prefixes (only present for shallow listings; complete in the first page, empty in later ones)
+                    description: Direct subfolder prefixes (only present for shallow listings; reported as the level is paged through, like the files)
                     items:
                       type: string
                 required:
@@ -21419,7 +21419,7 @@ paths:
             type: string
         - name: shallow
           in: query
-          description: When true, list only the direct children of the prefix (delimiter-style listing) and return subfolder prefixes in `folders`. Files of that level page via `marker`/`next_marker`.
+          description: When true, list only the direct children of the prefix (delimiter-style listing) and return subfolder prefixes in `folders`. The level's files and subfolders page via `marker`/`next_marker`.
           schema:
             type: boolean
       responses:
@@ -21440,7 +21440,7 @@ paths:
                     type: boolean
                   folders:
                     type: array
-                    description: Direct subfolder prefixes (only present for shallow listings; complete in the first page, empty in later ones)
+                    description: Direct subfolder prefixes (only present for shallow listings; reported as the level is paged through, like the files)
                     items:
                       type: string
                 required:
