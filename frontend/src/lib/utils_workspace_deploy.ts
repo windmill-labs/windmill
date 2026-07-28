@@ -167,24 +167,6 @@ function legacyTriggerKind(kind: TriggerDeployKind) {
 	return map[kind]
 }
 
-/**
- * A raw app whose bundle produced no CSS has no `.css` blob stored, so fetching one 404s. The shared
- * deploy asks for `.js` and `.css` unconditionally, which would make every such app undeployable —
- * so report the absent stylesheet as empty rather than fatal. Only the stylesheet is forgiven: a
- * missing `.js` is a genuinely broken bundle and must still fail the deploy.
- */
-async function getRawAppDataAllowingMissingCss(p: {
-	secretWithExtension: string
-	workspace: string
-}): Promise<any> {
-	try {
-		return await AppService.getRawAppData(p)
-	} catch (e: any) {
-		if (p.secretWithExtension.endsWith('.css') && e?.status === 404) return ''
-		throw e
-	}
-}
-
 function makeProvider(): DeployProvider {
 	return {
 		existsFlowByPath: (p) => FlowService.existsFlowByPath(p),
@@ -207,7 +189,7 @@ function makeProvider(): DeployProvider {
 		createAppRaw: (p) => AppService.createAppRaw(p),
 		updateAppRaw: (p) => AppService.updateAppRaw(p),
 		getPublicSecretOfLatestVersionOfApp: (p) => AppService.getPublicSecretOfLatestVersionOfApp(p),
-		getRawAppData: (p) => getRawAppDataAllowingMissingCss(p),
+		getRawAppData: (p) => AppService.getRawAppData(p),
 		deleteApp: (p) => AppService.deleteApp(p),
 		getVariable: (p) => VariableService.getVariable(p),
 		createVariable: (p) => VariableService.createVariable(p),
