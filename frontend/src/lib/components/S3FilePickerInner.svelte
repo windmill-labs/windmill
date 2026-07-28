@@ -534,6 +534,7 @@
 	// Walk the ancestor folders of fileKey below rootPath, loading and expanding
 	// each level so the selected file's node exists and is visible.
 	async function expandAncestors(fileKey: string) {
+		const generation = loadGeneration
 		const split_path = fileKey.split('/')
 		let prefix = ''
 		for (let i = 0; i < split_path.length - 1; i++) {
@@ -547,6 +548,11 @@
 			}
 			if (folder.childrenLoaded !== true) {
 				await loadShallowFolder(prefix)
+				// A reload during the fetch left `folder` pointing at a discarded
+				// node; expanding it now would show an empty open folder.
+				if (generation !== loadGeneration) {
+					return
+				}
 			}
 			folder.collapsed = false
 			for (const file_key in allFilesByKey) {
@@ -826,6 +832,7 @@
 				}
 			} else {
 				if (item.childrenLoaded === false) {
+					const generation = loadGeneration
 					loadingFolderKeys.add(item_key)
 					try {
 						await loadShallowFolder(item_key)
@@ -835,6 +842,12 @@
 						return
 					} finally {
 						loadingFolderKeys.delete(item_key)
+					}
+					// A reload during the fetch replaced the node this click
+					// toggled, so revealing children now would show rows under a
+					// folder the fresh tree still draws as closed.
+					if (generation !== loadGeneration) {
+						return
 					}
 				}
 				// Re-add the currently hidden element to displayed_file_keys
