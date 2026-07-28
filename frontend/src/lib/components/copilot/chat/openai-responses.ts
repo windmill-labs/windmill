@@ -16,6 +16,7 @@ import { applyReasoningToConfig } from '../reasoningRegistry'
 import {
 	appendPendingToolImages,
 	processToolCall,
+	queuedToolStatus,
 	type Tool,
 	type ToolCallbacks,
 	type WebSearchSource
@@ -402,7 +403,7 @@ export async function parseOpenAIResponsesCompletion(
 			callbacks.onMessageEnd()
 			callbacks.setToolStatus(`${item.id}`, {
 				isLoading: true,
-				content: tool?.streamingLabel ?? `Calling ${item.name}...`,
+				content: tool?.streamingLabel ?? `Preparing ${item.name}...`,
 				toolName: item.name,
 				isStreamingArguments: shouldStream,
 				showFade: tool?.showFade,
@@ -470,11 +471,12 @@ export async function parseOpenAIResponsesCompletion(
 
 	// Handle function call arguments done
 	runner.on('response.function_call_arguments.done', (event) => {
-		// Clear streaming state
+		// Args fully streamed: demote to queued (see queuedToolStatus).
 		currentStreamingTool = undefined
-		callbacks.setToolStatus(`${event.item_id}`, {
-			isStreamingArguments: false
-		})
+		callbacks.setToolStatus(
+			`${event.item_id}`,
+			queuedToolStatus(tools, toolCallsMap[event.item_id]?.name ?? '', event.arguments)
+		)
 
 		// Retrieve tool call metadata from map
 		const metadata = toolCallsMap[event.item_id]

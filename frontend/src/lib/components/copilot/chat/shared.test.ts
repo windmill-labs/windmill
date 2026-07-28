@@ -1069,6 +1069,68 @@ describe('trimJob', () => {
 	})
 })
 
+describe('processToolCall preAction', () => {
+	// preAction's "-ing" label must land at execution start, not stream time —
+	// firing it earlier would relabel a still-queued card as active.
+	it('invokes preAction at promotion, before the tool fn runs', async () => {
+		const { processToolCall } = await import('./shared')
+		const calls: string[] = []
+		const tool = {
+			def: { type: 'function' as const, function: { name: 'patch_app_file', parameters: {} } },
+			preAction: () => calls.push('preAction'),
+			fn: vi.fn().mockImplementation(async () => {
+				calls.push('fn')
+				return 'ok'
+			})
+		}
+		await processToolCall({
+			tools: [tool] as any,
+			toolCall: {
+				id: 'call_1',
+				type: 'function',
+				function: { name: 'patch_app_file', arguments: '{}' }
+			},
+			helpers: {},
+			toolCallbacks: { setToolStatus: vi.fn() } as any,
+			workspace: 'test'
+		})
+		expect(calls).toEqual(['preAction', 'fn'])
+	})
+})
+
+describe('queuedToolStatus', () => {
+	const tool = (extra: Record<string, unknown> = {}) => ({
+		def: { type: 'function' as const, function: { name: 'run_script', parameters: {} } },
+		fn: vi.fn(),
+		...extra
+	})
+
+	it('humanizes snake_case and camelCase tool names by default', async () => {
+		const { queuedToolStatus } = await import('./shared')
+		expect(queuedToolStatus([], 'run_script', '{}')).toMatchObject({
+			isLoading: false,
+			isQueued: true,
+			isStreamingArguments: false,
+			content: 'Run script'
+		})
+		expect(queuedToolStatus([], 'askUserQuestion', '{}').content).toBe('Ask user question')
+	})
+
+	it('derives the label from parsed args via queuedLabel', async () => {
+		const { queuedToolStatus } = await import('./shared')
+		const t = tool({ queuedLabel: (args: any) => `Test ${args.path}` })
+		expect(queuedToolStatus([t] as any, 'run_script', '{"path": "u/admin/x"}').content).toBe(
+			'Test u/admin/x'
+		)
+	})
+
+	it('falls back to the humanized name when args are truncated', async () => {
+		const { queuedToolStatus } = await import('./shared')
+		const t = tool({ queuedLabel: (args: any) => `Test ${args.path}` })
+		expect(queuedToolStatus([t] as any, 'run_script', '{"path": "u/adm').content).toBe('Run script')
+	})
+})
+
 describe('appendPendingToolImages', () => {
 	// Tool results are string-only, so tool-produced images ride a follow-up
 	// user message appended after the whole tool batch. It must land in BOTH

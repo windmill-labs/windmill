@@ -2989,6 +2989,7 @@ export const globalTools: Tool<{}>[] = [
 		},
 		requiresConfirmation: true,
 		confirmationMessage: (args) => `Run a test of ${pathLeaf(args?.path, 'the script')}`,
+		queuedLabel: (args) => `Test ${args?.path ?? 'the script'}`,
 		showDetails: true,
 		autoCollapseDetails: false
 	},
@@ -3000,6 +3001,7 @@ export const globalTools: Tool<{}>[] = [
 		},
 		requiresConfirmation: true,
 		confirmationMessage: (args) => `Run a test of ${pathLeaf(args?.path, 'the flow')}`,
+		queuedLabel: (args) => `Test ${args?.path ?? 'the flow'}`,
 		showDetails: true,
 		autoCollapseDetails: false
 	},
@@ -3012,6 +3014,7 @@ export const globalTools: Tool<{}>[] = [
 		requiresConfirmation: true,
 		confirmationMessage: (args) =>
 			`Run a test of step "${args?.stepId ?? ''}" in ${pathLeaf(args?.path, 'the flow')}`,
+		queuedLabel: (args) => `Test step "${args?.stepId ?? ''}" of ${args?.path ?? 'the flow'}`,
 		showDetails: true,
 		autoCollapseDetails: false
 	},

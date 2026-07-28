@@ -577,6 +577,8 @@ export type ToolDisplayMessage = {
 	result?: any
 	logs?: string
 	isLoading?: boolean
+	/** Arguments fully streamed but execution not started (see queuedToolStatus). */
+	isQueued?: boolean
 	error?: string
 	needsConfirmation?: boolean
 	showDetails?: boolean
@@ -749,6 +751,7 @@ export async function processToolCall<T>({
 				content: validationError,
 				parameters: args,
 				isLoading: false,
+				isQueued: false,
 				isStreamingArguments: false,
 				error: validationError,
 				needsConfirmation: false,
@@ -773,12 +776,18 @@ export async function processToolCall<T>({
 				? tool.confirmationMessage(args)
 				: tool?.confirmationMessage
 
+		// preAction fires at promotion, not stream time, so its "-ing" label covers
+		// only the execution window — queued cards keep their imperative header.
+		// Before the promotion patch, so a confirmation label still wins the header.
+		tool?.preAction?.({ toolCallbacks, toolId: toolCall.id })
+
 		toolCallbacks.setToolStatus(toolCall.id, {
 			...(requiresConfirmation
 				? { content: confirmationContent ?? 'Waiting for confirmation...' }
 				: {}),
 			parameters: args,
 			isLoading: true,
+			isQueued: false,
 			needsConfirmation: needsConfirmation,
 			showDetails: tool?.showDetails,
 			autoCollapseDetails: tool?.autoCollapseDetails
@@ -851,6 +860,7 @@ export async function processToolCall<T>({
 		const errorMessage = formatToolError(err)
 		toolCallbacks.setToolStatus(toolCall.id, {
 			isLoading: false,
+			isQueued: false,
 			isStreamingArguments: false,
 			error: errorMessage
 		})
@@ -913,8 +923,40 @@ export interface Tool<T> {
 	streamArguments?: boolean
 	showFade?: boolean
 	/** Header shown while the model is still streaming this call's arguments,
-	 * before `fn` runs and sets a real status. Defaults to "Calling <name>...". */
+	 * before `fn` runs and sets a real status. Defaults to "Preparing <name>...". */
 	streamingLabel?: string
+	/** Header shown while the call waits its turn to execute (args fully streamed).
+	 * Pass a function to derive it from the parsed arguments (e.g. name the script
+	 * about to run). Defaults to the humanized tool name ("run_script" → "Run script"). */
+	queuedLabel?: string | ((args: any) => string)
+}
+
+/** Status patch demoting a tool call to the queued state once its arguments have
+ * fully streamed: it waits its turn (tool calls in one message run sequentially)
+ * and processToolCall flips it back to loading when execution starts. The header
+ * switches from the "-ing" streaming label to an imperative one so a waiting call
+ * doesn't read as active. */
+export function queuedToolStatus(
+	tools: Tool<any>[],
+	toolName: string,
+	argsString: string | undefined
+): Partial<ToolDisplayMessage> {
+	const tool = tools.find((t) => t.def.function.name === toolName)
+	const words = toolName
+		.replaceAll('_', ' ')
+		.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+		.toLowerCase()
+	let content = words.charAt(0).toUpperCase() + words.slice(1)
+	if (typeof tool?.queuedLabel === 'string') {
+		content = tool.queuedLabel
+	} else if (typeof tool?.queuedLabel === 'function') {
+		try {
+			content = tool.queuedLabel(JSON.parse(argsString || '{}'))
+		} catch {
+			// Truncated/invalid args: keep the humanized name; the error path handles the rest.
+		}
+	}
+	return { isLoading: false, isQueued: true, isStreamingArguments: false, content }
 }
 
 /** Status of a job the chat started and tracks in the jobs tray. Mirrors the
