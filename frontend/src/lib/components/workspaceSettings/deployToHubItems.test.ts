@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { canRecordSession, mergeAppTableOrigin, type DeployItem } from './deployToHubItems'
+import {
+	canRecordSession,
+	inputResourceTypes,
+	mergeAppTableOrigin,
+	type DeployItem
+} from './deployToHubItems'
 
 function item(over: Partial<DeployItem> & Pick<DeployItem, 'key' | 'path' | 'kind'>): DeployItem {
 	return { rec: 'none', ...over }
@@ -32,5 +37,23 @@ describe('mergeAppTableOrigin', () => {
 				item({ key: 'raw_app:f/r', path: 'f/r', kind: 'raw_app', appTable: true })
 			])
 		).toBe(orphan)
+	})
+})
+
+describe('inputResourceTypes', () => {
+	const schema = {
+		properties: {
+			db: { format: 'resource-postgresql' },
+			file: { format: 'resource-s3_object' },
+			typo: { format: 'resource-postgres' },
+			theme: { format: 'resource-app_theme' },
+			name: { format: 'email' }
+		}
+	}
+	it('keeps only formats the workspace declares as a resource type', () => {
+		expect(inputResourceTypes(schema, new Set(['postgresql', 'stripe']))).toEqual(['postgresql'])
+	})
+	it('falls back to every non-hidden format while the type list is unknown', () => {
+		expect(inputResourceTypes(schema, undefined)).toEqual(['postgresql', 's3_object', 'postgres'])
 	})
 })

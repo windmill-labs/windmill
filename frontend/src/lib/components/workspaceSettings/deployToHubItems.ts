@@ -18,6 +18,35 @@ export interface DeployItem {
 
 export const canRecord = (k: Kind) => k === 'script' || k === 'flow'
 
+export const HIDDEN_RESOURCE_TYPES = new Set(['app_theme', 'state', 'cache'])
+
+/**
+ * Resource types an item takes as an input, read off its schema's
+ * `resource-<type>` arg formats.
+ *
+ * `resource-<x>` is also used for formats that are no resource type at all
+ * (`resource-s3_object`) and for stale or misspelled ones. Publishing those to
+ * the Hub would push an empty-schema type and a stub resource nothing can ever
+ * fill, so an input-derived type only counts once the workspace declares it.
+ * `known` is undefined while the workspace's type list hasn't loaded (or failed
+ * to): validating against an empty set there would drop every legitimate type.
+ */
+export function inputResourceTypes(schema: unknown, known: Set<string> | undefined): string[] {
+	const out = new Set<string>()
+	const props = (schema as any)?.properties
+	if (props && typeof props === 'object') {
+		for (const key of Object.keys(props)) {
+			const fmt = props[key]?.format
+			if (typeof fmt !== 'string' || !fmt.startsWith('resource-')) continue
+			const type = fmt.slice('resource-'.length)
+			if (HIDDEN_RESOURCE_TYPES.has(type)) continue
+			if (known && !known.has(type)) continue
+			out.add(type)
+		}
+	}
+	return [...out]
+}
+
 // A raw app has no run to capture: its demo is a recorded session of someone
 // using it, driven in the record drawer and replayed on the Hub page. Legacy raw
 // apps live only in the `raw_app` table, and the record surface loads the app
