@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.775.0](https://github.com/windmill-labs/windmill/compare/v1.774.0...v1.775.0) (2026-07-28)
+
+
+### Features
+
+* add github dark mode variant switchable in user settings ([#10002](https://github.com/windmill-labs/windmill/issues/10002)) ([bd24664](https://github.com/windmill-labs/windmill/commit/bd246644c962f754a8477353d49ed39ba9b87ffd))
+* validate and make explicit the hub project's resource type export ([#10388](https://github.com/windmill-labs/windmill/issues/10388)) ([91b8ce5](https://github.com/windmill-labs/windmill/commit/91b8ce581a15baf7fc9ea4e983b50f233cf5e023))
+
+
+### Bug Fixes
+
+* render the flow editor's error handler node as an inert run marker ([#10391](https://github.com/windmill-labs/windmill/issues/10391)) ([bff6545](https://github.com/windmill-labs/windmill/commit/bff654596fb9cf8b086919367614ba0915cd7b87))
+* truncate strings on char boundaries to avoid panics on multibyte input ([#10390](https://github.com/windmill-labs/windmill/issues/10390)) ([faa2aaf](https://github.com/windmill-labs/windmill/commit/faa2aaf214444f4fbb129f10a46060d4a8ab3ae8))
+
 ## [1.774.0](https://github.com/windmill-labs/windmill/compare/v1.773.0...v1.774.0) (2026-07-28)
 
 
