@@ -23,37 +23,34 @@
 		title = undefined
 	}: Props = $props()
 
-	// The animated ring is masked by an ::after that inherits its background from the
-	// wrapper. With no ground of its own it inherits the parent's — transparent inside a
-	// bare popover trigger — and the gradient shows through the button on hover.
-	const ground = $derived(connecting && !disableAnimation ? 'bg-surface' : '')
+	// The ring is masked by an ::after that resolves `background: inherit` up to whatever
+	// encloses the button. Give it an opaque ground while animating, or the gradient shows
+	// straight through. It can't go on the wrapper itself — the scoped `.gradient-button`
+	// rule outranks a utility class there.
+	const animating = $derived(connecting && !disableAnimation)
 </script>
 
-<AnimatedButton
-	animate={connecting && !disableAnimation}
-	baseRadius="6px"
-	animationDuration="2s"
-	marginWidth="2px"
-	wrapperClasses={ground}
->
-	<Button
-		variant="default"
-		btnClasses={twMerge(
-			connecting ? 'text-accent' : '',
-			'bg-surface hover:bg-surface-hover group/plug-btn overflow-clip flex p-0'
-		)}
-		on:click
-		{disabled}
-		{...title ? { title } : {}}
-		{...id ? { id } : {}}
-		wrapperClasses={twMerge(
-			// Shrink by exactly the animated ring's margin so the button keeps its
-			// footprint and nothing beside it shifts when a connect is armed.
-			connecting && !disableAnimation ? 'h-6 w-7' : 'h-7 w-8',
-			'p-0',
-			wrapperClasses
-		)}
-	>
-		<Plug size={14} />
-	</Button>
-</AnimatedButton>
+<div class="flex {animating ? 'bg-surface rounded-md' : ''}">
+	<AnimatedButton animate={animating} baseRadius="6px" animationDuration="2s" marginWidth="2px">
+		<Button
+			variant="default"
+			btnClasses={twMerge(
+				connecting ? 'text-accent' : '',
+				'bg-surface hover:bg-surface-hover group/plug-btn overflow-clip flex p-0'
+			)}
+			on:click
+			{disabled}
+			{...title ? { title } : {}}
+			{...id ? { id } : {}}
+			wrapperClasses={twMerge(
+				// Shrink by exactly the animated ring's margin so the button keeps its
+				// footprint and nothing beside it shifts when a connect is armed.
+				animating ? 'h-6 w-7' : 'h-7 w-8',
+				'p-0',
+				wrapperClasses
+			)}
+		>
+			<Plug size={14} />
+		</Button>
+	</AnimatedButton>
+</div>
