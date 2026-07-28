@@ -17,7 +17,7 @@
 	}
 
 	let {
-		branch = $bindable(),
+		branch,
 		parentModule,
 		previousModule,
 		noEditor,

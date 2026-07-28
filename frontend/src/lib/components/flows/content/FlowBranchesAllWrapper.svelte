@@ -50,10 +50,8 @@
 						{value.branches.length} branch{value.branches.length > 1 ? 'es' : ''}
 					</div>
 					<div class="flex flex-col gap-2">
-						{#each value.branches as branch, i}
-							<div
-								class="flex items-center gap-3 rounded-md border bg-surface-tertiary p-3"
-							>
+						{#each value.branches as branch, i (branch)}
+							<div class="flex items-center gap-3 rounded-md border bg-surface-tertiary p-3">
 								<Badge color="blue" class="text-xs">Branch {i + 1}</Badge>
 								<input class="grow" type="text" bind:value={branch.summary} placeholder="Summary" />
 								<Toggle

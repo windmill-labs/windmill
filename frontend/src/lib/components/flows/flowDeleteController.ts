@@ -6,11 +6,7 @@ import type { OpenFlow } from '$lib/gen'
 import { push, type History } from '$lib/history.svelte'
 import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 import type { StateStore } from '$lib/utils'
-import {
-	createDeletePlan,
-	removeDeletePlanTools,
-	type DeletePlan
-} from './flowDeleteUtils'
+import { createDeletePlan, removeDeletePlanTools, type DeletePlan } from './flowDeleteUtils'
 import type { FlowState } from './flowState'
 import { deleteFlowStateById } from './flowStateUtils.svelte'
 

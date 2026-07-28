@@ -19,7 +19,7 @@
 		enableAi?: boolean
 	}
 
-	let { branch = $bindable(), parentModule, previousModule, enableAi = false }: Props = $props()
+	let { branch, parentModule, previousModule, enableAi = false }: Props = $props()
 
 	// Collapsed until edited: the editor mounts Monaco, and a branch-one step renders one
 	// of these per branch, so mounting them all scales panel cost with branch count.

@@ -426,10 +426,6 @@
 <svelte:window
 	onkeydown={(e) => {
 		if (panelMode === 'modal' && panelModalOpen && e.key === 'Escape') {
-			// Escape belongs to the topmost overlay, and every listener here is on window,
-			// so none can stop another — the shared stack is the only arbiter. Deferring
-			// to any open drawer would be wrong: the drawer this editor is *inside* is on
-			// that stack too, and Escape would close the whole editor instead of us.
 			if (!panelOverlay.isTopmost()) return
 			panelModalOpen = false
 		}

@@ -106,8 +106,6 @@
 <svelte:window
 	onkeydown={(e) => {
 		if (showTriggerScriptPicker && e.key === 'Escape') {
-			// Same arbitration as the step-panel modal: only the topmost overlay acts, and
-			// the drawer this editor is nested in must not outrank the picker.
 			if (!pickerOverlay.isTopmost()) return
 			showTriggerScriptPicker = false
 		}

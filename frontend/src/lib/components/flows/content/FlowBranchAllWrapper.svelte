@@ -12,7 +12,7 @@
 		}
 	}
 
-	let { noEditor, branch = $bindable() }: Props = $props()
+	let { noEditor, branch }: Props = $props()
 </script>
 
 <div class="h-full flex flex-col">
