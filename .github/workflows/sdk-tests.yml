@@ -45,6 +45,10 @@ jobs:
       # runner's system python and stops with "not compatible with the locked
       # Python requirement" rather than fetching one. Keep in step with
       # `requires-python` in uv.lock.
+      #
+      # Note this is not the version a worker runs the SDK on — those are 3.12.
+      # `uv.lock` asks for >=3.14, so pinning lower means regenerating it, which
+      # is worth doing separately.
       - name: Install the interpreter the lockfile requires
         run: uv python install 3.14
 
