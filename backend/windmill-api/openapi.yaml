@@ -23042,8 +23042,9 @@ paths:
       description: >
         Live materialization state for the relations a single job writes, keyed by
         relation. Polled while a run is in flight so a graph can move a node as its
-        model completes. Authorized through the job: a caller who cannot see the job
-        gets an empty list.
+        model completes. Authorized through the job, so a caller who may not read it
+        is refused rather than told the run has no progress. An empty list means the
+        job exists and has recorded nothing yet, or is unknown to this workspace.
       operationId: getRunProgress
       tags:
         - job

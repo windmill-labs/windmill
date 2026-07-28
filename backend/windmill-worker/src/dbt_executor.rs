@@ -265,7 +265,14 @@ pub(crate) async fn handle_dbt_job(
     // invocation's selection and vars and the graph refresh, the build and the
     // test phase must all agree with it.
     let inv = if command == "retry" {
-        let restored = restore_run_state(&prepared, &job.workspace_id, &job.permissioned_as, &inv, conn).await?;
+        let restored = restore_run_state(
+            &prepared,
+            &job.workspace_id,
+            &job.permissioned_as,
+            &inv,
+            conn,
+        )
+        .await?;
         // Restored args are the ones SUBMITTED, so the references they carry are
         // resolved again now — against this caller's access, not the original's.
         let inv = Invocation {
@@ -460,9 +467,21 @@ pub(crate) async fn handle_dbt_job(
         }
     }
 
-    save_run_state(&prepared, &job.workspace_id, &job.permissioned_as, &job.id, &inv, conn)
-        .await
-        .ok();
+    // Best-effort: losing the state costs a retry, not the run that just
+    // finished. Logged rather than dropped — without it the only symptom is
+    // `dbt retry` reporting nothing to resume, which reads as a bug in retry.
+    if let Err(e) = save_run_state(
+        &prepared,
+        &job.workspace_id,
+        &job.permissioned_as,
+        &job.id,
+        &inv,
+        conn,
+    )
+    .await
+    {
+        tracing::warn!("dbt: could not save retry state for job {}: {e:#}", job.id);
+    }
     let reconciled = reconcile_materializations(&prepared, &results, job, conn).await;
     terminalize_running_relations(job, &reconciled, conn).await;
 
@@ -4308,9 +4327,18 @@ mod tests {
 
     #[test]
     fn retry_state_is_per_script_and_principal() {
-        assert_ne!(state_dir("ws", "f/a/one", "u"), state_dir("ws", "f/a/two", "u"));
-        assert_ne!(state_dir("ws1", "f/a/one", "u"), state_dir("ws2", "f/a/one", "u"));
-        assert_eq!(state_dir("ws", "f/a/one", "u"), state_dir("ws", "f/a/one", "u"));
+        assert_ne!(
+            state_dir("ws", "f/a/one", "u"),
+            state_dir("ws", "f/a/two", "u")
+        );
+        assert_ne!(
+            state_dir("ws1", "f/a/one", "u"),
+            state_dir("ws2", "f/a/one", "u")
+        );
+        assert_eq!(
+            state_dir("ws", "f/a/one", "u"),
+            state_dir("ws", "f/a/one", "u")
+        );
         // A retry replaces the caller's arguments with the saved ones, and an
         // agent worker has no database row to fall back on: this separation is
         // the only thing keeping one principal's `select`/`vars` from another.
