@@ -1546,6 +1546,11 @@ function stepErrorFromMarker(marker: any, name: string): Error {
   return err;
 }
 
+/** Values `JSON.stringify` cannot represent: it omits the property holding one.
+ *  The type-level half of `checkpointableResult`, which nulls them at the top
+ *  level, where there is no key to omit. */
+type JsonDropped = ((...args: any[]) => any) | symbol;
+
 /**
  * What a value looks like after the JSON round trip a checkpoint performs:
  * `Date` → string, `Map`/`Set` → `{}`, `undefined` → null, methods gone.
@@ -1579,16 +1584,19 @@ export type Jsonified<T> =
                   // remapping would drop the array/tuple shape.
                   T extends readonly any[]
                   ? { [K in keyof T]: Jsonified<T[K]> }
-                  : // Symbol keys, methods and symbol values are all dropped:
-                    // `JSON.stringify` keeps own enumerable string keys whose
-                    // value it can represent.
+                  : // `JSON.stringify` keeps own enumerable string keys whose
+                    // value it can represent. A key that can only hold an
+                    // unrepresentable value is gone; one that merely might is
+                    // `| undefined`, because that key can come back missing.
                     T extends object
                     ? {
                         [K in keyof T as K extends symbol
                           ? never
-                          : T[K] extends ((...args: any[]) => any) | symbol
+                          : [Exclude<T[K], JsonDropped>] extends [never]
                             ? never
-                            : K]: Jsonified<T[K]>;
+                            : K]:
+                          | Jsonified<Exclude<T[K], JsonDropped>>
+                          | ([T[K]] extends [Exclude<T[K], JsonDropped>] ? never : undefined);
                       }
                     : never;
 
