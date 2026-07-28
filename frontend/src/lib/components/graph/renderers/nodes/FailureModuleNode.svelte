@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Bug, X } from 'lucide-svelte'
+	import { Bug, EyeOff } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
@@ -29,11 +29,11 @@
 		class="flex flex-row justify-center items-center"
 		style="width: {NODE.width}px; height: {NODE.height}px;"
 	>
-		<div class="group relative h-full">
-			<Tooltip placement="bottom" class="h-full">
+		<div class="group relative">
+			<Tooltip placement="bottom">
 				<div
 					class={twMerge(
-						'flex flex-row items-center gap-2 rounded-md border border-dashed border-border-normal px-3 h-full max-w-full cursor-default',
+						'flex flex-row items-center gap-2 rounded-md border border-dashed border-border-normal px-3 py-1.5 max-w-full cursor-default',
 						colorClasses.bg
 					)}
 				>
@@ -47,17 +47,19 @@
 					it from the error handler button above the graph.
 				{/snippet}
 			</Tooltip>
+			<!-- Deliberately not an `X` on a bug badge: that is the header control which deletes
+			`failure_module` for good. This one only hides a run marker. -->
 			<Tooltip
 				placement="top"
-				class="absolute -top-1.5 -right-1.5 opacity-0 transition-opacity group-hover:opacity-100"
+				class="absolute -top-1.5 -right-1.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
 			>
 				<button
 					type="button"
 					aria-label="Hide error handler run marker"
 					class="rounded-full border border-border bg-surface p-0.5 text-secondary hover:bg-surface-hover"
-					onclick={() => data.eventHandlers.delete({ id: data.id }, '')}
+					onclick={() => data.eventHandlers.dismissRunNode(data.id)}
 				>
-					<X size={10} />
+					<EyeOff size={11} />
 				</button>
 				{#snippet text()}
 					Hide this marker until the next run. The error handler itself is kept.

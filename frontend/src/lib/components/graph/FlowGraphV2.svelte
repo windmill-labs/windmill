@@ -170,6 +170,9 @@
 		onMoveMultiple?: (ids: string[]) => void
 		movingIds?: string[]
 		onDelete?: (id: string) => void
+		/** Forget the run state of a node that only mirrors a run (the error handler marker), so it
+		 * stops being rendered. Must not touch the flow itself. */
+		onDismissRunNode?: (id: string) => void
 		onInsert?: (detail: {
 			sourceId?: string
 			targetId?: string
@@ -219,6 +222,7 @@
 	let {
 		onInsert = undefined,
 		onDelete = undefined,
+		onDismissRunNode = undefined,
 		onMove = undefined,
 		onDuplicate = undefined,
 		onDeleteBranch = undefined,
@@ -532,6 +536,9 @@
 		},
 		hideJobStatus: () => {
 			onHideJobStatus?.()
+		},
+		dismissRunNode: (id: string) => {
+			onDismissRunNode?.(id)
 		}
 	}
 

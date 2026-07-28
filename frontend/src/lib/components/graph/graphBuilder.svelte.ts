@@ -62,6 +62,8 @@ export type GraphEventHandlers = {
 	deleteBranch: (detail: { id: string; index: number }, label: string) => void
 	select: (mod: string | FlowModule) => void
 	delete: (detail: { id: string }, label: string) => void
+	/** Drop a node that only mirrors run state (the error handler marker). Never edits the flow. */
+	dismissRunNode: (id: string) => void
 	newBranch: (id: string) => void
 	move: (detail: { id: string }) => void
 	duplicate: (detail: { id: string }) => void

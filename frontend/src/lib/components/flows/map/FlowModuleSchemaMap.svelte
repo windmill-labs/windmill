@@ -609,15 +609,8 @@
 			suspendStatus={suspendStatus.val}
 			{flowHasChanged}
 			chatInputEnabled={Boolean(flowStore.val.value?.chat_input_enabled)}
-			onDelete={(id) => {
-				// The error handler's node is only a marker of the last run: dismissing it drops that
-				// run state and must leave `failure_module` in place.
-				if (id === 'failure') {
-					onDelete?.(id)
-					return
-				}
-				requestDelete([id])
-			}}
+			onDelete={(id) => requestDelete([id])}
+			onDismissRunNode={(id) => onDelete?.(id)}
 			onInsert={async (detail) => {
 				if (!flowStore.val.value.modules || !Array.isArray(flowStore.val.value.modules)) return
 				await tick()
