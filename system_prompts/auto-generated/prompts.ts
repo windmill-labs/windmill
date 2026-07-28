@@ -1576,7 +1576,15 @@ setWorkflowCtx(ctx: WorkflowCtx | null): void
 
 async sleep(seconds: number): Promise<void>
 
-async step<T>(name: string, fn: () => T | Promise<T>): Promise<T>
+/**
+ * Execute \`fn\` inline and checkpoint the result. On replay the cached value is
+ * returned without re-executing \`fn\`.
+ * 
+ * \`fn\`'s result is encoded as JSON and decoded back before it is returned, so
+ * the round that runs the body sees the same types every replay sees: a \`Date\`
+ * comes back as a string, a \`Map\` as \`{}\`. {@link Jsonified} is that shape.
+ */
+async step<T>(name: string, fn: () => T | Promise<T>,): Promise<Jsonified<Awaited<T>>>
 
 /**
  * Create a task that dispatches to a separate Windmill script.
@@ -2370,6 +2378,10 @@ def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]
 # - **v1 (WM_JOB_ID set, no @workflow)**: dispatches via HTTP API.
 # - **Standalone**: executes the function body directly.
 # 
+# A task runs as its own job, so its result is always encoded as JSON and
+# decoded back before the caller sees it: a \`\`datetime\`\` comes back as a
+# string, a tuple as a list.
+# 
 # Usage::
 # 
 #     @task
@@ -2415,6 +2427,10 @@ def workflow(func)
 # On replay the cached value is returned without re-executing \`\`fn\`\`.
 # Use for lightweight deterministic operations (timestamps, random IDs,
 # config reads) that should not incur the overhead of a child job.
+# 
+# \`\`fn\`\`'s result is encoded as JSON and decoded back before it is returned,
+# so the round that runs the body sees the same types every replay sees:
+# a \`\`datetime\`\` comes back as a string, a tuple as a list.
 async def step(name: str, fn)
 
 # Server-side sleep — suspend the workflow for the given duration without holding a worker.
@@ -2502,8 +2518,12 @@ export async function getResumeUrls(approver?: string, flowLevel?: boolean): Pro
  *
  * Inside a \`workflow()\`, calling a task dispatches it as a step.
  * Outside a workflow, the function body executes directly.
+ *
+ * A task runs as its own job, so its result is always encoded as JSON and
+ * decoded back before the caller sees it: a \`Date\` comes back as a string, a
+ * \`Map\` as \`{}\`. {@link JsonifiedFn} is that shape.
  */
-export function task<T extends (...args: any[]) => Promise<any>>(fnOrPath: T | string, maybeFnOrOptions?: T | TaskOptions, maybeOptions?: TaskOptions,): T
+export function task<T extends (...args: any[]) => Promise<any>>(fnOrPath: T | string, maybeFnOrOptions?: T | TaskOptions, maybeOptions?: TaskOptions,): JsonifiedFn<T>
 
 /**
  * Create a task that dispatches to a separate Windmill script.
@@ -2534,7 +2554,15 @@ export function taskFlow(path: string, options?: TaskOptions): (...args: any[]) 
  */
 export function workflow<T>(fn: (...args: any[]) => Promise<T>)
 
-export async function step<T>(name: string, fn: () => T | Promise<T>): Promise<T>
+/**
+ * Execute \`fn\` inline and checkpoint the result. On replay the cached value is
+ * returned without re-executing \`fn\`.
+ *
+ * \`fn\`'s result is encoded as JSON and decoded back before it is returned, so
+ * the round that runs the body sees the same types every replay sees: a \`Date\`
+ * comes back as a string, a \`Map\` as \`{}\`. {@link Jsonified} is that shape.
+ */
+export async function step<T>(name: string, fn: () => T | Promise<T>,): Promise<Jsonified<Awaited<T>>>
 
 export async function sleep(seconds: number): Promise<void>
 
@@ -2624,6 +2652,10 @@ def get_resume_urls(approver: str = None, flow_level: bool = None) -> dict
 # - **v1 (WM_JOB_ID set, no @workflow)**: dispatches via HTTP API.
 # - **Standalone**: executes the function body directly.
 #
+# A task runs as its own job, so its result is always encoded as JSON and
+# decoded back before the caller sees it: a \`\`datetime\`\` comes back as a
+# string, a tuple as a list.
+#
 # Usage::
 #
 #     @task
@@ -2669,6 +2701,10 @@ def workflow(func)
 # On replay the cached value is returned without re-executing \`\`fn\`\`.
 # Use for lightweight deterministic operations (timestamps, random IDs,
 # config reads) that should not incur the overhead of a child job.
+#
+# \`\`fn\`\`'s result is encoded as JSON and decoded back before it is returned,
+# so the round that runs the body sees the same types every replay sees:
+# a \`\`datetime\`\` comes back as a string, a tuple as a list.
 async def step(name: str, fn)
 
 # Server-side sleep — suspend the workflow for the given duration without holding a worker.

@@ -2702,6 +2702,13 @@ class TaskError(Exception):
         self.result = result
 
 
+def _json_round_trip(value):
+    """Put a value through the checkpoint's encoding without checkpointing it, so
+    the paths that never persist anything still hand back the shape the ones that
+    do would. ``default=str`` matches the worker wrapper's encoder."""
+    return json.loads(json.dumps(value, default=str))
+
+
 def _step_error_marker(key: str, exc: BaseException) -> dict:
     """Serialize a failed ``step()`` body into the ``__wmill_error`` marker that
     task failures also use, so it can be stored in ``completed_steps``."""
@@ -2936,7 +2943,22 @@ class WorkflowCtx:
         _token = os.environ.get("WM_TOKEN")
         if _fast_path_enabled and _job_id and _workspace and _base and _token:
             _fast_path_ok = False
+            _replay_result = None
             try:
+                # ``default=str`` is the encoder the worker wrapper uses on the
+                # suspend path, so both arms checkpoint the same value — and a
+                # datetime or set takes the fast path instead of silently
+                # degrading to a suspend round.
+                _payload = _json_mod.dumps(
+                    {
+                        "key": key,
+                        "result": result,
+                        "started_at": started_at,
+                        "duration_ms": duration_ms,
+                    },
+                    default=str,
+                )
+                _replay_result = _json_mod.loads(_payload)["result"]
                 if self._inline_lock is None:
                     self._inline_lock = _asyncio.Lock()
                 # Lock wraps only the POST, not fn() above — concurrent
@@ -2953,12 +2975,7 @@ class WorkflowCtx:
                         )
                     _resp = await self._inline_http_client.post(
                         f"{_base}/api/w/{_workspace}/jobs/wac/inline_checkpoint/{_job_id}",
-                        json={
-                            "key": key,
-                            "result": result,
-                            "started_at": started_at,
-                            "duration_ms": duration_ms,
-                        },
+                        content=_payload,
                     )
                     _resp.raise_for_status()
                 _fast_path_ok = True
@@ -2976,7 +2993,11 @@ class WorkflowCtx:
                 # run and miss on the next. ``__cause__`` is for tracebacks only.
                 if step_error is not None:
                     raise _step_error_from_marker(result, name) from step_error
-                return result
+                # Return the round trip of what was checkpointed, never the
+                # in-memory value: handing back the live object would let the
+                # round that ran the body branch on a type — tuple, datetime —
+                # that no replay of it ever sees.
+                return _replay_result
 
         raise _StepSuspend({
             "mode": "inline_checkpoint",
@@ -3008,6 +3029,10 @@ def task(
     - **v2 (inside @workflow)**: dispatches as a checkpoint step.
     - **v1 (WM_JOB_ID set, no @workflow)**: dispatches via HTTP API.
     - **Standalone**: executes the function body directly.
+
+    A task runs as its own job, so its result is always encoded as JSON and
+    decoded back before the caller sees it: a ``datetime`` comes back as a
+    string, a tuple as a list.
 
     Usage::
 
@@ -3081,8 +3106,19 @@ def task(
                 print(f"Task {func.__name__} ({child_job_id}) completed")
                 return job_result
 
-            # Standalone — execute directly
-            return func(*args, **kwargs)
+            # Standalone — execute directly, but round-trip the result: a task's
+            # value crosses JSON in every other path, so a local run must agree.
+            # This wrapper is sync, so an ``async def`` task hands back a
+            # coroutine here — round-tripping that would serialize the coroutine
+            # object itself.
+            result = func(*args, **kwargs)
+            if _asyncio.iscoroutine(result):
+
+                async def _round_trip_awaited():
+                    return _json_round_trip(await result)
+
+                return _round_trip_awaited()
+            return _json_round_trip(result)
 
         wrapper._is_task = True
         wrapper._task_path = task_path
@@ -3186,6 +3222,10 @@ async def step(name: str, fn):
     On replay the cached value is returned without re-executing ``fn``.
     Use for lightweight deterministic operations (timestamps, random IDs,
     config reads) that should not incur the overhead of a child job.
+
+    ``fn``'s result is encoded as JSON and decoded back before it is returned,
+    so the round that runs the body sees the same types every replay sees:
+    a ``datetime`` comes back as a string, a tuple as a list.
     """
     ctx: WorkflowCtx | None = _workflow_ctx.get(None)
     if ctx is not None:
@@ -3193,7 +3233,9 @@ async def step(name: str, fn):
     result = fn()
     if _asyncio.iscoroutine(result):
         result = await result
-    return result
+    # Outside a workflow nothing is checkpointed, but round-trip anyway: running
+    # the script locally must not hand back a shape a deployed run never sees.
+    return _json_round_trip(result)
 
 
 async def sleep(seconds: int):
