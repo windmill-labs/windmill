@@ -107,6 +107,12 @@ def extract_ts_functions(content: str) -> list[dict]:
         if not return_type:
             return_type = 'Promise<void>' if is_async else 'void'
 
+        # `@internal` marks an export that exists for another module or for a
+        # test to reach, not for a user to call. The SDK reference these prompts
+        # become is a user-facing API list, so it must not advertise them.
+        if jsdoc_raw and '@internal' in jsdoc_raw:
+            continue
+
         docstring = clean_jsdoc(jsdoc_raw) if jsdoc_raw else ''
         seen_names.add(name)
         functions.append({

@@ -53,7 +53,7 @@ use windmill_common::{
     auth::is_super_admin_email,
     ee_oss::{get_license_plan, LicensePlan},
     email_oss::send_email_plain_text,
-    error::{self, JsonResult, Result},
+    error::{self, pg_error_message, JsonResult, Result},
     get_database_url,
     global_settings::{
         AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
@@ -1506,6 +1506,10 @@ struct CustomInstanceDbLogs {
     db_connect: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     grant_permissions: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    replication_user: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    replication_user_error: Option<String>,
 }
 
 async fn list_custom_instance_pg_databases(
@@ -1701,33 +1705,27 @@ async fn setup_custom_instance_pg_database_inner(
         .map_err(|e| {
             error::Error::ExecutionErr(format!(
                 "Failed to grant permissions to custom_instance_user: {}",
-                e.to_string(),
+                pg_error_message(&e),
             ))
         })?;
-
-    // The replication attribute lives on a dedicated role used by postgres trigger
-    // connections. The getter creates the role (with its stored password) when the
-    // migration couldn't.
-    if let Err(e) = windmill_common::utils::get_custom_pg_instance_replication_password(db).await {
-        tracing::error!("Failed to ensure custom_instance_replication_user exists: {e:#}");
-    }
-    if let Err(e) = client
-        .batch_execute(
-            "ALTER ROLE custom_instance_replication_user REPLICATION;
-             GRANT custom_instance_user TO custom_instance_replication_user;
-             ALTER ROLE custom_instance_user NOREPLICATION;",
-        )
-        .await
-    {
-        tracing::error!(
-            "Failed to grant replication permission to custom_instance_replication_user: {e:#}"
-        );
-    }
 
     logs.grant_permissions = "OK".to_string();
 
     drop(client); // /!\ Drop before joining to avoid deadlock
     windmill_common::shutdown_pg_connection(join_handle).await?;
+
+    // Roles are cluster-wide, so the dedicated role used by postgres trigger connections is
+    // provisioned on the main pool rather than on the new database. Reported as its own step
+    // rather than failing the setup: without the role the database still serves datatables, only
+    // postgres triggers on them break.
+    match windmill_common::utils::ensure_custom_instance_replication_user(db).await {
+        Ok(()) => logs.replication_user = "OK".to_string(),
+        Err(e) => {
+            tracing::error!("Failed to provision custom_instance_replication_user: {e:#}");
+            logs.replication_user = "FAIL".to_string();
+            logs.replication_user_error = Some(e.to_string());
+        }
+    }
 
     Ok(())
 }

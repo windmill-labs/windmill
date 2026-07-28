@@ -3,14 +3,19 @@
 Import: `from wmill import workflow, task, task_script, task_flow, step, sleep, wait_for_approval, get_approval_urls, get_resume_urls, parallel, TaskError`
 
 ```python
-# Raised when a WAC task step failed.
+# Raised when a WAC ``task`` or ``step`` failed.
 #
 # Attributes:
 #     step_key: The checkpoint key of the failed step.
-#     child_job_id: The UUID of the failed child job.
-#     result: The error result from the child job.
+#     child_job_id: The UUID of the failed child job, or ``None`` for a
+#         ``step()``, which runs in the workflow job and has no child job.
+#     result: ``{"error": {"name", "message", "stack"?, "extra"?}}`` — the
+#         same shape whether a task or a step failed. ``name`` and ``message``
+#         are always present; ``stack`` only when the failure had a traceback,
+#         and ``extra`` only when it carried custom fields of its own, dropped
+#         with ``extra_omitted: True`` beside it when too large to checkpoint.
 class TaskError(Exception):
-    def __init__(self, message: str, *, step_key: str = '', child_job_id: str = '', result = None)
+    def __init__(self, message: str, *, step_key: str = '', child_job_id: Optional[str] = None, result = None)
 
 # Get URLs needed for resuming a flow after suspension.
 #

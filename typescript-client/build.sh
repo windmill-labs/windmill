@@ -35,6 +35,7 @@ fi
 
 
 cp "${script_dirpath}/client.ts" "${script_dirpath}/src/"
+cp "${script_dirpath}/wacError.ts" "${script_dirpath}/src/"
 cp "${script_dirpath}/s3Types.ts" "${script_dirpath}/src/"
 cp "${script_dirpath}/sqlUtils.ts" "${script_dirpath}/src/"
 echo "" >> "${script_dirpath}/src/index.ts"

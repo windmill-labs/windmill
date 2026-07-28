@@ -819,6 +819,10 @@ pub struct CustomInstanceDbLogs {
     pub db_connect: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub grant_permissions: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub replication_user: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replication_user_error: Option<String>,
 }
 
 // ---------------------------------------------------------------------------

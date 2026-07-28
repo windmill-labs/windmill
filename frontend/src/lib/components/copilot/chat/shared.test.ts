@@ -1124,3 +1124,70 @@ describe('openItemPreviewAction', () => {
 		expect(openItemPreviewAction('raw_app', 'u/me/dash').label).toBe('Open app preview')
 	})
 })
+
+describe('createSearchHubScriptsTool', () => {
+	const hit = (version_id: number, app: string, summary: string) => ({
+		version_id,
+		app,
+		summary,
+		ask_id: version_id,
+		id: version_id,
+		kind: 'script' as const,
+		score: 1
+	})
+
+	async function runWithContent(getHubScriptByPath: ReturnType<typeof vi.fn>) {
+		const { ScriptService } = await import('$lib/gen')
+		Object.assign(ScriptService, {
+			queryHubScripts: vi.fn(async () => [
+				hit(1, 'discord', 'Send a message'),
+				hit(2, 'slack', 'Post a message')
+			]),
+			getHubScriptByPath
+		})
+		const { createSearchHubScriptsTool } = await import('./shared')
+		const raw = await createSearchHubScriptsTool(true).fn({
+			args: { query: 'send a message' },
+			toolId: 't1',
+			toolCallbacks: { setToolStatus: vi.fn() }
+		} as any)
+		return JSON.parse(raw)
+	}
+
+	it('reports each script language alongside its content', async () => {
+		const results = await runWithContent(
+			vi.fn(async ({ path }: { path: string }) => ({
+				content: `// ${path}`,
+				language: path.startsWith('hub/1/') ? 'bunnative' : 'python3'
+			}))
+		)
+
+		expect(results).toEqual([
+			{
+				path: 'hub/1/discord/send_a_message',
+				summary: 'Send a message',
+				language: 'bunnative',
+				content: '// hub/1/discord/send_a_message'
+			},
+			{
+				path: 'hub/2/slack/post_a_message',
+				summary: 'Post a message',
+				language: 'python3',
+				content: '// hub/2/slack/post_a_message'
+			}
+		])
+	})
+
+	it('keeps the other results when one content fetch fails', async () => {
+		const results = await runWithContent(
+			vi.fn(async ({ path }: { path: string }) => {
+				if (path.startsWith('hub/1/')) throw new Error('hub unreachable')
+				return { content: 'ok', language: 'python3' }
+			})
+		)
+
+		expect(results[0].error).toContain('hub unreachable')
+		expect(results[0].content).toBeUndefined()
+		expect(results[1].content).toBe('ok')
+	})
+})
