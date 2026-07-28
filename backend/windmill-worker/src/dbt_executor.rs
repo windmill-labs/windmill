@@ -341,11 +341,21 @@ pub async fn handle_dbt_job(
             }
         }
     }
+    // A `retry` whose saved results were tests alone IS the test phase: dbt reran
+    // exactly those tests, so running the suite after it would execute every test
+    // a second time and report each one twice. `test_behavior: after_all` is how
+    // `run_results.json` comes to hold tests alone.
+    let retry_was_the_test_phase = command == "retry"
+        && !results.is_empty()
+        && results
+            .iter()
+            .all(|n| n.unique_id.starts_with("test.") || n.unique_id.starts_with("unit_test."));
     // `retry` counts as the model phase too: a run that failed midway and was
     // retried to success would otherwise return green having never tested.
     if run.is_ok()
         && matches!(descriptor.test_behavior, DbtTestBehavior::AfterAll)
         && matches!(command.as_str(), "build" | "retry")
+        && !retry_was_the_test_phase
     {
         run = run_dbt(
             &prepared,
@@ -365,7 +375,10 @@ pub async fn handle_dbt_job(
             deadline,
         )
         .await;
-        results.extend(read_run_results(&prepared.project_dir).await);
+        // Merged, not appended: the model phase and the test phase can name the
+        // same node, and a duplicate would double its totals and collide as a key
+        // in the result table.
+        merge_results(&mut results, read_run_results(&prepared.project_dir).await);
     }
 
     save_run_state(&prepared, &job.workspace_id, &job.id, &inv, conn)
@@ -3437,6 +3450,30 @@ mod tests {
         // A node the retry introduces is kept rather than dropped.
         merge_results(&mut acc, vec![node("test.p.d", "fail")]);
         assert_eq!(acc.len(), 4);
+    }
+
+    // A second `dbt test` after a tests-only retry runs every test twice and
+    // reports each one twice — duplicate ids in the result table, doubled totals.
+    #[test]
+    fn merging_two_phases_keeps_one_row_per_node() {
+        let n = |id: &str, status: &str| DbtNodeResult {
+            unique_id: id.to_string(),
+            status: status.to_string(),
+            execution_time: None,
+            rows_affected: None,
+            relation_name: None,
+            message: None,
+            failures: None,
+        };
+        let mut results = vec![n("model.p.m", "success"), n("test.p.t", "fail")];
+        // The test phase re-reports the same test, now passing.
+        merge_results(&mut results, vec![n("test.p.t", "pass")]);
+        assert_eq!(results.len(), 2, "a node re-reported must not duplicate");
+        assert_eq!(
+            results.iter().find(|r| r.unique_id == "test.p.t").unwrap().status,
+            "pass",
+            "the later phase's outcome wins"
+        );
     }
 
     // `partial success` is a node that built and then failed its tests. Read as

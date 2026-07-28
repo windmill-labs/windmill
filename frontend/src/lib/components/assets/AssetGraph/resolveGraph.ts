@@ -82,6 +82,18 @@ function persistedNativeKinds(base: AssetGraphResponse, path: string): Set<strin
 // derived from one draws a cascade arrow the deploy will never fire.
 const AUTO_TRIGGER_KINDS: ReadonlySet<AssetKind> = new Set(['ducklake', 's3object'])
 
+/** Whether a subscription on this kind can ever fire once deployed.
+ *
+ * A `table://` one cannot: dbt is the only producer of a warehouse relation and
+ * a dbt run does not dispatch, so the deploy refuses `// on table://…` outright
+ * (`scripts.rs`). The editor must not draw an arrow the deploy will reject —
+ * applied to the EXPLICIT overlays; auto-derivation is already scoped by
+ * `AUTO_TRIGGER_KINDS`. Parsing is left alone so the Rust-parity test still
+ * compares like for like. */
+function canTrigger(kind: AssetKind): boolean {
+	return kind !== 'table'
+}
+
 /** `kind:path` refs of a script's `// materialize` write target(s) (base +
  *  the scd2 `<dim>_current` companion), which the body `SELECT` doesn't express. */
 function materializeWriteRefs(parsed: PipelineAnnotations): string[] {
@@ -369,7 +381,7 @@ function makeContext(input: ResolveGraphInput): ResolveContext {
 	const liveRefKeys = new Set<string>()
 	if (openIsSavedEdit) {
 		if (liveAnnotations.scriptPath === openPath) {
-			for (const a of liveAnnotations.annotations.triggerAssets)
+			for (const a of liveAnnotations.annotations.triggerAssets.filter((a) => canTrigger(a.kind)))
 				liveRefKeys.add(`${a.kind}:${a.path}`)
 			// The `// materialize <asset>` target is a declared *output*, but it
 			// lives in an annotation (not the SQL body), so neither triggerAssets
@@ -613,7 +625,7 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 		// stable when the user clicks off this draft. Live annotations
 		// (below) take over for the currently-open draft so keystroke
 		// edits still update in real time.
-		for (const a of parsed.triggerAssets) {
+		for (const a of parsed.triggerAssets.filter((a) => canTrigger(a.kind))) {
 			extraTriggers.push({
 				trigger_kind: 'asset',
 				asset_kind: a.kind,
@@ -692,7 +704,7 @@ function applyLiveBufferOverlay(acc: Accumulator, input: ResolveGraphInput, ctx:
 	for (let i = extraTriggers.length - 1; i >= 0; i--) {
 		if (extraTriggers[i].runnable_path === livePath) extraTriggers.splice(i, 1)
 	}
-	for (const a of liveAnnotations.annotations.triggerAssets) {
+	for (const a of liveAnnotations.annotations.triggerAssets.filter((a) => canTrigger(a.kind))) {
 		const key = `${a.kind}:${a.path}`
 		if (assetKeys.has(key)) continue
 		extraTriggers.push({

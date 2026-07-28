@@ -1286,6 +1286,19 @@ async fn asset_graph(
     let mut dbt_by_asset_path: std::collections::HashMap<String, DbtAssetProvenance> =
         Default::default();
     let mut dbt_model_count: std::collections::HashMap<String, usize> = Default::default();
+    // Which relations each dbt script actually BUILDS. The sidecar also holds a
+    // row for a parent kept only to anchor a cross-selection edge, which the
+    // script reads rather than materializes — counting those would make a script
+    // selecting one mart claim the staging models upstream of it, and the badge
+    // says "materializes N models".
+    let dbt_writes: std::collections::HashSet<(&str, &str)> = rows
+        .iter()
+        .filter(|r| {
+            r.asset_kind == AssetKind::Table
+                && matches!(r.access_type.as_deref(), Some("w") | Some("rw"))
+        })
+        .map(|r| (r.usage_path.as_str(), r.asset_path.as_str()))
+        .collect();
     // Keyed by (script_path, unique_id) — the sidecar's own primary key — since
     // a dbt `unique_id` is only unique within its project.
     let dbt_asset_path_by_unique_id: std::collections::HashMap<(&str, &str), &str> = dbt_rows
@@ -1301,7 +1314,9 @@ async fn asset_graph(
         let Some(asset_path) = r.asset_path.as_deref() else {
             continue;
         };
-        if r.resource_type != "source" {
+        if r.resource_type != "source"
+            && dbt_writes.contains(&(r.script_path.as_str(), asset_path))
+        {
             *dbt_model_count.entry(r.script_path.clone()).or_default() += 1;
         }
         let candidate = DbtAssetProvenance {

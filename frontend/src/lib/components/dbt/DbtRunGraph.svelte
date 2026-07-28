@@ -177,7 +177,17 @@
 	let selectedDbt = $derived.by(() => {
 		const sel = selection
 		if (sel?.kind !== 'asset') return undefined
-		return graph?.assets.find((a) => a.kind === sel.asset_kind && a.path === sel.path)?.dbt
+		const dbt = graph?.assets.find((a) => a.kind === sel.asset_kind && a.path === sel.path)?.dbt
+		if (!dbt) return undefined
+		// Provenance is one winner per relation across the whole workspace, so a
+		// relation two projects both materialize carries only one project's node.
+		// Showing that project's SQL under this run would be a different model's
+		// source; when this run names the node, it is this run's.
+		const run = parseDbtRun(result)
+		if (run?.nodes?.length && !run.nodes.some((n) => n.unique_id === dbt.unique_id)) {
+			return undefined
+		}
+		return dbt
 	})
 </script>
 

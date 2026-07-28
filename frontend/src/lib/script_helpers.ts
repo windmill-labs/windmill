@@ -1354,8 +1354,8 @@ engine: dbt-core-1x
 profile:
   # Warehouse resource rendered into profiles.yml. Its PATH is also the warehouse's
   # identity in the asset graph: every model becomes table://<resource>/<schema>/<name>,
-  # which is what gives this project lineage and lets native scripts reading those
-  # tables be triggered by it.
+  # which is what gives this project its lineage, and lets a native script reading
+  # one of those tables share the node. A dbt run does not trigger such a script.
   resource: $res:u/user/my_warehouse
   target: prod
   # Alternatively, keep the project's own file. It runs unchanged, but with no

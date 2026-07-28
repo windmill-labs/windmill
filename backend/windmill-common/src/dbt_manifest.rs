@@ -468,35 +468,6 @@ pub fn ingest_manifest(
         assets.insert(key, merged);
     }
 
-    // Splitting one project across several scripts (decision 6) only composes if
-    // a downstream script READS the relations its upstream script builds. Those
-    // parents are outside this script's selection, so nothing above registered
-    // them — and without the read there is no edge for the upstream's write to
-    // cascade along, which is the whole point of splitting.
-    {
-        let owned: std::collections::HashSet<&str> = out
-            .nodes
-            .iter()
-            .filter_map(|n| n.asset_path.as_deref())
-            .collect();
-        for parent in &direct_parents {
-            let Some(node) = manifest
-                .nodes
-                .get(*parent)
-                .or_else(|| manifest.sources.get(*parent))
-            else {
-                continue;
-            };
-            let Some(path) = asset_path_for(node, resource_path, default_database) else {
-                continue;
-            };
-            if owned.contains(path.as_str()) {
-                continue;
-            }
-            assets.entry((AssetKind::Table, path)).or_insert(AssetUsageAccessType::R);
-        }
-    }
-
     out.nodes.sort_by(|a, b| a.unique_id.cmp(&b.unique_id));
 
     let kept: std::collections::HashSet<&str> =
@@ -1028,9 +999,6 @@ mod tests {
         );
     }
 
-    // A script that builds a subset must not register as the producer of the
-    // whole project, or the cascade fires downstream of models it never ran.
-    #[test]
     // Splitting a project across scripts only composes if the seam still draws:
     // a script selecting a model whose parent another script builds must keep
     // that parent as an endpoint, or the two relations sit on the graph with no
@@ -1070,6 +1038,8 @@ mod tests {
         );
     }
 
+    // A script that builds a subset must not register as the producer of the
+    // whole project: two scripts splitting one project would each claim all of it.
     #[test]
     fn selection_scopes_what_the_script_owns() {
         let m: Manifest = serde_json::from_str(MANIFEST).unwrap();
