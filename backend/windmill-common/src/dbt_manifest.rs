@@ -27,7 +27,7 @@
 //! # Mutator contract
 //!
 //! `replace_dbt_manifest`, `clear_dbt_manifest` and
-//! `clear_dbt_manifest_by_script_hash` take the workspace and the script to act
+//! `clear_dbt_manifest_version` take the workspace and the script to act
 //! on as plain arguments and enforce nothing: **the caller must already have
 //! verified write access to that script**, exactly like the sibling
 //! `assets::replace_static_asset_usage` each is called next to. A user-scoped
@@ -609,10 +609,12 @@ pub async fn replace_dbt_manifest(
     Ok(())
 }
 
-/// Drop everything one script contributed to the graph. See the mutator
-/// contract above: this authorizes nothing.
-/// Clear one VERSION's graph. The path-wide sibling below stays for the case
-/// where a path stops being a dbt script at all.
+/// Clear one VERSION's graph, the unit the archive and delete routes act on:
+/// both target a single `hash`, and the other versions of the path stay live
+/// and keep needing their own models, SQL and lineage. The path-wide sibling
+/// below is for the case where a path stops being a dbt script at all.
+///
+/// See the mutator contract above: this authorizes nothing.
 pub async fn clear_dbt_manifest_version(
     tx: &mut Transaction<'_, Postgres>,
     workspace_id: &str,
@@ -638,6 +640,8 @@ pub async fn clear_dbt_manifest_version(
     Ok(())
 }
 
+/// Drop every version of one path's graph, for when the path stops being a dbt
+/// script at all. See the mutator contract above: this authorizes nothing.
 pub async fn clear_dbt_manifest(
     tx: &mut Transaction<'_, Postgres>,
     workspace_id: &str,
@@ -730,38 +734,6 @@ pub async fn clear_dbt_run_state(
         "DELETE FROM dbt_run_state WHERE workspace_id = $1 AND script_path = $2",
         workspace_id,
         script_path
-    )
-    .execute(&mut **tx)
-    .await?;
-    Ok(())
-}
-
-/// Drop everything the script at `script_hash`'s path contributed. The
-/// by-hash sibling of `clear_dbt_manifest`, for the delete/archive routes that
-/// only have a hash — `dbt_node` has no script foreign key, so every one of
-/// them has to clear explicitly or stale provenance outlives its script and
-/// attaches itself to whatever is created at that path next.
-///
-/// See the mutator contract above: this authorizes nothing. `script_hash`
-/// selects the path to clear; it is not a capability.
-pub async fn clear_dbt_manifest_by_script_hash(
-    tx: &mut Transaction<'_, Postgres>,
-    workspace_id: &str,
-    script_hash: crate::scripts::ScriptHash,
-) -> Result<()> {
-    sqlx::query!(
-        "DELETE FROM dbt_node WHERE workspace_id = $1
-           AND script_path = (SELECT path FROM script WHERE hash = $2 AND workspace_id = $1)",
-        workspace_id,
-        script_hash.0
-    )
-    .execute(&mut **tx)
-    .await?;
-    sqlx::query!(
-        "DELETE FROM dbt_edge WHERE workspace_id = $1
-           AND script_path = (SELECT path FROM script WHERE hash = $2 AND workspace_id = $1)",
-        workspace_id,
-        script_hash.0
     )
     .execute(&mut **tx)
     .await?;
@@ -1043,8 +1015,9 @@ mod tests {
     fn a_parent_outside_the_selection_still_anchors_its_edge() {
         let m: Manifest = serde_json::from_str(MANIFEST).unwrap();
         // `customers` depends on `orders_daily`, which this script does not build.
-        let sel: std::collections::HashSet<String> =
-            ["model.jaffle_shop.customers".to_string()].into_iter().collect();
+        let sel: std::collections::HashSet<String> = ["model.jaffle_shop.customers".to_string()]
+            .into_iter()
+            .collect();
         let i = ingest_manifest(&m, "f/prod/wh", Some("wh"), Some(&sel));
         let owned: Vec<&str> = i
             .assets
@@ -1079,8 +1052,9 @@ mod tests {
     #[test]
     fn selection_scopes_what_the_script_owns() {
         let m: Manifest = serde_json::from_str(MANIFEST).unwrap();
-        let sel: std::collections::HashSet<String> =
-            ["model.jaffle_shop.orders_daily".to_string()].into_iter().collect();
+        let sel: std::collections::HashSet<String> = ["model.jaffle_shop.orders_daily".to_string()]
+            .into_iter()
+            .collect();
         let i = ingest_manifest(&m, "f/prod/wh", Some("wh"), Some(&sel));
         let owned: Vec<&str> = i
             .assets
@@ -1115,8 +1089,15 @@ mod tests {
     fn models_carry_their_sql_and_tests_do_not() {
         let i = ingested();
         let m = node(&i, "model.jaffle_shop.customers");
-        assert!(m.raw_code.as_deref().is_some_and(|c| !c.is_empty()), "{:?}", m.raw_code);
-        assert_eq!(m.original_file_path.as_deref(), Some("models/customers.sql"));
+        assert!(
+            m.raw_code.as_deref().is_some_and(|c| !c.is_empty()),
+            "{:?}",
+            m.raw_code
+        );
+        assert_eq!(
+            m.original_file_path.as_deref(),
+            Some("models/customers.sql")
+        );
         let t = i.nodes.iter().find(|n| n.resource_type == "test").unwrap();
         assert_eq!(t.raw_code, None);
     }
@@ -1144,7 +1125,10 @@ mod tests {
             !reads.contains(&"f/prod/wh/jaffle_raw/unused"),
             "unused source registered as a read: {reads:?}"
         );
-        assert!(reads.contains(&"f/prod/wh/jaffle_raw/raw_orders"), "{reads:?}");
+        assert!(
+            reads.contains(&"f/prod/wh/jaffle_raw/raw_orders"),
+            "{reads:?}"
+        );
     }
 
     // Splitting a project across scripts only composes if the downstream one
@@ -1154,8 +1138,9 @@ mod tests {
     fn a_selected_script_reads_the_upstream_models_another_script_builds() {
         let m: Manifest = serde_json::from_str(MANIFEST).unwrap();
         // `customers` is selected; its parent `orders_daily` is built elsewhere.
-        let sel: std::collections::HashSet<String> =
-            ["model.jaffle_shop.customers".to_string()].into_iter().collect();
+        let sel: std::collections::HashSet<String> = ["model.jaffle_shop.customers".to_string()]
+            .into_iter()
+            .collect();
         let i = ingest_manifest(&m, "f/prod/wh", Some("wh"), Some(&sel));
         let by_access = |t: AssetUsageAccessType| -> Vec<&str> {
             i.assets
@@ -1164,7 +1149,10 @@ mod tests {
                 .map(|a| a.path.as_str())
                 .collect()
         };
-        assert_eq!(by_access(AssetUsageAccessType::W), vec!["f/prod/wh/jaffle_dbt/customers"]);
+        assert_eq!(
+            by_access(AssetUsageAccessType::W),
+            vec!["f/prod/wh/jaffle_dbt/customers"]
+        );
         assert_eq!(
             by_access(AssetUsageAccessType::R),
             vec!["f/prod/wh/jaffle_dbt/orders_daily"]
@@ -1174,16 +1162,15 @@ mod tests {
         // test on orders_daily points at stg_customers. A script that only
         // builds staging models must not end up subscribed to the mart it is
         // merely asserted against.
-        let staging: std::collections::HashSet<String> =
-            ["model.jaffle_shop.stg_customers".to_string(),
-             "test.jaffle_shop.relationships_orders_daily_customer_id.ab".to_string()]
-                .into_iter()
-                .collect();
+        let staging: std::collections::HashSet<String> = [
+            "model.jaffle_shop.stg_customers".to_string(),
+            "test.jaffle_shop.relationships_orders_daily_customer_id.ab".to_string(),
+        ]
+        .into_iter()
+        .collect();
         let i = ingest_manifest(&m, "f/prod/wh", Some("wh"), Some(&staging));
         assert!(
-            !i.assets
-                .iter()
-                .any(|a| a.path.ends_with("/orders_daily")),
+            !i.assets.iter().any(|a| a.path.ends_with("/orders_daily")),
             "a test's dependency must not become a read: {:?}",
             i.assets.iter().map(|a| &a.path).collect::<Vec<_>>()
         );

@@ -153,8 +153,7 @@ pub async fn handle_dbt_job(
         .await?
         .unwrap_or_else(|| job.args.as_ref().map(|a| a.0.clone()).unwrap_or_default());
     let raw_args = job.args.as_ref().map(|a| a.0.clone()).unwrap_or_default();
-    let inv =
-        Invocation { args: args.clone(), raw_args, envs: envs.clone(), strict: true };
+    let inv = Invocation { args: args.clone(), raw_args, envs: envs.clone(), strict: true };
     // One wall clock for the whole job. A dbt job is a sequence of
     // subprocesses — provision, deps, parse, ls, build, then the
     // `after_all` tests — and each would otherwise resolve the job's full
@@ -220,33 +219,46 @@ pub async fn handle_dbt_job(
     let mut ctx_for_restore =
         JobCtx { mem_peak, canceled_by, occupancy_metrics, worker_name, deadline };
     let inv = if command == "retry" {
-        let restored = restore_run_state(
-            &prepared,
-            &descriptor,
-            &job.workspace_id,
-            &inv,
-            &mut ctx_for_restore,
-            &job.id,
-            conn,
-        )
-        .await?;
+        let restored = restore_run_state(&prepared, &job.workspace_id, &inv, conn).await?;
         // Restored args are the ones SUBMITTED, so the references they carry are
         // resolved again now — against this caller's access, not the original's.
-        Invocation {
-            args: crate::common::transform_json(client, &job.workspace_id, &restored, job, conn)
-                .await?
-                .unwrap_or_else(|| restored.clone()),
-            raw_args: restored,
+        let inv = Invocation {
+            args: crate::common::transform_json(
+                client,
+                &job.workspace_id,
+                &restored.args,
+                job,
+                conn,
+            )
+            .await?
+            .unwrap_or_else(|| restored.args.clone()),
+            raw_args: restored.args,
             ..inv
+        };
+        if restored.needs_parse {
+            // After the resolution above, so the manifest describes the project
+            // the build is about to retry.
+            run_dbt_parse(
+                &prepared,
+                &descriptor,
+                &inv,
+                &mut ctx_for_restore,
+                &job.id,
+                &job.workspace_id,
+                conn,
+            )
+            .await?;
         }
+        inv
     } else {
         inv
     };
 
     // A per-run graph is ingested BEFORE the build, from a `dbt parse` with this
     // run's vars, so the models shown are the ones about to be built rather than
-    // the previous run's. The rows are keyed by script path, so concurrent runs
-    // of one dynamic script overwrite each other's — the last to parse wins the
+    // the previous run's. The rows are keyed by script path AND version, so two
+    // versions never collide — but concurrent runs of ONE version of a dynamic
+    // script still overwrite each other's, and the last to parse wins the
     // display (docs/dbt-runtime.md).
     // A read-only command builds nothing, so re-publishing the graph from it
     // would replace the last real run's models with a SELECT's.
@@ -1045,7 +1057,6 @@ fn project_digest(
     format!("{:x}", h.finalize())[..32].to_string()
 }
 
-
 /// Resolve `$var:<path>` values in the descriptor's `env`. This is the only way
 /// a project using its own `profiles.yml` can get a secret into
 /// `{{ env_var() }}` without writing it into versioned script content.
@@ -1116,8 +1127,16 @@ async fn install_packages(
         .project_dir
         .join(packages_install_path(&p.project_dir).await);
     if cached.exists() {
-        copy_dir_watched(&cached, &target, "restoring cached dbt_packages", ctx, job_id, w_id, conn)
-            .await?;
+        copy_dir_watched(
+            &cached,
+            &target,
+            "restoring cached dbt_packages",
+            ctx,
+            job_id,
+            w_id,
+            conn,
+        )
+        .await?;
         append_logs(
             job_id,
             w_id,
@@ -1170,9 +1189,17 @@ async fn publish_to_cache(
     let name = cached.file_name().unwrap_or_default().to_string_lossy();
     let staging = cached.with_file_name(format!("{name}.staging-{job_id}"));
     tokio::fs::remove_dir_all(&staging).await.ok();
-    if copy_dir_watched(from, &staging, "caching dbt_packages", ctx, job_id, w_id, conn)
-        .await
-        .is_err()
+    if copy_dir_watched(
+        from,
+        &staging,
+        "caching dbt_packages",
+        ctx,
+        job_id,
+        w_id,
+        conn,
+    )
+    .await
+    .is_err()
         || strip_git_remotes(&staging).await.is_err()
         || tokio::fs::rename(&staging, cached).await.is_err()
     {
@@ -1285,10 +1312,7 @@ async fn write_profiles(
         // somewhere else entirely.
         if let Some(rp) = resource_path.as_deref() {
             client
-                .get_resource_value_interpolated::<serde_json::Value>(
-                    rp,
-                    Some(job_id.to_string()),
-                )
+                .get_resource_value_interpolated::<serde_json::Value>(rp, Some(job_id.to_string()))
                 .await
                 .map_err(|e| {
                     Error::BadRequest(format!(
@@ -1518,7 +1542,11 @@ pub fn dbt_command(p: &PreparedProject, args: &[&str]) -> Command {
     // worker, before any isolation exists.
     if p.sandbox_config.is_none() {
         cmd.envs(p.env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
-        cmd.envs(p.invocation_env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
+        cmd.envs(
+            p.invocation_env
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.as_str())),
+        );
     }
     cmd.args(args)
         .arg("--profiles-dir")
@@ -2149,18 +2177,25 @@ fn split_relation(rel: &str) -> Vec<String> {
     parts.into_iter().map(|p| p.trim().to_string()).collect()
 }
 
-/// Ceiling on a preview's captured output. `--limit` bounds how many rows dbt
-/// returns, not how big they are — a single column can hold a megabyte — so the
-/// row clamp is not a memory bound on its own.
+/// Ceiling on a preview's captured output, enforced as `run_capturing` reads.
+/// `--limit` bounds how many rows dbt returns, not how big they are — a single
+/// column can hold a megabyte — so the row clamp is not a memory bound on its
+/// own. This also bounds what a preview can store in `v2_job_completed.result`.
 const SHOW_MAX_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
+
+/// Ceiling on `dbt ls`, whose output is one line per selected node. Generous
+/// against the largest real projects, and there only so a runaway cannot be
+/// unbounded.
+const LS_MAX_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
 
 /// The `--limit` a `show` runs with, from the run's argument.
 ///
-/// Clamped, not merely defaulted: the worker buffers the whole of dbt's stdout
-/// to read the rows out of it, so this argument decides how much memory a caller
-/// can make it hold — and running a script needs only run permission. Zero and
-/// negatives fall back to the default rather than reaching dbt, where `--limit 0`
-/// means something else.
+/// Clamped, not merely defaulted: the rows are read out of dbt's stdout, so this
+/// argument decides how much a caller can make the worker hold — and running a
+/// script needs only run permission. `SHOW_MAX_OUTPUT_BYTES` is the backstop for
+/// rows that are individually large; this keeps an ordinary preview from
+/// reaching it. Zero and negatives fall back to the default rather than reaching
+/// dbt, where `--limit 0` means something else.
 fn show_limit(requested: Option<i64>) -> i64 {
     let max = windmill_parser_yaml::dbt::DBT_SHOW_MAX_LIMIT as i64;
     requested
@@ -2186,22 +2221,18 @@ async fn run_show(
     let mut cmd = dbt_command(p, &["show"]);
     add_vars(&mut cmd, descriptor, inv)?;
     add_selection(&mut cmd, descriptor, inv)?;
-    // Clamped, not just defaulted: the whole of stdout is buffered to read the
-    // rows out of it, so an unbounded `--limit` is an unbounded allocation in
-    // the worker, reachable by anyone who may run the script.
     let limit = show_limit(arg_i64(&inv.args, "limit")?);
     cmd.args(["--output", "json", "--limit", &limit.to_string()]);
-    let stdout = run_capturing(cmd, "dbt show", ctx, job_id, w_id, conn).await?;
-    // Rows bound the COUNT, not the size: one column can hold a megabyte of
-    // text, so a thousand of them is a thousand megabytes. The row limit alone
-    // is not a memory bound, and this is reachable with only run permission.
-    if stdout.len() > SHOW_MAX_OUTPUT_BYTES {
-        return Err(Error::ExecutionErr(format!(
-            "this preview returned more than {} MB. Preview a narrower selection, \
-             or query the relation from a SQL script.",
-            SHOW_MAX_OUTPUT_BYTES / 1024 / 1024
-        )));
-    }
+    let stdout = run_capturing(
+        cmd,
+        "dbt show",
+        ctx,
+        job_id,
+        w_id,
+        conn,
+        SHOW_MAX_OUTPUT_BYTES,
+    )
+    .await?;
     // dbt frames the rows as `{"node": …, "show": [ … ]}`, pretty-printed across
     // lines, with a banner before it and a deprecation summary after — so
     // neither "the line starting with `{`" nor "from the first `{` to the end"
@@ -2519,7 +2550,7 @@ async fn resolve_selection(
     // discards — the selection would then resolve to the empty set and the
     // ingest would wipe the script's assets and subscriptions while dbt went on
     // building the descriptor's models.
-    let stdout = run_capturing(cmd, "dbt ls", ctx, job_id, w_id, conn).await?;
+    let stdout = run_capturing(cmd, "dbt ls", ctx, job_id, w_id, conn, LS_MAX_OUTPUT_BYTES).await?;
     let mut set = std::collections::HashSet::new();
     for line in stdout.lines() {
         let line = line.trim();
@@ -2546,11 +2577,22 @@ async fn resolve_selection(
     Ok(Some(set))
 }
 
+/// A failed command's stderr is quoted back to the user, so it is held in full
+/// only up to here; past it the tail is what says why the command failed.
+const CAPTURE_MAX_STDERR_BYTES: usize = 64 * 1024;
+
 /// Run a command for its stdout under the job's cancellation and timeout.
 /// The same poller `handle_child` uses drives them, so a cancel or a deadline
 /// drops the wait future — which owns the child, and `kill_on_drop` then
 /// terminates it. Dropping a wait future does NOT by itself kill a process, so
 /// without that flag the child would outlive the job.
+///
+/// Reads the pipes incrementally against `max_stdout_bytes` rather than
+/// `wait_with_output`, which would buffer whatever the child chose to write
+/// before any ceiling could apply: the point of the ceiling is that the worker
+/// never holds more than it, so it has to be enforced while reading. Both pipes
+/// are drained concurrently because a child that fills the one nobody reads
+/// blocks forever.
 async fn run_capturing(
     mut cmd: Command,
     name: &str,
@@ -2558,14 +2600,26 @@ async fn run_capturing(
     job_id: &Uuid,
     w_id: &str,
     conn: &Connection,
+    max_stdout_bytes: usize,
 ) -> error::Result<String> {
-    let child = cmd
+    use tokio::io::AsyncReadExt;
+
+    let mut child = cmd
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()
         .map_err(|e| Error::internal_err(format!("{name} could not be started: {e}")))?;
     let pid = child.id();
+    let mut stdout_pipe = child
+        .stdout
+        .take()
+        .ok_or_else(|| Error::internal_err(format!("{name} has no stdout")))?;
+    let mut stderr_pipe = child
+        .stderr
+        .take()
+        .ok_or_else(|| Error::internal_err(format!("{name} has no stderr")))?;
+
     let out = run_future_with_polling_update_job_poller(
         *job_id,
         ctx.timeout(),
@@ -2573,10 +2627,50 @@ async fn run_capturing(
         ctx.mem_peak,
         ctx.canceled_by,
         async move {
-            child
-                .wait_with_output()
+            let mut stdout: Vec<u8> = Vec::new();
+            let mut stderr: Vec<u8> = Vec::new();
+            // On the heap, not the stack: these live across the `select!`, so an
+            // array would be baked into this future's state, and the future is
+            // then moved into the job poller and boxed several layers deep. Two
+            // 16 KB arrays there overflow the worker thread's stack.
+            let mut out_buf = vec![0u8; 16 * 1024];
+            let mut err_buf = vec![0u8; 16 * 1024];
+            let (mut out_open, mut err_open) = (true, true);
+            while out_open || err_open {
+                tokio::select! {
+                    r = stdout_pipe.read(&mut out_buf[..]), if out_open => match r {
+                        Ok(0) => out_open = false,
+                        Ok(n) => {
+                            if stdout.len() + n > max_stdout_bytes {
+                                // Kill before returning: the error propagates
+                                // past the poller that owns the child, so
+                                // `kill_on_drop` is not what stops it here.
+                                let _ = child.kill().await;
+                                return Err(Error::ExecutionErr(format!(
+                                    "{name} produced more than {} MB of output. Narrow the \
+                                     selection, or query the relation from a SQL script.",
+                                    max_stdout_bytes / 1024 / 1024
+                                )));
+                            }
+                            stdout.extend_from_slice(&out_buf[..n]);
+                        }
+                        Err(e) => return Err(Error::internal_err(format!("{name} failed: {e}"))),
+                    },
+                    r = stderr_pipe.read(&mut err_buf[..]), if err_open => match r {
+                        Ok(0) => err_open = false,
+                        Ok(n) => {
+                            let room = CAPTURE_MAX_STDERR_BYTES.saturating_sub(stderr.len());
+                            stderr.extend_from_slice(&err_buf[..n.min(room)]);
+                        }
+                        Err(_) => err_open = false,
+                    },
+                }
+            }
+            let status = child
+                .wait()
                 .await
-                .map_err(|e| Error::internal_err(format!("{name} failed: {e}")))
+                .map_err(|e| Error::internal_err(format!("{name} failed: {e}")))?;
+            Ok((status, stdout, stderr))
         },
         ctx.worker_name,
         w_id,
@@ -2586,13 +2680,14 @@ async fn run_capturing(
         })),
     )
     .await?;
-    if !out.status.success() {
+    let (status, stdout, stderr) = out;
+    if !status.success() {
         return Err(Error::ExecutionErr(format!(
             "{name} failed: {}",
-            String::from_utf8_lossy(&out.stderr)
+            String::from_utf8_lossy(&stderr)
         )));
     }
-    Ok(String::from_utf8_lossy(&out.stdout).to_string())
+    Ok(String::from_utf8_lossy(&stdout).to_string())
 }
 
 /// Run a preparation command through the same child handler the build uses, so
@@ -2866,21 +2961,17 @@ struct SavedRunState {
 /// is another worker of the group), so the state comes from the database.
 ///
 /// `run_results.json` is all that is stored. `dbt retry` also reads
-/// `manifest.json`, which is far larger and grows with the project, so it is
-/// re-derived here with a `dbt parse` — sound because `identity` pins the
-/// project digest, the warehouse and the engine, which is everything the
-/// manifest is a function of.
-#[allow(clippy::too_many_arguments)]
+/// `manifest.json`, which is far larger and grows with the project, so it has to
+/// be re-derived with a `dbt parse` — sound because `identity` pins the project
+/// digest, the warehouse and the engine, which is everything the manifest is a
+/// function of. That parse is the caller's, on resolved arguments.
 async fn restore_from_db(
     p: &PreparedProject,
-    descriptor: &DbtDescriptor,
     w_id: &str,
     inv: &Invocation,
-    ctx: &mut JobCtx<'_>,
-    job_id: &Uuid,
     conn: &Connection,
     no_state: Error,
-) -> error::Result<HashMap<String, Box<RawValue>>> {
+) -> error::Result<RestoredRun> {
     let Connection::Sql(db) = conn else {
         // An agent worker reaches the database only through the API, and this
         // state is not exposed there.
@@ -2908,20 +2999,10 @@ async fn restore_from_db(
     tokio::fs::write(target.join("run_results.json"), &row.run_results)
         .await
         .map_err(|e| Error::internal_err(format!("restoring run_results.json: {e}")))?;
-    // The arguments first: the parse below has to see the invocation dbt will
-    // retry, not this request's.
-    let args = restored_args(row.args);
-    run_dbt_parse(
-        p,
-        descriptor,
-        &Invocation { args: args.clone(), ..inv.clone() },
-        ctx,
-        job_id,
-        w_id,
-        conn,
-    )
-    .await?;
-    Ok(args)
+    // No manifest came with the row, so one has to be re-derived — but not here:
+    // these arguments are as SUBMITTED, and a `$var:` in them shapes the graph
+    // only once resolved. The caller resolves, then parses.
+    Ok(RestoredRun { args: restored_args(row.args), needs_parse: true })
 }
 
 /// Job arguments as stored, each value a raw JSON string.
@@ -2949,17 +3030,27 @@ fn nothing_to_retry() -> Error {
     )
 }
 
-/// Restore the previous invocation and return ITS arguments, which is what the
-/// graph refresh for a retry must use.
+/// The previous invocation, restored.
+pub struct RestoredRun {
+    /// ITS arguments, as submitted, which is what the graph refresh for a retry
+    /// must use — still unresolved, so the caller resolves before using them.
+    pub args: HashMap<String, Box<RawValue>>,
+    /// Whether a `dbt parse` still owes a `manifest.json`. The local snapshot
+    /// carries one; the database row does not.
+    pub needs_parse: bool,
+}
+
+/// Restore the previous invocation. The `dbt parse` a database restore needs is
+/// left to the caller so it runs on RESOLVED arguments: a `$var:` reference
+/// shapes the graph only once it has a value, and parsing with the reference
+/// verbatim would hand the build a manifest of a different project than the one
+/// it goes on to build.
 async fn restore_run_state(
     p: &PreparedProject,
-    descriptor: &DbtDescriptor,
     w_id: &str,
     inv: &Invocation,
-    ctx: &mut JobCtx<'_>,
-    job_id: &Uuid,
     conn: &Connection,
-) -> error::Result<HashMap<String, Box<RawValue>>> {
+) -> error::Result<RestoredRun> {
     if p.script_path.is_empty() {
         // A preview has no path to key state on, and an empty key is the one
         // that used to be shared by every dbt script in the workspace.
@@ -3003,9 +3094,7 @@ async fn restore_run_state(
     };
     let generation = match tokio::fs::read_to_string(dir.join(CURRENT_GENERATION)).await {
         Ok(g) if latest_job.is_none_or(|id| g.trim() == format!("gen-{id}")) => g,
-        _ => {
-            return restore_from_db(p, descriptor, w_id, inv, ctx, job_id, conn, no_state()).await
-        }
+        _ => return restore_from_db(p, w_id, inv, conn, no_state()).await,
     };
     let snapshot = dir.join(generation.trim());
     let saved_results = tokio::fs::read_to_string(snapshot.join("run_results.json"))
@@ -3032,11 +3121,16 @@ async fn restore_run_state(
     for f in ["run_results.json", "manifest.json"] {
         tokio::fs::copy(snapshot.join(f), target.join(f)).await.ok();
     }
-    Ok(saved
-        .args
-        .into_iter()
-        .filter_map(|(k, v)| Some((k, RawValue::from_string(v).ok()?)))
-        .collect())
+    // The snapshot carried `manifest.json` across, so nothing has to re-derive
+    // one.
+    Ok(RestoredRun {
+        args: saved
+            .args
+            .into_iter()
+            .filter_map(|(k, v)| Some((k, RawValue::from_string(v).ok()?)))
+            .collect(),
+        needs_parse: false,
+    })
 }
 
 /// Wait between retries, giving up if the job is cancelled or runs out of time.
@@ -3178,7 +3272,6 @@ fn has_retryable_node(run_results: &str) -> bool {
         // than refusing a retry the user may well need.
         .unwrap_or(true)
 }
-
 
 /// Append `--vars` if the descriptor (or the run) declares any.
 fn add_vars(cmd: &mut Command, descriptor: &DbtDescriptor, inv: &Invocation) -> error::Result<()> {
@@ -3328,10 +3421,27 @@ fn add_selection(
     for s in effective_exclude(descriptor, inv)? {
         cmd.args(["--exclude", &s]);
     }
-    if let Some(sel) = descriptor.selector.as_deref() {
+    if let Some(sel) = effective_selector(descriptor, inv)? {
         cmd.args(["--selector", sel]);
     }
     Ok(())
+}
+
+/// The descriptor's named selector, unless this run named its own selection.
+///
+/// dbt resolves `--selector` INSTEAD of `--select`, so passing both makes the
+/// descriptor win: a preview asked for one model would return the descriptor's
+/// nodes, and a run asked for a subset would build something else. A run that
+/// spells out `select` or `exclude` — including as `[]`, which is how one asks
+/// for the whole project — replaces the descriptor's selection entirely.
+fn effective_selector<'a>(
+    descriptor: &'a DbtDescriptor,
+    inv: &Invocation,
+) -> error::Result<Option<&'a str>> {
+    if arg_list(&inv.args, "select")?.is_some() || arg_list(&inv.args, "exclude")?.is_some() {
+        return Ok(None);
+    }
+    Ok(descriptor.selector.as_deref())
 }
 
 fn effective_select(descriptor: &DbtDescriptor, inv: &Invocation) -> error::Result<Vec<String>> {
@@ -3347,7 +3457,7 @@ fn effective_exclude(descriptor: &DbtDescriptor, inv: &Invocation) -> error::Res
 fn has_selection(descriptor: &DbtDescriptor, inv: &Invocation) -> error::Result<bool> {
     Ok(!effective_select(descriptor, inv)?.is_empty()
         || !effective_exclude(descriptor, inv)?.is_empty()
-        || descriptor.selector.is_some())
+        || effective_selector(descriptor, inv)?.is_some())
 }
 
 /// An explicitly supplied list, including an empty one — passing `[]` is how a
@@ -3475,6 +3585,40 @@ mod tests {
             ..Default::default()
         };
         assert!(has_selection(&descriptor, &malformed).is_err());
+    }
+
+    // dbt resolves `--selector` INSTEAD of `--select`, so a descriptor selector
+    // left on alongside an explicit selection makes the descriptor win: a
+    // preview of one model returns another's rows, and a run builds nodes it
+    // was not asked for.
+    #[test]
+    fn a_runs_own_selection_replaces_the_descriptor_selector() {
+        let descriptor =
+            DbtDescriptor { selector: Some("nightly".to_string()), ..Default::default() };
+        let selects = |v: &str| Invocation {
+            args: [(
+                "select".to_string(),
+                serde_json::value::RawValue::from_string(v.to_string()).unwrap(),
+            )]
+            .into_iter()
+            .collect(),
+            ..Default::default()
+        };
+        assert_eq!(
+            effective_selector(&descriptor, &Invocation::default()).unwrap(),
+            Some("nightly")
+        );
+        assert_eq!(
+            effective_selector(&descriptor, &selects(r#"["stg_orders"]"#)).unwrap(),
+            None
+        );
+        // `[]` asks for the whole project, so it drops the selector too and
+        // leaves the run with no selection at all.
+        assert_eq!(
+            effective_selector(&descriptor, &selects("[]")).unwrap(),
+            None
+        );
+        assert!(!has_selection(&descriptor, &selects("[]")).unwrap());
     }
 
     // A retry runs in a new job directory, and a profile with a private CA
@@ -3749,7 +3893,11 @@ mod tests {
         }
         assert_eq!(claimed, vec![1, 2, 3], "numbered in order, one per attempt");
         assert_eq!(remaining, 0);
-        assert_eq!(claim_attempt(&mut remaining, 3), None, "a spent budget grants no more");
+        assert_eq!(
+            claim_attempt(&mut remaining, 3),
+            None,
+            "a spent budget grants no more"
+        );
         let mut none = 0;
         assert_eq!(claim_attempt(&mut none, 0), None);
     }
@@ -3772,7 +3920,11 @@ mod tests {
         merge_results(&mut results, vec![n("test.p.t", "pass")]);
         assert_eq!(results.len(), 2, "a node re-reported must not duplicate");
         assert_eq!(
-            results.iter().find(|r| r.unique_id == "test.p.t").unwrap().status,
+            results
+                .iter()
+                .find(|r| r.unique_id == "test.p.t")
+                .unwrap()
+                .status,
             "pass",
             "the later phase's outcome wins"
         );

@@ -22535,6 +22535,15 @@ paths:
           description: Scope the graph to runnables in a single folder
           schema:
             type: string
+        - name: dbt_script_hash
+          in: query
+          description: >
+            Render the dbt half of the graph as one version of a dbt script had
+            it, rather than as the currently deployed one. Given this, `folder`
+            no longer scopes the dbt nodes: the pinned version's own models and
+            lineage are the answer, including models a later deploy removed.
+          schema:
+            type: string
       responses:
         "200":
           description: asset graph nodes, lineage edges and trigger edges

@@ -7,7 +7,7 @@
 	import { OpenAPI, JobService } from '$lib/gen'
 	import { parseDbtRun, relationOutcome, splitRelation, splitUniqueId } from './parseDbtRun'
 	import { Button } from '$lib/components/common'
-	import { ClipboardCopy, TableProperties } from 'lucide-svelte'
+	import { ClipboardCopy, Code2, TableProperties } from 'lucide-svelte'
 	import { copyToClipboard } from '$lib/utils'
 	import { workspaceStore } from '$lib/stores'
 	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
@@ -309,7 +309,7 @@
 	// than on-select: each preview costs a worker slot and a few seconds of
 	// engine start-up, so it must be something the reader asked for.
 	type Preview =
-		| { rows: Record<string, unknown>[]; tookMs: number }
+		| { rows: Record<string, unknown>[]; tookMs: number; node?: string }
 		| { error: string }
 		| { pending: true }
 	// Cached per model id, so flipping between two nodes does not re-run a job
@@ -319,16 +319,31 @@
 	let previews = $state<Record<string, Preview>>({})
 	let preview = $derived(selectedDbt ? previews[selectedDbt.unique_id] : undefined)
 	let previewing = $derived(preview != undefined && 'pending' in preview)
+	// Which model's rows are on display. Keyed by id rather than a boolean so
+	// moving the selection goes back to SQL without anything having to reset it.
+	let rowsFor = $state<string | undefined>(undefined)
+	let showRows = $derived(selectedDbt != undefined && rowsFor === selectedDbt.unique_id)
+
+	// A column can hold an array or a JSON object, whose default stringification
+	// is `[object Object]` — which tells the reader nothing about the value.
+	function cellText(v: unknown): string {
+		if (v == undefined) return ''
+		return typeof v === 'object' ? JSON.stringify(v) : String(v)
+	}
 
 	async function runPreview() {
 		const ws = $workspaceStore
 		const dbt = selectedDbt
+		if (!ws || !dbt) return
+		const key = dbt.unique_id
+		// Displaying the rows and running the job are separate: coming back from
+		// the SQL to a result already in hand must not spend another worker slot.
+		rowsFor = key
 		// A cached FAILURE must not be cached: it would leave the button dead for
 		// that model until reload. Only a result or an in-flight run blocks a
 		// re-run.
-		const cached = dbt ? previews[dbt.unique_id] : undefined
-		if (!ws || !dbt || (cached != undefined && !('error' in cached))) return
-		const key = dbt.unique_id
+		const cached = previews[key]
+		if (cached != undefined && !('error' in cached)) return
 		const startedAt = Date.now()
 		previews = { ...previews, [key]: { pending: true } }
 		try {
@@ -350,7 +365,7 @@
 				const res = done.result as { node?: string; show?: Record<string, unknown>[] } | undefined
 				const next: Preview =
 					done.success && res?.show
-						? { rows: res.show, tookMs: Date.now() - startedAt }
+						? { rows: res.show, tookMs: Date.now() - startedAt, node: res.node }
 						: { error: 'The preview job failed — open it from Runs for the detail.' }
 				previews = { ...previews, [key]: next }
 				return
@@ -394,8 +409,8 @@
 {#snippet sqlPane()}
 	{#if selectedIsForeign}
 		<div class="border-t px-2 py-1.5 text-2xs text-secondary">
-			Another dbt project in this workspace also materializes this relation, and the graph keeps
-			one project's model per relation — so the SQL shown here would not be this run's. Open that
+			Another dbt project in this workspace also materializes this relation, and the graph keeps one
+			project's model per relation — so the SQL shown here would not be this run's. Open that
 			project's own run to see it.
 		</div>
 	{:else if selectedDbt?.raw_code}
@@ -410,19 +425,31 @@
 					<span class="shrink-0 opacity-70">{selectedDbt.materialized}</span>
 				{/if}
 				{#if selectedDbt.resource_type !== 'source'}
-					<Button
-						unifiedSize="2xs"
-						variant="subtle"
-						startIcon={{
-							icon: previewing ? Loader2 : TableProperties,
-							classes: previewing ? 'animate-spin' : undefined
-						}}
-						disabled={previewing}
-						on:click={runPreview}
-						title="Run `dbt show` against this model and display the rows"
-					>
-						{previewing ? 'Previewing…' : 'Preview rows'}
-					</Button>
+					{#if showRows && preview && !('error' in preview)}
+						<Button
+							unifiedSize="2xs"
+							variant="subtle"
+							startIcon={{ icon: Code2 }}
+							on:click={() => (rowsFor = undefined)}
+							title="Show the model's SQL"
+						>
+							SQL
+						</Button>
+					{:else}
+						<Button
+							unifiedSize="2xs"
+							variant="subtle"
+							startIcon={{
+								icon: previewing ? Loader2 : TableProperties,
+								classes: previewing ? 'animate-spin' : undefined
+							}}
+							disabled={previewing}
+							on:click={runPreview}
+							title="Run `dbt show` against this model and display the rows"
+						>
+							{previewing ? 'Previewing…' : 'Preview rows'}
+						</Button>
+					{/if}
 				{/if}
 				{#if selectedRelation}
 					<Button
@@ -438,41 +465,44 @@
 				<span class="ml-auto shrink-0 opacity-70">read-only · edit locally</span>
 			</div>
 			<div class="flex-1 min-h-0 overflow-auto">
-				{#if preview && 'error' in preview}
-					<div class="p-2 text-2xs text-secondary">{preview.error}</div>
-				{:else if preview && 'pending' in preview}
-					<div class="flex items-center gap-2 p-2 text-2xs text-secondary">
-						<Loader2 size={12} class="animate-spin" />
-						Running `dbt show` — this is a job, so it waits on a worker and the engine.
-					</div>
-				{:else if preview}
-					{@const cols = Object.keys(preview.rows[0] ?? {})}
-					{#if cols.length === 0}
-						<div class="p-2 text-2xs text-secondary">
-							The model returned no rows.
+				{#if showRows && preview}
+					{#if 'error' in preview}
+						<div class="p-2 text-2xs text-secondary">{preview.error}</div>
+						<HighlightCode language="sql" code={selectedDbt.raw_code} />
+					{:else if 'pending' in preview}
+						<div class="flex items-center gap-2 p-2 text-2xs text-secondary">
+							<Loader2 size={12} class="animate-spin" />
+							Running `dbt show` — this is a job, so it waits on a worker and the engine.
 						</div>
 					{:else}
-						<table class="w-full text-2xs font-mono">
-							<thead class="sticky top-0 bg-surface-secondary text-secondary">
-								<tr>
-									{#each cols as c (c)}
-										<th class="text-left font-semibold px-2 py-1 border-b">{c}</th>
-									{/each}
-								</tr>
-							</thead>
-							<tbody>
-								{#each preview.rows as row, i (i)}
-									<tr class="border-b border-surface-selected">
+						{@const cols = Object.keys(preview.rows[0] ?? {})}
+						{#if cols.length === 0}
+							<div class="p-2 text-2xs text-secondary"> The model returned no rows. </div>
+						{:else}
+							<table class="w-full text-2xs font-mono">
+								<thead class="sticky top-0 bg-surface-secondary text-secondary">
+									<tr>
 										{#each cols as c (c)}
-											<td class="px-2 py-0.5 truncate max-w-56">{row[c] ?? ''}</td>
+											<th class="text-left font-semibold px-2 py-1 border-b">{c}</th>
 										{/each}
 									</tr>
-								{/each}
-							</tbody>
-						</table>
-						<div class="px-2 py-1 text-3xs text-tertiary">
-							{preview.rows.length} rows in {(preview.tookMs / 1000).toFixed(1)}s
-						</div>
+								</thead>
+								<tbody>
+									{#each preview.rows as row, i (i)}
+										<tr class="border-b border-surface-selected">
+											{#each cols as c (c)}
+												<td class="px-2 py-0.5 truncate max-w-56">{cellText(row[c])}</td>
+											{/each}
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+							<div class="px-2 py-1 text-3xs text-tertiary">
+								{preview.rows.length} rows in {(preview.tookMs / 1000).toFixed(1)}s{preview.node
+									? ` · ${preview.node}`
+									: ''}
+							</div>
+						{/if}
 					{/if}
 				{:else}
 					<HighlightCode language="sql" code={selectedDbt.raw_code} />
@@ -500,16 +530,15 @@
 			<div class="shrink-0 px-2 py-1 text-2xs text-secondary border-b bg-surface-secondary">
 				{relationDrift}
 				{relationDrift === 1 ? 'model has' : 'models have'} been renamed or moved since this run —
-				{relationDrift === 1 ? 'its node shows' : 'their nodes show'} today's relation, not the one
-				this run wrote.
+				{relationDrift === 1 ? 'its node shows' : 'their nodes show'} today's relation, not the one this
+				run wrote.
 			</div>
 		{/if}
 		{#if goneSinceRun > 0}
 			<div class="shrink-0 px-2 py-1 text-2xs text-secondary border-b bg-surface-secondary">
 				{goneSinceRun}
-				{goneSinceRun === 1 ? 'model' : 'models'} this run built {goneSinceRun === 1
-					? 'is'
-					: 'are'} no longer in the project — renamed or removed since, so
+				{goneSinceRun === 1 ? 'model' : 'models'} this run built {goneSinceRun === 1 ? 'is' : 'are'}
+				no longer in the project — renamed or removed since, so
 				{goneSinceRun === 1 ? 'it is' : 'they are'} not drawn.
 			</div>
 		{/if}

@@ -437,7 +437,12 @@ versioned with the descriptor, so a redeploy from git carries it.
 
 `select`/`exclude`/`selector` are passed **verbatim** to dbt. Do not reimplement
 the selector grammar; Cosmos's manifest path had to, and it is a recurring source
-of divergence. `select` and `vars` are overridable per run via job args. The **graph** stays the
+of divergence. One thing is decided before dbt sees them: a run that spells out
+`select` or `exclude` drops the descriptor's `selector`, because dbt resolves
+`--selector` *instead of* `--select` and passing both would silently build the
+descriptor's nodes rather than the ones the run asked for. `[]` counts as
+spelling it out — that is how a run asks for the whole project.
+`select` and `vars` are overridable per run via job args. The **graph** stays the
 deployed descriptor's: asset rows are written at deploy, like every other
 language's, so a run-arg override changes what gets built without changing what
 the graph says the script owns. Split the project into several scripts

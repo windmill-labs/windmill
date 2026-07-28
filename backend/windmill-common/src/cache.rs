@@ -665,7 +665,23 @@ pub mod script {
             Ok(RawScript {
                 content: r.content,
                 lock: r.lock,
-                modules: r.modules.and_then(|v| serde_json::from_value(v).ok()),
+                modules: r.modules.and_then(|v| match serde_json::from_value(v) {
+                    Ok(modules) => Some(modules),
+                    // Not fatal: a script whose `modules` column cannot be read
+                    // still runs, just without its own files. But the result is
+                    // then cached under the script's hash, which never changes,
+                    // so the degraded run is what every later one gets too --
+                    // and for dbt "no modules" means no project at all. Say so
+                    // loudly, or the only symptom is a script that behaves as
+                    // if its files were never there.
+                    Err(err) => {
+                        tracing::error!(
+                            "Script {hash} has modules that cannot be deserialized, \
+                             running it without them: {err:#}"
+                        );
+                        None
+                    }
+                }),
                 meta: Some(ScriptMetadata {
                     language: r.language,
                     envs: r.envs,
@@ -1312,10 +1328,7 @@ mod tests {
         };
         data.export(&root).unwrap();
         let back = ScriptData::resolve(RawScript::import(&root).unwrap()).unwrap();
-        assert_eq!(
-            back.modules.unwrap()["dbt_project.yml"].content,
-            "name: p"
-        );
+        assert_eq!(back.modules.unwrap()["dbt_project.yml"].content, "name: p");
 
         // An entry written before modules were cached has no `modules.json`.
         // It must fail to import so the caller refetches, rather than serving a
