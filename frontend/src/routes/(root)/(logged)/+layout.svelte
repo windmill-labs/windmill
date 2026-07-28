@@ -424,6 +424,13 @@
 				navigation.cancel()
 				window.location.href = navigation.to!.url.href
 			}
+		} else if (toPath && window.crossOriginIsolated) {
+			// The reverse also needs a full reload: the editor document is
+			// cross-origin isolated, and COEP `require-corp` would otherwise stick
+			// for the rest of the SPA session, blocking CORP-less cross-origin
+			// subresources everywhere (e.g. external images in a viewed app).
+			navigation.cancel()
+			window.location.href = navigation.to!.url.href
 		}
 	})
 
