@@ -258,21 +258,22 @@
 		return url.pathname + url.search + url.hash
 	}
 
-	async function initEmbedder(sdkConsent = false) {
+	async function initEmbedder() {
 		status = 'loading'
 		try {
-			const resp = await fetchEmbedToken({ sdkConsent })
+			const resp = await fetchEmbedToken()
 			embedToken = resp.token ?? null
 			sandboxed = resp.sandbox ?? false
 			isRaw = resp.raw_app ?? false
 			appPath = resp.app_path ?? undefined
 			workspaceId = resp.workspace_id ?? undefined
-			// The backend only advertises scopes where a token is actually usable
-			// (raw + unsandboxed); it mints one only when `sdkConsent` was passed.
+			// The backend only advertises scopes where a token could actually be
+			// minted (raw, unsandboxed, viewer authenticated), and mints one only on
+			// the follow-up request carrying the viewer's consent.
 			sdkScopes = resp.sdk_scopes?.length ? resp.sdk_scopes : undefined
 			viewerEmail = resp.viewer_email ?? ''
-			sdkToken = resp.token ?? undefined
-			if (sdkScopes && !sdkConsent) {
+			sdkToken = undefined
+			if (sdkScopes) {
 				if (!hasStoredSdkConsent(viewerEmail, workspaceId ?? '', appPath ?? '', sdkScopes)) {
 					// Ask before the app's code runs. This is the viewer's decision
 					// point, not a containment boundary — an unsandboxed app runs with
@@ -280,14 +281,36 @@
 					status = 'sdkPrompt'
 					return
 				}
-				// Consent already stored: re-request, this time minting.
-				await initEmbedder(true)
+				await mintWithConsent()
 				return
 			}
 			finishReady()
 		} catch (e: any) {
 			status = e?.status === 401 ? 'noPermission' : 'notExists'
 		}
+	}
+
+	/** Re-request the token with the viewer's consent. The token is optional by
+	 * construction (that is the "Open without granting" path), so a mint that
+	 * fails for any reason other than lost access must still render the app
+	 * credential-less rather than fail it: `ensure_scopes_within_caller` legitimately
+	 * denies a viewer whose own session is scope-restricted (an external-JWT share
+	 * link), and failing there would make the app permanently unviewable for them.
+	 * Returns whether a token was actually obtained. */
+	async function mintWithConsent(): Promise<boolean> {
+		try {
+			const resp = await fetchEmbedToken({ sdkConsent: true })
+			sdkToken = resp.token ?? undefined
+		} catch (e: any) {
+			if (e?.status === 401) {
+				status = 'noPermission'
+				return false
+			}
+			console.warn('Failed to mint the raw app frontend SDK token', e)
+			sdkToken = undefined
+		}
+		finishReady()
+		return sdkToken !== undefined
 	}
 
 	function finishReady() {
@@ -304,10 +327,13 @@
 	}
 
 	async function onSdkConsentContinue(dontAskAgain: boolean) {
-		if (dontAskAgain) {
+		status = 'loading'
+		const minted = await mintWithConsent()
+		// Only remember the choice once it actually produced a token, so a viewer
+		// whose mint fails keeps being asked instead of silently never getting one.
+		if (dontAskAgain && minted) {
 			storeSdkConsent(viewerEmail, workspaceId ?? '', appPath ?? '', sdkScopes ?? [])
 		}
-		await initEmbedder(true)
 	}
 
 	/** Declined: render the app anyway, with no credential for its frontend code

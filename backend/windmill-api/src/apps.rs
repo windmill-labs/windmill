@@ -1239,12 +1239,21 @@ pub const FRONTEND_SDK_ALLOWED_SCOPES: [&str; 5] = [
 /// Enforced on every policy write AND re-checked at mint time, so a policy
 /// written by an older/foreign client can't broaden what gets minted.
 fn validate_frontend_sdk_scopes_list(scopes: &[String]) -> Result<()> {
+    let mut seen = std::collections::HashSet::new();
     for s in scopes {
         if !FRONTEND_SDK_ALLOWED_SCOPES.contains(&s.as_str()) {
             return Err(Error::BadRequest(format!(
                 "Invalid frontend SDK scope '{}'. Allowed scopes: {}",
                 s,
                 FRONTEND_SDK_ALLOWED_SCOPES.join(", ")
+            )));
+        }
+        // The viewer's permission prompt renders these as a keyed list, which a
+        // repeat would break. The editor can't produce one; the API/CLI can.
+        if !seen.insert(s.as_str()) {
+            return Err(Error::BadRequest(format!(
+                "Duplicate frontend SDK scope '{}'",
+                s
             )));
         }
     }
@@ -1325,10 +1334,16 @@ pub async fn build_embed_token_response(
     opt_authed: Option<&ApiAuthed>,
     sdk_consent: bool,
 ) -> Result<EmbedTokenResponse> {
-    // A sandboxed bundle lives on an opaque origin and can't use the token, so
-    // don't mint one — the backend, not the viewer, decides this (the editor
-    // shows the author the same rule).
-    let sdk_scopes = if raw_app && !policy.sandbox && !policy.frontend_sdk_scopes.is_empty() {
+    // Only advertise scopes where a token could actually be minted, so the viewer
+    // never shows a permission prompt that can grant nothing: a sandboxed bundle
+    // lives on an opaque origin and can't use the token, and an anonymous visitor
+    // has no identity to mint against. The backend, not the viewer, decides this
+    // (the editor shows the author the same sandbox rule).
+    let sdk_scopes = if raw_app
+        && !policy.sandbox
+        && opt_authed.is_some()
+        && !policy.frontend_sdk_scopes.is_empty()
+    {
         Some(policy.frontend_sdk_scopes.clone())
     } else {
         None
@@ -4953,6 +4968,12 @@ mod embed_token_tests {
             ("/api/w/test/jobs/run/preview_bundle", "POST"),
             ("/api/w/test/jobs/run/preview_flow", "POST"),
             ("/api/w/test/jobs/run_wait_result/preview_flow", "POST"),
+            // Dependency jobs are the same class: they resolve and install
+            // request-supplied imports on a worker.
+            ("/api/w/test/jobs/run/dependencies", "POST"),
+            ("/api/w/test/jobs/run/dependencies_async", "POST"),
+            ("/api/w/test/jobs/run/flow_dependencies", "POST"),
+            ("/api/w/test/jobs/run/flow_dependencies_async", "POST"),
         ];
         for (path, method) in denied {
             assert!(
