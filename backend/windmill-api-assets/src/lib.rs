@@ -1192,8 +1192,18 @@ async fn asset_graph(
            -- snapshot whose graph is legitimately empty.
            chosen AS (
              SELECT CASE WHEN $4::uuid IS NOT NULL AND EXISTS (
-                      SELECT 1 FROM dbt_graph_snapshot
-                       WHERE workspace_id = $1 AND job_id = $4)
+                      SELECT 1 FROM dbt_graph_snapshot g
+                       WHERE g.workspace_id = $1 AND g.job_id = $4
+                         -- `dbt_job_id` is caller-supplied and the snapshot
+                         -- tables carry no RLS, so the job itself has to be
+                         -- visible: `v2_job` does carry it and this runs in the
+                         -- authed transaction, the same gate `raw_code` below
+                         -- uses on `script`. Without it a caller who may see the
+                         -- script could read any run's model set and relation
+                         -- paths, which a dynamic alias or schema can encode.
+                         AND EXISTS (SELECT 1 FROM v2_job j
+                                      WHERE j.id = g.job_id
+                                        AND j.workspace_id = g.workspace_id))
                     THEN $4::uuid
                     ELSE '00000000-0000-0000-0000-000000000000'::uuid END AS job_id
            ),
@@ -1277,8 +1287,18 @@ async fn asset_graph(
            -- snapshot whose graph is legitimately empty.
            chosen AS (
              SELECT CASE WHEN $4::uuid IS NOT NULL AND EXISTS (
-                      SELECT 1 FROM dbt_graph_snapshot
-                       WHERE workspace_id = $1 AND job_id = $4)
+                      SELECT 1 FROM dbt_graph_snapshot g
+                       WHERE g.workspace_id = $1 AND g.job_id = $4
+                         -- `dbt_job_id` is caller-supplied and the snapshot
+                         -- tables carry no RLS, so the job itself has to be
+                         -- visible: `v2_job` does carry it and this runs in the
+                         -- authed transaction, the same gate `raw_code` below
+                         -- uses on `script`. Without it a caller who may see the
+                         -- script could read any run's model set and relation
+                         -- paths, which a dynamic alias or schema can encode.
+                         AND EXISTS (SELECT 1 FROM v2_job j
+                                      WHERE j.id = g.job_id
+                                        AND j.workspace_id = g.workspace_id))
                     THEN $4::uuid
                     ELSE '00000000-0000-0000-0000-000000000000'::uuid END AS job_id
            )

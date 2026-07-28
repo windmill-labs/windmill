@@ -362,6 +362,10 @@
 				...(runArgs ?? {}),
 				dbt_command: 'show',
 				select: [splitUniqueId(key).name],
+				// Cleared, not inherited: previewing a model the run excluded would
+				// reach dbt as `--select m --exclude m` and come back as a parse
+				// failure, which reads as a broken preview rather than a selection.
+				exclude: [],
 				limit: 25
 			}
 			// By HASH whenever the graph is pinned: the SQL on screen is that

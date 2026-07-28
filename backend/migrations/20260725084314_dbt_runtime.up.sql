@@ -107,7 +107,12 @@ CREATE TABLE IF NOT EXISTS dbt_graph_snapshot (
   job_id       UUID NOT NULL,
   digest       TEXT NOT NULL,
   ingested_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-  PRIMARY KEY (workspace_id, script_path, script_hash, job_id)
+  PRIMARY KEY (workspace_id, script_path, script_hash, job_id),
+  -- Same cascade as the rows it stands for. A marker outliving its nodes is
+  -- read as a snapshot that has none, and its digest still answers the
+  -- suppression check.
+  CONSTRAINT dbt_graph_snapshot_script_fkey FOREIGN KEY (workspace_id, script_hash)
+    REFERENCES script (workspace_id, hash) ON DELETE CASCADE
 );
 
 -- What a `dbt retry` resumes from. Keyed by path, not by version: there is one

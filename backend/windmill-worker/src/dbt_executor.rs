@@ -973,17 +973,22 @@ pub async fn prepare_project(
     // every relation the project builds, so the stored graph names ones that no
     // longer exist. Compared against THIS VERSION's graph as stored, not against
     // the deploy lock: moving A→B then back to A matches the lock again while the
-    // stored graph is still at B. Scoped by hash because sibling versions of the
-    // path have rows of their own, and to the DEPLOYED graph because a run's own
-    // snapshot has rows too — reading one would compare this run against another
-    // run's root and conclude nothing drifted.
+    // stored graph is still at B.
+    //
+    // The MOST RECENT ingest for this version, whether the deploy's or a run's,
+    // because that is the one that last wrote the path-keyed `asset` usages.
+    // Comparing against the deploy alone misses the way back: a run at B
+    // republishes those usages at B, and returning to A then matches the deploy
+    // and skips the refresh, leaving the usages at B while dbt builds A.
+    // Ordered rather than an arbitrary `LIMIT 1`, which could answer with any
+    // version's snapshot.
     match conn {
         Connection::Sql(db) => {
             if let Some(stored) = sqlx::query_scalar!(
                 "SELECT relation_root FROM dbt_node
                   WHERE workspace_id = $1 AND script_path = $2 AND script_hash = $3
-                    AND job_id = '00000000-0000-0000-0000-000000000000'
                     AND relation_root IS NOT NULL
+                  ORDER BY ingested_at DESC
                   LIMIT 1",
                 w_id,
                 script_path,
@@ -2139,10 +2144,14 @@ struct Reconciled {
 /// leave it there. A node that ends `no-op`, `warn` or `skipped` built nothing,
 /// so there is no outcome to record — its row is DELETED, which is what the
 /// finished run's own result says about it too (`relationOutcome` colours it
-/// nothing), so the live view and the settled view agree. And a cancellation, a
-/// timeout or a killed worker means dbt never wrote `run_results.json` for the
-/// node in flight, so it is reported nowhere — that one is FAILED, because the
-/// run ended without finishing it.
+/// nothing), so the live view and the settled view agree. And a cancellation or
+/// a timeout means dbt never wrote `run_results.json` for the node in flight, so
+/// it is reported nowhere — that one is FAILED, because the run ended without
+/// finishing it.
+///
+/// A killed worker reaches none of this and leaves its rows `running` in both
+/// tables until the retention sweep takes them; recovering those belongs to
+/// whatever reclaims the job, not here.
 ///
 /// Only the SQL path can strand a row: `spawn_progress_reporter` returns `None`
 /// for an agent worker and for the engines that emit no node events, so nothing

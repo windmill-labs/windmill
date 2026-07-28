@@ -191,30 +191,32 @@ pub const RUN_GRAPH_RETENTION_DAYS: i32 = 30;
 pub async fn prune_dbt_run_graphs(db: &sqlx::Pool<Postgres>) -> Result<()> {
     // Markers first, then the rows they stand for: a marker outliving its nodes
     // would report a snapshot the reader then finds empty, which is the very
-    // confusion the marker exists to remove.
+    // confusion the marker exists to remove. All three share one age predicate,
+    // so a row and its marker expire together.
     sqlx::query!(
-        "DELETE FROM dbt_graph_snapshot WHERE job_id <> $1
-           AND ingested_at < now() - make_interval(days => $2)",
-        DEPLOYED_GRAPH,
+        "DELETE FROM dbt_graph_snapshot
+          WHERE job_id <> '00000000-0000-0000-0000-000000000000'
+            AND ingested_at < now() - make_interval(days => $1)",
+        RUN_GRAPH_RETENTION_DAYS,
+    )
+    .execute(db)
+    .await?;
+    // Bounded by age on BOTH sides, and the sentinel spelled as a literal so the
+    // partial indexes apply: a bound parameter cannot be proven to match the
+    // index predicate, which turned this into a whole-table scan on every run.
+    sqlx::query!(
+        "DELETE FROM dbt_node
+          WHERE job_id <> '00000000-0000-0000-0000-000000000000'
+            AND ingested_at < now() - make_interval(days => $1)",
         RUN_GRAPH_RETENTION_DAYS,
     )
     .execute(db)
     .await?;
     sqlx::query!(
-        "DELETE FROM dbt_node n WHERE n.job_id <> $1
-           AND NOT EXISTS (SELECT 1 FROM dbt_graph_snapshot g
-                            WHERE g.workspace_id = n.workspace_id AND g.job_id = n.job_id
-                              AND g.script_path = n.script_path AND g.script_hash = n.script_hash)",
-        DEPLOYED_GRAPH,
-    )
-    .execute(db)
-    .await?;
-    sqlx::query!(
-        "DELETE FROM dbt_edge e WHERE e.job_id <> $1
-           AND NOT EXISTS (SELECT 1 FROM dbt_graph_snapshot g
-                            WHERE g.workspace_id = e.workspace_id AND g.job_id = e.job_id
-                              AND g.script_path = e.script_path AND g.script_hash = e.script_hash)",
-        DEPLOYED_GRAPH,
+        "DELETE FROM dbt_edge
+          WHERE job_id <> '00000000-0000-0000-0000-000000000000'
+            AND ingested_at < now() - make_interval(days => $1)",
+        RUN_GRAPH_RETENTION_DAYS,
     )
     .execute(db)
     .await?;
@@ -760,6 +762,19 @@ pub async fn clear_dbt_manifest_version(
     )
     .execute(&mut **tx)
     .await?;
+    // The marker too, and every job's: a marker left standing for rows that are
+    // gone is read as a snapshot, and its digest still answers the suppression
+    // check — so an identical run would write nothing and then render an empty
+    // graph.
+    sqlx::query!(
+        "DELETE FROM dbt_graph_snapshot
+          WHERE workspace_id = $1 AND script_path = $2 AND script_hash = $3",
+        workspace_id,
+        script_path,
+        script_hash
+    )
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }
 
@@ -786,6 +801,13 @@ pub async fn clear_dbt_manifest(
     .await?;
     sqlx::query!(
         "DELETE FROM dbt_edge WHERE workspace_id = $1 AND script_path = $2",
+        workspace_id,
+        script_path
+    )
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query!(
+        "DELETE FROM dbt_graph_snapshot WHERE workspace_id = $1 AND script_path = $2",
         workspace_id,
         script_path
     )
