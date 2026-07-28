@@ -231,7 +231,9 @@ pub async fn handle_dbt_job(
     // the previous run's. The rows are keyed by script path, so concurrent runs
     // of one dynamic script overwrite each other's — the last to parse wins the
     // display (docs/dbt-runtime.md).
-    if prepared.graph_is_per_run {
+    // A read-only command builds nothing, so re-publishing the graph from it
+    // would replace the last real run's models with a SELECT's.
+    if prepared.graph_is_per_run && !windmill_parser_yaml::dbt::is_read_only_command(&command) {
         if command != "retry" {
             run_dbt_parse(
                 &prepared,
@@ -256,6 +258,23 @@ pub async fn handle_dbt_job(
             conn,
         )
         .await?;
+    }
+
+    // A read-only command has its own path: dbt prints the rows to stdout, so it
+    // is captured rather than streamed through the job-log writer, and none of
+    // what follows applies — nothing was built, so there is no graph to publish,
+    // no materialization to record, no test phase and nothing to retry.
+    if windmill_parser_yaml::dbt::is_read_only_command(&command) {
+        return run_show(
+            &prepared,
+            &descriptor,
+            &inv,
+            &mut JobCtx { mem_peak, canceled_by, occupancy_metrics, worker_name, deadline },
+            &job.id,
+            &job.workspace_id,
+            conn,
+        )
+        .await;
     }
 
     let mut run = run_dbt(
@@ -2114,6 +2133,52 @@ fn split_relation(rel: &str) -> Vec<String> {
     parts.into_iter().map(|p| p.trim().to_string()).collect()
 }
 
+/// `dbt show`: SELECT from the selected node and return its rows.
+///
+/// Captured rather than streamed, for the same reason `dbt ls` is: the job-log
+/// writer is what `NO_LOGS_AT_ALL` discards, and these rows ARE the result, not
+/// commentary about it.
+async fn run_show(
+    p: &PreparedProject,
+    descriptor: &DbtDescriptor,
+    inv: &Invocation,
+    ctx: &mut JobCtx<'_>,
+    job_id: &Uuid,
+    w_id: &str,
+    conn: &Connection,
+) -> error::Result<Box<RawValue>> {
+    let mut cmd = dbt_command(p, &["show"]);
+    add_vars(&mut cmd, descriptor, inv)?;
+    add_selection(&mut cmd, descriptor, inv)?;
+    let limit = arg_i64(&inv.args, "limit")?
+        .filter(|l| *l > 0)
+        .unwrap_or(windmill_parser_yaml::dbt::DBT_SHOW_DEFAULT_LIMIT as i64);
+    cmd.args(["--output", "json", "--limit", &limit.to_string()]);
+    let stdout = run_capturing(cmd, "dbt show", ctx, job_id, w_id, conn).await?;
+    // dbt frames the rows as `{"node": …, "show": [ … ]}`, pretty-printed across
+    // lines, with a banner before it and a deprecation summary after — so
+    // neither "the line starting with `{`" nor "from the first `{` to the end"
+    // parses. A streaming deserializer stops at the end of the first complete
+    // document and ignores the trailing text. Returned verbatim rather than
+    // reshaped: the caller renders whatever columns the model has.
+    let mut from = 0;
+    while let Some(rel) = stdout[from..].find('{') {
+        let at = from + rel;
+        let mut docs =
+            serde_json::Deserializer::from_str(&stdout[at..]).into_iter::<serde_json::Value>();
+        if let Some(Ok(v)) = docs.next() {
+            if v.get("show").is_some() {
+                return Ok(to_raw_value(&v));
+            }
+        }
+        from = at + 1;
+    }
+    Err(Error::ExecutionErr(format!(
+        "dbt show returned no rows to parse. Output was:\n{}",
+        stdout.chars().take(2000).collect::<String>()
+    )))
+}
+
 async fn read_run_results(project_dir: &Path) -> Vec<DbtNodeResult> {
     let Ok(content) =
         tokio::fs::read_to_string(project_dir.join(ARTIFACTS_DIR).join("run_results.json")).await
@@ -3157,6 +3222,15 @@ fn arg_bool(args: &HashMap<String, Box<RawValue>>, k: &str) -> error::Result<Opt
     serde_json::from_str::<bool>(raw.get())
         .map(Some)
         .map_err(|e| Error::BadRequest(format!("`{k}` must be a boolean: {e}")))
+}
+
+fn arg_i64(args: &HashMap<String, Box<RawValue>>, k: &str) -> error::Result<Option<i64>> {
+    let Some(raw) = args.get(k).filter(|r| r.get().trim() != "null") else {
+        return Ok(None);
+    };
+    serde_json::from_str::<i64>(raw.get())
+        .map(Some)
+        .map_err(|e| Error::BadRequest(format!("`{k}` must be a whole number: {e}")))
 }
 
 /// The selectors a given invocation runs with: the descriptor's, unless the

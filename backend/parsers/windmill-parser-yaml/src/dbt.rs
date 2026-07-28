@@ -182,17 +182,32 @@ impl DbtNodeRetry {
 /// The dbt subcommands a run may ask for. Kept here so the signature and the
 /// worker's validation cannot drift apart.
 ///
-/// Only commands whose writes match the graph the deploy registered. The asset
-/// dispatcher fires a script's deploy-time writes on any successful job, so a
-/// command that builds a SUBSET of them notifies consumers of relations this
-/// invocation left stale.
+/// An allowlist rather than a passthrough: the value becomes the dbt subcommand,
+/// and running a script needs weaker permission than editing it, so an unchecked
+/// arg would let a runner invoke `clean` or `source freshness` against the
+/// descriptor's warehouse.
 ///
-/// That rules out `test`, which writes nothing, and `run`, which covers models
-/// only: a project with seeds or snapshots registers those as writes too.
-/// Narrowing what a run touches is `select`/`exclude`, which scope the graph as
-/// well, resolved by asking dbt. Tests run as part of `build`, or as the second
-/// phase of `test_behavior: after_all`.
-pub const DBT_COMMANDS: &[&str] = &["build", "retry"];
+/// `run` is absent because it covers models only: a project with seeds or
+/// snapshots would build a subset of what its graph claims. Narrowing what a run
+/// touches is `select`/`exclude`, which scope the graph too. Tests run as part
+/// of `build`, or as the second phase of `test_behavior: after_all`.
+///
+/// `show` writes nothing — it SELECTs from a model and returns rows. That is
+/// only admissible because a dbt run no longer dispatches: while it did, any
+/// successful job fired the script's whole deploy-time write set, so a command
+/// that built none of them woke every consumer for relations nothing touched.
+pub const DBT_COMMANDS: &[&str] = &["build", "retry", "show"];
+
+/// Rows a `show` returns unless the run asks for fewer. dbt enforces it, so the
+/// bound is not us splicing a `LIMIT` into someone's SQL.
+pub const DBT_SHOW_DEFAULT_LIMIT: u32 = 100;
+
+/// Whether the command only reads. Such a run publishes no graph, records no
+/// materializations and runs no test phase — there is nothing it could have
+/// changed.
+pub fn is_read_only_command(command: &str) -> bool {
+    command == "show"
+}
 
 /// The command a run uses when it does not name one. Public because the worker
 /// must choose exactly what the run form's default advertises.
@@ -280,6 +295,18 @@ pub fn parse_dbt_sig(inner_content: &str) -> anyhow::Result<MainArgSignature> {
             typ: Typ::Bool,
             has_default: true,
             default: Some(serde_json::json!(d.full_refresh)),
+            oidx: None,
+            otyp_inferred: false,
+        },
+        // Rows a `show` returns. Ignored by every other command, and offered on
+        // the form because a preview of a wide table is a different ask from a
+        // preview of a narrow one.
+        Arg {
+            name: "limit".to_string(),
+            otyp: None,
+            typ: Typ::Int,
+            has_default: true,
+            default: Some(serde_json::json!(DBT_SHOW_DEFAULT_LIMIT)),
             oidx: None,
             otyp_inferred: false,
         },
@@ -511,6 +538,7 @@ full_refresh: true
                 "exclude",
                 "vars",
                 "full_refresh",
+                "limit",
                 "dbt_command",
                 "day"
             ]
