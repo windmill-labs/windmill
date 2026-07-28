@@ -939,7 +939,6 @@ export function queuedToolStatus(
 	argsString: string | undefined
 ): Partial<ToolDisplayMessage> {
 	const tool = tools.find((t) => t.def.function.name === toolName)
-	// Humanize snake_case and camelCase alike: askUserQuestion → "Ask user question"
 	const words = toolName
 		.replaceAll('_', ' ')
 		.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
