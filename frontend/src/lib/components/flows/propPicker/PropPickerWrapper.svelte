@@ -81,9 +81,8 @@
 
 	// Collapse-until-connect mode (sessions modal panel): the picker stays hidden and
 	// slides in only while a connect is active. Elsewhere it's always the split pane.
-	const collapseUntilConnect = $derived(
-		!forceExpanded && (propPickerContext.collapsePropPickerUntilConnect?.() ?? false)
-	)
+	const inModalPanel = $derived(propPickerContext.collapsePropPickerUntilConnect?.() ?? false)
+	const collapseUntilConnect = $derived(!forceExpanded && inModalPanel)
 
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
 		propPickerConfig,
@@ -98,7 +97,9 @@
 				}
 			}
 			propPickerConfig.set(config)
-			if (!noFlowPlugConnect) {
+			// Connecting means clicking a node in the graph, and the modal panel covers it —
+			// there the in-panel picker above is the only reachable way to pick a property.
+			if (!noFlowPlugConnect && !inModalPanel) {
 				flowPropPickerConfig.set({
 					...config,
 					clearFocus: () => {
