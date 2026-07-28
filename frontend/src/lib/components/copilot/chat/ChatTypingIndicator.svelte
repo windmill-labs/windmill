@@ -8,12 +8,10 @@
 		label
 	}: { loading: boolean; compact?: boolean; paused?: boolean; label?: string } = $props()
 
-	// Wall-clock for the typing-dots indicator. Starts on the rising edge of
-	// `loading`, ticks once a second, frozen on the last value when loading
-	// ends so callers reading the dots briefly after still see a coherent number.
-	// While `paused` the clock is suspended and resumes from where it stopped:
-	// time the user spends answering a question is theirs, not the model's, and
-	// counting it makes a fast turn read as a slow one.
+	// Starts on the rising edge of `loading`, frozen on its last value once loading
+	// ends so a caller reading it just after still sees a coherent number. `paused`
+	// suspends it and resumes where it stopped: time the user spends answering is
+	// theirs, and counting it makes a fast turn read as a slow one.
 	let elapsedMs = $state(0)
 	let accumulatedMs = 0
 	let wasLoading = false

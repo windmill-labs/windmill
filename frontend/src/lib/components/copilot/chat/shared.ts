@@ -648,11 +648,9 @@ export function isActiveUserQuestion(message: DisplayMessage | undefined): boole
 	)
 }
 
-// The loop is paused on the user rather than on its own work: either an
-// unanswered askUserQuestion or a tool call staged for confirmation (running a
-// script, deploying…). The manager stays `loading` throughout both, so anything
-// that renders progress must ask here first or it shows "the AI is working"
-// while the AI is in fact blocked on the user.
+// The loop is parked on the user: an unanswered askUserQuestion, or a tool call
+// staged for confirmation. The manager stays `loading` through both, so anything
+// rendering progress must ask here first or it reports "the AI is working".
 export type PendingUserAction = 'question' | 'confirmation'
 
 export function pendingUserAction(
