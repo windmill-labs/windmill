@@ -93,6 +93,30 @@ describe('shapeFlowRunTree', () => {
 		expect(loop.iterations_elided).toBe(46)
 	})
 
+	it('renders retried steps as attempts of one step, not loop iterations', () => {
+		const entries = [root()]
+		for (let i = 1; i <= 3; i++) {
+			entries.push(
+				entry({
+					step_path: 'a',
+					flow_step_id: 'a',
+					label: `Step a (attempt ${i}/3)`,
+					parent_module_type: 'rawscript',
+					sibling_index: i,
+					sibling_count: 3,
+					status: i < 3 ? 'failure' : 'success',
+					success: i === 3
+				})
+			)
+		}
+		const step = JSON.parse(shapeFlowRunTree({ entries })).steps[0]
+		expect(step.iterations).toBeUndefined()
+		expect(step.attempts).toBe(3)
+		expect(step.status).toBe('success')
+		expect(step.label).toBe('Step a (attempt 3/3)')
+		expect(step.previous_attempts.map((a: any) => a.status)).toEqual(['failure', 'failure'])
+	})
+
 	it('counts running iterations as unfinished instead of failed', () => {
 		const entries = loopEntries(3, [])
 		entries[2].status = 'running'

@@ -116,6 +116,16 @@ function shapeStep(node: FlowTreeNode, opts: ShapeOpts, iteration?: number): Rec
 	return shaped
 }
 
+/** Module types whose sibling jobs are iterations/branches; sibling jobs of
+ * any other step are retry attempts of that step. */
+const FAN_OUT_MODULE_TYPES = new Set([
+	'forloopflow',
+	'whileloopflow',
+	'branchall',
+	'branchone',
+	'aiagent'
+])
+
 function shapeGroup(group: ChildGroup, opts: ShapeOpts): Record<string, any> {
 	if (group.nodes.length === 1 && group.nodes[0].entry.sibling_count <= 1) {
 		return shapeStep(group.nodes[0], opts)
@@ -130,10 +140,25 @@ function shapeGroup(group: ChildGroup, opts: ShapeOpts): Record<string, any> {
 		}
 	}
 
+	const byIndex = [...group.nodes].sort((a, b) => a.entry.sibling_index - b.entry.sibling_index)
+
+	if (first.parent_module_type && !FAN_OUT_MODULE_TYPES.has(first.parent_module_type)) {
+		// Retried step: siblings are attempts of the same step, the last one is
+		// the final outcome — render it as the step, keeping earlier attempts as
+		// status-only references.
+		const shaped = shapeStep(byIndex[byIndex.length - 1], opts)
+		shaped.attempts = byIndex.length
+		shaped.previous_attempts = byIndex.slice(0, -1).map((n) => ({
+			attempt: n.entry.sibling_index,
+			status: n.entry.status,
+			job_id: n.entry.job_id
+		}))
+		return shaped
+	}
+
 	// Loop-like fan-out (forloopflow, whileloopflow, aiagent actions, or any
 	// other multi-job step): tally statuses, show failed iterations (capped) and
 	// the latest one, elide the rest.
-	const byIndex = [...group.nodes].sort((a, b) => a.entry.sibling_index - b.entry.sibling_index)
 	const ok = byIndex.filter((n) => n.entry.status === 'success').length
 	const failedNodes = byIndex.filter(
 		(n) => n.entry.status === 'failure' || n.entry.status === 'canceled'
@@ -181,7 +206,7 @@ function renderTree(
 		...(rootJobNote ? { note: rootJobNote } : {}),
 		run,
 		...(steps ? { steps } : {}),
-		hint: `Results are truncated. Call get_flow_run_details again with step="<step>" (e.g. "b/c", or "b[12]" for one loop iteration) for a step's full result.`
+		hint: `Results are truncated. Call get_flow_run_details again with step="<step>" (e.g. "b/c", or "b[12]" for one loop iteration) for a step's result in full (up to ${STEP_RESULT_MAX_CHARS} chars).`
 	}
 }
 

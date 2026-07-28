@@ -2315,20 +2315,36 @@ fn flow_tree_entry_label(
                 path, kind_label, sibling_index, sibling_count
             )
         } else if sibling_count > 1 {
-            format!(
-                "Step {} (iteration {}/{})",
-                path, sibling_index, sibling_count
-            )
+            if kind_label.is_empty() {
+                // Sibling jobs of a non-fan-out step are retry attempts
+                format!(
+                    "Step {} (attempt {}/{})",
+                    path, sibling_index, sibling_count
+                )
+            } else {
+                format!(
+                    "Step {}{} (iteration {}/{})",
+                    path, kind_label, sibling_index, sibling_count
+                )
+            }
         } else {
             format!("Step {} (subflow)", path)
         }
     } else if sibling_count > 1 {
-        // Simple module optimization: forloop/whileloop with single step
-        // runs iterations as direct script jobs instead of subflows
-        format!(
-            "Step {}{} (iteration {}/{})",
-            path, kind_label, sibling_index, sibling_count
-        )
+        if kind_label.is_empty() {
+            // Sibling jobs of a non-fan-out step are retry attempts
+            format!(
+                "Step {} (attempt {}/{})",
+                path, sibling_index, sibling_count
+            )
+        } else {
+            // Simple module optimization: forloop/whileloop with single step
+            // runs iterations as direct script jobs instead of subflows
+            format!(
+                "Step {}{} (iteration {}/{})",
+                path, kind_label, sibling_index, sibling_count
+            )
+        }
     } else {
         format!("Step {}", path)
     }
@@ -2609,6 +2625,16 @@ struct ResolvedStepJob {
     sibling_index: i32,
     sibling_count: i32,
     depth: i32,
+    parent_module_type: String,
+}
+
+/// Fan-out module types whose sibling jobs are iterations/branches; sibling
+/// jobs of any other step are retry attempts.
+fn is_fan_out_module(parent_module_type: &str) -> bool {
+    matches!(
+        parent_module_type,
+        "forloopflow" | "whileloopflow" | "branchall" | "branchone" | "aiagent"
+    )
 }
 
 /// 'b[12]' -> ("b", Some(12)); 'b' -> ("b", None).
@@ -2651,12 +2677,28 @@ async fn resolve_flow_step_job(
         let (step_id, index) = parse_step_segment(segment);
         path_segments.push(step_id);
 
+        // parent_module_type is resolved the same way as in the tree CTE (the
+        // module named `step_id` in the parent's flow definition); it is
+        // constant across the sibling rows.
         let siblings = sqlx::query!(
             "SELECT j.id,
                     COALESCE(c.status::text,
                              CASE WHEN q.running AND q.suspend > 0 THEN 'suspended'
                                   WHEN q.running THEN 'running'
-                                  ELSE 'queued' END) as \"status!\"
+                                  ELSE 'queued' END) as \"status!\",
+                    COALESCE((
+                        SELECT m->'value'->>'type'
+                        FROM v2_job parent_j
+                        LEFT JOIN flow f ON f.path = parent_j.runnable_path
+                            AND f.workspace_id = parent_j.workspace_id
+                        LEFT JOIN flow_node fn ON fn.id = parent_j.runnable_id
+                        CROSS JOIN LATERAL jsonb_array_elements(
+                            COALESCE(parent_j.raw_flow, f.value, fn.flow)->'modules'
+                        ) m
+                        WHERE parent_j.id = $1
+                          AND m->>'id' = $3
+                        LIMIT 1
+                    ), '')::text as \"parent_module_type!\"
              FROM v2_job j
              LEFT JOIN v2_job_completed c ON c.id = j.id
              LEFT JOIN v2_job_queue q ON q.id = j.id
@@ -2690,6 +2732,7 @@ async fn resolve_flow_step_job(
             )));
         }
 
+        let parent_module_type = siblings[0].parent_module_type.clone();
         let node = if let Some(index) = index {
             match index.checked_sub(1).and_then(|i| siblings.get(i)) {
                 Some(node) => node,
@@ -2708,13 +2751,25 @@ async fn resolve_flow_step_job(
                 .enumerate()
                 .map(|(i, s)| format!("[{}] {}", i + 1, s.status))
                 .join(", ");
-            return Ok(Err(format!(
-                "Step \"{}\" ran {} times (loop/branches) — pick one with \"{}[i]\". Iterations: {}.",
-                step_id,
-                siblings.len(),
-                step_id,
-                statuses
-            )));
+            return Ok(Err(
+                if is_fan_out_module(&parent_module_type) || parent_module_type.is_empty() {
+                    format!(
+                        "Step \"{}\" ran {} times (loop/branches) — pick one with \"{}[i]\". Iterations: {}.",
+                        step_id,
+                        siblings.len(),
+                        step_id,
+                        statuses
+                    )
+                } else {
+                    format!(
+                        "Step \"{}\" was retried — {} attempts, the last one is the final outcome. Pick one with \"{}[i]\". Attempts: {}.",
+                        step_id,
+                        siblings.len(),
+                        step_id,
+                        statuses
+                    )
+                },
+            ));
         } else {
             &siblings[0]
         };
@@ -2728,6 +2783,7 @@ async fn resolve_flow_step_job(
             sibling_index: (index_in_siblings + 1) as i32,
             sibling_count: siblings.len() as i32,
             depth: (depth + 1) as i32,
+            parent_module_type,
         });
     }
 
@@ -2813,7 +2869,7 @@ async fn get_flow_all_results(
         let label = flow_tree_entry_label(
             kind,
             &resolved.path,
-            "",
+            &resolved.parent_module_type,
             resolved.sibling_index,
             resolved.sibling_count,
             resolved.depth,
@@ -2828,7 +2884,11 @@ async fn get_flow_all_results(
                 flow_step_id: Some(resolved.flow_step_id),
                 step_path: Some(resolved.path),
                 depth: resolved.depth,
-                parent_module_type: None,
+                parent_module_type: if resolved.parent_module_type.is_empty() {
+                    None
+                } else {
+                    Some(resolved.parent_module_type)
+                },
                 sibling_index: resolved.sibling_index,
                 sibling_count: resolved.sibling_count,
                 status,

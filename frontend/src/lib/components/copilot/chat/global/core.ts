@@ -535,7 +535,7 @@ const getFlowRunDetailsSchema = z.object({
 		.string()
 		.optional()
 		.describe(
-			'Step to drill into for its full result, addressed by the step ids shown in the tree: "b" for a top-level step, "b/c" for a step inside a subflow, "b[12]" for iteration 12 of a loop (1-based), composable as "b[12]/c". Omit to get the whole per-step tree.'
+			'Step to drill into for its result (returned in full up to 12k chars), addressed by the step ids shown in the tree: "b" for a top-level step, "b/c" for a step inside a subflow, "b[12]" for iteration 12 of a loop or attempt 12 of a retried step (1-based), composable as "b[12]/c". Omit to get the whole per-step tree.'
 		)
 })
 
@@ -1114,7 +1114,7 @@ Rules:
 ${pipelineBullet}
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
-- To see what a flow run actually did per step — statuses and results across the whole execution tree, subflow steps and loop iterations included — use get_flow_run_details with the run id (it also works while the flow is still running). Pass step to read one step's full result. Prefer it over get_job_logs when you need step results rather than logs.
+- To see what a flow run actually did per step — statuses and results across the whole execution tree, subflow steps and loop iterations included — use get_flow_run_details with the run id (it also works while the flow is still running). Pass step to read one step's result in full (capped at 12k chars). Prefer it over get_job_logs when you need step results rather than logs.
 - Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
 - When the user is happy with the changes and wants to review or deploy them, use open_page with page "compare" — it opens the Compare & Deploy review page.${
 		previewTools
@@ -2939,7 +2939,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			getFlowRunDetailsSchema,
 			'get_flow_run_details',
-			"Inspect a flow run's execution tree: per-step statuses and truncated results, including subflow steps, loop iterations, and branches. Works on running flows too. Pass step to fetch one step's full result."
+			"Inspect a flow run's execution tree: per-step statuses and truncated results, including subflow steps, loop iterations, branches, and retries. Works on running flows too. Pass step to fetch one step's result in full (up to 12k chars)."
 		),
 		showDetails: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
