@@ -171,7 +171,7 @@
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig,
 		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined),
-		collapsePropPickerUntilConnect: () => panelMode === 'modal'
+		inModalPanel: () => panelMode === 'modal'
 	})
 
 	// Read by graph step items (VirtualItem) to show a per-step "double click to

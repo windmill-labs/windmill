@@ -13,10 +13,26 @@ export function useConnect(opts: {
 	inModalPanel: () => boolean
 	hasPickableProperties: () => boolean
 	flowPropPickerConfig: Writable<FlowPropPickerConfig | undefined>
+	/** Mirrors the armed target for an in-panel picker, which filters by its prop name. */
+	localConfig?: Writable<
+		{ propName?: string; onSelect: (path: string) => boolean; clearFocus: () => void } | undefined
+	>
 }) {
 	let armed = $state<ArmedTarget | undefined>(undefined)
 
-	function syncGraph() {
+	function sync() {
+		opts.localConfig?.set(
+			armed
+				? {
+						propName: armed.id,
+						onSelect: (path: string) => {
+							resolve(path)
+							return true
+						},
+						clearFocus: disarm
+					}
+				: undefined
+		)
 		const participates = graphParticipates(armed, {
 			inModalPanel: opts.inModalPanel(),
 			hasPickableProperties: opts.hasPickableProperties()
@@ -36,11 +52,12 @@ export function useConnect(opts: {
 
 	function arm(target: ArmedTarget) {
 		armed = nextArmed(armed, target)
-		syncGraph()
+		sync()
 	}
 
 	function disarm() {
 		armed = undefined
+		opts.localConfig?.set(undefined)
 		opts.flowPropPickerConfig.set(undefined)
 	}
 

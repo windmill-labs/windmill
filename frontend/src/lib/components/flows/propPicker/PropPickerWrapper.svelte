@@ -23,11 +23,11 @@
 	import { clickOutside } from '$lib/utils'
 	import { createEventDispatcher, getContext, setContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
 	import { writable, type Writable } from 'svelte/store'
 	import type { PickableProperties } from '../previousResults'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
+	import { useConnect } from './useConnect.svelte'
 
 	interface Props {
 		pickableProperties: PickableProperties | undefined
@@ -39,16 +39,6 @@
 		notSelectable?: boolean
 		noPadding?: boolean
 		paneClass?: string
-		noFlowPlugConnect?: boolean
-		/** Opt out of the sessions-modal collapse-until-connect behavior and always
-		 *  show the picker split pane (e.g. the loop iterator, whose auto-height
-		 *  container relies on the picker pane for its height and whose connect uses
-		 *  the flow-level config). */
-		forceExpanded?: boolean
-		/** Render the children full-width and expose the picker via a chevron-triggered
-		 *  popover instead of a split pane (used by the loop iterator in the sessions
-		 *  modal, where horizontal space is tight). Takes precedence over the other modes. */
-		pickerPopover?: boolean
 		children?: import('svelte').Snippet
 	}
 
@@ -62,9 +52,6 @@
 		notSelectable = false,
 		noPadding = false,
 		paneClass = '',
-		noFlowPlugConnect = false,
-		forceExpanded = false,
-		pickerPopover = false,
 		children
 	}: Props = $props()
 
@@ -81,38 +68,20 @@
 
 	// Collapse-until-connect mode (sessions modal panel): the picker stays hidden and
 	// slides in only while a connect is active. Elsewhere it's always the split pane.
-	const inModalPanel = $derived(propPickerContext.collapsePropPickerUntilConnect?.() ?? false)
-	const collapseUntilConnect = $derived(!forceExpanded && inModalPanel)
+	const inModalPanel = $derived(propPickerContext.inModalPanel?.() ?? false)
+
+	const connect = useConnect({
+		inModalPanel: () => inModalPanel,
+		hasPickableProperties: () => pickableProperties != undefined,
+		flowPropPickerConfig,
+		localConfig: propPickerConfig
+	})
 
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
 		propPickerConfig,
 		inputMatches,
-		connectProp: (propName, onSelect) => {
-			const config = {
-				propName,
-				onSelect,
-				clearFocus: () => {
-					propPickerConfig.set(undefined)
-					flowPropPickerConfig.set(undefined)
-				}
-			}
-			propPickerConfig.set(config)
-			// Connecting means clicking a node in the graph, and the modal panel covers it —
-			// there the in-panel picker above is the only reachable way to pick a property.
-			if (!noFlowPlugConnect && !inModalPanel) {
-				flowPropPickerConfig.set({
-					...config,
-					clearFocus: () => {
-						propPickerConfig.set(undefined)
-						flowPropPickerConfig.set(undefined)
-					}
-				})
-			}
-		},
-		clearConnect: () => {
-			flowPropPickerConfig.set(undefined)
-			propPickerConfig.set(undefined)
-		},
+		connectProp: (propName, onSelect) => connect.arm({ id: propName, onSelect }),
+		clearConnect: connect.disarm,
 		exprBeingEdited: writable<string[]>([])
 	})
 
@@ -128,7 +97,7 @@
 {#snippet pickerBody()}
 	<div bind:clientHeight={rightPaneHeight} class="min-h-40 h-full !bg-surface">
 		<AnimatedButton
-			animate={!collapseUntilConnect && $propPickerConfig != undefined}
+			animate={$propPickerConfig != undefined}
 			baseRadius="4px"
 			wrapperClasses="prop-picker-inputs h-full w-full pt-1"
 			marginWidth="3px"
@@ -143,9 +112,7 @@
 					allowCopy={!notSelectable && !$propPickerConfig}
 					on:select={({ detail }) => {
 						dispatch('select', detail)
-						if ($propPickerConfig?.onSelect(detail)) {
-							$propPickerConfig?.clearFocus()
-						}
+						connect.resolve(detail)
 					}}
 				/>
 			{:else if pickableProperties}
@@ -159,9 +126,7 @@
 					allowCopy={!notSelectable && !$propPickerConfig}
 					on:select={({ detail }) => {
 						dispatch('select', detail)
-						if ($propPickerConfig?.onSelect(detail)) {
-							$propPickerConfig?.clearFocus()
-						}
+						connect.resolve(detail)
 					}}
 				/>
 			{/if}
@@ -181,41 +146,14 @@
 		}
 	}}
 >
-	{#if pickerPopover}
-		<!-- Children full-width; the consumer renders the picker in a popover (the
-		     PropPicker inside it still resolves this component's context). -->
-		<div class="h-full w-full {noPadding ? '' : 'p-2'}">
-			{@render children?.()}
-		</div>
-	{:else if collapseUntilConnect}
-		<!-- Picker collapsed until a connect is active: the right pane animates open
-		     (and back closed) via AnimatedPane, same as the runs page detail pane.
-		     Left pane has no fixed size so it flexes to fill whatever the picker leaves. -->
-		<Splitpanes class={$propPickerConfig ? 'splitpanes-remove-splitter' : ''}>
-			<Pane minSize={20} class="relative !transition-none">
-				<div class="h-full {noPadding ? '' : 'p-2'}">
-					{@render children?.()}
-				</div>
-			</Pane>
-			<AnimatedPane
-				size={40}
-				minSize={15}
-				opened={$propPickerConfig != undefined}
-				class="!transition-none z-1000 relative {paneClass}"
-			>
-				{@render pickerBody()}
-			</AnimatedPane>
-		</Splitpanes>
-	{:else}
-		<Splitpanes class={$propPickerConfig ? 'splitpanes-remove-splitter' : ''}>
-			<Pane minSize={20} size={60} class={'relative !transition-none'}>
-				<div style="height: {rightPaneHeight}px;" class={noPadding ? '' : 'p-2'}>
-					{@render children?.()}
-				</div>
-			</Pane>
-			<Pane minSize={20} size={40} class="!transition-none z-1000 relative {paneClass}">
-				{@render pickerBody()}
-			</Pane>
-		</Splitpanes>
-	{/if}
+	<Splitpanes class={$propPickerConfig ? 'splitpanes-remove-splitter' : ''}>
+		<Pane minSize={20} size={60} class={'relative !transition-none'}>
+			<div style="height: {rightPaneHeight}px;" class={noPadding ? '' : 'p-2'}>
+				{@render children?.()}
+			</div>
+		</Pane>
+		<Pane minSize={20} size={40} class="!transition-none z-1000 relative {paneClass}">
+			{@render pickerBody()}
+		</Pane>
+	</Splitpanes>
 </div>

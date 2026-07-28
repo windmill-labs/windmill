@@ -5,9 +5,6 @@
 	import { type Snippet } from 'svelte'
 	import type { PickableProperties } from '../previousResults'
 
-	// Whether the prop picker is a split pane or a collapsed popover is not this
-	// component's choice: it follows PropPickerContext.collapsePropPickerUntilConnect,
-	// so a container too narrow for the pane can opt out without a prop.
 	interface Props {
 		code: string
 		label: string

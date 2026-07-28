@@ -209,7 +209,6 @@
 						<div class="border">
 							<PropPickerWrapper
 								{result}
-								noFlowPlugConnect
 								displayContext={false}
 								pickableProperties={undefined}
 								on:select={({ detail }) => {

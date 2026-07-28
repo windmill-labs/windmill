@@ -122,9 +122,7 @@
 		getContext<PropPickerWrapperContext>('PropPickerWrapper')
 	// Modal panel (sessions) suppresses the blue connect-ring animations.
 	const propPickerCtx = getContext<PropPickerContext | undefined>('PropPickerContext')
-	const suppressConnectAnimation = $derived(
-		propPickerCtx?.collapsePropPickerUntilConnect?.() ?? false
-	)
+	const suppressConnectAnimation = $derived(propPickerCtx?.inModalPanel?.() ?? false)
 	const {
 		inputMatches,
 		connectProp: focusProp,

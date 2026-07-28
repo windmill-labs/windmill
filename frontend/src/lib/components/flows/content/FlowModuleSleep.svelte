@@ -68,7 +68,6 @@
 		{#if flowModule.sleep && schema.properties['sleep']}
 			<div class="border rounded-md overflow-auto">
 				<PropPickerWrapper
-					noFlowPlugConnect={true}
 					flow_input={stepPropPicker.pickableProperties.flow_input}
 					notSelectable
 					{result}

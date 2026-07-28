@@ -25,7 +25,7 @@
 	const propPickerContext = getContext<PropPickerContext | undefined>('PropPickerContext')
 
 	const connect = useConnect({
-		inModalPanel: () => propPickerContext?.collapsePropPickerUntilConnect?.() ?? false,
+		inModalPanel: () => propPickerContext?.inModalPanel?.() ?? false,
 		hasPickableProperties: () => pickableProperties != undefined,
 		flowPropPickerConfig: propPickerContext?.flowPropPickerConfig ?? writable(undefined)
 	})
