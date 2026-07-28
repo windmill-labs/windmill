@@ -2464,3 +2464,14 @@ export function parsePrettyDate(text: string): Date | null {
 	const date = new Date(text)
 	return isNaN(date.getTime()) ? null : date
 }
+
+// Surface the backend's explanation: API errors carry the real message in
+// `.body` (plain text for Windmill 4xx), while `.message` is only the generic
+// status text ("Bad Request") the generated client fills in per status code.
+export function apiErrorMessage(e: any): string {
+	const body = e?.body
+	if (typeof body === 'string' && body.trim() !== '') return body
+	if (body && typeof body === 'object')
+		return body.error?.message ?? body.message ?? JSON.stringify(body)
+	return e?.message ?? String(e)
+}

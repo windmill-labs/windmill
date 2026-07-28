@@ -3349,20 +3349,60 @@ async fn check_dev_promotion_targets_parent_repo<'a>(
     repos: impl Iterator<Item = &'a windmill_common::workspaces::GitRepositorySettings>,
 ) -> Result<()> {
     for r in repos.filter(|r| r.use_individual_branch.unwrap_or(false)) {
-        if !windmill_common::git_sync_ee::dev_promotion_target_matches_parent(
+        let Some(m) = windmill_common::git_sync_ee::dev_promotion_target_mismatch(
             db,
             w_id,
             &r.git_repo_resource_path,
         )
         .await?
-        {
-            return Err(Error::BadRequest(
-                "Promotion mode on a dev workspace must reuse the parent workspace's git repository \
-                 (same URL and branch), but this repository is not one the parent tracks — promotion \
-                 would target a repository the parent does not sync with."
-                    .to_string(),
-            ));
-        }
+        else {
+            continue;
+        };
+        // A resource with no `branch` field normalizes to an empty string.
+        let named = |b: &str| {
+            if b.is_empty() {
+                "<none>".to_string()
+            } else {
+                b.to_string()
+            }
+        };
+        let branch = named(&m.branch);
+        let hint = if m.parent_branches.is_empty() {
+            format!(
+                "the parent workspace '{}' does not track that repository. Point this repository at \
+                 the one the parent syncs with, or add it to the parent's git sync settings.",
+                m.parent_workspace
+            )
+        } else {
+            // With no branch of its own there is nothing for the parent to add,
+            // so only offer the side of the advice that can be acted on.
+            let other_way = if m.branch.is_empty() {
+                String::new()
+            } else {
+                format!(", or add branch '{branch}' to the parent's git sync settings")
+            };
+            format!(
+                "the parent workspace '{}' tracks it on {} '{}'. Set this repository's branch to \
+                 match{other_way}.",
+                m.parent_workspace,
+                if m.parent_branches.len() > 1 {
+                    "branches"
+                } else {
+                    "branch"
+                },
+                m.parent_branches
+                    .iter()
+                    .map(|b| named(b))
+                    .collect::<Vec<_>>()
+                    .join("', '")
+            )
+        };
+        return Err(Error::BadRequest(format!(
+            "Promotion mode on a dev workspace must reuse the parent workspace's git repository \
+             (same URL and branch). Repository '{}' targets '{}' on branch '{branch}', but {hint}",
+            r.git_repo_resource_path.trim_start_matches("$res:"),
+            m.repo,
+        )));
     }
     Ok(())
 }
