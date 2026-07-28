@@ -1584,21 +1584,39 @@ export type Jsonified<T> =
                   // remapping would drop the array/tuple shape.
                   T extends readonly any[]
                   ? { [K in keyof T]: Jsonified<T[K]> }
-                  : // `JSON.stringify` keeps own enumerable string keys whose
-                    // value it can represent. A key that can only hold an
-                    // unrepresentable value is gone; one that merely might is
-                    // `| undefined`, because that key can come back missing.
-                    T extends object
-                    ? {
-                        [K in keyof T as K extends symbol
-                          ? never
-                          : [Exclude<T[K], JsonDropped>] extends [never]
-                            ? never
-                            : K]:
-                          | Jsonified<Exclude<T[K], JsonDropped>>
-                          | ([T[K]] extends [Exclude<T[K], JsonDropped>] ? never : undefined);
-                      }
+                  : T extends object
+                    ? JsonifiedObject<T>
                     : never;
+
+/**
+ * `JSON.stringify` keeps own enumerable string keys whose value it can
+ * represent. A key that can only hold an unrepresentable value is gone; one
+ * that merely might becomes optional, because it can come back missing —
+ * `| undefined` alone would still demand the key be there.
+ */
+type JsonifiedObject<T> = Flatten<
+  {
+    [K in keyof T as K extends symbol
+      ? never
+      : [Exclude<T[K], JsonDropped>] extends [never]
+        ? never
+        : [T[K]] extends [Exclude<T[K], JsonDropped>]
+          ? K
+          : never]: Jsonified<T[K]>;
+  } & {
+    [K in keyof T as K extends symbol
+      ? never
+      : [Exclude<T[K], JsonDropped>] extends [never]
+        ? never
+        : [T[K]] extends [Exclude<T[K], JsonDropped>]
+          ? never
+          : K]?: Jsonified<Exclude<T[K], JsonDropped>>;
+  }
+>;
+
+/** Collapse the two halves above into one object, so hovering `Jsonified` shows
+ *  a shape rather than an intersection. */
+type Flatten<T> = { [K in keyof T]: T[K] };
 
 /** Encode a checkpoint payload the way the worker wrapper does on the suspend
  *  path, so both arms record the same value for the same step. `undefined` maps

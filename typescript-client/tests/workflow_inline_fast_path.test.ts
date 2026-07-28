@@ -64,7 +64,7 @@ describe("inline step round parity", () => {
     // JSON has no non-finite numbers; `Jsonified` keeps calling these `number`.
     ["non-finite", () => ({ nan: NaN, inf: Infinity }), { nan: null, inf: null }],
     // A property holding an unrepresentable value comes back missing, not null
-    // — which is why `Jsonified` types such a key `| undefined`.
+    // — which is why `Jsonified` makes such a key optional.
     ["union-symbol", () => ({ tag: Symbol("x"), keep: 1 }), { keep: 1 }],
   ];
 
@@ -153,9 +153,12 @@ _assertType<Exact<Jsonified<Record<string, unknown>>, Record<string, unknown>>>(
 _assertType<Exact<Jsonified<unknown[]>, unknown[]>>(true);
 _assertType<Exact<Jsonified<bigint>, string>>(true);
 // Symbol-valued properties are dropped by the encoder, like methods — but a
-// property that only *might* hold one keeps its key and admits undefined.
+// property that only *might* hold one keeps its key, optional.
 _assertType<Exact<Jsonified<{ a: number; s: symbol }>, { a: number }>>(true);
-_assertType<Exact<Jsonified<{ tag: string | symbol }>, { tag: string | undefined }>>(true);
+_assertType<Exact<Jsonified<{ tag: string | symbol }>, { tag?: string }>>(true);
+// The key can be missing at runtime, so the type has to accept it missing.
+const _omittable: Jsonified<{ tag: string | symbol; keep: number }> = { keep: 1 };
+void _omittable;
 _assertType<Exact<Jsonified<(string | symbol)[]>, (string | null)[]>>(true);
 
 // A task's result always crosses JSON too — the checkpoint on the workflow
