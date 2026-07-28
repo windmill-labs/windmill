@@ -725,8 +725,10 @@ pub fn has_app_embed_sentinel(scopes: Option<&[String]>) -> bool {
 }
 
 /// Sentinel scope in raw-app frontend SDK tokens. Grants nothing itself;
-/// `check_route_access` uses it to deny the request-supplied-code endpoints that
-/// `jobs:run` would otherwise reach.
+/// `check_route_access` uses it to narrow the declared scopes down to what the
+/// viewer's permission prompt actually promised: it denies the
+/// request-supplied-code endpoints `jobs:run` would otherwise reach, and confines
+/// `users:read` to `users/whoami` (never the workspace member directory).
 pub const RAW_APP_SDK_SENTINEL: &str = "raw_app_sdk";
 
 pub fn has_raw_app_sdk_sentinel(scopes: Option<&[String]>) -> bool {
