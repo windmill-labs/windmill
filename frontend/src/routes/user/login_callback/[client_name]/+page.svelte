@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
+	import { applyDarkModeVariant } from '$lib/darkModeVariant'
 	import { sendUserToast } from '$lib/toast'
 	import { onMount } from 'svelte'
 	import { UserService, WorkspaceService } from '$lib/gen'
@@ -132,6 +133,8 @@
 	} else {
 		document.documentElement.classList.remove('dark')
 	}
+	// This route bypasses the (root) layout, so restore the variant class too.
+	applyDarkModeVariant()
 
 	function closeUponLoginSuccess() {
 		const message = { type: 'success' }
