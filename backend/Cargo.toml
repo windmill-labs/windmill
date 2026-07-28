@@ -214,7 +214,7 @@ all_sqlx_features = ["all_languages", "enterprise", "enterprise_saml", "embeddin
    "windmill-git-sync/all_sqlx_features"]
 
 [patch.crates-io]
-object_store = { git = "https://github.com/diegoimbert/arrow-rs-object-store", rev = "671e69f93004ec0b3f4d117be426cb914614a415" }
+object_store = { git = "https://github.com/diegoimbert/arrow-rs-object-store", rev = "a75c080f2fe821c28754481d840cd0aeccb0f42e" }
 # Use tiberius main branch for libgssapi 0.8.1 fix (https://github.com/prisma/tiberius/issues/343)
 tiberius = { git = "https://github.com/prisma/tiberius", rev = "59db57960a14b422fb3a1309aa4aa47880896ff8" }
 # Pin tokio-postgres / postgres-types / postgres-protocol to the
@@ -618,7 +618,7 @@ process-wrap = { version = "8.2.1", features = ["tokio1"] }
 systemstat = "0.2.4"
 
 datafusion = "47.0.0"
-object_store = { git = "https://github.com/diegoimbert/arrow-rs-object-store", rev = "671e69f93004ec0b3f4d117be426cb914614a415", features = ["aws", "azure", "gcp"] }
+object_store = { git = "https://github.com/diegoimbert/arrow-rs-object-store", rev = "a75c080f2fe821c28754481d840cd0aeccb0f42e", features = ["aws", "azure", "gcp"] }
 openidconnect = { version = "4.0.0-rc.1" }
 aws-config = "^1"
 aws-sdk-bedrock = "1.129.0"
