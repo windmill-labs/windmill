@@ -3349,20 +3349,40 @@ async fn check_dev_promotion_targets_parent_repo<'a>(
     repos: impl Iterator<Item = &'a windmill_common::workspaces::GitRepositorySettings>,
 ) -> Result<()> {
     for r in repos.filter(|r| r.use_individual_branch.unwrap_or(false)) {
-        if !windmill_common::git_sync_ee::dev_promotion_target_matches_parent(
+        let Some(m) = windmill_common::git_sync_ee::dev_promotion_target_mismatch(
             db,
             w_id,
             &r.git_repo_resource_path,
         )
         .await?
-        {
-            return Err(Error::BadRequest(
-                "Promotion mode on a dev workspace must reuse the parent workspace's git repository \
-                 (same URL and branch), but this repository is not one the parent tracks — promotion \
-                 would target a repository the parent does not sync with."
-                    .to_string(),
-            ));
-        }
+        else {
+            continue;
+        };
+        let branch = if m.branch.is_empty() {
+            "<none>"
+        } else {
+            &m.branch
+        };
+        let hint = if m.parent_branches.is_empty() {
+            format!(
+                "the parent workspace '{}' does not track that repository. Point this repository at \
+                 the one the parent syncs with, or add it to the parent's git sync settings.",
+                m.parent_workspace
+            )
+        } else {
+            format!(
+                "the parent workspace '{}' tracks it on branch '{}'. Set this repository's branch to \
+                 match, or add branch '{branch}' to the parent's git sync settings.",
+                m.parent_workspace,
+                m.parent_branches.join("', '")
+            )
+        };
+        return Err(Error::BadRequest(format!(
+            "Promotion mode on a dev workspace must reuse the parent workspace's git repository \
+             (same URL and branch). Repository '{}' targets '{}' on branch '{branch}', but {hint}",
+            r.git_repo_resource_path.trim_start_matches("$res:"),
+            m.repo,
+        )));
     }
     Ok(())
 }
