@@ -1099,6 +1099,11 @@ fn provision_replication_user_sql(rotate_condition: &str) -> String {
         DECLARE
             pwd text;
         BEGIN
+            -- Same lock as get_custom_pg_instance_replication_password: without it, every API
+            -- replica booting onto a version that provisions the role races into CREATE USER,
+            -- and the losers abort on duplicate_object.
+            PERFORM pg_advisory_xact_lock(hashtext('custom_instance_replication_pwd'));
+
             IF {rotate_condition} THEN
                 SELECT gen_random_uuid()::text INTO pwd;
 
