@@ -4,7 +4,11 @@ const {
 } = require('./src/lib/components/apps/editor/componentsPanel/tailwindUtils')
 const { zIndexes } = require('./src/lib/zIndexes')
 
-const figmaTokens = makeRgb(require('./src/lib/assets/tokens/tokens.json'))
+const rawTokens = require('./src/lib/assets/tokens/tokens.json')
+// `github-dark` is a hand-authored variant kept out of the Figma-generated
+// tokens.json (a re-export would drop it); merge it in before the rgb pass.
+rawTokens.tokens['github-dark'] = require('./src/lib/assets/tokens/githubDark.json')
+const figmaTokens = makeRgb(rawTokens)
 const { darkModeName, lightModeName } = require('./src/lib/assets/tokens/colorTokensConfig')
 
 const tokens = {
@@ -627,7 +631,14 @@ const config = {
 						// GitHub's canvas.inset — the authentic recessed surface, sitting below
 						// the canvas (#0d1117) like the sidebar-vs-primary relationship in the
 						// default dark theme.
-						'--sidebar-bg-dark': '#010409'
+						'--sidebar-bg-dark': '#010409',
+
+						// Monaco popup chrome — the &.dark defaults above are VS Code's greys;
+						// override so the widgets match the GitHub Dark palette in this variant.
+						'--vscode-editorSuggestWidget-background': '#1c2128',
+						'--vscode-editorHoverWidget-foreground': '#c9d1d9',
+						'--vscode-editorHoverWidget-border': '#30363d',
+						'--vscode-editorHoverWidget-statusBarBackground': '#1c2128'
 					}
 				},
 				h1: {

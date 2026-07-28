@@ -1,6 +1,7 @@
 import '@codingame/monaco-vscode-standalone-typescript-language-features'
 
 import { editor as meditor, Uri as mUri } from 'monaco-editor'
+import { getAppliedDarkModeVariant } from '$lib/darkModeVariant'
 
 export let isInitialized = false
 export let isInitializing = false
@@ -18,7 +19,7 @@ export function getEditorTheme(): string {
 	if (!classes.contains('dark')) {
 		return 'myTheme'
 	}
-	return classes.contains('github-dark') ? 'github-dark' : 'nord'
+	return getAppliedDarkModeVariant() === 'github' ? 'github-dark' : 'nord'
 }
 
 export function buildWorkerDefinition() {

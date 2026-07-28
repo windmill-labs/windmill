@@ -6,6 +6,15 @@ export function getDarkModeVariant(): DarkModeVariant {
 	return window.localStorage.getItem(DARK_MODE_VARIANT_KEY) === 'github' ? 'github' : 'default'
 }
 
+// The variant currently applied to the DOM (the `github-dark` class) — the
+// runtime source of truth, as opposed to the persisted preference above.
+export function getAppliedDarkModeVariant(): DarkModeVariant {
+	return typeof document !== 'undefined' &&
+		document.documentElement.classList.contains('github-dark')
+		? 'github'
+		: 'default'
+}
+
 // The `github-dark` class only takes effect when `dark` is also present (see tailwind.config.cjs).
 // It lives on <html> permanently so it survives the many independent `dark` toggle sites.
 export function applyDarkModeVariant(variant: DarkModeVariant = getDarkModeVariant()): void {

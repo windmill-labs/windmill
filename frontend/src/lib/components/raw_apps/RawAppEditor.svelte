@@ -29,6 +29,7 @@
 	import { runDomQueryOnHtml, type RawAppDomQuery, type RawAppDomRequester } from './rawAppDom'
 	import InlineElementPrompt from './InlineElementPrompt.svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
+	import { getAppliedDarkModeVariant, type DarkModeVariant } from '$lib/darkModeVariant'
 	import RawAppSidebar from './RawAppSidebar.svelte'
 	import type { Modules } from './RawAppModules.svelte'
 	import { isRunnableByName, isRunnableByPath } from '../apps/inputType'
@@ -1699,18 +1700,13 @@
 	let darkMode: boolean = $state(false)
 	// Mirrors the `github-dark` class (the runtime source of truth); the
 	// DarkModeObserver below must keep it in sync or it goes stale.
-	let darkVariant: 'default' | 'github' = $state(
-		typeof document !== 'undefined' && document.documentElement.classList.contains('github-dark')
-			? 'github'
-			: 'default'
-	)
+	let darkVariant: DarkModeVariant = $state(getAppliedDarkModeVariant())
 	// Read the DOM classes, not reactive state, so the src stays constant after
 	// mount: a reactive src would reload the iframe on every theme toggle. Live
 	// theme changes travel through postMessage instead (see the $effect below).
 	function uiBuilderIframeSrc(): string {
-		const cl = document.documentElement.classList
-		const dark = cl.contains('dark')
-		const variant = cl.contains('github-dark') ? 'github' : 'default'
+		const dark = document.documentElement.classList.contains('dark')
+		const variant = getAppliedDarkModeVariant()
 		return `/ui_builder/index.html?dark=${dark}&variant=${variant}`
 	}
 	// Host's computed `text-xs` size in px. Windmill bumps :root to 18px at
@@ -1761,7 +1757,6 @@
 	$effect(() => {
 		// Push dark mode to both children. The UI Builder iframe and the
 		// preview iframe each listen for `setDarkMode` separately.
-		void darkVariant
 		if (iframe && iframeLoaded) {
 			iframe.contentWindow?.postMessage(
 				{ type: 'setDarkMode', dark: darkMode, variant: darkVariant },
@@ -2062,7 +2057,7 @@
 <DarkModeObserver
 	bind:darkMode
 	on:change={() => {
-		darkVariant = document.documentElement.classList.contains('github-dark') ? 'github' : 'default'
+		darkVariant = getAppliedDarkModeVariant()
 	}}
 />
 
