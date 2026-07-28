@@ -1170,6 +1170,11 @@
 						markerColor = 'rgb(234 88 12)'
 						label = 'ref'
 						labelStyle = 'fill: rgb(234 88 12); font-size: 10px; font-weight: 600;'
+						// Same rule the pipeline uses for a running script: the edges
+						// touching what is happening animate. Here the unit of work is
+						// the model, so the edges feeding the one dbt is building move,
+						// and the flow reads in DAG order as it advances.
+						animated = assetRunStatus?.get(e.target) === 'running'
 						break
 					default:
 						style = ''
