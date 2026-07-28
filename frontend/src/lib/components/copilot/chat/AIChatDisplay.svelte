@@ -14,7 +14,6 @@
 		Folder,
 		Hand,
 		HistoryIcon,
-		Hourglass,
 		MousePointer2,
 		Plus,
 		TextSelect,
@@ -25,7 +24,7 @@
 	import { fade } from 'svelte/transition'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { isActiveUserQuestion, type DisplayMessage } from './shared'
+	import { isActiveUserQuestion, pendingUserAction, type DisplayMessage } from './shared'
 	import type { ContextElement } from './context'
 	import ChatQuickActions from './ChatQuickActions.svelte'
 	import ContextUsageIndicator from './ContextUsageIndicator.svelte'
@@ -486,19 +485,12 @@
 		}
 	})
 
-	// "Waiting for user" detection — when the latest tool message is staged
-	// for confirmation or has an unanswered askUserQuestion, the AI loop is
-	// paused on the user, not on its own work. The typing-dots indicator
-	// implies the AI is busy, which is misleading; surface a text pill
-	// instead so users know to act on the tool above.
-	const waitingForUserAction = $derived.by(() => {
-		if (!aiChatManager.loading) return false
-		const last = messages[messages.length - 1]
-		if (!last || last.role !== 'tool') return false
-		if (last.needsConfirmation && last.isLoading) return true
-		if (isActiveUserQuestion(last)) return true
-		return false
-	})
+	// The typing-dots indicator implies the AI is busy, which is misleading while
+	// the loop is parked on the user; surface a text pill instead so users know to
+	// act on the tool above.
+	const waitingForUserAction = $derived(
+		aiChatManager.loading && !!pendingUserAction(messages[messages.length - 1])
+	)
 
 	// While the AI is waiting on an answer to an askUserQuestion, the only valid
 	// input is one of the choices (or the custom answer) in the question card —
@@ -682,28 +674,19 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 								showFlowPendingActionControls ? 'bottom-14' : 'bottom-2'
 							)}
 						>
-							{#if waitingForUserAction}
-								<span
-									class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-surface/80 backdrop-blur text-2xs text-accent"
-									aria-label="Waiting for your input"
-								>
-									<Hourglass class="w-3 h-3 hourglass-flip" />
-									Waiting for your input
-								</span>
-							{:else}
-								<ChatTypingIndicator
-									loading={aiChatManager.loading}
-									label={aiChatManager.loadingLabel
-										? aiChatManager.loadingLabel
-										: aiChatManager.compacting
-											? 'Compacting conversation'
-											: aiChatManager.currentReasoningActive &&
-												  !aiChatManager.currentReply &&
-												  !aiChatManager.currentReasoning
-												? (aiChatManager.reasoningHiddenIndicatorLabel ?? 'Thinking')
-												: undefined}
-								/>
-							{/if}
+							<ChatTypingIndicator
+								loading={aiChatManager.loading}
+								paused={waitingForUserAction}
+								label={aiChatManager.loadingLabel
+									? aiChatManager.loadingLabel
+									: aiChatManager.compacting
+										? 'Compacting conversation'
+										: aiChatManager.currentReasoningActive &&
+											  !aiChatManager.currentReply &&
+											  !aiChatManager.currentReasoning
+											? (aiChatManager.reasoningHiddenIndicatorLabel ?? 'Thinking')
+											: undefined}
+							/>
 						</div>
 					{/if}
 				</div>
@@ -1067,26 +1050,3 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 		{/if}
 	</div>
 </div>
-
-<style>
-	/* Hourglass flips every 4s with long rests at each upright position.
-	   `:global` because the class is applied to a child component's root
-	   (Lucide SVG) and Svelte scoped CSS otherwise wouldn't match it. */
-	:global(.hourglass-flip) {
-		animation: hourglass-flip 4s cubic-bezier(0.65, 0, 0.35, 1) infinite;
-		transform-origin: center;
-	}
-	@keyframes hourglass-flip {
-		0%,
-		35% {
-			transform: rotate(0deg);
-		}
-		50%,
-		85% {
-			transform: rotate(180deg);
-		}
-		100% {
-			transform: rotate(360deg);
-		}
-	}
-</style>

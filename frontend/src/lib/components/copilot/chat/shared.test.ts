@@ -888,6 +888,32 @@ describe('isActiveUserQuestion', () => {
 	})
 })
 
+describe('pendingUserAction', () => {
+	const toolMessage = (overrides: Partial<ToolDisplayMessage> = {}): ToolDisplayMessage => ({
+		role: 'tool',
+		tool_call_id: 'call_p',
+		content: 'running',
+		isLoading: true,
+		...overrides
+	})
+
+	it('distinguishes an unanswered question from a staged confirmation', async () => {
+		const { pendingUserAction } = await import('./shared')
+		expect(
+			pendingUserAction(toolMessage({ userQuestion: { question: 'Pick one', choices: ['a'] } }))
+		).toBe('question')
+		expect(pendingUserAction(toolMessage({ needsConfirmation: true }))).toBe('confirmation')
+	})
+
+	it('is undefined for a tool the AI is running on its own', async () => {
+		const { pendingUserAction } = await import('./shared')
+		expect(pendingUserAction(toolMessage())).toBe(undefined)
+		expect(pendingUserAction(toolMessage({ needsConfirmation: true, isLoading: false }))).toBe(
+			undefined
+		)
+	})
+})
+
 describe('pollJobCompletion detach', () => {
 	function makeCallbacks() {
 		return {

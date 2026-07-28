@@ -648,6 +648,22 @@ export function isActiveUserQuestion(message: DisplayMessage | undefined): boole
 	)
 }
 
+// The loop is paused on the user rather than on its own work: either an
+// unanswered askUserQuestion or a tool call staged for confirmation (running a
+// script, deploying…). The manager stays `loading` throughout both, so anything
+// that renders progress must ask here first or it shows "the AI is working"
+// while the AI is in fact blocked on the user.
+export type PendingUserAction = 'question' | 'confirmation'
+
+export function pendingUserAction(
+	message: DisplayMessage | undefined
+): PendingUserAction | undefined {
+	if (!message || message.role !== 'tool') return undefined
+	if (isActiveUserQuestion(message)) return 'question'
+	if (message.needsConfirmation && message.isLoading) return 'confirmation'
+	return undefined
+}
+
 // Fires after every tool call resolves, with the tool name. Lets a host (e.g.
 // the sessions page) react to mutating tools — refreshing previews — without
 // the tool layer knowing about the UI. Single slot; the consumer filters by name

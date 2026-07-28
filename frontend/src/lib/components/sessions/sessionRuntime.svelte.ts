@@ -86,7 +86,7 @@ import type {
 	RawAppDomResult
 } from '$lib/components/raw_apps/rawAppDom'
 import { getNonStreamingMetadataCompletion } from '$lib/components/copilot/lib'
-import type { DisplayMessage } from '$lib/components/copilot/chat/shared'
+import { pendingUserAction, type DisplayMessage } from '$lib/components/copilot/chat/shared'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 
 // Per-kind load state for a session's editor target. Pure state container the
@@ -967,7 +967,10 @@ export function resetSessionPreviewTabs(sessionId: string, url: string): void {
 export type SessionChatStatus =
 	| 'idle'
 	| 'streaming'
+	// The assistant's turn ended and the user has yet to reply — passive, unlike
+	// 'awaiting-answer'/'needs-confirmation', where a running loop is blocked.
 	| 'awaiting-user'
+	| 'awaiting-answer'
 	| 'needs-confirmation'
 	| 'draft'
 	| 'error'
@@ -1243,10 +1246,15 @@ setScreenshotHandler(async ({ sessionId: callerSessionId }) => {
 
 export function getSessionChatStatus(runtime: SessionRuntime): SessionChatStatus {
 	const m = runtime.manager
+	const last = m.displayMessages[m.displayMessages.length - 1]
+	// A loop parked on the user still reports `loading`, so these must be tested
+	// before `streaming` — otherwise "answer me" renders as "the AI is typing"
+	// and a session that needs the user looks like one that doesn't.
+	const pending = pendingUserAction(last)
+	if (pending === 'question') return 'awaiting-answer'
+	if (pending === 'confirmation') return 'needs-confirmation'
 	if (m.loading) return 'streaming'
 	if (m.instructions.trim().length > 0) return 'draft'
-	const last = m.displayMessages[m.displayMessages.length - 1]
-	if (last?.role === 'tool' && last.needsConfirmation) return 'needs-confirmation'
 	if (last?.role === 'user' && last.error) return 'error'
 	if (last && (last.role === 'assistant' || last.role === 'tool')) return 'awaiting-user'
 	return 'idle'
