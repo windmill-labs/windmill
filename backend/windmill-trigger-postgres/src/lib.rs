@@ -481,15 +481,13 @@ fn build_row_filter_probe(schema_name: &str, table_name: &str, where_clause: &st
     )
 }
 
-/// A publication row filter has no bind parameter, so it is interpolated raw into
-/// `... WHERE (<filter>)`. Postgres decides where a literal ends from server state and syntax we
-/// cannot see from here (`standard_conforming_strings`, `E'…'`, dollar quoting, a `$tag$` read as
-/// part of a preceding identifier), so the filter is handed to the server itself to parse rather
-/// than lexed here. The probe is only prepared, never executed.
+/// Rejects a row filter that would not stay inside the `WHERE (...)` the publication builders wrap
+/// it in. Where a literal ends is decided by server state and syntax not visible here
+/// (`standard_conforming_strings`, `E'…'`, dollar quoting, a `$tag$` continuing an identifier), so
+/// the server parses the filter itself, through a probe that is prepared and never executed.
 ///
 /// Call this before emitting any publication DDL, so a rejected filter leaves the publication as it
-/// was. Publication DDL must also keep running through `Client::execute`, whose `Parse` refuses
-/// more than one command: under `simple_query` or `batch_execute` a filter could stack statements.
+/// was.
 pub(crate) async fn validate_publication_row_filters(
     pg_connection: &Client,
     table_to_track: Option<&[Relations]>,
@@ -502,12 +500,24 @@ pub(crate) async fn validate_publication_row_filters(
             let probe =
                 build_row_filter_probe(&relation.schema_name, &table.table_name, where_clause);
             pg_connection.prepare(&probe).await.map_err(|e| {
-                Error::BadRequest(format!(
-                    "Invalid row filter for table {}.{}: {}",
-                    relation.schema_name,
-                    table.table_name,
-                    windmill_common::error::pg_error_message(&e)
-                ))
+                // A connection or resource failure says nothing about the filter, and pointing the
+                // caller at a filter that is fine sends them editing the wrong thing.
+                let rejected_by_the_parser = e.as_db_error().is_some_and(|db_error| {
+                    let class = db_error.code().code();
+                    !["08", "53", "57", "58", "XX"]
+                        .iter()
+                        .any(|operational| class.starts_with(operational))
+                });
+                if rejected_by_the_parser {
+                    Error::BadRequest(format!(
+                        "Invalid row filter for table {}.{}: {}",
+                        relation.schema_name,
+                        table.table_name,
+                        windmill_common::error::pg_error_message(&e)
+                    ))
+                } else {
+                    to_anyhow(e).into()
+                }
             })?;
         }
     }
@@ -586,6 +596,8 @@ pub async fn create_pg_publication(
         query.push_str("');");
     }
 
+    // Must stay `execute`: its `Parse` refuses more than one command, so the interpolated row
+    // filter cannot stack statements the way it could under `simple_query` or `batch_execute`.
     pg_connection
         .execute(&query, &[])
         .await
@@ -775,8 +787,6 @@ mod tests {
     #[test]
     fn test_row_filter_probe_shields_its_tail_from_a_line_comment() {
         let probe = build_row_filter_probe("public", "orders", "status = 'active') --");
-        let tail = probe.lines().last().unwrap();
-        assert_eq!(tail, ") IS NOT FALSE");
         assert_eq!(
             probe,
             "SELECT 1 FROM public.orders WHERE (status = 'active') --\n) IS NOT FALSE"

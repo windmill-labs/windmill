@@ -766,6 +766,9 @@ pub async fn update_pg_publication(
                     }
                 }
 
+                // Must stay `execute`: its `Parse` refuses more than one command, so the
+                // interpolated row filter cannot stack statements the way it could under
+                // `simple_query` or `batch_execute`.
                 pg_connection
                     .execute(&query, &[])
                     .await
