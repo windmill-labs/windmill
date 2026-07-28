@@ -6,7 +6,9 @@ import {
 	type Job,
 	type RestartedFrom,
 	type OpenFlow,
-	type MemoryConfig
+	type MemoryConfig,
+	type FlowValue,
+	type Retry
 } from '$lib/gen'
 import { workspaceStore } from '$lib/stores'
 import { cleanExpr, emptySchema } from '$lib/utils'
@@ -234,13 +236,28 @@ export function emptyFlowModuleState(): FlowModuleState {
 export const SAME_WORKER_INCOMPATIBLE_MSG =
 	'Retries and sleeps are not compatible with the shared directory (`Same Worker`): retry delays would be ignored and a sleep would lose the `./shared` folder.'
 
-export function modulesWithRetryOrSleep(modules: FlowModule[]): string[] {
+// Mirrors the backend's `Retry::has_attempts`: a retry with no attempt never runs, and the
+// retries tab renders it as "Disabled", so it must not block anything.
+function hasRetryAttempts(retry: Retry | undefined): boolean {
+	return (retry?.constant?.attempts ?? 0) > 0 || (retry?.exponential?.attempts ?? 0) > 0
+}
+
+export function modulesWithRetryOrSleep(flow: FlowValue): string[] {
+	// The failure and preprocessor modules live outside `modules` but run as regular steps on
+	// the same-worker hand-off. Agent tools don't: they never go through the flow scheduler.
+	const roots = [flow.modules, flow.failure_module, flow.preprocessor_module]
+		.flat()
+		.filter((m) => m != undefined)
 	const ids: string[] = []
-	forEachFlowModule(modules, (m) => {
-		if (m.retry != undefined || m.sleep != undefined) {
-			ids.push(m.id)
-		}
-	})
+	forEachFlowModule(
+		roots,
+		(m) => {
+			if (hasRetryAttempts(m.retry) || m.sleep != undefined) {
+				ids.push(m.id)
+			}
+		},
+		{ skipToolNodes: true }
+	)
 	return ids
 }
 

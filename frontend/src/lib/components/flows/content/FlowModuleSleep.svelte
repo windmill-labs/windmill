@@ -18,9 +18,10 @@
 	interface Props {
 		flowModule: FlowModule
 		previousModuleId: string | undefined
+		isAgentTool?: boolean
 	}
 
-	let { flowModule = $bindable(), previousModuleId }: Props = $props()
+	let { flowModule = $bindable(), previousModuleId, isAgentTool = false }: Props = $props()
 
 	const { selectionManager, flowStore, flowStateStore, previewArgs } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -46,7 +47,8 @@
 	const result = flowStateStore.val[selectionManager.getSelectedId()]?.previewResult ?? {}
 
 	let isSleepEnabled = $derived(Boolean(flowModule.sleep))
-	let sameWorker = $derived(Boolean(flowStore.val.value.same_worker))
+	// Agent tools never go through the flow scheduler, so `same_worker` doesn't apply to them.
+	let sameWorker = $derived(Boolean(!isAgentTool && flowStore.val.value.same_worker))
 </script>
 
 <Section label="Sleep" class="w-full">
@@ -82,7 +84,7 @@
 		}}
 	/>
 	<Label label="Sleep for duration">
-		{#if flowModule.sleep && schema.properties['sleep']}
+		{#if flowModule.sleep && schema.properties['sleep'] && !sameWorker}
 			<div class="border rounded-md overflow-auto">
 				<PropPickerWrapper
 					noFlowPlugConnect={true}

@@ -66,7 +66,7 @@
 
 	// Only block turning it on: a flow deployed with both (CLI, YAML editor) must stay fixable.
 	let conflictingModuleIds = $derived(
-		flowStore.val.value.same_worker ? [] : modulesWithRetryOrSleep(flowStore.val.value.modules)
+		flowStore.val.value.same_worker ? [] : modulesWithRetryOrSleep(flowStore.val.value)
 	)
 
 	run(() => {
