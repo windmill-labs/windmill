@@ -1217,14 +1217,6 @@
 						showFitView={false}
 						showLock={false}
 					>
-						{#if panelDetach?.dockVisible()}
-							<Tooltip>
-								<ControlButton onclick={() => panelDetach?.dock()}>
-									<PanelRight size="14" />
-								</ControlButton>
-								{#snippet text()}Dock the step panel to the right{/snippet}
-							</Tooltip>
-						{/if}
 						<GraphZoomControls fitViewNodes={nodes.filter((n) => n.type !== 'note')} />
 						{#if multiSelectEnabled}
 							<div class="flex items-center gap-2">
@@ -1281,6 +1273,14 @@
 								<Expand size="14" />
 							</ControlButton>
 						{/if}
+						{#if panelDetach?.dockVisible()}
+							<Tooltip>
+								<ControlButton onclick={() => panelDetach?.dock()}>
+									<PanelRight size="14" />
+								</ControlButton>
+								{#snippet text()}Dock the step panel to the right{/snippet}
+							</Tooltip>
+						{/if}
 					</Controls>
 
 					<Controls
@@ -1322,9 +1322,9 @@
 	}
 	:global(.wm-flow-controls .svelte-flow__controls-button) {
 		@apply bg-surface text-primary;
-		width: 30px;
-		height: 28px;
-		padding: 6px;
+		width: 32px;
+		height: 30px;
+		padding: 8px;
 	}
 	:global(.wm-flow-controls .svelte-flow__controls-button:hover) {
 		@apply bg-surface-hover;
