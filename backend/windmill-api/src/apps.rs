@@ -639,6 +639,9 @@ async fn get_raw_app_data(
             .header(http::header::CONTENT_TYPE, "text/html; charset=utf-8")
             .header("X-Content-Type-Options", "nosniff")
             .header("Cross-Origin-Resource-Policy", "cross-origin")
+            // This URL carries the frontend-SDK handshake nonce, so it must not
+            // travel to whatever the bundle navigates to or links out to.
+            .header("Referrer-Policy", "no-referrer")
             .header(
                 http::header::CONTENT_SECURITY_POLICY,
                 "sandbox allow-scripts allow-forms allow-popups \
@@ -843,7 +846,13 @@ fn raw_app_wrapper_html(secret: &str) -> String {
       loadBundle();
     }
   });
-  try { window.parent.postMessage({ type: 'windmill:ready' }, '*'); } catch (_) {}
+  // Echo the handshake nonce from our own URL. It proves to the embedder that
+  // this is the document it loaded rather than one navigated into the frame
+  // afterwards, which is what gates the frontend SDK credential.
+  try {
+    var hs = new URLSearchParams(window.location.search).get('wm_hs') || undefined;
+    window.parent.postMessage({ type: 'windmill:ready', nonce: hs }, '*');
+  } catch (_) {}
   // Fallback for contexts that never send ctx (e.g. ctx-less rendering).
   setTimeout(loadBundle, 1500);
 })();

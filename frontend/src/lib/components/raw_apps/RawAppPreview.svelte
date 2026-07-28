@@ -4,6 +4,10 @@
 	import type { Runnable } from './rawAppPolicy'
 	import { getContext, onMount, untrack } from 'svelte'
 	import { unsandboxedRawAppHtml } from './utils'
+	import { randomUUID } from '$lib/utils/uuid'
+
+	// Per-mount secret proving a `windmill:ready` came from the document we loaded.
+	const handshakeNonce = randomUUID()
 
 	interface Props {
 		workspace: string
@@ -96,9 +100,15 @@
 		// — the wrapper would otherwise be blocked outright, URL flag or not.
 		const coep =
 			new URLSearchParams(window.location.search).has('wm_coep') || window.crossOriginIsolated
-				? '?wm_coep=1'
+				? 'wm_coep=1&'
 				: ''
-		return `/api/w/${workspace}/apps_u/get_data/v/${secret}.html${coep}`
+		// The handshake nonce binds the credential reply to the document WE loaded.
+		// `windmill:ready` only proves which browsing context spoke, and the reply
+		// has to target `*` (the frame's origin is opaque), so without this any
+		// document navigated into that frame — including one an ancestor swapped in
+		// before our wrapper announced itself — could ask for the viewer's token.
+		// It lives in the frame's own URL, which a cross-origin ancestor cannot read.
+		return `/api/w/${workspace}/apps_u/get_data/v/${secret}.html?${coep}wm_hs=${handshakeNonce}`
 	})
 
 	// Revoke blob: URLs (unsandboxed path) when they change or on unmount.
@@ -132,6 +142,8 @@
 	const framed = typeof window !== 'undefined' && window.parent !== window && !storageAccessible()
 	let bundleStorage: Record<string, string> | undefined = undefined
 	let pendingReady = false
+	// Nonce from a `windmill:ready` we could not answer yet (storage still loading).
+	let pendingNonce: string | undefined = undefined
 
 	function readDirect(): Record<string, string> {
 		try {
@@ -151,21 +163,12 @@
 		} catch (_) {}
 	}
 
-	// The token may only be handed over once per document we loaded ourselves. The
-	// reply is addressed to a browsing context, not a document, and it must target
-	// `*` because the sandboxed frame has an opaque origin — so a page the bundle
-	// (or a link the viewer clicked) navigated to keeps the same `contentWindow`
-	// and could ask for the credential again by posting `windmill:ready`. Reset
-	// only when WE change the iframe's src, which a navigation away does not.
-	let sdkHandedOff = false
-	$effect(() => {
-		iframeSrc
-		sdkHandedOff = false
-	})
-
-	function respondCtx() {
-		const sdkToken = sdkHandedOff ? undefined : sdkTokenCtx?.value
-		if (sdkToken) sdkHandedOff = true
+	/** The credential only goes to a document that proved it is the one we loaded,
+	 * by echoing the nonce from its own URL. A document navigated into the frame
+	 * keeps the same `contentWindow` and can post `windmill:ready` at any time —
+	 * including before our wrapper does — but cannot read that URL. */
+	function respondCtx(nonceEcho?: string) {
+		const sdkToken = nonceEcho === handshakeNonce ? sdkTokenCtx?.value : undefined
 		iframe?.contentWindow?.postMessage(
 			{
 				type: 'windmill:ctx',
@@ -202,7 +205,7 @@
 					bundleStorage = {}
 					if (pendingReady) {
 						pendingReady = false
-						respondCtx()
+						respondCtx(pendingNonce)
 					}
 				}
 			}, 750)
@@ -218,7 +221,7 @@
 				bundleStorage = data.data || {}
 				if (pendingReady) {
 					pendingReady = false
-					respondCtx()
+					respondCtx(pendingNonce)
 				}
 				return
 			}
@@ -226,13 +229,15 @@
 			if (event.source !== iframe?.contentWindow) return
 			if (data?.type === 'windmill:ready') {
 				// Hand the bundle its context + shared storage before it evaluates.
+				const nonceEcho = typeof data.nonce === 'string' ? data.nonce : undefined
 				if (!framed) {
 					bundleStorage = readDirect()
-					respondCtx()
+					respondCtx(nonceEcho)
 				} else if (bundleStorage !== undefined) {
-					respondCtx()
+					respondCtx(nonceEcho)
 				} else {
 					pendingReady = true
+					pendingNonce = nonceEcho
 				}
 			} else if (data?.type === 'wm_ls_op') {
 				// The bundle mutated localStorage — apply it to the shared store.
