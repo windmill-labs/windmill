@@ -923,6 +923,13 @@ describe('pendingUserAction', () => {
 		)
 	})
 
+	// Text emitted between two tool calls lands as an assistant card between them.
+	it('finds a blocked card behind an interleaved assistant card', async () => {
+		const { pendingUserAction } = await import('./shared')
+		const assistant: DisplayMessage = { role: 'assistant', content: 'and also…' }
+		expect(pendingUserAction([question, assistant, toolMessage()])).toBe('question')
+	})
+
 	it('stops at the previous turn rather than reviving its resolved cards', async () => {
 		const { pendingUserAction } = await import('./shared')
 		const userMessage: DisplayMessage = { role: 'user', index: 0, content: 'go on' }
