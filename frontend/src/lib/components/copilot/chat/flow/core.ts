@@ -1164,6 +1164,7 @@ AI agents can use tools to accomplish tasks. When creating an AI agent module:
       {
         id: "search_docs",
         summary: "Search_documentation",
+        description: "Search the product documentation. Use it whenever the user asks how a feature works.",
         value: {
           tool_type: "flowmodule",
           type: "rawscript",
@@ -1178,7 +1179,8 @@ AI agents can use tools to accomplish tasks. When creating an AI agent module:
 \`\`\`
 
 - **Tool IDs**: Cannot contain spaces - use underscores
-- **Tool summaries**: Cannot contain spaces - use underscores
+- **Tool summaries**: Cannot contain spaces - use underscores. This is the tool *name* the agent sees
+- **Tool descriptions**: Optional free text telling the agent when and how to call the tool. Set it whenever the name alone does not make that obvious - it overrides the description derived from the underlying script
 - **Tool types**: \`flowmodule\` for scripts/flows, \`mcp\` for MCP server tools
 
 ### Contexts
