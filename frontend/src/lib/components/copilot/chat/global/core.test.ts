@@ -1801,7 +1801,7 @@ describe('global AI tools', () => {
 			path: 'f/flows/existing',
 			summary: 'deployed summary',
 			description: 'deployed description',
-			value: { modules: [] },
+			value: { modules: [], chat_input_enabled: true, same_worker: true },
 			schema: { properties: { deployed: { type: 'boolean' } } },
 			edited_by: 'admin',
 			edited_at: '2026-05-22T09:00:00Z',
@@ -1821,7 +1821,11 @@ describe('global AI tools', () => {
 			path: 'f/flows/existing',
 			summary: 'new summary',
 			description: 'deployed description',
-			value: { modules: [{ id: 'step', value: { type: 'identity' } }] }
+			value: {
+				modules: [{ id: 'step', value: { type: 'identity' } }],
+				chat_input_enabled: true,
+				same_worker: true
+			}
 		})
 	})
 

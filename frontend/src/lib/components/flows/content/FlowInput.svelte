@@ -44,7 +44,7 @@
 	import CaptureTable from '$lib/components/triggers/CaptureTable.svelte'
 	import { isObjectTooBig, readFieldsRecursively } from '$lib/utils'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
-	import type { AiAgent, ScriptLang } from '$lib/gen'
+	import type { AiAgent, InputTransform, ScriptLang } from '$lib/gen'
 	import { deepEqual } from 'fast-equals'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { AI_AGENT_SCHEMA } from '../flowInfers'
@@ -599,24 +599,37 @@
 				false
 			)
 		} else if (aiAgentModules.length === 1) {
-			// Exactly one AI agent exists, configure it
+			// Exactly one AI agent exists: fill in defaults only for inputs the
+			// user hasn't configured, so re-enabling chat mode on an already
+			// configured agent doesn't clobber a custom user_message expression
+			// or a deliberate memory choice (e.g. off).
 			const aiAgent = aiAgentModules[0]
 			const value = aiAgent.value as AiAgent
 
-			// Set user_message to flow_input.user_message
-			value.input_transforms['user_message'] = {
-				type: 'javascript',
-				expr: 'flow_input.user_message'
+			const isUnconfigured = (transform: InputTransform | undefined) =>
+				transform === undefined || (transform.type === 'static' && transform.value === undefined)
+
+			const applied: string[] = []
+			if (isUnconfigured(value.input_transforms['user_message'])) {
+				value.input_transforms['user_message'] = {
+					type: 'javascript',
+					expr: 'flow_input.user_message'
+				}
+				applied.push('user message input')
 			}
 
-			// Set messages_context_length to 10
-			value.input_transforms['memory'] = {
-				type: 'static',
-				value: { kind: 'auto', context_length: 10 }
+			if (isUnconfigured(value.input_transforms['memory'])) {
+				value.input_transforms['memory'] = {
+					type: 'static',
+					value: { kind: 'auto', context_length: 10 }
+				}
+				applied.push('context memory set to 10')
 			}
 
 			sendUserToast(
-				'Chat mode enabled. AI agent configured with user message input and context memory set to 10.',
+				applied.length > 0
+					? `Chat mode enabled. AI agent configured with ${applied.join(' and ')}.`
+					: 'Chat mode enabled. Existing AI agent configuration kept unchanged.',
 				false
 			)
 		}
