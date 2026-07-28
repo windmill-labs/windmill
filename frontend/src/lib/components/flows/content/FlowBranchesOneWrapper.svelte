@@ -57,7 +57,7 @@
 					{value.branches.length + 1} branch{value.branches.length + 1 > 1 ? 'es' : ''}
 				</div>
 				<div class="flex flex-col gap-2">
-					{#each value.branches as branch, i}
+					{#each value.branches as branch, i (branch)}
 						{@const bslot = branchSlot(() => value.branches, branch)}
 						<div class="flex flex-col gap-3 rounded-md border bg-surface-tertiary p-3">
 							<div class="flex items-center gap-2">

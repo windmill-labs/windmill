@@ -218,7 +218,7 @@
 		/>
 	{/if}
 {:else if flowModule.value.type === 'forloopflow' || flowModule.value.type == 'whileloopflow'}
-	{#each flowModule.value.modules as child, index (index)}
+	{#each flowModule.value.modules as child, index (child.id ?? index)}
 		{@const slot = moduleSlot(
 			() => (flowModule.value as { modules: FlowModule[] }).modules,
 			child.id,
@@ -250,7 +250,7 @@
 			</FlowCard>
 		</div>
 	{:else}
-		{#each flowModule.value.default as child, index}
+		{#each flowModule.value.default as child, index (child.id ?? index)}
 			{@const slot = moduleSlot(
 				() => (flowModule.value as { default: FlowModule[] }).default,
 				child.id,
@@ -270,7 +270,7 @@
 			/>
 		{/each}
 	{/if}
-	{#each flowModule.value.branches as branch, branchIndex (branchIndex)}
+	{#each flowModule.value.branches as branch, branchIndex (branch)}
 		{#if selectedId === `${flowModule?.id}-branch-${branchIndex}`}
 			{@const bslot = branchSlot(
 				() => (flowModule.value as { branches?: any[] }).branches,
@@ -284,7 +284,7 @@
 				{enableAi}
 			/>
 		{:else}
-			{#each branch.modules as child, index}
+			{#each branch.modules as child, index (child.id ?? index)}
 				{@const slot = moduleSlot(() => branch.modules, child.id, child)}
 				<FlowModuleWrapper
 					{noEditor}
@@ -302,7 +302,7 @@
 		{/if}
 	{/each}
 {:else if flowModule.value.type === 'branchall'}
-	{#each flowModule.value.branches as branch, branchIndex (branchIndex)}
+	{#each flowModule.value.branches as branch, branchIndex (branch)}
 		{#if selectedId === `${flowModule?.id}-branch-${branchIndex}`}
 			{@const bslot = branchSlot(
 				() => (flowModule.value as { branches?: any[] }).branches,
@@ -310,7 +310,7 @@
 			)}
 			<FlowBranchAllWrapper {noEditor} bind:branch={bslot.get, bslot.set} />
 		{:else}
-			{#each branch.modules as child, index}
+			{#each branch.modules as child, index (child.id ?? index)}
 				{@const slot = moduleSlot(() => branch.modules, child.id, child)}
 				<FlowModuleWrapper
 					{noEditor}
