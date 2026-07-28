@@ -114,8 +114,12 @@
 				workspace: $workspaceStore ?? '',
 				datatableName: name
 			})
+			// Testing another data table mid-flight retargets the single result
+			// slot; a late reply must not overwrite the one being waited on.
+			if (connectionCheck?.name !== name) return
 			connectionCheck = { name, loading: false, report }
 		} catch (err) {
+			if (connectionCheck?.name !== name) return
 			connectionCheck = { name, loading: false, error: err?.body ?? err?.message ?? String(err) }
 		}
 	}
@@ -405,6 +409,14 @@
 					Connects as <span class="font-mono">{report.user}</span>{#if report.schema}, resolving
 						unqualified statements to schema <span class="font-mono">{report.schema}</span>{/if}.
 				</div>
+				{#if !report.schema}
+					<div>
+						Its search_path resolves to no schema, so unqualified statements fail with
+						<span class="font-mono">no schema has been selected to create in</span> whatever
+						privileges the role holds. Point it at one, e.g.
+						<span class="font-mono">ALTER ROLE {report.user} SET search_path = public</span>.
+					</div>
+				{/if}
 				<ul class="list-disc list-inside">
 					<li>
 						Create tables{report.schema ? ` in ${report.schema}` : ''}:

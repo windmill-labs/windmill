@@ -33,11 +33,13 @@ async fn setup_unprivileged_datatable_role(db: &Pool<Postgres>) -> anyhow::Resul
     let dbname = opts.get_database().expect("test database name").to_string();
 
     sqlx::query(&format!(
-        // Roles are cluster objects, not per-test-database ones, so this both
-        // survives re-runs and tolerates a concurrent test creating it first.
+        // Roles are cluster objects, not per-test-database ones. A previous run
+        // leaving the role behind raises duplicate_object; the tests in this
+        // binary run in parallel, so two sessions can also clear that check
+        // together and collide on pg_authid's unique index instead.
         "DO $$ BEGIN \
            CREATE ROLE {ROLE} LOGIN PASSWORD '{ROLE_PASSWORD}'; \
-         EXCEPTION WHEN duplicate_object THEN NULL; \
+         EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; \
          END $$"
     ))
     .execute(db)

@@ -2071,6 +2071,7 @@ async fn test_datatable_connection(
         .simple_query(
             "SELECT current_user AS usr, \
                     current_schema() AS sch, \
+                    current_database() AS db, \
                     has_schema_privilege(current_schema(), 'CREATE') AS can_create_table, \
                     has_database_privilege(current_database(), 'CREATE') AS can_create_schema, \
                     to_regclass('_wm_migrations') IS NOT NULL AS has_migrations_table",
@@ -2104,8 +2105,11 @@ async fn test_datatable_connection(
     let mut suggested_grants = Vec::new();
     // Suggest on the capability alone: an existing `_wm_migrations` spares only
     // that one table, and says nothing about the tables a migration will create.
-    if !can_create_table {
-        let target = schema.as_deref().unwrap_or("public");
+    // A NULL `current_schema()` means search_path resolves to nothing, and no
+    // grant fixes that — an unqualified CREATE fails with `no schema has been
+    // selected to create in` whoever holds the privilege — so suggest nothing
+    // and let `schema: null` carry the diagnosis.
+    if let (false, Some(target)) = (can_create_table, schema.as_deref()) {
         suggested_grants.push(format!(
             "GRANT CREATE ON SCHEMA {} TO {}",
             render_db_quoted_identifier(target, DbType::Postgresql),
@@ -2113,9 +2117,12 @@ async fn test_datatable_connection(
         ));
     }
     if !can_create_schema {
+        // Named from the server like every other identifier here: behind a
+        // pooler the resource's dbname can be an alias for another database.
+        let dbname = row.get("db").unwrap_or(pg_db.dbname.as_str());
         suggested_grants.push(format!(
             "GRANT CREATE ON DATABASE {} TO {}",
-            render_db_quoted_identifier(&pg_db.dbname, DbType::Postgresql),
+            render_db_quoted_identifier(dbname, DbType::Postgresql),
             quoted_user
         ));
     }
