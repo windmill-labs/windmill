@@ -17,19 +17,19 @@
 
 <Tooltip>
 	<ControlButton onclick={() => zoomIn()}>
-		<ZoomIn size="12" />
+		<ZoomIn size="14" />
 	</ControlButton>
 	{#snippet text()}Zoom in{/snippet}
 </Tooltip>
 <Tooltip>
 	<ControlButton onclick={() => zoomOut()}>
-		<ZoomOut size="12" />
+		<ZoomOut size="14" />
 	</ControlButton>
 	{#snippet text()}Zoom out{/snippet}
 </Tooltip>
 <Tooltip>
 	<ControlButton onclick={() => fitView(fitViewNodes ? { nodes: fitViewNodes } : undefined)}>
-		<Maximize size="12" />
+		<Maximize size="14" />
 	</ControlButton>
 	{#snippet text()}Fit view{/snippet}
 </Tooltip>

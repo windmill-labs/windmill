@@ -1220,7 +1220,7 @@
 						{#if panelDetach?.dockVisible()}
 							<Tooltip>
 								<ControlButton onclick={() => panelDetach?.dock()}>
-									<PanelRight size="12" />
+									<PanelRight size="14" />
 								</ControlButton>
 								{#snippet text()}Dock the step panel to the right{/snippet}
 							</Tooltip>
@@ -1236,9 +1236,9 @@
 										}}
 									>
 										{#if selectionManager.mode === 'rect-select'}
-											<MousePointer size="12" />
+											<MousePointer size="14" />
 										{:else}
-											<Hand size="12" />
+											<Hand size="14" />
 										{/if}
 									</ControlButton>
 									{#snippet text()}
@@ -1322,8 +1322,9 @@
 	}
 	:global(.wm-flow-controls .svelte-flow__controls-button) {
 		@apply bg-surface text-primary;
-		width: 24px;
-		height: 24px;
+		width: 30px;
+		height: 28px;
+		padding: 6px;
 	}
 	:global(.wm-flow-controls .svelte-flow__controls-button:hover) {
 		@apply bg-surface-hover;
@@ -1338,8 +1339,8 @@
 	   lucide's inline fill="none" and would flood the stroke icons solid — and lift the
 	   12px cap that keeps them off the editor's icon scale. */
 	:global(.wm-flow-controls .svelte-flow__controls-button svg) {
-		max-width: 14px;
-		max-height: 14px;
+		max-width: 16px;
+		max-height: 16px;
 		fill: none;
 		stroke: currentColor;
 	}
