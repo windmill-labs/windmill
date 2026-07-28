@@ -741,7 +741,7 @@
 					<!-- Rendered outside the `suggestion ? opacity-0` wrapper so the AI
 					     step-input autocompletion (ghost text, accepted with Tab) doesn't
 					     hide the Help dropdown — the two stay independent. -->
-					{#if !hideHelpButton && arg?.type === 'javascript' && arg.expr != undefined}
+					{#if !hideHelpButton && propertyType === 'javascript' && arg?.type === 'javascript' && arg.expr != undefined}
 						<DynamicInputHelpBox />
 					{/if}
 
