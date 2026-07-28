@@ -40,7 +40,13 @@
 		{disabled}
 		{...title ? { title } : {}}
 		{...id ? { id } : {}}
-		{wrapperClasses}
+		wrapperClasses={twMerge(
+			// Shrink by exactly the animated ring's margin so the button keeps its
+			// footprint and nothing beside it shifts when a connect is armed.
+			connecting && !disableAnimation ? 'h-6 w-7' : 'h-7 w-8',
+			'p-0',
+			wrapperClasses
+		)}
 	>
 		<Plug size={14} />
 	</Button>

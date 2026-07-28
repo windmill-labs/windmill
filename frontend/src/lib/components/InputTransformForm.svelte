@@ -566,8 +566,7 @@
 					{#if propPickerWrapperContext}
 						<FlowPlugConnect
 							wrapperClasses={twMerge(
-								connecting ? 'h-6 w-7' : 'h-7 w-8',
-								'group-hover:opacity-100 transition-opacity p-0',
+								'group-hover:opacity-100 transition-opacity',
 								!connecting ? 'opacity-0' : ''
 							)}
 							id="flow-editor-plug"

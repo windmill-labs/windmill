@@ -24,8 +24,10 @@
 
 	const propPickerContext = getContext<PropPickerContext | undefined>('PropPickerContext')
 
+	const inModalPanel = $derived(propPickerContext?.inModalPanel?.() ?? false)
+
 	const connect = useConnect({
-		inModalPanel: () => propPickerContext?.inModalPanel?.() ?? false,
+		inModalPanel: () => inModalPanel,
 		hasPickableProperties: () => pickableProperties != undefined,
 		flowPropPickerConfig: propPickerContext?.flowPropPickerConfig ?? writable(undefined)
 	})
@@ -53,6 +55,7 @@
 
 <Popover
 	bind:isOpen={open}
+	class="flex"
 	placement="bottom-start"
 	closeOnOutsideClick
 	contentClasses="rounded-md border bg-surface shadow-lg overflow-hidden"
@@ -61,6 +64,7 @@
 	{#snippet trigger()}
 		<FlowPlugConnect
 			connecting={connect.isArmed(id)}
+			disableAnimation={inModalPanel}
 			{disabled}
 			title="Connect a property from a previous step"
 		/>
