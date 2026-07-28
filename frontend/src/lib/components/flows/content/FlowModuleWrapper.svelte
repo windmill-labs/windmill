@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { branchSlot, moduleSlot } from '../moduleSlot'
+	import { moduleSlot } from '../moduleSlot'
 	import FlowModuleWrapper from './FlowModuleWrapper.svelte'
 	import { type FlowModule } from '$lib/gen'
 	import { getContext } from 'svelte'
@@ -272,13 +272,9 @@
 	{/if}
 	{#each flowModule.value.branches as branch, branchIndex (branch)}
 		{#if selectedId === `${flowModule?.id}-branch-${branchIndex}`}
-			{@const bslot = branchSlot(
-				() => (flowModule.value as { branches?: any[] }).branches,
-				branch
-			)}
 			<FlowBranchOneWrapper
 				{noEditor}
-				bind:branch={bslot.get, bslot.set}
+				{branch}
 				parentModule={flowModule}
 				{previousModule}
 				{enableAi}
@@ -304,11 +300,7 @@
 {:else if flowModule.value.type === 'branchall'}
 	{#each flowModule.value.branches as branch, branchIndex (branch)}
 		{#if selectedId === `${flowModule?.id}-branch-${branchIndex}`}
-			{@const bslot = branchSlot(
-				() => (flowModule.value as { branches?: any[] }).branches,
-				branch
-			)}
-			<FlowBranchAllWrapper {noEditor} bind:branch={bslot.get, bslot.set} />
+			<FlowBranchAllWrapper {noEditor} {branch} />
 		{:else}
 			{#each branch.modules as child, index (child.id ?? index)}
 				{@const slot = moduleSlot(() => branch.modules, child.id, child)}

@@ -30,21 +30,3 @@ export function moduleSlot(
 		}
 	}
 }
-
-/**
- * The same anchoring for branches, which carry no id, so the object the block was
- * rendered for is the anchor. Property writes always land on that object: it is the
- * array element while the branch exists, and a detached object once it is spliced out.
- */
-export function branchSlot<T extends object>(getBranches: () => T[] | undefined, own: T) {
-	return {
-		get: (): T => own,
-		set: (v: T) => {
-			const branches = getBranches()
-			const i = branches?.indexOf(own) ?? -1
-			if (i !== -1 && branches) {
-				branches[i] = v
-			}
-		}
-	}
-}

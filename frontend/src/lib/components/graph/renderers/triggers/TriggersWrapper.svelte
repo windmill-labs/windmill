@@ -1,6 +1,6 @@
 <script lang="ts">
+	import { useOverlayStack } from '$lib/components/flows/overlayStack.svelte'
 	import { openedDrawers } from '$lib/components/common/drawer/Disposable.svelte'
-	import { randomUUID } from '$lib/utils/uuid'
 	import { NODE, type FlowNodeColorClasses } from '../../util'
 	import { createEventDispatcher } from 'svelte'
 	import type { TriggerType } from '$lib/components/triggers/utils'
@@ -40,15 +40,7 @@
 
 	let showTriggerScriptPicker = $state(false)
 
-	const overlayId = randomUUID()
-	$effect(() => {
-		if (showTriggerScriptPicker) {
-			openedDrawers.val.push(overlayId)
-			return () => {
-				openedDrawers.val = openedDrawers.val.filter((d) => d !== overlayId)
-			}
-		}
-	})
+	const pickerOverlay = useOverlayStack(() => showTriggerScriptPicker, openedDrawers)
 	let numberOfTriggers = $state(0)
 
 	const dispatch = createEventDispatcher()
@@ -116,7 +108,7 @@
 		if (showTriggerScriptPicker && e.key === 'Escape') {
 			// Same arbitration as the step-panel modal: only the topmost overlay acts, and
 			// the drawer this editor is nested in must not outrank the picker.
-			if (openedDrawers.val.at(-1) !== overlayId) return
+			if (!pickerOverlay.isTopmost()) return
 			showTriggerScriptPicker = false
 		}
 	}}

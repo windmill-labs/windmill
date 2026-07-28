@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { useOverlayStack } from './overlayStack.svelte'
 	import { openedDrawers } from '$lib/components/common/drawer/Disposable.svelte'
-	import { randomUUID } from '$lib/utils/uuid'
 	import FlowEditorPanel from './content/FlowEditorPanel.svelte'
 	import FlowModuleSchemaMap from './map/FlowModuleSchemaMap.svelte'
 	import type { OpenInSessionSource } from '$lib/components/sessions/OpenInSessionButton.svelte'
@@ -131,18 +131,7 @@
 	let panelMode: 'docked' | 'modal' = $state('docked')
 	let panelModalOpen = $state(false)
 
-	// Take a place on the drawer stack while open, so Escape ordering works both ways:
-	// a drawer opened from inside this modal outranks it, and the drawer it is nested in
-	// does not.
-	const overlayId = randomUUID()
-	$effect(() => {
-		if (panelMode === 'modal' && panelModalOpen) {
-			openedDrawers.val.push(overlayId)
-			return () => {
-				openedDrawers.val = openedDrawers.val.filter((d) => d !== overlayId)
-			}
-		}
-	})
+	const panelOverlay = useOverlayStack(() => panelMode === 'modal' && panelModalOpen, openedDrawers)
 
 	function openPanelModalFromGraph(e: MouseEvent) {
 		// Only nodes that can take the selection, or the modal would open on whatever
@@ -441,7 +430,7 @@
 			// so none can stop another — the shared stack is the only arbiter. Deferring
 			// to any open drawer would be wrong: the drawer this editor is *inside* is on
 			// that stack too, and Escape would close the whole editor instead of us.
-			if (openedDrawers.val.at(-1) !== overlayId) return
+			if (!panelOverlay.isTopmost()) return
 			panelModalOpen = false
 		}
 	}}

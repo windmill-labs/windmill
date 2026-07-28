@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { FlowModule } from '$lib/gen'
-import { branchSlot, moduleSlot } from './moduleSlot'
+import { moduleSlot } from './moduleSlot'
 
 function mod(id: string, content = ''): FlowModule {
 	return {
@@ -40,30 +40,5 @@ describe('moduleSlot', () => {
 		modules.splice(1, 1)
 		slot.set(mod('replacement'))
 		expect(modules.map((m) => m.id)).toEqual(['a'])
-	})
-})
-
-describe('branchSlot', () => {
-	it('keeps writing to its own branch after a lower-indexed branch is deleted', () => {
-		// Deleting a branch does not move the selection, so the block is reused with a
-		// different branch — the anchor is what stops a pending edit landing on it.
-		const b0 = { expr: 'first', modules: [] }
-		const b1 = { expr: 'second', modules: [] }
-		const branches = [b0, b1]
-		const slot = branchSlot(() => branches, b1)
-		branches.splice(0, 1)
-
-		slot.get().expr = 'typed into the second branch'
-		expect(b1.expr).toBe('typed into the second branch')
-		expect(b0.expr).toBe('first')
-	})
-
-	it('drops a replacement aimed at a branch that is gone', () => {
-		const own = { expr: 'x', modules: [] }
-		const branches = [own]
-		const slot = branchSlot(() => branches, own)
-		branches.splice(0, 1)
-		slot.set({ expr: 'replacement', modules: [] })
-		expect(branches).toEqual([])
 	})
 })
