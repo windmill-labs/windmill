@@ -1269,7 +1269,7 @@ async fn lock_modules(
                         let locked = locked_iter.next().ok_or_else(|| {
                             Error::internal_err("locked tool module should exist".to_string())
                         })?;
-                        tools[idx] = locked.into();
+                        tools[idx].update_from_module(locked);
                     }
 
                     e.value = FlowModuleValue::AIAgent {
