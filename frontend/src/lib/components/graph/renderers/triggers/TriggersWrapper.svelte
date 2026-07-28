@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { openedDrawers } from '$lib/components/common/drawer/Disposable.svelte'
+	import { randomUUID } from '$lib/utils/uuid'
 	import { NODE, type FlowNodeColorClasses } from '../../util'
 	import { createEventDispatcher } from 'svelte'
 	import type { TriggerType } from '$lib/components/triggers/utils'
@@ -38,6 +39,16 @@
 	}: Props = $props()
 
 	let showTriggerScriptPicker = $state(false)
+
+	const overlayId = randomUUID()
+	$effect(() => {
+		if (showTriggerScriptPicker) {
+			openedDrawers.val.push(overlayId)
+			return () => {
+				openedDrawers.val = openedDrawers.val.filter((d) => d !== overlayId)
+			}
+		}
+	})
 	let numberOfTriggers = $state(0)
 
 	const dispatch = createEventDispatcher()
@@ -103,10 +114,9 @@
 <svelte:window
 	onkeydown={(e) => {
 		if (showTriggerScriptPicker && e.key === 'Escape') {
-			// A drawer above us owns Escape. Both listeners are on window, so neither can
-			// stop the other from running — only this check keeps one Escape from closing
-			// the picker and the drawer the flow editor is sitting in.
-			if (openedDrawers.val.length > 0) return
+			// Same arbitration as the step-panel modal: only the topmost overlay acts, and
+			// the drawer this editor is nested in must not outrank the picker.
+			if (openedDrawers.val.at(-1) !== overlayId) return
 			showTriggerScriptPicker = false
 		}
 	}}

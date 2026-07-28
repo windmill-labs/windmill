@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { openedDrawers } from '$lib/components/common/drawer/Disposable.svelte'
+	import { randomUUID } from '$lib/utils/uuid'
 	import FlowEditorPanel from './content/FlowEditorPanel.svelte'
 	import FlowModuleSchemaMap from './map/FlowModuleSchemaMap.svelte'
 	import type { OpenInSessionSource } from '$lib/components/sessions/OpenInSessionButton.svelte'
@@ -129,6 +130,19 @@
 	// own width; the user can then toggle either way (Dock right / open in modal).
 	let panelMode: 'docked' | 'modal' = $state('docked')
 	let panelModalOpen = $state(false)
+
+	// Take a place on the drawer stack while open, so Escape ordering works both ways:
+	// a drawer opened from inside this modal outranks it, and the drawer it is nested in
+	// does not.
+	const overlayId = randomUUID()
+	$effect(() => {
+		if (panelMode === 'modal' && panelModalOpen) {
+			openedDrawers.val.push(overlayId)
+			return () => {
+				openedDrawers.val = openedDrawers.val.filter((d) => d !== overlayId)
+			}
+		}
+	})
 
 	function openPanelModalFromGraph(e: MouseEvent) {
 		// Only nodes that can take the selection, or the modal would open on whatever
@@ -423,10 +437,11 @@
 <svelte:window
 	onkeydown={(e) => {
 		if (panelMode === 'modal' && panelModalOpen && e.key === 'Escape') {
-			// A drawer opened from inside the panel is on top and owns Escape. Both
-			// listeners are on window, so neither can stop the other from running —
-			// only this check keeps one Escape from closing the drawer and the panel.
-			if (openedDrawers.val.length > 0) return
+			// Escape belongs to the topmost overlay, and every listener here is on window,
+			// so none can stop another — the shared stack is the only arbiter. Deferring
+			// to any open drawer would be wrong: the drawer this editor is *inside* is on
+			// that stack too, and Escape would close the whole editor instead of us.
+			if (openedDrawers.val.at(-1) !== overlayId) return
 			panelModalOpen = false
 		}
 	}}

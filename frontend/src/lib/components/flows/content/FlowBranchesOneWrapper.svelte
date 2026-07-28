@@ -4,6 +4,7 @@
 	import type { BranchOne, FlowModule } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
 	import BranchPredicateEditor from './BranchPredicateEditor.svelte'
+	import { branchSlot } from '../moduleSlot'
 	import FlowRunSettings from './FlowRunSettings.svelte'
 	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
 
@@ -57,6 +58,7 @@
 				</div>
 				<div class="flex flex-col gap-2">
 					{#each value.branches as branch, i}
+						{@const bslot = branchSlot(() => value.branches, branch)}
 						<div class="flex flex-col gap-3 rounded-md border bg-surface-tertiary p-3">
 							<div class="flex items-center gap-2">
 								<Badge color="blue" class="text-xs">Branch {i + 1}</Badge>
@@ -68,7 +70,7 @@
 								/>
 							</div>
 							<BranchPredicateEditor
-								{branch}
+								bind:branch={bslot.get, bslot.set}
 								on:updateSummary={(e) => {
 									if (!branch.summary) {
 										branch.summary = e.detail

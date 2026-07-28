@@ -8,6 +8,11 @@ import type { FlowModule } from '$lib/gen'
  * Deleting a step splices the array, so an index-anchored binding would resolve to
  * whichever step took the deleted one's place and overwrite it. Anchoring by id makes a
  * write to a departed step land on the detached object instead, where it is harmless.
+ *
+ * Svelte extracts the getter and setter once per block instance, so the anchor is fixed
+ * for the binding's whole life even though the `{@const}` that built it re-runs. That
+ * capture is load-bearing: a slot that re-derived its anchor would drift with the index
+ * it was meant to replace.
  */
 export function moduleSlot(
 	getModules: () => FlowModule[],
@@ -21,6 +26,24 @@ export function moduleSlot(
 			const i = modules.findIndex((m) => m.id === id)
 			if (i !== -1) {
 				modules[i] = v
+			}
+		}
+	}
+}
+
+/**
+ * The same anchoring for branches, which carry no id, so the object the block was
+ * rendered for is the anchor. Property writes always land on that object: it is the
+ * array element while the branch exists, and a detached object once it is spliced out.
+ */
+export function branchSlot<T extends object>(getBranches: () => T[] | undefined, own: T) {
+	return {
+		get: (): T => own,
+		set: (v: T) => {
+			const branches = getBranches()
+			const i = branches?.indexOf(own) ?? -1
+			if (i !== -1 && branches) {
+				branches[i] = v
 			}
 		}
 	}

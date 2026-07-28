@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { moduleSlot } from '../moduleSlot'
+	import { branchSlot, moduleSlot } from '../moduleSlot'
 	import FlowModuleWrapper from './FlowModuleWrapper.svelte'
 	import { type FlowModule } from '$lib/gen'
 	import { getContext } from 'svelte'
@@ -119,17 +119,6 @@
 
 		flowModule = module
 		flowStateStore.val[module.id] = state
-	}
-
-	// Branches carry no id, so anchor on the object the block was rendered for: deleting a
-	// lower-indexed branch shifts the array, and an index-anchored write would land the
-	// dying editor's predicate on whichever branch took its place.
-	function replaceBranch(own: object, v: any) {
-		const branches = (flowModule.value as { branches?: any[] }).branches
-		const i = branches?.indexOf(own) ?? -1
-		if (i !== -1 && branches) {
-			branches[i] = v
-		}
 	}
 </script>
 
@@ -283,9 +272,13 @@
 	{/if}
 	{#each flowModule.value.branches as branch, branchIndex (branchIndex)}
 		{#if selectedId === `${flowModule?.id}-branch-${branchIndex}`}
+			{@const bslot = branchSlot(
+				() => (flowModule.value as { branches?: any[] }).branches,
+				branch
+			)}
 			<FlowBranchOneWrapper
 				{noEditor}
-				bind:branch={() => branch, (v) => replaceBranch(branch, v)}
+				bind:branch={bslot.get, bslot.set}
 				parentModule={flowModule}
 				{previousModule}
 				{enableAi}
@@ -311,7 +304,11 @@
 {:else if flowModule.value.type === 'branchall'}
 	{#each flowModule.value.branches as branch, branchIndex (branchIndex)}
 		{#if selectedId === `${flowModule?.id}-branch-${branchIndex}`}
-			<FlowBranchAllWrapper {noEditor} bind:branch={() => branch, (v) => replaceBranch(branch, v)} />
+			{@const bslot = branchSlot(
+				() => (flowModule.value as { branches?: any[] }).branches,
+				branch
+			)}
+			<FlowBranchAllWrapper {noEditor} bind:branch={bslot.get, bslot.set} />
 		{:else}
 			{#each branch.modules as child, index}
 				{@const slot = moduleSlot(() => branch.modules, child.id, child)}
