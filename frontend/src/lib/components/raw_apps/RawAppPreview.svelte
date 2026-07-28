@@ -4,10 +4,11 @@
 	import type { Runnable } from './rawAppPolicy'
 	import { getContext, onMount, untrack } from 'svelte'
 	import { unsandboxedRawAppHtml } from './utils'
-	import { randomUUID } from '$lib/utils/uuid'
+	import { randomSecret } from '$lib/utils/uuid'
 
 	// Per-mount secret proving a `windmill:ready` came from the document we loaded.
-	const handshakeNonce = randomUUID()
+	// Gates a credential, so it must be unguessable — not `randomUUID`.
+	const handshakeNonce = randomSecret()
 
 	interface Props {
 		workspace: string

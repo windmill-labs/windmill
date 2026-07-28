@@ -826,6 +826,10 @@ fn raw_app_wrapper_html(secret: &str) -> String {
     document.body.appendChild(s);
   }
   window.addEventListener('message', function (e) {
+    // Only our embedder may supply the context. It now carries the SDK's token
+    // and API base, so accepting it from any window would let another frame
+    // point the bundle's API calls at a host it controls.
+    if (e.source !== window.parent) return;
     var d = e.data || {};
     if (d.type === 'windmill:ctx') {
       window.ctx = d.ctx;
