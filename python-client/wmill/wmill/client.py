@@ -2787,10 +2787,11 @@ def _step_error_marker(key: str, exc: BaseException) -> dict:
             # can represent, and exactly those: a subclass may define __hash__.
             if type(_k) not in (str, int, float, bool, type(None)):
                 continue
-            # Per attribute, so one that cannot be represented does not take the
-            # rest with it. ``parse_constant`` catches what ``default`` cannot: a
-            # float is serializable, so NaN/Infinity would pass through as bare
-            # literals that are not JSON and that the backend rejects.
+            # Per attribute, so one that cannot be represented does not take
+            # the rest with it, and as a pair so an int/bool/None key arrives as
+            # the string a replay reads. ``parse_constant`` catches what
+            # ``default`` cannot: a float is serializable, so NaN/Infinity would
+            # pass through as bare literals that are not JSON.
             try:
                 safe_extra.update(
                     json.loads(

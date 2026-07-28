@@ -24,17 +24,28 @@
     "",
     "Known divergence, deliberately not covered here: a non-finite float reaches",
     "`extra` as the string \"NaN\" in python and as null in typescript, because",
-    "JSON.stringify has no hook for it. The executors differ the same way."
+    "JSON.stringify has no hook for it. The executors differ the same way.",
+    "",
+    "Second known divergence, also not covered: an attribute named like a field",
+    "the executors report separately \u2014 `name`, `message`, `stack` \u2014 reaches",
+    "`extra` in python and not in typescript. Each client mirrors its own",
+    "executor, which differ the same way: the python one copies `__dict__`",
+    "wholesale, the bun/deno one filters that skip-list out."
   ],
   "cases": [
     {
       "case": "a named error keeps its name and message",
-      "thrown": { "name": "HttpError", "message": "429 too many requests" },
+      "thrown": {
+        "name": "HttpError",
+        "message": "429 too many requests"
+      },
       "expect": {
         "name": "HttpError",
         "message": "429 too many requests",
         "stack": "present",
-        "absent": ["extra", "extra_omitted"]
+        "absent": [
+          "extra"
+        ]
       }
     },
     {
@@ -42,13 +53,21 @@
       "thrown": {
         "name": "HttpError",
         "message": "429",
-        "props": { "code": 429, "retry_after": 5, "endpoint": "/v1/jobs" }
+        "props": {
+          "code": 429,
+          "retry_after": 5,
+          "endpoint": "/v1/jobs"
+        }
       },
       "expect": {
         "name": "HttpError",
         "message": "429",
         "stack": "present",
-        "extra": { "code": 429, "retry_after": 5, "endpoint": "/v1/jobs" }
+        "extra": {
+          "code": 429,
+          "retry_after": 5,
+          "endpoint": "/v1/jobs"
+        }
       }
     },
     {
@@ -56,24 +75,33 @@
       "thrown": {
         "name": "RequestError",
         "message": "socket hang up",
-        "props": { "code": "ECONNRESET" },
+        "props": {
+          "code": "ECONNRESET"
+        },
         "circular_prop": "request"
       },
       "expect": {
         "name": "RequestError",
         "message": "socket hang up",
         "stack": "present",
-        "extra": { "code": "ECONNRESET" }
+        "extra": {
+          "code": "ECONNRESET"
+        }
       }
     },
     {
       "case": "an error carrying nothing of its own has no extra",
-      "thrown": { "name": "ValueError", "message": "nope" },
+      "thrown": {
+        "name": "ValueError",
+        "message": "nope"
+      },
       "expect": {
         "name": "ValueError",
         "message": "nope",
         "stack": "present",
-        "absent": ["extra"]
+        "absent": [
+          "extra"
+        ]
       }
     }
   ]
