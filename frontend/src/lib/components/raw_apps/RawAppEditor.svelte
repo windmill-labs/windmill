@@ -1700,10 +1700,9 @@
 	// Dark variant forwarded to the UI Builder / preview iframes alongside
 	// `dark`. Reads the `github-dark` class (the runtime source of truth) and is
 	// refreshed on any <html> class mutation via the DarkModeObserver below.
-	// The embedded UI Builder editor only honors `variant` once
-	// scripts/ui_builder_artifact.json is pinned to a builder build carrying
-	// windmill-code-ui-builder PR #16; older pinned builds ignore it harmlessly
-	// and keep the editor on the default dark (Nord) palette.
+	// `variant` is consumed by the UI Builder editor build pinned in
+	// scripts/ui_builder_artifact.json; a pin predating variant support ignores
+	// it harmlessly and falls back to the default dark (Nord) palette.
 	let darkVariant: 'default' | 'github' = $state(
 		typeof document !== 'undefined' && document.documentElement.classList.contains('github-dark')
 			? 'github'
