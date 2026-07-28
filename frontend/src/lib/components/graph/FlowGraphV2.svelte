@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { openedDrawers } from '$lib/components/common/drawer/Disposable.svelte'
 	import { FlowService, type FlowModule, type FlowNote, type Job, type OpenFlow } from '../../gen'
 	import { AI_OR_ASSET_NODE_TYPES, NODE, type GraphModuleState } from '.'
 	import { isTriggerStep } from '$lib/components/flows/flowStepSettings'
@@ -623,6 +624,12 @@
 
 	// Keyboard event handling
 	function handleKeyDown(event: KeyboardEvent) {
+		// Escape belongs to the topmost overlay. This listener is on `document` and theirs
+		// are on `window`, so this one always runs first — without the guard, dismissing a
+		// modal or picker would also clear the selection under it and lose the user's step.
+		if (event.key === 'Escape' && openedDrawers.val.length > 0) {
+			return
+		}
 		selectionManager.handleKeyDown(event)
 		noteManager.handleKeyDown(event)
 		if (event.key === 'Escape') {
