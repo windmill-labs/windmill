@@ -298,8 +298,19 @@
 	 * link), and failing there would make the app permanently unviewable for them.
 	 * Returns whether a token was actually obtained. */
 	async function mintWithConsent(): Promise<boolean> {
+		const approved = sdkScopes ?? []
 		try {
 			const resp = await fetchEmbedToken({ sdkConsent: true })
+			const granted = resp.sdk_scopes ?? []
+			if (!granted.every((s) => approved.includes(s))) {
+				// The app was redeployed with more scopes between the prompt and the
+				// mint. Never inject a token carrying scopes the viewer wasn't shown:
+				// drop it and ask again with the new set.
+				sdkScopes = granted
+				sdkToken = undefined
+				status = 'sdkPrompt'
+				return false
+			}
 			sdkToken = resp.token ?? undefined
 		} catch (e: any) {
 			if (e?.status === 401) {
