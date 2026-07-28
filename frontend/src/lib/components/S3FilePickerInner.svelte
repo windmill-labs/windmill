@@ -259,6 +259,11 @@
 			// loading each level of its ancestor chain
 			if (selectedFileKey !== undefined && !emptyString(selectedFileKey.s3)) {
 				await expandAncestors(selectedFileKey.s3)
+				// Clearing the flags below belongs to whichever load is current:
+				// a reload that started meanwhile owns the spinner now.
+				if (generation !== loadGeneration) {
+					return
+				}
 			}
 		}
 		displayedFileKeys = [...new Set(displayedFileKeys)].sort()
@@ -571,6 +576,10 @@
 				return
 			}
 			folder.collapsed = false
+			// The whole chain is being opened, so the folder belongs on screen
+			// itself — a synthesized one below the root level is not covered by
+			// the reveal loops, and its children would render with no row above.
+			displayedFileKeys.push(prefix)
 			for (const file_key in allFilesByKey) {
 				if (allFilesByKey[file_key].parentPath === prefix) {
 					displayedFileKeys.push(file_key)
