@@ -146,14 +146,36 @@ mod tests {
         assert_eq!(rec["result"]["error"].get("stack"), None);
     }
 
-    /// The SDKs in users' hands until they upgrade post `{"error": "<msg>",
-    /// "type": "<class>"}`. Reporting those as `Error` would make every step
-    /// failure lose its class the moment this ships.
+    use super::normalize_posted_step_result;
+
+    /// An SDK that predates the echoed record raises from the copy it built, so
+    /// rewriting what it posted would make its live round and its replays
+    /// disagree — the very thing being fixed here. It keeps its own shape.
     #[test]
-    fn a_legacy_sdk_marker_keeps_its_error_class() {
-        let rec = wac_failure_record("s", None, &json!({"error": "nope", "type": "TypeError"}));
-        assert_eq!(rec["result"]["error"]["name"], json!("TypeError"));
-        assert_eq!(rec["result"]["error"]["message"], json!("nope"));
+    fn a_legacy_sdk_marker_is_stored_untouched() {
+        let legacy = json!({
+            "__wmill_error": true,
+            "message": "nope",
+            "step_key": "s",
+            "result": {"error": "nope", "type": "TypeError"},
+        });
+        assert_eq!(normalize_posted_step_result("s", legacy.clone()), legacy);
+    }
+
+    #[test]
+    fn a_current_sdk_marker_is_normalized_and_a_success_is_not() {
+        let posted = json!({
+            "__wmill_error": true,
+            "message": "nope",
+            "step_key": "s",
+            "result": {"error": {"name": "ValueError", "message": "nope"}},
+        });
+        let stored = normalize_posted_step_result("s", posted);
+        assert_eq!(stored["result"]["error"]["name"], json!("ValueError"));
+        assert_eq!(stored["step_key"], json!("s"));
+
+        let success = json!({"rows": 3});
+        assert_eq!(normalize_posted_step_result("s", success.clone()), success);
     }
 
     #[test]
@@ -280,17 +302,6 @@ pub fn wac_failure_record(step_key: &str, child_job_id: Option<&str>, raw_result
         .get("name")
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
-        // SDKs before the failure record was unified serialized a step failure
-        // as `{"error": "<message>", "type": "<class>"}`. Those are the clients
-        // users are running until they upgrade, so read the class from where
-        // they put it rather than reporting every one of their failures as
-        // `Error`.
-        .or_else(|| {
-            raw_result
-                .get("type")
-                .and_then(|v| v.as_str())
-                .filter(|s| !s.is_empty())
-        })
         .unwrap_or("Error")
         .to_string();
     let message = error
@@ -331,6 +342,33 @@ pub fn wac_failure_record(step_key: &str, child_job_id: Option<&str>, raw_result
         ),
     );
     Value::Object(record)
+}
+
+/// Decide what to store for a step result an SDK posted.
+///
+/// A failure is normalized through `wac_failure_record`, the same function that
+/// shapes task failures, so the two cannot drift apart.
+///
+/// A marker an older SDK posted is stored untouched instead. Those are
+/// recognizable by an `error` that is a message string rather than an object,
+/// and the SDK that posted one raises from the copy it built and ignores the
+/// record echoed back to it. Rewriting it here would leave the round that ran
+/// the failing body reading one shape and every replay of it reading another —
+/// the divergence this whole mechanism exists to remove. It keeps its own shape
+/// until it upgrades.
+pub fn normalize_posted_step_result(key: &str, posted: Value) -> Value {
+    if !is_wac_failure(&posted) {
+        return posted;
+    }
+    let normalizable = posted
+        .get("result")
+        .and_then(|r| r.get("error"))
+        .map(|e| e.is_object())
+        .unwrap_or(false);
+    if !normalizable {
+        return posted;
+    }
+    wac_failure_record(key, None, posted.get("result").unwrap_or(&Value::Null))
 }
 
 /// Whether a `completed_steps` entry is a failure record.
@@ -495,13 +533,7 @@ pub async fn persist_inline_checkpoint_delta(
         "WAC v2 inline checkpoint — persisting step result"
     );
 
-    // A step failure is normalized here, not in the SDK that posted it: the
-    // same function shapes task failures, so the two cannot drift apart.
-    let result = if is_wac_failure(&result) {
-        wac_failure_record(key, None, result.get("result").unwrap_or(&Value::Null))
-    } else {
-        result
-    };
+    let result = normalize_posted_step_result(key, result);
 
     add_completed_step(&mut checkpoint, key, result.clone());
 
