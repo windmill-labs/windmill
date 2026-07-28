@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { ComponentProps } from 'svelte'
 	// A dbt script's modules ARE its dbt project, so they are browsed as the tree
 	// dbt itself expects rather than as the flat tab strip a couple of helper
 	// files get. Read-only on purpose: dbt development is a local loop (`dbt run
@@ -60,12 +61,15 @@
 				: Object.keys(modules).sort()[0]
 	)
 
-	function langOf(path: string): string {
+	// A dbt project holds SQL, YAML, Markdown and the odd Python model. Only the
+	// first three have a highlighter here; anything else renders unhighlighted
+	// rather than guessing, which is what `undefined` means to HighlightCode.
+	// `ansible` is how this component spells YAML.
+	function langOf(path: string): ComponentProps<typeof HighlightCode>['language'] {
 		if (path.endsWith('.sql')) return 'sql'
-		if (path.endsWith('.yml') || path.endsWith('.yaml')) return 'yaml'
-		if (path.endsWith('.md')) return 'markdown'
-		if (path.endsWith('.py')) return 'python'
-		return 'text'
+		if (path.endsWith('.yml') || path.endsWith('.yaml')) return 'ansible'
+		if (path.endsWith('.py')) return 'python3'
+		return undefined
 	}
 </script>
 
