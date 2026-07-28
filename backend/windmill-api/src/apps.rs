@@ -827,30 +827,26 @@ fn raw_app_wrapper_html(secret: &str) -> String {
   }
   function applyCtx(d) {
     if (!d || d.type !== 'windmill:ctx') return;
-    {
-      window.ctx = d.ctx;
-      if (window.__wmStorageShim && d.storage) {
-        window.__wmStorageShim.local.__hydrate(d.storage.local);
-        window.__wmStorageShim.session.__hydrate(d.storage.session);
-      }
-      // Frontend SDK: a bundled `windmill-client` reads window.process.env at
-      // module load, so the env must exist before the bundle script below is
-      // injected. BASE_URL is supplied by the embedder rather than derived —
-      // location.origin is "null" on this opaque origin.
-      if (d.sdk && d.sdk.token) {
-        window.process = { env: { WM_TOKEN: d.sdk.token, BASE_URL: d.sdk.baseUrl, WM_WORKSPACE: d.sdk.workspace } };
-      }
-      if (d.initialHash && d.initialHash !== '#' && !window.location.hash) {
-        try { history.replaceState(null, '', d.initialHash); } catch (_) {}
-      }
-      loadBundle();
+    window.ctx = d.ctx;
+    if (window.__wmStorageShim && d.storage) {
+      window.__wmStorageShim.local.__hydrate(d.storage.local);
+      window.__wmStorageShim.session.__hydrate(d.storage.session);
     }
+    // A bundled `windmill-client` reads window.process.env at module load, so the
+    // env must exist before the bundle script is injected below. BASE_URL comes
+    // from the embedder — location.origin is "null" on this opaque origin.
+    if (d.sdk && d.sdk.token) {
+      window.process = { env: { WM_TOKEN: d.sdk.token, BASE_URL: d.sdk.baseUrl, WM_WORKSPACE: d.sdk.workspace } };
+    }
+    if (d.initialHash && d.initialHash !== '#' && !window.location.hash) {
+      try { history.replaceState(null, '', d.initialHash); } catch (_) {}
+    }
+    loadBundle();
   }
-  // Announce readiness over a MessageChannel we own, echoing the nonce from our
-  // own URL. The nonce proves to the embedder which document is asking (one
-  // navigated in later cannot read it); replying on our port guarantees the
-  // answer reaches only this document, since replacing it discards the port.
-  // Both are needed before the embedder parts with the viewer's SDK token.
+  // The embedder parts with the viewer's SDK token only if both hold: the nonce
+  // from our URL says which document is asking (one navigated in later cannot
+  // read it), and our own port says the answer reaches only this document
+  // (replacing the document discards the port).
   try {
     var hs = new URLSearchParams(window.location.search).get('wm_hs') || undefined;
     var ch = new MessageChannel();
@@ -1347,8 +1343,9 @@ async fn mint_raw_app_sdk_token(
 /// and can call this endpoint itself. The boundary is the scope set — the token
 /// can never exceed the policy-declared scopes, which are also capped by the
 /// viewer's own permissions. Sandbox isolation is what contains an app's code; a
-/// sandboxed app holds nothing but this token, so there the prompt is the only
-/// way it gains any reach at all.
+/// sandboxed app has no other way to call the API directly, so there the prompt
+/// decides its whole API surface (its policy-approved runnables still run either
+/// way, through the bridge).
 ///
 /// The CALLER MUST verify that `opt_authed` may view `app_path` before calling:
 /// this mints on their behalf unconditionally and does no visibility check of its

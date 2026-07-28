@@ -168,8 +168,10 @@
 	 * the port that document sent proves the answer reaches only it — posting to
 	 * `contentWindow` would land in whatever document is active by then. */
 	function respondCtx(nonceEcho?: string, port?: MessagePort) {
-		const proven = nonceEcho === handshakeNonce && port !== undefined
-		const sdkToken = proven ? sdkTokenCtx?.value : undefined
+		// No port means the sender is not a wrapper we served — every one of ours
+		// transfers one. Answering anyway would hand the viewer's identity to it.
+		if (!port) return
+		const sdkToken = nonceEcho === handshakeNonce ? sdkTokenCtx?.value : undefined
 		const payload = {
 			type: 'windmill:ctx',
 			// Same shape as the unsandboxed wrapper: always the object, so
@@ -182,8 +184,7 @@
 			// `baseUrl` comes from here because the bundle's own origin is opaque.
 			...(sdkToken ? { sdk: { token: sdkToken, baseUrl: window.location.origin, workspace } } : {})
 		}
-		if (port) port.postMessage(payload)
-		else iframe?.contentWindow?.postMessage(payload, '*')
+		port.postMessage(payload)
 	}
 
 	onMount(() => {
