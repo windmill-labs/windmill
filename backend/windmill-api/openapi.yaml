@@ -31310,12 +31310,8 @@ components:
                 description: Whether the SQL migrations feature is opted in for this data table
               forked_from:
                 type: object
-                description: Fork origin info with schema snapshot
-                properties:
-                  schema:
-                    type: object
-                    description: Schema snapshot at fork time
-                    additionalProperties: true
+                description: Set when the data table was cloned into its own database on fork
+                additionalProperties: true
     DatatableMigration:
       type: object
       required: [datatable, timestamp, name, code_up]

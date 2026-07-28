@@ -319,10 +319,22 @@ export async function offerToRunNewMigrations(
     log.info(colors.gray(`  ${m.datatable}: ${m.timestamp} ${m.name}`));
   }
 
-  // Running migrations mutates the data tables, so skip the prompt in
-  // non-interactive contexts (--yes, --json, no TTY).
-  const interactive = !opts?.jsonOutput && !opts?.yes && !!process.stdin.isTTY;
-  if (!interactive) {
+  const run = async () => {
+    for (const datatable of new Set(newMigrations.map((m) => m.datatable))) {
+      await runMigrations(workspace, datatable);
+    }
+  };
+
+  // `--yes` answers the prompt affirmatively: that is how a git-sync push (CI,
+  // no TTY) applies the migrations a merge brought in.
+  if (opts?.yes) {
+    await run();
+    return;
+  }
+
+  // Running migrations mutates the data tables, so never do it implicitly when
+  // nobody can answer (--json, no TTY).
+  if (opts?.jsonOutput || !process.stdin.isTTY) {
     return;
   }
 
@@ -330,11 +342,7 @@ export async function offerToRunNewMigrations(
     message: "New migrations were pushed, run them?",
     default: false,
   });
-  if (!shouldRun) {
-    return;
-  }
-
-  for (const datatable of new Set(newMigrations.map((m) => m.datatable))) {
-    await runMigrations(workspace, datatable);
+  if (shouldRun) {
+    await run();
   }
 }

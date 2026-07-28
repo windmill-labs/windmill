@@ -6546,33 +6546,8 @@ async fn create_workspace_fork_branch(
 /// Update a forked workspace's datatable config to point to the new database.
 /// For instance datatables: updates resource_path in the datatable config.
 /// For resource datatables: updates the resource's dbname and marks it as ws_specific.
-/// Snapshot the schema from the source datatable by connecting to its database.
-async fn snapshot_datatable_schema(
-    db: &DB,
-    parent_w_id: &str,
-    dt_name: &str,
-) -> Result<serde_json::Value> {
-    let pg = get_datatable_resource_from_db_unchecked(db, parent_w_id, dt_name).await?;
-    let pg: PgDatabase = serde_json::from_value(pg)
-        .map_err(|e| Error::internal_err(format!("Failed to parse db credentials: {}", e)))?;
-    let (client, connection) = pg.connect(Some(db)).await?;
-    let join_handle = tokio::spawn(async move { connection.await });
-
-    let schema = windmill_common::query_builders::pg_get_full_schema(&client)
-        .await
-        .map_err(Error::internal_err)?;
-
-    drop(client);
-    windmill_common::shutdown_pg_connection(join_handle).await?;
-
-    serde_json::to_value(schema)
-        .map_err(|e| Error::internal_err(format!("Failed to serialize schema: {}", e)))
-}
-
 async fn apply_forked_datatable(
-    db: &DB,
     tx: &mut Transaction<'_, Postgres>,
-    parent_w_id: &str,
     forked_w_id: &str,
     fdt: &ForkedDatatableInfo,
 ) -> Result<()> {
@@ -6584,9 +6559,9 @@ async fn apply_forked_datatable(
         )));
     }
 
-    // Snapshot the schema from the source (parent) datatable
-    let schema = snapshot_datatable_schema(db, parent_w_id, &fdt.name).await?;
-    let forked_from = serde_json::json!({ "schema": schema });
+    // Marks the data table as living in its own cloned database; schema changes
+    // reach it through SQL migrations.
+    let forked_from = serde_json::json!({});
 
     // Read the datatable config from the forked workspace
     let config_val = sqlx::query_scalar!(
@@ -7011,7 +6986,7 @@ async fn create_workspace_fork(
 
     // Update forked datatable settings to point to new databases
     for fdt in &nw.forked_datatables {
-        apply_forked_datatable(&db, &mut tx, &parent_workspace_id, &forked_id, fdt).await?;
+        apply_forked_datatable(&mut tx, &forked_id, fdt).await?;
     }
 
     // The settings clone copies the source's ducklake config verbatim — including a parent

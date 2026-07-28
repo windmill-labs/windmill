@@ -991,12 +991,10 @@ pub struct DataTable {
     pub migrations_enabled: Option<bool>,
 }
 
+/// Marker set on a fork's data table config when the data table was cloned into
+/// its own database. Carries no payload: schema changes propagate as migrations.
 #[derive(Deserialize, Serialize, Debug)]
-pub struct DataTableForkedFrom {
-    /// Schema snapshot at fork time
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub schema: Option<serde_json::Value>,
-}
+pub struct DataTableForkedFrom {}
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct DataTableDatabase {

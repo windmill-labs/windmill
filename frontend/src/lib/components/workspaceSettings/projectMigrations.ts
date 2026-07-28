@@ -302,7 +302,7 @@ export async function generateDatatableMigrations(
 			// caveat — an existing differently-shaped table is silently left as-is —
 			// is acceptable for a best-effort, editable migration.
 			const gen = generateAddedTableSql(
-				{ schemaName: t.schemaName, tableName: t.tableName, kind: 'added' },
+				{ schemaName: t.schemaName, tableName: t.tableName },
 				prunedSchema,
 				{ ifNotExists: true }
 			)
