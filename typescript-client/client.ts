@@ -68,11 +68,10 @@ export function setClient(token?: string, baseUrl?: string) {
   if (token === undefined) {
     token = getEnv("WM_TOKEN") ?? "no_token";
   }
-  // Credentials must be off whenever a bearer token is in play: the API answers
-  // `Access-Control-Allow-Origin: *` and so can never allow them, and a
-  // credentialed cross-origin request is rejected before the token is looked at.
-  // (`"no_token"` is still sent as a bearer, so this branch is about credentials
-  // mode only — it does not make cookie auth work.)
+  // Credentials must be off whenever a bearer is sent: the API answers
+  // `Access-Control-Allow-Origin: *`, so a credentialed cross-origin request is
+  // rejected before the token is read. Credentials mode only — `"no_token"` is
+  // still sent as a bearer, so this does not enable cookie auth.
   OpenAPI.WITH_CREDENTIALS = token === "no_token";
   OpenAPI.TOKEN = token;
   OpenAPI.BASE = baseUrl + "/api";

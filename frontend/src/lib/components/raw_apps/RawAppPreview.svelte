@@ -103,12 +103,8 @@
 			new URLSearchParams(window.location.search).has('wm_coep') || window.crossOriginIsolated
 				? 'wm_coep=1&'
 				: ''
-		// The handshake nonce binds the credential reply to the document WE loaded.
-		// `windmill:ready` only proves which browsing context spoke, and the reply
-		// has to target `*` (the frame's origin is opaque), so without this any
-		// document navigated into that frame — including one an ancestor swapped in
-		// before our wrapper announced itself — could ask for the viewer's token.
-		// It lives in the frame's own URL, which a cross-origin ancestor cannot read.
+		// wm_hs: the handshake nonce, readable only by the document we load here —
+		// see `respondCtx` for what it gates.
 		return `/api/w/${workspace}/apps_u/get_data/v/${secret}.html?${coep}wm_hs=${handshakeNonce}`
 	})
 
@@ -143,8 +139,11 @@
 	const framed = typeof window !== 'undefined' && window.parent !== window && !storageAccessible()
 	let bundleStorage: Record<string, string> | undefined = undefined
 	let pendingReady = false
-	// Nonce from a `windmill:ready` we could not answer yet (storage still loading).
+	// The `windmill:ready` we could not answer yet (storage still loading). Holding
+	// the port is what makes the deferred reply safe: it stays bound to the document
+	// that sent it even if the frame is navigated while we wait.
 	let pendingNonce: string | undefined = undefined
+	let pendingPort: MessagePort | undefined = undefined
 
 	function readDirect(): Record<string, string> {
 		try {
@@ -164,30 +163,27 @@
 		} catch (_) {}
 	}
 
-	/** The credential only goes to a document that proved it is the one we loaded,
-	 * by echoing the nonce from its own URL. A document navigated into the frame
-	 * keeps the same `contentWindow` and can post `windmill:ready` at any time —
-	 * including before our wrapper does — but cannot read that URL. */
-	function respondCtx(nonceEcho?: string) {
-		const sdkToken = nonceEcho === handshakeNonce ? sdkTokenCtx?.value : undefined
-		iframe?.contentWindow?.postMessage(
-			{
-				type: 'windmill:ctx',
-				// Same shape as the unsandboxed wrapper: always the object, so
-				// `window.ctx.workspace` works for anonymous viewers too.
-				ctx: { ctx: user, workspace },
-				initialHash,
-				storage: { local: bundleStorage ?? {}, session: {} },
-				// The wrapper turns this into `window.process.env` before it injects
-				// the bundle, which is what a bundled `windmill-client` reads at
-				// module load. `baseUrl` must come from here: this component runs on
-				// the real origin, the bundle's is opaque.
-				...(sdkToken
-					? { sdk: { token: sdkToken, baseUrl: window.location.origin, workspace } }
-					: {})
-			},
-			'*'
-		)
+	/** The credential is gated on two things: the nonce proves which document is
+	 * asking (one navigated in later cannot read it from our URL), and replying on
+	 * the port that document sent proves the answer reaches only it — posting to
+	 * `contentWindow` would land in whatever document is active by then. */
+	function respondCtx(nonceEcho?: string, port?: MessagePort) {
+		const proven = nonceEcho === handshakeNonce && port !== undefined
+		const sdkToken = proven ? sdkTokenCtx?.value : undefined
+		const payload = {
+			type: 'windmill:ctx',
+			// Same shape as the unsandboxed wrapper: always the object, so
+			// `window.ctx.workspace` works for anonymous viewers too.
+			ctx: { ctx: user, workspace },
+			initialHash,
+			storage: { local: bundleStorage ?? {}, session: {} },
+			// The wrapper turns this into `window.process.env` before it injects the
+			// bundle, which is what a bundled `windmill-client` reads at module load.
+			// `baseUrl` comes from here because the bundle's own origin is opaque.
+			...(sdkToken ? { sdk: { token: sdkToken, baseUrl: window.location.origin, workspace } } : {})
+		}
+		if (port) port.postMessage(payload)
+		else iframe?.contentWindow?.postMessage(payload, '*')
 	}
 
 	onMount(() => {
@@ -206,7 +202,7 @@
 					bundleStorage = {}
 					if (pendingReady) {
 						pendingReady = false
-						respondCtx(pendingNonce)
+						respondCtx(pendingNonce, pendingPort)
 					}
 				}
 			}, 750)
@@ -222,7 +218,7 @@
 				bundleStorage = data.data || {}
 				if (pendingReady) {
 					pendingReady = false
-					respondCtx(pendingNonce)
+					respondCtx(pendingNonce, pendingPort)
 				}
 				return
 			}
@@ -231,14 +227,16 @@
 			if (data?.type === 'windmill:ready') {
 				// Hand the bundle its context + shared storage before it evaluates.
 				const nonceEcho = typeof data.nonce === 'string' ? data.nonce : undefined
+				const port = event.ports?.[0]
 				if (!framed) {
 					bundleStorage = readDirect()
-					respondCtx(nonceEcho)
+					respondCtx(nonceEcho, port)
 				} else if (bundleStorage !== undefined) {
-					respondCtx(nonceEcho)
+					respondCtx(nonceEcho, port)
 				} else {
 					pendingReady = true
 					pendingNonce = nonceEcho
+					pendingPort = port
 				}
 			} else if (data?.type === 'wm_ls_op') {
 				// The bundle mutated localStorage — apply it to the shared store.

@@ -825,13 +825,9 @@ fn raw_app_wrapper_html(secret: &str) -> String {
     s.src = './__SECRET__.js';
     document.body.appendChild(s);
   }
-  window.addEventListener('message', function (e) {
-    // Only our embedder may supply the context. It now carries the SDK's token
-    // and API base, so accepting it from any window would let another frame
-    // point the bundle's API calls at a host it controls.
-    if (e.source !== window.parent) return;
-    var d = e.data || {};
-    if (d.type === 'windmill:ctx') {
+  function applyCtx(d) {
+    if (!d || d.type !== 'windmill:ctx') return;
+    {
       window.ctx = d.ctx;
       if (window.__wmStorageShim && d.storage) {
         window.__wmStorageShim.local.__hydrate(d.storage.local);
@@ -849,13 +845,17 @@ fn raw_app_wrapper_html(secret: &str) -> String {
       }
       loadBundle();
     }
-  });
-  // Echo the handshake nonce from our own URL. It proves to the embedder that
-  // this is the document it loaded rather than one navigated into the frame
-  // afterwards, which is what gates the frontend SDK credential.
+  }
+  // Announce readiness over a MessageChannel we own, echoing the nonce from our
+  // own URL. The nonce proves to the embedder which document is asking (one
+  // navigated in later cannot read it); replying on our port guarantees the
+  // answer reaches only this document, since replacing it discards the port.
+  // Both are needed before the embedder parts with the viewer's SDK token.
   try {
     var hs = new URLSearchParams(window.location.search).get('wm_hs') || undefined;
-    window.parent.postMessage({ type: 'windmill:ready', nonce: hs }, '*');
+    var ch = new MessageChannel();
+    ch.port1.onmessage = function (e) { applyCtx(e.data); };
+    window.parent.postMessage({ type: 'windmill:ready', nonce: hs }, '*', [ch.port2]);
   } catch (_) {}
   // Fallback for contexts that never send ctx (e.g. ctx-less rendering).
   setTimeout(loadBundle, 1500);
