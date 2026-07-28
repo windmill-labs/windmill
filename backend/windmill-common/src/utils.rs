@@ -1373,7 +1373,8 @@ pub fn truncate_chars(s: &str, max_chars: usize) -> &str {
     }
 }
 
-/// Truncate `s` to at most `max_chars` characters, appending `...` when it was truncated.
+/// Keep at most `max_chars` characters of `s`, appending `...` when anything was dropped —
+/// so a truncated result is `max_chars + 3` characters long, not `max_chars`.
 pub fn truncate_with_ellipsis(s: &str, max_chars: usize) -> String {
     let truncated = truncate_chars(s, max_chars);
     if truncated.len() < s.len() {
