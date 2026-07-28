@@ -653,12 +653,16 @@ export function isActiveUserQuestion(message: DisplayMessage | undefined): boole
 // rendering progress must ask here first or it reports "the AI is working".
 export type PendingUserAction = 'question' | 'confirmation'
 
-export function pendingUserAction(
-	message: DisplayMessage | undefined
-): PendingUserAction | undefined {
-	if (!message || message.role !== 'tool') return undefined
-	if (isActiveUserQuestion(message)) return 'question'
-	if (message.needsConfirmation && message.isLoading) return 'confirmation'
+// Scans the turn's whole trailing run of tool cards, not just the last message:
+// providers create one card per tool call up front and then run the calls one at
+// a time, so the blocked call routinely sits behind cards still queued.
+export function pendingUserAction(messages: DisplayMessage[]): PendingUserAction | undefined {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const message = messages[i]
+		if (message.role !== 'tool') break
+		if (isActiveUserQuestion(message)) return 'question'
+		if (message.needsConfirmation && message.isLoading) return 'confirmation'
+	}
 	return undefined
 }
 

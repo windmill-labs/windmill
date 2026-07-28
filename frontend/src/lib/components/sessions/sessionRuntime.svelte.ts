@@ -1250,7 +1250,7 @@ export function getSessionChatStatus(runtime: SessionRuntime): SessionChatStatus
 	// A loop parked on the user still reports `loading`, so these must be tested
 	// before `streaming` — otherwise "answer me" renders as "the AI is typing"
 	// and a session that needs the user looks like one that doesn't.
-	const pending = pendingUserAction(last)
+	const pending = pendingUserAction(m.displayMessages)
 	if (pending === 'question') return 'awaiting-answer'
 	if (pending === 'confirmation') return 'needs-confirmation'
 	if (m.loading) return 'streaming'

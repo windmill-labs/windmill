@@ -24,7 +24,7 @@
 	import { fade } from 'svelte/transition'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { isActiveUserQuestion, pendingUserAction, type DisplayMessage } from './shared'
+	import { pendingUserAction, type DisplayMessage } from './shared'
 	import type { ContextElement } from './context'
 	import ChatQuickActions from './ChatQuickActions.svelte'
 	import ContextUsageIndicator from './ContextUsageIndicator.svelte'
@@ -488,14 +488,12 @@
 	// The typing-dots indicator implies the AI is busy, which is misleading while
 	// the loop is parked on the user; surface a text pill instead so users know to
 	// act on the tool above.
-	const waitingForUserAction = $derived(
-		aiChatManager.loading && !!pendingUserAction(messages[messages.length - 1])
-	)
+	const waitingForUserAction = $derived(aiChatManager.loading && !!pendingUserAction(messages))
 
 	// While the AI is waiting on an answer to an askUserQuestion, the only valid
 	// input is one of the choices (or the custom answer) in the question card —
 	// so disable the main chat input until the question is answered or canceled.
-	const hasActiveUserQuestion = $derived(isActiveUserQuestion(messages[messages.length - 1]))
+	const hasActiveUserQuestion = $derived(pendingUserAction(messages) === 'question')
 
 	// Get app context for display when in APP mode
 	const appContext = $derived.by((): SelectedContext | undefined => {
