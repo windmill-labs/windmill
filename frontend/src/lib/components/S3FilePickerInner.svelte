@@ -917,7 +917,11 @@
 						</div>
 					{:else}
 						<div class="p-4 text-primary text-xs text-center italic">
-							No files in the workspace S3 bucket at that prefix
+							{#if filter.trim() !== ''}
+								No files under "{filter.trim()}" — the prefix has to match whole folder names
+							{:else}
+								No files in the workspace S3 bucket at that prefix
+							{/if}
 						</div>
 					{/if}
 				{:else}
