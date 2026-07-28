@@ -851,9 +851,13 @@ export class DeployToHubSession {
 		if (this.deploying || this.triggersLoading || this.triggerDiscoveryFailed) return
 		this.deploying = true
 		try {
+			// Captured at click time, not in #deployAll: the toggles stay interactive
+			// while the draft request is in flight, and publishing a type definition
+			// must reflect what was ticked when the user confirmed.
+			const exportedTypes = new Set(this.exportedResourceTypes)
 			if (!(await this.#createDraft())) return
 			onDraftCreated?.()
-			await this.#deployAll()
+			await this.#deployAll(exportedTypes)
 		} finally {
 			this.deploying = false
 		}
@@ -1072,7 +1076,7 @@ export class DeployToHubSession {
 		return results.reduce((a: number, b) => a + b, 0)
 	}
 
-	async #deployAll() {
+	async #deployAll(exportedTypes: Set<string>) {
 		const slug = this.hubSlug
 		// Snapshot the selection up-front: `selectedItems`/`relevantTriggers` are
 		// derived from live workspace data and `migrationDrafts` is edited in the
@@ -1080,7 +1084,6 @@ export class DeployToHubSession {
 		const itemsSnapshot = this.selectedItems.slice()
 		const triggersSnapshot = this.relevantTriggers.slice()
 		const migrationsSnapshot = this.migrationDrafts.slice()
-		const exportedTypesSnapshot = new Set(this.exportedResourceTypes)
 		this.hubItemIds = {}
 		this.deploymentStatus = {}
 		let failures = 0
@@ -1135,7 +1138,7 @@ export class DeployToHubSession {
 			// definition itself stays out of the Hub.
 			const depFailures = await this.#pushResourceTypes(
 				slug,
-				types.filter((t) => exportedTypesSnapshot.has(t))
+				types.filter((t) => exportedTypes.has(t))
 			)
 
 			// Input-type deps with no path get a conventional f/<slug>/<type> stub.

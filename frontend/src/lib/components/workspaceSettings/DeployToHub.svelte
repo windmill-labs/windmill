@@ -869,6 +869,7 @@
 										<Toggle
 											size="xs"
 											checked={s.exportedResourceTypes.has(r.resource_type)}
+											disabled={s.deploying}
 											on:change={() => s.toggleResourceTypeExport(r.resource_type)}
 											options={{
 												right: 'Export type definition',
