@@ -403,9 +403,12 @@ export function topologicalSort(
 		visited.add(id)
 
 		// A parent id with no node is a bug in whoever built the graph, but the whole editor
-		// unmounts if this throws, so skip it and let the rest of the graph render.
+		// unmounts if this throws, so warn and let the rest of the graph render.
 		const node = nodeMap.get(id)
-		if (!node) return
+		if (!node) {
+			console.warn('Edge to a node that does not exist: ', id)
+			return
+		}
 		node.parentIds?.forEach(visit)
 		result.push(node)
 	}
@@ -1234,6 +1237,14 @@ export function graphBuilder(
 			processModules(topLevelItems, undefined, inputNode, resultNode, false, undefined)
 		}
 
+		// Before the failure markers: the preprocessor can be the step that failed, and a marker is
+		// only anchored to a step already present in `nodes`.
+		if (preprocessorModule) {
+			addNode(preprocessorModule)
+			const id = JSON.parse(JSON.stringify(preprocessorModule.id))
+			addEdge(id, 'Input', undefined, undefined, { type: 'empty' })
+		}
+
 		if (failureModule) {
 			// Keyed by failing step, so a step that failed several times (loop iterations each run
 			// their own handler, with ids like `failure-0-1`) gets one marker, not a stack of them.
@@ -1257,12 +1268,6 @@ export function graphBuilder(
 				addFailureNode({ ...failureModule, id: x[1] })
 				addEdge(x[0], x[1], undefined, undefined, { type: 'empty' })
 			})
-		}
-
-		if (preprocessorModule) {
-			addNode(preprocessorModule)
-			const id = JSON.parse(JSON.stringify(preprocessorModule.id))
-			addEdge(id, 'Input', undefined, undefined, { type: 'empty' })
 		}
 
 		if (failureModule && !extra.flowModuleStates) {
