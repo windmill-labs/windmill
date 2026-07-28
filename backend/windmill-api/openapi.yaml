@@ -22535,6 +22535,15 @@ paths:
           description: Scope the graph to runnables in a single folder
           schema:
             type: string
+        - name: dbt_job_id
+          in: query
+          description: >
+            Render the dbt graph as one specific RUN saw it. Only a dynamic
+            descriptor (a `{{ }}` placeholder in `vars`) writes a per-run
+            snapshot; without one for this job the pinned version's own graph
+            answers, so a run page may pass it unconditionally.
+          schema:
+            type: string
         - name: dbt_script_hash
           in: query
           description: >

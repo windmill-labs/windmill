@@ -149,6 +149,45 @@ pub struct TestMetadata {
     pub namespace: Option<String>,
 }
 
+/// The `job_id` of a graph that belongs to a deployed VERSION rather than to one
+/// run: what a static descriptor writes at deploy and all of its runs read.
+///
+/// A sentinel rather than NULL because `job_id` is part of the primary key, and
+/// Postgres does not treat two NULLs as the same key — every re-ingest would
+/// insert a new row set instead of replacing one.
+pub const DEPLOYED_GRAPH: uuid::Uuid = uuid::Uuid::nil();
+
+/// How long a run's graph snapshot outlives it. Only dynamic descriptors write
+/// one, and the run page is the only reader.
+pub const RUN_GRAPH_RETENTION_DAYS: i32 = 30;
+
+/// Drop the run snapshots older than the retention window, across the instance.
+///
+/// Called by the runs that write them, so this table needs no background sweep —
+/// the same shape `dbt_run_progress` uses.
+///
+/// See the mutator contract above: this authorizes nothing. It touches only
+/// rows keyed to a job, never a version's own graph.
+pub async fn prune_dbt_run_graphs(db: &sqlx::Pool<Postgres>) -> Result<()> {
+    sqlx::query!(
+        "DELETE FROM dbt_node WHERE job_id <> $1
+           AND ingested_at < now() - make_interval(days => $2)",
+        DEPLOYED_GRAPH,
+        RUN_GRAPH_RETENTION_DAYS,
+    )
+    .execute(db)
+    .await?;
+    sqlx::query!(
+        "DELETE FROM dbt_edge WHERE job_id <> $1
+           AND ingested_at < now() - make_interval(days => $2)",
+        DEPLOYED_GRAPH,
+        RUN_GRAPH_RETENTION_DAYS,
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 /// Longest model body kept for display. Generous for a hand-written model and
 /// small enough that a generated one cannot bloat the sidecar.
 const MAX_SQL_BYTES: usize = 32 * 1024;
@@ -548,22 +587,37 @@ pub async fn replace_dbt_manifest(
     // versions of one path coexist and an old run can still be shown the project
     // as it was when it ran.
     script_hash: i64,
+    // The run this graph is a snapshot of, for a dynamic descriptor whose model
+    // set depends on its arguments. `None` is the version's own graph as
+    // deployed — what a static descriptor writes once and all of its runs read.
+    job_id: Option<uuid::Uuid>,
     ingested: &IngestedManifest,
     // Where the profile put these relations, so a later run can tell whether the
     // resource has moved since — see the migration.
     relation_root: &str,
 ) -> Result<()> {
-    // Scoped to THIS version: wiping the path would take every other version's
-    // graph with it, which is the whole point of keying by the hash.
-    clear_dbt_manifest_version(tx, workspace_id, script_path, script_hash).await?;
+    let job_id = job_id.unwrap_or(DEPLOYED_GRAPH);
+    // Scoped to THIS version AND this run: wiping the path would take every
+    // other version's graph with it, and wiping the version would take every
+    // other run's snapshot — both are what keying exists to prevent.
+    sqlx::query!(
+        "DELETE FROM dbt_node WHERE workspace_id = $1 AND script_path = $2
+           AND script_hash = $3 AND job_id = $4",
+        workspace_id, script_path, script_hash, job_id
+    ).execute(&mut **tx).await?;
+    sqlx::query!(
+        "DELETE FROM dbt_edge WHERE workspace_id = $1 AND script_path = $2
+           AND script_hash = $3 AND job_id = $4",
+        workspace_id, script_path, script_hash, job_id
+    ).execute(&mut **tx).await?;
 
     for n in &ingested.nodes {
         sqlx::query!(
-            "INSERT INTO dbt_node (workspace_id, script_path, script_hash, unique_id, resource_type, name,
+            "INSERT INTO dbt_node (workspace_id, script_path, script_hash, job_id, unique_id, resource_type, name,
                  asset_path, materialized, materialize_strategy, unique_key, tags, description,
                  test_kind, test_column, test_args, severity, attached_node, columns, freshness,
                  relation_root, raw_code, original_file_path)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+             VALUES ($1, $2, $3, $23, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
                      $18, $19, $20, $21, $22)",
             workspace_id,
             script_path,
@@ -587,6 +641,7 @@ pub async fn replace_dbt_manifest(
             relation_root,
             n.raw_code,
             n.original_file_path,
+            job_id,
         )
         .execute(&mut **tx)
         .await?;
@@ -594,12 +649,13 @@ pub async fn replace_dbt_manifest(
 
     for (parent, child) in &ingested.edges {
         sqlx::query!(
-            "INSERT INTO dbt_edge (workspace_id, script_path, script_hash, parent_unique_id,
-                 child_unique_id)
-             VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING",
+            "INSERT INTO dbt_edge (workspace_id, script_path, script_hash, job_id,
+                 parent_unique_id, child_unique_id)
+             VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING",
             workspace_id,
             script_path,
             script_hash,
+            job_id,
             parent,
             child
         )

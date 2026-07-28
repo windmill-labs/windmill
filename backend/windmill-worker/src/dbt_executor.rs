@@ -533,6 +533,7 @@ pub async fn dbt_dep(
             &ingested,
             &prepared.relation_root(),
             publisher,
+            None,
         )
         .await?;
         if published {
@@ -1873,8 +1874,11 @@ fn spawn_progress_reporter(
     Some(tokio::spawn(async move {
         use tokio::io::{AsyncReadExt, AsyncSeekExt};
         // Off the job's critical path, and cheap: one indexed delete per run is
-        // what keeps this table bounded without a background sweep.
+        // what keeps these tables bounded without a background sweep.
         prune_run_progress(&db, &w_id).await;
+        if let Err(e) = windmill_common::dbt_manifest::prune_dbt_run_graphs(&db).await {
+            tracing::warn!("pruning dbt run graph snapshots: {e:#}");
+        }
         let mut offset = 0u64;
         // A tick can land mid-write, leaving a trailing partial line; hold it
         // over rather than dropping the event it belongs to.
@@ -2427,6 +2431,10 @@ async fn ingest_from_run(
         job.runnable_id
             .map(|h| GraphPublisher::Version(h.0))
             .unwrap_or(GraphPublisher::Unversioned),
+        // Only a dynamic descriptor snapshots per run. A static one re-ingests
+        // the same graph its deploy wrote, so a snapshot per run would be a copy
+        // of the version's graph for every run of it.
+        p.graph_is_per_run.then_some(job.id),
     )
     .await?;
     // Synchronously, not through the notify poller: the ingest just rewrote this
@@ -2465,6 +2473,11 @@ async fn persist_ingest(
     ingested: &windmill_common::dbt_manifest::IngestedManifest,
     relation_root: &str,
     publisher: GraphPublisher,
+    // Set for a RUN of a dynamic descriptor, whose model set depends on its
+    // arguments: that graph is a snapshot of this run and must not overwrite
+    // what another run of the same version saw. A deploy passes `None` and
+    // writes the version's own graph.
+    run_snapshot: Option<uuid::Uuid>,
 ) -> error::Result<bool> {
     let GraphPublisher::Version(script_hash) = publisher else {
         // No version to attribute the graph to — an inline or preview run, which
@@ -2503,6 +2516,7 @@ async fn persist_ingest(
         w_id,
         script_path,
         script_hash,
+        run_snapshot,
         ingested,
         relation_root,
     )

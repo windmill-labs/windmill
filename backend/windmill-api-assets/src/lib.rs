@@ -615,6 +615,10 @@ struct GraphQuery {
     /// Hex, like every other script-hash parameter — `ScriptHash` deserializes
     /// it, so the run page can pass `job.script_hash` verbatim.
     pub dbt_script_hash: Option<windmill_common::scripts::ScriptHash>,
+    /// Render the graph a specific RUN saw. Only a dynamic descriptor writes
+    /// one; without a snapshot for this job the version's own graph answers, so
+    /// a run page can pass it unconditionally.
+    pub dbt_job_id: Option<uuid::Uuid>,
 }
 
 #[derive(Serialize, Debug)]
@@ -1181,9 +1185,20 @@ async fn asset_graph(
                 AND ($3::bigint IS NOT NULL OR (s.deleted = false AND s.archived = false))
               ORDER BY s.path, s.created_at DESC
            ),
+           -- The run's own snapshot when it left one, the version's graph
+           -- otherwise. A static descriptor never snapshots, so all of its runs
+           -- fall through to the same rows.
+           chosen AS (
+             SELECT CASE WHEN $4::uuid IS NOT NULL AND EXISTS (
+                      SELECT 1 FROM dbt_node
+                       WHERE workspace_id = $1 AND job_id = $4)
+                    THEN $4::uuid
+                    ELSE '00000000-0000-0000-0000-000000000000'::uuid END AS job_id
+           ),
            scoped AS (
              SELECT n.script_path, n.unique_id FROM dbt_node n
               JOIN live l ON l.path = n.script_path AND l.hash = n.script_hash
+              JOIN chosen ch ON ch.job_id = n.job_id
               WHERE n.workspace_id = $1 AND n.asset_path IS NOT NULL
                 -- Unpinned, the scope is the relations in view: `asset` says
                 -- which of them this folder touches. Pinned, that table is the
@@ -1232,6 +1247,7 @@ async fn asset_graph(
         &w_id,
         folder_filter.as_deref(),
         q.dbt_script_hash.map(|h| h.0),
+        q.dbt_job_id,
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -1247,10 +1263,21 @@ async fn asset_graph(
                 AND ($3::bigint IS NULL OR s.hash = $3)
                 AND ($3::bigint IS NOT NULL OR (s.deleted = false AND s.archived = false))
               ORDER BY s.path, s.created_at DESC
+           ),
+           -- The run's own snapshot when it left one, the version's graph
+           -- otherwise. A static descriptor never snapshots, so all of its runs
+           -- fall through to the same rows.
+           chosen AS (
+             SELECT CASE WHEN $4::uuid IS NOT NULL AND EXISTS (
+                      SELECT 1 FROM dbt_node
+                       WHERE workspace_id = $1 AND job_id = $4)
+                    THEN $4::uuid
+                    ELSE '00000000-0000-0000-0000-000000000000'::uuid END AS job_id
            )
            SELECT p.asset_path AS "from_path!", c.asset_path AS "to_path!"
              FROM dbt_edge e
              JOIN live l ON l.path = e.script_path AND l.hash = e.script_hash
+             JOIN chosen ch ON ch.job_id = e.job_id
              JOIN dbt_node p ON p.workspace_id = e.workspace_id
                             AND p.script_path = e.script_path
                             AND p.script_hash = e.script_hash
@@ -1279,6 +1306,7 @@ async fn asset_graph(
         &w_id,
         folder_filter.as_deref(),
         q.dbt_script_hash.map(|h| h.0),
+        q.dbt_job_id,
     )
     .fetch_all(&mut *tx)
     .await?;

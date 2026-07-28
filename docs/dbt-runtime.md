@@ -228,10 +228,29 @@ page shows the model while it is being built.
 ## The graph belongs to a script version
 
 `dbt_node` / `dbt_edge` are keyed `(workspace_id, script_path, script_hash,
-unique_id)`. Each deployed version keeps its own graph, and a job records the
-version it ran (`v2_job.runnable_id`), so a run page asks for that one:
+job_id, unique_id)`. Each deployed version keeps its own graph, and a job records
+the version it ran (`v2_job.runnable_id`), so a run page asks for that one:
 `/assets/graph?dbt_script_hash=<hex>` renders the project as it was — its models,
 its SQL, its `ref()` lineage — instead of whatever is deployed today.
+
+`job_id` is the second half, and it exists for dynamic descriptors only. A
+`{{ }}` placeholder in `vars` can enable a different set of models per run, so
+those runs re-ingest; keyed by version alone, each re-ingest overwrote the last
+and reopening an older run showed the newer run's project, with any model only
+the older run built simply gone. A run of a dynamic descriptor therefore writes
+its own snapshot under its job id, and its page passes
+`dbt_job_id=<uuid>` alongside the hash.
+
+A static descriptor writes nothing per run: its graph is the version's, under
+the zero-UUID `DEPLOYED_GRAPH` sentinel, and every run of it reads that. The
+sentinel is a value rather than NULL because `job_id` is in the primary key and
+Postgres does not treat two NULLs as one key, so a re-ingest would accumulate row
+sets instead of replacing one. The endpoint falls back to it whenever the job has
+no snapshot, which is why a run page can pass `dbt_job_id` unconditionally.
+
+Snapshots are the only rows with a retention story — 30 days, pruned by the runs
+that write them, so no background sweep has to know about the table. A version's
+own graph lives as long as the version.
 
 Per DEPLOY, not per run: ten thousand runs of one version share one graph. The
 rows carry a composite foreign key to `script (workspace_id, hash)` with

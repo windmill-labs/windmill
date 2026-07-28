@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM dbt_edge WHERE job_id <> $1\n           AND ingested_at < now() - make_interval(days => $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ce709e270edacb623f7c6471227c55555a67c4c3fd966fbec9ab3872dcf798e1"
+}

@@ -44,7 +44,7 @@
 	// falls back to the whole workspace, which the filter below narrows anyway.
 	let folder = $derived(scriptPath.startsWith('f/') ? scriptPath.split('/')[1] : undefined)
 	// Read inside `load` and listed here so a change of version refetches.
-	let graphKey = $derived(`${folder ?? ''}|${scriptHash ?? ''}`)
+	let graphKey = $derived(`${folder ?? ''}|${scriptHash ?? ''}|${jobId ?? ''}`)
 
 	let raw = $state<AssetGraphResponse | undefined>(undefined)
 	let loading = $state(true)
@@ -57,6 +57,9 @@
 			const params = new URLSearchParams({ asset_kinds: 'table' })
 			if (folder) params.set('folder', folder)
 			if (scriptHash != undefined) params.set('dbt_script_hash', String(scriptHash))
+			// Passed unconditionally: only a dynamic descriptor leaves a per-run
+			// snapshot, and without one the pinned version's graph answers.
+			if (jobId != undefined) params.set('dbt_job_id', jobId)
 			const res = await fetch(`${OpenAPI.BASE ?? ''}/w/${ws}/assets/graph?${params}`, {
 				credentials: 'include'
 			})
