@@ -159,6 +159,10 @@ pub async fn handle_dbt_job(
     // `after_all` tests — and each would otherwise resolve the job's full
     // timeout for itself.
     let deadline = JobDeadline::start(conn, &job.workspace_id, job.id, job.timeout).await;
+    // Built once and reborrowed into every phase. The five fields travel
+    // together through the whole executor, so passing them apart means each new
+    // phase grows another five parameters and another copy of this literal.
+    let mut ctx = JobCtx { mem_peak, canceled_by, occupancy_metrics, worker_name, deadline };
     let prepared = prepare_project(
         &descriptor,
         inner_content,
@@ -168,13 +172,9 @@ pub async fn handle_dbt_job(
         &job.workspace_id,
         job.runnable_path.as_deref().unwrap_or_default(),
         job.runnable_id.map(|h| h.0),
-        worker_name,
         conn,
         client,
-        mem_peak,
-        canceled_by,
-        occupancy_metrics,
-        deadline,
+        &mut ctx,
         &envs,
         modules,
     )
@@ -217,8 +217,6 @@ pub async fn handle_dbt_job(
     // restored — along with the ARGUMENTS it ran with, since dbt reuses that
     // invocation's selection and vars and the graph refresh, the build and the
     // test phase must all agree with it.
-    let mut ctx_for_restore =
-        JobCtx { mem_peak, canceled_by, occupancy_metrics, worker_name, deadline };
     let inv = if command == "retry" {
         let restored = restore_run_state(&prepared, &job.workspace_id, &inv, conn).await?;
         // Restored args are the ones SUBMITTED, so the references they carry are
@@ -243,7 +241,7 @@ pub async fn handle_dbt_job(
                 &prepared,
                 &descriptor,
                 &inv,
-                &mut ctx_for_restore,
+                &mut ctx,
                 &job.id,
                 &job.workspace_id,
                 conn,
@@ -269,7 +267,7 @@ pub async fn handle_dbt_job(
                 &prepared,
                 &descriptor,
                 &inv,
-                &mut JobCtx { mem_peak, canceled_by, occupancy_metrics, worker_name, deadline },
+                &mut ctx,
                 &job.id,
                 &job.workspace_id,
                 conn,
@@ -283,7 +281,7 @@ pub async fn handle_dbt_job(
             &prepared,
             &descriptor,
             &inv,
-            &mut JobCtx { mem_peak, canceled_by, occupancy_metrics, worker_name, deadline },
+            &mut ctx,
             job,
             conn,
         )
@@ -299,7 +297,7 @@ pub async fn handle_dbt_job(
             &prepared,
             &descriptor,
             &inv,
-            &mut JobCtx { mem_peak, canceled_by, occupancy_metrics, worker_name, deadline },
+            &mut ctx,
             &job.id,
             &job.workspace_id,
             conn,
@@ -314,12 +312,8 @@ pub async fn handle_dbt_job(
         &inv,
         job,
         conn,
-        mem_peak,
-        canceled_by,
-        occupancy_metrics,
-        worker_name,
+        &mut ctx,
         true,
-        deadline,
     )
     .await;
 
@@ -351,11 +345,7 @@ pub async fn handle_dbt_job(
             &inv,
             job,
             conn,
-            mem_peak,
-            canceled_by,
-            occupancy_metrics,
-            worker_name,
-            deadline,
+            &mut ctx,
             &mut run,
             &mut results,
             &mut retries_left,
@@ -385,15 +375,11 @@ pub async fn handle_dbt_job(
             &inv,
             job,
             conn,
-            mem_peak,
-            canceled_by,
-            occupancy_metrics,
-            worker_name,
+            &mut ctx,
             // The tests must be scoped exactly like the models were: testing
             // the whole project would assert against models this script never
             // builds, the same failure the ingest-side scoping fixes.
             true,
-            deadline,
         )
         .await;
         // Merged, not appended: the model phase and the test phase can name the
@@ -412,11 +398,7 @@ pub async fn handle_dbt_job(
                 &inv,
                 job,
                 conn,
-                mem_peak,
-                canceled_by,
-                occupancy_metrics,
-                worker_name,
-                deadline,
+                &mut ctx,
                 &mut run,
                 &mut results,
                 &mut retries_left,
@@ -500,6 +482,7 @@ pub async fn dbt_dep(
     // still share one wall clock rather than each getting the instance-wide
     // one.
     let deadline = JobDeadline::start(&conn, w_id, *job_id, None).await;
+    let mut ctx = JobCtx { mem_peak, canceled_by, occupancy_metrics, worker_name, deadline };
     let prepared = prepare_project(
         &descriptor,
         content,
@@ -509,13 +492,9 @@ pub async fn dbt_dep(
         w_id,
         script_path,
         deploying_script_hash(db, job_id).await,
-        worker_name,
         &conn,
         &client,
-        mem_peak,
-        canceled_by,
-        occupancy_metrics,
-        deadline,
+        &mut ctx,
         &envs,
         modules,
     )
@@ -529,7 +508,7 @@ pub async fn dbt_dep(
         &prepared,
         &descriptor,
         &inv,
-        &mut JobCtx { mem_peak, canceled_by, occupancy_metrics, worker_name, deadline },
+        &mut ctx,
         job_id,
         w_id,
         &conn,
@@ -540,7 +519,7 @@ pub async fn dbt_dep(
         &prepared,
         &descriptor,
         &inv,
-        &mut JobCtx { mem_peak, canceled_by, occupancy_metrics, worker_name, deadline },
+        &mut ctx,
         job_id,
         w_id,
         &conn,
@@ -818,13 +797,9 @@ pub async fn prepare_project(
     // The version this job runs, which is the one whose stored graph the drift
     // check below must read. `None` for a preview, which has no stored graph.
     script_hash: Option<i64>,
-    worker_name: &str,
     conn: &Connection,
     client: &AuthedClient,
-    mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
-    occupancy_metrics: &mut OccupancyMetrics,
-    deadline: JobDeadline,
+    ctx: &mut JobCtx<'_>,
     // The invocation's own environment (script-level `envs`). Needed here
     // because under a sandbox it must travel in the jail profile rather than
     // on the process that execs nsjail.
@@ -881,7 +856,7 @@ pub async fn prepare_project(
         job_id,
         w_id,
         conn,
-        &mut JobCtx { mem_peak, canceled_by, occupancy_metrics, worker_name, deadline },
+        &mut *ctx,
     )
     .await?;
 
@@ -903,7 +878,7 @@ pub async fn prepare_project(
     // the profile identical for every job on this worker.
     let sandbox_config: Option<SandboxProfile> = if is_sandboxing_enabled() {
         let nsjail_timeout =
-            resolve_nsjail_timeout(conn, w_id, *job_id, deadline.remaining_secs()).await;
+            resolve_nsjail_timeout(conn, w_id, *job_id, ctx.timeout()).await;
         // A SIBLING of the job directory: that directory is mounted read-write
         // into the jail, and every phase re-reads this file.
         let sandbox_dir = PathBuf::from(format!("{job_dir}.dbt-sandbox"));
@@ -1005,7 +980,6 @@ pub async fn prepare_project(
         script_path: script_path.to_string(),
         env,
     };
-    let mut ctx = JobCtx { mem_peak, canceled_by, occupancy_metrics, worker_name, deadline };
     // A profile resource moved — a changed schema, dataset or catalog — relocates
     // every relation the project builds, so the stored graph names ones that no
     // longer exist. Compared against THIS VERSION's graph as stored, not against
@@ -1052,7 +1026,7 @@ pub async fn prepare_project(
             }
         }
     }
-    install_packages(&prepared, &mut ctx, job_id, w_id, conn).await?;
+    install_packages(&prepared, &mut *ctx, job_id, w_id, conn).await?;
     Ok(prepared)
 }
 /// Identity of the project's own files: what the run reproduces, and what a
@@ -1705,11 +1679,7 @@ async fn retry_failed_nodes(
     inv: &Invocation,
     job: &MiniPulledJob,
     conn: &Connection,
-    mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
-    occupancy_metrics: &mut OccupancyMetrics,
-    worker_name: &str,
-    deadline: JobDeadline,
+    ctx: &mut JobCtx<'_>,
     run: &mut error::Result<()>,
     results: &mut Vec<DbtNodeResult>,
     remaining: &mut u32,
@@ -1723,7 +1693,7 @@ async fn retry_failed_nodes(
         if !current_results_are_retryable(prepared).await {
             break;
         }
-        if !sleep_before_retry(policy.delay_seconds, &job.id, conn, deadline).await {
+        if !sleep_before_retry(policy.delay_seconds, &job.id, conn, ctx.deadline).await {
             break;
         }
         append_logs(
@@ -1740,14 +1710,10 @@ async fn retry_failed_nodes(
             inv,
             job,
             conn,
-            mem_peak,
-            canceled_by,
-            occupancy_metrics,
-            worker_name,
+            &mut *ctx,
             // `dbt retry` reuses the previous invocation's selection; adding
             // one would narrow what it resumes.
             false,
-            deadline,
         )
         .await;
         // A retry's `run_results.json` describes only the nodes it redid, so
@@ -1768,12 +1734,8 @@ async fn run_dbt(
     inv: &Invocation,
     job: &MiniPulledJob,
     conn: &Connection,
-    mem_peak: &mut i32,
-    canceled_by: &mut Option<CanceledBy>,
-    occupancy_metrics: &mut OccupancyMetrics,
-    worker_name: &str,
+    ctx: &mut JobCtx<'_>,
     with_selection: bool,
-    deadline: JobDeadline,
 ) -> error::Result<()> {
     let mut cmd = dbt_command(p, &[command]);
     // The console stays human-readable and goes straight to the job log; the
@@ -1821,18 +1783,18 @@ async fn run_dbt(
     let res = handle_child(
         &job.id,
         conn,
-        mem_peak,
-        canceled_by,
+        ctx.mem_peak,
+        ctx.canceled_by,
         child,
         false,
-        worker_name,
+        ctx.worker_name,
         &job.workspace_id,
         &format!("dbt {command}"),
         // What is left of the job's wall clock: `dbt build` follows the whole
         // preparation sequence, and the `after_all` tests follow it.
-        deadline.remaining_secs(),
+        ctx.timeout(),
         false,
-        &mut Some(occupancy_metrics),
+        &mut Some(&mut *ctx.occupancy_metrics),
         None,
         None,
     )

@@ -13,6 +13,36 @@ use windmill_common::error::{self, Error};
 /// driver unchanged.
 pub const ROOT_CERT_FILENAME: &str = "server-ca.pem";
 
+/// The per-adapter facts, so each adapter states them together and a new one
+/// cannot inherit another's by omission. `PG` is the base every arm spreads
+/// from: most adapters differ from Postgres only in their name and package.
+struct AdapterSpec {
+    /// As a user would write it, for error messages.
+    name: &'static str,
+    /// dbt's own `type:` key in `profiles.yml`.
+    dbt_type: &'static str,
+    /// The dbt-core 1.x pip package; empty when the adapter is Fusion-only.
+    pip_package: &'static str,
+    default_port: i64,
+    database_key: &'static str,
+    requires_enterprise: bool,
+    /// Overrides `dbt_type` in the licensing error, where the product's own
+    /// spelling reads better than dbt's driver name.
+    display_name: Option<&'static str>,
+}
+
+impl AdapterSpec {
+    const PG: AdapterSpec = AdapterSpec {
+        name: "postgres",
+        dbt_type: "postgres",
+        pip_package: "dbt-postgres",
+        default_port: 5432,
+        database_key: "dbname",
+        requires_enterprise: false,
+        display_name: None,
+    };
+}
+
 /// The dbt adapter a Windmill resource type maps to (decision 9). The resource
 /// type name is the authority — connection details are never sniffed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,25 +78,104 @@ impl DbtAdapter {
         }
     }
 
-    /// Whether this adapter needs an enterprise license.
+    /// Everything that differs per adapter, in one place.
     ///
-    /// The boundary is not invented for dbt: it mirrors the two native script
-    /// languages that are still enterprise-gated. Every other warehouse dbt can
-    /// reach has a CE `ScriptLang`, so gating its dbt adapter would be stricter
-    /// than running the same query natively.
-    pub fn requires_enterprise(&self) -> bool {
-        matches!(self, DbtAdapter::Mssql | DbtAdapter::OracleDB)
-    }
-
-    /// The name used in the licensing error, matching how the native languages
-    /// name themselves.
-    fn display_name(&self) -> &'static str {
+    /// Adding a warehouse is one arm here, and the match is exhaustive so the
+    /// compiler demands it. Spread across a method each, two of them carried a
+    /// `_ =>` default, so a new adapter silently inherited port 5432 and
+    /// `dbname` instead of failing to build.
+    fn spec(&self) -> &'static AdapterSpec {
         match self {
-            DbtAdapter::Mssql => "Microsoft SQL server",
-            DbtAdapter::OracleDB => "Oracle DB",
-            _ => self.dbt_type(),
+            DbtAdapter::Postgres => &AdapterSpec::PG,
+            DbtAdapter::Redshift => &AdapterSpec {
+                name: "redshift",
+                dbt_type: "redshift",
+                pip_package: "dbt-redshift",
+                default_port: 5439,
+                ..AdapterSpec::PG
+            },
+            DbtAdapter::Mysql => &AdapterSpec {
+                name: "mysql",
+                dbt_type: "mysql",
+                pip_package: "dbt-mysql",
+                default_port: 3306,
+                database_key: "schema",
+                ..AdapterSpec::PG
+            },
+            DbtAdapter::Duckdb => &AdapterSpec {
+                name: "duckdb",
+                dbt_type: "duckdb",
+                pip_package: "dbt-duckdb",
+                ..AdapterSpec::PG
+            },
+            DbtAdapter::Clickhouse => &AdapterSpec {
+                name: "clickhouse",
+                dbt_type: "clickhouse",
+                pip_package: "dbt-clickhouse",
+                ..AdapterSpec::PG
+            },
+            DbtAdapter::Snowflake => &AdapterSpec {
+                name: "snowflake",
+                dbt_type: "snowflake",
+                pip_package: "dbt-snowflake",
+                ..AdapterSpec::PG
+            },
+            DbtAdapter::Bigquery => &AdapterSpec {
+                name: "bigquery",
+                dbt_type: "bigquery",
+                pip_package: "dbt-bigquery",
+                ..AdapterSpec::PG
+            },
+            DbtAdapter::Databricks => &AdapterSpec {
+                name: "databricks",
+                dbt_type: "databricks",
+                pip_package: "dbt-databricks",
+                ..AdapterSpec::PG
+            },
+            // No dbt-core 1.x package exists for it; Fusion has it built in, and
+            // `provision_core_1x` refuses it by name rather than asking uv to
+            // install `""`. Pinned by
+            // `every_adapter_either_names_a_package_or_is_fusion_only`.
+            DbtAdapter::Salesforce => &AdapterSpec {
+                name: "salesforce",
+                dbt_type: "salesforce",
+                pip_package: "",
+                ..AdapterSpec::PG
+            },
+            DbtAdapter::Mssql => &AdapterSpec {
+                name: "mssql",
+                dbt_type: "sqlserver",
+                pip_package: "dbt-sqlserver",
+                requires_enterprise: true,
+                display_name: Some("Microsoft SQL server"),
+                ..AdapterSpec::PG
+            },
+            DbtAdapter::OracleDB => &AdapterSpec {
+                name: "oracle",
+                dbt_type: "oracle",
+                pip_package: "dbt-oracle",
+                requires_enterprise: true,
+                display_name: Some("Oracle DB"),
+                ..AdapterSpec::PG
+            },
         }
     }
+
+    /// Every adapter, for the tests that must cover all of them. The one list
+    /// there is: a second would be the thing that goes stale.
+    pub const ALL: &'static [DbtAdapter] = &[
+        DbtAdapter::Postgres,
+        DbtAdapter::Redshift,
+        DbtAdapter::Mysql,
+        DbtAdapter::Duckdb,
+        DbtAdapter::Clickhouse,
+        DbtAdapter::Snowflake,
+        DbtAdapter::Bigquery,
+        DbtAdapter::Databricks,
+        DbtAdapter::Salesforce,
+        DbtAdapter::Mssql,
+        DbtAdapter::OracleDB,
+    ];
 
     /// Which dbt driver a resource needs, from the fields it carries — a
     /// fallback for when the descriptor omits `profile.type`. It picks the
@@ -98,77 +207,47 @@ impl DbtAdapter {
 
     /// dbt's own `type:` key in `profiles.yml`.
     pub fn dbt_type(&self) -> &'static str {
-        match self {
-            DbtAdapter::Postgres => "postgres",
-            DbtAdapter::Redshift => "redshift",
-            DbtAdapter::Mysql => "mysql",
-            DbtAdapter::Duckdb => "duckdb",
-            DbtAdapter::Clickhouse => "clickhouse",
-            DbtAdapter::Snowflake => "snowflake",
-            DbtAdapter::Bigquery => "bigquery",
-            DbtAdapter::Databricks => "databricks",
-            DbtAdapter::Salesforce => "salesforce",
-            DbtAdapter::Mssql => "sqlserver",
-            DbtAdapter::OracleDB => "oracle",
-        }
+        self.spec().dbt_type
     }
 
     /// The adapter's name as a user would write it, for error messages.
     pub fn name(&self) -> &'static str {
-        match self {
-            DbtAdapter::Postgres => "postgres",
-            DbtAdapter::Redshift => "redshift",
-            DbtAdapter::Mysql => "mysql",
-            DbtAdapter::Duckdb => "duckdb",
-            DbtAdapter::Clickhouse => "clickhouse",
-            DbtAdapter::Snowflake => "snowflake",
-            DbtAdapter::Bigquery => "bigquery",
-            DbtAdapter::Databricks => "databricks",
-            DbtAdapter::Salesforce => "salesforce",
-            DbtAdapter::Mssql => "mssql",
-            DbtAdapter::OracleDB => "oracle",
-        }
+        self.spec().name
     }
 
     /// The pip package providing this adapter for the dbt-core 1.x engine,
     /// whose venv is provisioned on first use. The Rust engines ship their
-    /// adapters in the binary and never consult this.
-    ///
-    /// Empty means no such package exists: Salesforce is Fusion-only, and
-    /// `provision_core_1x` refuses it by name rather than asking uv to install
-    /// `""`. Pinned by `every_adapter_either_names_a_package_or_is_fusion_only`.
+    /// adapters in the binary and never consult this. Empty means no such
+    /// package exists.
     pub fn pip_package(&self) -> &'static str {
-        match self {
-            DbtAdapter::Postgres => "dbt-postgres",
-            DbtAdapter::Redshift => "dbt-redshift",
-            DbtAdapter::Mysql => "dbt-mysql",
-            DbtAdapter::Duckdb => "dbt-duckdb",
-            DbtAdapter::Clickhouse => "dbt-clickhouse",
-            DbtAdapter::Snowflake => "dbt-snowflake",
-            DbtAdapter::Bigquery => "dbt-bigquery",
-            DbtAdapter::Databricks => "dbt-databricks",
-            // No dbt-core 1.x package exists for it; Fusion has it built in.
-            DbtAdapter::Salesforce => "",
-            DbtAdapter::Mssql => "dbt-sqlserver",
-            DbtAdapter::OracleDB => "dbt-oracle",
-        }
+        self.spec().pip_package
     }
 
     /// Only meaningful for the host/port adapters rendered from a resource.
     fn default_port(&self) -> i64 {
-        match self {
-            DbtAdapter::Mysql => 3306,
-            DbtAdapter::Redshift => 5439,
-            _ => 5432,
-        }
+        self.spec().default_port
     }
 
     /// dbt spells the database differently per adapter.
     fn database_key(&self) -> &'static str {
-        match self {
-            DbtAdapter::Mysql => "schema",
-            _ => "dbname",
-        }
+        self.spec().database_key
+    }
+
+    /// Whether this adapter needs an enterprise license.
+    ///
+    /// The boundary is not invented for dbt: it mirrors the two native script
+    /// languages that are still enterprise-gated. Every other warehouse dbt can
+    /// reach has a CE `ScriptLang`, so gating its dbt adapter would be stricter
+    /// than running the same query natively.
+    pub fn requires_enterprise(&self) -> bool {
+        self.spec().requires_enterprise
+    }
+
+    /// The name used in the licensing error, matching how the native languages
+    /// name themselves.
+    fn display_name(&self) -> &'static str {
+        let spec = self.spec();
+        spec.display_name.unwrap_or(spec.dbt_type)
     }
 }
 
@@ -753,3 +832,4 @@ mod tests {
         }
     }
 }
+

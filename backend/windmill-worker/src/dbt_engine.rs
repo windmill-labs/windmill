@@ -659,18 +659,10 @@ mod core1x_tests {
     // lets the adapter decide.
     #[test]
     fn every_adapter_either_names_a_package_or_is_fusion_only() {
-        for a in [
-            DbtAdapter::Postgres,
-            DbtAdapter::Redshift,
-            DbtAdapter::Mysql,
-            DbtAdapter::Duckdb,
-            DbtAdapter::Clickhouse,
-            DbtAdapter::Snowflake,
-            DbtAdapter::Bigquery,
-            DbtAdapter::Databricks,
-            DbtAdapter::Mssql,
-            DbtAdapter::OracleDB,
-        ] {
+        for a in DbtAdapter::ALL {
+            if matches!(a, DbtAdapter::Salesforce) {
+                continue;
+            }
             assert!(
                 !a.pip_package().is_empty(),
                 "{} must name a pip package for dbt-core 1.x",
