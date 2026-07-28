@@ -43,10 +43,13 @@ import { flowModuleSchema } from './openFlowZod.gen'
 import { collectAllFlowModuleIdsFromModules } from '$lib/components/flows/flowTree'
 import {
 	buildEditableFlowJson as buildEditableFlowJsonBase,
+	FLOW_VALUE_SETTINGS_KEYS,
+	pickFlowValueSettings,
 	validateEditableFlowJson,
 	validateFlowModules,
 	validateFlowSchema,
-	type EditableFlowJson
+	type EditableFlowJson,
+	type FlowValueSettings
 } from './editableFlowJson'
 import { FLOW_CHAT_SPECIAL_MODULES, getFlowPrompt } from '$system_prompts'
 
@@ -57,6 +60,9 @@ type FlowJsonUpdate = {
 	failureModule?: FlowModule | null
 	groups?: FlowGroup[] | null
 	notes?: FlowNote[] | null
+	/** Full state of the top-level FlowValue settings: when provided, keys
+	 * absent from it are removed from the flow value. */
+	settings?: FlowValueSettings
 }
 
 function formatEmptyInlineScriptWarning({
@@ -563,7 +569,8 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				preprocessorModule: parsedFlow.preprocessor_module,
 				failureModule: parsedFlow.failure_module,
 				groups: parsedFlow.groups,
-				notes: parsedFlow.notes
+				notes: parsedFlow.notes,
+				settings: pickFlowValueSettings(parsedFlow)
 			})
 			const warning = formatEmptyInlineScriptWarning(updateResult)
 
@@ -854,7 +861,7 @@ export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionS
 Use \`patch_flow_json\` for small, localized changes when you can target an exact snippet from the \`CURRENT FLOW JSON COMPACT\` block below.
 
 Always copy the exact search text from the \`CURRENT FLOW JSON COMPACT\` block below.
-The compact JSON is a single object with \`modules\`, \`schema\`, \`preprocessor_module\`, \`failure_module\`, \`groups\`, and \`notes\` keys.
+The compact JSON is a single object with \`modules\`, \`schema\`, \`preprocessor_module\`, \`failure_module\`, \`groups\`, and \`notes\` keys, plus any top-level flow settings that are set (${FLOW_VALUE_SETTINGS_KEYS.join(', ')}). Settings can be added, edited, or removed with \`patch_flow_json\` as top-level keys — e.g. \`chat_input_enabled: true\` marks the flow as chat-style (flow-as-chat); keep it intact when restructuring such a flow. \`set_flow_json\` never changes these settings.
 
 **Parameters:**
 - \`old_string\`: Exact JSON text to find
@@ -1157,6 +1164,7 @@ AI agents can use tools to accomplish tasks. When creating an AI agent module:
       {
         id: "search_docs",
         summary: "Search_documentation",
+        description: "Search the product documentation. Use it whenever the user asks how a feature works.",
         value: {
           tool_type: "flowmodule",
           type: "rawscript",
@@ -1171,7 +1179,8 @@ AI agents can use tools to accomplish tasks. When creating an AI agent module:
 \`\`\`
 
 - **Tool IDs**: Cannot contain spaces - use underscores
-- **Tool summaries**: Cannot contain spaces - use underscores
+- **Tool summaries**: Cannot contain spaces - use underscores. This is the tool *name* the agent sees
+- **Tool descriptions**: Optional free text telling the agent when and how to call the tool. Set it whenever the name alone does not make that obvious - it overrides the description derived from the underlying script
 - **Tool types**: \`flowmodule\` for scripts/flows, \`mcp\` for MCP server tools
 
 ### Contexts

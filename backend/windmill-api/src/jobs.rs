@@ -5812,6 +5812,15 @@ pub struct WacInlineCheckpointPayload {
     pub duration_ms: Option<u64>,
 }
 
+#[derive(Serialize)]
+pub struct WacInlineCheckpointResponse {
+    /// The normalized failure record, when the posted step failed. The SDK
+    /// raises from this rather than from its own copy, so the round that ran
+    /// the failing body and every replay of it read the same object.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure: Option<serde_json::Value>,
+}
+
 /// Fast-path endpoint called by the WAC v2 SDKs to persist a single `step()`
 /// checkpoint delta without unwinding the parent workflow subprocess.
 ///
@@ -5837,7 +5846,7 @@ pub async fn wac_inline_checkpoint(
     Extension(db): Extension<DB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,
     Json(payload): Json<WacInlineCheckpointPayload>,
-) -> error::Result<StatusCode> {
+) -> error::Result<Json<WacInlineCheckpointResponse>> {
     // Enforce ephemeral-job-token binding: the presented token must be the
     // one issued to *this* specific job. Regular workspace API tokens don't
     // have `job_id` populated in their JWT claims, so `token_job_id` is None
@@ -5869,7 +5878,7 @@ pub async fn wac_inline_checkpoint(
     let source_hash = runnable_id.map(|h| h.to_string());
 
     let mut tx = db.begin().await?;
-    windmill_common::wac::persist_inline_checkpoint_delta(
+    let failure = windmill_common::wac::persist_inline_checkpoint_delta(
         &mut tx,
         &job_id,
         source_hash.as_deref(),
@@ -5881,7 +5890,9 @@ pub async fn wac_inline_checkpoint(
     .await?;
     tx.commit().await?;
 
-    Ok(StatusCode::OK)
+    // Only failures come back: a successful step's result can be large, and the
+    // SDK already holds it.
+    Ok(Json(WacInlineCheckpointResponse { failure }))
 }
 
 lazy_static::lazy_static! {

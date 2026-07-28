@@ -36,6 +36,10 @@
 	import FlowModuleSleep from './FlowModuleSleep.svelte'
 	import FlowPathViewer from './FlowPathViewer.svelte'
 	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
+	import AgentResourceBar from './AgentResourceBar.svelte'
+	import AgentToolBindings from './AgentToolBindings.svelte'
+	import { getLinkedAgentTools, linkedToolsScope } from '../linkedAgentToolsStore.svelte'
+	import { flowLocalAgentSchema } from '../agentResourceUtils'
 	import FlowModuleMockTransitionMessage from './FlowModuleMockTransitionMessage.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { SecondsInput } from '$lib/components/common'
@@ -62,7 +66,7 @@
 	import ModulePreviewResultViewer from '$lib/components/ModulePreviewResultViewer.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
-	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
+	import { refreshFlowStateStore } from '$lib/components/flows/flowStoreRefresh.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 	import AssetsDropdownButton from '$lib/components/assets/AssetsDropdownButton.svelte'
 	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
@@ -104,6 +108,21 @@
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const selectedId = $derived(selectionManager.getSelectedId())
+	// The agent editor's save guard uses the `tools` array identity to tell "same step" from "step
+	// replaced mid-save", so a module carrying no `tools` must read as one stable array — but a
+	// distinct one per module value, or a wholesale edit that keeps the module id would look
+	// unchanged. Keyed by the value object, which a replacement always renews.
+	type AgentTools = NonNullable<Extract<FlowModule['value'], { type: 'aiagent' }>['tools']>
+	const noToolsByValue = new WeakMap<object, AgentTools>()
+	function noTools(value: object): AgentTools {
+		let empty = noToolsByValue.get(value)
+		if (!empty) {
+			empty = []
+			noToolsByValue.set(value, empty)
+		}
+		return empty
+	}
+
 	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
 
 	interface Props {
@@ -142,6 +161,14 @@
 		siblingToolNames = undefined
 	}: Props = $props()
 
+	// Key for the linked-agent tools store. Ancestry-qualified for a nested agent tool, whose id
+	// comes from a resource and is not flow-global — it could otherwise alias a top-level step and
+	// read, then overwrite, that step's tools. Flow modules keep their bare id, which is what the
+	// graph looks them up by.
+	let linkedToolsModuleId = $derived(
+		parentModule?.value?.type === 'aiagent' ? `${parentModule.id}/${flowModule.id}` : flowModule.id
+	)
+
 	let workspaceScriptTag: string | undefined = $state(undefined)
 	let workspaceScriptLang: ScriptLang | undefined = $state(undefined)
 	let diffMode = $state(false)
@@ -173,6 +200,7 @@
 			flowModule.value.type === 'aiagent'
 	)
 	let visibleSelected = $derived(selected === 'chat' && !canShowChatTab ? 'inputs' : selected)
+	let agentLinked = $derived(flowModule.value.type === 'aiagent' && Boolean(flowModule.value.agent))
 	let advancedSelected = $state('retries')
 	let advancedRuntimeSelected = $state('concurrency')
 	let s3Kind = $state('s3_client')
@@ -1119,11 +1147,65 @@
 														class="absolute left-2 top-2 rounded-full w-2 h-2 bg-red-300"
 													></div>
 												{/if}
+												{#if flowModule.value.type === 'aiagent'}
+													<!-- Inside the wrapper so the card scrolls with the inputs (a single
+													scroll region) instead of stacking a second scrollbar above it. -->
+													<AgentResourceBar
+														moduleId={linkedToolsModuleId}
+														opWorkspace={opWs}
+														flowPath={$pathStore}
+														bind:agent={
+															() =>
+																flowModule.value.type === 'aiagent'
+																	? flowModule.value.agent
+																	: undefined,
+															(v) => {
+																if (flowModule.value.type === 'aiagent') {
+																	flowModule.value.agent = v
+																}
+															}
+														}
+														bind:inputTransforms={
+															() => (flowModule.value as any).input_transforms,
+															(v) => {
+																if (flowModule.value.type === 'aiagent') {
+																	;(flowModule.value as any).input_transforms = v
+																}
+															}
+														}
+														bind:tools={
+															() =>
+																flowModule.value.type === 'aiagent'
+																	? (flowModule.value.tools ?? noTools(flowModule.value))
+																	: noTools(flowModule),
+															(v) => {
+																if (flowModule.value.type === 'aiagent') {
+																	flowModule.value.tools = v
+																}
+															}
+														}
+														bind:toolInputs={
+															() =>
+																flowModule.value.type === 'aiagent'
+																	? (flowModule.value.tool_inputs ?? {})
+																	: {},
+															(v) => {
+																if (flowModule.value.type === 'aiagent') {
+																	// An emptied map reverts to absent so the doc matches its pre-override state.
+																	flowModule.value.tool_inputs =
+																		Object.keys(v).length > 0 ? v : undefined
+																}
+															}
+														}
+													/>
+												{/if}
 												<InputTransformSchemaForm
 													class="px-2 xl:px-4 pb-8"
 													bind:this={inputTransformSchemaForm}
 													pickableProperties={stepPropPicker.pickableProperties}
-													schema={flowStateStore.val[selectedId]?.schema ?? {}}
+													schema={agentLinked
+														? flowLocalAgentSchema(flowStateStore.val[selectedId]?.schema ?? {})
+														: (flowStateStore.val[selectedId]?.schema ?? {})}
 													previousModuleId={previousModule?.id}
 													bind:args={
 														() => {
@@ -1149,6 +1231,32 @@
 													helperScript={retrieveDynCodeAndLang(flowModule.value)}
 													chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
 												/>
+												{#if agentLinked}
+													<!-- Linked agent: the resource's tools with their inputs rebindable to this
+													flow; overrides persist on the step as tool_inputs (diff from the resource). -->
+													<AgentToolBindings
+														tools={getLinkedAgentTools(
+															linkedToolsScope(opWs, $pathStore),
+															linkedToolsModuleId
+														)}
+														pickableProperties={stepPropPicker.pickableProperties}
+														extraLib={stepPropPicker.extraLib}
+														workspace={opWs}
+														bind:toolInputs={
+															() =>
+																flowModule.value.type === 'aiagent'
+																	? (flowModule.value.tool_inputs ?? {})
+																	: {},
+															(v) => {
+																if (flowModule.value.type === 'aiagent') {
+																	// An emptied map reverts to absent so the doc matches its pre-override state.
+																	flowModule.value.tool_inputs =
+																		Object.keys(v).length > 0 ? v : undefined
+																}
+															}
+														}
+													/>
+												{/if}
 											</PropPickerWrapper>
 										</div>
 									{:else if visibleSelected === 'test'}
@@ -1176,7 +1284,9 @@
 											bind:this={modulePreview}
 											mod={flowModule}
 											{noEditor}
-											schema={flowStateStore.val[selectedId]?.schema ?? {}}
+											schema={agentLinked
+												? flowLocalAgentSchema(flowStateStore.val[selectedId]?.schema ?? {})
+												: (flowStateStore.val[selectedId]?.schema ?? {})}
 											bind:testJob
 											bind:testIsLoading
 											bind:scriptProgress
@@ -1270,7 +1380,11 @@
 															maximum number of attempts as defined below.
 														</Tooltip>
 													{/snippet}
-													<FlowRetries bind:flowModuleRetry={flowModule.retry} bind:flowModule />
+													<FlowRetries
+														bind:flowModuleRetry={flowModule.retry}
+														bind:flowModule
+														{isAgentTool}
+													/>
 												</Section>
 											{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'concurrency'}
 												<Section label="Concurrency limits" class="flex flex-col gap-4" eeOnly>
@@ -1435,7 +1549,11 @@
 												</div>
 											{:else if advancedSelected === 'sleep'}
 												<div>
-													<FlowModuleSleep previousModuleId={previousModule?.id} bind:flowModule />
+													<FlowModuleSleep
+														previousModuleId={previousModule?.id}
+														bind:flowModule
+														{isAgentTool}
+													/>
 												</div>
 											{:else if advancedSelected === 'debounce'}
 												<div>
@@ -1586,11 +1704,14 @@
 											onUpdateMock={(detail) => {
 												flowModule.mock = detail
 												flowModule = flowModule
-												refreshStateStore(flowStore)
+												refreshFlowStateStore(flowStore)
 											}}
 											{testJob}
 											{scriptProgress}
 											mod={flowModule}
+											linkedAgentTools={agentLinked
+												? getLinkedAgentTools(linkedToolsScope(opWs, $pathStore), linkedToolsModuleId)
+												: undefined}
 											{testIsLoading}
 											disableMock={preprocessorModule || failureModule}
 											disableHistory={failureModule}

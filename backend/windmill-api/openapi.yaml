@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.772.0
+  version: 1.773.0
   title: Windmill API
 
   contact:
@@ -29226,6 +29226,10 @@ components:
           $ref: "#/components/schemas/LoggedWizardStatus"
         grant_permissions:
           $ref: "#/components/schemas/LoggedWizardStatus"
+        replication_user:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+        replication_user_error:
+          type: string
 
     CustomInstanceDbTag:
       type: string

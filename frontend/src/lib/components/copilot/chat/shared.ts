@@ -478,6 +478,9 @@ export type UserDisplayMessage = BaseDisplayMessage & {
 	// bubble. The prompt lists them by reference; the content here is the durable
 	// copy, re-registered into the session file store on load for tool reads.
 	files?: AttachedTextFile[]
+	// The client authored this turn itself (background-job auto-resume), not the
+	// user — ArrowUp recall must skip it.
+	synthetic?: boolean
 }
 
 export type CreatedResourceTriggerKind =

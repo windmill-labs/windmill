@@ -165,17 +165,26 @@
 									title: 'Grant permissions to custom_instance_user',
 									status: status?.logs.grant_permissions,
 									description:
-										'Gives custom_instance_user the required permissions to use the database. custom_instance_user is already created during a migration and has an auto-generated password stored in global_settings.custom_instance_pg_databases.user_pwd. Postgres triggers use custom_instance_replication_user (password in global_settings.custom_instance_replication_pwd). These are the commands : \n\n' +
+										'Gives custom_instance_user the required permissions to use the database. custom_instance_user is already created during a migration and has an auto-generated password stored in global_settings.custom_instance_pg_databases.user_pwd. These are the commands : \n\n' +
 										`GRANT CONNECT ON DATABASE "${dbname}" TO custom_instance_user;\n` +
 										'GRANT USAGE ON SCHEMA public TO custom_instance_user;\n' +
 										'GRANT CREATE ON SCHEMA public TO custom_instance_user;\n' +
 										`GRANT CREATE ON DATABASE "${dbname}" TO custom_instance_user;\n` +
 										'ALTER DEFAULT PRIVILEGES IN SCHEMA public \n' +
 										'  	GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES\n    TO custom_instance_user;\n' +
-										'ALTER ROLE custom_instance_user CREATEROLE;\n' +
+										'ALTER ROLE custom_instance_user CREATEROLE;'
+								},
+								{
+									title: 'Grant replication to custom_instance_replication_user',
+									status: status?.logs.replication_user,
+									description:
+										'Postgres triggers on custom-instance datatables connect as custom_instance_replication_user, whose password is stored in global_settings.custom_instance_replication_pwd. The role is cluster-wide, so it is created on the Windmill PostgreSQL instance rather than on this database : \n\n' +
 										'ALTER ROLE custom_instance_replication_user REPLICATION;\n' +
-										'GRANT custom_instance_user TO custom_instance_replication_user;\n' +
-										'ALTER ROLE custom_instance_user NOREPLICATION;'
+										'GRANT custom_instance_user TO custom_instance_replication_user;\n\n' +
+										'Setting REPLICATION requires a superuser on PostgreSQL 15 and older. Managed instances never grant one, so on AWS RDS Windmill falls back to GRANT rds_replication TO custom_instance_replication_user. The database stays usable for datatables if this step fails, but postgres triggers on them do not.' +
+										(status?.logs.replication_user_error
+											? `\n\nError: ${status.logs.replication_user_error}`
+											: '')
 								}
 							],
 							status?.error ?? undefined

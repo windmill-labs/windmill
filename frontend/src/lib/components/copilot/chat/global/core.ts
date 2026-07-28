@@ -58,7 +58,10 @@ import { isChromiumBrowser } from '$lib/utils'
 import {
 	applyEditableFlowJsonToFlow,
 	buildEditableFlowJson,
+	EDITABLE_FLOW_STRUCTURAL_KEYS,
 	type EditableFlowJson,
+	FLOW_VALUE_SETTINGS_KEYS,
+	pickFlowValueSettings,
 	finalizeUnresolvedInlineScripts,
 	restoreSpecialRawscriptModule,
 	validateEditableFlowJson
@@ -521,6 +524,7 @@ function appendEmptyInlineScriptWarning(result: string, editable: EditableFlowJs
 
 function editableFlowToDraftValue(editable: EditableFlowJson): FlowDraftValue {
 	const value: FlowValue = {
+		...pickFlowValueSettings(editable),
 		modules: editable.modules,
 		preprocessor_module: editable.preprocessor_module ?? undefined,
 		failure_module: editable.failure_module ?? undefined,
@@ -1947,8 +1951,9 @@ function getFlowInstructions(): string {
 
 - Global mode writes complete draft payloads only; it does not save, deploy, run, scaffold local files, or generate metadata.
 - Paths follow the conventions in the system prompt: default to \`u/<current-user>/<name>\` when the user gave a bare name; only use \`f/<folder>/<name>\` when the folder is known to exist. Never invent a folder.
-- \`write_flow\` mirrors flow mode's \`set_flow_json\`: pass \`path\`, optional \`summary\`, optional \`description\`, required \`modules\`, and optional \`schema\`, \`preprocessor_module\`, \`failure_module\`, \`groups\`, and \`notes\`. \`summary\` and \`description\` are top-level flow metadata (not part of the compact value \`patch_flow_json\` edits); the flow-structure arguments are JSON strings, matching the tool schema descriptions.
-- \`read_workspace_item\` returns a compact flow \`value\` object with \`modules\`, \`schema\`, \`preprocessor_module\`, \`failure_module\`, \`groups\`, and \`notes\`.
+- \`write_flow\` mirrors flow mode's \`set_flow_json\`: pass \`path\`, optional \`summary\`, optional \`description\`, required \`modules\`, and optional \`schema\`, \`preprocessor_module\`, \`failure_module\`, \`groups\`, and \`notes\`. \`summary\` and \`description\` are top-level flow metadata (not part of the compact value \`patch_flow_json\` edits); the flow-structure arguments are JSON strings, matching the tool schema descriptions. When overwriting an existing flow, top-level flow settings (see below) are preserved from the current flow — use \`patch_flow_json\` to change them.
+- \`read_workspace_item\` returns a compact flow \`value\` object with \`modules\`, \`schema\`, \`preprocessor_module\`, \`failure_module\`, \`groups\`, \`notes\`, and any top-level flow settings that are set.
+- Top-level flow settings appear as top-level keys of the compact flow value and can be added, edited, or removed with \`patch_flow_json\`: ${FLOW_VALUE_SETTINGS_KEYS.join(', ')}. For example, \`chat_input_enabled: true\` marks a flow as chat-style (flow-as-chat); keep it intact when restructuring such a flow.
 - \`modules\` contains normal sequential modules. Use top-level \`preprocessor_module\` and \`failure_module\` for special modules; do not put \`preprocessor\` or \`failure\` in \`modules\`.
 - Every module needs a stable unique \`id\` and a useful \`summary\` when the schema supports it.
 - Prefer path/script/flow modules when composing existing workspace logic. Use rawscript modules only when new inline code is needed.
@@ -2878,7 +2883,8 @@ export const globalTools: Tool<{}>[] = [
 					path: parsed.path,
 					summary: parsed.summary,
 					description: parsed.description,
-					flow: editableFlowToDraftValue(resolved)
+					flow: editableFlowToDraftValue(resolved),
+					preserveBaseValueSettings: true
 				},
 				ctx
 			)
@@ -4169,7 +4175,13 @@ type FlowDraftArgs = {
 	description?: string
 	flow: FlowDraftValue
 	override?: boolean
+	/** Carry over the base value's non-structural fields (chat_input_enabled,
+	 * same_worker, ...) into the new value. Set by write_flow, whose arguments
+	 * cannot express them; patch_flow_json passes the full value state instead. */
+	preserveBaseValueSettings?: boolean
 }
+
+const FLOW_STRUCTURAL_VALUE_KEYS = new Set<string>(EDITABLE_FLOW_STRUCTURAL_KEYS)
 
 const FLOW_SPEC: WriteSpec<Flow, FlowDraftArgs> = {
 	probe: (workspace, path) => FlowService.existsFlowByPath({ workspace, path }),
@@ -4178,6 +4190,16 @@ const FLOW_SPEC: WriteSpec<Flow, FlowDraftArgs> = {
 		const value = structuredClone(args.flow.value)
 		if (args.flow.groups !== undefined && args.flow.groups !== null) {
 			value.groups = structuredClone(args.flow.groups)
+		}
+		if (args.preserveBaseValueSettings && base?.value) {
+			for (const [key, fieldValue] of Object.entries(base.value)) {
+				if (
+					!FLOW_STRUCTURAL_VALUE_KEYS.has(key) &&
+					(value as Record<string, unknown>)[key] === undefined
+				) {
+					;(value as Record<string, unknown>)[key] = structuredClone(fieldValue)
+				}
+			}
 		}
 		return base
 			? {

@@ -1791,13 +1791,11 @@ pub(crate) async fn handle_wac_child_completion(
             step_key = %step_key,
             "WAC v2 child job failed, storing error for workflow try/catch"
         );
-        json!({
-            "__wmill_error": true,
-            "message": format!("WAC task '{}' failed (child job {})", step_key, child_job_id),
-            "child_job_id": child_job_id.to_string(),
-            "step_key": step_key,
-            "result": child_err,
-        })
+        windmill_common::wac::wac_failure_record(
+            &step_key,
+            Some(&child_job_id.to_string()),
+            &child_err,
+        )
     };
 
     tracing::info!(

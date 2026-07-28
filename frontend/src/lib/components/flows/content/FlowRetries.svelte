@@ -15,17 +15,21 @@
 	import { NEVER_TESTED_THIS_FAR } from '../models'
 	import { validateRetryConfig } from '$lib/utils'
 	import EEOnly from '$lib/components/EEOnly.svelte'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import { SAME_WORKER_INCOMPATIBLE_MSG } from '../utils.svelte'
 
 	interface Props {
 		flowModuleRetry: Retry | undefined
 		disabled?: boolean
 		flowModule?: FlowModule
+		isAgentTool?: boolean
 	}
 
 	let {
 		flowModule = $bindable(),
 		flowModuleRetry = $bindable(),
-		disabled = false
+		disabled = false,
+		isAgentTool = false
 	}: Props = $props()
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
@@ -52,6 +56,14 @@
 				)
 			: null
 	)
+
+	// `flowModule` is only set when editing a flow step: the trigger/schedule usages of this
+	// component share the flow editor context but are unaffected by `same_worker`, and so are
+	// agent tools, which never go through the flow scheduler.
+	let sameWorker = $derived(
+		Boolean(flowModule && !isAgentTool && flowStore?.val?.value?.same_worker)
+	)
+	let isDisabled = $derived(disabled || sameWorker)
 
 	let isRetryConditionEnabled = $derived(Boolean(flowModuleRetry?.retry_if))
 	let result = $derived(
@@ -111,9 +123,15 @@
 </script>
 
 <div class="flex flex-col gap-4">
+	{#if sameWorker}
+		<Alert type="warning" size="xs" title="Disabled by the shared directory">
+			{SAME_WORKER_INCOMPATIBLE_MSG} Disable `Same Worker` in the flow settings to use retries.
+		</Alert>
+	{/if}
+
 	<ToggleButtonGroup
 		bind:selected={delayType}
-		class={`${disabled ? 'disabled' : ''}`}
+		disabled={isDisabled}
 		on:selected={(e) => {
 			flowModuleRetry = undefined
 			if (e.detail === 'constant') {
@@ -132,7 +150,7 @@
 		{/snippet}
 	</ToggleButtonGroup>
 
-	{#if delayType === 'constant' || delayType === 'exponential'}
+	{#if (delayType === 'constant' || delayType === 'exponential') && !sameWorker}
 		<Section label="Retry Condition" class="w-full">
 			{#snippet header()}
 				<Tooltip>
@@ -216,7 +234,7 @@
 		</Section>
 	{/if}
 
-	{#if delayType === 'constant' || delayType === 'exponential'}
+	{#if (delayType === 'constant' || delayType === 'exponential') && !sameWorker}
 	<div class="flex h-[calc(100%-22px)]">
 		<div class="w-1/2 h-full overflow-auto pr-2">
 			{#if delayType === 'constant'}
