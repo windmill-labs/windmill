@@ -28,15 +28,21 @@ const SERIALIZED_ERROR_FIELDS = [
  *  which normalizes task failures through the same function; what is built here
  *  is the raw material plus the envelope the backend recognizes. */
 export function stepErrorMarker(key: string, e: unknown): Record<string, any> {
-  const message = e instanceof Error ? e.message : String(e);
-  // `e.name`, matching what the bun/deno executors record for a failed child
-  // job. Reaching for the constructor name instead would report `MyError` for a
-  // `class MyError extends Error {}` that never assigns `this.name` where the
-  // same failure in a task() reports `Error`, in the one field a handler is
-  // told it can branch on.
-  const name = e instanceof Error ? e.name || e.constructor?.name : typeof e;
-  const error: Record<string, any> = { name, message };
-  const stack = e instanceof Error ? e.stack : undefined;
+  const thrown = e as any;
+  // The three named fields are read off whatever was thrown, exactly as the
+  // bun/deno wrappers read them for a failed child job — `e.name`, `e.message`,
+  // `e.stack`, whether or not it is an `Error`. Anything else here lets a
+  // handler tell a task from a step in the fields it is told to branch on: a
+  // thrown `{ name, message, code }` keeps all three as a task, and a
+  // `class MyError extends Error {}` that never assigns `this.name` reports
+  // `Error` as a task, so both must here too. What is absent stays absent and
+  // the backend fills it, which is what a task with no usable fields gets.
+  const name = typeof thrown?.name === "string" ? thrown.name : undefined;
+  const message = typeof thrown?.message === "string" ? thrown.message : undefined;
+  const stack = typeof thrown?.stack === "string" ? thrown.stack : undefined;
+  const error: Record<string, any> = {};
+  if (name) error.name = name;
+  if (message !== undefined) error.message = message;
   if (stack) error.stack = stack;
   // Custom properties go under `extra`, the same key and the same skip-list the
   // bun/deno executors use for a failed child job, so an error carrying e.g. a
@@ -50,12 +56,15 @@ export function stepErrorMarker(key: string, e: unknown): Record<string, any> {
   // `AxiosError.request` is the everyday example: it is circular via
   // `socket._httpMessage`. Reading the property can throw too, since
   // `getOwnPropertyNames` returns accessors and this invokes them.
-  if (e instanceof Error) {
+  // Objects only: on a primitive `Object.getOwnPropertyNames` returns its
+  // character indices, and `extra: {0: "b", 1: "o", …}` is noise the checkpoint
+  // would then have to carry.
+  if (thrown !== null && typeof thrown === "object") {
     const extra: Record<string, any> = {};
-    for (const k of Object.getOwnPropertyNames(e)) {
+    for (const k of Object.getOwnPropertyNames(thrown)) {
       if (SERIALIZED_ERROR_FIELDS.includes(k)) continue;
       try {
-        const v = (e as any)[k];
+        const v = thrown[k];
         JSON.stringify(v);
         extra[k] = v;
       } catch {
@@ -64,7 +73,7 @@ export function stepErrorMarker(key: string, e: unknown): Record<string, any> {
     }
     if (Object.keys(extra).length > 0) error.extra = extra;
   }
-  return { __wmill_error: true, message, step_key: key, result: { error } };
+  return { __wmill_error: true, message: message ?? String(e), step_key: key, result: { error } };
 }
 
 /** @internal

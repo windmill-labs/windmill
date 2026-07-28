@@ -2736,11 +2736,22 @@ def _step_error_marker(key: str, exc: BaseException) -> dict:
     # drop every such failure onto the slow suspend-and-replay path.
     extra = getattr(exc, "__dict__", None)
     if extra:
+        # ``default`` is where json hands back the objects it cannot represent,
+        # and ``str()`` on a detached ORM row or a proxy over a closed
+        # connection raises in turn. This runs inside the ``except`` that is
+        # reporting the user's failure, so an escape here would replace their
+        # error with an unrelated one and skip the checkpoint entirely.
+        def _safe_str(o):
+            try:
+                return str(o)
+            except Exception:
+                return f"<unrepresentable {type(o).__name__}>"
+
         # Narrow: what json raises for something it cannot represent. A broader
-        # catch here would hide a mistake in this function as a silently missing
+        # catch would hide a mistake in this function as a silently missing
         # field, which is how it read before.
         try:
-            error["extra"] = json.loads(json.dumps(extra, default=str))
+            error["extra"] = json.loads(json.dumps(extra, default=_safe_str))
         except (TypeError, ValueError, RecursionError):
             pass
     return {

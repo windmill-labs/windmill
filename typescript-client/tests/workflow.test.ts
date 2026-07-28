@@ -1525,6 +1525,22 @@ describe("throwing inline step is checkpointed", () => {
     expect(() => stepErrorMarker("k", withThrowingAccessor)).not.toThrow();
   });
 
+  // A task executor reads `name`/`message`/`stack` off whatever was thrown, not
+  // off an Error instance, so a step must too or a handler can tell the two
+  // apart in the fields the contract tells it to branch on.
+  test("a non-Error throw records what a task would record", () => {
+    const thrown = stepErrorMarker("k", { name: "Thrown", message: "boom", code: 429 });
+    expect(thrown.result.error.name).toBe("Thrown");
+    expect(thrown.result.error.message).toBe("boom");
+    expect(thrown.result.error.extra).toEqual({ code: 429 });
+
+    // A string carries none of the three, so the record is left for the backend
+    // to fill — the same fallback a task throwing a string produces. Its
+    // character indices are not custom fields.
+    const str = stepErrorMarker("k", "boom");
+    expect(str.result.error).toEqual({});
+  });
+
   test("a replayed step failure is named TaskError, like the python client", async () => {
     const ctx = new WorkflowCtx({ completed_steps: { step_0: marker } });
     let caught: any;

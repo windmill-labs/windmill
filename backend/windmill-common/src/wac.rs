@@ -308,18 +308,20 @@ pub async fn save_checkpoint(
 /// Marks a `completed_steps` entry as a failure rather than a step result.
 pub const WAC_ERROR_MARKER: &str = "__wmill_error";
 
-/// A stack goes into the checkpoint, and `persist_inline_checkpoint_delta`
-/// rewrites the whole checkpoint on every step, so an unbounded traceback is
-/// re-serialized once per subsequent step for the rest of the workflow.
-const MAX_STACK_BYTES: usize = 8 * 1024;
+/// Per-field budget for the two unbounded things a failure record carries, the
+/// stack and `extra`. `persist_inline_checkpoint_delta` rewrites the whole
+/// checkpoint on every step, so either one left unbounded is re-serialized once
+/// per subsequent step for the rest of the workflow. The two are additive, so a
+/// record costs at most twice this.
+const MAX_CHECKPOINT_FIELD_BYTES: usize = 8 * 1024;
 
 fn truncate_stack(stack: &str) -> String {
-    if stack.len() <= MAX_STACK_BYTES {
+    if stack.len() <= MAX_CHECKPOINT_FIELD_BYTES {
         return stack.to_string();
     }
     // Byte budget, not characters: the cap exists to bound what goes into the
     // checkpoint, and a multibyte traceback would otherwise be up to 4x it.
-    let mut cut = MAX_STACK_BYTES;
+    let mut cut = MAX_CHECKPOINT_FIELD_BYTES;
     while cut > 0 && !stack.is_char_boundary(cut) {
         cut -= 1;
     }
@@ -399,7 +401,7 @@ pub fn wac_failure_record(step_key: &str, child_job_id: Option<&str>, raw_result
     // wholesale past the same budget rather than truncated, since half a
     // structure is worse than a flag saying it was too big.
     if let Some(extra) = error.get("extra") {
-        if serde_json::to_string(extra).map_or(true, |s| s.len() > MAX_STACK_BYTES) {
+        if serde_json::to_string(extra).map_or(true, |s| s.len() > MAX_CHECKPOINT_FIELD_BYTES) {
             error.remove("extra");
             error.insert("extra_omitted".to_string(), Value::Bool(true));
         }
@@ -438,7 +440,7 @@ pub fn wac_failure_record(step_key: &str, child_job_id: Option<&str>, raw_result
 /// the failing body reading one shape and every replay of it reading another —
 /// the divergence this whole mechanism exists to remove. It keeps its own shape
 /// until it upgrades.
-pub fn normalize_posted_step_result(key: &str, posted: Value) -> Value {
+pub(crate) fn normalize_posted_step_result(key: &str, posted: Value) -> Value {
     if !is_wac_failure(&posted) {
         return posted;
     }
@@ -454,7 +456,7 @@ pub fn normalize_posted_step_result(key: &str, posted: Value) -> Value {
 }
 
 /// Whether a `completed_steps` entry is a failure record.
-pub fn is_wac_failure(value: &Value) -> bool {
+pub(crate) fn is_wac_failure(value: &Value) -> bool {
     value
         .get(WAC_ERROR_MARKER)
         .and_then(|v| v.as_bool())
