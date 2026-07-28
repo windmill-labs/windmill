@@ -27,9 +27,9 @@ use super::{
     check_if_valid_publication_for_postgres_version, create_logical_replication_slot,
     create_pg_publication, drop_publication, generate_random_string, get_default_pg_connection,
     mapper::{Mapper, MappingInfo},
-    PostgresConfig, PostgresConfigRequest, PostgresPublicationReplication, PostgresTrigger,
-    PublicationData, Relations, Slot, SlotList, TableToTrack, TemplateScript, TestPostgresConfig,
-    ERROR_PUBLICATION_NAME_NOT_EXISTS,
+    validate_publication_row_filters, PostgresConfig, PostgresConfigRequest,
+    PostgresPublicationReplication, PostgresTrigger, PublicationData, Relations, Slot, SlotList,
+    TableToTrack, TemplateScript, TestPostgresConfig, ERROR_PUBLICATION_NAME_NOT_EXISTS,
 };
 
 // Lazy static template cache
@@ -698,6 +698,8 @@ pub async fn update_pg_publication(
 ) -> Result<()> {
     let quoted_publication_name = quote_identifier(publication_name);
     let transaction_to_track_as_str = transaction_to_track.iter().join(",");
+    // Before the branch below drops the publication, so a rejected filter is not a lost publication.
+    validate_publication_row_filters(pg_connection, table_to_track.as_deref()).await?;
     match table_to_track {
         Some(ref relations) if !relations.is_empty() => {
             // If all_table is None, the publication does not exist yet
@@ -748,6 +750,7 @@ pub async fn update_pg_publication(
                                 query.push_str(&format!(" ({})", cols));
                             }
 
+                            // Raw, and kept in bounds by `validate_publication_row_filters` above.
                             if let Some(where_clause) = &table.where_clause {
                                 query.push_str(&format!(" WHERE ({})", where_clause));
                             }

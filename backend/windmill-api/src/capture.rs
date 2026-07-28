@@ -381,8 +381,7 @@ async fn set_postgres_trigger_config(
             postgres_config.publication.table_to_track.as_deref(),
             &postgres_config.publication.transaction_to_track,
         )
-        .await
-        .map_err(to_anyhow)?;
+        .await?;
 
         tx.commit().await.map_err(to_anyhow)?;
 

@@ -466,6 +466,54 @@ pub async fn check_if_valid_publication_for_postgres_version(
     Ok(pg_14)
 }
 
+/// Wraps `where_clause` exactly the way publication DDL does, then continues past the closing
+/// parenthesis on a new line.
+///
+/// A filter can only parse here by being a self-contained expression: closing the wrapper early
+/// strands the trailing `) IS NOT FALSE`, a line comment cannot reach across the newline to hide
+/// it, and a block comment left open never terminates.
+fn build_row_filter_probe(schema_name: &str, table_name: &str, where_clause: &str) -> String {
+    format!(
+        "SELECT 1 FROM {}.{} WHERE ({}\n) IS NOT FALSE",
+        quote_identifier(schema_name),
+        quote_identifier(table_name),
+        where_clause
+    )
+}
+
+/// A publication row filter has no bind parameter, so it is interpolated raw into
+/// `... WHERE (<filter>)`. Postgres decides where a literal ends from server state and syntax we
+/// cannot see from here (`standard_conforming_strings`, `E'…'`, dollar quoting, a `$tag$` read as
+/// part of a preceding identifier), so the filter is handed to the server itself to parse rather
+/// than lexed here. The probe is only prepared, never executed.
+///
+/// Call this before emitting any publication DDL, so a rejected filter leaves the publication as it
+/// was. Publication DDL must also keep running through `Client::execute`, whose `Parse` refuses
+/// more than one command: under `simple_query` or `batch_execute` a filter could stack statements.
+pub(crate) async fn validate_publication_row_filters(
+    pg_connection: &Client,
+    table_to_track: Option<&[Relations]>,
+) -> Result<()> {
+    for relation in table_to_track.unwrap_or_default() {
+        for table in relation.table_to_track.iter() {
+            let Some(where_clause) = table.where_clause.as_deref() else {
+                continue;
+            };
+            let probe =
+                build_row_filter_probe(&relation.schema_name, &table.table_name, where_clause);
+            pg_connection.prepare(&probe).await.map_err(|e| {
+                Error::BadRequest(format!(
+                    "Invalid row filter for table {}.{}: {}",
+                    relation.schema_name,
+                    table.table_name,
+                    windmill_common::error::pg_error_message(&e)
+                ))
+            })?;
+        }
+    }
+    Ok(())
+}
+
 pub async fn create_pg_publication(
     pg_connection: &Client,
     publication_name: &str,
@@ -474,6 +522,7 @@ pub async fn create_pg_publication(
 ) -> Result<()> {
     let pg_14 =
         check_if_valid_publication_for_postgres_version(pg_connection, table_to_track).await?;
+    validate_publication_row_filters(pg_connection, table_to_track).await?;
     let mut query = String::from("CREATE PUBLICATION ");
 
     query.push_str(&quote_identifier(publication_name));
@@ -508,10 +557,7 @@ pub async fn create_pg_publication(
                             query.push_str(")");
                         }
 
-                        // A row filter has no bind parameter, so it goes in raw. Publication
-                        // DDL must therefore keep running through `Client::execute`, whose
-                        // `Parse` refuses more than one command: under `simple_query` or
-                        // `batch_execute` a filter could stack statements.
+                        // Raw, and kept in bounds by `validate_publication_row_filters` above.
                         if let Some(where_clause) = &table.where_clause {
                             query.push_str(" WHERE (");
                             query.push_str(where_clause);
@@ -724,6 +770,17 @@ mod tests {
             None,
         );
         assert_eq!(tt.where_clause, Some("status = 'active'".to_string()));
+    }
+
+    #[test]
+    fn test_row_filter_probe_shields_its_tail_from_a_line_comment() {
+        let probe = build_row_filter_probe("public", "orders", "status = 'active') --");
+        let tail = probe.lines().last().unwrap();
+        assert_eq!(tail, ") IS NOT FALSE");
+        assert_eq!(
+            probe,
+            "SELECT 1 FROM public.orders WHERE (status = 'active') --\n) IS NOT FALSE"
+        );
     }
 
     #[test]
