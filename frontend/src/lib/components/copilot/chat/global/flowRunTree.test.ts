@@ -145,6 +145,27 @@ describe('shapeFlowRunTree', () => {
 		expect(rendered.note).toContain('more jobs')
 	})
 
+	it('compares result sizes in code points and never splits a surrogate pair', () => {
+		const entries = [root()]
+		// 400 astral chars: 800 UTF-16 units but 400 code points. The 700-unit
+		// head budget keeps only 350 of them — comparing in UTF-16 units
+		// (400 < 700) used to hide that truncation entirely.
+		entries.push(
+			entry({
+				step_path: 'a',
+				flow_step_id: 'a',
+				status: 'failure',
+				success: false,
+				result_prefix: '🦄'.repeat(400),
+				result_length: 400
+			})
+		)
+		const step = JSON.parse(shapeFlowRunTree({ entries })).steps[0]
+		expect(step.result_total_chars).toBe(400)
+		// the cut must never leave a lone high surrogate at the tail
+		expect(step.result.charCodeAt(step.result.length - 1)).toBeGreaterThan(0xdbff)
+	})
+
 	it('shrinks result heads to fit the total budget instead of overflowing', () => {
 		const entries = [root()]
 		for (let i = 1; i <= 60; i++) {

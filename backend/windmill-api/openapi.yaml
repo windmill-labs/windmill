@@ -14139,6 +14139,9 @@ paths:
                   truncated:
                     type: boolean
                     description: true when the tree has more jobs than the entry cap; entries then hold the depth-first prefix
+                  scope_filtered:
+                    type: boolean
+                    description: true when the caller's token is tag-scoped; steps running on other tags are omitted
                   step_error:
                     type: string
                     description: set when step was provided but could not be resolved; a diagnostic listing available step ids or iteration statuses

@@ -2397,7 +2397,9 @@ async fn collect_flow_log_entries(
     w_id: &str,
     id: Uuid,
 ) -> error::Result<Vec<FlowLogEntry>> {
-    authorize_flow_tree_read(view_token, &opt_authed, &opt_tokened, db, user_db, w_id, id).await?;
+    let auth =
+        authorize_flow_tree_read(view_token, &opt_authed, &opt_tokened, db, user_db, w_id, id)
+            .await?;
 
     // Fetch all jobs in the flow tree using recursive CTE.
     // Uses a materialized id_path for depth-first ordering so children
@@ -2435,6 +2437,7 @@ async fn collect_flow_log_entries(
             FROM v2_job j
             JOIN job_tree jt ON j.parent_job = jt.id
             WHERE j.workspace_id = $1
+              AND ($3::text[] IS NULL OR j.tag = ANY($3))
         ),
         with_sibling_index AS (
             SELECT jt.*,
@@ -2460,6 +2463,7 @@ async fn collect_flow_log_entries(
         ORDER BY w.id_path ASC",
         w_id,
         id,
+        auth.scope_tags.as_deref(),
     )
     .fetch_all(db)
     .await?;
@@ -2618,6 +2622,10 @@ struct FlowAllResultsResponse {
     /// the depth-first prefix.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     truncated: bool,
+    /// True when the caller's token is tag-scoped: steps running on other tags
+    /// are omitted and indistinguishable from steps that never ran.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    scope_filtered: bool,
     /// Set when `step` was provided but could not be resolved; a diagnostic the
     /// caller can act on (available step ids, iteration statuses).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2914,6 +2922,7 @@ async fn get_flow_all_results(
                         enclosing_job,
                         entries: vec![],
                         truncated: false,
+                        scope_filtered: scope_tags.is_some(),
                         step_error: Some(step_error),
                     }));
                 }
@@ -2986,6 +2995,7 @@ async fn get_flow_all_results(
                 result_length: record.result_length,
             }],
             truncated: false,
+            scope_filtered: scope_tags.is_some(),
             step_error: None,
         }));
     }
@@ -3037,6 +3047,9 @@ async fn get_flow_all_results(
                        PARTITION BY jt.parent_job, jt.flow_step_id
                    ) as sibling_count
             FROM job_tree jt
+        ),
+        limited AS (
+            SELECT * FROM with_sibling_index ORDER BY id_path ASC LIMIT $5
         )
         SELECT w.id, w.kind, w.flow_step_id, w.path_label,
                w.sibling_index::int as sibling_index,
@@ -3050,11 +3063,10 @@ async fn get_flow_all_results(
                length(c.result::text) as result_length,
                q.running as \"q_running?\",
                q.suspend as \"q_suspend?\"
-        FROM with_sibling_index w
+        FROM limited w
         LEFT JOIN v2_job_completed c ON c.id = w.id
         LEFT JOIN v2_job_queue q ON q.id = w.id
-        ORDER BY w.id_path ASC
-        LIMIT $5",
+        ORDER BY w.id_path ASC",
         w_id,
         id,
         max_result_len,
@@ -3132,6 +3144,7 @@ async fn get_flow_all_results(
         enclosing_job,
         entries,
         truncated,
+        scope_filtered: scope_tags.is_some(),
         step_error: None,
     }))
 }

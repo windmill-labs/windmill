@@ -81,6 +81,22 @@ interface ShapeOpts {
 	successHead: number
 }
 
+/** Postgres LEFT()/length() count code points while JS .length/.slice count
+ * UTF-16 units — compare and cut in code points so astral characters neither
+ * hide a truncation nor get split through a surrogate pair. */
+function countCodePoints(s: string): number {
+	let n = 0
+	for (const _ of s) n++
+	return n
+}
+
+function sliceCodePointSafe(s: string, maxUnits: number): string {
+	const cut = s.slice(0, maxUnits)
+	const last = cut.charCodeAt(cut.length - 1)
+	// drop a trailing lone high surrogate
+	return last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut
+}
+
 function shapeResult(
 	entry: FlowResultEntry,
 	opts: ShapeOpts
@@ -88,11 +104,11 @@ function shapeResult(
 	if (entry.result_prefix === undefined || entry.result_prefix === null) return {}
 	const budget = entry.success ? opts.successHead : opts.head
 	if (budget <= 0) return { result_total_chars: entry.result_length ?? undefined }
-	const head = entry.result_prefix.slice(0, budget)
-	const total = entry.result_length ?? entry.result_prefix.length
+	const head = sliceCodePointSafe(entry.result_prefix, budget)
+	const total = entry.result_length ?? countCodePoints(entry.result_prefix)
 	return {
 		result: head,
-		...(total > head.length ? { result_total_chars: total } : {})
+		...(total > countCodePoints(head) ? { result_total_chars: total } : {})
 	}
 }
 
@@ -229,6 +245,9 @@ export function shapeFlowRunTree(response: GetFlowAllResultsResponse): string {
 			? [
 					`The run has more jobs than the server returns — this tree only covers the first ${response.entries.length} (depth-first), so tallies may undercount.`
 				]
+			: []),
+		...(response.scope_filtered
+			? [`Your token is tag-scoped: steps running on other tags are omitted from this tree.`]
 			: [])
 	]
 	const rootJobNote = notes.length > 0 ? notes.join(' ') : undefined
@@ -268,7 +287,12 @@ export async function getFlowRunDetails(
 		step
 	})
 	if (response.step_error) {
-		return response.step_error
+		return (
+			response.step_error +
+			(response.scope_filtered
+				? ' (Steps running on tags outside your token’s scope are hidden.)'
+				: '')
+		)
 	}
 	const entry = response.entries[0]
 	if (!entry) {
@@ -280,9 +304,9 @@ export async function getFlowRunDetails(
 	if (entry.result_prefix === undefined || entry.result_prefix === null) {
 		return `Step "${step}" (job ${entry.job_id}, ${entry.status}) has no recorded result.`
 	}
-	const total = entry.result_length ?? entry.result_prefix.length
+	const total = entry.result_length ?? countCodePoints(entry.result_prefix)
 	const capped =
-		total > entry.result_prefix.length
+		total > countCodePoints(entry.result_prefix)
 			? entry.result_prefix + `\n… (result truncated: ${total} chars total)`
 			: entry.result_prefix
 	return `Step "${step}" (job ${entry.job_id}, ${entry.status}) result:\n${capped}`
