@@ -240,7 +240,7 @@ fn truncate_sql(code: &str) -> String {
 }
 
 /// One ingested dbt node, ready to be written to `dbt_node`.
-#[derive(Serialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Debug, Clone, PartialEq, Default)]
 pub struct IngestedNode {
     pub unique_id: String,
     pub resource_type: String,
