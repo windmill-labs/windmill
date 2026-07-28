@@ -2424,11 +2424,13 @@ async fn collect_flow_log_entries(
                    COALESCE((
                        SELECT m->'value'->>'type'
                        FROM v2_job parent_j
+                       LEFT JOIN flow_version fv ON fv.id = parent_j.runnable_id
+                           AND parent_j.kind::text = 'flow'
                        LEFT JOIN flow f ON f.path = parent_j.runnable_path
                            AND f.workspace_id = parent_j.workspace_id
                        LEFT JOIN flow_node fn ON fn.id = parent_j.runnable_id
                        CROSS JOIN LATERAL jsonb_array_elements(
-                           COALESCE(parent_j.raw_flow, f.value, fn.flow)->'modules'
+                           COALESCE(parent_j.raw_flow, fv.value, f.value, fn.flow)->'modules'
                        ) m
                        WHERE parent_j.id = jt.id
                          AND m->>'id' = j.flow_step_id
@@ -2439,16 +2441,37 @@ async fn collect_flow_log_entries(
             WHERE j.workspace_id = $1
               AND ($3::text[] IS NULL OR j.tag = ANY($3))
         ),
+        positions AS (
+            SELECT g.parent_job, g.flow_step_id, fj.jid, fj.ord
+            FROM (SELECT DISTINCT parent_job, flow_step_id FROM job_tree
+                  WHERE parent_job IS NOT NULL AND flow_step_id IS NOT NULL) g
+            CROSS JOIN LATERAL (
+                SELECT COALESCE(
+                    (SELECT flow_status FROM v2_job_completed WHERE id = g.parent_job),
+                    (SELECT flow_status FROM v2_job_status WHERE id = g.parent_job)
+                ) AS fs
+            ) pf
+            CROSS JOIN LATERAL (
+                SELECT m FROM jsonb_array_elements(pf.fs->'modules') m
+                WHERE m->>'id' = g.flow_step_id
+                LIMIT 1
+            ) md
+            CROSS JOIN LATERAL jsonb_array_elements_text(md.m->'flow_jobs')
+                WITH ORDINALITY fj(jid, ord)
+        ),
         with_sibling_index AS (
             SELECT jt.*,
                    ROW_NUMBER() OVER (
                        PARTITION BY jt.parent_job, jt.flow_step_id
-                       ORDER BY jt.id
+                       ORDER BY pos.ord NULLS LAST, jt.id
                    ) as sibling_index,
                    COUNT(*) OVER (
                        PARTITION BY jt.parent_job, jt.flow_step_id
                    ) as sibling_count
             FROM job_tree jt
+            LEFT JOIN positions pos ON pos.parent_job = jt.parent_job
+                AND pos.flow_step_id = jt.flow_step_id
+                AND pos.jid = jt.id::text
         )
         SELECT w.id, w.kind, w.flow_step_id, w.path_label,
                w.sibling_index::int as sibling_index,
@@ -2738,8 +2761,12 @@ mod flow_tree_tests {
 /// Resolve a step address ('b/c', 'b[12]/c', '.' separators accepted) to a
 /// single job of the flow tree rooted at `root`, walking one indexed
 /// parent_job + flow_step_id lookup per segment — no tree enumeration.
-/// `ORDER BY id` matches the sibling numbering of the tree view (job UUIDs are
-/// time-ordered). Err carries a diagnostic listing what exists instead.
+/// Siblings are numbered by their position in the parent flow_status's
+/// flow_jobs array — the authoritative iteration order — matching the tree
+/// view's numbering; job-id order alone would shuffle parallel iterations
+/// created in the same millisecond (ULID randomness). Retries have no
+/// flow_jobs and fall back to id order. Err carries a diagnostic listing what
+/// exists instead.
 async fn resolve_flow_step_job(
     db: &DB,
     w_id: &str,
@@ -2776,11 +2803,13 @@ async fn resolve_flow_step_job(
                     COALESCE((
                         SELECT m->'value'->>'type'
                         FROM v2_job parent_j
+                        LEFT JOIN flow_version fv ON fv.id = parent_j.runnable_id
+                            AND parent_j.kind::text = 'flow'
                         LEFT JOIN flow f ON f.path = parent_j.runnable_path
                             AND f.workspace_id = parent_j.workspace_id
                         LEFT JOIN flow_node fn ON fn.id = parent_j.runnable_id
                         CROSS JOIN LATERAL jsonb_array_elements(
-                            COALESCE(parent_j.raw_flow, f.value, fn.flow)->'modules'
+                            COALESCE(parent_j.raw_flow, fv.value, f.value, fn.flow)->'modules'
                         ) m
                         WHERE parent_j.id = $1
                           AND m->>'id' = $3
@@ -2789,9 +2818,24 @@ async fn resolve_flow_step_job(
              FROM v2_job j
              LEFT JOIN v2_job_completed c ON c.id = j.id
              LEFT JOIN v2_job_queue q ON q.id = j.id
+             LEFT JOIN LATERAL (
+                 SELECT fj.ord
+                 FROM (SELECT COALESCE(
+                         (SELECT flow_status FROM v2_job_completed WHERE id = $1),
+                         (SELECT flow_status FROM v2_job_status WHERE id = $1)
+                     ) AS fs) pf
+                 CROSS JOIN LATERAL (
+                     SELECT m FROM jsonb_array_elements(pf.fs->'modules') m
+                     WHERE m->>'id' = $3
+                     LIMIT 1
+                 ) md
+                 CROSS JOIN LATERAL jsonb_array_elements_text(md.m->'flow_jobs')
+                     WITH ORDINALITY fj(jid, ord)
+                 WHERE fj.jid = j.id::text
+             ) pos ON true
              WHERE j.parent_job = $1 AND j.workspace_id = $2 AND j.flow_step_id = $3
                AND ($4::text[] IS NULL OR j.tag = ANY($4))
-             ORDER BY j.id",
+             ORDER BY pos.ord NULLS LAST, j.id",
             current,
             w_id,
             step_id,
@@ -3022,11 +3066,13 @@ async fn get_flow_all_results(
                    COALESCE((
                        SELECT m->'value'->>'type'
                        FROM v2_job parent_j
+                       LEFT JOIN flow_version fv ON fv.id = parent_j.runnable_id
+                           AND parent_j.kind::text = 'flow'
                        LEFT JOIN flow f ON f.path = parent_j.runnable_path
                            AND f.workspace_id = parent_j.workspace_id
                        LEFT JOIN flow_node fn ON fn.id = parent_j.runnable_id
                        CROSS JOIN LATERAL jsonb_array_elements(
-                           COALESCE(parent_j.raw_flow, f.value, fn.flow)->'modules'
+                           COALESCE(parent_j.raw_flow, fv.value, f.value, fn.flow)->'modules'
                        ) m
                        WHERE parent_j.id = jt.id
                          AND m->>'id' = j.flow_step_id
@@ -3037,16 +3083,37 @@ async fn get_flow_all_results(
             WHERE j.workspace_id = $1
               AND ($4::text[] IS NULL OR j.tag = ANY($4))
         ),
+        positions AS (
+            SELECT g.parent_job, g.flow_step_id, fj.jid, fj.ord
+            FROM (SELECT DISTINCT parent_job, flow_step_id FROM job_tree
+                  WHERE parent_job IS NOT NULL AND flow_step_id IS NOT NULL) g
+            CROSS JOIN LATERAL (
+                SELECT COALESCE(
+                    (SELECT flow_status FROM v2_job_completed WHERE id = g.parent_job),
+                    (SELECT flow_status FROM v2_job_status WHERE id = g.parent_job)
+                ) AS fs
+            ) pf
+            CROSS JOIN LATERAL (
+                SELECT m FROM jsonb_array_elements(pf.fs->'modules') m
+                WHERE m->>'id' = g.flow_step_id
+                LIMIT 1
+            ) md
+            CROSS JOIN LATERAL jsonb_array_elements_text(md.m->'flow_jobs')
+                WITH ORDINALITY fj(jid, ord)
+        ),
         with_sibling_index AS (
             SELECT jt.*,
                    ROW_NUMBER() OVER (
                        PARTITION BY jt.parent_job, jt.flow_step_id
-                       ORDER BY jt.id
+                       ORDER BY pos.ord NULLS LAST, jt.id
                    ) as sibling_index,
                    COUNT(*) OVER (
                        PARTITION BY jt.parent_job, jt.flow_step_id
                    ) as sibling_count
             FROM job_tree jt
+            LEFT JOIN positions pos ON pos.parent_job = jt.parent_job
+                AND pos.flow_step_id = jt.flow_step_id
+                AND pos.jid = jt.id::text
         ),
         limited AS (
             SELECT * FROM with_sibling_index ORDER BY id_path ASC LIMIT $5
