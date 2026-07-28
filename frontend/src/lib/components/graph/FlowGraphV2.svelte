@@ -1207,6 +1207,7 @@
 					</div>
 				{:else}
 					<Controls
+						class="wm-flow-controls"
 						position={controlsPosition === 'bottom' ? 'bottom-right' : 'top-right'}
 						orientation="horizontal"
 						showLock={false}
@@ -1307,23 +1308,38 @@
 		opacity: 0;
 	}
 
-	:global(.svelte-flow__controls) {
-		@apply rounded-md border bg-surface overflow-hidden;
+	/* xy-flow's own rules are nested, so `.svelte-flow__controls-button svg` and the like
+	   match ours exactly and load order decides. Scoping by the class we pass to <Controls>
+	   outranks them instead of racing them. */
+	:global(.svelte-flow__controls.wm-flow-controls) {
+		@apply overflow-hidden rounded-md border;
 		box-shadow: none;
 	}
-	:global(.svelte-flow__controls-button) {
-		@apply bg-surface border-0;
+	:global(.wm-flow-controls .svelte-flow__controls-button) {
+		@apply bg-surface text-primary;
 		width: 28px;
 		height: 28px;
 	}
-	:global(.svelte-flow__controls-button:hover) {
+	:global(.wm-flow-controls .svelte-flow__controls-button:hover) {
 		@apply bg-surface-hover;
 	}
-	/* xy-flow caps control glyphs at 12px, which leaves them smaller than every other
-	   icon in the editor. */
-	:global(.svelte-flow__controls-button svg) {
+	:global(.wm-flow-controls.horizontal .svelte-flow__controls-button) {
+		@apply border-r border-gray-200 dark:border-gray-700;
+	}
+	:global(.wm-flow-controls.horizontal .svelte-flow__controls-button:last-child) {
+		@apply border-r-0;
+	}
+	/* Their base caps glyphs at 12px, leaving them smaller than every other icon. */
+	:global(.wm-flow-controls .svelte-flow__controls-button svg) {
 		max-width: 16px;
 		max-height: 16px;
+	}
+	/* Their base also sets `fill: currentColor`, which beats lucide's inline fill="none"
+	   and floods our stroke icons solid. xy-flow's own glyphs are fill-based, so this has
+	   to stay scoped to lucide. */
+	:global(.wm-flow-controls .svelte-flow__controls-button svg.lucide) {
+		fill: none;
+		stroke: currentColor;
 	}
 
 	:global(.svelte-flow__edgelabel-renderer) {
