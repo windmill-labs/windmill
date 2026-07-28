@@ -466,12 +466,13 @@ pub async fn check_if_valid_publication_for_postgres_version(
     Ok(pg_14)
 }
 
-/// Wraps `where_clause` exactly the way publication DDL does, then continues past the closing
-/// parenthesis on a new line.
+/// Wraps `where_clause` the way publication DDL does, then continues past the closing parenthesis
+/// on a new line.
 ///
-/// A filter can only parse here by being a self-contained expression: closing the wrapper early
-/// strands the trailing `) IS NOT FALSE`, a line comment cannot reach across the newline to hide
-/// it, and a block comment left open never terminates.
+/// Whatever parses here cannot have run on into the grammar around the wrapper: a further table or
+/// a `WITH (...)` strands the trailing `) IS NOT FALSE`, a line comment cannot reach across the
+/// newline to hide it, and a block comment left open never terminates. A filter that only closes
+/// and reopens the wrapper (`true) OR (false`) does parse here, and the DDL then rejects it.
 fn build_row_filter_probe(schema_name: &str, table_name: &str, where_clause: &str) -> String {
     format!(
         "SELECT 1 FROM {}.{} WHERE ({}\n) IS NOT FALSE",
