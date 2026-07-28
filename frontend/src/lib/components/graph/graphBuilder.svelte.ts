@@ -402,7 +402,10 @@ export function topologicalSort(
 		if (visited.has(id)) return
 		visited.add(id)
 
-		const node = nodeMap.get(id)!
+		// A parent id with no node is a bug in whoever built the graph, but the whole editor
+		// unmounts if this throws, so skip it and let the rest of the graph render.
+		const node = nodeMap.get(id)
+		if (!node) return
 		node.parentIds?.forEach(visit)
 		result.push(node)
 	}
@@ -1245,6 +1248,12 @@ export function graphBuilder(
 			})
 
 			Object.entries(toAdd).forEach((x) => {
+				// Run state outlives the flow it ran on: a step deleted since the run keeps its marker
+				// in `flowModuleStates`. Anchoring the marker to a step that is no longer in the graph
+				// leaves a parent id no node answers to, which the layout cannot sort.
+				if (!nodes.some((n) => n.id === x[0])) {
+					return
+				}
 				addFailureNode({ ...failureModule, id: x[1] })
 				addEdge(x[0], x[1], undefined, undefined, { type: 'empty' })
 			})
