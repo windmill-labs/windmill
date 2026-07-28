@@ -1646,12 +1646,20 @@ async function preview(
   const content = await readTextFile(filePath);
   const input = opts.data ? await resolve(opts.data) : {};
 
-  // Read modules from __mod/ folder if present
+  // Read modules from the bundle folder if present. Same suffix and same
+  // verbatim read as deploy: a dbt project lives in `__dbt/`, and parsing its
+  // files as scripts would drop the `dbt_project.yml` the executor looks for.
   const isFolderLayout = isModuleEntryPoint(filePath);
+  const isDbt = language === "dbt";
   const moduleFolderPath = isFolderLayout
     ? path.dirname(filePath)
-    : filePath.substring(0, filePath.indexOf(".")) + getModuleFolderSuffix();
-  const modules = await readModulesFromDisk(moduleFolderPath, opts?.defaultTs, isFolderLayout);
+    : filePath.substring(0, filePath.indexOf(".")) + getModuleFolderSuffix(language);
+  const modules = await readModulesFromDisk(
+    moduleFolderPath,
+    opts?.defaultTs,
+    isFolderLayout,
+    isDbt
+  );
 
   // Check if this is a codebase script
   const codebase =

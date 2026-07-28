@@ -1394,15 +1394,15 @@ pub async fn asset_graph_for(
     .await?;
 
     // The same predicate `chosen` applies, answered once for the caller: it is
-    // what lets a run page stop polling. Inside the authed transaction, so the
-    // `v2_job` gate is the same one the graph itself went through.
+    // what lets a run page stop polling. No `v2_job` recheck, for the reason
+    // `chosen` gives — disagreeing with the route's decision here would leave a
+    // share-link viewer with the right graph and a null marker, polling it 40
+    // times over.
     let dbt_snapshot_job = match dbt_job_id {
         Some(job) => {
             sqlx::query_scalar!(
                 "SELECT g.job_id FROM dbt_graph_snapshot g
               WHERE g.workspace_id = $1 AND g.job_id = $2
-                AND EXISTS (SELECT 1 FROM v2_job j
-                             WHERE j.id = g.job_id AND j.workspace_id = g.workspace_id)
               LIMIT 1",
                 &w_id,
                 job,
@@ -1601,7 +1601,7 @@ pub async fn asset_graph_for(
     // `asset` rows above are path-keyed — one set per script, always the current
     // deploy — so a model this version had and a later one dropped would be
     // missing from its own run's graph.
-    if q.dbt_script_hash.is_some() {
+    if dbt_script_hash.is_some() {
         for r in &dbt_rows {
             if let Some(p) = r.asset_path.as_deref() {
                 asset_set.insert((AssetKind::Table, p.to_string()));

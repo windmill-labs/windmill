@@ -199,7 +199,7 @@ pub(crate) async fn handle_dbt_job(
             }
         });
     }
-    let prepared = prepare_project(
+    let mut prepared = prepare_project(
         &descriptor,
         inner_content,
         locks.as_ref(),
@@ -215,6 +215,17 @@ pub(crate) async fn handle_dbt_job(
         modules,
     )
     .await?;
+
+    // A `vars` run argument overrides the descriptor's, and vars drive `enabled`,
+    // alias, schema, database and materialization — so this run's models are not
+    // the deployed graph's. It snapshots under its own job id, leaving the
+    // version's graph for the runs that did not override.
+    if args
+        .get("vars")
+        .is_some_and(|r| !matches!(r.get().trim(), "" | "null" | "{}"))
+    {
+        prepared.graph_is_per_run = true;
+    }
 
     // Before any invocation: a per-run graph has to be re-ingested for this run's
     // models to be the ones shown, and an agent worker reaches the DB only
@@ -848,11 +859,9 @@ pub(crate) async fn prepare_project(
     }
     // Vars can drive `enabled`, alias, schema, database and materialization, so
     // a placeholder var or a `$var:` env value (re-resolved every run) makes the
-    // deploy-time graph a guess, and each run re-ingests its own manifest.
-    //
-    // A per-run `vars` override is deliberately NOT here: gating on it would
-    // leave the override's graph in place for the next default run, which then
-    // builds the descriptor's relations while the graph shows the override's.
+    // deploy-time graph a guess, and each run re-ingests its own manifest. The
+    // caller's own `vars` override does the same; it is added by the caller of
+    // this function, which is where the run's arguments are known.
     let has_placeholder = |v: &str| v.contains("{{");
     let graph_is_per_run = descriptor
         .vars
