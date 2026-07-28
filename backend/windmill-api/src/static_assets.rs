@@ -50,13 +50,15 @@ const TWO_HUNDRED: &str = "200.html";
 
 /// Check if the original path requires cross-origin isolation headers.
 ///
-/// These headers are needed for SharedArrayBuffer and TypeScript workers
-/// (raw app editor at `/apps_raw/edit|add`, in-browser bundler at
+/// CANONICAL COEP RATIONALE (the dev-server mirror in `frontend/vite.config.js`
+/// and the navigation guards in `frontend/src/routes/(root)/(logged)/+layout.svelte`
+/// point here): the headers are needed for SharedArrayBuffer and TypeScript
+/// workers (raw app editor at `/apps_raw/edit|add`, in-browser bundler at
 /// `/ui_builder/`). The raw app *viewer* (`/apps_raw/get/`) must NOT get them:
 /// COEP `require-corp` blocks the viewed app's cross-origin subresources
-/// (external images, embeds) that lack CORP, and would make apps break on a
-/// page reload while working when client-side-navigated to (the document
-/// keeps the non-isolated headers of the URL it was originally loaded from).
+/// (external images, embeds) that lack CORP — and since headers stick to the
+/// document, apps would break on a page reload while working when reached via
+/// client-side navigation.
 ///
 /// Public apps (`/public/` and custom paths `/a/`) opt in via the `wm_coep`
 /// query param: a public (raw) app must set COEP to be embeddable as an iframe
@@ -67,7 +69,8 @@ const TWO_HUNDRED: &str = "200.html";
 /// explicitly requests it.
 #[cfg(feature = "static_frontend")]
 fn needs_cross_origin_isolation(original_path: &str, query: Option<&str>) -> bool {
-    original_path.starts_with("/apps_raw/edit/")
+    // no trailing slash on edit/add: matches the +layout.svelte guards
+    original_path.starts_with("/apps_raw/edit")
         || original_path.starts_with("/apps_raw/add")
         || original_path.starts_with("/ui_builder/")
         || ((original_path.starts_with("/public/") || original_path.starts_with("/a/"))
@@ -161,8 +164,7 @@ mod tests {
         assert!(needs_cross_origin_isolation("/apps_raw/add", None));
         assert!(needs_cross_origin_isolation("/ui_builder/index.html", None));
 
-        // the raw app viewer is NOT isolated: COEP would block the viewed
-        // app's cross-origin subresources on a page reload
+        // the raw app viewer must NOT be isolated
         assert!(!needs_cross_origin_isolation(
             "/apps_raw/get/u/foo/bar",
             None

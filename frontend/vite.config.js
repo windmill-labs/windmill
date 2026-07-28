@@ -24,18 +24,15 @@ const remoteUrl =
 
 const cookieDomain = process.env.ISOLATE_DEV_AUTH === '1' ? '' : 'localhost'
 
-// Cross-origin isolation headers, scoped to the same paths as the production
-// server (backend/windmill-api/src/static_assets.rs `needs_cross_origin_isolation`):
-// the raw app editor + in-browser bundler need them (SharedArrayBuffer, TS
-// workers); everything else — in particular the raw app *viewer* at
-// /apps_raw/get — must not get them, because COEP `require-corp` blocks the
-// viewed app's cross-origin subresources (external images, embeds).
+// Cross-origin isolation headers, scoped to mirror the production predicate —
+// see `needs_cross_origin_isolation` in backend/windmill-api/src/static_assets.rs
+// for which paths need them and why the raw app viewer must be excluded.
 // `enforce: 'pre'` so these headers are set before SvelteKit's sirv static
 // handler serves `static/` files and ends the response without calling next().
 function needsCrossOriginIsolation(url) {
 	const [path, query = ''] = url.split('?')
 	return (
-		path.startsWith('/apps_raw/edit/') ||
+		path.startsWith('/apps_raw/edit') ||
 		path.startsWith('/apps_raw/add') ||
 		path.startsWith('/ui_builder/') ||
 		((path.startsWith('/public/') || path.startsWith('/a/')) &&

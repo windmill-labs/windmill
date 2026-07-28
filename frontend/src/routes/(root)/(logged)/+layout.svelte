@@ -415,8 +415,10 @@
 		// This ensures the cross-origin isolation headers are fetched from the server
 		// which are required for SharedArrayBuffer and TypeScript workers to work correctly
 		const toPath = navigation.to?.url.pathname
-		if (toPath && (toPath.startsWith('/apps_raw/add') || toPath.startsWith('/apps_raw/edit'))) {
-			const currentPath = navigation.from?.url.pathname
+		const currentPath = navigation.from?.url.pathname
+		const isEditorPath = (p: string | undefined) =>
+			!!p && (p.startsWith('/apps_raw/add') || p.startsWith('/apps_raw/edit'))
+		if (isEditorPath(toPath)) {
 			// Reload if we're not on an apps_raw path, or if we're on the raw app viewer
 			// (/apps_raw/get/): the viewer doesn't have cross-origin isolation headers, so
 			// we need a full reload to fetch them for the editor.
@@ -424,11 +426,13 @@
 				navigation.cancel()
 				window.location.href = navigation.to!.url.href
 			}
-		} else if (toPath && window.crossOriginIsolated) {
-			// The reverse also needs a full reload: the editor document is
-			// cross-origin isolated, and COEP `require-corp` would otherwise stick
-			// for the rest of the SPA session, blocking CORP-less cross-origin
-			// subresources everywhere (e.g. external images in a viewed app).
+		} else if (toPath && (isEditorPath(currentPath) || window.crossOriginIsolated)) {
+			// Reverse of the guard above: leaving the isolated editor document must
+			// also fully reload, or its COEP header sticks for the rest of the SPA
+			// session and blocks CORP-less cross-origin subresources (e.g. images in
+			// a viewed app — see needs_cross_origin_isolation in static_assets.rs).
+			// The path check covers plain-HTTP origins, where `crossOriginIsolated`
+			// stays false even with the headers applied.
 			navigation.cancel()
 			window.location.href = navigation.to!.url.href
 		}
