@@ -67,45 +67,32 @@ function editPathFor(itemType: ItemType, itemPath: string): string {
 	}
 }
 
-function viewPathFor(itemType: ItemType, itemPath: string): string {
-	switch (itemType) {
-		case 'script':
-			return `${base}/scripts/get/${itemPath}`
-		case 'flow':
-			return `${base}/flows/get/${itemPath}`
-		case 'app':
-			return `${base}/apps/get/${itemPath}`
-		case 'raw_app':
-			return `${base}/apps_raw/get/${itemPath}`
-	}
-}
-
 export function buildForkEditUrl(itemType: ItemType, itemPath: string): string {
-	// When the current ("prod") workspace has a canonical dev workspace, edits are funneled there:
-	// land on the item's page in the dev workspace (not straight in the editor) so the workspace
-	// switch is legible and the user opens the editor deliberately from there.
+	// When the current ("prod") workspace has a canonical dev workspace, edits are funneled there.
 	const dev = findCanonicalDevWorkspace(get(workspaceStore), get(userWorkspaces))
 	if (dev) {
-		return `${viewPathFor(itemType, itemPath)}?workspace=${encodeURIComponent(dev.id)}`
+		return devWorkspaceEditUrl(itemType, itemPath, dev.id)
 	}
 	return `${base}/user/fork_workspace?rd=${encodeURIComponent(editPathFor(itemType, itemPath))}`
 }
 
-/** Item page in the dev workspace — the target `buildForkEditUrl` produces when a dev exists. */
-export function devWorkspaceItemUrl(
+/** The item's editor in the dev workspace — the target `buildForkEditUrl` produces when a dev exists. */
+export function devWorkspaceEditUrl(
 	itemType: ItemType,
 	itemPath: string,
 	devWorkspaceId: string
 ): string {
-	return `${viewPathFor(itemType, itemPath)}?workspace=${encodeURIComponent(devWorkspaceId)}`
+	// `?workspace=` switches the workspace store (handled in the logged layout), so the editor
+	// opens against the dev workspace rather than whichever one the tab was on.
+	return `${editPathFor(itemType, itemPath)}?workspace=${encodeURIComponent(devWorkspaceId)}`
 }
 
 /**
  * A dev workspace can be behind its prod, so the URL built at render time dead-ends on a not-found
  * page for any item prod has and dev doesn't. Resolve the destination at click time instead:
  * return it when the item is there, else raise the prompt offering to update the dev workspace with
- * it and return
- * undefined. Shared by the row buttons and the editors' "Edit in <dev>" dropdown entries.
+ * it and return undefined. Shared by the row buttons and the editors' "Edit in <dev>" dropdown
+ * entries.
  */
 async function resolveEditInForkTarget(
 	itemType: ItemType,
@@ -117,10 +104,10 @@ async function resolveEditInForkTarget(
 	try {
 		exists = await checkItemExists(itemType, itemPath, dev.id)
 	} catch {
-		// Inconclusive — go anyway and let the item page report whatever is actually wrong.
+		// Inconclusive — go anyway and let the editor report whatever is actually wrong.
 		exists = true
 	}
-	if (exists) return devWorkspaceItemUrl(itemType, itemPath, dev.id)
+	if (exists) return devWorkspaceEditUrl(itemType, itemPath, dev.id)
 	updateDevWorkspaceModal.val = {
 		itemType,
 		itemPath,

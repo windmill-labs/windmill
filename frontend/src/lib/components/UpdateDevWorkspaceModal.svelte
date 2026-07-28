@@ -5,7 +5,7 @@
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import { updateDevWorkspaceModal } from '$lib/utils/editInForkModal.svelte'
-	import { devWorkspaceItemUrl } from '$lib/utils/editInFork'
+	import { devWorkspaceEditUrl } from '$lib/utils/editInFork'
 	import {
 		checkDeployPermission,
 		checkItemExists,
@@ -102,7 +102,7 @@
 			return
 		}
 		close()
-		await goto(devWorkspaceItemUrl(req.itemType, req.itemPath, req.devWorkspaceId))
+		await goto(devWorkspaceEditUrl(req.itemType, req.itemPath, req.devWorkspaceId))
 	}
 </script>
 
