@@ -13,7 +13,7 @@ use windmill_common::{
     utils::escape_ilike_pattern,
 };
 
-use windmill_api_auth::{build_scope_path_predicate, get_scope_tags, ApiAuthed};
+use windmill_api_auth::{build_scope_path_predicate, ApiAuthed};
 
 // Partition-range backfill preview. The logic (producer resolution, range
 // enumeration, status join) is enterprise: the `private` build compiles the
@@ -605,7 +605,7 @@ async fn list_favorites(
 // frontend aggregates into nodes and edges.
 
 #[derive(Deserialize)]
-struct GraphQuery {
+pub struct GraphQuery {
     pub asset_kinds: Option<String>,
     pub folder: Option<String>,
     /// Render a dbt project as a given deployed version rather than as it is
@@ -615,10 +615,6 @@ struct GraphQuery {
     /// Hex, like every other script-hash parameter — `ScriptHash` deserializes
     /// it, so the run page can pass `job.script_hash` verbatim.
     pub dbt_script_hash: Option<windmill_common::scripts::ScriptHash>,
-    /// Render the graph a specific RUN saw. Only a dynamic descriptor writes
-    /// one; without a snapshot for this job the version's own graph answers, so
-    /// a run page can pass it unconditionally.
-    pub dbt_job_id: Option<uuid::Uuid>,
 }
 
 #[derive(Serialize, Debug)]
@@ -909,7 +905,7 @@ struct TestEdge {
 }
 
 #[derive(Serialize, Debug)]
-struct AssetGraphResponse {
+pub struct AssetGraphResponse {
     assets: Vec<GraphAssetNode>,
     runnables: Vec<GraphRunnableNode>,
     edges: Vec<GraphEdge>,
@@ -948,35 +944,36 @@ async fn asset_graph(
     Extension(db): Extension<windmill_common::DB>,
     Query(q): Query<GraphQuery>,
 ) -> JsonResult<AssetGraphResponse> {
-    let mut tx = user_db.begin(&authed).await?;
+    // `None`: pinning the graph to one run is job-scoped and this endpoint is
+    // authorized as `assets:read`. See `asset_graph_for`.
+    asset_graph_for(&authed, &w_id, user_db, db, q, None).await
+}
+
+/// The asset graph, for a caller that has already been authorized to read
+/// `dbt_job_id` if it passes one.
+///
+/// `dbt_job_id` selects the graph one RUN saw, which is job-scoped data. Reading
+/// it has to satisfy the whole job-read contract — tag scope, the app-embed
+/// restriction, view tokens, RLS — and that contract is `require_job_read_access`
+/// in `windmill-api`, a crate that depends on this one and so cannot be called
+/// from here. Approximating it locally is what repeatedly left a predicate out,
+/// so the parameter is not reachable from this crate's own routes at all: the
+/// sole caller passing `Some` is the jobs route that has already run the real
+/// check on that job.
+pub async fn asset_graph_for(
+    authed: &ApiAuthed,
+    w_id: &str,
+    user_db: UserDB,
+    db: windmill_common::DB,
+    q: GraphQuery,
+    dbt_job_id: Option<uuid::Uuid>,
+) -> JsonResult<AssetGraphResponse> {
+    let w_id = w_id.to_string();
+    let mut tx = user_db.begin(authed).await?;
     // Built once: a scoped token's `scripts:read` paths decide whether a dbt
     // node's SQL body may be returned, independently of the `assets:read` scope
     // that authorizes this endpoint.
-    let dbt_source_scope = build_scope_path_predicate(&authed, "scripts", "read");
-    // A tag scope is an orthogonal hard restriction: a token limited to some
-    // tags must not read a job outside them however else it is authorized, and
-    // RLS does not know about tags. `require_job_read_access` enforces this the
-    // same way for the progress half of the page; the helper itself lives in
-    // `windmill-api`, which this crate cannot depend on, but the predicate is
-    // one column. `None` for an unscoped caller — the common case — so this
-    // costs nothing for a normal session.
-    let job_in_tag_scope = match (q.dbt_job_id, get_scope_tags(&authed)) {
-        (Some(job), Some(tags)) => {
-            sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM v2_job
-                                WHERE id = $1 AND workspace_id = $2 AND tag = ANY($3))",
-                job,
-                &w_id,
-                &tags.iter().map(|t| t.to_string()).collect::<Vec<_>>(),
-            )
-            .fetch_one(&db)
-            .await?
-                == Some(true)
-        }
-        _ => true,
-    };
-    let dbt_job_id = q.dbt_job_id.filter(|_| job_in_tag_scope);
-
+    let dbt_source_scope = build_scope_path_predicate(authed, "scripts", "read");
 
     let kind_filter: Option<Vec<AssetKind>> = q.asset_kinds.as_ref().map(|s| {
         s.split(',')
@@ -1409,17 +1406,19 @@ async fn asset_graph(
     // what lets a run page stop polling. Inside the authed transaction, so the
     // `v2_job` gate is the same one the graph itself went through.
     let dbt_snapshot_job = match dbt_job_id {
-        Some(job) => sqlx::query_scalar!(
-            "SELECT g.job_id FROM dbt_graph_snapshot g
+        Some(job) => {
+            sqlx::query_scalar!(
+                "SELECT g.job_id FROM dbt_graph_snapshot g
               WHERE g.workspace_id = $1 AND g.job_id = $2
                 AND EXISTS (SELECT 1 FROM v2_job j
                              WHERE j.id = g.job_id AND j.workspace_id = g.workspace_id)
               LIMIT 1",
-            &w_id,
-            job,
-        )
-        .fetch_optional(&mut *tx)
-        .await?,
+                &w_id,
+                job,
+            )
+            .fetch_optional(&mut *tx)
+            .await?
+        }
         None => None,
     };
     tx.commit().await?;
@@ -1500,8 +1499,7 @@ async fn asset_graph(
         let Some(asset_path) = r.asset_path.as_deref() else {
             continue;
         };
-        if r.resource_type != "source"
-            && dbt_writes.contains(&(r.script_path.as_str(), asset_path))
+        if r.resource_type != "source" && dbt_writes.contains(&(r.script_path.as_str(), asset_path))
         {
             *dbt_model_count.entry(r.script_path.clone()).or_default() += 1;
         }

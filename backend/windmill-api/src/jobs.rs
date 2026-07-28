@@ -135,6 +135,7 @@ pub fn workspaced_service() -> Router {
 
     Router::new()
         .route("/run_progress/{id}", get(get_run_progress))
+        .route("/dbt_graph/{id}", get(get_dbt_run_graph))
         .route(
             "/run/f/{*script_path}",
             post(run_flow_by_path)
@@ -826,6 +827,50 @@ struct AssetProgress {
 /// `require_job_read_access` is what gates it: `materialized_partition` has no
 /// RLS, and RLS alone would not enforce a scoped token's tag filter or the
 /// app-embed cutoff, which that helper adds on top.
+/// The asset graph as one run saw it.
+///
+/// Lives here rather than beside the workspace graph in `windmill-api-assets`
+/// because pinning to a job is job-scoped data, and the contract for reading a
+/// job is `require_job_read_access` — tag scope, the `created_by` fast path, the
+/// app-embed restriction, view tokens, and the RLS probe. That helper is in this
+/// crate, which depends on `windmill-api-assets` and so cannot be called from
+/// it. Restating those five parts near the graph query is what kept omitting one,
+/// so the job-pinned read is here, on the same gate as the progress it colours,
+/// and `/assets/graph` cannot pin to a job at all.
+async fn get_dbt_run_graph(
+    authed: ApiAuthed,
+    OptViewToken(view_token): OptViewToken,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, job_id)): Path<(String, Uuid)>,
+    Query(q): Query<windmill_api_assets::GraphQuery>,
+) -> error::JsonResult<windmill_api_assets::AssetGraphResponse> {
+    let created_by = sqlx::query_scalar!(
+        "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
+        job_id,
+        &w_id
+    )
+    .fetch_optional(&db)
+    .await?;
+    // No such job: answer the unpinned graph rather than 404. A run page loads
+    // before its job is visible to this replica, and the deployed version's
+    // graph is the right thing to draw meanwhile.
+    let Some(created_by) = created_by else {
+        return windmill_api_assets::asset_graph_for(&authed, &w_id, user_db, db, q, None).await;
+    };
+    require_job_read_access(
+        &db,
+        &user_db,
+        &authed,
+        &w_id,
+        &job_id,
+        &created_by,
+        view_token.as_deref(),
+    )
+    .await?;
+    windmill_api_assets::asset_graph_for(&authed, &w_id, user_db, db, q, Some(job_id)).await
+}
+
 async fn get_run_progress(
     authed: ApiAuthed,
     // A shared run page carries its access in this token, not in the caller's

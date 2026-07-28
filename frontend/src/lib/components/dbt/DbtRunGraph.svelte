@@ -63,10 +63,13 @@
 			const params = new URLSearchParams({ asset_kinds: 'table' })
 			if (folder) params.set('folder', folder)
 			if (scriptHash != undefined) params.set('dbt_script_hash', String(scriptHash))
-			// Passed unconditionally: only a dynamic descriptor leaves a per-run
-			// snapshot, and without one the pinned version's graph answers.
-			if (jobId != undefined) params.set('dbt_job_id', jobId)
-			const res = await fetch(`${OpenAPI.BASE ?? ''}/w/${ws}/assets/graph?${params}`, {
+			// A run page reads the graph through the JOB, which authorizes it the
+			// same way the progress half is authorized; `/assets/graph` answers the
+			// workspace-wide question and cannot pin to a run. Only a dynamic
+			// descriptor leaves a per-run snapshot, and without one the pinned
+			// version's graph answers, so the run route is used unconditionally.
+			const path = jobId != undefined ? `/w/${ws}/jobs/dbt_graph/${jobId}` : `/w/${ws}/assets/graph`
+			const res = await fetch(`${OpenAPI.BASE ?? ''}${path}?${params}`, {
 				credentials: 'include'
 			})
 			if (!res.ok) {
@@ -468,9 +471,7 @@
 	let selectedRelation = $derived.by(() => {
 		const sel = selection
 		if (sel?.kind !== 'asset' || !selectedDbt) return undefined
-		const rel = run?.nodes?.find(
-			(n) => n.unique_id === selectedDbt!.unique_id
-		)?.relation_name
+		const rel = run?.nodes?.find((n) => n.unique_id === selectedDbt!.unique_id)?.relation_name
 		return rel ? splitRelation(rel).join('.') : undefined
 	})
 </script>

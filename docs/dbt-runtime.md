@@ -230,16 +230,16 @@ and scoped to one job and its descendants, and `/jobs/run_progress` still
 requires an authenticated caller. It is an extra grant for a **logged-in user
 who lacks access to that job** — which is normally why someone was sent a link.
 
-Today the two halves of a dbt run page answer differently, because
-`/jobs/run_progress` honours the token and `/assets/graph` does not:
+Both halves of a dbt run page now go through the same gate —
+`/jobs/run_progress/{id}` and `/jobs/dbt_graph/{id}`, each behind
+`require_job_read_access` — so the token is accepted for the job on both. What
+remains is the second, independent filter: the graph's `live` CTE and its
+`raw_code` CASE are governed by RLS on the `script` row, which a view token says
+nothing about. So a viewer gets the run's progress but:
 
 - **No read on the script** (the usual case, since that is what the link is
   working around): the `live` CTE matches nothing and the dbt half comes back
   empty. The Models panel is blank while the progress rows exist beneath it.
-- **Read on the script but not the job**: the snapshot gate falls back to the
-  deployed graph, so the models shown are today's rather than the ones that run
-  built — visibly wrong for a dynamic descriptor.
-
 It errs closed, so this is a gap in what a shared page *shows*, not in what it
 protects.
 
@@ -251,17 +251,16 @@ being able to see the `script` that produced it.
 
 So the fix is to let a validated view token authorise the graph's SHAPE for that
 job — nodes, edges and relation paths — while `raw_code` stays behind script
-RLS:
+RLS. Moving the read onto `/jobs/dbt_graph/{id}` did the structural half: the
+token is already validated there, and the caller is already known to be entitled
+to the job. What is left is to carry that decision into the query:
 
-1. Move `OptViewToken` and `validate_view_token` from `windmill-api` into
-   `windmill-api-auth`, which `windmill-api-assets` already depends on. Both are
-   self-contained: the validator needs only `get_workspace_key`, an HMAC and
-   `job_ancestor_chain_ids`.
-2. Have `asset_graph` accept `OptViewToken` and, when `dbt_job_id` is given and
-   the token validates for that job, satisfy both the `v2_job` gate and the
-   `live` script filter for that job's snapshot alone.
-3. Leave the `raw_code` CASE exactly as it is.
-4. Test that such a viewer gets the nodes and edges and a null `raw_code`.
+1. Pass a "this job is authorised by token" flag into `asset_graph_for`, and let
+   it satisfy the `live` script filter for that job's snapshot alone. The flag
+   is a `bool`, not a token — the validation stays in `windmill-api`, so nothing
+   needs moving between crates.
+2. Leave the `raw_code` CASE exactly as it is.
+3. Test that such a viewer gets the nodes and edges and a null `raw_code`.
 
 ## What a dbt job returns, and which half of it is a contract
 
