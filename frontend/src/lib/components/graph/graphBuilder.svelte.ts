@@ -1232,6 +1232,8 @@ export function graphBuilder(
 		}
 
 		if (failureModule) {
+			// Keyed by failing step, so a step that failed several times (loop iterations each run
+			// their own handler, with ids like `failure-0-1`) gets one marker, not a stack of them.
 			let toAdd: Record<string, string> = {}
 			Object.keys(extra.flowModuleStates ?? {}).forEach((id) => {
 				if (id.startsWith('failure')) {
