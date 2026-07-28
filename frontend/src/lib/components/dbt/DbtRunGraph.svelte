@@ -156,8 +156,20 @@
 		const run = parseDbtRun(result)
 		if (!run?.nodes?.length) return undefined
 		const ran = new Set(run.nodes.map((n) => n.unique_id))
+		// dbt ids are `<resource_type>.<package>.<name>`, so the packages this run
+		// named are the projects it could speak for.
+		const pkg = (id: string) => id.split('.')[1]
+		const ranPackages = new Set(run.nodes.map((n) => pkg(n.unique_id)))
 		const keep = (a: (typeof scoped.assets)[number]) =>
-			a.dbt == undefined || a.dbt.resource_type === 'source' || ran.has(a.dbt.unique_id)
+			a.dbt == undefined ||
+			a.dbt.resource_type === 'source' ||
+			ran.has(a.dbt.unique_id) ||
+			// Provenance keeps one winner per relation, so a relation two projects
+			// both write may carry the OTHER project's model. This run cannot be
+			// judged against an id that was never its own — keeping it shows the
+			// relation the run did write, where dropping it makes the run look like
+			// it built fewer models than it did.
+			!ranPackages.has(pkg(a.dbt.unique_id))
 		const assets = scoped.assets.filter(keep)
 		if (assets.length === scoped.assets.length) return undefined
 		const ids = new Set(assets.map((a) => `${a.kind}:${a.path}`))
@@ -182,8 +194,16 @@
 		const known = new Set(
 			scoped.assets.map((a) => a.dbt?.unique_id).filter((u): u is string => u != undefined)
 		)
+		// Only relations whose own project still lacks the id count as gone: an id
+		// missing because another project won the provenance is not a deletion.
+		const knownPackages = new Set(
+			[...known].map((u) => u.split('.')[1]).filter((p) => p != undefined)
+		)
 		return run.nodes.filter(
-			(n) => !known.has(n.unique_id) && /^(model|seed|snapshot)\./.test(n.unique_id)
+			(n) =>
+				!known.has(n.unique_id) &&
+				knownPackages.has(n.unique_id.split('.')[1]) &&
+				/^(model|seed|snapshot)\./.test(n.unique_id)
 		).length
 	})
 
@@ -243,23 +263,32 @@
 	// authorization, isolation and cancellation as any other. Explicit rather
 	// than on-select: each preview costs a worker slot and a few seconds of
 	// engine start-up, so it must be something the reader asked for.
-	let preview = $state<
-		{ node: string; rows: Record<string, unknown>[] } | { error: string } | undefined
-	>(undefined)
-	let previewing = $state(false)
+	type Preview =
+		| { rows: Record<string, unknown>[]; tookMs: number }
+		| { error: string }
+		| { pending: true }
+	// Cached per model id, so flipping between two nodes does not re-run a job
+	// that costs a worker slot and an engine start-up. A preview also keeps
+	// running when the selection moves — the result lands in the cache and is
+	// there when the reader comes back.
+	let previews = $state<Record<string, Preview>>({})
+	let preview = $derived(selectedDbt ? previews[selectedDbt.unique_id] : undefined)
+	let previewing = $derived(preview != undefined && 'pending' in preview)
 
 	async function runPreview() {
 		const ws = $workspaceStore
-		if (!ws || !selectedDbt || previewing) return
-		previewing = true
-		preview = undefined
+		const dbt = selectedDbt
+		if (!ws || !dbt || previews[dbt.unique_id] != undefined) return
+		const key = dbt.unique_id
+		const startedAt = Date.now()
+		previews = { ...previews, [key]: { pending: true } }
 		try {
 			const id = await JobService.runScriptByPath({
 				workspace: ws,
 				path: scriptPath,
 				requestBody: {
 					dbt_command: 'show',
-					select: [splitUniqueId(selectedDbt.unique_id).name],
+					select: [splitUniqueId(key).name],
 					limit: 25
 				}
 			})
@@ -270,26 +299,24 @@
 				const done = await JobService.getCompletedJobResultMaybe({ workspace: ws, id })
 				if (!done.completed) continue
 				const res = done.result as { node?: string; show?: Record<string, unknown>[] } | undefined
-				if (done.success && res?.show) {
-					preview = { node: res.node ?? '', rows: res.show }
-				} else {
-					preview = { error: 'The preview job failed — open it from Runs for the detail.' }
-				}
+				const next: Preview =
+					done.success && res?.show
+						? { rows: res.show, tookMs: Date.now() - startedAt }
+						: { error: 'The preview job failed — open it from Runs for the detail.' }
+				previews = { ...previews, [key]: next }
 				return
 			}
-			preview = { error: 'The preview is still running; open it from Runs.' }
+			previews = {
+				...previews,
+				[key]: { error: 'The preview is still running; open it from Runs.' }
+			}
 		} catch (e) {
-			preview = { error: e instanceof Error ? e.message : String(e) }
-		} finally {
-			previewing = false
+			previews = {
+				...previews,
+				[key]: { error: e instanceof Error ? e.message : String(e) }
+			}
 		}
 	}
-
-	// Clearing on selection change: rows belong to the model they came from.
-	$effect(() => {
-		void selection
-		preview = undefined
-	})
 
 	// Selected a relation this run built, but its stored provenance belongs to
 	// another project that writes the same table. Saying so beats rendering
@@ -337,7 +364,10 @@
 					<Button
 						unifiedSize="2xs"
 						variant="subtle"
-						startIcon={{ icon: previewing ? Loader2 : TableProperties }}
+						startIcon={{
+							icon: previewing ? Loader2 : TableProperties,
+							classes: previewing ? 'animate-spin' : undefined
+						}}
 						disabled={previewing}
 						on:click={runPreview}
 						title="Run `dbt show` against this model and display the rows"
@@ -361,6 +391,11 @@
 			<div class="flex-1 min-h-0 overflow-auto">
 				{#if preview && 'error' in preview}
 					<div class="p-2 text-2xs text-secondary">{preview.error}</div>
+				{:else if preview && 'pending' in preview}
+					<div class="flex items-center gap-2 p-2 text-2xs text-secondary">
+						<Loader2 size={12} class="animate-spin" />
+						Running `dbt show` — this is a job, so it waits on a worker and the engine.
+					</div>
 				{:else if preview}
 					{@const cols = Object.keys(preview.rows[0] ?? {})}
 					{#if cols.length === 0}
@@ -386,6 +421,9 @@
 								{/each}
 							</tbody>
 						</table>
+						<div class="px-2 py-1 text-3xs text-tertiary">
+							{preview.rows.length} rows in {(preview.tookMs / 1000).toFixed(1)}s
+						</div>
 					{/if}
 				{:else}
 					<HighlightCode language="sql" code={selectedDbt.raw_code} />
