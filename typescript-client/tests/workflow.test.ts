@@ -1567,6 +1567,24 @@ describe("throwing inline step is checkpointed", () => {
     expect(() => stepErrorMarker("k", throwingToString)).not.toThrow();
   });
 
+  // Probing the original value only proves it serialized once. The marker is
+  // serialized again to reach the checkpoint, and by then the failure has
+  // nowhere left to go, so what survived the probe is what gets kept.
+  test("a property that serializes only once cannot break the checkpoint", () => {
+    let calls = 0;
+    const onceOnly = {
+      toJSON() {
+        if (calls++ > 0) throw new Error("second time");
+        return { ok: true };
+      },
+    };
+    const marker = stepErrorMarker("k", Object.assign(new Error("boom"), { payload: onceOnly }));
+    expect(marker.result.error.extra.payload).toEqual({ ok: true });
+    // re-serialized on the way to the checkpoint, and again by the wrapper
+    expect(() => JSON.stringify(marker)).not.toThrow();
+    expect(() => JSON.stringify(marker)).not.toThrow();
+  });
+
   // The caller reads `.name` off the thrown value to spot a suspend, before it
   // ever reaches the hardened marker. A hostile value escaping there leaves the
   // step uncheckpointed and a later replay parks on it forever.

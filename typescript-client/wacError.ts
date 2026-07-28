@@ -110,9 +110,14 @@ export function stepErrorMarker(key: string, e: unknown): Record<string, any> {
     for (const k of keys) {
       if (SERIALIZED_ERROR_FIELDS.includes(k)) continue;
       try {
-        const v = thrown[k];
-        JSON.stringify(v);
-        extra[k] = v;
+        // The snapshot, not the original: probing the original only proves it
+        // serialized *once*. A `toJSON` that succeeds and then throws — or one
+        // whose output depends on state that moves — would pass here and break
+        // the checkpoint encoding afterwards, when the failure has nowhere left
+        // to go. Keeping what the probe produced makes the check binding.
+        // `undefined` means the key would be omitted anyway (a function, a
+        // symbol, an explicit undefined), and `JSON.parse` rejects it for us.
+        extra[k] = JSON.parse(JSON.stringify(thrown[k]));
       } catch {
         // unreadable or unserializable: the failure itself still gets reported
       }
