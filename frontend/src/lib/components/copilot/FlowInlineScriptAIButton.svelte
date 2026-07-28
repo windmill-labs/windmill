@@ -41,7 +41,7 @@
 	/>
 {/snippet}
 
-{#if inSessionPane}
+{#if inSessionPane && $copilotInfo.enabled}
 	{@render button()}
 {:else if $copilotInfo.enabled}
 	{@render button(() => {

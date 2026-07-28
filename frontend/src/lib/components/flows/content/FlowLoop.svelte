@@ -74,7 +74,13 @@
 		}
 	})
 
-	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
+	const propPickerContext = getContext<PropPickerContext>('PropPickerContext')
+	const { flowPropPickerConfig } = propPickerContext
+	// Connecting means clicking a node in the graph, which the modal covers — offer it
+	// only when the panel is docked beside the graph.
+	const canConnectFromGraph = $derived(
+		!(propPickerContext?.collapsePropPickerUntilConnect?.() ?? false)
+	)
 	flowPropPickerConfig.set(undefined)
 
 	let stepPropPicker = $derived(
@@ -183,18 +189,20 @@
 							over. Example : ["banana", "apple", flow_input.my_fruit].
 						{/snippet}
 						{#snippet headerExtra()}
-							<FlowPlugConnect
-								connecting={$flowPropPickerConfig != undefined}
-								on:click={() => {
-									flowPropPickerConfig.set({
-										onSelect: (code) => {
-											setExpr(code)
-											return true
-										},
-										clearFocus: () => flowPropPickerConfig.set(undefined)
-									})
-								}}
-							/>
+							{#if canConnectFromGraph}
+								<FlowPlugConnect
+									connecting={$flowPropPickerConfig != undefined}
+									on:click={() => {
+										flowPropPickerConfig.set({
+											onSelect: (code) => {
+												setExpr(code)
+												return true
+											},
+											clearFocus: () => flowPropPickerConfig.set(undefined)
+										})
+									}}
+								/>
+							{/if}
 							{#if enableAi}
 								<IteratorGen
 									bind:this={iteratorGen}

@@ -159,8 +159,17 @@
 		flowModuleSchemaMap?.enableNotes?.()
 	}
 
+	const flowPropPickerConfig = writable<FlowPropPickerConfig | undefined>(undefined)
+	// Closing the modal unmounts the panel that started a graph connect, but the config
+	// outlives it — a later pick would run a closure over a step nobody is editing.
+	$effect(() => {
+		if (!panelModalOpen) {
+			flowPropPickerConfig.set(undefined)
+		}
+	})
+
 	setContext<PropPickerContext>('PropPickerContext', {
-		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
+		flowPropPickerConfig,
 		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined),
 		collapsePropPickerUntilConnect: () => panelMode === 'modal'
 	})
