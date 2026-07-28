@@ -5878,7 +5878,7 @@ pub async fn wac_inline_checkpoint(
     let source_hash = runnable_id.map(|h| h.to_string());
 
     let mut tx = db.begin().await?;
-    let stored = windmill_common::wac::persist_inline_checkpoint_delta(
+    let failure = windmill_common::wac::persist_inline_checkpoint_delta(
         &mut tx,
         &job_id,
         source_hash.as_deref(),
@@ -5890,9 +5890,8 @@ pub async fn wac_inline_checkpoint(
     .await?;
     tx.commit().await?;
 
-    // Only failures are echoed back: a successful step's result can be large,
-    // and the SDK already holds it.
-    let failure = windmill_common::wac::is_wac_failure(&stored).then_some(stored);
+    // Only failures come back: a successful step's result can be large, and the
+    // SDK already holds it.
     Ok(Json(WacInlineCheckpointResponse { failure }))
 }
 

@@ -999,6 +999,24 @@ class TestRaisingInlineStepIsCheckpointed:
         assert error["name"] == "HttpError"
         assert "extra" not in _step_error_marker("k", ValueError("plain"))["result"]["error"]
 
+    def test_unserializable_attributes_do_not_cost_the_fast_path(self):
+        """The fast-path POST serializes strictly, so an exception holding a
+        live object — ``resp.raise_for_status()`` is the common one — must not
+        make the marker unserializable and drop the step onto the slow path."""
+        import json as _json
+
+        from wmill.client import _step_error_marker
+
+        class Boom(Exception):
+            def __init__(self):
+                super().__init__("boom")
+                self.response = object()
+                self.status = 429
+
+        marker = _step_error_marker("k", Boom())
+        _json.dumps(marker)  # raises if an attribute leaked through unserialized
+        assert marker["result"]["error"]["extra"]["status"] == 429
+
     def test_fast_path_posts_error_and_raises_the_replay_exception(self, monkeypatch):
         """The default path: the checkpoint is POSTed and the workflow body gets
         the same ``TaskError`` a replay rebuilds from the marker — raising the

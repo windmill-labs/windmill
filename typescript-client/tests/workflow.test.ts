@@ -1504,6 +1504,27 @@ describe("throwing inline step is checkpointed", () => {
     expect(stepErrorMarker("k", new Error("plain")).result.error.extra).toBeUndefined();
   });
 
+  // The marker is stringified while the workflow is still running (checkpoint
+  // POST, then wrapper output). A property that can't survive that would end
+  // the job instead of reaching the user's catch.
+  test("a property that cannot be serialized is dropped, not propagated", () => {
+    const circular: any = { name: "req" };
+    circular.self = circular;
+    const withCircular = Object.assign(new Error("boom"), { code: 429, request: circular });
+    const marker = stepErrorMarker("k", withCircular);
+    expect(() => JSON.stringify(marker)).not.toThrow();
+    expect(marker.result.error.extra).toEqual({ code: 429 });
+
+    const withThrowingAccessor = new Error("boom");
+    Object.defineProperty(withThrowingAccessor, "boobytrap", {
+      enumerable: true,
+      get() {
+        throw new Error("read me and die");
+      },
+    });
+    expect(() => stepErrorMarker("k", withThrowingAccessor)).not.toThrow();
+  });
+
   test("a replayed step failure is named TaskError, like the python client", async () => {
     const ctx = new WorkflowCtx({ completed_steps: { step_0: marker } });
     let caught: any;

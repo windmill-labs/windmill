@@ -211,6 +211,28 @@ mod tests {
         );
     }
 
+    /// `extra` is the failing side's own attributes, so it can carry a response
+    /// body straight past the cap that exists to bound the checkpoint.
+    #[test]
+    fn an_oversized_extra_is_dropped_rather_than_stored() {
+        let rec = wac_failure_record(
+            "s",
+            None,
+            &json!({"error": {"message": "m", "extra": {"body": "x".repeat(100_000)}}}),
+        );
+        assert_eq!(rec["result"]["error"].get("extra"), None);
+        assert_eq!(rec["result"]["error"]["extra_omitted"], json!(true));
+
+        // one that fits is kept whole
+        let small = wac_failure_record(
+            "s",
+            None,
+            &json!({"error": {"message": "m", "extra": {"code": 429}}}),
+        );
+        assert_eq!(small["result"]["error"]["extra"], json!({"code": 429}));
+        assert_eq!(small["result"]["error"].get("extra_omitted"), None);
+    }
+
     /// `message` is the failure's own message; `Value::to_string` on a string
     /// would hand the handler `"boom"` with the JSON quotes still on it.
     #[test]
@@ -371,6 +393,18 @@ pub fn wac_failure_record(step_key: &str, child_job_id: Option<&str>, raw_result
         }
     }
 
+    // `extra` is the failing side's own attributes, so it can hold a response
+    // body or a dataframe repr and route straight around the stack cap into the
+    // checkpoint this record is rewritten into on every later step. Dropped
+    // wholesale past the same budget rather than truncated, since half a
+    // structure is worse than a flag saying it was too big.
+    if let Some(extra) = error.get("extra") {
+        if serde_json::to_string(extra).map_or(true, |s| s.len() > MAX_STACK_BYTES) {
+            error.remove("extra");
+            error.insert("extra_omitted".to_string(), Value::Bool(true));
+        }
+    }
+
     let mut record = serde_json::Map::new();
     record.insert(WAC_ERROR_MARKER.to_string(), Value::Bool(true));
     // `str(e)` / `e.message` reads the failure's own message whether it came
@@ -526,7 +560,7 @@ pub async fn persist_inline_checkpoint_delta(
     result: Value,
     started_at: Option<&str>,
     duration_ms: Option<u64>,
-) -> error::Result<Value> {
+) -> error::Result<Option<Value>> {
     // Row-lock the existing checkpoint row (if any) for the duration of the
     // transaction. NULL if the row doesn't exist yet — see the doc comment
     // above for why the first-write race is accepted.
@@ -583,7 +617,11 @@ pub async fn persist_inline_checkpoint_delta(
 
     let result = normalize_posted_step_result(key, result);
 
-    add_completed_step(&mut checkpoint, key, result.clone());
+    // Only a failure is ever read back, so only a failure is copied: a
+    // successful step's result can be large and moves straight into the
+    // checkpoint.
+    let failure = is_wac_failure(&result).then(|| result.clone());
+    add_completed_step(&mut checkpoint, key, result);
 
     let status_json = serde_json::to_value(&checkpoint)
         .map_err(|e| Error::InternalErr(format!("Failed to serialize checkpoint: {e}")))?;
@@ -630,5 +668,5 @@ pub async fn persist_inline_checkpoint_delta(
     .await
     .map_err(|e| Error::InternalErr(format!("Failed to write step timeline: {e}")))?;
 
-    Ok(result)
+    Ok(failure)
 }

@@ -2728,9 +2728,21 @@ def _step_error_marker(key: str, exc: BaseException) -> dict:
     # Custom attributes go under ``extra``, the same key the python executor uses
     # for a failed child job, so an exception carrying e.g. a ``code`` keeps it
     # whether it failed as a task or as a step.
+    #
+    # Coerced through ``default=str`` the way the executor writes its own error:
+    # the fast-path POST serializes strictly, and the commonest failing step
+    # there is — ``resp.raise_for_status()``, whose ``__dict__`` holds a request
+    # and a response object — would otherwise fail to serialize and silently
+    # drop every such failure onto the slow suspend-and-replay path.
     extra = getattr(exc, "__dict__", None)
     if extra:
-        error["extra"] = extra
+        # Narrow: what json raises for something it cannot represent. A broader
+        # catch here would hide a mistake in this function as a silently missing
+        # field, which is how it read before.
+        try:
+            error["extra"] = json.loads(json.dumps(extra, default=str))
+        except (TypeError, ValueError, RecursionError):
+            pass
     return {
         "__wmill_error": True,
         "message": str(exc),

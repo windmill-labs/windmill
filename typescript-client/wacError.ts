@@ -41,11 +41,26 @@ export function stepErrorMarker(key: string, e: unknown): Record<string, any> {
   // Custom properties go under `extra`, the same key and the same skip-list the
   // bun/deno executors use for a failed child job, so an error carrying e.g. a
   // `code` keeps it whether it failed as a task or as a step.
+  //
+  // Unlike the executors, which serialize once as the job dies, this record is
+  // stringified while the workflow is still running — once for the checkpoint
+  // POST and again for the wrapper's output. A property that cannot survive
+  // that would take the whole workflow down instead of reaching the `catch` the
+  // user wrote, so each one has to prove it round-trips before it is kept.
+  // `AxiosError.request` is the everyday example: it is circular via
+  // `socket._httpMessage`. Reading the property can throw too, since
+  // `getOwnPropertyNames` returns accessors and this invokes them.
   if (e instanceof Error) {
     const extra: Record<string, any> = {};
     for (const k of Object.getOwnPropertyNames(e)) {
       if (SERIALIZED_ERROR_FIELDS.includes(k)) continue;
-      extra[k] = (e as any)[k];
+      try {
+        const v = (e as any)[k];
+        JSON.stringify(v);
+        extra[k] = v;
+      } catch {
+        // unreadable or unserializable: the failure itself still gets reported
+      }
     }
     if (Object.keys(extra).length > 0) error.extra = extra;
   }
