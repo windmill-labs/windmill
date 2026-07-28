@@ -305,8 +305,8 @@
 		})
 	})
 	// Select all on the first non-empty load (acting on everything is the common
-	// intent);
-	// only once, so a refetch after a deploy doesn't re-select the leftovers.
+	// intent); only once, so a refetch after a deploy doesn't re-select the
+	// leftovers.
 	let hasAutoSelected = $state(false)
 
 	const deploymentStatus: Record<
@@ -499,6 +499,12 @@
 	let bulkDiscardItems = $state<Row[] | undefined>(undefined)
 	let discarding = $state(false)
 	const bulkPermanent = $derived((bulkDiscardItems ?? []).filter(isDestructiveDiscard))
+	// Third outcome the modal must cover: a draft-only item someone else also
+	// drafted isn't deleted — only this user's draft goes; the item survives via
+	// the other drafts.
+	const bulkSharedCount = $derived(
+		(bulkDiscardItems ?? []).filter((i) => i.draft_only && !isDestructiveDiscard(i)).length
+	)
 
 	function onDiscardSelectedClick() {
 		const toDiscard = visibleItems.filter((i) => selectedItems.includes(i.key) && isDiscardable(i))
@@ -875,6 +881,13 @@
 			? 's'
 			: ''}. Items with a deployed version revert to it.
 	</p>
+	{#if bulkSharedCount > 0}
+		<p class="mt-2">
+			{bulkSharedCount} draft-only {bulkSharedCount === 1 ? 'item is' : 'items are'} also drafted by
+			other users: only your draft is removed and the {bulkSharedCount === 1 ? 'item' : 'items'} will
+			remain through theirs.
+		</p>
+	{/if}
 	{#if bulkPermanent.length > 0}
 		<p class="mt-2">
 			{bulkPermanent.length}
