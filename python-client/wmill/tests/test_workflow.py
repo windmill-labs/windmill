@@ -970,13 +970,8 @@ class TestErrorPropagation:
 
 
 class TestFailureRecordCorpus:
-    """The cases both SDKs must agree on, read from one shared file.
-
-    `name` and `stack` drifted between the two clients twice while the record
-    was being unified, and each time only a reviewer noticed: a suite that only
-    knows its own language cannot see a divergence. The corpus is the same file
-    the typescript suite reads.
-    """
+    """The cases both SDKs must agree on, from the corpus the typescript suite
+    also reads. Its `_readme` states the contract and why it is shared."""
 
     CORPUS = json.loads(
         (
@@ -1150,6 +1145,30 @@ class TestRaisingInlineStepIsCheckpointed:
         marker = _step_error_marker("k", HostileDict())
         _json.dumps(marker)
         assert marker["result"]["error"]["name"] == "HostileDict"
+
+        # Enumerating the attributes is part of the risk too: a `__dict__` that
+        # is truthy but not a mapping makes `.items()` raise, and a key json
+        # cannot represent breaks the checkpoint encoding later, where the
+        # failure has nowhere left to go.
+        class NotAMapping(Exception):
+            @property
+            def __dict__(self):
+                return "definitely not a mapping"
+
+        marker = _step_error_marker("k", NotAMapping())
+        _json.dumps(marker)
+        assert marker["result"]["error"]["name"] == "NotAMapping"
+
+        class OddKey(Exception):
+            def __init__(self):
+                super().__init__("boom")
+                self.code = 429
+
+        odd = OddKey()
+        odd.__dict__[(1, 2)] = "tuple key"
+        marker = _step_error_marker("k", odd)
+        _json.dumps(marker)  # a surviving tuple key would raise here
+        assert marker["result"]["error"]["extra"] == {"code": 429}
 
         # A float is serializable, so `default=` never sees NaN — it would go out
         # as a bare `NaN` literal, which is not JSON and which the backend

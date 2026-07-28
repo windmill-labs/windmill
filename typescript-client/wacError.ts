@@ -3,8 +3,8 @@
 // Deliberately dependency-free so the tests can import it directly: the rest of
 // client.ts pulls in the generated API modules, which is why the workflow test
 // suite re-implements WorkflowCtx inline. What a caught failure looks like, and
-// what is a failure at all rather than the SDK's own control flow, is decided
-// here — so it is decided against the shipped code rather than against a copy.
+// what counts as a failure rather than the SDK's own control flow, is decided
+// here, against the shipped code rather than a copy of it.
 
 /** Error properties the executors already report as named fields, so they must
  *  not be repeated inside `extra`. Kept identical to the skip-list in the

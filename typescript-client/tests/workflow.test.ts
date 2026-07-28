@@ -5,15 +5,13 @@
  */
 import { expect, test, describe } from "bun:test";
 
-// The two functions that decide what a caught failure looks like come from the
-// shipped module, not from the mirror below: they are what drifted from the
-// backend's shape before, so a copy of them here would guard nothing.
+// From the shipped module, not the mirror below: these decide what a caught
+// failure looks like and what is the SDK's own control flow, so a copy here
+// would guard nothing.
 import { isSuspendSignal, stepErrorMarker, taskErrorFromMarker } from "../wacError";
 
-// The cases both SDKs must agree on, read from the same file the python suite
-// reads. `name` and `stack` drifted between the two clients twice while the
-// record was being unified, and a suite that only knows its own language cannot
-// see that.
+// The cases both SDKs must agree on, from the corpus the python suite also
+// reads. Its `_readme` states the contract and why it is shared.
 import corpus from "../../backend/windmill-common/src/wac_failure_corpus.json";
 
 describe("shared failure-record corpus", () => {

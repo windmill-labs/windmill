@@ -2772,25 +2772,30 @@ def _step_error_marker(key: str, exc: BaseException) -> dict:
     # there is — ``resp.raise_for_status()``, whose ``__dict__`` holds a request
     # and a response object — would otherwise fail to serialize and silently
     # drop every such failure onto the slow suspend-and-replay path.
-    # ``getattr``'s default only swallows ``AttributeError``; an exception
-    # overriding ``__getattribute__`` raises whatever it likes from this read.
+    # Enumerating is part of the risk, not just reading: ``getattr``'s default
+    # only swallows ``AttributeError``, an exception overriding
+    # ``__getattribute__`` raises whatever it likes, and a ``__dict__`` that is
+    # truthy but not a mapping makes ``.items()`` raise. All of it runs inside
+    # the ``except`` that is reporting the user's failure, so an escape here
+    # would replace their error with an unrelated one and skip the checkpoint.
     try:
-        extra = getattr(exc, "__dict__", None)
+        _raw_extra = getattr(exc, "__dict__", None)
+        _pairs = list(_raw_extra.items()) if _raw_extra else []
     except Exception:
-        extra = None
-    if extra:
-        # ``default`` is where json hands back the objects it cannot represent,
-        # and ``str()`` on a detached ORM row or a proxy over a closed
-        # connection raises in turn. This runs inside the ``except`` that is
-        # reporting the user's failure, so an escape here would replace their
-        # error with an unrelated one and skip the checkpoint entirely.
-        #
+        _pairs = []
+    if _pairs:
         # Per attribute, so one that cannot be represented does not take the
         # rest with it — an ``AxiosError``-shaped exception carrying both a
         # ``code`` and a cyclic ``request`` keeps the ``code``. The typescript
         # client admits properties one at a time for the same reason.
         safe_extra = {}
-        for _k, _v in extra.items():
+        for _pair in _pairs:
+            # The whole pair, not just the value: a key json cannot represent (a
+            # tuple, say) survives a value-only check and then breaks the
+            # checkpoint encoding, where the failure has nowhere left to go. The
+            # round trip also normalizes what json does accept, so an int key
+            # arrives as the string a replay will read.
+            #
             # Narrow: what json raises for something it cannot represent. A
             # broader catch would hide a mistake here as a silently missing
             # field, which is how it read before. ``parse_constant`` catches the
@@ -2798,8 +2803,11 @@ def _step_error_marker(key: str, exc: BaseException) -> dict:
             # ``NaN``/``Infinity`` pass through as bare literals that are not
             # JSON and that the backend's extractor rejects.
             try:
-                safe_extra[_k] = json.loads(
-                    json.dumps(_v, default=_safe_str), parse_constant=lambda c: c
+                safe_extra.update(
+                    json.loads(
+                        json.dumps(dict([_pair]), default=_safe_str),
+                        parse_constant=lambda c: c,
+                    )
                 )
             except (TypeError, ValueError, RecursionError):
                 pass

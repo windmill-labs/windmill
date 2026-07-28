@@ -13,19 +13,21 @@ Use a private `WINDMILL_DIR`. `/tmp/windmill/` is shared by every worktree's
 backend, so patching it in place leaks a modified SDK into other people's jobs.
 
 ```bash
-# 1. a backend of your own, with its own cache root
-cd backend
-DATABASE_URL=... PORT=8062 WINDMILL_DIR=/tmp/windmill-mytest \
-  cargo run --features quickjs            # add ,python to run python jobs
+# Run from the repository root. The backend holds a terminal of its own; every
+# other command is a subshell, so nothing depends on where the last one left you.
+
+# 1. a backend of your own, with its own cache root — in its own terminal
+(cd backend && DATABASE_URL=... PORT=8062 WINDMILL_DIR=/tmp/windmill-mytest \
+   cargo run --features quickjs)          # add ,python to run python jobs
 
 # 2. one job to populate the cache with the published SDK
 #    (any preview job importing the client will do)
 
 # 3. build the client and overwrite what the cache holds
-cd typescript-client && ./build.sh && npx tsdown --format esm --no-dts
-C=/tmp/windmill-mytest/cache_nomount/bun/windmill-client@*@@@1
-cp dist/index.mjs $C/dist/index.mjs
-cp dist/index.mjs $C/dist/client.mjs   # the package is code-split; cover both
+C=$(echo /tmp/windmill-mytest/cache_nomount/bun/windmill-client@*@@@1)
+(cd typescript-client && ./build.sh && npx tsdown --format esm --no-dts \
+   && cp dist/index.mjs "$C/dist/index.mjs" \
+   && cp dist/index.mjs "$C/dist/client.mjs")   # code-split package: cover both
 
 # python instead: copy the source file straight over, then drop the bytecode
 cp python-client/wmill/wmill/client.py \
