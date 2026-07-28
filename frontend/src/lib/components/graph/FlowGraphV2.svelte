@@ -27,6 +27,7 @@
 		type SimplifiableFlow
 	} from './graphBuilder.svelte'
 	import ModuleNode from './renderers/nodes/ModuleNode.svelte'
+	import FailureModuleNode from './renderers/nodes/FailureModuleNode.svelte'
 	import InputNode from './renderers/nodes/InputNode.svelte'
 	import BranchAllStart from './renderers/nodes/BranchAllStart.svelte'
 	import BranchAllEndNode from './renderers/nodes/BranchAllEndNode.svelte'
@@ -806,6 +807,7 @@
 	const nodeTypes = {
 		input2: InputNode,
 		module: ModuleNode,
+		failureModule: FailureModuleNode,
 		branchAllStart: BranchAllStart,
 		branchAllEnd: BranchAllEndNode,
 		forLoopEnd: ForLoopEndNode,
