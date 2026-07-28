@@ -125,6 +125,10 @@
 	const propPickerCtx = getContext<PropPickerContext | undefined>('PropPickerContext')
 	const suppressConnectAnimation = $derived(propPickerCtx?.inModalPanel?.() ?? false)
 	const pickerMode = $derived(propPickerWrapperContext?.pickerMode?.() ?? 'pane')
+	// Settings rows hand their properties to the wrapper, not to this form.
+	const connectableProperties = $derived(
+		pickableProperties ?? propPickerWrapperContext?.pickableProperties?.()
+	)
 	const {
 		inputMatches,
 		connectProp: focusProp,
@@ -570,7 +574,7 @@
 						     button itself, exactly as the other expression inputs do. -->
 						<ExpressionPicker
 							id={argName}
-							{pickableProperties}
+							pickableProperties={connectableProperties}
 							onSelect={(path) => {
 								connectProperty(path)
 								dispatch('change', { argName })

@@ -40,7 +40,8 @@
 		exprBeingEdited: writable([]),
 		connectProp: () => {},
 		clearConnect: () => connect.disarm(),
-		pickerMode: () => 'popover' as const
+		pickerMode: () => 'popover' as const,
+		pickableProperties: () => undefined
 	})
 
 	let open = $state(false)

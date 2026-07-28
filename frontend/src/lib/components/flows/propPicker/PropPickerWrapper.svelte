@@ -17,6 +17,8 @@
 		 *  taking a pane — for single-argument settings rows, which are not the step's
 		 *  input form. */
 		pickerMode: () => 'pane' | 'popover'
+		/** The wrapper owns these; nested inputs receive none of their own. */
+		pickableProperties: () => PickableProperties | undefined
 		exprBeingEdited: Writable<string[]>
 	}
 </script>
@@ -91,6 +93,7 @@
 		connectProp: (propName, onSelect) => connect.arm({ id: propName, onSelect }),
 		clearConnect: connect.disarm,
 		pickerMode: () => (popover ? 'popover' : 'pane'),
+		pickableProperties: () => pickableProperties,
 		exprBeingEdited: writable<string[]>([])
 	})
 
