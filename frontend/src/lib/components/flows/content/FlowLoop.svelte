@@ -1,4 +1,5 @@
 <script lang="ts">
+	import FlowPlugConnect from '$lib/components/FlowPlugConnect.svelte'
 	import { getContext } from 'svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import type { FlowEditorContext } from '../types'
@@ -182,6 +183,18 @@
 							over. Example : ["banana", "apple", flow_input.my_fruit].
 						{/snippet}
 						{#snippet headerExtra()}
+							<FlowPlugConnect
+								connecting={$flowPropPickerConfig != undefined}
+								on:click={() => {
+									flowPropPickerConfig.set({
+										onSelect: (code) => {
+											setExpr(code)
+											return true
+										},
+										clearFocus: () => flowPropPickerConfig.set(undefined)
+									})
+								}}
+							/>
 							{#if enableAi}
 								<IteratorGen
 									bind:this={iteratorGen}
