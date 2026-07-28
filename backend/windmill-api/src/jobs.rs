@@ -823,16 +823,9 @@ struct AssetProgress {
     error: Option<String>,
 }
 
-/// The asset graph as one run saw it.
-///
-/// Lives here rather than beside the workspace graph in `windmill-api-assets`
-/// because pinning to a job is job-scoped data, and the contract for reading a
-/// job is `require_job_read_access` — tag scope, the `created_by` fast path, the
-/// app-embed restriction, view tokens, and the RLS probe. That helper is in this
-/// crate, which depends on `windmill-api-assets` and so cannot be called from
-/// it. Restating those five parts near the graph query is what kept omitting one,
-/// so the job-pinned read is here, on the same gate as the progress it colours,
-/// and `/assets/graph` cannot pin to a job at all.
+/// The asset graph as one run saw it. Pinning to a job needs the full job-read
+/// contract, so it lives on `require_job_read_access` here rather than as a
+/// parameter on `/assets/graph`. See docs/dbt-runtime.md.
 async fn get_dbt_run_graph(
     authed: ApiAuthed,
     OptViewToken(view_token): OptViewToken,
@@ -841,15 +834,14 @@ async fn get_dbt_run_graph(
     Path((w_id, job_id)): Path<(String, Uuid)>,
     Query(q): Query<windmill_api_assets::GraphQuery>,
 ) -> error::JsonResult<windmill_api_assets::AssetGraphResponse> {
-    // The scope domain comes from the URL segment, so being under `/jobs` asks a
-    // scoped token for `jobs:read` alone — while the body returned is the asset
-    // graph, which `/assets/graph` charges `assets:read` for. Both, then: the job
-    // gate below gets the caller to THIS run, and this gets them to asset data at
-    // all. A token narrowed to polling run status must not read workspace
-    // topology through the route that colours a run page.
+    // The scope domain comes from the URL segment, so `/jobs` asks a scoped token
+    // for `jobs:read` alone while the body returned is asset data. Both are
+    // required: the job gate below reaches this run, this reaches assets at all.
     check_scopes(&authed, || "assets:read".to_string())?;
-    let created_by = sqlx::query_scalar!(
-        "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
+    let job = sqlx::query!(
+        "SELECT created_by, runnable_path,
+                CASE WHEN kind = 'script' THEN runnable_id END AS script_hash
+           FROM v2_job WHERE id = $1 AND workspace_id = $2",
         job_id,
         &w_id
     )
@@ -859,7 +851,7 @@ async fn get_dbt_run_graph(
     // job has aged out of retention still draws the deployed version instead of
     // an error. Reachable only with `assets:read`, which is exactly what
     // `/assets/graph` would have cost for the same answer.
-    let Some(created_by) = created_by else {
+    let Some(job) = job else {
         return windmill_api_assets::asset_graph_for(&authed, &w_id, user_db, db, q, None).await;
     };
     require_job_read_access(
@@ -868,11 +860,21 @@ async fn get_dbt_run_graph(
         &authed,
         &w_id,
         &job_id,
-        &created_by,
+        &job.created_by,
         view_token.as_deref(),
     )
     .await?;
-    windmill_api_assets::asset_graph_for(&authed, &w_id, user_db, db, q, Some(job_id)).await
+    // A preview or flow job names no deployed version, so there is no graph to
+    // pin to and the workspace one answers.
+    let pinned =
+        job.runnable_path
+            .zip(job.script_hash)
+            .map(|(path, hash)| windmill_api_assets::PinnedRun {
+                job_id,
+                script_path: path,
+                script_hash: hash,
+            });
+    windmill_api_assets::asset_graph_for(&authed, &w_id, user_db, db, q, pinned).await
 }
 
 /// Lives with the job routes, not the asset ones, because it is job-scoped and

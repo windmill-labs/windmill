@@ -223,44 +223,34 @@ The parse is what makes a newly added model appear in the same run that builds
 it, rather than one run late: the graph is written before the build, so the run
 page shows the model while it is being built.
 
-## What a share-link viewer sees, and the follow-up that fixes it
+## What a share-link viewer sees
 
 A share link is not anonymous access: the token is HMAC'd with the workspace key
-and scoped to one job and its descendants, and `/jobs/run_progress` still
-requires an authenticated caller. It is an extra grant for a **logged-in user
-who lacks access to that job** — which is normally why someone was sent a link.
+and scoped to one job and its descendants. It is an extra grant for a **logged-in
+user who lacks access to that job** — which is normally why someone was sent a
+link.
 
-Both halves of a dbt run page now go through the same gate —
-`/jobs/run_progress/{id}` and `/jobs/dbt_graph/{id}`, each behind
-`require_job_read_access` — so the token is accepted for the job on both. What
-remains is the second, independent filter: the graph's `live` CTE and its
-`raw_code` CASE are governed by RLS on the `script` row, which a view token says
-nothing about. So a viewer gets the run's progress but:
+Both halves of a dbt run page go through one gate: `/jobs/run_progress/{id}` and
+`/jobs/dbt_graph/{id}`, each behind `require_job_read_access`, which validates
+the token. The graph then has a second, independent filter — RLS on the `script`
+row — and a viewer sent a link usually has no grant there. Deciding the graph's
+SHAPE under that filter is wrong: it would answer for the caller's access to the
+project rather than for the run they were given, and the Models panel would come
+back blank beneath working progress rows.
 
-- **No read on the script** (the usual case, since that is what the link is
-  working around): the `live` CTE matches nothing and the dbt half comes back
-  empty. The Models panel is blank while the progress rows exist beneath it.
-It errs closed, so this is a gap in what a shared page *shows*, not in what it
-protects.
+So a pinned run resolves its version from the JOB ROW, not from `script`: the
+`live` CTE takes the path and hash the handler read after authorizing the job.
+Two things make that safe rather than a widening:
 
-**Relaxing it leaks nothing new.** `v2_job_completed.result` already carries
-every node's `unique_id` and `relation_name`, and a share-link viewer can read
-it — so the model set and its relations are already visible to them. The only
-incremental thing in the graph is `raw_code`, and that is gated separately, on
-being able to see the `script` that produced it.
+- **It leaks nothing new.** `v2_job_completed.result` already carries every
+  node's `unique_id` and `relation_name`, and this viewer can read it — the
+  model set and its relations are already visible to them.
+- **`raw_code` is gated separately**, on an `EXISTS` against `script` in the
+  authed transaction. The body of a model is the project's source code and stays
+  behind access to the project, whatever the shape query resolved.
 
-So the fix is to let a validated view token authorise the graph's SHAPE for that
-job — nodes, edges and relation paths — while `raw_code` stays behind script
-RLS. Moving the read onto `/jobs/dbt_graph/{id}` did the structural half: the
-token is already validated there, and the caller is already known to be entitled
-to the job. What is left is to carry that decision into the query:
-
-1. Pass a "this job is authorised by token" flag into `asset_graph_for`, and let
-   it satisfy the `live` script filter for that job's snapshot alone. The flag
-   is a `bool`, not a token — the validation stays in `windmill-api`, so nothing
-   needs moving between crates.
-2. Leave the `raw_code` CASE exactly as it is.
-3. Test that such a viewer gets the nodes and edges and a null `raw_code`.
+The path and hash coming from the job row rather than the query also means a
+caller cannot pin one project's version while naming another's run.
 
 ## What a dbt job returns, and which half of it is a contract
 

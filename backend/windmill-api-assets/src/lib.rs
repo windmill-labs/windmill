@@ -949,25 +949,38 @@ async fn asset_graph(
     asset_graph_for(&authed, &w_id, user_db, db, q, None).await
 }
 
-/// The asset graph, for a caller that has already been authorized to read
-/// `dbt_job_id` if it passes one.
+/// A run the caller is already authorized to read, and the deployed version it
+/// ran. Path and hash come from the job row rather than the query, so a graph
+/// cannot be pointed at one project's version while claiming another's run.
+pub struct PinnedRun {
+    pub job_id: uuid::Uuid,
+    pub script_path: String,
+    pub script_hash: i64,
+}
+
+/// The asset graph, optionally as one run saw it.
 ///
-/// `dbt_job_id` selects the graph one RUN saw, which is job-scoped data. Reading
-/// it has to satisfy the whole job-read contract — tag scope, the app-embed
-/// restriction, view tokens, RLS — and that contract is `require_job_read_access`
-/// in `windmill-api`, a crate that depends on this one and so cannot be called
-/// from here. Approximating it locally is what repeatedly left a predicate out,
-/// so the parameter is not reachable from this crate's own routes at all: the
-/// sole caller passing `Some` is the jobs route that has already run the real
-/// check on that job.
+/// `Some(pinned)` means the caller has already passed `require_job_read_access`
+/// for that job; nothing below re-decides it.
 pub async fn asset_graph_for(
     authed: &ApiAuthed,
     w_id: &str,
     user_db: UserDB,
     db: windmill_common::DB,
     q: GraphQuery,
-    dbt_job_id: Option<uuid::Uuid>,
+    pinned: Option<PinnedRun>,
 ) -> JsonResult<AssetGraphResponse> {
+    let dbt_job_id = pinned.as_ref().map(|p| p.job_id);
+    // The version is the job's own, not the caller's `dbt_script_hash`.
+    let dbt_script_hash = pinned
+        .as_ref()
+        .map(|p| p.script_hash)
+        .or(q.dbt_script_hash.map(|h| h.0));
+    // Set only for a pinned run, where it lets `live` resolve without reading
+    // `script`: a share-link viewer is entitled to the run but usually has no
+    // grant on the script, and RLS there would empty the graph. `raw_code` has
+    // its own `script` check, so the body stays hidden either way.
+    let pinned_path = pinned.as_ref().map(|p| p.script_path.as_str());
     let w_id = w_id.to_string();
     let mut tx = user_db.begin(authed).await?;
     // Built once: a scoped token's `scripts:read` paths decide whether a dbt
@@ -1208,15 +1221,23 @@ pub async fn asset_graph_for(
              -- describes the project as it is now — takes the newest live one per
              -- path. Resolved once here rather than per row: a correlated lookup
              -- on every node is what makes these queries fall over.
-             SELECT DISTINCT ON (s.path) s.path, s.hash
-               FROM script s
-              WHERE s.workspace_id = $1 AND s.language = 'dbt'
-                AND ($3::bigint IS NULL OR s.hash = $3)
-                -- A pinned version may be archived by now; that is precisely the
-                -- case a historical run needs, so the liveness filter applies
-                -- only when picking the current one.
-                AND ($3::bigint IS NOT NULL OR (s.deleted = false AND s.archived = false))
-              ORDER BY s.path, s.created_at DESC
+             SELECT * FROM (
+               SELECT DISTINCT ON (s.path) s.path, s.hash
+                 FROM script s
+                WHERE $5::text IS NULL AND s.workspace_id = $1 AND s.language = 'dbt'
+                  AND ($3::bigint IS NULL OR s.hash = $3)
+                  -- A pinned version may be archived by now; that is precisely
+                  -- the case a historical run needs, so the liveness filter
+                  -- applies only when picking the current one.
+                  AND ($3::bigint IS NOT NULL OR (s.deleted = false AND s.archived = false))
+                ORDER BY s.path, s.created_at DESC
+             ) cur
+             UNION ALL
+             -- A pinned run names its own version, so `script` is not consulted:
+             -- under RLS it would answer for the CALLER's grants on the project,
+             -- emptying the graph for a share-link viewer who is entitled to the
+             -- run but not the script.
+             SELECT $5::text, $3::bigint WHERE $5::text IS NOT NULL
            ),
            -- The run's own snapshot when it left one, the version's graph
            -- otherwise. A static descriptor never snapshots, so all of its runs
@@ -1291,8 +1312,9 @@ pub async fn asset_graph_for(
             ORDER BY n.script_path, n.unique_id"#,
         &w_id,
         folder_filter.as_deref(),
-        q.dbt_script_hash.map(|h| h.0),
+        dbt_script_hash,
         dbt_job_id,
+        pinned_path,
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -1302,12 +1324,16 @@ pub async fn asset_graph_for(
     // `unique_id` is only unique within its project.
     let dbt_edge_rows = sqlx::query!(
         r#"WITH live AS (
-             SELECT DISTINCT ON (s.path) s.path, s.hash
-               FROM script s
-              WHERE s.workspace_id = $1 AND s.language = 'dbt'
-                AND ($3::bigint IS NULL OR s.hash = $3)
-                AND ($3::bigint IS NOT NULL OR (s.deleted = false AND s.archived = false))
-              ORDER BY s.path, s.created_at DESC
+             SELECT * FROM (
+               SELECT DISTINCT ON (s.path) s.path, s.hash
+                 FROM script s
+                WHERE $5::text IS NULL AND s.workspace_id = $1 AND s.language = 'dbt'
+                  AND ($3::bigint IS NULL OR s.hash = $3)
+                  AND ($3::bigint IS NOT NULL OR (s.deleted = false AND s.archived = false))
+                ORDER BY s.path, s.created_at DESC
+             ) cur
+             UNION ALL
+             SELECT $5::text, $3::bigint WHERE $5::text IS NOT NULL
            ),
            -- The run's own snapshot when it left one, the version's graph
            -- otherwise. A static descriptor never snapshots, so all of its runs
@@ -1360,8 +1386,9 @@ pub async fn asset_graph_for(
                    AND ($2::text IS NULL OR a.usage_path LIKE $2)))"#,
         &w_id,
         folder_filter.as_deref(),
-        q.dbt_script_hash.map(|h| h.0),
+        dbt_script_hash,
         dbt_job_id,
+        pinned_path,
     )
     .fetch_all(&mut *tx)
     .await?;

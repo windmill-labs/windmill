@@ -191,12 +191,9 @@ pub(crate) async fn handle_dbt_job(
         let prune_path = job.runnable_path.clone().unwrap_or_default();
         tokio::spawn(async move {
             prune_run_progress(&pool, &prune_w_id).await;
-            if let Err(e) = windmill_common::dbt_manifest::prune_dbt_run_graphs(
-                &pool,
-                &prune_path,
-                &prune_w_id,
-            )
-            .await
+            if let Err(e) =
+                windmill_common::dbt_manifest::prune_dbt_run_graphs(&pool, &prune_path, &prune_w_id)
+                    .await
             {
                 tracing::warn!("pruning dbt run graph snapshots: {e:#}");
             }
@@ -273,13 +270,10 @@ pub(crate) async fn handle_dbt_job(
             raw_args: restored.args,
             ..inv
         };
-        // Now that they are resolved, they can be compared. A `$var:` whose
-        // value moved since the failed run selects a different node set, or
-        // shifts a schema or alias — so the saved failures no longer describe
-        // what a retry would build. Refused rather than resumed, because which
-        // graph it would use otherwise depends on where it lands: a worker
-        // holding the local snapshot replays the saved manifest while a database
-        // restore reparses with the new value.
+        // Compared only now that they are resolved: a `$var:` whose value moved
+        // selects a different node set, so the saved failures no longer describe
+        // what a retry would build. Refused rather than resumed, since which
+        // graph it would use depends on which worker it lands on.
         if let Some(saved) = restored.args_digest.as_deref() {
             if saved != inv.resolved_args_digest() {
                 return Err(Error::BadRequest(

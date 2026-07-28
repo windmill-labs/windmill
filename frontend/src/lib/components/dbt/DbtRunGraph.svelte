@@ -10,6 +10,7 @@
 	import { ClipboardCopy, Code2, TableProperties } from 'lucide-svelte'
 	import { copyToClipboard } from '$lib/utils'
 	import { workspaceStore } from '$lib/stores'
+	import { appendViewToken } from '$lib/viewToken'
 	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
 	import type { AssetGraphResponse, AssetRunState } from '$lib/components/assets/AssetGraph/types'
 	import { Loader2 } from 'lucide-svelte'
@@ -63,13 +64,13 @@
 			const params = new URLSearchParams({ asset_kinds: 'table' })
 			if (folder) params.set('folder', folder)
 			if (scriptHash != undefined) params.set('dbt_script_hash', String(scriptHash))
-			// A run page reads the graph through the JOB, which authorizes it the
-			// same way the progress half is authorized; `/assets/graph` answers the
-			// workspace-wide question and cannot pin to a run. Only a dynamic
-			// descriptor leaves a per-run snapshot, and without one the pinned
-			// version's graph answers, so the run route is used unconditionally.
+			// Through the JOB when there is one: `/assets/graph` answers the
+			// workspace-wide question and cannot pin to a run.
 			const path = jobId != undefined ? `/w/${ws}/jobs/dbt_graph/${jobId}` : `/w/${ws}/assets/graph`
-			const res = await fetch(`${OpenAPI.BASE ?? ''}${path}?${params}`, {
+			// `appendViewToken`, because this is a raw `fetch`: the interceptor that
+			// adds `X-View-Token` is installed on the generated client only, and a
+			// shared run page carries its access in that token.
+			const res = await fetch(appendViewToken(`${OpenAPI.BASE ?? ''}${path}?${params}`), {
 				credentials: 'include'
 			})
 			if (!res.ok) {
