@@ -9,7 +9,8 @@ import {
 	isTagTemplate,
 	getQueryStmtCountHeuristic,
 	isJobResolvable,
-	parseDbInputFromAssetSyntax
+	parseDbInputFromAssetSyntax,
+	apiErrorMessage
 } from './utils'
 
 // Mirrors the backend invariant that only `status = 'failure'` rows can carry a
@@ -570,5 +571,30 @@ describe('findMatchingCustomTag', () => {
 				reason: 'WINDMILL_TOO_BIG'
 			})
 		).toBeUndefined()
+	})
+})
+
+// The generated client fills `message` with a canned per-status string ("Bad
+// Request") and keeps the server's explanation in `body`, so preferring `body`
+// is what makes a 4xx readable at all.
+describe('apiErrorMessage', () => {
+	it('prefers a plain-text body over the canned status message', () => {
+		expect(apiErrorMessage({ message: 'Bad Request', body: 'Promotion mode is EE only' })).toBe(
+			'Promotion mode is EE only'
+		)
+	})
+
+	it('digs the message out of a JSON body', () => {
+		expect(apiErrorMessage({ message: 'Bad Request', body: { error: { message: 'nope' } } })).toBe(
+			'nope'
+		)
+	})
+
+	it('falls back to message when the body is blank', () => {
+		expect(apiErrorMessage({ message: 'Bad Request', body: '   ' })).toBe('Bad Request')
+	})
+
+	it('handles a plain Error', () => {
+		expect(apiErrorMessage(new Error('boom'))).toBe('boom')
 	})
 })

@@ -2,6 +2,7 @@ import { getContext, setContext } from 'svelte'
 import { enterpriseLicense } from '$lib/stores'
 import { get } from 'svelte/store'
 import { sendUserToast } from '$lib/toast'
+import { apiErrorMessage } from '$lib/utils'
 import { JobService, WorkspaceService, ResourceService } from '$lib/gen'
 import type {
 	GitRepositorySettings as BackendGitRepositorySettings,
@@ -373,7 +374,7 @@ export function createGitSyncContext(workspace: string) {
 			}
 
 			repo.detectionState = 'error'
-			repo.detectionError = error?.message || error?.toString() || 'Failed to detect repository'
+			repo.detectionError = apiErrorMessage(error) || 'Failed to detect repository'
 			repo.detectionJobStatus = 'failure'
 		}
 	}

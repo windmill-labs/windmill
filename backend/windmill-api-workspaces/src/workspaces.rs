@@ -3358,11 +3358,15 @@ async fn check_dev_promotion_targets_parent_repo<'a>(
         else {
             continue;
         };
-        let branch = if m.branch.is_empty() {
-            "<none>"
-        } else {
-            &m.branch
+        // A resource with no `branch` field normalizes to an empty string.
+        let named = |b: &str| {
+            if b.is_empty() {
+                "<none>".to_string()
+            } else {
+                b.to_string()
+            }
         };
+        let branch = named(&m.branch);
         let hint = if m.parent_branches.is_empty() {
             format!(
                 "the parent workspace '{}' does not track that repository. Point this repository at \
@@ -3371,10 +3375,19 @@ async fn check_dev_promotion_targets_parent_repo<'a>(
             )
         } else {
             format!(
-                "the parent workspace '{}' tracks it on branch '{}'. Set this repository's branch to \
+                "the parent workspace '{}' tracks it on {} '{}'. Set this repository's branch to \
                  match, or add branch '{branch}' to the parent's git sync settings.",
                 m.parent_workspace,
-                m.parent_branches.join("', '")
+                if m.parent_branches.len() > 1 {
+                    "branches"
+                } else {
+                    "branch"
+                },
+                m.parent_branches
+                    .iter()
+                    .map(|b| named(b))
+                    .collect::<Vec<_>>()
+                    .join("', '")
             )
         };
         return Err(Error::BadRequest(format!(
