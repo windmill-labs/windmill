@@ -712,7 +712,11 @@ export async function discardDraft(
 	path: string,
 	workspace: string,
 	_draftOnly = false,
-	legacy = false
+	legacy = false,
+	// Batch callers pass false and invalidate once after the last discard —
+	// per-item invalidation would refetch the whole draft list N times, with
+	// overlapping responses able to land out of order.
+	invalidate = true
 ): Promise<DeployResult> {
 	try {
 		if (legacy) {
@@ -723,7 +727,7 @@ export async function discardDraft(
 				requestBody: { value: null, legacy: true }
 			})
 			setLocalDraftHint(workspace, kind, path, false)
-			invalidateWorkspaceDrafts(workspace)
+			if (invalidate) invalidateWorkspaceDrafts(workspace)
 			return { success: true }
 		}
 		// postSave clears the syncer-owned `*` hint on the delete. `immediate`
@@ -731,7 +735,7 @@ export async function discardDraft(
 		// enqueue time and the invalidate below refetches before the delete,
 		// re-listing the just-discarded draft.
 		await UserDraftDbSyncer.save({ workspace, itemKind: kind, path, value: null, immediate: true })
-		invalidateWorkspaceDrafts(workspace)
+		if (invalidate) invalidateWorkspaceDrafts(workspace)
 		return { success: true }
 	} catch (e: any) {
 		return { success: false, error: e?.body ?? e?.message ?? String(e) }
