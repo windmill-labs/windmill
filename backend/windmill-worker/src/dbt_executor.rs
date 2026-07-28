@@ -2953,10 +2953,14 @@ pub(crate) async fn read_manifest(
 /// worker-local cache keyed by the script — which is also its limitation: a
 /// retry that lands on a different worker finds nothing and says so, rather
 /// than silently rebuilding everything.
-fn state_dir(w_id: &str, script_path: &str) -> PathBuf {
+///
+/// Keyed by principal as well, matching `dbt_run_state`. An agent worker never
+/// reads that table, so this cache is the whole boundary there: without it one
+/// principal's saved `select` and `vars` are restorable by the next.
+fn state_dir(w_id: &str, script_path: &str, permissioned_as: &str) -> PathBuf {
     PathBuf::from(&*DBT_CACHE_DIR)
         .join("state")
-        .join(digest(&format!("{w_id}/{script_path}")))
+        .join(digest(&format!("{w_id}/{script_path}/{permissioned_as}")))
 }
 
 async fn save_run_state(
@@ -3023,7 +3027,7 @@ async fn save_run_state(
     // A's manifest and arguments — and a reader copying that directory could
     // straddle a replacement and take half of each. A retry resuming a mixture
     // is worse than one that finds nothing.
-    let dir = state_dir(w_id, &p.script_path);
+    let dir = state_dir(w_id, &p.script_path, permissioned_as);
     let generation = format!("gen-{job_id}");
     let staging = dir.join(&generation);
     tokio::fs::remove_dir_all(&staging).await.ok();
@@ -3328,7 +3332,7 @@ async fn restore_run_state(
                 .to_string(),
         ));
     }
-    let dir = state_dir(w_id, &p.script_path);
+    let dir = state_dir(w_id, &p.script_path, permissioned_as);
     // The pointer is resolved ONCE and everything is read out of the generation
     // it names. Generations are immutable, so the arguments, the manifest and
     // the results necessarily describe the same invocation; resolving the
@@ -4303,10 +4307,17 @@ mod tests {
     }
 
     #[test]
-    fn retry_state_is_per_script() {
-        assert_ne!(state_dir("ws", "f/a/one"), state_dir("ws", "f/a/two"));
-        assert_ne!(state_dir("ws1", "f/a/one"), state_dir("ws2", "f/a/one"));
-        assert_eq!(state_dir("ws", "f/a/one"), state_dir("ws", "f/a/one"));
+    fn retry_state_is_per_script_and_principal() {
+        assert_ne!(state_dir("ws", "f/a/one", "u"), state_dir("ws", "f/a/two", "u"));
+        assert_ne!(state_dir("ws1", "f/a/one", "u"), state_dir("ws2", "f/a/one", "u"));
+        assert_eq!(state_dir("ws", "f/a/one", "u"), state_dir("ws", "f/a/one", "u"));
+        // A retry replaces the caller's arguments with the saved ones, and an
+        // agent worker has no database row to fall back on: this separation is
+        // the only thing keeping one principal's `select`/`vars` from another.
+        assert_ne!(
+            state_dir("ws", "f/a/one", "u/alice"),
+            state_dir("ws", "f/a/one", "u/bob")
+        );
     }
 
     #[test]

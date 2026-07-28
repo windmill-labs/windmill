@@ -36,6 +36,48 @@ delete only those.
    symptom is `relation "<your_new_table>" does not exist` — that is a wrong
    `DATABASE_URL`, not a broken query. See AGENTS.md → "Per-worktree ports and database".
 
+## Queries Inside Tests Need `--all-targets`, Which Fails In A CE Checkout
+
+`prepare` only caches queries in code it compiles, and `--workspace` alone does **not**
+compile test targets. A `sqlx::query!` inside `tests/*.rs` therefore gets no entry, and CI
+fails on the test target with the usual "no cached data" error even though the lib built
+clean. `SQLX_OFFLINE=true cargo check --workspace --all-targets` is what reproduces it.
+
+Adding `--all-targets` caches them — and, in a CE checkout, **aborts partway through**:
+`backend/tests/otel.rs` imports `windmill_common::otel_ee`, which exists only behind the
+`private` feature, so the compile dies after `prepare` has already emptied `.sqlx/`.
+Observed: 2435 → 4 entries, `error: cargo check failed with status: exit status: 101`.
+
+Do not fight it — the abort is a pre-existing EE gap, not something your change caused.
+Take the entries you need and put the backup back:
+
+```bash
+cd backend
+cp -r .sqlx /tmp/sqlx_backup
+ls /tmp/sqlx_backup | sort > /tmp/before.txt
+
+DATABASE_URL=<this worktree's db> \
+  cargo sqlx prepare --workspace -- --workspace --features all_sqlx_features --all-targets
+# expected to fail; it still wrote the entries it got to before dying
+
+ls .sqlx | sort > /tmp/after.txt
+mkdir -p /tmp/newq
+comm -13 /tmp/before.txt /tmp/after.txt | while read f; do cp ".sqlx/$f" /tmp/newq/; done
+
+rm -rf .sqlx && cp -r /tmp/sqlx_backup .sqlx && cp /tmp/newq/*.json .sqlx/
+```
+
+**Read every file in `/tmp/newq` before copying it in** — print each one's `query` field and
+confirm it is one of yours. The set is small (one per new test query), and anything else in
+there means the run got further than you think.
+
+Then verify both targets, since the lib passing says nothing about the tests:
+
+```bash
+SQLX_OFFLINE=true cargo check --workspace --features all_sqlx_features   # lib
+SQLX_OFFLINE=true cargo check -p <your-crate> --all-targets              # tests
+```
+
 ## The Problem
 
 `cargo sqlx prepare --workspace` **deletes all existing cache files** and regenerates only the ones found in the current compilation. If you don't compile with every feature flag (especially `private` for EE files), you will **silently delete EE query caches**, breaking CI for enterprise tests.
@@ -93,6 +135,8 @@ But if it fails with EE compilation errors, use the safe procedure above.
 - **Never** run `prepare` without a `.sqlx` backup, or against a `DATABASE_URL` you have not confirmed belongs to this worktree.
 - **Never** run `prepare` at all for a removal-only change.
 - **Never** skip the verification step (step 4 above).
+- **Never** leave a `--all-targets` run's output in place after it aborts — it is a
+  near-empty cache. Restore the backup and graft on only the entries you verified.
 
 Step 4 compares against `origin/main` because step 1 restored from it, so the two agree.
 If you did **not** run step 1 — auditing a branch's cache on its own, say — compare
