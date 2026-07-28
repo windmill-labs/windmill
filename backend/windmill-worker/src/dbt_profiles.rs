@@ -504,7 +504,13 @@ pub fn render_profile(
         out.push(("threads".into(), ProfileValue::Number(t as i64)));
     }
 
-    let mut yaml = format!("{profile_name}:\n  target: {target}\n  outputs:\n    {target}:\n");
+    // Quoted, keys included. `profile_name` comes from the project's own
+    // `dbt_project.yml` and `target` from the descriptor, so both are the
+    // author's text: a name like `prod # x` silently truncates the mapping, and
+    // a newline in one opens a sibling key of the caller's choosing.
+    let (qp, qt) = (yaml_scalar(profile_name), yaml_scalar(target));
+    let mut yaml =
+        format!("{qp}:\n  target: {qt}\n  outputs:\n    {qt}:\n");
     for (k, v) in &out {
         yaml.push_str(&format!("      {k}: {}\n", v.render()));
     }
@@ -516,7 +522,11 @@ pub fn render_profile(
             .ok_or_else(|| Error::BadRequest("bigquery resource is not an object".to_string()))?;
         for (k, v) in obj {
             if let Some(v) = v.as_str() {
-                yaml.push_str(&format!("        {k}: {}\n", yaml_scalar(v)));
+                yaml.push_str(&format!(
+                    "        {}: {}\n",
+                    yaml_scalar(k),
+                    yaml_scalar(v)
+                ));
             }
         }
     }
@@ -585,7 +595,9 @@ mod tests {
             std::path::Path::new("/tmp/p"),
         )
         .unwrap();
-        assert!(p.yaml.contains("wm:\n  target: prod\n"));
+        // Quoted: the profile name and target are the author's text, so they are
+        // rendered as scalars rather than as bare keys.
+        assert!(p.yaml.contains("\"wm\":\n  target: \"prod\"\n"), "{}", p.yaml);
         assert!(p.yaml.contains("      type: \"postgres\"\n"));
         // dbt's profile schema types these as integers, so they must not be
         // quoted like the credential scalars around them.
@@ -761,6 +773,30 @@ mod tests {
         assert!(p.yaml.contains("      schema: \"sales\"\n"));
         assert!(p.yaml.contains("      port: 3306\n"));
         assert_eq!(p.schema.as_deref(), Some("sales"));
+    }
+
+    // The profile name is the project's own `dbt_project.yml`, the target the
+    // descriptor's — both the author's text, and both were mapping keys.
+    #[test]
+    fn a_profile_name_or_target_cannot_open_a_sibling_key() {
+        let rendered = render_profile(
+            DbtAdapter::Postgres,
+            &serde_json::json!({"host": "h", "user": "u", "password": "p", "dbname": "d"}),
+            "prod # hidden",
+            "dev\n  evil: yes",
+            None,
+            None,
+            std::path::Path::new("/tmp"),
+        )
+        .unwrap();
+        // Every occurrence is quoted, so neither the comment nor the newline is
+        // structure: the document still has exactly the keys we wrote.
+        assert!(rendered.yaml.contains("\"prod # hidden\":"), "{}", rendered.yaml);
+        assert!(rendered.yaml.contains("\\n  evil: yes"), "{}", rendered.yaml);
+        let v: serde_yml::Value = serde_yml::from_str(&rendered.yaml).expect("valid yaml");
+        let profile = v.get("prod # hidden").expect("profile is one key");
+        assert!(profile.get("evil").is_none());
+        assert!(v.get("evil").is_none());
     }
 
     #[test]

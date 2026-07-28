@@ -1201,6 +1201,17 @@ async fn asset_graph(
                          -- uses on `script`. Without it a caller who may see the
                          -- script could read any run's model set and relation
                          -- paths, which a dynamic alias or schema can encode.
+                         --
+                         -- RLS only, where `/jobs/run_progress` also honours a
+                         -- share-link view token: `require_job_read_access` and
+                         -- `OptViewToken` live in `windmill-api`, which this
+                         -- crate cannot depend on. The two halves of a run page
+                         -- therefore disagree for a share-link viewer of a
+                         -- DYNAMIC run — progress describes what the run built,
+                         -- the graph falls back to the deployed set. It errs
+                         -- closed, so it is a gap in what a shared page shows,
+                         -- not in what it protects; closing it means moving that
+                         -- helper into a crate both can see.
                          AND EXISTS (SELECT 1 FROM v2_job j
                                       WHERE j.id = g.job_id
                                         AND j.workspace_id = g.workspace_id))
@@ -1296,6 +1307,17 @@ async fn asset_graph(
                          -- uses on `script`. Without it a caller who may see the
                          -- script could read any run's model set and relation
                          -- paths, which a dynamic alias or schema can encode.
+                         --
+                         -- RLS only, where `/jobs/run_progress` also honours a
+                         -- share-link view token: `require_job_read_access` and
+                         -- `OptViewToken` live in `windmill-api`, which this
+                         -- crate cannot depend on. The two halves of a run page
+                         -- therefore disagree for a share-link viewer of a
+                         -- DYNAMIC run — progress describes what the run built,
+                         -- the graph falls back to the deployed set. It errs
+                         -- closed, so it is a gap in what a shared page shows,
+                         -- not in what it protects; closing it means moving that
+                         -- helper into a crate both can see.
                          AND EXISTS (SELECT 1 FROM v2_job j
                                       WHERE j.id = g.job_id
                                         AND j.workspace_id = g.workspace_id))

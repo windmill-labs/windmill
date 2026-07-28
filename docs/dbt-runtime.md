@@ -223,6 +223,22 @@ The parse is what makes a newly added model appear in the same run that builds
 it, rather than one run late: the graph is written before the build, so the run
 page shows the model while it is being built.
 
+## What a dbt job returns, and which half of it is a contract
+
+The result is `{engine, engine_version, command, totals, nodes}`, and each node
+carries both `status` and `outcome`.
+
+`status` is dbt's own word, verbatim — `success`, `error`, `partial success`,
+`no-op`. It is what the log says and what dbt's docs describe, so it belongs in
+the result, but it is dbt's vocabulary and dbt may change it: 1.x and 2.x
+already differ on casing, and `no-op` arrived in a minor release.
+
+`outcome` is the same result in Windmill's terms — `passed`, `failed`, `warned`,
+`skipped`, `no_op`, `unknown` — and it is the half a downstream script should
+branch on. A dbt release that renames a status moves `status` and leaves
+`outcome` where it is. Publishing only dbt's word would have made every such
+release either a break for users or a lie in our mapping.
+
 ## The graph belongs to a script version
 
 `dbt_node` / `dbt_edge` are keyed `(workspace_id, script_path, script_hash,

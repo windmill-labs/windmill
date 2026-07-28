@@ -70,7 +70,15 @@ pub struct DbtDependencyLocks {
 #[derive(Serialize, Debug, Clone)]
 pub struct DbtNodeResult {
     pub unique_id: String,
+    /// dbt's own status word, verbatim (`success`, `error`, `partial success`,
+    /// `no-op`, …). Kept because it is what the log and dbt's docs say, but it
+    /// is dbt's vocabulary to change — read `outcome` to make a decision.
     pub status: String,
+    /// The same result in Windmill's terms, which is the stable half of this
+    /// contract: `passed` | `failed` | `warned` | `skipped` | `no_op` |
+    /// `unknown`. A dbt release that renames a status, or adds one, moves
+    /// `status` and leaves this alone.
+    pub outcome: &'static str,
     pub execution_time: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rows_affected: Option<i64>,
@@ -126,7 +134,7 @@ struct RunResultNode {
     failures: Option<i64>,
 }
 
-pub async fn handle_dbt_job(
+pub(crate) async fn handle_dbt_job(
     requirements_o: Option<&String>,
     job_dir: &str,
     worker_name: &str,
@@ -454,7 +462,7 @@ pub async fn handle_dbt_job(
 /// alone. That also makes redeploy the graph-refresh mechanism, with no
 /// separate concept (docs/dbt-runtime.md, decision 12).
 #[allow(clippy::too_many_arguments)]
-pub async fn dbt_dep(
+pub(crate) async fn dbt_dep(
     content: &str,
     // The project this dependency job is deploying: a dependency job has no
     // generic module-writing step, so the executor materialises them.
@@ -772,7 +780,7 @@ impl PreparedProject {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub async fn prepare_project(
+pub(crate) async fn prepare_project(
     descriptor: &DbtDescriptor,
     descriptor_content: &str,
     locks: Option<&DbtDependencyLocks>,
@@ -975,21 +983,17 @@ pub async fn prepare_project(
     // the deploy lock: moving A→B then back to A matches the lock again while the
     // stored graph is still at B.
     //
-    // The MOST RECENT ingest for this version, whether the deploy's or a run's,
-    // because that is the one that last wrote the path-keyed `asset` usages.
-    // Comparing against the deploy alone misses the way back: a run at B
-    // republishes those usages at B, and returning to A then matches the deploy
-    // and skips the refresh, leaving the usages at B while dbt builds A.
-    // Ordered rather than an arbitrary `LIMIT 1`, which could answer with any
-    // version's snapshot.
+    // Against what the PUBLISHER recorded, which is the only thing that answers
+    // "where do the current usages point". The deploy's own root goes stale as
+    // soon as a run at a moved profile republishes; the newest ingest is wrong
+    // too, because a run whose graph matches the deploy's stores no rows at all,
+    // so the moved run's would stay newest and this would latch on forever.
     match conn {
         Connection::Sql(db) => {
             if let Some(stored) = sqlx::query_scalar!(
-                "SELECT relation_root FROM dbt_node
+                "SELECT published_relation_root FROM dbt_graph_snapshot
                   WHERE workspace_id = $1 AND script_path = $2 AND script_hash = $3
-                    AND relation_root IS NOT NULL
-                  ORDER BY ingested_at DESC
-                  LIMIT 1",
+                    AND job_id = '00000000-0000-0000-0000-000000000000'",
                 w_id,
                 script_path,
                 script_hash,
@@ -1514,7 +1518,7 @@ const NSJAIL_CONFIG_RUN_DBT_CONTENT: &str = include_str!("../nsjail/run.dbt.conf
 /// script metadata — `LD_PRELOAD` naming a library from the checkout would be
 /// loaded by the dynamic linker as the worker, before isolation exists. The
 /// jail profile carries them to the child instead (see `sandbox_config`).
-pub fn dbt_command(p: &PreparedProject, args: &[&str]) -> Command {
+pub(crate) fn dbt_command(p: &PreparedProject, args: &[&str]) -> Command {
     let mut cmd = match p.sandbox_config.as_ref().map(|c| c.path()) {
         Some(config) => {
             let mut nsjail = Command::new(NSJAIL_PATH.as_str());
@@ -2374,6 +2378,7 @@ async fn read_run_results(project_dir: &Path) -> Vec<DbtNodeResult> {
         .into_iter()
         .map(|r| DbtNodeResult {
             unique_id: r.unique_id,
+            outcome: classify_status(&r.status).as_result_word(),
             status: r.status,
             execution_time: r.execution_time,
             rows_affected: r
@@ -2587,6 +2592,19 @@ async fn persist_ingest(
         script_path,
         &ingested.assets,
     )
+    .await?;
+    // Recorded by the publisher, because only the publisher knows where the
+    // usages just written point. The drift check reads it back.
+    sqlx::query!(
+        "UPDATE dbt_graph_snapshot SET published_relation_root = $4
+          WHERE workspace_id = $1 AND script_path = $2 AND script_hash = $3
+            AND job_id = '00000000-0000-0000-0000-000000000000'",
+        w_id,
+        script_path,
+        script_hash,
+        relation_root,
+    )
+    .execute(&mut *tx)
     .await?;
     // A `table://` subscription can never fire — nothing but dbt writes a
     // warehouse relation and a dbt run does not dispatch — so none are derived
@@ -2878,7 +2896,7 @@ async fn run_dbt_parse(
     run_prep_command(p, cmd, "dbt parse", ctx, job_id, w_id, conn).await
 }
 
-pub async fn read_manifest(
+pub(crate) async fn read_manifest(
     project_dir: &Path,
 ) -> error::Result<windmill_common::dbt_manifest::Manifest> {
     let path = project_dir.join(ARTIFACTS_DIR).join("manifest.json");
@@ -3370,6 +3388,25 @@ enum DbtNodeOutcome {
     /// A status this dbt version spells some way we do not know. Counted as an
     /// error rather than silently passing, but never used to settle a relation.
     Unknown,
+}
+
+impl DbtNodeOutcome {
+    /// The word this outcome is published as in a job's result. Stable by
+    /// contract: a dbt release may rename its own status, and this must not
+    /// move with it.
+    fn as_result_word(&self) -> &'static str {
+        match self {
+            // A finished node is never `Started`; it is spelled here so the
+            // match stays exhaustive rather than falling into `unknown`.
+            DbtNodeOutcome::Started => "started",
+            DbtNodeOutcome::Passed => "passed",
+            DbtNodeOutcome::Failed => "failed",
+            DbtNodeOutcome::Warn => "warned",
+            DbtNodeOutcome::Skipped => "skipped",
+            DbtNodeOutcome::NoOp => "no_op",
+            DbtNodeOutcome::Unknown => "unknown",
+        }
+    }
 }
 
 fn classify_status(status: &str) -> DbtNodeOutcome {
@@ -3970,6 +4007,7 @@ mod tests {
     #[test]
     fn a_retrys_results_overlay_the_attempt_they_resumed() {
         let node = |id: &str, status: &str| DbtNodeResult {
+            outcome: classify_status(status).as_result_word(),
             unique_id: id.to_string(),
             status: status.to_string(),
             execution_time: None,
@@ -4044,6 +4082,7 @@ mod tests {
     #[test]
     fn merging_two_phases_keeps_one_row_per_node() {
         let n = |id: &str, status: &str| DbtNodeResult {
+            outcome: classify_status(status).as_result_word(),
             unique_id: id.to_string(),
             status: status.to_string(),
             execution_time: None,

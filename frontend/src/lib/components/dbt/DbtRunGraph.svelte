@@ -119,14 +119,19 @@
 		clearInterval(timer)
 		// Only while in flight, and no faster than dbt finishes a model: this is a
 		// poll against the same rows the pipeline page reads, not a subscription.
-		if (running)
-			timer = setInterval(() => {
-				// The graph itself only changes on a deploy; the per-relation state
-				// is what moves during a run, so it is polled faster and the graph
-				// refetch rides along to pick up a per-run re-ingest.
-				void loadProgress()
-				void load()
-			}, 2000)
+		if (running) {
+			// The GRAPH is not polled. A dynamic descriptor re-ingests it once,
+			// before the build starts, so one refetch shortly after mount picks
+			// that up — where polling it re-sent every node's SQL every two
+			// seconds for the length of the run, which is hundreds of KB a tick on
+			// a real project and buys nothing after the first.
+			const regraph = setTimeout(() => void load(), 4000)
+			timer = setInterval(() => void loadProgress(), 2000)
+			return () => {
+				clearTimeout(regraph)
+				clearInterval(timer)
+			}
+		}
 		// A finished run is coloured from `settled`, which needs no request. The
 		// poll is the fallback for a run that never produced one — cancelled or
 		// killed, where dbt wrote no `run_results.json` — whose relations the
