@@ -723,8 +723,15 @@ export async function readModulesFromDisk(
         // comparison is on the project-relative path, not the entry name.
         if (skipDirs.size > 0 && isUnderGeneratedDir(relPath, skipDirs)) continue;
         readDir(fullPath, relPath);
-      } else if (entry.isFile() && !entry.name.endsWith(".lock") && !isEntryPointFile(entry.name, isTopLevel)) {
-        // Skip lock files — they're handled as the `lock` field on ScriptModule
+        // `.lock` is the script's own lockfile in a `__mod` bundle (the `lock`
+        // field on ScriptModule) — but a dbt project's files are its author's,
+        // and one may legitimately be named `uv.lock`. Dropping it would break
+        // the unmodified-project round trip this bundle exists to keep.
+      } else if (
+        entry.isFile() &&
+        (verbatim || !entry.name.endsWith(".lock")) &&
+        !isEntryPointFile(entry.name, isTopLevel)
+      ) {
         if (verbatim) {
           // A dbt project's authored files are text. A binary one -- an image
           // under `docs/`, a `.DS_Store`, a parquet seed -- would be read as

@@ -384,8 +384,8 @@ pub async fn handle_dbt_job(
     save_run_state(&prepared, &job.workspace_id, &job.id, &inv, conn)
         .await
         .ok();
-    let reported = reconcile_materializations(&prepared, &results, job, conn).await;
-    terminalize_running_relations(job, &reported, conn).await;
+    let reconciled = reconcile_materializations(&prepared, &results, job, conn).await;
+    terminalize_running_relations(job, &reconciled, conn).await;
 
     let result = build_result(&prepared, &command, results);
     match run {
@@ -1836,18 +1836,18 @@ fn parse_node_event(
 /// artifact, which both fills in `row_count` and gives those engines per-model
 /// state — just at the end of the run rather than during it.
 ///
-/// Returns every relation the run REPORTED on, including the ones it deliberately
-/// left alone — a `no-op` or `skipped` node still says "this run is done with
-/// that relation", which is what keeps the sweep below off it.
+/// Returns the relations it settled, and the ones the run reported but left
+/// untouched (`no-op`, `warn`, `skipped`). The two need opposite treatment
+/// afterwards, which is why they come back apart.
 async fn reconcile_materializations(
     p: &PreparedProject,
     results: &[DbtNodeResult],
     job: &MiniPulledJob,
     conn: &Connection,
-) -> Vec<String> {
-    let mut reported = Vec::new();
+) -> Reconciled {
+    let mut out = Reconciled::default();
     let Some(resource_path) = p.resource_path.as_deref() else {
-        return reported;
+        return out;
     };
     for r in results {
         let Some(path) = asset_path_of_relation(
@@ -1857,14 +1857,18 @@ async fn reconcile_materializations(
         ) else {
             continue;
         };
-        reported.push(path.clone());
         let status = match classify_status(&r.status) {
             DbtNodeOutcome::Passed => MaterializationStatus::Materialized,
             DbtNodeOutcome::Failed => MaterializationStatus::Failed,
             // Tests and nodes that built nothing say nothing about a relation's
-            // state, so its record is left as it was.
-            _ => continue,
+            // state — but the tailer may already have written `running` for one,
+            // so they are reported for the caller to clear rather than settle.
+            _ => {
+                out.untouched.push(path);
+                continue;
+            }
         };
+        out.settled.push(path.clone());
         let error = (status == MaterializationStatus::Failed)
             .then(|| r.message.as_deref())
             .flatten();
@@ -1908,32 +1912,59 @@ async fn reconcile_materializations(
             tracing::warn!("recording the materialization of {path} failed: {e}");
         }
     }
-    reported
+    out
 }
 
-/// Settle any relation this job left mid-flight.
+/// What `reconcile_materializations` did, split by what has to happen next.
+#[derive(Default)]
+struct Reconciled {
+    /// Given a terminal status by this run.
+    settled: Vec<String>,
+    /// Reported by this run but not built — `no-op`, `warn`, `skipped`.
+    untouched: Vec<String>,
+}
+
+/// Leave no relation of this job's on `running`.
 ///
-/// The live tailer writes `running` when a model starts. A cancellation, a
+/// The live tailer writes `running` when a model starts, and two things can
+/// leave it there. A node that ends `no-op`, `warn` or `skipped` built nothing,
+/// so there is no outcome to record — its row is DELETED, which is what the
+/// finished run's own result says about it too (`relationOutcome` colours it
+/// nothing), so the live view and the settled view agree. And a cancellation, a
 /// timeout or a killed worker means dbt never wrote `run_results.json` for the
-/// node in flight, so without this the finished job leaves a relation building
-/// forever.
-///
-/// `reported` is every relation the run DID account for, and is excluded: a node
-/// that ends `no-op`, `warn` or `skipped` is reported without settling its
-/// record, and calling those failed would fail relations on a successful run.
-/// What is left is only what the run never reached.
+/// node in flight, so it is reported nowhere — that one is FAILED, because the
+/// run ended without finishing it.
 ///
 /// Only the SQL path can strand a row: `spawn_progress_reporter` returns `None`
 /// for an agent worker and for the engines that emit no node events, so nothing
 /// there writes `running` in the first place.
 async fn terminalize_running_relations(
     job: &MiniPulledJob,
-    reported: &[String],
+    reconciled: &Reconciled,
     conn: &Connection,
 ) {
     let Connection::Sql(db) = conn else {
         return;
     };
+    if let Err(e) = sqlx::query!(
+        "DELETE FROM materialized_partition
+          WHERE workspace_id = $1 AND job_id = $2 AND status = 'running'
+            AND asset_path = ANY($3)",
+        job.workspace_id,
+        job.id,
+        &reconciled.untouched
+    )
+    .execute(db)
+    .await
+    {
+        tracing::warn!("clearing the models {} left untouched: {e}", job.id);
+    }
+    let accounted: Vec<String> = reconciled
+        .settled
+        .iter()
+        .chain(reconciled.untouched.iter())
+        .cloned()
+        .collect();
     if let Err(e) = sqlx::query!(
         "UPDATE materialized_partition
             SET status = 'failed',
@@ -1942,7 +1973,7 @@ async fn terminalize_running_relations(
             AND NOT (asset_path = ANY($3))",
         job.workspace_id,
         job.id,
-        reported
+        &accounted
     )
     .execute(db)
     .await
@@ -3347,7 +3378,7 @@ mod tests {
     fn placeholder_vars_keep_the_arguments_type() {
         use windmill_parser_yaml::parse_dbt_descriptor;
         let d = parse_dbt_descriptor(
-            "repo: r\nvars:\n  strict: \"{{ strict }}\"\n  n: \"{{ n }}\"\n  label: \"run-{{ name }}\"\n",
+            "vars:\n  strict: \"{{ strict }}\"\n  n: \"{{ n }}\"\n  label: \"run-{{ name }}\"\n",
         )
         .unwrap();
         let args: HashMap<String, Box<RawValue>> =

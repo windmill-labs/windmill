@@ -560,7 +560,13 @@ export function isBundledModuleFile(fullPath: string): boolean {
 /** Whether a path is inside a dbt project's module folder specifically: those
  *  files are taken verbatim, with no language inference. */
 export function isDbtModulePath(p: string): boolean {
-  return normalizeSep(p).includes(DBT_MODULE_SUFFIX + "/");
+  // The OUTERMOST boundary decides, like `getScriptBasePathFromModulePath`.
+  // Scanning anywhere in the path would call `foo__mod/vendor/x__dbt/a.ts` a dbt
+  // project file, and the push would then look for `foo.script.yaml` instead of
+  // the ordinary module entry point and skip the edit.
+  const norm = normalizeSep(p);
+  const base = getScriptBasePathFromModulePath(norm);
+  return base !== undefined && norm.startsWith(base + DBT_MODULE_SUFFIX + "/");
 }
 
 /** dbt writes these; a project authors them nowhere. Importing a stale

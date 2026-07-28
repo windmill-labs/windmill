@@ -10,8 +10,9 @@
 //! * **Asset identity is the physical relation.** A model becomes
 //!   `table://<resource_path>/<schema>/<name>`, never `dbt://…`. Keying on the
 //!   producing tool would mean a native script reading the same warehouse table
-//!   forms no edge, and the cross-boundary cascade — the reason to build the
-//!   graph at all — never fires (decision 11).
+//!   forms no edge, and the two sit on the graph as unrelated islands. A dbt
+//!   run does not trigger those readers (decision 11, "No cascade from dbt");
+//!   sharing the node is what makes the lineage one graph.
 //! * **The warehouse is identified by the Windmill resource path**, matching
 //!   `datatable://` and `ducklake://`. Connection details (host, account) are
 //!   never part of the key: the same warehouse is reachable under several
@@ -1113,7 +1114,7 @@ mod tests {
 
     // Splitting a project across scripts only composes if the downstream one
     // reads what the upstream one writes: without that read there is no edge
-    // for the upstream's write to cascade along.
+    // so the seam between two scripts splitting one project still draws.
     #[test]
     fn a_selected_script_reads_the_upstream_models_another_script_builds() {
         let m: Manifest = serde_json::from_str(MANIFEST).unwrap();

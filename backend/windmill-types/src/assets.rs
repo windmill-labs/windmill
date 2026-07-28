@@ -16,8 +16,9 @@ pub enum AssetKind {
     Volume,
     /// A physical warehouse relation, `<resource_path>/<schema>/<name>`.
     /// Identity is the relation, not the tool that wrote it, so a dbt mart and
-    /// a native script reading the same table are one node and the cascade
-    /// crosses the boundary (docs/dbt-runtime.md, decision 11).
+    /// a native script reading the same table are one node rather than two
+    /// islands (docs/dbt-runtime.md, decision 11). A dbt run does not trigger
+    /// that reader — the shared node is lineage, not a cascade edge.
     Table,
 }
 

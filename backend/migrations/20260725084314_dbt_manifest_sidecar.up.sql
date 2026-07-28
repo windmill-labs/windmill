@@ -2,7 +2,7 @@
 -- writes a warehouse table. Identity is the relation itself
 -- (`<resource_path>/<schema>/<name>`), never the producing tool, so a dbt mart
 -- and a native script reading the same table resolve to one node and the
--- cascade fires across the boundary (docs/dbt-runtime.md, decision 11).
+-- lineage is one graph across the boundary (docs/dbt-runtime.md, decision 11).
 ALTER TYPE ASSET_KIND ADD VALUE IF NOT EXISTS 'table';
 
 -- Parsed dbt manifest, one row per dbt node, keyed by the script that owns the

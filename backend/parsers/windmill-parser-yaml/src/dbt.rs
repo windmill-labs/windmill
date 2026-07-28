@@ -65,6 +65,7 @@ impl DbtEngine {
 /// project's own file and inject Windmill secrets as env vars for
 /// `{{ env_var() }}`.
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(deny_unknown_fields)]
 pub struct DbtProfile {
     /// `$res:<path>` of the warehouse resource to render into `profiles.yml`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -106,6 +107,7 @@ pub enum DbtTestBehavior {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(deny_unknown_fields)]
 pub struct DbtDescriptor {
     #[serde(default)]
     pub engine: Option<DbtEngine>,
@@ -156,6 +158,7 @@ pub struct DbtDescriptor {
 
 /// How many times, and how far apart, to retry a build's failed nodes.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct DbtNodeRetry {
     /// Extra `dbt retry` attempts after the first failed build.
     pub attempts: u32,
@@ -424,10 +427,27 @@ full_refresh: true
     // the interpolation needs a scalar. Refused at parse, so the deploy says so
     // rather than the script becoming unrunnable after it.
     #[test]
+    // A descriptor drives warehouse writes, so a field it does not recognise is
+    // an error rather than a default. `selcet:` would otherwise leave `select`
+    // empty and build the entire project; a misspelled `target` would silently
+    // fall back to the profile's own default.
+    #[test]
+    fn an_unknown_descriptor_field_is_refused() {
+        let err = parse_dbt_descriptor("profile:\n  resource: $res:u/rf/wh\nselcet: [a]\n")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("selcet"), "{err}");
+        let err = parse_dbt_descriptor("profile:\n  resource: $res:u/rf/wh\n  targt: prod\n")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("targt"), "{err}");
+    }
+
+    #[test]
     fn a_placeholder_may_not_take_a_run_argument_name() {
         for name in RESERVED_ARG_NAMES {
             let d = format!(
-                "repo: $res:u/rf/r\nprofile:\n  resource: $res:u/rf/wh\nvars:\n  v: \"{{{{ {name} }}}}\"\n"
+                "profile:\n  resource: $res:u/rf/wh\nvars:\n  v: \"{{{{ {name} }}}}\"\n"
             );
             let err = parse_dbt_descriptor(&d).unwrap_err().to_string();
             assert!(err.contains(name), "{name}: {err}");

@@ -813,3 +813,10 @@ test("a nested __mod inside a dbt project is not a module entry point", () => {
   );
   expect(isModuleEntryPoint("f/x/proj__dbt/models/a.sql")).toBe(false);
 });
+
+test("a __dbt directory nested inside an ordinary module is not a dbt project file", () => {
+  expect(isDbtModulePath("f/x/proj__dbt/models/a.sql")).toBe(true);
+  // `vendor/x__dbt/` belongs to the `foo__mod` script, not to a dbt project.
+  expect(isDbtModulePath("f/x/foo__mod/vendor/x__dbt/a.ts")).toBe(false);
+  expect(isDbtModulePath("f/x/foo__mod/helper.ts")).toBe(false);
+});

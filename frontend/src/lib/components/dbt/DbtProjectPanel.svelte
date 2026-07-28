@@ -61,15 +61,16 @@
 				: Object.keys(modules).sort()[0]
 	)
 
-	// A dbt project holds SQL, YAML, Markdown and the odd Python model. Only the
-	// first three have a highlighter here; anything else renders unhighlighted
-	// rather than guessing, which is what `undefined` means to HighlightCode.
-	// `ansible` is how this component spells YAML.
+	// A dbt project holds SQL, YAML and the odd Python model; `ansible` is how
+	// this component spells YAML. Anything else (`.md`, `.csv`, `.txt`) falls to
+	// `bash`, whose grammar leaves prose alone — NOT `undefined`, which
+	// HighlightCode resolves to TypeScript and which would litter a seed file
+	// with keyword colouring.
 	function langOf(path: string): ComponentProps<typeof HighlightCode>['language'] {
 		if (path.endsWith('.sql')) return 'sql'
 		if (path.endsWith('.yml') || path.endsWith('.yaml')) return 'ansible'
 		if (path.endsWith('.py')) return 'python3'
-		return undefined
+		return 'bash'
 	}
 </script>
 

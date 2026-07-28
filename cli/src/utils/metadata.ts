@@ -1398,9 +1398,12 @@ async function computeModuleHashes(
         // comparison is on the project-relative path, not the entry name.
         if (skipDirs.size > 0 && isUnderGeneratedDir(relPath, skipDirs)) continue;
         await readDir(fullPath, relPath);
+        // See the bundle builder: a verbatim (dbt) bundle carries a `.lock` the
+        // project authored, so the hash has to see it or a change to it would
+        // never be detected as a change.
       } else if (
         entry.isFile() &&
-        !entry.name.endsWith(".lock") &&
+        (verbatim || !entry.name.endsWith(".lock")) &&
         !(isFolderLayout && isTopLevel && entry.name.startsWith("script."))
       ) {
         if (!verbatim) {
