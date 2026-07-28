@@ -21279,7 +21279,7 @@ paths:
             type: string
         - name: shallow
           in: query
-          description: When true, list only the direct children of the prefix (delimiter-style listing) and return subfolder prefixes in `folders`
+          description: When true, list only the direct children of the prefix (delimiter-style listing) and return subfolder prefixes in `folders`. Files of that level page via `marker`/`next_marker`.
           schema:
             type: boolean
       responses:
@@ -21300,11 +21300,9 @@ paths:
                     type: boolean
                   folders:
                     type: array
-                    description: Direct subfolder prefixes (only present for shallow listings)
+                    description: Direct subfolder prefixes (only present for shallow listings; complete in the first page, empty in later ones)
                     items:
                       type: string
-                  truncated:
-                    type: boolean
                 required:
                   - windmill_large_files
 
@@ -21421,7 +21419,7 @@ paths:
             type: string
         - name: shallow
           in: query
-          description: When true, list only the direct children of the prefix (delimiter-style listing) and return subfolder prefixes in `folders`
+          description: When true, list only the direct children of the prefix (delimiter-style listing) and return subfolder prefixes in `folders`. Files of that level page via `marker`/`next_marker`.
           schema:
             type: boolean
       responses:
@@ -21442,11 +21440,9 @@ paths:
                     type: boolean
                   folders:
                     type: array
-                    description: Direct subfolder prefixes (only present for shallow listings)
+                    description: Direct subfolder prefixes (only present for shallow listings; complete in the first page, empty in later ones)
                     items:
                       type: string
-                  truncated:
-                    type: boolean
                 required:
                   - windmill_large_files
 

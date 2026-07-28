@@ -1,6 +1,7 @@
 <script module lang="ts">
 	export interface S3TreeNode {
-		type: 'folder' | 'leaf'
+		/** `load_more` is a synthetic row that pages in the rest of a folder. */
+		type: 'folder' | 'leaf' | 'load_more'
 		full_key: string
 		display_name: string
 		collapsed: boolean
@@ -11,8 +12,8 @@
 		count: number | undefined
 		/** Folders only: whether their direct children are in allFilesByKey. */
 		childrenLoaded?: boolean
-		/** Folders only: the shallow listing of their files was capped. */
-		truncated?: boolean
+		/** Folders only: more files remain at that level than have been loaded. */
+		hasMore?: boolean
 	}
 </script>
 
@@ -21,6 +22,7 @@
 		File as FileIcon,
 		FolderClosed,
 		FolderOpen,
+		ChevronDown,
 		RotateCw,
 		Loader2,
 		Download,
@@ -188,11 +190,19 @@
 	// Prefix search only works on flat listings, so a non-empty filter switches
 	// to them too.
 	let flatListing = $derived(filter.trim() !== '' || shallowUnavailable)
-	let anyTruncated = $state(false)
 	let loadingFolderKeys = new SvelteSet<string>()
+	/** Resume token per shallow-loaded level, keyed by folder ('' for the root). */
+	let nextMarkerByFolder: Record<string, string> = {}
 
 	function rootParentKey(): string | undefined {
 		return rootPath === '' ? undefined : rootPath
+	}
+
+	// Sorted after every real child of the folder but before the folder's own
+	// siblings, so the row lands at the bottom of the level it pages.
+	const LOAD_MORE_SUFFIX = '￿'
+	function loadMoreKey(folderKey: string | undefined): string {
+		return (folderKey ?? '') + LOAD_MORE_SUFFIX
 	}
 
 	let timeout: number | undefined = undefined
@@ -370,15 +380,84 @@
 			createShallowNode(file.s3, 'leaf', parentKey)
 			directCount += 1
 		}
-		if (availableFiles.truncated === true) {
-			anyTruncated = true
+
+		const nextMarker = availableFiles.next_marker
+		const levelKey = parentKey ?? ''
+		if (nextMarker) {
+			nextMarkerByFolder[levelKey] = nextMarker
+			createLoadMoreNode(parentKey)
+		} else {
+			delete nextMarkerByFolder[levelKey]
+			removeLoadMoreNode(parentKey)
 		}
+
 		const parentNode = parentKey !== undefined ? allFilesByKey[parentKey] : undefined
 		if (parentNode !== undefined) {
-			parentNode.count = directCount
+			// additive: paging a folder extends what is already known about it
+			parentNode.count = (parentNode.childrenLoaded ? (parentNode.count ?? 0) : 0) + directCount
 			parentNode.childrenLoaded = true
-			parentNode.truncated = availableFiles.truncated === true
+			parentNode.hasMore = !!nextMarker
 		}
+	}
+
+	function createLoadMoreNode(parentKey: string | undefined) {
+		const key = loadMoreKey(parentKey)
+		if (allFilesByKey[key] !== undefined) {
+			return
+		}
+		const parentNode = parentKey !== undefined ? allFilesByKey[parentKey] : undefined
+		allFilesByKey[key] = {
+			type: 'load_more',
+			full_key: key,
+			display_name: '',
+			collapsed: true,
+			parentPath: parentKey,
+			nestingLevel:
+				parentNode !== undefined ? parentNode.nestingLevel + 2 : rootPathNestingLevel * 2,
+			count: undefined
+		}
+		if (parentKey === rootParentKey()) {
+			displayedFileKeys.push(key)
+		}
+	}
+
+	function removeLoadMoreNode(parentKey: string | undefined) {
+		const key = loadMoreKey(parentKey)
+		if (allFilesByKey[key] === undefined) {
+			return
+		}
+		delete allFilesByKey[key]
+		displayedFileKeys = displayedFileKeys.filter((k) => k !== key)
+	}
+
+	// Page in the next batch of files for an already-expanded level.
+	async function loadMoreInFolder(parentKey: string | undefined) {
+		const levelKey = parentKey ?? ''
+		const marker = nextMarkerByFolder[levelKey]
+		if (marker === undefined) {
+			return
+		}
+		const loadingKey = loadMoreKey(parentKey)
+		loadingFolderKeys.add(loadingKey)
+		try {
+			await loadShallowFolder(parentKey ?? rootPath, marker)
+		} catch (e) {
+			sendUserToast(`Could not load more files: ${e}`, true)
+			return
+		} finally {
+			loadingFolderKeys.delete(loadingKey)
+		}
+		revealChildren(parentKey)
+	}
+
+	// Make every already-loaded child of a level visible in the flat row list.
+	function revealChildren(parentKey: string | undefined) {
+		for (const file_key in allFilesByKey) {
+			if (allFilesByKey[file_key].parentPath === parentKey) {
+				displayedFileKeys.push(file_key)
+			}
+		}
+		displayedFileKeys = [...new Set(displayedFileKeys)].sort()
 	}
 
 	function createShallowNode(
@@ -408,11 +487,12 @@
 		}
 	}
 
-	async function loadShallowFolder(folderKey: string) {
+	async function loadShallowFolder(folderKey: string, marker?: string) {
 		const availableFiles = await listStoredFilesRequest({
 			workspace: ws!,
 			maxKeys,
-			prefix: folderKey,
+			prefix: folderKey === '' ? undefined : folderKey,
+			marker,
 			storage,
 			s3ResourcePath,
 			shallow: true
@@ -420,7 +500,7 @@
 		if (availableFiles.restricted_access !== false || availableFiles.folders === undefined) {
 			return
 		}
-		processShallowResponse(availableFiles, folderKey)
+		processShallowResponse(availableFiles, folderKey === '' ? undefined : folderKey)
 	}
 
 	// Walk the ancestor folders of fileKey below rootPath, loading and expanding
@@ -579,7 +659,7 @@
 		displayedCount = 0
 		page = 0
 		listMarkers = []
-		anyTruncated = false
+		nextMarkerByFolder = {}
 		loadingFolderKeys.clear()
 		// re-detect on every reload: switching storage can change whether the
 		// server serves shallow listings
@@ -684,7 +764,11 @@
 	async function selectItem(index: number, toggleCollapsed: boolean = true) {
 		let item_key = displayedFileKeys[index]
 		let item = allFilesByKey[item_key]
-		if (item.type === 'folder') {
+		if (item.type === 'load_more') {
+			if (!loadingFolderKeys.has(item_key)) {
+				await loadMoreInFolder(item.parentPath)
+			}
+		} else if (item.type === 'folder') {
 			if (folderOnly) {
 				selectedFileKey = {
 					s3: item_key,
@@ -857,7 +941,17 @@
 												class={`flex flex-row w-full gap-2 h-full items-center`}
 												style={`margin-left: ${(2 + nestingLevel) * 0.25}rem;`}
 											>
-												{#if file_info.type === 'folder'}
+												{#if file_info.type === 'load_more'}
+													{#if loadingFolderKeys.has(file_info.full_key)}<Loader2
+															size={16}
+															class="animate-spin"
+														/>{:else}<ChevronDown size={16} />{/if}
+													<div class="truncate text-ellipsis w-56 text-secondary font-normal">
+														{loadingFolderKeys.has(file_info.full_key)
+															? 'Loading…'
+															: 'Load more in this folder'}
+													</div>
+												{:else if file_info.type === 'folder'}
 													{#if loadingFolderKeys.has(file_info.full_key)}<Loader2
 															size={16}
 															class="animate-spin"
@@ -867,7 +961,7 @@
 													<div class="truncate text-ellipsis w-56">
 														{file_info.display_name}
 														{#if file_info.count !== undefined}
-															({file_info.count}{file_info.truncated ||
+															({file_info.count}{file_info.hasMore ||
 															(flatListing &&
 																count % 1000 === 0 &&
 																lastKeyFolders[file_info.nestingLevel / 2] ===
@@ -898,7 +992,7 @@
 							</div>
 						{:else if !flatListing}
 							<div>
-								{displayedCount}{anyTruncated ? '+' : ''} item{displayedCount === 1 ? '' : 's'} loaded
+								{displayedCount} item{displayedCount === 1 ? '' : 's'} loaded
 							</div>
 						{:else}
 							<div>
