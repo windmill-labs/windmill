@@ -2784,21 +2784,27 @@ def _step_error_marker(key: str, exc: BaseException) -> dict:
         # connection raises in turn. This runs inside the ``except`` that is
         # reporting the user's failure, so an escape here would replace their
         # error with an unrelated one and skip the checkpoint entirely.
-        # Narrow: what json raises for something it cannot represent. A broader
-        # catch would hide a mistake in this function as a silently missing
-        # field, which is how it read before.
-        try:
-            # ``parse_constant`` catches the one thing ``default`` cannot: a
-            # float is serializable, so ``NaN``/``Infinity`` pass through as
-            # bare literals that are not JSON and that the backend's extractor
-            # rejects — taking the whole checkpoint down with them. Kept as
-            # their text rather than dropped, so the attribute still says
-            # something.
-            error["extra"] = json.loads(
-                json.dumps(extra, default=_safe_str), parse_constant=lambda c: c
-            )
-        except (TypeError, ValueError, RecursionError):
-            pass
+        #
+        # Per attribute, so one that cannot be represented does not take the
+        # rest with it — an ``AxiosError``-shaped exception carrying both a
+        # ``code`` and a cyclic ``request`` keeps the ``code``. The typescript
+        # client admits properties one at a time for the same reason.
+        safe_extra = {}
+        for _k, _v in extra.items():
+            # Narrow: what json raises for something it cannot represent. A
+            # broader catch would hide a mistake here as a silently missing
+            # field, which is how it read before. ``parse_constant`` catches the
+            # one thing ``default`` cannot: a float is serializable, so
+            # ``NaN``/``Infinity`` pass through as bare literals that are not
+            # JSON and that the backend's extractor rejects.
+            try:
+                safe_extra[_k] = json.loads(
+                    json.dumps(_v, default=_safe_str), parse_constant=lambda c: c
+                )
+            except (TypeError, ValueError, RecursionError):
+                pass
+        if safe_extra:
+            error["extra"] = safe_extra
     return {
         "__wmill_error": True,
         "message": _safe_str(exc),

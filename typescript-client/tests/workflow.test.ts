@@ -10,6 +10,38 @@ import { expect, test, describe } from "bun:test";
 // backend's shape before, so a copy of them here would guard nothing.
 import { isSuspendSignal, stepErrorMarker, taskErrorFromMarker } from "../wacError";
 
+// The cases both SDKs must agree on, read from the same file the python suite
+// reads. `name` and `stack` drifted between the two clients twice while the
+// record was being unified, and a suite that only knows its own language cannot
+// see that.
+import corpus from "../../backend/windmill-common/src/wac_failure_corpus.json";
+
+describe("shared failure-record corpus", () => {
+  const construct = (spec: any): any => {
+    const e: any = Object.assign(new Error(spec.message), { name: spec.name });
+    for (const [k, v] of Object.entries(spec.props ?? {})) e[k] = v;
+    if (spec.circular_prop) {
+      const cyclic: any = {};
+      cyclic.self = cyclic;
+      e[spec.circular_prop] = cyclic;
+    }
+    return e;
+  };
+
+  for (const c of (corpus as any).cases) {
+    test(c.case, () => {
+      const error = stepErrorMarker("k", construct(c.thrown)).result.error;
+      expect(error.name).toBe(c.expect.name);
+      expect(error.message).toBe(c.expect.message);
+      expect("stack" in error).toBe(c.expect.stack === "present");
+      if (c.expect.extra) expect(error.extra).toEqual(c.expect.extra);
+      for (const absent of c.expect.absent ?? []) expect(absent in error).toBe(false);
+      // whatever it kept has to survive the trip to the checkpoint
+      expect(() => JSON.stringify(error)).not.toThrow();
+    });
+  }
+});
+
 // --- Inline SDK (mirrors client.ts implementation) ---
 
 class StepSuspend extends Error {

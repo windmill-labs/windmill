@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import pathlib
 import pytest
 
 from datetime import datetime, timezone
@@ -966,6 +967,64 @@ class TestErrorPropagation:
         )
         assert r["type"] == "complete"
         assert "step failed" in r["result"]["caught"]
+
+
+class TestFailureRecordCorpus:
+    """The cases both SDKs must agree on, read from one shared file.
+
+    `name` and `stack` drifted between the two clients twice while the record
+    was being unified, and each time only a reviewer noticed: a suite that only
+    knows its own language cannot see a divergence. The corpus is the same file
+    the typescript suite reads.
+    """
+
+    CORPUS = json.loads(
+        (
+            pathlib.Path(__file__).resolve().parents[3]
+            / "backend/windmill-common/src/wac_failure_corpus.json"
+        ).read_text()
+    )
+
+    @staticmethod
+    def _construct(spec: dict) -> BaseException:
+        exc = type(spec["name"], (Exception,), {})(spec["message"])
+        for key, value in (spec.get("props") or {}).items():
+            setattr(exc, key, value)
+        if spec.get("circular_prop"):
+            cyclic: dict = {}
+            cyclic["self"] = cyclic
+            setattr(exc, spec["circular_prop"], cyclic)
+        return exc
+
+    @pytest.mark.parametrize("case", CORPUS["cases"], ids=lambda c: c["case"])
+    def test_marker_matches_the_shared_contract(self, case):
+        exc = self._construct(case["thrown"])
+
+        def raiser():
+            raise exc
+
+        # through the real step path, so the stack is the one a failure actually
+        # records rather than one this test happens to construct
+        async def run():
+            ctx = WorkflowCtx({})
+            try:
+                await ctx._run_inline_step("k", raiser)
+            except _StepSuspend as suspended:
+                return suspended.dispatch_info["result"]
+            raise AssertionError("a raising step did not suspend")
+
+        error = asyncio.run(run())["result"]["error"]
+
+        expect = case["expect"]
+        assert error["name"] == expect["name"]
+        assert error["message"] == expect["message"]
+        assert ("stack" in error) == (expect["stack"] == "present")
+        if "extra" in expect:
+            assert error["extra"] == expect["extra"]
+        for absent in expect.get("absent", []):
+            assert absent not in error
+        # whatever it kept has to survive the trip to the checkpoint
+        json.dumps(error, allow_nan=False)
 
 
 class TestRaisingInlineStepIsCheckpointed:
