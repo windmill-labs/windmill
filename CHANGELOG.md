@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.775.1](https://github.com/windmill-labs/windmill/compare/v1.775.0...v1.775.1) (2026-07-28)
+
+
+### Bug Fixes
+
+* **ai:** render pending parallel tool calls as faded queued cards ([#10208](https://github.com/windmill-labs/windmill/issues/10208)) ([d842f76](https://github.com/windmill-labs/windmill/commit/d842f765a457f0c80a2cd1eb06bc703167512160))
+* **frontend:** add the preprocessor node before the error handler markers ([#10395](https://github.com/windmill-labs/windmill/issues/10395)) ([39dd411](https://github.com/windmill-labs/windmill/commit/39dd411481d450b1cdb92ddba3a8b613ddd2218a))
+
 ## [1.775.0](https://github.com/windmill-labs/windmill/compare/v1.774.0...v1.775.0) (2026-07-28)
 
 
