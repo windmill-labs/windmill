@@ -62,6 +62,8 @@ export type GraphEventHandlers = {
 	deleteBranch: (detail: { id: string; index: number }, label: string) => void
 	select: (mod: string | FlowModule) => void
 	delete: (detail: { id: string }, label: string) => void
+	/** Drop a node that only mirrors run state (the error handler marker). Never edits the flow. */
+	dismissRunNode: (id: string) => void
 	newBranch: (id: string) => void
 	move: (detail: { id: string }) => void
 	duplicate: (detail: { id: string }) => void
@@ -123,6 +125,7 @@ export type FlowNode =
 	| CollapsedGroupN
 	| GroupHeadN
 	| GroupEndN
+	| FailureModuleN
 
 export type InputN = {
 	type: 'input2'
@@ -160,6 +163,18 @@ export type ModuleN = {
 		isOwner: boolean
 		assets: AssetWithAltAccessType[] | undefined
 		moduleAction: ModuleActionInfo | undefined
+	}
+}
+
+/** The error handler as it appears in the editor graph once a run triggered it: an inert
+ * marker of where the handler fired, not an editable step of the flow structure. */
+export type FailureModuleN = {
+	type: 'failureModule'
+	data: {
+		id: string
+		module: FlowModule
+		eventHandlers: GraphEventHandlers
+		flowModuleState: GraphModuleState | undefined
 	}
 }
 
@@ -479,6 +494,29 @@ export function graphBuilder(
 				},
 				type: 'module',
 				selectable: true
+			})
+
+			return module.id
+		}
+
+		// In the editor the error handler is configured from its own header button, so its graph node
+		// is only a marker of the last run: inert, dismissable, and never selectable. Everywhere else
+		// (run view, viewers) it stays a regular step card.
+		function addFailureNode(module: FlowModule) {
+			if (!extra.editMode) {
+				return addNode(module)
+			}
+
+			nodes.push({
+				id: module.id,
+				data: {
+					id: module.id,
+					module,
+					eventHandlers: eventHandlers,
+					flowModuleState: extra.flowModuleStates?.[module.id]
+				},
+				type: 'failureModule',
+				selectable: false
 			})
 
 			return module.id
@@ -1194,6 +1232,8 @@ export function graphBuilder(
 		}
 
 		if (failureModule) {
+			// Keyed by failing step, so a step that failed several times (loop iterations each run
+			// their own handler, with ids like `failure-0-1`) gets one marker, not a stack of them.
 			let toAdd: Record<string, string> = {}
 			Object.keys(extra.flowModuleStates ?? {}).forEach((id) => {
 				if (id.startsWith('failure')) {
@@ -1205,7 +1245,7 @@ export function graphBuilder(
 			})
 
 			Object.entries(toAdd).forEach((x) => {
-				addNode({ ...failureModule, id: x[1] })
+				addFailureNode({ ...failureModule, id: x[1] })
 				addEdge(x[0], x[1], undefined, undefined, { type: 'empty' })
 			})
 		}
@@ -1217,7 +1257,7 @@ export function graphBuilder(
 		}
 
 		if (failureModule && !extra.flowModuleStates) {
-			addNode(failureModule)
+			addFailureNode(failureModule)
 		}
 
 		Object.keys(parents).forEach((key) => {
