@@ -467,7 +467,11 @@
 			sendUserToast(`Could not load more files: ${e}`, true)
 			return
 		} finally {
-			loadingFolderKeys.delete(loadingKey)
+			// After a reset the key may already belong to the fresh tree's own
+			// request for this folder; a stale settle must not unlock its row.
+			if (generation === loadGeneration) {
+				loadingFolderKeys.delete(loadingKey)
+			}
 		}
 		// The tree may have been rebuilt, or the folder collapsed, while the page
 		// was in flight — either way its children must stay hidden.
@@ -570,9 +574,11 @@
 			}
 			if (synthesized && (folder.count ?? 0) === 0) {
 				// Nothing under it: the path is stale (a delete may have just
-				// emptied it), so drop the node rather than show a phantom row.
+				// emptied it), so drop the node rather than show a phantom row —
+				// including its contribution to the loaded-items footer.
 				delete allFilesByKey[prefix]
 				displayedFileKeys = displayedFileKeys.filter((k) => k !== prefix)
+				displayedCount -= 1
 				return
 			}
 			folder.collapsed = false
@@ -866,7 +872,11 @@
 						sendUserToast(`Could not load folder content: ${e}`, true)
 						return
 					} finally {
-						loadingFolderKeys.delete(item_key)
+						// After a reset the key may already belong to the fresh
+						// tree's own request; a stale settle must not unlock it.
+						if (generation === loadGeneration) {
+							loadingFolderKeys.delete(item_key)
+						}
 					}
 					// A reload during the fetch replaced the node this click
 					// toggled, so revealing children now would show rows under a
