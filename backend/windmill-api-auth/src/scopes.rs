@@ -735,18 +735,21 @@ pub fn has_raw_app_sdk_sentinel(scopes: Option<&[String]>) -> bool {
     scopes.is_some_and(|s| s.iter().any(|x| x == RAW_APP_SDK_SENTINEL))
 }
 
-/// Endpoints that execute code supplied in the request body. `jobs:run` reaches
-/// them by design (the editor's preview and dependency-resolution surface), but a
-/// raw-app SDK token is handed to untrusted app JS and can be exfiltrated
-/// off-origin, so for it "run scripts and flows" must mean the deployed runnables
-/// the viewer can already run — not arbitrary code. Without this, a captured SDK
-/// token escalates to the viewer's full account: these jobs run attacker-chosen
-/// code (or resolve and install attacker-chosen packages on a worker) and their
-/// own ephemeral credential is unscoped and permissioned as the viewer.
+/// Endpoints that run code the caller supplies in the request — or names by job
+/// id. `jobs:run` reaches them by design (the editor's preview, dependency and
+/// workflow-as-code surface), but a raw-app SDK token is handed to untrusted app
+/// JS and can be exfiltrated off-origin, so for it "run scripts and flows" must
+/// mean the deployed runnables the viewer can already run — not arbitrary code.
+/// Without this, a captured SDK token escalates to the viewer's full account:
+/// these jobs run attacker-chosen code (or resolve and install attacker-chosen
+/// packages on a worker) and their own ephemeral credential is unscoped and
+/// permissioned as the viewer. `workflow_as_code` counts even though its body is
+/// just args: it copies the named queued job's `raw_code` into a new job without
+/// an ownership check, so a pre-staged preview job replays as the viewer.
 /// The SDK never calls these — its run helpers are all by path/hash.
 fn is_request_supplied_code_route(suffix: &str) -> bool {
     // Prefixes, so the `_async` variants are covered too.
-    const CODE_ROUTES: [&str; 8] = [
+    const CODE_ROUTES: [&str; 9] = [
         "jobs/run/preview",
         "jobs/run_inline/preview",
         "jobs/run_wait_result/preview",
@@ -755,6 +758,7 @@ fn is_request_supplied_code_route(suffix: &str) -> bool {
         "jobs/run_wait_result/preview_flow",
         "jobs/run/dependencies",
         "jobs/run/flow_dependencies",
+        "jobs/run/workflow_as_code",
     ];
     CODE_ROUTES.iter().any(|p| suffix.starts_with(p))
 }

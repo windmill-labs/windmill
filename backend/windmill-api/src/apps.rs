@@ -1220,13 +1220,15 @@ const APP_EMBED_TOKEN_VALIDITY_HOURS: i64 = 12;
 /// Scopes an app author may declare in `Policy::frontend_sdk_scopes` (the
 /// viewer-identity token handed to a raw app's bundled `windmill-client`).
 ///
-/// Two exclusions make the grant bounded rather than "act as this viewer":
+/// These exclusions make the grant bounded rather than "act as this viewer":
 /// - no `apps:*` scope, so the mint endpoints (Apps domain, default-denied for a
 ///   scoped token) are unreachable and the token cannot renew itself past 12h;
 /// - `jobs:run` means *deployed* runnables only — the `raw_app_sdk` sentinel
 ///   `mint_raw_app_sdk_token` adds denies the request-supplied-code endpoints,
 ///   which would otherwise turn the token into arbitrary execution as the viewer
-///   (and hand the app an unscoped job credential). See `scopes.rs`.
+///   (and hand the app an unscoped job credential);
+/// - `users:read` is confined by that same sentinel to the viewer's own identity,
+///   never the workspace member directory. See `scopes.rs`.
 pub const FRONTEND_SDK_ALLOWED_SCOPES: [&str; 5] = [
     "jobs:run",
     "jobs:read",
@@ -1325,6 +1327,11 @@ async fn mint_raw_app_sdk_token(
 /// can call this endpoint itself. The boundary is the scope set — the token can
 /// never exceed the policy-declared scopes, which are also capped by the viewer's
 /// own permissions. Sandbox isolation is what actually contains an app's code.
+///
+/// The CALLER MUST verify that `opt_authed` may view `app_path` before calling:
+/// this mints on their behalf unconditionally and does no visibility check of its
+/// own. Every call site — `get_app_embed_token`, `get_app_embed_token_for_path`
+/// and the EE custom-path variant — access-checks first.
 pub async fn build_embed_token_response(
     db: &DB,
     w_id: &str,
@@ -4974,6 +4981,11 @@ mod embed_token_tests {
             ("/api/w/test/jobs/run/dependencies_async", "POST"),
             ("/api/w/test/jobs/run/flow_dependencies", "POST"),
             ("/api/w/test/jobs/run/flow_dependencies_async", "POST"),
+            // Replays a named queued preview job's raw code as the caller.
+            (
+                "/api/w/test/jobs/run/workflow_as_code/some-uuid/main",
+                "POST",
+            ),
             // `users:read` is presented to the viewer as "read your identity", so
             // the workspace member directory must stay out of reach.
             ("/api/w/test/users/list", "GET"),

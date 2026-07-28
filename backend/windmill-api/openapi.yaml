@@ -30953,7 +30953,12 @@ components:
         token:
           type: string
           nullable: true
-          description: Narrowly-scoped embed token for the iframe. Absent for fully anonymous or raw apps, which load without a scoped token.
+          description: >
+            Scoped token for the app. For sandboxed low-code apps this is the
+            embed token handed to the opaque iframe. For a raw app it is the
+            viewer-scoped frontend SDK token, returned only when the policy
+            declares sdk_scopes and the request carries sdk_consent=true.
+            Absent for anonymous viewers and whenever no token is needed.
         expiration:
           type: string
           format: date-time
