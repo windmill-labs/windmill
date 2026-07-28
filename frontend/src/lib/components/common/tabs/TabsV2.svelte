@@ -2,6 +2,7 @@
 	import { setContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
+	import ScrollableX from '../ScrollableX.svelte'
 	import type { TabsContext } from '$lib/components/apps/editor/settingsPanel/inputEditor/tabs.svelte'
 
 	interface Props {
@@ -72,10 +73,10 @@
 
 <svelte:window onhashchange={hashChange} />
 {#if !hideTabs}
-	<div class="overflow-x-auto {wrapperClass}">
-		<div class={twMerge('border-b flex flex-row whitespace-nowrap scrollbar-hidden', c)} {style}>
+	<ScrollableX class={wrapperClass}>
+		<div class={twMerge('border-b flex flex-row whitespace-nowrap', c)} {style}>
 			{@render children?.({ selected })}
 		</div>
-	</div>
+	</ScrollableX>
 {/if}
 {@render content?.()}

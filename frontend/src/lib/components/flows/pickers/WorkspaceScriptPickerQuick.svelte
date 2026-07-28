@@ -37,7 +37,8 @@
 
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
-	import { createEventDispatcher, untrack } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
+	import type { FlowEditorContext } from '../types'
 	import { FlowService, ScriptService } from '$lib/gen'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import { Skeleton } from '$lib/components/common'
@@ -57,9 +58,11 @@
 		hash?: string
 	}
 
+	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
+
 	let items = usePromise(
-		async () =>
-			await loadItemsCached({ workspace: $workspaceStore!, kind, isTemplate, refreshCount }),
+		async () => await loadItemsCached({ workspace: opWs!, kind, isTemplate, refreshCount }),
 		{ loadInit: false, clearValueOnRefresh: false }
 	)
 

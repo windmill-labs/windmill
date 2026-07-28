@@ -35,13 +35,15 @@
 
 	let open = $derived(uriState.open)
 
+	// The workspace the drawer's DB operations run against — the acting workspace of
+	// the editor that opened it (set via openDrawer), else the nav workspace.
+	let ws = $derived(uriState.workspace ?? $workspaceStore)
+
 	// Load available datatables when drawer opens with datatable input
 	const datatables = resource<string[]>([], async () => {
-		if (!$workspaceStore) return []
+		if (!ws) return []
 		try {
-			return (await WorkspaceService.listDataTables({ workspace: $workspaceStore })).map(
-				(d) => d.name
-			)
+			return (await WorkspaceService.listDataTables({ workspace: ws })).map((d) => d.name)
 		} catch (e) {
 			console.error('Failed to load datatables:', e)
 			return []
@@ -113,10 +115,10 @@
 
 	async function handleExportSchema() {
 		const source = currentSourceIdentifier()
-		if (!source || !$workspaceStore) return
+		if (!source || !ws) return
 		try {
 			exportResult = await WorkspaceService.exportPgSchema({
-				workspace: $workspaceStore,
+				workspace: ws,
 				requestBody: { source }
 			})
 			exportDrawerOpen = true
@@ -126,13 +128,13 @@
 	}
 
 	async function handleImportDatabase() {
-		if (!importSource || !$workspaceStore) return
+		if (!importSource || !ws) return
 		const target = currentSourceIdentifier()
 		if (!target) return
 		importLoading = true
 		try {
 			await WorkspaceService.importPgDatabase({
-				workspace: $workspaceStore,
+				workspace: ws,
 				requestBody: {
 					source: toSourceIdentifier(importSource),
 					target,
@@ -173,11 +175,12 @@
 		noPadding
 		id="db-manager-drawer"
 	>
-		{#if uriState.effectiveInput && $workspaceStore}
+		{#if uriState.effectiveInput && ws}
 			{#key uriState.selectedDatatable}
 				<DBManagerContent
 					bind:this={dbManagerContent}
 					input={uriState.effectiveInput}
+					workspace={uriState.workspace}
 					bind:hasReplResult
 					bind:selectedSchemaKey={uriState.selectedSchema}
 					bind:selectedTableKey={uriState.selectedTable}
@@ -207,9 +210,9 @@
 			{/key}
 		{/if}
 		{#snippet actions()}
-			{#if uriState.isDatatableInput && uriState.selectedDatatable && $workspaceStore}
+			{#if uriState.isDatatableInput && uriState.selectedDatatable && ws}
 				<DataTableMigrationsButton
-					workspace={$workspaceStore}
+					workspace={ws}
 					datatable={uriState.selectedDatatable}
 					onSchemaChanged={refreshManager}
 				/>
@@ -274,7 +277,12 @@
 			</Alert>
 			<div class="flex flex-col gap-2">
 				<span class="text-sm font-medium">Source database</span>
-				<ResourcePicker datatableAsPgResource bind:value={importSource} resourceType="postgresql" />
+				<ResourcePicker
+					datatableAsPgResource
+					bind:value={importSource}
+					resourceType="postgresql"
+					workspace={ws}
+				/>
 			</div>
 			<div class="flex flex-col gap-2">
 				<span class="text-sm font-medium">Import mode</span>

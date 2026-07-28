@@ -14,6 +14,12 @@ pub const WS_BASE_URL_SETTING: &str = "ws_base_url";
 pub const OAUTH_SETTING: &str = "oauths";
 pub const AI_CONFIG_SETTING: &str = "ai_config";
 pub const RETENTION_PERIOD_SECS_SETTING: &str = "retention_period_secs";
+pub const RETENTION_PERIOD_SECS_OVERRIDES_SETTING: &str = "retention_period_secs_overrides";
+/// Upper bound on how many per-workspace retention overrides may be configured. The periodic monitor
+/// sweeps each override workspace in its own transaction every pass, so this keeps a pass bounded
+/// (and the feature is a targeted escape hatch for a handful of special workspaces, not a bulk knob).
+/// Enforced at write time and defensively on load.
+pub const MAX_RETENTION_OVERRIDE_WORKSPACES: usize = 10;
 pub const AUDIT_LOG_RETENTION_DAYS_SETTING: &str = "audit_log_retention_days";
 pub const STORE_AUDIT_LOGS_S3_SETTING: &str = "store_audit_logs_s3";
 /// `background_task_state.name` for the audit-log → object-store export cursor.
@@ -110,6 +116,16 @@ pub const WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING: &str = "workspace_fairness_max
 pub const WORKSPACE_FAIRNESS_DURATION_SECS_SETTING: &str = "workspace_fairness_duration_secs";
 pub const WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING: &str = "workspace_fairness_min_total_jobs";
 
+// Cloud-only ceiling on how many jobs may sit in the queue behind a single
+// concurrency key. `0` disables the cap. See `windmill-queue/src/jobs.rs`,
+// `check_concurrency_key_queue_cap`.
+pub const CONCURRENCY_KEY_MAX_QUEUED_SETTING: &str = "concurrency_key_max_queued_jobs";
+
+// Cloud-only ceiling on how many jobs a single workspace may have queued in
+// total, across every key and script. Applies even to premium workspaces. `0`
+// disables the cap. See `windmill-queue/src/jobs.rs`, `check_workspace_queue_cap`.
+pub const WORKSPACE_MAX_QUEUED_JOBS_SETTING: &str = "workspace_max_queued_jobs";
+
 /// Global settings an agent worker (a remote worker connected over HTTP instead
 /// of to the database) must NEVER read through
 /// `GET /api/agent_workers/get_global_setting/{key}`. Every other key is served.
@@ -149,6 +165,11 @@ pub const AGENT_WORKER_BLOCKED_SETTINGS: &[&str] = &[
     INSTANCE_EVENTS_WEBHOOK_SETTING,
     OTEL_SETTING,
     OTEL_TRACING_PROXY_SETTING,
+    // Custom-instance DB credentials: `custom_instance_pg_databases` holds `user_pwd`,
+    // `custom_instance_replication_pwd` holds the REPLICATION-role password. Agent workers
+    // resolve datatable connections through the dedicated datatable endpoints, never these.
+    "custom_instance_pg_databases",
+    "custom_instance_replication_pwd",
 ];
 
 /// Whether an agent worker may read the given global setting over HTTP.
@@ -365,6 +386,8 @@ mod tests {
             INSTANCE_EVENTS_WEBHOOK_SETTING,
             OTEL_SETTING,
             OTEL_TRACING_PROXY_SETTING,
+            "custom_instance_pg_databases",
+            "custom_instance_replication_pwd",
         ] {
             assert!(
                 !is_setting_readable_by_agent_worker(key),

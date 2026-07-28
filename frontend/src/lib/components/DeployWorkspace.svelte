@@ -1,5 +1,10 @@
 <script lang="ts">
 	import { createEventDispatcher, untrack } from 'svelte'
+	import {
+		agentResourceDependencies,
+		aiAgentModuleDependencies,
+		collectTransformRefs
+	} from './deployDependencies'
 	import { base } from '$lib/base'
 	import { enterpriseLicense, superadmin, workspaceStore } from '$lib/stores'
 	import {
@@ -195,15 +200,7 @@
 				return getAllModules(flow.value.modules, flow.value.failure_module).flatMap((x) => {
 					let result: { kind: Kind; path: string }[] = []
 					if (x.value.type == 'script' || x.value.type == 'rawscript' || x.value.type == 'flow') {
-						Object.values(x.value.input_transforms).forEach((y) => {
-							if (y.type == 'static' && typeof y.value == 'string') {
-								if (y.value.startsWith('$res:')) {
-									result.push({ kind: 'resource', path: y.value.substring(5) })
-								} else if (y.value.startsWith('$var:')) {
-									result.push({ kind: 'variable', path: y.value.substring(5) })
-								}
-							}
-						})
+						result.push(...collectTransformRefs(x.value.input_transforms))
 					}
 					if (x.value.type == 'script') {
 						if (x.value.path && !x.value.path.startsWith('hub/')) {
@@ -213,6 +210,8 @@
 						if (x.value.path) {
 							result.push({ kind: 'flow', path: x.value.path })
 						}
+					} else if (x.value.type == 'aiagent') {
+						result.push(...aiAgentModuleDependencies(x.value))
 					}
 					return result
 				})
@@ -246,17 +245,28 @@
 				return result
 			} else if (kind == 'resource') {
 				const res = await ResourceService.getResource({ workspace: $workspaceStore!, path })
-				function recObj(obj: any) {
-					if (typeof obj == 'string' && obj.startsWith('$var:')) {
-						return [{ kind: 'variable', path: obj.substring(5) }]
-					} else if (typeof obj == 'object') {
+				function recObj(obj: any): { kind: Kind; path: string }[] {
+					if (typeof obj == 'string') {
+						if (obj.startsWith('$var:')) {
+							return [{ kind: 'variable', path: obj.substring(5) }]
+						} else if (obj.startsWith('$jsonvar:')) {
+							return [{ kind: 'variable', path: obj.substring(9) }]
+						} else if (obj.startsWith('$res:')) {
+							return [{ kind: 'resource', path: obj.substring(5) }]
+						}
+						return []
+					} else if (typeof obj == 'object' && obj != null) {
 						return Object.values(obj).flatMap((x) => recObj(x))
 					} else {
 						return []
 					}
 				}
 
-				return [...recObj(res.value), { kind: 'resource_type', path: res.resource_type }]
+				return [
+					...recObj(res.value),
+					...(res.resource_type == 'ai_agent' ? agentResourceDependencies(res.value) : []),
+					{ kind: 'resource_type' as Kind, path: res.resource_type }
+				]
 			} else if (kind == 'trigger') {
 				if (additionalInformation?.triggers) {
 					return getTriggerDependency(additionalInformation.triggers.kind, path, $workspaceStore!)

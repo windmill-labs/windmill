@@ -32,6 +32,8 @@
 		can_write: boolean
 		edit: boolean
 		onLoadSecret?: () => void
+		/** Workspace the path is validated against; defaults to the nav workspace. */
+		workspace?: string | undefined
 	}
 
 	let {
@@ -44,8 +46,11 @@
 		deployTo,
 		can_write,
 		edit,
-		onLoadSecret
+		onLoadSecret,
+		workspace = undefined
 	}: Props = $props()
+
+	let ws = $derived(workspace ?? $workspaceStore)
 
 	const MAX_VARIABLE_LENGTH = 10000
 
@@ -60,12 +65,13 @@
 <div class="flex flex-col gap-1">
 	<label for="path" class="text-xs font-semibold text-emphasis">Path</label>
 	<Path
-		disabled={initialPath != '' && !isOwner(initialPath, $userStore, $workspaceStore)}
+		disabled={initialPath != '' && !isOwner(initialPath, $userStore, ws)}
 		bind:error={pathError}
 		bind:path
 		{initialPath}
 		namePlaceholder="variable"
 		kind="variable"
+		workspaceOverride={workspace}
 	/>
 	<LabelsInput bind:labels />
 </div>

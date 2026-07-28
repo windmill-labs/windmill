@@ -28,7 +28,7 @@ import {
 } from "../../types.ts";
 import { downloadZip } from "./pull.ts";
 import { runLint, printReport, checkMissingLocks } from "../lint/lint.ts";
-import { pullSharedUi, pushSharedUi } from "../shared_ui.ts";
+import { diffSharedUi, pullSharedUi, pushSharedUi } from "../shared_ui.ts";
 import {
   pushMigrationFromDisk,
   offerToRunNewMigrations,
@@ -40,6 +40,7 @@ import {
   findContentFile,
   findResourceFile,
   handleScriptMetadata,
+  UnresolvableScriptContentFileError,
   removeExtensionToPath,
   filePathExtensionFromContentType,
 } from "../script/script.ts";
@@ -1008,7 +1009,11 @@ function ZipFSElement(
             }
 
             if (stripOnBehalfOf) {
-              (flow as any).has_on_behalf_of = !!(flow as any).on_behalf_of_email;
+              // Only emit the flag when set; a `false` here is the default and
+              // would produce a spurious diff for every ownerless flow.
+              if ((flow as any).on_behalf_of_email) {
+                (flow as any).has_on_behalf_of = true;
+              }
               delete (flow as any).on_behalf_of_email;
             }
 
@@ -1293,7 +1298,11 @@ function ZipFSElement(
               parsed["codebase"] = undefined;
             }
             if (stripOnBehalfOf) {
-              parsed["has_on_behalf_of"] = !!parsed["on_behalf_of_email"];
+              // Only emit the flag when set; a `false` here is the default and
+              // would produce a spurious diff for every ownerless script.
+              if (parsed["on_behalf_of_email"]) {
+                parsed["has_on_behalf_of"] = true;
+              }
               delete parsed["on_behalf_of_email"];
             }
             // Modules are stored as files in __mod/ folder, not in metadata
@@ -1340,13 +1349,19 @@ function ZipFSElement(
               if (stripOnBehalfOf) {
                 const isSchedule = p.endsWith(".schedule.json");
                 const isTrigger = p.endsWith("_trigger.json");
+                // Only emit the flag when set; a `false` here is the default and
+                // would produce a spurious diff for every ownerless schedule/trigger.
                 if (isSchedule) {
-                  parsed["has_permissioned_as"] = !!parsed["permissioned_as"];
+                  if (parsed["permissioned_as"]) {
+                    parsed["has_permissioned_as"] = true;
+                  }
                   delete parsed["permissioned_as"];
                   delete parsed["email"];
                   delete parsed["edited_by"];
                 } else if (isTrigger) {
-                  parsed["has_permissioned_as"] = !!parsed["permissioned_as"];
+                  if (parsed["permissioned_as"]) {
+                    parsed["has_permissioned_as"] = true;
+                  }
                   delete parsed["permissioned_as"];
                   delete parsed["edited_by"];
                 }
@@ -1703,6 +1718,7 @@ export async function elementsToMap(
         path.endsWith(".nats_trigger" + ext) ||
         path.endsWith(".postgres_trigger" + ext) ||
         path.endsWith(".mqtt_trigger" + ext) ||
+        path.endsWith(".amqp_trigger" + ext) ||
         path.endsWith(".sqs_trigger" + ext) ||
         path.endsWith(".gcp_trigger" + ext) ||
         path.endsWith(".azure_trigger" + ext) ||
@@ -2456,6 +2472,7 @@ function getOrderFromPath(p: string) {
     typ == "nats_trigger" ||
     typ == "postgres_trigger" ||
     typ == "mqtt_trigger" ||
+    typ == "amqp_trigger" ||
     typ == "sqs_trigger" ||
     typ == "gcp_trigger" ||
     typ == "azure_trigger" ||
@@ -2779,6 +2796,8 @@ export async function pull(
       gitDeployItems?: string;
       onlyCreateBranch?: boolean;
       parentWorkspaceId?: string;
+      devWorkspaceLabel?: string;
+      parentDevWorkspaceLabel?: string;
       gitCommitterEmail?: string;
       gitCommitterName?: string;
     },
@@ -2847,37 +2866,58 @@ export async function pull(
     }
     const clonedBranchName = getCurrentGitBranch() ?? "main";
 
-    // Fork workspaces force-disable use_individual_branch / group_by_folder
-    // (1:1 with the hub script's inner()).
-    const targetIsFork = isForkWorkspace(workspace.workspaceId);
-    const useIndividualBranch = targetIsFork
+    // Throwaway forks force-disable use_individual_branch / group_by_folder
+    // (1:1 with the hub script's inner()). A dev workspace is the exception: it
+    // honors promotion mode and gets per-item wm_deploy/** branches. Dev
+    // workspaces have a prefix-less id, so detect them via the environment label
+    // the backend passes with the deploy.
+    const targetIsFork = isForkWorkspace(
+      workspace.workspaceId,
+      opts.parentWorkspaceId,
+    );
+    const forceOffPromotion = targetIsFork && !opts.devWorkspaceLabel;
+    const useIndividualBranch = forceOffPromotion
       ? false
       : !!opts.useIndividualBranch;
-    const groupByFolder = targetIsFork ? false : !!opts.groupByFolder;
+    const groupByFolder = forceOffPromotion ? false : !!opts.groupByFolder;
 
-    // Fork-of-a-fork: only when the parent workspace is itself a fork, root
-    // the new branch on the parent's fork branch (mirrors the hub script's
-    // `parent_workspace_id?.startsWith(FORKED_…)` gate).
-    if (opts.parentWorkspaceId && isForkWorkspace(opts.parentWorkspaceId)) {
-      const parentBranch = computeGitSyncDeployBranch({
-        workspaceId: opts.parentWorkspaceId,
-        items: deployItems,
-        useIndividualBranch,
-        groupByFolder,
-        clonedBranchName,
-      });
-      if (parentBranch && parentBranch !== clonedBranchName) {
-        checkoutGitSyncDeployBranch(parentBranch);
-      }
+    // Fork-of-a-fork: when the parent workspace is itself a fork, root the new
+    // branch on the parent's fork branch (the content this fork diverged from).
+    // A dev-workspace parent has a prefix-less id the prefix check can't see, so
+    // the backend passes its environment label; its branch is the label verbatim.
+    const parentBranch = opts.parentDevWorkspaceLabel
+      ? opts.parentDevWorkspaceLabel
+      : opts.parentWorkspaceId && isForkWorkspace(opts.parentWorkspaceId)
+        ? computeGitSyncDeployBranch({
+            workspaceId: opts.parentWorkspaceId,
+            items: deployItems,
+            useIndividualBranch,
+            groupByFolder,
+            clonedBranchName,
+          })
+        : null;
+    if (parentBranch && parentBranch !== clonedBranchName) {
+      checkoutGitSyncDeployBranch(parentBranch);
     }
 
     const deployBranch = computeGitSyncDeployBranch({
       workspaceId: workspace.workspaceId,
+      parentWorkspaceId: opts.parentWorkspaceId,
+      devWorkspaceLabel: opts.devWorkspaceLabel,
       items: deployItems,
       useIndividualBranch,
       groupByFolder,
       clonedBranchName,
     });
+    // A dev workspace whose environment-label branch equals the repository's
+    // tracked branch would silently commit the fork's content straight to the
+    // tracked branch. Refuse instead of deploying in place.
+    if (targetIsFork && deployBranch && deployBranch === clonedBranchName) {
+      log.error(
+        `Fork branch '${deployBranch}' equals the checked-out branch '${clonedBranchName}'; refusing to deploy a fork directly to the tracked branch. Use a different dev workspace label or tracked branch.`,
+      );
+      process.exit(1);
+    }
     if (deployBranch && deployBranch !== clonedBranchName) {
       checkoutGitSyncDeployBranch(deployBranch);
     }
@@ -3394,6 +3434,8 @@ export async function gitDeploy(
       groupByFolder?: boolean;
       onlyCreateBranch?: boolean;
       parentWorkspaceId?: string;
+      devWorkspaceLabel?: string;
+      parentDevWorkspaceLabel?: string;
       skipSecrets?: boolean;
       gitCommitterEmail?: string;
       gitCommitterName?: string;
@@ -3409,12 +3451,14 @@ export async function gitDeploy(
     }
   }
 
-  // Fork workspaces force-disable use_individual_branch / group_by_folder
-  // (1:1 with the hub script's inner()): a fork always syncs to its own
-  // wm-fork/<branch>/<id> branch, and — critically — that disabling also
-  // flips the include/promotion derivation below.
-  const isFork = isForkWorkspace(opts.workspace ?? "");
-  const useIndividualBranch = isFork ? false : !!opts.useIndividualBranch;
+  // Throwaway forks force-disable use_individual_branch / group_by_folder (1:1
+  // with the hub script's inner()): they always sync to their own
+  // wm-fork/<branch>/<id> branch, and — critically — that disabling also flips
+  // the include/promotion derivation below. A dev workspace is the exception: it
+  // honors promotion mode, detected via the environment label the backend passes.
+  const isFork = isForkWorkspace(opts.workspace ?? "", opts.parentWorkspaceId);
+  const useIndividualBranch =
+    isFork && !opts.devWorkspaceLabel ? false : !!opts.useIndividualBranch;
 
   // Derive the include filters from the deployed items (replaces the hub
   // script's regexFromPath + per-kind --include-* construction).
@@ -3451,6 +3495,9 @@ export async function gitDeploy(
 // are self-describing via their `migrations/datatable/...` path, so they get no
 // label prefix.
 function changeTypeLabel(p: string): string {
+  // Shared UI files (ui/…) are not wmill items — getTypeStrFromPath throws on
+  // them (e.g. ui/config.json). Label them directly.
+  if (p === "ui" || p.startsWith("ui/")) return "shared UI ";
   const t = getTypeStrFromPath(p);
   return t === "datatable_migration" ? "" : `${t} `;
 }
@@ -3500,7 +3547,6 @@ function prettyChanges(
         ),
       );
     } else if (change.name === "edited") {
-      const changeType = getTypeStrFromPath(change.path);
       log.info(
         colors.yellow(
           `~ ${changeTypeLabel(change.path)}` +
@@ -3510,6 +3556,12 @@ function prettyChanges(
         ),
       );
       if (change.before != change.after) {
+        // Shared UI files (ui/…) aren't wmill items; getTypeStrFromPath throws
+        // on them, so fall back to a plain diff.
+        const changeType =
+          change.path === "ui" || change.path.startsWith("ui/")
+            ? "shared_ui"
+            : getTypeStrFromPath(change.path);
         if (changeType === "encryption_key") {
           showDiff(
             redactEncryptionKey(change.before),
@@ -4085,6 +4137,33 @@ export async function push(
 
   await fetchRemoteVersion(workspace);
 
+  // Shared UI (the ui/ folder) is pushed out-of-band via pushSharedUi on apply
+  // and is excluded from the file diff (isNotWmillFile), so surface its diff in
+  // the dry-run preview. Without this the "Pull from repo" preview reads "no
+  // changes" even when the apply will overwrite the shared-UI store. Folded in
+  // only for dry-run (before the count/summary below) so the apply path is
+  // unchanged (pushSharedUi still runs) and the summary count includes ui/.
+  if (opts.dryRun) {
+    try {
+      for (const c of await diffSharedUi(workspace.workspaceId)) {
+        if (c.type === "added") {
+          changes.push({ name: "added", path: c.path, content: "" });
+        } else if (c.type === "deleted") {
+          changes.push({ name: "deleted", path: c.path });
+        } else {
+          changes.push({
+            name: "edited",
+            path: c.path,
+            before: c.before,
+            after: c.after,
+          });
+        }
+      }
+    } catch (e) {
+      log.warn(`Failed to compute shared UI diff for dry-run preview: ${e}`);
+    }
+  }
+
   log.info(
     `remote (${workspace.name}) <- local: ${changes.length} changes to apply`,
   );
@@ -4200,7 +4279,7 @@ export async function push(
           }
         }
         const rules = folderRulesCache.get(folderName)!;
-        const remotePath = change.path.replace(/\.(script|schedule|http_trigger|websocket_trigger|kafka_trigger|nats_trigger|postgres_trigger|mqtt_trigger|sqs_trigger|gcp_trigger|azure_trigger|email_trigger)\.(yaml|json)$/, "").replace(/(\.flow|__flow)\/flow\.(yaml|json)$/, "").replace(/\.(app|raw_app)(\/app\.(yaml|json))?$/, "");
+        const remotePath = change.path.replace(/\.(script|schedule|http_trigger|websocket_trigger|kafka_trigger|nats_trigger|postgres_trigger|mqtt_trigger|amqp_trigger|sqs_trigger|gcp_trigger|azure_trigger|email_trigger)\.(yaml|json)$/, "").replace(/(\.flow|__flow)\/flow\.(yaml|json)$/, "").replace(/\.(app|raw_app)(\/app\.(yaml|json))?$/, "");
         const relative = remotePath.slice(`f/${folderName}/`.length);
         if (!relative) continue;
         for (const rule of rules) {
@@ -4328,6 +4407,10 @@ export async function push(
     if (parallelizationFactor > 1) {
       log.info(`Parallelizing ${parallelizationFactor} changes at a time`);
     }
+
+    // Changes that could not be applied but do not invalidate the rest of the
+    // push. Reported at the end, and the push exits non-zero for them.
+    const failedChanges: { path: string; error: string }[] = [];
 
     // Create a pool of workers that processes items as they become available
     const pool = new Set();
@@ -4571,6 +4654,42 @@ export async function push(
                   specificItems,
                 );
                 continue;
+              }
+              // A script deploys through its content file, which is normally in
+              // the same group — but not always (excludes can filter it out).
+              // Resolving it from disk keeps the deploy idempotent (via
+              // alreadySynced) and stops an unaccompanied metadata file from
+              // being counted as a change that reached the remote.
+              if (!isRawAppFile(change.path)) {
+                let handled = false;
+                try {
+                  handled = await handleScriptMetadata(
+                    change.path,
+                    workspace,
+                    alreadySynced,
+                    opts.message,
+                    rawWorkspaceDependencies,
+                    codebases,
+                    opts,
+                    permissionedAsContext,
+                  );
+                } catch (e) {
+                  if (!(e instanceof UnresolvableScriptContentFileError)) {
+                    throw e;
+                  }
+                  // Nothing deployable here, but the rest of the changeset is
+                  // unaffected — record it so the push reports a failure at the
+                  // end instead of aborting midway with a partial deploy.
+                  failedChanges.push({
+                    path: change.path,
+                    error: e.message,
+                  });
+                  log.error(e.message);
+                  continue;
+                }
+                if (handled) {
+                  continue;
+                }
               }
               if (
                 !isRawAppFile(change.path) &&
@@ -4894,6 +5013,12 @@ export async function push(
                     path: removeSuffix(target, ".mqtt_trigger.json"),
                   });
                   break;
+                case "amqp_trigger":
+                  await wmill.deleteAmqpTrigger({
+                    workspace: workspaceId,
+                    path: removeSuffix(target, ".amqp_trigger.json"),
+                  });
+                  break;
                 case "sqs_trigger":
                   await wmill.deleteSqsTrigger({
                     workspace: workspaceId,
@@ -5081,11 +5206,16 @@ export async function push(
         );
       }
     }
+    const pushedCount = changes.length - failedChanges.length;
     if (opts.jsonOutput) {
       const result = {
-        success: true,
+        success: failedChanges.length === 0,
         lock_jobs: lockJobs,
-        message: `All ${changes.length} changes pushed to the remote workspace ${workspace.workspaceId} named ${workspace.name}`,
+        ...(failedChanges.length > 0 ? { failed: failedChanges } : {}),
+        message:
+          failedChanges.length > 0
+            ? `${pushedCount} of ${changes.length} changes pushed to the remote workspace ${workspace.workspaceId} named ${workspace.name}; ${failedChanges.length} failed`
+            : `All ${changes.length} changes pushed to the remote workspace ${workspace.workspaceId} named ${workspace.name}`,
         changes: changes.map((change) => ({
           type: change.name,
           path: change.path,
@@ -5107,6 +5237,15 @@ export async function push(
         duration_ms: Math.round(performance.now() - start),
       };
       console.log(JSON.stringify(result, null, 2));
+    } else if (failedChanges.length > 0) {
+      log.error(
+        colors.bold.red.underline(
+          `\n${pushedCount} of ${changes.length} changes pushed to the remote workspace ${
+            workspace.workspaceId
+          } named ${workspace.name}; ${failedChanges.length} failed:\n` +
+            failedChanges.map((f) => `  - ${f.path}`).join("\n"),
+        ),
+      );
     } else {
       log.info(
         colors.bold.green.underline(
@@ -5120,17 +5259,35 @@ export async function push(
         ),
       );
     }
+    if (failedChanges.length > 0) {
+      // Not process.exit: under Node a piped stdout write is async, so exiting
+      // here would truncate the JSON result mid-object for CI consumers.
+      process.exitCode = 1;
+    }
   } else {
-    try {
-      await pushSharedUi(workspace.workspaceId);
-    } catch (e) {
-      log.warn(`Failed to push shared UI folder: ${e}`);
+    // Dry-run with no changes reaches here (a ui/ diff would have made changes
+    // non-empty and returned above); never mutate the remote in that case.
+    let sharedUiPushed = false;
+    if (!opts.dryRun) {
+      try {
+        sharedUiPushed = await pushSharedUi(workspace.workspaceId);
+      } catch (e) {
+        log.warn(`Failed to push shared UI folder: ${e}`);
+      }
     }
     // No changes pushed, so no new datatable migrations to run.
     if (opts.jsonOutput) {
+      // Shared UI is out-of-band from the file diff (total counts diffed
+      // files), but don't claim "No changes" when the ui/ store was written.
       console.log(
         JSON.stringify(
-          { success: true, message: "No changes to push", total: 0 },
+          {
+            success: true,
+            message: sharedUiPushed
+              ? "Pushed shared UI changes"
+              : "No changes to push",
+            total: 0,
+          },
           null,
           2,
         ),
@@ -5303,6 +5460,14 @@ const command = new Command()
   .option(
     "--parent-workspace-id <id:string>",
     "Parent workspace id, used to root a fork-of-a-fork branch",
+  )
+  .option(
+    "--dev-workspace-label <label:string>",
+    "Environment label of a dev workspace (dev/staging); its deploys go to that branch",
+  )
+  .option(
+    "--parent-dev-workspace-label <label:string>",
+    "Environment label of the parent dev workspace; roots a fork-of-dev branch on it",
   )
   .option("--skip-secrets", "Skip syncing only secrets variables")
   .option(

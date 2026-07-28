@@ -5,6 +5,9 @@ type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
 	type?: U
 	time?: number
 	starred?: boolean
+	// Server fetch ordinal (see ItemsList) — the tree sorts leaves by it to preserve
+	// the endpoint's order rather than re-deriving it.
+	ord?: number
 }
 
 type TableScript = TableItem<Script, 'script'>
@@ -22,6 +25,21 @@ export interface FolderItem {
 export type UserItem = {
 	username: string
 	items: (ItemType | FolderItem)[]
+}
+
+/**
+ * Where an item belongs: its owner, folder, and the name it is filtered and searched by.
+ * A draft-only item is parked at a generated `u/<you>/draft_<uuid>` but names the path it
+ * will deploy to, and that is what the row shows and what the server lists, filters and
+ * counts it under — so every categorization has to follow it. `path` stays the storage
+ * identity that the editor link and the row key resolve.
+ */
+export function effectivePath(item: {
+	path: string
+	draft_only?: boolean | null
+	draft_path?: string | null
+}): string {
+	return (item.draft_only && item.draft_path) || item.path
 }
 
 function insertItemInFolder(
@@ -48,7 +66,23 @@ function insertItemInFolder(
 	})
 }
 
-export function groupItems(items: ItemType[] | undefined): (ItemType | FolderItem | UserItem)[] {
+// Default leaf ordering when the caller doesn't impose one: starred first, then
+// most recently modified. Folders/users always sort alphabetically regardless.
+const defaultLeafCompare = (a: ItemType, b: ItemType): number => {
+	if (a.starred && !b.starred) return -1
+	if (!a.starred && b.starred) return 1
+	return getModifiedAt(b) - getModifiedAt(a)
+}
+
+export function groupItems(
+	items: ItemType[] | undefined,
+	leafCompare: (a: ItemType, b: ItemType) => number = defaultLeafCompare,
+	// Folders/users have only a name, so the sort key is always name; `groupDesc`
+	// flips its direction (Z-A) to follow a name-descending sort, like a file explorer
+	// reordering folders when you reverse the name sort. Time sorts pass false (no
+	// folder timestamp to order by, so folders stay alphabetical).
+	groupDesc: boolean = false
+): (ItemType | FolderItem | UserItem)[] {
 	if (!items) {
 		return []
 	}
@@ -56,7 +90,7 @@ export function groupItems(items: ItemType[] | undefined): (ItemType | FolderIte
 	const root: (ItemType | FolderItem | UserItem)[] = []
 
 	items.forEach((item) => {
-		const pathSplit = item.path.split('/')
+		const pathSplit = effectivePath(item).split('/')
 		if (pathSplit[0] === 'u') {
 			const username = pathSplit[1]
 			let userItem = root.find((f): f is UserItem => 'username' in f && f.username === username) as
@@ -78,27 +112,37 @@ export function groupItems(items: ItemType[] | undefined): (ItemType | FolderIte
 		}
 	})
 
+	const dir = groupDesc ? -1 : 1
 	root.sort((a, b) => {
+		// Users always group before folders regardless of direction; only the name
+		// comparison within each kind follows `groupDesc`.
 		if ('username' in a && 'folderName' in b) {
 			return -1
 		}
 		if ('folderName' in a && 'username' in b) {
 			return 1
 		}
-		return (a['username'] ?? a['folderName'] ?? '').localeCompare(b['username'] ?? b['folderName'])
+		return (
+			dir * (a['username'] ?? a['folderName'] ?? '').localeCompare(b['username'] ?? b['folderName'])
+		)
 	})
 
-	sortGroup(root)
+	sortGroup(root, leafCompare, dir)
 
 	return root
 }
 
-function sortGroup(group: (ItemType | FolderItem | UserItem)[]) {
+function sortGroup(
+	group: (ItemType | FolderItem | UserItem)[],
+	leafCompare: (a: ItemType, b: ItemType) => number,
+	dir: number = 1
+) {
 	group.forEach((item) => {
 		if ('items' in item) {
 			item.items.sort((a, b) => {
+				// Nested subfolders sort before leaves and follow the group direction.
 				if ('folderName' in a && 'folderName' in b) {
-					return a.folderName.localeCompare(b.folderName)
+					return dir * a.folderName.localeCompare(b.folderName)
 				}
 				if ('folderName' in a) {
 					return -1
@@ -107,14 +151,12 @@ function sortGroup(group: (ItemType | FolderItem | UserItem)[]) {
 					return 1
 				}
 				if (isItemType(a) && isItemType(b)) {
-					if (a.starred && !b.starred) return -1
-					if (!a.starred && b.starred) return 1
-					return getModifiedAt(b) - getModifiedAt(a)
+					return leafCompare(a, b)
 				}
 				return 0
 			})
 
-			sortGroup(item.items)
+			sortGroup(item.items, leafCompare, dir)
 		}
 	})
 }

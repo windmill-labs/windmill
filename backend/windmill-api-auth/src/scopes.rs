@@ -240,6 +240,10 @@ pub enum ScopeDomain {
     // Core resource domains
     Jobs,
     Scripts,
+    /// The `/data_metrics` catalog. Its own domain, NOT an alias of `Scripts`: a
+    /// `data_metrics:read` token must reach only this route, never the broader
+    /// `/scripts` routes (some of which do no further scope check).
+    DataMetrics,
     Flows,
     FlowConversations,
     Apps,
@@ -257,6 +261,7 @@ pub enum ScopeDomain {
     KafkaTriggers,
     NatsTriggers,
     MqttTriggers,
+    AmqpTriggers,
     SqsTriggers,
     GcpTriggers,
     AzureTriggers,
@@ -303,6 +308,7 @@ impl ScopeDomain {
         match self {
             Self::Jobs => "jobs",
             Self::Scripts => "scripts",
+            Self::DataMetrics => "data_metrics",
             Self::Flows => "flows",
             Self::FlowConversations => "flow_conversations",
             Self::Apps => "apps",
@@ -318,6 +324,7 @@ impl ScopeDomain {
             Self::KafkaTriggers => "kafka_triggers",
             Self::NatsTriggers => "nats_triggers",
             Self::MqttTriggers => "mqtt_triggers",
+            Self::AmqpTriggers => "amqp_triggers",
             Self::SqsTriggers => "sqs_triggers",
             Self::GcpTriggers => "gcp_triggers",
             Self::AzureTriggers => "azure_triggers",
@@ -355,6 +362,9 @@ impl ScopeDomain {
         match s {
             "jobs" | "jobs_u" => Some(Self::Jobs),
             "scripts" => Some(Self::Scripts),
+            // A distinct domain, not an alias of `scripts` (see the enum variant):
+            // a `data_metrics:read` token must not reach the broader /scripts routes.
+            "data_metrics" => Some(Self::DataMetrics),
             "flows" => Some(Self::Flows),
             "flow_conversations" => Some(Self::FlowConversations),
             "apps" | "apps_u" => Some(Self::Apps),
@@ -370,6 +380,7 @@ impl ScopeDomain {
             "kafka_triggers" => Some(Self::KafkaTriggers),
             "nats_triggers" => Some(Self::NatsTriggers),
             "mqtt_triggers" => Some(Self::MqttTriggers),
+            "amqp_triggers" => Some(Self::AmqpTriggers),
             "sqs_triggers" => Some(Self::SqsTriggers),
             "gcp_triggers" => Some(Self::GcpTriggers),
             "azure_triggers" => Some(Self::AzureTriggers),
@@ -596,6 +607,17 @@ fn map_http_method_to_action(method: &str, route_path: &str) -> ScopeAction {
 /// Returns `"flows"` or `"scripts"` based on the match, or `None` if no match is found.
 fn determine_kind_from_route(route_path: &str) -> Option<String> {
     if route_path.starts_with("jobs") {
+        // Preview/bundle runs execute arbitrary code with no deployed path, so
+        // their handlers require the broad `jobs:run` scope: they must carry no
+        // kind, else the derived scope is narrower than the handler demands.
+        // Anchor to the endpoint segment so by-path runs of a deployed runnable
+        // whose path contains "preview" (e.g. `run/p/f/team/preview_report`) are
+        // still classified by their kind.
+        if route_path.starts_with("jobs/run/preview")
+            || route_path.starts_with("jobs/run_wait_result/preview")
+        {
+            return None;
+        }
         if FLOW_JOBS.iter().any(|path| route_path.starts_with(path)) {
             return Some("flows".to_string());
         } else if SCRIPT_JOBS.iter().any(|path| route_path.starts_with(path)) {
@@ -977,6 +999,24 @@ mod tests {
     }
 
     #[test]
+    fn data_metrics_is_its_own_domain_not_a_scripts_alias() {
+        // `data_metrics` must be a distinct domain: a token scoped to it must reach
+        // only the data_metrics route, never the broader /scripts routes (some of
+        // which do no further scope check). Regression for a privilege escalation.
+        assert_eq!(
+            ScopeDomain::from_str("data_metrics"),
+            Some(ScopeDomain::DataMetrics)
+        );
+        let dm = vec!["data_metrics:read".to_string()];
+        assert!(check_route_access(&dm, "/api/w/test/data_metrics/list", "GET").is_ok());
+        assert!(check_route_access(&dm, "/api/w/test/scripts/list", "GET").is_err());
+        assert!(check_route_access(&dm, "/api/w/test/scripts/raw/h/abc.ts", "GET").is_err());
+        // Conversely a scripts token does not reach the data_metrics route.
+        let sc = vec!["scripts:read".to_string()];
+        assert!(check_route_access(&sc, "/api/w/test/data_metrics/list", "GET").is_err());
+    }
+
+    #[test]
     fn test_new_domain_parsing() {
         // Test that new domains are properly parsed
         assert_eq!(ScopeDomain::from_str("acls"), Some(ScopeDomain::Acls));
@@ -1293,6 +1333,42 @@ mod tests {
         );
         assert_eq!(
             scope_for_route("POST", "/api/w/ws/jobs/run/f/u/x/y").as_deref(),
+            Some("jobs:run:flows")
+        );
+
+        // Preview/bundle runs have no deployed path and their handlers require the
+        // broad `jobs:run` scope, so the derived scope must not carry a kind.
+        for path in [
+            "/api/w/ws/jobs/run/preview",
+            "/api/w/ws/jobs/run/preview_bundle",
+            "/api/w/ws/jobs/run/preview_flow",
+            "/api/w/ws/jobs/run_wait_result/preview",
+            "/api/w/ws/jobs/run_wait_result/preview_flow",
+        ] {
+            assert_eq!(
+                scope_for_route("POST", path).as_deref(),
+                Some("jobs:run"),
+                "preview route {path} must derive the broad jobs:run scope"
+            );
+        }
+
+        // By-path runs of a deployed runnable whose path contains "preview" must
+        // still derive their kind (not be swept into the broad jobs:run above),
+        // otherwise a `jobs:run:scripts:*`/`jobs:run:flows:*` token is denied.
+        assert_eq!(
+            scope_for_route("POST", "/api/w/ws/jobs/run/p/u/alice/preview_report").as_deref(),
+            Some("jobs:run:scripts")
+        );
+        assert_eq!(
+            scope_for_route(
+                "POST",
+                "/api/w/ws/jobs/run_wait_result/p/f/team/preview_report"
+            )
+            .as_deref(),
+            Some("jobs:run:scripts")
+        );
+        assert_eq!(
+            scope_for_route("POST", "/api/w/ws/jobs/run/f/f/team/preview_report").as_deref(),
             Some("jobs:run:flows")
         );
 

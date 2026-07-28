@@ -32,6 +32,7 @@ pub enum JobTriggerKind {
     Email,
     Nats,
     Mqtt,
+    Amqp,
     Sqs,
     Postgres,
     Schedule,
@@ -49,6 +50,11 @@ pub enum JobTriggerKind {
     // A run pushed by the pipeline freshness watchdog (EE) because the
     // script's `// freshness` window elapsed without a successful run.
     Freshness,
+    // A run launched by a deployed app's runtime (`execute_component`). `trigger`
+    // carries the app path. This is the authoritative app-origination marker: a
+    // direct `/jobs/run` cannot set it, so it distinguishes files an app actually
+    // produced from files a viewer forged by running a declared runnable directly.
+    App,
 }
 
 impl std::fmt::Display for JobTriggerKind {
@@ -61,6 +67,7 @@ impl std::fmt::Display for JobTriggerKind {
             JobTriggerKind::Email => "email",
             JobTriggerKind::Nats => "nats",
             JobTriggerKind::Mqtt => "mqtt",
+            JobTriggerKind::Amqp => "amqp",
             JobTriggerKind::Sqs => "sqs",
             JobTriggerKind::Postgres => "postgres",
             JobTriggerKind::Schedule => "schedule",
@@ -72,6 +79,7 @@ impl std::fmt::Display for JobTriggerKind {
             JobTriggerKind::CiTest => "ci_test",
             JobTriggerKind::Asset => "asset",
             JobTriggerKind::Freshness => "freshness",
+            JobTriggerKind::App => "app",
         };
         write!(f, "{}", kind)
     }
@@ -383,6 +391,30 @@ pub struct CompletedJob {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub is_retry: Option<bool>,
+    // True when this failure has been marked handled (has a job_resolution row), so
+    // triage surfaces stop rendering it red. `status` stays 'failure' either way.
+    // The details are only selected by the single-job GET; the runs list carries
+    // `resolved` alone to keep its payload small.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub resolved: Option<bool>,
+    // None does NOT imply automatic: attribution is enterprise-only, so a manual resolution in
+    // CE is also None, and list responses omit it deliberately. Use `resolved_automatically`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub resolved_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub resolved_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub resolution_note: Option<String>,
+    // True when a succeeding retry resolved this, rather than a person. Explicit rather than
+    // inferred from a NULL `resolved_by`, which is also NULL for a manual resolution outside
+    // enterprise (attribution is an EE feature).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub resolved_automatically: Option<bool>,
 }
 
 impl CompletedJob {

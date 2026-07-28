@@ -346,6 +346,34 @@ pub async fn ping_job_status(
     }
 }
 
+/// Keeps the job's ping fresh during phases that run before the executor's own polling
+/// loop starts (volume setup, s3object materialization, ...). Without it, a slow wait or
+/// download with no ping in between can exceed ZOMBIE_JOB_TIMEOUT (default 60s) and get
+/// the job falsely restarted as a zombie.
+pub(crate) struct JobPingHeartbeat(tokio::task::JoinHandle<()>);
+
+impl JobPingHeartbeat {
+    pub(crate) fn start(conn: &Connection, job_id: Uuid, context: &'static str) -> Self {
+        let conn = conn.clone();
+        JobPingHeartbeat(tokio::spawn(async move {
+            // 10s stays well under the 60s zombie timeout
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
+            loop {
+                interval.tick().await;
+                if let Err(e) = ping_job_status(&conn, &job_id, None, None).await {
+                    tracing::warn!("failed to ping job {job_id} during {context}: {e}");
+                }
+            }
+        }))
+    }
+}
+
+impl Drop for JobPingHeartbeat {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 pub(crate) async fn queue_vacuum(conn: &Connection, worker_name: &str, hostname: &str) {
     match conn {
         Connection::Sql(db) => {

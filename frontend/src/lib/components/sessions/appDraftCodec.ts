@@ -18,9 +18,9 @@ export type RawAppDraft = {
 	draft_path?: string
 }
 
-// The shape `runtime.rawApp.val` actually holds (see SessionRuntime in
-// sessionRuntime.svelte.ts). Adds `path` (a key, not a draft field) and
-// makes `policy` required for the editor's live binding.
+// The shape a raw-app cell's store (`RawAppRuntimeValue` in
+// sessionRuntime.svelte.ts) actually holds. Adds `path` (a key, not a draft
+// field) and makes `policy` required for the editor's live binding.
 export type RuntimeRawApp = {
 	summary: string
 	path: string

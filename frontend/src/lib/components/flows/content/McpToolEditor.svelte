@@ -26,15 +26,19 @@
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
-	import { untrack } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import McpOAuthConnect from './McpOAuthConnect.svelte'
+	import type { FlowEditorContext } from '../types'
 
 	interface Props {
 		tool: McpTool
 	}
 
 	let { tool = $bindable() }: Props = $props()
+
+	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
 
 	let showOAuthForm = $state(false)
 	let refreshCount = $state(0)
@@ -43,7 +47,7 @@
 	let tools = usePromise(
 		async () =>
 			await loadToolsCached({
-				workspace: $workspaceStore!,
+				workspace: opWs!,
 				path: tool.value.resource_path,
 				refreshCount
 			}),
@@ -56,7 +60,7 @@
 
 	$effect(() => {
 		resourcePath
-		$workspaceStore
+		opWs
 		refreshCount
 		untrack(() => {
 			if (resourcePath?.length > 0) {
@@ -105,7 +109,12 @@
 
 	<div class="w-full">
 		<Label label="MCP Resource">
-			<ResourcePicker bind:this={resourcePicker} resourceType="mcp" bind:value={tool.value.resource_path} />
+			<ResourcePicker
+				bind:this={resourcePicker}
+				resourceType="mcp"
+				bind:value={tool.value.resource_path}
+				workspace={opWs}
+			/>
 		</Label>
 	</div>
 

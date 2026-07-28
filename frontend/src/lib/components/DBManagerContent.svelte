@@ -39,6 +39,10 @@
 		/** Tables that are already added and should show as disabled */
 		disabledTables?: SelectedTable[]
 		onImport?: (mode: 'schema_and_data' | 'schema_only') => void
+		/** Workspace the datatable/schema lookups run against. Defaults to the
+		 *  navigation `$workspaceStore`; pass the acting workspace when embedded in
+		 *  a session preview whose workspace differs from the top nav. */
+		workspace?: string
 	}
 
 	let {
@@ -51,10 +55,13 @@
 		multiSelectMode = false,
 		selectedTables = $bindable([]),
 		disabledTables = [],
-		onImport
+		onImport,
+		workspace = undefined
 	}: Props = $props()
 
-	let dbSchema: DBSchema | undefined = $derived(input && $dbSchemas[getDbSchemasPath(input)])
+	let ws = $derived(workspace ?? $workspaceStore)
+
+	let dbSchema: DBSchema | undefined = $derived(input && $dbSchemas[schemaCacheKey(input)])
 
 	const outOfOrderModal = createAsyncConfirmationModal()
 
@@ -67,28 +74,36 @@
 		}
 	}
 
+	// Scope the shared `dbSchemas` cache by the acting workspace: a datatable of
+	// the same name can exist in both the nav and the acting workspace, so the
+	// bare resource path alone would let one workspace's schema be reused for the
+	// other while DB operations target the acting one.
+	function schemaCacheKey(input: DbInput): string {
+		return `${ws}:${getDbSchemasPath(input)}`
+	}
+
 	let colDefs = resource(
-		() => [input],
+		() => [input, ws],
 		async () => {
 			if (!input) return
-			return await loadAllTablesMetaData($workspaceStore, input)
+			return await loadAllTablesMetaData(ws, input)
 		}
 	)
 	let dbSchemasPromise = resource(
-		() => [input],
+		() => [input, ws],
 		async () => {
 			if (!input) return
-			const dbSchemasPath = getDbSchemasPath(input)
+			const dbSchemasPath = schemaCacheKey(input)
 			if (input.type == 'database') {
 				$dbSchemas[dbSchemasPath] = await getDbSchemas(
 					input.resourceType,
 					input.resourcePath,
-					$workspaceStore,
+					ws,
 					(message: string) => sendUserToast(message, true)
 				)
 			} else if (input.type == 'ducklake') {
 				$dbSchemas[dbSchemasPath] = await getDucklakeSchema({
-					workspace: $workspaceStore!,
+					workspace: ws!,
 					ducklake: input.ducklake
 				})
 			}
@@ -130,7 +145,7 @@
 	}}
 />
 
-{#if dbSchema && $workspaceStore && input}
+{#if dbSchema && ws && input}
 	{@const _input = input}
 	{@const dbType = getDbType(_input)}
 	<Splitpanes horizontal>
@@ -165,11 +180,11 @@
 						colDefs,
 						tableKey,
 						input: _input,
-						workspace: $workspaceStore
+						workspace: ws
 					})}
 				dbSchemaOps={dbSchemaOpsWithPreviewScripts({
 					input: _input,
-					workspace: $workspaceStore,
+					workspace: ws,
 					confirmRunOutOfOrder: (pending) =>
 						outOfOrderModal.ask({
 							title: 'Run migration out of order',
@@ -201,6 +216,7 @@
 			<Pane bind:size={replPanelSize} minSize={REPL_MIN_SIZE} class="relative">
 				<SqlRepl
 					{input}
+					{workspace}
 					onData={(data) => {
 						replResultData = data
 					}}

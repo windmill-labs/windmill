@@ -11,11 +11,14 @@ import { generateRandomString } from '$lib/utils'
  */
 export async function processSecretArgs(
 	args: Record<string, any>,
-	schema: Schema | undefined
+	schema: Schema | undefined,
+	// Workspace the ephemeral secret variable is created in — must match the
+	// workspace the preview job runs in, else $jsonvar: resolves to a missing var.
+	forceWorkspace?: string
 ): Promise<Record<string, any>> {
 	if (!schema?.properties) return args
 
-	const workspace = get(workspaceStore)
+	const workspace = forceWorkspace ?? get(workspaceStore)
 	const user = get(userStore)
 	if (!workspace || !user) return args
 

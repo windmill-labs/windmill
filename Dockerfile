@@ -1,5 +1,5 @@
 ARG DEBIAN_IMAGE=debian:trixie-slim
-ARG RUST_IMAGE=rust:1.93-slim-trixie
+ARG RUST_IMAGE=rust:1.97-slim-trixie
 
 FROM debian:trixie-slim AS nsjail
 
@@ -79,6 +79,8 @@ COPY /python-client/docs/ /frontend/static/pydocs/
 RUN npm run generate-backend-client
 ENV NODE_OPTIONS "--max-old-space-size=8192"
 ARG VITE_BASE_URL ""
+# Must be declared for the build-arg to reach the bundle. See frontend/svelte.config.js.
+ARG WM_BUILD_VERSION=""
 # Read more about macro in docker/dev.nu
 # -- MACRO-SPREAD-WASM-PARSER-DEV-ONLY -- #
 RUN npm run build
@@ -135,8 +137,8 @@ FROM ${DEBIAN_IMAGE}
 
 ARG TARGETPLATFORM
 ARG POWERSHELL_VERSION=7.5.0
-ARG KUBECTL_VERSION=1.28.7
-ARG HELM_VERSION=3.14.3
+ARG KUBECTL_VERSION=1.36.2
+ARG HELM_VERSION=3.21.2
 # NOTE: If changing, also change go version in workspace dependencies template at WorkspaceDependenciesEditor.svelte
 ARG GO_VERSION=1.26.0
 ARG APP=/usr/src/app
@@ -162,6 +164,7 @@ ENV PATH /usr/local/bin:/root/.local/bin:/tmp/.local/bin:$PATH
 
 
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends netbase tzdata ca-certificates wget curl jq unzip build-essential unixodbc xmlsec1 tini gnupg libargon2-1 \
     && if echo "$features" | grep -q "ee"; then apt-get install -y --no-install-recommends libsasl2-modules-gssapi-mit krb5-user; fi \
     && apt-get clean \
@@ -310,7 +313,7 @@ COPY --from=nsjail /nsjail/nsjail /bin/nsjail
 
 # crane: pulls + flattens images for the sandboxed container runtime (`# sandbox <image>`).
 # Single static binary — no daemon/store/root needed. See docs/docker-v2-runtime.md.
-ARG CRANE_VERSION=v0.20.6
+ARG CRANE_VERSION=v0.21.7
 RUN arch="$(dpkg --print-architecture)"; \
     case "$arch" in amd64) crane_arch=x86_64 ;; arm64) crane_arch=arm64 ;; *) echo >&2 "error: unsupported arch '$arch' for crane"; exit 1 ;; esac; \
     wget -O /tmp/crane.tgz "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_${crane_arch}.tar.gz" \

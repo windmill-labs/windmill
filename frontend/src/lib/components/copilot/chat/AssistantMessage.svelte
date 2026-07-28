@@ -13,6 +13,7 @@
 		remarkWindmillPaths,
 		workspaceItemRegistry
 	} from './workspaceItems.svelte'
+	import { markdownProse } from '$lib/components/markdownProse'
 
 	interface Props {
 		message: DisplayMessage
@@ -97,11 +98,7 @@
 		{#if reasoningExpanded}
 			<div
 				transition:slide={{ duration: 150 }}
-				class="p-2 bg-surface text-secondary break-words prose prose-sm dark:prose-invert max-w-full leading-snug
-					prose-p:text-2xs prose-li:text-2xs prose-code:text-2xs prose-pre:text-2xs prose-ul:!pl-5
-					prose-headings:font-medium prose-headings:text-secondary prose-headings:mt-2 prose-headings:mb-1
-					prose-h1:text-2xs prose-h2:text-2xs prose-h3:text-2xs prose-h4:text-2xs prose-h5:text-2xs prose-h6:text-2xs
-					prose-strong:text-secondary"
+				class="p-2 bg-surface text-secondary {markdownProse.xs}"
 			>
 				<Markdown md={reasoning} plugins={[gfmPlugin()]} />
 			</div>
@@ -110,14 +107,7 @@
 {/if}
 
 {#if message.content}
-	<div
-		class="prose prose-sm dark:prose-invert w-full max-w-full leading-snug space-y-2 prose-ul:!pl-6
-			prose-p:text-xs prose-li:text-xs prose-code:text-xs prose-pre:text-xs
-			prose-code:break-words prose-a:break-words
-			prose-headings:font-medium prose-headings:text-emphasis prose-headings:mt-3 prose-headings:mb-1
-			prose-h1:text-sm prose-h2:text-xs prose-h3:text-xs prose-h4:text-xs prose-h5:text-xs prose-h6:text-xs
-			prose-table:block prose-table:max-w-full prose-table:overflow-x-auto prose-table:text-xs"
-	>
+	<div class="w-full space-y-2 {markdownProse.sm}">
 		<Markdown md={message.content} {plugins} />
 	</div>
 {/if}

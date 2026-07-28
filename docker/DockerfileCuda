@@ -6,14 +6,22 @@ RUN apt-get update && apt-get install -y curl gnupg2
 RUN curl "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.0-1_all.deb" -o cuda.deb && \
   dpkg -i cuda.deb && rm cuda.deb
 
-RUN apt-get update -y && \
+# NVIDIA's CUDA apt repo signing key carries a SHA1 self-binding signature,
+# which the Debian trixie base image's Sequoia-based apt verifier (sqv) rejects
+# as of 2026-02-01, leaving the repo treated as unsigned. Re-enable SHA1 via a
+# scoped crypto policy applied only to the apt runs that touch the CUDA repo.
+RUN printf '[hash_algorithms.sha1]\ncollision_resistance = "always"\nsecond_preimage_resistance = "always"\n' > /etc/apt-nvidia-sqv-policy.toml
+
+RUN export SEQUOIA_CRYPTO_POLICY=/etc/apt-nvidia-sqv-policy.toml && \
+  apt-get update -y && \
   apt-get install -y --no-install-recommends \
   cuda-cudart-12-2 cuda-nvcc-12-2 cuda-nvrtc-12-2 \
   libcudnn8 libcublas-12-2 && \
   rm -rf /var/lib/apt/lists/*
 
 # Install FFmpeg if needed
-RUN apt-get update && \
+RUN export SEQUOIA_CRYPTO_POLICY=/etc/apt-nvidia-sqv-policy.toml && \
+    apt-get update && \
     apt-get install -y ffmpeg && \
     rm -rf /var/lib/apt/lists/*
 

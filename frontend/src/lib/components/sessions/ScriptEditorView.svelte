@@ -15,19 +15,26 @@
 		path,
 		workspaceId,
 		onNavigate,
-		initialTestPanelCollapsed = false,
-		isActiveSession = true
+		fullscreen = false,
+		isActiveSession = true,
+		active = true
 	}: {
 		runtime: SessionRuntime
 		path: string
 		workspaceId: string
 		onNavigate?: (item: WorkspaceItem) => void
-		initialTestPanelCollapsed?: boolean
+		/** Preview panel is in full screen: collapse the test pane in the narrow
+		 * side-by-side layout, reopen it when there's room in full screen. */
+		fullscreen?: boolean
 		/** Forwarded to SessionEditorTarget — only the visible session claims the
 		 * workspace's single live-editor slot. */
 		isActiveSession?: boolean
+		/** Whether this is the visible preview tab (forwarded as isActiveTab). */
+		active?: boolean
 	} = $props()
 
+	// This tab's own script cell; each open script editor binds its own store.
+	const cell = $derived(runtime.scriptCell(path))
 	let diffDrawer: DiffDrawer | undefined = $state()
 
 	// Restore actions for the diff drawer. The previous shared
@@ -36,7 +43,7 @@
 	// reset the live UserDraft handle to the target baseline — the inbound
 	// effect then syncs the editor preview. Mirrors /scripts/edit's restore.
 	async function restoreDeployed() {
-		const saved = runtime.savedScript.val
+		const saved = cell.saved.val
 		if (!saved) {
 			sendUserToast('Could not restore to deployed', true)
 			return
@@ -71,7 +78,7 @@
 	}
 </script>
 
-{#if runtime.savedScript.val}
+{#if cell.saved.val}
 	<DiffDrawer bind:this={diffDrawer} {restoreDeployed} />
 {/if}
 <SessionEditorTarget
@@ -81,10 +88,11 @@
 	{workspaceId}
 	{onNavigate}
 	{isActiveSession}
-	effectivePath={() => runtime.scriptStore.val?.path ?? path}
+	isActiveTab={active}
+	effectivePath={() => cell.store.val?.path ?? path}
 >
 	{#snippet editor()}
-		{#if runtime.scriptStore.val}
+		{#if cell.store.val}
 			<!--
 				A script with no backend version yet (AI-created, never saved or deployed
 				→ savedScript undefined) is a *new* script: pass an empty initialPath so
@@ -94,18 +102,19 @@
 				edit mode (Save draft + Diff) without navigating away.
 			-->
 			<ScriptBuilder
-				bind:script={runtime.scriptStore.val}
-				bind:savedScript={runtime.savedScript.val}
-				initialPath={runtime.savedScript.val ? path : ''}
+				bind:script={cell.store.val}
+				bind:savedScript={cell.saved.val}
+				initialPath={cell.saved.val ? path : ''}
 				autosaveWorkspace={workspaceId}
 				autosavePath={path}
 				initialPathChosen={true}
 				neverShowMeta={true}
-				fullyLoaded={!runtime.slot('script').loading}
+				fullyLoaded={!cell.slot.loading}
 				disableHistoryChange={true}
+				condensedHeader={true}
 				{diffDrawer}
 				{onNavigate}
-				{initialTestPanelCollapsed}
+				testPanelCollapsed={!fullscreen}
 				onDeploy={(e) => {
 					// Fires on every deploy (primary, "Deploy & Stay here", and lib — we
 					// ignore e.stay since the session always stays). Toast, then sync the

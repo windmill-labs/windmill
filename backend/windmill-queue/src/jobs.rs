@@ -25,6 +25,7 @@ use serde::{ser::SerializeMap, Serialize};
 use serde_json::{json, value::RawValue};
 use sqlx::{types::Json, Acquire, Pool, Postgres, Transaction};
 use sqlx::{Encode, PgExecutor};
+use std::borrow::Cow;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -49,7 +50,7 @@ use windmill_common::runnable_settings::{
     RunnableSettings, RunnableSettingsTrait,
 };
 use windmill_common::triggers::TriggerMetadata;
-use windmill_common::utils::{calculate_hash, configure_client, now_from_db};
+use windmill_common::utils::{calculate_hash, configure_client, now_from_db, strip_json_nul};
 use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
 
 use windmill_common::otel_oss::{
@@ -634,6 +635,12 @@ pub trait ValidableJson {
     fn wm_failure(&self) -> Option<String>;
     fn result_metadata(&self) -> ResultMetadata;
     fn size(&self) -> usize;
+    /// The result as JSON text, for binding into the `jsonb` `result` column.
+    /// `Box<RawValue>` is already serialized and returns a zero-cost borrow;
+    /// other impls serialize on demand. Callers pass this through
+    /// `strip_json_nul` before the INSERT, since a genuine NUL escape would
+    /// abort the write with 22P05.
+    fn serialized_json(&self) -> Cow<'_, str>;
 }
 
 /// The Windmill-specific markers we look for inside a job's result.
@@ -692,6 +699,10 @@ impl ValidableJson for WrappedError {
     fn size(&self) -> usize {
         0
     }
+
+    fn serialized_json(&self) -> Cow<'_, str> {
+        Cow::Owned(serde_json::to_string(self).unwrap_or_else(|_| "{}".to_string()))
+    }
 }
 
 impl ValidableJson for Box<RawValue> {
@@ -713,6 +724,11 @@ impl ValidableJson for Box<RawValue> {
 
     fn size(&self) -> usize {
         self.get().len()
+    }
+
+    fn serialized_json(&self) -> Cow<'_, str> {
+        // Already serialized JSON text — borrow it, no re-serialization.
+        Cow::Borrowed(self.get())
     }
 }
 
@@ -736,6 +752,10 @@ impl<T: ValidableJson> ValidableJson for Arc<T> {
     fn size(&self) -> usize {
         T::size(&self)
     }
+
+    fn serialized_json(&self) -> Cow<'_, str> {
+        T::serialized_json(&self)
+    }
 }
 
 impl ValidableJson for serde_json::Value {
@@ -758,6 +778,10 @@ impl ValidableJson for serde_json::Value {
     fn size(&self) -> usize {
         self.size_hint()
     }
+
+    fn serialized_json(&self) -> Cow<'_, str> {
+        Cow::Owned(serde_json::to_string(self).unwrap_or_else(|_| "{}".to_string()))
+    }
 }
 
 impl<T: ValidableJson> ValidableJson for Json<T> {
@@ -779,6 +803,10 @@ impl<T: ValidableJson> ValidableJson for Json<T> {
 
     fn size(&self) -> usize {
         self.0.size()
+    }
+
+    fn serialized_json(&self) -> Cow<'_, str> {
+        self.0.serialized_json()
     }
 }
 
@@ -921,12 +949,17 @@ lazy_static::lazy_static! {
     pub static ref GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE: Option<String> = std::env::var("GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE").ok();
     pub static ref MAX_RESULT_SIZE_MB: usize = std::env::var("MAX_RESULT_SIZE_MB").unwrap_or("500".to_string()).parse().unwrap_or(500);
 
-    // Cache for restart_unless_cancelled flag - keyed by (hash, workspace_id)
-    static ref RESTART_UNLESS_CANCELLED_CACHE: Cache<(i64, String), bool> = Cache::new(10000);
+    // Cache for perpetual-restart settings (restart_unless_cancelled, timeout) - keyed by (hash, workspace_id)
+    static ref RESTART_UNLESS_CANCELLED_CACHE: Cache<(i64, String), (bool, Option<i32>)> = Cache::new(10000);
 
     // Cache for workspace error handler settings with 60s TTL
-    // Key: workspace_id, Value: (error_handler, error_handler_extra_args, error_handler_muted_on_cancel, error_handler_muted_on_user_path, expiry_timestamp)
-    static ref WORKSPACE_ERROR_HANDLER_CACHE: Cache<String, (Option<String>, Option<Json<Box<RawValue>>>, bool, bool, i64)> = Cache::new(1000);
+    // Key: workspace_id, Value: (error_handler, error_handler_extra_args, error_handler_muted_on_cancel, error_handler_muted_on_user_path, report_to_instance_alerts, expiry_timestamp)
+    static ref WORKSPACE_ERROR_HANDLER_CACHE: Cache<String, (Option<String>, Option<Json<Box<RawValue>>>, bool, bool, bool, i64)> = Cache::new(1000);
+
+    // Best-effort per-worker throttle for the instance-channel fallback: a flapping runnable
+    // would otherwise turn every failure into outbound Slack/SMTP traffic on channels shared by
+    // the whole instance. Key: workspace_id, Value: (last_sent_epoch, failures suppressed since)
+    static ref INSTANCE_ALERT_THROTTLE: Cache<String, (i64, u64)> = Cache::new(1000);
 
     // Cache for workspace success handler settings with 60s TTL
     // Key: workspace_id, Value: (success_handler, success_handler_extra_args, expiry_timestamp)
@@ -934,6 +967,7 @@ lazy_static::lazy_static! {
 }
 
 const WORKSPACE_HANDLER_CACHE_TTL_SECONDS: i64 = 60;
+const INSTANCE_ALERT_COOLDOWN_SECONDS: i64 = 60;
 
 pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     db: &Pool<Postgres>,
@@ -1021,6 +1055,32 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         return Ok((job_id, duration, None));
     }
 
+    // Auto-resolve a retry chain that ultimately worked, from whichever of the two
+    // completions lands last (see resolve_retry_chain_if_succeeded): a success that has a
+    // parent (so is a possible retry attempt), or a failure that just enqueued a retry.
+    // `retry_pending` already implies a non-flow-step `Script`.
+    let resolve_root = if success && !skipped && !completed_job.is_flow_step() {
+        matches!(completed_job.kind, JobKind::Script)
+            .then(|| completed_job.parent_job)
+            .flatten()
+    } else if !success && !skipped && retry_pending {
+        Some(completed_job.parent_job.unwrap_or(completed_job.id))
+    } else {
+        None
+    };
+    if let Some(root) = resolve_root {
+        if let Err(e) = resolve_retry_chain_if_succeeded(
+            db,
+            root,
+            &completed_job.workspace_id,
+            completed_job.runnable_id,
+        )
+        .await
+        {
+            tracing::error!("Error auto-resolving native retry chain {root}: {e:#}");
+        }
+    }
+
     #[cfg(feature = "cloud")]
     apply_completed_job_cloud_usage(db, completed_job, duration);
 
@@ -1079,15 +1139,24 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     // Resolve the concurrency-limit settings on the pool *before* opening the
     // completion transaction: doing it inside the tx would hold a second
     // simultaneous connection from the small per-worker pool.
-    let has_concurrent_limit = completed_job.concurrent_limit.is_some()
-        || windmill_common::runnable_settings::prefetch_cached_from_handle(
-            completed_job.runnable_settings_handle,
-            db,
-        )
-        .await?
-        .1
-        .concurrent_limit
-        .is_some();
+    let has_concurrent_limit = has_active_concurrency_limit(completed_job.concurrent_limit)
+        || has_active_concurrency_limit(
+            windmill_common::runnable_settings::prefetch_cached_from_handle(
+                completed_job.runnable_settings_handle,
+                db,
+            )
+            .await?
+            .1
+            .concurrent_limit,
+        );
+
+    // A genuine NUL (U+0000) in the result serializes to a `\u0000` escape that
+    // the jsonb `result` column rejects with 22P05 ("unsupported Unicode escape
+    // sequence"), which would abort the whole completion INSERT. Strip it before
+    // binding — near-zero cost when clean: a single scan, and for an
+    // already-serialized `RawValue` result the serialization itself is a borrow.
+    let serialized_result = result.serialized_json();
+    let sanitized_result = strip_json_nul(serialized_result.as_ref());
 
     let mut tx = db.begin().warn_after_seconds(10).await?;
 
@@ -1107,7 +1176,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     , status
                     , worker
                     )
-                SELECT q.workspace_id, q.id, started_at, COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000), $3, $10, $5, $6,
+                SELECT q.workspace_id, q.id, started_at, COALESCE($9::bigint, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE(started_at, now()))))*1000), $3::text::jsonb, $10, $5, $6,
                         flow_status, workflow_as_code_status,
                         $8, CASE WHEN $4::BOOL THEN 'canceled'::job_status
                         WHEN $7::BOOL THEN 'skipped'::job_status
@@ -1115,10 +1184,10 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                         ELSE 'failure'::job_status END AS status,
                         q.worker
                 FROM v2_job_queue q LEFT JOIN v2_job_status USING (id) WHERE q.id = $1
-            ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = $3 RETURNING duration_ms AS \"duration_ms!\"",
+            ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = $3::text::jsonb RETURNING duration_ms AS \"duration_ms!\"",
             /* $1 */ completed_job.id,
             /* $2 */ success,
-            /* $3 */ result as Json<&T>,
+            /* $3 */ sanitized_result.as_ref(),
             /* $4 */ canceled_by.is_some(),
             /* $5 */ canceled_by.clone().map(|cb| cb.username).flatten(),
             /* $6 */ canceled_by.clone().map(|cb| cb.reason).flatten(),
@@ -1156,7 +1225,14 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         }
     };
 
-    if let Some(labels) = result.wm_labels() {
+    if let Some(mut labels) = result.wm_labels() {
+        // A `\u0000` inside a wm_labels entry decodes to a real NUL that the
+        // `text[]` column rejects, which would abort this same transaction (and
+        // roll back the sanitized result insert) exactly like an unsanitized
+        // result. Strip it so the labels match the sanitized result.
+        for label in &mut labels {
+            label.retain(|c| c != '\0');
+        }
         sqlx::query!(
             "UPDATE v2_job SET labels = (
                     SELECT array_agg(DISTINCT all_labels)
@@ -1538,21 +1614,27 @@ async fn restart_job_if_perpetual_inner(
 ) -> Result<(), Error> {
     let cache_key = (hash.0, queued_job.workspace_id.clone());
 
-    let restart = if let Some(cached) = RESTART_UNLESS_CANCELLED_CACHE.get(&cache_key) {
+    let (restart, script_timeout) = if let Some(cached) =
+        RESTART_UNLESS_CANCELLED_CACHE.get(&cache_key)
+    {
         cached
     } else {
-        let restart = sqlx::query_scalar!(
-            "SELECT restart_unless_cancelled FROM script WHERE hash = $1 AND workspace_id = $2",
+        let row = sqlx::query!(
+            "SELECT restart_unless_cancelled, timeout FROM script WHERE hash = $1 AND workspace_id = $2",
             hash.0,
             &queued_job.workspace_id
         )
         .fetch_optional(db)
-        .await?
-        .flatten()
-        .unwrap_or(false);
+        .await?;
 
-        RESTART_UNLESS_CANCELLED_CACHE.insert(cache_key, restart);
-        restart
+        let restart = row
+            .as_ref()
+            .and_then(|r| r.restart_unless_cancelled)
+            .unwrap_or(false);
+        let script_timeout = row.and_then(|r| r.timeout);
+
+        RESTART_UNLESS_CANCELLED_CACHE.insert(cache_key, (restart, script_timeout));
+        (restart, script_timeout)
     };
 
     if restart {
@@ -1623,7 +1705,7 @@ async fn restart_job_if_perpetual_inner(
             None,
             true,
             Some(queued_job.tag.clone()),
-            None,
+            script_timeout,
             None,
             queued_job.priority,
             None,
@@ -1635,6 +1717,80 @@ async fn restart_job_if_perpetual_inner(
         .await?;
         tx.commit().await?;
     }
+    Ok(())
+}
+
+/// Marks the failures a succeeding native retry attempt superseded as resolved, so
+/// triage surfaces stop showing red for a chain that ultimately worked. `automatic` is set
+/// so the UI can say so without reading `resolved_by`, which is NULL for every manual CE
+/// resolution too; `ON CONFLICT DO NOTHING` keeps a human's note intact.
+///
+/// Membership of the chain must be *proven* per row, never inferred from `parent_job`
+/// alone: `root` is `job.parent_job.unwrap_or(job.id)`, so for a job launched with an
+/// explicit `parent_job` (WAC inline children, SDK-launched children) `root` is the
+/// *calling* job, and its other failed children are unrelated. Resolving those would hide
+/// exactly the failures this feature exists to surface, so each row must be either
+/// - a job carrying a `native_retry_attempt` marker under `root` (provably an attempt), or
+/// - `root` itself as the original attempt, which is only provable when `root` is
+///   parentless and unmarked.
+///
+/// Both arms also require the same `runnable_id` as the succeeding attempt, since every
+/// attempt in a chain runs the same runnable. The deliberate cost is a miss, not an
+/// over-reach: when the original attempt had a parent it is an unmarked sibling
+/// indistinguishable from any other child of the caller, so it stays red.
+///
+/// Nothing is trusted of the caller (this writes through a privileged pool): the gate is
+/// "some marked attempt under `root` running `runnable_id` has succeeded", evaluated in
+/// SQL, so a call for a chain that has not succeeded resolves nothing.
+///
+/// Call this from *both* completion paths. A retry is enqueued before its predecessor's
+/// failure row is committed, so with a zero delay the retry can succeed while that row is
+/// still absent; the success-side call would then find nothing to resolve. Calling again
+/// when a failure commits with a retry pending makes the two commit orders converge.
+///
+/// `ON CONFLICT DO NOTHING` makes a repeat call idempotent while a resolution *exists*, but
+/// it is not inert: once a human unresolves a chain member, a later sweep for the same
+/// chain resolves it again. Reaching that needs another completion under the same `root`
+/// (a WAC inline sibling, or a replayed completion), so it is rare rather than impossible.
+/// Making an unresolve durable against it needs a tombstone the read path can see, which
+/// this deliberately does not add.
+pub async fn resolve_retry_chain_if_succeeded(
+    db: &Pool<Postgres>,
+    root: Uuid,
+    workspace_id: &str,
+    runnable_id: Option<ScriptHash>,
+) -> Result<(), Error> {
+    sqlx::query!(
+        "INSERT INTO job_resolution (job_id, workspace_id, resolved_by, note, automatic)
+            SELECT c.id, c.workspace_id, NULL, NULL, true
+                FROM v2_job_completed c
+                JOIN v2_job j ON j.id = c.id
+                WHERE c.status = 'failure'
+                    AND c.workspace_id = $2
+                    AND j.flow_step_id IS NULL
+                    AND j.runnable_id IS NOT DISTINCT FROM $3
+                    AND EXISTS (
+                        SELECT 1 FROM v2_job_completed sc
+                        JOIN v2_job sj ON sj.id = sc.id
+                        JOIN native_retry_attempt nra ON nra.job_id = sc.id
+                        WHERE sc.status = 'success'
+                            AND sc.workspace_id = $2
+                            AND sj.parent_job = $1
+                            AND sj.runnable_id IS NOT DISTINCT FROM $3
+                    )
+                    AND (
+                        (j.parent_job = $1
+                            AND EXISTS (SELECT 1 FROM native_retry_attempt WHERE job_id = c.id))
+                        OR (c.id = $1 AND j.parent_job IS NULL
+                            AND NOT EXISTS (SELECT 1 FROM native_retry_attempt WHERE job_id = c.id))
+                    )
+            ON CONFLICT (job_id) DO NOTHING",
+        root,
+        workspace_id,
+        runnable_id.map(|h| h.0),
+    )
+    .execute(db)
+    .await?;
     Ok(())
 }
 
@@ -2075,7 +2231,16 @@ pub async fn report_error_to_workspace_handler_or_critical_side_channel(
 async fn fetch_error_handler_from_db(
     db: &Pool<Postgres>,
     w_id: &str,
-) -> Result<(Option<String>, Option<Json<Box<RawValue>>>, bool, bool), Error> {
+) -> Result<
+    (
+        Option<String>,
+        Option<Json<Box<RawValue>>>,
+        bool,
+        bool,
+        bool,
+    ),
+    Error,
+> {
     sqlx::query_as::<
         _,
         (
@@ -2083,6 +2248,7 @@ async fn fetch_error_handler_from_db(
             Option<Json<Box<RawValue>>>,
             Option<bool>,
             Option<bool>,
+            bool,
         ),
     >(
         r#"
@@ -2090,23 +2256,28 @@ async fn fetch_error_handler_from_db(
             error_handler->>'path',
             (error_handler->'extra_args')::text::json,
             (error_handler->>'muted_on_cancel')::boolean,
-            (error_handler->>'muted_on_user_path')::boolean
-        FROM workspace_settings
-        WHERE workspace_id = $1
+            (error_handler->>'muted_on_user_path')::boolean,
+            ws.error_handler_fallback_to_instance_alerts AND w.parent_workspace_id IS NULL
+        FROM workspace_settings ws
+        JOIN workspace w ON w.id = ws.workspace_id
+        WHERE ws.workspace_id = $1
         "#,
     )
     .bind(w_id)
     .fetch_optional(db)
     .await
     .context("fetching error handler info from workspace_settings")?
-    .map(|(path, extra_args, muted_on_cancel, muted_on_user_path)| {
-        (
-            path,
-            extra_args,
-            muted_on_cancel.unwrap_or(false),
-            muted_on_user_path.unwrap_or(false),
-        )
-    })
+    .map(
+        |(path, extra_args, muted_on_cancel, muted_on_user_path, report_to_instance_alerts)| {
+            (
+                path,
+                extra_args,
+                muted_on_cancel.unwrap_or(false),
+                muted_on_user_path.unwrap_or(false),
+                report_to_instance_alerts,
+            )
+        },
+    )
     .ok_or_else(|| Error::internal_err(format!("no workspace settings for id {w_id}")))
 }
 
@@ -2124,15 +2295,22 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
         error_handler_extra_args,
         error_handler_muted_on_cancel,
         error_handler_muted_on_user_path,
+        report_to_instance_alerts,
     ) = if let Some(cached) = WORKSPACE_ERROR_HANDLER_CACHE.get(w_id) {
-        if cached.4 > now {
-            (cached.0.clone(), cached.1.clone(), cached.2, cached.3)
+        if cached.5 > now {
+            (
+                cached.0.clone(),
+                cached.1.clone(),
+                cached.2,
+                cached.3,
+                cached.4,
+            )
         } else {
             let row = fetch_error_handler_from_db(db, w_id).await?;
             let expiry = now + WORKSPACE_HANDLER_CACHE_TTL_SECONDS;
             WORKSPACE_ERROR_HANDLER_CACHE.insert(
                 w_id.clone(),
-                (row.0.clone(), row.1.clone(), row.2, row.3, expiry),
+                (row.0.clone(), row.1.clone(), row.2, row.3, row.4, expiry),
             );
             row
         }
@@ -2141,10 +2319,16 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
         let expiry = now + WORKSPACE_HANDLER_CACHE_TTL_SECONDS;
         WORKSPACE_ERROR_HANDLER_CACHE.insert(
             w_id.clone(),
-            (row.0.clone(), row.1.clone(), row.2, row.3, expiry),
+            (row.0.clone(), row.1.clone(), row.2, row.3, row.4, expiry),
         );
         row
     };
+
+    // Nothing to do for the vast majority of workspaces, and returning here keeps the
+    // per-runnable mute lookup below off the path of every failed job.
+    if error_handler.is_none() && !report_to_instance_alerts {
+        return Ok(());
+    }
 
     if is_canceled && error_handler_muted_on_cancel {
         return Ok(());
@@ -2159,51 +2343,88 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
         }
     }
 
-    if let Some(error_handler) = error_handler {
-        let ws_error_handler_muted: Option<bool> = match queued_job.kind {
-            JobKind::Script => {
-                sqlx::query_scalar!(
+    let ws_error_handler_muted: Option<bool> = match queued_job.kind {
+        JobKind::Script => {
+            sqlx::query_scalar!(
                 "SELECT ws_error_handler_muted FROM script WHERE workspace_id = $1 AND hash = $2",
                 queued_job.workspace_id,
                 queued_job.runnable_id.map(|x| x.0),
             )
-                .fetch_optional(db)
-                .await?
-            }
-            JobKind::Flow => {
-                sqlx::query_scalar!(
-                    "SELECT ws_error_handler_muted FROM flow WHERE workspace_id = $1 AND path = $2",
-                    queued_job.workspace_id,
-                    queued_job.runnable_path.clone(),
-                )
-                .fetch_optional(db)
-                .await?
-            }
-            _ => None,
-        };
-
-        let muted = ws_error_handler_muted.unwrap_or(false);
-        if !muted {
-            tracing::info!("workspace error handled for job {}", &queued_job.id);
-
-            push_error_handler(
-                db,
-                queued_job.id,
-                queued_job.schedule_path(),
+            .fetch_optional(db)
+            .await?
+        }
+        JobKind::Flow => {
+            sqlx::query_scalar!(
+                "SELECT ws_error_handler_muted FROM flow WHERE workspace_id = $1 AND path = $2",
+                queued_job.workspace_id,
                 queued_job.runnable_path.clone(),
-                queued_job.is_flow(),
-                &queued_job.workspace_id,
-                &error_handler,
-                result,
-                None,
-                queued_job.started_at,
-                error_handler_extra_args,
-                &queued_job.permissioned_as_email,
-                false,
-                false,
-                None,
             )
-            .await?;
+            .fetch_optional(db)
+            .await?
+        }
+        _ => None,
+    };
+
+    if ws_error_handler_muted.unwrap_or(false) {
+        return Ok(());
+    }
+
+    if let Some(error_handler) = error_handler {
+        tracing::info!("workspace error handled for job {}", &queued_job.id);
+
+        push_error_handler(
+            db,
+            queued_job.id,
+            queued_job.schedule_path(),
+            queued_job.runnable_path.clone(),
+            queued_job.is_flow(),
+            &queued_job.workspace_id,
+            &error_handler,
+            result,
+            None,
+            queued_job.started_at,
+            error_handler_extra_args,
+            &queued_job.permissioned_as_email,
+            false,
+            false,
+            None,
+        )
+        .await?;
+    } else if !is_canceled {
+        // A cancellation is a human action rather than an operational failure, and unlike the
+        // handler path this one has no per-workspace toggle to opt out of reporting them.
+        let suppressed = match INSTANCE_ALERT_THROTTLE.get(w_id) {
+            Some((last_sent, suppressed)) if now - last_sent < INSTANCE_ALERT_COOLDOWN_SECONDS => {
+                INSTANCE_ALERT_THROTTLE.insert(w_id.clone(), (last_sent, suppressed + 1));
+                None
+            }
+            entry => {
+                INSTANCE_ALERT_THROTTLE.insert(w_id.clone(), (now, 0));
+                Some(entry.map(|(_, suppressed)| suppressed).unwrap_or(0))
+            }
+        };
+        if let Some(suppressed) = suppressed {
+            tracing::info!(
+                "reporting failed job {} to the instance critical alert channels",
+                &queued_job.id
+            );
+            let base_url = windmill_common::BASE_URL.load();
+            let rollup = if suppressed > 0 {
+                format!(
+                    " (and {suppressed} more failure(s) in the preceding {INSTANCE_ALERT_COOLDOWN_SECONDS}s)"
+                )
+            } else {
+                String::new()
+            };
+            windmill_common::utils::send_workspace_error_to_instance_channels(
+                format!(
+                    "Job {} failed in workspace {w_id} ({base_url}/run/{}?workspace={w_id}){rollup}",
+                    queued_job.runnable_path.as_deref().unwrap_or("preview"),
+                    queued_job.id
+                ),
+                db,
+            )
+            .await;
         }
     }
     Ok(())
@@ -3872,7 +4093,7 @@ pub async fn pull(
                 let pulled_job_result = match job {
                     #[cfg(feature = "private")]
                     Some(job)
-                        if concurrency_settings.concurrent_limit.is_some()
+                        if has_active_concurrency_limit(concurrency_settings.concurrent_limit)
                             // Concurrency limit is available for either enterprise job or dependency job
                             && (cfg!(feature = "enterprise") || (job.is_dependency() && !*WMDEBUG_NO_DEBOUNCING)) =>
                     {
@@ -3936,7 +4157,8 @@ pub async fn pull(
         .1
         .maybe_fallback(None, job.concurrent_limit, job.concurrency_time_window_s);
 
-        let has_concurent_limit = concurrency_settings.concurrent_limit.is_some();
+        let has_concurent_limit =
+            has_active_concurrency_limit(concurrency_settings.concurrent_limit);
 
         #[cfg(not(feature = "enterprise"))]
         if has_concurent_limit && !job.is_dependency() {
@@ -3945,7 +4167,7 @@ pub async fn pull(
 
         #[cfg(not(feature = "enterprise"))]
         let has_concurent_limit = job.is_dependency()
-            && job.concurrent_limit.is_some()
+            && has_active_concurrency_limit(job.concurrent_limit)
             && cfg!(feature = "private")
             && !*WMDEBUG_NO_DEBOUNCING;
         // if we don't have private flag, we don't have concurrency limit
@@ -4111,6 +4333,13 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
         }
     };
     Ok(job_and_suspended)
+}
+
+/// A concurrency limit is only active when it caps at 1+ slots. `Some(0)` (or negative) is
+/// a disabled limit, not a zero-slot one — see [`ConcurrencySettings::normalized`]. The gate
+/// checks must use this instead of `.is_some()` so a legacy stored `0` behaves as disabled.
+pub fn has_active_concurrency_limit(concurrent_limit: Option<i32>) -> bool {
+    concurrent_limit.is_some_and(|n| n > 0)
 }
 
 pub async fn custom_concurrency_key(
@@ -5608,6 +5837,10 @@ async fn push_inner<'c, 'd>(
                             restarted_from_val.step_id.as_str(),
                             restarted_from_val.branch_or_iteration_n,
                             restarted_from_val.flow_version,
+                            restarted_from_val.nested.is_some(),
+                            // RawFlow queues the request's (possibly edited) definition, not the
+                            // stored one, so zombie reuse of the stored step is unsafe here.
+                            false,
                         )
                         .await?;
                     FlowStatus {
@@ -5997,6 +6230,10 @@ async fn push_inner<'c, 'd>(
                 step_id.as_str(),
                 branch_or_iteration_n,
                 flow_version,
+                nested.is_some(),
+                // RestartedFlow resolves and queues the completed job's stored definition, so the
+                // step validated for reuse is the one that will run.
+                true,
             )
             .await?;
 
@@ -6091,6 +6328,11 @@ async fn push_inner<'c, 'd>(
             ..Default::default()
         },
     };
+
+    // Guard against an already-stored `concurrent_limit <= 0` reaching the queue: it would
+    // register a zero-slot concurrency key and permanently block the job. Coerce it to
+    // disabled before it is persisted onto the job row / concurrency key here.
+    concurrency_settings = concurrency_settings.normalized();
 
     // Enforce concurrency limit on all dependency jobs.
     // TODO: We can ignore this for scripts djobs. The main reason we need all djobs to be sequential is because we have
@@ -6274,15 +6516,29 @@ async fn push_inner<'c, 'd>(
         )
         .unzip();
 
-    if concurrency_settings.concurrent_limit.is_some() {
-        insert_concurrency_key(
+    #[cfg(feature = "cloud")]
+    if *CLOUD_HOSTED {
+        check_workspace_queue_cap(&mut *tx, workspace_id).await?;
+    }
+
+    if has_active_concurrency_limit(concurrency_settings.concurrent_limit) {
+        let concurrency_key = resolve_concurrency_key(
             workspace_id,
             &args,
             &runnable_path,
             job_kind,
             concurrency_settings.concurrency_key.clone(),
+        );
+        #[cfg(feature = "cloud")]
+        if *CLOUD_HOSTED {
+            check_concurrency_key_queue_cap(&mut *tx, &concurrency_key).await?;
+        }
+        insert_resolved_concurrency_key(
+            &concurrency_key,
             &mut *tx,
             job_id,
+            &runnable_path,
+            workspace_id,
         )
         .await?;
     }
@@ -6611,16 +6867,14 @@ async fn push_inner<'c, 'd>(
     Ok((job_id, tx))
 }
 
-pub async fn insert_concurrency_key<'d, 'c>(
+fn resolve_concurrency_key<'d>(
     workspace_id: &str,
     args: &PushArgs<'d>,
     script_path: &Option<String>,
     job_kind: JobKind,
     custom_concurrency_key: Option<String>,
-    db: impl PgExecutor<'c>,
-    job_id: Uuid,
-) -> Result<(), Error> {
-    let concurrency_key = custom_concurrency_key
+) -> String {
+    custom_concurrency_key
         .map(|x| {
             let interpolated = interpolate_args(x.clone(), args, workspace_id);
             // In cloud mode, enforce workspace isolation by prefixing with workspace
@@ -6642,7 +6896,50 @@ pub async fn insert_concurrency_key<'d, 'c>(
             workspace_id,
             script_path.as_ref(),
             &job_kind,
-        ));
+        ))
+}
+
+/// Resolves the concurrency key, applies the cloud-only queue-depth cap, then registers the key.
+///
+/// `concurrent_limit: None` still registers the key but skips the cap: without a limit nothing
+/// serializes the key, so there is no backlog to bound. Callers register keys for tag
+/// interpolation alone, so the two are not interchangeable.
+///
+/// Takes a `Copy` executor because the cap runs a query before the insert on the same one. `push`
+/// cannot use this — it holds a `&mut Transaction` — so it performs the same three steps inline.
+pub async fn insert_concurrency_key_capped<'d, 'c, E: PgExecutor<'c> + Copy>(
+    workspace_id: &str,
+    args: &PushArgs<'d>,
+    script_path: &Option<String>,
+    job_kind: JobKind,
+    custom_concurrency_key: Option<String>,
+    concurrent_limit: Option<i32>,
+    db: E,
+    job_id: Uuid,
+) -> Result<(), Error> {
+    let concurrency_key = resolve_concurrency_key(
+        workspace_id,
+        args,
+        script_path,
+        job_kind,
+        custom_concurrency_key,
+    );
+    #[cfg(feature = "cloud")]
+    if *CLOUD_HOSTED && has_active_concurrency_limit(concurrent_limit) {
+        check_concurrency_key_queue_cap(db, &concurrency_key).await?;
+    }
+    #[cfg(not(feature = "cloud"))]
+    let _ = concurrent_limit;
+    insert_resolved_concurrency_key(&concurrency_key, db, job_id, script_path, workspace_id).await
+}
+
+async fn insert_resolved_concurrency_key<'c>(
+    concurrency_key: &str,
+    db: impl PgExecutor<'c>,
+    job_id: Uuid,
+    script_path: &Option<String>,
+    workspace_id: &str,
+) -> Result<(), Error> {
     sqlx::query!(
         "WITH inserted_concurrency_counter AS (
                 INSERT INTO concurrency_counter (concurrency_id, job_uuids)
@@ -6657,6 +6954,145 @@ pub async fn insert_concurrency_key<'d, 'c>(
     .warn_after_seconds(3)
     .await
     .map_err(|e| Error::internal_err(format!("Could not insert concurrency_key={concurrency_key} for job_id={job_id} script_path={script_path:?} workspace_id={workspace_id}: {e:#}")))?;
+    Ok(())
+}
+
+/// Counts jobs *waiting* behind `concurrency_key`, scanning at most `limit` rows.
+///
+/// Three constraints on the query below, each pinned by a test in
+/// `tests/concurrency_key_queue_depth_test.rs`:
+/// - Any `scheduled_for`: the limiter parks blocked jobs in the future, so a gated backlog is
+///   almost entirely future-dated and `scheduled_for <= now()` would never see it.
+/// - `running = false`: running jobs keep `ended_at` NULL, and counting them would charge a key
+///   for the concurrency it is licensed to use.
+/// - `LIMIT` inside the `EXISTS`, not outside: rows whose job left the queue without
+///   `add_completed_job` keep `ended_at` NULL forever (the retention sweep only matches
+///   `ended_at <= …`), so an outside `LIMIT` would let them be rescanned on every push.
+///
+/// Takes an already-resolved key and performs no authorization; `pub` only so the integration
+/// test can reach it. Never call it with a caller-supplied key — it would leak queue depth
+/// across workspaces.
+pub async fn concurrency_key_queue_depth<'c>(
+    db: impl PgExecutor<'c>,
+    concurrency_key: &str,
+    limit: i64,
+) -> Result<i64, Error> {
+    sqlx::query_scalar!(
+        "SELECT count(*) FROM (
+            SELECT ck.job_id FROM concurrency_key ck
+            WHERE ck.key = $1 AND ck.ended_at IS NULL
+            LIMIT $2
+        ) s WHERE EXISTS (
+            SELECT 1 FROM v2_job_queue q WHERE q.id = s.job_id AND q.running = false
+        )",
+        concurrency_key,
+        limit,
+    )
+    .fetch_one(db)
+    .warn_after_seconds(3)
+    .await
+    .map_err(|e| {
+        Error::internal_err(format!(
+            "Could not count queued jobs for concurrency_key={concurrency_key}: {e:#}"
+        ))
+    })
+    .map(|c| c.unwrap_or(0))
+}
+
+/// Rejects the push when `concurrency_key` already has `CONCURRENCY_KEY_MAX_QUEUED` jobs queued.
+///
+/// Caller must runtime-gate this on `*CLOUD_HOSTED`, and must call it from *every push path*
+/// that registers a concurrency key: a flow with a preprocessor is pushed with `concurrent_limit`
+/// cleared and only registers its key later from `worker_flow`, so gating `push` alone leaves
+/// trigger-driven flows uncapped.
+///
+/// `add_batch_jobs` writes keys directly and is deliberately exempt: it is superadmin-only, and a
+/// superadmin can set the cap to `0` anyway. `import_queued_jobs` is likewise exempt because it
+/// is rejected outright on cloud.
+#[cfg(feature = "cloud")]
+async fn check_concurrency_key_queue_cap<'c>(
+    db: impl PgExecutor<'c>,
+    concurrency_key: &str,
+) -> Result<(), Error> {
+    let cap = windmill_common::worker::CONCURRENCY_KEY_MAX_QUEUED
+        .load(std::sync::atomic::Ordering::Relaxed);
+    if cap == 0 {
+        return Ok(());
+    }
+    let cap = cap as i64;
+    let depth = concurrency_key_queue_depth(db, concurrency_key, cap).await?;
+    if depth >= cap {
+        return Err(Error::QuotaExceeded(format!(
+            "Too many jobs queued behind concurrency key '{concurrency_key}': at least {depth} \
+             jobs are already waiting and the limit is {cap}. Jobs sharing a concurrency key run \
+             at most `concurrent_limit` at a time, so this queue is growing faster than it can \
+             drain. Cancel the backlog, slow down the caller, or raise the concurrency limit."
+        )));
+    }
+    Ok(())
+}
+
+/// Bounded count of a workspace's non-running queued jobs, capped at `limit` so the scan
+/// stops once the ceiling is reached rather than counting an entire runaway backlog.
+///
+/// Internal helper for `check_workspace_queue_cap`, `pub` only so the integration test can call
+/// it (like `concurrency_key_queue_depth`). Returns a count, not job contents; the caller is
+/// responsible for any authorization — it takes the workspace id as given.
+pub async fn workspace_queue_depth<'c>(
+    db: impl PgExecutor<'c>,
+    workspace_id: &str,
+    limit: i64,
+) -> Result<i64, Error> {
+    sqlx::query_scalar!(
+        "SELECT count(*) FROM (
+            SELECT 1 FROM v2_job_queue
+            WHERE workspace_id = $1 AND running = false
+            LIMIT $2
+        ) s",
+        workspace_id,
+        limit,
+    )
+    .fetch_one(db)
+    .warn_after_seconds(3)
+    .await
+    .map_err(|e| {
+        Error::internal_err(format!(
+            "Could not count queued jobs for workspace={workspace_id}: {e:#}"
+        ))
+    })
+    .map(|c| c.unwrap_or(0))
+}
+
+/// Rejects the push when the workspace already has `WORKSPACE_MAX_QUEUED_JOBS` jobs queued.
+///
+/// Caller must runtime-gate this on `*CLOUD_HOSTED`. It runs on every push (not only
+/// concurrency-limited ones) because a workspace can flood the queue across many keys or with
+/// keyless jobs. It caps *new* pushes past the ceiling; jobs already queued still drain, so an
+/// in-flight flow only ever fails to push further work while the workspace is at the ceiling.
+///
+/// This is a soft ceiling, like the per-key cap: the count and the insert are not serialized, so
+/// a burst of concurrent pushes can land a handful over the limit. That is fine and intentional
+/// — the cap exists to stop an unbounded runaway, not to enforce an exact quota, and a
+/// per-workspace lock on every push would add hot-path contention for no practical gain.
+#[cfg(feature = "cloud")]
+async fn check_workspace_queue_cap<'c>(
+    db: impl PgExecutor<'c>,
+    workspace_id: &str,
+) -> Result<(), Error> {
+    let cap = windmill_common::worker::WORKSPACE_MAX_QUEUED_JOBS
+        .load(std::sync::atomic::Ordering::Relaxed);
+    if cap == 0 {
+        return Ok(());
+    }
+    let cap = cap as i64;
+    let depth = workspace_queue_depth(db, workspace_id, cap).await?;
+    if depth >= cap {
+        return Err(Error::QuotaExceeded(format!(
+            "Too many jobs queued in workspace '{workspace_id}': at least {depth} jobs are \
+             already waiting and the instance limit is {cap}. Cancel the backlog or slow down \
+             whatever is creating jobs before pushing more."
+        )));
+    }
     Ok(())
 }
 
@@ -6806,6 +7242,78 @@ fn create_restarted_module(
     }
 }
 
+/// A between-steps-zombie step: an `InProgress` module (in an otherwise terminal,
+/// reaped flow) whose every child is recorded as a `success` completion. Only the
+/// module's final state transition was lost, so the whole step is derivable and
+/// safe to reuse on restart. Children incomplete/failed/cancelled ⟹ not a zombie.
+async fn is_derivable_between_steps_zombie(
+    db: &Pool<Postgres>,
+    workspace_id: &str,
+    module: &FlowStatusModule,
+) -> Result<bool, Error> {
+    // The module's own cursor must prove it reached the end (a serial loop/branch-all reaped
+    // mid-fan-out has an all-success prefix but unrun remaining iterations); while-loops are
+    // never derivable. Children-success is verified below.
+    if !module.is_between_steps_complete() {
+        return Ok(false);
+    }
+    let child_ids: Vec<Uuid> = module
+        .flow_jobs()
+        .filter(|v| !v.is_empty())
+        .or_else(|| module.job().map(|j| vec![j]))
+        .unwrap_or_default();
+    if child_ids.is_empty() {
+        return Ok(false);
+    }
+    let success_children = sqlx::query_scalar!(
+        "SELECT count(*) FROM v2_job_completed
+         WHERE workspace_id = $1 AND id = ANY($2) AND status = 'success'",
+        workspace_id,
+        &child_ids,
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(0);
+    Ok(success_children == child_ids.len() as i64)
+}
+
+/// Convert a between-steps-zombie `InProgress` module (validated by
+/// [`is_derivable_between_steps_zombie`]) into the `Success` it would have become
+/// had its dropped transition landed, reusing all completed children. Downstream
+/// steps re-derive this step's result from `flow_jobs`/`job` on demand
+/// (`get_previous_job_result`), so no aggregate needs recomputing here.
+fn reuse_completed_zombie_module(module: FlowStatusModule) -> FlowStatusModule {
+    match module {
+        FlowStatusModule::InProgress {
+            id,
+            job,
+            flow_jobs,
+            flow_jobs_success,
+            flow_jobs_duration,
+            branch_chosen,
+            agent_actions,
+            agent_actions_success,
+            ..
+        } => FlowStatusModule::Success {
+            id,
+            job,
+            // Every child was verified successful, so normalise the success
+            // vector (the dropped transition may have left the last entry unset).
+            flow_jobs_success: flow_jobs_success
+                .map(|v| v.into_iter().map(|_| Some(true)).collect()),
+            flow_jobs,
+            flow_jobs_duration,
+            branch_chosen,
+            approvers: vec![],
+            failed_retries: vec![],
+            skipped: false,
+            agent_actions,
+            agent_actions_success,
+        },
+        other => other,
+    }
+}
+
 async fn restarted_flows_resolution(
     db: &Pool<Postgres>,
     workspace_id: &str,
@@ -6813,6 +7321,15 @@ async fn restarted_flows_resolution(
     restart_step_id: &str,
     branch_or_iteration_n: Option<usize>,
     flow_version: Option<i64>,
+    // A nested restart chain (RestartedFrom.nested) descends into the restart step's child to
+    // re-run an inner step; zombie reuse would skip the whole container and ignore it.
+    nested_restart: bool,
+    // Zombie reuse validates the restart step against the completed job's STORED definition and
+    // synthesizes Success from its recorded children. That is only sound when the run being queued
+    // uses that same definition (JobPayload::RestartedFlow). A JobPayload::RawFlow restart queues
+    // the editor's current, possibly EDITED, definition instead, so reuse would skip the edited
+    // step and reuse the old child result; disable it there.
+    allow_zombie_reuse: bool,
 ) -> Result<
     (
         Option<i64>,
@@ -6829,7 +7346,7 @@ async fn restarted_flows_resolution(
     let row = sqlx::query!(
         "SELECT
             j.runnable_path as script_path, j.runnable_id AS \"script_hash: ScriptHash\",
-            j.kind AS \"job_kind!: JobKind\",
+            j.kind AS \"job_kind!: JobKind\", c.canceled_by,
             COALESCE(c.flow_status, c.workflow_as_code_status) AS \"flow_status: Json<Box<RawValue>>\",
             j.raw_flow AS \"raw_flow: Json<Box<RawValue>>\"
         FROM v2_job_completed c JOIN v2_job j USING (id) WHERE j.id = $1 and j.workspace_id = $2",
@@ -6844,6 +7361,12 @@ async fn restarted_flows_resolution(
             completed_flow_id, workspace_id, err
         ))
     })?;
+
+    // Zombie reuse must only apply to flows the zombie monitor reaped (canceled_by = 'monitor').
+    // An ordinary force-cancel copies the same live flow_status, so a user canceling after a child
+    // succeeds but before the parent transition lands produces the identical InProgress/all-success
+    // shape; those must retain restart-from-step semantics (the step re-runs).
+    let reaped_by_monitor = row.canceled_by.as_deref() == Some("monitor");
 
     let current_flow_version = row.script_hash.map(|x| x.0);
     let is_version_change = flow_version.is_some()
@@ -6935,9 +7458,36 @@ async fn restarted_flows_resolution(
                 continue;
             };
             if module.id() == restart_step_id {
-                // if the module ID is the one we want to restart the flow at, or if it's past it in the flow,
-                // set the module as WaitingForPriorSteps as it needs to be re-run
-                if branch_or_iteration_n.is_none() || branch_or_iteration_n.unwrap() == 0 {
+                // Reuse is only safe when there is a NEXT step to advance into (advancing past the
+                // last module lands on the failure step) and the step's definition carries no
+                // completion/arming semantics that reuse would skip (stop predicates, skip_if,
+                // suspend, sleep); such a step must re-run, not be synthesized as Success.
+                let has_next_step = flow_value
+                    .modules
+                    .last()
+                    .is_none_or(|m| m.id != restart_step_id);
+                // A whole-step restart is `None` (restart API with the field omitted) or `Some(0)`
+                // (the run page's "Re-start from" button always sends 0); both mean "redo this step",
+                // which for a monitor-reaped zombie means reuse it. `Some(n>=1)` is an explicit
+                // partial container restart and keeps its existing reuse-0..n-1 / rerun-from-n path.
+                if allow_zombie_reuse
+                    && reaped_by_monitor
+                    && branch_or_iteration_n.unwrap_or(0) == 0
+                    && !nested_restart
+                    && has_next_step
+                    && module_definition.allows_zombie_reuse()
+                    && is_derivable_between_steps_zombie(db, workspace_id, &module).await?
+                {
+                    // Between-steps-zombie recovery: this step's children all
+                    // completed but its final state transition was dropped (the
+                    // flow was reaped by the zombie monitor). Reuse the completed
+                    // step verbatim and restart from the NEXT step, so no child
+                    // re-runs and only the dropped transition is replayed onward.
+                    step_n += 1;
+                    truncated_modules.push(reuse_completed_zombie_module(module));
+                } else if branch_or_iteration_n.is_none() || branch_or_iteration_n.unwrap() == 0 {
+                    // if the module ID is the one we want to restart the flow at, or if it's past it in the flow,
+                    // set the module as WaitingForPriorSteps as it needs to be re-run
                     // The module as WaitingForPriorSteps as the entire module (i.e. all the branches) need to be re-run
                     truncated_modules
                         .push(FlowStatusModule::WaitingForPriorSteps { id: module.id() });

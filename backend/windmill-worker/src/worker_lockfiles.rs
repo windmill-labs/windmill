@@ -1250,6 +1250,8 @@ async fn lock_modules(
                     mut tools,
                     tag,
                     omit_output_from_conversation,
+                    agent,
+                    tool_inputs,
                 } => {
                     // Extract FlowModules from tools and track their original indices
                     // MCP tools don't need locking, so we filter them out
@@ -1302,6 +1304,8 @@ async fn lock_modules(
                         tools,
                         tag,
                         omit_output_from_conversation,
+                        agent,
+                        tool_inputs,
                     }
                     .into();
                 }
@@ -2468,7 +2472,7 @@ async fn ansible_dep(
 
     let ansible_lockfile;
 
-    create_ansible_cfg(Some(&reqs), job_dir, false)?;
+    create_ansible_cfg(Some(&reqs), job_dir, false, job_id)?;
 
     if let Some(collections) = reqs.roles_and_collections.as_ref() {
         install_galaxy_collections(

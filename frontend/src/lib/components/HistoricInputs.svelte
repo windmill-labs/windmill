@@ -17,6 +17,8 @@
 		placement?: 'bottom-start' | 'top-start' | 'bottom-end' | 'top-end'
 		limitPayloadSize?: boolean
 		searchArgs?: Record<string, any> | undefined
+		/** Workspace to read run history from; defaults to the nav workspace. */
+		workspace?: string
 	}
 
 	let {
@@ -26,8 +28,11 @@
 		showAuthor = false,
 		placement = 'top-end',
 		limitPayloadSize = false,
-		searchArgs = undefined
+		searchArgs = undefined,
+		workspace = undefined
 	}: Props = $props()
+
+	let ws = $derived(workspace ?? $workspaceStore)
 
 	let historicList: HistoricList | undefined = $state(undefined)
 	const dispatch = createEventDispatcher()
@@ -111,7 +116,7 @@
 				jobKinds: getJobKinds(runnableType),
 				syncQueuedRunsCount: false,
 				refreshRate: 10000,
-				currentWorkspace: $workspaceStore ?? '',
+				currentWorkspace: ws ?? '',
 				skip: !runnableId,
 				excludesEntrypointOverride: true
 			}) satisfies UseJobLoaderArgs

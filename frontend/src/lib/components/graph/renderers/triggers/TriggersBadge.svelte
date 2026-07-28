@@ -5,7 +5,14 @@
 	import { getContext } from 'svelte'
 	import { type TriggerContext } from '$lib/components/triggers'
 	import { enterpriseLicense } from '$lib/stores'
-	import { MqttIcon, NatsIcon, KafkaIcon, AwsIcon, GoogleCloudIcon } from '$lib/components/icons'
+	import {
+		MqttIcon,
+		AmqpIcon,
+		NatsIcon,
+		KafkaIcon,
+		AwsIcon,
+		GoogleCloudIcon
+	} from '$lib/components/icons'
 	import AzureIcon from '$lib/components/icons/AzureIcon.svelte'
 	import { type Trigger, type TriggerType } from '$lib/components/triggers/utils'
 	import { Menu, Menubar, MeltButton, MenuItem, Tooltip } from '$lib/components/meltComponents'
@@ -69,6 +76,7 @@
 			email: { icon: Mail, countKey: 'email_count' },
 			nats: { icon: NatsIcon, countKey: 'nats_count', disabled: !$enterpriseLicense },
 			mqtt: { icon: MqttIcon, countKey: 'mqtt_count', disabled: !$enterpriseLicense },
+			amqp: { icon: AmqpIcon, countKey: 'amqp_count' },
 			sqs: { icon: AwsIcon, countKey: 'sqs_count', disabled: !$enterpriseLicense },
 			gcp: { icon: GoogleCloudIcon, countKey: 'gcp_count', disabled: !$enterpriseLicense },
 			azure: { icon: AzureIcon, countKey: 'azure_count', disabled: !$enterpriseLicense },
@@ -103,6 +111,7 @@
 		'default_email',
 		'nats',
 		'mqtt',
+		'amqp',
 		'sqs',
 		'gcp',
 		'azure',

@@ -2,11 +2,13 @@ use crate::{
     ai_google::parse_data_url,
     ai_providers::{AIPlatform, AIProvider},
     image_handler::prepare_messages_for_api,
-    proxy::{add_user_to_body, ProxyBuildArgs, ProxyRequest},
+    proxy::{
+        add_user_to_body, common_outbound_headers, credential_header, ProxyBuildArgs, ProxyRequest,
+    },
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventSink},
     sse::{AnthropicSSEParser, SSEParser},
     types::*,
-    utils::{extract_text_content, should_use_structured_output_tool, AI_HTTP_HEADERS},
+    utils::{collect_system_prompt, extract_text_content, should_use_structured_output_tool},
 };
 use async_trait::async_trait;
 use http::Method;
@@ -209,7 +211,7 @@ fn convert_messages_to_anthropic(messages: &[OpenAIMessage]) -> Vec<AnthropicMes
     for msg in messages {
         match msg.role.as_str() {
             "system" => {
-                // Skip - handled via args.system_prompt in build_text_request
+                // Lifted into the request's top-level `system` field by build_text_request
             }
             "user" => {
                 // Convert user messages
@@ -495,7 +497,6 @@ impl AnthropicQueryBuilder {
 
         let base_url = credentials.base_url.trim_end_matches('/');
         let is_vertex = self.is_vertex();
-        let is_anthropic_sdk = args.headers.get("X-Anthropic-SDK").is_some();
 
         let (url, body) = if is_vertex && *args.method != Method::GET {
             let (model, transformed_body) = Self::transform_proxy_body_for_vertex(&body)?;
@@ -512,11 +513,11 @@ impl AnthropicQueryBuilder {
                 AIProvider::build_azure_foundry_anthropic_url(base_url, path),
                 body,
             )
-        } else if is_anthropic_sdk {
-            let truncated_base_url = base_url.trim_end_matches("/v1");
-            (format!("{}/{}", truncated_base_url, args.path), body)
         } else {
-            (format!("{}/{}", base_url, args.path), body)
+            (
+                AIProvider::build_anthropic_api_url(base_url, args.path),
+                body,
+            )
         };
 
         let mut headers = vec![("content-type".to_string(), "application/json".to_string())];
@@ -541,31 +542,23 @@ impl AnthropicQueryBuilder {
             }
         }
 
-        if let Some(api_key) = credentials.api_key.as_ref() {
-            headers.push(("authorization".to_string(), format!("Bearer {}", api_key)));
-            if !is_vertex {
-                headers.push(("X-API-Key".to_string(), api_key.clone()));
-            }
-        }
-
-        if let Some(access_token) = credentials.access_token.as_ref() {
-            headers.push((
-                "authorization".to_string(),
-                format!("Bearer {}", access_token),
-            ));
-        }
+        // One credential header, matching `get_auth_headers`: Vertex takes an OAuth
+        // bearer token, every other Messages endpoint takes x-api-key. Endpoints in
+        // front of Anthropic reject requests carrying both.
+        headers.extend(credential_header(
+            credentials,
+            if is_vertex {
+                "authorization"
+            } else {
+                "x-api-key"
+            },
+        ));
 
         if let Some(org_id) = credentials.organization_id.as_ref() {
             headers.push(("OpenAI-Organization".to_string(), org_id.clone()));
         }
 
-        for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
-            headers.push((header_name.clone(), header_value.clone()));
-        }
-
-        for (header_name, header_value) in &credentials.custom_headers {
-            headers.push((header_name.clone(), header_value.clone()));
-        }
+        headers.extend(common_outbound_headers(credentials));
 
         Ok(ProxyRequest { method: args.method.clone(), url, headers, body })
     }
@@ -601,19 +594,17 @@ impl AnthropicQueryBuilder {
             }
         }
 
-        // Build system content from system_prompt, but None if system_prompt is empty string
-        let system = match args.system_prompt {
-            Some(s) if !s.is_empty() => Some(vec![AnthropicSystemContent {
+        let system = collect_system_prompt(&prepared_messages, args.system_prompt).map(|text| {
+            vec![AnthropicSystemContent {
                 r#type: "text".to_string(),
-                text: s.to_string(),
+                text,
                 cache_control: if self.is_vertex() {
                     None
                 } else {
                     Some(CacheControl::ephemeral())
                 },
-            }]),
-            _ => None,
-        };
+            }]
+        });
 
         // Check if we need to force tool usage for structured output
         let has_output_properties = args
@@ -792,7 +783,7 @@ impl QueryBuilder for AnthropicQueryBuilder {
         } else if self.is_azure_foundry() {
             AIProvider::build_azure_foundry_anthropic_url(base_url, "messages")
         } else {
-            format!("{}/messages", base_url)
+            AIProvider::build_anthropic_api_url(base_url, "messages")
         }
     }
 
@@ -842,6 +833,88 @@ mod tests {
         }
     }
 
+    const SYSTEM_PROMPT: &str = "You are a helpful assistant";
+
+    fn authed_client() -> AuthedClient {
+        AuthedClient::new(
+            "http://localhost:8000".to_string(),
+            "test-workspace".to_string(),
+            "token".to_string(),
+            None,
+        )
+    }
+
+    fn message(role: &str, text: &str) -> OpenAIMessage {
+        OpenAIMessage {
+            role: role.to_string(),
+            content: Some(OpenAIContent::Text(text.to_string())),
+            ..Default::default()
+        }
+    }
+
+    async fn build_text_body(messages: &[OpenAIMessage], system_prompt: Option<&str>) -> String {
+        let args = BuildRequestArgs {
+            messages,
+            tools: None,
+            model: "claude-sonnet-4",
+            temperature: None,
+            reasoning_effort: None,
+            max_tokens: None,
+            output_schema: None,
+            output_type: &OutputType::Text,
+            system_prompt,
+            user_message: "hello",
+            attachments: None,
+            has_websearch: false,
+        };
+
+        AnthropicQueryBuilder::new(AIProvider::Anthropic, AIPlatform::Standard)
+            .build_request(&args, &authed_client(), "test-workspace")
+            .await
+            .unwrap()
+    }
+
+    /// The worker prepends the system prompt as a system message *and* passes it as
+    /// `system_prompt`; the request must still carry it exactly once.
+    #[tokio::test]
+    async fn sends_system_prompt_only_in_system_field() {
+        let messages = vec![message("system", SYSTEM_PROMPT), message("user", "hi")];
+
+        let body = build_text_body(&messages, Some(SYSTEM_PROMPT)).await;
+        let request: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+        assert_eq!(request["system"][0]["text"], SYSTEM_PROMPT);
+        assert_eq!(body.matches(SYSTEM_PROMPT).count(), 1);
+
+        let sent = request["messages"].as_array().unwrap();
+        assert!(sent.iter().all(|message| message["role"] != "system"));
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0]["role"], "user");
+    }
+
+    /// Manual-memory conversations supply their own system messages without a
+    /// `system_prompt` arg: those must still reach the model.
+    #[tokio::test]
+    async fn lifts_manual_system_messages_into_system_field() {
+        let messages = vec![message("system", "be terse"), message("user", "hi")];
+
+        let body = build_text_body(&messages, None).await;
+        let request: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+        assert_eq!(request["system"][0]["text"], "be terse");
+        assert_eq!(request["messages"].as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn omits_system_without_a_system_prompt() {
+        let messages = vec![message("user", "hi")];
+
+        let body = build_text_body(&messages, None).await;
+        let request: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+        assert!(request.get("system").is_none());
+    }
+
     fn has_header(headers: &[(String, String)], name: &str, value: &str) -> bool {
         headers
             .iter()
@@ -870,12 +943,11 @@ mod tests {
         assert_eq!(request.method, Method::POST);
         assert_eq!(request.url, "https://api.anthropic.com/v1/messages");
         assert_eq!(request.body, body.to_vec());
-        assert!(has_header(
-            &request.headers,
-            "authorization",
-            "Bearer api-key"
-        ));
-        assert!(has_header(&request.headers, "X-API-Key", "api-key"));
+        assert!(has_header(&request.headers, "x-api-key", "api-key"));
+        assert!(!request
+            .headers
+            .iter()
+            .any(|(header_name, _)| header_name.eq_ignore_ascii_case("authorization")));
         assert!(has_header(
             &request.headers,
             "anthropic-version",
@@ -1065,6 +1137,40 @@ mod tests {
         assert!(matches!(err, Error::BadRequest(message) if message.contains("Missing 'model'")));
     }
 
+    /// Endpoints that authenticate with a bearer token configure it as a resource
+    /// header; the built-in x-api-key must then step aside, since outgoing headers
+    /// are appended and both credentials would travel.
+    #[test]
+    fn resource_header_replaces_the_built_in_credential() {
+        let mut credentials = credentials(AIPlatform::Standard);
+        credentials.custom_headers = HashMap::from([(
+            "Authorization".to_string(),
+            "Bearer gateway-token".to_string(),
+        )]);
+        let builder = AnthropicQueryBuilder::new(AIProvider::Anthropic, AIPlatform::Standard);
+        let method = Method::POST;
+
+        let request = builder
+            .build_proxy_request(&ProxyBuildArgs {
+                method: &method,
+                path: "messages",
+                headers: &HeaderMap::new(),
+                body: br#"{"model":"claude-sonnet-4","messages":[]}"#,
+                credentials: &credentials,
+            })
+            .unwrap();
+
+        assert!(has_header(
+            &request.headers,
+            "Authorization",
+            "Bearer gateway-token"
+        ));
+        assert!(!request
+            .headers
+            .iter()
+            .any(|(header_name, _)| header_name.eq_ignore_ascii_case("x-api-key")));
+    }
+
     #[test]
     fn builds_azure_foundry_anthropic_proxy_request() {
         // Foundry resource stored with a legacy /openai/v1 suffix; the Anthropic SDK
@@ -1077,7 +1183,6 @@ mod tests {
         let method = Method::POST;
         let mut headers = HeaderMap::new();
         headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
-        headers.insert("X-Anthropic-SDK", HeaderValue::from_static("true"));
 
         let request = builder
             .build_proxy_request(&ProxyBuildArgs {
@@ -1093,6 +1198,6 @@ mod tests {
             request.url,
             "https://wm-test-ai.services.ai.azure.com/anthropic/v1/messages"
         );
-        assert!(has_header(&request.headers, "X-API-Key", "api-key"));
+        assert!(has_header(&request.headers, "x-api-key", "api-key"));
     }
 }

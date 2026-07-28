@@ -1,7 +1,15 @@
 import { buildFilterUrl } from '$lib/navigation'
 import { buildRunsFilterSearchbarSchema } from '$lib/components/runs/runsFilter'
 import { buildSchedulesFilterSchema } from '$lib/components/schedules/schedulesFilter'
-import { TRIGGER_PAGES, type TriggerKind } from '$lib/components/sessions/previewRouter'
+import {
+	COMPARE_PAGE,
+	TRIGGER_PAGES,
+	type TriggerKind
+} from '$lib/components/sessions/previewRouter'
+import {
+	COMPARE_ITEMS_PARAM,
+	serializeItemsMaskParam
+} from '$lib/components/sessions/modifiedItemsMask'
 
 // In-app paths for the deep-linkable preview pages the AI chat can open.
 export const RUNS_PATH = '/runs'
@@ -84,13 +92,33 @@ export function buildSchedulesUrl({
 // full filter schema), so the allow-list is the exact set of keys the builder emits —
 // these names match the query params the pages read (variablesFilter/resourcesFilter/
 // assetsFilter and audit_logs/+page.svelte).
-export function buildVariablesUrl(filters: Record<string, unknown>): string {
-	return buildFilterUrl(VARIABLES_PATH, filters, { validKeys: ['path', 'owner'] })
+/** When `open` is set, the variable at that exact path is opened in the edit
+ * drawer via the `#<path>` hash the page already handles. */
+export function buildVariablesUrl({
+	open,
+	filters
+}: {
+	open?: string
+	filters?: Record<string, unknown>
+}): string {
+	return buildFilterUrl(VARIABLES_PATH, filters ?? {}, {
+		validKeys: ['path', 'owner'],
+		hash: open
+	})
 }
 
-export function buildResourcesUrl(filters: Record<string, unknown>): string {
-	return buildFilterUrl(RESOURCES_PATH, filters, {
-		validKeys: ['path', 'resource_type', 'owner']
+/** When `open` is set, the resource at that exact path is opened in the edit
+ * drawer via the `#/resource/<path>` hash the page already handles. */
+export function buildResourcesUrl({
+	open,
+	filters
+}: {
+	open?: string
+	filters?: Record<string, unknown>
+}): string {
+	return buildFilterUrl(RESOURCES_PATH, filters ?? {}, {
+		validKeys: ['path', 'resource_type', 'owner'],
+		hash: open ? `/resource/${open}` : undefined
 	})
 }
 
@@ -116,6 +144,36 @@ export function buildFoldersUrl(): string {
 
 export function buildGroupsUrl(): string {
 	return GROUPS_PATH
+}
+
+/**
+ * Deep-link to the Compare & Deploy page (`/forks/compare`). `workspace_id` is required:
+ * inside a session preview the page loads with the *navigation* workspace as its store
+ * default, which is not necessarily the session's (possibly forked) workspace. `items`
+ * preselects exactly those `kind:path` entries (see modifiedItemsMask.ts); omitted, the
+ * page falls back to its select-all default. `mode` forces the draft or fork comparison;
+ * omitted, the page auto-picks: on a fork it lands on the view containing the masked
+ * items (draft when any of them is a pending draft, else the fork comparison); a
+ * non-fork always gets the draft view.
+ */
+export function buildCompareUrl({
+	workspace_id,
+	mode,
+	items
+}: {
+	workspace_id: string
+	mode?: 'draft' | 'fork'
+	items?: readonly string[]
+}): string {
+	return buildFilterUrl(
+		COMPARE_PAGE.path,
+		{
+			workspace_id,
+			mode,
+			[COMPARE_ITEMS_PARAM]: items ? serializeItemsMaskParam(items) : undefined
+		},
+		{ validKeys: ['workspace_id', 'mode', COMPARE_ITEMS_PARAM] }
+	)
 }
 
 /**

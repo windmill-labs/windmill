@@ -18,7 +18,7 @@
 	import type { ScheduleTrigger } from '$lib/components/triggers'
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import { onDestroy, tick, untrack } from 'svelte'
-	import { stripNewDraftFlagOnSave } from '$lib/newDraftFlag'
+	import { stripNewDraftFlag, stripNewDraftFlagOnSave, shouldSeedNewDraft } from '$lib/newDraftFlag'
 	import type { stepState } from '$lib/components/stepHistoryLoader.svelte'
 	import { page } from '$app/state'
 	import { UserDraft, draftValuesEqual } from '$lib/userDraft.svelte'
@@ -146,7 +146,10 @@
 		// `?new_draft=true` (from `/flows/add`'s redirect): a fresh, never-saved
 		// `draft_{uuid}` path. Skip both fetches (they 404) and seed empty with
 		// `path = ''` for the friendly auto-name. See /scripts/edit's loader.
-		if (page.url.searchParams.get('new_draft') === 'true') {
+		// Skip the seed branch once the draft is persisted this session (so a
+		// stale `?new_draft` from exiting an AI session loads the saved draft
+		// instead of blanking it) — see shouldSeedNewDraft.
+		if (shouldSeedNewDraft(page.url.searchParams, $workspaceStore, 'flow', flowDraftPath)) {
 			// Deploy must `createFlow` at the user-typed path, not `updateFlow` at the URL.
 			isNewFlow = true
 			// Page reused across same-route nav: clear the previous path's
@@ -323,6 +326,10 @@
 			}
 			return
 		}
+		// Falling through with `?new_draft=true` still set means the draft is
+		// already persisted (see shouldSeedNewDraft) — drop the now-meaningless
+		// flag so it doesn't linger in the URL / remembered nav route.
+		stripNewDraftFlag()
 		// Version isn't carried on the flow, so fetch it separately. Tolerate a
 		// missing one: draft-only paths have no version row, but `getFlowByPath`
 		// still returns the draft, so mount with `version = undefined`.

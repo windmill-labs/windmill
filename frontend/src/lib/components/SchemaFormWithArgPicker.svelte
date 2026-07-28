@@ -19,6 +19,9 @@
 		isValid?: boolean
 		jsonView?: boolean
 		children?: import('svelte').Snippet
+		/** Workspace the History / Saved inputs / Captures tabs read and mutate;
+		 * defaults to the nav workspace. Session editors pass their acting workspace. */
+		workspace?: string
 	}
 
 	let {
@@ -28,7 +31,8 @@
 		previewArgs,
 		isValid = true,
 		jsonView = false,
-		children
+		children,
+		workspace = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -140,6 +144,7 @@
 								bind:this={historicInputs}
 								{runnableId}
 								{runnableType}
+								{workspace}
 								on:select={(e) => {
 									dispatch('select', { payload: e.detail?.args, type: 'history' })
 								}}
@@ -152,6 +157,7 @@
 								{runnableId}
 								{runnableType}
 								{previewArgs}
+								{workspace}
 								bind:this={savedInputsPicker}
 								on:select={(e) => {
 									dispatch('select', { payload: e.detail, type: 'saved' })
@@ -171,6 +177,7 @@
 							<div class="h-full">
 								<CaptureTable
 									path={stablePathForCaptures}
+									{workspace}
 									on:select={(e) => {
 										dispatch('select', { payload: e.detail, type: 'captures' })
 									}}

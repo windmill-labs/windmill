@@ -17,7 +17,12 @@ import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
 import { requiresMaxCompletionTokens, usesAnthropicMessagesApi } from './modelConfig'
 import { applyReasoningToConfig } from './reasoningRegistry'
 import { formatResourceTypes } from './utils'
-import { processToolCall, type Tool, type ToolCallbacks } from './chat/shared'
+import {
+	appendPendingToolImages,
+	processToolCall,
+	type Tool,
+	type ToolCallbacks
+} from './chat/shared'
 import { hasValidToolCallArguments } from './chat/toolCallArguments'
 import {
 	getNonStreamingOpenAIResponsesCompletion,
@@ -487,7 +492,9 @@ export async function testKey({
 	// getNonStreamingCompletion routes Anthropic-Messages-API models (native
 	// Anthropic and Claude on Azure Foundry) through the Anthropic SDK and
 	// everything else through OpenAI chat completions, so the test exercises the
-	// same request shape the feature actually sends.
+	// same request shape the feature actually sends. The cap keeps max_tokens
+	// under the Anthropic SDK's non-streaming pre-flight limit (~21k tokens),
+	// which would otherwise reject the request before it is sent.
 	await getNonStreamingCompletion(messages, abortController, {
 		apiKey,
 		workspace,
@@ -495,7 +502,8 @@ export async function testKey({
 		forceModelProvider: {
 			model: modelToTest,
 			provider: aiProvider
-		}
+		},
+		maxTokensCap: METADATA_MAX_TOKENS
 	})
 }
 
@@ -526,12 +534,10 @@ function buildAnthropicProxyRequest({
 	const { system, messages: anthropicMessages } = convertOpenAIToAnthropicMessages(messages)
 
 	// X-Provider must be the real provider (e.g. azure_foundry) so the backend
-	// resolves the right credentials and Anthropic URL; the SDK headers tell it to
-	// route through the Anthropic Messages API.
+	// resolves the right credentials and Anthropic URL.
 	const headers: Record<string, string> = {
 		'X-Provider': modelProvider.provider,
-		'anthropic-version': '2023-06-01',
-		'X-Anthropic-SDK': 'true'
+		'anthropic-version': '2023-06-01'
 	}
 
 	if (resourcePath) {
@@ -1176,7 +1182,7 @@ export async function parseOpenAICompletion(
 					// Display tool call with streaming parameters if enabled
 					callbacks.setToolStatus(toolCallId, {
 						isLoading: true,
-						content: `Calling ${funcName}...`,
+						content: tool?.streamingLabel ?? `Calling ${funcName}...`,
 						toolName: funcName,
 						isStreamingArguments: shouldStream,
 						showFade: tool?.showFade,
@@ -1257,6 +1263,7 @@ export async function parseOpenAICompletion(
 			messages.push(messageToAdd)
 			addedMessages.push(messageToAdd)
 		}
+		appendPendingToolImages(messages, addedMessages, callbacks)
 	} else if (malformedFunctionCallError) {
 		// Malformed function call with no tool calls - create artificial tool call to inform AI
 		const fakeToolCallId = generateRandomString()

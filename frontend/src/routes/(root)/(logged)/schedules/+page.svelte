@@ -199,18 +199,25 @@
 	})
 	let scheduleEditor: ScheduleEditor | undefined = $state()
 
-	let hashHandled = false
+	// Deep link: #<path> opens that schedule's edit drawer. Tracks the last
+	// handled hash (not a one-shot flag) so a hash change on the already-mounted
+	// page (e.g. the AI session preview re-pointing its tab) opens the drawer
+	// too. Row links pre-set handledHash: their onclick already opens the drawer.
+	let handledHash = ''
 	$effect(() => {
-		if (!hashHandled && schedules.length > 0 && scheduleEditor) {
-			let hash = $page.url.hash
-			if (hash.length > 1) {
-				let path = hash.slice(1)
-				let schedule = schedules.find((s) => s.path === path)
-				if (schedule) {
-					hashHandled = true
-					scheduleEditor?.openEdit(path, schedule.is_flow)
-				}
-			}
+		const hash = $page.url.hash
+		if (hash.length <= 1) {
+			// Navigating away from a drawer target must clear the tracker, or
+			// re-targeting the same schedule later would be skipped as already handled.
+			handledHash = ''
+			return
+		}
+		if (hash === handledHash || schedules.length === 0 || !scheduleEditor) return
+		const path = hash.slice(1)
+		const schedule = schedules.find((s) => s.path === path)
+		if (schedule) {
+			handledHash = hash
+			scheduleEditor.openEdit(path, schedule.is_flow)
 		}
 	})
 
@@ -299,9 +306,12 @@
 		item: ScheduleW,
 		filterEnabledDisabled: 'all' | 'enabled' | 'disabled'
 	) {
+		// Draft-only rows have nothing deployed, so they read as disabled here
+		// too — matching the off, disabled toggle the row renders.
+		const enabled = !item.draft_only && item.enabled
 		if (filterEnabledDisabled === 'all') return true
-		if (filterEnabledDisabled === 'enabled') return item.enabled
-		if (filterEnabledDisabled === 'disabled') return !item.enabled
+		if (filterEnabledDisabled === 'enabled') return enabled
+		if (filterEnabledDisabled === 'disabled') return !enabled
 	}
 
 	// Filter schedules client-side for enabled/disabled and user folders
@@ -367,6 +377,8 @@
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
 					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, jobs, paused_until, labels, inherited_labels, draft_only, is_draft } (path)}
+						{@const hasDraft =
+							getLocalDraftHint($workspaceStore, 'trigger_schedule', path) ?? is_draft}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 						{@const avg_s = jobs
 							? jobs.reduce((acc, x) => acc + x.duration_ms, 0) / jobs.length
@@ -381,13 +393,16 @@
 
 								<a
 									href="#{path}"
-									onclick={() => scheduleEditor?.openEdit(path, is_flow)}
+									onclick={() => {
+										handledHash = `#${path}`
+										scheduleEditor?.openEdit(path, is_flow)
+									}}
 									class="min-w-0 grow hover:underline decoration-gray-400"
 								>
 									<div
 										class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate"
 									>
-										{summary || script_path}{(getLocalDraftHint($workspaceStore, 'trigger_schedule', path) ?? is_draft) ? '*' : ''}
+										{summary || script_path}{hasDraft ? '*' : ''}
 									</div>
 									<div class="text-secondary text-xs truncate text-left">
 										schedule: {path}
@@ -431,9 +446,6 @@
 
 								<div class="hidden lg:flex flex-row gap-1 items-center">
 									<SharedBadge {canWrite} extraPerms={extra_perms} />
-									{#if draft_only}
-										<DraftBadge draft_only is_draft={false} />
-									{/if}
 								</div>
 
 								<div class="w-10">
@@ -456,27 +468,39 @@
 									{/if}
 								</div>
 
-								{#key toggleResetVersions[path] ?? 0}
-									<Toggle
-										checked={enabled}
-										on:change={(e) => {
-											if (canWrite) {
-												setScheduleEnabled(path, e.detail)
-											} else {
-												sendUserToast('not enough permission', true)
-												// Permission denied — bump the row's reset
-												// counter so the Toggle remounts back to the
-												// prop value. Without this, the local
-												// `bind:checked` flip from the user's click
-												// stays stuck on.
-												bumpToggleReset(path)
-											}
-										}}
-									/>
-								{/key}
+								<div class="flex items-center justify-end gap-2 shrink-0 min-w-[8rem]">
+									<DraftBadge {draft_only} is_draft={hasDraft} />
+									{#key toggleResetVersions[path] ?? 0}
+										<Toggle
+											disabled={draft_only}
+											options={{
+												title: draft_only
+													? 'Draft only: deploy the schedule to enable it'
+													: hasDraft
+														? 'Enables/disables the deployed schedule; the draft is not affected'
+														: undefined
+											}}
+											checked={!draft_only && enabled}
+											on:change={(e) => {
+												if (canWrite) {
+													setScheduleEnabled(path, e.detail)
+												} else {
+													sendUserToast('not enough permission', true)
+													// Permission denied — bump the row's reset
+													// counter so the Toggle remounts back to the
+													// prop value. Without this, the local
+													// `bind:checked` flip from the user's click
+													// stays stuck on.
+													bumpToggleReset(path)
+												}
+											}}
+										/>
+									{/key}
+								</div>
 								<div class="flex gap-2 items-center justify-end">
 									<Button
 										href={`${base}/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`}
+										disabled={draft_only}
 										unifiedSize="md"
 										startIcon={{ icon: List }}
 										variant="subtle"
@@ -604,8 +628,8 @@
 								{/if}
 								<div
 									class="flex flex-wrap text-xs text-secondary gap-1 items-center justify-end truncate pr-2"
-									><div class="truncate">edited by {edited_by}</div><div class="truncate"
-										>the {displayDate(edited_at)}</div
+									>{#if edited_by}<div class="truncate">edited by {edited_by}</div>{/if}<div
+										class="truncate">{edited_by ? 'the ' : ''}{displayDate(edited_at)}</div
 									></div
 								></div
 							>

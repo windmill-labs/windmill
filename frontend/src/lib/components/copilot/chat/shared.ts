@@ -18,6 +18,8 @@ export const SPECIAL_MODULE_IDS = {
 } as const
 import { get } from 'svelte/store'
 import type { PasteAttachment } from './pasteTokens'
+import { dataUrlToImagePart, type AttachedImage } from './imageUtils'
+import type { AttachedTextFile } from './textFileUtils'
 import type { CodePieceElement, ContextElement, FlowModuleCodePieceElement } from './context'
 import { workspaceStore } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
@@ -28,6 +30,7 @@ import {
 	ScriptService,
 	FlowService,
 	JobService,
+	type Job,
 	type CompletedJob,
 	type FlowValue,
 	type FlowModule,
@@ -37,6 +40,8 @@ import {
 } from '$lib/gen'
 import uFuzzy from '@leeoniya/ufuzzy'
 import { emptyString } from '$lib/utils'
+import { logFeatureUsage } from '$lib/utils/featureUsage'
+import { forLater } from '$lib/forLater'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { getCurrentModel } from '$lib/aiStore'
 import { type editor as meditor } from 'monaco-editor'
@@ -466,6 +471,16 @@ export type UserDisplayMessage = BaseDisplayMessage & {
 	// Collapsed big-paste blobs referenced by tokens in `content`. Lets the
 	// bubble render/expand chips; the LLM message stores the expanded text.
 	pastes?: PasteAttachment[]
+	// Images the user attached to this message (drag/drop/paste), rendered as
+	// thumbnails in the bubble. The LLM message carries them as image_url parts.
+	images?: AttachedImage[]
+	// Text files the user attached to this message, rendered as chips in the
+	// bubble. The prompt lists them by reference; the content here is the durable
+	// copy, re-registered into the session file store on load for tool reads.
+	files?: AttachedTextFile[]
+	// The client authored this turn itself (background-job auto-resume), not the
+	// user — ArrowUp recall must skip it.
+	synthetic?: boolean
 }
 
 export type CreatedResourceTriggerKind =
@@ -475,6 +490,7 @@ export type CreatedResourceTriggerKind =
 	| 'nats'
 	| 'postgres'
 	| 'mqtt'
+	| 'amqp'
 	| 'sqs'
 	| 'gcp'
 	| 'azure'
@@ -502,13 +518,55 @@ export type NavigateAction = {
 	page: string
 }
 
-export type ToolDisplayAction = CreatedResourceAction | NavigateAction
+/** Kinds of previewable item a write tool can land — the subset of draft item
+ * kinds a session preview can host. */
+export type PreviewCardKind = 'script' | 'flow' | 'raw_app'
+
+// A discrete card shown on a tool call that created or updated a workspace item.
+// Clicking it opens the item's live preview in the session side panel — or focuses
+// the tab if it is already open. The handler is registered by the sessions page
+// (the only surface with a preview panel).
+export type OpenItemPreviewAction = {
+	id: string
+	type: 'open_item_preview'
+	label: string
+	previewKind: PreviewCardKind
+	path: string
+}
+
+export type ToolDisplayAction = CreatedResourceAction | NavigateAction | OpenItemPreviewAction
+
+/** Build the action a preview card dispatches from its (kind, path). */
+export function openItemPreviewAction(kind: PreviewCardKind, path: string): OpenItemPreviewAction {
+	return {
+		id: `open-item-preview:${kind}:${path}`,
+		type: 'open_item_preview',
+		label: `Open ${kind === 'raw_app' ? 'app' : kind} preview`,
+		previewKind: kind,
+		path
+	}
+}
 
 export type UserQuestionDisplay = {
 	question: string
 	choices: string[]
-	selectedChoice?: string
+	multiSelect?: boolean
+	selectedChoices?: string[] // canonical answer (new code writes only this)
+	selectedChoice?: string // legacy/read-only: pre-multiselect persisted history
 	canceled?: boolean
+}
+
+// The single place that understands the legacy answer shape: new code writes
+// selectedChoices, but history persisted before multi-select only has the
+// scalar selectedChoice. Read answers through this so both shapes resolve.
+export function answeredChoices(q: UserQuestionDisplay): string[] | undefined {
+	return q.selectedChoices ?? (q.selectedChoice ? [q.selectedChoice] : undefined)
+}
+
+/** One page hit from a provider-side web search (OpenAI sources carry no title). */
+export type WebSearchSource = {
+	url: string
+	title?: string
 }
 
 export type ToolDisplayMessage = {
@@ -528,6 +586,13 @@ export type ToolDisplayMessage = {
 	showFade?: boolean
 	actions?: ToolDisplayAction[]
 	userQuestion?: UserQuestionDisplay
+	webSearchSources?: WebSearchSource[]
+	/** Data URL of an image the tool produced (e.g. take_screenshot), shown on the card. */
+	imageUrl?: string
+	/** Workspace item this tool created or updated. Rendered as a discrete,
+	 * always-visible card that opens (or focuses) the item's preview in the
+	 * session side panel. Set only for session chats — the side panel is their surface. */
+	previewCard?: { kind: PreviewCardKind; path: string }
 }
 
 export type AssistantDisplayMessage = BaseDisplayMessage & {
@@ -545,13 +610,20 @@ export type AssistantDisplayMessage = BaseDisplayMessage & {
 
 /**
  * Compaction boundary: replaces the summarized prefix in BOTH displayMessages
- * and the API messages (where it is a plain user message). It carries no index
- * because it is never a restart target — only the surviving tail's user
- * messages are rewound to.
+ * and the API messages (where it is a plain user message). It is never a restart
+ * target — only the surviving tail's user messages are rewound to.
  */
 export type SummaryDisplayMessage = {
 	role: 'summary'
 	content: string
+	// Index of the summary's API message, tracked ONLY so orphan detection can tell
+	// when a later drop-oldest compaction drops it (index goes negative) and its
+	// carried files must move to the roster. Not a restart target. Absent on
+	// summaries loaded from pre-existing history.
+	index?: number
+	// Files attached to messages the summary folded away — carried forward so
+	// they stay tool-readable (and reload-safe) after compaction.
+	files?: AttachedTextFile[]
 }
 
 export type DisplayMessage =
@@ -571,7 +643,7 @@ export function isActiveUserQuestion(message: DisplayMessage | undefined): boole
 			message.userQuestion &&
 			message.isLoading &&
 			!message.error &&
-			!message.userQuestion.selectedChoice &&
+			!answeredChoices(message.userQuestion)?.length &&
 			!message.userQuestion.canceled
 	)
 }
@@ -617,6 +689,37 @@ async function callTool<T>({
 }
 
 type MaybePromise<T> = T | Promise<T>
+
+const MAX_TOOL_ERROR_LENGTH = 2000
+
+/** ApiError from the generated client carries the server's message in `body`,
+ * not `message` — dig it out so tool failures show the real cause. Capped so a
+ * verbose error body (e.g. an HTML error page) can't flood the chat context. */
+export function formatToolError(error: any): string {
+	const bodyMessage =
+		error?.body?.error?.message ??
+		error?.body?.message ??
+		(typeof error?.body?.error === 'string' ? error.body.error : undefined)
+	const body =
+		bodyMessage ??
+		(typeof error?.body === 'string'
+			? error.body
+			: error?.body !== undefined
+				? stringifyErrorBody(error.body)
+				: undefined)
+	const message = String(body || error?.message || error)
+	return message.length > MAX_TOOL_ERROR_LENGTH
+		? message.slice(0, MAX_TOOL_ERROR_LENGTH) + '... (truncated)'
+		: message
+}
+
+function stringifyErrorBody(body: unknown): string {
+	try {
+		return JSON.stringify(body)
+	} catch {
+		return String(body)
+	}
+}
 
 export async function processToolCall<T>({
 	tools,
@@ -665,9 +768,14 @@ export async function processToolCall<T>({
 			requiresConfirmation && toolCallbacks.shouldAutoAcceptToolConfirmations?.() === true
 		const needsConfirmation = requiresConfirmation && !autoAcceptConfirmation
 
+		const confirmationContent =
+			typeof tool?.confirmationMessage === 'function'
+				? tool.confirmationMessage(args)
+				: tool?.confirmationMessage
+
 		toolCallbacks.setToolStatus(toolCall.id, {
 			...(requiresConfirmation
-				? { content: tool.confirmationMessage ?? 'Waiting for confirmation...' }
+				? { content: confirmationContent ?? 'Waiting for confirmation...' }
 				: {}),
 			parameters: args,
 			isLoading: true,
@@ -703,6 +811,11 @@ export async function processToolCall<T>({
 		}
 
 		let result = ''
+		// Key by the resolved tool's declared name, not the model-provided string,
+		// so hallucinated tool names never enter telemetry.
+		if (tool) {
+			logFeatureUsage('ai_chat', 'tool', { key: tool.def.function.name, workspace: workspaceId })
+		}
 		try {
 			result = await callTool({
 				tools,
@@ -719,17 +832,12 @@ export async function processToolCall<T>({
 			})
 		} catch (err) {
 			console.error(err)
+			const errorMessage = formatToolError(err)
 			toolCallbacks.setToolStatus(toolCall.id, {
 				isLoading: false,
 				isStreamingArguments: false,
-				error: 'An error occurred while calling the tool'
+				error: errorMessage
 			})
-			const errorMessage =
-				typeof err === 'object' && 'message' in err
-					? err.message
-					: typeof err === 'string'
-						? err
-						: 'An error occurred while calling the tool'
 			result = `Error while calling tool: ${errorMessage}`
 		}
 		const toAdd = {
@@ -740,12 +848,44 @@ export async function processToolCall<T>({
 		return toAdd
 	} catch (err) {
 		console.error(err)
+		const errorMessage = formatToolError(err)
+		toolCallbacks.setToolStatus(toolCall.id, {
+			isLoading: false,
+			isStreamingArguments: false,
+			error: errorMessage
+		})
 		return {
 			role: 'tool' as const,
 			tool_call_id: toolCall.id,
-			content: 'Error while calling tool'
+			content: `Error while calling tool: ${errorMessage}`
 		}
 	}
+}
+
+/**
+ * Flush images buffered by tools during a batch (via toolCallbacks.attachToolImage)
+ * as ONE follow-up user message, appended to both `messages` (sent on later
+ * iterations) and `addedMessages` (committed to history). Call this once per
+ * completion, right after the whole tool loop — never mid-batch, so every tool_call
+ * id is already answered by its tool result before this non-tool message. The image
+ * parts ride the same `image_url` carrier that the provider converters translate.
+ */
+export function appendPendingToolImages(
+	messages: ChatCompletionMessageParam[],
+	addedMessages: ChatCompletionMessageParam[],
+	toolCallbacks: ToolCallbacks
+): void {
+	const images = toolCallbacks.takePendingToolImages?.() ?? []
+	if (images.length === 0) return
+	const message: ChatCompletionMessageParam = {
+		role: 'user',
+		content: [
+			{ type: 'text', text: 'Screenshot(s) of the app preview:' },
+			...images.map((img) => dataUrlToImagePart(img.dataUrl))
+		]
+	}
+	messages.push(message)
+	addedMessages.push(message)
 }
 
 export interface Tool<T> {
@@ -765,16 +905,115 @@ export interface Tool<T> {
 	}) => MaybePromise<string | undefined>
 	setSchema?: (helpers: any) => Promise<void>
 	requiresConfirmation?: boolean
-	confirmationMessage?: string
+	/** Header shown on the confirmation card before the tool runs. Pass a function
+	 * to derive it from the parsed arguments (e.g. name the script being tested). */
+	confirmationMessage?: string | ((args: any) => string)
 	showDetails?: boolean
 	autoCollapseDetails?: boolean
 	streamArguments?: boolean
 	showFade?: boolean
+	/** Header shown while the model is still streaming this call's arguments,
+	 * before `fn` runs and sets a real status. Defaults to "Calling <name>...". */
+	streamingLabel?: string
 }
+
+/** Status of a job the chat started and tracks in the jobs tray. Mirrors the
+ * runs page: `suspended` = a flow step waiting for approval, `scheduled` = a run
+ * scheduled for later. Kept in lockstep with `ChatJob.job` (see below). */
+export type ChatJobStatus =
+	| 'queued'
+	| 'running'
+	| 'suspended'
+	| 'scheduled'
+	| 'success'
+	| 'failure'
+	| 'canceled'
+
+/** Serializable identity of a tool's terminal result formatter, stored on a ChatJob
+ * so a detached job that survives a reload can still reconstruct the shaped result
+ * its launching tool would have produced (see formatChatJobCompletion). A closure
+ * can't be persisted to IndexedDB; this discriminant can. */
+export type ChatJobResultFormat = { kind: 'datatable'; datatableName: string }
+
+/** A job the chat started and is tracking. Rendered in the jobs tray, persisted
+ * with the chat, and advanced by a single background poller on the manager. */
+export type ChatJob = {
+	jobId: string
+	/** Pairs with the ToolDisplayMessage card that launched it. */
+	toolCallId: string
+	kind: 'script' | 'flow'
+	/** Path or step label shown in the tray row. */
+	label: string
+	workspace: string
+	createdAt: number
+	status: ChatJobStatus
+	durationMs?: number
+	/** True once it left the inline wait and is polled in the background. */
+	detached: boolean
+	/** Notify-only: whether its completion has been surfaced to the model yet. */
+	reported: boolean
+	/** Whether the user saw its terminal status in the jobs popover. Reviewed
+	 * outcomes stop driving the segment chip's status readout. Persisted. */
+	reviewed?: boolean
+	/** Trimmed snapshot of the last fetched Job (heavy fields stripped, see
+	 * `trimJob`), fed to `<JobStatusIcon>` so the tray badge matches the runs page
+	 * exactly. Always written together with `status` from the SAME job so the two
+	 * can't drift. Undefined only before the first fetch. */
+	job?: Job
+	/** Set by tools that shape their result (e.g. exec_datatable_sql). Persisted, so
+	 * a detached job that finishes after a reload still reports through the tool's
+	 * result contract rather than generic job output. */
+	resultFormat?: ChatJobResultFormat
+}
+
+/** Derive the tray status from a fetched Job. Deliberately mirrors the branch
+ * order of JobStatusIcon.svelte so the scalar status and the badge never
+ * disagree. */
+export function deriveChatJobStatus(job: Job): ChatJobStatus {
+	if ('success' in job) {
+		return job.canceled ? 'canceled' : job.success ? 'success' : 'failure'
+	}
+	// QueuedJob
+	if (job.running && job.suspend) return 'suspended'
+	if (job.running) return 'running'
+	if (job.scheduled_for && forLater(job.scheduled_for)) return 'scheduled'
+	return 'queued'
+}
+
+/** Strip the heavy fields from a fetched Job before storing it on a ChatJob (the
+ * tray only needs the status-discriminant scalars JobStatusIcon reads).
+ *
+ * MUST clone + delete — never rebuild as an object literal. JobStatusIcon
+ * discriminates with the `in` operator (`'success' in job`), which tests KEY
+ * PRESENCE, not truthiness. A literal that always carries a `success` key would
+ * make every running/queued job misrender as a completed (failed) job. */
+export function trimJob(job: Job): Job {
+	const trimmed = { ...job } as Record<string, unknown>
+	delete trimmed.logs
+	delete trimmed.args
+	delete trimmed.result
+	delete trimmed.raw_code
+	delete trimmed.raw_flow
+	delete trimmed.flow_status
+	return trimmed as unknown as Job
+}
+
+/** The subset supplied when a job first starts; the manager fills in the rest. */
+export type ChatJobInit = Pick<
+	ChatJob,
+	'jobId' | 'toolCallId' | 'kind' | 'label' | 'workspace' | 'resultFormat'
+>
 
 export interface ToolCallbacks {
 	setToolStatus: (id: string, metadata?: Partial<ToolDisplayMessage>) => void
 	removeToolStatus: (id: string) => void
+	/** Job-tracking hooks, wired only by the global/sessions chat (mode === GLOBAL).
+	 * Their presence is what enables detach-into-background in executeTestRun; when
+	 * absent (in-editor script/flow/pipeline chats), test runs stay blocking with a
+	 * 60s cap. */
+	onJobStarted?: (job: ChatJobInit) => void
+	onJobStatus?: (jobId: string, update: Partial<ChatJob>) => void
+	onJobDetached?: (jobId: string) => void
 	/** Streamed reasoning/thinking deltas, rendered as a collapsible block in the chat. */
 	onReasoningDelta?: (token: string) => void
 	/** Fired when the model starts reasoning — drives a "Thinking" indicator even when
@@ -785,7 +1024,7 @@ export interface ToolCallbacks {
 	requestUserQuestion?: (
 		toolId: string,
 		question: UserQuestionDisplay
-	) => Promise<string | undefined>
+	) => Promise<string[] | undefined>
 	/** Records a workspace item the tool call created/edited/deleted, by its
 	 * canonical (itemKind, storagePath). Session chats wire this to accumulate the
 	 * chat's modified-items mask; the global side-panel chat omits it (no-op). */
@@ -795,6 +1034,16 @@ export interface ToolCallbacks {
 	onItemDeployed?: (itemKind: UserDraftItemKind, storagePath: string, deployedPath: string) => void
 	/** A tool discarded a draft: the chat's touch on the item is undone. */
 	onItemDiscarded?: (itemKind: UserDraftItemKind, storagePath: string) => void
+	/**
+	 * Buffer an image a tool produced (e.g. take_screenshot). Tool results are
+	 * string-only and OpenAI forbids images in tool messages, so buffered images are
+	 * flushed as a follow-up user message once the whole tool batch is answered (see
+	 * appendPendingToolImages) — appending mid-batch would leave sibling tool_call ids
+	 * unanswered before a non-tool message.
+	 */
+	attachToolImage?: (toolId: string, image: AttachedImage) => void
+	/** Drain every image buffered this batch (insertion order), clearing the buffer. */
+	takePendingToolImages?: () => AttachedImage[]
 }
 
 export function createToolDef(
@@ -1015,6 +1264,16 @@ const MAX_RESULT_LENGTH = 12000
 const MAX_LOG_LENGTH = 4000
 export const MAX_RUNNABLE_CONTENT_LENGTH = 20000
 
+/** How long a test run is awaited inline before it detaches into the background
+ * (global/sessions chat only). Quick runs finish well inside this; slow ones are
+ * handed to the background poller so the chat loop is freed. */
+export const DETACH_AFTER_MS = 15000
+
+/** Upper bound on a model-requested inline wait. Beyond this, backgrounding is
+ * almost always better than holding the chat turn, so we clamp rather than let
+ * the model block the loop for minutes. */
+export const MAX_DETACH_AFTER_MS = 120000
+
 export interface TestRunConfig {
 	jobStarter: () => Promise<string>
 	workspace: string
@@ -1022,17 +1281,56 @@ export interface TestRunConfig {
 	toolId: string
 	startMessage?: string
 	contextName: 'script' | 'flow'
+	/** Detach immediately instead of waiting the inline budget (the model's opt-in). */
+	background?: boolean
+	/** Overrides the inline wait budget (ms) before the job detaches into the tray.
+	 * The model's opt-in for jobs it expects to take a bit longer than the 15s
+	 * default but still wants to await in-turn. Ignored when `background` is set
+	 * (that detaches immediately). Clamped to MAX_DETACH_AFTER_MS. */
+	detachAfterMs?: number
+	/** Human label for the jobs tray row (path / step id). Defaults to the job id. */
+	label?: string
+	/** Overrides the default "…test started, waiting for completion" status while the
+	 * job runs inline (e.g. an SQL tool shows "SQL running…"). */
+	runningMessage?: string
+	/** Custom terminal formatting for the INLINE completion path (callers whose
+	 * result isn't a plain test-run summary, e.g. exec_datatable_sql shaping rows).
+	 * Returns the string handed to the model plus the tool-card patch. When omitted,
+	 * the default summary is used. For the DETACHED/rehydrated path, supply
+	 * `resultFormat` too so the completion can be reconstructed without this closure. */
+	formatCompletion?: BackgroundJobFormatter
+	/** Serializable twin of `formatCompletion`, stored on the ChatJob so a detached
+	 * job that finishes after a reload still reports through the tool's result
+	 * contract (see AIChatManager.#onBackgroundJobComplete). */
+	resultFormat?: ChatJobResultFormat
 }
 
-// Common job polling function
+/** Terminal formatter a tool supplies so its result keeps the same model-visible
+ * contract whether the job finishes inline or completes after detaching into the
+ * background. */
+export type BackgroundJobFormatter = (job: CompletedJob) => {
+	llmText: string
+	card: Partial<ToolDisplayMessage>
+}
+
+// Common job polling function.
+//
+// Two modes, selected by whether `detachAfterMs` is provided:
+//  - Blocking (undefined): poll up to 60×1s, then set a timeout error and throw.
+//    Used by in-editor chats, which have no jobs tray to hand off to.
+//  - Detach (a number): poll only for that inline budget; if the job is still
+//    running when it elapses, resolve `'detached'` instead of throwing so the
+//    caller can background the job. `0` detaches without polling at all.
 export async function pollJobCompletion(
 	jobId: string,
 	workspace: string,
 	toolId: string,
-	toolCallbacks: ToolCallbacks
-): Promise<CompletedJob> {
+	toolCallbacks: ToolCallbacks,
+	options?: { detachAfterMs?: number }
+): Promise<CompletedJob | 'detached'> {
+	const detachEnabled = options?.detachAfterMs !== undefined
+	const maxAttempts = detachEnabled ? Math.ceil((options?.detachAfterMs ?? 0) / 1000) : 60
 	let attempts = 0
-	const maxAttempts = 60
 	let job: CompletedJob | null = null
 
 	while (attempts < maxAttempts) {
@@ -1051,14 +1349,22 @@ export async function pollJobCompletion(
 				job = fetchedJob
 				break
 			}
+			// Keep the tray's status + Job snapshot fresh during the inline wait.
+			toolCallbacks.onJobStatus?.(jobId, {
+				status: deriveChatJobStatus(fetchedJob),
+				job: trimJob(fetchedJob)
+			})
 		} catch (error) {
-			if (attempts >= maxAttempts) {
+			if (!detachEnabled && attempts >= maxAttempts) {
 				throw error
 			}
 		}
 	}
 
 	if (!job) {
+		if (detachEnabled) {
+			return 'detached'
+		}
 		toolCallbacks.setToolStatus(toolId, {
 			content: 'Test timed out',
 			error: 'Execution timed out or failed to complete'
@@ -1140,8 +1446,62 @@ export async function buildTestRunArgs(
 	return parsedArgs
 }
 
+// The string handed back to the model when a job is backgrounded. It carries the
+// job id so the model can pull status/logs on demand (get_job_logs / list_runs),
+// and tells it the completion will be reported later (notify-only wake).
+function backgroundedSummary(jobId: string, label: string): string {
+	return (
+		`Job ${jobId} for "${label}" is taking a while and is now running in the background — ` +
+		`the chat is free to continue and you'll be told when it finishes. ` +
+		`To inspect it now, call get_job_logs with id="${jobId}" (or list_runs); ` +
+		`to stop it, call cancel_job with id="${jobId}".`
+	)
+}
+
+// Tool-card status patch for a completed background job. Mirrors the inline
+// terminal branch of executeTestRun so a job that finished in the background
+// fills its card the same way one that finished inline does.
+export function completedJobToolStatus(job: CompletedJob): Partial<ToolDisplayMessage> {
+	// A canceled job isn't a `success`, but it isn't a failure either — the user
+	// stopped it — so don't dress the card as an error.
+	if (job.canceled) {
+		return { content: 'Background job canceled', logs: formatLogs(job.logs) }
+	}
+	return {
+		content: `Background job ${job.success ? 'completed successfully' : 'failed'}`,
+		result: formatResult(job.result),
+		logs: formatLogs(job.logs),
+		...(job.success ? {} : { error: getErrorMessage(job.result) })
+	}
+}
+
+// Short completion note handed to the model on its next turn (notify-only wake).
+// Carries the id so the model can pull full logs via get_job_logs on demand.
+export function backgroundJobCompletionNote(
+	jobId: string,
+	label: string,
+	job: CompletedJob,
+	// When the launching tool supplied a formatter (e.g. exec_datatable_sql), pass its
+	// `llmText` here so the notify-only note carries the same shaped result the inline
+	// path would have returned — row-capped, friendly errors — instead of the raw job
+	// result. Omitted → the generic 2000-char result head.
+	formattedResult?: string
+): string {
+	const status = job.success ? 'succeeded' : 'FAILED'
+	const resultHead = formattedResult ?? formatResult(job.result).slice(0, 2000)
+	return (
+		`Background job ${jobId} for "${label}" ${status}.\n` +
+		`Result: ${resultHead}\n` +
+		`(For full logs call get_job_logs with id="${jobId}".)`
+	)
+}
+
 // Main execution function for test runs
 export async function executeTestRun(config: TestRunConfig): Promise<string> {
+	// Detach-into-background is enabled only when the host wired the job hooks
+	// (global/sessions chat). Otherwise this stays a blocking call.
+	const detachEnabled = !!config.toolCallbacks.onJobStarted
+	const label = config.label ?? config.contextName
 	try {
 		config.toolCallbacks.setToolStatus(config.toolId, {
 			content: config.startMessage || `Starting ${config.contextName} test...`
@@ -1151,16 +1511,57 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 
 		const contextName = config.contextName.charAt(0).toUpperCase() + config.contextName.slice(1)
 
-		config.toolCallbacks.setToolStatus(config.toolId, {
-			content: `${contextName} test started, waiting for completion...`
+		// Register the job so the tray shows it from the moment it is queued. Carry the
+		// serializable resultFormat so a job that later detaches (and may outlive a
+		// reload) can reconstruct the same model-visible contract this inline path
+		// applies below.
+		config.toolCallbacks.onJobStarted?.({
+			jobId,
+			toolCallId: config.toolId,
+			kind: config.contextName,
+			label,
+			workspace: config.workspace,
+			resultFormat: config.resultFormat
 		})
 
-		const job = await pollJobCompletion(
+		config.toolCallbacks.setToolStatus(config.toolId, {
+			content: config.runningMessage ?? `${contextName} test started, waiting for completion...`
+		})
+
+		const outcome = await pollJobCompletion(
 			jobId,
 			config.workspace,
 			config.toolId,
-			config.toolCallbacks
+			config.toolCallbacks,
+			detachEnabled
+				? {
+						detachAfterMs: config.background
+							? 0
+							: Math.min(config.detachAfterMs ?? DETACH_AFTER_MS, MAX_DETACH_AFTER_MS)
+					}
+				: undefined
 		)
+
+		if (outcome === 'detached') {
+			config.toolCallbacks.onJobDetached?.(jobId)
+			config.toolCallbacks.setToolStatus(config.toolId, {
+				content: `${contextName} test running in background (job ${jobId})`
+			})
+			return backgroundedSummary(jobId, label)
+		}
+
+		const job = outcome
+		config.toolCallbacks.onJobStatus?.(jobId, {
+			status: deriveChatJobStatus(job),
+			durationMs: job.duration_ms,
+			job: trimJob(job)
+		})
+
+		if (config.formatCompletion) {
+			const { llmText, card } = config.formatCompletion(job)
+			config.toolCallbacks.setToolStatus(config.toolId, card)
+			return llmText
+		}
 
 		config.toolCallbacks.setToolStatus(config.toolId, {
 			content: `${contextName} test ${job.success ? 'completed successfully' : 'failed'}`,
@@ -1194,6 +1595,10 @@ export type FlowStepTestRunConfig = {
 	workspace: string
 	toolCallbacks: ToolCallbacks
 	toolId: string
+	background?: boolean
+	/** Inline wait budget (ms) before the step job detaches into the tray; forwarded
+	 * to executeTestRun. Ignored when `background` is set. */
+	detachAfterMs?: number
 	loadScript?: FlowStepScriptLoader
 	loadFlowPreviewValue?: FlowStepPreviewLoader
 }
@@ -1235,6 +1640,8 @@ export async function executeFlowStepTestRun({
 	workspace,
 	toolCallbacks,
 	toolId,
+	background,
+	detachAfterMs,
 	loadScript = loadDeployedScriptForFlowStep,
 	loadFlowPreviewValue
 }: FlowStepTestRunConfig): Promise<string> {
@@ -1268,7 +1675,10 @@ export async function executeFlowStepTestRun({
 			toolCallbacks,
 			toolId,
 			startMessage: `Starting test run of step "${stepId}"...`,
-			contextName: 'script'
+			contextName: 'script',
+			label: `step ${stepId}`,
+			background,
+			detachAfterMs
 		})
 	}
 
@@ -1289,7 +1699,10 @@ export async function executeFlowStepTestRun({
 			toolCallbacks,
 			toolId,
 			startMessage: `Starting test run of script step "${stepId}"...`,
-			contextName: 'script'
+			contextName: 'script',
+			label: `step ${stepId}`,
+			background,
+			detachAfterMs
 		})
 	}
 
@@ -1310,7 +1723,10 @@ export async function executeFlowStepTestRun({
 				toolCallbacks,
 				toolId,
 				startMessage: `Starting test run of draft flow step "${stepId}"...`,
-				contextName: 'flow'
+				contextName: 'flow',
+				label: `step ${stepId}`,
+				background,
+				detachAfterMs
 			})
 		}
 
@@ -1325,7 +1741,10 @@ export async function executeFlowStepTestRun({
 			toolCallbacks,
 			toolId,
 			startMessage: `Starting test run of flow step "${stepId}"...`,
-			contextName: 'flow'
+			contextName: 'flow',
+			label: `step ${stepId}`,
+			background,
+			detachAfterMs
 		})
 	}
 
