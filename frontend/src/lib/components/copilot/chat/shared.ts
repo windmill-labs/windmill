@@ -1130,6 +1130,18 @@ const searchHubScriptsToolDef = createToolDef(
 	'Search for scripts in the hub'
 )
 
+/** The hub resolves a script by its version id alone; the app and summary
+ * segments are descriptive only. Mirrors the paths the hub pickers build. */
+function hubScriptPath(s: { version_id: number; app: string; summary: string }): string {
+	return `hub/${s.version_id}/${s.app}/${s.summary.toLowerCase().replaceAll(/\s+/g, '_')}`
+}
+
+/** Hub scripts are hosted outside the workspace: their paths resolve through the
+ * hub endpoints only, never through workspace lookups or drafts. */
+export function isHubPath(path: string): boolean {
+	return path.startsWith('hub/')
+}
+
 export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 	def: searchHubScriptsToolDef,
 	fn: async ({ args, toolId, toolCallbacks }) => {
@@ -1141,22 +1153,29 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 			text: parsedArgs.query,
 			kind: 'script'
 		})
+		// Each result costs a content fetch, so cap the fan-out when content is wanted.
+		const matches = withContent ? scripts.slice(0, 3) : scripts
 		toolCallbacks.setToolStatus(toolId, {
-			content: 'Found ' + scripts.length + ' scripts in the hub related to "' + args.query + '"'
+			content: `Found ${matches.length} script${matches.length === 1 ? '' : 's'} in the hub related to "${parsedArgs.query}"`
 		})
-		// if withContent, fetch scripts with their content, limit to 3 results
 		const results = await Promise.all(
-			scripts.slice(0, withContent ? 3 : undefined).map(async (s) => {
-				let content = ''
-				if (withContent) {
-					content = await ScriptService.getHubScriptContentByPath({
-						path: `hub/${s.version_id}/${s.app}/${s.summary.toLowerCase().replaceAll(/\s+/g, '_')}`
-					})
+			matches.map(async (s) => {
+				const path = hubScriptPath(s)
+				if (!withContent) {
+					return { path, summary: s.summary }
 				}
-				return {
-					path: `hub/${s.version_id}/${s.app}/${s.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
-					summary: s.summary,
-					...(withContent ? { content } : {})
+				try {
+					// get_full, not the raw content endpoint: callers are told to match the
+					// script's language, which raw content does not carry.
+					const hub = await ScriptService.getHubScriptByPath({ path })
+					return { path, summary: s.summary, language: hub.language, content: hub.content }
+				} catch (err) {
+					// One unreachable script must not sink the whole search.
+					return {
+						path,
+						summary: s.summary,
+						error: `Could not fetch content: ${err instanceof Error ? err.message : String(err)}`
+					}
 				}
 			})
 		)

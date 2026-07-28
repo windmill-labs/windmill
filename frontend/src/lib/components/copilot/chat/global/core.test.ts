@@ -69,6 +69,9 @@ vi.mock('$lib/gen', async () => {
 			}),
 			queryHubScripts: vi.fn(async () => []),
 			getHubScriptContentByPath: vi.fn(async () => ''),
+			getHubScriptByPath: vi.fn(async () => {
+				throw new Error('getHubScriptByPath mock not configured')
+			}),
 			listScripts: vi.fn(async () => [])
 		}),
 		JobService: wrapService(actual.JobService, {
@@ -532,6 +535,29 @@ describe('global AI tools', () => {
 				summary: 'Send Message'
 			}
 		])
+	})
+
+	it('reads a hub script path through the hub endpoint, not the workspace one', async () => {
+		vi.mocked(ScriptService.getHubScriptByPath).mockResolvedValueOnce({
+			content: 'export async function main() {}',
+			language: 'bunnative',
+			summary: 'Send a message to discord using webhook',
+			schema: { type: 'object', properties: {} }
+		})
+
+		const raw = await callGlobalTool('read_workspace_item', {
+			type: 'script',
+			path: 'hub/28294/discord/send_a_message_to_discord_using_webhook'
+		})
+
+		expect(ScriptService.getHubScriptByPath).toHaveBeenCalledWith({
+			path: 'hub/28294/discord/send_a_message_to_discord_using_webhook'
+		})
+		expect(ScriptService.getScriptByPath).not.toHaveBeenCalled()
+		expect(JSON.parse(raw)).toMatchObject({
+			language: 'bunnative',
+			value: 'export async function main() {}'
+		})
 	})
 
 	it('reads the deployed state, skipping chat and DB drafts, with version: deployed', async () => {

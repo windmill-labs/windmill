@@ -809,6 +809,134 @@ export function listBenchmarkMcpTools(): EndpointTool[] {
 	return BENCHMARK_MCP_TOOLS
 }
 
+/** A stand-in Windmill hub. `search_hub_scripts` and a `hub/` read go out over
+ * relative `/api/...` fetches, which have no origin here, so without these the
+ * hub tools throw and no case can exercise hub reuse. Serving fixtures rather
+ * than the live hub also keeps assertions on script content stable as the real
+ * hub republishes new versions. */
+const BENCHMARK_HUB_SCRIPTS = [
+	{
+		version_id: 22235,
+		app: 'holded',
+		summary: 'Send Document',
+		terms: 'holded invoice document send email mail',
+		language: 'bun',
+		content: `//native
+type Holded = {
+  apiKey: string;
+};
+/**
+ * Send Document
+ * Send a specific document by email.
+ */
+export async function main(
+  auth: Holded,
+  docType: string,
+  documentId: string,
+  body: {
+    mailTemplateId?: string;
+    emails: string;
+    subject?: string;
+    message?: string;
+    docIds?: string;
+  },
+) {
+  const url = new URL(
+    \`https://api.holded.com/api/invoicing/v1/documents/\${docType}/\${documentId}/send\`,
+  );
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      key: auth.apiKey,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(\`\${response.status} \${text}\`);
+  }
+  return await response.json();
+}
+`,
+		schema: {
+			type: 'object',
+			required: ['auth', 'docType', 'documentId', 'body'],
+			properties: {
+				auth: { type: 'object', format: 'resource-holded' },
+				docType: { type: 'string' },
+				documentId: { type: 'string' },
+				body: { type: 'object' }
+			}
+		}
+	},
+	{
+		version_id: 28294,
+		app: 'discord',
+		summary: 'Send a message to Discord using Webhook',
+		terms: 'discord webhook message send chat channel',
+		language: 'bunnative',
+		content: `//native
+
+type DiscordWebhook = {
+  webhook_url: string;
+};
+export async function main(discord_webhook: DiscordWebhook, message: string) {
+  const response = await fetch(\`\${discord_webhook.webhook_url}?wait=true\`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content: message }),
+  });
+  if (!response.ok) {
+    throw new Error(\`\${response.status} \${await response.text()}\`);
+  }
+  return await response.json();
+}
+`,
+		schema: {
+			type: 'object',
+			required: ['discord_webhook', 'message'],
+			properties: {
+				discord_webhook: { type: 'object', format: 'resource-discord_webhook' },
+				message: { type: 'string' }
+			}
+		}
+	}
+]
+
+/** Naive term overlap — enough to rank a handful of fixtures for a natural query
+ * without pulling an embedding model into the benchmark. */
+function searchBenchmarkHubScripts(text: string) {
+	const tokens = text
+		.toLowerCase()
+		.split(/[^a-z0-9]+/)
+		.filter(Boolean)
+	return BENCHMARK_HUB_SCRIPTS.map((script) => {
+		const haystack = `${script.app} ${script.summary} ${script.terms}`.toLowerCase()
+		const score = tokens.filter((token) => haystack.includes(token)).length
+		return { script, score }
+	})
+		.filter((entry) => entry.score > 0)
+		.sort((a, b) => b.score - a.score)
+		.map(({ script }, index) => ({
+			ask_id: script.version_id,
+			id: script.version_id,
+			version_id: script.version_id,
+			summary: script.summary,
+			app: script.app,
+			kind: 'script',
+			score: 1 - index * 0.01
+		}))
+}
+
+/** The hub keys a script by its version id; the app and slug segments that
+ * follow are descriptive, so match on the id exactly as the real hub does. */
+function getBenchmarkHubScript(path: string) {
+	const versionId = Number(path.replace(/^\/api\/scripts\/hub\/get_full\/hub\//, '').split('/')[0])
+	return BENCHMARK_HUB_SCRIPTS.find((script) => script.version_id === versionId)
+}
+
 const BENCHMARK_WORKERS = [
 	{
 		worker: 'wk-benchmark-1',
@@ -837,7 +965,12 @@ const BENCHMARK_WORKERS = [
  * intercepting it with a synthetic 404 sends the model into retry loops. */
 export function hasBenchmarkApiHandler(url: string): boolean {
 	const path = url.split('?')[0]
-	return path === '/api/workers/list' || /^\/api\/w\/[^/]+\/jobs\/queue\/list$/.test(path)
+	return (
+		path === '/api/workers/list' ||
+		/^\/api\/w\/[^/]+\/jobs\/queue\/list$/.test(path) ||
+		path === '/api/embeddings/query_hub_scripts' ||
+		path.startsWith('/api/scripts/hub/get_full/')
+	)
 }
 
 /** Answer a relative `/api/...` fetch issued by the API catalog executor. */
@@ -848,6 +981,22 @@ export function handleBenchmarkApiFetch(url: string): Response {
 	}
 	if (/^\/api\/w\/[^/]+\/jobs\/queue\/list$/.test(path)) {
 		return Response.json([])
+	}
+	if (path === '/api/embeddings/query_hub_scripts') {
+		const text = new URLSearchParams(url.split('?')[1] ?? '').get('text') ?? ''
+		return Response.json(searchBenchmarkHubScripts(text))
+	}
+	if (path.startsWith('/api/scripts/hub/get_full/')) {
+		const script = getBenchmarkHubScript(path)
+		if (!script) {
+			return Response.json({ error: 'hub script not found' }, { status: 404 })
+		}
+		return Response.json({
+			content: script.content,
+			language: script.language,
+			schema: script.schema,
+			summary: script.summary
+		})
 	}
 	return Response.json({ error: `no benchmark handler for ${path}` }, { status: 404 })
 }

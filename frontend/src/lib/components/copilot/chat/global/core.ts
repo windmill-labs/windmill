@@ -87,6 +87,7 @@ import {
 	executeFlowStepTestRun,
 	executeTestRun,
 	findAndReplace,
+	isHubPath,
 	type CreatedResourceTriggerKind,
 	type PreviewCardKind,
 	type Tool,
@@ -359,7 +360,11 @@ const listWorkspaceItemsSchema = z.object({
 
 const readWorkspaceItemSchema = z.object({
 	type: itemTypeSchema,
-	path: z.string().describe('Workspace path of the item to read.'),
+	path: z
+		.string()
+		.describe(
+			'Workspace path of the item to read, or a hub/<version>/<app>/<name> path from search_hub_scripts to read a hub script.'
+		),
 	trigger_kind: triggerKindSchema
 		.optional()
 		.describe('Required when type is trigger. Identifies which trigger service to call.'),
@@ -1166,6 +1171,7 @@ Rules:
 - Variable values are never readable. For secrets, create a secret variable and reference it from resources as "$var:path/to/variable".
 - Use search_resource_types before write_resource.
 - When script or raw app code needs an external npm package you are not fully familiar with, use search_npm_packages to find it and get its documentation and type definitions. Link the package documentation in your answer when you rely on it.
+- Hub scripts are prebuilt integrations for third-party services, hosted outside the workspace under \`hub/<version>/<app>/<name>\` paths. Use search_hub_scripts to find one before hand-writing an integration, then read_workspace_item with type "script" and the returned hub path to get its code, language, and input schema.
 - Use get_db_schema with a database resource path to fetch its tables and columns before writing SQL (or a script querying that database).
 - Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
 ${pipelineBullet}
@@ -1774,6 +1780,20 @@ async function readWorkspaceItem(
 ): Promise<WorkspaceItem> {
 	switch (type) {
 		case 'script': {
+			// Hub scripts are not workspace items: search_hub_scripts hands back
+			// `hub/<version>/<app>/<slug>` paths, which getScriptByPath cannot resolve.
+			if (isHubPath(path)) {
+				const hub = await ScriptService.getHubScriptByPath({ path })
+				return {
+					type: 'script',
+					path,
+					summary: hub.summary,
+					language: hub.language as ScriptLang,
+					value: hub.content,
+					schema: hub.schema,
+					isDraft: false
+				}
+			}
 			// Prefer the DB draft (newer than the deployed version) when one exists,
 			// unless the caller explicitly asked for the deployed state.
 			const script = await ScriptService.getScriptByPath({
@@ -2780,7 +2800,7 @@ export const globalTools: Tool<{}>[] = [
 				return JSON.stringify({ success: false, error: message })
 			}
 			const draft =
-				parsed.version === 'deployed'
+				parsed.version === 'deployed' || isHubPath(parsed.path)
 					? null
 					: await getGlobalDraft(workspace, parsed.type, parsed.path, parsed.trigger_kind)
 			if (draft) {
