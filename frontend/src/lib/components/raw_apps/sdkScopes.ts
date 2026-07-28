@@ -12,12 +12,12 @@ export const FRONTEND_SDK_SCOPES: { value: string; label: string; description: s
 	{
 		value: 'jobs:read',
 		label: 'Read jobs and results',
-		description: 'Poll jobs by id and read their results'
+		description: 'Read jobs and their results, and list the runs the viewer can see'
 	},
 	{
 		value: 'users:read',
 		label: 'Read your identity',
-		description: 'Read the viewer username and email (whoami)'
+		description: 'Read the viewer username and email — not the workspace member list'
 	},
 	{
 		value: 'resources:read',

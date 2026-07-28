@@ -489,13 +489,23 @@ pub fn check_route_access(
         }
     }
 
-    // Raw-app SDK tokens (sentinel) hold `jobs:run` only to run the deployed
-    // runnables the viewer already can — never request-supplied code.
+    // Raw-app SDK tokens (sentinel). The viewer approved a named list of
+    // permissions, so each must grant what its prompt says and no more:
+    // `jobs:run` runs the deployed runnables the viewer already can — never
+    // request-supplied code — and `users:read` reads their own identity, not the
+    // workspace member directory (`users/list`, `users/list_usage`) the domain
+    // scope would otherwise reach.
     if has_raw_app_sdk_sentinel(Some(token_scopes)) {
         if let Some(suffix) = route_suffix.as_deref() {
             if is_request_supplied_code_route(suffix) {
                 return Err(Error::PermissionDenied(
                     "Access denied. A raw app frontend SDK token cannot run request-supplied code."
+                        .to_string(),
+                ));
+            }
+            if required_domain == ScopeDomain::Users && suffix != "users/whoami" {
+                return Err(Error::PermissionDenied(
+                    "Access denied. A raw app frontend SDK token can only read the viewer's own identity."
                         .to_string(),
                 ));
             }

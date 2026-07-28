@@ -4974,6 +4974,11 @@ mod embed_token_tests {
             ("/api/w/test/jobs/run/dependencies_async", "POST"),
             ("/api/w/test/jobs/run/flow_dependencies", "POST"),
             ("/api/w/test/jobs/run/flow_dependencies_async", "POST"),
+            // `users:read` is presented to the viewer as "read your identity", so
+            // the workspace member directory must stay out of reach.
+            ("/api/w/test/users/list", "GET"),
+            ("/api/w/test/users/list_usage", "GET"),
+            ("/api/w/test/users/username_to_email/admin", "GET"),
         ];
         for (path, method) in denied {
             assert!(
