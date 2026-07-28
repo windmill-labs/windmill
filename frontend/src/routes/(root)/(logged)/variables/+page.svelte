@@ -367,6 +367,7 @@
 						</Head>
 						<tbody class="divide-y">
 							{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_refreshed, is_expired, refresh_error, is_linked, labels, inherited_labels, ws_specific, draft_only, is_draft }}
+								{@const hasDraft = getLocalDraftHint($workspaceStore, 'variable', path) ?? is_draft}
 								<Row>
 									<Cell class="!px-0 text-center w-12" first>
 										<SharedBadge {canWrite} extraPerms={extra_perms} />
@@ -382,13 +383,9 @@
 												}}
 												href="#{path}"
 											>
-												{path}{(getLocalDraftHint($workspaceStore, 'variable', path) ?? is_draft)
-													? '*'
-													: ''}
+												{path}{hasDraft ? '*' : ''}
 											</a>
-											{#if draft_only}
-												<DraftBadge draft_only is_draft={false} />
-											{/if}
+											<DraftBadge {draft_only} is_draft={hasDraft} />
 											{#if labels?.length}
 												{#each labels as label}
 													<Badge
