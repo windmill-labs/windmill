@@ -956,6 +956,7 @@
 							jobId={job.id}
 							running={job.type !== 'CompletedJob'}
 							result={job.type === 'CompletedJob' ? job.result : undefined}
+							scriptHash={job.script_hash}
 						/>
 					</div>
 				{/if}

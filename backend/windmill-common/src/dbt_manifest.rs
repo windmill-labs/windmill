@@ -544,23 +544,30 @@ pub async fn replace_dbt_manifest(
     tx: &mut Transaction<'_, Postgres>,
     workspace_id: &str,
     script_path: &str,
+    // The deployed version this graph describes. Rows are keyed by it, so two
+    // versions of one path coexist and an old run can still be shown the project
+    // as it was when it ran.
+    script_hash: i64,
     ingested: &IngestedManifest,
     // Where the profile put these relations, so a later run can tell whether the
     // resource has moved since — see the migration.
     relation_root: &str,
 ) -> Result<()> {
-    clear_dbt_manifest(tx, workspace_id, script_path).await?;
+    // Scoped to THIS version: wiping the path would take every other version's
+    // graph with it, which is the whole point of keying by the hash.
+    clear_dbt_manifest_version(tx, workspace_id, script_path, script_hash).await?;
 
     for n in &ingested.nodes {
         sqlx::query!(
-            "INSERT INTO dbt_node (workspace_id, script_path, unique_id, resource_type, name,
+            "INSERT INTO dbt_node (workspace_id, script_path, script_hash, unique_id, resource_type, name,
                  asset_path, materialized, materialize_strategy, unique_key, tags, description,
                  test_kind, test_column, test_args, severity, attached_node, columns, freshness,
                  relation_root, raw_code, original_file_path)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-                     $18, $19, $20, $21)",
+                     $18, $19, $20, $21, $22)",
             workspace_id,
             script_path,
+            script_hash,
             n.unique_id,
             n.resource_type,
             n.name,
@@ -587,10 +594,12 @@ pub async fn replace_dbt_manifest(
 
     for (parent, child) in &ingested.edges {
         sqlx::query!(
-            "INSERT INTO dbt_edge (workspace_id, script_path, parent_unique_id, child_unique_id)
-             VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+            "INSERT INTO dbt_edge (workspace_id, script_path, script_hash, parent_unique_id,
+                 child_unique_id)
+             VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING",
             workspace_id,
             script_path,
+            script_hash,
             parent,
             child
         )
@@ -602,6 +611,33 @@ pub async fn replace_dbt_manifest(
 
 /// Drop everything one script contributed to the graph. See the mutator
 /// contract above: this authorizes nothing.
+/// Clear one VERSION's graph. The path-wide sibling below stays for the case
+/// where a path stops being a dbt script at all.
+pub async fn clear_dbt_manifest_version(
+    tx: &mut Transaction<'_, Postgres>,
+    workspace_id: &str,
+    script_path: &str,
+    script_hash: i64,
+) -> Result<()> {
+    sqlx::query!(
+        "DELETE FROM dbt_node WHERE workspace_id = $1 AND script_path = $2 AND script_hash = $3",
+        workspace_id,
+        script_path,
+        script_hash
+    )
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query!(
+        "DELETE FROM dbt_edge WHERE workspace_id = $1 AND script_path = $2 AND script_hash = $3",
+        workspace_id,
+        script_path,
+        script_hash
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
 pub async fn clear_dbt_manifest(
     tx: &mut Transaction<'_, Postgres>,
     workspace_id: &str,

@@ -545,9 +545,8 @@ pub async fn dbt_dep(
     );
 
     // Two deploys of one path can run concurrently — nothing serializes
-    // dependency jobs — and the graph is keyed by path, not by version, so the
-    // publication is claimed against this job's own version. It still returns
-    // its lock, which belongs to that version.
+    // dependency jobs. The GRAPH is keyed by version so both may write theirs;
+    // the path-keyed asset usages are claimed by the newest.
     let publisher = match deploying_script_hash(db, job_id).await {
         Some(hash) => GraphPublisher::Version(hash),
         None => GraphPublisher::Unversioned,
@@ -2390,18 +2389,32 @@ async fn persist_ingest(
     relation_root: &str,
     publisher: GraphPublisher,
 ) -> error::Result<bool> {
-    let mut tx = db.begin().await?;
-    if !claim_graph_publication(&mut tx, w_id, script_path, publisher).await? {
+    let GraphPublisher::Version(script_hash) = publisher else {
+        // No version to attribute the graph to — an inline or preview run, which
+        // deploys nothing and must not touch what a deploy wrote.
         return Ok(false);
-    }
+    };
+    let mut tx = db.begin().await?;
+    // The graph is written unconditionally: its rows are keyed by this version,
+    // so an older deploy finishing late cannot overwrite a newer one's, and its
+    // own runs still need their graph to render.
     windmill_common::dbt_manifest::replace_dbt_manifest(
         &mut tx,
         w_id,
         script_path,
+        script_hash,
         ingested,
         relation_root,
     )
     .await?;
+    // What follows is keyed by PATH, not by version — one row set per script —
+    // so it still belongs to the newest version alone. An older deploy finishing
+    // late records its graph above and stops here, rather than dragging the
+    // script's current usages back to what it saw.
+    if !claim_graph_publication(&mut tx, w_id, script_path, publisher).await? {
+        tx.commit().await?;
+        return Ok(false);
+    }
     windmill_common::assets::replace_static_asset_usage(
         &mut tx,
         w_id,
@@ -2432,6 +2445,9 @@ async fn persist_ingest(
 /// still the newest. Both happen inside the caller's transaction, so a newer
 /// publisher either commits before this check sees it, or waits behind it and
 /// overwrites afterwards — which is the correct order either way.
+///
+/// Only the PATH-keyed writes need this. The graph itself is keyed by version,
+/// so two deploys of one path write disjoint rows and neither can lose.
 async fn claim_graph_publication(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     w_id: &str,

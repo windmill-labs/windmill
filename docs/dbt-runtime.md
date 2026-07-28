@@ -211,10 +211,12 @@ to track and runs there normally.
 The refresh happens **before** the build, from a `dbt parse` with this run's own
 vars and env, so a run in flight is already showing the models it is building.
 
-Boundary that remains: the rows are keyed by script path, so **two concurrent
-runs of one dynamic script overwrite each other's** — the last to parse wins, and
-the graph shows its models for both. Give such a script a concurrency limit of 1.
-Fixing it properly means storing the graph per job rather than per path.
+Boundary that remains: a dynamic descriptor's graph is a property of the RUN,
+not of the deployed version, so the rows two concurrent runs of one such script
+write still overwrite each other — the last to parse wins, and the graph shows
+its models for both. Give such a script a concurrency limit of 1. Version keying
+does not help here, because both runs share a version; fixing it means storing
+that graph per job.
 
 Re-ingesting is nearly free: the run parses the project (about a second) before
 building it and ingests that manifest.
@@ -222,6 +224,32 @@ building it and ingests that manifest.
 The parse is what makes a newly added model appear in the same run that builds
 it, rather than one run late: the graph is written before the build, so the run
 page shows the model while it is being built.
+
+## The graph belongs to a script version
+
+`dbt_node` / `dbt_edge` are keyed `(workspace_id, script_path, script_hash,
+unique_id)`. Each deployed version keeps its own graph, and a job records the
+version it ran (`v2_job.runnable_id`), so a run page asks for that one:
+`/assets/graph?dbt_script_hash=<hex>` renders the project as it was — its models,
+its SQL, its `ref()` lineage — instead of whatever is deployed today.
+
+Per DEPLOY, not per run: ten thousand runs of one version share one graph. The
+rows carry a composite foreign key to `script (workspace_id, hash)` with
+`ON DELETE CASCADE`, so a version's graph dies with the version and nothing has
+to sweep it.
+
+Two consequences worth knowing:
+
+* **Concurrent deploys no longer race for the graph.** Two versions write
+  disjoint rows, so neither can lose. `claim_graph_publication` survives only for
+  what is still keyed by PATH — the `asset` usage rows, of which there is one set
+  per script — and an older deploy finishing late now records its own graph
+  before declining to touch those.
+* **A pinned request is scoped differently.** Unpinned, the endpoint scopes by
+  the relations in view, using `asset`. Pinned, `asset` is the wrong scope: it
+  describes the current deploy, so a model that version had and a later one
+  dropped would be filtered out of its own run's graph. The pinned version's
+  nodes are the scope instead.
 
 ## No cascade from dbt
 

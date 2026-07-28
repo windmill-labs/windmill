@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO dbt_edge (workspace_id, script_path, script_hash, parent_unique_id,\n                 child_unique_id)\n             VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f1984a49109cb7115016fb5507409afd62e6eeca949f70a602b6e2c3830902e5"
+}

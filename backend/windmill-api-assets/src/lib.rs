@@ -608,6 +608,13 @@ async fn list_favorites(
 struct GraphQuery {
     pub asset_kinds: Option<String>,
     pub folder: Option<String>,
+    /// Render a dbt project as a given deployed version rather than as it is
+    /// now. A run page passes the version its job ran, so an old run shows the
+    /// models, SQL and `ref()` lineage of that deploy instead of today's.
+    /// Absent — the usual case — means the newest live version per path.
+    /// Hex, like every other script-hash parameter — `ScriptHash` deserializes
+    /// it, so the run page can pass `job.script_hash` verbatim.
+    pub dbt_script_hash: Option<windmill_common::scripts::ScriptHash>,
 }
 
 #[derive(Serialize, Debug)]
@@ -1159,13 +1166,35 @@ async fn asset_graph(
     // Tests come along via `attached_node` — they carry no `asset_path` of
     // their own.
     let dbt_rows = sqlx::query!(
-        r#"WITH scoped AS (
-             SELECT script_path, unique_id FROM dbt_node
-              WHERE workspace_id = $1 AND asset_path IS NOT NULL
-                AND asset_path IN (
+        r#"WITH live AS (
+             -- The graph is stored per deployed VERSION, so this endpoint — which
+             -- describes the project as it is now — takes the newest live one per
+             -- path. Resolved once here rather than per row: a correlated lookup
+             -- on every node is what makes these queries fall over.
+             SELECT DISTINCT ON (s.path) s.path, s.hash
+               FROM script s
+              WHERE s.workspace_id = $1 AND s.language = 'dbt'
+                AND ($3::bigint IS NULL OR s.hash = $3)
+                -- A pinned version may be archived by now; that is precisely the
+                -- case a historical run needs, so the liveness filter applies
+                -- only when picking the current one.
+                AND ($3::bigint IS NOT NULL OR (s.deleted = false AND s.archived = false))
+              ORDER BY s.path, s.created_at DESC
+           ),
+           scoped AS (
+             SELECT n.script_path, n.unique_id FROM dbt_node n
+              JOIN live l ON l.path = n.script_path AND l.hash = n.script_hash
+              WHERE n.workspace_id = $1 AND n.asset_path IS NOT NULL
+                -- Unpinned, the scope is the relations in view: `asset` says
+                -- which of them this folder touches. Pinned, that table is the
+                -- WRONG scope — it holds one row set per path, describing the
+                -- current deploy, so a model this version had and the current one
+                -- dropped would be filtered out of its own run's graph. The
+                -- pinned version's nodes are the scope.
+                AND ($3::bigint IS NOT NULL OR n.asset_path IN (
                   SELECT path FROM asset
                    WHERE workspace_id = $1 AND kind = 'table'
-                     AND ($2::text IS NULL OR usage_path LIKE $2))
+                     AND ($2::text IS NULL OR usage_path LIKE $2)))
            )
            SELECT n.script_path AS "script_path!", n.unique_id AS "unique_id!",
                   n.resource_type AS "resource_type!", n.name AS "name!", n.asset_path,
@@ -1188,6 +1217,7 @@ async fn asset_graph(
                        WHERE sc.workspace_id = n.workspace_id AND sc.path = n.script_path
                   ) THEN n.original_file_path END AS original_file_path
              FROM dbt_node n
+             JOIN live l ON l.path = n.script_path AND l.hash = n.script_hash
             WHERE n.workspace_id = $1
               -- Joined on BOTH columns: a dbt `unique_id` is project-local, so
               -- two projects with the same model name would otherwise pull each
@@ -1201,6 +1231,7 @@ async fn asset_graph(
             ORDER BY n.script_path, n.unique_id"#,
         &w_id,
         folder_filter.as_deref(),
+        q.dbt_script_hash.map(|h| h.0),
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -1209,13 +1240,24 @@ async fn asset_graph(
     // produce. Joined to `dbt_node` on both key columns because a dbt
     // `unique_id` is only unique within its project.
     let dbt_edge_rows = sqlx::query!(
-        r#"SELECT p.asset_path AS "from_path!", c.asset_path AS "to_path!"
+        r#"WITH live AS (
+             SELECT DISTINCT ON (s.path) s.path, s.hash
+               FROM script s
+              WHERE s.workspace_id = $1 AND s.language = 'dbt'
+                AND ($3::bigint IS NULL OR s.hash = $3)
+                AND ($3::bigint IS NOT NULL OR (s.deleted = false AND s.archived = false))
+              ORDER BY s.path, s.created_at DESC
+           )
+           SELECT p.asset_path AS "from_path!", c.asset_path AS "to_path!"
              FROM dbt_edge e
+             JOIN live l ON l.path = e.script_path AND l.hash = e.script_hash
              JOIN dbt_node p ON p.workspace_id = e.workspace_id
                             AND p.script_path = e.script_path
+                            AND p.script_hash = e.script_hash
                             AND p.unique_id = e.parent_unique_id
              JOIN dbt_node c ON c.workspace_id = e.workspace_id
                             AND c.script_path = e.script_path
+                            AND c.script_hash = e.script_hash
                             AND c.unique_id = e.child_unique_id
             WHERE e.workspace_id = $1
               AND p.asset_path IS NOT NULL AND c.asset_path IS NOT NULL
@@ -1225,13 +1267,18 @@ async fn asset_graph(
               -- the producing script's folder: two tables consumed in this
               -- folder but produced by a dbt project outside it would otherwise
               -- both render with their `ref()` edge missing.
-              AND EXISTS (
+              -- Same as the node scope: pinned, `asset` describes the CURRENT
+              -- deploy, so gating on it drops the edges of models this version
+              -- had and a later one removed. The pinned version's own edges are
+              -- the answer.
+              AND ($3::bigint IS NOT NULL OR EXISTS (
                 SELECT 1 FROM asset a
                  WHERE a.workspace_id = $1 AND a.kind = 'table'
                    AND a.path = c.asset_path
-                   AND ($2::text IS NULL OR a.usage_path LIKE $2))"#,
+                   AND ($2::text IS NULL OR a.usage_path LIKE $2)))"#,
         &w_id,
         folder_filter.as_deref(),
+        q.dbt_script_hash.map(|h| h.0),
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -1414,6 +1461,17 @@ async fn asset_graph(
 
     let mut edges = Vec::with_capacity(rows.len());
     let mut asset_set: std::collections::HashSet<(AssetKind, String)> = Default::default();
+    // Pinned to a version, the relations come from that version's own nodes. The
+    // `asset` rows above are path-keyed — one set per script, always the current
+    // deploy — so a model this version had and a later one dropped would be
+    // missing from its own run's graph.
+    if q.dbt_script_hash.is_some() {
+        for r in &dbt_rows {
+            if let Some(p) = r.asset_path.as_deref() {
+                asset_set.insert((AssetKind::Table, p.to_string()));
+            }
+        }
+    }
     let mut runnable_set: std::collections::HashSet<(AssetUsageKind, String)> = Default::default();
 
     // Every pipeline member in scope goes into the graph, even when the parser

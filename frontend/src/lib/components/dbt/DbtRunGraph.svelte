@@ -20,7 +20,8 @@
 		scriptPath,
 		jobId,
 		running = false,
-		result
+		result,
+		scriptHash
 	}: {
 		scriptPath: string
 		/** The run whose per-model progress to show. dbt records a state per
@@ -33,11 +34,17 @@
 		/** The finished job's result. It carries a status per dbt node, which is
 		 *  what a completed run is coloured from — see `settled`. */
 		result?: unknown
+		/** The script version this job ran. The graph is stored per deployed
+		 *  version, so passing it renders the project as it was — the models, SQL
+		 *  and `ref()` lineage of that deploy, not of today's. */
+		scriptHash?: string | number
 	} = $props()
 
 	// The graph endpoint is folder-scoped; a script outside `f/` has no folder and
 	// falls back to the whole workspace, which the filter below narrows anyway.
 	let folder = $derived(scriptPath.startsWith('f/') ? scriptPath.split('/')[1] : undefined)
+	// Read inside `load` and listed here so a change of version refetches.
+	let graphKey = $derived(`${folder ?? ''}|${scriptHash ?? ''}`)
 
 	let raw = $state<AssetGraphResponse | undefined>(undefined)
 	let loading = $state(true)
@@ -49,6 +56,7 @@
 		try {
 			const params = new URLSearchParams({ asset_kinds: 'table' })
 			if (folder) params.set('folder', folder)
+			if (scriptHash != undefined) params.set('dbt_script_hash', String(scriptHash))
 			const res = await fetch(`${OpenAPI.BASE ?? ''}/w/${ws}/assets/graph?${params}`, {
 				credentials: 'include'
 			})
@@ -93,6 +101,7 @@
 	let timer: ReturnType<typeof setInterval> | undefined
 	$effect(() => {
 		void scriptPath
+		void graphKey
 		void load()
 		void jobId
 		void loadProgress()
@@ -124,9 +133,19 @@
 	// from another, but here the whole graph already IS that project.
 	let scoped = $derived.by(() => {
 		if (!raw) return undefined
-		const edges = raw.edges.filter((e) => e.runnable_path === scriptPath)
-		if (edges.length === 0) return undefined
-		const assetIds = new Set(edges.map((e) => `${e.asset_kind}:${e.asset_path}`))
+		// Asked for a specific version, the response IS that version's project —
+		// every dbt-owned relation in it belongs to this script. Scoping by usage
+		// edges would undo that: those rows are path-keyed and describe the
+		// current deploy, so a model this version had and a later one dropped has
+		// no edge to be found by.
+		const assetIds = scriptHash
+			? new Set(raw.assets.filter((a) => a.dbt).map((a) => `${a.kind}:${a.path}`))
+			: new Set(
+					raw.edges
+						.filter((e) => e.runnable_path === scriptPath)
+						.map((e) => `${e.asset_kind}:${e.asset_path}`)
+				)
+		if (assetIds.size === 0) return undefined
 		return {
 			...raw,
 			runnables: [],
