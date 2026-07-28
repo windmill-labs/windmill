@@ -32,6 +32,8 @@
 	import Login from '$lib/components/Login.svelte'
 	import { WINDMILL_RESERVED_QUERY_PARAMS } from '$lib/utils'
 	import { EMBED_NAV_CONTEXT_KEY, type EmbedNav } from '../types'
+	import RawAppSdkConsent from '$lib/components/raw_apps/RawAppSdkConsent.svelte'
+	import { hasStoredSdkConsent, storeSdkConsent } from '$lib/components/raw_apps/sdkScopes'
 
 	type EmbedToken = {
 		token?: string | null
@@ -39,6 +41,7 @@
 		sandbox?: boolean
 		app_path?: string | null
 		workspace_id?: string | null
+		sdk_scopes?: string[] | null
 	}
 
 	let {
@@ -48,8 +51,10 @@
 		viewerUrl
 	}: {
 		/** Embedder-side: validate access + mint the scoped token. Throws with a
-		 * `.status` of 401 (login required) or 404 (not found). */
-		fetchEmbedToken: () => Promise<EmbedToken>
+		 * `.status` of 401 (login required) or 404 (not found). Pass
+		 * `sdkConsent` once the viewer accepted the frontend-SDK permission
+		 * banner — only then does the backend mint the raw-app SDK token. */
+		fetchEmbedToken: (opts?: { sdkConsent?: boolean }) => Promise<EmbedToken>
 		/** Viewer-side: fired (once per received token) when the embed token is
 		 * available, before the app renders. Use it to kick off data loading.
 		 * `requestTokenRefresh` asks the embedder for a fresh token on a 401. */
@@ -188,9 +193,16 @@
 	}
 
 	// ---------------------------- embedder mode ----------------------------
-	let status: 'loading' | 'ready' | 'noPermission' | 'notExists' = $state('loading')
+	let status: 'loading' | 'ready' | 'noPermission' | 'notExists' | 'sdkConsent' = $state('loading')
 	let embedToken: string | null = $state(null)
 	let iframeEl: HTMLIFrameElement | undefined = $state(undefined)
+
+	// Raw-app frontend SDK (viewer-permissioned windmill-client): the scopes the
+	// app policy declares, and the viewer-identity token minted after consent.
+	// RawAppPreview reads the token via context and exposes it to the bundle as
+	// `window.process.env` so a bundled `windmill-client` auto-configures.
+	let sdkScopes: string[] | undefined = $state(undefined)
+	let sdkToken: string | undefined = $state(undefined)
 
 	// WIN-2006: publisher opted this app into sandbox isolation (alpha). When false
 	// (the default) the app runs same-origin with the viewer's full session — the
@@ -224,6 +236,14 @@
 		}
 	})
 
+	// Read by RawAppPreview: the consented viewer-scoped SDK token to expose to
+	// the bundle (unsandboxed raw apps only).
+	setContext('RAW_APP_SDK_TOKEN', {
+		get value() {
+			return sdkToken
+		}
+	})
+
 	function buildViewerUrl(): string {
 		// Default: embed the current route. The in-workspace viewer overrides this
 		// with a dedicated cookieless, chrome-less viewer route (`/app_embed`).
@@ -243,20 +263,59 @@
 			isRaw = resp.raw_app ?? false
 			appPath = resp.app_path ?? undefined
 			workspaceId = resp.workspace_id ?? undefined
-			status = 'ready'
-
-			if (unsandboxed || isRaw) {
-				// Render the app directly on this origin: same-origin when unsandboxed
-				// (the default), or a single opaque bundle iframe when it's a sandboxed
-				// raw app.
-				onViewerReady?.(undefined, requestTokenRefresh)
-			} else {
-				// Sandboxed low-code: hand the scoped token to the opaque viewer iframe.
-				postTokenToIframe()
+			// SDK tokens only exist for unsandboxed raw apps: the sandboxed (opaque
+			// origin) bundle can't reach the API cross-origin with this credential yet.
+			sdkScopes =
+				resp.raw_app && !resp.sandbox && resp.sdk_scopes?.length ? resp.sdk_scopes : undefined
+			if (sdkScopes) {
+				if (!hasStoredSdkConsent(workspaceId ?? '', appPath ?? '', sdkScopes)) {
+					// Block the app render behind the permission banner: the app's own
+					// code must not run before the viewer decided (it runs same-origin).
+					status = 'sdkConsent'
+					return
+				}
+				await mintSdkToken()
 			}
+			finishReady()
 		} catch (e: any) {
 			status = e?.status === 401 ? 'noPermission' : 'notExists'
 		}
+	}
+
+	function finishReady() {
+		status = 'ready'
+		if (unsandboxed || isRaw) {
+			// Render the app directly on this origin: same-origin when unsandboxed
+			// (the default), or a single opaque bundle iframe when it's a sandboxed
+			// raw app.
+			onViewerReady?.(undefined, requestTokenRefresh)
+		} else {
+			// Sandboxed low-code: hand the scoped token to the opaque viewer iframe.
+			postTokenToIframe()
+		}
+	}
+
+	/** Mint the viewer-scoped SDK token (consent already given). Tolerant: a
+	 * failed mint (e.g. a scope-restricted caller session that can't satisfy the
+	 * declared scopes) must not block the app render — the bundle then simply
+	 * gets no credential and its SDK calls fail with 401. */
+	async function mintSdkToken() {
+		try {
+			const resp = await fetchEmbedToken({ sdkConsent: true })
+			sdkToken = resp.token ?? undefined
+		} catch (e) {
+			console.warn('Failed to mint the frontend SDK token', e)
+			sdkToken = undefined
+		}
+	}
+
+	async function onSdkConsentContinue(dontAskAgain: boolean) {
+		if (dontAskAgain) {
+			storeSdkConsent(workspaceId ?? '', appPath ?? '', sdkScopes ?? [])
+		}
+		status = 'loading'
+		await mintSdkToken()
+		finishReady()
 	}
 
 	function postTokenToIframe() {
@@ -390,6 +449,11 @@
 			<a href={base}>Go to Windmill</a>
 		</Alert>
 	</div>
+{:else if status === 'sdkConsent'}
+	<!-- Raw-app frontend SDK: the app code would run same-origin with a
+	     viewer-scoped token, so nothing renders until the viewer accepts the
+	     declared permissions. -->
+	<RawAppSdkConsent scopes={sdkScopes ?? []} onContinue={onSdkConsentContinue} />
 {:else if status === 'noPermission'}
 	<!-- Login happens here, on the embedder (main) window, so the session cookie
 	     is set on the main origin only and never reaches the opaque iframe. -->

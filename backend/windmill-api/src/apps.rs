@@ -329,6 +329,13 @@ pub struct Policy {
     // with the viewer's full session, the pre-isolation behavior.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sandbox: Option<bool>,
+    /// Author-declared scopes for the frontend SDK token (raw apps): when set and
+    /// non-empty, viewers can mint a short-lived token carrying THEIR identity
+    /// restricted to these scopes, handed to the app bundle so `windmill-client`
+    /// calls run as the viewer. Must be a subset of `FRONTEND_SDK_ALLOWED_SCOPES`.
+    /// Absent/empty means the bundle receives no credential (the default).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frontend_sdk_scopes: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -1210,6 +1217,140 @@ pub const APP_EMBED_SCOPES: [&str; 5] = [
 /// (e.g. after a `401` from the iframe) so this can stay short.
 const APP_EMBED_TOKEN_VALIDITY_HOURS: i64 = 12;
 
+/// Scopes an app author may declare in `Policy::frontend_sdk_scopes` (the
+/// viewer-identity token handed to a raw app's bundled `windmill-client`).
+/// Deliberately excludes every `apps:*` scope: the embed/SDK mint routes live in
+/// the Apps scope domain and scoped tokens are default-denied outside their
+/// domains, so a minted SDK token can never reach the mint endpoints to renew
+/// itself past its expiry.
+pub const FRONTEND_SDK_ALLOWED_SCOPES: [&str; 5] = [
+    "jobs:run",
+    "jobs:read",
+    "users:read",
+    "resources:read",
+    "variables:read",
+];
+
+/// Reject a policy declaring frontend SDK scopes outside the curated list.
+/// Enforced on every policy write AND re-checked at mint time, so a policy
+/// written by an older/foreign client can't broaden what gets minted.
+fn validate_frontend_sdk_scopes_list(scopes: &[String]) -> Result<()> {
+    for s in scopes {
+        if !FRONTEND_SDK_ALLOWED_SCOPES.contains(&s.as_str()) {
+            return Err(Error::BadRequest(format!(
+                "Invalid frontend SDK scope '{}'. Allowed scopes: {}",
+                s,
+                FRONTEND_SDK_ALLOWED_SCOPES.join(", ")
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_frontend_sdk_scopes(policy: &Policy) -> Result<()> {
+    if let Some(scopes) = &policy.frontend_sdk_scopes {
+        validate_frontend_sdk_scopes_list(scopes)?;
+    }
+    Ok(())
+}
+
+/// Mint the short-lived viewer-identity token a raw app's bundle uses for
+/// `windmill-client` calls. Unlike the app-embed token (fixed narrow scopes +
+/// route allowlist), its scopes are the policy-declared `frontend_sdk_scopes` —
+/// the viewer consented to them before this is called — and confinement is the
+/// regular default-deny scope system.
+pub async fn mint_raw_app_sdk_token(
+    db: &DB,
+    w_id: &str,
+    app_path: &str,
+    authed: &ApiAuthed,
+    scopes: &[String],
+) -> Result<(String, chrono::DateTime<chrono::Utc>)> {
+    // An embed token represents untrusted app JS; it must not bootstrap a
+    // broader SDK credential (same guard as `mint_app_embed_token`).
+    if windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref()) {
+        return Err(Error::NotAuthorized(
+            "App embed tokens cannot mint SDK tokens".to_string(),
+        ));
+    }
+    validate_frontend_sdk_scopes_list(scopes)?;
+    let scopes = scopes.to_vec();
+    // A scope-restricted caller token must not bootstrap a broader-scoped SDK
+    // token. No-op for unscoped browser sessions.
+    ensure_scopes_within_caller(authed, Some(&scopes))?;
+    let expiration = chrono::Utc::now() + chrono::Duration::hours(APP_EMBED_TOKEN_VALIDITY_HOURS);
+    let token_config = NewToken::new(
+        Some(format!("sdk_app:{app_path}")),
+        Some(expiration),
+        None,
+        Some(scopes),
+        Some(w_id.to_string()),
+        // Never let an SDK token gain write capability the caller's own
+        // session lacks.
+        Some(authed.read_only),
+    );
+    let mut tx = db.begin().await?;
+    let token = create_token_internal(&mut *tx, db, authed, token_config).await?;
+    tx.commit().await?;
+    Ok((token, expiration))
+}
+
+/// Shared tail of the three embed-token endpoints (by secret, by path, and the
+/// EE by-custom-path variant): resolves which credential — if any — the viewer
+/// gets for this app. Sandboxed low-code apps get the narrow embed token; raw
+/// apps whose policy declares `frontend_sdk_scopes` get the viewer-scoped SDK
+/// token, but only once the viewer consented (`sdk_consent`) — without it the
+/// response only advertises `sdk_scopes` so the viewer can render the consent
+/// banner and re-request.
+pub async fn build_embed_token_response(
+    db: &DB,
+    w_id: &str,
+    app_path: &str,
+    raw_app: bool,
+    policy: &EmbedPolicyView,
+    opt_authed: Option<&ApiAuthed>,
+    sdk_consent: bool,
+) -> Result<EmbedTokenResponse> {
+    let sdk_scopes = if raw_app && !policy.frontend_sdk_scopes.is_empty() {
+        Some(policy.frontend_sdk_scopes.clone())
+    } else {
+        None
+    };
+    let (token, expiration) = if raw_app {
+        match (&sdk_scopes, opt_authed) {
+            (Some(scopes), Some(authed)) if sdk_consent => {
+                let (t, e) = mint_raw_app_sdk_token(db, w_id, app_path, authed, scopes).await?;
+                (Some(t), Some(e))
+            }
+            _ => (None, None),
+        }
+    } else if policy.sandbox {
+        let resp = mint_app_embed_token(db, w_id, app_path, opt_authed).await?;
+        (resp.token, resp.expiration)
+    } else {
+        (None, None)
+    };
+    Ok(EmbedTokenResponse {
+        token,
+        expiration,
+        raw_app,
+        sandbox: policy.sandbox,
+        app_path: Some(app_path.to_string()),
+        workspace_id: Some(w_id.to_string()),
+        sdk_scopes,
+    })
+}
+
+/// Query for the embed-token endpoints.
+#[derive(Deserialize)]
+pub struct EmbedTokenQuery {
+    /// Raw apps: the viewer confirmed the SDK-permissions consent banner, so the
+    /// viewer-scoped SDK token may actually be minted. Defaults to false — the
+    /// first fetch only advertises the declared scopes.
+    #[serde(default)]
+    pub sdk_consent: bool,
+}
+
 #[derive(Serialize)]
 pub struct EmbedTokenResponse {
     /// Narrowly-scoped token for the iframe. `None` for fully anonymous access
@@ -1237,6 +1378,11 @@ pub struct EmbedTokenResponse {
     /// share a store. For custom-path apps the viewer can't derive this itself.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_id: Option<String>,
+    /// Raw apps: scopes the app policy declares for the frontend SDK token. The
+    /// viewer renders these in the consent banner; `token` stays `None` until the
+    /// endpoint is re-called with `sdk_consent=true`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sdk_scopes: Option<Vec<String>>,
 }
 
 /// Mint a short-lived, narrowly-scoped embed token for `app_path` when a caller
@@ -1313,6 +1459,7 @@ pub async fn mint_app_embed_token(
         sandbox: false,
         app_path: Some(app_path.to_string()),
         workspace_id: Some(w_id.to_string()),
+        sdk_scopes: None,
     })
 }
 
@@ -1325,6 +1472,7 @@ async fn get_app_embed_token(
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, secret)): Path<(String, String)>,
+    Query(sdk_query): Query<EmbedTokenQuery>,
 ) -> JsonResult<EmbedTokenResponse> {
     let id = get_id_from_secret(&db, &w_id, secret, None).await?;
 
@@ -1374,29 +1522,16 @@ async fn get_app_embed_token(
         Some(authed)
     };
 
-    // The token is only consumed by the sandboxed low-code render. Raw apps
-    // render single-iframe with the page credential (WIN-2006 Variant A), and
-    // unsandboxed apps render same-origin with the viewer's own session — minting
-    // for those would write a useless token row per view and, worse, could fail
-    // the whole render for a scope-restricted caller (`ensure_scopes_within_caller`)
-    // even though no token is needed. The access check above still gates
-    // visibility in every case.
-    let mut resp = if raw_app || !policy.sandbox {
-        EmbedTokenResponse {
-            token: None,
-            expiration: None,
-            raw_app,
-            sandbox: policy.sandbox,
-            app_path: None,
-            workspace_id: None,
-        }
-    } else {
-        mint_app_embed_token(&db, &w_id, &app.path, authed_for_token.as_ref()).await?
-    };
-    resp.raw_app = raw_app;
-    resp.sandbox = policy.sandbox;
-    resp.app_path = Some(app.path);
-    resp.workspace_id = Some(w_id.to_string());
+    let resp = build_embed_token_response(
+        &db,
+        &w_id,
+        &app.path,
+        raw_app,
+        &policy,
+        authed_for_token.as_ref(),
+        sdk_query.sdk_consent,
+    )
+    .await?;
     Ok(Json(resp))
 }
 
@@ -1410,6 +1545,9 @@ async fn get_app_embed_token(
 pub struct EmbedPolicyView {
     pub anonymous_execution: bool,
     pub sandbox: bool,
+    /// Raw apps: author-declared scopes for the frontend SDK token; empty when
+    /// the app doesn't use the frontend SDK (non-string entries are ignored).
+    pub frontend_sdk_scopes: Vec<String>,
 }
 
 pub fn parse_embed_policy(policy_str: &str) -> Result<EmbedPolicyView> {
@@ -1417,6 +1555,15 @@ pub fn parse_embed_policy(policy_str: &str) -> Result<EmbedPolicyView> {
     Ok(EmbedPolicyView {
         anonymous_execution: v.get("execution_mode").and_then(|m| m.as_str()) == Some("anonymous"),
         sandbox: v.get("sandbox").and_then(|b| b.as_bool()).unwrap_or(false),
+        frontend_sdk_scopes: v
+            .get("frontend_sdk_scopes")
+            .and_then(|s| s.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default(),
     })
 }
 
@@ -1430,6 +1577,7 @@ async fn get_app_embed_token_for_path(
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    Query(sdk_query): Query<EmbedTokenQuery>,
 ) -> JsonResult<EmbedTokenResponse> {
     let path = path.to_path();
     check_scopes(&authed, || format!("apps:read:{}", path))?;
@@ -1450,26 +1598,19 @@ async fn get_app_embed_token_for_path(
     let policy_str = app
         .policy
         .ok_or_else(|| Error::internal_err("App policy missing".to_string()))?;
-    // Lenient parse + mint only for the sandboxed low-code render — see
-    // [`get_app_embed_token`] for the rationale (identical here).
+    // Lenient parse — see [`get_app_embed_token`] for the rationale (identical here).
     let policy = parse_embed_policy(&policy_str)?;
 
-    let mut resp = if raw_app || !policy.sandbox {
-        EmbedTokenResponse {
-            token: None,
-            expiration: None,
-            raw_app,
-            sandbox: policy.sandbox,
-            app_path: None,
-            workspace_id: None,
-        }
-    } else {
-        mint_app_embed_token(&db, &w_id, path, Some(&authed)).await?
-    };
-    resp.raw_app = raw_app;
-    resp.sandbox = policy.sandbox;
-    resp.app_path = Some(path.to_string());
-    resp.workspace_id = Some(w_id.to_string());
+    let resp = build_embed_token_response(
+        &db,
+        &w_id,
+        path,
+        raw_app,
+        &policy,
+        Some(&authed),
+        sdk_query.sdk_consent,
+    )
+    .await?;
     Ok(Json(resp))
 }
 
@@ -1854,6 +1995,7 @@ async fn create_app_internal<'a>(
     // inside process_app_multipart!, so checking after this call would leave a
     // denied app committed in the DB.
     check_scopes(&authed, || format!("apps:write:{}", &app.path))?;
+    validate_frontend_sdk_scopes(&app.policy)?;
     if *CLOUD_HOSTED {
         let nb_apps =
             sqlx::query_scalar!("SELECT COUNT(*) FROM app WHERE workspace_id = $1", &w_id)
@@ -2492,6 +2634,7 @@ async fn update_app_internal<'a>(
         }
 
         if let Some(mut npolicy) = ns.policy {
+            validate_frontend_sdk_scopes(&npolicy)?;
             if matches!(npolicy.execution_mode, ExecutionMode::Anonymous) && !authed.is_admin {
                 // Restricted users may keep deploying an app that is already
                 // public, but flipping an app to anonymous (public) access is
@@ -4722,6 +4865,55 @@ mod embed_token_tests {
         assert!(ScopeDefinition::from_scope_string("apps:read")
             .unwrap()
             .includes(&required));
+    }
+
+    /// The raw-app frontend SDK token's confinement rests on one property: the
+    /// curated scope list contains no `apps:*` scope, so the (Apps-domain,
+    /// default-denied) mint endpoints are unreachable and a captured SDK token
+    /// cannot renew itself past its expiry. Lock that, plus the intended reach:
+    /// the viewer-permissioned surface each curated scope grants.
+    #[test]
+    fn frontend_sdk_scopes_reach_declared_domains_but_never_mint_routes() {
+        let scopes: Vec<String> = super::FRONTEND_SDK_ALLOWED_SCOPES
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let scopes = Some(scopes.as_slice());
+
+        let allowed = [
+            ("/api/w/test/jobs/run/p/u/admin/script", "POST"),
+            ("/api/w/test/jobs/run_wait_result/p/u/admin/script", "POST"),
+            ("/api/w/test/jobs_u/completed/get_result/some-uuid", "GET"),
+            ("/api/w/test/users/whoami", "GET"),
+            // Unlike the embed token, resource VALUE reads are intended here —
+            // the author declared it and the viewer consented.
+            ("/api/w/test/resources/get_value/u/admin/r", "GET"),
+            ("/api/w/test/variables/get_value/u/admin/v", "GET"),
+        ];
+        for (path, method) in allowed {
+            assert!(
+                check_scopes_for_route(scopes, path, method).is_ok(),
+                "SDK token should allow {method} {path}"
+            );
+        }
+
+        let denied = [
+            // No apps scope → every mint endpoint (and the Apps domain at large)
+            // is unreachable: no self-renewal, no embed-token bootstrap.
+            ("/api/w/test/apps_u/embed_token/secret", "GET"),
+            ("/api/w/test/apps/embed_token/p/u/admin/app", "GET"),
+            ("/api/w/test/apps_u/embed_token_by_custom_path/foo", "GET"),
+            ("/api/w/test/apps/get/p/u/admin/app", "GET"),
+            // Read-level scopes must not grant writes.
+            ("/api/w/test/resources/update/u/admin/r", "POST"),
+            ("/api/w/test/variables/create", "POST"),
+        ];
+        for (path, method) in denied {
+            assert!(
+                check_scopes_for_route(scopes, path, method).is_err(),
+                "SDK token should deny {method} {path}"
+            );
+        }
     }
 
     /// The token carries path-scoped `apps:run:<own path>` and `apps:read:<own path>`

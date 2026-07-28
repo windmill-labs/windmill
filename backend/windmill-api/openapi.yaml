@@ -8313,6 +8313,7 @@ paths:
         - app
       parameters:
         - $ref: "#/components/parameters/CustomPath"
+        - $ref: "#/components/parameters/SdkConsent"
       responses:
         "200":
           description: embed token
@@ -11838,6 +11839,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
+        - $ref: "#/components/parameters/SdkConsent"
       responses:
         "200":
           description: embed token
@@ -11976,6 +11978,7 @@ paths:
           required: true
           schema:
             type: string
+        - $ref: "#/components/parameters/SdkConsent"
       responses:
         "200":
           description: embed token
@@ -23866,6 +23869,16 @@ components:
       required: true
       schema:
         type: string
+    SdkConsent:
+      name: sdk_consent
+      in: query
+      required: false
+      description: >
+        Raw apps: the viewer confirmed the frontend-SDK permissions consent
+        banner, so the viewer-scoped SDK token may actually be minted. Without
+        it the response only advertises the declared sdk_scopes.
+      schema:
+        type: boolean
     PathId:
       name: id
       in: path
@@ -30700,6 +30713,17 @@ components:
             is isolated from each viewer's Windmill session. When false/absent
             the app runs same-origin with the viewer's full session (the
             default, pre-isolation behavior).
+        frontend_sdk_scopes:
+          type: array
+          items:
+            type: string
+          description: >
+            Raw apps: author-declared scopes for the frontend SDK token. When
+            non-empty, viewers can mint (after consenting) a short-lived token
+            carrying their own identity restricted to these scopes, handed to
+            the app bundle so `windmill-client` calls run as the viewer. Must
+            be a subset of the server's curated allowlist (jobs:run, jobs:read,
+            users:read, resources:read, variables:read).
 
     ListableApp:
       type: object
@@ -30945,6 +30969,15 @@ components:
           type: string
           nullable: true
           description: The resolved workspace; pairs with app_path so apps at the same path in different workspaces don't share a localStorage store.
+        sdk_scopes:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: >
+            Raw apps: scopes the app policy declares for the frontend SDK
+            token. The viewer renders these in the consent banner; token stays
+            absent until the endpoint is re-called with sdk_consent=true.
       required:
         - raw_app
         - sandbox

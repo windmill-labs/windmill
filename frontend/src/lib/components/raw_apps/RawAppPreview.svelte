@@ -36,6 +36,11 @@
 	// same-origin with full access (the default); otherwise the opaque-origin sandbox.
 	const unsandboxedCtx = getContext<{ value: boolean }>('IS_APP_UNSANDBOXED')
 	let unsandboxed = $derived(unsandboxedCtx?.value ?? false)
+
+	// Viewer-scoped frontend SDK token (PublicAppFrame mints it after the viewer
+	// consents to the app's declared scopes). Exposed to the bundle as
+	// `window.process.env` so a bundled `windmill-client` auto-configures.
+	const sdkTokenCtx = getContext<{ value: string | undefined }>('RAW_APP_SDK_TOKEN')
 	// Unsandboxed (the default) must match the pre-isolation viewer exactly: NO
 	// sandbox attribute (a same-origin blob with full session — an attribute would
 	// only break leftover features like unsandboxed popups for OAuth flows, while
@@ -69,12 +74,16 @@
 			// Always pass the wrapper object — pre-sandbox bundles rely on
 			// `window.ctx.workspace` even for anonymous viewers (ctx.ctx undefined).
 			const u = untrack(() => user)
+			const sdkToken = sdkTokenCtx?.value
 			const html = unsandboxedRawAppHtml(
 				workspace,
 				secret,
 				{ ctx: u, workspace },
 				window.location.origin,
-				window.location.hash || ''
+				window.location.hash || '',
+				sdkToken
+					? { WM_TOKEN: sdkToken, BASE_URL: window.location.origin, WM_WORKSPACE: workspace }
+					: undefined
 			)
 			return URL.createObjectURL(new Blob([html], { type: 'text/html' }))
 		}

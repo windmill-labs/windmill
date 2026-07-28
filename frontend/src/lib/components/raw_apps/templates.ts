@@ -121,7 +121,8 @@ export const react18Template = {
 	'/package.json': `{
     "dependencies": {
         "react": "18.3.1",
-        "react-dom": "18.3.1"
+        "react-dom": "18.3.1",
+        "windmill-client": "^1"
     },
     "devDependencies": {
         "@types/react-dom": "^19.0.0",
@@ -149,7 +150,8 @@ export const vueTemplate = {
 	'/package.json': `{
     "dependencies": {
         "core-js": "3.26.1",
-        "vue": "3.5.13"
+        "vue": "3.5.13",
+        "windmill-client": "^1"
     }
 }`
 }

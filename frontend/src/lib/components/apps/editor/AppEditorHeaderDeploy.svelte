@@ -21,6 +21,7 @@
 		type OnBehalfOfChoice
 	} from '$lib/components/OnBehalfOfSelector.svelte'
 	import { canUserBypassRuleKind, protectionRulesState } from '$lib/workspaceProtectionRules.svelte'
+	import { FRONTEND_SDK_SCOPES } from '$lib/components/raw_apps/sdkScopes'
 
 	const WM_DEPLOYERS_GROUP = 'wm_deployers'
 
@@ -328,6 +329,55 @@
 		</div>
 	{/if}
 </div>
+
+{#if rawApp}
+	<h2>Frontend API access</h2>
+	<div class="my-6">
+		<div class="text-xs text-secondary mb-3">
+			Let the app's frontend code call the Windmill API through the <code>windmill-client</code>
+			SDK, authenticated as <b>the viewer</b> (unlike runnables, which run on behalf of the publisher).
+			Each viewer is asked to approve the scopes below before the app runs. Grant only what the app needs:
+			its code — or an XSS bug in it — can use them as that viewer.
+		</div>
+		{#each FRONTEND_SDK_SCOPES as scope (scope.value)}
+			<div class="mb-2">
+				<Toggle
+					size="xs"
+					options={{ right: scope.label }}
+					checked={policy.frontend_sdk_scopes?.includes(scope.value) ?? false}
+					on:change={(e) => {
+						const current: string[] = policy.frontend_sdk_scopes ?? []
+						const next = e.detail
+							? [...current, scope.value]
+							: current.filter((s) => s !== scope.value)
+						// Keep the curated order so the consent banner and the stored
+						// consent compare stably across deploys.
+						const ordered = FRONTEND_SDK_SCOPES.map((s) => s.value).filter((s) => next.includes(s))
+						policy.frontend_sdk_scopes = ordered.length > 0 ? ordered : undefined
+						// Same as sandbox: a not-yet-deployed app has no row to PATCH, so the
+						// scopes ride along in the first deploy's policy instead.
+						if (savedApp && !newApp) {
+							setPublishState('Frontend API access updated')
+						}
+					}}
+					disabled={!savedApp}
+				/>
+				<div class="text-xs text-tertiary ml-10">{scope.description}</div>
+			</div>
+		{/each}
+		{#if newApp}
+			<div class="text-xs text-tertiary mt-1">Takes effect when you first deploy this app.</div>
+		{/if}
+		{#if policy.sandbox == true && policy.frontend_sdk_scopes?.length}
+			<div class="mt-2">
+				<Alert type="warning" title="Not available with sandbox isolation" size="xs">
+					A sandboxed app's bundle runs on an opaque origin and cannot use the SDK token. Turn off
+					sandbox isolation for these scopes to take effect.
+				</Alert>
+			</div>
+		{/if}
+	</div>
+{/if}
 
 {#if !hideSecretUrl}
 	<h2>Public URL</h2>

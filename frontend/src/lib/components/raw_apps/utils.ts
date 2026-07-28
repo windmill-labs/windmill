@@ -163,7 +163,13 @@ export function unsandboxedRawAppHtml(
 	secret: string,
 	ctx: any,
 	baseUrl: string,
-	initialHash: string
+	initialHash: string,
+	/** When the viewer consented to the app's declared frontend-SDK scopes, the
+	 * minted viewer token + connection settings, exposed as `window.process.env`
+	 * (WM_TOKEN/BASE_URL/WM_WORKSPACE) BEFORE the bundle runs so a bundled
+	 * `windmill-client` auto-configures at module load. Absent otherwise — the
+	 * bundle then receives no credential and no API base. */
+	sdkEnv?: Record<string, string>
 ) {
 	return `<!DOCTYPE html>
 <html>
@@ -172,6 +178,7 @@ export function unsandboxedRawAppHtml(
 	<title>App</title>
 	<link rel="stylesheet" href="${baseUrl}/api/w/${workspace}/apps_u/get_data/v/${secret}.css" />
 	<script>
+		${sdkEnv ? `window.process = { env: ${JSON.stringify(sdkEnv).replace(/</g, '\\u003c')} };` : ''}
 		window.ctx = ${ctx ? JSON.stringify(ctx) : 'undefined'};
 		(function () {
 			// Keep the parent URL hash in sync for shareable URLs.
