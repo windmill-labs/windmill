@@ -51,7 +51,7 @@ use windmill_common::workspaces::{
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::PgDatabase;
 use windmill_common::{
-    error::{Error, JsonResult, Result},
+    error::{pg_error_message, Error, JsonResult, Result},
     global_settings::{
         AUTOMATE_USERNAME_CREATION_SETTING, DISABLE_WORKSPACE_INVITE_EMAILS_SETTING,
     },
@@ -2139,7 +2139,9 @@ async fn get_datatable_schema(db: &DB, w_id: &str, datatable_name: &str) -> Resu
             &[],
         )
         .await
-        .map_err(|e| Error::internal_err(format!("Failed to query schemas: {}", e)))?;
+        .map_err(|e| {
+            Error::internal_err(format!("Failed to query schemas: {}", pg_error_message(&e)))
+        })?;
 
     // Build hierarchical structure: schema -> table -> column -> compact_type
     let mut schema_map: SchemaMap = HashMap::new();
@@ -2173,7 +2175,9 @@ async fn get_datatable_schema(db: &DB, w_id: &str, datatable_name: &str) -> Resu
             &[&schema_names],
         )
         .await
-        .map_err(|e| Error::internal_err(format!("Failed to query columns: {}", e)))?;
+        .map_err(|e| {
+            Error::internal_err(format!("Failed to query columns: {}", pg_error_message(&e)))
+        })?;
 
     for row in rows {
         let table_schema: String = row.get(0);
@@ -2221,7 +2225,9 @@ async fn get_datatable_tables(db: &DB, w_id: &str, datatable_name: &str) -> Resu
             &[],
         )
         .await
-        .map_err(|e| Error::internal_err(format!("Failed to query schemas: {}", e)))?;
+        .map_err(|e| {
+            Error::internal_err(format!("Failed to query schemas: {}", pg_error_message(&e)))
+        })?;
 
     let mut table_map: TableListMap = HashMap::new();
     let schema_names: Vec<String> = schema_rows
@@ -2247,7 +2253,9 @@ async fn get_datatable_tables(db: &DB, w_id: &str, datatable_name: &str) -> Resu
             &[&schema_names],
         )
         .await
-        .map_err(|e| Error::internal_err(format!("Failed to query tables: {}", e)))?;
+        .map_err(|e| {
+            Error::internal_err(format!("Failed to query tables: {}", pg_error_message(&e)))
+        })?;
 
     for row in rows {
         let table_schema: String = row.get(0);
@@ -2299,7 +2307,9 @@ async fn get_datatable_table_columns(
             &[&schema_name, &table_name],
         )
         .await
-        .map_err(|e| Error::internal_err(format!("Failed to query columns: {}", e)))?;
+        .map_err(|e| {
+            Error::internal_err(format!("Failed to query columns: {}", pg_error_message(&e)))
+        })?;
 
     if rows.is_empty() {
         return Err(Error::NotFound(format!(
@@ -2671,7 +2681,10 @@ async fn create_pg_database(
             )
             .await
             .map_err(|e| {
-                Error::internal_err(format!("Failed to check database existence: {}", e))
+                Error::internal_err(format!(
+                    "Failed to check database existence: {}",
+                    pg_error_message(&e)
+                ))
             })?;
         let db_exists: bool = row.get(0);
 
@@ -2690,7 +2703,8 @@ async fn create_pg_database(
             .map_err(|e| {
                 Error::internal_err(format!(
                     "Failed to create database '{}': {}",
-                    req.target_dbname, e
+                    req.target_dbname,
+                    pg_error_message(&e)
                 ))
             })?;
 

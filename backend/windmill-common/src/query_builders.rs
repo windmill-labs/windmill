@@ -1,6 +1,8 @@
 use serde::{Deserialize, Deserializer, Serialize};
 use windmill_types::scripts::ScriptLang;
 
+use crate::error::pg_error_message;
+
 fn deserialize_bool_from_null<'de, D>(deserializer: D) -> Result<bool, D::Error>
 where
     D: Deserializer<'de>,
@@ -4848,7 +4850,7 @@ fn required_str<'a>(
     column: &str,
 ) -> Result<&'a str, String> {
     row.try_get(column)
-        .map_err(|e| format!("Failed to read column {}: {}", column, e))?
+        .map_err(|e| format!("Failed to read column {}: {}", column, pg_error_message(&e)))?
         .ok_or_else(|| format!("Unexpected NULL in column {}", column))
 }
 
@@ -4894,7 +4896,7 @@ pub async fn pg_get_full_schema(
         )
         .await
         .map(simple_query_rows)
-        .map_err(|e| format!("Failed to query columns: {}", e))?;
+        .map_err(|e| format!("Failed to query columns: {}", pg_error_message(&e)))?;
 
     let fk_rows = client
         .simple_query(
@@ -4922,7 +4924,7 @@ pub async fn pg_get_full_schema(
         )
         .await
         .map(simple_query_rows)
-        .map_err(|e| format!("Failed to query foreign keys: {}", e))?;
+        .map_err(|e| format!("Failed to query foreign keys: {}", pg_error_message(&e)))?;
 
     let mut result: FullDatabaseSchema = std::collections::HashMap::new();
 

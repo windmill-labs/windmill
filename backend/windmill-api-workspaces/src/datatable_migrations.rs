@@ -21,13 +21,14 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
 use std::collections::{HashMap, HashSet};
+use tokio_postgres::error::SqlState;
 
 use windmill_api_auth::{require_super_admin, ApiAuthed};
 use windmill_api_jobs::run_wait_result_internal;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
-use windmill_common::error::{Error, JsonResult, Result};
+use windmill_common::error::{pg_error_message, Error, JsonResult, Result};
 use windmill_common::jobs::{JobPayload, RawCode};
 use windmill_common::runnable_settings::{ConcurrencySettingsWithCustom, DebouncingSettings};
 use windmill_common::scripts::ScriptLang;
@@ -222,6 +223,25 @@ async fn run_datatable_migration_job(
 /// key would let one data table's migration mark another's same-version
 /// migration as already applied (and rollback could touch the wrong row).
 async fn ensure_wm_migrations_schema(client: &tokio_postgres::Client) -> Result<()> {
+    // `CREATE TABLE IF NOT EXISTS` checks CREATE on the schema before it checks
+    // existence, so probing first is what lets a data table whose role only holds
+    // DML grants keep migrating against an already-created bookkeeping table.
+    // `to_regclass` resolves through search_path, like the unqualified statements
+    // the rest of this module runs against it.
+    let exists = client
+        .query_one("SELECT to_regclass('_wm_migrations') IS NOT NULL", &[])
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to look up _wm_migrations table: {}",
+                pg_error_message(&e)
+            ))
+        })?
+        .get::<_, bool>(0);
+    if exists {
+        return Ok(());
+    }
+
     client
         .batch_execute(
             "CREATE TABLE IF NOT EXISTS _wm_migrations (\
@@ -232,7 +252,21 @@ async fn ensure_wm_migrations_schema(client: &tokio_postgres::Client) -> Result<
         )
         .await
         .map_err(|e| {
-            Error::internal_err(format!("Failed to ensure _wm_migrations table: {}", e))
+            let mut msg = format!(
+                "Failed to ensure _wm_migrations table: {}",
+                pg_error_message(&e)
+            );
+            // A role with only table-level grants cannot create it: since Postgres
+            // 15 the `public` schema no longer grants CREATE to PUBLIC, so this is
+            // the usual failure on a bring-your-own database.
+            if e.code() == Some(&SqlState::INSUFFICIENT_PRIVILEGE) {
+                msg.push_str(
+                    ". Applied migrations are recorded in a `_wm_migrations` table in the \
+                     data table's own database, so its user needs to be able to create it \
+                     (e.g. GRANT CREATE ON SCHEMA public TO <user>)",
+                );
+            }
+            Error::internal_err(msg)
         })?;
     Ok(())
 }
@@ -265,7 +299,12 @@ async fn lock_datatable_migration_runs(
     client
         .batch_execute("SELECT pg_advisory_lock(hashtext('windmill_datatable_migrations')::int8)")
         .await
-        .map_err(|e| Error::internal_err(format!("Failed to acquire migration lock: {}", e)))?;
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to acquire migration lock: {}",
+                pg_error_message(&e)
+            ))
+        })?;
     Ok(client)
 }
 
@@ -287,7 +326,7 @@ async fn read_applied_versions_on_client(
         Err(e) if e.as_db_error().map(|d| d.code().code()) == Some("42P01") => Ok(HashSet::new()),
         Err(e) => Err(Error::internal_err(format!(
             "Failed to read _wm_migrations: {}",
-            e
+            pg_error_message(&e)
         ))),
     }
 }
@@ -366,7 +405,12 @@ async fn run_datatable_migrations(
                 &[&datatable_name, &m.timestamp],
             )
             .await
-            .map_err(|e| Error::internal_err(format!("Failed to record migration: {}", e)))?;
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "Failed to record migration: {}",
+                    pg_error_message(&e)
+                ))
+            })?;
         applied.push(AppliedMigration { version: m.timestamp, name: m.name });
     }
 
@@ -433,7 +477,12 @@ async fn rollback_datatable_migrations(
                 &[&datatable_name, &only],
             )
             .await
-            .map_err(|e| Error::internal_err(format!("Failed to read _wm_migrations: {}", e)))?,
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "Failed to read _wm_migrations: {}",
+                    pg_error_message(&e)
+                ))
+            })?,
         None => client
             .query_opt(
                 "SELECT version FROM _wm_migrations WHERE datatable = $1 \
@@ -441,7 +490,12 @@ async fn rollback_datatable_migrations(
                 &[&datatable_name],
             )
             .await
-            .map_err(|e| Error::internal_err(format!("Failed to read _wm_migrations: {}", e)))?,
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "Failed to read _wm_migrations: {}",
+                    pg_error_message(&e)
+                ))
+            })?,
     };
 
     let version: i64 = match target {
@@ -492,7 +546,12 @@ async fn rollback_datatable_migrations(
             &[&datatable_name, &version],
         )
         .await
-        .map_err(|e| Error::internal_err(format!("Failed to drop migration record: {}", e)))?;
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to drop migration record: {}",
+                pg_error_message(&e)
+            ))
+        })?;
 
     Ok(Json(RollbackDatatableMigrationsResult {
         rolled_back: vec![RolledBackMigration { version, name: definition.name }],
@@ -940,7 +999,10 @@ async fn mark_datatable_version_installed(
         )
         .await
         .map_err(|e| {
-            Error::internal_err(format!("Failed to mark initial migration installed: {}", e))
+            Error::internal_err(format!(
+                "Failed to mark initial migration installed: {}",
+                pg_error_message(&e)
+            ))
         })?;
     Ok(())
 }
@@ -1378,7 +1440,7 @@ fn ignore_missing_wm_migrations(e: tokio_postgres::Error) -> Result<()> {
         Some("42P01") => Ok(()),
         _ => Err(Error::internal_err(format!(
             "Failed to update _wm_migrations: {}",
-            e
+            pg_error_message(&e)
         ))),
     }
 }

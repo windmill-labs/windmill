@@ -247,6 +247,33 @@ pub fn to_anyhow<T: 'static + std::error::Error + Send + Sync>(e: T) -> anyhow::
     From::from(e)
 }
 
+/// Render a `tokio_postgres` error for a user-facing message.
+///
+/// The pinned rust-postgres build prints only the error *kind* in its `Display`
+/// impl, so `format!("{e}")` on one of these yields the useless `db error` and
+/// drops the Postgres message. Interpolate errors from a `tokio_postgres::Client`
+/// through this instead.
+pub fn pg_error_message(e: &tokio_postgres::Error) -> String {
+    if let Some(db_err) = e.as_db_error() {
+        let mut msg = db_err.message().to_string();
+        if let Some(detail) = db_err.detail() {
+            msg.push_str(&format!(" ({detail})"));
+        }
+        if let Some(hint) = db_err.hint() {
+            msg.push_str(&format!(". Hint: {hint}"));
+        }
+        return msg;
+    }
+    // Non-database failures (io, tls, protocol) keep their message in the cause.
+    let mut msg = e.to_string();
+    let mut source = std::error::Error::source(e);
+    while let Some(cause) = source {
+        msg.push_str(&format!(": {cause}"));
+        source = cause.source();
+    }
+    msg
+}
+
 impl IntoResponse for Error {
     fn into_response(self) -> axum::response::Response {
         let status = match self {
