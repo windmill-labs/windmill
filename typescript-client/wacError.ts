@@ -27,6 +27,16 @@ const SERIALIZED_ERROR_FIELDS = [
  *  The record's final shape is decided by the backend (`wac_failure_record`),
  *  which normalizes task failures through the same function; what is built here
  *  is the raw material plus the envelope the backend recognizes. */
+/** Read a property off a value that may fight back: a proxy `get` trap or a
+ *  throwing accessor turns an ordinary field read into an exception. */
+function safeRead(o: any, k: string): unknown {
+  try {
+    return o?.[k];
+  } catch {
+    return undefined;
+  }
+}
+
 export function stepErrorMarker(key: string, e: unknown): Record<string, any> {
   const thrown = e as any;
   // The three named fields are read off whatever was thrown, exactly as the
@@ -44,9 +54,12 @@ export function stepErrorMarker(key: string, e: unknown): Record<string, any> {
   // `message`, would split `message` between a task and a step, which is the
   // thing this record exists to prevent. The executors are where a primitive
   // throw could keep its text for both.
-  const name = typeof thrown?.name === "string" ? thrown.name : undefined;
-  const message = typeof thrown?.message === "string" ? thrown.message : undefined;
-  const stack = typeof thrown?.stack === "string" ? thrown.stack : undefined;
+  const rawName = safeRead(thrown, "name");
+  const rawMessage = safeRead(thrown, "message");
+  const rawStack = safeRead(thrown, "stack");
+  const name = typeof rawName === "string" ? rawName : undefined;
+  const message = typeof rawMessage === "string" ? rawMessage : undefined;
+  const stack = typeof rawStack === "string" ? rawStack : undefined;
   const error: Record<string, any> = {};
   if (name) error.name = name;
   if (message !== undefined) error.message = message;
@@ -68,7 +81,14 @@ export function stepErrorMarker(key: string, e: unknown): Record<string, any> {
   // would then have to carry.
   if (thrown !== null && typeof thrown === "object") {
     const extra: Record<string, any> = {};
-    for (const k of Object.getOwnPropertyNames(thrown)) {
+    // `ownKeys` is a proxy trap too, so even listing the properties can throw.
+    let keys: string[] = [];
+    try {
+      keys = Object.getOwnPropertyNames(thrown);
+    } catch {
+      keys = [];
+    }
+    for (const k of keys) {
       if (SERIALIZED_ERROR_FIELDS.includes(k)) continue;
       try {
         const v = thrown[k];

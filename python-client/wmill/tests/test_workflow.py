@@ -1053,6 +1053,23 @@ class TestRaisingInlineStepIsCheckpointed:
         _json.dumps(marker)  # raises if an attribute leaked through unserialized
         assert marker["result"]["error"]["extra"]["status"] == 429
 
+    def test_an_exception_whose_str_raises_still_reports(self):
+        """Every coercion of the user's exception runs inside the ``except``
+        reporting it, so one that raises would replace their failure with an
+        unrelated one and leave the step uncheckpointed."""
+        import json as _json
+
+        from wmill.client import _step_error_marker
+
+        class Hostile(Exception):
+            def __str__(self):
+                raise RuntimeError("cannot be rendered")
+
+        marker = _step_error_marker("k", Hostile())
+        _json.dumps(marker)
+        assert marker["result"]["error"]["name"] == "Hostile"
+        assert "unrepresentable" in marker["result"]["error"]["message"]
+
     def test_fast_path_posts_error_and_raises_the_replay_exception(self, monkeypatch):
         """The default path: the checkpoint is POSTed and the workflow body gets
         the same ``TaskError`` a replay rebuilds from the marker — raising the

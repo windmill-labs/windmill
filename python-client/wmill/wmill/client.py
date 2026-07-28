@@ -2705,6 +2705,18 @@ class TaskError(Exception):
         self.result = result
 
 
+def _safe_str(o) -> str:
+    """``str()`` on the failing side's own object, which can raise in turn — a
+    detached ORM row, a proxy over a closed connection, an ``__str__`` that
+    itself fails. Every coercion here runs inside the ``except`` that is
+    reporting the user's failure, so an escape would replace their error with an
+    unrelated one and skip the checkpoint entirely."""
+    try:
+        return str(o)
+    except Exception:
+        return f"<unrepresentable {type(o).__name__}>"
+
+
 def _step_error_stack(exc: BaseException) -> str:
     """The traceback of a failed ``step()`` body, formatted the way the python
     executor formats a failed job's: frames only, and the frame that called into
@@ -2728,7 +2740,7 @@ def _step_error_marker(key: str, exc: BaseException) -> dict:
     The marker's final shape is decided by the backend (``wac_failure_record``),
     which normalizes task failures through the same function; what is built here
     is the raw material plus the envelope the backend recognizes."""
-    error = {"name": type(exc).__name__, "message": str(exc)}
+    error = {"name": type(exc).__name__, "message": _safe_str(exc)}
     stack = _step_error_stack(exc)
     if stack:
         error["stack"] = stack
@@ -2748,12 +2760,6 @@ def _step_error_marker(key: str, exc: BaseException) -> dict:
         # connection raises in turn. This runs inside the ``except`` that is
         # reporting the user's failure, so an escape here would replace their
         # error with an unrelated one and skip the checkpoint entirely.
-        def _safe_str(o):
-            try:
-                return str(o)
-            except Exception:
-                return f"<unrepresentable {type(o).__name__}>"
-
         # Narrow: what json raises for something it cannot represent. A broader
         # catch would hide a mistake in this function as a silently missing
         # field, which is how it read before.
@@ -2763,7 +2769,7 @@ def _step_error_marker(key: str, exc: BaseException) -> dict:
             pass
     return {
         "__wmill_error": True,
-        "message": str(exc),
+        "message": _safe_str(exc),
         "step_key": key,
         "result": {"error": error},
     }
@@ -2977,7 +2983,7 @@ class WorkflowCtx:
             # prints the traceback. Without this a step that fails and is never
             # caught leaves a job log whose deepest frame is inside this client.
             print(f"--- WAC: {key} failed ---")
-            print(f"{type(_exc).__name__}: {_exc}")
+            print(f"{type(_exc).__name__}: {_safe_str(_exc)}")
             _step_stack = result["result"]["error"].get("stack")
             if _step_stack:
                 print(_step_stack)

@@ -1894,7 +1894,13 @@ export class WorkflowCtx {
       // the stack. Without this a step that throws and is never caught leaves a
       // job log whose deepest frame is inside this client.
       console.log(`--- WAC: ${key} failed ---`);
-      console.log((result as any)?.result?.error?.stack ?? String(e));
+      // Only from the marker, which already coerced the thrown value once and
+      // survived it. Reaching for `e` again here would re-run the coercion that
+      // `stepErrorMarker` guards, and throw out of this catch before the failure
+      // is ever checkpointed.
+      console.log(
+        (result as any)?.result?.error?.stack ?? (result as any)?.message ?? "step failed",
+      );
     }
     const durationMs = Date.now() - t0;
 

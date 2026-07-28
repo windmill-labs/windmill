@@ -1545,6 +1545,28 @@ describe("throwing inline step is checkpointed", () => {
     expect(() => stepErrorMarker("k", Object.create(null))).not.toThrow();
   });
 
+  // Reporting a failure must not be able to fail: every read of the thrown
+  // value happens inside the catch that is reporting it, so an escape replaces
+  // the user's error with an unrelated one and leaves the step uncheckpointed.
+  test("a hostile thrown value cannot make failure reporting throw", () => {
+    const hostile = new Proxy(
+      {},
+      {
+        get() {
+          throw new Error("get trap");
+        },
+        ownKeys() {
+          throw new Error("ownKeys trap");
+        },
+      },
+    );
+    expect(() => stepErrorMarker("k", hostile)).not.toThrow();
+    expect(() => JSON.stringify(stepErrorMarker("k", hostile))).not.toThrow();
+
+    const throwingToString = { toString() { throw new Error("no"); } };
+    expect(() => stepErrorMarker("k", throwingToString)).not.toThrow();
+  });
+
   test("a replayed step failure is named TaskError, like the python client", async () => {
     const ctx = new WorkflowCtx({ completed_steps: { step_0: marker } });
     let caught: any;
