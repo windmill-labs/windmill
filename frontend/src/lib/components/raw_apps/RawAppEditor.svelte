@@ -1321,11 +1321,27 @@
 	// Dark variant forwarded to the UI Builder / preview iframes alongside
 	// `dark`. Reads the `github-dark` class (the runtime source of truth) and is
 	// refreshed on any <html> class mutation via the DarkModeObserver below.
+	// The embedded UI Builder editor only honors `variant` once
+	// scripts/ui_builder_artifact.json is pinned to a builder build carrying
+	// windmill-code-ui-builder PR #16; older pinned builds ignore it harmlessly
+	// and keep the editor on the default dark (Nord) palette.
 	let darkVariant: 'default' | 'github' = $state(
 		typeof document !== 'undefined' && document.documentElement.classList.contains('github-dark')
 			? 'github'
 			: 'default'
 	)
+	// Seed the UI Builder iframe URL with the current theme so the VS Code
+	// workbench boots straight into it, instead of flashing the dark default
+	// until the host's `setDarkMode` message lands. Reads the live <html>
+	// classes rather than the reactive darkMode/darkVariant state so the src is
+	// computed once at mount — a later theme toggle updates the workbench via
+	// postMessage (see the $effect below) and must not reload the iframe.
+	function uiBuilderIframeSrc(): string {
+		const cl = document.documentElement.classList
+		const dark = cl.contains('dark')
+		const variant = cl.contains('github-dark') ? 'github' : 'default'
+		return `/ui_builder/index.html?dark=${dark}&variant=${variant}`
+	}
 	// Host's computed `text-xs` size in px. Windmill bumps :root to 18px at
 	// ≥1760px viewports, so this re-evaluates on resize via the listener below.
 	let editorFontSize = $state(12)
@@ -1830,7 +1846,7 @@
 											<iframe
 												bind:this={iframe}
 												title="UI builder"
-												src="/ui_builder/index.html"
+												src={uiBuilderIframeSrc()}
 												class="w-full h-full block"
 												onload={attachIframeSaveShortcut}
 											></iframe>
