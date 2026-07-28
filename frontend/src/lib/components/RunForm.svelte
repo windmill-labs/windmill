@@ -114,6 +114,7 @@
 		scheduledForStr: string | undefined
 		invisible_to_owner: boolean | undefined
 		overrideTag: string | undefined
+		overrideTagNote?: string
 		args?: Record<string, any>
 		jsonView?: boolean
 		isValid?: boolean
@@ -132,6 +133,7 @@
 		scheduledForStr = $bindable(),
 		invisible_to_owner = $bindable(),
 		overrideTag = $bindable(),
+		overrideTagNote = undefined,
 		args = $bindable(),
 		jsonView = false,
 		isValid = $bindable(true)
@@ -160,7 +162,7 @@
 			debounced && clearTimeout(debounced)
 			debounced = setTimeout(() => {
 				const nurl = new URL(window.location.href)
-				nurl.hash = computeSharableHash(args)
+				nurl.hash = computeSharableHash(args, overrideTag)
 
 				try {
 					replaceState(nurl.toString(), page.state)
@@ -201,6 +203,7 @@
 		jsonEditor?.setCode(code)
 	}
 	$effect(() => {
+		overrideTag
 		Object.keys(args ?? {}).forEach((key) => {
 			args?.[key]
 		})
@@ -386,6 +389,10 @@
 			{#if overrideTag}
 				<div class="flex-row-reverse flex w-full text-primary text-sm">
 					tag override: {overrideTag}
+				</div>
+			{:else if overrideTagNote}
+				<div class="flex-row-reverse flex w-full text-secondary text-xs">
+					{overrideTagNote}
 				</div>
 			{/if}
 			{#if invisible_to_owner}

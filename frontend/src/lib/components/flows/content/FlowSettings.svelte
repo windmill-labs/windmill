@@ -137,7 +137,7 @@
 				<!-- prettier-ignore -->
 				<LabelsInput bind:labels={(flowStore.val as any).labels} class="-mt-4" />
 
-				{#if !noEditor}
+				{#if !noEditor && customUi?.topBar?.editablePath != false}
 					<Label label="Path">
 						<Path
 							autofocus={false}
@@ -147,6 +147,7 @@
 							initialPath={$initialPathStore}
 							namePlaceholder="flow"
 							kind="flow"
+							workspaceOverride={opWorkspace?.()}
 						/>
 						{#if $initialPathStore && $pathStore && $pathStore !== $initialPathStore}
 							<Alert
@@ -453,7 +454,7 @@
 					/>
 					{#if flowStore.val.on_behalf_of_email && canPreserve}
 						&rarr; <OnBehalfOfSelector
-							targetWorkspace={$workspaceStore ?? ''}
+							targetWorkspace={opWorkspace?.() ?? $workspaceStore ?? ''}
 							targetValue={$savedOnBehalfOfEmail}
 							selected={onBehalfOfChoice}
 							onSelect={(choice, details) => {

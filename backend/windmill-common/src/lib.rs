@@ -35,6 +35,7 @@ pub mod auth;
 pub mod bench;
 pub mod cache;
 pub mod client;
+pub mod data_metrics;
 pub mod db;
 #[cfg(all(feature = "enterprise", feature = "private"))]
 mod db_entra_ee;
@@ -260,6 +261,16 @@ lazy_static::lazy_static! {
     pub static ref CRITICAL_ALERTS_ON_DB_OVERSIZE: arc_swap::ArcSwap<Option<f32>> = arc_swap::ArcSwap::from_pointee(None);
 
     pub static ref JOB_RETENTION_SECS: AtomicI64 = AtomicI64::new(0);
+    /// Per-workspace overrides of `JOB_RETENTION_SECS` (EE-only), keyed by workspace_id, in seconds.
+    /// Sourced from the `retention_period_secs_overrides` global setting and cached here so the
+    /// cleanup sweep reads it without a per-tick DB query. A workspace may be given a longer OR
+    /// shorter window than the instance-wide value; `0` means "keep forever" for that workspace.
+    pub static ref JOB_RETENTION_SECS_OVERRIDES: arc_swap::ArcSwap<std::collections::HashMap<String, i64>> = arc_swap::ArcSwap::from_pointee(std::collections::HashMap::new());
+    /// Whether `JOB_RETENTION_SECS_OVERRIDES` has ever been loaded successfully (a valid map, an
+    /// explicit unset, or CE's no-op). Until then the empty cache is "unknown, not confirmed empty",
+    /// so the retention sweep must NOT run globally — that would delete jobs a longer-retention
+    /// workspace configured before its override could be read.
+    pub static ref JOB_RETENTION_SECS_OVERRIDES_LOADED: AtomicBool = AtomicBool::new(false);
     pub static ref AUDIT_LOG_RETENTION_DAYS: AtomicI64 = AtomicI64::new(0);
 
     pub static ref MONITOR_LOGS_ON_OBJECT_STORE: AtomicBool = AtomicBool::new(false);
@@ -1057,6 +1068,49 @@ impl PgDatabase {
     }
 }
 
+/// How long a `tokio_postgres` connection task gets to wind down once its `Client` is dropped.
+const PG_CONNECTION_SHUTDOWN_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Wind down the task driving a `tokio_postgres` connection after its `Client` has been dropped,
+/// surfacing whatever error the connection ended with. A teardown that has to be aborted is
+/// reported as success — the work the client did is already done and complete.
+///
+/// The task only finishes once the exchange the client left behind (its Terminate, and any
+/// still-unanswered request) has been settled by the peer. A connection proxy that stops
+/// replying leaves that pending forever, so waiting on the task without a deadline pins the
+/// caller and the socket for the lifetime of the process. Aborting past the grace period drops
+/// the stream, which is the only cleanup the task owes.
+pub async fn shutdown_pg_connection(
+    join_handle: tokio::task::JoinHandle<Result<(), tokio_postgres::Error>>,
+) -> error::Result<()> {
+    let abort_handle = join_handle.abort_handle();
+    match tokio::time::timeout(PG_CONNECTION_SHUTDOWN_GRACE, join_handle).await {
+        Ok(Ok(Ok(()))) => Ok(()),
+        Ok(Ok(Err(e))) => Err(error::Error::internal_err(format!(
+            "tokio_postgres error: {}",
+            e
+        ))),
+        Ok(Err(e)) => Err(error::Error::internal_err(format!("join error: {}", e))),
+        Err(_) => {
+            tracing::warn!(
+                "Postgres connection did not close within {}s of its client being dropped, aborting it",
+                PG_CONNECTION_SHUTDOWN_GRACE.as_secs()
+            );
+            abort_handle.abort();
+            Ok(())
+        }
+    }
+}
+
+#[cfg(test)]
+mod pg_connection_shutdown_tests {
+    #[tokio::test(start_paused = true)]
+    async fn gives_up_on_a_connection_task_that_never_finishes() {
+        let never_finishes = tokio::spawn(std::future::pending());
+        assert!(super::shutdown_pg_connection(never_finishes).await.is_ok());
+    }
+}
+
 /// Validate a database name to prevent SQL injection.
 /// Must start with a letter, contain only alphanumeric characters, underscores, or hyphens, and be <= 63 chars.
 pub fn validate_dbname(dbname: &str) -> error::Result<()> {
@@ -1208,10 +1262,7 @@ pub async fn create_custom_instance_database(
     }
 
     drop(client);
-    join_handle
-        .await
-        .map_err(|e| error::Error::internal_err(format!("join error: {}", e)))?
-        .map_err(|e| error::Error::internal_err(format!("tokio_postgres error: {}", e)))?;
+    shutdown_pg_connection(join_handle).await?;
 
     // Register in global_settings
     let status_json = serde_json::json!({

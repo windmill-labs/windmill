@@ -116,9 +116,13 @@ export async function loadScriptSchedule(
 	}
 }
 
-export async function loadSchemaFlow(path: string): Promise<Schema> {
+export async function loadSchemaFlow(
+	path: string,
+	// The acting workspace when the flow editor runs in an AI session; else the nav workspace.
+	workspace?: string
+): Promise<Schema> {
 	const flow = await FlowService.getFlowByPath({
-		workspace: get(workspaceStore)!,
+		workspace: workspace ?? get(workspaceStore)!,
 		path: path ?? ''
 	})
 	return flow.schema as any
@@ -189,7 +193,12 @@ export function processLangs(selected: string | undefined, langs: string[]): str
 
 export const defaultScriptLanguages = Object.fromEntries(scriptLanguagesArray)
 
-export async function getScriptByPath(path: string): Promise<{
+export async function getScriptByPath(
+	path: string,
+	// The acting workspace when called from a session live editor; defaults to
+	// the navigation workspace for full-page callers.
+	workspace?: string
+): Promise<{
 	content: string
 	language: SupportedLanguage
 	schema: any
@@ -216,7 +225,7 @@ export async function getScriptByPath(path: string): Promise<{
 		}
 	} else {
 		const script = await ScriptService.getScriptByPath({
-			workspace: get(workspaceStore)!,
+			workspace: workspace ?? get(workspaceStore)!,
 			path: path ?? ''
 		})
 		return {
@@ -234,9 +243,9 @@ export async function getScriptByPath(path: string): Promise<{
 	}
 }
 
-export async function getLatestHashForScript(path: string): Promise<string> {
+export async function getLatestHashForScript(path: string, workspace?: string): Promise<string> {
 	const script = await ScriptService.getScriptByPath({
-		workspace: get(workspaceStore)!,
+		workspace: workspace ?? get(workspaceStore)!,
 		path: path ?? ''
 	})
 	return script.hash

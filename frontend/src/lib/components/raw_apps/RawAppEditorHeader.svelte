@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { Drawer, DrawerContent } from '$lib/components/common'
+	import { base } from '$lib/base'
+	import RawAppRecordSession from '$lib/components/workspaceSettings/RawAppRecordSession.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { isMac, userPathPrefix } from '$lib/utils'
 	import { editPathFor } from '$lib/components/workspacePicker'
@@ -10,22 +12,13 @@
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { discardDraftAfterDeploy } from '$lib/userDraftToast'
-	import { rawAppToHubUrl } from '$lib/hub'
-	import {
-		enterpriseLicense,
-		hubBaseUrlStore,
-		userStore,
-		userWorkspaces,
-		workspaceStore
-	} from '$lib/stores'
-	import YAML from 'yaml'
+	import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import {
 		Bug,
 		DiffIcon,
-		Download,
 		EllipsisVertical,
 		FileJson,
-		Globe,
+		Circle,
 		History,
 		PanelLeft,
 		PanelLeftClose,
@@ -137,6 +130,10 @@
 		onOpenYamlEditor?: () => void
 		sidebarCollapsed?: boolean
 		onToggleSidebar?: () => void
+		/** Condensed top bar: smaller (sm) buttons, a shorter bar, and the
+		 * EditorHeader's path/breadcrumb row dropped (summary only). Used by the
+		 * session preview to save vertical room. */
+		condensedHeader?: boolean
 		onNavigate?: (item: import('$lib/components/workspacePicker').WorkspaceItem) => void
 		liveEditorDraftStoragePath?: string
 		/** Indicator-only overrides for the sessions preview: the AutosaveIndicator
@@ -194,6 +191,7 @@
 		onOpenYamlEditor = undefined,
 		sidebarCollapsed = false,
 		onToggleSidebar = undefined,
+		condensedHeader = false,
 		onNavigate = undefined,
 		liveEditorDraftStoragePath = undefined,
 		autosaveWorkspace = undefined,
@@ -217,6 +215,22 @@
 	// session's (workspace, path), else the full-page editor's own values.
 	const opWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
 	const indicatorPath = $derived(autosavePath ?? liveEditorDraftStoragePath)
+
+	// Materialize a brand-new app's draft before the session preview loads it by
+	// path — an untouched new app never autosaved, so forcePersist is the only
+	// thing that creates the row (`appPath === indicatorPath` in the full-page
+	// editor). Gated to never-deployed: forcePersist skips the discardIf baseline.
+	async function persistDraftForSession(): Promise<void> {
+		if (!opWorkspace || indicatorPath === undefined) return
+		await UserDraftDbSyncer.flush({
+			workspace: opWorkspace,
+			itemKind: 'raw_app',
+			path: indicatorPath
+		})
+		if (newApp) {
+			await UserDraft.forcePersist('raw_app', indicatorPath, { workspace: opWorkspace })
+		}
+	}
 
 	$effect(() => {
 		const typed = newEditedPath
@@ -274,44 +288,16 @@
 
 	let saveDrawerOpen = $state(false)
 	let historyBrowserDrawerOpen = $state(false)
-	let publishToHubDrawerOpen = $state(false)
-	let publishingToHub = $state(false)
+	let recordDrawer = $state<Drawer | undefined>(undefined)
 	let deploymentMsg: string | undefined = $state(undefined)
 
 	// Top-bar responsive collapse — container width, not viewport.
 	let topbarWidth = $state(0)
 	const compactTopbar = $derived(topbarWidth > 0 && topbarWidth < 720)
 
-	async function publishToHub() {
-		if (!app) return
-		publishingToHub = true
-		try {
-			const { default: JSZip } = await import('jszip')
-			const { js, css } = await getBundle()
-			const zip = new JSZip()
-			zip.file('app.yaml', YAML.stringify(app))
-			zip.file('bundle.js', js)
-			zip.file('bundle.css', css)
-			const blob = await zip.generateAsync({ type: 'blob' })
-
-			// Download the zip
-			const url = window.URL.createObjectURL(blob)
-			const a = document.createElement('a')
-			a.href = url
-			a.download = `${(appPath || 'raw-app').replaceAll('/', '__')}.zip`
-			a.click()
-			setTimeout(() => URL.revokeObjectURL(url), 100)
-
-			// Open hub page
-			const hubUrl = rawAppToHubUrl(
-				$hubBaseUrlStore,
-				summary || appPath.split('/').pop()?.replace('_', ' ') || 'my raw app'
-			)
-			window.open(hubUrl.toString(), '_blank')
-		} finally {
-			publishingToHub = false
-		}
-	}
+	// Top-bar button size + bar height. Condensed (session preview) uses the
+	// smallest well-supported unified size (`sm`) so the bar is thinner.
+	const headerBtnSize = $derived(condensedHeader ? 'sm' : 'md')
 
 	function closeSaveDrawer() {
 		saveDrawerOpen = false
@@ -592,11 +578,12 @@
 			action: () => onOpenYamlEditor?.()
 		},
 		{
-			displayName: 'Publish to Hub',
-			icon: Globe,
+			displayName: 'Record demo',
+			icon: Circle,
 			action: () => {
-				publishToHubDrawerOpen = true
-			}
+				recordDrawer?.openDrawer()
+			},
+			disabled: !savedApp
 		}
 	])
 
@@ -700,6 +687,7 @@
 			{onLatest}
 			{savedApp}
 			rawApp
+			operatingWorkspace={opWorkspace}
 			bind:summary
 			bind:customPath
 			bind:deploymentMsg
@@ -718,37 +706,36 @@
 	</DrawerContent>
 </Drawer>
 
-<Drawer bind:open={publishToHubDrawerOpen} size="600px">
-	<DrawerContent title="Publish to Hub" on:close={() => (publishToHubDrawerOpen = false)}>
-		{#snippet actions()}
-			<Button
-				loading={publishingToHub}
-				disabled={!app}
-				on:click={publishToHub}
-				variant="accent"
-				startIcon={{ icon: Download }}
-			>
-				Download & open hub
-			</Button>
-		{/snippet}
-		<div class="flex flex-col gap-4">
-			<p class="text-secondary text-sm">
-				This will download a zip file containing your raw app bundle and open the Windmill Hub
-				submission page.
-			</p>
-			<div class="text-sm">
-				<p class="font-semibold mb-2">The zip file will contain:</p>
-				<ul class="list-disc list-inside text-secondary space-y-1">
-					<li
-						><code class="text-xs bg-surface-secondary px-1 rounded">app.yaml</code> - App configuration</li
-					>
-					<li
-						><code class="text-xs bg-surface-secondary px-1 rounded">bundle.js</code> - JavaScript bundle</li
-					>
-					<li
-						><code class="text-xs bg-surface-secondary px-1 rounded">bundle.css</code> - CSS styles</li
-					>
-				</ul>
+<!-- Full screen: the demo is recorded at the size it replays at. -->
+<Drawer bind:this={recordDrawer} size="100vw">
+	<DrawerContent
+		title="Record a demo — {savedApp?.path ?? appPath}"
+		on:close={() => recordDrawer?.closeDrawer()}
+	>
+		<div class="flex flex-col h-full min-h-0 gap-2">
+			<div class="text-xs text-secondary flex flex-col gap-1">
+				<span>
+					Use the app the way someone else would — each interaction becomes a step, and the
+					recording captures the page as they would see it. Passwords are masked; add
+					<span class="font-mono">data-wm-no-record</span> to anything else that should stay out.
+				</span>
+				<span>
+					Stop recording, then <b>Download</b> the JSON. It is self-contained: open it on
+					<a href="{base}/replay" target="_blank" rel="noreferrer" class="text-blue-500 underline">
+						{base}/replay
+					</a>
+					— a public page that needs no login and can be embedded in an iframe. Host the JSON anywhere
+					it can be fetched (S3, GitHub raw, your docs site) and link
+					<span class="font-mono">{base}/replay?src=&lt;url&gt;</span> to have it load itself. Windmill
+					keeps no copy.
+				</span>
+			</div>
+			<div class="flex-1 min-h-0">
+				{#if recordDrawer}
+					<!-- opWorkspace, not the selected one: a session edits an app that may
+				     live in another workspace, and recording must load and run it there. -->
+					<RawAppRecordSession workspace={opWorkspace ?? ''} path={savedApp?.path ?? appPath} />
+				{/if}
 			</div>
 		</div>
 	</DrawerContent>
@@ -770,7 +757,9 @@
 
 <div
 	bind:clientWidth={topbarWidth}
-	class="flex flex-row justify-between gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto max-h-12 h-12 shrink-0"
+	class="flex flex-row justify-between gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto shrink-0 {condensedHeader
+		? 'max-h-9 h-9'
+		: 'max-h-12 h-12'}"
 >
 	<!-- Identity block: shrinks/truncates first so the cloud indicator and the
 	     action buttons stay visible. Without min-w-0 the breadcrumb + summary
@@ -794,6 +783,7 @@
 				savedPath={appPath || newPath || undefined}
 				kind="app"
 				raw_app
+				hidePath={condensedHeader}
 				workspaceId={autosaveWorkspace}
 				onNavigate={(item) => (onNavigate ? onNavigate(item) : goto(editPathFor(item)))}
 			/>
@@ -812,7 +802,7 @@
 		{/if}
 	</div>
 
-	{#if $enterpriseLicense && appPath != ''}
+	{#if $enterpriseLicense && appPath != '' && !inSessionPane}
 		<div class="shrink-0">
 			<Awareness />
 		</div>
@@ -822,7 +812,7 @@
 			{#snippet buttonReplacement()}
 				<Button
 					nonCaptureEvent
-					unifiedSize="md"
+					unifiedSize={headerBtnSize}
 					variant="subtle"
 					startIcon={{ icon: EllipsisVertical }}
 					iconOnly
@@ -843,7 +833,7 @@
 		>
 			<Button
 				variant="default"
-				unifiedSize="md"
+				unifiedSize={headerBtnSize}
 				on:click={() => openDiffDrawer()}
 				disabled={!savedApp || newApp || savedApp?.no_deployed === true}
 				btnClasses={!savedApp || newApp || savedApp?.no_deployed === true
@@ -865,7 +855,7 @@
 					jobsDrawerOpen = true
 				}}
 				color="light"
-				unifiedSize="md"
+				unifiedSize={headerBtnSize}
 				variant="default"
 				btnClasses="relative"
 			>
@@ -885,22 +875,15 @@
 				? {
 						target: { kind: 'raw_app', path: appPath },
 						workspaceId: opWorkspace ?? undefined,
-						// Flush the autosaved draft so the session preview opens the app
-						// exactly as it is in the editor right now.
-						beforeOpen: () =>
-							opWorkspace && indicatorPath !== undefined
-								? UserDraftDbSyncer.flush({
-										workspace: opWorkspace,
-										itemKind: 'raw_app',
-										path: indicatorPath
-									})
-								: undefined
+						// Persist the draft (and materialize a brand-new one) so the session
+						// preview opens the app exactly as it is in the editor right now.
+						beforeOpen: persistDraftForSession
 					}
 				: undefined}
 		>
 			{#snippet fallback()}
 				<Button
-					unifiedSize="md"
+					unifiedSize={headerBtnSize}
 					variant="default"
 					onClick={() => aiChatManager.toggleOpen()}
 					startIcon={{ icon: WandSparkles }}
@@ -915,7 +898,7 @@
 			loading={loading.save}
 			startIcon={{ icon: Save }}
 			on:click={save}
-			unifiedSize="md"
+			unifiedSize={headerBtnSize}
 			variant="accent"
 			dropdownItems={appPath != ''
 				? () => [

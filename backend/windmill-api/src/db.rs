@@ -90,6 +90,18 @@ lazy_static::lazy_static! {
                     (20260614075900, include_str!(
                         "../../migrations/20260614075900_dedup_folder_labels.up.sql"
                     ).replace("SET search_path = public", "SET search_path FROM CURRENT").to_string()),
+                    (20260710073406, include_str!(
+                        "../../migrations/20260710073406_index_v2_job_parent_job.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY")),
+                    (20260724094737, include_str!(
+                        "../../migrations/20260724094737_runnables_sort_indexes.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY")),
+                    (20260727093955, include_str!(
+                        "../../migrations/20260727093955_runnable_owner_prefix_indexes.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY")),
+                    (20260727151319, include_str!(
+                        "../../migrations/20260727151319_draft_only_listing_indexes.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY")),
                     ].into_iter().collect();
 }
 

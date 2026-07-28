@@ -9,6 +9,8 @@
 	import { Skeleton } from '$lib/components/common'
 	import Button from '../common/button/Button.svelte'
 	import { ArrowRight, Loader2, Pencil, X } from 'lucide-svelte'
+	import { getContext } from 'svelte'
+	import type { FlowEditorContext } from './types'
 
 	interface Props {
 		path: string
@@ -17,6 +19,10 @@
 	}
 
 	let { path, allowFork = false, onHistoryRestore }: Props = $props()
+
+	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
+
 	let loading: boolean = $state(false)
 
 	let versions: FlowVersion[] = $state([])
@@ -29,7 +35,7 @@
 
 	async function loadFlow(version: number) {
 		selected = await FlowService.getFlowVersion({
-			workspace: $workspaceStore!,
+			workspace: opWs!,
 			version
 		})
 	}
@@ -37,7 +43,7 @@
 	async function loadVersions() {
 		loading = true
 		versions = await FlowService.getFlowHistory({
-			workspace: $workspaceStore!,
+			workspace: opWs!,
 			path: path
 		})
 		loading = false
@@ -52,7 +58,7 @@
 			return
 		}
 		await FlowService.updateFlowHistory({
-			workspace: $workspaceStore!,
+			workspace: opWs!,
 			version,
 			requestBody: {
 				deployment_msg: deploymentMsgUpdate!
@@ -66,7 +72,7 @@
 	async function restoreVersion(flow: Flow | undefined) {
 		if (!flow) return
 		await FlowService.updateFlow({
-			workspace: $workspaceStore!,
+			workspace: opWs!,
 			requestBody: {
 				...flow,
 				path

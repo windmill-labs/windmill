@@ -24,6 +24,7 @@
 	import { usePreparedAssetSqlQueries } from '$lib/infer.svelte'
 	import AssetsDropdownButton from '../assets/AssetsDropdownButton.svelte'
 	import { workspaceStore } from '$lib/stores'
+	import { getRawAppOperatingWorkspace } from './rawAppWorkspace'
 	import { SvelteSet } from 'svelte/reactivity'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { editor as meditor } from 'monaco-editor'
@@ -76,6 +77,10 @@
 		onSelectionChange,
 		delete_after_secs = $bindable()
 	}: Props = $props()
+
+	const getOpWs = getRawAppOperatingWorkspace()
+	let opWs = $derived(getOpWs?.() ?? $workspaceStore)
+
 	let diffEditor = $state() as DiffEditor | undefined
 	let validCode = $state(true)
 
@@ -145,7 +150,7 @@
 	)
 	let preparedSqlQueries = usePreparedAssetSqlQueries(
 		() => inferAssetsRes.current?.sql_queries,
-		() => $workspaceStore
+		() => opWs
 	)
 	$effect(() => {
 		if (!inlineScript || !inferAssetsRes.current || inferAssetsRes.current.status === 'error')
@@ -303,13 +308,13 @@
 			resetDAPClient()
 			dapClient = getDAPClient(dapServerUrl)
 
-			const env = await fetchContextualVariables($workspaceStore ?? '')
+			const env = await fetchContextualVariables(opWs ?? '')
 			const code = inlineScript.content
 
 			let signedPayload
 			try {
 				signedPayload = await signDebugRequest(
-					$workspaceStore ?? '',
+					opWs ?? '',
 					code ?? '',
 					inlineScript.language ?? 'python3'
 				)
@@ -636,6 +641,7 @@
 
 		<div class="shadow-sm px-1 border-b-1 border-gray-200 dark:border-gray-700">
 			<EditorBar
+				workspace={opWs}
 				{validCode}
 				{editor}
 				lang={inlineScript.language}
@@ -733,7 +739,7 @@
 							client={dapClient}
 							currentFrameId={currentDebugFrameId}
 							onClose={() => (showDebugConsole = false)}
-							workspace={$workspaceStore}
+							workspace={opWs}
 							jobId={debugSessionJobId ?? undefined}
 						/>
 					</Pane>

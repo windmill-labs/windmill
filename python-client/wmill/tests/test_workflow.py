@@ -1,9 +1,45 @@
 """Tests for the Workflow-as-Code SDK."""
 
 import asyncio
+import json
 import pytest
 
-from wmill.client import WorkflowCtx, _StepSuspend, TaskError, workflow, task, step, sleep, parallel, _run_workflow
+from datetime import datetime, timezone
+
+from wmill.client import WorkflowCtx, _StepSuspend, TaskError, workflow, task, step, sleep, parallel, wait_for_approval, _run_workflow, _run_workflow_async
+
+
+class _StubInlineClient:
+    """Stands in for the httpx client the inline fast path POSTs with.
+
+    Decodes each request body, so a test sees exactly the JSON that reaches
+    ``/jobs/wac/inline_checkpoint`` — and therefore what a replay reads back.
+    """
+
+    def __init__(self):
+        self.posted = []
+
+    async def post(self, url, content=None):
+        self.posted.append(json.loads(content))
+
+        class _Response:
+            def raise_for_status(self):
+                pass
+
+        return _Response()
+
+    async def aclose(self):
+        pass
+
+
+def _set_inline_fast_path_env(monkeypatch):
+    for var, val in (
+        ("WM_JOB_ID", "job-1"),
+        ("WM_WORKSPACE", "admins"),
+        ("BASE_INTERNAL_URL", "http://localhost:8000"),
+        ("WM_TOKEN", "tok"),
+    ):
+        monkeypatch.setenv(var, val)
 
 
 @task
@@ -405,6 +441,24 @@ class TestChildMode:
         result = _run_workflow(step_workflow, checkpoint, {"x": 7})
         assert result["type"] == "complete"
         assert result["result"] == 14
+
+    def test_child_cannot_swallow_the_failure_of_the_step_it_executes(self):
+        # If `except Exception` could catch it, the child would report a success
+        # returning "swallowed" and the parent would record that as the step's value.
+        @task
+        async def boom():
+            raise ValueError("nope")
+
+        @workflow
+        async def wf():
+            try:
+                await boom()
+            except Exception:
+                return "swallowed"
+            return "unreachable"
+
+        with pytest.raises(ValueError, match="nope"):
+            _run_workflow(wf, {"_executing_key": "boom"}, {})
 
     def test_child_replays_cached_steps(self):
         checkpoint = {
@@ -914,6 +968,134 @@ class TestErrorPropagation:
         assert "step failed" in r["result"]["caught"]
 
 
+class TestRaisingInlineStepIsCheckpointed:
+    """A ``step()`` whose body raises must still land in ``completed_steps``.
+
+    Otherwise a workflow that catches the exception and later dispatches a task
+    replays with ``_executing_key`` set, reaches the unrecorded key, and parks
+    on the never-resolving future forever.
+    """
+
+    MARKER = {
+        "__wmill_error": True,
+        "message": "boom",
+        "step_key": "risky",
+        "result": {"error": "boom", "type": "ValueError"},
+    }
+
+    @staticmethod
+    def _boom():
+        raise ValueError("boom")
+
+    @classmethod
+    def _wf(cls):
+        @workflow
+        async def wf(x: int):
+            try:
+                await step("risky", cls._boom)
+            except Exception:
+                pass
+            return await double(x=x)
+
+        return wf
+
+    def test_first_run_emits_error_checkpoint(self):
+        r = _run_workflow(self._wf(), {}, {"x": 5})
+        assert r["type"] == "inline_checkpoint"
+        assert r["key"] == "risky"
+        assert r["result"] == self.MARKER
+
+    def test_fast_path_posts_error_and_raises_the_replay_exception(self, monkeypatch):
+        """The default path: the checkpoint is POSTed and the workflow body gets
+        the same ``TaskError`` a replay rebuilds from the marker — raising the
+        original ``ValueError`` here would make ``except ValueError:`` catch on
+        this run and miss on the next one."""
+        _set_inline_fast_path_env(monkeypatch)
+
+        stub = _StubInlineClient()
+        posted = stub.posted
+
+        async def run():
+            ctx = WorkflowCtx({})
+            ctx._inline_http_client = stub
+            with pytest.raises(TaskError, match="boom") as live:
+                await ctx._run_inline_step("risky", self._boom)
+            # ...and the replay of that very checkpoint raises the same thing.
+            replayed = WorkflowCtx({"completed_steps": {"risky": self.MARKER}})
+            with pytest.raises(TaskError, match="boom") as replay:
+                await replayed._run_inline_step("risky", self._boom)
+            assert type(live.value) is type(replay.value)
+            assert live.value.args == replay.value.args
+            assert live.value.result == replay.value.result == self.MARKER["result"]
+            assert isinstance(live.value.__cause__, ValueError)
+
+        asyncio.run(run())
+        assert len(posted) == 1
+        assert posted[0]["key"] == "risky"
+        assert posted[0]["result"] == self.MARKER
+
+    def test_replay_reraises_and_does_not_hang(self):
+        checkpoint = {
+            "completed_steps": {"risky": self.MARKER},
+            "_executing_key": "double",
+        }
+
+        async def run():
+            return await asyncio.wait_for(
+                _run_workflow_async(self._wf(), checkpoint, {"x": 5}), timeout=5
+            )
+
+        r = asyncio.run(run())
+        assert r["type"] == "complete"
+        assert r["result"] == 10
+
+
+class TestInlineStepRoundParity:
+    """The round that runs a ``step()`` body must see what a replay sees.
+
+    The fast path returns the value it checkpointed, not the in-memory one:
+    a workflow branching on a datetime attribute or a tuple would otherwise
+    take one path on the round that ran the body and another on every replay,
+    which can change which tasks get dispatched, not just crash later.
+    """
+
+    CASES = [
+        ("dt", lambda: datetime(2026, 1, 1, tzinfo=timezone.utc), "2026-01-01 00:00:00+00:00"),
+        ("pair", lambda: (1, 2), [1, 2]),
+        ("intkeys", lambda: {1: "a"}, {"1": "a"}),
+    ]
+
+    def test_outside_a_workflow_returns_the_same_shape(self):
+        """No checkpoint, no replay — but a local run must not hand back a shape
+        a deployed one never produces, or testing a workflow locally proves
+        nothing. The async task path is the sharp edge: the wrapper is sync, so
+        the value has to be round-tripped after the await, not before."""
+
+        @task
+        async def make_pair():
+            return (1, datetime(2026, 1, 1, tzinfo=timezone.utc))
+
+        assert asyncio.run(step("pair", lambda: (1, 2))) == [1, 2]
+        assert asyncio.run(make_pair()) == [1, "2026-01-01 00:00:00+00:00"]
+
+    def test_live_round_matches_checkpoint_and_replay(self, monkeypatch):
+        _set_inline_fast_path_env(monkeypatch)
+
+        async def run():
+            for key, fn, expected in self.CASES:
+                stub = _StubInlineClient()
+                ctx = WorkflowCtx({})
+                ctx._inline_http_client = stub
+                live = await ctx._run_inline_step(key, fn)
+                checkpointed = stub.posted[0]["result"]
+                assert checkpointed == expected
+                assert live == expected and type(live) is type(expected)
+                replayed = WorkflowCtx({"completed_steps": {key: checkpointed}})
+                assert await replayed._run_inline_step(key, fn) == live
+
+        asyncio.run(run())
+
+
 # =====================================================================
 # TASK OPTIONS TESTS
 # =====================================================================
@@ -1112,3 +1294,58 @@ class TestParallel:
         r = _run_workflow(wf, {}, {})
         assert r["type"] == "complete"
         assert r["result"] == []
+
+
+class TestApprovalKeys:
+    """`key` names the step that get_approval_urls() mints URLs against, so a
+    duplicate must fail rather than silently become `<key>_2` and leave the
+    caller holding a URL for the earlier step."""
+
+    def test_explicit_key_is_used_verbatim(self):
+        @workflow
+        async def wf():
+            return await wait_for_approval(key="manager")
+
+        assert _run_workflow(wf, {}, {})["key"] == "manager"
+
+    def test_duplicate_explicit_key_raises(self):
+        @workflow
+        async def wf():
+            await wait_for_approval(key="manager")
+            await wait_for_approval(key="manager")
+
+        with pytest.raises(RuntimeError, match="already used"):
+            _run_workflow(wf, {"completed_steps": {"manager": {"approved": True}}}, {})
+
+    def test_explicit_key_colliding_with_a_suffixed_step_key_raises(self):
+        """`step("dup")` twice yields `dup`/`dup_2`, so an approval explicitly named
+        `dup_2` would alias the second step's key."""
+
+        @workflow
+        async def wf():
+            await step("dup", lambda: 1)
+            await step("dup", lambda: 2)
+            await wait_for_approval(key="dup_2")
+
+        with pytest.raises(RuntimeError, match="already used"):
+            _run_workflow(wf, {"completed_steps": {"dup": 1, "dup_2": 2}}, {})
+
+    @pytest.mark.parametrize("bad", ["", "  ", ".", "..", "a/b"])
+    def test_unusable_key_raises(self, bad):
+        """The key travels as one path segment when its URLs are minted, so anything
+        `get_approval_urls` could not address must be refused here too."""
+
+        @workflow
+        async def wf():
+            await wait_for_approval(key=bad)
+
+        with pytest.raises(RuntimeError, match="non-empty step name"):
+            _run_workflow(wf, {}, {})
+
+    def test_unnamed_approvals_still_auto_number(self):
+        @workflow
+        async def wf():
+            await wait_for_approval()
+            await wait_for_approval()
+
+        assert _run_workflow(wf, {"completed_steps": {"approval": {}}}, {})["key"] == "approval_2"

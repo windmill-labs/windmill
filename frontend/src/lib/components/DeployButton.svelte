@@ -6,7 +6,8 @@
 	const {
 		loading = false,
 		loadingSave = false,
-		dropdownItems = []
+		dropdownItems = [],
+		unifiedSize = 'md'
 	}: {
 		loading?: boolean
 		loadingSave?: boolean
@@ -14,6 +15,7 @@
 			label: string
 			onClick: () => void
 		}>
+		unifiedSize?: 'sm' | 'md' | 'lg'
 	} = $props()
 
 	const dispatch = createEventDispatcher()
@@ -28,7 +30,7 @@
 	disabled={loading}
 	loading={loadingSave}
 	variant="accent"
-	unifiedSize="md"
+	{unifiedSize}
 	startIcon={{ icon: Save }}
 	on:click={() => dispatch('save')}
 	{dropdownItems}

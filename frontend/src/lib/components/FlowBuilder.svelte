@@ -11,6 +11,13 @@
 	} from '$lib/gen'
 	import { initHistory, redo, undo } from '$lib/history.svelte'
 	import {
+		clearLinkedAgentTools,
+		linkedAgentToolsForScope,
+		linkedToolsScope,
+		linkedAgentToolsVersion,
+		migrateLinkedAgentToolsScope
+	} from '$lib/components/flows/linkedAgentToolsStore.svelte'
+	import {
 		enterpriseLicense,
 		userStore,
 		userWorkspaces,
@@ -34,14 +41,20 @@
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import AIChangesWarningModal from '$lib/components/copilot/chat/flow/AIChangesWarningModal.svelte'
 
-	import { createRawSnippet, setContext, untrack } from 'svelte'
+	import { createRawSnippet, getContext, setContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Button } from './common'
 	import FlowEditor from './flows/FlowEditor.svelte'
 	import ScriptEditorDrawer from './flows/content/ScriptEditorDrawer.svelte'
+	import WorkspaceScriptSettingsDrawer from './flows/content/WorkspaceScriptSettingsDrawer.svelte'
 	import FlowEditorDrawer from './flows/content/FlowEditorDrawer.svelte'
 	import { dfs as dfsApply } from './flows/dfs'
+	import {
+		claimLinkedToolsFetch,
+		invalidateLinkedToolsFetches,
+		publishLinkedAgentTools
+	} from './flows/flowState'
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
@@ -136,8 +149,13 @@
 		loadedFromDraft = false,
 		othersDraftsCount = 0,
 		onOpenOthersDrafts,
-		onTestJob
+		onTestJob,
+		condensedHeader = false
 	}: FlowBuilderProps = $props()
+
+	// Top-bar button size + bar height. Condensed (session preview) uses the
+	// smallest well-supported unified size (`sm`) so the bar is thinner.
+	const headerBtnSize = $derived(condensedHeader ? 'sm' : 'md')
 
 	// The workspace this editor operates on: deploy, save-draft, trigger loading
 	// and the AutosaveIndicator all target it. Falls back to the global store, so
@@ -196,6 +214,12 @@
 		draftTriggersModalOpen = false
 		confirmDeploymentCallback(selectedTriggers)
 	}
+
+	// Inside an AI session pane (SessionEditorTarget injects an aiChatManager via
+	// context) the collaborator presence badge is spurious: the editor is embedded
+	// in the shared /sessions URL under the session's own workspace identity, so
+	// presence keyed on that URL leaks a phantom self-badge. Hide it here.
+	const inSessionPane = !!getContext('aiChatManager')
 
 	function hasAIChanges(): boolean {
 		return aiChatManager.flowAiChatHelpers?.hasPendingChanges() ?? false
@@ -300,6 +324,17 @@
 		})
 	}
 
+	// Materialize a brand-new flow's draft before the session preview loads it by
+	// path — an untouched new flow never autosaved, so forcePersist is the only
+	// thing that creates the row. Gated to never-deployed: forcePersist skips the
+	// discardIf baseline, safe only when there is none.
+	async function persistDraftForSession(): Promise<void> {
+		await saveDraft()
+		if (opWorkspace && liveEditorDraftStoragePath && newFlow) {
+			await UserDraft.forcePersist('flow', liveEditorDraftStoragePath, { workspace: opWorkspace })
+		}
+	}
+
 	export function computeUnlockedSteps(flow: Flow) {
 		return Object.fromEntries(
 			getAllModules(flow.value.modules, flow.value.failure_module)
@@ -397,7 +432,22 @@
 			// loadingSave = false // del
 			// return
 
-			if (newFlow) {
+			// `newFlow` comes from the embedder, and updating a path that has no
+			// deployed flow 404s. Confirm with the server before taking the update
+			// branch so a first deploy still lands.
+			let isNewFlow = newFlow
+			if (!isNewFlow) {
+				try {
+					isNewFlow =
+						initialPath === '' ||
+						!(await FlowService.existsFlowByPath({ workspace: opWorkspace!, path: initialPath }))
+				} catch (err) {
+					// Unreachable check: keep the caller's intent rather than failing the deploy.
+					console.error('Could not check flow existence', err)
+				}
+			}
+
+			if (isNewFlow) {
 				await FlowService.createFlow({
 					workspace: opWorkspace!,
 					requestBody: {
@@ -503,9 +553,147 @@
 
 	const previewArgsStore = $state({ val: untrack(() => initialArgs) })
 	const scriptEditorDrawer = writable<ScriptEditorDrawer | undefined>(undefined)
+	const workspaceScriptSettingsDrawer = writable<WorkspaceScriptSettingsDrawer | undefined>(
+		undefined
+	)
 	const flowEditorDrawer = writable<FlowEditorDrawer | undefined>(undefined)
 	const history = initHistory(untrack(() => flowStore).val)
 	const pathStore = writable<string>(untrack(() => pathStoreInit) ?? initialPath)
+
+	// Linked-agent tool resolutions are scoped by workspace + flow path, but publishers key by the
+	// flow doc's own path while readers use the live-edited $pathStore — which diverge for renames
+	// and renamed drafts. Sweep the doc-path bucket into the live scope on every rename and every
+	// publish (initFlowState re-runs on session-draft sync and republishes under the doc path).
+	let prevLinkedToolsScope = untrack(() => linkedToolsScope(opWorkspace, $pathStore))
+	$effect(() => {
+		linkedAgentToolsVersion()
+		const scope = linkedToolsScope(opWorkspace, $pathStore)
+		const docScope = linkedToolsScope(
+			opWorkspace,
+			(flowStore.val as { path?: string }).path ?? $pathStore
+		)
+		untrack(() => {
+			if (scope !== prevLinkedToolsScope) {
+				sweepLinkedToolsScope(prevLinkedToolsScope, scope, opWorkspace, true)
+				prevLinkedToolsScope = scope
+			}
+			if (docScope !== scope) {
+				sweepLinkedToolsScope(docScope, scope, opWorkspace, false)
+			}
+		})
+	})
+
+	// `renamed` distinguishes the two sources. After a rename every fetch still running against the
+	// old scope is stale by definition, empty bucket or not — its result would land in a scope
+	// readers have left and be swept forward later. The doc-scope sweep has no such cut-off: fetches
+	// there belong to the refresh in progress, so it only acts once that scope holds something.
+	function sweepLinkedToolsScope(
+		from: string,
+		to: string,
+		ws: string | undefined,
+		renamed: boolean
+	) {
+		const sourceHasTools = Object.keys(linkedAgentToolsForScope(from)).length > 0
+		if (!renamed && !sourceHasTools) {
+			return
+		}
+		invalidateLinkedToolsFetches(from)
+		if (sourceHasTools) {
+			migrateLinkedAgentToolsScope(from, to)
+		}
+		// Restart what that cancelled: a link still loading has nothing in `to`, whereas one whose
+		// tools migrated is already current. A link changed in the same tick keeps the old agent's
+		// tools here, so it is left for the watcher below, which compares links rather than presence.
+		const resolved = linkedAgentToolsForScope(to)
+		for (const [moduleId, agentPath] of linkedAgentEntries(linkedAgentRefs)) {
+			if (resolved[moduleId] === undefined) {
+				publishLinkedAgentTools(agentPath, ws, to, moduleId)
+			}
+		}
+	}
+
+	// Re-resolve linked agents whenever the set of links changes. Wholesale replacements — undo/redo,
+	// YAML or AI apply, session restore — swap `agent` without re-running initFlowState, and the step
+	// editor only watches the step it is mounted on, so an unselected step would keep showing (and
+	// binding against) the previous agent's tools.
+	let linkedAgentRefs = $derived(
+		dfsApply(flowStore.val.value?.modules ?? [], (m) => m, { skipToolNodes: true })
+			.flatMap((m) => {
+				const value = m?.value as
+					| { type?: string; agent?: string; tools?: { id: string; value?: unknown }[] }
+					| undefined
+				if (value?.type !== 'aiagent') {
+					return []
+				}
+				const refs = value.agent ? [`${m.id}\u0000${value.agent}`] : []
+				// A linked agent nested as a tool is invisible to the walk above (tool nodes are skipped
+				// so resource-owned ids can't alias flow modules), yet it has its own store entry under
+				// the ancestry-qualified key the step editor writes.
+				for (const tool of value.tools ?? []) {
+					const nested = tool?.value as { type?: string; agent?: string } | undefined
+					if (nested?.type === 'aiagent' && nested.agent) {
+						refs.push(`${m.id}/${tool.id}\u0000${nested.agent}`)
+					}
+				}
+				return refs
+			})
+			.filter((x): x is string => x !== undefined)
+			.join('\u0001')
+	)
+	// The link each module's stored tools belong to. Seeded with the top-level links only, because
+	// those are exactly what initFlowState resolves — seeding the whole set would mark a nested
+	// linked agent as current when nothing has fetched it, and seeding nothing would clear and
+	// refetch every step on the first run.
+	let publishedAgentByModule = untrack(() =>
+		linkedAgentEntries(
+			dfsApply(flowStore.val.value?.modules ?? [], (m) => m, { skipToolNodes: true })
+				.map((m) => {
+					const value = m?.value as { type?: string; agent?: string } | undefined
+					return value?.type === 'aiagent' && value.agent
+						? `${m.id}\u0000${value.agent}`
+						: undefined
+				})
+				.filter((x): x is string => x !== undefined)
+				.join('\u0001')
+		)
+	)
+	$effect(() => {
+		const refs = linkedAgentRefs
+		const ws = opWorkspace
+		const scope = linkedToolsScope(opWorkspace, $pathStore)
+		untrack(() => {
+			const next = linkedAgentEntries(refs)
+			// Only links that actually changed are re-resolved, so a plain rename costs nothing: the
+			// sweep above carries its buckets to the new scope and every entry compares equal. A
+			// restore that renames and relinks in one tick still gets both.
+			for (const [moduleId, agentPath] of next) {
+				if (publishedAgentByModule.get(moduleId) === agentPath) {
+					continue
+				}
+				// Drop the previous agent's tools up front: the fetch below lands later, and until it
+				// does the graph and the step's binding editor would otherwise still be showing — and
+				// writing overrides against — the tool ids of the agent that was just replaced.
+				claimLinkedToolsFetch(scope, moduleId)
+				clearLinkedAgentTools(scope, moduleId)
+				publishLinkedAgentTools(agentPath, ws, scope, moduleId)
+			}
+			publishedAgentByModule = next
+		})
+	})
+
+	function linkedAgentEntries(refs: string): Map<string, string> {
+		const entries = new Map<string, string>()
+		for (const entry of refs ? refs.split('\u0001') : []) {
+			const [moduleId, agentPath] = entry.split('\u0000')
+			entries.set(moduleId, agentPath)
+		}
+		return entries
+	}
+
+	// "Open in AI session" target: the URL draft path the editor loads/saves by
+	// (which for a new flow differs from the live-edited friendly `$pathStore`),
+	// falling back to `$pathStore` in drawer mounts that carry no storage path.
+	const sessionTargetPath = $derived(liveEditorDraftStoragePath || $pathStore)
 
 	$effect(() => {
 		if (liveEditorDraftStoragePath === undefined || !opWorkspace) return
@@ -547,6 +735,7 @@
 		currentEditor: writable(undefined),
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
+		workspaceScriptSettingsDrawer,
 		flowEditorDrawer,
 		history,
 		flowStateStore: untrack(() => flowStateStore),
@@ -635,7 +824,9 @@
 		for (const mod of restoredModules) {
 			if (mod) {
 				try {
-					loadFlowModuleState(mod).then((state) => (flowStateStore.val[mod.id] = state))
+					loadFlowModuleState(mod, opWorkspace).then(
+						(state) => (flowStateStore.val[mod.id] = state)
+					)
 				} catch (e) {
 					console.error('Error loading state for restored node', e)
 				}
@@ -1095,25 +1286,33 @@
 		<FlowYamlEditor bind:drawer={yamlEditorDrawer} />
 		<FlowImportExportMenu bind:drawer={jsonViewerDrawer} />
 		<ScriptEditorDrawer bind:this={$scriptEditorDrawer} />
+		<WorkspaceScriptSettingsDrawer bind:this={$workspaceScriptSettingsDrawer} />
 		<FlowEditorDrawer bind:this={$flowEditorDrawer} />
 
-		<div bind:this={flowBuilderRoot} class="flex flex-col h-screen">
+		<div bind:this={flowBuilderRoot} class="flex flex-col h-full">
 			<!-- Nav between steps-->
 			<div
 				bind:clientWidth={topbarWidth}
-				class="justify-between flex flex-row items-center pl-2 pr-4 space-x-4 scrollbar-hidden overflow-x-auto max-h-12 h-full relative"
+				class="justify-between flex flex-row items-center pl-2 pr-4 space-x-4 scrollbar-hidden overflow-x-auto h-full relative {condensedHeader
+					? 'max-h-9'
+					: 'max-h-12'}"
 			>
 				<div class="flex flex-row items-center gap-2 min-w-0">
-					<div class="min-w-0 overflow-hidden">
-						<EditorHeader
-							bind:summary={flowStore.val.summary}
-							bind:path={$pathStore}
-							savedPath={initialPath}
-							onBehalfOfEmail={$savedOnBehalfOfEmail}
-							workspaceId={autosaveWorkspace}
-							onNavigate={(item) => onNavigate?.(item)}
-						/>
-					</div>
+					{#if customUi?.topBar?.path != false}
+						<div class="min-w-0 overflow-hidden">
+							<EditorHeader
+								bind:summary={flowStore.val.summary}
+								bind:path={$pathStore}
+								savedPath={initialPath}
+								onBehalfOfEmail={$savedOnBehalfOfEmail}
+								summaryEditable={customUi?.topBar?.editableSummary != false}
+								pathEditable={customUi?.topBar?.editablePath != false}
+								hidePath={condensedHeader}
+								workspaceId={autosaveWorkspace}
+								onNavigate={(item) => onNavigate?.(item)}
+							/>
+						</div>
+					{/if}
 					{#if opWorkspace && indicatorPath !== undefined}
 						<AutosaveIndicator
 							workspace={opWorkspace}
@@ -1128,11 +1327,11 @@
 					{/if}
 				</div>
 				<div class="flex flex-row gap-2 items-center shrink-0">
-					{#if $enterpriseLicense && !newFlow}
+					{#if $enterpriseLicense && !newFlow && !inSessionPane}
 						<Awareness />
 					{/if}
 					<div class="relative">
-						<Dropdown items={getMoreItems} />
+						<Dropdown items={getMoreItems} size={headerBtnSize} fixedHeight={!condensedHeader} />
 						{#if $tutorialsToDo.includes(getTutorialIndex('flow-live-tutorial')) || $tutorialsToDo.includes(getTutorialIndex('troubleshoot-flow'))}
 							<span
 								class="absolute top-0.5 right-0.5 block w-2 h-2 rounded-full bg-surface-accent-primary pointer-events-none"
@@ -1152,7 +1351,7 @@
 						<div title={diffTitle} class={diffDisabled ? 'flex cursor-not-allowed' : 'flex'}>
 							<Button
 								variant="default"
-								unifiedSize="md"
+								unifiedSize={headerBtnSize}
 								on:click={() => openDiffDrawer()}
 								disabled={diffDisabled}
 								btnClasses={diffDisabled ? 'pointer-events-none' : undefined}
@@ -1172,6 +1371,7 @@
 						on:save={async ({ detail }) => await handleSaveFlow(detail)}
 						{loading}
 						{loadingSave}
+						unifiedSize={headerBtnSize}
 						{dropdownItems}
 					/>
 				</div>
@@ -1182,6 +1382,7 @@
 			{#snippet previewButtons()}
 				<FlowPreviewButtons
 					{suspendStatus}
+					unifiedSize={headerBtnSize}
 					on:openTriggers={(e) => {
 						select('Trigger')
 						handleSelectTriggerFromKind(triggersState, triggersCount, initialPath, e.detail.kind)
@@ -1247,14 +1448,11 @@
 					aiChatOpen={aiChatManager.open}
 					showFlowAiButton={!disableAi && customUi?.topBar?.aiBuilder != false}
 					toggleAiChat={() => aiChatManager.toggleOpen()}
-					sessionOpen={$pathStore
+					sessionOpen={sessionTargetPath
 						? {
-								target: { kind: 'flow', path: $pathStore },
+								target: { kind: 'flow', path: sessionTargetPath },
 								workspaceId: opWorkspace ?? undefined,
-								// Persist unsaved edits so the session preview
-								// (/flows/edit/<path>) opens the flow exactly as it is in the
-								// editor right now.
-								beforeOpen: saveDraft
+								beforeOpen: persistDraftForSession
 							}
 						: undefined}
 					onOpenPreview={flowPreviewButtons?.openPreview}

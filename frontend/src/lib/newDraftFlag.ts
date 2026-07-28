@@ -1,4 +1,54 @@
+import { page } from '$app/state'
+import { replaceState } from '$app/navigation'
+import { rememberNavRoute } from '$lib/components/sessions/sessionSwitch.svelte'
 import { UserDraftDbSyncer, type UserDraftLastSyncQuery } from '$lib/userDraftDbSyncer.svelte'
+import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
+import type { UserDraftItemKind } from '$lib/gen'
+
+/** Drop `?new_draft=true` from the current URL (preserving every other param),
+ * mutating the address bar without a navigation. No-op when the flag is absent
+ * or `window` is unavailable (SSR).
+ *
+ * Uses SvelteKit's `replaceState` (not raw `history.replaceState`, which the
+ * router warns conflicts with it) so the history entry keeps the router's
+ * bookkeeping and `page.state`. Also refreshes the remembered nav route:
+ * `afterNavigate` never observes this in-place rewrite, so without it
+ * `exitSessionMode` would restore the pre-strip URL — still carrying
+ * `?new_draft=true` — and re-enter the seed-empty branch. */
+export function stripNewDraftFlag(): void {
+	if (typeof window === 'undefined') return
+	const url = new URL(window.location.href)
+	if (url.searchParams.get('new_draft') !== 'true') return
+	url.searchParams.delete('new_draft')
+	replaceState(url, page.state)
+	rememberNavRoute(url.pathname + url.search)
+}
+
+/**
+ * Whether an editor load should take the `?new_draft` seed-empty branch.
+ *
+ * The `/{scripts,flows,apps,apps_raw}/add` redirect lands the editor on
+ * `u/<user>/draft_<uuid>?new_draft=true`; the seed branch bootstraps an empty
+ * (or template/hub/fork-seeded) editor instead of fetching a row that doesn't
+ * exist yet. But the flag can outlive the seed: exiting an AI session restores
+ * the remembered nav route (still `?new_draft=true`) even though the draft was
+ * already materialized — by the first autosave, or by "Open in AI session"'s
+ * `forcePersist`. Re-running the seed branch then blanks the saved draft.
+ *
+ * So gate the seed branch on `new_draft=true` AND no persisted draft this
+ * session (`getLocalDraftHint`): a never-saved draft still seeds empty (and a
+ * pre-edit refresh re-seeds instead of 404-ing), while a re-entry after the
+ * draft exists falls through to the normal load that reflects it.
+ */
+export function shouldSeedNewDraft(
+	searchParams: URLSearchParams,
+	workspace: string | undefined,
+	itemKind: UserDraftItemKind,
+	path: string
+): boolean {
+	if (searchParams.get('new_draft') !== 'true') return false
+	return getLocalDraftHint(workspace, itemKind, path) !== true
+}
 
 /**
  * Defer stripping `?new_draft=true` from the URL until the draft's first save
@@ -18,11 +68,7 @@ export function stripNewDraftFlagOnSave(query: UserDraftLastSyncQuery): () => vo
 	unsub = UserDraftDbSyncer.onSaved(query, () => {
 		unsub?.()
 		unsub = undefined
-		if (typeof window === 'undefined') return
-		const url = new URL(window.location.href)
-		if (url.searchParams.get('new_draft') !== 'true') return
-		url.searchParams.delete('new_draft')
-		window.history.replaceState(window.history.state, '', url.toString())
+		stripNewDraftFlag()
 	})
 	return () => {
 		unsub?.()

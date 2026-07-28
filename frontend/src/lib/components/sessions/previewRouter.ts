@@ -7,13 +7,13 @@ import {
 	Calendar,
 	Database,
 	FolderOpen,
+	GitCompareArrows,
 	Users,
 	Settings,
 	ScrollText
 } from 'lucide-svelte'
 import type { DrillIcon } from '$lib/components/drillPicker'
 import type { WorkspaceItem, WorkspaceItemKind } from '$lib/components/workspacePicker'
-import type { SessionTarget } from './sessionState.svelte'
 import type { SessionTargetKind } from './sessionRuntime.svelte'
 
 /** What the preview breadcrumb picker can route to: a static workspace page
@@ -22,6 +22,7 @@ import type { SessionTargetKind } from './sessionRuntime.svelte'
 export type PreviewTarget =
 	| { type: 'page'; href: string; label: string }
 	| { type: 'item'; item: WorkspaceItem }
+	| { type: 'artifact'; id: string; name: string }
 
 export type PreviewPage = { label: string; path: string; icon: DrillIcon }
 
@@ -55,6 +56,7 @@ export type TriggerKind =
 	| 'gcp'
 	| 'azure'
 	| 'mqtt'
+	| 'amqp'
 	| 'email'
 
 export const TRIGGER_PAGES: Record<TriggerKind, { path: string; label: string; ee?: boolean }> = {
@@ -67,6 +69,7 @@ export const TRIGGER_PAGES: Record<TriggerKind, { path: string; label: string; e
 	gcp: { path: '/gcp_triggers', label: 'GCP Pub/Sub triggers', ee: true },
 	azure: { path: '/azure_triggers', label: 'Azure Event Grid triggers', ee: true },
 	mqtt: { path: '/mqtt_triggers', label: 'MQTT triggers' },
+	amqp: { path: '/amqp_triggers', label: 'AMQP triggers' },
 	email: { path: '/email_triggers', label: 'Email triggers' }
 }
 
@@ -74,6 +77,16 @@ export const TRIGGER_PAGES: Record<TriggerKind, { path: string; label: string; e
 export function triggerLabelForPath(path: string): string | undefined {
 	const clean = stripBase(path)
 	return Object.values(TRIGGER_PAGES).find((t) => t.path === clean)?.label
+}
+
+// The Compare & Deploy review page. Kept out of PREVIEW_PAGES (it's not a picker
+// destination — it's reached through the chat's open_page tool or a session's
+// Review button) but known here so preview tabs label it and reuse it on
+// param changes like the curated pages.
+export const COMPARE_PAGE: PreviewPage = {
+	label: 'Compare & Deploy',
+	path: '/forks/compare',
+	icon: GitCompareArrows
 }
 
 export const pageKey = (path: string) => `page:${path}`
@@ -94,19 +107,48 @@ export function matchPreviewPage(path: string): PreviewPage | undefined {
 	return PREVIEW_PAGES.find((p) => p.path === clean)
 }
 
+/** Match a preview href to a page whose tab should be re-pointed in place when
+ * only its query params change (the open_page filter-change behavior): the
+ * curated pages plus the compare page. Trigger pages are deliberately not
+ * matched — their tabs dedupe on the exact URL instead. */
+export function matchReusablePage(href: string): PreviewPage | undefined {
+	if (stripBase(href) === COMPARE_PAGE.path) return COMPARE_PAGE
+	return matchPreviewPage(href)
+}
+
 /** Human label for a preview tab's location — the workspace page name, trigger
  * page, run detail, or item path. Shared by the sessions tab strip and the
  * close_page matcher so both name a tab the same way. */
 export function previewLocationLabel(url: string): string {
-	const page = matchPreviewPage(url)
+	const artifact = parseArtifactRoute(url)
+	if (artifact) return artifact.name || 'Artifact'
+	const page = matchReusablePage(url)
 	if (page) return page.label
 	const trigger = triggerLabelForPath(url)
 	if (trigger) return trigger
 	const run = stripBase(url).match(/^\/run\/([^/?#]+)/)
 	if (run) return `Run ${decodeURIComponent(run[1]).slice(0, 8)}`
+	const pipelineFolder = parsePipelineRoute(url)
+	if (pipelineFolder) return pipelineFolder
 	const parsed = parsePreviewItemRoute(url)
 	if (parsed) return parsed.itemPath.split('/').pop() ?? parsed.itemPath
 	return stripBase(url)
+}
+
+/** The friendly display leaf for a preview tab, or `undefined` to fall back to
+ * `previewLocationLabel`. A never-deployed script / flow / raw app is parked at a
+ * throwaway `…/draft_<uuid>` storage path while its editor shows a friendly name
+ * (auto-generated or typed); pass that `friendlyPath` — the live cell's
+ * `draft_path`/`path` — to label the tab by its leaf instead of the uuid. Returns
+ * `undefined` for a deployed item (real storage path) or when the friendly path
+ * is itself a placeholder. Display-only: the tab's URL keeps the storage path. */
+export function draftFriendlyLeaf(
+	storagePath: string,
+	friendlyPath: string | undefined
+): string | undefined {
+	if (!storagePath.split('/').pop()?.startsWith('draft_')) return undefined
+	const leaf = friendlyPath?.split('/').pop()
+	return leaf && !leaf.startsWith('draft_') ? leaf : undefined
 }
 
 export type PreviewItemRoute = { kind: WorkspaceItemKind; raw_app: boolean; itemPath: string }
@@ -125,16 +167,50 @@ export function parsePreviewItemRoute(fullPath: string): PreviewItemRoute | null
 	return { kind: 'app', raw_app: false, itemPath }
 }
 
-// How a preview tab should render: as an in-process live editor (sharing the
-// session runtime's store) or as an iframe fallback. Only the three kinds with
-// existing editor wrappers — and only the tab matching the session's target —
-// resolve to 'editor'; everything else (static pages, regular drag-and-drop
-// apps, any other item) stays an iframe.
+// A `/pipeline/<folder>` route is the data-pipeline graph editor for that folder
+// (the folder is a single path segment, not a workspace item path). The bare
+// `/pipeline` list page is not an editor. Returns the folder name, or null.
+export function parsePipelineRoute(fullPath: string): string | null {
+	const m = stripBase(fullPath).match(/^\/pipeline\/([^/?#]+)/)
+	return m ? decodeURIComponent(m[1]) : null
+}
+
+// The id (before the hash) is the artifact's stable routing identity; the name rides in
+// the hash so the tab strip labels it without a store lookup.
+export function parseArtifactRoute(url: string): { id: string; name: string } | null {
+	const m = url.match(/^artifact:([^#]+)(?:#(.*))?$/)
+	if (!m) return null
+	return { id: decodeURIComponent(m[1]), name: m[2] ? decodeURIComponent(m[2]) : '' }
+}
+
+export function artifactUrl(id: string, name: string): string {
+	return `artifact:${encodeURIComponent(id)}#${encodeURIComponent(name)}`
+}
+
+/** Drill-picker leaf key for an artifact, shared by the picker tree and the
+ * active-tab highlight so a pick and a highlight agree on identity. */
+export const artifactKey = (id: string) => `artifact:${id}`
+
+export const isArtifactKey = (key: string) => key.startsWith('artifact:')
+
+// How a preview tab should render: as an in-process live editor or an iframe
+// fallback. Any editable item of a wrappable kind (script, flow, raw app) mounts
+// its per-(kind,path) cell editor; a `/pipeline/<folder>` route mounts the
+// data-pipeline graph editor (single, shared runtime.pipelineEditorState — `path`
+// is the folder); everything else (static pages, regular drag-and-drop apps, any
+// other route) stays an iframe.
 export type PreviewSlot =
-	| { kind: 'editor'; editorKind: SessionTargetKind; path: string }
+	| { kind: 'editor'; editorKind: SessionTargetKind | 'pipeline'; path: string }
+	| { kind: 'artifact'; id: string }
 	| { kind: 'iframe' }
 
-export function resolvePreviewTab(url: string, target: SessionTarget | undefined): PreviewSlot {
+export function resolvePreviewTab(url: string): PreviewSlot {
+	const artifact = parseArtifactRoute(url)
+	if (artifact) return { kind: 'artifact', id: artifact.id }
+	const pipelineFolder = parsePipelineRoute(url)
+	if (pipelineFolder) {
+		return { kind: 'editor', editorKind: 'pipeline', path: pipelineFolder }
+	}
 	const route = parsePreviewItemRoute(url)
 	if (!route) return { kind: 'iframe' }
 	const editorKind: SessionTargetKind | undefined =
@@ -146,11 +222,5 @@ export function resolvePreviewTab(url: string, target: SessionTarget | undefined
 					? 'raw_app'
 					: undefined
 	if (!editorKind) return { kind: 'iframe' }
-	// SessionRuntime holds one load slot per kind, so only the tab pointing at the
-	// session's own target claims it as a live editor; any other item previews as
-	// an iframe (the "one live editor per session" rule).
-	if (!target || target.kind !== editorKind || target.path !== route.itemPath) {
-		return { kind: 'iframe' }
-	}
 	return { kind: 'editor', editorKind, path: route.itemPath }
 }

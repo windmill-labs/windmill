@@ -129,6 +129,36 @@
 			scrollbar-width: none; /* Firefox */
 		}
 	}
+
+	/* Subtle scrollbar: a thin, rounded thumb that only appears on hover, on both
+	   axes. Shared by ScrollableX (tab strips, code blocks) and the AI chat. Size
+	   via the `--wm-scrollbar-size` var (default 6px). Higher specificity than the
+	   app-wide `*::-webkit-scrollbar`, so it overrides it. */
+	.scrollbar-subtle {
+		scrollbar-width: thin;
+		scrollbar-color: transparent transparent;
+	}
+	.scrollbar-subtle:hover {
+		scrollbar-color: rgb(var(--color-text-hint) / 0.4) transparent;
+	}
+	.scrollbar-subtle::-webkit-scrollbar {
+		width: var(--wm-scrollbar-size, 6px);
+		height: var(--wm-scrollbar-size, 6px);
+	}
+	.scrollbar-subtle::-webkit-scrollbar-track {
+		background: transparent;
+	}
+	.scrollbar-subtle::-webkit-scrollbar-thumb {
+		background: transparent;
+		border-radius: 9999px;
+		transition: background-color 0.15s;
+	}
+	.scrollbar-subtle:hover::-webkit-scrollbar-thumb {
+		background: rgb(var(--color-text-hint) / 0.35);
+	}
+	.scrollbar-subtle:hover::-webkit-scrollbar-thumb:hover {
+		background: rgb(var(--color-text-secondary) / 0.55);
+	}
 }
 
 .driver-popover-title {

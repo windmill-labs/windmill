@@ -36,7 +36,7 @@
 	import { findModuleInFlow } from '../flowTree'
 	import type { InlineScript, InsertKind } from '$lib/components/graph/graphBuilder.svelte'
 	import { MoveManager } from '$lib/components/graph/moveManager.svelte'
-	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
+	import { refreshFlowStateStore } from '../flowStoreRefresh.svelte'
 	import type { GraphModuleState } from '$lib/components/graph'
 	import FlowStickyNode from './FlowStickyNode.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
@@ -60,10 +60,7 @@
 		GroupedModulesProxy,
 		type ExtendedOpenFlow
 	} from '$lib/components/graph/groupedModulesProxy.svelte'
-	import {
-		GroupDisplayState,
-		type FlowGroup
-	} from '$lib/components/graph/groupEditor.svelte'
+	import { GroupDisplayState, type FlowGroup } from '$lib/components/graph/groupEditor.svelte'
 	import {
 		type FlowStructureNode,
 		matchStructureNode,
@@ -79,7 +76,6 @@
 		disableSettings?: boolean
 		newFlow?: boolean
 		smallErrorHandler?: boolean
-		workspace?: string | undefined
 		onTestUpTo?: ((id: string) => void) | undefined
 		onEditInput?: (moduleId: string, key: string) => void
 		localModuleStates?: Record<string, GraphModuleState>
@@ -111,7 +107,6 @@
 		disableSettings = false,
 		newFlow = false,
 		smallErrorHandler = false,
-		workspace = $workspaceStore,
 		onTestUpTo,
 		onEditInput,
 		localModuleStates = {},
@@ -135,8 +130,10 @@
 		flowHasChanged
 	}: Props = $props()
 
-	const { customUi, selectionManager, history, flowStateStore, flowStore, pathStore } =
+	const { customUi, selectionManager, history, flowStateStore, flowStore, pathStore, opWorkspace } =
 		getContext<FlowEditorContext>('FlowEditorContext')
+
+	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
 
 	const moveManager = new MoveManager()
 	const { triggersCount, triggersState } = getContext<TriggerContext>('TriggerContext')
@@ -172,14 +169,15 @@
 		let state = emptyFlowModuleState()
 		flowStateStore.val[module.id] = state
 		if (wsFlow) {
-			;[module, state] = await pickFlow(wsFlow.path, wsFlow.summary, module.id)
+			;[module, state] = await pickFlow(wsFlow.path, wsFlow.summary, module.id, opWs)
 		} else if (wsScript) {
 			;[module, state] = await pickScript(
 				wsScript.path,
 				wsScript.summary,
 				module.id,
 				wsScript.hash,
-				kind
+				kind,
+				opWs
 			)
 		} else if (kind == 'forloop') {
 			;[module, state] = await createLoop(module.id, !disableAi && $copilotInfo.enabled)
@@ -245,7 +243,10 @@
 		} else if (toolKind === 'aiAgentTool') {
 			// Create AI Agent tool (nested agent)
 			const aiAgentTool = createAiAgentTool(module.id)
-			flowStateStore.val[module.id] = await loadFlowModuleState(agentToolToFlowModule(aiAgentTool))
+			flowStateStore.val[module.id] = await loadFlowModuleState(
+				agentToolToFlowModule(aiAgentTool),
+				opWs
+			)
 			;(modules as AgentTool[]).splice(index, 0, aiAgentTool)
 			return modules as AgentTool[]
 		} else if (toolKind === 'flowmoduleTool') {
@@ -423,7 +424,7 @@
 			parentArr.splice(lastIndex + 1, 0, ...clones)
 		}
 
-		refreshStateStore(flowStore)
+		refreshFlowStateStore(flowStore)
 		selectionManager.selectByIds(allCloneIds)
 	}
 
@@ -460,7 +461,7 @@
 			}
 		}
 		const previousJobId = await JobService.listCompletedJobs({
-			workspace: $workspaceStore!,
+			workspace: opWs!,
 			scriptPathExact: path,
 			jobKinds: ['preview', 'script', 'flowpreview', 'flow'].join(','),
 			page: 1,
@@ -468,7 +469,7 @@
 		})
 		if (previousJobId.length > 0) {
 			const getJobResult = await JobService.getCompletedJobResultMaybe({
-				workspace: $workspaceStore!,
+				workspace: opWs!,
 				id: previousJobId[0].id
 			})
 			if ('result' in getJobResult) {
@@ -596,7 +597,7 @@
 			failureModule={flowStore.val.value?.failure_module}
 			currentInputSchema={flowStore.val.schema}
 			{selectionManager}
-			{workspace}
+			workspace={opWs}
 			editMode
 			{onTestUpTo}
 			{onEditInput}
@@ -683,7 +684,7 @@
 							selectionManager.selectId(movingId)
 						}
 						moveManager.clearMoving()
-						refreshStateStore(flowStore)
+						refreshFlowStateStore(flowStore)
 						dispatch('change')
 					}
 
@@ -706,7 +707,8 @@
 						flowStore,
 						flowStateStore,
 						detail.inlineScript,
-						detail.script
+						detail.script,
+						opWs
 					)
 					selectionManager.selectId('preprocessor')
 					if (detail.inlineScript?.instructions) {
@@ -716,7 +718,7 @@
 							instructions: detail.inlineScript?.instructions
 						})
 					}
-					refreshStateStore(flowStore)
+					refreshFlowStateStore(flowStore)
 					dispatch('change')
 					return
 				}
@@ -733,8 +735,12 @@
 				// Agent tool inserts operate on the FlowModule's tools array directly
 				if (isAgentInsert) {
 					const agentMod = findModuleInFlow(flowStore.val.value, detail.agentId!)
-					if (agentMod && (agentMod.value as any).tools) {
-						const tools = (agentMod.value as any).tools as AgentTool[]
+					const agentValue = agentMod?.value as { tools?: AgentTool[] } | undefined
+					if (agentValue) {
+						// `tools` is optional, so a module authored without it starts undefined here and
+						// would silently swallow its first tool.
+						agentValue.tools ??= []
+						const tools = agentValue.tools
 						await insertNewModuleAtIndex(
 							tools,
 							tools.length,
@@ -747,7 +753,7 @@
 						const id = tools[tools.length - 1].id
 						selectionManager.selectId(id)
 					}
-					refreshStateStore(flowStore)
+					refreshFlowStateStore(flowStore)
 					dispatch('change')
 					return
 				}
@@ -825,13 +831,13 @@
 				if (['branchone', 'branchall'].includes(detail.kind)) {
 					await addBranch(module.id)
 				}
-				refreshStateStore(flowStore)
+				refreshFlowStateStore(flowStore)
 				dispatch('change')
 			}}
 			onNewBranch={async (id) => {
 				if (id) {
 					await addBranch(id)
-					refreshStateStore(flowStore)
+					refreshFlowStateStore(flowStore)
 				}
 			}}
 			onSelect={(id) => {
@@ -885,13 +891,13 @@
 				}
 				flowStateStore.val[newId] = flowStateStore.val[id]
 				delete flowStateStore.val[id]
-				refreshStateStore(flowStore)
+				refreshFlowStateStore(flowStore)
 				selectionManager.selectId(newId)
 			}}
 			onDeleteBranch={async ({ id, index }) => {
 				if (id) {
 					await removeBranch(id, index)
-					refreshStateStore(flowStore)
+					refreshFlowStateStore(flowStore)
 					selectionManager.selectId(id)
 				}
 			}}
@@ -930,7 +936,7 @@
 				})
 
 				targetModules.splice(targetIndex + 1, 0, clone)
-				refreshStateStore(flowStore)
+				refreshFlowStateStore(flowStore)
 				selectionManager.selectId(clone.id)
 			}}
 			onUpdateMock={(detail) => {
@@ -939,7 +945,7 @@
 					throw new Error(`Node ${detail.id} not found`)
 				}
 				module.mock = $state.snapshot(detail.mock)
-				refreshStateStore(flowStore)
+				refreshFlowStateStore(flowStore)
 			}}
 			{onTestFlow}
 			{isRunning}

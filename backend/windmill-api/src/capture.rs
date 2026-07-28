@@ -48,6 +48,8 @@ use windmill_common::error::Error;
 #[cfg(all(feature = "enterprise", feature = "kafka", feature = "private"))]
 use crate::triggers::kafka::KafkaTriggerConfigConnection;
 
+#[cfg(feature = "amqp_trigger")]
+use crate::triggers::amqp::{AmqpOptions, ExchangeConfig};
 #[cfg(feature = "mqtt_trigger")]
 use crate::triggers::mqtt::{MqttClientVersion, MqttV3Config, MqttV5Config, SubscribeTopic};
 
@@ -234,6 +236,14 @@ pub struct MqttTriggerConfig {
     pub client_version: Option<MqttClientVersion>,
     pub client_id: Option<String>,
 }
+#[cfg(feature = "amqp_trigger")]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AmqpTriggerConfig {
+    pub amqp_resource_path: String,
+    pub queue_name: String,
+    pub exchange: Option<ExchangeConfig>,
+    pub options: Option<AmqpOptions>,
+}
 #[cfg(feature = "postgres_trigger")]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PostgresTriggerConfig {
@@ -271,6 +281,8 @@ enum TriggerConfig {
     Nats(NatsTriggerConfig),
     #[cfg(feature = "mqtt_trigger")]
     Mqtt(MqttTriggerConfig),
+    #[cfg(feature = "amqp_trigger")]
+    Amqp(AmqpTriggerConfig),
     #[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
     Gcp(GcpTriggerConfig),
     #[cfg(all(feature = "enterprise", feature = "azure_trigger", feature = "private"))]

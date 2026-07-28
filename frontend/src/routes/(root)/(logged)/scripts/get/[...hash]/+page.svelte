@@ -14,17 +14,15 @@
 		canWrite,
 		truncateHash,
 		copyToClipboard,
-		urlParamsToObject
+		urlParamsToObject,
+		extractTagFromSharableHash,
+		interpolateTag,
+		isDynamicTag,
+		isTagTemplate
 	} from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import {
-		enterpriseLicense,
-		hubBaseUrlStore,
-		userStore,
-		userWorkspaces,
-		workspaceStore
-	} from '$lib/stores'
+	import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 	import AIFormAssistant from '$lib/components/copilot/AIFormAssistant.svelte'
 
@@ -59,7 +57,6 @@
 		Eye,
 		FolderOpen,
 		GitFork,
-		Globe2,
 		History,
 		Loader2,
 		Pen,
@@ -72,13 +69,10 @@
 		ChevronDown,
 		ChevronRight
 	} from 'lucide-svelte'
-	import { SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB } from '$lib/consts'
-	import { scriptToHubUrl } from '$lib/hub'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import ScriptVersionHistory from '$lib/components/ScriptVersionHistory.svelte'
-	import { createAppFromScript } from '$lib/components/details/createAppFromScript'
-	import { importStore } from '$lib/components/apps/store'
+	import { createRawAppFromScript } from '$lib/components/details/createRawAppFromScript'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import PersistentScriptDrawer from '$lib/components/PersistentScriptDrawer.svelte'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
@@ -117,6 +111,9 @@
 	let scheduledForStr: string | undefined = $state(undefined)
 	let invisible_to_owner: boolean | undefined = $state(undefined)
 	let overrideTag: string | undefined = $state(undefined)
+	let overrideTagNote: string | undefined = $state(undefined)
+	// Tag carried over from 'Run again', pending the dynamic-tag check in loadScript
+	let carriedTag: string | undefined = undefined
 	let inputSelected: 'saved' | 'history' | undefined = $state(undefined)
 	let jsonView = $state(false)
 
@@ -258,6 +255,22 @@
 				return
 			}
 		}
+		// A carried non-template value equal to the resolution of the script's own dynamic
+		// tag for these args is not an override but the previous run's pinned resolution:
+		// drop it so the backend re-resolves from the (possibly edited) args. A differing
+		// value is a genuine user override and a template re-resolves at push, so both stay.
+		if (
+			carriedTag &&
+			isDynamicTag(script.tag) &&
+			!isTagTemplate(carriedTag) &&
+			interpolateTag(script.tag ?? '', $workspaceStore!, args) === carriedTag
+		) {
+			if (overrideTag === carriedTag) {
+				overrideTag = undefined
+				overrideTagNote = `tag ${script.tag} is resolved at run time, so the previous run's tag ${carriedTag} was not applied`
+			}
+			carriedTag = undefined
+		}
 		can_write =
 			script.workspace_id == $workspaceStore &&
 			canWrite(script.path, script.extra_perms!, $userStore)
@@ -334,6 +347,8 @@
 	if (hash.length > 1) {
 		try {
 			let searchParams = new URLSearchParams(hash.slice(1))
+			carriedTag = extractTagFromSharableHash(searchParams)
+			overrideTag = carriedTag
 			let params = [...Object.entries(urlParamsToObject(searchParams))].map(([k, v]) => [
 				k,
 				JSON.parse(v)
@@ -425,9 +440,11 @@
 				label: 'Build app',
 				buttonProps: {
 					onClick: async () => {
-						const app = createAppFromScript(script.path, script.schema)
-						$importStore = JSON.parse(JSON.stringify(app))
-						await goto('/apps/add')
+						const app = createRawAppFromScript(script.path, script.summary, script.schema)
+						// /apps_raw/add hard-reloads (cross-origin isolation), so the
+						// in-memory importStore would be dropped; hand off via sessionStorage.
+						sessionStorage.setItem('rawAppImport', JSON.stringify(app))
+						await goto('/apps_raw/add')
 					},
 					disabled: !showEditButtons,
 					unifiedSize: 'md',
@@ -521,30 +538,6 @@
 				Icon: ChevronUpSquare,
 				onclick: () => {
 					deploymentDrawer?.openDrawer(script?.path ?? '', 'script')
-				}
-			})
-		}
-
-		if (SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB) {
-			menuItems.push({
-				label: 'Publish to Hub',
-				Icon: Globe2,
-				onclick: () => {
-					if (!script) return
-
-					window.open(
-						scriptToHubUrl(
-							script.content,
-							script.summary,
-							script.description ?? '',
-							script.kind,
-							script.language,
-							script.schema,
-							script.lock ?? '',
-							$hubBaseUrlStore
-						).toString(),
-						'_blank'
-					)
 				}
 			})
 		}
@@ -877,6 +870,7 @@
 								bind:scheduledForStr
 								bind:invisible_to_owner
 								bind:overrideTag
+								{overrideTagNote}
 								viewKeybinding
 								loading={runLoading}
 								autofocus

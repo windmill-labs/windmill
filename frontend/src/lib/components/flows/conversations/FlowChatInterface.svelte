@@ -93,6 +93,7 @@
 			schema={additionalInputsSchema}
 			bind:args={additionalInputsValues}
 			helperScript={dynamicInputHelperScript}
+			workspace={manager.operatingWorkspace?.()}
 		/>
 		{#snippet actions()}
 			<Button onClick={handleModalConfirm} variant="accent">Save</Button>

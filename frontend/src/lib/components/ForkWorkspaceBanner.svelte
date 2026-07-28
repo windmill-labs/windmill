@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { workspaceStore, userWorkspaces } from '$lib/stores'
-	import { WorkspaceService, ScriptService } from '$lib/gen'
+	import { ScriptService } from '$lib/gen'
 	import type { WorkspaceComparison } from '$lib/gen'
+	import { fetchWorkspaceComparison } from '$lib/workspaceComparison'
 	import { Button } from './common'
 	import { AlertTriangle, GitFork, CircleCheck, CircleX, Loader2 } from 'lucide-svelte'
 	import { goto } from '$app/navigation'
@@ -67,11 +68,9 @@
 		error = undefined
 
 		try {
-			// Compare with parent workspace
-			const result = await WorkspaceService.compareWorkspaces({
-				workspace: parentWorkspaceId,
-				targetWorkspaceId: $workspaceStore
-			})
+			// Compare with parent workspace (shared single-flight fetch — the chat
+			// diff tool reuses this result instead of recomputing the comparison)
+			const result = await fetchWorkspaceComparison(parentWorkspaceId, $workspaceStore)
 
 			comparison = result
 		} catch (e) {
@@ -164,8 +163,10 @@
 </script>
 
 {#if isFork}
-	<div class="w-full bg-blue-50 dark:bg-blue-900 text-xs rounded-b-md max-w-7xl mx-auto">
-		<div class="px-4 py-2">
+	<!-- Side padding mirrors the page content container below, so the banner
+	     stays aligned with it instead of bleeding to the viewport edges. -->
+	<div class="w-full text-xs max-w-7xl mx-auto px-4 sm:px-8 pt-2">
+		<div class="bg-blue-50 dark:bg-blue-900 rounded-md px-4 py-2">
 			<div class="flex items-center justify-between">
 				<div class="flex items-center gap-3">
 					<GitFork class="w-4 h-4 text-accent" />

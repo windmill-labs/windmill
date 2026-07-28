@@ -2,6 +2,7 @@ import type { Job, OpenFlow } from '$lib/gen'
 import type { History } from '$lib/history.svelte'
 import type { Writable } from 'svelte/store'
 import type ScriptEditorDrawer from './content/ScriptEditorDrawer.svelte'
+import type WorkspaceScriptSettingsDrawer from './content/WorkspaceScriptSettingsDrawer.svelte'
 import type FlowEditorDrawer from './content/FlowEditorDrawer.svelte'
 import type { FlowState } from './flowState'
 import type { FlowBuilderWhitelabelCustomUi } from '../custom_ui'
@@ -76,6 +77,7 @@ export type FlowEditorContext = {
 	currentEditor: Writable<CurrentEditor>
 	previewArgs: StateStore<Record<string, any>>
 	scriptEditorDrawer: Writable<ScriptEditorDrawer | undefined>
+	workspaceScriptSettingsDrawer: Writable<WorkspaceScriptSettingsDrawer | undefined>
 	flowEditorDrawer: Writable<FlowEditorDrawer | undefined>
 	history: History<OpenFlow>
 	pathStore: Writable<string>
@@ -106,6 +108,10 @@ export type FlowEditorContext = {
 
 export type FlowGraphAssetContext = StateStore<{
 	selectedAsset: Asset | undefined
+	// The workspace asset explore controls (DB manager, S3/volume picker, resource
+	// editor) act on — the flow's acting workspace in an AI session, else the nav
+	// workspace. Set by FlowAssetsHandler.
+	workspace: string | undefined
 	s3FilePicker: S3FilePicker | undefined
 	resourceEditorDrawer: ResourceEditorDrawer | undefined
 	// Maps resource paths to their metadata. undefined is for error

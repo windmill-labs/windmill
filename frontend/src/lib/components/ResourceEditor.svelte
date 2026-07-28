@@ -402,6 +402,7 @@
 					{loadingSchema}
 					{resourceToEdit}
 					onLoadResourceType={() => resourceTypeResource.refetch()}
+					workspace={selected}
 				/>
 			{/key}
 		{/if}

@@ -40,14 +40,14 @@ use windmill_common::{
     global_settings::{
         AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUDIT_LOG_RETENTION_DAYS_SETTING,
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, BUN_INSTALL_MIN_RELEASE_AGE_SETTING,
-        CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING,
-        CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING,
-        DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
-        DISABLE_PASSWORD_LOGIN_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
-        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
-        FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
-        HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
-        INSTANCE_EVENTS_WEBHOOK_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
+        CONCURRENCY_KEY_MAX_QUEUED_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
+        CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
+        CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
+        DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_PASSWORD_LOGIN_SETTING, EMAIL_DOMAIN_SETTING,
+        ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
+        EXTRA_PIP_INDEX_URL_SETTING, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING,
+        HTTP_ROUTE_WORKSPACED_ROUTE_SETTING, HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING,
+        INDEXER_SETTING, INSTANCE_EVENTS_WEBHOOK_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING, JWT_SECRET_SETTING,
         KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING, MAVEN_SETTINGS_XML_SETTING,
         MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
@@ -56,15 +56,15 @@ use windmill_common::{
         PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING,
         PREVIEW_TAGS_OVERRIDE_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RESTART_COORDINATION_SETTING,
-        RETENTION_PERIOD_SECS_SETTING, RUBY_REPOS_SETTING, SAML_METADATA_SETTING,
-        SANDBOX_IMAGE_CACHE_MAX_MB_SETTING, SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING,
-        SANDBOX_IMAGE_MAX_SIZE_MB_SETTING, SANDBOX_IMAGE_PULL_POLICY_SETTING,
-        SANDBOX_REGISTRY_AUTH_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING,
-        STORE_AUDIT_LOGS_S3_SETTING, TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
+        RETENTION_PERIOD_SECS_OVERRIDES_SETTING, RETENTION_PERIOD_SECS_SETTING, RUBY_REPOS_SETTING,
+        SAML_METADATA_SETTING, SANDBOX_IMAGE_CACHE_MAX_MB_SETTING,
+        SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING, SANDBOX_IMAGE_MAX_SIZE_MB_SETTING,
+        SANDBOX_IMAGE_PULL_POLICY_SETTING, SANDBOX_REGISTRY_AUTH_SETTING, SCIM_TOKEN_SETTING,
+        SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING, TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
         UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING, UV_PYTHON_INSTALL_MIRROR_SETTING,
         WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
         WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
-        WORKSPACE_REGISTRIES_SETTING,
+        WORKSPACE_MAX_QUEUED_JOBS_SETTING, WORKSPACE_REGISTRIES_SETTING,
     },
     scripts::ScriptLang,
     stats_oss::schedule_stats,
@@ -122,12 +122,13 @@ use windmill_worker::{
 };
 
 use crate::monitor::{
-    initial_load, load_disable_password_login, load_fork_workspace_tag_append_fork_suffix,
-    load_keep_job_dir, load_metrics_debug_enabled, load_preview_tags_override,
-    load_require_preexisting_user, load_tag_per_workspace_enabled,
-    load_tag_per_workspace_workspaces, load_workspace_fairness_duration_secs,
-    load_workspace_fairness_enabled, load_workspace_fairness_max_percent,
-    load_workspace_fairness_min_total, monitor_db, reload_app_workspaced_route_setting,
+    initial_load, load_concurrency_key_max_queued, load_disable_password_login,
+    load_fork_workspace_tag_append_fork_suffix, load_keep_job_dir, load_metrics_debug_enabled,
+    load_preview_tags_override, load_require_preexisting_user, load_retention_period_overrides,
+    load_tag_per_workspace_enabled, load_tag_per_workspace_workspaces,
+    load_workspace_fairness_duration_secs, load_workspace_fairness_enabled,
+    load_workspace_fairness_max_percent, load_workspace_fairness_min_total,
+    load_workspace_max_queued_jobs, monitor_db, reload_app_workspaced_route_setting,
     reload_audit_log_retention_days_setting, reload_base_url_setting,
     reload_bun_install_min_release_age_setting, reload_bunfig_install_scopes_setting,
     reload_critical_alert_mute_ui_setting, reload_critical_alerts_on_token_expiry_setting,
@@ -289,11 +290,18 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
     create_dir_all(&*HUB_CACHE_DIR)?;
     create_dir_all(&*BUN_BUNDLE_CACHE_DIR)?;
 
-    // Ensure the latest git sync script is always cached, regardless of hubPaths.json contents
+    // Ensure the backend-hardcoded git sync scripts are always cached, regardless of
+    // hubPaths.json contents. These are run by backend-driven sync (not necessarily listed
+    // in hubPaths.json), so airgapped workers would otherwise miss them on a cache lookup.
     let mut all_paths: Vec<String> = paths.into_values().collect();
-    let latest_git_sync = windmill_common::workspaces::LATEST_GIT_SYNC_SCRIPT_PATH.to_string();
-    if !all_paths.contains(&latest_git_sync) {
-        all_paths.push(latest_git_sync);
+    for git_sync_path in [
+        windmill_common::workspaces::LATEST_GIT_SYNC_SCRIPT_PATH,
+        windmill_common::workspaces::GIT_SYNC_PULL_SCRIPT_PATH,
+    ] {
+        let git_sync_path = git_sync_path.to_string();
+        if !all_paths.contains(&git_sync_path) {
+            all_paths.push(git_sync_path);
+        }
     }
 
     for path in &all_paths {
@@ -1803,6 +1811,15 @@ async fn process_notify_event(
             );
             windmill_api::auth::invalidate_token_from_cache(payload);
         }
+        "notify_app_policy_change" => {
+            // payload is `<workspace_id>:<path>`; workspace ids can't contain ':'.
+            if server_mode {
+                if let Some((workspace_id, path)) = payload.split_once(':') {
+                    tracing::info!("App policy change detected, invalidating cache: {payload}");
+                    windmill_api::invalidate_app_policy_cache(workspace_id, path);
+                }
+            }
+        }
         "notify_global_setting_change" => {
             tracing::info!("Global setting change detected: {}", payload);
             match payload {
@@ -1870,6 +1887,16 @@ async fn process_notify_event(
                         tracing::error!("Error loading workspace fairness min total: {e:#}");
                     }
                 }
+                CONCURRENCY_KEY_MAX_QUEUED_SETTING => {
+                    if let Err(e) = load_concurrency_key_max_queued(db).await {
+                        tracing::error!("Error loading concurrency key max queued: {e:#}");
+                    }
+                }
+                WORKSPACE_MAX_QUEUED_JOBS_SETTING => {
+                    if let Err(e) = load_workspace_max_queued_jobs(db).await {
+                        tracing::error!("Error loading workspace max queued jobs: {e:#}");
+                    }
+                }
                 SMTP_SETTING => {
                     reload_smtp_config(db).await;
                 }
@@ -1881,6 +1908,11 @@ async fn process_notify_event(
                 }
                 TIMEOUT_WAIT_RESULT_SETTING => reload_timeout_wait_result_setting(conn).await,
                 RETENTION_PERIOD_SECS_SETTING => reload_retention_period_setting(conn).await,
+                RETENTION_PERIOD_SECS_OVERRIDES_SETTING => {
+                    if let Err(e) = load_retention_period_overrides(db).await {
+                        tracing::error!("Error loading per-workspace retention overrides: {e:#}");
+                    }
+                }
                 AUDIT_LOG_RETENTION_DAYS_SETTING => {
                     reload_audit_log_retention_days_setting(conn).await
                 }

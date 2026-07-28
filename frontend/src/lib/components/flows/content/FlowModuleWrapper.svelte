@@ -22,8 +22,8 @@
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { formatCron } from '$lib/utils'
 	import AgentToolWrapper from './AgentToolWrapper.svelte'
-
-	const { selectionManager, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectionManager, flowStateStore, opWorkspace } =
+		getContext<FlowEditorContext>('FlowEditorContext')
 	const selectedId = $derived(selectionManager.getSelectedId())
 
 	const { triggersState, triggersCount } = getContext<TriggerContext>('TriggerContext')
@@ -99,7 +99,14 @@
 		kind: string,
 		hash: string | undefined
 	) {
-		const [module, state] = await pickScript(path, summary, flowModule.id, hash)
+		const [module, state] = await pickScript(
+			path,
+			summary,
+			flowModule.id,
+			hash,
+			undefined,
+			opWorkspace?.()
+		)
 
 		if (kind == 'approval') {
 			module.suspend = { required_events: 1, timeout: 1800 }
@@ -146,7 +153,7 @@
 			<FlowInputsFlow
 				on:pick={async ({ detail }) => {
 					const { path, summary } = detail
-					const [module, state] = await pickFlow(path, summary, flowModule.id)
+					const [module, state] = await pickFlow(path, summary, flowModule.id, opWorkspace?.())
 
 					flowModule = module
 					flowStateStore.val[module.id] = state
@@ -295,17 +302,17 @@
 		{/if}
 	{/each}
 {:else if flowModule.value.type === 'aiagent'}
-	{#each flowModule.value.tools as tool, toolIndex (toolIndex)}
+	{#each flowModule.value.tools ?? [] as tool, toolIndex (toolIndex)}
 		{#if selectedId === tool.id}
 			<AgentToolWrapper
 				{noEditor}
-				bind:tool={flowModule.value.tools[toolIndex]}
+				bind:tool={flowModule.value.tools![toolIndex]}
 				parentModule={flowModule}
 				{previousModule}
 				{enableAi}
 				{forceTestTab}
 				{highlightArg}
-				siblingToolNames={flowModule.value.tools.map((t) => t.summary ?? '')}
+				siblingToolNames={flowModule.value.tools!.map((t) => t.summary ?? '')}
 			/>
 		{/if}
 	{/each}

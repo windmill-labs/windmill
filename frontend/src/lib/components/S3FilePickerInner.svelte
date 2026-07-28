@@ -65,8 +65,12 @@
 		regexFilter?: RegExp | undefined
 		hideS3SpecificDetails?: boolean
 		rootPath?: string
+		/** Workspace to browse S3 storage in — defaults to the nav workspace. */
+		workspace?: string | undefined
 		workspaceSettingsInitialized?: boolean
 		storage?: string | undefined
+		/** Browse this object storage resource directly instead of the workspace storage. */
+		s3ResourcePath?: string | undefined
 		uploadModalOpen?: boolean
 		allFilesByKey?: Record<
 			string,
@@ -103,8 +107,10 @@
 		regexFilter = undefined,
 		hideS3SpecificDetails = false,
 		rootPath: initialRootPath = '',
+		workspace = undefined,
 		workspaceSettingsInitialized = $bindable(true),
 		storage = $bindable(undefined),
+		s3ResourcePath = undefined,
 		uploadModalOpen = $bindable(false),
 		allFilesByKey = $bindable({}),
 		allowDelete = false,
@@ -116,6 +122,8 @@
 		moveS3FileRequest = HelpersService.moveS3File,
 		testConnectionRequest = HelpersService.datasetStorageTestConnection
 	}: Props = $props()
+
+	let ws = $derived(workspace ?? $workspaceStore)
 
 	let rootPath = $state(initialRootPath)
 	let rootPathNestingLevel = $derived(1 * (rootPath.split('/').length - 1))
@@ -183,11 +191,12 @@
 	async function loadFiles() {
 		fileListLoading = true
 		let availableFiles = await listStoredFilesRequest({
-			workspace: $workspaceStore!,
+			workspace: ws!,
 			maxKeys: maxKeys, // fixed pages of 1000 files for now
 			marker: page == 0 ? undefined : listMarkers[page - 1],
 			prefix: rootPath ?? (filter.trim() != '' ? filter : undefined),
-			storage: storage
+			storage: storage,
+			s3ResourcePath
 		})
 		if (
 			availableFiles.restricted_access === null ||
@@ -280,9 +289,10 @@
 		}
 		fileInfoLoading = true
 		let fileMetadataRaw = await loadFileMetadataRequest({
-			workspace: $workspaceStore!,
+			workspace: ws!,
 			fileKey: fileKey,
-			storage: storage
+			storage: storage,
+			s3ResourcePath
 		})
 
 		if (fileMetadataRaw !== undefined) {
@@ -300,7 +310,7 @@
 
 	async function loadFilePreview(fileKey: string, fileSizeInBytes?: number, fileMimeType?: string) {
 		let filePreviewRaw = await loadFilePreviewRequest({
-			workspace: $workspaceStore!,
+			workspace: ws!,
 			fileKey: fileKey,
 			fileSizeInBytes: fileSizeInBytes,
 			fileMimeType: fileMimeType,
@@ -308,7 +318,8 @@
 			csvHasHeader: csvHasHeader,
 			readBytesFrom: 0,
 			readBytesLength: 128 * 1024, // For now static limit of 128Kb per file,
-			storage: storage
+			storage: storage,
+			s3ResourcePath
 		})
 
 		let filePreviewContent = filePreviewRaw.content
@@ -349,9 +360,10 @@
 		}
 		try {
 			await deleteS3FileRequest({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				fileKey: fileKey,
-				storage: storage
+				storage: storage,
+				s3ResourcePath
 			})
 		} finally {
 			fileDeletionInProgress = false
@@ -409,10 +421,11 @@
 		}
 		try {
 			await moveS3FileRequest({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				srcFileKey: srcFileKey,
 				destFileKey: destFileKey!,
-				storage: storage
+				storage: storage,
+				s3ResourcePath
 			})
 		} finally {
 			fileMoveInProgress = false
@@ -457,8 +470,9 @@
 		fileListLoading = true
 		try {
 			await testConnectionRequest({
-				workspace: $workspaceStore!,
-				storage: storage
+				workspace: ws!,
+				storage: storage,
+				s3ResourcePath
 			})
 			workspaceSettingsInitialized = true
 		} catch (e) {
@@ -547,6 +561,15 @@
 		<Alert type="error" title="Connection to remote S3 bucket unsuccessful">
 			<div class="flex flex-row gap-x-1 w-full items-center">
 				<p class="text-clip grow min-w-0"> Double check the S3 resource fields and try again. </p>
+			</div>
+		</Alert>
+	{:else if s3ResourcePath}
+		<Alert type="error" title="Could not connect to the object storage of {s3ResourcePath}">
+			<div class="flex flex-row gap-x-1 w-full items-center">
+				<p class="text-clip grow min-w-0">
+					Double check the resource fields and that its object storage is reachable, then try again.
+				</p>
+				<Button variant="default" on:click={reloadContent} startIcon={{ icon: RotateCw }} />
 			</div>
 		</Alert>
 	{:else}
@@ -716,7 +739,7 @@
 						{#if filePreview !== undefined && (!hideS3SpecificDetails || !readOnlyMode || allowDelete)}
 							<div class="flex gap-2 shrink-0">
 								{#if !hideS3SpecificDetails}
-									{@const downloadApiPath = `/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${encodeURIComponent(fileMetadata?.fileKey ?? '')}${storage ? `&storage=${storage}` : ''}`}
+									{@const downloadApiPath = `/w/${ws}/job_helpers/download_s3_file?file_key=${encodeURIComponent(fileMetadata?.fileKey ?? '')}${storage ? `&storage=${storage}` : ''}${s3ResourcePath ? `&s3_resource_path=${encodeURIComponent(s3ResourcePath)}` : ''}`}
 									{@const downloadName =
 										fileMetadata?.fileKey.split('/').pop() ?? 'unnamed_download.file'}
 									{#if shouldDownloadViaClient()}
@@ -784,6 +807,8 @@
 			<S3FilePreview
 				fileKey={fileMetadata?.fileKey}
 				{storage}
+				{s3ResourcePath}
+				workspace={ws}
 				{loadFilePreviewRequest}
 				{loadFileMetadataRequest}
 				class="h-full"

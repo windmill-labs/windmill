@@ -18,6 +18,9 @@
 		selectedFileKey?: { s3: string; storage?: string } | undefined
 		folderOnly?: boolean
 		regexFilter?: RegExp | undefined
+		/** Workspace to browse S3 storage in — the acting workspace of the editor that
+		 * opened the picker, else the nav workspace. */
+		workspace?: string | undefined
 		onClose?: () => void
 		onSelectAndClose?: (selected: { s3: string; storage: string | undefined }) => void
 	}
@@ -30,6 +33,7 @@
 		selectedFileKey = $bindable(undefined),
 		folderOnly = false,
 		regexFilter = undefined,
+		workspace = undefined,
 		onClose,
 		onSelectAndClose
 	}: Props = $props()
@@ -39,6 +43,12 @@
 
 	let workspaceSettingsInitialized = $state(true)
 	let storage: string | undefined = $state(undefined)
+	let s3ResourcePath: string | undefined = $state(undefined)
+	/** Per-open workspace override, for callers (e.g. the global explorer) whose
+	 * asset lives in a different workspace than this picker was mounted for. */
+	let workspaceOverride: string | undefined = $state(undefined)
+	let effectiveWorkspace = $derived(workspaceOverride ?? workspace)
+	let ws = $derived(effectiveWorkspace ?? $workspaceStore)
 	let uploadModalOpen = $state(false)
 
 	let allFilesByKey: Record<
@@ -55,13 +65,20 @@
 	> = $state({})
 
 	let secondaryStorageNames = resource(
-		() => $workspaceStore,
-		() => SettingService.getSecondaryStorageNames({ workspace: $workspaceStore! }),
+		() => ws,
+		() => SettingService.getSecondaryStorageNames({ workspace: ws! }),
 		{ lazy: true }
 	)
 
-	export async function open(_preSelectedFileKey: S3Object | undefined = undefined) {
-		secondaryStorageNames.refetch()
+	export async function open(
+		_preSelectedFileKey: S3Object | undefined = undefined,
+		opts: { s3ResourcePath?: string; workspace?: string } = {}
+	) {
+		s3ResourcePath = opts.s3ResourcePath
+		workspaceOverride = opts.workspace
+		if (!s3ResourcePath) {
+			secondaryStorageNames.refetch()
+		}
 		drawer?.openDrawer?.()
 
 		await tick()
@@ -80,12 +97,14 @@
 	size="1200px"
 >
 	<DrawerContent
-		title="S3 file browser"
+		title={s3ResourcePath ? `Exploring ${s3ResourcePath}` : 'S3 file browser'}
 		on:close={() => {
 			s3FilePickerInner?.exit?.()
 			drawer?.closeDrawer?.()
 		}}
-		tooltip="Files present in the Workspace S3 bucket. You can set the workspace S3 bucket in the settings."
+		tooltip={s3ResourcePath
+			? `Files present in the bucket of the ${s3ResourcePath} resource.`
+			: 'Files present in the Workspace S3 bucket. You can set the workspace S3 bucket in the settings.'}
 		documentationLink="https://www.windmill.dev/docs/integrations/s3"
 	>
 		<S3FilePickerInner
@@ -103,12 +122,14 @@
 			bind:storage
 			bind:allFilesByKey
 			bind:uploadModalOpen
+			{s3ResourcePath}
 			{folderOnly}
 			{regexFilter}
+			workspace={effectiveWorkspace}
 		/>
 		{#snippet actions()}
 			<div class="flex gap-1">
-				{#if secondaryStorageNames.current?.length}
+				{#if !s3ResourcePath && secondaryStorageNames.current?.length}
 					<Select
 						inputClass="h-10 min-w-44 !placeholder-secondary"
 						items={[

@@ -43,10 +43,13 @@ import { flowModuleSchema } from './openFlowZod.gen'
 import { collectAllFlowModuleIdsFromModules } from '$lib/components/flows/flowTree'
 import {
 	buildEditableFlowJson as buildEditableFlowJsonBase,
+	FLOW_VALUE_SETTINGS_KEYS,
+	pickFlowValueSettings,
 	validateEditableFlowJson,
 	validateFlowModules,
 	validateFlowSchema,
-	type EditableFlowJson
+	type EditableFlowJson,
+	type FlowValueSettings
 } from './editableFlowJson'
 import { FLOW_CHAT_SPECIAL_MODULES, getFlowPrompt } from '$system_prompts'
 
@@ -57,6 +60,9 @@ type FlowJsonUpdate = {
 	failureModule?: FlowModule | null
 	groups?: FlowGroup[] | null
 	notes?: FlowNote[] | null
+	/** Full state of the top-level FlowValue settings: when provided, keys
+	 * absent from it are removed from the flow value. */
+	settings?: FlowValueSettings
 }
 
 function formatEmptyInlineScriptWarning({
@@ -428,7 +434,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			})
 		},
 		requiresConfirmation: true,
-		confirmationMessage: 'Run flow test',
+		confirmationMessage: 'Run a test of the current flow',
 		showDetails: true,
 		autoCollapseDetails: false
 	},
@@ -461,7 +467,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			})
 		},
 		requiresConfirmation: true,
-		confirmationMessage: 'Run flow step test',
+		confirmationMessage: (args) => `Run a test of step "${args?.stepId ?? ''}"`,
 		showDetails: true,
 		autoCollapseDetails: false
 	},
@@ -563,7 +569,8 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				preprocessorModule: parsedFlow.preprocessor_module,
 				failureModule: parsedFlow.failure_module,
 				groups: parsedFlow.groups,
-				notes: parsedFlow.notes
+				notes: parsedFlow.notes,
+				settings: pickFlowValueSettings(parsedFlow)
 			})
 			const warning = formatEmptyInlineScriptWarning(updateResult)
 
@@ -854,7 +861,7 @@ export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionS
 Use \`patch_flow_json\` for small, localized changes when you can target an exact snippet from the \`CURRENT FLOW JSON COMPACT\` block below.
 
 Always copy the exact search text from the \`CURRENT FLOW JSON COMPACT\` block below.
-The compact JSON is a single object with \`modules\`, \`schema\`, \`preprocessor_module\`, \`failure_module\`, \`groups\`, and \`notes\` keys.
+The compact JSON is a single object with \`modules\`, \`schema\`, \`preprocessor_module\`, \`failure_module\`, \`groups\`, and \`notes\` keys, plus any top-level flow settings that are set (${FLOW_VALUE_SETTINGS_KEYS.join(', ')}). Settings can be added, edited, or removed with \`patch_flow_json\` as top-level keys — e.g. \`chat_input_enabled: true\` marks the flow as chat-style (flow-as-chat); keep it intact when restructuring such a flow. \`set_flow_json\` never changes these settings.
 
 **Parameters:**
 - \`old_string\`: Exact JSON text to find
@@ -971,6 +978,48 @@ set_flow_json({
       }
     }
   ]
+})
+\`\`\`
+
+**Example - Flow with while loop:**
+
+In a while loop, \`flow_input.iter.value\` equals \`flow_input.iter.index\` (a plain number: 0, 1, 2, ...) — it never carries state, so \`flow_input.iter.value.count\` is always undefined and a counter built on it never advances. To carry state across iterations, a step reads its own previous-iteration result via \`results.<its_own_id>\` with a first-iteration fallback (e.g. \`results.tick ?? flow_input.start\`) — but then the loop's \`stop_after_if\` MUST sit on that inner step: a body that is exactly one plain step with the stop condition on the loop module runs on a fast path where \`results.<step_id>\` is null every iteration and the loop never terminates (bodies with 2+ steps, or whose single step has its own \`stop_after_if\`, retry or similar, resolve \`results\` across iterations regardless of stop placement). For plain counters, deriving from \`flow_input.iter.index\` works in every configuration. \`stop_after_if\` is evaluated after each iteration — on the loop module \`result\` is the last iteration's result (the return of the iteration's final step); on an inner step it is that step's result.
+
+\`\`\`javascript
+set_flow_json({
+  modules: [
+    {
+      id: "count_up",
+      summary: "Increment until target",
+      value: {
+        type: "whileloopflow",
+        skip_failures: false,
+        modules: [
+          {
+            id: "tick",
+            summary: "Compute current count",
+            value: {
+              type: "rawscript",
+              language: "bun",
+              content: "export async function main(count: number, target: number) { return { count, done: count >= target }; }",
+              input_transforms: {
+                count: { type: "javascript", expr: "flow_input.iter.index + 1" },
+                target: { type: "javascript", expr: "flow_input.target" }
+              }
+            }
+          }
+        ]
+      },
+      stop_after_if: { expr: "result.done", skip_if_stopped: false }
+    }
+  ],
+  schema: {
+    type: "object",
+    properties: {
+      target: { type: "number", description: "Stop when the count reaches this value" }
+    },
+    required: ["target"]
+  }
 })
 \`\`\`
 

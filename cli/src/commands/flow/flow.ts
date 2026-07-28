@@ -405,6 +405,7 @@ async function run(
   opts: GlobalOptions & {
     data?: string;
     silent: boolean;
+    tag?: string;
   },
   path: string
 ) {
@@ -433,6 +434,7 @@ async function run(
   const id = await wmill.runFlowByPath({
     workspace: workspace.workspaceId,
     path,
+    tag: opts.tag,
     requestBody: input,
   });
 
@@ -587,6 +589,7 @@ async function preview(
     silent: boolean;
     remote?: boolean;
     step?: string;
+    tag?: string;
   } & SyncOptions,
   flowPath: string
 ) {
@@ -699,7 +702,7 @@ async function preview(
   const flowWmPath = stripFlowSuffix(flowPath).replaceAll(SEP, "/");
 
   if (opts.step) {
-    await previewStep(opts.step, localFlow, flowWmPath, workspace, input, tempScriptRefs, opts.silent);
+    await previewStep(opts.step, localFlow, flowWmPath, workspace, input, tempScriptRefs, opts.silent, opts.tag);
     return;
   }
 
@@ -714,6 +717,7 @@ async function preview(
       value: localFlow.value,
       path: flowWmPath,
       args: input,
+      tag: opts.tag,
       temp_script_refs: tempScriptRefs,
     },
   });
@@ -747,6 +751,7 @@ async function previewStep(
   baseArgs: Record<string, unknown>,
   tempScriptRefs: Record<string, string> | undefined,
   silent: boolean,
+  tag: string | undefined,
 ) {
   const module = findStepInFlowValue(localFlow.value, stepId);
   if (!module) {
@@ -778,6 +783,7 @@ async function previewStep(
         path: `${flowWmPath}/${stepId}`,
         flow_path: flowWmPath,
         args,
+        tag,
         temp_script_refs: tempScriptRefs,
       },
     });
@@ -804,6 +810,7 @@ async function previewStep(
         path: moduleValue.path,
         flow_path: flowWmPath,
         args,
+        tag,
         temp_script_refs: tempScriptRefs,
       },
     });
@@ -812,6 +819,7 @@ async function previewStep(
     jobId = await wmill.runFlowByPath({
       workspace: workspace.workspaceId,
       path: moduleValue.path,
+      tag,
       requestBody: args,
     });
   } else {
@@ -1122,6 +1130,10 @@ const command = new Command()
     "-s --silent",
     "Do not ouput anything other then the final output. Useful for scripting."
   )
+  .option(
+    "--tag <tag:string>",
+    "Override the worker tag the run is dispatched to (e.g. to route it to dev workers instead of the flow's default tag)."
+  )
   .action(run as any)
   .command(
     "preview",
@@ -1143,6 +1155,10 @@ const command = new Command()
   .option(
     "--step <step_id:string>",
     "Run only the named step instead of the whole flow. Honors --data as the step's args and --remote / local-PathScript resolution the same way the full-flow preview does."
+  )
+  .option(
+    "--tag <tag:string>",
+    "Override the worker tag the preview is dispatched to (e.g. to route it to dev workers instead of the flow's default tag)."
   )
   .action(preview as any)
   .command(

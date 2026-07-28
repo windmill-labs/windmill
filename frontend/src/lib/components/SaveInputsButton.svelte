@@ -11,12 +11,13 @@
 	const dispatch = createEventDispatcher()
 
 	interface Props {
-		runnableId: string | undefined;
-		runnableType: RunnableType | undefined;
-		args: object;
-		disabled?: boolean;
-		small?: boolean | undefined;
-		showTooltip?: boolean | undefined;
+		runnableId: string | undefined
+		runnableType: RunnableType | undefined
+		args: object
+		disabled?: boolean
+		small?: boolean | undefined
+		showTooltip?: boolean | undefined
+		workspace?: string | undefined
 	}
 
 	let {
@@ -25,8 +26,11 @@
 		args,
 		disabled = false,
 		small = undefined,
-		showTooltip = undefined
-	}: Props = $props();
+		showTooltip = undefined,
+		workspace = undefined
+	}: Props = $props()
+
+	let ws = $derived(workspace ?? $workspaceStore)
 
 	let savingInputs = $state(false)
 
@@ -40,7 +44,7 @@
 
 		try {
 			await InputService.createInput({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				runnableId,
 				runnableType,
 				requestBody

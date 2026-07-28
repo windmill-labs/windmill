@@ -1,13 +1,29 @@
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import type { DisplayMessage, ToolDisplayMessage } from './shared'
+import { openItemPreviewAction } from './shared'
 
 vi.mock('monaco-editor', () => ({
 	editor: {}
 }))
 
+const userHolder = vi.hoisted(() => ({
+	current: { is_super_admin: true } as { is_super_admin: boolean }
+}))
+
 vi.mock('$lib/stores', () => ({
-	workspaceStore: { subscribe: () => () => undefined }
+	workspaceStore: { subscribe: () => () => undefined },
+	userStore: {
+		subscribe: (run: (value: { is_super_admin: boolean }) => void) => {
+			run(userHolder.current)
+			return () => {}
+		}
+	}
+}))
+
+vi.mock('$lib/components/triggers/email/utils', () => ({
+	getEmailAddress: (localPart: string, _wlp: boolean, _wsId: string, domain: string) =>
+		`${localPart}@${domain}`
 }))
 
 vi.mock('$lib/components/flows/flowTree', () => ({
@@ -17,7 +33,7 @@ vi.mock('$lib/components/flows/flowTree', () => ({
 vi.mock('$lib/gen', () => ({
 	ScriptService: {},
 	FlowService: {},
-	JobService: {},
+	JobService: { getJob: vi.fn() },
 	ScheduleService: {
 		previewSchedule: vi.fn(),
 		createSchedule: vi.fn()
@@ -30,7 +46,10 @@ vi.mock('$lib/gen', () => ({
 	MqttTriggerService: { createMqttTrigger: vi.fn() },
 	SqsTriggerService: { createSqsTrigger: vi.fn() },
 	GcpTriggerService: { createGcpTrigger: vi.fn() },
-	AzureTriggerService: { createAzureTrigger: vi.fn() }
+	AzureTriggerService: { createAzureTrigger: vi.fn() },
+	AmqpTriggerService: { createAmqpTrigger: vi.fn() },
+	EmailTriggerService: { createEmailTrigger: vi.fn() },
+	SettingService: { getGlobal: vi.fn() }
 }))
 
 vi.mock('$lib/utils', () => ({
@@ -51,6 +70,12 @@ vi.mock('@leeoniya/ufuzzy', () => ({
 			return [[], [], []]
 		}
 	}
+}))
+
+// deriveChatJobStatus's scheduled branch calls forLater; stub it deterministically
+// (a real one pulls in stores/db-clock drift) — "later" = >5s in the future.
+vi.mock('$lib/forLater', () => ({
+	forLater: (scheduled: string | number | Date) => new Date(scheduled).getTime() > Date.now() + 5000
 }))
 
 describe('createToolDef', () => {
@@ -203,6 +228,45 @@ describe('processToolCall', () => {
 			})
 		)
 		expect(result.content).toBe(error)
+	})
+
+	it('surfaces the real error in the tool status when the tool throws', async () => {
+		const { createToolDef, processToolCall } = await import('./shared')
+		const apiError = Object.assign(new Error('Bad Request'), {
+			status: 400,
+			body: { error: { message: 'script not found at path f/scripts/missing' } }
+		})
+		const setToolStatus = vi.fn()
+
+		const result = await processToolCall({
+			tools: [
+				{
+					def: createToolDef(z.object({}), 'run_script', 'Run script'),
+					fn: vi.fn().mockRejectedValue(apiError)
+				}
+			],
+			toolCall: {
+				id: 'call_err',
+				type: 'function',
+				function: { name: 'run_script', arguments: '{}' }
+			},
+			helpers: {},
+			workspace: 'test-workspace',
+			toolCallbacks: {
+				setToolStatus,
+				removeToolStatus: vi.fn()
+			}
+		})
+
+		const expectedError = 'script not found at path f/scripts/missing'
+		expect(setToolStatus).toHaveBeenLastCalledWith(
+			'call_err',
+			expect.objectContaining({
+				isLoading: false,
+				error: expectedError
+			})
+		)
+		expect(result.content).toBe(`Error while calling tool: ${expectedError}`)
 	})
 
 	it('continues to confirmation when pre-confirmation validation passes', async () => {
@@ -509,6 +573,118 @@ describe('processToolCall', () => {
 		)
 	})
 
+	it('email trigger: guides the user to set up email triggering when unconfigured', async () => {
+		const gen = (await import('$lib/gen')) as any
+		const { processToolCall } = await import('./shared')
+		const { createWorkspaceMutationTools } = await import('./workspaceTools')
+		const tools = createWorkspaceMutationTools()
+
+		gen.SettingService.getGlobal.mockReset()
+		gen.SettingService.getGlobal.mockResolvedValue(null)
+		gen.EmailTriggerService.createEmailTrigger.mockReset()
+
+		const call = (id: string) =>
+			processToolCall({
+				tools,
+				toolCall: {
+					id,
+					type: 'function',
+					function: {
+						name: 'create_trigger',
+						arguments: JSON.stringify({
+							kind: 'email',
+							path: 'f/triggers/email_current',
+							config: { local_part: 'orders' }
+						})
+					}
+				},
+				helpers: {
+					getWorkspaceMutationTarget: () => ({
+						kind: 'flow',
+						path: 'f/flows/current',
+						deployed: true
+					})
+				},
+				workspace: 'test-workspace',
+				toolCallbacks: {
+					setToolStatus: vi.fn(),
+					removeToolStatus: vi.fn(),
+					requestConfirmation: vi.fn().mockResolvedValue(true)
+				}
+			})
+
+		userHolder.current = { is_super_admin: true }
+		const superadminResult = await call('call_email_super')
+		expect(gen.EmailTriggerService.createEmailTrigger).not.toHaveBeenCalled()
+		expect(superadminResult.content).toContain('not set up')
+		expect(superadminResult.content).toContain('As a superadmin')
+
+		userHolder.current = { is_super_admin: false }
+		const memberResult = await call('call_email_member')
+		expect(gen.EmailTriggerService.createEmailTrigger).not.toHaveBeenCalled()
+		expect(memberResult.content).toContain('Ask an instance superadmin')
+	})
+
+	it('email trigger: creates it and reports the address when email triggering is configured', async () => {
+		const gen = (await import('$lib/gen')) as any
+		const { processToolCall } = await import('./shared')
+		const { createWorkspaceMutationTools } = await import('./workspaceTools')
+		const tools = createWorkspaceMutationTools()
+
+		gen.SettingService.getGlobal.mockReset()
+		gen.SettingService.getGlobal.mockResolvedValue('mail.example.com')
+		gen.EmailTriggerService.createEmailTrigger.mockReset()
+		gen.EmailTriggerService.createEmailTrigger.mockResolvedValue('email-created')
+
+		const result = await processToolCall({
+			tools,
+			toolCall: {
+				id: 'call_email_ok',
+				type: 'function',
+				function: {
+					name: 'create_trigger',
+					arguments: JSON.stringify({
+						kind: 'email',
+						path: 'f/triggers/email_current',
+						config: { local_part: 'orders' }
+					})
+				}
+			},
+			helpers: {
+				getWorkspaceMutationTarget: () => ({
+					kind: 'flow',
+					path: 'f/flows/current',
+					deployed: true
+				})
+			},
+			workspace: 'test-workspace',
+			toolCallbacks: {
+				setToolStatus: vi.fn(),
+				removeToolStatus: vi.fn(),
+				requestConfirmation: vi.fn().mockResolvedValue(true)
+			}
+		})
+
+		expect(gen.EmailTriggerService.createEmailTrigger).toHaveBeenCalledWith({
+			workspace: 'test-workspace',
+			requestBody: expect.objectContaining({
+				local_part: 'orders',
+				// defaulted before the request is sent; the backend column is NOT NULL
+				workspaced_local_part: false,
+				script_path: 'f/flows/current',
+				is_flow: true
+			})
+		})
+		expect(JSON.parse(result.content as string)).toEqual(
+			expect.objectContaining({
+				success: true,
+				kind: 'email',
+				email_address: 'orders@mail.example.com',
+				backend_result: 'email-created'
+			})
+		)
+	})
+
 	it('surfaces workspace mutation tool execution errors to the user', async () => {
 		const gen = (await import('$lib/gen')) as any
 		const { processToolCall } = await import('./shared')
@@ -645,7 +821,18 @@ describe('isActiveUserQuestion', () => {
 		expect(isActiveUserQuestion(toolMessage())).toBe(true)
 	})
 
-	it('is false once a choice has been selected', async () => {
+	it('is false once choices have been selected', async () => {
+		const { isActiveUserQuestion } = await import('./shared')
+		expect(
+			isActiveUserQuestion(
+				toolMessage({
+					userQuestion: { question: 'Pick one', choices: ['a', 'b'], selectedChoices: ['a'] }
+				})
+			)
+		).toBe(false)
+	})
+
+	it('is false once a legacy scalar selectedChoice is present', async () => {
 		const { isActiveUserQuestion } = await import('./shared')
 		expect(
 			isActiveUserQuestion(
@@ -654,6 +841,17 @@ describe('isActiveUserQuestion', () => {
 				})
 			)
 		).toBe(false)
+	})
+
+	it('stays active when selectedChoices is present but empty', async () => {
+		const { isActiveUserQuestion } = await import('./shared')
+		expect(
+			isActiveUserQuestion(
+				toolMessage({
+					userQuestion: { question: 'Pick one', choices: ['a', 'b'], selectedChoices: [] }
+				})
+			)
+		).toBe(true)
 	})
 
 	it('is false when the question was canceled', async () => {
@@ -687,5 +885,242 @@ describe('isActiveUserQuestion', () => {
 		expect(isActiveUserQuestion(undefined)).toBe(false)
 		expect(isActiveUserQuestion(userMessage)).toBe(false)
 		expect(isActiveUserQuestion(assistantMessage)).toBe(false)
+	})
+})
+
+describe('pollJobCompletion detach', () => {
+	function makeCallbacks() {
+		return {
+			setToolStatus: vi.fn(),
+			removeToolStatus: vi.fn(),
+			onJobStatus: vi.fn()
+		}
+	}
+
+	it('detaches immediately (no polling) when detachAfterMs is 0', async () => {
+		const { pollJobCompletion } = await import('./shared')
+		const { JobService } = await import('$lib/gen')
+		const getJob = vi.mocked(JobService.getJob)
+		getJob.mockReset()
+		const cbs = makeCallbacks()
+
+		const outcome = await pollJobCompletion('job1', 'w', 'tool1', cbs as any, { detachAfterMs: 0 })
+
+		expect(outcome).toBe('detached')
+		expect(getJob).not.toHaveBeenCalled()
+	})
+
+	it('detaches after the inline budget when the job is still running', async () => {
+		vi.useFakeTimers()
+		try {
+			const { pollJobCompletion } = await import('./shared')
+			const { JobService } = await import('$lib/gen')
+			const getJob = vi.mocked(JobService.getJob)
+			getJob.mockReset()
+			getJob.mockResolvedValue({ type: 'QueuedJob', running: true } as any)
+			const cbs = makeCallbacks()
+
+			// detachAfterMs 2000 → 2 polls at 1s each, then detach.
+			const promise = pollJobCompletion('job1', 'w', 'tool1', cbs as any, { detachAfterMs: 2000 })
+			await vi.advanceTimersByTimeAsync(2000)
+
+			expect(await promise).toBe('detached')
+			// Status is reported as running during the wait (alongside the trimmed
+			// Job snapshot that feeds JobStatusIcon).
+			expect(cbs.onJobStatus).toHaveBeenCalledWith(
+				'job1',
+				expect.objectContaining({ status: 'running' })
+			)
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	it('returns the completed job when it finishes within the inline budget', async () => {
+		vi.useFakeTimers()
+		try {
+			const { pollJobCompletion } = await import('./shared')
+			const { JobService } = await import('$lib/gen')
+			const getJob = vi.mocked(JobService.getJob)
+			getJob.mockReset()
+			const completed = { type: 'CompletedJob', success: true, result: 42 }
+			getJob.mockResolvedValue(completed as any)
+			const cbs = makeCallbacks()
+
+			const promise = pollJobCompletion('job1', 'w', 'tool1', cbs as any, { detachAfterMs: 15000 })
+			await vi.advanceTimersByTimeAsync(1000)
+
+			expect(await promise).toBe(completed)
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	it('legacy mode (no detach) throws a timeout error when the job never completes', async () => {
+		vi.useFakeTimers()
+		try {
+			const { pollJobCompletion } = await import('./shared')
+			const { JobService } = await import('$lib/gen')
+			const getJob = vi.mocked(JobService.getJob)
+			getJob.mockReset()
+			getJob.mockResolvedValue({ type: 'QueuedJob', running: true } as any)
+			const cbs = makeCallbacks()
+
+			const promise = pollJobCompletion('job1', 'w', 'tool1', cbs as any)
+			const assertion = expect(promise).rejects.toThrow('timed out')
+			await vi.advanceTimersByTimeAsync(60000)
+			await assertion
+			expect(cbs.setToolStatus).toHaveBeenCalledWith(
+				'tool1',
+				expect.objectContaining({ error: expect.any(String) })
+			)
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+})
+
+describe('deriveChatJobStatus', () => {
+	// CompletedJob is discriminated by the presence of a `success` key; the branch
+	// order deliberately mirrors JobStatusIcon so the badge and scalar never drift.
+	it('maps a canceled completed job to canceled (canceled wins over success=false)', async () => {
+		const { deriveChatJobStatus } = await import('./shared')
+		expect(deriveChatJobStatus({ success: false, canceled: true } as any)).toBe('canceled')
+	})
+
+	it('maps a successful completed job to success', async () => {
+		const { deriveChatJobStatus } = await import('./shared')
+		expect(deriveChatJobStatus({ success: true, canceled: false } as any)).toBe('success')
+	})
+
+	it('maps a non-canceled failed completed job to failure', async () => {
+		const { deriveChatJobStatus } = await import('./shared')
+		expect(deriveChatJobStatus({ success: false, canceled: false } as any)).toBe('failure')
+	})
+
+	it('maps a running suspended queued job to suspended', async () => {
+		const { deriveChatJobStatus } = await import('./shared')
+		expect(deriveChatJobStatus({ running: true, suspend: 1 } as any)).toBe('suspended')
+	})
+
+	it('maps a running queued job to running', async () => {
+		const { deriveChatJobStatus } = await import('./shared')
+		expect(deriveChatJobStatus({ running: true } as any)).toBe('running')
+	})
+
+	it('maps a future-scheduled queued job to scheduled', async () => {
+		const { deriveChatJobStatus } = await import('./shared')
+		const future = new Date(Date.now() + 3_600_000).toISOString()
+		expect(deriveChatJobStatus({ running: false, scheduled_for: future } as any)).toBe('scheduled')
+	})
+
+	it('maps a plain (non-running, non-scheduled) queued job to queued', async () => {
+		const { deriveChatJobStatus } = await import('./shared')
+		expect(deriveChatJobStatus({ running: false } as any)).toBe('queued')
+	})
+})
+
+describe('trimJob', () => {
+	const HEAVY = ['logs', 'args', 'result', 'raw_code', 'raw_flow', 'flow_status']
+
+	it('preserves the ABSENCE of a success key on a queued job (JobStatusIcon in-operator invariant)', async () => {
+		const { trimJob } = await import('./shared')
+		const queued = {
+			id: 'j1',
+			running: true,
+			logs: 'x',
+			args: {},
+			result: 1,
+			raw_code: 'c',
+			raw_flow: {},
+			flow_status: {}
+		}
+		const trimmed = trimJob(queued as any)
+		// The load-bearing invariant: a running/queued job must NOT gain a `success`
+		// key, or deriveChatJobStatus/JobStatusIcon would misread it as completed.
+		expect('success' in trimmed).toBe(false)
+		expect(trimmed.running).toBe(true)
+		expect(trimmed.id).toBe('j1')
+	})
+
+	it('deletes the six heavy fields but keeps the status-discriminant scalar', async () => {
+		const { trimJob } = await import('./shared')
+		const job = {
+			id: 'j1',
+			success: true,
+			logs: 'x',
+			args: { a: 1 },
+			result: [1],
+			raw_code: 'c',
+			raw_flow: { modules: [] },
+			flow_status: { step: 0 }
+		}
+		const trimmed = trimJob(job as any) as Record<string, unknown>
+		for (const k of HEAVY) expect(k in trimmed).toBe(false)
+		expect('success' in trimmed).toBe(true)
+		expect(trimmed.success).toBe(true)
+	})
+
+	it('does not mutate the input job', async () => {
+		const { trimJob } = await import('./shared')
+		const job = { id: 'j1', success: true, result: 42 }
+		trimJob(job as any)
+		expect(job.result).toBe(42)
+	})
+})
+
+describe('appendPendingToolImages', () => {
+	// Tool results are string-only, so tool-produced images ride a follow-up
+	// user message appended after the whole tool batch. It must land in BOTH
+	// arrays (messages = sent next iteration, addedMessages = committed to
+	// history) and drain the buffer exactly once — a second flush appending the
+	// same screenshots again would duplicate them in history.
+	it('appends one user message to both arrays and drains the buffer once', async () => {
+		const { appendPendingToolImages } = await import('./shared')
+		let pending = [{ dataUrl: 'data:image/png;base64,SHOT', mediaType: 'image/png' as const }]
+		const toolCallbacks = {
+			setToolStatus: vi.fn(),
+			takePendingToolImages: () => {
+				const taken = pending
+				pending = []
+				return taken
+			}
+		}
+		const messages: any[] = []
+		const addedMessages: any[] = []
+
+		appendPendingToolImages(messages, addedMessages, toolCallbacks as any)
+
+		expect(messages).toHaveLength(1)
+		expect(messages[0]).toBe(addedMessages[0])
+		expect(messages[0].role).toBe('user')
+		expect(messages[0].content[1]).toEqual({
+			type: 'image_url',
+			image_url: { url: 'data:image/png;base64,SHOT' }
+		})
+
+		appendPendingToolImages(messages, addedMessages, toolCallbacks as any)
+		expect(messages).toHaveLength(1)
+		expect(addedMessages).toHaveLength(1)
+	})
+})
+
+describe('openItemPreviewAction', () => {
+	// The action's `type` is the key the sessions page registers its handler under,
+	// so it must stay 'open_item_preview'; `previewKind`/`path` are passed verbatim
+	// to previewTargetForSessionTarget.
+	it('carries the kind and path through to the dispatch action', () => {
+		expect(openItemPreviewAction('flow', 'f/team/etl')).toEqual({
+			id: 'open-item-preview:flow:f/team/etl',
+			type: 'open_item_preview',
+			label: 'Open flow preview',
+			previewKind: 'flow',
+			path: 'f/team/etl'
+		})
+	})
+
+	// raw_app is the internal kind; the user-facing label says "app".
+	it('labels raw_app as "app"', () => {
+		expect(openItemPreviewAction('raw_app', 'u/me/dash').label).toBe('Open app preview')
 	})
 })

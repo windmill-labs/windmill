@@ -12,6 +12,10 @@
 	import DBManagerContent from '../DBManagerContent.svelte'
 	import type { DbInput } from '../dbTypes'
 	import type { SelectedTable } from '../DBManager.svelte'
+	import { getRawAppOperatingWorkspace } from './rawAppWorkspace'
+
+	const getOpWs = getRawAppOperatingWorkspace()
+	let opWs = $derived(getOpWs?.() ?? $workspaceStore)
 
 	interface Props {
 		onAdd?: (ref: DataTableRef) => void
@@ -40,11 +44,9 @@
 
 	// Load available datatables from workspace
 	const datatables = resource<string[]>([], async () => {
-		if (!$workspaceStore) return []
+		if (!opWs) return []
 		try {
-			return (await WorkspaceService.listDataTables({ workspace: $workspaceStore })).map(
-				(d) => d.name
-			)
+			return (await WorkspaceService.listDataTables({ workspace: opWs })).map((d) => d.name)
 		} catch (e) {
 			console.error('Failed to load datatables:', e)
 			return []
@@ -163,11 +165,12 @@
 		CloseIcon={hasReplResult ? ArrowLeft : undefined}
 		noPadding
 	>
-		{#if dbInput && $workspaceStore}
+		{#if dbInput && opWs}
 			{#key selectedDatatable}
 				<DBManagerContent
 					bind:this={dbManagerContent}
 					input={dbInput}
+					workspace={opWs}
 					bind:hasReplResult
 					bind:selectedSchemaKey
 					bind:selectedTableKey

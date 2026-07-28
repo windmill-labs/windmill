@@ -108,7 +108,10 @@ export interface DbManagerUriState {
 	selectedSchema: string | undefined
 	selectedTable: string | undefined
 	readonly open: boolean
-	openDrawer: (nInput: DbInput) => void
+	/** Workspace the drawer's DB operations run against — the acting workspace of
+	 * the editor that opened it, else the navigation workspace. */
+	workspace: string | undefined
+	openDrawer: (nInput: DbInput, workspace?: string) => void
 	closeDrawer: () => void
 }
 
@@ -148,7 +151,12 @@ export function useDbManagerUriState(): DbManagerUriState {
 		params.dbm = buildDbm(p)
 	}
 
-	function openDrawer(nInput: DbInput) {
+	// Not URL-persisted: the drawer defaults back to the nav workspace on reload,
+	// which is the correct fallback outside the session that opened it.
+	let workspace = $state<string | undefined>(undefined)
+
+	function openDrawer(nInput: DbInput, ws?: string) {
+		workspace = ws
 		if (nInput.type === 'database') {
 			const isDatatable = nInput.resourcePath.startsWith('datatable://')
 			params.dbm = buildDbm({
@@ -202,6 +210,12 @@ export function useDbManagerUriState(): DbManagerUriState {
 		},
 		get open() {
 			return !!input
+		},
+		get workspace() {
+			return workspace
+		},
+		set workspace(v: string | undefined) {
+			workspace = v
 		},
 		openDrawer,
 		closeDrawer

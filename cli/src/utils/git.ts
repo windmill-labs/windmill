@@ -107,25 +107,42 @@ export interface GitSyncDeployItem {
   commit_msg?: string;
 }
 
-// A workspace id of the form "wm-fork-<id>" is a fork workspace. The hub
-// script force-disables use_individual_branch / group_by_folder for forks
-// (a fork always syncs to its own wm-fork/<branch>/<id> branch), and that
-// disabling also changes the include/promotion derivation — so callers must
-// apply it BEFORE deriving includes, not just for branch naming.
-export function isForkWorkspace(workspaceId: string): boolean {
-  return workspaceId.startsWith(FORK_WORKSPACE_PREFIX);
+// A throwaway fork syncs to its own wm-fork/<branch>/<id> branch. The hub script
+// force-disables use_individual_branch / group_by_folder for these (that disabling
+// also changes the include/promotion derivation — so callers must apply it BEFORE
+// deriving includes, not just for branch naming). A dev workspace is the exception:
+// with promotion on it keeps use_individual_branch / group_by_folder and gets
+// per-item wm_deploy/** branches like a root workspace.
+//
+// Fork-ness is "has a parent workspace" OR the "wm-fork-" id prefix. Regular forks
+// get an auto-generated `wm-fork-<slug>` id, but dev workspaces keep a custom id
+// with no prefix — so the prefix alone misses them. Mirrors the backend's
+// `parent.is_some() || starts_with(WM_FORK_PREFIX)` rule (the prefix also covers a
+// fork whose parent was deleted, since parent_workspace_id is ON DELETE SET NULL).
+export function isForkWorkspace(
+  workspaceId: string,
+  parentWorkspaceId?: string | null,
+): boolean {
+  return !!parentWorkspaceId || workspaceId.startsWith(FORK_WORKSPACE_PREFIX);
 }
 
-// Mirrors the hub script's get_fork_branch_name: "wm-fork-<id>" becomes
-// "wm-fork/<originalBranch>/<id>".
+// Mirrors the hub script's get_fork_branch_name. A dev workspace syncs with its
+// environment-label branch verbatim ("dev"/"staging" — a first-class top-level
+// branch; the backend passes the label with the deploy). A `wm-fork-<slug>`
+// throwaway fork id becomes "wm-fork/<originalBranch>/<slug>"; a prefix-less id
+// without a label falls back to "wm-fork/<originalBranch>/<id>".
 export function forkBranchName(
   workspaceId: string,
   originalBranch: string,
+  devWorkspaceLabel?: string | null,
 ): string {
-  return workspaceId.replace(
-    FORK_WORKSPACE_PREFIX,
-    `${WM_FORK_PREFIX}/${originalBranch}/`,
-  );
+  if (devWorkspaceLabel) {
+    return devWorkspaceLabel;
+  }
+  const branchPrefix = `${WM_FORK_PREFIX}/${originalBranch}/`;
+  return workspaceId.startsWith(FORK_WORKSPACE_PREFIX)
+    ? workspaceId.replace(FORK_WORKSPACE_PREFIX, branchPrefix)
+    : `${branchPrefix}${workspaceId}`;
 }
 
 // Pure branch-name resolution mirroring the hub script's git_checkout_branch.
@@ -133,6 +150,8 @@ export function forkBranchName(
 // workspace-wide mode, or user/group objects which never get their own branch).
 export function computeGitSyncDeployBranch(params: {
   workspaceId: string;
+  parentWorkspaceId?: string | null;
+  devWorkspaceLabel?: string | null;
   items: GitSyncDeployItem[];
   useIndividualBranch: boolean;
   groupByFolder: boolean;
@@ -140,17 +159,36 @@ export function computeGitSyncDeployBranch(params: {
 }): string | null {
   const {
     workspaceId,
+    parentWorkspaceId,
+    devWorkspaceLabel,
     items,
     useIndividualBranch,
     groupByFolder,
     clonedBranchName,
   } = params;
 
-  if (workspaceId.startsWith(FORK_WORKSPACE_PREFIX)) {
-    return forkBranchName(workspaceId, clonedBranchName);
+  // A dev workspace in promotion mode falls through to the wm_deploy/** formula
+  // below (per-item/-folder PRs that promote into its parent). Throwaway forks,
+  // and dev workspaces with promotion off, sync to their own wm-fork/<branch>/<id>
+  // (or env-label) branch.
+  const isDevWorkspace = !!devWorkspaceLabel;
+  if (
+    isForkWorkspace(workspaceId, parentWorkspaceId) &&
+    !(isDevWorkspace && useIndividualBranch)
+  ) {
+    return forkBranchName(workspaceId, clonedBranchName, devWorkspaceLabel);
   }
 
-  if (items.length === 0) return null;
+  // A dev workspace's deploys must never fall through to the base branch — that
+  // is its parent's tracked branch, so a null here would push dev content
+  // straight to prod. Anything without its own wm_deploy/** branch (user/group
+  // objects, an unresolvable ref) goes to the dev's env-label branch instead.
+  // A root workspace has no such isolation, so its fallback stays null (base).
+  const fallback = isDevWorkspace
+    ? forkBranchName(workspaceId, clonedBranchName, devWorkspaceLabel)
+    : null;
+
+  if (items.length === 0) return fallback;
   const first = items[0];
 
   // `use_individual_branch` disables debouncing, so items is length 1 here.
@@ -159,11 +197,16 @@ export function computeGitSyncDeployBranch(params: {
     first.path_type === "user" ||
     first.path_type === "group"
   ) {
-    return null;
+    return fallback;
   }
 
-  const ref = first.path ?? first.parent_path;
-  if (!ref) return null;
+  // `||` not `??`: the backend serializes a path that no longer matches the repo
+  // filter (a rename out of the included set) as "" with the old path in
+  // parent_path. That "" must fall back to parent_path — mirroring the backend's
+  // `!item_path.is_empty()` derivation. `??` would keep "", return null, and skip
+  // the branch checkout, letting the removal land on the tracked base branch.
+  const ref = first.path || first.parent_path;
+  if (!ref) return fallback;
 
   return groupByFolder
     ? `wm_deploy/${workspaceId}/${ref.split("/").slice(0, 2).join("__")}`
@@ -266,6 +309,8 @@ export function gitSyncIncludePattern(
       return `${path}.postgres_trigger.*`;
     case "mqtttrigger":
       return `${path}.mqtt_trigger.*`;
+    case "amqptrigger":
+      return `${path}.amqp_trigger.*`;
     case "sqstrigger":
       return `${path}.sqs_trigger.*`;
     case "gcptrigger":

@@ -29,6 +29,10 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { isHubFlowPath } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
+	import { getRawAppOperatingWorkspace } from './rawAppWorkspace'
+
+	const getOpWs = getRawAppOperatingWorkspace()
+	let opWs = $derived(getOpWs?.() ?? $workspaceStore)
 
 	type RunnableWithInlineScript = RunnableWithFields & {
 		inlineScript?: InlineScript & { language: ScriptLang }
@@ -131,7 +135,7 @@
 			case 'groups':
 				return $userStore?.groups ?? []
 			case 'workspace':
-				return $workspaceStore ?? ''
+				return opWs ?? ''
 			case 'author':
 				return $userStore?.email ?? '' // In editor, author is the current user
 			default:
@@ -188,6 +192,7 @@
 
 <JobLoader
 	noCode={true}
+	workspaceOverride={opWs}
 	bind:scriptProgress
 	bind:this={jobLoader}
 	bind:isLoading={testIsLoading}
@@ -299,6 +304,7 @@
 										</div>
 										<SchemaForm
 											on:keydownCmdEnter={testPreview}
+											workspace={opWs}
 											disabledArgs={Object.entries(runnable?.fields ?? {})
 												.filter(([_, v]) => v.type == 'static')
 												.map(([k]) => k)}

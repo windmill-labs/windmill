@@ -8,7 +8,16 @@
 		type TriggersCount,
 		type WorkspaceDeployUISettings
 	} from '$lib/gen'
-	import { canWrite, defaultIfEmptyString, emptyString, urlParamsToObject } from '$lib/utils'
+	import {
+		canWrite,
+		defaultIfEmptyString,
+		emptyString,
+		urlParamsToObject,
+		extractTagFromSharableHash,
+		interpolateTag,
+		isDynamicTag,
+		isTagTemplate
+	} from '$lib/utils'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
@@ -41,8 +50,7 @@
 
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
 	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
-	import { createAppFromFlow } from '$lib/components/details/createAppFromScript'
-	import { importStore } from '$lib/components/apps/store'
+	import { createRawAppFromFlow } from '$lib/components/details/createRawAppFromScript'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import FlowGraphViewerStep from '$lib/components/FlowGraphViewerStep.svelte'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
@@ -78,6 +86,9 @@
 	let scheduledForStr: string | undefined = $state(undefined)
 	let invisible_to_owner: boolean | undefined = $state(undefined)
 	let overrideTag: string | undefined = $state(undefined)
+	let overrideTagNote: string | undefined = $state(undefined)
+	// Tag carried over from 'Run again', pending the dynamic-tag check in loadFlow
+	let carriedTag: string | undefined = undefined
 	let inputSelected: 'saved' | 'history' | undefined = $state(undefined)
 	let jsonView = $state(false)
 	let deploymentInProgress = $state(false)
@@ -168,6 +179,22 @@
 			})
 			pinnedVersion = undefined
 		}
+		// A carried non-template value equal to the resolution of the flow's own dynamic
+		// tag for these args is not an override but the previous run's pinned resolution:
+		// drop it so the backend re-resolves from the (possibly edited) args. A differing
+		// value is a genuine user override and a template re-resolves at push, so both stay.
+		if (
+			carriedTag &&
+			isDynamicTag(flow.tag) &&
+			!isTagTemplate(carriedTag) &&
+			interpolateTag(flow.tag ?? '', $workspaceStore!, args) === carriedTag
+		) {
+			if (overrideTag === carriedTag) {
+				overrideTag = undefined
+				overrideTagNote = `tag ${flow.tag} is resolved at run time, so the previous run's tag ${carriedTag} was not applied`
+			}
+			carriedTag = undefined
+		}
 		if (!flow.path.startsWith(`u/${$userStore?.username}`) && flow.path.split('/').length > 2) {
 			invisible_to_owner = flow.visible_to_runner_only
 		}
@@ -246,6 +273,8 @@
 	if (hash.length > 1) {
 		try {
 			let searchParams = new URLSearchParams(hash.slice(1))
+			carriedTag = extractTagFromSharableHash(searchParams)
+			overrideTag = carriedTag
 			let params = [...Object.entries(urlParamsToObject(searchParams))].map(([k, v]) => [
 				k,
 				JSON.parse(v)
@@ -326,9 +355,11 @@
 				label: 'Build app',
 				buttonProps: {
 					onClick: async () => {
-						const app = createAppFromFlow(flow.path, flow.schema)
-						$importStore = JSON.parse(JSON.stringify(app))
-						await goto('/apps/add')
+						const app = createRawAppFromFlow(flow.path, flow.summary, flow.schema)
+						// /apps_raw/add hard-reloads (cross-origin isolation), so the
+						// in-memory importStore would be dropped; hand off via sessionStorage.
+						sessionStorage.setItem('rawAppImport', JSON.stringify(app))
+						await goto('/apps_raw/add')
 					},
 					unifiedSize: 'md',
 					variant: 'subtle',
@@ -710,6 +741,7 @@
 									bind:scheduledForStr
 									bind:invisible_to_owner
 									bind:overrideTag
+									{overrideTagNote}
 									viewKeybinding
 									{loading}
 									autofocus

@@ -741,12 +741,12 @@
 		}
 	},
 	{
-		"name": "s3 triple-slash default-storage trigger canonicalizes to bare key",
+		"name": "s3 triple-slash default-storage trigger keeps its leading slash",
 		"code": "// pipeline\n// on s3:///exports/x\nexport function main() {}",
 		"expected": {
 			"in_pipeline": true,
 			"asset_triggers": [
-				"s3object:exports/x"
+				"s3object:/exports/x"
 			],
 			"native_triggers": [],
 			"partition": null,
@@ -756,12 +756,12 @@
 		}
 	},
 	{
-		"name": "s3 quad-slash trigger strips all leading slashes to the bare key",
-		"code": "// pipeline\n// on s3:////x\nexport function main() {}",
+		"name": "s3 named-storage trigger keeps the storage segment",
+		"code": "// pipeline\n// on s3://secondary_storage/exports/x\nexport function main() {}",
 		"expected": {
 			"in_pipeline": true,
 			"asset_triggers": [
-				"s3object:x"
+				"s3object:secondary_storage/exports/x"
 			],
 			"native_triggers": [],
 			"partition": null,

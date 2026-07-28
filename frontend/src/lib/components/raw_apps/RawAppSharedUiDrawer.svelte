@@ -6,6 +6,10 @@
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import Editor from '$lib/components/Editor.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { getRawAppOperatingWorkspace } from './rawAppWorkspace'
+
+	const getOpWs = getRawAppOperatingWorkspace()
+	let opWs = $derived(getOpWs?.() ?? $workspaceStore)
 
 	let open = $state(false)
 	let files: Record<string, string> = $state({})
@@ -20,10 +24,10 @@
 	}
 
 	async function load() {
-		if (!$workspaceStore) return
+		if (!opWs) return
 		loading = true
 		try {
-			const res = (await WorkspaceService.getSharedUi({ workspace: $workspaceStore })) as any
+			const res = (await WorkspaceService.getSharedUi({ workspace: opWs })) as any
 			files = res.files ?? {}
 			version = res.version ?? 0
 			editedBy = res.edited_by ?? ''

@@ -367,6 +367,8 @@
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
 					{#each items.slice(0, nbDisplayed) as { summary, workspace_id, workspaced_route, mode, path, edited_by, edited_at, script_path, route_path, is_flow, extra_perms, canWrite, marked, http_method, static_asset_config, retry, error_handler_path, error_handler_args, draft_only, is_draft } (path)}
+						{@const hasDraft = getLocalDraftHint($workspaceStore, 'trigger_http', path) ?? is_draft}
+						{@const effectiveMode = draft_only ? 'disabled' : mode}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 
 						<div
@@ -395,7 +397,7 @@
 											/{isCloudHosted() || workspaced_route || globalHttpWorkspacedRoute
 												? workspace_id + '/' + route_path
 												: route_path}
-										{/if}{(getLocalDraftHint($workspaceStore, 'trigger_http', path) ?? is_draft) ? '*' : ''}
+										{/if}{hasDraft ? '*' : ''}
 									</div>
 									<div class="text-secondary text-xs truncate text-left font-normal">
 										{path}
@@ -411,29 +413,35 @@
 
 								<div class="hidden lg:flex flex-row gap-1 items-center">
 									<SharedBadge {canWrite} extraPerms={extra_perms} />
-									{#if draft_only}
-										<DraftBadge draft_only is_draft={false} />
-									{/if}
 								</div>
 
-								<TriggerModeToggle
-									onToggleMode={(mode) => onToggleMode(path, mode)}
-									triggerMode={mode}
-									includeModalConfig={{
-										triggerPath: path,
-										triggerKind: 'http',
-										runnableConfig: {
-											path: script_path,
-											kind: is_flow ? 'flow' : 'script',
-											retry,
-											errorHandlerPath: error_handler_path,
-											errorHandlerArgs: error_handler_args
-										}
-									}}
-									{canWrite}
-									hideToggleLabels
-									hideDropdown
-								/>
+								<div class="flex items-center justify-end gap-2 shrink-0 min-w-[8rem]">
+									<DraftBadge {draft_only} is_draft={hasDraft} />
+									<TriggerModeToggle
+										disabled={draft_only}
+										title={draft_only
+											? 'Draft only: deploy the trigger to enable it'
+											: hasDraft
+												? 'Enables/disables the deployed trigger; the draft is not affected'
+												: undefined}
+										onToggleMode={(mode) => onToggleMode(path, mode)}
+										triggerMode={effectiveMode}
+										includeModalConfig={{
+											triggerPath: path,
+											triggerKind: 'http',
+											runnableConfig: {
+												path: script_path,
+												kind: is_flow ? 'flow' : 'script',
+												retry,
+												errorHandlerPath: error_handler_path,
+												errorHandlerArgs: error_handler_args
+											}
+										}}
+										{canWrite}
+										hideToggleLabels
+										hideDropdown
+									/>
+								</div>
 
 								<div class="flex gap-2 items-center justify-end">
 									<Button
@@ -474,7 +482,7 @@
 													goto(href)
 												}
 											},
-											...(canWrite && mode !== 'suspended'
+											...(canWrite && !draft_only && mode !== 'suspended'
 												? [
 														{
 															displayName: 'Suspend job execution',
@@ -545,8 +553,8 @@
 								<div
 									class="flex flex-wrap text-2xs font-normal text-secondary gap-1 items-center justify-end truncate pr-2"
 								>
-									<div class="truncate">edited by {edited_by}</div>
-									<div class="truncate">at {displayDate(edited_at)}</div>
+									{#if edited_by}<div class="truncate">edited by {edited_by}</div>{/if}
+									<div class="truncate">{edited_by ? 'at ' : ''}{displayDate(edited_at)}</div>
 								</div>
 							</div>
 						</div>
