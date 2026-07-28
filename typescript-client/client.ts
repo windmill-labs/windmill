@@ -1549,7 +1549,11 @@ function stepErrorFromMarker(marker: any, name: string): Error {
 /** Values `JSON.stringify` cannot represent: it omits the property holding one.
  *  The type-level half of `checkpointableResult`, which nulls them at the top
  *  level, where there is no key to omit. */
-type JsonDropped = ((...args: any[]) => any) | symbol;
+type JsonDropped =
+  | ((...args: any[]) => any)
+  // A class is a function too, but its type has only a construct signature.
+  | (abstract new (...args: any[]) => any)
+  | symbol;
 
 /**
  * What a value looks like after the JSON round trip a checkpoint performs:
@@ -1651,8 +1655,9 @@ function jsonRoundTrip<T>(value: T): Jsonified<T> {
  * boundary — the child job's result is read back from the checkpoint, and the
  * v1 path reads it back from the API — so only {@link Jsonified} of it survives.
  *
- * A generic task's type parameters instantiate at their constraints here; they
- * would not have survived the trip through JSON either way.
+ * Rebuilding the signature costs some precision TypeScript cannot preserve: a
+ * generic task's type parameters instantiate at their constraints, and an
+ * overloaded one keeps only its last signature. Neither survives JSON anyway.
  */
 export type JsonifiedFn<T extends (...args: any[]) => Promise<any>> = (
   ...args: Parameters<T>

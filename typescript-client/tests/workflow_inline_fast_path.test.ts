@@ -66,6 +66,7 @@ describe("inline step round parity", () => {
     // A property holding an unrepresentable value comes back missing, not null
     // — which is why `Jsonified` makes such a key optional.
     ["union-symbol", () => ({ tag: Symbol("x"), keep: 1 }), { keep: 1 }],
+    ["class-value", () => ({ Klass: class W {}, keep: 1 }), { keep: 1 }],
   ];
 
   for (const [name, fn, expected] of cases) {
@@ -160,6 +161,11 @@ _assertType<Exact<Jsonified<{ tag: string | symbol }>, { tag?: string }>>(true);
 const _omittable: Jsonified<{ tag: string | symbol; keep: number }> = { keep: 1 };
 void _omittable;
 _assertType<Exact<Jsonified<(string | symbol)[]>, (string | null)[]>>(true);
+// A class is a function at runtime, but its type has only a construct signature.
+class _Widget {
+  x = 1;
+}
+_assertType<Exact<Jsonified<{ Klass: typeof _Widget; keep: number }>, { keep: number }>>(true);
 
 // A task's result always crosses JSON too — the checkpoint on the workflow
 // path, the API on the v1 path — while its arguments stay checked.
