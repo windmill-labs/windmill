@@ -1,12 +1,11 @@
-# The python and typescript SDK unit suites. Both existed for a long time
-# without any workflow running them, so a red test could sit on main unnoticed —
-# one did.
+# The python and typescript SDK unit suites, on release tags only: they guard
+# what gets published to npm / PyPI / JSR, and a tag is the moment that decides
+# it.
 #
-# Release only: these guard what gets published to npm / PyPI / JSR, and a tag is
-# the moment that matters. Note this runs *alongside* the publish workflows
-# rather than ahead of them, so it reports a broken SDK rather than holding one
-# back — gating would mean putting the job inside each publish workflow, since
-# Actions cannot express `needs` across workflows.
+# This runs alongside the publish workflows rather than ahead of them, so it
+# reports a broken SDK rather than holding one back. Gating would mean putting
+# the job inside each publish workflow, since Actions cannot express `needs`
+# across workflows.
 name: SDK Tests
 
 on:
