@@ -34,6 +34,7 @@ use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
 use windmill_common::global_settings::HTTP_ROUTE_WORKSPACED_ROUTE;
+use windmill_common::query_builders::{render_db_quoted_identifier, DbType};
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::{
     build_crypt, decrypt, encrypt, SECRET_SALT, WORKSPACE_CRYPT_CACHE,
@@ -51,7 +52,7 @@ use windmill_common::workspaces::{
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::PgDatabase;
 use windmill_common::{
-    error::{Error, JsonResult, Result},
+    error::{pg_error_message, Error, JsonResult, Result},
     global_settings::{
         AUTOMATE_USERNAME_CREATION_SETTING, DISABLE_WORKSPACE_INVITE_EMAILS_SETTING,
     },
@@ -133,6 +134,10 @@ pub fn workspaced_service() -> Router {
             get(get_datatable_table_schema),
         )
         .route("/edit_datatable_config", post(edit_datatable_config))
+        .route(
+            "/test_datatable_connection/{datatable_name}",
+            get(test_datatable_connection),
+        )
         .merge(crate::datatable_migrations::routes())
         .route("/git_sync_enabled", get(get_git_sync_enabled))
         .route("/git_sync_deploy_mode", get(get_git_sync_deploy_mode))
@@ -2023,6 +2028,127 @@ struct DataTableTableSchema {
     columns: ColumnMap,
 }
 
+#[derive(Serialize, Debug)]
+struct DataTableConnectionCheck {
+    /// The role the data table actually connects as, and the schema its
+    /// unqualified statements resolve to. Both are read from the server rather
+    /// than the resource, which need not spell either of them out.
+    user: String,
+    schema: Option<String>,
+    /// Whether that role can create tables in `schema` / schemas in the database.
+    can_create_table: bool,
+    can_create_schema: bool,
+    /// Whether the migration bookkeeping table is already present. Informative
+    /// only: it explains why migration *tracking* can work without CREATE, and
+    /// grants nothing beyond that.
+    migrations_table_exists: bool,
+    /// Statements to run for the privileges that are missing, empty when there
+    /// are none. Windmill connects as the role that lacks them, so it can only
+    /// name them for a schema owner to run.
+    suggested_grants: Vec<String>,
+    /// Statement that gives the session a schema to work in, when `search_path`
+    /// resolves to none. Rendered here rather than by the caller so identifier
+    /// quoting stays in one place.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    suggested_search_path: Option<String>,
+}
+
+/// Report what the data table's own database lets its role do. Surfacing this
+/// from the settings page is the difference between finding out here and finding
+/// out on a first schema change, when the failure reads as a Postgres refusal
+/// deep inside a migration.
+async fn test_datatable_connection(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, datatable_name)): Path<(String, String)>,
+) -> JsonResult<DataTableConnectionCheck> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let db_resource = get_datatable_resource_from_db_unchecked(&db, &w_id, &datatable_name).await?;
+    let pg_db: PgDatabase = serde_json::from_value(db_resource)
+        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
+    let (client, connection) = pg_db.connect(Some(&db)).await?;
+    let join_handle = tokio::spawn(async move { connection.await });
+
+    // One round trip, no side effects: `has_*_privilege` answers for the
+    // connected role without attempting the operation.
+    let rows = client
+        .simple_query(
+            "SELECT current_user AS usr, \
+                    current_schema() AS sch, \
+                    current_database() AS db, \
+                    has_schema_privilege(current_schema(), 'CREATE') AS can_create_table, \
+                    has_database_privilege(current_database(), 'CREATE') AS can_create_schema, \
+                    to_regclass('_wm_migrations') IS NOT NULL AS has_migrations_table",
+        )
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to inspect data table privileges: {}",
+                pg_error_message(&e)
+            ))
+        });
+
+    drop(client);
+    let _ = windmill_common::shutdown_pg_connection(join_handle).await;
+
+    let row = rows?
+        .into_iter()
+        .find_map(|msg| match msg {
+            tokio_postgres::SimpleQueryMessage::Row(row) => Some(row),
+            _ => None,
+        })
+        .ok_or_else(|| Error::internal_err("Privilege query returned no row".to_string()))?;
+
+    let user = row.get("usr").unwrap_or_default().to_string();
+    let schema = row.get("sch").map(str::to_string);
+    let can_create_table = row.get("can_create_table") == Some("t");
+    let can_create_schema = row.get("can_create_schema") == Some("t");
+    let migrations_table_exists = row.get("has_migrations_table") == Some("t");
+
+    let quoted_user = render_db_quoted_identifier(&user, DbType::Postgresql);
+    let mut suggested_grants = Vec::new();
+    // Suggest on the capability alone: an existing `_wm_migrations` spares only
+    // that one table, and says nothing about the tables a migration will create.
+    // A NULL `current_schema()` means search_path resolves to nothing, and no
+    // grant fixes that — an unqualified CREATE fails with `no schema has been
+    // selected to create in` whoever holds the privilege — so suggest nothing
+    // and let `schema: null` carry the diagnosis.
+    if let (false, Some(target)) = (can_create_table, schema.as_deref()) {
+        suggested_grants.push(format!(
+            "GRANT CREATE ON SCHEMA {} TO {}",
+            render_db_quoted_identifier(target, DbType::Postgresql),
+            quoted_user
+        ));
+    }
+    if !can_create_schema {
+        // Named from the server like every other identifier here: behind a
+        // pooler the resource's dbname can be an alias for another database.
+        let dbname = row.get("db").unwrap_or(pg_db.dbname.as_str());
+        suggested_grants.push(format!(
+            "GRANT CREATE ON DATABASE {} TO {}",
+            render_db_quoted_identifier(dbname, DbType::Postgresql),
+            quoted_user
+        ));
+    }
+
+    // An empty search_path is not a privilege problem, so it gets a statement of
+    // its own rather than a grant.
+    let suggested_search_path = schema
+        .is_none()
+        .then(|| format!("ALTER ROLE {quoted_user} SET search_path = public"));
+
+    Ok(Json(DataTableConnectionCheck {
+        user,
+        schema,
+        can_create_table,
+        can_create_schema,
+        migrations_table_exists,
+        suggested_grants,
+        suggested_search_path,
+    }))
+}
+
 async fn list_datatable_schemas(
     _authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -2139,7 +2265,9 @@ async fn get_datatable_schema(db: &DB, w_id: &str, datatable_name: &str) -> Resu
             &[],
         )
         .await
-        .map_err(|e| Error::internal_err(format!("Failed to query schemas: {}", e)))?;
+        .map_err(|e| {
+            Error::internal_err(format!("Failed to query schemas: {}", pg_error_message(&e)))
+        })?;
 
     // Build hierarchical structure: schema -> table -> column -> compact_type
     let mut schema_map: SchemaMap = HashMap::new();
@@ -2173,7 +2301,9 @@ async fn get_datatable_schema(db: &DB, w_id: &str, datatable_name: &str) -> Resu
             &[&schema_names],
         )
         .await
-        .map_err(|e| Error::internal_err(format!("Failed to query columns: {}", e)))?;
+        .map_err(|e| {
+            Error::internal_err(format!("Failed to query columns: {}", pg_error_message(&e)))
+        })?;
 
     for row in rows {
         let table_schema: String = row.get(0);
@@ -2221,7 +2351,9 @@ async fn get_datatable_tables(db: &DB, w_id: &str, datatable_name: &str) -> Resu
             &[],
         )
         .await
-        .map_err(|e| Error::internal_err(format!("Failed to query schemas: {}", e)))?;
+        .map_err(|e| {
+            Error::internal_err(format!("Failed to query schemas: {}", pg_error_message(&e)))
+        })?;
 
     let mut table_map: TableListMap = HashMap::new();
     let schema_names: Vec<String> = schema_rows
@@ -2247,7 +2379,9 @@ async fn get_datatable_tables(db: &DB, w_id: &str, datatable_name: &str) -> Resu
             &[&schema_names],
         )
         .await
-        .map_err(|e| Error::internal_err(format!("Failed to query tables: {}", e)))?;
+        .map_err(|e| {
+            Error::internal_err(format!("Failed to query tables: {}", pg_error_message(&e)))
+        })?;
 
     for row in rows {
         let table_schema: String = row.get(0);
@@ -2299,7 +2433,9 @@ async fn get_datatable_table_columns(
             &[&schema_name, &table_name],
         )
         .await
-        .map_err(|e| Error::internal_err(format!("Failed to query columns: {}", e)))?;
+        .map_err(|e| {
+            Error::internal_err(format!("Failed to query columns: {}", pg_error_message(&e)))
+        })?;
 
     if rows.is_empty() {
         return Err(Error::NotFound(format!(
@@ -2671,13 +2807,16 @@ async fn create_pg_database(
             )
             .await
             .map_err(|e| {
-                Error::internal_err(format!("Failed to check database existence: {}", e))
+                Error::internal_err(format!(
+                    "Failed to check database existence: {}",
+                    pg_error_message(&e)
+                ))
             })?;
         let db_exists: bool = row.get(0);
 
         if db_exists {
             drop(client);
-            let _ = join_handle.await;
+            let _ = windmill_common::shutdown_pg_connection(join_handle).await;
             return Err(Error::BadRequest(format!(
                 "Database '{}' already exists on the resource server",
                 req.target_dbname
@@ -2690,15 +2829,13 @@ async fn create_pg_database(
             .map_err(|e| {
                 Error::internal_err(format!(
                     "Failed to create database '{}': {}",
-                    req.target_dbname, e
+                    req.target_dbname,
+                    pg_error_message(&e)
                 ))
             })?;
 
         drop(client);
-        join_handle
-            .await
-            .map_err(|e| Error::internal_err(format!("join error: {}", e)))?
-            .map_err(|e| Error::internal_err(format!("tokio_postgres error: {}", e)))?;
+        windmill_common::shutdown_pg_connection(join_handle).await?;
     }
 
     Ok(format!("Created database '{}'", req.target_dbname))
@@ -2801,10 +2938,7 @@ async fn get_datatable_full_schema(
         .map_err(Error::internal_err)?;
 
     drop(client);
-    join_handle
-        .await
-        .map_err(|e| Error::internal_err(format!("join error: {}", e)))?
-        .map_err(|e| Error::internal_err(format!("tokio_postgres error: {}", e)))?;
+    windmill_common::shutdown_pg_connection(join_handle).await?;
 
     Ok(Json(result))
 }
@@ -6389,10 +6523,7 @@ async fn snapshot_datatable_schema(
         .map_err(Error::internal_err)?;
 
     drop(client);
-    join_handle
-        .await
-        .map_err(|e| Error::internal_err(format!("join error: {}", e)))?
-        .map_err(|e| Error::internal_err(format!("tokio_postgres error: {}", e)))?;
+    windmill_common::shutdown_pg_connection(join_handle).await?;
 
     serde_json::to_value(schema)
         .map_err(|e| Error::internal_err(format!("Failed to serialize schema: {}", e)))

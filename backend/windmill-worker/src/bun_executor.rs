@@ -1799,6 +1799,10 @@ pub async fn handle_bun_job(
             format!("argsObjToArr(args)")
         };
 
+        // Kept comment-free — this string is written out per job.
+        // `_takePendingStepFailure` / `_takePendingSuspend` hand back what the body
+        // caught and swallowed; honour them instead of reporting a `complete` (see
+        // `_pendingStepFailure` in client.ts). Optional: npm clients may predate them.
         let wrapper_content = if is_wac_v2 {
             format!(
                 r#"
@@ -1843,6 +1847,14 @@ async function run() {{
     try {{
         const result = await workflowFn(...argsArr);
         setWorkflowCtx(null);
+        const failed = ctx._takePendingStepFailure?.();
+        if (failed) {{
+            throw failed.error;
+        }}
+        const swallowed = ctx._takePendingSuspend?.();
+        if (swallowed) {{
+            throw swallowed;
+        }}
         // Flush any unawaited tasks (e.g. forgotten await on last statement)
         const trailing = ctx._flushPending();
         if (trailing.length > 0) {{
@@ -1866,6 +1878,10 @@ async function run() {{
                 return {{ type: "sleep", key: dispatch.key, seconds: dispatch.seconds }};
             }}
             return {{ type: "dispatch", mode: dispatch.mode ?? "sequential", steps: dispatch.steps ?? [] }};
+        }}
+        const failed = ctx._takePendingStepFailure?.();
+        if (failed) {{
+            throw failed.error;
         }}
         throw e;
     }}

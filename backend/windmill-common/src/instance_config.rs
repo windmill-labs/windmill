@@ -819,6 +819,10 @@ pub struct CustomInstanceDbLogs {
     pub db_connect: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub grant_permissions: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub replication_user: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replication_user_error: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -1073,12 +1077,7 @@ pub fn format_setting_value(key: &str, value: &serde_json::Value) -> String {
         };
     }
     let value = mask_nested_sensitive(key, value);
-    let s = value.to_string();
-    if s.len() > 200 {
-        format!("{}...", &s[..197])
-    } else {
-        s
-    }
+    crate::utils::truncate_with_ellipsis(&value.to_string(), 197)
 }
 
 /// Extract the expiry timestamp from a license key JSON value.

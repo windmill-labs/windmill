@@ -2654,6 +2654,8 @@ def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]:
 
 import asyncio as _asyncio
 import contextvars as _contextvars
+import sys as _sys
+import traceback as _traceback
 
 
 def _assert_usable_step_key(key: str, what: str) -> None:
@@ -2673,20 +2675,153 @@ class _StepSuspend(BaseException):
         self.dispatch_info = dispatch_info
 
 
+class _StepFailure(BaseException):
+    """Carries the exception raised by the step a child round executes directly.
+
+    That exception *is* the round's result, so a broad ``except Exception`` in the
+    body must not be able to turn it into a successful complete — the parent would
+    then record the caught branch's value as the step result. BaseException for the
+    same reason ``_StepSuspend`` is; a bare ``except:`` still swallows both.
+    """
+
+    def __init__(self, exc: BaseException):
+        self.exc = exc
+
+
 class TaskError(Exception):
-    """Raised when a WAC task step failed.
+    """Raised when a WAC ``task`` or ``step`` failed.
 
     Attributes:
         step_key: The checkpoint key of the failed step.
-        child_job_id: The UUID of the failed child job.
-        result: The error result from the child job.
+        child_job_id: The UUID of the failed child job, or ``None`` for a
+            ``step()``, which runs in the workflow job and has no child job.
+        result: ``{"error": {"name", "message", "stack"?, "extra"?}}`` — the
+            same shape whether a task or a step failed. ``name`` and ``message``
+            are always present; ``stack`` only when the failure had a traceback,
+            and ``extra`` only when it carried custom fields of its own, dropped
+            with ``extra_omitted: True`` beside it when too large to checkpoint.
     """
 
-    def __init__(self, message: str, *, step_key: str = "", child_job_id: str = "", result=None):
+    def __init__(self, message: str, *, step_key: str = "", child_job_id: Optional[str] = None, result=None):
         super().__init__(message)
         self.step_key = step_key
         self.child_job_id = child_job_id
         self.result = result
+
+
+def _safe_str(o) -> str:
+    """``str()`` on the failing side's own object, which can raise in turn — a
+    detached ORM row, a proxy over a closed connection, an ``__str__`` that
+    itself fails. Every coercion here runs inside the ``except`` that is
+    reporting the user's failure, so an escape would replace their error with an
+    unrelated one and skip the checkpoint entirely."""
+    try:
+        return str(o)
+    except Exception:
+        return f"<unrepresentable {type(o).__name__}>"
+
+
+def _step_error_stack(exc: BaseException) -> str:
+    """The traceback of a failed ``step()`` body, formatted the way the python
+    executor formats a failed job's: frames only, and the frame that called into
+    the user's code dropped. Here that first frame is ``_run_inline_step``'s own
+    ``result = fn()``, the counterpart of the generated wrapper frame the
+    executor strips, so a step's stack and a task's stack read alike.
+
+    Taken from ``sys.exc_info()`` the way the executor takes it, falling back to
+    the attribute: an exception overriding ``__getattribute__`` makes reading
+    ``__traceback__`` raise, and this runs inside the ``except`` reporting the
+    user's failure, so an escape would lose both their error and the checkpoint.
+    """
+    tb = _sys.exc_info()[2]
+    if tb is None:
+        try:
+            tb = exc.__traceback__
+        except Exception:
+            return ""
+    try:
+        return "".join(_traceback.format_tb(tb)[1:]).strip()
+    except Exception:
+        return ""
+
+
+def _json_round_trip(value):
+    """Put a value through the checkpoint's encoding without checkpointing it, so
+    the paths that never persist anything still hand back the shape the ones that
+    do would. ``default=str`` matches the worker wrapper's encoder."""
+    return json.loads(json.dumps(value, default=str))
+
+
+def _step_error_marker(key: str, exc: BaseException) -> dict:
+    """Serialize a failed ``step()`` body into the ``__wmill_error`` marker that
+    task failures also use, so it can be stored in ``completed_steps``.
+
+    The marker's final shape is decided by the backend (``wac_failure_record``),
+    which normalizes task failures through the same function; what is built here
+    is the raw material plus the envelope the backend recognizes."""
+    error = {"name": type(exc).__name__, "message": _safe_str(exc)}
+    stack = _step_error_stack(exc)
+    if stack:
+        error["stack"] = stack
+    # Custom attributes go under ``extra``, the same key the python executor uses
+    # for a failed child job, so an exception carrying e.g. a ``code`` keeps it
+    # whether it failed as a task or as a step.
+    #
+    # Coerced through ``default=str`` the way the executor writes its own error:
+    # the fast-path POST serializes strictly, and the commonest failing step
+    # there is — ``resp.raise_for_status()``, whose ``__dict__`` holds a request
+    # and a response object — would otherwise fail to serialize and silently
+    # drop every such failure onto the slow suspend-and-replay path.
+    # Everything about the failing exception can fight back, and this runs inside
+    # the ``except`` reporting it, so an escape replaces the user's error and
+    # skips the checkpoint. Only a genuine ``dict`` is walked: an overridden
+    # ``__dict__`` can raise on access, on ``.items()``, or yield non-pairs.
+    try:
+        _raw_extra = getattr(exc, "__dict__", None)
+    except Exception:
+        _raw_extra = None
+    if type(_raw_extra) is dict and _raw_extra:
+        safe_extra = {}
+        for _k, _v in _raw_extra.items():
+            # Rebuilding the pair hashes the key again, so only the types json
+            # can represent, and exactly those: a subclass may define __hash__.
+            if type(_k) not in (str, int, float, bool, type(None)):
+                continue
+            # Per attribute so one bad value cannot take the rest, and as a pair
+            # so an int/bool/None key arrives as the string a replay reads.
+            # ``parse_constant`` catches what ``default`` cannot: a float is
+            # serializable, so NaN/Infinity would go out as invalid JSON.
+            try:
+                safe_extra.update(
+                    json.loads(
+                        json.dumps({_k: _v}, default=_safe_str),
+                        parse_constant=lambda c: c,
+                    )
+                )
+            except (TypeError, ValueError, RecursionError):
+                pass
+        if safe_extra:
+            error["extra"] = safe_extra
+    return {
+        "__wmill_error": True,
+        "message": _safe_str(exc),
+        "step_key": key,
+        "result": {"error": error},
+    }
+
+
+def _task_error_from_marker(marker: dict, fallback_message: str) -> TaskError:
+    """Rebuild the exception a failed task or step raises. The run that produced
+    the failure and every later replay go through here: ``except`` is control
+    flow, ``@workflow`` re-runs its body from the top every round, so a handler
+    that branches on the failure it caught must be handed the same thing in
+    every round or it dispatches different tasks on the way back."""
+    return TaskError(
+        marker.get("message") or fallback_message,
+        step_key=marker.get("step_key", ""),
+        child_job_id=marker.get("child_job_id"),
+        result=marker.get("result"),
+    )
 
 
 _workflow_ctx: _contextvars.ContextVar["WorkflowCtx"] = _contextvars.ContextVar(
@@ -2749,12 +2884,7 @@ class WorkflowCtx:
         if key in self._completed:
             val = self._completed[key]
             if isinstance(val, dict) and val.get("__wmill_error"):
-                raise TaskError(
-                    val.get("message", f"Task '{name}' failed"),
-                    step_key=val.get("step_key", ""),
-                    child_job_id=val.get("child_job_id", ""),
-                    result=val.get("result"),
-                )
+                raise _task_error_from_marker(val, f"Task '{name}' failed")
             return self._resolved(val)
 
         if self._executing_key is not None:
@@ -2776,9 +2906,12 @@ class WorkflowCtx:
         return value
 
     async def _execute_directly(self, func, **kwargs):
-        result = func(**kwargs)
-        if _asyncio.iscoroutine(result):
-            result = await result
+        try:
+            result = func(**kwargs)
+            if _asyncio.iscoroutine(result):
+                result = await result
+        except Exception as exc:
+            raise _StepFailure(exc) from exc
         raise _StepSuspend({"mode": "step_complete", "steps": [], "result": result})
 
     async def _never_resolve(self):
@@ -2858,12 +2991,7 @@ class WorkflowCtx:
         if key in self._completed:
             val = self._completed[key]
             if isinstance(val, dict) and val.get("__wmill_error"):
-                raise TaskError(
-                    val.get("message", f"Step '{name}' failed"),
-                    step_key=val.get("step_key", ""),
-                    child_job_id=val.get("child_job_id", ""),
-                    result=val.get("result"),
-                )
+                raise _task_error_from_marker(val, f"Step '{name}' failed")
             return val
 
         if self._executing_key is not None:
@@ -2873,9 +3001,27 @@ class WorkflowCtx:
         started_at = _dt.now(_tz.utc).isoformat()
         print(f"WM_WAC_STEP: {_json_mod.dumps({'key': key, 'started_at': started_at})}")
         t0 = _time_mod.monotonic()
-        result = fn()
-        if _asyncio.iscoroutine(result):
-            result = await result
+        # A raised step still has to reach ``completed_steps``, or a replay with
+        # ``_executing_key`` set finds nothing recorded and parks forever on the
+        # ``_asyncio.Future()`` above. The control-flow signals (``_StepSuspend``,
+        # ``_StepFailure``) and ``CancelledError`` are ``BaseException``, so they
+        # pass through untouched.
+        step_failed = False
+        try:
+            result = fn()
+            if _asyncio.iscoroutine(result):
+                result = await result
+        except Exception as _exc:
+            step_failed = True
+            result = _step_error_marker(key, _exc)
+            # The failure is reported as a value from here on, so nothing else
+            # prints the traceback. Without this a step that fails and is never
+            # caught leaves a job log whose deepest frame is inside this client.
+            print(f"--- WAC: {key} failed ---")
+            print(f"{type(_exc).__name__}: {_safe_str(_exc)}")
+            _step_stack = result["result"]["error"].get("stack")
+            if _step_stack:
+                print(_step_stack)
         duration_ms = int((_time_mod.monotonic() - t0) * 1000)
 
         # Fast path: POST the delta to the new per-job API endpoint and return
@@ -2892,7 +3038,24 @@ class WorkflowCtx:
         _base = os.environ.get("BASE_INTERNAL_URL")
         _token = os.environ.get("WM_TOKEN")
         if _fast_path_enabled and _job_id and _workspace and _base and _token:
+            _fast_path_ok = False
+            _stored_failure = None
+            _replay_result = None
             try:
+                # ``default=str`` is the encoder the worker wrapper uses on the
+                # suspend path, so both arms checkpoint the same value — and a
+                # datetime or set takes the fast path instead of silently
+                # degrading to a suspend round.
+                _payload = _json_mod.dumps(
+                    {
+                        "key": key,
+                        "result": result,
+                        "started_at": started_at,
+                        "duration_ms": duration_ms,
+                    },
+                    default=str,
+                )
+                _replay_result = _json_mod.loads(_payload)["result"]
                 if self._inline_lock is None:
                     self._inline_lock = _asyncio.Lock()
                 # Lock wraps only the POST, not fn() above — concurrent
@@ -2909,15 +3072,24 @@ class WorkflowCtx:
                         )
                     _resp = await self._inline_http_client.post(
                         f"{_base}/api/w/{_workspace}/jobs/wac/inline_checkpoint/{_job_id}",
-                        json={
-                            "key": key,
-                            "result": result,
-                            "started_at": started_at,
-                            "duration_ms": duration_ms,
-                        },
+                        content=_payload,
                     )
                     _resp.raise_for_status()
-                return result
+                    if step_failed:
+                        # The backend normalizes the failure before storing it,
+                        # and hands back what it stored. Raising from that, not
+                        # from the marker posted above, is what makes this round
+                        # and every replay read the same record even if the two
+                        # sides ever disagree about how to build one.
+                        #
+                        # A backend predating the echo answers without a JSON
+                        # body, and the round-tripped marker below stands in. A
+                        # JSON body that will not parse is different: the record
+                        # may already be committed and its content is unknown,
+                        # so let it raise and take the suspend path instead.
+                        if "json" in _resp.headers.get("content-type", ""):
+                            _stored_failure = (_resp.json() or {}).get("failure")
+                _fast_path_ok = True
             except Exception as _e:
                 logger.info(
                     "WAC v2 inline fast path failed for key %s, falling back to suspend: %s",
@@ -2925,6 +3097,27 @@ class WorkflowCtx:
                     _e,
                 )
                 # fall through to the legacy suspend path
+            if _fast_path_ok:
+                # Raise what a replay would rebuild from the record, never the
+                # original: a replay cannot reconstruct the original type, so
+                # raising it here would make ``except ValueError:`` catch on this
+                # run and miss on the next. Nothing is chained onto
+                # ``__cause__`` for the same reason — the traceback a replay can
+                # still show is in ``result["error"]["stack"]``. ``_stored_failure``
+                # is None against a backend that predates the echoed record,
+                # which is what ``_replay_result`` below stands in for.
+                if step_failed:
+                    # ``_replay_result``, not ``result``: the fallback has to be
+                    # what the checkpoint holds, so the round that ran the body
+                    # reads what every replay of it will.
+                    raise _task_error_from_marker(
+                        _stored_failure or _replay_result, f"Step '{name}' failed"
+                    )
+                # Return the round trip of what was checkpointed, never the
+                # in-memory value: handing back the live object would let the
+                # round that ran the body branch on a type — tuple, datetime —
+                # that no replay of it ever sees.
+                return _replay_result
 
         raise _StepSuspend({
             "mode": "inline_checkpoint",
@@ -2956,6 +3149,10 @@ def task(
     - **v2 (inside @workflow)**: dispatches as a checkpoint step.
     - **v1 (WM_JOB_ID set, no @workflow)**: dispatches via HTTP API.
     - **Standalone**: executes the function body directly.
+
+    A task runs as its own job, so its result is always encoded as JSON and
+    decoded back before the caller sees it: a ``datetime`` comes back as a
+    string, a tuple as a list.
 
     Usage::
 
@@ -2996,6 +3193,11 @@ def task(
                     merged[f"arg{i}"] = arg
             return merged
 
+        # Keeps the decorated function's identity: `@task` is applied to a
+        # top-level `async def`, and a caller introspecting it should see that
+        # function, not `wrapper`. The step key is computed from `func` above,
+        # so this does not affect dispatch.
+        @functools.wraps(func)
         def wrapper(*args, **kwargs):
             # WAC v2: inside a @workflow context
             ctx = _workflow_ctx.get(None)
@@ -3029,8 +3231,19 @@ def task(
                 print(f"Task {func.__name__} ({child_job_id}) completed")
                 return job_result
 
-            # Standalone — execute directly
-            return func(*args, **kwargs)
+            # Standalone — execute directly, but round-trip the result: a task's
+            # value crosses JSON in every other path, so a local run must agree.
+            # This wrapper is sync, so an ``async def`` task hands back a
+            # coroutine here — round-tripping that would serialize the coroutine
+            # object itself.
+            result = func(*args, **kwargs)
+            if _asyncio.iscoroutine(result):
+
+                async def _round_trip_awaited():
+                    return _json_round_trip(await result)
+
+                return _round_trip_awaited()
+            return _json_round_trip(result)
 
         wrapper._is_task = True
         wrapper._task_path = task_path
@@ -3134,6 +3347,10 @@ async def step(name: str, fn):
     On replay the cached value is returned without re-executing ``fn``.
     Use for lightweight deterministic operations (timestamps, random IDs,
     config reads) that should not incur the overhead of a child job.
+
+    ``fn``'s result is encoded as JSON and decoded back before it is returned,
+    so the round that runs the body sees the same types every replay sees:
+    a ``datetime`` comes back as a string, a tuple as a list.
     """
     ctx: WorkflowCtx | None = _workflow_ctx.get(None)
     if ctx is not None:
@@ -3141,7 +3358,9 @@ async def step(name: str, fn):
     result = fn()
     if _asyncio.iscoroutine(result):
         result = await result
-    return result
+    # Outside a workflow nothing is checkpointed, but round-trip anyway: running
+    # the script locally must not hand back a shape a deployed run never sees.
+    return _json_round_trip(result)
 
 
 async def sleep(seconds: int):
@@ -3230,6 +3449,9 @@ async def _run_workflow_async(func, checkpoint: dict, input_args: dict):
                 "steps": steps,
             }
         return {"type": "complete", "result": result}
+    except _StepFailure as e:
+        # Re-raise the step's own exception so the child job fails with it.
+        raise e.exc
     except _StepSuspend as e:
         info = e.dispatch_info
         mode = info.get("mode")

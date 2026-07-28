@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.770.0
+  version: 1.775.0
   title: Windmill API
 
   contact:
@@ -727,6 +727,38 @@ paths:
       responses:
         "200":
           description: user renamed
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /users/change_email/{email}:
+    post:
+      summary: global change user email (require super admin)
+      operationId: globalUserChangeEmail
+      tags:
+        - user
+      parameters:
+        - name: email
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: new email
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                new_email:
+                  type: string
+              required:
+                - new_email
+      responses:
+        "200":
+          description: user email changed
           content:
             text/plain:
               schema:
@@ -4600,6 +4632,52 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/DataTableSchema"
+
+  /w/{workspace}/workspaces/test_datatable_connection/{datatable_name}:
+    get:
+      summary: check what the data table's database lets its role do
+      operationId: testDataTableConnection
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: connection and privilege report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    type: string
+                  schema:
+                    type: string
+                    nullable: true
+                  can_create_table:
+                    type: boolean
+                  can_create_schema:
+                    type: boolean
+                  migrations_table_exists:
+                    type: boolean
+                  suggested_grants:
+                    type: array
+                    items:
+                      type: string
+                  suggested_search_path:
+                    type: string
+                required:
+                  - user
+                  - schema
+                  - can_create_table
+                  - can_create_schema
+                  - migrations_table_exists
+                  - suggested_grants
 
   /w/{workspace}/workspaces/list_datatable_tables:
     get:
@@ -10532,6 +10610,14 @@ paths:
           description: opaque keyset cursor from a previous page's next_cursor
           schema:
             type: string
+        - name: include_draft_only
+          in: query
+          description: >-
+            also list the caller's drafts at paths with no deployed row, sorted
+            and paginated with the deployed ones. Ignored for operators, in the
+            archived view, and under a label filter (a draft carries no labels).
+          schema:
+            type: boolean
       responses:
         "200":
           description: a page of merged, ordered runnables
@@ -10548,6 +10634,49 @@ paths:
                       $ref: "#/components/schemas/RunnableItem"
                   next_cursor:
                     type: string
+  /w/{workspace}/runnables/counts:
+    get:
+      summary: count runnables per owner (folder or user space)
+      operationId: countRunnablesByOwner
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: kinds
+          in: query
+          description: comma-separated subset of script,flow,app (default all)
+          schema:
+            type: string
+        - name: include_without_main
+          in: query
+          description: include library scripts (no runnable main)
+          schema:
+            type: boolean
+        - name: include_draft_only
+          in: query
+          description: >-
+            also count the caller's drafts at paths with no deployed row,
+            matching the same flag on /runnables/list
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: >-
+            number of runnables per owner prefix, empty owners omitted. Excludes
+            data-pipeline member scripts, which are listed as their folder's
+            single pipeline entry rather than as runnables.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - counts
+                properties:
+                  counts:
+                    type: object
+                    description: owner prefix (f/<folder> or u/<user>) to count
+                    additionalProperties:
+                      type: integer
   /w/{workspace}/flows/list:
     get:
       summary: list all flows
@@ -13395,6 +13524,13 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: resolved
+          description: >-
+            filter on whether a failure has been marked as handled. true keeps only
+            resolved failures, false hides them
+          in: query
+          schema:
+            type: boolean
         - name: is_flow_step
           description: is the job a flow step
           in: query
@@ -13677,6 +13813,13 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: resolved
+          description: >-
+            filter on whether a failure has been marked as handled. true keeps only
+            resolved failures, false hides them
+          in: query
+          schema:
+            type: boolean
         - name: is_flow_step
           description: is the job a flow step
           in: query
@@ -13854,6 +13997,13 @@ paths:
         - $ref: "#/components/parameters/JobTriggerKind"
         - name: is_skipped
           description: is the job skipped
+          in: query
+          schema:
+            type: boolean
+        - name: resolved
+          description: >-
+            filter on whether a failure has been marked as handled. true keeps only
+            resolved failures, false hides them
           in: query
           schema:
             type: boolean
@@ -14107,6 +14257,116 @@ paths:
                     - sibling_index
                     - sibling_count
                     - logs
+
+  /w/{workspace}/jobs_u/get_flow_all_results/{id}:
+    get:
+      summary: get statuses and truncated results for all jobs of a flow job's execution tree
+      operationId: getFlowAllResults
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: max_result_len
+          in: query
+          description: per-entry cap (in characters of JSON text) on result_prefix (default 2000, max 30000)
+          schema:
+            type: integer
+        - name: step
+          in: query
+          description: 'step address to resolve to a single job instead of enumerating the tree: "b", "b/c", "b[12]" (1-based iteration/branch), composable as "b[12]/c"'
+          schema:
+            type: string
+      responses:
+        "200":
+          description: per-job statuses and truncated results of the flow's execution tree, or the single resolved entry when step is provided
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enclosing_job:
+                    type: string
+                    format: uuid
+                    description: set when the requested job is itself a step of a larger flow run; id of the flow run directly enclosing it
+                  entries:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        job_id:
+                          type: string
+                        label:
+                          type: string
+                          description: human-readable label describing the job's position in the flow tree
+                        kind:
+                          type: string
+                          description: job kind (script, flow, forloopflow, ...)
+                        flow_step_id:
+                          type: string
+                          nullable: true
+                        step_path:
+                          type: string
+                          nullable: true
+                          description: materialized step path (e.g. "a/b")
+                        depth:
+                          type: integer
+                          description: depth in the flow tree (0 for the root flow job)
+                        parent_module_type:
+                          type: string
+                          nullable: true
+                          description: parent module type (forloopflow, branchall, ...)
+                        sibling_index:
+                          type: integer
+                          description: 1-based index of this job among siblings sharing the same step
+                        sibling_count:
+                          type: integer
+                          description: total number of siblings sharing the same step
+                        status:
+                          type: string
+                          enum:
+                            [
+                              success,
+                              failure,
+                              canceled,
+                              skipped,
+                              suspended,
+                              running,
+                              queued,
+                            ]
+                        success:
+                          type: boolean
+                        duration_ms:
+                          type: integer
+                          format: int64
+                        started_at:
+                          type: string
+                          format: date-time
+                        result_prefix:
+                          type: string
+                          description: result JSON text truncated to the per-entry budget; absent until the job has completed
+                        result_length:
+                          type: integer
+                          description: full length in characters of the result JSON text (greater than the prefix length when truncated)
+                      required:
+                        - job_id
+                        - label
+                        - kind
+                        - depth
+                        - sibling_index
+                        - sibling_count
+                        - status
+                  truncated:
+                    type: boolean
+                    description: true when the tree has more jobs than the entry cap; entries then hold the depth-first prefix
+                  scope_filtered:
+                    type: boolean
+                    description: true when the caller's token is tag-scoped; steps running on other tags are omitted
+                  step_error:
+                    type: string
+                    description: set when step was provided but could not be resolved; a diagnostic listing available step ids or iteration statuses
+                required:
+                  - entries
 
   /w/{workspace}/jobs_u/get_completed_logs_tail/{id}:
     get:
@@ -14577,6 +14837,92 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CompletedJob"
+
+  /w/{workspace}/jobs/completed/resolve:
+    post:
+      summary: mark failed jobs as resolved
+      description: >-
+        Marks failed jobs as handled so triage surfaces stop showing them as failures.
+        The job status itself is unchanged. Returns the ids actually resolved: ids that
+        are not visible to the caller or did not fail are silently skipped.
+      operationId: resolveCompletedJobs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                job_ids:
+                  type: array
+                  maxItems: 1000
+                  items:
+                    type: string
+                    format: uuid
+                note:
+                  type: string
+                  maxLength: 2000
+                  description: >-
+                    a person's explanation of why the failure is considered handled.
+                    Enterprise-only: ignored outside enterprise
+                superseded_by:
+                  type: string
+                  format: uuid
+                  description: >-
+                    id of a later successful run of the same runnable that supersedes the
+                    failure. Verified server-side, and the resulting note is the server's own
+                    wording, so it is recorded regardless of licence. A claim that cannot be
+                    verified resolves nothing
+              required:
+                - job_ids
+      responses:
+        "200":
+          description: ids of the jobs that were resolved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  format: uuid
+
+  /w/{workspace}/jobs/completed/unresolve:
+    post:
+      summary: remove the resolution of failed jobs
+      operationId: unresolveCompletedJobs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                job_ids:
+                  type: array
+                  maxItems: 1000
+                  items:
+                    type: string
+                    format: uuid
+              required:
+                - job_ids
+      responses:
+        "200":
+          description: ids of the jobs that were unresolved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  format: uuid
 
   /w/{workspace}/jobs_u/queue/cancel/{id}:
     post:
@@ -21978,6 +22324,13 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: resolved
+          description: >-
+            filter on whether a failure has been marked as handled. true keeps only
+            resolved failures, false hides them
+          in: query
+          schema:
+            type: boolean
         - name: is_flow_step
           description: is the job a flow step
           in: query
@@ -23220,14 +23573,14 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/hub/raw_apps/{id}/embed:
+  /w/{workspace}/hub/raw_apps/{id}/recording:
     post:
-      summary: set or clear the embed url of a hub raw app
+      summary: attach a recorded session to a hub raw app
       description: |
         Requires the caller to be a workspace admin. Forwards the request to the
         configured Hub scoped to the `{workspace}:{folder}` source and returns
         the Hub's status code and raw response body.
-      operationId: publishHubRawAppEmbed
+      operationId: publishHubRawAppRecording
       tags:
         - hubPublish
       parameters:
@@ -23245,7 +23598,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/RawAppEmbedBody"
+              $ref: "#/components/schemas/RecordingBody"
       responses:
         "200":
           description: raw Hub response body (status code is passed through from the Hub)
@@ -25565,6 +25918,25 @@ components:
           type: boolean
         is_retry:
           type: boolean
+        resolved:
+          type: boolean
+          description: whether this failure has been marked as handled
+        resolved_by:
+          type: string
+          description: >-
+            who resolved the failure. Enterprise-only, so also absent for a manual resolution
+            outside enterprise; use resolved_automatically to tell the two apart
+        resolved_at:
+          type: string
+          format: date-time
+        resolution_note:
+          type: string
+        resolved_automatically:
+          type: boolean
+          description: >-
+            true when a succeeding retry resolved this rather than a person. Explicit rather
+            than inferred from an absent resolved_by, which is also absent for a manual
+            resolution outside enterprise
         worker:
           type: string
       required:
@@ -29015,6 +29387,10 @@ components:
           $ref: "#/components/schemas/LoggedWizardStatus"
         grant_permissions:
           $ref: "#/components/schemas/LoggedWizardStatus"
+        replication_user:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+        replication_user_error:
+          type: string
 
     CustomInstanceDbTag:
       type: string
@@ -32789,18 +33165,6 @@ components:
         - raw
         - apps
         - summary
-        - project_slug
-
-    RawAppEmbedBody:
-      type: object
-      properties:
-        external_embed_url:
-          type: string
-          nullable: true
-          description: explicit `null` clears the embed (unpublish)
-        project_slug:
-          $ref: "#/components/schemas/HubProjectSlug"
-      required:
         - project_slug
 
     RecordingBody:

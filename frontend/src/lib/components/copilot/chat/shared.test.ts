@@ -1069,6 +1069,68 @@ describe('trimJob', () => {
 	})
 })
 
+describe('processToolCall preAction', () => {
+	// preAction's "-ing" label must land at execution start, not stream time —
+	// firing it earlier would relabel a still-queued card as active.
+	it('invokes preAction at promotion, before the tool fn runs', async () => {
+		const { processToolCall } = await import('./shared')
+		const calls: string[] = []
+		const tool = {
+			def: { type: 'function' as const, function: { name: 'patch_app_file', parameters: {} } },
+			preAction: () => calls.push('preAction'),
+			fn: vi.fn().mockImplementation(async () => {
+				calls.push('fn')
+				return 'ok'
+			})
+		}
+		await processToolCall({
+			tools: [tool] as any,
+			toolCall: {
+				id: 'call_1',
+				type: 'function',
+				function: { name: 'patch_app_file', arguments: '{}' }
+			},
+			helpers: {},
+			toolCallbacks: { setToolStatus: vi.fn() } as any,
+			workspace: 'test'
+		})
+		expect(calls).toEqual(['preAction', 'fn'])
+	})
+})
+
+describe('queuedToolStatus', () => {
+	const tool = (extra: Record<string, unknown> = {}) => ({
+		def: { type: 'function' as const, function: { name: 'run_script', parameters: {} } },
+		fn: vi.fn(),
+		...extra
+	})
+
+	it('humanizes snake_case and camelCase tool names by default', async () => {
+		const { queuedToolStatus } = await import('./shared')
+		expect(queuedToolStatus([], 'run_script', '{}')).toMatchObject({
+			isLoading: false,
+			isQueued: true,
+			isStreamingArguments: false,
+			content: 'Run script'
+		})
+		expect(queuedToolStatus([], 'askUserQuestion', '{}').content).toBe('Ask user question')
+	})
+
+	it('derives the label from parsed args via queuedLabel', async () => {
+		const { queuedToolStatus } = await import('./shared')
+		const t = tool({ queuedLabel: (args: any) => `Test ${args.path}` })
+		expect(queuedToolStatus([t] as any, 'run_script', '{"path": "u/admin/x"}').content).toBe(
+			'Test u/admin/x'
+		)
+	})
+
+	it('falls back to the humanized name when args are truncated', async () => {
+		const { queuedToolStatus } = await import('./shared')
+		const t = tool({ queuedLabel: (args: any) => `Test ${args.path}` })
+		expect(queuedToolStatus([t] as any, 'run_script', '{"path": "u/adm').content).toBe('Run script')
+	})
+})
+
 describe('appendPendingToolImages', () => {
 	// Tool results are string-only, so tool-produced images ride a follow-up
 	// user message appended after the whole tool batch. It must land in BOTH
@@ -1122,5 +1184,72 @@ describe('openItemPreviewAction', () => {
 	// raw_app is the internal kind; the user-facing label says "app".
 	it('labels raw_app as "app"', () => {
 		expect(openItemPreviewAction('raw_app', 'u/me/dash').label).toBe('Open app preview')
+	})
+})
+
+describe('createSearchHubScriptsTool', () => {
+	const hit = (version_id: number, app: string, summary: string) => ({
+		version_id,
+		app,
+		summary,
+		ask_id: version_id,
+		id: version_id,
+		kind: 'script' as const,
+		score: 1
+	})
+
+	async function runWithContent(getHubScriptByPath: ReturnType<typeof vi.fn>) {
+		const { ScriptService } = await import('$lib/gen')
+		Object.assign(ScriptService, {
+			queryHubScripts: vi.fn(async () => [
+				hit(1, 'discord', 'Send a message'),
+				hit(2, 'slack', 'Post a message')
+			]),
+			getHubScriptByPath
+		})
+		const { createSearchHubScriptsTool } = await import('./shared')
+		const raw = await createSearchHubScriptsTool(true).fn({
+			args: { query: 'send a message' },
+			toolId: 't1',
+			toolCallbacks: { setToolStatus: vi.fn() }
+		} as any)
+		return JSON.parse(raw)
+	}
+
+	it('reports each script language alongside its content', async () => {
+		const results = await runWithContent(
+			vi.fn(async ({ path }: { path: string }) => ({
+				content: `// ${path}`,
+				language: path.startsWith('hub/1/') ? 'bunnative' : 'python3'
+			}))
+		)
+
+		expect(results).toEqual([
+			{
+				path: 'hub/1/discord/send_a_message',
+				summary: 'Send a message',
+				language: 'bunnative',
+				content: '// hub/1/discord/send_a_message'
+			},
+			{
+				path: 'hub/2/slack/post_a_message',
+				summary: 'Post a message',
+				language: 'python3',
+				content: '// hub/2/slack/post_a_message'
+			}
+		])
+	})
+
+	it('keeps the other results when one content fetch fails', async () => {
+		const results = await runWithContent(
+			vi.fn(async ({ path }: { path: string }) => {
+				if (path.startsWith('hub/1/')) throw new Error('hub unreachable')
+				return { content: 'ok', language: 'python3' }
+			})
+		)
+
+		expect(results[0].error).toContain('hub unreachable')
+		expect(results[0].content).toBeUndefined()
+		expect(results[1].content).toBe('ok')
 	})
 })

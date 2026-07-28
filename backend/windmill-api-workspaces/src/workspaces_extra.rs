@@ -960,6 +960,7 @@ pub(crate) async fn delete_workspace(
     sqlx::query!(
         "WITH ids AS (SELECT id FROM v2_job WHERE workspace_id = $1),
               _de AS (DELETE FROM dispatch_event WHERE workspace_id = $1),
+              _jr AS (DELETE FROM job_resolution WHERE workspace_id = $1),
               _fc AS (DELETE FROM flow_conversation_message WHERE job_id IN (SELECT id FROM ids))
          DELETE FROM zombie_job_counter WHERE job_id IN (SELECT id FROM ids)",
         &w_id
@@ -1351,7 +1352,7 @@ pub async fn drop_forked_datatable_databases(
                         ));
                     }
                     drop(client);
-                    let _ = join_handle.await;
+                    let _ = windmill_common::shutdown_pg_connection(join_handle).await;
                 }
                 Err(e) => {
                     errors.push(format!(
@@ -1680,7 +1681,7 @@ async fn drop_fork_ducklake_metadata_schema(
         )
         .await;
     drop(client);
-    let _ = join_handle.await;
+    let _ = windmill_common::shutdown_pg_connection(join_handle).await;
     res.map_err(|e| Error::internal_err(format!("{e:#}")))?;
     Ok(())
 }

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { isInitialized } from './vscode'
+	import { getEditorTheme, isInitialized } from './vscode'
 
 	import { editor as meditor } from 'monaco-editor'
 
@@ -8,11 +8,7 @@
 
 	function onThemeChange() {
 		if (isInitialized) {
-			if (document.documentElement.classList.contains('dark')) {
-				meditor.setTheme('nord')
-			} else {
-				meditor.setTheme('myTheme')
-			}
+			meditor.setTheme(getEditorTheme())
 		}
 	}
 

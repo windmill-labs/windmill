@@ -27,6 +27,21 @@ export type UserItem = {
 	items: (ItemType | FolderItem)[]
 }
 
+/**
+ * Where an item belongs: its owner, folder, and the name it is filtered and searched by.
+ * A draft-only item is parked at a generated `u/<you>/draft_<uuid>` but names the path it
+ * will deploy to, and that is what the row shows and what the server lists, filters and
+ * counts it under — so every categorization has to follow it. `path` stays the storage
+ * identity that the editor link and the row key resolve.
+ */
+export function effectivePath(item: {
+	path: string
+	draft_only?: boolean | null
+	draft_path?: string | null
+}): string {
+	return (item.draft_only && item.draft_path) || item.path
+}
+
 function insertItemInFolder(
 	root: (ItemType | FolderItem | UserItem)[],
 	item: ItemType,
@@ -75,7 +90,7 @@ export function groupItems(
 	const root: (ItemType | FolderItem | UserItem)[] = []
 
 	items.forEach((item) => {
-		const pathSplit = item.path.split('/')
+		const pathSplit = effectivePath(item).split('/')
 		if (pathSplit[0] === 'u') {
 			const username = pathSplit[1]
 			let userItem = root.find((f): f is UserItem => 'username' in f && f.username === username) as

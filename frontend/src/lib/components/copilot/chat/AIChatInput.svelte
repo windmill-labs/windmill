@@ -509,6 +509,67 @@
 		focusInput()
 	}
 
+	/** Copy the last sent message (all four draft lanes + context chips) into
+	 * the composer. The conversation is left untouched — resending creates a new
+	 * message, unlike the bubble's edit pencil which rewinds the conversation. */
+	function recallLastSentMessage(): boolean {
+		const messages = aiChatManager.displayMessages
+		for (let i = messages.length - 1; i >= 0; i--) {
+			const message = messages[i]
+			if (message.role !== 'user' || message.synthetic) continue
+			// Images come from the stored turn, never the bubble: a provider
+			// rejection strips them from history while the bubble keeps its copy,
+			// and recalling that copy would re-attach the refused image.
+			const images = aiChatManager.storedImages(i) ?? []
+			// Eligibility looks at the bubble, though: the last thing the user
+			// actually sent is the recall boundary, so a context-only turn (GLOBAL
+			// allows text-free sends with chips) recalls its chips, and a turn
+			// whose only image was provider-rejected recalls as empty — neither
+			// falls through and resurrects an older prompt.
+			if (
+				!(
+					message.content ||
+					message.images?.length ||
+					message.files?.length ||
+					message.contextElements?.length
+				)
+			)
+				continue
+			draft.replace({
+				text: message.content,
+				pastes: message.pastes,
+				images
+			})
+			// The recalled message stays in the transcript, so its files still
+			// count against the conversation budget — re-admit them instead of
+			// copying, or resending would blow past MAX_CONVERSATION_FILE_BYTES.
+			if (message.files?.length) {
+				const budget =
+					MAX_CONVERSATION_FILE_BYTES - aiChatManager.attachmentBytesExcluding(composerKey)
+				const { droppedAtBudget } = draft.addFiles(message.files, budget)
+				if (droppedAtBudget > 0) {
+					const mb = Math.round(MAX_CONVERSATION_FILE_BYTES / 1_000_000)
+					sendUserToast(
+						`${droppedAtBudget} file(s) not recalled — this conversation reached its ${mb}MB attachment budget.`,
+						true
+					)
+				}
+			}
+			// Chips usually persist in the selection across sends, but the user may
+			// have removed some since — merge the message's chips back in (union,
+			// like dequeue) rather than replace, so chips selected since survive.
+			const missingContext = (message.contextElements ?? []).filter(
+				(c) => !selectedContext.some((s) => isSameContextElement(s, c))
+			)
+			if (missingContext.length > 0) {
+				selectedContext = [...selectedContext, ...missingContext]
+			}
+			focusInput()
+			return true
+		}
+		return false
+	}
+
 	function clickOutside(node: HTMLElement) {
 		function handleClick(event: MouseEvent) {
 			// An expanded image chip renders in a portal, so clicks in it land outside
@@ -980,6 +1041,42 @@
 		if (e.key === 'Escape' && aiChatManager.loading) {
 			e.preventDefault()
 			aiChatManager.cancel()
+		} else if (
+			e.key === 'ArrowUp' &&
+			!e.defaultPrevented &&
+			e.target instanceof HTMLTextAreaElement &&
+			editingMessageIndex === null &&
+			onSendRequest === undefined &&
+			draft.isEmpty &&
+			pendingImages === 0 &&
+			pendingFiles === 0 &&
+			ingestionHolds === 0
+		) {
+			// Shell-style recall: ArrowUp in the empty main composer pulls the
+			// queued message (if any, same as the queued-message chip's click/X)
+			// or otherwise a copy of the last sent message back into the input.
+			// Empty means no attachment still decoding/reading either —
+			// recalling over an attachments-only draft would clobber it.
+			// Textarea only — ArrowUp on the wrapper's buttons/badges must not
+			// mutate the composer; and main composer only — the edit input and
+			// custom-send consumers (inline widget) have their own history
+			// semantics.
+			if (
+				aiChatManager.queuedMessage ||
+				aiChatManager.queuedImages.length > 0 ||
+				aiChatManager.queuedFiles.length > 0 ||
+				(aiChatManager.queuedContext?.length ?? 0) > 0
+			) {
+				e.preventDefault()
+				aiChatManager.dequeueMessage()
+			} else if (!aiChatManager.sendInFlight && recallLastSentMessage()) {
+				// History recall waits for the in-flight turn: from the moment the
+				// composer clears, the turn's bubble, stored images and context land
+				// across several awaits, so recalling now would return an incomplete
+				// copy — or skip past the turn entirely. Dequeueing above stays
+				// available; the queue is composer state, not history.
+				e.preventDefault()
+			}
 		}
 	}}
 >

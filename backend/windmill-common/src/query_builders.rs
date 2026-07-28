@@ -1,6 +1,8 @@
 use serde::{Deserialize, Deserializer, Serialize};
 use windmill_types::scripts::ScriptLang;
 
+use crate::error::pg_error_message;
+
 fn deserialize_bool_from_null<'de, D>(deserializer: D) -> Result<bool, D::Error>
 where
     D: Deserializer<'de>,
@@ -4830,8 +4832,37 @@ fn pg_action_to_string(action: &str) -> String {
     }
 }
 
+/// Rows of a simple-protocol result, dropping the framing messages.
+fn simple_query_rows(
+    messages: Vec<tokio_postgres::SimpleQueryMessage>,
+) -> Vec<tokio_postgres::SimpleQueryRow> {
+    messages
+        .into_iter()
+        .filter_map(|m| match m {
+            tokio_postgres::SimpleQueryMessage::Row(row) => Some(row),
+            _ => None,
+        })
+        .collect()
+}
+
+fn required_str<'a>(
+    row: &'a tokio_postgres::SimpleQueryRow,
+    column: &str,
+) -> Result<&'a str, String> {
+    row.try_get(column)
+        .map_err(|e| format!("Failed to read column {}: {}", column, pg_error_message(&e)))?
+        .ok_or_else(|| format!("Unexpected NULL in column {}", column))
+}
+
 /// Introspect a PostgreSQL database and return the full schema.
 /// Takes a connected tokio_postgres Client.
+///
+/// Both statements go through the simple query protocol. The extended protocol allocates a
+/// named prepared statement per call and closes it when the statement handle drops; behind a
+/// transaction-pooling proxy those names are shared with, and outlive, other sessions on the
+/// same backend, and the exchange then stalls with no reply — the connection never becomes
+/// idle again and the request hangs. Neither statement takes parameters, so nothing here
+/// needs the extended protocol.
 pub async fn pg_get_full_schema(
     client: &tokio_postgres::Client,
 ) -> Result<FullDatabaseSchema, String> {
@@ -4840,7 +4871,7 @@ pub async fn pg_get_full_schema(
     // per-column correlated subqueries — on large catalogs those subqueries run
     // once per column and make the introspection time out.
     let column_rows = client
-        .query(
+        .simple_query(
             "SELECT
                 ns.nspname AS schema_name,
                 c.relname AS table_name,
@@ -4862,13 +4893,13 @@ pub async fn pg_get_full_schema(
                 AND NOT a.attisdropped
                 AND ns.nspname NOT IN ('pg_catalog', 'information_schema')
             ORDER BY ns.nspname, c.relname, a.attnum",
-            &[],
         )
         .await
-        .map_err(|e| format!("Failed to query columns: {}", e))?;
+        .map(simple_query_rows)
+        .map_err(|e| format!("Failed to query columns: {}", pg_error_message(&e)))?;
 
     let fk_rows = client
-        .query(
+        .simple_query(
             "SELECT
                 ns.nspname AS schema_name,
                 c.relname AS table_name,
@@ -4890,21 +4921,21 @@ pub async fn pg_get_full_schema(
             WHERE con.contype = 'f'
                 AND ns.nspname NOT IN ('pg_catalog', 'information_schema')
             ORDER BY ns.nspname, c.relname, con.conname, u.ord",
-            &[],
         )
         .await
-        .map_err(|e| format!("Failed to query foreign keys: {}", e))?;
+        .map(simple_query_rows)
+        .map_err(|e| format!("Failed to query foreign keys: {}", pg_error_message(&e)))?;
 
     let mut result: FullDatabaseSchema = std::collections::HashMap::new();
 
     for row in &column_rows {
-        let schema_name: &str = row.get("schema_name");
-        let table_name: &str = row.get("table_name");
-        let column_name: &str = row.get("column_name");
-        let datatype: &str = row.get("datatype");
+        let schema_name = required_str(row, "schema_name")?;
+        let table_name = required_str(row, "table_name")?;
+        let column_name = required_str(row, "column_name")?;
+        let datatype = required_str(row, "datatype")?;
         let default_value: Option<&str> = row.get("default_value");
-        let nullable: bool = row.get("nullable");
-        let is_primary_key: bool = row.get("is_primary_key");
+        let nullable = required_str(row, "nullable")? == "t";
+        let is_primary_key = required_str(row, "is_primary_key")? == "t";
         let pk_constraint_name: Option<&str> = row.get("pk_constraint_name");
 
         let schema_tables = result.entry(schema_name.to_string()).or_default();
@@ -4937,15 +4968,15 @@ pub async fn pg_get_full_schema(
     > = std::collections::HashMap::new();
 
     for row in &fk_rows {
-        let schema_name: &str = row.get("schema_name");
-        let table_name: &str = row.get("table_name");
-        let fk_name: &str = row.get("fk_constraint_name");
-        let source_column: &str = row.get("source_column");
-        let ref_schema: &str = row.get("ref_schema");
-        let ref_table: &str = row.get("ref_table");
-        let ref_column: &str = row.get("ref_column");
-        let on_delete: &str = row.get("on_delete");
-        let on_update: &str = row.get("on_update");
+        let schema_name = required_str(row, "schema_name")?;
+        let table_name = required_str(row, "table_name")?;
+        let fk_name = required_str(row, "fk_constraint_name")?;
+        let source_column = required_str(row, "source_column")?;
+        let ref_schema = required_str(row, "ref_schema")?;
+        let ref_table = required_str(row, "ref_table")?;
+        let ref_column = required_str(row, "ref_column")?;
+        let on_delete = required_str(row, "on_delete")?;
+        let on_update = required_str(row, "on_update")?;
 
         let target_table = if ref_schema == schema_name {
             ref_table.to_string()

@@ -277,11 +277,12 @@ fn new_app(path: &str, summary: &str) -> serde_json::Value {
 
 /// A single list request; returns the ordered `type:path` identifiers.
 async fn list_once(port: u16, query: &str) -> Vec<String> {
+    list_once_as(port, query, "SECRET_TOKEN").await
+}
+
+async fn list_once_as(port: u16, query: &str, token: &str) -> Vec<String> {
     let url = format!("http://localhost:{port}/api/w/test-workspace/runnables/list?{query}");
-    let resp = authed(client().get(&url), "SECRET_TOKEN")
-        .send()
-        .await
-        .unwrap();
+    let resp = authed(client().get(&url), token).send().await.unwrap();
     assert_eq!(resp.status(), 200, "list should succeed for {query}");
     let body: serde_json::Value = resp.json().await.unwrap();
     body["items"]
@@ -388,6 +389,71 @@ async fn test_runnables_search_and_kind_filters(db: Pool<Postgres>) -> anyhow::R
         scripts.len(),
         4,
         "kinds=script -> 4 scripts, got {scripts:?}"
+    );
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_runnables_operator_sees_flows_and_apps(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+
+    // A folder the operator can read, holding one runnable of each kind.
+    let r = authed(
+        client().post(format!("{base}/folders/create")),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({
+        "name": "opview",
+        "owners": ["u/test-user"],
+        "extra_perms": { "u/test-user-3": false },
+    }))
+    .send()
+    .await?;
+    assert_eq!(r.status(), 200, "create folder: {}", r.text().await?);
+
+    let r = authed(
+        client().post(format!("{base}/scripts/create")),
+        "SECRET_TOKEN",
+    )
+    .json(&new_script("f/opview/s", "Op script"))
+    .send()
+    .await?;
+    assert_eq!(r.status(), 201, "create script: {}", r.text().await?);
+    let r = authed(
+        client().post(format!("{base}/flows/create")),
+        "SECRET_TOKEN",
+    )
+    .json(&new_flow("f/opview/f", "Op flow"))
+    .send()
+    .await?;
+    assert_eq!(r.status(), 201, "create flow: {}", r.text().await?);
+    let r = authed(client().post(format!("{base}/apps/create")), "SECRET_TOKEN")
+        .json(&new_app("f/opview/a", "Op app"))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 201, "create app: {}", r.text().await?);
+
+    sqlx::query(
+        "UPDATE usr SET operator = true, role = 'Operator' WHERE workspace_id = 'test-workspace' AND username = 'test-user-3'",
+    )
+    .execute(&db)
+    .await?;
+
+    // Operators run flows and apps, so the homepage listing must return them, not
+    // scripts alone.
+    let mut items = list_once_as(port, "", "SECRET_TOKEN_3").await;
+    items.sort();
+    assert_eq!(
+        items,
+        vec![
+            "app:f/opview/a".to_string(),
+            "flow:f/opview/f".to_string(),
+            "script:f/opview/s".to_string(),
+        ],
+        "an operator must see every kind they have read access to"
     );
     Ok(())
 }

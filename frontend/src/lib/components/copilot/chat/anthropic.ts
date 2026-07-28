@@ -19,6 +19,7 @@ import { applyReasoningToConfig } from '../reasoningRegistry'
 import {
 	appendPendingToolImages,
 	processToolCall,
+	queuedToolStatus,
 	type Tool,
 	type ToolCallbacks,
 	type WebSearchSource
@@ -174,8 +175,7 @@ export async function getAnthropicCompletion(
 		signal: abortController.signal,
 		headers: {
 			'X-Provider': provider,
-			'anthropic-version': '2023-06-01',
-			'X-Anthropic-SDK': 'true'
+			'anthropic-version': '2023-06-01'
 		}
 	})
 
@@ -228,7 +228,7 @@ export async function parseAnthropicCompletion(
 
 				callbacks.setToolStatus(toolId, {
 					isLoading: true,
-					content: tool?.streamingLabel ?? `Calling ${toolName}...`,
+					content: tool?.streamingLabel ?? `Preparing ${toolName}...`,
 					toolName,
 					isStreamingArguments: shouldStream,
 					showFade: tool?.showFade,
@@ -257,6 +257,17 @@ export async function parseAnthropicCompletion(
 					{ errorCode, query: webSearchQueries.get(block.tool_use_id), sources }
 				)
 			}
+		} else if (event.type === 'content_block_stop' && currentStreamingTool) {
+			// Args fully streamed: demote to queued (see queuedToolStatus). Server-side
+			// web search is exempt — it executes remotely and never goes through
+			// processToolCall, so demoting it would strand the card as queued.
+			if (!currentStreamingTool.isWebSearch) {
+				callbacks.setToolStatus(
+					currentStreamingTool.tempId,
+					queuedToolStatus(tools, currentStreamingTool.toolName, accumulatedJson)
+				)
+			}
+			currentStreamingTool = undefined
 		}
 	})
 
@@ -276,7 +287,10 @@ export async function parseAnthropicCompletion(
 	})
 
 	completion.on('inputJson', (partialJson: string) => {
-		if (currentStreamingTool?.isWebSearch) {
+		if (!currentStreamingTool) {
+			return
+		}
+		if (currentStreamingTool.isWebSearch) {
 			accumulatedJson += partialJson
 			const query = partialWebSearchQuery(accumulatedJson)
 			if (query) {
@@ -285,10 +299,10 @@ export async function parseAnthropicCompletion(
 			}
 			return
 		}
-		if (currentStreamingTool?.shouldStream && currentStreamingTool.tempId) {
-			// Accumulate the partial JSON
-			accumulatedJson += partialJson
-
+		// Accumulated even for non-streamArguments tools: queuedToolStatus derives
+		// the queued header from the completed args at content_block_stop.
+		accumulatedJson += partialJson
+		if (currentStreamingTool.shouldStream && currentStreamingTool.tempId) {
 			// Try to parse and display
 			try {
 				const parsed = JSON.parse(accumulatedJson)
@@ -353,11 +367,6 @@ export async function parseAnthropicCompletion(
 						arguments: JSON.stringify(block.input)
 					}
 				})
-				// Preprocess tool if it has a preAction
-				const tool = tools.find((t) => t.def.function.name === block.name)
-				if (tool && tool.preAction) {
-					tool.preAction({ toolCallbacks: callbacks, toolId: block.id })
-				}
 			}
 		}
 

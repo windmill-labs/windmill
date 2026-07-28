@@ -96,9 +96,20 @@ zodCode = zodCode.replace(/z\\.literal\\(\"__CIRCULAR_REF_FLOWMODULEVALUE__\"\\)
 
 // Fix z.record() calls for Zod 4 compatibility
 // In Zod 4, z.record(valueSchema) means keySchema, not valueSchema
-// We need z.record(z.string(), valueSchema) for string keys with typed values
-zodCode = zodCode.replace(/z\\.record\\(z\\./g, 'z.record(z.string(), z.');
-valueSchemaExport = valueSchemaExport.replace(/z\\.record\\(z\\./g, 'z.record(z.string(), z.');
+// We need z.record(z.string(), valueSchema) for string keys with typed values.
+// A single pass can't reach a record nested directly inside another record (the outer match
+// consumes the inner one's prefix), so repeat until stable; the lookahead skips already-fixed
+// calls and keeps that loop terminating.
+const fixRecordArity = (code) => {
+    let prev;
+    do {
+        prev = code;
+        code = code.replace(/z\\.record\\((?!z\\.string\\(\\), )z\\./g, 'z.record(z.string(), z.');
+    } while (code !== prev);
+    return code;
+};
+zodCode = fixRecordArity(zodCode);
+valueSchemaExport = fixRecordArity(valueSchemaExport);
 
 // Fix refinement API for Zod 4 compatibility
 // Zod 4 uses 'errors' instead of 'unionErrors' and doesn't have ctx.path

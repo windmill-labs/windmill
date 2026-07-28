@@ -42,6 +42,12 @@
 		Share2
 	} from 'lucide-svelte'
 
+	import { isJobResolvable } from '$lib/utils'
+	import {
+		claimRerunOrigin,
+		offerToResolveOriginal,
+		rememberRerunOrigin
+	} from '$lib/components/runs/rerunResolution.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import DbtRunGraph from '$lib/components/dbt/DbtRunGraph.svelte'
 	import DispatchEventsPanel from '$lib/components/runs/DispatchEventsPanel.svelte'
@@ -102,6 +108,22 @@
 	import { isCloudHosted } from '$lib/cloud'
 	let job: (Job & { result?: any; result_stream?: string }) | undefined = $state()
 	let jobUpdateLastFetch: Date | undefined = $state()
+
+	// A re-run launched from a failed run offers to resolve that failure once it succeeds.
+	// The claim happens here rather than at init because SvelteKit reuses this component
+	// across /run/<id> navigations, so init only runs for the first run viewed.
+	// Only ever an offer: a re-run is a fresh execution, not proof the old failure was handled.
+	let offeredForJobId: string | undefined = $state(undefined)
+	$effect(() => {
+		if (!job || offeredForJobId === job.id) return
+		if ('success' in job && job.success) {
+			const origin = claimRerunOrigin(job.id)
+			if (origin) {
+				offeredForJobId = job.id
+				offerToResolveOriginal(origin)
+			}
+		}
+	})
 
 	let scriptProgress: number | undefined = $state(undefined)
 	let currentJobIsLongRunning: boolean = $state(false)
@@ -447,6 +469,12 @@
 					})
 				}
 
+				// Offer to resolve this failure once the re-run succeeds. Captured here because the
+				// new job carries no back-pointer to the run it supersedes. An already-resolved
+				// failure needs no offer, and its note must not be restated as a supersession.
+				if (job && isJobResolvable(job) && !job.resolved && !$userStore?.operator) {
+					rememberRerunOrigin({ originalId: job.id, rerunId: id, workspace: $workspaceStore! })
+				}
 				await goto('/run/' + id + '?workspace=' + $workspaceStore)
 			} else {
 				sendUserToast('Cannot run this job immediately', true)
