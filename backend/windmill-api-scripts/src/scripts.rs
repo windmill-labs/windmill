@@ -2077,24 +2077,22 @@ async fn create_script_internal<'c>(
     // stale `// on` edges keep matching producers (and would trigger a script
     // later recreated at that path with no annotation, P1) and its producer
     // rows keep it lingering in the asset graph.
-    // A path that stops being a dbt script keeps no dbt provenance: the sidecar
-    // is path-keyed and the graph query does not check the current language, so
-    // stale model metadata would attach itself to whatever now lives there.
+    // The dbt GRAPH is deliberately not cleared when a path stops being a dbt
+    // script, nor on the rename below. It is keyed by version, and every graph
+    // query joins it on `(path, hash)` through a `language = 'dbt'` CTE — so an
+    // old version's rows can never attach to whatever lives at that path now,
+    // while its own finished runs still render from them. Clearing by path
+    // would empty those run pages for good.
     if ns.language != ScriptLang::Dbt {
-        windmill_common::dbt_manifest::clear_dbt_manifest(&mut tx, &w_id, &ns.path).await?;
-        // And its saved retry state, for the same reason: nothing regenerates
-        // it, so a path that stops being a dbt script would carry one user's
-        // failed invocation and its arguments until the workspace is deleted.
+        // The saved retry state does go: nothing regenerates it, it is keyed by
+        // path alone, and it carries one user's failed invocation and its
+        // arguments. No dbt version is live at this path any more to resume it.
         windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, &ns.path).await?;
     }
     if let Some(ref old) = p_path_opt {
         if old != &ns.path {
             clear_script_triggers(&mut *tx, &w_id, old, AssetUsageKind::Script).await?;
             clear_static_asset_usage(&mut *tx, &w_id, old, AssetUsageKind::Script).await?;
-            // Same reason the asset rows go: the dbt sidecar is keyed by path,
-            // so a rename would leave the old path's nodes describing
-            // relations a script later created there does not produce.
-            windmill_common::dbt_manifest::clear_dbt_manifest(&mut tx, &w_id, old).await?;
             // The saved retry state travels rather than being cleared: nothing
             // regenerates it, so dropping it would throw away a resumable
             // failure for what is only a rename.

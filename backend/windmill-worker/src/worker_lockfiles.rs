@@ -203,54 +203,53 @@ pub async fn handle_dependency_job(
             // per file, so a project of N files pays N project-sized passes and
             // a large one times the deploy out.
             let per_module_locks = job.script_lang != Some(ScriptLang::Dbt);
-            let updated_modules = if let Some(modules) =
-                script_data.modules.as_ref().filter(|_| per_module_locks)
-            {
-                let mut updated = modules.clone();
-                for (module_path, module) in updated.iter_mut() {
-                    if module.content.is_empty() {
-                        continue;
-                    }
-                    match capture_dependency_job(
-                        &job.id,
-                        &module.language,
-                        &module.content,
-                        mem_peak,
-                        canceled_by,
-                        job_dir,
-                        db,
-                        worker_name,
-                        &job.workspace_id,
-                        worker_dir,
-                        base_internal_url,
-                        token,
-                        script_path,
-                        script_data.modules.as_ref(),
-                        occupancy_metrics,
-                        &raw_workspace_dependencies_o,
-                        module.lock.as_deref(),
-                        triggered_by_relative_import,
-                        script_path,
-                        None,
-                        "script",
-                        &None,
-                    )
-                    .await
-                    {
-                        Ok(lock) => {
-                            module.lock = Some(lock);
+            let updated_modules =
+                if let Some(modules) = script_data.modules.as_ref().filter(|_| per_module_locks) {
+                    let mut updated = modules.clone();
+                    for (module_path, module) in updated.iter_mut() {
+                        if module.content.is_empty() {
+                            continue;
                         }
-                        Err(e) => {
-                            tracing::warn!(
-                                "Failed to generate lockfile for module {module_path}: {e}"
-                            );
+                        match capture_dependency_job(
+                            &job.id,
+                            &module.language,
+                            &module.content,
+                            mem_peak,
+                            canceled_by,
+                            job_dir,
+                            db,
+                            worker_name,
+                            &job.workspace_id,
+                            worker_dir,
+                            base_internal_url,
+                            token,
+                            script_path,
+                            script_data.modules.as_ref(),
+                            occupancy_metrics,
+                            &raw_workspace_dependencies_o,
+                            module.lock.as_deref(),
+                            triggered_by_relative_import,
+                            script_path,
+                            None,
+                            "script",
+                            &None,
+                        )
+                        .await
+                        {
+                            Ok(lock) => {
+                                module.lock = Some(lock);
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    "Failed to generate lockfile for module {module_path}: {e}"
+                                );
+                            }
                         }
                     }
-                }
-                Some(updated)
-            } else {
-                None
-            };
+                    Some(updated)
+                } else {
+                    None
+                };
 
             // We do not create new row for this update
             // That means we can keep current hash and just update lock

@@ -2340,7 +2340,6 @@ mod tests {
     }
 }
 
-
 lazy_static::lazy_static! {
     static ref TEMPLATE_RE: regex::Regex =
         regex::Regex::new(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}").unwrap();
@@ -2432,4 +2431,3 @@ pub(crate) fn validate_relative_path(path: &str, field_name: &str) -> error::Res
     }
     Ok(())
 }
-

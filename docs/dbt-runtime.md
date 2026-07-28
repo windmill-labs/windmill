@@ -269,10 +269,12 @@ needs a per-job record of what was built, which the per-relation state table
 cannot supply (it keeps one row per relation, stamped with the last writer).
 
 So dbt materializes and reports, and `asset_dispatch` returns early for
-`ScriptLang::Dbt`. A `# on table://<mart>` annotation still renders the reader
-beside the model in the graph; it does not fire. Wiring it up later means
-deciding what a selective run should notify — that decision is the work, not the
-plumbing.
+`ScriptLang::Dbt`. A `# on table://<mart>` subscription is refused outright at
+deploy rather than accepted and left dormant — an edge drawn on the canvas that
+can never fire is worse than an error saying so. A plain read
+(`# table://<mart>`) still renders the reader beside the model, which is what
+makes the lineage one graph. Wiring the trigger up later means deciding what a
+selective run should notify — that decision is the work, not the plumbing.
 
 ## Live per-model progress, and why only dbt-core 1.x has it
 
@@ -618,9 +620,11 @@ Against a real dbt project (jaffle_shop shape) and the local Postgres:
    rebuild already-successful models.
 5. **Graph ingest**: after deploy, model assets and `ref()` edges exist; a native
    script reading one of the marts gets an edge to it.
-6. **Shared node**: a native script declaring `# on table://<mart>` renders as a
-   reader of the same node the dbt model writes. It is not triggered by the dbt
-   run (see "no cascade from dbt").
+6. **Shared node**: a native script that READS a mart renders as a reader of the
+   same node the dbt model writes — one node, not two islands. Declared with a
+   plain read (`# table://<mart>`), never `# on`: a `table://` subscription is
+   refused at deploy, because nothing but dbt writes a warehouse relation and a
+   dbt run does not dispatch (see "no cascade from dbt").
 7. **Selection**: descriptor `select`/`exclude`, and a run-arg override, each
    build only the expected subset.
 8. **Dynamic descriptors**: a `{{ }}` placeholder in `vars` re-ingests the graph

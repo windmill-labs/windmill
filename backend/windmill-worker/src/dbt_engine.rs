@@ -153,8 +153,11 @@ async fn provision_core_1x(
         Some(v) => format!("{}=={v}", adapter.pip_package()),
         None => adapter.pip_package().to_string(),
     };
-    let dir = PathBuf::from(&*DBT_CACHE_DIR)
-        .join(format!("core1x-{}-{}", digest(&version_spec), digest(&adapter_spec)));
+    let dir = PathBuf::from(&*DBT_CACHE_DIR).join(format!(
+        "core1x-{}-{}",
+        digest(&version_spec),
+        digest(&adapter_spec)
+    ));
     let bin = dir.join("bin").join("dbt");
     if bin.exists() {
         let adapter_version = installed_adapter_version(&dir, adapter).await;
@@ -174,7 +177,10 @@ async fn provision_core_1x(
     append_logs(
         job_id,
         w_id,
-        format!("\nProvisioning {version_spec} with {}...\n", adapter.pip_package()),
+        format!(
+            "\nProvisioning {version_spec} with {}...\n",
+            adapter.pip_package()
+        ),
         conn,
     )
     .await;
@@ -210,12 +216,7 @@ async fn provision_core_1x(
         Command::new(UV_PATH.as_str())
             .env("UV_PYTHON_INSTALL_DIR", crate::PY_INSTALL_DIR.as_str())
             .env("VIRTUAL_ENV", &staging)
-            .args([
-                "pip",
-                "install",
-                &version_spec,
-                &adapter_spec,
-            ]),
+            .args(["pip", "install", &version_spec, &adapter_spec]),
         "uv pip install",
         job_id,
         w_id,
@@ -242,8 +243,18 @@ async fn provision_core_1x(
         Err(e) => return Err(Error::internal_err(format!("installing dbt-core: {e}"))),
     }
     let adapter_version = installed_adapter_version(&dir, adapter).await;
-    let version = installed_package_version(&dir, "dbt_core").await.unwrap_or(version);
-    Ok(ProvisionedEngine { root: dir, bin, version, engine: DbtEngine::DbtCore1x, adapter_version })
+    let version = installed_package_version(&dir, "dbt_core")
+        .await
+        .unwrap_or(version);
+    Ok(
+        ProvisionedEngine {
+            root: dir,
+            bin,
+            version,
+            engine: DbtEngine::DbtCore1x,
+            adapter_version,
+        },
+    )
 }
 
 /// The adapter version a venv actually resolved, read from its dist-info so a
@@ -478,12 +489,25 @@ impl Scratch {
 
 impl Drop for Scratch {
     fn drop(&mut self) {
-        if let Some(p) = self.0.take() {
-            // Blocking, but this is a drop: it runs on the failure path, where
-            // one directory removal costs nothing next to the install that just
-            // failed.
+        let Some(p) = self.0.take() else {
+            return;
+        };
+        let remove = move || {
             let _ = std::fs::remove_dir_all(&p);
             let _ = std::fs::remove_file(&p);
+        };
+        // Off the runtime thread. What is being removed is a half-installed
+        // virtualenv or an extracted engine — thousands of files — and `Drop`
+        // runs inside the job future, so removing it synchronously stalls every
+        // other job scheduled on that thread. Detached rather than awaited
+        // because a `Drop` cannot await; the removal was already fire-and-forget.
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                handle.spawn_blocking(remove);
+            }
+            // No runtime to hand it to (a test, or shutdown): do it here rather
+            // than leave the directory behind.
+            Err(_) => remove(),
         }
     }
 }
@@ -645,7 +669,6 @@ async fn run_tool(
     }
     Ok(())
 }
-
 
 #[cfg(test)]
 mod core1x_tests {

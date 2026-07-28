@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT NOT deleted AND NOT archived FROM script\n          WHERE workspace_id = $1 AND hash = $2 FOR UPDATE",
+  "query": "SELECT deleted FROM script WHERE workspace_id = $1 AND hash = $2 FOR UPDATE",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "?column?",
+        "name": "deleted",
         "type_info": "Bool"
       }
     ],
@@ -16,8 +16,8 @@
       ]
     },
     "nullable": [
-      null
+      false
     ]
   },
-  "hash": "335c5ff0a58c5dfb07c2fad728341c001e6324e223877a17c8367966edc5deb6"
+  "hash": "c868e87f7ccc5ce19c421c857f67285177bd4eaa3a14af5bf08dbc32c7bda558"
 }

@@ -277,15 +277,7 @@ pub async fn handle_dbt_job(
         // For a retry the restored manifest already describes the invocation
         // being resumed, so only the ingest runs — with that invocation's
         // arguments, which the selection resolver needs to interpolate.
-        ingest_from_run(
-            &prepared,
-            &descriptor,
-            &inv,
-            &mut ctx,
-            job,
-            conn,
-        )
-        .await?;
+        ingest_from_run(&prepared, &descriptor, &inv, &mut ctx, job, conn).await?;
     }
 
     // A read-only command has its own path: dbt prints the rows to stdout, so it
@@ -504,27 +496,10 @@ pub async fn dbt_dep(
     // only a run can fill (see `Invocation::strict`). Its environment is the
     // script's, matching what the run will parse with.
     let inv = Invocation { envs: envs.clone(), strict: false, ..Default::default() };
-    run_dbt_parse(
-        &prepared,
-        &descriptor,
-        &inv,
-        &mut ctx,
-        job_id,
-        w_id,
-        &conn,
-    )
-    .await?;
+    run_dbt_parse(&prepared, &descriptor, &inv, &mut ctx, job_id, w_id, &conn).await?;
 
-    let selected = resolve_selection(
-        &prepared,
-        &descriptor,
-        &inv,
-        &mut ctx,
-        job_id,
-        w_id,
-        &conn,
-    )
-    .await?;
+    let selected =
+        resolve_selection(&prepared, &descriptor, &inv, &mut ctx, job_id, w_id, &conn).await?;
     let manifest = read_manifest(&prepared.project_dir).await?;
     let manifest_digest = digest(
         &tokio::fs::read_to_string(
@@ -877,8 +852,7 @@ pub async fn prepare_project(
     // and mounting that root rather than the resolved engine directory keeps
     // the profile identical for every job on this worker.
     let sandbox_config: Option<SandboxProfile> = if is_sandboxing_enabled() {
-        let nsjail_timeout =
-            resolve_nsjail_timeout(conn, w_id, *job_id, ctx.timeout()).await;
+        let nsjail_timeout = resolve_nsjail_timeout(conn, w_id, *job_id, ctx.timeout()).await;
         // A SIBLING of the job directory: that directory is mounted read-write
         // into the jail, and every phase re-reads this file.
         let sandbox_dir = PathBuf::from(format!("{job_dir}.dbt-sandbox"));
@@ -1288,18 +1262,29 @@ async fn write_profiles(
             .to_path_buf();
         // The adapter still has to be known, because the bundled dbt-core 1.x
         // engine needs the matching pip package installed. The project's own
-        // file already spells it, so read it from there when not declared.
-        let adapter = match declared {
-            Some(a) => a,
-            None => {
-                adapter_from_profiles_yml(
-                    &path,
-                    &project_profile_name(project_dir).await,
-                    descriptor.profile.target.as_deref(),
-                )
-                .await?
-            }
-        };
+        // file spells it, and that file is what dbt actually connects with — so
+        // it is READ even when the descriptor declares a type, and a descriptor
+        // that disagrees is refused rather than believed.
+        //
+        // Licensing is the reason this cannot be a hint. The Rust engines carry
+        // every adapter in the binary, so a descriptor saying `postgres` over a
+        // `profiles.yml` whose target is `sqlserver` would pass the CE check and
+        // then have dbt connect with the enterprise adapter anyway.
+        let actual = adapter_from_profiles_yml(
+            &path,
+            &project_profile_name(project_dir).await,
+            descriptor.profile.target.as_deref(),
+        )
+        .await?;
+        if let Some(declared) = declared.filter(|d| *d != actual) {
+            return Err(Error::BadRequest(format!(
+                "`profile.type: {}` disagrees with `{}`, whose target uses `{}`. dbt connects                  with the file, so remove `profile.type` or correct it",
+                declared.name(),
+                own,
+                actual.name(),
+            )));
+        }
+        let adapter = actual;
         ensure_adapter_licensed(adapter)?;
         // A resource alongside the project's own file names the warehouse for
         // asset identity only: the connection comes from the file. It is still
@@ -1704,13 +1689,7 @@ async fn retry_failed_nodes(
         )
         .await;
         *run = run_dbt(
-            prepared,
-            "retry",
-            descriptor,
-            inv,
-            job,
-            conn,
-            &mut *ctx,
+            prepared, "retry", descriptor, inv, job, conn, &mut *ctx,
             // `dbt retry` reuses the previous invocation's selection; adding
             // one would narrow what it resumes.
             false,
@@ -1805,6 +1784,65 @@ async fn run_dbt(
     res.map(|_| ())
 }
 
+/// Record one model's state for THIS RUN.
+///
+/// Alongside `record_materialization`, never instead of it: that table holds the
+/// current state of a relation, one row, and its `job_id` is only the last
+/// writer — two runs of a project building the same models overwrite each
+/// other's. The run page needs what THIS job did, so it gets its own rows.
+async fn record_run_progress(
+    db: &sqlx::Pool<sqlx::Postgres>,
+    w_id: &str,
+    job_id: &Uuid,
+    asset_path: &str,
+    status: MaterializationStatus,
+    row_count: Option<i64>,
+    error: Option<&str>,
+) {
+    let res = sqlx::query!(
+        "INSERT INTO dbt_run_progress
+           (workspace_id, job_id, asset_kind, asset_path, status, row_count, error, updated_at)
+         VALUES ($1, $2, 'table', $3, $4, $5, $6, now())
+         ON CONFLICT (workspace_id, job_id, asset_kind, asset_path)
+         DO UPDATE SET status = EXCLUDED.status, row_count = EXCLUDED.row_count,
+                       error = EXCLUDED.error, updated_at = now()",
+        w_id,
+        job_id,
+        asset_path,
+        status as MaterializationStatus,
+        row_count,
+        error,
+    )
+    .execute(db)
+    .await;
+    if let Err(e) = res {
+        // Progress is a display, not the run: a failure here must not fail a
+        // build that is otherwise fine.
+        tracing::warn!("recording dbt run progress for {asset_path}: {e:#}");
+    }
+}
+
+/// How long a run's progress rows outlive it.
+///
+/// They exist for the run page, which reads them live and — for a run that left
+/// no `run_results.json`, cancelled or killed — afterwards. Bounded by age and
+/// pruned by the runs themselves so no background sweep has to know this table.
+const RUN_PROGRESS_RETENTION_DAYS: i32 = 30;
+
+async fn prune_run_progress(db: &sqlx::Pool<sqlx::Postgres>, w_id: &str) {
+    let res = sqlx::query!(
+        "DELETE FROM dbt_run_progress
+          WHERE workspace_id = $1 AND updated_at < now() - make_interval(days => $2)",
+        w_id,
+        RUN_PROGRESS_RETENTION_DAYS,
+    )
+    .execute(db)
+    .await;
+    if let Err(e) = res {
+        tracing::warn!("pruning dbt run progress: {e:#}");
+    }
+}
+
 /// Tail dbt's JSON event file and record each node's status as it finishes, so
 /// the asset graph shows the run advancing rather than a single opaque job.
 ///
@@ -1834,6 +1872,9 @@ fn spawn_progress_reporter(
     let default_database = p.default_database.clone();
     Some(tokio::spawn(async move {
         use tokio::io::{AsyncReadExt, AsyncSeekExt};
+        // Off the job's critical path, and cheap: one indexed delete per run is
+        // what keeps this table bounded without a background sweep.
+        prune_run_progress(&db, &w_id).await;
         let mut offset = 0u64;
         // A tick can land mid-write, leaving a trailing partial line; hold it
         // over rather than dropping the event it belongs to.
@@ -1876,6 +1917,16 @@ fn spawn_progress_reporter(
                 else {
                     continue;
                 };
+                record_run_progress(
+                    &db,
+                    &w_id,
+                    &job_id,
+                    &ev.asset_path,
+                    ev.status,
+                    ev.row_count,
+                    ev.error.as_deref(),
+                )
+                .await;
                 let _ = record_materialization(
                     &db,
                     &w_id,
@@ -2007,20 +2058,32 @@ async fn reconcile_materializations(
         // otherwise a successful agent run leaves every model with no recorded
         // status or row count.
         let recorded = match conn {
-            Connection::Sql(db) => record_materialization(
-                db,
-                &job.workspace_id,
-                windmill_common::assets::AssetKind::Table,
-                &path,
-                windmill_common::materialization::UNPARTITIONED,
-                status,
-                None,
-                r.rows_affected,
-                Some(job.id),
-                error,
-            )
-            .await
-            .map_err(|e| e.to_string()),
+            Connection::Sql(db) => {
+                record_run_progress(
+                    db,
+                    &job.workspace_id,
+                    &job.id,
+                    &path,
+                    status,
+                    r.rows_affected,
+                    error,
+                )
+                .await;
+                record_materialization(
+                    db,
+                    &job.workspace_id,
+                    windmill_common::assets::AssetKind::Table,
+                    &path,
+                    windmill_common::materialization::UNPARTITIONED,
+                    status,
+                    None,
+                    r.rows_affected,
+                    Some(job.id),
+                    error,
+                )
+                .await
+                .map_err(|e| e.to_string())
+            }
             Connection::Http(http) => crate::agent_workers::record_materialization_from_agent_http(
                 http,
                 &job.workspace_id,
@@ -2409,23 +2472,27 @@ async fn persist_ingest(
         return Ok(false);
     };
     let mut tx = db.begin().await?;
-    // A version archived or deleted while this job ran had its graph cleared by
-    // the route that did it. Both only soft-update `script`, so the foreign key
-    // still accepts these rows — and the pinned graph query deliberately serves
-    // archived versions, so re-inserting here republishes model SQL a user
-    // deleted. `FOR UPDATE` holds the row so an archive racing this waits and
-    // then clears what was written, rather than clearing first and losing.
-    let live = sqlx::query_scalar!(
-        "SELECT NOT deleted AND NOT archived FROM script
-          WHERE workspace_id = $1 AND hash = $2 FOR UPDATE",
+    // A version DELETED while this job ran had its graph cleared by the route
+    // that did it. Deletion only soft-updates `script`, so the foreign key still
+    // accepts these rows — and the pinned graph query deliberately serves
+    // non-live versions, so re-inserting here republishes model SQL a user
+    // deleted.
+    //
+    // `archived` is deliberately NOT part of this: `create_script` archives the
+    // parent on every redeploy, so treating it as a deletion would refuse the
+    // ordinary case of deploying v2 while v1's dependency job is still parsing,
+    // and v1 would never get the graph its own finished runs render from. The
+    // explicit `archive_script_by_hash` is still covered — it updates inside its
+    // transaction, so `FOR UPDATE` makes it wait here and clear afterwards.
+    let deleted = sqlx::query_scalar!(
+        "SELECT deleted FROM script WHERE workspace_id = $1 AND hash = $2 FOR UPDATE",
         w_id,
         script_hash,
     )
     .fetch_optional(&mut *tx)
     .await?
-    .flatten()
-    .unwrap_or(false);
-    if !live {
+    .unwrap_or(true);
+    if deleted {
         return Ok(false);
     }
     // The graph is written without regard to NEWER versions: its rows are keyed

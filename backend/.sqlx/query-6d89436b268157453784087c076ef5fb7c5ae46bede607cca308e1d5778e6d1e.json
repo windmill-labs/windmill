@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT asset_kind AS \"asset_kind: windmill_common::assets::AssetKind\", asset_path,\n                status::text AS \"status!\", row_count, error\n           FROM materialized_partition\n          WHERE workspace_id = $1 AND job_id = $2",
+  "query": "SELECT asset_kind AS \"asset_kind: windmill_common::assets::AssetKind\", asset_path,\n                status::text AS \"status!\", row_count, error\n           FROM dbt_run_progress\n          WHERE workspace_id = $1 AND job_id = $2",
   "describe": {
     "columns": [
       {
@@ -58,5 +58,5 @@
       true
     ]
   },
-  "hash": "ea42e1f5eb51c4732400b5abd63b2c2abecd89d69a883ff839a8c80da6abc217"
+  "hash": "6d89436b268157453784087c076ef5fb7c5ae46bede607cca308e1d5778e6d1e"
 }

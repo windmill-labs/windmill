@@ -797,10 +797,14 @@ async fn get_run_progress(
     };
     require_job_read_access(&db, &user_db, &authed, &w_id, &job_id, &created_by, None).await?;
     let mut tx = user_db.begin(&authed).await?;
+    // `dbt_run_progress`, not `materialized_partition`: the latter is keyed by
+    // relation and its `job_id` names only the last writer, so two runs of one
+    // project building the same models would take rows from each other and this
+    // response would lose nodes.
     let rows = sqlx::query!(
         "SELECT asset_kind AS \"asset_kind: windmill_common::assets::AssetKind\", asset_path,
                 status::text AS \"status!\", row_count, error
-           FROM materialized_partition
+           FROM dbt_run_progress
           WHERE workspace_id = $1 AND job_id = $2",
         w_id,
         job_id

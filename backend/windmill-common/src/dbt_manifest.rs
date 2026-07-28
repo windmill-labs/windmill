@@ -640,8 +640,15 @@ pub async fn clear_dbt_manifest_version(
     Ok(())
 }
 
-/// Drop every version of one path's graph, for when the path stops being a dbt
-/// script at all. See the mutator contract above: this authorizes nothing.
+/// Drop every version of one path's graph, for the routes that retire the whole
+/// path — archive-by-path, delete-by-path and the bulk delete.
+///
+/// NOT for a rename, nor for a path whose newest version stops being dbt:
+/// every graph query joins on `(path, hash)` through a `language = 'dbt'` CTE,
+/// so an old version's rows cannot attach to whatever lives at that path next,
+/// and its own finished runs still render from them.
+///
+/// See the mutator contract above: this authorizes nothing.
 pub async fn clear_dbt_manifest(
     tx: &mut Transaction<'_, Postgres>,
     workspace_id: &str,
