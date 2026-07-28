@@ -3,12 +3,6 @@
 // in the backend `apps.rs` — both lists must stay in sync), plus the viewer-side
 // consent persistence for the permission banner.
 
-/** A sandboxed app calls the API from an opaque origin, which needs the
- * credential-free client shipped alongside this release: earlier versions force
- * `credentials: 'include'`, which CORS rejects. Tracks the monorepo version
- * because `windmill-client` is published from it in lockstep. */
-export const MIN_SANDBOXED_SDK_VERSION = __pkg__.version
-
 export const FRONTEND_SDK_SCOPES: { value: string; label: string; description: string }[] = [
 	{
 		value: 'jobs:run',

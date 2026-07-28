@@ -57,10 +57,11 @@
 	// - DEFAULT (isolated): a real API URL serving a sandboxed, opaque-origin
 	//   document (`CSP: sandbox` response header + the iframe sandbox attribute),
 	//   so a malicious bundle can never reach the authenticated Windmill origin
-	//   (no cookie, no window.parent, no token). Root-relative so it resolves
-	//   against the real host even when this component itself runs inside an opaque
-	//   viewer (where `location.origin` is "null"). Context is handed over via
-	//   postMessage — never baked into the document, never a credential.
+	//   (no cookie, no window.parent). Root-relative so it resolves against the
+	//   real host even when this component itself runs inside an opaque viewer
+	//   (where `location.origin` is "null"). Context — and, when the viewer
+	//   approved SDK scopes, the viewer-scoped token — is handed over via
+	//   postMessage, never baked into the document.
 	// - UNSANDBOXED (the default — publisher did not opt into isolation): a
 	//   client-built blob: wrapper (same-origin with the SPA) loaded with `allow-same-origin`,
 	//   so relative `fetch('/api/...')` and the session cookie work. The backend
@@ -150,8 +151,21 @@
 		} catch (_) {}
 	}
 
+	// The token may only be handed over once per document we loaded ourselves. The
+	// reply is addressed to a browsing context, not a document, and it must target
+	// `*` because the sandboxed frame has an opaque origin — so a page the bundle
+	// (or a link the viewer clicked) navigated to keeps the same `contentWindow`
+	// and could ask for the credential again by posting `windmill:ready`. Reset
+	// only when WE change the iframe's src, which a navigation away does not.
+	let sdkHandedOff = false
+	$effect(() => {
+		iframeSrc
+		sdkHandedOff = false
+	})
+
 	function respondCtx() {
-		const sdkToken = sdkTokenCtx?.value
+		const sdkToken = sdkHandedOff ? undefined : sdkTokenCtx?.value
+		if (sdkToken) sdkHandedOff = true
 		iframe?.contentWindow?.postMessage(
 			{
 				type: 'windmill:ctx',

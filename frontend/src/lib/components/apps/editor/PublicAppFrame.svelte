@@ -241,7 +241,7 @@
 	})
 
 	// Read by RawAppPreview: the consented viewer-scoped SDK token to expose to
-	// the bundle (unsandboxed raw apps only).
+	// the bundle, sandboxed or not.
 	setContext('RAW_APP_SDK_TOKEN', {
 		get value() {
 			return sdkToken
@@ -268,8 +268,8 @@
 			appPath = resp.app_path ?? undefined
 			workspaceId = resp.workspace_id ?? undefined
 			// The backend only advertises scopes where a token could actually be
-			// minted (raw, unsandboxed, viewer authenticated), and mints one only on
-			// the follow-up request carrying the viewer's consent.
+			// minted (a raw app, viewer authenticated), and mints one only on the
+			// follow-up request carrying the viewer's consent.
 			sdkScopes = resp.sdk_scopes?.length ? resp.sdk_scopes : undefined
 			viewerEmail = resp.viewer_email ?? ''
 			sdkToken = undefined
