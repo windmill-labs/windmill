@@ -2654,6 +2654,7 @@ def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]:
 
 import asyncio as _asyncio
 import contextvars as _contextvars
+import sys as _sys
 import traceback as _traceback
 
 
@@ -2722,8 +2723,23 @@ def _step_error_stack(exc: BaseException) -> str:
     executor formats a failed job's: frames only, and the frame that called into
     the user's code dropped. Here that first frame is ``_run_inline_step``'s own
     ``result = fn()``, the counterpart of the generated wrapper frame the
-    executor strips, so a step's stack and a task's stack read alike."""
-    return "".join(_traceback.format_tb(exc.__traceback__)[1:]).strip()
+    executor strips, so a step's stack and a task's stack read alike.
+
+    Taken from ``sys.exc_info()`` the way the executor takes it, falling back to
+    the attribute: an exception overriding ``__getattribute__`` makes reading
+    ``__traceback__`` raise, and this runs inside the ``except`` reporting the
+    user's failure, so an escape would lose both their error and the checkpoint.
+    """
+    tb = _sys.exc_info()[2]
+    if tb is None:
+        try:
+            tb = exc.__traceback__
+        except Exception:
+            return ""
+    try:
+        return "".join(_traceback.format_tb(tb)[1:]).strip()
+    except Exception:
+        return ""
 
 
 def _json_round_trip(value):

@@ -20,13 +20,6 @@ const SERIALIZED_ERROR_FIELDS = [
   "originalColumn",
 ];
 
-/** @internal
- *  Serialize a failed `step()` body into the `__wmill_error` marker that task
- *  failures also use, so it can be stored in `completed_steps`.
- *
- *  The record's final shape is decided by the backend (`wac_failure_record`),
- *  which normalizes task failures through the same function; what is built here
- *  is the raw material plus the envelope the backend recognizes. */
 /** Read a property off a value that may fight back: a proxy `get` trap or a
  *  throwing accessor turns an ordinary field read into an exception. */
 function safeRead(o: any, k: string): unknown {
@@ -37,6 +30,13 @@ function safeRead(o: any, k: string): unknown {
   }
 }
 
+/** @internal
+ *  Serialize a failed `step()` body into the `__wmill_error` marker that task
+ *  failures also use, so it can be stored in `completed_steps`.
+ *
+ *  The record's final shape is decided by the backend (`wac_failure_record`),
+ *  which normalizes task failures through the same function; what is built here
+ *  is the raw material plus the envelope the backend recognizes. */
 export function stepErrorMarker(key: string, e: unknown): Record<string, any> {
   const thrown = e as any;
   // The three named fields are read off whatever was thrown, exactly as the

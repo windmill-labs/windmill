@@ -1070,6 +1070,17 @@ class TestRaisingInlineStepIsCheckpointed:
         assert marker["result"]["error"]["name"] == "Hostile"
         assert "unrepresentable" in marker["result"]["error"]["message"]
 
+        # ...including one that makes reading its own traceback raise
+        class HostileTraceback(Exception):
+            def __getattribute__(self, item):
+                if item == "__traceback__":
+                    raise RuntimeError("no traceback for you")
+                return super().__getattribute__(item)
+
+        marker = _step_error_marker("k", HostileTraceback())
+        _json.dumps(marker)
+        assert marker["result"]["error"]["name"] == "HostileTraceback"
+
     def test_fast_path_posts_error_and_raises_the_replay_exception(self, monkeypatch):
         """The default path: the checkpoint is POSTed and the workflow body gets
         the same ``TaskError`` a replay rebuilds from the marker — raising the
