@@ -192,6 +192,11 @@
 		claim: () => {
 			detachClaims++
 			return () => detachClaims--
+		},
+		dockVisible: () => modalPanel && panelMode === 'modal' && !panelModalOpen,
+		dock: () => {
+			panelMode = 'docked'
+			panelModalOpen = false
 		}
 	})
 
@@ -274,28 +279,13 @@
 				ondblclick={panelMode === 'modal' ? openPanelModalFromGraph : undefined}
 				class="grow overflow-hidden bg-gray h-full bg-surface-secondary relative"
 			>
-				{#if graphOverlay || showStepHint}
+				{#if graphOverlay}
 					<div
-						class="absolute z-30 flex gap-2 items-center {compactGraphOverlay
+						class="absolute z-30 flex gap-2 {compactGraphOverlay
 							? 'top-14 left-1/2 -translate-x-1/2'
 							: 'top-2 right-2'}"
 					>
-						{#if showStepHint}
-							<!-- With the modal closed the graph is all there is, so docking would
-							     otherwise mean reopening the panel just to put it back. -->
-							<Button
-								size="xs2"
-								variant="subtle"
-								iconOnly
-								startIcon={{ icon: PanelRight }}
-								title="Dock the panel to the right"
-								on:click={() => {
-									panelMode = 'docked'
-									panelModalOpen = false
-								}}
-							/>
-						{/if}
-						{@render graphOverlay?.()}
+						{@render graphOverlay()}
 					</div>
 				{/if}
 				{#if loading}

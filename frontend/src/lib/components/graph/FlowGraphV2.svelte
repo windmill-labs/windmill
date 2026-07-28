@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { PanelRight } from 'lucide-svelte'
+	import type { FlowPanelDetachContext } from '$lib/components/flows/types'
 	import { openedDrawers } from '$lib/components/common/drawer/Disposable.svelte'
 	import { FlowService, type FlowModule, type FlowNote, type Job, type OpenFlow } from '../../gen'
 	import { AI_OR_ASSET_NODE_TYPES, NODE, type GraphModuleState } from '.'
@@ -104,6 +106,7 @@
 	let showNotes = $state(true)
 
 	const triggerContext = getContext<TriggerContext>('TriggerContext')
+	const panelDetach = getContext<FlowPanelDetachContext | undefined>('flowPanelDetach')
 
 	// Create diffManager instance for this FlowGraphV2
 	const diffManager = createFlowDiffManager()
@@ -1209,6 +1212,14 @@
 						showLock={false}
 						fitViewOptions={{ nodes: nodes.filter((n) => n.type !== 'note') }}
 					>
+						{#if panelDetach?.dockVisible()}
+							<Tooltip>
+								<ControlButton onclick={() => panelDetach?.dock()}>
+									<PanelRight size="14" />
+								</ControlButton>
+								{#snippet text()}Dock the step panel to the right{/snippet}
+							</Tooltip>
+						{/if}
 						{#if multiSelectEnabled}
 							<div class="flex items-center gap-2">
 								<Tooltip>

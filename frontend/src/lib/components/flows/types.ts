@@ -142,4 +142,8 @@ export type FlowPanelDetachContext = {
 	visible: () => boolean
 	detach: () => void
 	claim: () => () => void
+	/** True while the panel is detached and its modal is closed — the one state with no
+	 *  other way back to the docked pane. */
+	dockVisible: () => boolean
+	dock: () => void
 }
