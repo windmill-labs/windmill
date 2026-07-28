@@ -184,6 +184,28 @@
 
 	let graph = $derived(historical ?? scoped)
 
+	// Models whose id survived but whose RELATION changed since — an alias,
+	// schema or database edit. The graph is the current deploy, so the node is
+	// today's relation while the run wrote a different one; saying so beats the
+	// page asserting this run materialized a table that did not exist then.
+	// Detecting it needs no snapshot: the result carries the relation each node
+	// actually wrote.
+	let relationDrift = $derived.by(() => {
+		if (running || !graph) return 0
+		const run = parseDbtRun(result)
+		if (!run?.nodes?.length) return 0
+		const byId = new Map(
+			graph.assets
+				.filter((a) => a.dbt?.unique_id)
+				.map((a) => [a.dbt!.unique_id, a.path.split('/').at(-1)])
+		)
+		return run.nodes.filter((n) => {
+			if (!n.relation_name) return false
+			const now = byId.get(n.unique_id)
+			return now != undefined && now !== splitRelation(n.relation_name).at(-1)
+		}).length
+	})
+
 	// Models this run built that the project no longer has under the same id —
 	// renamed or deleted since. They cannot be drawn (the graph is the current
 	// deploy) so the count is stated rather than silently missing.
@@ -447,6 +469,14 @@
 	</div>
 {:else}
 	<div class="border rounded overflow-hidden flex flex-col">
+		{#if relationDrift > 0}
+			<div class="shrink-0 px-2 py-1 text-2xs text-secondary border-b bg-surface-secondary">
+				{relationDrift}
+				{relationDrift === 1 ? 'model has' : 'models have'} been renamed or moved since this run —
+				{relationDrift === 1 ? 'its node shows' : 'their nodes show'} today's relation, not the one
+				this run wrote.
+			</div>
+		{/if}
 		{#if goneSinceRun > 0}
 			<div class="shrink-0 px-2 py-1 text-2xs text-secondary border-b bg-surface-secondary">
 				{goneSinceRun}

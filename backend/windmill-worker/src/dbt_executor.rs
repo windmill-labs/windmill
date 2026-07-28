@@ -144,7 +144,14 @@ pub async fn handle_dbt_job(
     let locks: Option<DbtDependencyLocks> =
         requirements_o.and_then(|s| serde_json::from_str(s).ok());
 
-    let args = job.args.as_ref().map(|a| a.0.clone()).unwrap_or_default();
+    // Through `build_args_map`, like every other executor: an argument may be a
+    // `$var:` / `$res:` / `$encrypted:` reference, and dbt has no idea what those
+    // are. Passing them raw sends the literal string to `--vars`, so a
+    // placeholder holding a schema or an `enabled` flag would build a different
+    // slice of the project than the caller asked for.
+    let args = crate::common::build_args_map(job, client, conn)
+        .await?
+        .unwrap_or_else(|| job.args.as_ref().map(|a| a.0.clone()).unwrap_or_default());
     let inv = Invocation { args: args.clone(), envs: envs.clone(), strict: true };
     // One wall clock for the whole job. A dbt job is a sequence of
     // subprocesses — provision, deps, parse, ls, build, then the
@@ -2133,6 +2140,21 @@ fn split_relation(rel: &str) -> Vec<String> {
     parts.into_iter().map(|p| p.trim().to_string()).collect()
 }
 
+/// The `--limit` a `show` runs with, from the run's argument.
+///
+/// Clamped, not merely defaulted: the worker buffers the whole of dbt's stdout
+/// to read the rows out of it, so this argument decides how much memory a caller
+/// can make it hold — and running a script needs only run permission. Zero and
+/// negatives fall back to the default rather than reaching dbt, where `--limit 0`
+/// means something else.
+fn show_limit(requested: Option<i64>) -> i64 {
+    let max = windmill_parser_yaml::dbt::DBT_SHOW_MAX_LIMIT as i64;
+    requested
+        .filter(|l| *l > 0)
+        .map(|l| l.min(max))
+        .unwrap_or(windmill_parser_yaml::dbt::DBT_SHOW_DEFAULT_LIMIT as i64)
+}
+
 /// `dbt show`: SELECT from the selected node and return its rows.
 ///
 /// Captured rather than streamed, for the same reason `dbt ls` is: the job-log
@@ -2150,9 +2172,10 @@ async fn run_show(
     let mut cmd = dbt_command(p, &["show"]);
     add_vars(&mut cmd, descriptor, inv)?;
     add_selection(&mut cmd, descriptor, inv)?;
-    let limit = arg_i64(&inv.args, "limit")?
-        .filter(|l| *l > 0)
-        .unwrap_or(windmill_parser_yaml::dbt::DBT_SHOW_DEFAULT_LIMIT as i64);
+    // Clamped, not just defaulted: the whole of stdout is buffered to read the
+    // rows out of it, so an unbounded `--limit` is an unbounded allocation in
+    // the worker, reachable by anyone who may run the script.
+    let limit = show_limit(arg_i64(&inv.args, "limit")?);
     cmd.args(["--output", "json", "--limit", &limit.to_string()]);
     let stdout = run_capturing(cmd, "dbt show", ctx, job_id, w_id, conn).await?;
     // dbt frames the rows as `{"node": …, "show": [ … ]}`, pretty-printed across
@@ -3638,6 +3661,21 @@ mod tests {
         // A node the retry introduces is kept rather than dropped.
         merge_results(&mut acc, vec![node("test.p.d", "fail")]);
         assert_eq!(acc.len(), 4);
+    }
+
+    // `--limit` decides how much of dbt's stdout the worker buffers, and any
+    // caller who may run the script may set it.
+    #[test]
+    fn a_show_limit_is_clamped_to_the_ceiling() {
+        let max = windmill_parser_yaml::dbt::DBT_SHOW_MAX_LIMIT as i64;
+        let default = windmill_parser_yaml::dbt::DBT_SHOW_DEFAULT_LIMIT as i64;
+        assert_eq!(show_limit(Some(i64::MAX)), max, "an enormous ask is capped");
+        assert_eq!(show_limit(Some(max + 1)), max);
+        assert_eq!(show_limit(Some(5)), 5, "a modest ask is honoured");
+        assert_eq!(show_limit(None), default);
+        // `--limit 0` means something else to dbt, and a negative is nonsense.
+        assert_eq!(show_limit(Some(0)), default);
+        assert_eq!(show_limit(Some(-1)), default);
     }
 
     // The loop this feeds is bounded by nothing else: stop spending the budget

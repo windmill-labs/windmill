@@ -202,6 +202,13 @@ pub const DBT_COMMANDS: &[&str] = &["build", "retry", "show"];
 /// bound is not us splicing a `LIMIT` into someone's SQL.
 pub const DBT_SHOW_DEFAULT_LIMIT: u32 = 100;
 
+/// Hard ceiling on that limit. The worker buffers `dbt show`'s whole stdout to
+/// read the rows out of it, so the argument decides how much memory a caller can
+/// make it hold — and running a script needs only run permission. A preview is
+/// for looking at a few rows; anything larger is a query, which is what a SQL
+/// script is for.
+pub const DBT_SHOW_MAX_LIMIT: u32 = 1_000;
+
 /// Whether the command only reads. Such a run publishes no graph, records no
 /// materializations and runs no test phase — there is nothing it could have
 /// changed.
