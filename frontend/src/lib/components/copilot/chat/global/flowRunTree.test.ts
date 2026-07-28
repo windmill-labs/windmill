@@ -117,25 +117,32 @@ describe('shapeFlowRunTree', () => {
 		expect(step.previous_attempts.map((a: any) => a.status)).toEqual(['failure', 'failure'])
 	})
 
-	it('counts running iterations as unfinished instead of failed', () => {
-		const entries = loopEntries(3, [])
+	it('counts running iterations as unfinished and skipped ones as skipped', () => {
+		const entries = loopEntries(4, [])
 		entries[2].status = 'running'
 		entries[2].success = undefined
 		entries[2].result_prefix = undefined
 		entries[2].result_length = undefined
+		entries[3].status = 'skipped'
 		const loop = JSON.parse(shapeFlowRunTree({ entries })).steps[0]
 		expect(loop.ok).toBe(2)
 		expect(loop.unfinished).toBe(1)
+		expect(loop.skipped).toBe(1)
 		expect(loop.failed_iterations).toBeUndefined()
 	})
 
-	it('reports the truncated total size and surfaces the root flow of a step job', () => {
+	it('reports the truncated total size and surfaces the enclosing flow of a step job', () => {
 		const entries = nestedEntries()
 		entries[1].result_prefix = 'x'.repeat(700)
 		entries[1].result_length = 5000
-		const rendered = JSON.parse(shapeFlowRunTree({ root_job: 'root-uuid', entries }))
-		expect(rendered.note).toContain('root-uuid')
+		const rendered = JSON.parse(shapeFlowRunTree({ enclosing_job: 'enclosing-uuid', entries }))
+		expect(rendered.note).toContain('enclosing-uuid')
 		expect(rendered.steps[0].result_total_chars).toBe(5000)
+	})
+
+	it('notes when the server truncated the tree', () => {
+		const rendered = JSON.parse(shapeFlowRunTree({ entries: nestedEntries(), truncated: true }))
+		expect(rendered.note).toContain('more jobs')
 	})
 
 	it('shrinks result heads to fit the total budget instead of overflowing', () => {

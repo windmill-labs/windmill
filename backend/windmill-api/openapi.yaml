@@ -14065,10 +14065,10 @@ paths:
               schema:
                 type: object
                 properties:
-                  root_job:
+                  enclosing_job:
                     type: string
                     format: uuid
-                    description: set when the requested job is itself a step of a larger flow run; id of its enclosing flow run
+                    description: set when the requested job is itself a step of a larger flow run; id of the flow run directly enclosing it
                   entries:
                     type: array
                     items:
@@ -14136,6 +14136,9 @@ paths:
                         - sibling_index
                         - sibling_count
                         - status
+                  truncated:
+                    type: boolean
+                    description: true when the tree has more jobs than the entry cap; entries then hold the depth-first prefix
                   step_error:
                     type: string
                     description: set when step was provided but could not be resolved; a diagnostic listing available step ids or iteration statuses

@@ -2215,11 +2215,19 @@ async fn resolve_logs_to_string(
     logs.to_string()
 }
 
+struct FlowTreeReadAuth {
+    /// Enclosing flow job id when the requested job is itself a step of a
+    /// larger flow run (flow_innermost_root_job is NULL on subflow jobs —
+    /// parent_job covers them).
+    enclosing_job: Option<Uuid>,
+    /// Scope tags of the caller's token, to re-apply on every descendant query
+    /// (child jobs of a `preserve_step_tags` flow can run on other tags).
+    scope_tags: Option<Vec<String>>,
+}
+
 /// Shared preamble of the flow-tree endpoints (`get_flow_all_logs*`,
 /// `get_flow_all_results`): verifies the job exists (scope-tag filtered),
-/// checks read access, and records the view. Returns the enclosing flow job id
-/// when the requested job is itself a step of a larger flow run
-/// (flow_innermost_root_job is NULL on subflow jobs — parent_job covers them).
+/// checks read access, and records the view.
 async fn authorize_flow_tree_read(
     view_token: Option<String>,
     opt_authed: &Option<ApiAuthed>,
@@ -2228,7 +2236,7 @@ async fn authorize_flow_tree_read(
     user_db: &UserDB,
     w_id: &str,
     id: Uuid,
-) -> error::Result<Option<Uuid>> {
+) -> error::Result<FlowTreeReadAuth> {
     let tags = opt_authed
         .as_ref()
         .map(|authed| get_scope_tags(authed).map(|v| v.iter().map(|s| s.to_string()).collect_vec()))
@@ -2271,7 +2279,10 @@ async fn authorize_flow_tree_read(
     )
     .await?;
 
-    Ok(root_job.enclosing_job.filter(|r| *r != id))
+    Ok(FlowTreeReadAuth {
+        enclosing_job: root_job.enclosing_job.filter(|r| *r != id),
+        scope_tags: tags,
+    })
 }
 
 /// Human-readable label for a job's position in a flow's execution tree,
@@ -2293,6 +2304,12 @@ fn flow_tree_entry_label(
         _ => "",
     };
 
+    // Only a known non-fan-out parent module marks siblings as retry attempts;
+    // an unresolved type ("" — e.g. the flow was edited since the run) keeps
+    // the generic iteration wording, matching resolve_flow_step_job and the
+    // frontend's FAN_OUT_MODULE_TYPES check.
+    let attempt_like = !parent_module_type.is_empty() && !is_fan_out_module(parent_module_type);
+
     if depth == 0 {
         "Flow".to_string()
     } else if matches!(
@@ -2301,12 +2318,10 @@ fn flow_tree_entry_label(
     ) {
         // Intermediate flow job (loop iteration or branch)
         if parent_module_type == "branchone" {
-            let branch_label = if sibling_index == 1 {
-                "default".to_string()
-            } else {
-                format!("{}", sibling_index - 1)
-            };
-            format!("Step {}{} (branch {})", path, kind_label, branch_label)
+            // sibling_index is a row number among sibling jobs, not the chosen
+            // branch (branchone only enqueues the branch it selected) — don't
+            // pretend to know which branch ran.
+            format!("Step {}{} (selected branch)", path, kind_label)
         } else if parent_module_type == "branchall" {
             format!("Step {}{} (branch {})", path, kind_label, sibling_index)
         } else if parent_module_type == "forloopflow" || parent_module_type == "whileloopflow" {
@@ -2315,8 +2330,7 @@ fn flow_tree_entry_label(
                 path, kind_label, sibling_index, sibling_count
             )
         } else if sibling_count > 1 {
-            if kind_label.is_empty() {
-                // Sibling jobs of a non-fan-out step are retry attempts
+            if attempt_like {
                 format!(
                     "Step {} (attempt {}/{})",
                     path, sibling_index, sibling_count
@@ -2331,8 +2345,7 @@ fn flow_tree_entry_label(
             format!("Step {} (subflow)", path)
         }
     } else if sibling_count > 1 {
-        if kind_label.is_empty() {
-            // Sibling jobs of a non-fan-out step are retry attempts
+        if attempt_like {
             format!(
                 "Step {} (attempt {}/{})",
                 path, sibling_index, sibling_count
@@ -2596,10 +2609,15 @@ struct FlowResultEntry {
 
 #[derive(Serialize)]
 struct FlowAllResultsResponse {
-    /// Set when the requested job is itself a step of a larger flow run.
+    /// Set when the requested job is itself a step of a larger flow run: the id
+    /// of the flow run directly enclosing it.
     #[serde(skip_serializing_if = "Option::is_none")]
-    root_job: Option<Uuid>,
+    enclosing_job: Option<Uuid>,
     entries: Vec<FlowResultEntry>,
+    /// True when the tree has more jobs than the entry cap; entries then hold
+    /// the depth-first prefix.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    truncated: bool,
     /// Set when `step` was provided but could not be resolved; a diagnostic the
     /// caller can act on (available step ids, iteration statuses).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2617,6 +2635,9 @@ struct FlowAllResultsQuery {
 
 const FLOW_ALL_RESULTS_DEFAULT_MAX_LEN: i32 = 2000;
 const FLOW_ALL_RESULTS_MAX_MAX_LEN: i32 = 30_000;
+/// Hard cap on enumerated tree entries — bounds both the response size and the
+/// per-row result::text materialization the query performs.
+const FLOW_ALL_RESULTS_MAX_ENTRIES: i64 = 2000;
 
 struct ResolvedStepJob {
     job_id: Uuid,
@@ -2649,6 +2670,63 @@ fn parse_step_segment(segment: &str) -> (&str, Option<usize>) {
     (segment, None)
 }
 
+#[cfg(test)]
+mod flow_tree_tests {
+    use super::{flow_tree_entry_label, parse_step_segment};
+
+    #[test]
+    fn label_classifies_iterations_branches_and_retry_attempts() {
+        assert_eq!(flow_tree_entry_label("flow", "", "", 1, 1, 0), "Flow");
+        assert_eq!(
+            flow_tree_entry_label("script", "l", "forloopflow", 2, 3, 1),
+            "Step l forloop (iteration 2/3)"
+        );
+        assert_eq!(
+            flow_tree_entry_label("flow", "b", "branchall", 2, 2, 1),
+            "Step b branchall (branch 2)"
+        );
+        // branchone only enqueues its chosen branch — the label must not claim
+        // which branch that was
+        assert_eq!(
+            flow_tree_entry_label("flow", "b", "branchone", 1, 1, 1),
+            "Step b branchone (selected branch)"
+        );
+        // siblings of a non-fan-out step are retry attempts, for both direct
+        // and subflow steps
+        assert_eq!(
+            flow_tree_entry_label("script", "a", "rawscript", 2, 3, 1),
+            "Step a (attempt 2/3)"
+        );
+        assert_eq!(
+            flow_tree_entry_label("flow", "b", "flow", 2, 2, 1),
+            "Step b (attempt 2/2)"
+        );
+        // unresolved parent module type ("", e.g. the flow was edited since the
+        // run) must NOT claim retries — keep the generic iteration wording
+        assert_eq!(
+            flow_tree_entry_label("script", "a", "", 2, 3, 1),
+            "Step a (iteration 2/3)"
+        );
+        assert_eq!(
+            flow_tree_entry_label("flow", "b", "flow", 1, 1, 1),
+            "Step b (subflow)"
+        );
+        assert_eq!(
+            flow_tree_entry_label("script", "a", "rawscript", 1, 1, 1),
+            "Step a"
+        );
+    }
+
+    #[test]
+    fn parses_step_segments() {
+        assert_eq!(parse_step_segment("b"), ("b", None));
+        assert_eq!(parse_step_segment("b[12]"), ("b", Some(12)));
+        assert_eq!(parse_step_segment("b[0]"), ("b", Some(0)));
+        assert_eq!(parse_step_segment("b[x]"), ("b[x]", None));
+        assert_eq!(parse_step_segment("b]"), ("b]", None));
+    }
+}
+
 /// Resolve a step address ('b/c', 'b[12]/c', '.' separators accepted) to a
 /// single job of the flow tree rooted at `root`, walking one indexed
 /// parent_job + flow_step_id lookup per segment — no tree enumeration.
@@ -2659,6 +2737,7 @@ async fn resolve_flow_step_job(
     w_id: &str,
     root: Uuid,
     address: &str,
+    scope_tags: Option<&[String]>,
 ) -> error::Result<Result<ResolvedStepJob, String>> {
     let segments = address
         .replace('.', "/")
@@ -2703,10 +2782,12 @@ async fn resolve_flow_step_job(
              LEFT JOIN v2_job_completed c ON c.id = j.id
              LEFT JOIN v2_job_queue q ON q.id = j.id
              WHERE j.parent_job = $1 AND j.workspace_id = $2 AND j.flow_step_id = $3
+               AND ($4::text[] IS NULL OR j.tag = ANY($4))
              ORDER BY j.id",
             current,
             w_id,
             step_id,
+            scope_tags,
         )
         .fetch_all(db)
         .await?;
@@ -2715,9 +2796,11 @@ async fn resolve_flow_step_job(
             let available = sqlx::query_scalar!(
                 "SELECT DISTINCT flow_step_id as \"flow_step_id!\" FROM v2_job
                  WHERE parent_job = $1 AND workspace_id = $2 AND flow_step_id IS NOT NULL
+                   AND ($3::text[] IS NULL OR tag = ANY($3))
                  ORDER BY flow_step_id",
                 current,
                 w_id,
+                scope_tags,
             )
             .fetch_all(db)
             .await?;
@@ -2802,7 +2885,7 @@ async fn get_flow_all_results(
     Path((w_id, id)): Path<(String, Uuid)>,
     Query(query): Query<FlowAllResultsQuery>,
 ) -> JsonResult<FlowAllResultsResponse> {
-    let root_job = authorize_flow_tree_read(
+    let auth = authorize_flow_tree_read(
         view_token,
         &opt_authed,
         &opt_tokened,
@@ -2812,6 +2895,8 @@ async fn get_flow_all_results(
         id,
     )
     .await?;
+    let enclosing_job = auth.enclosing_job;
+    let scope_tags = auth.scope_tags;
 
     let max_result_len = query
         .max_result_len
@@ -2821,16 +2906,18 @@ async fn get_flow_all_results(
     // Step mode: resolve the address to one job directly (a few indexed
     // lookups) instead of enumerating the whole tree.
     if let Some(step) = query.step.as_deref().filter(|s| !s.trim().is_empty()) {
-        let resolved = match resolve_flow_step_job(&db, &w_id, id, step).await? {
-            Ok(resolved) => resolved,
-            Err(step_error) => {
-                return Ok(Json(FlowAllResultsResponse {
-                    root_job,
-                    entries: vec![],
-                    step_error: Some(step_error),
-                }));
-            }
-        };
+        let resolved =
+            match resolve_flow_step_job(&db, &w_id, id, step, scope_tags.as_deref()).await? {
+                Ok(resolved) => resolved,
+                Err(step_error) => {
+                    return Ok(Json(FlowAllResultsResponse {
+                        enclosing_job,
+                        entries: vec![],
+                        truncated: false,
+                        step_error: Some(step_error),
+                    }));
+                }
+            };
 
         let record = sqlx::query!(
             "SELECT j.kind::text as kind,
@@ -2876,7 +2963,7 @@ async fn get_flow_all_results(
         );
 
         return Ok(Json(FlowAllResultsResponse {
-            root_job,
+            enclosing_job,
             entries: vec![FlowResultEntry {
                 job_id: resolved.job_id.to_string(),
                 label,
@@ -2898,6 +2985,7 @@ async fn get_flow_all_results(
                 result_prefix: record.result_prefix,
                 result_length: record.result_length,
             }],
+            truncated: false,
             step_error: None,
         }));
     }
@@ -2937,6 +3025,7 @@ async fn get_flow_all_results(
             FROM v2_job j
             JOIN job_tree jt ON j.parent_job = jt.id
             WHERE j.workspace_id = $1
+              AND ($4::text[] IS NULL OR j.tag = ANY($4))
         ),
         with_sibling_index AS (
             SELECT jt.*,
@@ -2964,13 +3053,23 @@ async fn get_flow_all_results(
         FROM with_sibling_index w
         LEFT JOIN v2_job_completed c ON c.id = w.id
         LEFT JOIN v2_job_queue q ON q.id = w.id
-        ORDER BY w.id_path ASC",
+        ORDER BY w.id_path ASC
+        LIMIT $5",
         w_id,
         id,
         max_result_len,
+        scope_tags.as_deref(),
+        FLOW_ALL_RESULTS_MAX_ENTRIES + 1,
     )
     .fetch_all(&db)
     .await?;
+
+    // One row past the cap fetched only to detect truncation.
+    let mut records = records;
+    let truncated = records.len() as i64 > FLOW_ALL_RESULTS_MAX_ENTRIES;
+    if truncated {
+        records.truncate(FLOW_ALL_RESULTS_MAX_ENTRIES as usize);
+    }
 
     let mut entries = Vec::with_capacity(records.len());
 
@@ -3030,8 +3129,9 @@ async fn get_flow_all_results(
     }
 
     Ok(Json(FlowAllResultsResponse {
-        root_job,
+        enclosing_job,
         entries,
+        truncated,
         step_error: None,
     }))
 }

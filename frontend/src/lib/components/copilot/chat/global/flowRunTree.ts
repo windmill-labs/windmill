@@ -163,7 +163,9 @@ function shapeGroup(group: ChildGroup, opts: ShapeOpts): Record<string, any> {
 	const failedNodes = byIndex.filter(
 		(n) => n.entry.status === 'failure' || n.entry.status === 'canceled'
 	)
-	const unfinished = byIndex.length - ok - failedNodes.length
+	const skipped = byIndex.filter((n) => n.entry.status === 'skipped').length
+	// skipped is terminal — only running/queued/suspended count as unfinished
+	const unfinished = byIndex.length - ok - failedNodes.length - skipped
 
 	const shown = failedNodes.slice(0, MAX_FAILED_ITERATIONS_SHOWN)
 	const last = byIndex[byIndex.length - 1]
@@ -179,6 +181,7 @@ function shapeGroup(group: ChildGroup, opts: ShapeOpts): Record<string, any> {
 		...(failedNodes.length > 0
 			? { failed_iterations: failedNodes.map((n) => n.entry.sibling_index) }
 			: {}),
+		...(skipped > 0 ? { skipped } : {}),
 		...(unfinished > 0 ? { unfinished } : {}),
 		iterations_shown: shown.map((n) => shapeStep(n, opts, n.entry.sibling_index)),
 		...(byIndex.length > shown.length ? { iterations_elided: byIndex.length - shown.length } : {})
@@ -216,9 +219,19 @@ export function shapeFlowRunTree(response: GetFlowAllResultsResponse): string {
 	if (!root) {
 		return 'No jobs found for this run.'
 	}
-	const rootJobNote = response.root_job
-		? `This job is a step of a larger flow run — its enclosing run is ${response.root_job}; pass that id to see more of the tree.`
-		: undefined
+	const notes = [
+		...(response.enclosing_job
+			? [
+					`This job is a step of a larger flow run — its enclosing run is ${response.enclosing_job}; pass that id to see more of the tree.`
+				]
+			: []),
+		...(response.truncated
+			? [
+					`The run has more jobs than the server returns — this tree only covers the first ${response.entries.length} (depth-first), so tallies may undercount.`
+				]
+			: [])
+	]
+	const rootJobNote = notes.length > 0 ? notes.join(' ') : undefined
 
 	let rendered = ''
 	for (const opts of SHRINK_LADDER) {
