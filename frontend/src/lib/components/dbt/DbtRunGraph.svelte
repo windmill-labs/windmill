@@ -5,9 +5,9 @@
 	// where the alternative is reading `N of M OK created` out of the log.
 	import { onDestroy } from 'svelte'
 	import { OpenAPI, JobService } from '$lib/gen'
-	import { parseDbtRun, relationOutcome, splitRelation } from './parseDbtRun'
+	import { parseDbtRun, relationOutcome, splitRelation, splitUniqueId } from './parseDbtRun'
 	import { Button } from '$lib/components/common'
-	import { ClipboardCopy } from 'lucide-svelte'
+	import { ClipboardCopy, TableProperties } from 'lucide-svelte'
 	import { copyToClipboard } from '$lib/utils'
 	import { workspaceStore } from '$lib/stores'
 	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
@@ -239,6 +239,58 @@
 		return dbt
 	})
 
+	// `dbt show` against the selected model, run as an ordinary job — same
+	// authorization, isolation and cancellation as any other. Explicit rather
+	// than on-select: each preview costs a worker slot and a few seconds of
+	// engine start-up, so it must be something the reader asked for.
+	let preview = $state<
+		{ node: string; rows: Record<string, unknown>[] } | { error: string } | undefined
+	>(undefined)
+	let previewing = $state(false)
+
+	async function runPreview() {
+		const ws = $workspaceStore
+		if (!ws || !selectedDbt || previewing) return
+		previewing = true
+		preview = undefined
+		try {
+			const id = await JobService.runScriptByPath({
+				workspace: ws,
+				path: scriptPath,
+				requestBody: {
+					dbt_command: 'show',
+					select: [splitUniqueId(selectedDbt.unique_id).name],
+					limit: 25
+				}
+			})
+			// Polled rather than awaited: a preview is a job, and its engine may
+			// need provisioning on a cold worker.
+			for (let i = 0; i < 90; i++) {
+				await new Promise((r) => setTimeout(r, 1000))
+				const done = await JobService.getCompletedJobResultMaybe({ workspace: ws, id })
+				if (!done.completed) continue
+				const res = done.result as { node?: string; show?: Record<string, unknown>[] } | undefined
+				if (done.success && res?.show) {
+					preview = { node: res.node ?? '', rows: res.show }
+				} else {
+					preview = { error: 'The preview job failed — open it from Runs for the detail.' }
+				}
+				return
+			}
+			preview = { error: 'The preview is still running; open it from Runs.' }
+		} catch (e) {
+			preview = { error: e instanceof Error ? e.message : String(e) }
+		} finally {
+			previewing = false
+		}
+	}
+
+	// Clearing on selection change: rows belong to the model they came from.
+	$effect(() => {
+		void selection
+		preview = undefined
+	})
+
 	// Selected a relation this run built, but its stored provenance belongs to
 	// another project that writes the same table. Saying so beats rendering
 	// nothing, which reads as a dead click.
@@ -281,6 +333,18 @@
 				{#if selectedDbt.materialized}
 					<span class="shrink-0 opacity-70">{selectedDbt.materialized}</span>
 				{/if}
+				{#if selectedDbt.resource_type !== 'source'}
+					<Button
+						unifiedSize="2xs"
+						variant="subtle"
+						startIcon={{ icon: previewing ? Loader2 : TableProperties }}
+						disabled={previewing}
+						on:click={runPreview}
+						title="Run `dbt show` against this model and display the rows"
+					>
+						{previewing ? 'Previewing…' : 'Preview rows'}
+					</Button>
+				{/if}
 				{#if selectedRelation}
 					<Button
 						unifiedSize="2xs"
@@ -295,7 +359,37 @@
 				<span class="ml-auto shrink-0 opacity-70">read-only · edit locally</span>
 			</div>
 			<div class="flex-1 min-h-0 overflow-auto">
-				<HighlightCode language="sql" code={selectedDbt.raw_code} />
+				{#if preview && 'error' in preview}
+					<div class="p-2 text-2xs text-secondary">{preview.error}</div>
+				{:else if preview}
+					{@const cols = Object.keys(preview.rows[0] ?? {})}
+					{#if cols.length === 0}
+						<div class="p-2 text-2xs text-secondary">
+							The model returned no rows.
+						</div>
+					{:else}
+						<table class="w-full text-2xs font-mono">
+							<thead class="sticky top-0 bg-surface-secondary text-secondary">
+								<tr>
+									{#each cols as c (c)}
+										<th class="text-left font-semibold px-2 py-1 border-b">{c}</th>
+									{/each}
+								</tr>
+							</thead>
+							<tbody>
+								{#each preview.rows as row, i (i)}
+									<tr class="border-b border-surface-selected">
+										{#each cols as c (c)}
+											<td class="px-2 py-0.5 truncate max-w-56">{row[c] ?? ''}</td>
+										{/each}
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					{/if}
+				{:else}
+					<HighlightCode language="sql" code={selectedDbt.raw_code} />
+				{/if}
 			</div>
 		</div>
 	{/if}

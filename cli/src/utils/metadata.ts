@@ -368,8 +368,13 @@ export async function generateScriptMetadataInternal(
       metadataParsedContent.lock = "";
     }
 
-    // Generate locks for modules in __mod/ folder
-    if (hasModules) {
+    // Generate locks for modules in __mod/ folder.
+    //
+    // Never for a dbt bundle: its files are the project's own SQL and YAML, none
+    // of which is a Windmill script needing a lockfile, and writing `foo.lock`
+    // beside `foo.sql` puts our artifacts inside a tree we promise to round-trip
+    // byte-for-byte.
+    if (hasModules && language !== "dbt") {
       // Identify which modules changed by comparing per-module hashes
       let changedModules: string[] | undefined;
       if (hasModuleHashes) {
