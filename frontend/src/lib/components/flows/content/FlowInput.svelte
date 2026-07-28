@@ -607,13 +607,13 @@
 			const value = aiAgent.value as AiAgent
 
 			// Degenerate shapes the input form can produce without deliberate
-			// configuration count as unconfigured: empty static value, blank JS
-			// expression (the JS toggle seeds a bare backtick pair), or an AI
-			// transform (meaningless for the chat input).
+			// configuration count as unconfigured: empty static value (undefined
+			// persists as null through JSON round-trips), blank JS expression
+			// (the JS toggle seeds a bare backtick pair), or an AI transform
+			// (meaningless for the chat input).
 			const isUnconfigured = (transform: InputTransform | undefined) =>
 				transform === undefined ||
-				(transform.type === 'static' &&
-					(transform.value === undefined || transform.value === '')) ||
+				(transform.type === 'static' && (transform.value == null || transform.value === '')) ||
 				(transform.type === 'javascript' && transform.expr.replaceAll('`', '').trim() === '') ||
 				transform.type === 'ai'
 
