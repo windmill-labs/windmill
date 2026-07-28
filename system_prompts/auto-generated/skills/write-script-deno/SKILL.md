@@ -1,6 +1,6 @@
 ---
 name: write-script-deno
-description: MUST use when writing Deno/TypeScript scripts.
+description: Use ONLY when a TypeScript script specifically requires the Deno runtime (Deno stdlib or deno.land URL imports). For all other TypeScript, use write-script-bun instead.
 ---
 
 ## CLI Commands
@@ -51,6 +51,8 @@ Use `wmill resource-type list --schema` to discover available resource types.
 # TypeScript (Deno)
 
 Deno runtime with npm support via `npm:` prefix and native Deno libraries.
+
+**Prefer Bun (`write-script-bun`) for TypeScript.** Only use Deno when the script specifically requires the Deno runtime — Deno's standard library or `deno.land` URL imports that have no npm equivalent. For all other TypeScript, use Bun instead.
 
 ## Structure
 
@@ -630,7 +632,15 @@ setWorkflowCtx(ctx: WorkflowCtx | null): void
 
 async sleep(seconds: number): Promise<void>
 
-async step<T>(name: string, fn: () => T | Promise<T>): Promise<T>
+/**
+ * Execute `fn` inline and checkpoint the result. On replay the cached value is
+ * returned without re-executing `fn`.
+ * 
+ * `fn`'s result is encoded as JSON and decoded back before it is returned, so
+ * the round that runs the body sees the same types every replay sees: a `Date`
+ * comes back as a string, a `Map` as `{}`. {@link Jsonified} is that shape.
+ */
+async step<T>(name: string, fn: () => T | Promise<T>,): Promise<Jsonified<Awaited<T>>>
 
 /**
  * Create a task that dispatches to a separate Windmill script.
@@ -664,15 +674,43 @@ workflow<T>(fn: (...args: any[]) => Promise<T>): void
 /**
  * Suspend the workflow and wait for an external approval.
  * 
- * Use `getResumeUrls()` (wrapped in `step()`) to obtain resume/cancel/approvalPage
- * URLs before calling this function.
+ * Pass `key` to name the step, then `getApprovalUrls(key)` yields the URLs that
+ * resume exactly this approval — route them through your own channel. Without a
+ * key the steps are named `approval`, `approval_2`, ...
  * 
  * @example
- * const urls = await step("urls", () => getResumeUrls());
- * await step("notify", () => sendEmail(urls.approvalPage));
- * const { value, approver } = await waitForApproval({ timeout: 3600 });
+ * const urls = await step("urls", () => getApprovalUrls("manager"));
+ * await step("notify", () => sendEmail(urls.resume, urls.cancel));
+ * const { value, approver } = await waitForApproval({ key: "manager", timeout: 3600 });
  */
-waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: boolean; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
+waitForApproval(options?: { timeout?: number; form?: object; selfApproval?: boolean; key?: string; }): PromiseLike<{ value: any; approver: string; approved: boolean }>
+
+/**
+ * Resume/cancel/approval-page URLs bound to one `waitForApproval` step.
+ * 
+ * Unlike `getResumeUrls()`, which signs a random nonce, these address the very
+ * `resume_job` record the step's built-in approval buttons use, so they are
+ * stable across replays and safe to embed in a custom notification.
+ * 
+ * `stepKey` must match the `key` given to `waitForApproval`. Keys must be unique
+ * within a workflow; reusing one throws rather than silently renaming it. The URL
+ * only resumes while that step is awaiting approval; used at any other moment it is
+ * rejected rather than banking a row a different approval would consume. Send it
+ * ahead of time — approvers just cannot act before the workflow reaches the step.
+ * 
+ * `resume` and `cancel` are step-bound; `approvalPage` is not — it opens the job's
+ * approval page, which acts on whichever approval is pending when it is used.
+ * 
+ * @example
+ * const urls = await step("urls", () => getApprovalUrls("manager"));
+ * await step("notify", () => sendEmail(urls.resume, urls.cancel));
+ * await waitForApproval({ key: "manager" });
+ */
+async getApprovalUrls(stepKey: string = "approval", approver?: string): Promise<{
+  approvalPage: string;
+  resume: string;
+  cancel: string;
+}>
 
 /**
  * Process items in parallel with optional concurrency control.

@@ -38,6 +38,7 @@ anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 serde_yml.workspace = true
+memchr.workspace = true
 erased-serde = "0.4"
 chrono.workspace = true
 chrono-tz.workspace = true
@@ -128,6 +129,10 @@ tracing-opentelemetry = { workspace = true, optional = true }
 opentelemetry-appender-tracing = { workspace = true, optional = true }
 tonic = { workspace = true, optional = true }
 equivalent = "1.0.2"
+
+[dev-dependencies]
+# `test-util` is not part of tokio's `full`; it is what lets tests pause the clock.
+tokio = { workspace = true, features = ["test-util"] }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemalloc-ctl = { optional = true, workspace = true }

@@ -981,6 +981,48 @@ set_flow_json({
 })
 \`\`\`
 
+**Example - Flow with while loop:**
+
+In a while loop, \`flow_input.iter.value\` equals \`flow_input.iter.index\` (a plain number: 0, 1, 2, ...) — it never carries state, so \`flow_input.iter.value.count\` is always undefined and a counter built on it never advances. To carry state across iterations, a step reads its own previous-iteration result via \`results.<its_own_id>\` with a first-iteration fallback (e.g. \`results.tick ?? flow_input.start\`) — but then the loop's \`stop_after_if\` MUST sit on that inner step: a body that is exactly one plain step with the stop condition on the loop module runs on a fast path where \`results.<step_id>\` is null every iteration and the loop never terminates (bodies with 2+ steps, or whose single step has its own \`stop_after_if\`, retry or similar, resolve \`results\` across iterations regardless of stop placement). For plain counters, deriving from \`flow_input.iter.index\` works in every configuration. \`stop_after_if\` is evaluated after each iteration — on the loop module \`result\` is the last iteration's result (the return of the iteration's final step); on an inner step it is that step's result.
+
+\`\`\`javascript
+set_flow_json({
+  modules: [
+    {
+      id: "count_up",
+      summary: "Increment until target",
+      value: {
+        type: "whileloopflow",
+        skip_failures: false,
+        modules: [
+          {
+            id: "tick",
+            summary: "Compute current count",
+            value: {
+              type: "rawscript",
+              language: "bun",
+              content: "export async function main(count: number, target: number) { return { count, done: count >= target }; }",
+              input_transforms: {
+                count: { type: "javascript", expr: "flow_input.iter.index + 1" },
+                target: { type: "javascript", expr: "flow_input.target" }
+              }
+            }
+          }
+        ]
+      },
+      stop_after_if: { expr: "result.done", skip_if_stopped: false }
+    }
+  ],
+  schema: {
+    type: "object",
+    properties: {
+      target: { type: "number", description: "Stop when the count reaches this value" }
+    },
+    required: ["target"]
+  }
+})
+\`\`\`
+
 **Example - Flow with branches (branchone):**
 \`\`\`javascript
 set_flow_json({

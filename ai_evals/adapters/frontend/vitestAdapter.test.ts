@@ -126,13 +126,32 @@ vi.mock('$lib/gen', async () => {
 				hasBenchmarkWorkspace(data.workspace)
 					? Boolean(getBenchmarkScriptByPath(data.workspace, data.path))
 					: actual.ScriptService.existsScriptByPath(data),
-			getScriptByPath: async (data: { workspace: string; path: string }) => {
+			getScriptByPath: async (data: { workspace: string; path: string; getDraft?: boolean }) => {
 				if (hasBenchmarkWorkspace(data.workspace)) {
 					const script = getBenchmarkScriptByPath(data.workspace, data.path)
+					// `getDraft` mirrors production's overlay: the row plus the caller's
+					// draft and a `no_deployed` marker (draft-only item). The diff tool
+					// reads through this shape — without it every draft looks absent.
+					const draft = data.getDraft
+						? getBenchmarkOwnDraft({ workspace: data.workspace, kind: 'script', path: data.path })
+						: null
 					if (!script) {
-						throw new Error(`Script "${data.path}" not found in benchmark workspace`)
+						if (data.getDraft && draft) {
+							return {
+								...(draft.value as Record<string, unknown>),
+								path: data.path,
+								draft: draft.value,
+								no_deployed: true
+							}
+						}
+						throw Object.assign(
+							new Error(`Script "${data.path}" not found in benchmark workspace`),
+							{ status: 404 }
+						)
 					}
-					return script
+					return data.getDraft
+						? { ...script, draft: draft?.value ?? undefined, no_deployed: false }
+						: script
 				}
 				return actual.ScriptService.getScriptByPath(data)
 			},
@@ -166,13 +185,30 @@ vi.mock('$lib/gen', async () => {
 				hasBenchmarkWorkspace(data.workspace)
 					? Boolean(getBenchmarkFlowByPath(data.workspace, data.path))
 					: actual.FlowService.existsFlowByPath(data),
-			getFlowByPath: async (data: { workspace: string; path: string }) => {
+			getFlowByPath: async (data: { workspace: string; path: string; getDraft?: boolean }) => {
 				if (hasBenchmarkWorkspace(data.workspace)) {
 					const flow = getBenchmarkFlowByPath(data.workspace, data.path)
+					// Mirror production's `getDraft` overlay (see getScriptByPath above).
+					const draft = data.getDraft
+						? getBenchmarkOwnDraft({ workspace: data.workspace, kind: 'flow', path: data.path })
+						: null
 					if (!flow) {
-						throw new Error(`Flow "${data.path}" not found in benchmark workspace`)
+						if (data.getDraft && draft) {
+							return {
+								...(draft.value as Record<string, unknown>),
+								path: data.path,
+								draft: draft.value,
+								no_deployed: true
+							}
+						}
+						throw Object.assign(
+							new Error(`Flow "${data.path}" not found in benchmark workspace`),
+							{ status: 404 }
+						)
 					}
-					return flow
+					return data.getDraft
+						? { ...flow, draft: draft?.value ?? undefined, no_deployed: false }
+						: flow
 				}
 				return actual.FlowService.getFlowByPath(data)
 			},
@@ -341,13 +377,37 @@ vi.mock('$lib/gen', async () => {
 				hasBenchmarkWorkspace(data.workspace)
 					? (listBenchmarkApps(data.workspace) ?? [])
 					: actual.AppService.listApps(data),
-			getAppByPath: async (data: { workspace: string; path: string }) => {
+			getAppByPath: async (data: {
+				workspace: string
+				path: string
+				getDraft?: boolean
+				rawApp?: boolean
+			}) => {
 				if (hasBenchmarkWorkspace(data.workspace)) {
 					const app = getBenchmarkAppByPath(data.workspace, data.path)
+					// Mirror production's `getDraft` overlay (see getScriptByPath above).
+					// Benchmark app drafts live under the raw_app kind.
+					const draft = data.getDraft
+						? getBenchmarkOwnDraft({ workspace: data.workspace, kind: 'raw_app', path: data.path })
+						: null
 					if (!app) {
-						throw new Error(`App "${data.path}" not found in benchmark workspace`)
+						if (data.getDraft && draft) {
+							return {
+								...(draft.value as Record<string, unknown>),
+								path: data.path,
+								raw_app: true,
+								draft: draft.value,
+								no_deployed: true
+							}
+						}
+						throw Object.assign(
+							new Error(`App "${data.path}" not found in benchmark workspace`),
+							{ status: 404 }
+						)
 					}
-					return app
+					return data.getDraft
+						? { ...app, draft: draft?.value ?? undefined, no_deployed: false }
+						: app
 				}
 				return actual.AppService.getAppByPath(data)
 			}

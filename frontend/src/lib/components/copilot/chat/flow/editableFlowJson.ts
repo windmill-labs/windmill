@@ -1,9 +1,16 @@
 import { z } from 'zod'
 import type { FlowModule, FlowValue } from '$lib/gen'
 import { collectAllFlowModuleIdsFromModules } from '$lib/components/flows/flowTree'
+import { collectProviderlessAgentIds } from '$lib/components/flows/agentToolTree'
 import { SPECIAL_MODULE_IDS } from '../shared'
-import type { InlineScriptSession } from './inlineScriptsUtils'
-import { validateFlowGroups, validateFlowNotes, type FlowGroup, type FlowNote } from './helperUtils'
+import { findUnresolvedInlineScriptRefs, type InlineScriptSession } from './inlineScriptsUtils'
+import {
+	replaceNewInlineScriptRefsWithEmptyCode,
+	validateFlowGroups,
+	validateFlowNotes,
+	type FlowGroup,
+	type FlowNote
+} from './helperUtils'
 import { flowModuleSchema, flowModulesSchema } from './openFlowZod.gen'
 import {
 	FLOW_VALUE_SETTINGS_KEYS,
@@ -248,8 +255,22 @@ export function validateFlowModules(
 		)
 	}
 
+	// Not expressible in the schema: `provider` is required only when the step is standalone, and
+	// making AiAgent a conditional union breaks the FlowModuleValue discriminated union it belongs to.
+	const providerless = collectProviderlessAgentIds(parsedModules)
+	if (providerless.length > 0) {
+		throw new Error(
+			`AI agent modules ${providerless
+				.map((id) => `"${id}"`)
+				.join(
+					', '
+				)} need a provider input transform, or an "agent" path linking them to a saved agent`
+		)
+	}
+
 	return parsedModules
 }
+
 
 export function validateFlowSchema(rawSchema: unknown): Record<string, any> | null {
 	if (rawSchema == null) return null
@@ -429,7 +450,7 @@ export function buildEditableFlowJson(
 	}
 }
 
-function restoreSpecialRawscriptModule(
+export function restoreSpecialRawscriptModule(
 	module: FlowModule | null,
 	session: InlineScriptSession
 ): FlowModule | null {
@@ -476,4 +497,34 @@ export function applyEditableFlowJsonToFlow(
 		}
 	}
 	return result
+}
+
+/**
+ * Post-restore normalization for draft flow writes. A placeholder that survived
+ * restore either names its own module — a new inline body, blanked in place so
+ * the caller's empty-body warning sends the model to the set-module-code tool —
+ * or names nothing, in which case the write is rejected so a literal
+ * `inline_script.*` string is never persisted as runnable content.
+ */
+export function finalizeUnresolvedInlineScripts(value: {
+	modules: FlowModule[]
+	preprocessor_module?: FlowModule | null
+	failure_module?: FlowModule | null
+}): void {
+	const specials = [value.preprocessor_module, value.failure_module].filter(
+		(module): module is FlowModule => module != null
+	)
+	const blanked = new Set<string>()
+	replaceNewInlineScriptRefsWithEmptyCode(value.modules, blanked)
+	replaceNewInlineScriptRefsWithEmptyCode(specials, blanked)
+	const unresolved = [
+		...findUnresolvedInlineScriptRefs(value.modules),
+		...findUnresolvedInlineScriptRefs(specials)
+	]
+	if (unresolved.length > 0) {
+		const refs = unresolved.map((id) => `"inline_script.${id}"`).join(', ')
+		throw new Error(
+			`Unresolved inline script reference(s): ${refs}. A rawscript "content" placeholder must be "inline_script.<its own module id>" (a new body, filled afterwards with the set-module-code tool) or reference an existing rawscript module to keep its current body. Nothing was saved.`
+		)
+	}
 }

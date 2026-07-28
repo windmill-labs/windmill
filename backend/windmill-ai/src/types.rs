@@ -196,6 +196,10 @@ pub struct ProviderResource {
     /// Custom HTTP headers to include in AI requests
     #[serde(default)]
     pub headers: HashMap<String, String>,
+    /// Set only by OAuth resources, which resolve to a token through a client
+    /// credentials exchange this crate does not perform.
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub token_url: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]

@@ -18,20 +18,19 @@ lazy_static::lazy_static! {
     /// use it instead of the shared `HTTP_CLIENT`. Redirects are governed by
     /// `ALLOW_AI_BASE_URL_REDIRECTS` (disabled by default). Mirrors the API proxy
     /// client (windmill-api/src/ai.rs).
+    ///
+    /// This pooled client does no DNS pinning: callers reaching a user-controlled
+    /// base_url must go through [`pinned_ai_client_for`] so the connect targets
+    /// the SSRF-validated address (DNS-rebinding TOCTOU). It is the safe default
+    /// only for trusted/fixed hosts.
     pub static ref AI_HTTP_CLIENT: reqwest::Client = {
-        let redirect = if *ALLOW_AI_BASE_URL_REDIRECTS {
+        if *ALLOW_AI_BASE_URL_REDIRECTS {
             tracing::warn!(
                 "ALLOW_AI_BASE_URL_REDIRECTS is enabled - the AI HTTP client will follow \
                  redirects, weakening SSRF protection on provider base URLs"
             );
-            reqwest::redirect::Policy::default()
-        } else {
-            reqwest::redirect::Policy::none()
-        };
-        configure_client(reqwest::ClientBuilder::new()
-            .user_agent("windmill/beta")
-            .connect_timeout(std::time::Duration::from_secs(10))
-            .redirect(redirect))
+        }
+        ai_http_client_builder()
             .build()
             .expect("Failed to build AI HTTP client - check system TLS configuration")
     };
@@ -62,6 +61,67 @@ lazy_static::lazy_static! {
             })
             .unwrap_or_default()
     };
+}
+
+/// Shared configuration for every client that targets a user-configured AI
+/// provider `base_url` (the pooled [`AI_HTTP_CLIENT`] and per-request DNS-pinned
+/// clients from [`pinned_ai_client_for`]). Redirects are disabled by default
+/// because the SSRF check on base_url is single-shot; DNS pinning likewise only
+/// covers the original host, so a redirect could bounce a validated public host
+/// into a private/internal one (see `ALLOW_AI_BASE_URL_REDIRECTS`).
+pub fn ai_http_client_builder() -> reqwest::ClientBuilder {
+    let redirect = if *ALLOW_AI_BASE_URL_REDIRECTS {
+        reqwest::redirect::Policy::default()
+    } else {
+        reqwest::redirect::Policy::none()
+    };
+    configure_client(
+        reqwest::ClientBuilder::new()
+            .user_agent("windmill/beta")
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .redirect(redirect),
+    )
+}
+
+/// Build the client for a single outbound AI request to `url`, pinning DNS to
+/// the SSRF-validated address so the connect cannot rebind to an internal IP
+/// after the check (DNS-rebinding TOCTOU).
+///
+/// Returns the shared pooled [`AI_HTTP_CLIENT`] unchanged when there is nothing
+/// to pin — an IP-literal host, or a deployment that opted into private AI
+/// endpoints via `ALLOW_PRIVATE_AI_BASE_URLS`. The same opt-out and error hint
+/// as `AIProvider::get_base_url` apply, so this is consistent with the
+/// credential-time validation while additionally closing the connect-time window.
+pub async fn pinned_ai_client_for(
+    url: &str,
+) -> windmill_common::error::Result<std::borrow::Cow<'static, reqwest::Client>> {
+    use std::borrow::Cow;
+    use windmill_common::error::{to_anyhow, Error};
+    use windmill_common::ssrf::SsrfValidationError;
+
+    if *crate::ai_providers::ALLOW_PRIVATE_AI_BASE_URLS {
+        return Ok(Cow::Borrowed(&AI_HTTP_CLIENT));
+    }
+
+    let target = windmill_common::ssrf::validate_url_for_ssrf(url)
+        .await
+        .map_err(|e| match e {
+            e @ SsrfValidationError::Private { .. } => Error::BadRequest(format!(
+                "{e}. If you need to use private/internal AI endpoints, \
+                 set the ALLOW_PRIVATE_AI_BASE_URLS=true environment variable"
+            )),
+            e => Error::from(e),
+        })?;
+
+    if target.pinned_addrs().is_empty() {
+        return Ok(Cow::Borrowed(&AI_HTTP_CLIENT));
+    }
+
+    let client = target
+        .apply_dns_pinning(ai_http_client_builder())
+        .build()
+        .map_err(to_anyhow)?;
+    Ok(Cow::Owned(client))
 }
 
 /// AWS Bedrock do not handle structured output query param, so we use a tool for structured output. Same for every Claude models.

@@ -99,9 +99,14 @@
 			// in-frame navigation may have stripped of ?workspace= — booting the frame
 			// into the top-level navigation workspace instead of the session fork
 			// (sessionStorage/localStorage are shared with the top window, so the
-			// scoping can only live in the URL). replace() forces the load even when
-			// the target equals the current URL.
-			win.location.replace(withMenuHidden(tab.loc || tab.url, workspaceId || undefined))
+			// scoping can only live in the URL). But replace() to the frame's exact
+			// current URL is a no-op when it carries a fragment (same-document
+			// navigation, no load) — only then fall back to location.reload(), which
+			// always performs a full load of that same URL.
+			const target = withMenuHidden(tab.loc || tab.url, workspaceId || undefined)
+			const { pathname, search, hash } = win.location
+			if (pathname + search + hash === target) win.location.reload()
+			else win.location.replace(target)
 		} catch {
 			// Cross-navigation timing — skip; the next mutation reloads again.
 		}
@@ -125,6 +130,19 @@
 		flashTimer = setTimeout(() => (flashing = false), 800)
 	})
 	$effect(() => () => clearTimeout(flashTimer))
+
+	// Forced-load signal for a navigation to the tab's exact current URL (see
+	// pulseReload) — without it the page never re-runs its URL-driven behavior.
+	// Seeded from the current nonce: a pulse from before this host mounted is
+	// already satisfied by the initial iframe load.
+	let lastReloadNonce = runtime?.previewTabs.reloadPulse.nonce ?? -1
+	$effect(() => {
+		const pulse = runtime?.previewTabs.reloadPulse
+		if (!pulse || pulse.nonce === lastReloadNonce) return
+		lastReloadNonce = pulse.nonce
+		if (pulse.id !== tab.id) return
+		reload()
+	})
 </script>
 
 {#snippet editorLoading()}

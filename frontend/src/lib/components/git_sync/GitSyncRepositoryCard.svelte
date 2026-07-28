@@ -33,7 +33,8 @@
 		repository = null,
 		onAdd = null,
 		isCollapsible = true,
-		showEmptyState = false
+		showEmptyState = false,
+		devPromotion = false
 	} = $props<{
 		idx?: number | null
 		isSecondary?: boolean
@@ -44,6 +45,9 @@
 		onAdd?: (() => void) | null
 		isCollapsible?: boolean
 		showEmptyState?: boolean
+		// Dev workspace: this is the single inherited repo, and promotion is a
+		// toggle on it (reuse prod's repo) rather than a separately-configured one.
+		devPromotion?: boolean
 	}>()
 
 	const gitSyncContext = getGitSyncContext()
@@ -78,6 +82,9 @@
 		($workspaceStore?.startsWith('wm-fork-') ?? false) ||
 			!!currentWorkspaceData?.parent_workspace_id
 	)
+	// A dev workspace is a fork that DOES run promotion mode (per-item
+	// wm_deploy/** branches into its parent), unlike a throwaway fork.
+	const isDevWorkspace = $derived(!!currentWorkspaceData?.is_dev_workspace)
 	function setSyncForks(v: boolean) {
 		if (repo?.auto_pull) repo.auto_pull = { ...repo.auto_pull, sync_forks: v }
 	}
@@ -86,6 +93,45 @@
 	}
 	function setPromotionOpenPrs(v: boolean) {
 		if (repo) repo.promotion_open_prs = v
+	}
+	// The promotion toggles persist immediately and must not overlap: concurrent
+	// whole-repository saves can complete out of order (enabling runs extra
+	// backend checks), letting a stale earlier state overwrite the latest one.
+	let savingDevPromotion = $state(false)
+	async function setDevPromotion(v: boolean) {
+		if (!repo || idx === null || savingDevPromotion) return
+		const prevIndiv = repo.use_individual_branch
+		const prevGbf = repo.group_by_folder
+		repo.use_individual_branch = v
+		if (!v) repo.group_by_folder = false
+		savingDevPromotion = true
+		try {
+			await gitSyncContext.saveRepository(idx)
+		} catch (e) {
+			// The backend rejects promotion mode without an active EE plan; revert
+			// the optimistic toggle instead of leaving it stuck on until reload.
+			if (repo) {
+				repo.use_individual_branch = prevIndiv
+				repo.group_by_folder = prevGbf
+			}
+			sendUserToast(`Could not ${v ? 'enable' : 'disable'} Git promotion: ${e}`, true)
+		} finally {
+			savingDevPromotion = false
+		}
+	}
+	async function setGroupByFolder(v: boolean) {
+		if (!repo || idx === null || savingDevPromotion) return
+		const prev = repo.group_by_folder
+		repo.group_by_folder = v
+		savingDevPromotion = true
+		try {
+			await gitSyncContext.saveRepository(idx)
+		} catch (e) {
+			if (repo) repo.group_by_folder = prev
+			sendUserToast(`Could not change promotion granularity: ${e}`, true)
+		} finally {
+			savingDevPromotion = false
+		}
 	}
 
 	let targetBranch = $state<string | undefined>(undefined) // Default to main, will be updated when resource is available
@@ -580,7 +626,7 @@
 									<div class="text-sm font-semibold text-emphasis mb-1">
 										Push to Git on deploy (Windmill → Git)
 									</div>
-									{#if !isFork}
+									{#if !isFork || (isDevWorkspace && repoMode === 'promotion')}
 										<GitSyncModeDisplay mode={repoMode} {targetBranch} repository={repo} active />
 									{/if}
 								</div>
@@ -593,10 +639,42 @@
 									Push to repo
 								</Button>
 							</div>
-							{#if repoMode === 'promotion' && isGithubApp}
+							{#if devPromotion && !repo.isUnsavedConnection}
 								<div class="mt-2">
 									<Toggle
+										checked={repo.use_individual_branch ?? false}
+										disabled={savingDevPromotion}
+										options={{
+											right: 'Promote to prod via Git',
+											rightTooltip:
+												"Each deploy pushes a per-item wm_deploy/** branch to prod's repository, ready to open a pull request into its tracked branch, instead of committing to the dev branch. Enable automatic pull requests below to have Windmill open them. Reuses prod's repository, no separate setup."
+										}}
+										on:change={(e) => setDevPromotion(e.detail)}
+									/>
+									{#if repo.use_individual_branch}
+										<div class="mt-2">
+											<Toggle
+												checked={repo.group_by_folder ?? false}
+												disabled={savingDevPromotion}
+												options={{
+													right: 'One pull request per folder',
+													rightTooltip:
+														"Group a folder's items into a single wm_deploy/** branch, ready as one pull request, instead of one branch per item."
+												}}
+												on:change={(e) => setGroupByFolder(e.detail)}
+											/>
+										</div>
+									{/if}
+								</div>
+							{/if}
+							{#if repoMode === 'promotion' && isGithubApp}
+								<div class="mt-2">
+									<!-- Locked while the dev promotion toggle's save is in flight: this
+										toggle is revealed by that save, and an edit made mid-save would be
+										absorbed into the saved baseline without ever reaching the backend. -->
+									<Toggle
 										checked={repo.promotion_open_prs ?? false}
+										disabled={savingDevPromotion}
 										options={{
 											right: 'Open a pull request for each deploy branch',
 											rightTooltip:
@@ -641,7 +719,7 @@
 											options={{
 												right: 'Open a pull request when an item is deployed in a fork',
 												rightTooltip:
-													"After an item deployed in a fork is pushed to the fork's wm-fork/** branch, Windmill opens a pull request to the tracked branch of the shared repository. Runs from the deploy itself, so it works without inbound webhooks."
+													"After an item deployed in a fork is pushed to the fork's branch (wm-fork/**, or the dev branch for a dev workspace), Windmill opens a pull request to the tracked branch of the shared repository. Runs from the deploy itself, so it works without inbound webhooks. When a dev workspace enables Git promotion, its own pull request toggle takes over for its wm_deploy/** branches."
 											}}
 											on:change={(e) => setForkOpenPrs(e.detail)}
 										>
@@ -749,22 +827,22 @@
 								{#if !isGithubApp && !loadingResourceInfo}
 									<div class="mt-2">
 										<Alert type="info" title="Instant pull recommended" size="xs">
-											Pull for this repository checks the tracked branch about every minute;
-											longer gaps make drift and merge conflicts more likely. For instant pull,
-											connect the repository through the
+											Pull for this repository checks the tracked branch about every minute; longer
+											gaps make drift and merge conflicts more likely. For instant pull, connect the
+											repository through the
 											<a
 												href="https://www.windmill.dev/docs/integrations/git_repository#github-app"
 												target="_blank"
 												class="text-blue-500 hover:underline">GitHub App</a
 											>
-											(which also lets Windmill manage pull requests), or push changes into
-											Windmill with the
+											(which also lets Windmill manage pull requests), or push changes into Windmill
+											with the
 											<a
 												href="https://www.windmill.dev/docs/advanced/git_sync#github-actions"
 												target="_blank"
 												class="text-blue-500 hover:underline">sync GitHub workflow</a
-											>. If you already push changes with a GitHub Action, keep either the
-											Action or automatic pull, not both, so they don't fight over deploys.
+											>. If you already push changes with a GitHub Action, keep either the Action or
+											automatic pull, not both, so they don't fight over deploys.
 										</Alert>
 									</div>
 								{/if}

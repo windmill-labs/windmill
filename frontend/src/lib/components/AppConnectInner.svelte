@@ -1075,7 +1075,7 @@
 					<p class="text-red-500 dark:text-red-400 text-xs">
 						Resource type '{resourceType}' not found in your workspace
 					</p>
-					<SyncResourceTypes onSynced={getResourceTypeInfo} />
+					<SyncResourceTypes {resourceType} onSynced={getResourceTypeInfo} />
 				</div>
 			{/if}
 			{#if registryCcCapable()}

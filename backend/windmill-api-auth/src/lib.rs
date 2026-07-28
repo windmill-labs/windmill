@@ -275,6 +275,15 @@ fn scope_restrictions(scopes: Option<&[String]>) -> Option<Vec<&String>> {
     (!restrictions.is_empty()).then_some(restrictions)
 }
 
+/// True when the token carries no real scope restriction — unscoped, an empty scope
+/// list, or only `if_jobs:filter_tags:` filters — so it holds the full privileges of
+/// its user and can reach any non-job route they are authorized for (mirrors
+/// `check_scopes` / `check_route_access`). A `false` result means the token is
+/// genuinely scope-restricted.
+pub fn is_effectively_unscoped(scopes: Option<&[String]>) -> bool {
+    scope_restrictions(scopes).is_none()
+}
+
 /// Enforce monotonic privilege when a token lifecycle endpoint mints or rescopes
 /// a credential on behalf of `authed`: the resulting credential must never be
 /// more privileged than the caller's own token.

@@ -160,8 +160,9 @@ export class SessionPreviewTabs {
 	#activeId = $state('')
 	#collapsed = $state(false)
 	#previewSize = $state<number | undefined>(undefined)
-	// Ephemeral UI signal — not part of the persisted snapshot.
+	// Ephemeral UI signals — not part of the persisted snapshot.
 	#focusPulse = $state({ id: '', nonce: 0 })
+	#reloadPulse = $state({ id: '', nonce: 0 })
 	readonly #adapter: PreviewTabsAdapter
 	readonly #flushDelay: number
 	#flushHandle: ReturnType<typeof setTimeout> | undefined
@@ -202,6 +203,18 @@ export class SessionPreviewTabs {
 	// still fires the flash.
 	pulseFocus(id: string): void {
 		this.#focusPulse = { id, nonce: this.#focusPulse.nonce + 1 }
+	}
+
+	get reloadPulse(): { id: string; nonce: number } {
+		return this.#reloadPulse
+	}
+
+	// Ask the tab's host to reload its iframe. Needed when a navigation targets the
+	// tab's exact current URL: nothing changes, so URL-driven behavior in the page
+	// (e.g. a #<path> hash opening an edit drawer the user has since closed) would
+	// never re-fire without a forced load.
+	pulseReload(id: string): void {
+		this.#reloadPulse = { id, nonce: this.#reloadPulse.nonce + 1 }
 	}
 
 	setPreviewSize(size: number): void {

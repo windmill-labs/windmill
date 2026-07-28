@@ -101,6 +101,30 @@ export function isRawAppBackendPath(filePath: string): boolean {
 }
 
 /**
+ * The positive-only runnable settings (concurrent_limit, timeout, ...) treat any `<= 0`
+ * value as "unset": the backend coerces it to null (a 0-slot concurrency limit bricks the
+ * runnable, a 0s timeout kills every run). Coerce to undefined so it is serialized as
+ * omitted, never as 0, and redeploys don't churn against the backend-normalized value.
+ */
+export function nonePositiveInt(
+  v: number | undefined | null
+): number | undefined {
+  return v != null && v > 0 ? v : undefined;
+}
+
+/**
+ * Normalize a concurrent_limit + its time window together: when the limit is disabled
+ * (<= 0) the window is dropped too. Returns [concurrent_limit, concurrency_time_window_s].
+ */
+export function normalizeConcurrency(
+  concurrentLimit: number | undefined | null,
+  concurrencyTimeWindowS?: number | undefined | null
+): [number | undefined, number | undefined] {
+  const limit = nonePositiveInt(concurrentLimit);
+  return limit === undefined ? [undefined, undefined] : [limit, concurrencyTimeWindowS ?? undefined];
+}
+
+/**
  * Checks if a path is inside a normal app folder (inline script).
  * Matches patterns like: .../myApp.app/... or .../myApp__app/...
  */
@@ -238,6 +262,20 @@ export async function findResourceFile(path: string) {
   return validCandidates[0];
 }
 
+// The separator is whatever the local filesystem uses, so both are accepted:
+// on Windows these paths reach us as `my_script__mod\script.yaml`.
+const MODULE_ENTRY_META_RE = /([\\/])script\.(yaml|json|lock)$/;
+
+/**
+ * Whether a path is a module folder's own metadata file (`__mod/script.yaml`).
+ * `isModuleEntryPoint` already pins the file to `script.*` directly under
+ * `__mod/`, so this only narrows it to the metadata extensions: a `script.yaml`
+ * nested deeper in the module tree is a module file, not the script's metadata.
+ */
+function isModuleEntryMetadata(p: string): boolean {
+  return isModuleEntryPoint(p) && MODULE_ENTRY_META_RE.test(p);
+}
+
 export async function handleScriptMetadata(
   path: string,
   workspace: Workspace,
@@ -252,12 +290,7 @@ export async function handleScriptMetadata(
   const isFlatMeta = path.endsWith(".script.json") ||
     path.endsWith(".script.yaml") ||
     path.endsWith(".script.lock");
-  // Folder layout: my_script__mod/script.yaml
-  const isFolderMeta = !isFlatMeta && isScriptModulePath(path) && (
-    path.endsWith("/script.yaml") ||
-    path.endsWith("/script.json") ||
-    path.endsWith("/script.lock")
-  );
+  const isFolderMeta = !isFlatMeta && isModuleEntryMetadata(path);
   if (isFlatMeta || isFolderMeta) {
     const contentPath = await findContentFile(path);
     return handleFile(
@@ -469,6 +502,15 @@ export async function handleFile(
     const moduleFolderPath = scriptBasePath + getModuleFolderSuffix();
     const modules = await readModulesFromDisk(moduleFolderPath, opts?.defaultTs, moduleEntryPoint);
 
+    // A concurrent_limit of <= 0 means "concurrency disabled", not "zero slots" (which
+    // would brick the runnable at the queue's concurrency gate). Emit it as omitted rather
+    // than 0 so a redeploy never re-persists a zero-slot limit, and drop the now-meaningless
+    // time window alongside it. Mirrors the backend's ConcurrencySettings::normalized.
+    const [normConcurrentLimit, normConcurrencyTimeWindowS] = normalizeConcurrency(
+      typed?.concurrent_limit,
+      typed?.concurrency_time_window_s
+    );
+
     const requestBodyCommon: NewScript = {
       content,
       description: typed?.description ?? "",
@@ -482,8 +524,8 @@ export async function handleFile(
       ws_error_handler_muted: typed?.ws_error_handler_muted,
       dedicated_worker: typed?.dedicated_worker,
       cache_ttl: typed?.cache_ttl,
-      concurrency_time_window_s: typed?.concurrency_time_window_s,
-      concurrent_limit: typed?.concurrent_limit,
+      concurrency_time_window_s: normConcurrencyTimeWindowS,
+      concurrent_limit: normConcurrentLimit,
       deployment_message: message,
       restart_unless_cancelled: typed?.restart_unless_cancelled,
       visible_to_runner_only: typed?.visible_to_runner_only,
@@ -493,7 +535,7 @@ export async function handleFile(
       debounce_key: typed?.debounce_key,
       debounce_delay_s: typed?.debounce_delay_s,
       codebase: await codebase?.getDigest(forceTar),
-      timeout: typed?.timeout,
+      timeout: nonePositiveInt(typed?.timeout),
       on_behalf_of_email: typed?.on_behalf_of_email,
       envs: typed?.envs,
       modules: modules,
@@ -530,9 +572,13 @@ export async function handleFile(
               remote.ws_error_handler_muted &&
             typed.dedicated_worker == remote.dedicated_worker &&
             typed.cache_ttl == remote.cache_ttl &&
-            typed.concurrency_time_window_s ==
-              remote.concurrency_time_window_s &&
-            typed.concurrent_limit == remote.concurrent_limit &&
+            normConcurrencyTimeWindowS ==
+              normalizeConcurrency(
+                remote.concurrent_limit,
+                remote.concurrency_time_window_s
+              )[1] &&
+            normConcurrentLimit ==
+              normalizeConcurrency(remote.concurrent_limit)[0] &&
             Boolean(typed.restart_unless_cancelled) ==
               Boolean(remote.restart_unless_cancelled) &&
             Boolean(typed.visible_to_runner_only) ==
@@ -540,7 +586,7 @@ export async function handleFile(
             Boolean(typed.has_preprocessor) ==
               Boolean(remote.has_preprocessor) &&
             typed.priority == Boolean(remote.priority) &&
-            typed.timeout == remote.timeout &&
+            nonePositiveInt(typed.timeout) == nonePositiveInt(remote.timeout) &&
             //@ts-ignore
             typed.concurrency_key == remote["concurrency_key"] &&
             typed.debounce_key == remote["debounce_key"] &&
@@ -835,17 +881,34 @@ async function createScript(
   return performance.now() - start;
 }
 
+/**
+ * A script metadata file could not be paired with exactly one script file on
+ * disk, so nothing can be deployed for it. Distinct from a deploy that reached
+ * the remote and was rejected: callers that can carry on with the rest of a
+ * changeset catch this specifically.
+ */
+export class UnresolvableScriptContentFileError extends Error {}
+
 export async function findContentFile(filePath: string) {
   // Folder layout: __mod/script.yaml -> __mod/script.ts
-  const isModuleFolderMeta =
-    filePath.endsWith("/script.yaml") || filePath.endsWith("/script.json") || filePath.endsWith("/script.lock");
-  const candidates = isModuleFolderMeta
-    ? exts.map((x) => filePath.replace(/\/script\.(yaml|json|lock)$/, "/script" + x))
-    : filePath.endsWith("script.json")
-    ? exts.map((x) => filePath.replace(".script.json", x))
-    : filePath.endsWith("script.lock")
-    ? exts.map((x) => filePath.replace(".script.lock", x))
-    : exts.map((x) => filePath.replace(".script.yaml", x));
+  const isModuleFolderMeta = isModuleEntryMetadata(filePath);
+  const toCandidate = (ext: string) =>
+    isModuleFolderMeta
+      ? filePath.replace(MODULE_ENTRY_META_RE, "$1script" + ext)
+      : filePath.endsWith("script.json")
+      ? filePath.replace(".script.json", ext)
+      : filePath.endsWith("script.lock")
+      ? filePath.replace(".script.lock", ext)
+      : filePath.replace(".script.yaml", ext);
+  // Every branch above is a no-op on a path that is neither flat nor
+  // module-entry metadata, which would make toCandidate the identity function
+  // and "resolve" the input to itself.
+  if (!isModuleFolderMeta && !/\.script\.(yaml|json|lock)$/.test(filePath)) {
+    throw new UnresolvableScriptContentFileError(
+      `${filePath} is not a script metadata file — no script file can be resolved from it.`
+    );
+  }
+  const candidates = exts.map(toCandidate);
 
   const validCandidates = (
     await Promise.all(
@@ -862,14 +925,17 @@ export async function findContentFile(filePath: string) {
     .filter((x) => x.file)
     .map((x) => x.path);
   if (validCandidates.length > 1) {
-    throw new Error(
-      "No content path given and more than one candidate found: " +
-        validCandidates.join(", ")
+    throw new UnresolvableScriptContentFileError(
+      `Multiple script files found next to ${filePath}: ${validCandidates.join(", ")} — ` +
+        `cannot tell which one the metadata belongs to. Keep exactly one.`
     );
   }
   if (validCandidates.length < 1) {
-    throw new Error(
-      `No content path given and no content file found for ${filePath}.`
+    throw new UnresolvableScriptContentFileError(
+      `No script file found next to ${filePath} — a script cannot be deployed from its metadata alone. ` +
+        `Add the matching script file (e.g. ${toCandidate(".ts")} or ${toCandidate(
+          ".py"
+        )}) or remove ${filePath}.`
     );
   }
   return validCandidates[0];

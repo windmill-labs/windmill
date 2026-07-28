@@ -28,7 +28,7 @@ import {
 } from "../../types.ts";
 import { downloadZip } from "./pull.ts";
 import { runLint, printReport, checkMissingLocks } from "../lint/lint.ts";
-import { pullSharedUi, pushSharedUi } from "../shared_ui.ts";
+import { diffSharedUi, pullSharedUi, pushSharedUi } from "../shared_ui.ts";
 import {
   pushMigrationFromDisk,
   offerToRunNewMigrations,
@@ -40,6 +40,7 @@ import {
   findContentFile,
   findResourceFile,
   handleScriptMetadata,
+  UnresolvableScriptContentFileError,
   removeExtensionToPath,
   filePathExtensionFromContentType,
 } from "../script/script.ts";
@@ -2865,17 +2866,20 @@ export async function pull(
     }
     const clonedBranchName = getCurrentGitBranch() ?? "main";
 
-    // Fork / dev workspaces force-disable use_individual_branch / group_by_folder
-    // (1:1 with the hub script's inner()). Dev workspaces have a prefix-less id, so
-    // detect them via the parent-workspace id the backend passes.
+    // Throwaway forks force-disable use_individual_branch / group_by_folder
+    // (1:1 with the hub script's inner()). A dev workspace is the exception: it
+    // honors promotion mode and gets per-item wm_deploy/** branches. Dev
+    // workspaces have a prefix-less id, so detect them via the environment label
+    // the backend passes with the deploy.
     const targetIsFork = isForkWorkspace(
       workspace.workspaceId,
       opts.parentWorkspaceId,
     );
-    const useIndividualBranch = targetIsFork
+    const forceOffPromotion = targetIsFork && !opts.devWorkspaceLabel;
+    const useIndividualBranch = forceOffPromotion
       ? false
       : !!opts.useIndividualBranch;
-    const groupByFolder = targetIsFork ? false : !!opts.groupByFolder;
+    const groupByFolder = forceOffPromotion ? false : !!opts.groupByFolder;
 
     // Fork-of-a-fork: when the parent workspace is itself a fork, root the new
     // branch on the parent's fork branch (the content this fork diverged from).
@@ -3447,13 +3451,14 @@ export async function gitDeploy(
     }
   }
 
-  // Fork / dev workspaces force-disable use_individual_branch / group_by_folder
-  // (1:1 with the hub script's inner()): they always sync to their own
-  // wm-fork/<branch>/<id> branch, and — critically — that disabling also
-  // flips the include/promotion derivation below. Dev workspaces have a
-  // prefix-less id, so detect them via the parent-workspace id too.
+  // Throwaway forks force-disable use_individual_branch / group_by_folder (1:1
+  // with the hub script's inner()): they always sync to their own
+  // wm-fork/<branch>/<id> branch, and — critically — that disabling also flips
+  // the include/promotion derivation below. A dev workspace is the exception: it
+  // honors promotion mode, detected via the environment label the backend passes.
   const isFork = isForkWorkspace(opts.workspace ?? "", opts.parentWorkspaceId);
-  const useIndividualBranch = isFork ? false : !!opts.useIndividualBranch;
+  const useIndividualBranch =
+    isFork && !opts.devWorkspaceLabel ? false : !!opts.useIndividualBranch;
 
   // Derive the include filters from the deployed items (replaces the hub
   // script's regexFromPath + per-kind --include-* construction).
@@ -3490,6 +3495,9 @@ export async function gitDeploy(
 // are self-describing via their `migrations/datatable/...` path, so they get no
 // label prefix.
 function changeTypeLabel(p: string): string {
+  // Shared UI files (ui/…) are not wmill items — getTypeStrFromPath throws on
+  // them (e.g. ui/config.json). Label them directly.
+  if (p === "ui" || p.startsWith("ui/")) return "shared UI ";
   const t = getTypeStrFromPath(p);
   return t === "datatable_migration" ? "" : `${t} `;
 }
@@ -3539,7 +3547,6 @@ function prettyChanges(
         ),
       );
     } else if (change.name === "edited") {
-      const changeType = getTypeStrFromPath(change.path);
       log.info(
         colors.yellow(
           `~ ${changeTypeLabel(change.path)}` +
@@ -3549,6 +3556,12 @@ function prettyChanges(
         ),
       );
       if (change.before != change.after) {
+        // Shared UI files (ui/…) aren't wmill items; getTypeStrFromPath throws
+        // on them, so fall back to a plain diff.
+        const changeType =
+          change.path === "ui" || change.path.startsWith("ui/")
+            ? "shared_ui"
+            : getTypeStrFromPath(change.path);
         if (changeType === "encryption_key") {
           showDiff(
             redactEncryptionKey(change.before),
@@ -4124,6 +4137,33 @@ export async function push(
 
   await fetchRemoteVersion(workspace);
 
+  // Shared UI (the ui/ folder) is pushed out-of-band via pushSharedUi on apply
+  // and is excluded from the file diff (isNotWmillFile), so surface its diff in
+  // the dry-run preview. Without this the "Pull from repo" preview reads "no
+  // changes" even when the apply will overwrite the shared-UI store. Folded in
+  // only for dry-run (before the count/summary below) so the apply path is
+  // unchanged (pushSharedUi still runs) and the summary count includes ui/.
+  if (opts.dryRun) {
+    try {
+      for (const c of await diffSharedUi(workspace.workspaceId)) {
+        if (c.type === "added") {
+          changes.push({ name: "added", path: c.path, content: "" });
+        } else if (c.type === "deleted") {
+          changes.push({ name: "deleted", path: c.path });
+        } else {
+          changes.push({
+            name: "edited",
+            path: c.path,
+            before: c.before,
+            after: c.after,
+          });
+        }
+      }
+    } catch (e) {
+      log.warn(`Failed to compute shared UI diff for dry-run preview: ${e}`);
+    }
+  }
+
   log.info(
     `remote (${workspace.name}) <- local: ${changes.length} changes to apply`,
   );
@@ -4368,6 +4408,10 @@ export async function push(
       log.info(`Parallelizing ${parallelizationFactor} changes at a time`);
     }
 
+    // Changes that could not be applied but do not invalidate the rest of the
+    // push. Reported at the end, and the push exits non-zero for them.
+    const failedChanges: { path: string; error: string }[] = [];
+
     // Create a pool of workers that processes items as they become available
     const pool = new Set();
     // Process folder.meta groups first (sequentially), then items in parallel.
@@ -4610,6 +4654,42 @@ export async function push(
                   specificItems,
                 );
                 continue;
+              }
+              // A script deploys through its content file, which is normally in
+              // the same group — but not always (excludes can filter it out).
+              // Resolving it from disk keeps the deploy idempotent (via
+              // alreadySynced) and stops an unaccompanied metadata file from
+              // being counted as a change that reached the remote.
+              if (!isRawAppFile(change.path)) {
+                let handled = false;
+                try {
+                  handled = await handleScriptMetadata(
+                    change.path,
+                    workspace,
+                    alreadySynced,
+                    opts.message,
+                    rawWorkspaceDependencies,
+                    codebases,
+                    opts,
+                    permissionedAsContext,
+                  );
+                } catch (e) {
+                  if (!(e instanceof UnresolvableScriptContentFileError)) {
+                    throw e;
+                  }
+                  // Nothing deployable here, but the rest of the changeset is
+                  // unaffected — record it so the push reports a failure at the
+                  // end instead of aborting midway with a partial deploy.
+                  failedChanges.push({
+                    path: change.path,
+                    error: e.message,
+                  });
+                  log.error(e.message);
+                  continue;
+                }
+                if (handled) {
+                  continue;
+                }
               }
               if (
                 !isRawAppFile(change.path) &&
@@ -5126,11 +5206,16 @@ export async function push(
         );
       }
     }
+    const pushedCount = changes.length - failedChanges.length;
     if (opts.jsonOutput) {
       const result = {
-        success: true,
+        success: failedChanges.length === 0,
         lock_jobs: lockJobs,
-        message: `All ${changes.length} changes pushed to the remote workspace ${workspace.workspaceId} named ${workspace.name}`,
+        ...(failedChanges.length > 0 ? { failed: failedChanges } : {}),
+        message:
+          failedChanges.length > 0
+            ? `${pushedCount} of ${changes.length} changes pushed to the remote workspace ${workspace.workspaceId} named ${workspace.name}; ${failedChanges.length} failed`
+            : `All ${changes.length} changes pushed to the remote workspace ${workspace.workspaceId} named ${workspace.name}`,
         changes: changes.map((change) => ({
           type: change.name,
           path: change.path,
@@ -5152,6 +5237,15 @@ export async function push(
         duration_ms: Math.round(performance.now() - start),
       };
       console.log(JSON.stringify(result, null, 2));
+    } else if (failedChanges.length > 0) {
+      log.error(
+        colors.bold.red.underline(
+          `\n${pushedCount} of ${changes.length} changes pushed to the remote workspace ${
+            workspace.workspaceId
+          } named ${workspace.name}; ${failedChanges.length} failed:\n` +
+            failedChanges.map((f) => `  - ${f.path}`).join("\n"),
+        ),
+      );
     } else {
       log.info(
         colors.bold.green.underline(
@@ -5165,17 +5259,35 @@ export async function push(
         ),
       );
     }
+    if (failedChanges.length > 0) {
+      // Not process.exit: under Node a piped stdout write is async, so exiting
+      // here would truncate the JSON result mid-object for CI consumers.
+      process.exitCode = 1;
+    }
   } else {
-    try {
-      await pushSharedUi(workspace.workspaceId);
-    } catch (e) {
-      log.warn(`Failed to push shared UI folder: ${e}`);
+    // Dry-run with no changes reaches here (a ui/ diff would have made changes
+    // non-empty and returned above); never mutate the remote in that case.
+    let sharedUiPushed = false;
+    if (!opts.dryRun) {
+      try {
+        sharedUiPushed = await pushSharedUi(workspace.workspaceId);
+      } catch (e) {
+        log.warn(`Failed to push shared UI folder: ${e}`);
+      }
     }
     // No changes pushed, so no new datatable migrations to run.
     if (opts.jsonOutput) {
+      // Shared UI is out-of-band from the file diff (total counts diffed
+      // files), but don't claim "No changes" when the ui/ store was written.
       console.log(
         JSON.stringify(
-          { success: true, message: "No changes to push", total: 0 },
+          {
+            success: true,
+            message: sharedUiPushed
+              ? "Pushed shared UI changes"
+              : "No changes to push",
+            total: 0,
+          },
           null,
           2,
         ),

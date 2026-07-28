@@ -434,6 +434,35 @@ export const azureTriggerRequestSchema = z.object({
 	"labels": z.array(z.string()).optional()
 }).describe("Data for creating or updating an Azure Event Grid trigger.")
 
+export const emailTriggerRequestSchema = z.object({
+	"path": z.string(),
+	"script_path": z.string(),
+	"local_part": z.string(),
+	"workspaced_local_part": z.boolean().optional(),
+	"is_flow": z.boolean(),
+	"error_handler_path": z.string().optional(),
+	"error_handler_args": z.record(z.string(), z.any()).describe("The arguments to pass to the script or flow").optional(),
+	"retry": z.object({
+		"constant": z.object({
+			"attempts": z.number().int().describe("Number of retry attempts").optional(),
+			"seconds": z.number().int().describe("Seconds to wait between retries").optional()
+		}).describe("Retry with constant delay between attempts").optional(),
+		"exponential": z.object({
+			"attempts": z.number().int().describe("Number of retry attempts").optional(),
+			"multiplier": z.number().int().describe("Multiplier for exponential backoff").optional(),
+			"seconds": z.number().int().gte(1).describe("Initial delay in seconds").optional(),
+			"random_factor": z.number().int().gte(0).lte(100).describe("Random jitter percentage (0-100) to avoid thundering herd").optional()
+		}).describe("Retry with exponential backoff (delay doubles each time)").optional(),
+		"retry_if": z.object({
+			"expr": z.string().describe("JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables")
+		}).describe("Conditional retry based on error or result").optional()
+	}).describe("Retry configuration for failed module executions").optional(),
+	"mode": z.enum(["enabled", "disabled", "suspended"]).describe("job trigger mode").optional(),
+	"permissioned_as": z.string().describe("The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.").optional(),
+	"preserve_permissioned_as": z.boolean().describe("When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it.").optional(),
+	"labels": z.array(z.string()).optional()
+})
+
 export const variableRequestSchema = z.object({
 	"path": z.string().describe("The path to the variable"),
 	"value": z.string().describe("The value of the variable"),
@@ -466,6 +495,7 @@ export const triggerRequestSchemas = {
 	sqs: sqsTriggerRequestSchema,
 	gcp: gcpTriggerRequestSchema,
 	azure: azureTriggerRequestSchema,
+	email: emailTriggerRequestSchema,
 } as const
 
 const triggerPathSchema = z.string().min(1).describe("The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.")
@@ -482,6 +512,7 @@ export const createTriggerToolSchema = z.object({
 		"sqs",
 		"gcp",
 		"azure",
+		"email",
 	]),
 	path: triggerPathSchema,
 	config: z.union([
@@ -495,5 +526,6 @@ export const createTriggerToolSchema = z.object({
 		sqsTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
 		gcpTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
 		azureTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+		emailTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
 	])
 })

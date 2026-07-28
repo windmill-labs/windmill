@@ -511,3 +511,152 @@ async fn test_user_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_change_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let global_base = format!("http://localhost:{port}/api/users");
+
+    let change_email = |email: &str, new_email: &str| {
+        authed(client().post(format!("{global_base}/change_email/{email}")))
+            .json(&json!({ "new_email": new_email }))
+            .send()
+    };
+
+    sqlx::query!("UPDATE password SET username = 'test-user-2' WHERE email = 'test2@windmill.dev'")
+        .execute(&db)
+        .await?;
+    sqlx::query!("UPDATE workspace SET owner = 'test2@windmill.dev' WHERE id = 'test-workspace'")
+        .execute(&db)
+        .await?;
+    // A user whose username is their email is stored as the bare address in `permissioned_as` and
+    // in an app's policy, rather than as `u/{username}`.
+    sqlx::query!(
+        "INSERT INTO schedule(workspace_id, path, edited_by, schedule, timezone, enabled, script_path, is_flow, args, email, permissioned_as)
+         VALUES ('test-workspace', 'u/test-user-2/sched', 'test-user-2', '0 0 1 1 *', 'UTC', false, 'u/test-user-2/s', false, '{}'::json, 'test2@windmill.dev', 'test2@windmill.dev')"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO app(workspace_id, path, summary, policy, versions)
+         VALUES ('test-workspace', 'u/test-user-2/app', '', '{\"on_behalf_of\": \"test2@windmill.dev\", \"on_behalf_of_email\": \"test2@windmill.dev\"}'::jsonb, '{}')"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO folder(workspace_id, name, display_name, owners, extra_perms, default_permissioned_as)
+         VALUES ('test-workspace', 'fold', 'fold', '{}', '{}'::jsonb,
+                 '[{\"path_glob\": \"a/**\", \"permissioned_as\": \"u/other\"}, {\"path_glob\": \"**\", \"permissioned_as\": \"test2@windmill.dev\"}]'::jsonb)"
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = change_email("test2@windmill.dev", "renamed@windmill.dev")
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "change_email: {}", resp.text().await?);
+
+    // The account row is moved, not recreated, so the instance-wide username and the workspace
+    // membership follow the new address.
+    let username =
+        sqlx::query_scalar!("SELECT username FROM password WHERE email = 'renamed@windmill.dev'")
+            .fetch_one(&db)
+            .await?;
+    assert_eq!(username.as_deref(), Some("test-user-2"));
+
+    let workspaces =
+        sqlx::query_scalar!("SELECT workspace_id FROM usr WHERE email = 'renamed@windmill.dev'")
+            .fetch_all(&db)
+            .await?;
+    assert_eq!(workspaces, vec!["test-workspace".to_string()]);
+
+    let owner = sqlx::query_scalar!("SELECT owner FROM workspace WHERE id = 'test-workspace'")
+        .fetch_one(&db)
+        .await?;
+    assert_eq!(owner, "renamed@windmill.dev");
+
+    // A `permissioned_as` (or app policy) holding the bare address is the sole identity reference
+    // those rows have: left stale, the schedule tick and the deployed app run as an account that no
+    // longer exists.
+    let permissioned_as = sqlx::query_scalar!(
+        "SELECT permissioned_as FROM schedule WHERE path = 'u/test-user-2/sched'"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(permissioned_as, "renamed@windmill.dev");
+
+    let policy = sqlx::query_scalar!(
+        "SELECT policy::text FROM app WHERE path = 'u/test-user-2/app' AND workspace_id = 'test-workspace'"
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or_default();
+    assert!(
+        !policy.contains("test2@windmill.dev") && policy.contains("renamed@windmill.dev"),
+        "app policy should carry only the new address: {policy}"
+    );
+
+    // The rules keep their order, since the folder resolver takes the first glob that matches.
+    let rules = sqlx::query_scalar!(
+        "SELECT default_permissioned_as::text FROM folder WHERE workspace_id = 'test-workspace' AND name = 'fold'"
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or_default();
+    let rules: serde_json::Value = serde_json::from_str(&rules)?;
+    assert_eq!(rules[0]["permissioned_as"], "u/other");
+    assert_eq!(rules[1]["permissioned_as"], "renamed@windmill.dev");
+
+    let old_rows =
+        sqlx::query_scalar!("SELECT COUNT(*) FROM password WHERE email = 'test2@windmill.dev'")
+            .fetch_one(&db)
+            .await?;
+    assert_eq!(old_rows, Some(0));
+
+    // Moving onto an address that already has an account would merge two identities. Login
+    // lowercases what it is given, so a case-only difference collides just the same.
+    let resp = change_email("test3@windmill.dev", "renamed@windmill.dev")
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+
+    sqlx::query!(
+        "UPDATE password SET email = 'Legacy@windmill.dev' WHERE email = 'renamed@windmill.dev'"
+    )
+    .execute(&db)
+    .await?;
+    let resp = change_email("test3@windmill.dev", "legacy@windmill.dev")
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+
+    let resp = change_email("test3@windmill.dev", "not-an-email")
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+
+    let resp = change_email("nobody@windmill.dev", "somebody@windmill.dev")
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 404);
+
+    // Moving your own account would leave your cached identity pointing at a deleted address.
+    let resp = change_email("test@windmill.dev", "self@windmill.dev")
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+
+    // Only super admins may move an account.
+    let resp = client()
+        .post(format!("{global_base}/change_email/test3@windmill.dev"))
+        .header("Authorization", "Bearer SECRET_TOKEN_3")
+        .json(&json!({ "new_email": "hijacked@windmill.dev" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 401);
+
+    Ok(())
+}

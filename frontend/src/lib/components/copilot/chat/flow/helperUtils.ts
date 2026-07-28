@@ -358,7 +358,7 @@ function assertResolvedInlineScripts(
 	}
 }
 
-function replaceNewInlineScriptRefsWithEmptyCode(
+export function replaceNewInlineScriptRefsWithEmptyCode(
 	modules: FlowModule[],
 	emptyInlineScriptModuleIds: Set<string>
 ): void {

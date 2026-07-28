@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FlowAIChatHelpers } from './flow/core'
+import type { PipelineAIChatHelpers } from './pipeline/core'
 import type { CurrentEditor } from '$lib/components/flows/types'
 import type { ReviewChangesOpts } from './monaco-adapter'
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions.mjs'
@@ -495,7 +496,7 @@ describe('AIChatManager queued messages', () => {
 		manager.dequeueMessage()
 
 		expect(manager.queuedMessage).toBe('')
-		expect(input.prependText).toHaveBeenCalledWith('line one\nline two', [])
+		expect(input.prependText).toHaveBeenCalledWith('line one\nline two', [], [])
 	})
 
 	const img = (n: string): AttachedImage => ({
@@ -994,7 +995,7 @@ describe('AIChatManager queued messages', () => {
 		await manager.sendRequest({ instructions: '', images: [img('a')] })
 
 		expect(mocks.runChatLoop).not.toHaveBeenCalled()
-		expect(input.prependText).toHaveBeenCalledWith('', [img('a')])
+		expect(input.prependText).toHaveBeenCalledWith('', [img('a')], [])
 		mocks.tryGetCurrentModel.mockReturnValue(model)
 	})
 
@@ -1086,7 +1087,7 @@ describe('AIChatManager queued messages', () => {
 
 		expect(accepted).toBe(false)
 		expect(mocks.runChatLoop).not.toHaveBeenCalled()
-		expect(input.restoreInstructions).toHaveBeenCalledWith('find it', [], [img('a')])
+		expect(input.restoreInstructions).toHaveBeenCalledWith('find it', [], [img('a')], [])
 	})
 
 	// A refused queued draft is the caller's to restore (it re-queues on false) —
@@ -1194,7 +1195,235 @@ describe('AIChatManager queued messages', () => {
 		manager.dequeueMessage()
 
 		expect(manager.queuedImages).toEqual([])
-		expect(input.prependText).toHaveBeenCalledWith('', [img('a')])
+		expect(input.prependText).toHaveBeenCalledWith('', [img('a')], [])
+	})
+
+	it('queues a file-only message and restores it on dequeue', () => {
+		const input = createInputMock()
+		const manager = createManager(input)
+		const file = { name: 'notes.md', content: 'hello' }
+		manager.queueMessage('', [], undefined, [file])
+
+		expect(manager.queuedMessage).toBe('')
+		expect(manager.queuedFiles).toMatchObject([file])
+		const queued = manager.queuedFiles
+
+		manager.dequeueMessage()
+
+		expect(manager.queuedFiles).toEqual([])
+		expect(input.prependText).toHaveBeenCalledWith('', [], queued)
+	})
+
+	it('normalizes files aggregated into one queued message', () => {
+		// Repeated submissions during a stream fold into one queued message, so the
+		// queue applies the same commit normalization as the composer: identical
+		// re-attaches dedupe (no wasted slot), same-name clashes get the courtesy
+		// rename, distinct files survive.
+		const input = createInputMock()
+		const manager = createManager(input)
+		manager.queueMessage('', [], undefined, [{ name: 'notes.md', content: 'alpha' }])
+		manager.queueMessage('', [], undefined, [
+			{ name: 'notes.md', content: 'alpha' },
+			{ name: 'notes.md', content: 'bravo' }
+		])
+
+		expect(manager.queuedFiles.map((f) => f.name)).toEqual(['notes.md', 'notes (2).md'])
+		expect(manager.queuedFiles.map((f) => f.content)).toEqual(['alpha', 'bravo'])
+	})
+
+	// While editing an earlier message the bottom composer and the edit box are
+	// both mounted. Each enforces MAX_CONVERSATION_FILE_BYTES at attach time, so
+	// each must see the other's stage or two attaches could each spend the full
+	// budget and overflow the persisted transcript.
+	it('counts every other live composer stage in the attachment budget', () => {
+		const manager = new AIChatManager()
+		manager.displayMessages = [
+			{ role: 'user', content: 'edited', files: [{ name: 'a.md', content: 'X'.repeat(300) }] },
+			{ role: 'user', content: 'kept', files: [{ name: 'b.md', content: 'Y'.repeat(500) }] }
+		] as any
+
+		// Bottom composer staged 4MB; edit box (editing message 0) staged 900KB.
+		manager.setComposerStaged('main', null, 4_000_000)
+		manager.setComposerStaged('edit', 0, 900_000)
+
+		// From the bottom composer: message 0 is skipped (its editor's stage stands
+		// in for it), message 1 counts, and the edit box's 900KB is visible.
+		expect(manager.attachmentBytesExcluding('main')).toBe(500 + 900_000)
+		// From the edit box: message 0 skipped, message 1 counts, bottom's 4MB visible.
+		expect(manager.attachmentBytesExcluding('edit')).toBe(500 + 4_000_000)
+
+		manager.clearComposerStaged('edit')
+		expect(manager.attachmentBytesExcluding('main')).toBe(300 + 500)
+	})
+
+	// The edit box unmounts (dropping its stage) the instant the user submits, but
+	// restartGeneration then awaits registry sync + upkeep before the resent bubble
+	// lands in the transcript. During that gap the resent files must stay reserved,
+	// or the bottom composer could attach into the temporary headroom and overflow.
+	it('reserves resent files across the restartGeneration gap', async () => {
+		replyWith('done')
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		const fileRow = { name: 'a.md', content: 'X'.repeat(3000) }
+		manager.displayMessages = [{ role: 'user', content: 'orig', files: [fileRow], index: 0 }] as any
+		manager.messages = [{ role: 'user', content: 'orig' }] as any
+
+		// refreshFolders runs inside sendRequest AFTER the edited message was sliced
+		// out but BEFORE the resent bubble is installed — the one moment the gap is
+		// open. The reservation must cover the resent bytes there.
+		let observed: number | undefined
+		vi.spyOn(manager.attachedFiles, 'refreshFolders').mockImplementation(async () => {
+			observed = manager.attachmentBytesExcluding('probe')
+		})
+
+		await manager.restartGeneration(0)
+		// Drain the resend turn fully (its runChatLoop resolves immediately) so no
+		// async work bleeds into a later test's shared-mock call counts.
+		for (let i = 0; i < 50; i++) await new Promise((r) => setTimeout(r, 0))
+
+		expect(observed).toBe(3000)
+		// Once the turn installs the bubble, the reservation is released — the
+		// transcript now accounts those bytes on its own.
+		expect(manager.attachmentBytesExcluding('probe')).toBe(3000)
+	})
+
+	// A normal send clears the composer's files immediately, but sendRequest awaits
+	// attachment upkeep (regrant/refresh) before installing the bubble. The outgoing
+	// bytes must stay reserved across that gap or a fresh drop could overflow the cap.
+	it('reserves a normal send outgoing files across the preflight gap', async () => {
+		replyWith('done')
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+
+		let observed: number | undefined
+		vi.spyOn(manager.attachedFiles, 'refreshFolders').mockImplementation(async () => {
+			observed = manager.attachmentBytesExcluding('probe')
+		})
+
+		await manager.sendRequest({
+			instructions: 'hi',
+			files: [{ name: 'a.md', content: 'X'.repeat(2500) }]
+		})
+		for (let i = 0; i < 50; i++) await new Promise((r) => setTimeout(r, 0))
+
+		// Reserved during upkeep (before the bubble lands), then accounted by the
+		// installed transcript once the reservation is released.
+		expect(observed).toBe(2500)
+		expect(manager.attachmentBytesExcluding('probe')).toBe(2500)
+	})
+
+	// A local command (/clear, /compact) consumes the send and returns before a
+	// bubble installs, so an edit resolved to one must not strand its reservation.
+	it('releases the resend reservation when an edit resolves to a local command', async () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		manager.isSessionChat = true
+		vi.spyOn(manager, 'compactManually').mockResolvedValue()
+		const fileRow = { name: 'a.md', content: 'X'.repeat(2000) }
+		manager.displayMessages = [{ role: 'user', content: 'orig', files: [fileRow], index: 0 }] as any
+		manager.messages = [{ role: 'user', content: 'orig' }] as any
+
+		await manager.restartGeneration(0, '/compact')
+		for (let i = 0; i < 20; i++) await new Promise((r) => setTimeout(r, 0))
+
+		// No stranded reservation: the abandoned resend charges nothing.
+		expect(manager.attachmentBytesExcluding('probe')).toBe(0)
+	})
+
+	// The reservation is keyed per resend, so a normal (or concurrent) send that
+	// carries no token must never release a resend reservation it doesn't own.
+	it('a normal send does not release another send resend reservation', async () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		// An in-flight resend owns this reservation.
+		manager.setComposerStaged('resend:other', null, 4000)
+
+		// A normal send that bails early (empty draft) carries no reservation key.
+		await manager.sendRequest({ instructions: '   ' })
+
+		expect(manager.attachmentBytesExcluding('probe')).toBe(4000)
+	})
+
+	// Drop-oldest compaction (summary fallback) removes API messages without a
+	// summary, so a folded message's `## ATTACHED FILES` reference no longer reaches
+	// the model. Its file (index < 0) must be advertised through the roster instead.
+	it('flags message files whose referencing message was dropped by compaction', () => {
+		const manager = new AIChatManager()
+		manager.displayMessages = [
+			{ role: 'user', content: 'a', index: -1, files: [{ name: 'dropped.md', content: 'x' }] },
+			{ role: 'user', content: 'b', index: 0, files: [{ name: 'live.md', content: 'y' }] },
+			// Referenced by BOTH a dropped and a surviving message → still visible, not orphaned.
+			{ role: 'user', content: 'c', index: -1, files: [{ name: 'shared.md', content: 'z' }] },
+			{ role: 'user', content: 'd', index: 1, files: [{ name: 'shared.md', content: 'z' }] }
+		] as any
+
+		expect([...manager.orphanedMessageFileIds()]).toEqual(['dropped.md'])
+	})
+
+	// A summary carries its folded files' reference on its own API message; if a
+	// later drop-oldest (summary fallback) removes that message, the reference is
+	// gone and the files must move to the roster like any other orphan.
+	it('orphans summary-carried files when drop-oldest removes the summary', () => {
+		const manager = new AIChatManager()
+		manager.messages = [
+			{ role: 'user', content: 'summary api message' },
+			{ role: 'user', content: 'tail' }
+		] as any
+		manager.displayMessages = [
+			{ role: 'summary', content: 's', index: 0, files: [{ name: 'folded.md', content: 'x' }] },
+			{ role: 'user', content: 'tail', index: 1 }
+		] as any
+
+		// Summary API message present → its files are still referenced.
+		expect([...manager.orphanedMessageFileIds()]).toEqual([])
+
+		// Drop-oldest removes the summary's API message and re-bases indices.
+		manager.compactOldestMessages(1)
+
+		expect([...manager.orphanedMessageFileIds()]).toEqual(['folded.md'])
+	})
+
+	it('a stale restart index fails before touching the transcript or the budget', async () => {
+		const manager = new AIChatManager()
+		manager.displayMessages = [
+			{
+				role: 'user',
+				content: 'old',
+				index: 5,
+				files: [{ name: 'a.md', content: 'X'.repeat(100) }]
+			},
+			{ role: 'assistant', content: 'reply' }
+		] as any
+		manager.messages = [{ role: 'user', content: 'old' }] as any // index 5 is stale
+
+		await expect(manager.restartGeneration(0)).rejects.toThrow(
+			'No actual user message found to restart from'
+		)
+		// Nothing was mutated and no resend reservation lingers: the budget still
+		// counts only the transcript's 100 bytes.
+		expect(manager.displayMessages).toHaveLength(2)
+		expect(manager.messages).toHaveLength(1)
+		expect(manager.attachmentBytesExcluding('probe')).toBe(100)
+	})
+
+	// An edit is not committed until send, so cancelling it returns the message's
+	// persisted attachments. Charging only the (possibly emptied) edit stage would
+	// hand the bottom composer headroom that vanishes on cancel — remove the files
+	// in the editor, fill the bottom draft, cancel, and the transcript overflows.
+	it('charges an edited message at its persisted size until the edit commits', () => {
+		const manager = new AIChatManager()
+		manager.displayMessages = [
+			{ role: 'user', content: 'big', files: [{ name: 'a.md', content: 'X'.repeat(4000) }] }
+		] as any
+
+		// Edit box mounted on message 0 with its attachment removed (stage 0):
+		// the bottom composer must still see the 4000 persisted bytes.
+		manager.setComposerStaged('edit', 0, 0)
+		expect(manager.attachmentBytesExcluding('main')).toBe(4000)
+
+		// Once the editor stages more than the original, the larger figure wins.
+		manager.setComposerStaged('edit', 0, 9000)
+		expect(manager.attachmentBytesExcluding('main')).toBe(9000)
 	})
 
 	it('drops queued images when the conversation is switched away', async () => {
@@ -1391,6 +1620,29 @@ describe('AIChatManager queued messages', () => {
 		expect(chips.map((c) => c.selector).sort()).toEqual(['div.a', 'div.b'])
 	})
 
+	it('merges a follow-up queued during a failed auto-send instead of clobbering it', async () => {
+		replyWith('done')
+		const manager = createManager(createInputMock())
+		const chipA = { type: 'app_dom_selector', selector: '#a', appPath: 'p' } as any
+		const chipB = { type: 'app_dom_selector', selector: '#b', appPath: 'p' } as any
+		manager.beforeSend = vi
+			.fn()
+			.mockResolvedValueOnce(undefined)
+			.mockImplementationOnce(async () => {
+				// A follow-up arrives while the queued auto-send is in preflight; the
+				// failed send's restore must merge on top of it, not replace it.
+				manager.queueMessage('typed during preflight', [], [chipB])
+				throw new Error('workspace commit failed')
+			})
+
+		manager.queueMessage('first queued', [], [chipA])
+		await manager.sendRequest({ instructions: 'first' })
+
+		expect(manager.queuedMessage).toBe('first queued\n\ntyped during preflight')
+		// Both entries' pinned contexts survive the restore, older first.
+		expect(manager.queuedContext?.map((c: any) => c.selector)).toEqual(['#a', '#b'])
+	})
+
 	it('re-queues the message when its auto-send is rejected by beforeSend', async () => {
 		replyWith('done')
 		const input = createInputMock()
@@ -1422,7 +1674,7 @@ describe('AIChatManager queued messages', () => {
 
 		expect(accepted).toBe(false)
 		expect(mocks.runChatLoop).not.toHaveBeenCalled()
-		expect(input.restoreInstructions).toHaveBeenCalledWith('look', [], [img('a')])
+		expect(input.restoreInstructions).toHaveBeenCalledWith('look', [], [img('a')], [])
 		// the optimistic bubble is rolled back
 		expect(manager.displayMessages).toHaveLength(0)
 	})
@@ -1851,6 +2103,32 @@ describe('AIChatManager context compaction', () => {
 		expect(manager.contextUsage).toBeUndefined()
 	})
 
+	it('carries folded-away message files on the summary', async () => {
+		mocks.getCurrentModel.mockReturnValue(gpt4oModel)
+		mocks.tryGetCurrentModel.mockReturnValue(gpt4oModel)
+		mocks.getNonStreamingCompletion.mockResolvedValue(
+			'<analysis>s</analysis><summary>SUM</summary>'
+		)
+		const manager = new AIChatManager()
+		seedForSummary(manager)
+		const file = { name: 'notes.md', content: 'hello' }
+		// The identical file on TWO folded turns (identical content registers under
+		// one name) must carry as ONE summary entry.
+		manager.displayMessages = manager.displayMessages.map((m, i) =>
+			(i === 0 || i === 2) && m.role === 'user' ? { ...m, files: [file] } : m
+		)
+
+		await manager.sendRequest()
+
+		// The summary display message carries the folded-away file once, the API
+		// summary references it as still-readable, and the registry keeps its row.
+		expect(manager.displayMessages[0]).toMatchObject({ role: 'summary', files: [file] })
+		const sent = mocks.runChatLoop.mock.calls[mocks.runChatLoop.mock.calls.length - 1][0].messages
+		expect(sent[0].content).toContain('notes.md')
+		expect(sent[0].content).toContain('read_file')
+		expect(manager.attachedFiles.messageAttached.map((f) => f.name)).toEqual(['notes.md'])
+	})
+
 	// A take_screenshot follow-up is a `user` message with no display counterpart
 	// (appendPendingToolImages injects it). It must never become the tail
 	// boundary: `messages` and `displayMessages` would then be sliced at
@@ -2255,7 +2533,7 @@ describe('AIChatManager sendRequest lifecycle', () => {
 		expect(manager.displayMessages.some((m) => m.role === 'user')).toBe(false)
 		expect(manager.messages.some((m) => m.role === 'user')).toBe(false)
 		// ...and its text is handed back to the composer.
-		expect(restoreInstructions).toHaveBeenCalledWith('do a thing', [], [])
+		expect(restoreInstructions).toHaveBeenCalledWith('do a thing', [], [], [])
 		expect(manager.loading).toBe(false)
 	})
 
@@ -2284,7 +2562,7 @@ describe('AIChatManager sendRequest lifecycle', () => {
 
 		expect(manager.displayMessages).toHaveLength(0)
 		expect(manager.messages.some((m) => m.role === 'user')).toBe(false)
-		expect(restoreInstructions).toHaveBeenCalledWith('do a thing', [], [])
+		expect(restoreInstructions).toHaveBeenCalledWith('do a thing', [], [], [])
 		expect(manager.loading).toBe(false)
 	})
 
@@ -2386,7 +2664,7 @@ describe('AIChatManager sendRequest lifecycle', () => {
 		expect(manager.messages.some((m) => m.role === 'assistant')).toBe(false)
 		expect(manager.displayMessages.some((m) => m.role === 'assistant')).toBe(false)
 		expect(manager.displayMessages.some((m) => m.role === 'user')).toBe(false)
-		expect(restoreInstructions).toHaveBeenCalledWith('think hard', [], [])
+		expect(restoreInstructions).toHaveBeenCalledWith('think hard', [], [], [])
 		expect(manager.loading).toBe(false)
 	})
 
@@ -2681,5 +2959,47 @@ describe('DOM selector chips scoped by app path', () => {
 			.map((c) => c.selector)
 			.sort()
 		expect(queuedSelectors).toEqual(['div.a', 'div.b'])
+	})
+})
+
+// Guards the seam behind the open_preview(pipeline) fix: the pipeline editor
+// registers build_pipeline_node / edit_pipeline_node asynchronously on mount, so
+// open_preview must wait for that registration before returning or the model's
+// next turn races the mount and hits "Unknown tool call".
+describe('AIChatManager.waitForPipelineHelpers', () => {
+	function fakePipelineHelpers(): PipelineAIChatHelpers {
+		return {
+			getPipelineContext: () => ({ folder: 'f', mode: 'edit', nodes: [], assets: [] }),
+			getNodeBody: async () => undefined,
+			proposeNode: async () => ({ path: '', detectedReads: [], detectedWrites: [] }),
+			editNode: async () => ({ detectedReads: [], detectedWrites: [] }),
+			removeProposedNode: async () => {},
+			testNode: async () => undefined
+		}
+	}
+
+	it('resolves true immediately when a pipeline editor is already registered', async () => {
+		const manager = new AIChatManager()
+		manager.setPipelineHelpers(fakePipelineHelpers())
+		await expect(manager.waitForPipelineHelpers(1000)).resolves.toBe(true)
+	})
+
+	it('resolves true once a pipeline editor registers', async () => {
+		const manager = new AIChatManager()
+		let outcome: boolean | undefined
+		const wait = manager.waitForPipelineHelpers(1000).then((v) => (outcome = v))
+		await Promise.resolve()
+		expect(outcome).toBeUndefined()
+		manager.setPipelineHelpers(fakePipelineHelpers())
+		await wait
+		expect(outcome).toBe(true)
+	})
+
+	// The false result is the signal the open_preview handler needs: a backgrounded
+	// session's editor never mounts, so it must report "tools unavailable" rather
+	// than silently claim success.
+	it('resolves false after the timeout when no editor ever registers', async () => {
+		const manager = new AIChatManager()
+		await expect(manager.waitForPipelineHelpers(10)).resolves.toBe(false)
 	})
 })

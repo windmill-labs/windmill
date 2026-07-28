@@ -2,6 +2,7 @@
 	import CompareWorkspaces from '$lib/components/CompareWorkspaces.svelte'
 	import CompareDrafts from '$lib/components/CompareDrafts.svelte'
 	import { WorkspaceService, type WorkspaceComparison } from '$lib/gen'
+	import { fetchWorkspaceComparison } from '$lib/workspaceComparison'
 	import {
 		archiveSessionsForWorkspace,
 		deleteSessionsForWorkspace,
@@ -194,10 +195,7 @@
 		}
 
 		try {
-			const result = await WorkspaceService.compareWorkspaces({
-				workspace: parentWorkspaceId,
-				targetWorkspaceId: currentWorkspaceId
-			})
+			const result = await fetchWorkspaceComparison(parentWorkspaceId, currentWorkspaceId)
 
 			comparison = result
 		} catch (e) {

@@ -38,15 +38,21 @@ lazy_static::lazy_static! {
     // Global auth cache accessible from main.rs for direct invalidation
     pub static ref AUTH_CACHE: Cache<(String, String), ExpiringAuthCache> = Cache::new(300);
     // Cache for token -> email lookups (for non-workspace-member authenticated users)
-    static ref TOKEN_EMAIL_CACHE: Cache<String, Option<String>> = Cache::new(500);
+    static ref TOKEN_EMAIL_CACHE: Cache<String, (Option<String>, std::time::Instant)> = Cache::new(500);
 }
+
+/// A token keeps its identity when a superadmin moves the account to another address, so entries
+/// here must expire on their own; nothing invalidates them by token hash.
+const TOKEN_EMAIL_CACHE_TTL_SECS: u64 = 60;
 
 /// Get email from a valid token, with caching.
 /// Used for WM_END_USER_EMAIL when user is authenticated but not a workspace member.
 async fn get_email_from_token(db: &DB, token: &str) -> Option<String> {
     let t_hash = hash_token(token);
-    if let Some(cached) = TOKEN_EMAIL_CACHE.get(&t_hash) {
-        return cached;
+    if let Some((cached, cached_at)) = TOKEN_EMAIL_CACHE.get(&t_hash) {
+        if cached_at.elapsed().as_secs() < TOKEN_EMAIL_CACHE_TTL_SECS {
+            return cached;
+        }
     }
 
     let email = sqlx::query_scalar!(
@@ -59,7 +65,7 @@ async fn get_email_from_token(db: &DB, token: &str) -> Option<String> {
     .flatten()
     .flatten(); // email column is nullable, so we get Option<Option<String>>
 
-    TOKEN_EMAIL_CACHE.insert(t_hash, email.clone());
+    TOKEN_EMAIL_CACHE.insert(t_hash, (email.clone(), std::time::Instant::now()));
     email
 }
 

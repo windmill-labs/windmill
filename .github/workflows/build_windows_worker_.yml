@@ -45,8 +45,12 @@ jobs:
         env:
           RUSTFLAGS: "-D warnings"
         run: |
-          mkdir frontend/build && cd backend
+          cd backend
+          # Stub the openapi specs to empty: they are compiled in via an ungated
+          # include_str! but a worker binary never serves them, so this avoids
+          # embedding ~2.5MB of spec.
           New-Item -Path . -Name "windmill-api/openapi-deref.yaml" -ItemType "File" -Force
+          New-Item -Path . -Name "windmill-api/openapi-deref.json" -ItemType "File" -Force
           cargo check --features=ee_windows
 
       - name: Cargo build dynamic libraries windows

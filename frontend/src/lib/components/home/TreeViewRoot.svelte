@@ -10,6 +10,33 @@
 		items: ItemType[] | undefined
 		isSearching?: boolean
 		pipelineFolders?: Set<string>
+		sortCompare?: (a: ItemType, b: ItemType) => number
+		// Order of the top-level folder/user nodes: Z-A when the active sort is
+		// name-descending (like a file explorer), alphabetical otherwise.
+		groupDesc?: boolean
+		// The server has further pages beyond the loaded items; `onLoadMore` fetches
+		// the next one (grouping only reorders what's already loaded).
+		hasMoreServer?: boolean
+		onLoadMore?: () => void
+		// Lazy per-owner loading: every folder and every user shows as a top-level node
+		// regardless of the loaded window; expanding one loads its items on demand,
+		// paginated within it. `ownerLoad` keys are full path prefixes (`f/<name>` /
+		// `u/<name>`).
+		allFolders?: string[]
+		allUsers?: string[]
+		// How many runnables each `f/<folder>` / `u/<user>` holds for this user, keyed
+		// by full prefix; owners holding none are absent. Undefined while it loads or
+		// when it doesn't apply, in which case every owner is injected as before.
+		ownerCounts?: Record<string, number>
+		// The viewer's own username: their personal space is a fixture of the tree and
+		// stays even when empty, so they have somewhere to create into.
+		selfUsername?: string
+		ownerLoad?: Record<
+			string,
+			{ cursor?: string; hasMore: boolean; loading: boolean; loaded: boolean; count: number }
+		>
+		onExpandOwner?: (owner: string, more?: boolean) => void
+		onCollapseOwner?: (owner: string) => void
 	}
 
 	let {
@@ -18,7 +45,18 @@
 		nbDisplayed = $bindable(),
 		items,
 		isSearching = false,
-		pipelineFolders
+		pipelineFolders,
+		sortCompare,
+		groupDesc = false,
+		hasMoreServer = false,
+		onLoadMore,
+		allFolders = [],
+		allUsers = [],
+		ownerCounts,
+		selfUsername,
+		ownerLoad,
+		onExpandOwner,
+		onCollapseOwner
 	}: Props = $props()
 
 	let groupedItems: ReturnType<typeof groupItems> | 'loading' = $state('loading')
@@ -26,8 +64,17 @@
 		items
 		pipelineFolders
 		isSearching
+		sortCompare
+		groupDesc
+		allFolders
+		allUsers
+		ownerCounts
+		selfUsername
 		untrack(() => {
-			const grouped = groupItems(items)
+			// While searching, `items` is already relevance-ranked and the sort
+			// selector is disabled, so keep that order: a no-op leaf comparator
+			// preserves insertion order within each group (Array.sort is stable).
+			const grouped = groupItems(items, isSearching ? () => 0 : sortCompare, groupDesc)
 			// Ensure every pipeline folder is present at the top level so its
 			// "Pipeline" entry shows even when it has no listed items — a bundle-phase
 			// pipeline (only a draft so far) or a folder whose only scripts are
@@ -36,26 +83,58 @@
 			// hides them on `filter !== ''`), so injecting them would surface unrelated
 			// folders in the results.
 			if (!isSearching) {
-				const present = new Set(
+				// Inject a top-level node for every pipeline folder (so its Pipeline entry
+				// shows even with no listed items), every workspace folder, and every user
+				// — so an owner whose items sit outside the loaded window still appears;
+				// expanding one loads its items on demand (see onExpandOwner). Injecting
+				// users too is what stops a user node from vanishing under a name sort whose
+				// first page is all folder rows.
+				const presentFolders = new Set(
 					grouped
 						.filter((g) => 'folderName' in g)
 						.map((g) => (g as { folderName: string }).folderName)
 				)
-				// Insert each missing pipeline folder among the existing folders in name
-				// order — `groupItems` already sorts user groups first then folders
-				// alphabetically, so inserting before the first greater-named folder
-				// keeps that ordering (rather than prepending out of order).
-				for (const folderName of [...(pipelineFolders ?? [])]
-					.filter((f) => !present.has(f))
-					.sort()) {
-					const item = { folderName, items: [] }
-					const idx = grouped.findIndex(
-						(g) =>
-							'folderName' in g &&
-							(g as { folderName: string }).folderName.localeCompare(folderName) > 0
+				// Once counts are in, an owner holding nothing the user can see is dropped
+				// rather than injected — a workspace's folder list is mostly noise in the
+				// tree otherwise. Pipeline folders are exempt: their entry is the pipeline
+				// itself, whose member scripts are folded out of the runnable count.
+				const isEmptyOwner = (prefix: string) => ownerCounts != undefined && !ownerCounts[prefix]
+				const missingFolders: { folderName: string; items: [] }[] = []
+				for (const folderName of [...(pipelineFolders ?? []), ...allFolders]) {
+					if (presentFolders.has(folderName)) continue
+					if (!pipelineFolders?.has(folderName) && isEmptyOwner(`f/${folderName}`)) continue
+					presentFolders.add(folderName)
+					missingFolders.push({ folderName, items: [] })
+				}
+				const presentUsers = new Set(
+					grouped.filter((g) => 'username' in g).map((g) => (g as { username: string }).username)
+				)
+				const missingUsers: { username: string; items: [] }[] = []
+				for (const username of allUsers) {
+					if (presentUsers.has(username)) continue
+					// Your own space is exempt from the drop: it's where you create, so it
+					// stays visible (as "0 items") when empty rather than disappearing.
+					if (username !== selfUsername && isEmptyOwner(`u/${username}`)) continue
+					presentUsers.add(username)
+					missingUsers.push({ username, items: [] })
+				}
+				if (missingFolders.length || missingUsers.length) {
+					// `groupItems` returns user groups first, then folders alphabetically.
+					// Append the missing nodes and sort each section once (O(n log n)) rather
+					// than splicing each in with findIndex (O(n²) — at 10k owners that was
+					// ~50M comparisons on every page merge).
+					const dir = groupDesc ? -1 : 1
+					const users = grouped.filter((g) => 'username' in g) as { username: string }[]
+					const folders = grouped.filter((g) => 'folderName' in g) as { folderName: string }[]
+					users.push(...missingUsers)
+					folders.push(...missingFolders)
+					users.sort((a, b) => dir * a.username.localeCompare(b.username))
+					folders.sort((a, b) => dir * a.folderName.localeCompare(b.folderName))
+					grouped.length = 0
+					grouped.push(
+						...(users as unknown as typeof grouped),
+						...(folders as unknown as typeof grouped)
 					)
-					if (idx < 0) grouped.push(item)
-					else grouped.splice(idx, 0, item)
 				}
 			}
 			groupedItems = grouped
@@ -74,13 +153,18 @@
 	</div>
 {:else}
 	<div class="border rounded-md bg-surface-tertiary">
-		{#each groupedItems.slice(0, nbDisplayed) as item ('folderName' in item ? `f__${item.folderName}` : 'username' in item ? `u__${item.username}` : `i__${item.type}__${item.path}`)}
+		{#each groupedItems.slice(0, nbDisplayed) as item, rootIndex ('folderName' in item ? `f__${item.folderName}` : 'username' in item ? `u__${item.username}` : `i__${item.type}__${item.path}`)}
 			{#if item}
 				<TreeView
+					{rootIndex}
 					{isSearching}
 					{collapseAll}
 					{item}
 					{pipelineFolders}
+					{ownerCounts}
+					{ownerLoad}
+					{onExpandOwner}
+					{onCollapseOwner}
 					on:scriptChanged
 					on:flowChanged
 					on:appChanged
@@ -91,12 +175,17 @@
 			{/if}
 		{/each}
 	</div>
-	{#if groupedItems.length > 15 && nbDisplayed < groupedItems.length}
+	{#if nbDisplayed < groupedItems.length || hasMoreServer}
 		<span class="text-xs font-normal text-secondary"
-			>{nbDisplayed} root nodes out of {groupedItems.length}
+			>{Math.min(nbDisplayed, groupedItems.length)} root nodes{hasMoreServer
+				? ''
+				: ` out of ${groupedItems.length}`}
 			<button
 				class="ml-4 text-xs font-normal text-primary hover:text-emphasis"
-				onclick={() => (nbDisplayed += 30)}>load 30 more</button
+				onclick={() => {
+					if (nbDisplayed < groupedItems.length) nbDisplayed += 30
+					else onLoadMore?.()
+				}}>load 30 more</button
 			></span
 		>
 	{/if}
