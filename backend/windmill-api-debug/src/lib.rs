@@ -422,11 +422,7 @@ async fn sign_expression(
     let mut tx = user_db.begin(&authed).await?;
 
     // Truncate expression for resource field if too long (max 255 chars)
-    let resource = if request.expression.len() > 200 {
-        format!("{}...", &request.expression[..200])
-    } else {
-        request.expression.clone()
-    };
+    let resource = windmill_common::utils::truncate_with_ellipsis(&request.expression, 200);
 
     audit_log(
         &mut *tx,

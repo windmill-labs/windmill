@@ -16,6 +16,7 @@
 	import GitSyncFilterSettings from '$lib/components/workspaceSettings/GitSyncFilterSettings.svelte'
 	import DetectionFlow from './DetectionFlow.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { apiErrorMessage } from '$lib/utils'
 	import { fade } from 'svelte/transition'
 	import { workspaceStore, userWorkspaces, enterpriseLicense } from '$lib/stores'
 	import type { GitSyncRepository } from './GitSyncContext.svelte'
@@ -114,7 +115,10 @@
 				repo.use_individual_branch = prevIndiv
 				repo.group_by_folder = prevGbf
 			}
-			sendUserToast(`Could not ${v ? 'enable' : 'disable'} Git promotion: ${e}`, true)
+			sendUserToast(
+				`Could not ${v ? 'enable' : 'disable'} Git promotion: ${apiErrorMessage(e)}`,
+				true
+			)
 		} finally {
 			savingDevPromotion = false
 		}
@@ -128,7 +132,7 @@
 			await gitSyncContext.saveRepository(idx)
 		} catch (e) {
 			if (repo) repo.group_by_folder = prev
-			sendUserToast(`Could not change promotion granularity: ${e}`, true)
+			sendUserToast(`Could not change promotion granularity: ${apiErrorMessage(e)}`, true)
 		} finally {
 			savingDevPromotion = false
 		}
@@ -353,7 +357,7 @@
 			sendUserToast('Repository settings updated')
 		} catch (error: any) {
 			console.error('Failed to save repository:', error)
-			sendUserToast('Failed to save repository: ' + error.message, true)
+			sendUserToast('Failed to save repository: ' + apiErrorMessage(error), true)
 		}
 	}
 
@@ -379,7 +383,7 @@
 			sendUserToast('Repository connection removed successfully')
 		} catch (error: any) {
 			console.error('Failed to remove repository:', error)
-			sendUserToast('Failed to remove repository: ' + error.message, true)
+			sendUserToast('Failed to remove repository: ' + apiErrorMessage(error), true)
 		} finally {
 			confirmingDelete = false
 		}

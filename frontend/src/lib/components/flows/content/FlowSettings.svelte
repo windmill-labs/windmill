@@ -30,6 +30,7 @@
 	import OnBehalfOfSelector, {
 		type OnBehalfOfChoice
 	} from '$lib/components/OnBehalfOfSelector.svelte'
+	import { modulesWithRetryOrSleep, SAME_WORKER_INCOMPATIBLE_MSG } from '../utils.svelte'
 
 	interface Props {
 		noEditor: boolean
@@ -62,6 +63,11 @@
 	let dirtyPath = $state(false)
 
 	let displayWorkerTagPicker = $state(false)
+
+	// Only block turning it on: a flow deployed with both (CLI, YAML editor) must stay fixable.
+	let conflictingModuleIds = $derived(
+		flowStore.val.value.same_worker ? [] : modulesWithRetryOrSleep(flowStore.val.value)
+	)
 
 	run(() => {
 		if (flowStore.val.tag) {
@@ -394,20 +400,31 @@
 
 				<!-- Shared Directory Section -->
 				{#if customUi?.settingsTabs?.sharedDiretory != false}
-					<Toggle
-						textClass="font-medium"
-						size="xs"
-						bind:checked={flowStore.val.value.same_worker}
-						options={{
-							right: 'Same Worker + Shared directory on `./shared`',
-							rightTooltip:
-								'Steps will share a folder at `./shared` in which they can store heavier data and ' +
-								'pass them to the next step. Beware that the `./shared` folder is not ' +
-								'preserved across suspends and sleeps.',
-							rightDocumentationLink:
-								'https://www.windmill.dev/docs/core_concepts/persistent_storage/within_windmill#shared-directory'
-						}}
-					/>
+					<div class="flex flex-col gap-1">
+						<Toggle
+							textClass="font-medium"
+							size="xs"
+							disabled={conflictingModuleIds.length > 0}
+							bind:checked={flowStore.val.value.same_worker}
+							options={{
+								right: 'Same Worker + Shared directory on `./shared`',
+								rightTooltip:
+									'Steps will share a folder at `./shared` in which they can store heavier data and ' +
+									'pass them to the next step. Beware that the `./shared` folder is not ' +
+									'preserved across suspends and sleeps.',
+								rightDocumentationLink:
+									'https://www.windmill.dev/docs/core_concepts/persistent_storage/within_windmill#shared-directory'
+							}}
+						/>
+						{#if conflictingModuleIds.length > 0}
+							<span class="text-xs text-secondary">
+								{SAME_WORKER_INCOMPATIBLE_MSG} Remove them from step{conflictingModuleIds.length > 1
+									? 's'
+									: ''}
+								{conflictingModuleIds.join(', ')} first.
+							</span>
+						{/if}
+					</div>
 				{/if}
 
 				<!-- Visibility Section -->

@@ -179,6 +179,15 @@
 		return ambiguous
 	})
 
+	// Opening while a fork is active expands that fork's family, so the tick sits
+	// on the active fork's own row instead of on its collapsed root.
+	function seedExpandedFamilies() {
+		expandedFamilies.clear()
+		if (currentFamily && currentFamily.id !== $workspaceStore) {
+			expandedFamilies.add(currentFamily.id)
+		}
+	}
+
 	// The active workspace itself (fork included) — names the settings entry.
 	const activeWorkspace = $derived($userWorkspaces?.find((w) => w.id === $workspaceStore))
 	const canManageWorkspace = $derived(
@@ -193,13 +202,14 @@
 
 <svelte:window onkeydowncapture={onExpandKeydown} />
 
-<!-- Expansion is per-open: every open starts with all families collapsed,
-     including the active fork's. -->
+<!-- Expansion is per-open: every open starts from the active workspace's family
+     alone, discarding whatever the previous open expanded. -->
 <Menu
 	{createMenu}
 	usePointerDownOutside
 	placement="bottom-start"
 	bind:open={menuOpen}
+	on:open={seedExpandedFamilies}
 	on:close={() => expandedFamilies.clear()}
 >
 	{#snippet triggr({ trigger })}

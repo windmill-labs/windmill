@@ -6,7 +6,6 @@ use std::fs::{create_dir_all, remove_dir_all};
 use crate::ansible_executor::{get_git_repos_lock, AnsibleDependencyLocks};
 use async_recursion::async_recursion;
 use itertools::Itertools;
-use serde::Serialize;
 use serde_json::value::RawValue;
 use serde_json::{from_value, json, Value};
 use sha2::Digest;
@@ -33,7 +32,7 @@ use windmill_parser_yaml::AnsibleRequirements;
 use windmill_common::{
     apps::AppScriptId,
     cache::{self, RawData},
-    error::{self, to_anyhow},
+    error,
     flows::{add_virtual_items_if_necessary, FlowValue},
     scripts::ScriptLang,
     DB,
@@ -647,26 +646,7 @@ pub async fn handle_flow_dependency_job(
         .await?;
     }
 
-    #[derive(Debug, Clone, Serialize)]
-    struct FlowValueWithExtras<'a> {
-        #[serde(flatten)]
-        value: &'a FlowValue,
-
-        #[serde(skip_serializing_if = "Option::is_none")]
-        notes: Option<Box<RawValue>>,
-
-        #[serde(skip_serializing_if = "Option::is_none")]
-        groups: Option<Box<RawValue>>,
-    }
-
-    let new_flow_value = Json(
-        serde_json::value::to_raw_value(&FlowValueWithExtras {
-            value: &flow,
-            notes: extras.as_ref().and_then(|e| e.notes.clone()),
-            groups: extras.as_ref().and_then(|e| e.groups.clone()),
-        })
-        .map_err(to_anyhow)?,
-    );
+    let new_flow_value = Json(extras.reattach(&flow)?);
 
     // Re-check cancellation to ensure we don't accidentally override a flow.
     if sqlx::query_scalar!(
@@ -758,14 +738,7 @@ pub async fn handle_flow_dependency_job(
             )
             .await?;
 
-            let value_lite_with_extras = Json(
-                serde_json::value::to_raw_value(&FlowValueWithExtras {
-                    value: &value_lite,
-                    notes: extras.as_ref().and_then(|e| e.notes.clone()),
-                    groups: extras.as_ref().and_then(|e| e.groups.clone()),
-                })
-                .map_err(to_anyhow)?,
-            );
+            let value_lite_with_extras = Json(extras.reattach(&value_lite)?);
             sqlx::query!(
                 "INSERT INTO flow_version_lite (id, value) VALUES ($1, $2)
                  ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value",
@@ -1296,7 +1269,7 @@ async fn lock_modules(
                         let locked = locked_iter.next().ok_or_else(|| {
                             Error::internal_err("locked tool module should exist".to_string())
                         })?;
-                        tools[idx] = locked.into();
+                        tools[idx].update_from_module(locked);
                     }
 
                     e.value = FlowModuleValue::AIAgent {

@@ -258,13 +258,11 @@
 
 	function updateQueryFilters(selectedFilterKind, filterUserFolders) {
 		setQuery(
-			new URL(window.location.href),
 			TRIGGER_PATH_KIND_FILTER_SETTING,
 			selectedFilterKind,
 			window.location.hash || undefined
 		).then(() => {
 			setQuery(
-				new URL(window.location.href),
 				FILTER_USER_FOLDER_SETTING_NAME,
 				String(filterUserFolders),
 				window.location.hash || undefined

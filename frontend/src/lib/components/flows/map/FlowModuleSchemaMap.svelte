@@ -45,7 +45,7 @@
 	import {
 		type AgentTool,
 		type SpecialToolKind,
-		flowModuleToAgentTool,
+		newFlowModuleAgentTool,
 		createMcpTool,
 		createWebsearchTool,
 		createAiAgentTool,
@@ -250,8 +250,7 @@
 			;(modules as AgentTool[]).splice(index, 0, aiAgentTool)
 			return modules as AgentTool[]
 		} else if (toolKind === 'flowmoduleTool') {
-			// Create AgentTool from FlowModule
-			const agentTool = flowModuleToAgentTool(module)
+			const agentTool = newFlowModuleAgentTool(module)
 			;(modules as AgentTool[]).splice(index, 0, agentTool)
 			return modules as AgentTool[]
 		} else {
@@ -611,6 +610,7 @@
 			{flowHasChanged}
 			chatInputEnabled={Boolean(flowStore.val.value?.chat_input_enabled)}
 			onDelete={(id) => requestDelete([id])}
+			onDismissRunNode={(id) => onDelete?.(id)}
 			onInsert={async (detail) => {
 				if (!flowStore.val.value.modules || !Array.isArray(flowStore.val.value.modules)) return
 				await tick()

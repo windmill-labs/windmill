@@ -1257,7 +1257,7 @@ pub async fn create_custom_instance_database(
         tracing::warn!(
             "Failed to grant permissions on '{}': {}. Continuing.",
             dbname,
-            e
+            crate::error::pg_error_message(&e)
         );
     }
 
