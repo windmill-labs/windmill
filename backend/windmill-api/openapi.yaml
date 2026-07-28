@@ -29200,6 +29200,10 @@ components:
           $ref: "#/components/schemas/LoggedWizardStatus"
         grant_permissions:
           $ref: "#/components/schemas/LoggedWizardStatus"
+        replication_user:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+        replication_user_error:
+          type: string
 
     CustomInstanceDbTag:
       type: string

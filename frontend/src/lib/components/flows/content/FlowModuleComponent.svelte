@@ -1380,7 +1380,11 @@
 															maximum number of attempts as defined below.
 														</Tooltip>
 													{/snippet}
-													<FlowRetries bind:flowModuleRetry={flowModule.retry} bind:flowModule />
+													<FlowRetries
+														bind:flowModuleRetry={flowModule.retry}
+														bind:flowModule
+														{isAgentTool}
+													/>
 												</Section>
 											{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'concurrency'}
 												<Section label="Concurrency limits" class="flex flex-col gap-4" eeOnly>
@@ -1545,7 +1549,11 @@
 												</div>
 											{:else if advancedSelected === 'sleep'}
 												<div>
-													<FlowModuleSleep previousModuleId={previousModule?.id} bind:flowModule />
+													<FlowModuleSleep
+														previousModuleId={previousModule?.id}
+														bind:flowModule
+														{isAgentTool}
+													/>
 												</div>
 											{:else if advancedSelected === 'debounce'}
 												<div>
