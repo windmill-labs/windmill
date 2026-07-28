@@ -46,10 +46,15 @@ impl DbtEngine {
         }
     }
 
-    /// Whether the engine writes per-node events to its JSON file log — the
-    /// only source of *live* per-model status. dbt-core 2.0.0-alpha.5 accepts
-    /// `--log-format-file json` but still writes a text log, so its runs settle
-    /// their models from `run_results.json` when the invocation ends instead.
+    /// Whether the engine writes per-node events to its JSON **file** log — the
+    /// only source of *live* per-model status.
+    ///
+    /// Not a claim that the others produce none: dbt-core 2.x and Fusion emit
+    /// the same events, on the console, and ignore `--log-format-file json`
+    /// though both accept it. Reading them would mean taking over the console
+    /// and re-rendering the job log. Flip this the moment either honours the
+    /// flag — nothing else has to change (docs/dbt-runtime.md, "Live per-model
+    /// progress").
     pub fn emits_node_events(&self) -> bool {
         matches!(self, DbtEngine::DbtCore1x)
     }

@@ -246,6 +246,40 @@ beside the model in the graph; it does not fire. Wiring it up later means
 deciding what a selective run should notify — that decision is the work, not the
 plumbing.
 
+## Live per-model progress, and why only dbt-core 1.x has it
+
+`DbtEngine::emits_node_events()` is true for `dbt-core-1x` alone, so only 1.x
+moves nodes on the run-page graph while it builds. The other two engines settle
+every relation at the end instead.
+
+That is a statement about **where** the engines put their events, not about
+whether they produce them. Both Rust engines emit exactly the structured node
+events the tailer parses:
+
+```
+$ dbt-sa-cli build --log-format json   # and likewise the fusion binary
+{"info":{"name":"NodeStart"},"data":{"node_info":{
+  "node_status":"started","unique_id":"model.probe.m3",
+  "node_relation":{"relation_name":"windmill_dbt_runtime.probe_sch.m3", ...}}}}
+```
+
+Measured on 2.0.0-alpha.5 and fusion 2.0.0-preview.202, a three-model project:
+15 node events each on the console, 0 in the file log. `--log-format-file json`
+is accepted by both — `json` is a listed value — and ignored: the file is text
+either way.
+
+The events are therefore only on stdout, which is the human-readable job log.
+Taking them would mean setting `--log-format json` and rendering the log
+ourselves from each event's `info.msg`, so the run's log stays readable. That
+buys live progress on two pre-release engines at the price of permanently owning
+log presentation, to work around something upstream has already declared it
+intends to support. Not worth it: when either engine honours
+`--log-format-file json`, flipping `emits_node_events()` is the whole change,
+and the existing tailer starts working untouched.
+
+A finished run is unaffected on every engine — it is coloured from the run's own
+result, not from these events (decision 11's note on `run_progress`).
+
 ## Where the dbt project lives
 
 **In Windmill.** One dbt project is one Windmill script: the script's content is
