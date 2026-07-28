@@ -4,7 +4,7 @@
 	import type { FlowModule } from '$lib/gen'
 	import { stepSettingDefaults } from '../flowStepSettings'
 	import type { FlowEditorContext } from '../types'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { getStepPropPicker } from '../previousResults'
 
 	const { flowStateStore, flowStore, previewArgs } =
@@ -36,6 +36,12 @@
 		previousModule ? flowStateStore.val[previousModule.id]?.previewResult : undefined
 	)
 
+	// `flowModule` re-resolves through `modules[index]`, so a delete can shift it to the
+	// next step before an editor flushes its last keystrokes on unmount. Only write to
+	// the step this component was mounted for.
+	const ownModuleId = untrack(() => flowModule.id)
+	const ownsCurrentModule = () => flowModule?.id === ownModuleId
+
 	let isSkipEnabled = $derived(Boolean(flowModule.skip_if))
 </script>
 
@@ -66,7 +72,7 @@
 			bind:code={
 				() => flowModule.skip_if?.expr ?? '',
 				(v) => {
-					if (flowModule.skip_if) flowModule.skip_if.expr = v
+					if (ownsCurrentModule() && flowModule.skip_if) flowModule.skip_if.expr = v
 				}
 			}
 			pickableProperties={stepPropPicker.pickableProperties}

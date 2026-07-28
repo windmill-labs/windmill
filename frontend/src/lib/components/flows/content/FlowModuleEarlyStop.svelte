@@ -4,7 +4,7 @@
 	import FlowExpressionEditor from './FlowExpressionEditor.svelte'
 	import type { Flow, FlowModule } from '$lib/gen'
 	import type { ExtendedOpenFlow, FlowEditorContext } from '../types'
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { NEVER_TESTED_THIS_FAR } from '../models'
 	import { getStepPropPicker } from '../previousResults'
 	import { dfs } from '../previousResults'
@@ -17,6 +17,12 @@
 	}
 
 	let { flowModule = $bindable() }: Props = $props()
+
+	// `flowModule` re-resolves through `modules[index]`, so a delete can shift it to the
+	// next step before an editor flushes its last keystrokes on unmount. Only write to
+	// the step this component was mounted for.
+	const ownModuleId = untrack(() => flowModule.id)
+	const ownsCurrentModule = () => flowModule?.id === ownModuleId
 
 	let stepPropPicker = $derived(
 		getStepPropPicker(
@@ -111,7 +117,7 @@
 					bind:code={
 						() => flowModule.stop_after_if?.expr ?? '',
 						(v) => {
-							if (flowModule.stop_after_if) flowModule.stop_after_if.expr = v
+							if (ownsCurrentModule() && flowModule.stop_after_if) flowModule.stop_after_if.expr = v
 						}
 					}
 					label="Stop condition expression"
@@ -221,7 +227,8 @@
 					bind:code={
 						() => flowModule.stop_after_all_iters_if?.expr ?? '',
 						(v) => {
-							if (flowModule.stop_after_all_iters_if) flowModule.stop_after_all_iters_if.expr = v
+							if (ownsCurrentModule() && flowModule.stop_after_all_iters_if)
+								flowModule.stop_after_all_iters_if.expr = v
 						}
 					}
 					label="Stop condition expression"

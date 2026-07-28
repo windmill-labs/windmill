@@ -150,6 +150,13 @@
 			flowModule.value.type === 'aiagent'
 	)
 	let visibleSelected = $derived(selected === 'chat' && !canShowChatTab ? 'inputs' : selected)
+	// The panel's `flowModule` prop re-resolves through `modules[index]`, so after a
+	// delete shifts the array it points at the *next* step. An editor flushing its last
+	// keystrokes on unmount would then write them into that sibling — guard on identity.
+	// The each-block is keyed by id, so this component is recreated if the id changes.
+	const ownModuleId = untrack(() => flowModule.id)
+	const ownsCurrentModule = () => flowModule?.id === ownModuleId
+
 	let runSettings: FlowRunSettings | undefined = $state()
 	let validCode = $state(true)
 	let width = $state(1200)
@@ -910,6 +917,7 @@
 														}}
 														on:change={async (event) => {
 															const content = event.detail
+															if (!ownsCurrentModule()) return
 															if (flowModule.value.type === 'rawscript') {
 																if (flowModule.value.content !== content) {
 																	flowModule.value.content = content
@@ -973,6 +981,7 @@
 												}}
 												on:change={async (event) => {
 													const content = event.detail
+													if (!ownsCurrentModule()) return
 													if (flowModule.value.type === 'rawscript') {
 														if (flowModule.value.content !== content) {
 															flowModule.value.content = content

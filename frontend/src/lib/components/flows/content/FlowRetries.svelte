@@ -50,6 +50,12 @@
 			: null
 	)
 
+	// `flowModule`/`flowModuleRetry` re-resolve through `modules[index]`, so a delete can
+	// shift them to the next step before the editor flushes on unmount. Only write to the
+	// step this component was mounted for.
+	const ownModuleId = untrack(() => flowModule?.id)
+	const ownsCurrentModule = () => flowModule?.id === ownModuleId
+
 	let isRetryConditionEnabled = $derived(Boolean(flowModuleRetry?.retry_if))
 	// When retries are toggled off the config is still shown (read-only) so the row
 	// isn't empty: fall back to sensible defaults and force the "constant" tab.
@@ -75,6 +81,10 @@
 				delayType = 'exponential'
 			} else if (delayType === 'exponential' && !r.exponential && r.constant) {
 				delayType = 'constant'
+			} else if (delayType === 'disabled' && (r.constant || r.exponential)) {
+				// Retries added from outside: without this the row keeps reading "off" while
+				// rendering the incoming values greyed out, and toggling on would overwrite them.
+				delayType = r.constant ? 'constant' : 'exponential'
 			}
 		})
 	})
@@ -239,7 +249,7 @@
 					bind:code={
 						() => flowModuleRetry?.retry_if?.expr ?? '',
 						(v) => {
-							if (flowModuleRetry?.retry_if) flowModuleRetry.retry_if.expr = v
+							if (ownsCurrentModule() && flowModuleRetry?.retry_if) flowModuleRetry.retry_if.expr = v
 						}
 					}
 					pickableProperties={stepPropPicker.pickableProperties}

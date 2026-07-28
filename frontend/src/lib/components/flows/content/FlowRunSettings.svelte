@@ -29,6 +29,7 @@
 	import FlowModuleCache from './FlowModuleCache.svelte'
 	import {
 		hasInlineConcurrency,
+		stepSettingDefaults,
 		stepSettingsByKey,
 		type StepSettingSummary
 	} from '../flowStepSettings'
@@ -364,12 +365,12 @@
 									textClass="text-xs font-normal text-primary"
 									eeOnly
 									disabled={!$enterpriseLicense || isCloudHosted()}
-									checked={flowModule.priority !== undefined && flowModule.priority > 0}
+									checked={flowModule.priority !== undefined}
 									on:change={() => {
-										if (flowModule.priority) {
+										if (flowModule.priority !== undefined) {
 											flowModule.priority = undefined
 										} else {
-											flowModule.priority = 100
+											flowModule.priority = stepSettingDefaults('priority')
 										}
 									}}
 									options={{
