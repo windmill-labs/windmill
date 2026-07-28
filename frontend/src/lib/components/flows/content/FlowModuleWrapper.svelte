@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { moduleSlot } from '../moduleSlot'
 	import FlowModuleWrapper from './FlowModuleWrapper.svelte'
 	import { type FlowModule } from '$lib/gen'
 	import { getContext } from 'svelte'
@@ -119,6 +120,17 @@
 		flowModule = module
 		flowStateStore.val[module.id] = state
 	}
+
+	// Branches carry no id, so anchor on the object the block was rendered for: deleting a
+	// lower-indexed branch shifts the array, and an index-anchored write would land the
+	// dying editor's predicate on whichever branch took its place.
+	function replaceBranch(own: object, v: any) {
+		const branches = (flowModule.value as { branches?: any[] }).branches
+		const i = branches?.indexOf(own) ?? -1
+		if (i !== -1 && branches) {
+			branches[i] = v
+		}
+	}
 </script>
 
 {#if flowModule.id === selectedId}
@@ -217,10 +229,15 @@
 		/>
 	{/if}
 {:else if flowModule.value.type === 'forloopflow' || flowModule.value.type == 'whileloopflow'}
-	{#each flowModule.value.modules as _, index (index)}
+	{#each flowModule.value.modules as child, index (index)}
+		{@const slot = moduleSlot(
+			() => (flowModule.value as { modules: FlowModule[] }).modules,
+			child.id,
+			child
+		)}
 		<FlowModuleWrapper
 			{noEditor}
-			bind:flowModule={flowModule.value.modules[index]}
+			bind:flowModule={slot.get, slot.set}
 			bind:parentModule={flowModule}
 			previousModule={flowModule.value.modules[index - 1]}
 			savedModule={savedModule?.value.type === 'forloopflow' ||
@@ -244,10 +261,15 @@
 			</FlowCard>
 		</div>
 	{:else}
-		{#each flowModule.value.default as _, index}
+		{#each flowModule.value.default as child, index}
+			{@const slot = moduleSlot(
+				() => (flowModule.value as { default: FlowModule[] }).default,
+				child.id,
+				child
+			)}
 			<FlowModuleWrapper
 				{noEditor}
-				bind:flowModule={flowModule.value.default[index]}
+				bind:flowModule={slot.get, slot.set}
 				bind:parentModule={flowModule}
 				previousModule={flowModule.value.default[index - 1]}
 				savedModule={savedModule?.value.type === 'branchone'
@@ -263,16 +285,17 @@
 		{#if selectedId === `${flowModule?.id}-branch-${branchIndex}`}
 			<FlowBranchOneWrapper
 				{noEditor}
-				bind:branch={flowModule.value.branches[branchIndex]}
+				bind:branch={() => branch, (v) => replaceBranch(branch, v)}
 				parentModule={flowModule}
 				{previousModule}
 				{enableAi}
 			/>
 		{:else}
-			{#each branch.modules as _, index}
+			{#each branch.modules as child, index}
+				{@const slot = moduleSlot(() => branch.modules, child.id, child)}
 				<FlowModuleWrapper
 					{noEditor}
-					bind:flowModule={flowModule.value.branches[branchIndex].modules[index]}
+					bind:flowModule={slot.get, slot.set}
 					bind:parentModule={flowModule}
 					previousModule={flowModule.value.branches[branchIndex].modules[index - 1]}
 					savedModule={savedModule?.value.type === 'branchone'
@@ -288,12 +311,13 @@
 {:else if flowModule.value.type === 'branchall'}
 	{#each flowModule.value.branches as branch, branchIndex (branchIndex)}
 		{#if selectedId === `${flowModule?.id}-branch-${branchIndex}`}
-			<FlowBranchAllWrapper {noEditor} bind:branch={flowModule.value.branches[branchIndex]} />
+			<FlowBranchAllWrapper {noEditor} bind:branch={() => branch, (v) => replaceBranch(branch, v)} />
 		{:else}
-			{#each branch.modules as _, index}
+			{#each branch.modules as child, index}
+				{@const slot = moduleSlot(() => branch.modules, child.id, child)}
 				<FlowModuleWrapper
 					{noEditor}
-					bind:flowModule={flowModule.value.branches[branchIndex].modules[index]}
+					bind:flowModule={slot.get, slot.set}
 					bind:parentModule={flowModule}
 					previousModule={flowModule.value.branches[branchIndex].modules[index - 1]}
 					{enableAi}
