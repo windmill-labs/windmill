@@ -68,7 +68,7 @@ pub mod object_store_reexports {
     pub use object_store::path::Path;
     pub use object_store::{
         Attribute, Attributes, Error as ObjectStoreError, GetOptions, GetRange, GetResult,
-        ListResult, ObjectMeta, ObjectStore, PutMultipartOpts, PutPayload, PutResult,
+        ListPage, ListResult, ObjectMeta, ObjectStore, PutMultipartOpts, PutPayload, PutResult,
         Result as ObjectStoreResult, WriteMultipart,
     };
 }
@@ -647,6 +647,17 @@ impl ObjectStore for FilesystemStoreIgnoringAttributes {
         prefix: Option<&object_store::path::Path>,
     ) -> object_store::Result<object_store::ListResult> {
         self.0.list_with_delimiter(prefix).await
+    }
+
+    // Explicit so the inner store's native paging is reached; the trait
+    // default would enumerate the whole level instead.
+    async fn list_delimited_page(
+        &self,
+        prefix: Option<&object_store::path::Path>,
+        token: Option<&str>,
+        max_keys: Option<usize>,
+    ) -> object_store::Result<object_store::ListPage> {
+        self.0.list_delimited_page(prefix, token, max_keys).await
     }
 
     async fn copy(
