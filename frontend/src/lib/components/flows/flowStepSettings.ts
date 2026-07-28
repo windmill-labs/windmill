@@ -16,11 +16,9 @@ import type { FlowModule } from '$lib/gen'
 import type { ScriptAdvancedSettingsFields } from '$lib/components/scriptSettings'
 import { validateRetryConfig } from '$lib/utils'
 
-// Single source for the per-step runtime settings (retries, cache, suspend, ...):
-// which ones apply to a step, whether each is configured, and how to name and
-// summarize it. Every surface that answers those questions — the graph badges,
-// the run-settings accordion, the individual setting editors — reads them here,
-// so they cannot drift apart. The script-level twin is `scriptSettings.ts`.
+// Single source for the per-step runtime settings: which apply, which are configured,
+// and how each reads back. Graph badges, the run-settings accordion and the setting
+// editors all read it here so they cannot drift. Script-level twin: `scriptSettings.ts`.
 
 export type StepSettingKey =
 	| 'skip'

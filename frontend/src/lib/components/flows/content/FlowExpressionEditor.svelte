@@ -10,14 +10,9 @@
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import type { PickableProperties } from '../previousResults'
 
-	// A JavaScript expression editor paired with a prop picker.
-	//
-	// - Full-page editor: the picker is an always-visible split pane; clicking a
-	//   property inserts it at the cursor. The editor fills the pane.
-	// - Sessions modal (tight width): the picker collapses into a chevron/plug
-	//   popover next to the label, and the editor sizes to its content
-	//   (auto-height, like a step input). Which mode is active comes from the
-	//   PropPickerContext.collapsePropPickerUntilConnect getter.
+	// Whether the prop picker is a split pane or a collapsed popover is not this
+	// component's choice: it follows PropPickerContext.collapsePropPickerUntilConnect,
+	// so a container too narrow for the pane can opt out without a prop.
 	interface Props {
 		code: string
 		label: string
