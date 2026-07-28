@@ -12,6 +12,7 @@ import {
   KafkaTriggerService,
 } from "./services.gen";
 import { OpenAPI } from "./core/OpenAPI";
+import { isSuspendSignal, stepErrorMarker, taskErrorFromMarker } from "./wacError";
 // import type { DenoS3LightClientSettings } from "./index";
 import {
   DenoS3LightClientSettings,
@@ -1520,32 +1521,6 @@ export class StepSuspend extends Error {
   }
 }
 
-/** Serialize a failed `step()` body into the `__wmill_error` marker that task
- *  failures also use, so it can be stored in `completed_steps`. */
-function stepErrorMarker(key: string, e: unknown): Record<string, any> {
-  const message = e instanceof Error ? e.message : String(e);
-  // Constructor name, not `e.name`: a `class MyError extends Error {}` that
-  // never assigns `this.name` reports "Error", which would make the same
-  // failure read as `MyError` in the python client and `Error` here.
-  const type = e instanceof Error ? (e.constructor?.name ?? e.name) : typeof e;
-  return { __wmill_error: true, message, step_key: key, result: { error: message, type } };
-}
-
-/** Rebuild the error a failed step throws. Both the run that produced the
- *  failure and every later replay go through here, so a workflow's catch block
- *  sees the same shape either way. */
-function stepErrorFromMarker(marker: any, name: string): Error {
-  const err = new Error(marker?.message || `Step '${name}' failed`);
-  // Matches the python client, which raises TaskError here; the failed body's
-  // own type stays in `result.type`. Keeps a failed job's serialized error
-  // identical across the two languages.
-  err.name = "TaskError";
-  (err as any).result = marker?.result;
-  (err as any).step_key = marker?.step_key;
-  (err as any).child_job_id = marker?.child_job_id;
-  return err;
-}
-
 /** Values `JSON.stringify` cannot represent: it omits the property holding one.
  *  The type-level half of `checkpointableResult`, which nulls them at the top
  *  level, where there is no key to omit. */
@@ -1763,11 +1738,7 @@ export class WorkflowCtx {
     if (key in this.completed) {
       const value = this.completed[key];
       if (value && typeof value === "object" && (value as any).__wmill_error) {
-        const err = new Error((value as any).message || `Task '${name}' failed`);
-        err.name = "TaskError";
-        (err as any).result = (value as any).result;
-        (err as any).step_key = (value as any).step_key;
-        (err as any).child_job_id = (value as any).child_job_id;
+        const err = taskErrorFromMarker(value, `Task '${name}' failed`);
         return { then: (_resolve: any, reject?: any) => { if (reject) reject(err); else throw err; } } as PromiseLike<any>;
       }
       return { then: (resolve: any) => resolve(value) };
@@ -1894,7 +1865,7 @@ export class WorkflowCtx {
     if (key in this.completed) {
       const value = this.completed[key];
       if (value && typeof value === "object" && (value as any).__wmill_error) {
-        throw stepErrorFromMarker(value, name);
+        throw taskErrorFromMarker(value, `Step '${name}' failed`);
       }
       return value as T;
     }
@@ -1912,15 +1883,24 @@ export class WorkflowCtx {
     // never-resolving promise above. A nested StepSuspend is control flow,
     // not a step failure.
     let result: T;
-    let stepError: unknown;
     let errored = false;
     try {
       result = await fn();
     } catch (e) {
-      if ((e as any)?.name === "StepSuspend" || e instanceof StepSuspend) throw e;
+      if (isSuspendSignal(e, StepSuspend)) throw e;
       errored = true;
-      stepError = e;
       result = stepErrorMarker(key, e) as any;
+      // The failure is reported as a value from here on, so nothing else prints
+      // the stack. Without this a step that throws and is never caught leaves a
+      // job log whose deepest frame is inside this client.
+      console.log(`--- WAC: ${key} failed ---`);
+      // Only from the marker, which already coerced the thrown value once and
+      // survived it. Reaching for `e` again here would re-run the coercion that
+      // `stepErrorMarker` guards, and throw out of this catch before the failure
+      // is ever checkpointed.
+      console.log(
+        (result as any)?.result?.error?.stack ?? (result as any)?.message ?? "step failed",
+      );
     }
     const durationMs = Date.now() - t0;
 
@@ -1988,6 +1968,22 @@ export class WorkflowCtx {
           if (!resp.ok) {
             throw new Error(`inline_checkpoint API ${resp.status}`);
           }
+          if (!errored) return undefined;
+          // The backend normalizes the failure before storing it, and hands
+          // back what it stored. Throwing from that, not from the marker posted
+          // above, is what makes this round and every replay read the same
+          // record even if the two sides ever disagree about how to build one.
+          //
+          // A backend predating the echo answers without a JSON body; the
+          // caller then falls back to the round trip of what it posted. A JSON
+          // body we cannot read is different: the normalized record may already
+          // be committed and we do not know what it says, so let this reject
+          // and take the suspend path, where the next round reads whatever the
+          // backend actually stored.
+          if (!(resp.headers.get("content-type") ?? "").includes("json")) {
+            return undefined;
+          }
+          return (await resp.json())?.failure;
         } finally {
           clearTimeout(t);
         }
@@ -1995,8 +1991,9 @@ export class WorkflowCtx {
       // Swallow chain errors so a past failure does not poison future awaits.
       this._inlineChain = chainTail.catch(() => {});
       let fastPathOk = false;
+      let storedFailure: any;
       try {
-        await chainTail;
+        storedFailure = await chainTail;
         fastPathOk = true;
       } catch (e) {
         console.log(
@@ -2005,12 +2002,17 @@ export class WorkflowCtx {
         // fall through to the legacy suspend path below
       }
       if (fastPathOk) {
-        // Throw what a replay would rebuild from the marker, never the
+        // Throw what a replay would rebuild from the record, never the
         // original: a replay cannot reconstruct the original type, so throwing
         // it here would match `e instanceof TypeError` on this run and miss on
-        // the next. `cause` is for logging only — absent on replay.
+        // the next. Nothing is attached to `cause` for the same reason — the
+        // stack a replay can still show is in `result.error.stack`.
         if (errored) {
-          throw Object.assign(stepErrorFromMarker(result, name), { cause: stepError });
+          // `checkpointed`, not `result`: against a backend with no echo the
+          // fallback still has to be what the checkpoint holds, or an `extra`
+          // carrying a Date reads as a Date now and as its ISO string on every
+          // replay — the divergence the success path below already avoids.
+          throw taskErrorFromMarker(storedFailure ?? checkpointed, `Step '${name}' failed`);
         }
         // Return the round trip of what was checkpointed, never the in-memory
         // value: handing back the live object would let the round that ran the
@@ -2155,7 +2157,7 @@ export function task<T extends (...args: any[]) => Promise<any>>(
           try {
             result = await fn(...args);
           } catch (e) {
-            if ((e as any)?.name === "StepSuspend" || e instanceof StepSuspend) throw e;
+            if (isSuspendSignal(e, StepSuspend)) throw e;
             ctx._raiseStepFailure(e);
           }
           ctx._raiseSuspend({ mode: "step_complete", steps: [], result: checkpointableResult(result) });
