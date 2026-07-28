@@ -94,3 +94,35 @@ for (const file of files) {
 }
 console.log('Added null to nullable enums in generated schemas');
 "
+
+# OpenAPI 3.0 expresses nullable typed fields as { type: \"<T>\", nullable: true },
+# which is not standard JSON Schema. For typed (non-enum) fields, rewrite them to
+# the standard { type: [\"<T>\", \"null\"] } form so any JSON Schema validator accepts
+# null. Enum-nullable fields are handled by the pass above and are left untouched.
+node -e "
+const fs = require('fs');
+const path = require('path');
+
+function convertNullableTypesToArrays(obj) {
+    if (!obj || typeof obj !== 'object') return;
+    if (Array.isArray(obj)) { obj.forEach(convertNullableTypesToArrays); return; }
+    if (obj.nullable === true && typeof obj.type === 'string' && !Array.isArray(obj.enum)) {
+        obj.type = [obj.type, 'null'];
+        delete obj.nullable;
+    }
+    for (const v of Object.values(obj)) convertNullableTypesToArrays(v);
+}
+
+const files = [
+    '${output_dirpath}/openflow.json',
+    '${output_dirpath}/schedule.json',
+    ...fs.readdirSync('${output_dirpath}/triggers').map(f => path.join('${output_dirpath}/triggers', f))
+].filter(f => f.endsWith('.json'));
+
+for (const file of files) {
+    const schema = JSON.parse(fs.readFileSync(file, 'utf8'));
+    convertNullableTypesToArrays(schema);
+    fs.writeFileSync(file, JSON.stringify(schema, null, 2) + '\n');
+}
+console.log('Converted nullable typed fields to type arrays in generated schemas');
+"

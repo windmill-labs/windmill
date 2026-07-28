@@ -1,0 +1,28 @@
+# Mirrors the YAML the server emits for a module with a constant retry and a
+# stop_after_if without an error message. These defaults (seconds: 0,
+# random_factor: null, error_message: null) used to be rejected by the linter.
+summary: Flow with default retry and stop_after_if
+value:
+  modules:
+    - id: script_step
+      value:
+        type: rawscript
+        input_transforms: {}
+        content: |
+          export async function main() {
+            return "ok";
+          }
+        language: deno
+      retry:
+        constant:
+          attempts: 1
+          seconds: 60
+        exponential:
+          attempts: 0
+          multiplier: 1
+          random_factor: null
+          seconds: 0
+      stop_after_if:
+        error_message: null
+        expr: result == 404
+        skip_if_stopped: true
