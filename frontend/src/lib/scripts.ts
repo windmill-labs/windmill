@@ -178,6 +178,22 @@ const scriptLanguagesArray: [SupportedLanguage | 'docker' | 'bunnative', string]
 	['dbt', 'dbt']
 	// for related places search: ADD_NEW_LANG
 ]
+/**
+ * Languages a MODULE-LESS script cannot be written in.
+ *
+ * A dbt script IS its module bundle — `dbt_project.yml` and the models — and a
+ * flow step's or an app's inline script is a raw body with nowhere to carry
+ * one, so choosing it there produces a job that fails when the worker looks for
+ * the project. A flow reaches dbt the same way it reaches any other script: by
+ * path, to a deployed one.
+ */
+const LANGS_NEEDING_MODULES = ['dbt']
+
+/** `processLangs` for a surface whose scripts have no module bundle. */
+export function processInlineLangs(selected: string | undefined, langs: string[]): string[] {
+	return processLangs(selected, langs).filter((l) => !LANGS_NEEDING_MODULES.includes(l))
+}
+
 export function processLangs(selected: string | undefined, langs: string[]): string[] {
 	if (selected === 'nativets') {
 		return langs

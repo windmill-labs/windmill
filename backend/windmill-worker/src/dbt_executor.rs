@@ -281,7 +281,7 @@ pub(crate) async fn handle_dbt_job(
         // holding the local snapshot replays the saved manifest while a database
         // restore reparses with the new value.
         if let Some(saved) = restored.args_digest.as_deref() {
-            if saved != format!("{:x}", inv.resolved_args_digest()) {
+            if saved != inv.resolved_args_digest() {
                 return Err(Error::BadRequest(
                     "the values this run's arguments resolve to have changed since the run                      being retried, so its failures no longer describe what a retry would                      build; run the script normally instead"
                         .to_string(),
@@ -773,14 +773,12 @@ impl PreparedProject {
     /// Only the descriptor's own entries. `env` additionally carries `HOME`,
     /// set to this job's directory, which differs on every attempt — hashing it
     /// would make a retry reject its own predecessor every time.
-    fn env_digest(&self) -> u64 {
-        use std::hash::{Hash, Hasher};
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        for (k, v) in &self.descriptor_env {
-            k.hash(&mut h);
-            v.hash(&mut h);
-        }
-        h.finish()
+    fn env_digest(&self) -> String {
+        stable_digest(
+            self.descriptor_env
+                .iter()
+                .flat_map(|(k, v)| [k.as_str(), v.as_str()]),
+        )
     }
 
     /// Everything that decides which relations a run produces, which is what a
@@ -800,7 +798,7 @@ impl PreparedProject {
         // them means the next field added to the descriptor is silently left
         // out of the check.
         format!(
-            "{}|{}|{}|{:x}|{}|{}",
+            "{}|{}|{}|{}|{}|{}",
             self.project_digest,
             self.engine.engine.as_str(),
             digest(&self.descriptor_content),
@@ -1126,7 +1124,7 @@ async fn install_packages(
     // private package code without ever authenticating. Both environments are
     // keyed too, since `packages.yml` can read `env_var()`.
     let mut key = format!(
-        "{w_id}\n{}\n{:x}\n{:x}\n",
+        "{w_id}\n{}\n{}\n{:x}\n",
         p.project_digest,
         p.env_digest(),
         p.invocation_env_digest,
@@ -2969,7 +2967,7 @@ async fn save_run_state(
         return Ok(());
     }
     let identity = format!(
-        "{}|{:x}{ARGS_DIGEST_TAG}{:x}",
+        "{}|{}{ARGS_DIGEST_TAG}{}",
         p.run_identity(),
         inv.env_digest(),
         inv.resolved_args_digest()
@@ -3139,30 +3137,18 @@ impl Invocation {
     /// reparses with the new value. Placement must not decide that.
     ///
     /// Values are the user's, and can be secrets, so they are hashed.
-    fn resolved_args_digest(&self) -> u64 {
-        use std::hash::{Hash, Hasher};
+    fn resolved_args_digest(&self) -> String {
         let mut sorted: Vec<(&String, &Box<RawValue>)> = self.args.iter().collect();
         sorted.sort_by(|a, b| a.0.cmp(b.0));
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        for (k, v) in sorted {
-            k.hash(&mut h);
-            v.get().hash(&mut h);
-        }
-        h.finish()
+        stable_digest(sorted.iter().flat_map(|(k, v)| [k.as_str(), v.get()]))
     }
 
     /// Digest of the script-level environment, for retry identity. Values are
     /// secrets, so they are hashed rather than stored.
-    fn env_digest(&self) -> u64 {
-        use std::hash::{Hash, Hasher};
+    fn env_digest(&self) -> String {
         let mut sorted: Vec<(&String, &String)> = self.envs.iter().collect();
         sorted.sort();
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        for (k, v) in sorted {
-            k.hash(&mut h);
-            v.hash(&mut h);
-        }
-        h.finish()
+        stable_digest(sorted.iter().flat_map(|(k, v)| [k.as_str(), v.as_str()]))
     }
 }
 
@@ -3173,6 +3159,23 @@ impl Invocation {
 /// only `dbt_command`, and the arguments to compare are the saved ones after
 /// this caller has re-resolved them — which happens later, in `handle_dbt_job`.
 /// Comparing the whole string up front would refuse every retry.
+/// A digest that survives a toolchain upgrade.
+///
+/// These values are written into `dbt_run_state.identity` and compared by a
+/// later worker, possibly built with a different Rust release —
+/// `DefaultHasher`'s output is explicitly not stable across those, so a bump
+/// would refuse every saved failure as a different project. Each part is
+/// length-prefixed so no split of the same bytes can collide.
+fn stable_digest<'a>(parts: impl Iterator<Item = &'a str>) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    for p in parts {
+        h.update((p.len() as u64).to_be_bytes());
+        h.update(p.as_bytes());
+    }
+    format!("{:x}", h.finalize())
+}
+
 fn split_identity(identity: &str) -> (&str, Option<&str>) {
     // Tagged, not positional. The previous format was `<identity>|<env>`, so
     // taking "everything after the last `|`" reads a pre-upgrade row's env
@@ -3233,7 +3236,7 @@ async fn restore_from_db(
         return Err(no_state);
     };
     let (saved_prefix, saved_args_digest) = split_identity(&row.identity);
-    if saved_prefix != format!("{}|{:x}", p.run_identity(), inv.env_digest()) {
+    if saved_prefix != format!("{}|{}", p.run_identity(), inv.env_digest()) {
         return Err(different_project());
     }
     let saved_args_digest = saved_args_digest.map(str::to_string);
@@ -3367,7 +3370,7 @@ async fn restore_run_state(
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
     let (saved_prefix, saved_args_digest) = split_identity(&saved.identity);
-    if saved_prefix != format!("{}|{:x}", p.run_identity(), inv.env_digest()) {
+    if saved_prefix != format!("{}|{}", p.run_identity(), inv.env_digest()) {
         return Err(different_project());
     }
     let saved_args_digest = saved_args_digest.map(str::to_string);
