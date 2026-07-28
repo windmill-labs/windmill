@@ -1170,6 +1170,24 @@ class TestRaisingInlineStepIsCheckpointed:
         _json.dumps(marker)  # a surviving tuple key would raise here
         assert marker["result"]["error"]["extra"] == {"code": 429}
 
+        # A key is hashed again to rebuild the pair, so one that hashes on the
+        # way into __dict__ and raises afterwards must never reach that point.
+        class ExplodingKey:
+            def __init__(self):
+                self.hashed = 0
+
+            def __hash__(self):
+                self.hashed += 1
+                if self.hashed > 1:
+                    raise RuntimeError("second hash")
+                return 1
+
+        exploding = OddKey()
+        exploding.__dict__[ExplodingKey()] = "x"
+        marker = _step_error_marker("k", exploding)
+        _json.dumps(marker)
+        assert marker["result"]["error"]["extra"] == {"code": 429}
+
         # A float is serializable, so `default=` never sees NaN — it would go out
         # as a bare `NaN` literal, which is not JSON and which the backend
         # rejects, so the step could not be checkpointed at all.

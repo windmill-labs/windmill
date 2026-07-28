@@ -2790,6 +2790,13 @@ def _step_error_marker(key: str, exc: BaseException) -> dict:
         # client admits properties one at a time for the same reason.
         safe_extra = {}
         for _pair in _pairs:
+            # Only the key types json can represent, and only exactly those:
+            # rebuilding the pair below hashes the key a second time, and a
+            # subclass free to define ``__hash__`` can permit the insertion into
+            # ``__dict__`` and then raise here, escaping the narrow catch to
+            # replace the user's failure. Nothing else can be a json key anyway.
+            if type(_pair[0]) not in (str, int, float, bool, type(None)):
+                continue
             # The whole pair, not just the value: a key json cannot represent (a
             # tuple, say) survives a value-only check and then breaks the
             # checkpoint encoding, where the failure has nowhere left to go. The
@@ -2805,7 +2812,7 @@ def _step_error_marker(key: str, exc: BaseException) -> dict:
             try:
                 safe_extra.update(
                     json.loads(
-                        json.dumps(dict([_pair]), default=_safe_str),
+                        json.dumps({_pair[0]: _pair[1]}, default=_safe_str),
                         parse_constant=lambda c: c,
                     )
                 )
