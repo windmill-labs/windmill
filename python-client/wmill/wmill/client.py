@@ -3191,9 +3191,9 @@ def task(
             return merged
 
         # Keeps the decorated function's identity: `@task` is applied to a
-        # top-level `async def`, and a caller introspecting it (or a traceback
-        # naming it) should see that function, not `wrapper`. The step key is
-        # computed from `func` above, so this does not affect dispatch.
+        # top-level `async def`, and a caller introspecting it should see that
+        # function, not `wrapper`. The step key is computed from `func` above,
+        # so this does not affect dispatch.
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             # WAC v2: inside a @workflow context
