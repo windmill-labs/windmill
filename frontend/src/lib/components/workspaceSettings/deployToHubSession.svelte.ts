@@ -851,9 +851,9 @@ export class DeployToHubSession {
 		if (this.deploying || this.triggersLoading || this.triggerDiscoveryFailed) return
 		this.deploying = true
 		try {
-			// Captured at click time, not in #deployAll: the toggles stay interactive
-			// while the draft request is in flight, and publishing a type definition
-			// must reflect what was ticked when the user confirmed.
+			// Captured at click time rather than read in #deployAll, which only runs
+			// after the draft request resolves: what gets published must be what was
+			// ticked on confirmation, whatever mutates `exportedResourceTypes` after.
 			const exportedTypes = new Set(this.exportedResourceTypes)
 			if (!(await this.#createDraft())) return
 			onDraftCreated?.()
