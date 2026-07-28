@@ -4658,6 +4658,7 @@ paths:
                     type: string
                   schema:
                     type: string
+                    nullable: true
                   can_create_table:
                     type: boolean
                   can_create_schema:
@@ -4672,6 +4673,7 @@ paths:
                     type: string
                 required:
                   - user
+                  - schema
                   - can_create_table
                   - can_create_schema
                   - migrations_table_exists
