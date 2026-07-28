@@ -18,17 +18,20 @@ export interface DeployItem {
 
 export const canRecord = (k: Kind) => k === 'script' || k === 'flow'
 
-export const HIDDEN_RESOURCE_TYPES = new Set(['app_theme', 'state', 'cache'])
+// `s3_object` is a built-in file-picker format, never a resource type (it is not
+// on the Hub's type list), so it is excluded even when there is no catalog to
+// validate against.
+export const HIDDEN_RESOURCE_TYPES = new Set(['app_theme', 'state', 'cache', 's3_object'])
 
 /**
  * Resource types an item takes as an input, read off its schema's
  * `resource-<type>` arg formats.
  *
- * `resource-<x>` is also used for formats that are no resource type at all
- * (`resource-s3_object`) and for stale or misspelled ones. Publishing those to
- * the Hub would push an empty-schema type and a stub resource nothing can ever
- * fill, so an input-derived type only counts once the workspace declares it —
- * the same bar `ArgInput` applies before rendering an arg as a resource picker.
+ * A `resource-<x>` format is not a type declaration: stale and misspelled ones
+ * pass through unchanged. Publishing those to the Hub would push an empty-schema
+ * type and a stub resource nothing can ever fill, so an input-derived type only
+ * counts once the workspace declares it — the same bar `ArgInput` applies before
+ * rendering an arg as a resource picker.
  *
  * `known` is only authoritative once it holds something: undefined (still
  * loading, or the call failed) and empty (a workspace whose type catalog was

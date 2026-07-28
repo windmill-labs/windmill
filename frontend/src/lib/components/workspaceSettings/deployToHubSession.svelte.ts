@@ -257,12 +257,18 @@ export class DeployToHubSession {
 		void this.#loadPipelineGraph()
 	}
 
+	// Deliberately not `resourceTypesStore.getResourceTypes()`: its error path
+	// resolves to a non-empty `['error_fetching_names']`, which here would read as
+	// a real catalog and filter out every legitimate type. A failure must leave the
+	// catalog unset so validation stays off.
 	async #loadResourceTypeNames() {
 		try {
 			const names = await ResourceService.listResourceTypeNames({ workspace: this.workspace })
 			if (this.#disposed) return
 			this.resourceTypeNames = new Set(names)
-		} catch (e: any) {}
+		} catch (e: any) {
+			console.error('failed to load resource type names, resource type validation is off', e)
+		}
 	}
 
 	filteredWorkspaceItems = $derived(
@@ -1074,6 +1080,7 @@ export class DeployToHubSession {
 		const itemsSnapshot = this.selectedItems.slice()
 		const triggersSnapshot = this.relevantTriggers.slice()
 		const migrationsSnapshot = this.migrationDrafts.slice()
+		const exportedTypesSnapshot = new Set(this.exportedResourceTypes)
 		this.hubItemIds = {}
 		this.deploymentStatus = {}
 		let failures = 0
@@ -1128,7 +1135,7 @@ export class DeployToHubSession {
 			// definition itself stays out of the Hub.
 			const depFailures = await this.#pushResourceTypes(
 				slug,
-				types.filter((t) => this.exportedResourceTypes.has(t))
+				types.filter((t) => exportedTypesSnapshot.has(t))
 			)
 
 			// Input-type deps with no path get a conventional f/<slug>/<type> stub.
@@ -1211,7 +1218,10 @@ export class DeployToHubSession {
 					this.hubHasRemoteLogo = this.hubLogo !== null
 					this.hubLogo = undefined
 				} catch (e: any) {
-					sendUserToast(`Logo ${this.hubLogo ? 'upload' : 'removal'} failed: ${e?.message ?? e}`, true)
+					sendUserToast(
+						`Logo ${this.hubLogo ? 'upload' : 'removal'} failed: ${e?.message ?? e}`,
+						true
+					)
 					failures++
 				}
 			}
