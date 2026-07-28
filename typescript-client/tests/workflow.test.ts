@@ -8,7 +8,7 @@ import { expect, test, describe } from "bun:test";
 // The two functions that decide what a caught failure looks like come from the
 // shipped module, not from the mirror below: they are what drifted from the
 // backend's shape before, so a copy of them here would guard nothing.
-import { safeRead, stepErrorMarker, taskErrorFromMarker } from "../wacError";
+import { isSuspendSignal, stepErrorMarker, taskErrorFromMarker } from "../wacError";
 
 // --- Inline SDK (mirrors client.ts implementation) ---
 
@@ -171,7 +171,7 @@ class WorkflowCtx {
     try {
       result = await fn();
     } catch (e: any) {
-      if (e instanceof StepSuspend || safeRead(e, "name") === "StepSuspend") throw e;
+      if (isSuspendSignal(e, StepSuspend)) throw e;
       result = stepErrorMarker(key, e);
     }
     this._raiseSuspend({
@@ -235,7 +235,7 @@ function task<T extends (...args: any[]) => Promise<any>>(
           try {
             result = await fn(...args);
           } catch (e: any) {
-            if (e instanceof StepSuspend || safeRead(e, "name") === "StepSuspend") throw e;
+            if (isSuspendSignal(e, StepSuspend)) throw e;
             ctx._raiseStepFailure(e);
           }
           ctx._raiseSuspend({
@@ -1595,6 +1595,32 @@ describe("throwing inline step is checkpointed", () => {
     expect(caught).toBeInstanceOf(StepSuspend);
     expect(caught.dispatchInfo.key).toBe("step_0");
     expect(caught.dispatchInfo.result.__wmill_error).toBe(true);
+  });
+
+  // `instanceof` consults a proxy's `getPrototypeOf` trap, so the suspend check
+  // itself can throw — before anything is checkpointed.
+  test("suspend detection survives a value that refuses to be inspected", () => {
+    const hostilePrototype = new Proxy(new StepSuspend({ mode: "sequential" }), {
+      getPrototypeOf() {
+        throw new Error("getPrototypeOf trap");
+      },
+    });
+    // the name is still readable, so it is still recognised as the signal
+    expect(isSuspendSignal(hostilePrototype, StepSuspend)).toBe(true);
+
+    const opaque = new Proxy(
+      {},
+      {
+        getPrototypeOf() {
+          throw new Error("getPrototypeOf trap");
+        },
+        get() {
+          throw new Error("get trap");
+        },
+      },
+    );
+    expect(() => isSuspendSignal(opaque, StepSuspend)).not.toThrow();
+    expect(isSuspendSignal(opaque, StepSuspend)).toBe(false);
   });
 
   test("a replayed step failure is named TaskError, like the python client", async () => {

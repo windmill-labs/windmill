@@ -12,7 +12,7 @@ import {
   KafkaTriggerService,
 } from "./services.gen";
 import { OpenAPI } from "./core/OpenAPI";
-import { safeRead, stepErrorMarker, taskErrorFromMarker } from "./wacError";
+import { isSuspendSignal, stepErrorMarker, taskErrorFromMarker } from "./wacError";
 // import type { DenoS3LightClientSettings } from "./index";
 import {
   DenoS3LightClientSettings,
@@ -1887,7 +1887,7 @@ export class WorkflowCtx {
     try {
       result = await fn();
     } catch (e) {
-      if (e instanceof StepSuspend || safeRead(e, "name") === "StepSuspend") throw e;
+      if (isSuspendSignal(e, StepSuspend)) throw e;
       errored = true;
       result = stepErrorMarker(key, e) as any;
       // The failure is reported as a value from here on, so nothing else prints
@@ -2157,7 +2157,7 @@ export function task<T extends (...args: any[]) => Promise<any>>(
           try {
             result = await fn(...args);
           } catch (e) {
-            if (e instanceof StepSuspend || safeRead(e, "name") === "StepSuspend") throw e;
+            if (isSuspendSignal(e, StepSuspend)) throw e;
             ctx._raiseStepFailure(e);
           }
           ctx._raiseSuspend({ mode: "step_complete", steps: [], result: checkpointableResult(result) });

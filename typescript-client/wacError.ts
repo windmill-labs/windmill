@@ -33,6 +33,23 @@ export function safeRead(o: any, k: string): unknown {
 }
 
 /** @internal
+ *  Whether a caught value is the SDK's own suspend signal, which must be
+ *  rethrown rather than reported as a step failure.
+ *
+ *  Both halves of the check can throw on a hostile value: `instanceof` consults
+ *  a proxy's `getPrototypeOf` trap, and reading `.name` its `get` trap. This
+ *  runs before anything has been checkpointed, so neither may escape — a value
+ *  that fights back is simply not a suspend. */
+export function isSuspendSignal(e: unknown, suspendCtor: Function): boolean {
+  try {
+    if (e instanceof (suspendCtor as any)) return true;
+  } catch {
+    // a proxy refusing to be inspected is not the SDK's own signal
+  }
+  return safeRead(e, "name") === "StepSuspend";
+}
+
+/** @internal
  *  Serialize a failed `step()` body into the `__wmill_error` marker that task
  *  failures also use, so it can be stored in `completed_steps`.
  *

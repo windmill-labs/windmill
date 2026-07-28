@@ -1092,6 +1092,19 @@ class TestRaisingInlineStepIsCheckpointed:
         _json.dumps(marker)
         assert marker["result"]["error"]["name"] == "HostileDict"
 
+        # A float is serializable, so `default=` never sees NaN — it would go out
+        # as a bare `NaN` literal, which is not JSON and which the backend
+        # rejects, so the step could not be checkpointed at all.
+        class NotFinite(Exception):
+            def __init__(self):
+                super().__init__("nan")
+                self.value = float("nan")
+                self.limit = float("inf")
+
+        marker = _step_error_marker("k", NotFinite())
+        _json.dumps(marker, allow_nan=False)
+        assert marker["result"]["error"]["extra"] == {"value": "NaN", "limit": "Infinity"}
+
     def test_fast_path_posts_error_and_raises_the_replay_exception(self, monkeypatch):
         """The default path: the checkpoint is POSTed and the workflow body gets
         the same ``TaskError`` a replay rebuilds from the marker — raising the

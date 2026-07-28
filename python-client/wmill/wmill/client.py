@@ -2788,7 +2788,15 @@ def _step_error_marker(key: str, exc: BaseException) -> dict:
         # catch would hide a mistake in this function as a silently missing
         # field, which is how it read before.
         try:
-            error["extra"] = json.loads(json.dumps(extra, default=_safe_str))
+            # ``parse_constant`` catches the one thing ``default`` cannot: a
+            # float is serializable, so ``NaN``/``Infinity`` pass through as
+            # bare literals that are not JSON and that the backend's extractor
+            # rejects — taking the whole checkpoint down with them. Kept as
+            # their text rather than dropped, so the attribute still says
+            # something.
+            error["extra"] = json.loads(
+                json.dumps(extra, default=_safe_str), parse_constant=lambda c: c
+            )
         except (TypeError, ValueError, RecursionError):
             pass
     return {
@@ -3093,8 +3101,8 @@ class WorkflowCtx:
                 # run and miss on the next. Nothing is chained onto
                 # ``__cause__`` for the same reason — the traceback a replay can
                 # still show is in ``result["error"]["stack"]``. ``_stored_failure``
-                # is None against a backend that predates the echoed record; the
-                # locally built marker is then the best available guess at it.
+                # is None against a backend that predates the echoed record,
+                # which is what ``_replay_result`` below stands in for.
                 if step_failed:
                     # ``_replay_result``, not ``result``: the fallback has to be
                     # what the checkpoint holds, so the round that ran the body
