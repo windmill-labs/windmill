@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { openedDrawers } from '$lib/components/common/drawer/Disposable.svelte'
 	import { NODE, type FlowNodeColorClasses } from '../../util'
 	import { createEventDispatcher } from 'svelte'
 	import type { TriggerType } from '$lib/components/triggers/utils'
@@ -102,7 +103,10 @@
 <svelte:window
 	onkeydown={(e) => {
 		if (showTriggerScriptPicker && e.key === 'Escape') {
-			e.stopPropagation()
+			// A drawer above us owns Escape. Both listeners are on window, so neither can
+			// stop the other from running — only this check keeps one Escape from closing
+			// the picker and the drawer the flow editor is sitting in.
+			if (openedDrawers.val.length > 0) return
 			showTriggerScriptPicker = false
 		}
 	}}
