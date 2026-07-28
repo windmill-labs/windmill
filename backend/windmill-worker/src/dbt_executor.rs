@@ -256,6 +256,21 @@ pub(crate) async fn handle_dbt_job(
             raw_args: restored.args,
             ..inv
         };
+        // Now that they are resolved, they can be compared. A `$var:` whose
+        // value moved since the failed run selects a different node set, or
+        // shifts a schema or alias — so the saved failures no longer describe
+        // what a retry would build. Refused rather than resumed, because which
+        // graph it would use otherwise depends on where it lands: a worker
+        // holding the local snapshot replays the saved manifest while a database
+        // restore reparses with the new value.
+        if let Some(saved) = restored.args_digest.as_deref() {
+            if saved != format!("{:x}", inv.resolved_args_digest()) {
+                return Err(Error::BadRequest(
+                    "the values this run's arguments resolve to have changed since the run                      being retried, so its failures no longer describe what a retry would                      build; run the script normally instead"
+                        .to_string(),
+                ));
+            }
+        }
         if restored.needs_parse {
             // After the resolution above, so the manifest describes the project
             // the build is about to retry.
@@ -2930,7 +2945,7 @@ async fn save_run_state(
     if p.script_path.is_empty() {
         return Ok(());
     }
-    let identity = format!("{}|{:x}", p.run_identity(), inv.env_digest());
+    let identity = format!("{}|{:x}|{:x}", p.run_identity(), inv.env_digest(), inv.resolved_args_digest());
     // The args as SUBMITTED, not as resolved: `build_args_map` turns `$var:` and
     // `$res:` into plaintext, and this row outlives the job. Persisting the
     // resolved value would leave a secret in the database and let a retry replay
@@ -3085,6 +3100,29 @@ pub struct Invocation {
 }
 
 impl Invocation {
+    /// Digest of the RESOLVED arguments, for retry identity.
+    ///
+    /// The saved arguments are the ones submitted, so a `$var:` in them is
+    /// re-resolved on retry — and a value that changed since the failed run
+    /// selects a different set of nodes, or an `enabled`/`schema`/`alias` that
+    /// moves the relations. Without this in the identity that retry is accepted,
+    /// and which graph it uses then depends on WHERE it lands: a worker holding
+    /// the local snapshot replays the saved manifest, while a database restore
+    /// reparses with the new value. Placement must not decide that.
+    ///
+    /// Values are the user's, and can be secrets, so they are hashed.
+    fn resolved_args_digest(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut sorted: Vec<(&String, &Box<RawValue>)> = self.args.iter().collect();
+        sorted.sort_by(|a, b| a.0.cmp(b.0));
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        for (k, v) in sorted {
+            k.hash(&mut h);
+            v.get().hash(&mut h);
+        }
+        h.finish()
+    }
+
     /// Digest of the script-level environment, for retry identity. Values are
     /// secrets, so they are hashed rather than stored.
     fn env_digest(&self) -> u64 {
@@ -3097,6 +3135,20 @@ impl Invocation {
             v.hash(&mut h);
         }
         h.finish()
+    }
+}
+
+/// The saved identity, split at the point resolution happens.
+///
+/// The project, warehouse, engine and env can be checked before anything is
+/// restored. The resolved-arguments digest cannot: the retry REQUEST carries
+/// only `dbt_command`, and the arguments to compare are the saved ones after
+/// this caller has re-resolved them — which happens later, in `handle_dbt_job`.
+/// Comparing the whole string up front would refuse every retry.
+fn split_identity(identity: &str) -> (&str, Option<&str>) {
+    match identity.rsplit_once('|') {
+        Some((prefix, args)) => (prefix, Some(args)),
+        None => (identity, None),
     }
 }
 
@@ -3144,9 +3196,11 @@ async fn restore_from_db(
     else {
         return Err(no_state);
     };
-    if row.identity != format!("{}|{:x}", p.run_identity(), inv.env_digest()) {
+    let (saved_prefix, saved_args_digest) = split_identity(&row.identity);
+    if saved_prefix != format!("{}|{:x}", p.run_identity(), inv.env_digest()) {
         return Err(different_project());
     }
+    let saved_args_digest = saved_args_digest.map(str::to_string);
     if !has_retryable_node(&row.run_results) {
         return Err(nothing_to_retry());
     }
@@ -3158,7 +3212,11 @@ async fn restore_from_db(
     // No manifest came with the row, so one has to be re-derived — but not here:
     // these arguments are as SUBMITTED, and a `$var:` in them shapes the graph
     // only once resolved. The caller resolves, then parses.
-    Ok(RestoredRun { args: restored_args(row.args), needs_parse: true })
+    Ok(RestoredRun {
+        args: restored_args(row.args),
+        needs_parse: true,
+        args_digest: saved_args_digest,
+    })
 }
 
 /// Job arguments as stored, each value a raw JSON string.
@@ -3194,6 +3252,9 @@ pub struct RestoredRun {
     /// Whether a `dbt parse` still owes a `manifest.json`. The local snapshot
     /// carries one; the database row does not.
     pub needs_parse: bool,
+    /// The resolved-arguments digest the saved run had, checked once the caller
+    /// has re-resolved those arguments.
+    pub args_digest: Option<String>,
 }
 
 /// Restore the previous invocation. The `dbt parse` a database restore needs is
@@ -3269,9 +3330,11 @@ async fn restore_run_state(
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
-    if saved.identity != format!("{}|{:x}", p.run_identity(), inv.env_digest()) {
+    let (saved_prefix, saved_args_digest) = split_identity(&saved.identity);
+    if saved_prefix != format!("{}|{:x}", p.run_identity(), inv.env_digest()) {
         return Err(different_project());
     }
+    let saved_args_digest = saved_args_digest.map(str::to_string);
     let target = p.project_dir.join(ARTIFACTS_DIR);
     tokio::fs::create_dir_all(&target).await.ok();
     for f in ["run_results.json", "manifest.json"] {
@@ -3286,6 +3349,7 @@ async fn restore_run_state(
             .filter_map(|(k, v)| Some((k, RawValue::from_string(v).ok()?)))
             .collect(),
         needs_parse: false,
+        args_digest: saved_args_digest,
     })
 }
 
@@ -3765,6 +3829,23 @@ mod tests {
     // left on alongside an explicit selection makes the descriptor win: a
     // preview of one model returns another's rows, and a run builds nodes it
     // was not asked for.
+    // The saved identity is compared in two halves because resolution happens
+    // between them: everything before the last `|` is checkable up front, the
+    // digest after it only once the caller has re-resolved the saved arguments.
+    // Comparing the whole string up front refuses every retry, since the retry
+    // request carries only `dbt_command`.
+    #[test]
+    fn the_identity_splits_at_the_resolved_arguments() {
+        let (prefix, args) = split_identity("proj|wh|engine|deadbeef|c0ffee");
+        assert_eq!(prefix, "proj|wh|engine|deadbeef");
+        assert_eq!(args, Some("c0ffee"));
+        // A row written before the digest existed has no last segment to trust,
+        // and must still restore rather than be refused.
+        let (prefix, args) = split_identity("bare");
+        assert_eq!(prefix, "bare");
+        assert_eq!(args, None);
+    }
+
     #[test]
     fn a_runs_own_selection_replaces_the_descriptor_selector() {
         let descriptor =
