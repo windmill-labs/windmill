@@ -50,10 +50,11 @@
 
 {#if paused}
 	<span
-		class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-surface/80 backdrop-blur text-2xs text-accent"
+		class={(compact ? 'gap-1 px-1.5 py-0.5 text-[10px]' : 'gap-1.5 px-2 py-1 text-2xs') +
+			' inline-flex items-center rounded-md bg-surface/80 backdrop-blur text-accent'}
 		aria-label="Waiting for your input"
 	>
-		<Hourglass class="w-3 h-3 hourglass-flip" />
+		<Hourglass class={(compact ? 'w-2.5 h-2.5' : 'w-3 h-3') + ' hourglass-flip'} />
 		Waiting for your input
 	</span>
 {:else}
