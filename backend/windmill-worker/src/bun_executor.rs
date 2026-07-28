@@ -1885,7 +1885,7 @@ try {{
         console.log(`\n--- WAC: complete ---`);
     }}
     const output_json = JSON.stringify(output, (key, value) =>
-        typeof value === 'undefined' || typeof value === 'function' || typeof value === 'symbol' ? null : value
+        typeof value === 'undefined' ? null : value
     );
     await fs.writeFile("result.json", output_json);
     process.exit(0);

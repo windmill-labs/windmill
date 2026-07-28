@@ -1590,12 +1590,12 @@ export type Jsonified<T> =
                     : never;
 
 /** Encode a checkpoint payload the way the worker wrapper does on the suspend
- *  path, so both arms record the same value for the same step. Every value
- *  `JSON.stringify` would drop the key for maps to null instead: the endpoint
- *  and `WacOutput::InlineCheckpoint` both require a `result`. */
+ *  path, so both arms record the same value for the same step. `undefined` maps
+ *  to null; a bigint to its digits, which the wrapper gets instead from the
+ *  `BigInt.prototype.toJSON` it installs and the SDK cannot count on. */
 function encodeCheckpointPayload(payload: Record<string, any>): string {
   return JSON.stringify(payload, (_key, value) =>
-    typeof value === "undefined" || typeof value === "function" || typeof value === "symbol"
+    typeof value === "undefined"
       ? null
       : typeof value === "bigint"
         ? value.toString()
@@ -1603,11 +1603,18 @@ function encodeCheckpointPayload(payload: Record<string, any>): string {
   );
 }
 
+/** A whole result that `JSON.stringify` drops the key for leaves a checkpoint
+ *  with no `result`, which neither the endpoint nor `WacOutput` accepts. Only
+ *  the top level: nested, a dropped key is what every other bun path does. */
+function checkpointableResult(value: any): any {
+  return typeof value === "function" || typeof value === "symbol" ? null : value;
+}
+
 /** Put a value through the checkpoint's encoding without checkpointing it, so
  *  the paths that never persist anything still hand back the shape the ones
  *  that do would. */
 function jsonRoundTrip<T>(value: T): Jsonified<T> {
-  return JSON.parse(encodeCheckpointPayload({ value })).value;
+  return JSON.parse(encodeCheckpointPayload({ value: checkpointableResult(value) })).value;
 }
 
 /**
@@ -1907,7 +1914,7 @@ export class WorkflowCtx {
       try {
         payload = encodeCheckpointPayload({
           key,
-          result,
+          result: checkpointableResult(result),
           started_at: startedAt,
           duration_ms: durationMs,
         });
@@ -1916,7 +1923,6 @@ export class WorkflowCtx {
         // Circular reference or a throwing toJSON. The wrapper on the suspend
         // path uses the same replacer and fails the same way, so falling
         // through keeps the failure where it was before the fast path existed.
-        payload = undefined;
         console.log(
           `WAC v2 inline fast path could not serialize key ${key}, falling back to suspend: ${e}`,
         );
@@ -1974,7 +1980,7 @@ export class WorkflowCtx {
       }
     }
 
-    this._raiseSuspend({ mode: "inline_checkpoint", steps: [], key, result, started_at: startedAt, duration_ms: durationMs });
+    this._raiseSuspend({ mode: "inline_checkpoint", steps: [], key, result: checkpointableResult(result), started_at: startedAt, duration_ms: durationMs });
   }
 
   /** Raise a suspend, parking it so a body that catches it cannot make it

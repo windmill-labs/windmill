@@ -58,6 +58,9 @@ describe("inline step round parity", () => {
     // `JSON.stringify` drops the key for these, and a checkpoint with no
     // `result` is one neither the endpoint nor the worker can parse.
     ["function", () => () => 1, null],
+    // Nested, though, a dropped key is what every other bun path produces —
+    // and what `Jsonified` describes.
+    ["nested-function", () => ({ a: 1, cb: () => 1 }), { a: 1 }],
   ];
 
   for (const [name, fn, expected] of cases) {
