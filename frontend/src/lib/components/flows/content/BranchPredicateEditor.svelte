@@ -43,7 +43,6 @@
 
 {#if open}
 	<FlowExpressionEditor
-		forceCollapsePicker
 		label="Run this branch if"
 		bind:code={branch.expr}
 		pickableProperties={stepPropPicker.pickableProperties}

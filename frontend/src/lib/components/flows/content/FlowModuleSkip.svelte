@@ -60,7 +60,6 @@
 
 	<div class="w-full">
 		<FlowExpressionEditor
-			forceCollapsePicker
 			disabled={!isSkipEnabled}
 			label="Skip condition expression"
 			bind:code={

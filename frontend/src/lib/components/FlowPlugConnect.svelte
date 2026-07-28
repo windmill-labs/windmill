@@ -10,13 +10,17 @@
 		wrapperClasses?: string
 		/** Suppress the animated ring (e.g. the sessions modal panel). */
 		disableAnimation?: boolean
+		disabled?: boolean
+		title?: string
 	}
 
 	let {
 		connecting,
 		id = undefined,
 		wrapperClasses = '',
-		disableAnimation = false
+		disableAnimation = false,
+		disabled = false,
+		title = undefined
 	}: Props = $props()
 </script>
 
@@ -33,6 +37,8 @@
 			'bg-surface hover:bg-surface-hover group/plug-btn overflow-clip flex p-0'
 		)}
 		on:click
+		{disabled}
+		{...title ? { title } : {}}
 		{...id ? { id } : {}}
 		{wrapperClasses}
 	>

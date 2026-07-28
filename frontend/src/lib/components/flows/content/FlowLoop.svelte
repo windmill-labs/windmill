@@ -1,5 +1,4 @@
 <script lang="ts">
-	import FlowPlugConnect from '$lib/components/FlowPlugConnect.svelte'
 	import { getContext } from 'svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import type { FlowEditorContext } from '../types'
@@ -76,11 +75,6 @@
 
 	const propPickerContext = getContext<PropPickerContext>('PropPickerContext')
 	const { flowPropPickerConfig } = propPickerContext
-	// Connecting means clicking a node in the graph, which the modal covers — offer it
-	// only when the panel is docked beside the graph.
-	const canConnectFromGraph = $derived(
-		!(propPickerContext?.collapsePropPickerUntilConnect?.() ?? false)
-	)
 	flowPropPickerConfig.set(undefined)
 
 	let stepPropPicker = $derived(
@@ -189,20 +183,6 @@
 							over. Example : ["banana", "apple", flow_input.my_fruit].
 						{/snippet}
 						{#snippet headerExtra()}
-							{#if canConnectFromGraph}
-								<FlowPlugConnect
-									connecting={$flowPropPickerConfig != undefined}
-									on:click={() => {
-										flowPropPickerConfig.set({
-											onSelect: (code) => {
-												setExpr(code)
-												return true
-											},
-											clearFocus: () => flowPropPickerConfig.set(undefined)
-										})
-									}}
-								/>
-							{/if}
 							{#if enableAi}
 								<IteratorGen
 									bind:this={iteratorGen}
@@ -352,7 +332,6 @@
 						}
 						label="Parallelism expression"
 						pickableProperties={stepPropPicker.pickableProperties}
-						flow_input={stepPropPicker.pickableProperties.flow_input}
 						extraLib={stepPropPicker.extraLib}
 						bind:editor={parallelismEditor}
 						id="flow-editor-parallel-expression"

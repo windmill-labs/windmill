@@ -106,7 +106,6 @@
 
 			<div class="w-full mt-2 border rounded-md p-3 flex flex-col gap-3">
 				<FlowExpressionEditor
-					forceCollapsePicker
 					disabled={!isStopAfterIfEnabled}
 					bind:code={
 						() => flowModule.stop_after_if?.expr ?? '',
@@ -216,7 +215,6 @@
 
 			<div class="w-full border rounded-md mt-2 p-3 flex flex-col gap-3">
 				<FlowExpressionEditor
-					forceCollapsePicker
 					disabled={!isStopAfterAllIterationsEnabled}
 					bind:code={
 						() => flowModule.stop_after_all_iters_if?.expr ?? '',

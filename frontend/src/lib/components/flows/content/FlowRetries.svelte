@@ -237,7 +237,6 @@
 		<div>
 			{#if stepPropPicker}
 				<FlowExpressionEditor
-					forceCollapsePicker
 					disabled={cfgDisabled || !isRetryConditionEnabled}
 					label="Retry condition expression"
 					bind:code={
