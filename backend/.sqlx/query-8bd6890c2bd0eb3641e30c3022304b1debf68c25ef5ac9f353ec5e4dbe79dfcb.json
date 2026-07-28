@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE datatable_owner_role SET password = $1 WHERE dbname = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8bd6890c2bd0eb3641e30c3022304b1debf68c25ef5ac9f353ec5e4dbe79dfcb"
+}

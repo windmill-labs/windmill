@@ -33,6 +33,16 @@ pub const DATATABLE_EPHEMERAL_ROLE_PREFIX: &str = "wm_dt_";
 pub const WORKSPACE_ROLES_LOCK: &str =
     "SELECT pg_advisory_xact_lock(hashtextextended('wm_dt_ws:' || $1::text, 0))";
 
+/// Reserved prefix for the dedicated owner roles of protected instance
+/// databases. Like the ephemeral prefix, no drop path may touch a role without
+/// it.
+pub const DATATABLE_OWNER_ROLE_PREFIX: &str = "wm_dto_";
+
+/// Transaction-scoped advisory lock serializing (de)provisioning of one
+/// protected instance database's owner role. Bind the database name.
+const OWNER_ROLE_LOCK: &str =
+    "SELECT pg_advisory_xact_lock(hashtextextended('wm_dto:' || $1::text, 0))";
+
 pub const PERMISSIONED_AS_FOLDER_PREFIX: &str = "f/";
 
 const EPHEMERAL_ROLE_CONNECTION_LIMIT: u32 = 25;
@@ -395,6 +405,229 @@ pub fn grant_sql_statements(
 }
 
 // ---------------------------------------------------------------------------
+// Dedicated owner role for protected instance databases
+// ---------------------------------------------------------------------------
+
+/// Deterministic owner-role name for a protected instance database.
+pub fn instance_owner_role_name(dbname: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(dbname.as_bytes());
+    let hash = hex::encode(&hasher.finalize()[..4]);
+    format!(
+        "{DATATABLE_OWNER_ROLE_PREFIX}{}_{hash}",
+        sanitize_role_part(dbname, 40)
+    )
+}
+
+/// Credentials of a protected instance database's dedicated owner role, if it
+/// has been provisioned.
+pub async fn instance_owner_creds(db: &DB, dbname: &str) -> Result<Option<(String, String)>> {
+    let Some(row) = sqlx::query!(
+        "SELECT role_name, password, workspace_id FROM datatable_owner_role WHERE dbname = $1",
+        dbname
+    )
+    .fetch_optional(db)
+    .await?
+    else {
+        return Ok(None);
+    };
+    let password = decrypt_with_refresh(db, &row.workspace_id, row.password).await?;
+    Ok(Some((row.role_name, password)))
+}
+
+/// Connect to an instance database as the main pool's user (owner of these
+/// databases), which is what can reassign ownership between roles.
+async fn connect_instance_db_as_superuser(db: &DB, dbname: &str) -> Result<tokio_postgres::Client> {
+    let mut pg = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
+    pg.dbname = dbname.to_string();
+    connect_target(&pg, db).await
+}
+
+/// Make sure a protected instance database has its dedicated owner role: a
+/// `LOGIN` role that owns the database's objects, can create the ephemeral
+/// roles, and is never handed to non-admin SQL. `custom_instance_user` loses
+/// CONNECT on the database, so a caller who learns that shared password from
+/// an unprotected data table on the same cluster cannot reach this one.
+/// Idempotent, and re-asserts the revoke on every call (superadmin re-running
+/// the instance-database setup re-grants it).
+pub async fn provision_instance_owner_role(db: &DB, w_id: &str, dbname: &str) -> Result<()> {
+    let role = instance_owner_role_name(dbname);
+    let mut tx = db.begin().await?;
+    sqlx::query(OWNER_ROLE_LOCK)
+        .bind(dbname)
+        .execute(&mut *tx)
+        .await?;
+
+    let existing = sqlx::query_scalar!(
+        "SELECT password FROM datatable_owner_role WHERE dbname = $1",
+        dbname
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let client = connect_instance_db_as_superuser(db, dbname).await?;
+    let role_present = role_exists(&client, &role).await?;
+
+    // A row whose role vanished (manual cleanup, restored cluster) must be
+    // rebuilt with a fresh password rather than trusted.
+    let password = match (&existing, role_present) {
+        (Some(encrypted), true) => decrypt_with_refresh(db, w_id, encrypted.clone()).await?,
+        _ => {
+            let password = rd_string(48);
+            if role_present {
+                client
+                    .batch_execute(&format!(
+                        "ALTER ROLE {} WITH LOGIN PASSWORD {}",
+                        quote_ident(&role),
+                        quote_literal(&password)
+                    ))
+                    .await
+                    .map_err(|e| pg_err(&format!("resetting owner role {role} password"), e))?;
+            } else {
+                client
+                    .batch_execute(&format!(
+                        "CREATE ROLE {} LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOINHERIT NOREPLICATION PASSWORD {}",
+                        quote_ident(&role),
+                        quote_literal(&password)
+                    ))
+                    .await
+                    .map_err(|e| pg_err(&format!("creating owner role {role}"), e))?;
+            }
+            password
+        }
+    };
+
+    // Take over everything `custom_instance_user` owns in THIS database (the
+    // statement is database-scoped), so the ephemeral-role grants and
+    // `ALTER DEFAULT PRIVILEGES FOR ROLE <owner>` have an owner to hang off,
+    // and give the role what migrations need to keep creating objects.
+    client
+        .batch_execute(&format!(
+            "REASSIGN OWNED BY custom_instance_user TO {role};
+             GRANT ALL ON SCHEMA public TO {role};",
+            role = quote_ident(&role)
+        ))
+        .await
+        .map_err(|e| pg_err(&format!("transferring ownership to {role}"), e))?;
+    drop(client);
+
+    // Database-level grants/revokes are executed from the main pool: any
+    // database on the cluster can carry them and the main user owns these.
+    sqlx::query(&format!(
+        "GRANT CONNECT, CREATE ON DATABASE {} TO {}",
+        quote_ident(dbname),
+        quote_ident(&role)
+    ))
+    .execute(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("granting {role} access to {dbname}: {e:#}")))?;
+    sqlx::query(&format!(
+        "REVOKE CONNECT ON DATABASE {} FROM custom_instance_user",
+        quote_ident(dbname)
+    ))
+    .execute(db)
+    .await
+    .map_err(|e| {
+        Error::internal_err(format!(
+            "revoking custom_instance_user access to {dbname}: {e:#}"
+        ))
+    })?;
+
+    let mc = build_crypt(db, w_id).await?;
+    let encrypted = encrypt(&mc, &password);
+    sqlx::query!(
+        "INSERT INTO datatable_owner_role (dbname, role_name, password, workspace_id)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (dbname) DO UPDATE SET
+            role_name = EXCLUDED.role_name,
+            password = EXCLUDED.password,
+            workspace_id = EXCLUDED.workspace_id",
+        dbname,
+        &role,
+        &encrypted,
+        w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Hand a protected instance database back to `custom_instance_user`: used
+/// when permissions are disabled, the data table is deleted or re-pointed, and
+/// on workspace deletion — the bookkeeping row must never outlive the
+/// workspace key that decrypts its password.
+pub async fn deprovision_instance_owner_role(db: &DB, dbname: &str) -> Result<()> {
+    let mut tx = db.begin().await?;
+    sqlx::query(OWNER_ROLE_LOCK)
+        .bind(dbname)
+        .execute(&mut *tx)
+        .await?;
+    let Some(role) = sqlx::query_scalar!(
+        "SELECT role_name FROM datatable_owner_role WHERE dbname = $1",
+        dbname
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    else {
+        return Ok(());
+    };
+    if !role.starts_with(DATATABLE_OWNER_ROLE_PREFIX) {
+        return Err(Error::internal_err(format!(
+            "refusing to drop role '{role}': name does not start with the reserved '{DATATABLE_OWNER_ROLE_PREFIX}' prefix"
+        )));
+    }
+
+    // The database may already be gone (dropped fork/instance database); the
+    // row must still be cleared, and the role is then privilege-free.
+    let db_exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1) AS \"e!\"",
+        dbname
+    )
+    .fetch_one(db)
+    .await?;
+    if db_exists {
+        let client = connect_instance_db_as_superuser(db, dbname).await?;
+        client
+            .batch_execute(&format!(
+                "REASSIGN OWNED BY {role} TO custom_instance_user; DROP OWNED BY {role};",
+                role = quote_ident(&role)
+            ))
+            .await
+            .map_err(|e| pg_err(&format!("returning ownership from {role}"), e))?;
+        drop(client);
+        sqlx::query(&format!(
+            "GRANT CONNECT ON DATABASE {} TO custom_instance_user",
+            quote_ident(dbname)
+        ))
+        .execute(db)
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "restoring custom_instance_user access to {dbname}: {e:#}"
+            ))
+        })?;
+    }
+    sqlx::query(&format!("DROP ROLE IF EXISTS {}", quote_ident(&role)))
+        .execute(db)
+        .await
+        .map_err(|e| Error::internal_err(format!("dropping owner role {role}: {e:#}")))?;
+    sqlx::query!("DELETE FROM datatable_owner_role WHERE dbname = $1", dbname)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Best-effort [`deprovision_instance_owner_role`] for the paths where a
+/// failure must not block the operation (config saves, database re-points).
+pub async fn deprovision_instance_owner_role_best_effort(db: &DB, dbname: &str) {
+    if let Err(e) = deprovision_instance_owner_role(db, dbname).await {
+        tracing::warn!("deprovisioning owner role of instance database {dbname}: {e:#}");
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Role lifecycle
 // ---------------------------------------------------------------------------
 
@@ -724,6 +957,16 @@ async fn ensure_ephemeral_role(
         )));
     }
     let is_instance = config.database.resource_type == DataTableCatalogResourceType::Instance;
+    // Protected instance databases must be owned by their dedicated role
+    // before any ephemeral role is minted: `custom_instance_user` is exposed
+    // to non-admin SQL on unprotected data tables of the same cluster, so
+    // leaving it able to CONNECT here would make the grants bypassable. This
+    // is idempotent and also re-asserts the revoke, so a data table whose
+    // permissions were enabled without provisioning (EE default on creation,
+    // instance database created later) is healed on first non-admin access.
+    if is_instance {
+        provision_instance_owner_role(db, w_id, &config.database.resource_path).await?;
+    }
     let owner: PgDatabase =
         serde_json::from_value(datatable_shared_resource(db, w_id, &config).await?)
             .map_err(|e| Error::internal_err(format!("parsing data table owner creds: {e}")))?;
@@ -766,6 +1009,11 @@ async fn ensure_ephemeral_role(
     }
 
     let password = rd_string(48);
+    // Encrypt with a cipher read fresh under the locks: a concurrent key
+    // rotation (which holds the same locks) may have committed while this
+    // resolution waited, and a cached pre-rotation cipher would write
+    // ciphertext that nothing can decrypt afterwards.
+    crate::variables::WORKSPACE_CRYPT_CACHE.remove(w_id);
     let mc = build_crypt(db, w_id).await?;
     let encrypted = encrypt(&mc, &password);
 
@@ -914,17 +1162,20 @@ pub async fn cleanup_expired_datatable_roles(db: &DB, limit: i64) {
         }
     };
     for row in rows {
-        if let Err(e) =
-            cleanup_one_expired_role(db, &row.role_name, &row.workspace_id, &row.datatable).await
-        {
+        let outcome =
+            cleanup_one_expired_role(db, &row.role_name, &row.workspace_id, &row.datatable).await;
+        if let Err(e) = &outcome {
             tracing::warn!(
                 "cleaning up expired datatable ephemeral role {}: {e:#}",
                 row.role_name
             );
-            // Push the row's expiry forward so a persistently failing target
-            // (e.g. an unreachable external database) doesn't monopolize every
-            // sweep batch and starve other expired roles — each failure costs
-            // at most one attempt per backoff window.
+        }
+        // Push the row's expiry forward unless it was actually reaped: a
+        // persistently failing target (unreachable database) or a role holding
+        // long-lived sessions must not monopolize every sweep batch and starve
+        // later expired roles. Skipped roles are already NOLOGIN, so the delay
+        // costs no privilege exposure.
+        if !matches!(outcome, Ok(CleanupOutcome::Reaped)) {
             let _ = sqlx::query!(
                 "UPDATE datatable_ephemeral_role SET expires_at = now() + interval '5 minutes'
                  WHERE role_name = $1 AND expires_at < now()",
@@ -936,7 +1187,20 @@ pub async fn cleanup_expired_datatable_roles(db: &DB, limit: i64) {
     }
 }
 
-async fn cleanup_one_expired_role(db: &DB, role: &str, w_id: &str, datatable: &str) -> Result<()> {
+enum CleanupOutcome {
+    /// Role dropped and its bookkeeping row deleted.
+    Reaped,
+    /// Left for a later sweep (lock contention, still-fresh row, or active
+    /// sessions — in the last case the role has been made NOLOGIN).
+    Deferred,
+}
+
+async fn cleanup_one_expired_role(
+    db: &DB,
+    role: &str,
+    w_id: &str,
+    datatable: &str,
+) -> Result<CleanupOutcome> {
     if !role.starts_with(DATATABLE_EPHEMERAL_ROLE_PREFIX) {
         return Err(Error::internal_err(format!(
             "refusing to clean up role '{role}' without the reserved prefix"
@@ -950,7 +1214,7 @@ async fn cleanup_one_expired_role(db: &DB, role: &str, w_id: &str, datatable: &s
     .fetch_one(&mut *tx)
     .await?;
     if !locked {
-        return Ok(());
+        return Ok(CleanupOutcome::Deferred);
     }
     // Re-check under the lock: a concurrent resolution may have refreshed it.
     let row = sqlx::query!(
@@ -960,7 +1224,7 @@ async fn cleanup_one_expired_role(db: &DB, role: &str, w_id: &str, datatable: &s
     .fetch_optional(&mut *tx)
     .await?;
     let Some(row) = row.filter(|r| r.expired) else {
-        return Ok(());
+        return Ok(CleanupOutcome::Deferred);
     };
 
     match resolve_role_target(db, w_id, datatable, row.owner_creds).await {
@@ -969,7 +1233,7 @@ async fn cleanup_one_expired_role(db: &DB, role: &str, w_id: &str, datatable: &s
                 drop_or_disable_with_instance_fallback(db, &owner, is_instance, role).await?,
                 DropOutcome::SkippedActive
             ) {
-                return Ok(());
+                return Ok(CleanupOutcome::Deferred);
             }
         }
         None => {
@@ -991,7 +1255,7 @@ async fn cleanup_one_expired_role(db: &DB, role: &str, w_id: &str, datatable: &s
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
-    Ok(())
+    Ok(CleanupOutcome::Reaped)
 }
 
 /// One bookkeeping row captured before a permissions/config edit commits.

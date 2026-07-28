@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO datatable_owner_role (dbname, role_name, password, workspace_id)\n         VALUES ($1, $2, $3, $4)\n         ON CONFLICT (dbname) DO UPDATE SET\n            role_name = EXCLUDED.role_name,\n            password = EXCLUDED.password,\n            workspace_id = EXCLUDED.workspace_id",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fdb0fe445cb882c4010b2581e16d0adcf23343926f9610ed802ea1aaca34ebb3"
+}

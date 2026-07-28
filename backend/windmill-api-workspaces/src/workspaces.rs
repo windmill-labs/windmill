@@ -3161,6 +3161,24 @@ async fn edit_datatable_config(
         }
     }
 
+    // Instance databases the saved config no longer uses (deleted data table
+    // or a database change) lose their dedicated owner role after the commit.
+    let mut dbnames_to_release: Vec<String> = vec![];
+    for (name, old) in old_datatables.iter() {
+        if old.database.resource_type != DataTableCatalogResourceType::Instance {
+            continue;
+        }
+        let still_used = new_config.settings.datatables.values().any(|dt| {
+            dt.database.resource_type == DataTableCatalogResourceType::Instance
+                && dt.database.resource_path == old.database.resource_path
+        });
+        if !still_used
+            && (new_config.deleted_datatables.contains(name)
+                || database_changed_names.contains(name))
+        {
+            dbnames_to_release.push(old.database.resource_path.clone());
+        }
+    }
     let args_for_audit = format!("{:?}", new_config.settings);
     audit_log(
         &mut *tx,
@@ -3241,6 +3259,15 @@ async fn edit_datatable_config(
         pre_edit_roles,
     )
     .await;
+
+    // Hand back any protected instance database this config no longer points
+    // at: its owner-role row must not outlive the data table that justified it.
+    for dbname in dbnames_to_release {
+        windmill_common::datatable_permissions::deprovision_instance_owner_role_best_effort(
+            &db, &dbname,
+        )
+        .await;
+    }
 
     Ok(format!("Edit datatable config for workspace {}", &w_id))
 }
@@ -4808,6 +4835,37 @@ async fn set_encryption_key(
                 .bind(&row.role_name)
                 .execute(&mut *tx)
                 .await?;
+        }
+
+        // Same for the dedicated owner roles of this workspace's protected
+        // instance databases (their passwords use the workspace key too).
+        let owner_roles = sqlx::query!(
+            "SELECT dbname, password FROM datatable_owner_role WHERE workspace_id = $1",
+            w_id
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        for row in owner_roles {
+            sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('wm_dto:' || $1, 0))")
+                .bind(&row.dbname)
+                .execute(&mut *tx)
+                .await?;
+            let password = encrypt(
+                &new_encryption_key,
+                &decrypt(&previous_encryption_key, row.password).map_err(|e| {
+                    Error::internal_err(format!(
+                        "Error decrypting owner role password of {}: {}",
+                        row.dbname, e
+                    ))
+                })?,
+            );
+            sqlx::query!(
+                "UPDATE datatable_owner_role SET password = $1 WHERE dbname = $2",
+                password,
+                row.dbname
+            )
+            .execute(&mut *tx)
+            .await?;
         }
         for row in dt_roles {
             let password = encrypt(
@@ -6586,6 +6644,52 @@ async fn deprecated_create_workspace_fork(_authed: ApiAuthed) -> Result<String> 
 }
 
 /// Return the uuids of the git sync jobs to create the branch before creating the fork
+/// A fork keeping the original database (data table absent from
+/// `forked_datatables`) would query the parent's physical DB through its own
+/// copied config — bypassing or diverging from the parent's fine-grained
+/// grants. Permissions-enabled data tables must be forked, not shared, and
+/// forking one copies its schema/data through the shared role, so it is
+/// admin-only like every other whole-database operation on such a table.
+/// Checked in BOTH fork phases: the branch-creation phase must reject before
+/// any git branch is created.
+async fn check_fork_datatable_permissions(
+    db: &DB,
+    authed: &ApiAuthed,
+    parent_workspace_id: &str,
+    forked_datatable_names: &[String],
+) -> Result<()> {
+    let parent_datatables: HashMap<String, DataTable> = serde_json::from_value(
+        sqlx::query_scalar!(
+            "SELECT ws.datatable->'datatables' FROM workspace_settings ws WHERE ws.workspace_id = $1",
+            parent_workspace_id
+        )
+        .fetch_optional(db)
+        .await?
+        .flatten()
+        .unwrap_or(serde_json::Value::Null),
+    )
+    .unwrap_or_default();
+    for (name, dt) in parent_datatables {
+        if !dt.permissions.as_ref().is_some_and(|p| p.enabled) {
+            continue;
+        }
+        if !forked_datatable_names.iter().any(|n| n == &name) {
+            return Err(Error::BadRequest(format!(
+                "Data table '{name}' has fine-grained permissions enabled and cannot keep \
+                 pointing at the original database in a fork; fork its database \
+                 (schema-only or schema and data) instead."
+            )));
+        }
+        if !authed.is_admin {
+            return Err(Error::PermissionDenied(format!(
+                "Data table '{name}' has fine-grained permissions enabled: forking a \
+                 workspace containing it requires workspace admin."
+            )));
+        }
+    }
+    Ok(())
+}
+
 async fn create_workspace_fork_branch(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -6640,6 +6744,17 @@ async fn create_workspace_fork_branch(
         validate_fork_workspace_id(&nw.id)?;
     }
     validate_workspace_name(&nw.name)?;
+
+    check_fork_datatable_permissions(
+        &db,
+        &authed,
+        &w_id,
+        &nw.forked_datatables
+            .iter()
+            .map(|f| f.name.clone())
+            .collect::<Vec<_>>(),
+    )
+    .await?;
 
     // Fail before creating any git branch so a name conflict doesn't leave a
     // dangling branch on the synced repos.
@@ -6954,44 +7069,16 @@ async fn create_workspace_fork(
     } else {
         None
     };
-    // A fork keeping the original database (data table absent from
-    // `forked_datatables`) would query the parent's physical DB through its own
-    // copied config — bypassing or diverging from the parent's fine-grained
-    // grants. Permissions-enabled data tables must be forked, not shared.
-    {
-        let parent_datatables: HashMap<String, DataTable> = serde_json::from_value(
-            sqlx::query_scalar!(
-                "SELECT ws.datatable->'datatables' FROM workspace_settings ws WHERE ws.workspace_id = $1",
-                &parent_workspace_id
-            )
-            .fetch_optional(&db)
-            .await?
-            .flatten()
-            .unwrap_or(serde_json::Value::Null),
-        )
-        .unwrap_or_default();
-        for (name, dt) in parent_datatables {
-            if !dt.permissions.as_ref().is_some_and(|p| p.enabled) {
-                continue;
-            }
-            if !nw.forked_datatables.iter().any(|f| f.name == name) {
-                return Err(Error::BadRequest(format!(
-                    "Data table '{name}' has fine-grained permissions enabled and cannot keep \
-                     pointing at the original database in a fork; fork its database \
-                     (schema-only or schema and data) instead."
-                )));
-            }
-            // Forking copies the schema (and possibly data) through the shared
-            // role, sidestepping per-caller grants — admin-only, like every
-            // other whole-database operation on a permissions-enabled table.
-            if !authed.is_admin {
-                return Err(Error::PermissionDenied(format!(
-                    "Data table '{name}' has fine-grained permissions enabled: forking a \
-                     workspace containing it requires workspace admin."
-                )));
-            }
-        }
-    }
+    check_fork_datatable_permissions(
+        &db,
+        &authed,
+        &parent_workspace_id,
+        &nw.forked_datatables
+            .iter()
+            .map(|f| f.name.clone())
+            .collect::<Vec<_>>(),
+    )
+    .await?;
 
     // Check the id conflict before the CE workspace-count limit so that
     // re-using a taken (possibly archived) fork id reports the actual

@@ -12,6 +12,7 @@ use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::datatable_permissions::{
     compute_effective_grants, datatable_license_valid, datatable_permissions_enabled,
+    deprovision_instance_owner_role_best_effort, provision_instance_owner_role,
     snapshot_datatable_roles, teardown_snapshot_roles_best_effort, validate_grant_identifier,
     PERMISSIONED_AS_FOLDER_PREFIX,
 };
@@ -240,6 +241,15 @@ async fn set_datatable_permissions(
     let config = get_datatable_config(&db, &w_id, &datatable_name).await?;
     if perms.enabled {
         check_shared_database_forbid(&db, &w_id, &datatable_name, &config.database, true).await?;
+        // Instance databases get a dedicated owner role before the CREATEROLE
+        // preflight, so the preflight validates the role that will actually
+        // mint the ephemeral roles. Failing here (rather than lazily on first
+        // access) gives the admin the error while they are looking at it.
+        if config.database.resource_type
+            == windmill_common::workspaces::DataTableCatalogResourceType::Instance
+        {
+            provision_instance_owner_role(&db, &w_id, &config.database.resource_path).await?;
+        }
         check_owner_can_create_roles(&db, &w_id, &config).await?;
     }
     let args_for_audit = format!("{:?}", perms);
@@ -280,6 +290,16 @@ async fn set_datatable_permissions(
     // The pre-edit roles were built from the previous grants; revoke them so
     // nothing outlives the edit (active holders get NOLOGIN'd, the rest drop).
     teardown_snapshot_roles_best_effort(&db, &w_id, pre_edit_roles).await;
+
+    // Disabling hands the instance database back to `custom_instance_user`, so
+    // the ordinary shared-role path keeps working and no bookkeeping row
+    // outlives the workspace key that decrypts it.
+    if !perms.enabled
+        && config.database.resource_type
+            == windmill_common::workspaces::DataTableCatalogResourceType::Instance
+    {
+        deprovision_instance_owner_role_best_effort(&db, &config.database.resource_path).await;
+    }
 
     Ok(format!(
         "Edited permissions of data table {datatable_name} in workspace {w_id}"

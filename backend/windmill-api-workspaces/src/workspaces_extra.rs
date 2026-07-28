@@ -935,6 +935,24 @@ pub(crate) async fn delete_workspace(
         .bind(&w_id)
         .execute(&mut *tx)
         .await?;
+    // Same reason for the dedicated owner roles of this workspace's protected
+    // instance databases: their passwords are encrypted with the workspace key,
+    // so ownership must go back to `custom_instance_user` before it disappears.
+    let owner_dbs = sqlx::query_scalar!(
+        "SELECT dbname FROM datatable_owner_role WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_all(&db)
+    .await?;
+    for dbname in owner_dbs {
+        windmill_common::datatable_permissions::deprovision_instance_owner_role(&db, &dbname)
+            .await
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "cannot delete workspace {w_id}: returning ownership of instance database                      {dbname} to the shared role failed: {e}. Retry when it is reachable."
+                ))
+            })?;
+    }
     windmill_common::datatable_permissions::teardown_datatable_roles_strict(&db, &w_id)
         .await
         .map_err(|e| {
@@ -1318,6 +1336,12 @@ pub async fn drop_forked_datatable_databases(
                 ));
                 continue;
             }
+            // The owner role owns everything in this database; hand it back
+            // before the drop so no row survives pointing at a gone database.
+            windmill_common::datatable_permissions::deprovision_instance_owner_role_best_effort(
+                &db, db_to_drop,
+            )
+            .await;
             if let Err(e) = windmill_common::drop_custom_instance_database(&db, db_to_drop).await {
                 errors.push(format!(
                     "Could not drop instance database '{}' for datatable://{}: {}",

@@ -345,7 +345,7 @@
 							</li>
 							<li>
 								Changes to grants, groups or folders take effect on the next access; a connection
-								already open keeps its privileges for up to 5 minutes.
+								that is already open keeps its privileges until it finishes.
 							</li>
 							<li>
 								Creating or editing Postgres triggers on this data table, and running its

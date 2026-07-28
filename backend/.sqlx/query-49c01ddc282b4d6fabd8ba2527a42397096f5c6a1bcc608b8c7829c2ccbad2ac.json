@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM datatable_owner_role WHERE dbname = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "49c01ddc282b4d6fabd8ba2527a42397096f5c6a1bcc608b8c7829c2ccbad2ac"
+}

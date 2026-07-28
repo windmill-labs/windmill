@@ -1158,6 +1158,15 @@ async fn datatable_shared_resource_inner(
         if replication {
             pg_creds.user = Some("custom_instance_replication_user".to_string());
             pg_creds.password = Some(get_custom_pg_instance_replication_password(&db).await?);
+        } else if let Some((role, password)) =
+            crate::datatable_permissions::instance_owner_creds(db, &pg_creds.dbname).await?
+        {
+            // Protected database: its dedicated owner role, never
+            // `custom_instance_user` — that shared role is exposed to
+            // non-admin SQL on unprotected data tables and loses CONNECT here
+            // (see `provision_instance_owner_role`).
+            pg_creds.user = Some(role);
+            pg_creds.password = Some(password);
         } else {
             pg_creds.user = Some("custom_instance_user".to_string());
             pg_creds.password = Some(get_custom_pg_instance_password(&db).await?);
