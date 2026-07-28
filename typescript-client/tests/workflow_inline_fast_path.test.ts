@@ -61,6 +61,8 @@ describe("inline step round parity", () => {
     // Nested, though, a dropped key is what every other bun path produces —
     // and what `Jsonified` describes.
     ["nested-function", () => ({ a: 1, cb: () => 1 }), { a: 1 }],
+    // JSON has no non-finite numbers; `Jsonified` keeps calling these `number`.
+    ["non-finite", () => ({ nan: NaN, inf: Infinity }), { nan: null, inf: null }],
   ];
 
   for (const [name, fn, expected] of cases) {

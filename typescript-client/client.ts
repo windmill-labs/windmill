@@ -1549,6 +1549,8 @@ function stepErrorFromMarker(marker: any, name: string): Error {
 /**
  * What a value looks like after the JSON round trip a checkpoint performs:
  * `Date` → string, `Map`/`Set` → `{}`, `undefined` → null, methods gone.
+ * `NaN` and the infinities decode as null too, deliberately still typed
+ * `number`: `number | null` everywhere costs more than that case is worth.
  *
  * Mirrors `encodeCheckpointPayload` below — keep the two in step, or `step()`
  * starts describing a value it does not return.
