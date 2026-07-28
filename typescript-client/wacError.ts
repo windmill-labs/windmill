@@ -37,6 +37,13 @@ export function stepErrorMarker(key: string, e: unknown): Record<string, any> {
   // `class MyError extends Error {}` that never assigns `this.name` reports
   // `Error` as a task, so both must here too. What is absent stays absent and
   // the backend fills it, which is what a task with no usable fields gets.
+  //
+  // `throw "boom"` therefore reports the backend's fallback message rather than
+  // "boom", because a task throwing a string is equally lossy — its `e.message`
+  // is undefined too. Recovering the text here, from the marker's top-level
+  // `message`, would split `message` between a task and a step, which is the
+  // thing this record exists to prevent. The executors are where a primitive
+  // throw could keep its text for both.
   const name = typeof thrown?.name === "string" ? thrown.name : undefined;
   const message = typeof thrown?.message === "string" ? thrown.message : undefined;
   const stack = typeof thrown?.stack === "string" ? thrown.stack : undefined;
@@ -73,7 +80,22 @@ export function stepErrorMarker(key: string, e: unknown): Record<string, any> {
     }
     if (Object.keys(extra).length > 0) error.extra = extra;
   }
-  return { __wmill_error: true, message: message ?? String(e), step_key: key, result: { error } };
+  // `String(e)` throws in turn on a value with no `toString` to reach —
+  // `Object.create(null)`, a proxy that rejects the coercion — and this runs
+  // inside the catch that is reporting the user's failure, so an escape here
+  // replaces their error with an unrelated one and skips the checkpoint.
+  let fallback: string;
+  try {
+    fallback = String(e);
+  } catch {
+    fallback = `unrepresentable ${typeof e} thrown`;
+  }
+  return {
+    __wmill_error: true,
+    message: message ?? fallback,
+    step_key: key,
+    result: { error },
+  };
 }
 
 /** @internal

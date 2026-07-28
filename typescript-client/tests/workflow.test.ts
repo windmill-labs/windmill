@@ -1539,6 +1539,10 @@ describe("throwing inline step is checkpointed", () => {
     // character indices are not custom fields.
     const str = stepErrorMarker("k", "boom");
     expect(str.result.error).toEqual({});
+
+    // `String()` on a value with no `toString` to reach throws in turn, and
+    // this runs inside the catch reporting the user's failure.
+    expect(() => stepErrorMarker("k", Object.create(null))).not.toThrow();
   });
 
   test("a replayed step failure is named TaskError, like the python client", async () => {

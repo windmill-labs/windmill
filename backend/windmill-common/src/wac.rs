@@ -306,7 +306,7 @@ pub async fn save_checkpoint(
 }
 
 /// Marks a `completed_steps` entry as a failure rather than a step result.
-pub const WAC_ERROR_MARKER: &str = "__wmill_error";
+pub(crate) const WAC_ERROR_MARKER: &str = "__wmill_error";
 
 /// Per-field budget for the two unbounded things a failure record carries, the
 /// stack and `extra`. `persist_inline_checkpoint_delta` rewrites the whole
