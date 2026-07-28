@@ -28,6 +28,7 @@
 <script lang="ts">
 	import { Check, UserCog, Users, ExternalLink } from 'lucide-svelte'
 	import MeltPopover from './meltComponents/Popover.svelte'
+	import Portal from './Portal.svelte'
 	import Modal from './common/modal/Modal.svelte'
 	import { userStore } from '$lib/stores'
 	import { UserService, type User } from '$lib/gen'
@@ -57,6 +58,11 @@
 		 * badge so the user sees where the value came from.
 		 */
 		folderDefault?: string | undefined
+		/**
+		 * Raises the popover and user picker above a `ConfirmationModal`, which renders at a
+		 * z-index above the popover layer — without this they open behind the dialog hosting them.
+		 */
+		aboveConfirmationModal?: boolean
 	}
 
 	let {
@@ -68,7 +74,8 @@
 		canPreserve,
 		customValue,
 		isDeployment = true,
-		folderDefault = undefined
+		folderDefault = undefined,
+		aboveConfirmationModal = false
 	}: Props = $props()
 
 	const isTrigger = $derived(kind === 'trigger' || isTriggerOrScheduleKind(kind))
@@ -160,7 +167,11 @@
 	})
 </script>
 
-<MeltPopover placement="bottom" on:openChange={(e) => e.detail && loadUsers()}>
+<MeltPopover
+	placement="bottom"
+	contentClasses={aboveConfirmationModal ? 'z-[10001]' : ''}
+	on:openChange={(e) => e.detail && loadUsers()}
+>
 	{#snippet trigger()}
 		<span class="inline-flex items-center gap-1">
 			<UserCog class="w-4 h-4 {selected ? 'text-green-500' : 'text-yellow-500'}" />
@@ -228,56 +239,65 @@
 	{/snippet}
 </MeltPopover>
 
-<!-- User selection modal -->
-<Modal title="Select a user" bind:open={modalOpen} kind="X">
-	<div class="flex flex-col gap-4">
-		<div class="text-xs text-secondary">
-			{#if isTrigger}
-				Choose the user this trigger will be permissioned as {isDeployment
-					? 'in the target workspace'
-					: 'in this workspace'}. The selected user's permissions will be used when the trigger
-				fires.
-			{:else}
-				Choose the user this {kind} will run on behalf of {isDeployment
-					? 'in the target workspace'
-					: 'in this workspace'}. The selected user's permissions will be used when executing.
-			{/if}
-			<a
-				href="https://www.windmill.dev/docs/core_concepts/roles_and_permissions"
-				target="_blank"
-				rel="noopener noreferrer"
-				class="text-blue-500 hover:underline inline-flex items-center gap-0.5"
-			>
-				Learn more
-				<ExternalLink class="w-3 h-3" />
-			</a>
-		</div>
-
-		<TextInput bind:value={searchQuery} inputProps={{ placeholder: 'Search users...' }} />
-
-		<div class="max-h-60 overflow-y-auto border rounded">
-			{#each filteredUsers as user (user.email)}
-				<button
-					class="w-full flex items-center gap-3 px-3 py-2 text-left text-sm hover:bg-surface-hover border-b last:border-b-0"
-					onclick={() => selectUser(user)}
+<!-- User selection modal. Portalled: the modal positions itself with `fixed`, which resolves
+     against the nearest transformed ancestor — inside a dialog card (which is transformed for
+     its open transition) it would be laid out within that card instead of the viewport. -->
+<Portal>
+	<Modal
+		title="Select a user"
+		bind:open={modalOpen}
+		kind="X"
+		minZIndex={aboveConfirmationModal ? 10001 : undefined}
+	>
+		<div class="flex flex-col gap-4">
+			<div class="text-xs text-secondary">
+				{#if isTrigger}
+					Choose the user this trigger will be permissioned as {isDeployment
+						? 'in the target workspace'
+						: 'in this workspace'}. The selected user's permissions will be used when the trigger
+					fires.
+				{:else}
+					Choose the user this {kind} will run on behalf of {isDeployment
+						? 'in the target workspace'
+						: 'in this workspace'}. The selected user's permissions will be used when executing.
+				{/if}
+				<a
+					href="https://www.windmill.dev/docs/core_concepts/roles_and_permissions"
+					target="_blank"
+					rel="noopener noreferrer"
+					class="text-blue-500 hover:underline inline-flex items-center gap-0.5"
 				>
-					<div class="flex flex-col min-w-0">
-						<span class="font-medium truncate">u/{user.username}</span>
-						<span class="text-xs text-tertiary truncate">{user.email}</span>
+					Learn more
+					<ExternalLink class="w-3 h-3" />
+				</a>
+			</div>
+
+			<TextInput bind:value={searchQuery} inputProps={{ placeholder: 'Search users...' }} />
+
+			<div class="max-h-60 overflow-y-auto border rounded">
+				{#each filteredUsers as user (user.email)}
+					<button
+						class="w-full flex items-center gap-3 px-3 py-2 text-left text-sm hover:bg-surface-hover border-b last:border-b-0"
+						onclick={() => selectUser(user)}
+					>
+						<div class="flex flex-col min-w-0">
+							<span class="font-medium truncate">u/{user.username}</span>
+							<span class="text-xs text-tertiary truncate">{user.email}</span>
+						</div>
+						{#if selected === 'custom' && (customValue === `u/${user.username}` || customValue === user.email)}
+							<Check class="w-4 h-4 text-green-500 ml-auto flex-shrink-0" />
+						{/if}
+					</button>
+				{:else}
+					<div class="px-3 py-4 text-sm text-tertiary text-center">
+						{#if !usersLoaded}
+							Loading users&hellip;
+						{:else}
+							No users found
+						{/if}
 					</div>
-					{#if selected === 'custom' && (customValue === `u/${user.username}` || customValue === user.email)}
-						<Check class="w-4 h-4 text-green-500 ml-auto flex-shrink-0" />
-					{/if}
-				</button>
-			{:else}
-				<div class="px-3 py-4 text-sm text-tertiary text-center">
-					{#if !usersLoaded}
-						Loading users&hellip;
-					{:else}
-						No users found
-					{/if}
-				</div>
-			{/each}
+				{/each}
+			</div>
 		</div>
-	</div>
-</Modal>
+	</Modal>
+</Portal>

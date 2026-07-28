@@ -270,8 +270,10 @@
 			fullScreen
 				? `fixed !top-1/2 !left-1/2 !-translate-x-1/2 !-translate-y-1/2 !resize-none`
 				: 'w-fit',
-			contentClasses,
-			`z-[5001]`
+			// Last so `contentClasses` can raise it: a popover inside a ConfirmationModal has to
+			// clear that modal's own z-index, which sits above this layer.
+			`z-[5001]`,
+			contentClasses
 		)}
 		data-popover
 		{...extraProps}

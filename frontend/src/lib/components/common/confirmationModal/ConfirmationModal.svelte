@@ -11,6 +11,8 @@
 		confirmationText: string
 		keyListen?: boolean
 		loading?: boolean
+		/** Blocks confirming (button and Enter) while a required choice in `children` is unmade. */
+		confirmDisabled?: boolean
 		open?: boolean
 		type?: 'danger' | 'reload' | 'info'
 		showIcon?: boolean
@@ -29,6 +31,7 @@
 		confirmationText,
 		keyListen = true,
 		loading = false,
+		confirmDisabled = false,
 		open = false,
 		type: _type,
 		showIcon = true,
@@ -54,6 +57,7 @@
 				case 'Enter':
 					event.stopPropagation()
 					event.preventDefault()
+					if (confirmDisabled) break
 					dispatch('confirmed')
 					onConfirmed?.()
 					break
@@ -154,7 +158,7 @@
 					</div>
 					<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">
 						<Button
-							disabled={loading}
+							disabled={loading || confirmDisabled}
 							on:click={() => (dispatch('confirmed'), onConfirmed?.())}
 							color={theme[type].color}
 							size="sm"
