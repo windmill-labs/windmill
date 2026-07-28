@@ -1,23 +1,19 @@
 # The python and typescript SDK unit suites. Both existed for a long time
 # without any workflow running them, so a red test could sit on main unnoticed —
-# one did. They are fast and need no services, so they run on every PR touching
-# either client.
+# one did.
+#
+# Release only: these guard what gets published to npm / PyPI / JSR, and a tag is
+# the moment that matters. Note this runs *alongside* the publish workflows
+# rather than ahead of them, so it reports a broken SDK rather than holding one
+# back — gating would mean putting the job inside each publish workflow, since
+# Actions cannot express `needs` across workflows.
 name: SDK Tests
 
 on:
   workflow_dispatch:
   push:
-    branches: [main]
-    paths:
-      - "python-client/**"
-      - "typescript-client/**"
-      - ".github/workflows/sdk-tests.yml"
-  pull_request:
-    branches: [main]
-    paths:
-      - "python-client/**"
-      - "typescript-client/**"
-      - ".github/workflows/sdk-tests.yml"
+    tags:
+      - "v*"
 
 jobs:
   typescript-client:
