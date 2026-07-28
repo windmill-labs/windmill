@@ -823,10 +823,6 @@ struct AssetProgress {
     error: Option<String>,
 }
 
-/// Lives with the job routes, not the asset ones, because it is job-scoped and
-/// `require_job_read_access` is what gates it: `materialized_partition` has no
-/// RLS, and RLS alone would not enforce a scoped token's tag filter or the
-/// app-embed cutoff, which that helper adds on top.
 /// The asset graph as one run saw it.
 ///
 /// Lives here rather than beside the workspace graph in `windmill-api-assets`
@@ -845,6 +841,13 @@ async fn get_dbt_run_graph(
     Path((w_id, job_id)): Path<(String, Uuid)>,
     Query(q): Query<windmill_api_assets::GraphQuery>,
 ) -> error::JsonResult<windmill_api_assets::AssetGraphResponse> {
+    // The scope domain comes from the URL segment, so being under `/jobs` asks a
+    // scoped token for `jobs:read` alone — while the body returned is the asset
+    // graph, which `/assets/graph` charges `assets:read` for. Both, then: the job
+    // gate below gets the caller to THIS run, and this gets them to asset data at
+    // all. A token narrowed to polling run status must not read workspace
+    // topology through the route that colours a run page.
+    check_scopes(&authed, || "assets:read".to_string())?;
     let created_by = sqlx::query_scalar!(
         "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
         job_id,
@@ -852,9 +855,10 @@ async fn get_dbt_run_graph(
     )
     .fetch_optional(&db)
     .await?;
-    // No such job: answer the unpinned graph rather than 404. A run page loads
-    // before its job is visible to this replica, and the deployed version's
-    // graph is the right thing to draw meanwhile.
+    // No such job: answer the unpinned graph rather than 404, so a run page whose
+    // job has aged out of retention still draws the deployed version instead of
+    // an error. Reachable only with `assets:read`, which is exactly what
+    // `/assets/graph` would have cost for the same answer.
     let Some(created_by) = created_by else {
         return windmill_api_assets::asset_graph_for(&authed, &w_id, user_db, db, q, None).await;
     };
@@ -871,6 +875,10 @@ async fn get_dbt_run_graph(
     windmill_api_assets::asset_graph_for(&authed, &w_id, user_db, db, q, Some(job_id)).await
 }
 
+/// Lives with the job routes, not the asset ones, because it is job-scoped and
+/// `require_job_read_access` is what gates it: `materialized_partition` has no
+/// RLS, and RLS alone would not enforce a scoped token's tag filter or the
+/// app-embed cutoff, which that helper adds on top.
 async fn get_run_progress(
     authed: ApiAuthed,
     // A shared run page carries its access in this token, not in the caller's

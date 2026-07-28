@@ -291,15 +291,23 @@ its SQL, its `ref()` lineage — instead of whatever is deployed today.
 those runs re-ingest; keyed by version alone, each re-ingest overwrote the last
 and reopening an older run showed the newer run's project, with any model only
 the older run built simply gone. A run of a dynamic descriptor therefore writes
-its own snapshot under its job id, and its page passes
-`dbt_job_id=<uuid>` alongside the hash.
+its own snapshot under its job id, and its page reads the graph through
+`GET /w/{w_id}/jobs/dbt_graph/{id}`, passing the version hash.
 
 A static descriptor writes nothing per run: its graph is the version's, under
 the zero-UUID `DEPLOYED_GRAPH` sentinel, and every run of it reads that. The
 sentinel is a value rather than NULL because `job_id` is in the primary key and
 Postgres does not treat two NULLs as one key, so a re-ingest would accumulate row
-sets instead of replacing one. The endpoint falls back to it whenever the job has
-no snapshot, which is why a run page can pass `dbt_job_id` unconditionally.
+sets instead of replacing one. The route falls back to it whenever the job has no
+snapshot, which is why a run page can use it unconditionally rather than having
+to know whether its descriptor was dynamic.
+
+Pinning to a run is job-scoped, so it is a job route and not a parameter on
+`/assets/graph`: it needs the whole job-read contract, which is
+`require_job_read_access`. That helper lives in `windmill-api`, which depends on
+`windmill-api-assets`, so the read moved to the check rather than the check to
+the read. The route charges `assets:read` on top of the `jobs:read` its URL
+implies, since the body it returns is asset data.
 
 A snapshot is only written when it DIFFERS from the version's graph, compared by
 a digest of the nodes, edges and relation root. Marking a descriptor dynamic is

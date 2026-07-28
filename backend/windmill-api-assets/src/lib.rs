@@ -1224,33 +1224,15 @@ pub async fn asset_graph_for(
            -- from a node row: a dynamic run that disabled every model has a
            -- snapshot whose graph is legitimately empty.
            chosen AS (
+             -- No visibility check on the job here: reaching this with a job at
+             -- all means the caller passed `require_job_read_access` for it, and
+             -- re-deciding it under plain RLS can only DISAGREE with that answer
+             -- — silently, by falling back to the deployed graph rather than
+             -- erroring. A share-link viewer is entitled to the run and would be
+             -- shown a different run's model set. See `asset_graph_for`.
              SELECT CASE WHEN $4::uuid IS NOT NULL AND EXISTS (
                       SELECT 1 FROM dbt_graph_snapshot g
-                       WHERE g.workspace_id = $1 AND g.job_id = $4
-                         -- `dbt_job_id` is caller-supplied and the snapshot
-                         -- tables carry no RLS, so the job itself has to be
-                         -- visible: `v2_job` does carry it and this runs in the
-                         -- authed transaction, the same gate `raw_code` below
-                         -- uses on `script`. Without it a caller who may see the
-                         -- script could read any run's model set and relation
-                         -- paths, which a dynamic alias or schema can encode.
-                         --
-                         -- RLS only, where `/jobs/run_progress` also honours a
-                         -- share-link view token. A share link is an extra grant
-                         -- for a logged-in user who lacks access to the job, so
-                         -- the two halves of a run page disagree for them: the
-                         -- progress loads and the graph does not. Without read
-                         -- on the script the `live` CTE matches nothing and the
-                         -- whole dbt half comes back EMPTY — a blank Models
-                         -- panel, not a fallback; with read on the script but
-                         -- not the job, this gate falls back to the deployed
-                         -- graph, which is the wrong model set for a dynamic
-                         -- run. See docs/dbt-runtime.md, "What a share-link
-                         -- viewer sees", for why relaxing this leaks nothing and
-                         -- what the fix looks like.
-                         AND EXISTS (SELECT 1 FROM v2_job j
-                                      WHERE j.id = g.job_id
-                                        AND j.workspace_id = g.workspace_id))
+                       WHERE g.workspace_id = $1 AND g.job_id = $4)
                     THEN $4::uuid
                     ELSE '00000000-0000-0000-0000-000000000000'::uuid END AS job_id
            ),
@@ -1333,33 +1315,15 @@ pub async fn asset_graph_for(
            -- from a node row: a dynamic run that disabled every model has a
            -- snapshot whose graph is legitimately empty.
            chosen AS (
+             -- No visibility check on the job here: reaching this with a job at
+             -- all means the caller passed `require_job_read_access` for it, and
+             -- re-deciding it under plain RLS can only DISAGREE with that answer
+             -- — silently, by falling back to the deployed graph rather than
+             -- erroring. A share-link viewer is entitled to the run and would be
+             -- shown a different run's model set. See `asset_graph_for`.
              SELECT CASE WHEN $4::uuid IS NOT NULL AND EXISTS (
                       SELECT 1 FROM dbt_graph_snapshot g
-                       WHERE g.workspace_id = $1 AND g.job_id = $4
-                         -- `dbt_job_id` is caller-supplied and the snapshot
-                         -- tables carry no RLS, so the job itself has to be
-                         -- visible: `v2_job` does carry it and this runs in the
-                         -- authed transaction, the same gate `raw_code` below
-                         -- uses on `script`. Without it a caller who may see the
-                         -- script could read any run's model set and relation
-                         -- paths, which a dynamic alias or schema can encode.
-                         --
-                         -- RLS only, where `/jobs/run_progress` also honours a
-                         -- share-link view token. A share link is an extra grant
-                         -- for a logged-in user who lacks access to the job, so
-                         -- the two halves of a run page disagree for them: the
-                         -- progress loads and the graph does not. Without read
-                         -- on the script the `live` CTE matches nothing and the
-                         -- whole dbt half comes back EMPTY — a blank Models
-                         -- panel, not a fallback; with read on the script but
-                         -- not the job, this gate falls back to the deployed
-                         -- graph, which is the wrong model set for a dynamic
-                         -- run. See docs/dbt-runtime.md, "What a share-link
-                         -- viewer sees", for why relaxing this leaks nothing and
-                         -- what the fix looks like.
-                         AND EXISTS (SELECT 1 FROM v2_job j
-                                      WHERE j.id = g.job_id
-                                        AND j.workspace_id = g.workspace_id))
+                       WHERE g.workspace_id = $1 AND g.job_id = $4)
                     THEN $4::uuid
                     ELSE '00000000-0000-0000-0000-000000000000'::uuid END AS job_id
            )
