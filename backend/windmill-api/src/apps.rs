@@ -3623,6 +3623,7 @@ async fn upload_s3_file_from_app(
             }]),
             allowed_s3_keys: None,
             sandbox: None,
+            frontend_sdk_scopes: None,
         })
     } else {
         let policy_o = sqlx::query_scalar!(
@@ -4025,6 +4026,7 @@ async fn get_on_behalf_authed_from_app(
             s3_inputs: None,
             allowed_s3_keys: Some(force_allowed_s3_keys),
             sandbox: None,
+            frontend_sdk_scopes: None,
         }
     } else {
         // TODO: improve db query to not return uneeded fields
@@ -4048,6 +4050,7 @@ async fn get_on_behalf_authed_from_app(
                 s3_inputs: None,
                 allowed_s3_keys: None,
                 sandbox: None,
+                frontend_sdk_scopes: None,
             })
     };
 
