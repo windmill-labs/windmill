@@ -23,7 +23,36 @@ pub async fn custom_migrations(migrator: &mut CustomMigrator) -> Result<(), Erro
         tracing::error!("Could not normalize custom_instance_user attributes: {err:#}");
     }
 
+    if let Err(err) = ensure_custom_instance_replication_user(migrator).await {
+        tracing::error!(
+            "Could not provision custom_instance_replication_user: {err:#}. Postgres triggers on \
+             custom-instance datatables will not work until the role can open replication \
+             connections: grant the role owning DATABASE_URL either SUPERUSER, or (PG 16+) the \
+             REPLICATION attribute, or the replication role of your managed provider"
+        );
+    }
+
     Ok(())
+}
+
+// Converged on every boot, not once: the one-shot migration creates the role with the
+// REPLICATION attribute, which managed postgres rejects outright, so instances set up before
+// the provider-role fallback existed have no role at all. Scoped to instances that actually
+// have a custom-instance database, so the rest never see the error.
+async fn ensure_custom_instance_replication_user(
+    migrator: &mut CustomMigrator,
+) -> Result<(), Error> {
+    let has_custom_instance_db = sqlx::query_scalar::<_, bool>(
+        "SELECT COALESCE(value->'databases', '{}'::jsonb) <> '{}'::jsonb
+         FROM global_settings WHERE name = 'custom_instance_pg_databases'",
+    )
+    .fetch_optional(migrator.connection())
+    .await?
+    .unwrap_or(false);
+    if !has_custom_instance_db {
+        return Ok(());
+    }
+    windmill_common::utils::ensure_custom_instance_replication_user(migrator.connection()).await
 }
 
 // Converged on every boot, not once: the one-shot migration swallows errors (it must not

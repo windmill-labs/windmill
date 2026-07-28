@@ -1058,30 +1058,76 @@ pub async fn get_custom_pg_instance_password(db: &DB) -> Result<String> {
     )
 }
 
-const REFRESH_CUSTOM_INSTANCE_REPLICATION_USER_SQL: &str = r#"
+/// PL/pgSQL granting `custom_instance_replication_user` the ability to open replication
+/// connections, inlined into the `DO` blocks below.
+///
+/// The REPLICATION attribute requires a real superuser on PG <= 15 (PG 16+ accepts
+/// CREATEROLE + REPLICATION), and managed postgres never hands one out: on RDS the
+/// capability is carried by the `rds_replication` role instead. Both privilege failures
+/// raise `insufficient_privilege`, so the attribute is attempted first and the provider
+/// role is the fallback.
+const GRANT_REPLICATION_CAPABILITY_PLPGSQL: &str = r#"
+            BEGIN
+                EXECUTE 'ALTER ROLE custom_instance_replication_user REPLICATION';
+            EXCEPTION WHEN insufficient_privilege THEN
+                IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rds_replication') THEN
+                    EXECUTE 'GRANT rds_replication TO custom_instance_replication_user';
+                ELSE
+                    RAISE;
+                END IF;
+            END;
+
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'custom_instance_user') THEN
+                EXECUTE 'GRANT custom_instance_user TO custom_instance_replication_user';
+                -- Guarded: ALTER ROLE ... NOREPLICATION is itself superuser-only on PG <= 15,
+                -- even when the attribute is already unset.
+                IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'custom_instance_user' AND rolreplication) THEN
+                    EXECUTE 'ALTER ROLE custom_instance_user NOREPLICATION';
+                END IF;
+            END IF;
+"#;
+
+/// `rotate_condition` decides when a new password is generated: always for the refresh
+/// endpoint, only when the role or its stored password is missing for the boot converge.
+/// Both variants are a single statement so they can run on any executor, and both are
+/// atomic: a role that cannot be granted replication is rolled back rather than left
+/// half-provisioned.
+fn provision_replication_user_sql(rotate_condition: &str) -> String {
+    format!(
+        r#"
     DO $$
         DECLARE
             pwd text;
         BEGIN
-            SELECT gen_random_uuid()::text INTO pwd;
+            IF {rotate_condition} THEN
+                SELECT gen_random_uuid()::text INTO pwd;
 
-            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'custom_instance_replication_user') THEN
-                EXECUTE format('ALTER USER custom_instance_replication_user WITH PASSWORD %L REPLICATION', pwd);
-            ELSE
-                EXECUTE format('CREATE USER custom_instance_replication_user WITH PASSWORD %L REPLICATION', pwd);
+                IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'custom_instance_replication_user') THEN
+                    EXECUTE format('ALTER USER custom_instance_replication_user WITH PASSWORD %L', pwd);
+                ELSE
+                    EXECUTE format('CREATE USER custom_instance_replication_user WITH PASSWORD %L', pwd);
+                END IF;
+
+                INSERT INTO global_settings (name, value)
+                VALUES ('custom_instance_replication_pwd', to_jsonb(pwd::text))
+                ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value;
             END IF;
-
-            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'custom_instance_user') THEN
-                GRANT custom_instance_user TO custom_instance_replication_user;
-                ALTER ROLE custom_instance_user NOREPLICATION;
-            END IF;
-
-            INSERT INTO global_settings (name, value)
-            VALUES ('custom_instance_replication_pwd', to_jsonb(pwd::text))
-            ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value;
+{GRANT_REPLICATION_CAPABILITY_PLPGSQL}
         END
         $$;
-"#;
+"#
+    )
+}
+
+lazy_static::lazy_static! {
+    static ref REFRESH_CUSTOM_INSTANCE_REPLICATION_USER_SQL: String =
+        provision_replication_user_sql("TRUE");
+
+    static ref ENSURE_CUSTOM_INSTANCE_REPLICATION_USER_SQL: String = provision_replication_user_sql(
+        "NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'custom_instance_replication_user')
+                OR NOT EXISTS (SELECT 1 FROM global_settings WHERE name = 'custom_instance_replication_pwd')"
+    );
+}
 
 const REPLICATION_PWD_READ_SQL: &str =
     "SELECT value #>> '{}' FROM global_settings WHERE name = 'custom_instance_replication_pwd'";
@@ -1093,8 +1139,22 @@ const REPLICATION_PWD_READ_SQL: &str =
 /// Authorization: rotates a stored database credential and performs no authorization
 /// itself — callers MUST restrict this to superadmin or internal server paths.
 pub async fn refresh_custom_instance_replication_user_pwd(db: &DB) -> Result<()> {
-    sqlx::query(REFRESH_CUSTOM_INSTANCE_REPLICATION_USER_SQL)
+    sqlx::query(REFRESH_CUSTOM_INSTANCE_REPLICATION_USER_SQL.as_str())
         .execute(db)
+        .await?;
+    Ok(())
+}
+
+/// Create `custom_instance_replication_user` if it is missing and (re)grant it replication,
+/// leaving an existing password in place. Idempotent, so it can be converged on every boot.
+///
+/// Authorization: same contract as [`refresh_custom_instance_replication_user_pwd`] —
+/// callers MUST restrict this to superadmin or internal server paths.
+pub async fn ensure_custom_instance_replication_user<'c>(
+    executor: impl sqlx::PgExecutor<'c>,
+) -> Result<()> {
+    sqlx::query(ENSURE_CUSTOM_INSTANCE_REPLICATION_USER_SQL.as_str())
+        .execute(executor)
         .await?;
     Ok(())
 }
@@ -1127,7 +1187,7 @@ pub async fn get_custom_pg_instance_replication_password(db: &DB) -> Result<Stri
         tx.commit().await?;
         return Ok(pwd);
     }
-    sqlx::query(REFRESH_CUSTOM_INSTANCE_REPLICATION_USER_SQL)
+    sqlx::query(ENSURE_CUSTOM_INSTANCE_REPLICATION_USER_SQL.as_str())
         .execute(&mut *tx)
         .await?;
     let pwd = sqlx::query_scalar::<_, Option<String>>(REPLICATION_PWD_READ_SQL)
