@@ -738,7 +738,10 @@ export async function readModulesFromDisk(
           // mojibake and, if it carries a NUL, rejected by Postgres with an
           // opaque `unsupported Unicode escape sequence`, which the push then
           // reports as success. Skip it, loudly: dbt does not read it either.
-          const bytes = fs.readFileSync(fullPath);
+          //
+          // Asked BEFORE reading: the predicate only stats the file and reads
+          // its first 8 KB, so a multi-gigabyte seed next to the project costs
+          // that rather than being loaded whole just to be rejected.
           if (!isBundledModuleFile(fullPath)) {
             log.warn(
               `Skipping ${relPath}: not a text file, or over the ` +
@@ -751,7 +754,7 @@ export async function readModulesFromDisk(
           // these: the worker writes them to their relative path and dbt reads
           // the tree.
           modules[relPath] = {
-            content: bytes.toString("utf-8"),
+            content: fs.readFileSync(fullPath).toString("utf-8"),
             language: "dbt" as ScriptModule["language"],
           };
         } else if (exts.some((ext) => entry.name.endsWith(ext))) {
