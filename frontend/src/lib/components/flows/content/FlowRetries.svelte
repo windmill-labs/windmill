@@ -15,6 +15,8 @@
 	import { NEVER_TESTED_THIS_FAR } from '../models'
 	import { validateRetryConfig } from '$lib/utils'
 	import EEOnly from '$lib/components/EEOnly.svelte'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import { SAME_WORKER_INCOMPATIBLE_MSG } from '../utils.svelte'
 
 	interface Props {
 		flowModuleRetry: Retry | undefined
@@ -52,6 +54,11 @@
 				)
 			: null
 	)
+
+	// `flowModule` is only set when editing a flow step: the trigger/schedule usages of this
+	// component share the flow editor context but are unaffected by `same_worker`.
+	let sameWorker = $derived(Boolean(flowModule && flowStore?.val?.value?.same_worker))
+	let isDisabled = $derived(disabled || sameWorker)
 
 	let isRetryConditionEnabled = $derived(Boolean(flowModuleRetry?.retry_if))
 	let result = $derived(
@@ -111,9 +118,16 @@
 </script>
 
 <div class="flex flex-col gap-4">
+	{#if sameWorker}
+		<Alert type="warning" size="xs" title="Disabled by the shared directory">
+			{SAME_WORKER_INCOMPATIBLE_MSG} Disable `Same Worker` in the flow settings to use retries.
+		</Alert>
+	{/if}
+
 	<ToggleButtonGroup
 		bind:selected={delayType}
-		class={`${disabled ? 'disabled' : ''}`}
+		disabled={isDisabled}
+		class={`${isDisabled ? 'disabled' : ''}`}
 		on:selected={(e) => {
 			flowModuleRetry = undefined
 			if (e.detail === 'constant') {

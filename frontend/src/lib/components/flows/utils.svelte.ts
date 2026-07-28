@@ -13,6 +13,7 @@ import { cleanExpr, emptySchema } from '$lib/utils'
 import { get } from 'svelte/store'
 import type { FlowModuleState } from './flowState'
 import { type PickableProperties, dfs } from './previousResults'
+import { forEachFlowModule } from './dfs'
 import { NEVER_TESTED_THIS_FAR } from './models'
 import { sendUserToast } from '$lib/toast'
 import type { ExtendedOpenFlow } from './types'
@@ -225,6 +226,22 @@ export function emptyFlowModuleState(): FlowModuleState {
 		schema: emptySchema(),
 		previewResult: NEVER_TESTED_THIS_FAR
 	}
+}
+
+// `same_worker` hands the next step directly to the worker holding `./shared`, bypassing
+// `scheduled_for`: a retry delay is silently ignored, and a sleep breaks the hand-off so the
+// next step can land on another worker without `./shared`. Keep the two mutually exclusive.
+export const SAME_WORKER_INCOMPATIBLE_MSG =
+	'Retries and sleeps are not compatible with the shared directory (`Same Worker`): retry delays would be ignored and a sleep would lose the `./shared` folder.'
+
+export function modulesWithRetryOrSleep(modules: FlowModule[]): string[] {
+	const ids: string[] = []
+	forEachFlowModule(modules, (m) => {
+		if (m.retry != undefined || m.sleep != undefined) {
+			ids.push(m.id)
+		}
+	})
+	return ids
 }
 
 export function checkIfParentLoop(
