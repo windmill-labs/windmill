@@ -347,10 +347,12 @@ function normalizeRetry(retry: ParseAssetsRaw["retry"]): ParseAssetsRaw["retry"]
 // Read-asset kinds whose read auto-derives a cascade trigger edge inside a
 // `// pipeline`. Mirror of backend `is_auto_trigger_kind` (windmill-common
 // assets.rs) / frontend `AUTO_TRIGGER_KINDS` (resolveGraph.ts) — ducklake
-// tables, s3 objects and warehouse relations; resource/datatable/volume stay
-// explicit-`// on`. A local graph missing one shows an edge the deploy would
+// tables and s3 objects; resource/datatable/volume/table stay explicit-`// on`.
+// A local graph out of step with that set shows an edge the deploy will not
 // cascade along, and the generated pipeline docs then describe the wrong DAG.
-const AUTO_TRIGGER_KINDS = new Set(["ducklake", "s3object", "table"]);
+// `table` is excluded everywhere: a dbt run does not dispatch, and nothing else
+// writes a warehouse relation.
+const AUTO_TRIGGER_KINDS = new Set(["ducklake", "s3object"]);
 
 // Asset-URI prefixes accepted by `// mute <asset>`, in lockstep with the
 // canonical `parse_asset_syntax` / frontend `ASSET_PREFIXES`. Non-derivable

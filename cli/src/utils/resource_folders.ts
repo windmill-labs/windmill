@@ -670,10 +670,15 @@ export function buildModuleFolderPath(scriptBasePath: string, language?: string)
  */
 export function isModuleEntryPoint(p: string): boolean {
   const norm = normalizeSep(p);
+  // Anchored on the OUTERMOST module boundary, like
+  // `getScriptBasePathFromModulePath`. Scanning for `__mod/` alone would match a
+  // `legacy__mod/` directory nested inside a dbt project — dbt owns those names
+  // verbatim — and call its `script.ts` this script's entry point.
+  const base = getScriptBasePathFromModulePath(norm);
+  if (base === undefined) return false;
   const suffix = MODULE_SUFFIX + "/";
-  const idx = norm.indexOf(suffix);
-  if (idx === -1) return false;
-  const rest = norm.slice(idx + suffix.length);
+  if (!norm.startsWith(base + suffix)) return false;
+  const rest = norm.slice(base.length + suffix.length);
   return rest.startsWith("script.") && !rest.includes("/");
 }
 

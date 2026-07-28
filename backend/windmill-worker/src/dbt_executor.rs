@@ -371,8 +371,8 @@ pub async fn handle_dbt_job(
     save_run_state(&prepared, &job.workspace_id, &job.id, &inv, conn)
         .await
         .ok();
-    reconcile_materializations(&prepared, &results, job, conn).await;
-    terminalize_running_relations(job, conn).await;
+    let reported = reconcile_materializations(&prepared, &results, job, conn).await;
+    terminalize_running_relations(job, &reported, conn).await;
 
     let result = build_result(&prepared, &command, results);
     match run {
@@ -1822,14 +1822,19 @@ fn parse_node_event(
 /// the tailer has been updating are re-stated here from the authoritative
 /// artifact, which both fills in `row_count` and gives those engines per-model
 /// state — just at the end of the run rather than during it.
+///
+/// Returns every relation the run REPORTED on, including the ones it deliberately
+/// left alone — a `no-op` or `skipped` node still says "this run is done with
+/// that relation", which is what keeps the sweep below off it.
 async fn reconcile_materializations(
     p: &PreparedProject,
     results: &[DbtNodeResult],
     job: &MiniPulledJob,
     conn: &Connection,
-) {
+) -> Vec<String> {
+    let mut reported = Vec::new();
     let Some(resource_path) = p.resource_path.as_deref() else {
-        return;
+        return reported;
     };
     for r in results {
         let Some(path) = asset_path_of_relation(
@@ -1839,10 +1844,12 @@ async fn reconcile_materializations(
         ) else {
             continue;
         };
+        reported.push(path.clone());
         let status = match classify_status(&r.status) {
             DbtNodeOutcome::Passed => MaterializationStatus::Materialized,
             DbtNodeOutcome::Failed => MaterializationStatus::Failed,
-            // Tests and skipped nodes say nothing about a relation's state.
+            // Tests and nodes that built nothing say nothing about a relation's
+            // state, so its record is left as it was.
             _ => continue,
         };
         let error = (status == MaterializationStatus::Failed)
@@ -1888,20 +1895,29 @@ async fn reconcile_materializations(
             tracing::warn!("recording the materialization of {path} failed: {e}");
         }
     }
+    reported
 }
 
 /// Settle any relation this job left mid-flight.
 ///
-/// The live tailer writes `running` when a model starts, and
-/// `reconcile_materializations` only revisits the nodes `run_results.json`
-/// names. A cancellation, a timeout, or a killed worker means dbt never wrote
-/// that artifact for the node in flight, so without this the finished job
-/// leaves a relation building forever.
+/// The live tailer writes `running` when a model starts. A cancellation, a
+/// timeout or a killed worker means dbt never wrote `run_results.json` for the
+/// node in flight, so without this the finished job leaves a relation building
+/// forever.
+///
+/// `reported` is every relation the run DID account for, and is excluded: a node
+/// that ends `no-op`, `warn` or `skipped` is reported without settling its
+/// record, and calling those failed would fail relations on a successful run.
+/// What is left is only what the run never reached.
 ///
 /// Only the SQL path can strand a row: `spawn_progress_reporter` returns `None`
 /// for an agent worker and for the engines that emit no node events, so nothing
 /// there writes `running` in the first place.
-async fn terminalize_running_relations(job: &MiniPulledJob, conn: &Connection) {
+async fn terminalize_running_relations(
+    job: &MiniPulledJob,
+    reported: &[String],
+    conn: &Connection,
+) {
     let Connection::Sql(db) = conn else {
         return;
     };
@@ -1909,9 +1925,11 @@ async fn terminalize_running_relations(job: &MiniPulledJob, conn: &Connection) {
         "UPDATE materialized_partition
             SET status = 'failed',
                 error = COALESCE(error, 'the run ended before this model finished')
-          WHERE workspace_id = $1 AND job_id = $2 AND status = 'running'",
+          WHERE workspace_id = $1 AND job_id = $2 AND status = 'running'
+            AND NOT (asset_path = ANY($3))",
         job.workspace_id,
-        job.id
+        job.id,
+        reported
     )
     .execute(db)
     .await

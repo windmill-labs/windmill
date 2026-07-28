@@ -803,3 +803,13 @@ test("a nested __mod inside a dbt project does not steal the script boundary", (
   );
   expect(getScriptBasePathFromModulePath("f/x/s__mod/inner.ts")).toBe("f/x/s");
 });
+
+test("a nested __mod inside a dbt project is not a module entry point", () => {
+  expect(isModuleEntryPoint("f/x/s__mod/script.ts")).toBe(true);
+  // `legacy__mod` is a legal dbt directory; its script.ts belongs to the dbt
+  // project, not to a module folder of its own.
+  expect(isModuleEntryPoint("f/x/proj__dbt/models/legacy__mod/script.ts")).toBe(
+    false,
+  );
+  expect(isModuleEntryPoint("f/x/proj__dbt/models/a.sql")).toBe(false);
+});

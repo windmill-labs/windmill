@@ -375,10 +375,15 @@ pub fn ingest_manifest(
         out
     };
     for (unique_id, node) in manifest.nodes.iter().chain(manifest.sources.iter()) {
-        let keep = match (node.resource_type.as_str(), selected) {
-            ("source", _) => direct_parents.contains(unique_id.as_str()),
-            (_, None) => true,
-            (_, Some(sel)) => sel.contains(unique_id.as_str()),
+        // Whether this script SELECTED the node — i.e. builds it — as opposed to
+        // merely depending on it. A selection's direct parents are kept either
+        // way, because an edge needs both endpoints: drop the parent and the
+        // `ref()` that reaches it has nothing to point at, leaving two relations
+        // on the graph with no line between them.
+        let is_selected = selected.is_none_or(|sel| sel.contains(unique_id.as_str()));
+        let keep = match node.resource_type.as_str() {
+            "source" => direct_parents.contains(unique_id.as_str()),
+            _ => is_selected || direct_parents.contains(unique_id.as_str()),
         };
         if !keep {
             continue;
@@ -445,7 +450,11 @@ pub fn ingest_manifest(
         // make the script depend on its own output.
         let Some(path) = asset_path else { continue };
         let access = match node.resource_type.as_str() {
-            "model" | "snapshot" | "seed" => AssetUsageAccessType::W,
+            // A parent kept only to anchor an edge is read, not written: this
+            // script's selection does not build it, and claiming the write would
+            // make two scripts splitting one project both own the same relation.
+            "model" | "snapshot" | "seed" if is_selected => AssetUsageAccessType::W,
+            "model" | "snapshot" | "seed" => AssetUsageAccessType::R,
             "source" => AssetUsageAccessType::R,
             _ => continue,
         };
@@ -1021,6 +1030,46 @@ mod tests {
 
     // A script that builds a subset must not register as the producer of the
     // whole project, or the cascade fires downstream of models it never ran.
+    #[test]
+    // Splitting a project across scripts only composes if the seam still draws:
+    // a script selecting a model whose parent another script builds must keep
+    // that parent as an endpoint, or the two relations sit on the graph with no
+    // line between them and the lineage silently stops at the selection border.
+    #[test]
+    fn a_parent_outside_the_selection_still_anchors_its_edge() {
+        let m: Manifest = serde_json::from_str(MANIFEST).unwrap();
+        // `customers` depends on `orders_daily`, which this script does not build.
+        let sel: std::collections::HashSet<String> =
+            ["model.jaffle_shop.customers".to_string()].into_iter().collect();
+        let i = ingest_manifest(&m, "f/prod/wh", Some("wh"), Some(&sel));
+        let owned: Vec<&str> = i
+            .assets
+            .iter()
+            .filter(|a| a.access_type == Some(AssetUsageAccessType::W))
+            .map(|a| a.path.as_str())
+            .collect();
+        // The parent is NOT claimed as a write: the other script builds it.
+        assert_eq!(owned, vec!["f/prod/wh/jaffle_dbt/customers"]);
+        let reads: Vec<&str> = i
+            .assets
+            .iter()
+            .filter(|a| a.access_type == Some(AssetUsageAccessType::R))
+            .map(|a| a.path.as_str())
+            .collect();
+        assert!(
+            reads.contains(&"f/prod/wh/jaffle_dbt/orders_daily"),
+            "the unselected parent is an input, got {reads:?}"
+        );
+        assert!(
+            i.edges.contains(&(
+                "model.jaffle_shop.orders_daily".to_string(),
+                "model.jaffle_shop.customers".to_string()
+            )),
+            "the cross-selection edge must survive, got {:?}",
+            i.edges
+        );
+    }
+
     #[test]
     fn selection_scopes_what_the_script_owns() {
         let m: Manifest = serde_json::from_str(MANIFEST).unwrap();
