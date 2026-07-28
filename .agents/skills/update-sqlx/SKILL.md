@@ -9,10 +9,32 @@ Windmill uses `SQLX_OFFLINE=true` in CI, which requires all `sqlx::query!` / `sq
 
 ## When to Run
 
-Run after any change to SQL queries in Rust source files. Without it, CI will fail with:
+Run after **adding or editing** a SQL query in Rust source. Without it, CI fails with:
 ```
 error: `SQLX_OFFLINE=true` but there is no cached data for this query
 ```
+
+**Do NOT run it when a change only *removes* queries.** The cache is already complete for
+CI; all that is left are orphaned entries, which are cosmetic and never break a build.
+Running `prepare` to tidy them risks destroying the cache for no gain. Delete them
+offline instead: for each `.sqlx/query-*.json`, normalize its `query` field (strip `\`
+line-continuations, collapse whitespace) and check whether it still appears in any `.rs`
+file. That detector reports ~48 false positives in a CE checkout — EE queries live in
+`*_ee.rs` symlinks it cannot read — so **filter to the tables your change touched** and
+delete only those.
+
+## Before You Run Anything
+
+1. **Back the cache up.** `prepare` deletes `.sqlx/` *before* regenerating, so any compile
+   failure leaves it gutted (observed: 2350 → 142 entries).
+   ```bash
+   cp -r backend/.sqlx /tmp/sqlx_backup    # restore with: rm -rf backend/.sqlx && cp -r /tmp/sqlx_backup backend/.sqlx
+   ```
+2. **Point `DATABASE_URL` at THIS worktree's database.** `prepare` compiles every
+   `sqlx::query!` against the **live** database. Another worktree's DB lacks your
+   migrations, so every new-table query fails and takes the cache down with it. The
+   symptom is `relation "<your_new_table>" does not exist` — that is a wrong
+   `DATABASE_URL`, not a broken query. See AGENTS.md → "Per-worktree ports and database".
 
 ## The Problem
 
@@ -68,7 +90,14 @@ But if it fails with EE compilation errors, use the safe procedure above.
 
 - **Never** run `cargo sqlx prepare --workspace` with only OSS features and commit the result — it will delete EE caches.
 - **Never** set `SQLX_OFFLINE=true` for local `cargo sqlx prepare` — use a live database per CLAUDE.md. (CI runs with `SQLX_OFFLINE=true`, which is why the cache must be complete.)
+- **Never** run `prepare` without a `.sqlx` backup, or against a `DATABASE_URL` you have not confirmed belongs to this worktree.
+- **Never** run `prepare` at all for a removal-only change.
 - **Never** skip the verification step (step 4 above).
+
+Step 4 compares against `origin/main` because step 1 restored from it, so the two agree.
+If you did **not** run step 1 — auditing a branch's cache on its own, say — compare
+against `git merge-base HEAD origin/main` instead: `origin/main` advances, so its newer
+entries would read as losses on your branch.
 
 ## Verification
 
