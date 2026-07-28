@@ -905,19 +905,27 @@ export async function main(discord_webhook: DiscordWebhook, message: string) {
 	}
 ]
 
-/** Naive term overlap — enough to rank a handful of fixtures for a natural query
- * without pulling an embedding model into the benchmark. */
+/** Naive whole-word overlap — enough to rank a handful of fixtures for a natural
+ * query without pulling an embedding model into the benchmark. Every frontend eval
+ * shares this handler, so the bar to match is deliberately high: naming the
+ * integration, or overlapping on three meaningful words. A looser bar answers
+ * "send a Slack message" with the Discord fixture, handing an unrelated case a
+ * plausible-looking wrong integration. */
 function searchBenchmarkHubScripts(text: string) {
-	const tokens = text
-		.toLowerCase()
-		.split(/[^a-z0-9]+/)
-		.filter(Boolean)
+	const tokens = new Set(
+		text
+			.toLowerCase()
+			.split(/[^a-z0-9]+/)
+			.filter((token) => token.length > 2)
+	)
 	return BENCHMARK_HUB_SCRIPTS.map((script) => {
-		const haystack = `${script.app} ${script.summary} ${script.terms}`.toLowerCase()
-		const score = tokens.filter((token) => haystack.includes(token)).length
-		return { script, score }
+		const words = new Set(
+			`${script.app} ${script.summary} ${script.terms}`.toLowerCase().split(/[^a-z0-9]+/)
+		)
+		const score = [...tokens].filter((token) => words.has(token)).length
+		return { script, score, namesApp: tokens.has(script.app) }
 	})
-		.filter((entry) => entry.score > 0)
+		.filter((entry) => entry.namesApp || entry.score >= 3)
 		.sort((a, b) => b.score - a.score)
 		.map(({ script }, index) => ({
 			ask_id: script.version_id,
@@ -973,7 +981,8 @@ export function hasBenchmarkApiHandler(url: string): boolean {
 	)
 }
 
-/** Answer a relative `/api/...` fetch issued by the API catalog executor. */
+/** Answer a relative `/api/...` fetch — from the API catalog executor, or from the
+ * chat's hub tools. */
 export function handleBenchmarkApiFetch(url: string): Response {
 	const path = url.split('?')[0]
 	if (path === '/api/workers/list') {
