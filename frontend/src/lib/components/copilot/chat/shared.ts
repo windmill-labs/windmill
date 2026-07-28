@@ -650,6 +650,26 @@ export function isActiveUserQuestion(message: DisplayMessage | undefined): boole
 	)
 }
 
+// The loop is parked on the user: an unanswered askUserQuestion, or a tool call
+// staged for confirmation. The manager stays `loading` through both, so anything
+// rendering progress must ask here first or it reports "the AI is working".
+export type PendingUserAction = 'question' | 'confirmation'
+
+// Scans back to the turn boundary, not just the last message: a turn's cards are
+// created up front and run one at a time, and text between two tool calls pushes
+// an assistant card between them, so the blocked card is rarely last. Only cards
+// of a live turn can match — every resolution path clears `isLoading`.
+export function pendingUserAction(messages: DisplayMessage[]): PendingUserAction | undefined {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const message = messages[i]
+		if (message.role === 'user') break
+		if (message.role !== 'tool') continue
+		if (isActiveUserQuestion(message)) return 'question'
+		if (message.needsConfirmation && message.isLoading) return 'confirmation'
+	}
+	return undefined
+}
+
 // Fires after every tool call resolves, with the tool name. Lets a host (e.g.
 // the sessions page) react to mutating tools — refreshing previews — without
 // the tool layer knowing about the UI. Single slot; the consumer filters by name
