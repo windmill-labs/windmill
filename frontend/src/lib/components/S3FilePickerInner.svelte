@@ -538,13 +538,22 @@
 		const split_path = fileKey.split('/')
 		let prefix = ''
 		for (let i = 0; i < split_path.length - 1; i++) {
+			const parentPrefix = prefix === '' ? rootParentKey() : prefix
 			prefix += split_path[i] + '/'
 			if (rootPath.startsWith(prefix)) {
 				continue // at or above the browsed root
 			}
-			const folder = allFilesByKey[prefix]
+			let folder = allFilesByKey[prefix]
+			// Subfolders surface as their level is paged, so an ancestor sitting
+			// past the first page of a wide level has no node yet — the path is
+			// enough to place one, and the load below proves whether it exists.
+			const synthesized = folder === undefined
+			if (synthesized) {
+				createShallowNode(prefix, 'folder', parentPrefix)
+				folder = allFilesByKey[prefix]
+			}
 			if (folder === undefined || folder.type !== 'folder') {
-				return // stale selection: the folder no longer exists
+				return
 			}
 			if (folder.childrenLoaded !== true) {
 				await loadShallowFolder(prefix)
@@ -553,6 +562,13 @@
 				if (generation !== loadGeneration) {
 					return
 				}
+			}
+			if (synthesized && (folder.count ?? 0) === 0) {
+				// Nothing under it: the path is stale (a delete may have just
+				// emptied it), so drop the node rather than show a phantom row.
+				delete allFilesByKey[prefix]
+				displayedFileKeys = displayedFileKeys.filter((k) => k !== prefix)
+				return
 			}
 			folder.collapsed = false
 			for (const file_key in allFilesByKey) {
