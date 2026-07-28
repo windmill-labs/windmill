@@ -243,6 +243,13 @@ export async function parseAnthropicCompletion(
 				const tool = tools.find((t) => t.def.function.name === block.name)
 				if (tool && tool.preAction) {
 					tool.preAction({ toolCallbacks: callbacks, toolId: block.id })
+					// preActions set active "-ing" content, but the call is still waiting
+					// its turn — restore the queued header (processToolCall promotes it
+					// back to loading when execution starts).
+					callbacks.setToolStatus(
+						block.id,
+						queuedToolStatus(tools, block.name, JSON.stringify(block.input))
+					)
 				}
 			}
 		}

@@ -937,3 +937,38 @@ describe('trimJob', () => {
 		expect(job.result).toBe(42)
 	})
 })
+
+describe('queuedToolStatus', () => {
+	const tool = (extra: Record<string, unknown> = {}) => ({
+		def: { type: 'function' as const, function: { name: 'run_script', parameters: {} } },
+		fn: vi.fn(),
+		...extra
+	})
+
+	it('humanizes snake_case and camelCase tool names by default', async () => {
+		const { queuedToolStatus } = await import('./shared')
+		expect(queuedToolStatus([], 'run_script', '{}')).toMatchObject({
+			isLoading: false,
+			isQueued: true,
+			isStreamingArguments: false,
+			content: 'Run script'
+		})
+		expect(queuedToolStatus([], 'askUserQuestion', '{}').content).toBe('Ask user question')
+	})
+
+	it('derives the label from parsed args via queuedLabel', async () => {
+		const { queuedToolStatus } = await import('./shared')
+		const t = tool({ queuedLabel: (args: any) => `Test ${args.path}` })
+		expect(queuedToolStatus([t] as any, 'run_script', '{"path": "u/admin/x"}').content).toBe(
+			'Test u/admin/x'
+		)
+	})
+
+	it('falls back to the humanized name when args are truncated', async () => {
+		const { queuedToolStatus } = await import('./shared')
+		const t = tool({ queuedLabel: (args: any) => `Test ${args.path}` })
+		expect(queuedToolStatus([t] as any, 'run_script', '{"path": "u/adm').content).toBe(
+			'Run script'
+		)
+	})
+})

@@ -847,7 +847,12 @@ export function queuedToolStatus(
 	argsString: string | undefined
 ): Partial<ToolDisplayMessage> {
 	const tool = tools.find((t) => t.def.function.name === toolName)
-	let content = toolName.charAt(0).toUpperCase() + toolName.slice(1).replaceAll('_', ' ')
+	// Humanize snake_case and camelCase alike: askUserQuestion → "Ask user question"
+	const words = toolName
+		.replaceAll('_', ' ')
+		.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+		.toLowerCase()
+	let content = words.charAt(0).toUpperCase() + words.slice(1)
 	if (typeof tool?.queuedLabel === 'string') {
 		content = tool.queuedLabel
 	} else if (typeof tool?.queuedLabel === 'function') {
