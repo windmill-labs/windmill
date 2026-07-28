@@ -133,9 +133,13 @@
 			// job, which is the only reliable stop.
 			timer = setInterval(() => void loadProgress(), 2000)
 			const graphTimer = setInterval(() => {
-				// A static descriptor never snapshots, so this would poll forever
-				// on its own; the attempt cap is what ends it.
-				if (raw?.dbt_snapshot_job === jobId || graphTries >= 40) {
+				// Two ways to be done, and the second is the common one. The
+				// ingest happens BEFORE the build, so once any model reports
+				// progress it has already run: a snapshot that is not here by
+				// then is a snapshot this run never writes — which is every
+				// static descriptor. The cap is only a backstop for a run that
+				// somehow reports no progress at all.
+				if (raw?.dbt_snapshot_job === jobId || polled.size > 0 || graphTries >= 40) {
 					clearInterval(graphTimer)
 					return
 				}
@@ -303,7 +307,7 @@
 		const out = new Map<string, AssetRunState>()
 		for (const n of run.nodes) {
 			const id = assetByNode.get(n.unique_id)
-			const outcome = id && relationOutcome(n.status)
+			const outcome = id && relationOutcome(n.status, n.outcome)
 			// A test or an analysis matches no relation, and a skipped node says
 			// nothing about one; both are left uncoloured rather than guessed at.
 			if (id && outcome) out.set(id, { status: outcome, rowCount: n.rows_affected })

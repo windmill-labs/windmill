@@ -375,6 +375,9 @@ pub fn dbt_arg_schema(inner_content: &str) -> anyhow::Result<serde_json::Value> 
     for arg in &sig.args {
         let mut prop = match &arg.typ {
             Typ::Bool => serde_json::json!({"type": "boolean"}),
+            // `limit` is an integer to the worker, which clamps it; without this
+            // the generated clients and the run form offer no numeric control.
+            Typ::Int => serde_json::json!({"type": "integer"}),
             Typ::List(_) => serde_json::json!({"type": "array", "items": {"type": "string"}}),
             Typ::Object(_) => serde_json::json!({"type": "object"}),
             Typ::Str(Some(variants)) => serde_json::json!({"type": "string", "enum": variants}),
@@ -508,6 +511,10 @@ full_refresh: true
             serde_json::json!(DBT_COMMANDS)
         );
         assert_eq!(props["full_refresh"]["type"], "boolean");
+        // The worker clamps `limit` as an integer; the schema has to say so, or
+        // the run form offers a free-text box for a number.
+        assert_eq!(props["limit"]["type"], "integer");
+        assert_eq!(props["limit"]["default"], 100);
         // Every `{{ placeholder }}` the descriptor interpolates is an argument
         // a run must supply — the overrides above all default to the
         // descriptor's own values instead.

@@ -129,8 +129,11 @@ export function splitUniqueId(uniqueId: string): { kind: string; name: string } 
  * one for the colour drawn over it. `warn`, `skipped` and `no-op` leave the
  * relation untouched, so they get no colour rather than a misleading one.
  */
-export function relationOutcome(status: string): 'running' | 'materialized' | 'failed' | undefined {
-	switch (classifyStatus(status)) {
+export function relationOutcome(
+	status: string,
+	outcome?: DbtOutcome
+): 'running' | 'materialized' | 'failed' | undefined {
+	switch (outcome ?? classifyStatus(status)) {
 		case 'started':
 			return 'running'
 		case 'passed':
