@@ -160,7 +160,8 @@ pub struct DbtDescriptor {
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct DbtNodeRetry {
-    /// Extra `dbt retry` attempts after the first failed build.
+    /// Extra `dbt retry` attempts for the job, spent across whichever phases
+    /// fail — a model phase that uses them all leaves none for the tests.
     pub attempts: u32,
     /// Seconds between attempts. A transient warehouse error is usually a lock
     /// or a restart, so a pause is the point.

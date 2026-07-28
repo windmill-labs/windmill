@@ -545,16 +545,28 @@ export const MAX_MODULE_BYTES = 5 * 1024 * 1024;
  * file one drops and another keeps is a change no push can ever resolve.
  */
 export function isBundledModuleFile(fullPath: string): boolean {
-  let bytes: Buffer;
+  // Size from `stat` and only the first 8 KB read: a project may sit next to a
+  // multi-gigabyte parquet seed or a stray archive, and reading one whole just
+  // to reject it would stall the sync or exhaust the CLI.
+  let fd: number;
   try {
-    bytes = fs.readFileSync(fullPath);
+    if (fs.statSync(fullPath).size > MAX_MODULE_BYTES) return false;
+    fd = fs.openSync(fullPath, "r");
   } catch {
     // Unreadable is not the same as excluded. A pull asks this about files that
     // do not exist locally yet, and answering "not carried" there would make
     // sync ignore the whole incoming project and write nothing.
     return true;
   }
-  return !bytes.subarray(0, 8000).includes(0) && bytes.byteLength <= MAX_MODULE_BYTES;
+  try {
+    const head = Buffer.alloc(8000);
+    const read = fs.readSync(fd, head, 0, 8000, 0);
+    return !head.subarray(0, read).includes(0);
+  } catch {
+    return true;
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 /** Whether a path is inside a dbt project's module folder specifically: those

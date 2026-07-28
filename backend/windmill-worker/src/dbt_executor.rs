@@ -293,6 +293,7 @@ pub async fn handle_dbt_job(
     let node_retry = descriptor
         .retry_failed_nodes
         .filter(|_| matches!(conn, Connection::Sql(_)));
+    let mut retries_left = node_retry.map(|p| p.attempts()).unwrap_or(0);
     if let Some(policy) = node_retry.filter(|_| run.is_err()) {
         retry_failed_nodes(
             policy,
@@ -308,6 +309,7 @@ pub async fn handle_dbt_job(
             deadline,
             &mut run,
             &mut results,
+            &mut retries_left,
         )
         .await;
     }
@@ -368,6 +370,7 @@ pub async fn handle_dbt_job(
                 deadline,
                 &mut run,
                 &mut results,
+                &mut retries_left,
             )
             .await;
         }
@@ -1583,13 +1586,15 @@ fn reject_reserved_env<'a>(
 /// project runs in.
 pub const ARTIFACTS_DIR: &str = "wm_target";
 
-#[allow(clippy::too_many_arguments)]
 /// The descriptor's `retry_failed_nodes` policy, applied to whichever phase just
 /// failed. `dbt retry` rebuilds only the failed and skipped nodes, so a
 /// transient warehouse error costs those rather than the whole project.
 ///
 /// Called after the model phase and again after the `after_all` test phase: a
-/// failing test is a failed node too.
+/// failing test is a failed node too. `remaining` is the budget for the WHOLE
+/// job, not per phase — each attempt is a real dbt invocation holding a worker
+/// slot, so a model phase that spent them all leaves none for the tests.
+#[allow(clippy::too_many_arguments)]
 async fn retry_failed_nodes(
     policy: windmill_parser_yaml::dbt::DbtNodeRetry,
     prepared: &PreparedProject,
@@ -1604,8 +1609,11 @@ async fn retry_failed_nodes(
     deadline: JobDeadline,
     run: &mut error::Result<()>,
     results: &mut Vec<DbtNodeResult>,
+    remaining: &mut u32,
 ) {
-    for attempt in 1..=policy.attempts() {
+    let total = policy.attempts();
+    while *remaining > 0 {
+        let attempt = total - *remaining + 1;
         // A cancelled or timed-out job must not start another warehouse
         // write: its failure is not the transient kind this retries, and
         // the slot is supposed to be going away. The wait itself re-checks,
@@ -1653,6 +1661,7 @@ async fn retry_failed_nodes(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_dbt(
     p: &PreparedProject,
     command: &str,
