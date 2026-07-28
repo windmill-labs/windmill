@@ -10,7 +10,7 @@ INSERT INTO workspace_key (workspace_id, kind, key) VALUES
     ('dtmig-ws', 'cloud', 'dtmig-key');
 
 INSERT INTO workspace_settings (workspace_id, datatable) VALUES
-    ('dtmig-ws', '{"datatables": {"main": {"database": {"resource_type": "postgresql", "resource_path": "u/dtmig-admin/pg"}, "migrations_enabled": true}}}');
+    ('dtmig-ws', '{"datatables": {"main": {"database": {"resource_type": "postgresql", "resource_path": "u/dtmig-admin/pg"}, "migrations_enabled": true}, "noschema": {"database": {"resource_type": "postgresql", "resource_path": "u/dtmig-admin/pg_noschema"}, "migrations_enabled": true}}}');
 
 INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES
     ('dtmig-ws', 'all', 'All users', '{}');

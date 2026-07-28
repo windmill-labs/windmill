@@ -19,6 +19,9 @@ use windmill_test_utils::*;
 
 const ROLE: &str = "wm_dtmig_test_role";
 const ROLE_PASSWORD: &str = "wm_dtmig_test_pwd";
+/// Deliberately hyphenated: it only parses inside double quotes, so it pins that
+/// the emitted recovery statement quotes the role rather than interpolating it.
+const NOSCHEMA_ROLE: &str = "wm-dtmig-noschema";
 
 fn authed(b: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
     b.header("Authorization", "Bearer DTMIG_ADMIN_TOKEN")
@@ -215,6 +218,83 @@ async fn test_datatable_connection_report(db: Pool<Postgres>) -> anyhow::Result<
     assert_eq!(report["can_create_table"], true);
     assert_eq!(report["can_create_schema"], true);
     assert_eq!(report["suggested_grants"].as_array().unwrap().len(), 0);
+
+    Ok(())
+}
+
+/// Point the fixture's second data table at a role whose `search_path` resolves
+/// to nothing, the one state where no grant helps.
+async fn setup_schemaless_datatable_role(db: &Pool<Postgres>) -> anyhow::Result<()> {
+    let opts = (*db.connect_options()).clone();
+    let dbname = opts.get_database().expect("test database name").to_string();
+
+    sqlx::query(&format!(
+        "DO $$ BEGIN \
+           CREATE ROLE \"{NOSCHEMA_ROLE}\" LOGIN PASSWORD '{ROLE_PASSWORD}'; \
+         EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; \
+         END $$"
+    ))
+    .execute(db)
+    .await?;
+    // Cluster-wide for this role, which is why it gets one of its own rather
+    // than sharing the role the other assertions connect with.
+    sqlx::raw_sql(&format!(
+        "ALTER ROLE \"{NOSCHEMA_ROLE}\" SET search_path = wm_dtmig_absent_schema; \
+         GRANT CONNECT ON DATABASE \"{dbname}\" TO \"{NOSCHEMA_ROLE}\";"
+    ))
+    .execute(db)
+    .await?;
+
+    sqlx::query(
+        "INSERT INTO resource (workspace_id, path, value, resource_type, created_by) \
+         VALUES ('dtmig-ws', 'u/dtmig-admin/pg_noschema', $1, 'postgresql', 'dtmig-admin')",
+    )
+    .bind(json!({
+        "host": opts.get_host(),
+        "port": opts.get_port(),
+        "dbname": dbname,
+        "user": NOSCHEMA_ROLE,
+        "password": ROLE_PASSWORD,
+        "sslmode": "disable",
+    }))
+    .execute(db)
+    .await?;
+
+    Ok(())
+}
+
+#[sqlx::test(fixtures("datatable_migrations_grants"))]
+async fn test_datatable_connection_without_a_resolvable_schema(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    setup_schemaless_datatable_role(&db).await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let report: Value = authed(reqwest::Client::new().get(format!(
+        "http://localhost:{port}/api/w/dtmig-ws/workspaces/test_datatable_connection/noschema"
+    )))
+    .send()
+    .await?
+    .json()
+    .await?;
+
+    assert!(report["schema"].is_null(), "expected no schema: {report}");
+    // No grant fixes an empty search_path, so suggesting one would send the
+    // reader after a statement that changes nothing.
+    assert!(
+        !report["suggested_grants"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|g| g.as_str().unwrap().contains("ON SCHEMA")),
+        "an empty search_path must not yield a schema grant: {report}"
+    );
+    assert_eq!(
+        report["suggested_search_path"],
+        format!("ALTER ROLE \"{NOSCHEMA_ROLE}\" SET search_path = public")
+    );
 
     Ok(())
 }

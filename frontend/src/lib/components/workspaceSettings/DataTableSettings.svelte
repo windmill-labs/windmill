@@ -107,19 +107,23 @@
 		| undefined
 	>(undefined)
 
+	// Identifies the request the single result slot is waiting on. The data table
+	// name is not enough: A -> B -> A leaves two A requests in flight, and the
+	// first to be issued can be the last to land.
+	let latestCheck = 0
+
 	async function testConnection(name: string) {
+		const check = ++latestCheck
 		connectionCheck = { name, loading: true }
 		try {
 			const report = await WorkspaceService.testDataTableConnection({
 				workspace: $workspaceStore ?? '',
 				datatableName: name
 			})
-			// Testing another data table mid-flight retargets the single result
-			// slot; a late reply must not overwrite the one being waited on.
-			if (connectionCheck?.name !== name) return
+			if (check !== latestCheck) return
 			connectionCheck = { name, loading: false, report }
 		} catch (err) {
-			if (connectionCheck?.name !== name) return
+			if (check !== latestCheck) return
 			connectionCheck = { name, loading: false, error: err?.body ?? err?.message ?? String(err) }
 		}
 	}
