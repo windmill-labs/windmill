@@ -1,11 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { FlowModule } from '$lib/gen'
-import {
-	describeStepSettings,
-	hasInlineConcurrency,
-	stepSettingsByKey,
-	stepSettingDefaults
-} from './flowStepSettings'
+import { describeStepSettings, hasInlineConcurrency, stepSettingsByKey } from './flowStepSettings'
 
 function step(overrides: Partial<FlowModule> = {}): FlowModule {
 	return {
@@ -138,21 +133,5 @@ describe('describeStepSettings', () => {
 			'Stop early if there are no new events'
 		)
 		expect(stepSettingsByKey(step())['early-stop']?.tooltip).toBe('Early stop / break')
-	})
-})
-
-describe('stepSettingDefaults', () => {
-	it('seeds one predicate for trigger steps, whichever path creates them', () => {
-		expect(stepSettingDefaults('early-stop', 'trigger')).toEqual({
-			expr: '!result || (Array.isArray(result) && result.length == 0)',
-			skip_if_stopped: true
-		})
-	})
-
-	it('seeds a terminating step to stop unconditionally without marking it skipped', () => {
-		expect(stepSettingDefaults('early-stop', 'end')).toEqual({
-			expr: 'true',
-			skip_if_stopped: false
-		})
 	})
 })

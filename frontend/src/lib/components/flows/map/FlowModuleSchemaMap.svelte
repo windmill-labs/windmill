@@ -808,7 +808,9 @@
 					{ extraModules, displayState: groupDisplayState }
 				)
 
-				selectionManager.selectId(module.id)
+				// Inserting is a deliberate "now edit this": in modal mode the new step's
+				// editor is otherwise hidden behind the graph.
+				selectionManager.selectId(module.id, { openPanel: true })
 
 				if (detail.inlineScript?.instructions) {
 					dispatch('generateStep', {
@@ -935,7 +937,7 @@
 
 				targetModules.splice(targetIndex + 1, 0, clone)
 				refreshStateStore(flowStore)
-				selectionManager.selectId(clone.id)
+				selectionManager.selectId(clone.id, { openPanel: true })
 			}}
 			onUpdateMock={(detail) => {
 				let module = findModuleById(detail.id)

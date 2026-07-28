@@ -15,7 +15,7 @@
 
 <script lang="ts">
 	import { zIndexes } from '$lib/zIndexes'
-	import { untrack } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
 
 	interface Props {
 		open?: boolean
@@ -68,6 +68,15 @@
 			minZIndexEntries[id] = minZIndex
 		}
 	}
+
+	// A disposable can be unmounted while still open — the step panel is wrapped in a
+	// {#key selectedId} that tears its whole subtree down. Without this the id would sit
+	// on the shared stack for the rest of the session, and consumers that read the
+	// stack's length would silently stop working.
+	onDestroy(() => {
+		openedDrawers.val = openedDrawers.val.filter((drawer) => drawer !== id)
+		delete minZIndexEntries[id]
+	})
 
 	export function closeDrawer() {
 		open = false
