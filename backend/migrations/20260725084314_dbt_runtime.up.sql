@@ -123,6 +123,11 @@ CREATE TABLE IF NOT EXISTS dbt_graph_snapshot (
 CREATE TABLE IF NOT EXISTS dbt_run_state (
   workspace_id VARCHAR(50) NOT NULL REFERENCES workspace(id) ON DELETE CASCADE ON UPDATE CASCADE,
   script_path  VARCHAR(255) NOT NULL,
+  -- Part of the key: a retry replaces the caller's arguments with the saved
+  -- ones, so state written by one principal must not be restorable by another
+  -- — that would hand them the literal `select` and `vars` of a run they were
+  -- never entitled to see.
+  permissioned_as VARCHAR(255) NOT NULL,
   identity     TEXT NOT NULL,
   -- The invocation's job arguments. `dbt retry` reuses the original selection
   -- and vars, so the graph refresh and the build must agree with them rather
@@ -133,7 +138,7 @@ CREATE TABLE IF NOT EXISTS dbt_run_state (
   run_results  TEXT NOT NULL,
   job_id       UUID,
   updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-  PRIMARY KEY (workspace_id, script_path)
+  PRIMARY KEY (workspace_id, script_path, permissioned_as)
 );
 
 -- Live per-model progress for one RUN.

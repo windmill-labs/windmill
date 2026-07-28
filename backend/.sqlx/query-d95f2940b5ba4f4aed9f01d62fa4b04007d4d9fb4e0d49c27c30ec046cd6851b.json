@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT identity, args, run_results FROM dbt_run_state\n         WHERE workspace_id = $1 AND script_path = $2",
+  "query": "SELECT identity, args, run_results FROM dbt_run_state\n         WHERE workspace_id = $1 AND script_path = $2 AND permissioned_as = $3",
   "describe": {
     "columns": [
       {
@@ -22,6 +22,7 @@
     "parameters": {
       "Left": [
         "Text",
+        "Text",
         "Text"
       ]
     },
@@ -31,5 +32,5 @@
       false
     ]
   },
-  "hash": "cb122c1cfeb7f42597fe250376b22c05817dcae6a98c3630d1bad4981232f3a8"
+  "hash": "d95f2940b5ba4f4aed9f01d62fa4b04007d4d9fb4e0d49c27c30ec046cd6851b"
 }

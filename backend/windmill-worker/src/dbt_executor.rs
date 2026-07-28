@@ -265,7 +265,7 @@ pub(crate) async fn handle_dbt_job(
     // invocation's selection and vars and the graph refresh, the build and the
     // test phase must all agree with it.
     let inv = if command == "retry" {
-        let restored = restore_run_state(&prepared, &job.workspace_id, &inv, conn).await?;
+        let restored = restore_run_state(&prepared, &job.workspace_id, &job.permissioned_as, &inv, conn).await?;
         // Restored args are the ones SUBMITTED, so the references they carry are
         // resolved again now — against this caller's access, not the original's.
         let inv = Invocation {
@@ -460,7 +460,7 @@ pub(crate) async fn handle_dbt_job(
         }
     }
 
-    save_run_state(&prepared, &job.workspace_id, &job.id, &inv, conn)
+    save_run_state(&prepared, &job.workspace_id, &job.permissioned_as, &job.id, &inv, conn)
         .await
         .ok();
     let reconciled = reconcile_materializations(&prepared, &results, job, conn).await;
@@ -2962,6 +2962,9 @@ fn state_dir(w_id: &str, script_path: &str) -> PathBuf {
 async fn save_run_state(
     p: &PreparedProject,
     w_id: &str,
+    // Part of the state's key: a retry replaces the caller's arguments with
+    // these, so another principal must not be able to restore them.
+    permissioned_as: &str,
     // Scopes the staging directory. Keyed by project digest, two concurrent
     // runs of one script would stage into the same place and publish a mixture.
     job_id: &Uuid,
@@ -2996,9 +2999,9 @@ async fn save_run_state(
                 .await
         {
             let _ = sqlx::query!(
-                "INSERT INTO dbt_run_state (workspace_id, script_path, identity, args, run_results, job_id, updated_at)
-                 VALUES ($1, $2, $3, $4, $5, $6, now())
-                 ON CONFLICT (workspace_id, script_path) DO UPDATE SET
+                "INSERT INTO dbt_run_state (workspace_id, script_path, permissioned_as, identity, args, run_results, job_id, updated_at)
+                 VALUES ($1, $2, $7, $3, $4, $5, $6, now())
+                 ON CONFLICT (workspace_id, script_path, permissioned_as) DO UPDATE SET
                    identity = EXCLUDED.identity, args = EXCLUDED.args,
                    run_results = EXCLUDED.run_results, job_id = EXCLUDED.job_id,
                    updated_at = now()",
@@ -3008,6 +3011,7 @@ async fn save_run_state(
                 serde_json::to_value(&args).unwrap_or_default(),
                 results,
                 job_id,
+                permissioned_as,
             )
             .execute(db)
             .await;
@@ -3220,6 +3224,7 @@ struct SavedRunState {
 async fn restore_from_db(
     p: &PreparedProject,
     w_id: &str,
+    permissioned_as: &str,
     inv: &Invocation,
     conn: &Connection,
     no_state: Error,
@@ -3231,9 +3236,10 @@ async fn restore_from_db(
     };
     let Some(row) = sqlx::query!(
         "SELECT identity, args, run_results FROM dbt_run_state
-         WHERE workspace_id = $1 AND script_path = $2",
+         WHERE workspace_id = $1 AND script_path = $2 AND permissioned_as = $3",
         w_id,
-        &p.script_path
+        &p.script_path,
+        permissioned_as
     )
     .fetch_optional(db)
     .await?
@@ -3309,6 +3315,7 @@ pub struct RestoredRun {
 async fn restore_run_state(
     p: &PreparedProject,
     w_id: &str,
+    permissioned_as: &str,
     inv: &Invocation,
     conn: &Connection,
 ) -> error::Result<RestoredRun> {
@@ -3343,9 +3350,11 @@ async fn restore_run_state(
     // restore skips the `dbt parse` that re-deriving one costs.
     let latest_job = match conn {
         Connection::Sql(db) => sqlx::query_scalar!(
-            "SELECT job_id FROM dbt_run_state WHERE workspace_id = $1 AND script_path = $2",
+            "SELECT job_id FROM dbt_run_state
+              WHERE workspace_id = $1 AND script_path = $2 AND permissioned_as = $3",
             w_id,
-            &p.script_path
+            &p.script_path,
+            permissioned_as
         )
         .fetch_optional(db)
         .await?
@@ -3355,7 +3364,7 @@ async fn restore_run_state(
     };
     let generation = match tokio::fs::read_to_string(dir.join(CURRENT_GENERATION)).await {
         Ok(g) if latest_job.is_none_or(|id| g.trim() == format!("gen-{id}")) => g,
-        _ => return restore_from_db(p, w_id, inv, conn, no_state()).await,
+        _ => return restore_from_db(p, w_id, permissioned_as, inv, conn, no_state()).await,
     };
     let snapshot = dir.join(generation.trim());
     let saved_results = tokio::fs::read_to_string(snapshot.join("run_results.json"))

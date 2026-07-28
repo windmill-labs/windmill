@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT job_id FROM dbt_run_state WHERE workspace_id = $1 AND script_path = $2",
+  "query": "SELECT job_id FROM dbt_run_state\n              WHERE workspace_id = $1 AND script_path = $2 AND permissioned_as = $3",
   "describe": {
     "columns": [
       {
@@ -12,6 +12,7 @@
     "parameters": {
       "Left": [
         "Text",
+        "Text",
         "Text"
       ]
     },
@@ -19,5 +20,5 @@
       true
     ]
   },
-  "hash": "7b591887fc0acaa24cc8263ccec75c7baca697c9698979172872f93b9ea1a198"
+  "hash": "fb2a7f9b797a45351439746e1478545c969d995dc02aaf6673183a73cab67179"
 }
