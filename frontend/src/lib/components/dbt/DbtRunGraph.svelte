@@ -5,10 +5,13 @@
 	// where the alternative is reading `N of M OK created` out of the log.
 	import { onDestroy } from 'svelte'
 	import { OpenAPI, JobService } from '$lib/gen'
-	import { parseDbtRun, relationOutcome } from './parseDbtRun'
+	import { parseDbtRun, relationOutcome, splitRelation } from './parseDbtRun'
+	import { Button } from '$lib/components/common'
+	import { ClipboardCopy } from 'lucide-svelte'
+	import { copyToClipboard } from '$lib/utils'
 	import { workspaceStore } from '$lib/stores'
 	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
-	import type { AssetGraphResponse } from '$lib/components/assets/AssetGraph/types'
+	import type { AssetGraphResponse, AssetRunState } from '$lib/components/assets/AssetGraph/types'
 	import { Loader2 } from 'lucide-svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import type { AssetGraphNodeData } from '$lib/components/assets/AssetGraph/types'
@@ -67,15 +70,20 @@
 	// right and silently never matches. Polled while the job runs; a retry
 	// rewrites the same rows, so a failed node returns to `running` and on to its
 	// new outcome by itself.
-	let polled = $state<Map<string, 'running' | 'materialized' | 'failed'>>(new Map())
+	let polled = $state<Map<string, AssetRunState>>(new Map())
 
 	async function loadProgress() {
 		const ws = $workspaceStore
 		if (!ws || !jobId) return
 		try {
 			const rows = await JobService.getRunProgress({ workspace: ws, id: jobId })
-			const next = new Map<string, 'running' | 'materialized' | 'failed'>()
-			for (const r of rows) next.set(`asset:${r.asset_kind}:${r.asset_path}`, r.status)
+			const next = new Map<string, AssetRunState>()
+			for (const r of rows) {
+				next.set(`asset:${r.asset_kind}:${r.asset_path}`, {
+					status: r.status,
+					rowCount: r.row_count
+				})
+			}
 			polled = next
 		} catch {
 			// A progress hiccup must not blank the graph.
@@ -157,13 +165,13 @@
 		for (const a of graph.assets) {
 			if (a.dbt?.unique_id) assetByNode.set(a.dbt.unique_id, `asset:${a.kind}:${a.path}`)
 		}
-		const out = new Map<string, 'running' | 'materialized' | 'failed'>()
+		const out = new Map<string, AssetRunState>()
 		for (const n of run.nodes) {
 			const id = assetByNode.get(n.unique_id)
 			const outcome = id && relationOutcome(n.status)
 			// A test or an analysis matches no relation, and a skipped node says
 			// nothing about one; both are left uncoloured rather than guessed at.
-			if (id && outcome) out.set(id, outcome)
+			if (id && outcome) out.set(id, { status: outcome, rowCount: n.rows_affected })
 		}
 		return out.size > 0 ? out : undefined
 	})
@@ -189,10 +197,39 @@
 		}
 		return dbt
 	})
+
+	// Selected a relation this run built, but its stored provenance belongs to
+	// another project that writes the same table. Saying so beats rendering
+	// nothing, which reads as a dead click.
+	let selectedIsForeign = $derived.by(() => {
+		const sel = selection
+		if (sel?.kind !== 'asset' || selectedDbt) return false
+		const dbt = graph?.assets.find((a) => a.kind === sel.asset_kind && a.path === sel.path)?.dbt
+		return dbt != undefined
+	})
+
+	// The relation this model writes, fully qualified, as dbt reported it for THIS
+	// run. There is no table browser to link to, so the next best affordance is
+	// the exact name to paste into a SQL client — quote-aware, because a period
+	// inside a quoted identifier is part of the name, not a separator.
+	let selectedRelation = $derived.by(() => {
+		const sel = selection
+		if (sel?.kind !== 'asset' || !selectedDbt) return undefined
+		const rel = parseDbtRun(result)?.nodes?.find(
+			(n) => n.unique_id === selectedDbt!.unique_id
+		)?.relation_name
+		return rel ? splitRelation(rel).join('.') : undefined
+	})
 </script>
 
 {#snippet sqlPane()}
-	{#if selectedDbt?.raw_code}
+	{#if selectedIsForeign}
+		<div class="border-t px-2 py-1.5 text-2xs text-secondary">
+			Another dbt project in this workspace also materializes this relation, and the graph keeps
+			one project's model per relation — so the SQL shown here would not be this run's. Open that
+			project's own run to see it.
+		</div>
+	{:else if selectedDbt?.raw_code}
 		<div class="border-t flex flex-col min-h-0 max-h-72">
 			<div
 				class="shrink-0 flex items-center gap-2 px-2 py-1 text-2xs border-b bg-surface-secondary text-secondary"
@@ -202,6 +239,17 @@
 				>
 				{#if selectedDbt.materialized}
 					<span class="shrink-0 opacity-70">{selectedDbt.materialized}</span>
+				{/if}
+				{#if selectedRelation}
+					<Button
+						unifiedSize="2xs"
+						variant="subtle"
+						startIcon={{ icon: ClipboardCopy }}
+						on:click={() => copyToClipboard(selectedRelation)}
+						title="Copy the fully-qualified relation name"
+					>
+						<span class="font-mono truncate max-w-56">{selectedRelation}</span>
+					</Button>
 				{/if}
 				<span class="ml-auto shrink-0 opacity-70">read-only · edit locally</span>
 			</div>

@@ -7,6 +7,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import {
 		splitUniqueId as split,
+		splitRelation,
 		statusRank as rank,
 		type DbtRun
 	} from '$lib/components/dbt/parseDbtRun'
@@ -41,8 +42,7 @@
 	// run: the schema and name are what tells two relations apart.
 	function fmtRelation(relation: string | undefined): string | undefined {
 		if (!relation) return undefined
-		const parts = relation.split('.').map((p) => p.replace(/^"|"$/g, ''))
-		return parts.slice(-2).join('.')
+		return splitRelation(relation).slice(-2).join('.')
 	}
 </script>
 

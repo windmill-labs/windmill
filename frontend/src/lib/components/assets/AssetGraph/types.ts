@@ -252,3 +252,11 @@ export type AssetGraphSelection = AssetGraphNodeData
  * (default) or full editor. View can additionally overlay unsaved drafts
  * ("show drafts" chip) — a view variant, not a separate mode. */
 export type PipelineMode = 'view' | 'edit'
+
+/** What a run in view is doing to one relation, and what it produced. The row
+ *  count is the cheapest answer to "did this model actually output anything" —
+ *  the worker already records it per relation, so nothing extra is fetched. */
+export type AssetRunState = {
+	status: 'running' | 'materialized' | 'failed'
+	rowCount?: number | null
+}

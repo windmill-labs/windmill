@@ -115,3 +115,32 @@ export function relationOutcome(
 			return undefined
 	}
 }
+
+/**
+ * dbt's `relation_name` split into its parts, honouring quoting.
+ *
+ * Mirrors the worker's `split_relation`: `"`, `` ` `` and `[` open a quoted
+ * identifier, and a `.` inside one is part of the name. Splitting on every `.`
+ * turns `"wh"."analytics.v2"."orders"` into a relation called `orders` in a
+ * schema called `v2` — a table that does not exist.
+ */
+export function splitRelation(relation: string): string[] {
+	const parts: string[] = []
+	let current = ''
+	let quote: string | undefined
+	for (const c of relation) {
+		if (quote !== undefined) {
+			if (c === quote || (quote === '[' && c === ']')) quote = undefined
+			else current += c
+		} else if (c === '"' || c === '`' || c === '[') {
+			quote = c
+		} else if (c === '.') {
+			parts.push(current)
+			current = ''
+		} else {
+			current += c
+		}
+	}
+	parts.push(current)
+	return parts.map((p) => p.trim())
+}

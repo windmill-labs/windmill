@@ -21,7 +21,12 @@
 	import { computeMutedReadKeys, dbtAssociations } from './resolveGraph'
 	import { buildDownstreamMap } from './graphTraversal'
 	import { buildLineageDownstreamMap } from './boundedCascade'
-	import type { AssetGraphResponse, AssetGraphSelection, NativeTriggerKind } from './types'
+	import type {
+		AssetGraphResponse,
+		AssetGraphSelection,
+		AssetRunState,
+		NativeTriggerKind
+	} from './types'
 	import type { RunnableRunState } from './activeRunnables.svelte'
 	import type { AssetKind } from '$lib/gen'
 	import { NODE } from '$lib/components/graph/util'
@@ -183,7 +188,7 @@
 		 *  like every other per-asset map here.
 		 *  Distinct from `recomputedAssetIds`, which is a one-shot pulse: this is
 		 *  the state a node holds until the run moves it. */
-		assetRunStatus?: ReadonlyMap<string, 'running' | 'materialized' | 'failed'>
+		assetRunStatus?: ReadonlyMap<string, AssetRunState>
 		/** Let the wheel zoom the canvas (and swallow the page scroll while doing
 		 * so). Default true for the full-height editor/player. Set false when the
 		 * canvas is embedded inline inside a scrollable container, so a wheel
@@ -434,7 +439,8 @@
 					// recomputed it — the node flashes green and fades.
 					recomputePulse: recomputedAssetIds?.get(assetId),
 					// What the run in view is doing to this relation right now.
-					runStatus: assetRunStatus?.get(assetId),
+					runStatus: assetRunStatus?.get(assetId)?.status,
+					runRowCount: assetRunStatus?.get(assetId)?.rowCount,
 					// The dbt project that materializes this relation, related by
 					// badge rather than by an edge — so only when that node is on
 					// this graph. The run page and the pipeline page both hide it,
@@ -1174,7 +1180,7 @@
 						// touching what is happening animate. Here the unit of work is
 						// the model, so the edges feeding the one dbt is building move,
 						// and the flow reads in DAG order as it advances.
-						animated = assetRunStatus?.get(e.target) === 'running'
+						animated = assetRunStatus?.get(e.target)?.status === 'running'
 						break
 					default:
 						style = ''

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseDbtRun, relationOutcome, statusRank, splitUniqueId } from './parseDbtRun'
+import { parseDbtRun, relationOutcome, splitRelation, statusRank, splitUniqueId } from './parseDbtRun'
 
 const run = {
 	engine: 'dbt-core-1x',
@@ -92,5 +92,22 @@ describe('relationOutcome', () => {
 		for (const s of ['warn', 'skipped', 'no-op', 'something new']) {
 			expect(relationOutcome(s)).toBeUndefined()
 		}
+	})
+})
+
+describe('splitRelation', () => {
+	it('keeps a period that lives inside a quoted identifier', () => {
+		// The backend supports it, so rendering it as `v2.orders` names a
+		// relation that does not exist.
+		expect(splitRelation('"wh"."analytics.v2"."orders"')).toEqual([
+			'wh',
+			'analytics.v2',
+			'orders'
+		])
+		expect(splitRelation('"db"."schema"."name"')).toEqual(['db', 'schema', 'name'])
+		expect(splitRelation('db.schema.name')).toEqual(['db', 'schema', 'name'])
+		// BigQuery backticks and T-SQL brackets quote too.
+		expect(splitRelation('`proj`.`data.set`.`t`')).toEqual(['proj', 'data.set', 't'])
+		expect(splitRelation('[db].[my.schema].[t]')).toEqual(['db', 'my.schema', 't'])
 	})
 })

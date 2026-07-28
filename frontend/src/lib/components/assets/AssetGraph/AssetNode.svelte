@@ -95,6 +95,7 @@
 			// per model as it walks the DAG, so the graph moves with the run
 			// instead of only settling once the job ends.
 			runStatus?: 'running' | 'materialized' | 'failed'
+			runRowCount?: number | null
 		}
 		// SvelteFlow injects this on the node component when the user clicks
 		// the node. Combined with our own `hovered` state to drive the
@@ -271,6 +272,18 @@
 					<CheckCircle2 size={11} />
 				{/if}
 			</span>
+			<!-- Rows the run wrote. Recorded per relation already, and the cheapest
+			     answer to "did this model actually produce anything" — a model that
+			     built green but emitted 0 rows is the failure that looks like a
+			     success. Only once settled: mid-build the number is not yet real. -->
+			{#if data.runStatus === 'materialized' && data.runRowCount != undefined}
+				<span
+					class="shrink-0 mr-1 text-3xs tabular-nums text-tertiary"
+					title="{data.runRowCount} rows written by this run"
+				>
+					{Intl.NumberFormat().format(data.runRowCount)}
+				</span>
+			{/if}
 		{/if}
 		<span class="flex-1 min-w-0 pr-1 py-0.5 text-2xs font-mono text-emphasis truncate">
 			{formatShortAssetPath(asset)}
