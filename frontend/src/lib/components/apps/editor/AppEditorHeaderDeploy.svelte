@@ -21,7 +21,10 @@
 		type OnBehalfOfChoice
 	} from '$lib/components/OnBehalfOfSelector.svelte'
 	import { canUserBypassRuleKind, protectionRulesState } from '$lib/workspaceProtectionRules.svelte'
-	import { FRONTEND_SDK_SCOPES } from '$lib/components/raw_apps/sdkScopes'
+	import {
+		FRONTEND_SDK_SCOPES,
+		MIN_SANDBOXED_SDK_VERSION
+	} from '$lib/components/raw_apps/sdkScopes'
 
 	const WM_DEPLOYERS_GROUP = 'wm_deployers'
 
@@ -370,9 +373,10 @@
 		{/if}
 		{#if policy.sandbox == true && policy.frontend_sdk_scopes?.length}
 			<div class="mt-2">
-				<Alert type="warning" title="Not available with sandbox isolation" size="xs">
-					A sandboxed app's bundle runs on an opaque origin and cannot use the SDK token. Turn off
-					sandbox isolation for these scopes to take effect.
+				<Alert type="info" title="Requires windmill-client {MIN_SANDBOXED_SDK_VERSION}" size="xs">
+					A sandboxed app calls the API cross-origin, which earlier versions of the SDK cannot do.
+					Make sure your app depends on <code>windmill-client@^{MIN_SANDBOXED_SDK_VERSION}</code> and
+					redeploy — apps bundled against an older version fail with a CORS error.
 				</Alert>
 			</div>
 		{/if}

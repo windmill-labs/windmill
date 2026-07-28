@@ -22,12 +22,16 @@ const baseUrl = getEnv("BASE_INTERNAL_URL") ?? getEnv("BASE_URL") ?? "http://loc
 const baseUrlApi = (baseUrl ?? '') + "/api";
 
 EOF
+# WITH_CREDENTIALS mirrors setClient: cookies only when there is no bearer token.
+# A browser bundle that never calls setClient (a raw app, which gets its token
+# from window.process.env) must not send credentials — the API answers
+# `Access-Control-Allow-Origin: *`, so a credentialed cross-origin request fails.
 if [[ "$OSTYPE" == "darwin"* ]]; then
-  sed -i '' 's/WITH_CREDENTIALS: false/WITH_CREDENTIALS: true/g' src/core/OpenAPI.ts
+  sed -i '' 's/WITH_CREDENTIALS: false/WITH_CREDENTIALS: !getEnv("WM_TOKEN")/g' src/core/OpenAPI.ts
   sed -i '' 's/TOKEN: undefined/TOKEN: getEnv("WM_TOKEN")/g' src/core/OpenAPI.ts
   sed -i '' "s/BASE: '\/api'/BASE: baseUrlApi/g" src/core/OpenAPI.ts
 else
-  sed -i 's/WITH_CREDENTIALS: false/WITH_CREDENTIALS: true/g' src/core/OpenAPI.ts
+  sed -i 's/WITH_CREDENTIALS: false/WITH_CREDENTIALS: !getEnv("WM_TOKEN")/g' src/core/OpenAPI.ts
   sed -i 's/TOKEN: undefined/TOKEN: getEnv("WM_TOKEN")/g' src/core/OpenAPI.ts
   sed -i "s/BASE: '\/api'/BASE: baseUrlApi/g" src/core/OpenAPI.ts
 fi

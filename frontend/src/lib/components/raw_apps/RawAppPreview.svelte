@@ -151,6 +151,7 @@
 	}
 
 	function respondCtx() {
+		const sdkToken = sdkTokenCtx?.value
 		iframe?.contentWindow?.postMessage(
 			{
 				type: 'windmill:ctx',
@@ -158,7 +159,14 @@
 				// `window.ctx.workspace` works for anonymous viewers too.
 				ctx: { ctx: user, workspace },
 				initialHash,
-				storage: { local: bundleStorage ?? {}, session: {} }
+				storage: { local: bundleStorage ?? {}, session: {} },
+				// The wrapper turns this into `window.process.env` before it injects
+				// the bundle, which is what a bundled `windmill-client` reads at
+				// module load. `baseUrl` must come from here: this component runs on
+				// the real origin, the bundle's is opaque.
+				...(sdkToken
+					? { sdk: { token: sdkToken, baseUrl: window.location.origin, workspace } }
+					: {})
 			},
 			'*'
 		)

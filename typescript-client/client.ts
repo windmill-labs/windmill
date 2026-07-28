@@ -68,7 +68,11 @@ export function setClient(token?: string, baseUrl?: string) {
   if (token === undefined) {
     token = getEnv("WM_TOKEN") ?? "no_token";
   }
-  OpenAPI.WITH_CREDENTIALS = true;
+  // Cookies are the fallback for when there is no bearer token. Sending both is
+  // not just redundant, it breaks the browser case outright: the API answers
+  // `Access-Control-Allow-Origin: *` and so can never allow credentials, and a
+  // credentialed cross-origin request is rejected before the token is looked at.
+  OpenAPI.WITH_CREDENTIALS = token === "no_token";
   OpenAPI.TOKEN = token;
   OpenAPI.BASE = baseUrl + "/api";
 }
@@ -79,8 +83,12 @@ function getPublicBaseUrl(): string {
 
 export const getEnv = (key: string) => {
   if (typeof window === "undefined") {
-    // node
-    return process?.env?.[key];
+    // `process` may be undeclared entirely (web worker, browser-like runtimes
+    // without a node shim), where `process?.env` still throws a ReferenceError.
+    if (typeof process !== "undefined") {
+      return process?.env?.[key];
+    }
+    return globalThis?.process?.env?.[key];
   }
   // browser
   return window?.process?.env?.[key];

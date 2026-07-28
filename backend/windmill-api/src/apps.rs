@@ -830,6 +830,13 @@ fn raw_app_wrapper_html(secret: &str) -> String {
         window.__wmStorageShim.local.__hydrate(d.storage.local);
         window.__wmStorageShim.session.__hydrate(d.storage.session);
       }
+      // Frontend SDK: a bundled `windmill-client` reads window.process.env at
+      // module load, so the env must exist before the bundle script below is
+      // injected. BASE_URL is supplied by the embedder rather than derived —
+      // location.origin is "null" on this opaque origin.
+      if (d.sdk && d.sdk.token) {
+        window.process = { env: { WM_TOKEN: d.sdk.token, BASE_URL: d.sdk.baseUrl, WM_WORKSPACE: d.sdk.workspace } };
+      }
       if (d.initialHash && d.initialHash !== '#' && !window.location.hash) {
         try { history.replaceState(null, '', d.initialHash); } catch (_) {}
       }
@@ -1322,11 +1329,13 @@ async fn mint_raw_app_sdk_token(
 /// apps whose policy declares `frontend_sdk_scopes` get the viewer-scoped SDK
 /// token once the viewer confirms the permission prompt (`sdk_consent`).
 ///
-/// `sdk_consent` is the viewer's answer to that prompt, not a security boundary:
-/// an unsandboxed raw app's bundle runs same-origin with the viewer's session and
-/// can call this endpoint itself. The boundary is the scope set — the token can
-/// never exceed the policy-declared scopes, which are also capped by the viewer's
-/// own permissions. Sandbox isolation is what actually contains an app's code.
+/// For an unsandboxed app `sdk_consent` is the viewer's answer to that prompt,
+/// not a security boundary: its bundle runs same-origin with the viewer's session
+/// and can call this endpoint itself. The boundary is the scope set — the token
+/// can never exceed the policy-declared scopes, which are also capped by the
+/// viewer's own permissions. Sandbox isolation is what contains an app's code; a
+/// sandboxed app holds nothing but this token, so there the prompt is the only
+/// way it gains any reach at all.
 ///
 /// The CALLER MUST verify that `opt_authed` may view `app_path` before calling:
 /// this mints on their behalf unconditionally and does no visibility check of its
@@ -1342,15 +1351,9 @@ pub async fn build_embed_token_response(
     sdk_consent: bool,
 ) -> Result<EmbedTokenResponse> {
     // Only advertise scopes where a token could actually be minted, so the viewer
-    // never shows a permission prompt that can grant nothing: a sandboxed bundle
-    // lives on an opaque origin and can't use the token, and an anonymous visitor
-    // has no identity to mint against. The backend, not the viewer, decides this
-    // (the editor shows the author the same sandbox rule).
-    let sdk_scopes = if raw_app
-        && !policy.sandbox
-        && opt_authed.is_some()
-        && !policy.frontend_sdk_scopes.is_empty()
-    {
+    // is never shown a permission prompt that can grant nothing: an anonymous
+    // visitor has no identity to mint against.
+    let sdk_scopes = if raw_app && opt_authed.is_some() && !policy.frontend_sdk_scopes.is_empty() {
         Some(policy.frontend_sdk_scopes.clone())
     } else {
         None
