@@ -114,6 +114,13 @@
 	$effect(() => {
 		void scriptPath
 		void graphKey
+		// SvelteKit reuses this component when navigating between runs, and all
+		// three of these describe the PREVIOUS job: a spent retry count stops the
+		// next run's snapshot poll before it starts, and stale progress colours
+		// its models with another run's statuses.
+		graphTries = 0
+		polled = new Map()
+		raw = undefined
 		void load()
 		void jobId
 		void loadProgress()

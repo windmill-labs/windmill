@@ -283,7 +283,9 @@ pub(crate) async fn handle_dbt_job(
         if let Some(saved) = restored.args_digest.as_deref() {
             if saved != inv.resolved_args_digest() {
                 return Err(Error::BadRequest(
-                    "the values this run's arguments resolve to have changed since the run                      being retried, so its failures no longer describe what a retry would                      build; run the script normally instead"
+                    "the values this run's arguments resolve to have changed since the run \
+                     being retried, so its failures no longer describe what a retry would \
+                     build; run the script normally instead"
                         .to_string(),
                 ));
             }
