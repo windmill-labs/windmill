@@ -532,7 +532,7 @@ export type ToolDisplayMessage = {
 	isLoading?: boolean
 	/** Arguments fully streamed but execution not started — tool calls in one
 	 * assistant message run sequentially, so later ones wait their turn. Only
-	 * the executing tool shows a spinner; queued ones show a pending icon. */
+	 * the executing tool shows a spinner; queued ones render faded. */
 	isQueued?: boolean
 	error?: string
 	needsConfirmation?: boolean
@@ -828,8 +828,36 @@ export interface Tool<T> {
 	streamArguments?: boolean
 	showFade?: boolean
 	/** Header shown while the model is still streaming this call's arguments,
-	 * before `fn` runs and sets a real status. Defaults to "Calling <name>...". */
+	 * before `fn` runs and sets a real status. Defaults to "Preparing <name>...". */
 	streamingLabel?: string
+	/** Header shown while the call waits its turn to execute (args fully streamed).
+	 * Pass a function to derive it from the parsed arguments (e.g. name the script
+	 * about to run). Defaults to the humanized tool name ("run_script" → "Run script"). */
+	queuedLabel?: string | ((args: any) => string)
+}
+
+/** Status patch demoting a tool call to the queued state once its arguments have
+ * fully streamed: it waits its turn (tool calls in one message run sequentially)
+ * and processToolCall flips it back to loading when execution starts. The header
+ * switches from the "-ing" streaming label to an imperative one so a waiting call
+ * doesn't read as active. */
+export function queuedToolStatus(
+	tools: Tool<any>[],
+	toolName: string,
+	argsString: string | undefined
+): Partial<ToolDisplayMessage> {
+	const tool = tools.find((t) => t.def.function.name === toolName)
+	let content = toolName.charAt(0).toUpperCase() + toolName.slice(1).replaceAll('_', ' ')
+	if (typeof tool?.queuedLabel === 'string') {
+		content = tool.queuedLabel
+	} else if (typeof tool?.queuedLabel === 'function') {
+		try {
+			content = tool.queuedLabel(JSON.parse(argsString || '{}'))
+		} catch {
+			// Truncated/invalid args: keep the humanized name; the error path handles the rest.
+		}
+	}
+	return { isLoading: false, isQueued: true, isStreamingArguments: false, content }
 }
 
 /** Status of a job the chat started and tracks in the jobs tray. Mirrors the

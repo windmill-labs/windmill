@@ -17,7 +17,7 @@ import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
 import { requiresMaxCompletionTokens, usesAnthropicMessagesApi } from './modelConfig'
 import { applyReasoningToConfig } from './reasoningRegistry'
 import { formatResourceTypes } from './utils'
-import { processToolCall, type Tool, type ToolCallbacks } from './chat/shared'
+import { processToolCall, queuedToolStatus, type Tool, type ToolCallbacks } from './chat/shared'
 import { hasValidToolCallArguments } from './chat/toolCallArguments'
 import {
 	getNonStreamingOpenAIResponsesCompletion,
@@ -1162,11 +1162,13 @@ export async function parseOpenAICompletion(
 				} = finalToolCall
 				if (funcName && toolCallId) {
 					if (streamingToolCallId !== undefined && streamingToolCallId !== toolCallId) {
-						callbacks.setToolStatus(streamingToolCallId, {
-							isLoading: false,
-							isQueued: true,
-							isStreamingArguments: false
-						})
+						const previous = Object.values(finalToolCalls).find(
+							(tc) => tc.id === streamingToolCallId
+						)
+						callbacks.setToolStatus(
+							streamingToolCallId,
+							queuedToolStatus(tools, previous?.function?.name ?? '', previous?.function?.arguments)
+						)
 					}
 					streamingToolCallId = toolCallId
 					const tool = tools.find((t) => t.def.function.name === funcName)
@@ -1185,10 +1187,13 @@ export async function parseOpenAICompletion(
 						}
 					}
 
-					// Display tool call with streaming parameters if enabled
+					// Display tool call with streaming parameters if enabled. isQueued is
+					// cleared explicitly: a provider may interleave deltas of parallel
+					// calls, re-promoting a call that was already demoted to queued.
 					callbacks.setToolStatus(toolCallId, {
 						isLoading: true,
-						content: tool?.streamingLabel ?? `Calling ${funcName}...`,
+						isQueued: false,
+						content: tool?.streamingLabel ?? `Preparing ${funcName}...`,
 						toolName: funcName,
 						isStreamingArguments: shouldStream,
 						showFade: tool?.showFade,
@@ -1217,11 +1222,10 @@ export async function parseOpenAICompletion(
 	// and flips it back to loading — only the executing tool should spin.
 	for (const toolCall of Object.values(finalToolCalls)) {
 		if (toolCall.id) {
-			callbacks.setToolStatus(toolCall.id, {
-				isLoading: false,
-				isQueued: true,
-				isStreamingArguments: false
-			})
+			callbacks.setToolStatus(
+				toolCall.id,
+				queuedToolStatus(tools, toolCall.function?.name ?? '', toolCall.function?.arguments)
+			)
 		}
 	}
 

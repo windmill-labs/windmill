@@ -16,7 +16,7 @@ import type { MessageStream } from '@anthropic-ai/sdk/lib/MessageStream'
 import type { AIProviderModel } from '$lib/gen'
 import { getProviderAndCompletionConfig, workspaceAIClients } from '../lib'
 import { applyReasoningToConfig } from '../reasoningRegistry'
-import { processToolCall, type Tool, type ToolCallbacks } from './shared'
+import { processToolCall, queuedToolStatus, type Tool, type ToolCallbacks } from './shared'
 import { anthropicUsageToChatTokenUsage, type ChatTokenUsage } from './tokenUsage'
 
 interface ParsedCompletionResult {
@@ -143,7 +143,7 @@ export async function parseAnthropicCompletion(
 
 				callbacks.setToolStatus(toolId, {
 					isLoading: true,
-					content: tool?.streamingLabel ?? `Calling ${toolName}...`,
+					content: tool?.streamingLabel ?? `Preparing ${toolName}...`,
 					toolName,
 					isStreamingArguments: shouldStream,
 					showFade: tool?.showFade,
@@ -154,15 +154,14 @@ export async function parseAnthropicCompletion(
 				setAnthropicWebSearchStatus(callbacks, block.id, 'searching')
 			}
 		} else if (event.type === 'content_block_stop' && currentStreamingTool) {
-			// Args fully streamed: the call is queued, not executing — tool calls run
-			// sequentially after the message completes, and processToolCall flips each
-			// back to loading when its turn starts. Without this, every call in a
+			// Args fully streamed: demote to queued — tool calls run sequentially
+			// after the message completes, and processToolCall flips each back to
+			// loading when its turn starts. Without this, every call in a
 			// multi-tool message spins while only the first is actually running.
-			callbacks.setToolStatus(currentStreamingTool.tempId, {
-				isLoading: false,
-				isQueued: true,
-				isStreamingArguments: false
-			})
+			callbacks.setToolStatus(
+				currentStreamingTool.tempId,
+				queuedToolStatus(tools, currentStreamingTool.toolName, accumulatedJson)
+			)
 			currentStreamingTool = undefined
 		}
 	})
@@ -183,10 +182,13 @@ export async function parseAnthropicCompletion(
 	})
 
 	completion.on('inputJson', (partialJson: string) => {
-		if (currentStreamingTool?.shouldStream && currentStreamingTool.tempId) {
-			// Accumulate the partial JSON
-			accumulatedJson += partialJson
-
+		if (!currentStreamingTool) {
+			return
+		}
+		// Accumulated even for non-streamArguments tools: queuedToolStatus derives
+		// the queued header from the completed args at content_block_stop.
+		accumulatedJson += partialJson
+		if (currentStreamingTool.shouldStream && currentStreamingTool.tempId) {
 			// Try to parse and display
 			try {
 				const parsed = JSON.parse(accumulatedJson)

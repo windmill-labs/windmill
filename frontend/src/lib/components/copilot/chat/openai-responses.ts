@@ -13,7 +13,7 @@ import {
 	workspaceAIClients
 } from '../lib'
 import { applyReasoningToConfig } from '../reasoningRegistry'
-import { processToolCall, type Tool, type ToolCallbacks } from './shared'
+import { processToolCall, queuedToolStatus, type Tool, type ToolCallbacks } from './shared'
 import type { ResponseStream } from 'openai/lib/responses/ResponseStream.mjs'
 import type { AIProviderModel } from '$lib/gen'
 import { openAIResponsesUsageToChatTokenUsage, type ChatTokenUsage } from './tokenUsage'
@@ -337,7 +337,7 @@ export async function parseOpenAIResponsesCompletion(
 			callbacks.onMessageEnd()
 			callbacks.setToolStatus(`${item.id}`, {
 				isLoading: true,
-				content: tool?.streamingLabel ?? `Calling ${item.name}...`,
+				content: tool?.streamingLabel ?? `Preparing ${item.name}...`,
 				toolName: item.name,
 				isStreamingArguments: shouldStream,
 				showFade: tool?.showFade,
@@ -390,11 +390,10 @@ export async function parseOpenAIResponsesCompletion(
 		// sequentially after the stream ends, and processToolCall flips each back to
 		// loading when its turn starts.
 		currentStreamingTool = undefined
-		callbacks.setToolStatus(`${event.item_id}`, {
-			isLoading: false,
-			isQueued: true,
-			isStreamingArguments: false
-		})
+		callbacks.setToolStatus(
+			`${event.item_id}`,
+			queuedToolStatus(tools, toolCallsMap[event.item_id]?.name ?? '', event.arguments)
+		)
 
 		// Retrieve tool call metadata from map
 		const metadata = toolCallsMap[event.item_id]

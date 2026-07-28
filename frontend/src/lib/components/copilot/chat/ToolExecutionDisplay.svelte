@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Loader2, ChevronRight, XCircle, Play, CircleDashed } from 'lucide-svelte'
+	import { Loader2, ChevronRight, XCircle, Play } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { getAiChatManager } from './aiChatManagerContext'
 
@@ -54,7 +54,14 @@
 {#if activeUserQuestion}
 	<AskUserQuestionDisplay toolCallId={message.tool_call_id} userQuestion={activeUserQuestion} />
 {:else}
-	<div class="font-mono text-xs">
+	<!-- Queued calls (waiting their turn behind the executing tool) are faded: the
+	     reduced weight is what says "not started" — no icon, no spinner. -->
+	<div
+		class={twMerge(
+			'font-mono text-xs',
+			message.isQueued && !message.error ? 'opacity-60 hover:opacity-100 transition-opacity' : ''
+		)}
+	>
 		<!-- Collapsible Header -->
 		<button
 			class={twMerge(
@@ -67,8 +74,6 @@
 			<div class="flex items-center gap-2">
 				{#if message.isLoading && !message.needsConfirmation}
 					<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-500" />
-				{:else if message.isQueued && !message.error}
-					<CircleDashed class="w-3.5 h-3.5 text-tertiary" />
 				{/if}
 				<span class="text-primary font-medium text-2xs">
 					{message.content}
