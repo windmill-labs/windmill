@@ -618,7 +618,7 @@ parse, bundle materialisation, `profiles.yml` render, `dbt build`, log
 passthrough, structured result, retry.
 
 **Phase 2: graph.** `DbtDependencyLocks` and the deploy arm. Migration via
-`cargo sqlx migrate add -r dbt_manifest_sidecar`. New `table://` `AssetKind` with
+`cargo sqlx migrate add -r dbt_runtime`. New `table://` `AssetKind` with
 its `canonical_prefix`. Manifest ingest. Deploy-time ingest plus the per-run
 re-ingest for dynamic descriptors. Extend `AssetGraphRunnableNode`/`AssetGraphAssetNode` in
 `frontend/src/lib/components/assets/AssetGraph/types.ts` with dbt provenance and
