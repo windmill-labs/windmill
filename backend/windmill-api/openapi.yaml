@@ -4668,6 +4668,8 @@ paths:
                     type: array
                     items:
                       type: string
+                  suggested_search_path:
+                    type: string
                 required:
                   - user
                   - can_create_table

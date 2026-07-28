@@ -409,12 +409,12 @@
 					Connects as <span class="font-mono">{report.user}</span>{#if report.schema}, resolving
 						unqualified statements to schema <span class="font-mono">{report.schema}</span>{/if}.
 				</div>
-				{#if !report.schema}
+				{#if report.suggested_search_path}
 					<div>
 						Its search_path resolves to no schema, so unqualified statements fail with
 						<span class="font-mono">no schema has been selected to create in</span> whatever
 						privileges the role holds. Point it at one, e.g.
-						<span class="font-mono">ALTER ROLE {report.user} SET search_path = public</span>.
+						<span class="font-mono select-all">{report.suggested_search_path}</span>.
 					</div>
 				{/if}
 				<ul class="list-disc list-inside">
@@ -439,7 +439,7 @@
 					<pre class="whitespace-pre-wrap select-all text-xs"
 						>{report.suggested_grants.map((g) => `${g};`).join('\n')}</pre
 					>
-					{#if !report.can_create_table && !report.migrations_table_exists}
+					{#if report.schema && !report.can_create_table && !report.migrations_table_exists}
 						<div>
 							Alternatively, create the <span class="font-mono">_wm_migrations</span> bookkeeping table
 							yourself and grant only SELECT, INSERT, UPDATE, DELETE on it.

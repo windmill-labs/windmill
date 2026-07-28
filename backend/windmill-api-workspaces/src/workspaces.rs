@@ -2046,6 +2046,11 @@ struct DataTableConnectionCheck {
     /// are none. Windmill connects as the role that lacks them, so it can only
     /// name them for a schema owner to run.
     suggested_grants: Vec<String>,
+    /// Statement that gives the session a schema to work in, when `search_path`
+    /// resolves to none. Rendered here rather than by the caller so identifier
+    /// quoting stays in one place.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    suggested_search_path: Option<String>,
 }
 
 /// Report what the data table's own database lets its role do. Surfacing this
@@ -2127,6 +2132,12 @@ async fn test_datatable_connection(
         ));
     }
 
+    // An empty search_path is not a privilege problem, so it gets a statement of
+    // its own rather than a grant.
+    let suggested_search_path = schema
+        .is_none()
+        .then(|| format!("ALTER ROLE {quoted_user} SET search_path = public"));
+
     Ok(Json(DataTableConnectionCheck {
         user,
         schema,
@@ -2134,6 +2145,7 @@ async fn test_datatable_connection(
         can_create_schema,
         migrations_table_exists,
         suggested_grants,
+        suggested_search_path,
     }))
 }
 

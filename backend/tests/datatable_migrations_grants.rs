@@ -155,11 +155,18 @@ async fn test_datatable_connection_report(db: Pool<Postgres>) -> anyhow::Result<
                 == format!("GRANT CREATE ON SCHEMA \"public\" TO \"{ROLE}\"")),
         "missing schema grant: {report}"
     );
+    // Pin the name, not just the shape: the endpoint reads it from
+    // `current_database()` rather than the resource, and a prefix assertion
+    // would pass either way.
+    let dbname = (*db.connect_options())
+        .clone()
+        .get_database()
+        .expect("test database name")
+        .to_string();
     assert!(
-        grants
-            .iter()
-            .any(|g| g.as_str().unwrap().starts_with("GRANT CREATE ON DATABASE ")),
-        "missing database grant: {report}"
+        grants.iter().any(|g| g.as_str().unwrap()
+            == format!("GRANT CREATE ON DATABASE \"{dbname}\" TO \"{ROLE}\"")),
+        "missing database grant for {dbname}: {report}"
     );
 
     // A pre-created bookkeeping table lets migration *tracking* work, but the
@@ -195,8 +202,7 @@ async fn test_datatable_connection_report(db: Pool<Postgres>) -> anyhow::Result<
     // Granting the privileges clears the suggestions.
     sqlx::raw_sql(&format!(
         "GRANT CREATE ON SCHEMA public TO {ROLE}; \
-         GRANT CREATE ON DATABASE \"{}\" TO {ROLE};",
-        (*db.connect_options()).clone().get_database().unwrap()
+         GRANT CREATE ON DATABASE \"{dbname}\" TO {ROLE};"
     ))
     .execute(&db)
     .await?;
