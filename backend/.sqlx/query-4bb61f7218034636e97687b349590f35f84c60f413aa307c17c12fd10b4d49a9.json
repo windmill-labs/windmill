@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM dbt_graph_snapshot WHERE job_id <> $1\n           AND ingested_at < now() - make_interval(days => $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4bb61f7218034636e97687b349590f35f84c60f413aa307c17c12fd10b4d49a9"
+}

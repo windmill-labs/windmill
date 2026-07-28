@@ -151,18 +151,22 @@ pub struct TestMetadata {
 
 /// A content digest of the graph a row set describes.
 ///
-/// Covers exactly what the graph renders from — the nodes, their `ref()` edges
-/// and the root the relations resolved under — so two ingests that would draw
-/// the same picture digest the same.
+/// Covers every stored field of the nodes, their `ref()` edges and the root the
+/// relations resolved under — more than the graph draws, which errs toward
+/// storing a snapshot rather than suppressing one that differs.
 fn graph_digest(ingested: &IngestedManifest, relation_root: &str) -> String {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    relation_root.hash(&mut h);
-    serde_json::to_string(&ingested.nodes)
-        .unwrap_or_default()
-        .hash(&mut h);
-    format!("{:?}", ingested.edges).hash(&mut h);
-    format!("{:x}", h.finish())
+    use sha2::{Digest, Sha256};
+    // SHA-256, not `DefaultHasher`: this value is written to the database and
+    // compared against on later runs, possibly by a worker built with a
+    // different toolchain — and `DefaultHasher`'s output is explicitly not
+    // stable across Rust releases. A drifting hash would silently stop matching
+    // and every dynamic run would store a full snapshot again, looking exactly
+    // like the suppression never working.
+    let mut h = Sha256::new();
+    h.update(relation_root.as_bytes());
+    h.update(serde_json::to_string(&ingested.nodes).unwrap_or_default().as_bytes());
+    h.update(format!("{:?}", ingested.edges).as_bytes());
+    format!("{:x}", h.finalize())
 }
 
 /// The `job_id` of a graph that belongs to a deployed VERSION rather than to one
@@ -185,8 +189,11 @@ pub const RUN_GRAPH_RETENTION_DAYS: i32 = 30;
 /// See the mutator contract above: this authorizes nothing. It touches only
 /// rows keyed to a job, never a version's own graph.
 pub async fn prune_dbt_run_graphs(db: &sqlx::Pool<Postgres>) -> Result<()> {
+    // Markers first, then the rows they stand for: a marker outliving its nodes
+    // would report a snapshot the reader then finds empty, which is the very
+    // confusion the marker exists to remove.
     sqlx::query!(
-        "DELETE FROM dbt_node WHERE job_id <> $1
+        "DELETE FROM dbt_graph_snapshot WHERE job_id <> $1
            AND ingested_at < now() - make_interval(days => $2)",
         DEPLOYED_GRAPH,
         RUN_GRAPH_RETENTION_DAYS,
@@ -194,10 +201,20 @@ pub async fn prune_dbt_run_graphs(db: &sqlx::Pool<Postgres>) -> Result<()> {
     .execute(db)
     .await?;
     sqlx::query!(
-        "DELETE FROM dbt_edge WHERE job_id <> $1
-           AND ingested_at < now() - make_interval(days => $2)",
+        "DELETE FROM dbt_node n WHERE n.job_id <> $1
+           AND NOT EXISTS (SELECT 1 FROM dbt_graph_snapshot g
+                            WHERE g.workspace_id = n.workspace_id AND g.job_id = n.job_id
+                              AND g.script_path = n.script_path AND g.script_hash = n.script_hash)",
         DEPLOYED_GRAPH,
-        RUN_GRAPH_RETENTION_DAYS,
+    )
+    .execute(db)
+    .await?;
+    sqlx::query!(
+        "DELETE FROM dbt_edge e WHERE e.job_id <> $1
+           AND NOT EXISTS (SELECT 1 FROM dbt_graph_snapshot g
+                            WHERE g.workspace_id = e.workspace_id AND g.job_id = e.job_id
+                              AND g.script_path = e.script_path AND g.script_hash = e.script_hash)",
+        DEPLOYED_GRAPH,
     )
     .execute(db)
     .await?;
@@ -622,17 +639,16 @@ pub async fn replace_dbt_manifest(
         // stored. Writing it again per run is a full duplicate of a picture that
         // never changed; the read falls back to the version's graph anyway.
         let deployed = sqlx::query_scalar!(
-            "SELECT graph_digest FROM dbt_node
+            "SELECT digest FROM dbt_graph_snapshot
               WHERE workspace_id = $1 AND script_path = $2 AND script_hash = $3
-                AND job_id = $4 LIMIT 1",
+                AND job_id = $4",
             workspace_id,
             script_path,
             script_hash,
             DEPLOYED_GRAPH,
         )
         .fetch_optional(&mut **tx)
-        .await?
-        .flatten();
+        .await?;
         if deployed.as_deref() == Some(digest.as_str()) {
             return Ok(());
         }
@@ -650,15 +666,26 @@ pub async fn replace_dbt_manifest(
            AND script_hash = $3 AND job_id = $4",
         workspace_id, script_path, script_hash, job_id
     ).execute(&mut **tx).await?;
+    // The marker, before the rows: a graph with no nodes at all is a legitimate
+    // answer for a dynamic run that disabled every model, and the reader must be
+    // able to tell it from a run that stored nothing.
+    sqlx::query!(
+        "INSERT INTO dbt_graph_snapshot
+           (workspace_id, script_path, script_hash, job_id, digest, ingested_at)
+         VALUES ($1, $2, $3, $4, $5, now())
+         ON CONFLICT (workspace_id, script_path, script_hash, job_id)
+         DO UPDATE SET digest = EXCLUDED.digest, ingested_at = now()",
+        workspace_id, script_path, script_hash, job_id, digest
+    ).execute(&mut **tx).await?;
 
     for n in &ingested.nodes {
         sqlx::query!(
             "INSERT INTO dbt_node (workspace_id, script_path, script_hash, job_id, unique_id, resource_type, name,
                  asset_path, materialized, materialize_strategy, unique_key, tags, description,
                  test_kind, test_column, test_args, severity, attached_node, columns, freshness,
-                 relation_root, raw_code, original_file_path, graph_digest)
+                 relation_root, raw_code, original_file_path)
              VALUES ($1, $2, $3, $23, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-                     $18, $19, $20, $21, $22, $24)",
+                     $18, $19, $20, $21, $22)",
             workspace_id,
             script_path,
             script_hash,
@@ -682,7 +709,6 @@ pub async fn replace_dbt_manifest(
             n.raw_code,
             n.original_file_path,
             job_id,
-            digest,
         )
         .execute(&mut **tx)
         .await?;

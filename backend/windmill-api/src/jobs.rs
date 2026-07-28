@@ -781,6 +781,10 @@ struct AssetProgress {
 /// app-embed cutoff, which that helper adds on top.
 async fn get_run_progress(
     authed: ApiAuthed,
+    // A shared run page carries its access in this token, not in the caller's
+    // own grants: without it a share-link viewer gets the graph and is refused
+    // the progress that colours it.
+    OptViewToken(view_token): OptViewToken,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,
@@ -795,7 +799,16 @@ async fn get_run_progress(
     let Some(created_by) = created_by else {
         return Ok(Json(vec![]));
     };
-    require_job_read_access(&db, &user_db, &authed, &w_id, &job_id, &created_by, None).await?;
+    require_job_read_access(
+        &db,
+        &user_db,
+        &authed,
+        &w_id,
+        &job_id,
+        &created_by,
+        view_token.as_deref(),
+    )
+    .await?;
     let mut tx = user_db.begin(&authed).await?;
     // `dbt_run_progress`, not `materialized_partition`: the latter is keyed by
     // relation and its `job_id` names only the last writer, so two runs of one

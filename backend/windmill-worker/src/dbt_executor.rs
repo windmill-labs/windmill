@@ -974,13 +974,15 @@ pub async fn prepare_project(
     // longer exist. Compared against THIS VERSION's graph as stored, not against
     // the deploy lock: moving A→B then back to A matches the lock again while the
     // stored graph is still at B. Scoped by hash because sibling versions of the
-    // path have rows of their own — an unscoped read can answer with a version
-    // this job is not running.
+    // path have rows of their own, and to the DEPLOYED graph because a run's own
+    // snapshot has rows too — reading one would compare this run against another
+    // run's root and conclude nothing drifted.
     match conn {
         Connection::Sql(db) => {
             if let Some(stored) = sqlx::query_scalar!(
                 "SELECT relation_root FROM dbt_node
                   WHERE workspace_id = $1 AND script_path = $2 AND script_hash = $3
+                    AND job_id = '00000000-0000-0000-0000-000000000000'
                     AND relation_root IS NOT NULL
                   LIMIT 1",
                 w_id,

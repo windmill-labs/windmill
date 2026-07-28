@@ -1187,10 +1187,12 @@ async fn asset_graph(
            ),
            -- The run's own snapshot when it left one, the version's graph
            -- otherwise. A static descriptor never snapshots, so all of its runs
-           -- fall through to the same rows.
+           -- fall through to the same rows. Existence comes from the marker, not
+           -- from a node row: a dynamic run that disabled every model has a
+           -- snapshot whose graph is legitimately empty.
            chosen AS (
              SELECT CASE WHEN $4::uuid IS NOT NULL AND EXISTS (
-                      SELECT 1 FROM dbt_node
+                      SELECT 1 FROM dbt_graph_snapshot
                        WHERE workspace_id = $1 AND job_id = $4)
                     THEN $4::uuid
                     ELSE '00000000-0000-0000-0000-000000000000'::uuid END AS job_id
@@ -1270,10 +1272,12 @@ async fn asset_graph(
            ),
            -- The run's own snapshot when it left one, the version's graph
            -- otherwise. A static descriptor never snapshots, so all of its runs
-           -- fall through to the same rows.
+           -- fall through to the same rows. Existence comes from the marker, not
+           -- from a node row: a dynamic run that disabled every model has a
+           -- snapshot whose graph is legitimately empty.
            chosen AS (
              SELECT CASE WHEN $4::uuid IS NOT NULL AND EXISTS (
-                      SELECT 1 FROM dbt_node
+                      SELECT 1 FROM dbt_graph_snapshot
                        WHERE workspace_id = $1 AND job_id = $4)
                     THEN $4::uuid
                     ELSE '00000000-0000-0000-0000-000000000000'::uuid END AS job_id

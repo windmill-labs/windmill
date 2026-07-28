@@ -211,12 +211,10 @@ to track and runs there normally.
 The refresh happens **before** the build, from a `dbt parse` with this run's own
 vars and env, so a run in flight is already showing the models it is building.
 
-Boundary that remains: a dynamic descriptor's graph is a property of the RUN,
-not of the deployed version, so the rows two concurrent runs of one such script
-write still overwrite each other — the last to parse wins, and the graph shows
-its models for both. Give such a script a concurrency limit of 1. Version keying
-does not help here, because both runs share a version; fixing it means storing
-that graph per job.
+A dynamic descriptor's graph is a property of the RUN, not of the deployed
+version, so it is stored per job — see "The graph belongs to a script version"
+below. Two concurrent runs of one such script therefore keep their own, and each
+run page shows the models that run built.
 
 Re-ingesting is nearly free: the run parses the project (about a second) before
 building it and ingests that manifest.

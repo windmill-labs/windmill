@@ -957,6 +957,7 @@
 							running={job.type !== 'CompletedJob'}
 							result={job.type === 'CompletedJob' ? job.result : undefined}
 							scriptHash={job.script_hash}
+							runArgs={job.args}
 						/>
 					</div>
 				{/if}

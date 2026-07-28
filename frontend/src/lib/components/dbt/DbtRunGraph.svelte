@@ -21,7 +21,8 @@
 		jobId,
 		running = false,
 		result,
-		scriptHash
+		scriptHash,
+		runArgs
 	}: {
 		scriptPath: string
 		/** The run whose per-model progress to show. dbt records a state per
@@ -38,6 +39,11 @@
 		 *  version, so passing it renders the project as it was — the models, SQL
 		 *  and `ref()` lineage of that deploy, not of today's. */
 		scriptHash?: string | number
+		/** The arguments this run was invoked with. A preview is a `dbt show` of
+		 *  the same project, so it needs them: a descriptor with a required
+		 *  `{{ }}` var is refused without them, and an overridden one would
+		 *  otherwise query a different relation than the page is showing. */
+		runArgs?: Record<string, unknown>
 	} = $props()
 
 	// The graph endpoint is folder-scoped; a script outside `f/` has no folder and
@@ -350,6 +356,10 @@
 		previews = { ...previews, [key]: { pending: true } }
 		try {
 			const requestBody = {
+				// The run's own arguments first, so a required `{{ }}` var resolves
+				// and an overridden one points at the relation on screen. The three
+				// below are the preview itself and always win.
+				...(runArgs ?? {}),
 				dbt_command: 'show',
 				select: [splitUniqueId(key).name],
 				limit: 25
