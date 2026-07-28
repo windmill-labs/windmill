@@ -22,7 +22,11 @@
 		draftBaseIsStale
 	} from '$lib/utils_draft_deploy'
 	import { checkDeployPermission, type DeployPermission } from '$lib/utils_workspace_deploy'
-	import { type DraftItem, useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
+	import {
+		type DraftItem,
+		invalidateWorkspaceDrafts,
+		useWorkspaceDrafts
+	} from '$lib/workspaceDrafts.svelte'
 	import type { Kind as LayoutKind } from '$lib/utils_deployable'
 	import { userStore } from '$lib/stores'
 
@@ -44,8 +48,8 @@
 		draftCount?: number
 		/** When set (reached via a session's Review button), preselect only the
 		 * rows this chat modified — `${UserDraftItemKind}:${path}` keys, matching
-		 * Row.key. Undefined → preselect all deployable rows (the default). All rows
-		 * are still shown either way. */
+		 * Row.key. Undefined → preselect all actionable rows (the default). All
+		 * rows are still shown either way. */
 		chatMask?: Set<string>
 		/** False while the (async) chatMask is still loading. The select-all default
 		 * waits for this so it doesn't race the mask and select everything. Defaults
@@ -184,13 +188,15 @@
 	// session AND it's the user's own draft (someone else's shows view-only in the
 	// "all drafts" view). A data-pipeline bundle is excluded — its scripts deploy
 	// individually inside the pipeline view. Every selectable row can at least be
-	// discarded: discarding your own draft never needs write permission on the
-	// path (the server enforces the same asymmetry as deploy).
+	// discarded: discarding your own email-scoped draft never needs write
+	// permission on the path — only legacy (ownerless) drafts stay write-gated,
+	// mirroring the server's discard check.
 	function isDiscardable(item: Row): boolean {
 		return (
 			deploymentStatus[item.key]?.status !== 'deployed' &&
 			item.mine &&
-			item.draftKind !== 'data_pipeline'
+			item.draftKind !== 'data_pipeline' &&
+			(!item.legacy_draft || item.can_write)
 		)
 	}
 
@@ -204,15 +210,19 @@
 	// `undefined` ⇒ selectable.
 	function blockedReason(item: Row): string | undefined {
 		if (!item.mine) return 'This draft belongs to another user'
+		if (item.legacy_draft && !item.can_write)
+			return 'Discarding a legacy draft requires write permission on the path'
 		return undefined
 	}
 
 	// Why a row can't be discarded (drives the Discard button's title).
-	// Discarding only removes the caller's own draft row, which they always own,
-	// so — unlike deploy — it never requires write permission on the path. The
-	// only block is someone else's draft (view-only in the "all drafts" view).
+	// Discarding only removes the caller's own draft row, so it doesn't require
+	// write permission on the path — except for legacy (ownerless) drafts, which
+	// the server write-gates like a deploy.
 	function discardBlockedReason(item: Row): string | undefined {
 		if (!item.mine) return 'This draft belongs to another user'
+		if (item.legacy_draft && !item.can_write)
+			return 'Discarding a legacy draft requires write permission on the path'
 		return undefined
 	}
 
@@ -294,7 +304,8 @@
 			if (ws === currentWorkspaceId) deployPerm = p
 		})
 	})
-	// Select all on the first non-empty load (deploy-all is the common intent);
+	// Select all on the first non-empty load (acting on everything is the common
+	// intent);
 	// only once, so a refetch after a deploy doesn't re-select the leftovers.
 	let hasAutoSelected = $state(false)
 
@@ -318,7 +329,7 @@
 
 	$effect(() => {
 		if (!hasAutoSelected && chatMaskReady && visibleItems.length > 0) {
-			// Default intent is deploy-all; when reached from a session's Review
+			// Default intent is act-on-all; when reached from a session's Review
 			// (chatMask set), preselect only that chat's items instead.
 			const selectable = visibleItems.filter(isDiscardable)
 			selectedItems = (
@@ -346,6 +357,10 @@
 	let discardableCount = $derived(
 		visibleItems.filter((i) => selectedItems.includes(i.key) && isDiscardable(i)).length
 	)
+	// Selected rows the user can discard but not deploy (own draft on a path
+	// without write permission) — surfaced under the footer so the diverging
+	// button counts are explained.
+	let undeployableSelectedCount = $derived(discardableCount - deployableCount)
 
 	let allSelected = $derived(
 		visibleItems.filter(isDiscardable).length > 0 &&
@@ -495,12 +510,15 @@
 		let changed = false
 		for (const item of toDiscard) {
 			deploymentStatus[item.key] = { status: 'loading' }
+			// invalidate: false — one refetch after the whole batch (below), not
+			// one per row.
 			const res = await discardDraft(
 				item.draftKind,
 				item.path,
 				currentWorkspaceId,
 				item.draft_only,
-				item.legacy_draft
+				item.legacy_draft,
+				false
 			)
 			if (res.success) {
 				changed = true
@@ -512,9 +530,12 @@
 		}
 		discarding = false
 		selectedItems = []
-		// The Draft list refetches itself (discardDraft invalidated it); refresh
-		// the fork comparison too.
-		if (changed) onChanged?.()
+		if (changed) {
+			// Refetch the Draft list once for the batch, then refresh the fork
+			// comparison.
+			invalidateWorkspaceDrafts(currentWorkspaceId)
+			onChanged?.()
+		}
 	}
 
 	function confirmBulkDiscard() {
@@ -828,6 +849,11 @@
 					</div>
 					{#if !deployPerm.ok}
 						<span class="text-xs text-yellow-600">{deployPerm.reason}</span>
+					{:else if undeployableSelectedCount > 0}
+						<span class="text-xs text-secondary">
+							{undeployableSelectedCount} selected draft{undeployableSelectedCount !== 1 ? 's' : ''}
+							can't be deployed (no write permission on the path) but can still be discarded
+						</span>
 					{/if}
 				</div>
 			{/snippet}
