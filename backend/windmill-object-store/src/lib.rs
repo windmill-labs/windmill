@@ -68,7 +68,7 @@ pub mod object_store_reexports {
     pub use object_store::path::Path;
     pub use object_store::{
         Attribute, Attributes, Error as ObjectStoreError, GetOptions, GetRange, GetResult,
-        ListResult, ObjectStore, PutMultipartOpts, PutPayload, PutResult,
+        ListResult, ObjectMeta, ObjectStore, PutMultipartOpts, PutPayload, PutResult,
         Result as ObjectStoreResult, WriteMultipart,
     };
 }

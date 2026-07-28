@@ -193,6 +193,9 @@
 	let loadingFolderKeys = new SvelteSet<string>()
 	/** Resume token per shallow-loaded level, keyed by folder ('' for the root). */
 	let nextMarkerByFolder: Record<string, string> = {}
+	/** Bumped by every reset; in-flight listings whose generation is stale must
+	 * not write into the tree they were started against. */
+	let loadGeneration = 0
 
 	function rootParentKey(): string | undefined {
 		return rootPath === '' ? undefined : rootPath
@@ -228,6 +231,7 @@
 		}
 		// Browse mode: shallow (delimiter-style) listing of the root level, so a
 		// folder with many objects cannot push its siblings out of the page.
+		const generation = loadGeneration
 		const availableFiles = await listStoredFilesRequest({
 			workspace: ws!,
 			maxKeys,
@@ -236,6 +240,9 @@
 			s3ResourcePath,
 			shallow: true
 		})
+		if (generation !== loadGeneration) {
+			return
+		}
 		if (availableFiles.restricted_access !== false) {
 			fileListUnavailable = true
 			loadFileMetadataPlusPreviewAsync(selectedFileKey?.s3)
@@ -369,9 +376,12 @@
 			directCount += 1
 		}
 		for (const file of availableFiles.windmill_large_files) {
-			// A zero-byte folder marker has the folder prefix itself as its key,
-			// and would render as a nameless row under its own folder.
-			if (file.s3 === '' || file.s3 === parentKey) {
+			// A zero-byte folder marker is returned as an object keyed by the
+			// folder itself, with the trailing delimiter stripped by the backend's
+			// path normalization — so compare against the re-suffixed key, not the
+			// raw one. Left in, it renders as a nameless row that sorts above its
+			// own parent and survives collapsing.
+			if (file.s3 === '' || file.s3 + '/' === parentKey) {
 				continue
 			}
 			if (regexFilter && !regexFilter.test(file.s3)) {
@@ -488,6 +498,7 @@
 	}
 
 	async function loadShallowFolder(folderKey: string, marker?: string) {
+		const generation = loadGeneration
 		const availableFiles = await listStoredFilesRequest({
 			workspace: ws!,
 			maxKeys,
@@ -497,7 +508,11 @@
 			s3ResourcePath,
 			shallow: true
 		})
-		if (availableFiles.restricted_access !== false || availableFiles.folders === undefined) {
+		if (
+			generation !== loadGeneration ||
+			availableFiles.restricted_access !== false ||
+			availableFiles.folders === undefined
+		) {
 			return
 		}
 		processShallowResponse(availableFiles, folderKey === '' ? undefined : folderKey)
@@ -653,6 +668,7 @@
 	}
 
 	async function clearAndLoadFiles({ keepFilter }: { keepFilter?: boolean } = {}) {
+		loadGeneration += 1
 		displayedFileKeys = []
 		allFilesByKey = {}
 		count = 0
