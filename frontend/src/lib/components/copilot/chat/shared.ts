@@ -1486,10 +1486,14 @@ export function backgroundJobCompletionNote(
 ): string {
 	const status = job.success ? 'succeeded' : 'FAILED'
 	const resultHead = formattedResult ?? formatResult(job.result).slice(0, 2000)
+	const flowHint =
+		!job.success && (job.job_kind === 'flow' || job.job_kind === 'flowpreview')
+			? ` For per-step statuses and results call get_flow_run_details with id="${jobId}".`
+			: ''
 	return (
 		`Background job ${jobId} for "${label}" ${status}.\n` +
 		`Result: ${resultHead}\n` +
-		`(For full logs call get_job_logs with id="${jobId}".)`
+		`(For full logs call get_job_logs with id="${jobId}".${flowHint})`
 	)
 }
 
@@ -1567,7 +1571,16 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 			...(job.success ? {} : { error: getErrorMessage(job.result) })
 		})
 
-		return formatResultSummary(job.result, job.logs, job.success)
+		const summary = formatResultSummary(job.result, job.logs, job.success)
+		// get_flow_run_details only exists in the global/sessions chat (the same
+		// hosts that wire the job hooks) — don't advertise it to in-editor chats.
+		if (detachEnabled && config.contextName === 'flow' && !job.success) {
+			return (
+				summary +
+				`\n\nFor per-step statuses and results (subflow steps included), call get_flow_run_details with id="${jobId}".`
+			)
+		}
+		return summary
 	} catch (error) {
 		const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
 		config.toolCallbacks.setToolStatus(config.toolId, {

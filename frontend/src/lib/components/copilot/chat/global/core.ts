@@ -129,6 +129,7 @@ import {
 	getDraftDiffValues
 } from '$lib/utils_draft_deploy'
 import { changedLineIndices, draftDeployedPatch, windowPatch } from './draftDiff'
+import { getFlowRunDetails } from './flowRunTree'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { invalidateWorkspaceComparison } from '$lib/workspaceComparison'
 import type { UserDraftItemKind } from '$lib/gen'
@@ -526,6 +527,16 @@ const searchResourceTypesSchema = z.object({
 
 const getJobLogsSchema = z.object({
 	id: z.string().describe('The UUID of the job to fetch logs for.')
+})
+
+const getFlowRunDetailsSchema = z.object({
+	id: z.string().describe('The UUID of the flow run to inspect.'),
+	step: z
+		.string()
+		.optional()
+		.describe(
+			'Step to drill into for its full result, addressed by the step ids shown in the tree: "b" for a top-level step, "b/c" for a step inside a subflow, "b[12]" for iteration 12 of a loop (1-based), composable as "b[12]/c". Omit to get the whole per-step tree.'
+		)
 })
 
 const cancelJobSchema = z.object({
@@ -1103,13 +1114,14 @@ Rules:
 ${pipelineBullet}
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
+- To see what a flow run actually did per step — statuses and results across the whole execution tree, subflow steps and loop iterations included — use get_flow_run_details with the run id (it also works while the flow is still running). Pass step to read one step's full result. Prefer it over get_job_logs when you need step results rather than logs.
 - Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
 - When the user is happy with the changes and wants to review or deploy them, use open_page with page "compare" — it opens the Compare & Deploy review page.${
 		previewTools
 			? ' By default it preselects the items this chat modified; pass items ("<kind>:<path>" entries) to control the selection'
 			: ' Pass items ("<kind>:<path>" entries naming the items you changed) so the review is scoped to them — omitting items preselects every pending change in the workspace'
 	}, or mode ("draft" or "fork") to force which comparison is shown. Prefer offering this review page over calling deploy_workspace_item directly when several items changed.
-- For a Windmill operation no other tool covers (workers, queue state, a run's result or args, ...), use search_api_endpoints to find a REST endpoint, then call_api_get for reads or call_api_endpoint for mutations (the user is asked to confirm those). Always prefer a dedicated tool when one exists; endpoints for authoring or deleting scripts, flows, apps, schedules, resources, or variables are not available through the API catalog tools — use the draft tools and delete_workspace_item instead.
+- For a Windmill operation no other tool covers (workers, queue state, a run's args, ...), use search_api_endpoints to find a REST endpoint, then call_api_get for reads or call_api_endpoint for mutations (the user is asked to confirm those). Always prefer a dedicated tool when one exists; endpoints for authoring or deleting scripts, flows, apps, schedules, resources, or variables are not available through the API catalog tools — use the draft tools and delete_workspace_item instead.
 - runScriptByPath / runFlowByPath from the API catalog run the DEPLOYED version of an item. Use them only when the user explicitly asks to run the deployed version, and read the item with read_workspace_item version: "deployed" first so the arguments match the deployed input schema (a draft may have different inputs). To test something you are editing or just wrote, always use test_run_script, test_run_flow, or test_run_step — they run the draft.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit. Set multiSelect: true only when the answers can genuinely co-apply and the user may pick several (not mutually exclusive).
 - When the user asks you to remember a lasting preference, always/never do something, or change/stop a behavior going forward, call update_user_instructions to persist it. It edits only the USER INSTRUCTIONS block (not WORKSPACE INSTRUCTIONS). Keep each instruction concise; do not use it for one-off requests scoped to the current task.
@@ -2918,6 +2930,30 @@ export const globalTools: Tool<{}>[] = [
 			const result = JSON.stringify(runs, null, 2)
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Listed ${runs.length} run(s)`,
+				result
+			})
+			return result
+		}
+	},
+	{
+		def: createToolDef(
+			getFlowRunDetailsSchema,
+			'get_flow_run_details',
+			"Inspect a flow run's execution tree: per-step statuses and truncated results, including subflow steps, loop iterations, and branches. Works on running flows too. Pass step to fetch one step's full result."
+		),
+		showDetails: true,
+		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
+			const parsed = getFlowRunDetailsSchema.parse(args)
+			toolCallbacks.setToolStatus(toolId, {
+				content: parsed.step
+					? `Fetching result of step ${parsed.step} in run ${parsed.id}...`
+					: `Inspecting flow run ${parsed.id}...`
+			})
+			const result = await getFlowRunDetails(workspace, parsed.id, parsed.step)
+			toolCallbacks.setToolStatus(toolId, {
+				content: parsed.step
+					? `Fetched result of step ${parsed.step} in run ${parsed.id}`
+					: `Inspected flow run ${parsed.id}`,
 				result
 			})
 			return result

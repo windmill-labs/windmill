@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT flow_step_id as \"flow_step_id!\" FROM v2_job\n                 WHERE parent_job = $1 AND workspace_id = $2 AND flow_step_id IS NOT NULL\n                 ORDER BY flow_step_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "flow_step_id!",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "d8306703b64d0428e5ddb65a23d1ce21e643596bfe2227500211bd13d1f3a480"
+}

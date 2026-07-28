@@ -394,6 +394,7 @@ pub fn workspace_unauthed_service() -> Router {
             "/get_flow_all_logs_structured/{id}",
             get(get_flow_all_logs_structured),
         )
+        .route("/get_flow_all_results/{id}", get(get_flow_all_results))
         .route(
             "/get_completed_logs_tail/{id}",
             get(get_completed_job_logs_tail),
@@ -2214,48 +2215,27 @@ async fn resolve_logs_to_string(
     logs.to_string()
 }
 
-/// A single job in a flow's execution tree, with its resolved logs and a
-/// human-readable label describing its position (iteration, branch, subflow…).
-#[derive(Serialize)]
-struct FlowLogEntry {
-    job_id: String,
-    /// Human-readable label, e.g. "Step a (iteration 2/3)" or "Flow".
-    label: String,
-    /// Job kind (script, flow, forloopflow, …).
-    kind: String,
-    /// The flow step id this job corresponds to, if any.
-    flow_step_id: Option<String>,
-    /// Materialized step path (e.g. "a/b") used to locate the step in the flow.
-    step_path: Option<String>,
-    /// Depth in the flow tree (0 for the root flow job).
-    depth: i32,
-    /// The parent module type (forloopflow, branchall, …), if any.
-    parent_module_type: Option<String>,
-    /// 1-based index of this job among its siblings sharing the same step.
-    sibling_index: i32,
-    /// Total number of siblings sharing the same step.
-    sibling_count: i32,
-    /// Resolved logs for this job (pulled from disk/object store as needed).
-    logs: String,
-}
-
-async fn collect_flow_log_entries(
+/// Shared preamble of the flow-tree endpoints (`get_flow_all_logs*`,
+/// `get_flow_all_results`): verifies the job exists (scope-tag filtered),
+/// checks read access, and records the view. Returns the enclosing flow job id
+/// when the requested job is itself a step of a larger flow run
+/// (flow_innermost_root_job is NULL on subflow jobs — parent_job covers them).
+async fn authorize_flow_tree_read(
     view_token: Option<String>,
-    opt_authed: Option<ApiAuthed>,
-    opt_tokened: OptTokened,
+    opt_authed: &Option<ApiAuthed>,
+    opt_tokened: &OptTokened,
     db: &DB,
     user_db: &UserDB,
     w_id: &str,
     id: Uuid,
-) -> error::Result<Vec<FlowLogEntry>> {
+) -> error::Result<Option<Uuid>> {
     let tags = opt_authed
         .as_ref()
         .map(|authed| get_scope_tags(authed).map(|v| v.iter().map(|s| s.to_string()).collect_vec()))
         .flatten();
 
-    // Verify the root job exists and check auth
     let root_job = sqlx::query!(
-        "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2 AND ($3::text[] IS NULL OR tag = ANY($3))",
+        "SELECT created_by, COALESCE(flow_innermost_root_job, parent_job) as enclosing_job FROM v2_job WHERE id = $1 AND workspace_id = $2 AND ($3::text[] IS NULL OR tag = ANY($3))",
         id,
         w_id,
         tags.as_ref().map(|v| v.as_slice())
@@ -2290,6 +2270,105 @@ async fn collect_flow_log_entries(
         &id,
     )
     .await?;
+
+    Ok(root_job.enclosing_job.filter(|r| *r != id))
+}
+
+/// Human-readable label for a job's position in a flow's execution tree,
+/// e.g. "Flow", "Step a (iteration 2/3)", "Step b (subflow)".
+fn flow_tree_entry_label(
+    kind: &str,
+    path: &str,
+    parent_module_type: &str,
+    sibling_index: i32,
+    sibling_count: i32,
+    depth: i32,
+) -> String {
+    let kind_label = match parent_module_type {
+        "branchall" => " branchall",
+        "branchone" => " branchone",
+        "forloopflow" => " forloop",
+        "whileloopflow" => " whileloop",
+        "aiagent" => " ai-agent",
+        _ => "",
+    };
+
+    if depth == 0 {
+        "Flow".to_string()
+    } else if matches!(
+        kind,
+        "flow" | "flowpreview" | "flownode" | "singlestepflow" | "aiagent"
+    ) {
+        // Intermediate flow job (loop iteration or branch)
+        if parent_module_type == "branchone" {
+            let branch_label = if sibling_index == 1 {
+                "default".to_string()
+            } else {
+                format!("{}", sibling_index - 1)
+            };
+            format!("Step {}{} (branch {})", path, kind_label, branch_label)
+        } else if parent_module_type == "branchall" {
+            format!("Step {}{} (branch {})", path, kind_label, sibling_index)
+        } else if parent_module_type == "forloopflow" || parent_module_type == "whileloopflow" {
+            format!(
+                "Step {}{} (iteration {}/{})",
+                path, kind_label, sibling_index, sibling_count
+            )
+        } else if sibling_count > 1 {
+            format!(
+                "Step {} (iteration {}/{})",
+                path, sibling_index, sibling_count
+            )
+        } else {
+            format!("Step {} (subflow)", path)
+        }
+    } else if sibling_count > 1 {
+        // Simple module optimization: forloop/whileloop with single step
+        // runs iterations as direct script jobs instead of subflows
+        format!(
+            "Step {}{} (iteration {}/{})",
+            path, kind_label, sibling_index, sibling_count
+        )
+    } else {
+        format!("Step {}", path)
+    }
+}
+
+/// A single job in a flow's execution tree, with its resolved logs and a
+/// human-readable label describing its position (iteration, branch, subflow…).
+#[derive(Serialize)]
+struct FlowLogEntry {
+    job_id: String,
+    /// Human-readable label, e.g. "Step a (iteration 2/3)" or "Flow".
+    label: String,
+    /// Job kind (script, flow, forloopflow, …).
+    kind: String,
+    /// The flow step id this job corresponds to, if any.
+    flow_step_id: Option<String>,
+    /// Materialized step path (e.g. "a/b") used to locate the step in the flow.
+    step_path: Option<String>,
+    /// Depth in the flow tree (0 for the root flow job).
+    depth: i32,
+    /// The parent module type (forloopflow, branchall, …), if any.
+    parent_module_type: Option<String>,
+    /// 1-based index of this job among its siblings sharing the same step.
+    sibling_index: i32,
+    /// Total number of siblings sharing the same step.
+    sibling_count: i32,
+    /// Resolved logs for this job (pulled from disk/object store as needed).
+    logs: String,
+}
+
+async fn collect_flow_log_entries(
+    view_token: Option<String>,
+    opt_authed: Option<ApiAuthed>,
+    opt_tokened: OptTokened,
+    db: &DB,
+    user_db: &UserDB,
+    w_id: &str,
+    id: Uuid,
+) -> error::Result<Vec<FlowLogEntry>> {
+    authorize_flow_tree_read(view_token, &opt_authed, &opt_tokened, db, user_db, w_id, id).await?;
 
     // Fetch all jobs in the flow tree using recursive CTE.
     // Uses a materialized id_path for depth-first ordering so children
@@ -2366,57 +2445,15 @@ async fn collect_flow_log_entries(
         let sibling_index = record.sibling_index.unwrap_or(0);
         let parent_module_type = record.parent_module_type.as_deref().unwrap_or("");
 
-        // Build a descriptive label
         let path = record.path_label.as_deref().unwrap_or(step_id);
-
-        let kind_label = match parent_module_type {
-            "branchall" => " branchall",
-            "branchone" => " branchone",
-            "forloopflow" => " forloop",
-            "whileloopflow" => " whileloop",
-            "aiagent" => " ai-agent",
-            _ => "",
-        };
-
-        let label = if depth == 0 {
-            "Flow".to_string()
-        } else if matches!(
+        let label = flow_tree_entry_label(
             kind,
-            "flow" | "flowpreview" | "flownode" | "singlestepflow" | "aiagent"
-        ) {
-            // Intermediate flow job (loop iteration or branch)
-            if parent_module_type == "branchone" {
-                let branch_label = if sibling_index == 1 {
-                    "default".to_string()
-                } else {
-                    format!("{}", sibling_index - 1)
-                };
-                format!("Step {}{} (branch {})", path, kind_label, branch_label)
-            } else if parent_module_type == "branchall" {
-                format!("Step {}{} (branch {})", path, kind_label, sibling_index)
-            } else if parent_module_type == "forloopflow" || parent_module_type == "whileloopflow" {
-                format!(
-                    "Step {}{} (iteration {}/{})",
-                    path, kind_label, sibling_index, sibling_count
-                )
-            } else if sibling_count > 1 {
-                format!(
-                    "Step {} (iteration {}/{})",
-                    path, sibling_index, sibling_count
-                )
-            } else {
-                format!("Step {} (subflow)", path)
-            }
-        } else if sibling_count > 1 {
-            // Simple module optimization: forloop/whileloop with single step
-            // runs iterations as direct script jobs instead of subflows
-            format!(
-                "Step {}{} (iteration {}/{})",
-                path, kind_label, sibling_index, sibling_count
-            )
-        } else {
-            format!("Step {}", path)
-        };
+            path,
+            parent_module_type,
+            sibling_index,
+            sibling_count,
+            depth,
+        );
 
         let job_id = record.id.map(|u| u.to_string()).unwrap_or_default();
         let logs = record.logs.as_deref().unwrap_or("");
@@ -2500,6 +2537,443 @@ async fn get_flow_all_logs_structured(
     .await?;
 
     Ok(Json(entries))
+}
+
+/// A single job in a flow's execution tree with its status and (truncated)
+/// result — the results twin of `FlowLogEntry`.
+#[derive(Serialize)]
+struct FlowResultEntry {
+    job_id: String,
+    /// Human-readable label, e.g. "Step a (iteration 2/3)" or "Flow".
+    label: String,
+    /// Job kind (script, flow, forloopflow, …).
+    kind: String,
+    /// The flow step id this job corresponds to, if any.
+    flow_step_id: Option<String>,
+    /// Materialized step path (e.g. "a/b") used to locate the step in the flow.
+    step_path: Option<String>,
+    /// Depth in the flow tree (0 for the root flow job).
+    depth: i32,
+    /// The parent module type (forloopflow, branchall, …), if any.
+    parent_module_type: Option<String>,
+    /// 1-based index of this job among its siblings sharing the same step.
+    sibling_index: i32,
+    /// Total number of siblings sharing the same step.
+    sibling_count: i32,
+    /// success | failure | canceled | skipped | suspended | running | queued
+    status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    success: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    duration_ms: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    started_at: Option<chrono::DateTime<Utc>>,
+    /// Result JSON text truncated to the per-entry budget; absent until the job
+    /// has completed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    result_prefix: Option<String>,
+    /// Full length in characters of the result JSON text (greater than the
+    /// prefix length when truncated).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    result_length: Option<i32>,
+}
+
+#[derive(Serialize)]
+struct FlowAllResultsResponse {
+    /// Set when the requested job is itself a step of a larger flow run.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    root_job: Option<Uuid>,
+    entries: Vec<FlowResultEntry>,
+    /// Set when `step` was provided but could not be resolved; a diagnostic the
+    /// caller can act on (available step ids, iteration statuses).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    step_error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct FlowAllResultsQuery {
+    /// Per-entry cap (in characters of JSON text) on `result_prefix`.
+    max_result_len: Option<i32>,
+    /// Step address to resolve instead of enumerating the tree: 'b', 'b/c',
+    /// 'b[12]' (1-based iteration/branch), composable as 'b[12]/c'.
+    step: Option<String>,
+}
+
+const FLOW_ALL_RESULTS_DEFAULT_MAX_LEN: i32 = 2000;
+const FLOW_ALL_RESULTS_MAX_MAX_LEN: i32 = 30_000;
+
+struct ResolvedStepJob {
+    job_id: Uuid,
+    flow_step_id: String,
+    path: String,
+    sibling_index: i32,
+    sibling_count: i32,
+    depth: i32,
+}
+
+/// 'b[12]' -> ("b", Some(12)); 'b' -> ("b", None).
+fn parse_step_segment(segment: &str) -> (&str, Option<usize>) {
+    if let Some(rest) = segment.strip_suffix(']') {
+        if let Some((step_id, idx)) = rest.rsplit_once('[') {
+            if let Ok(idx) = idx.parse::<usize>() {
+                return (step_id, Some(idx));
+            }
+        }
+    }
+    (segment, None)
+}
+
+/// Resolve a step address ('b/c', 'b[12]/c', '.' separators accepted) to a
+/// single job of the flow tree rooted at `root`, walking one indexed
+/// parent_job + flow_step_id lookup per segment — no tree enumeration.
+/// `ORDER BY id` matches the sibling numbering of the tree view (job UUIDs are
+/// time-ordered). Err carries a diagnostic listing what exists instead.
+async fn resolve_flow_step_job(
+    db: &DB,
+    w_id: &str,
+    root: Uuid,
+    address: &str,
+) -> error::Result<Result<ResolvedStepJob, String>> {
+    let segments = address
+        .replace('.', "/")
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .collect_vec();
+    if segments.is_empty() {
+        return Ok(Err("Empty step address.".to_string()));
+    }
+
+    let mut current = root;
+    let mut resolved: Option<ResolvedStepJob> = None;
+    let mut path_segments: Vec<&str> = vec![];
+    for (depth, segment) in segments.iter().enumerate() {
+        let (step_id, index) = parse_step_segment(segment);
+        path_segments.push(step_id);
+
+        let siblings = sqlx::query!(
+            "SELECT j.id,
+                    COALESCE(c.status::text,
+                             CASE WHEN q.running AND q.suspend > 0 THEN 'suspended'
+                                  WHEN q.running THEN 'running'
+                                  ELSE 'queued' END) as \"status!\"
+             FROM v2_job j
+             LEFT JOIN v2_job_completed c ON c.id = j.id
+             LEFT JOIN v2_job_queue q ON q.id = j.id
+             WHERE j.parent_job = $1 AND j.workspace_id = $2 AND j.flow_step_id = $3
+             ORDER BY j.id",
+            current,
+            w_id,
+            step_id,
+        )
+        .fetch_all(db)
+        .await?;
+
+        if siblings.is_empty() {
+            let available = sqlx::query_scalar!(
+                "SELECT DISTINCT flow_step_id as \"flow_step_id!\" FROM v2_job
+                 WHERE parent_job = $1 AND workspace_id = $2 AND flow_step_id IS NOT NULL
+                 ORDER BY flow_step_id",
+                current,
+                w_id,
+            )
+            .fetch_all(db)
+            .await?;
+            return Ok(Err(format!(
+                "No step \"{}\" at this level. Available steps: {}.",
+                step_id,
+                if available.is_empty() {
+                    "(none)".to_string()
+                } else {
+                    available.join(", ")
+                }
+            )));
+        }
+
+        let node = if let Some(index) = index {
+            match index.checked_sub(1).and_then(|i| siblings.get(i)) {
+                Some(node) => node,
+                None => {
+                    return Ok(Err(format!(
+                        "Step \"{}\" has no iteration [{}]. Existing: {}.",
+                        step_id,
+                        index,
+                        (1..=siblings.len()).map(|i| i.to_string()).join(", ")
+                    )));
+                }
+            }
+        } else if siblings.len() > 1 {
+            let statuses = siblings
+                .iter()
+                .enumerate()
+                .map(|(i, s)| format!("[{}] {}", i + 1, s.status))
+                .join(", ");
+            return Ok(Err(format!(
+                "Step \"{}\" ran {} times (loop/branches) — pick one with \"{}[i]\". Iterations: {}.",
+                step_id,
+                siblings.len(),
+                step_id,
+                statuses
+            )));
+        } else {
+            &siblings[0]
+        };
+
+        let index_in_siblings = siblings.iter().position(|s| s.id == node.id).unwrap_or(0);
+        current = node.id;
+        resolved = Some(ResolvedStepJob {
+            job_id: node.id,
+            flow_step_id: step_id.to_string(),
+            path: path_segments.join("/"),
+            sibling_index: (index_in_siblings + 1) as i32,
+            sibling_count: siblings.len() as i32,
+            depth: (depth + 1) as i32,
+        });
+    }
+
+    Ok(Ok(resolved.expect("segments is non-empty")))
+}
+
+/// Results twin of `get_flow_all_logs_structured`: one entry per job of the
+/// flow's execution tree (same recursive enumeration), carrying per-job status
+/// and truncated result instead of logs.
+async fn get_flow_all_results(
+    OptViewToken(view_token): OptViewToken,
+    OptAuthed(opt_authed): OptAuthed,
+    opt_tokened: OptTokened,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+    Query(query): Query<FlowAllResultsQuery>,
+) -> JsonResult<FlowAllResultsResponse> {
+    let root_job = authorize_flow_tree_read(
+        view_token,
+        &opt_authed,
+        &opt_tokened,
+        &db,
+        &user_db,
+        &w_id,
+        id,
+    )
+    .await?;
+
+    let max_result_len = query
+        .max_result_len
+        .unwrap_or(FLOW_ALL_RESULTS_DEFAULT_MAX_LEN)
+        .clamp(1, FLOW_ALL_RESULTS_MAX_MAX_LEN);
+
+    // Step mode: resolve the address to one job directly (a few indexed
+    // lookups) instead of enumerating the whole tree.
+    if let Some(step) = query.step.as_deref().filter(|s| !s.trim().is_empty()) {
+        let resolved = match resolve_flow_step_job(&db, &w_id, id, step).await? {
+            Ok(resolved) => resolved,
+            Err(step_error) => {
+                return Ok(Json(FlowAllResultsResponse {
+                    root_job,
+                    entries: vec![],
+                    step_error: Some(step_error),
+                }));
+            }
+        };
+
+        let record = sqlx::query!(
+            "SELECT j.kind::text as kind,
+                    c.status::text as completed_status,
+                    c.duration_ms as \"duration_ms?\",
+                    COALESCE(c.started_at, q.started_at) as started_at,
+                    LEFT(c.result::text, $3) as result_prefix,
+                    length(c.result::text) as result_length,
+                    q.running as \"q_running?\",
+                    q.suspend as \"q_suspend?\"
+             FROM v2_job j
+             LEFT JOIN v2_job_completed c ON c.id = j.id
+             LEFT JOIN v2_job_queue q ON q.id = j.id
+             WHERE j.id = $1 AND j.workspace_id = $2",
+            resolved.job_id,
+            w_id,
+            max_result_len,
+        )
+        .fetch_one(&db)
+        .await?;
+
+        let kind = record.kind.as_deref().unwrap_or("");
+        let status = match record.completed_status.as_deref() {
+            Some(s) => s.to_string(),
+            None => {
+                if record.q_running.unwrap_or(false) && record.q_suspend.unwrap_or(0) > 0 {
+                    "suspended".to_string()
+                } else if record.q_running.unwrap_or(false) {
+                    "running".to_string()
+                } else {
+                    "queued".to_string()
+                }
+            }
+        };
+        let success = record.completed_status.as_deref().map(|s| s == "success");
+        let label = flow_tree_entry_label(
+            kind,
+            &resolved.path,
+            "",
+            resolved.sibling_index,
+            resolved.sibling_count,
+            resolved.depth,
+        );
+
+        return Ok(Json(FlowAllResultsResponse {
+            root_job,
+            entries: vec![FlowResultEntry {
+                job_id: resolved.job_id.to_string(),
+                label,
+                kind: kind.to_string(),
+                flow_step_id: Some(resolved.flow_step_id),
+                step_path: Some(resolved.path),
+                depth: resolved.depth,
+                parent_module_type: None,
+                sibling_index: resolved.sibling_index,
+                sibling_count: resolved.sibling_count,
+                status,
+                success,
+                duration_ms: record.duration_ms,
+                started_at: record.started_at,
+                result_prefix: record.result_prefix,
+                result_length: record.result_length,
+            }],
+            step_error: None,
+        }));
+    }
+
+    // Same recursive CTE as `collect_flow_log_entries` (kept textually in sync —
+    // sqlx macros cannot share the SQL string), joined against the completed and
+    // queue tables instead of `job_logs`.
+    let records = sqlx::query!(
+        "WITH RECURSIVE job_tree AS (
+            SELECT j.id, j.kind::text, j.flow_step_id, j.parent_job,
+                   '' as path_label, 0 as depth,
+                   j.id::text as id_path,
+                   ''::text as parent_module_type
+            FROM v2_job j
+            WHERE j.id = $2 AND j.workspace_id = $1
+            UNION ALL
+            SELECT j.id, j.kind::text, j.flow_step_id, j.parent_job,
+                   CASE
+                       WHEN jt.path_label = '' THEN COALESCE(j.flow_step_id, '')
+                       ELSE jt.path_label || '/' || COALESCE(j.flow_step_id, '')
+                   END,
+                   jt.depth + 1,
+                   jt.id_path || '/' || j.id::text,
+                   COALESCE((
+                       SELECT m->'value'->>'type'
+                       FROM v2_job parent_j
+                       LEFT JOIN flow f ON f.path = parent_j.runnable_path
+                           AND f.workspace_id = parent_j.workspace_id
+                       LEFT JOIN flow_node fn ON fn.id = parent_j.runnable_id
+                       CROSS JOIN LATERAL jsonb_array_elements(
+                           COALESCE(parent_j.raw_flow, f.value, fn.flow)->'modules'
+                       ) m
+                       WHERE parent_j.id = jt.id
+                         AND m->>'id' = j.flow_step_id
+                       LIMIT 1
+                   ), '')::text
+            FROM v2_job j
+            JOIN job_tree jt ON j.parent_job = jt.id
+            WHERE j.workspace_id = $1
+        ),
+        with_sibling_index AS (
+            SELECT jt.*,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY jt.parent_job, jt.flow_step_id
+                       ORDER BY jt.id
+                   ) as sibling_index,
+                   COUNT(*) OVER (
+                       PARTITION BY jt.parent_job, jt.flow_step_id
+                   ) as sibling_count
+            FROM job_tree jt
+        )
+        SELECT w.id, w.kind, w.flow_step_id, w.path_label,
+               w.sibling_index::int as sibling_index,
+               w.sibling_count::int as sibling_count,
+               w.depth::int as depth,
+               w.parent_module_type,
+               c.status::text as completed_status,
+               c.duration_ms as \"duration_ms?\",
+               COALESCE(c.started_at, q.started_at) as started_at,
+               LEFT(c.result::text, $3) as result_prefix,
+               length(c.result::text) as result_length,
+               q.running as \"q_running?\",
+               q.suspend as \"q_suspend?\"
+        FROM with_sibling_index w
+        LEFT JOIN v2_job_completed c ON c.id = w.id
+        LEFT JOIN v2_job_queue q ON q.id = w.id
+        ORDER BY w.id_path ASC",
+        w_id,
+        id,
+        max_result_len,
+    )
+    .fetch_all(&db)
+    .await?;
+
+    let mut entries = Vec::with_capacity(records.len());
+
+    for record in records {
+        let kind = record.kind.as_deref().unwrap_or("");
+        let step_id = record.flow_step_id.as_deref().unwrap_or("");
+        let depth = record.depth.unwrap_or(0);
+        let sibling_count = record.sibling_count.unwrap_or(1) as i32;
+        let sibling_index = record.sibling_index.unwrap_or(0) as i32;
+        let parent_module_type = record.parent_module_type.as_deref().unwrap_or("");
+
+        let path = record.path_label.as_deref().unwrap_or(step_id);
+        let label = flow_tree_entry_label(
+            kind,
+            path,
+            parent_module_type,
+            sibling_index,
+            sibling_count,
+            depth,
+        );
+
+        let status = match record.completed_status.as_deref() {
+            Some(s) => s.to_string(),
+            None => {
+                if record.q_running.unwrap_or(false) && record.q_suspend.unwrap_or(0) > 0 {
+                    "suspended".to_string()
+                } else if record.q_running.unwrap_or(false) {
+                    "running".to_string()
+                } else {
+                    "queued".to_string()
+                }
+            }
+        };
+        let success = record.completed_status.as_deref().map(|s| s == "success");
+
+        entries.push(FlowResultEntry {
+            job_id: record.id.map(|u| u.to_string()).unwrap_or_default(),
+            label,
+            kind: kind.to_string(),
+            flow_step_id: record.flow_step_id.clone(),
+            step_path: record.path_label.clone(),
+            depth,
+            parent_module_type: if parent_module_type.is_empty() {
+                None
+            } else {
+                Some(parent_module_type.to_string())
+            },
+            sibling_index,
+            sibling_count,
+            status,
+            success,
+            duration_ms: record.duration_ms,
+            started_at: record.started_at,
+            result_prefix: record.result_prefix,
+            result_length: record.result_length,
+        });
+    }
+
+    Ok(Json(FlowAllResultsResponse {
+        root_job,
+        entries,
+        step_error: None,
+    }))
 }
 
 async fn get_args(
