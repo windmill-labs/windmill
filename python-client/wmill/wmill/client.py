@@ -2772,47 +2772,29 @@ def _step_error_marker(key: str, exc: BaseException) -> dict:
     # there is — ``resp.raise_for_status()``, whose ``__dict__`` holds a request
     # and a response object — would otherwise fail to serialize and silently
     # drop every such failure onto the slow suspend-and-replay path.
-    # Enumerating is part of the risk, not just reading: ``getattr``'s default
-    # only swallows ``AttributeError``, an exception overriding
-    # ``__getattribute__`` raises whatever it likes, and a ``__dict__`` that is
-    # truthy but not a mapping makes ``.items()`` raise. All of it runs inside
-    # the ``except`` that is reporting the user's failure, so an escape here
-    # would replace their error with an unrelated one and skip the checkpoint.
+    # Everything about the failing exception can fight back, and this runs inside
+    # the ``except`` reporting it, so an escape replaces the user's error and
+    # skips the checkpoint. Only a genuine ``dict`` is walked: an overridden
+    # ``__dict__`` can raise on access, on ``.items()``, or yield non-pairs.
     try:
         _raw_extra = getattr(exc, "__dict__", None)
-        _pairs = list(_raw_extra.items()) if _raw_extra else []
     except Exception:
-        _pairs = []
-    if _pairs:
-        # Per attribute, so one that cannot be represented does not take the
-        # rest with it — an ``AxiosError``-shaped exception carrying both a
-        # ``code`` and a cyclic ``request`` keeps the ``code``. The typescript
-        # client admits properties one at a time for the same reason.
+        _raw_extra = None
+    if type(_raw_extra) is dict and _raw_extra:
         safe_extra = {}
-        for _pair in _pairs:
-            # Only the key types json can represent, and only exactly those:
-            # rebuilding the pair below hashes the key a second time, and a
-            # subclass free to define ``__hash__`` can permit the insertion into
-            # ``__dict__`` and then raise here, escaping the narrow catch to
-            # replace the user's failure. Nothing else can be a json key anyway.
-            if type(_pair[0]) not in (str, int, float, bool, type(None)):
+        for _k, _v in _raw_extra.items():
+            # Rebuilding the pair hashes the key again, so only the types json
+            # can represent, and exactly those: a subclass may define __hash__.
+            if type(_k) not in (str, int, float, bool, type(None)):
                 continue
-            # The whole pair, not just the value: a key json cannot represent (a
-            # tuple, say) survives a value-only check and then breaks the
-            # checkpoint encoding, where the failure has nowhere left to go. The
-            # round trip also normalizes what json does accept, so an int key
-            # arrives as the string a replay will read.
-            #
-            # Narrow: what json raises for something it cannot represent. A
-            # broader catch would hide a mistake here as a silently missing
-            # field, which is how it read before. ``parse_constant`` catches the
-            # one thing ``default`` cannot: a float is serializable, so
-            # ``NaN``/``Infinity`` pass through as bare literals that are not
-            # JSON and that the backend's extractor rejects.
+            # Per attribute, so one that cannot be represented does not take the
+            # rest with it. ``parse_constant`` catches what ``default`` cannot: a
+            # float is serializable, so NaN/Infinity would pass through as bare
+            # literals that are not JSON and that the backend rejects.
             try:
                 safe_extra.update(
                     json.loads(
-                        json.dumps({_pair[0]: _pair[1]}, default=_safe_str),
+                        json.dumps({_k: _v}, default=_safe_str),
                         parse_constant=lambda c: c,
                     )
                 )

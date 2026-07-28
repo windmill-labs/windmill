@@ -10,6 +10,16 @@ from datetime import datetime, timezone
 from wmill.client import WorkflowCtx, _StepSuspend, TaskError, workflow, task, step, sleep, parallel, wait_for_approval, _run_workflow, _run_workflow_async
 
 
+class _FakeItems(dict):
+    """A mapping whose ``items()`` yields something that is not a key/value pair."""
+
+    def __bool__(self):
+        return True
+
+    def items(self):
+        return [None]
+
+
 class _StubInlineClient:
     """Stands in for the httpx client the inline fast path POSTs with.
 
@@ -1146,10 +1156,7 @@ class TestRaisingInlineStepIsCheckpointed:
         _json.dumps(marker)
         assert marker["result"]["error"]["name"] == "HostileDict"
 
-        # Enumerating the attributes is part of the risk too: a `__dict__` that
-        # is truthy but not a mapping makes `.items()` raise, and a key json
-        # cannot represent breaks the checkpoint encoding later, where the
-        # failure has nowhere left to go.
+        # ...or an overridden __dict__, whatever shape it takes
         class NotAMapping(Exception):
             @property
             def __dict__(self):
@@ -1158,6 +1165,15 @@ class TestRaisingInlineStepIsCheckpointed:
         marker = _step_error_marker("k", NotAMapping())
         _json.dumps(marker)
         assert marker["result"]["error"]["name"] == "NotAMapping"
+
+        class YieldsNonPairs(Exception):
+            @property
+            def __dict__(self):
+                return _FakeItems()
+
+        marker = _step_error_marker("k", YieldsNonPairs())
+        _json.dumps(marker)
+        assert marker["result"]["error"]["name"] == "YieldsNonPairs"
 
         class OddKey(Exception):
             def __init__(self):
@@ -1170,8 +1186,6 @@ class TestRaisingInlineStepIsCheckpointed:
         _json.dumps(marker)  # a surviving tuple key would raise here
         assert marker["result"]["error"]["extra"] == {"code": 429}
 
-        # A key is hashed again to rebuild the pair, so one that hashes on the
-        # way into __dict__ and raises afterwards must never reach that point.
         class ExplodingKey:
             def __init__(self):
                 self.hashed = 0
