@@ -109,9 +109,10 @@ const effectiveCacheTtl = (mod: FlowModule, ctx: Ctx) =>
 
 /** Whether an inline step carries a concurrency limit at all. The setting editor keeps its
  *  controls live on presence, so clearing the field mid-edit can't disable the input. A
- *  present-but-non-positive limit is surfaced as invalid rather than silently as "None". */
+ *  present-but-non-positive limit is surfaced as invalid rather than silently as "None".
+ *  Strict: an emptied number input binds to `null`, which is still a value being typed. */
 export function hasInlineConcurrency(mod: FlowModule): boolean {
-	return inlineConcurrentLimit(mod) != undefined
+	return inlineConcurrentLimit(mod) !== undefined
 }
 
 /** Canonical order — every surface lists settings in this sequence. */
@@ -234,8 +235,8 @@ const SPECS: { key: StepSettingKey; spec: SettingSpec }[] = [
 					return l != undefined && l > 0 ? cfg(`Max ${l}`) : def('None')
 				}
 				const l = inlineConcurrentLimit(m)
-				if (l == undefined) return def('None')
-				if (l <= 0) return inv('Invalid limit')
+				if (l === undefined) return def('None')
+				if (!(l > 0)) return inv('Invalid limit')
 				const key = m.value.type === 'rawscript' ? m.value.custom_concurrency_key : undefined
 				return cfg(`Max ${l}${key ? ' per key' : ''}`)
 			}

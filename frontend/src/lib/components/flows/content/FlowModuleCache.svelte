@@ -29,7 +29,9 @@
 		onEditWorkspaceScript
 	}: Props = $props()
 
-	let isCacheEnabled = $derived(Boolean(flowModule.cache_ttl))
+	// Presence, not truthiness: SecondsInput passes through 0 while a segment is being
+	// retyped, and reading that as off would disable the field mid-edit.
+	let isCacheEnabled = $derived(flowModule.cache_ttl !== undefined)
 </script>
 
 <div class="flex flex-col gap-3">
@@ -56,7 +58,7 @@
 			textClass="text-xs font-normal text-primary"
 			checked={isCacheEnabled}
 			on:change={() => {
-				if (isCacheEnabled && flowModule.cache_ttl != undefined) {
+				if (isCacheEnabled) {
 					flowModule.cache_ttl = undefined
 				} else {
 					flowModule.cache_ttl = stepSettingDefaults('cache')
@@ -70,11 +72,11 @@
 			}}
 		/>
 		<Label label="How long to keep cache valid">
-			<SecondsInput disabled={!flowModule.cache_ttl} bind:seconds={flowModule.cache_ttl} />
+			<SecondsInput disabled={!isCacheEnabled} bind:seconds={flowModule.cache_ttl} />
 		</Label>
 		<Toggle
 			size="2xs"
-			disabled={!flowModule.cache_ttl}
+			disabled={!isCacheEnabled}
 			bind:checked={
 				() => flowModule.cache_ignore_s3_path,
 				(v) => (flowModule.cache_ignore_s3_path = v || undefined)

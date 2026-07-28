@@ -86,7 +86,9 @@
 		}
 	})
 
-	let off = $derived(!$enterpriseLicense || !debounce_delay_s)
+	// Presence, not truthiness: a single backspace takes the seeded 1s to 0 while the
+	// user is still typing, and reading that as off would disable the field mid-edit.
+	let off = $derived(!$enterpriseLicense || debounce_delay_s === undefined)
 </script>
 
 <div>
@@ -96,9 +98,9 @@
 			{color}
 			{size}
 			disabled={!$enterpriseLicense}
-			checked={Boolean(debounce_delay_s)}
+			checked={debounce_delay_s !== undefined}
 			on:change={() => {
-				if (debounce_delay_s) {
+				if (debounce_delay_s !== undefined) {
 					debounce_delay_s = undefined
 					debounce_key = undefined
 				} else {

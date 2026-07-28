@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import type { FlowModule } from '$lib/gen'
-import { describeStepSettings, stepSettingsByKey, stepSettingDefaults } from './flowStepSettings'
+import {
+	describeStepSettings,
+	hasInlineConcurrency,
+	stepSettingsByKey,
+	stepSettingDefaults
+} from './flowStepSettings'
 
 function step(overrides: Partial<FlowModule> = {}): FlowModule {
 	return {
@@ -84,6 +89,26 @@ describe('describeStepSettings', () => {
 		expect(s['concurrency']?.summary).toMatchObject({ text: 'Invalid limit', state: 'invalid' })
 		expect(s['cache']?.configured).toBe(false)
 		expect(s['cache']?.summary.text).toBe('Off')
+	})
+
+	it('treats a cleared concurrency input as present, not as unset', () => {
+		// Emptying a number input binds `null`, not `undefined`. Reading that as unset is
+		// what disabled the field the user was editing, so presence must be strict.
+		const mod = step({
+			value: {
+				type: 'rawscript',
+				language: 'bun',
+				content: '',
+				input_transforms: {},
+				concurrent_limit: null
+			}
+		} as unknown as Partial<FlowModule>)
+		// Presence keeps the setting editor's controls live while the field is empty.
+		expect(hasInlineConcurrency(mod)).toBe(true)
+		expect(stepSettingsByKey(mod)['concurrency']?.summary).toMatchObject({
+			text: 'Invalid limit',
+			state: 'invalid'
+		})
 	})
 
 	it('omits settings that do not apply to the step type', () => {

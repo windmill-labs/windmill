@@ -287,7 +287,7 @@
 					colorClasses.text,
 					colorClasses.bg
 				)}
-				onclick={() => data.eventHandlers.select(data.moduleId)}
+				onclick={() => data.eventHandlers.select(data.moduleId, { openPanel: true })}
 			>
 				{#if data.moduleId.startsWith(AI_TOOL_MESSAGE_PREFIX)}
 					<MessageCircle size={16} class="ml-1 shrink-0" />
