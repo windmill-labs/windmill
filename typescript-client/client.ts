@@ -1521,6 +1521,123 @@ export class StepSuspend extends Error {
   }
 }
 
+/** Values `JSON.stringify` cannot represent: it omits the property holding one.
+ *  The type-level half of `checkpointableResult`, which nulls them at the top
+ *  level, where there is no key to omit. */
+type JsonDropped =
+  | ((...args: any[]) => any)
+  // A class is a function too, but its type has only a construct signature.
+  | (abstract new (...args: any[]) => any)
+  | symbol;
+
+/**
+ * What a value looks like after the JSON round trip a checkpoint performs:
+ * `Date` → string, `Map`/`Set` → `{}`, `undefined` → null, methods gone.
+ * `NaN` and the infinities decode as null too, deliberately still typed
+ * `number`: `number | null` everywhere costs more than that case is worth.
+ *
+ * Mirrors `encodeCheckpointPayload` below — keep the two in step, or `step()`
+ * starts describing a value it does not return.
+ */
+export type Jsonified<T> =
+  // `any` in, `any` out: distributing over it yields a useless union.
+  0 extends 1 & T
+    ? any
+    : // `unknown` is the idiomatic annotation for a JSON blob, and it matches
+      // no branch below — without this it would reach `never`, which is
+      // assignable to everything and so hides real mismatches.
+      unknown extends T
+      ? unknown
+      : T extends string | number | boolean | null
+        ? T
+        : T extends undefined | void | symbol | ((...args: any[]) => any)
+          ? null
+          : T extends bigint
+            ? string
+            : T extends { toJSON(): infer R }
+              ? Jsonified<R>
+              : // Neither has own enumerable entries, so both serialize to `{}`.
+                T extends ReadonlyMap<any, any> | ReadonlySet<any>
+                ? Record<string, never>
+                : // Arrays before objects, and without an `as` clause: key
+                  // remapping would drop the array/tuple shape.
+                  T extends readonly any[]
+                  ? { [K in keyof T]: Jsonified<T[K]> }
+                  : T extends object
+                    ? JsonifiedObject<T>
+                    : never;
+
+/**
+ * `JSON.stringify` keeps own enumerable string keys whose value it can
+ * represent. A key that can only hold an unrepresentable value is gone; one
+ * that merely might becomes optional, because it can come back missing —
+ * `| undefined` alone would still demand the key be there.
+ */
+type JsonifiedObject<T> = Flatten<
+  {
+    [K in keyof T as K extends symbol
+      ? never
+      : [Exclude<T[K], JsonDropped>] extends [never]
+        ? never
+        : [T[K]] extends [Exclude<T[K], JsonDropped>]
+          ? K
+          : never]: Jsonified<T[K]>;
+  } & {
+    [K in keyof T as K extends symbol
+      ? never
+      : [Exclude<T[K], JsonDropped>] extends [never]
+        ? never
+        : [T[K]] extends [Exclude<T[K], JsonDropped>]
+          ? never
+          : K]?: Jsonified<Exclude<T[K], JsonDropped>>;
+  }
+>;
+
+/** Collapse the two halves above into one object, so hovering `Jsonified` shows
+ *  a shape rather than an intersection. */
+type Flatten<T> = { [K in keyof T]: T[K] };
+
+/** Encode a checkpoint payload the way the worker wrapper does on the suspend
+ *  path, so both arms record the same value for the same step. `undefined` maps
+ *  to null; a bigint to its digits, which the wrapper gets instead from the
+ *  `BigInt.prototype.toJSON` it installs and the SDK cannot count on. */
+function encodeCheckpointPayload(payload: Record<string, any>): string {
+  return JSON.stringify(payload, (_key, value) =>
+    typeof value === "undefined"
+      ? null
+      : typeof value === "bigint"
+        ? value.toString()
+        : value,
+  );
+}
+
+/** A whole result that `JSON.stringify` drops the key for leaves a checkpoint
+ *  with no `result`, which neither the endpoint nor `WacOutput` accepts. Only
+ *  the top level: nested, a dropped key is what every other bun path does. */
+function checkpointableResult(value: any): any {
+  return typeof value === "function" || typeof value === "symbol" ? null : value;
+}
+
+/** Put a value through the checkpoint's encoding without checkpointing it, so
+ *  the paths that never persist anything still hand back the shape the ones
+ *  that do would. */
+function jsonRoundTrip<T>(value: T): Jsonified<T> {
+  return JSON.parse(encodeCheckpointPayload({ value: checkpointableResult(value) })).value;
+}
+
+/**
+ * A task function as its callers see it. A task's result always crosses a JSON
+ * boundary — the child job's result is read back from the checkpoint, and the
+ * v1 path reads it back from the API — so only {@link Jsonified} of it survives.
+ *
+ * Rebuilding the signature costs some precision TypeScript cannot preserve: a
+ * generic task's type parameters instantiate at their constraints, and an
+ * overloaded one keeps only its last signature. Neither survives JSON anyway.
+ */
+export type JsonifiedFn<T extends (...args: any[]) => Promise<any>> = (
+  ...args: Parameters<T>
+) => Promise<Jsonified<Awaited<ReturnType<T>>>>;
+
 export interface TaskOptions {
   timeout?: number;
   tag?: string;
@@ -1804,7 +1921,28 @@ export class WorkflowCtx {
       fastPathFlagRaw !== "no";
     const jobId = getEnv("WM_JOB_ID");
     const workspace = getEnv("WM_WORKSPACE");
+    let payload: string | undefined;
+    let checkpointed: any;
     if (fastPathEnabled && jobId && workspace && OpenAPI.BASE && OpenAPI.TOKEN) {
+      try {
+        payload = encodeCheckpointPayload({
+          key,
+          result: checkpointableResult(result),
+          started_at: startedAt,
+          duration_ms: durationMs,
+        });
+        checkpointed = JSON.parse(payload).result;
+      } catch (e) {
+        // Circular reference or a throwing toJSON. The wrapper on the suspend
+        // path uses the same replacer and fails the same way, so falling
+        // through keeps the failure where it was before the fast path existed.
+        console.log(
+          `WAC v2 inline fast path could not serialize key ${key}, falling back to suspend: ${e}`,
+        );
+      }
+    }
+    if (payload !== undefined) {
+      const body = payload;
       const chainTail = this._inlineChain.then(async () => {
         const ctrl = new AbortController();
         const t = setTimeout(() => ctrl.abort(), 10_000);
@@ -1817,12 +1955,7 @@ export class WorkflowCtx {
                 "Content-Type": "application/json",
                 Authorization: `Bearer ${OpenAPI.TOKEN}`,
               },
-              body: JSON.stringify({
-                key,
-                result,
-                started_at: startedAt,
-                duration_ms: durationMs,
-              }),
+              body,
               signal: ctrl.signal,
             },
           );
@@ -1862,11 +1995,14 @@ export class WorkflowCtx {
         if (errored) {
           throw taskErrorFromMarker(storedFailure ?? result, `Step '${name}' failed`);
         }
-        return result as T;
+        // Return the round trip of what was checkpointed, never the in-memory
+        // value: handing back the live object would let the round that ran the
+        // body branch on a type — Date, Map — that no replay of it ever sees.
+        return checkpointed as T;
       }
     }
 
-    this._raiseSuspend({ mode: "inline_checkpoint", steps: [], key, result, started_at: startedAt, duration_ms: durationMs });
+    this._raiseSuspend({ mode: "inline_checkpoint", steps: [], key, result: checkpointableResult(result), started_at: startedAt, duration_ms: durationMs });
   }
 
   /** Raise a suspend, parking it so a body that catches it cannot make it
@@ -1919,12 +2055,25 @@ export async function sleep(seconds: number): Promise<void> {
   await new Promise((r) => setTimeout(r, seconds * 1000));
 }
 
-export async function step<T>(name: string, fn: () => T | Promise<T>): Promise<T> {
+/**
+ * Execute `fn` inline and checkpoint the result. On replay the cached value is
+ * returned without re-executing `fn`.
+ *
+ * `fn`'s result is encoded as JSON and decoded back before it is returned, so
+ * the round that runs the body sees the same types every replay sees: a `Date`
+ * comes back as a string, a `Map` as `{}`. {@link Jsonified} is that shape.
+ */
+export async function step<T>(
+  name: string,
+  fn: () => T | Promise<T>,
+): Promise<Jsonified<Awaited<T>>> {
   const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
   if (ctx) {
-    return ctx._runInlineStep(name, fn);
+    return ctx._runInlineStep(name, fn) as Promise<Jsonified<Awaited<T>>>;
   }
-  return fn();
+  // Outside a workflow nothing is checkpointed, but round-trip anyway: running
+  // the script locally must not hand back a shape a deployed run never sees.
+  return jsonRoundTrip(await fn());
 }
 
 /**
@@ -1936,12 +2085,16 @@ export async function step<T>(name: string, fn: () => T | Promise<T>): Promise<T
  *
  * Inside a `workflow()`, calling a task dispatches it as a step.
  * Outside a workflow, the function body executes directly.
+ *
+ * A task runs as its own job, so its result is always encoded as JSON and
+ * decoded back before the caller sees it: a `Date` comes back as a string, a
+ * `Map` as `{}`. {@link JsonifiedFn} is that shape.
  */
 export function task<T extends (...args: any[]) => Promise<any>>(
   fnOrPath: T | string,
   maybeFnOrOptions?: T | TaskOptions,
   maybeOptions?: TaskOptions,
-): T {
+): JsonifiedFn<T> {
   let fn: T;
   let taskPath: string | undefined;
   let taskOptions: TaskOptions | undefined;
@@ -1988,7 +2141,7 @@ export function task<T extends (...args: any[]) => Promise<any>>(
             if ((e as any)?.name === "StepSuspend" || e instanceof StepSuspend) throw e;
             ctx._raiseStepFailure(e);
           }
-          ctx._raiseSuspend({ mode: "step_complete", steps: [], result });
+          ctx._raiseSuspend({ mode: "step_complete", steps: [], result: checkpointableResult(result) });
         })();
       }
       return stepResult;
@@ -2019,10 +2172,11 @@ export function task<T extends (...args: any[]) => Promise<any>>(
         return r;
       })();
     } else {
-      // Standalone — execute directly
-      return fn(...args);
+      // Standalone — execute directly, but round-trip the result: a task's
+      // value crosses JSON in every other path, so a local run must agree.
+      return Promise.resolve(fn(...args)).then(jsonRoundTrip);
     }
-  } as unknown as T;
+  } as unknown as JsonifiedFn<T>;
 
   Object.defineProperty(wrapper, "name", { value: taskName });
   (wrapper as any)._is_task = true;

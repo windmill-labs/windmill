@@ -1,9 +1,45 @@
 """Tests for the Workflow-as-Code SDK."""
 
 import asyncio
+import json
 import pytest
 
+from datetime import datetime, timezone
+
 from wmill.client import WorkflowCtx, _StepSuspend, TaskError, workflow, task, step, sleep, parallel, wait_for_approval, _run_workflow, _run_workflow_async
+
+
+class _StubInlineClient:
+    """Stands in for the httpx client the inline fast path POSTs with.
+
+    Decodes each request body, so a test sees exactly the JSON that reaches
+    ``/jobs/wac/inline_checkpoint`` — and therefore what a replay reads back.
+    """
+
+    def __init__(self):
+        self.posted = []
+
+    async def post(self, url, content=None):
+        self.posted.append(json.loads(content))
+
+        class _Response:
+            def raise_for_status(self):
+                pass
+
+        return _Response()
+
+    async def aclose(self):
+        pass
+
+
+def _set_inline_fast_path_env(monkeypatch):
+    for var, val in (
+        ("WM_JOB_ID", "job-1"),
+        ("WM_WORKSPACE", "admins"),
+        ("BASE_INTERNAL_URL", "http://localhost:8000"),
+        ("WM_TOKEN", "tok"),
+    ):
+        monkeypatch.setenv(var, val)
 
 
 @task
@@ -1023,43 +1059,32 @@ class TestRaisingInlineStepIsCheckpointed:
         original ``ValueError`` here would make ``except ValueError:`` catch on
         this run and miss on the next one. ``except`` is control flow, so
         anything a handler can branch on has to be identical in both rounds."""
-        for var, val in (
-            ("WM_JOB_ID", "job-1"),
-            ("WM_WORKSPACE", "admins"),
-            ("BASE_INTERNAL_URL", "http://localhost:8000"),
-            ("WM_TOKEN", "tok"),
-        ):
-            monkeypatch.setenv(var, val)
+        _set_inline_fast_path_env(monkeypatch)
 
-        posted = []
+        class _EchoingStub(_StubInlineClient):
+            """The endpoint normalizes the failure before storing it and echoes
+            back what it stored. The echo deliberately differs from what was
+            posted, so the assertions below can tell which copy was raised from."""
 
-        class _StubResponse:
-            def __init__(self, body):
-                self._body = body
+            async def post(self, url, content=None):
+                await super().post(url, content=content)
+                stored = {**self.posted[-1]["result"], "message": "normalized by the backend"}
 
-            def raise_for_status(self):
-                pass
+                class _Response:
+                    def raise_for_status(self):
+                        pass
 
-            def json(self):
-                return self._body
+                    def json(self):
+                        return {"failure": stored}
 
-        class _StubClient:
-            """Stands in for the endpoint, which normalizes the failure and
-            echoes back what it stored. The echo deliberately differs from what
-            was posted so the assertions below can tell which copy the client
-            raised from."""
+                return _Response()
 
-            async def post(self, url, json=None):
-                posted.append(json)
-                stored = {**json["result"], "message": "normalized by the backend"}
-                return _StubResponse({"failure": stored})
-
-            async def aclose(self):
-                pass
+        stub = _EchoingStub()
+        posted = stub.posted
 
         async def run():
             ctx = WorkflowCtx({})
-            ctx._inline_http_client = _StubClient()
+            ctx._inline_http_client = stub
             with pytest.raises(TaskError) as live:
                 await ctx._run_inline_step("risky", self._boom)
             # The live round raised from the record the backend stored, not from
@@ -1100,6 +1125,52 @@ class TestRaisingInlineStepIsCheckpointed:
         r = asyncio.run(run())
         assert r["type"] == "complete"
         assert r["result"] == 10
+
+
+class TestInlineStepRoundParity:
+    """The round that runs a ``step()`` body must see what a replay sees.
+
+    The fast path returns the value it checkpointed, not the in-memory one:
+    a workflow branching on a datetime attribute or a tuple would otherwise
+    take one path on the round that ran the body and another on every replay,
+    which can change which tasks get dispatched, not just crash later.
+    """
+
+    CASES = [
+        ("dt", lambda: datetime(2026, 1, 1, tzinfo=timezone.utc), "2026-01-01 00:00:00+00:00"),
+        ("pair", lambda: (1, 2), [1, 2]),
+        ("intkeys", lambda: {1: "a"}, {"1": "a"}),
+    ]
+
+    def test_outside_a_workflow_returns_the_same_shape(self):
+        """No checkpoint, no replay — but a local run must not hand back a shape
+        a deployed one never produces, or testing a workflow locally proves
+        nothing. The async task path is the sharp edge: the wrapper is sync, so
+        the value has to be round-tripped after the await, not before."""
+
+        @task
+        async def make_pair():
+            return (1, datetime(2026, 1, 1, tzinfo=timezone.utc))
+
+        assert asyncio.run(step("pair", lambda: (1, 2))) == [1, 2]
+        assert asyncio.run(make_pair()) == [1, "2026-01-01 00:00:00+00:00"]
+
+    def test_live_round_matches_checkpoint_and_replay(self, monkeypatch):
+        _set_inline_fast_path_env(monkeypatch)
+
+        async def run():
+            for key, fn, expected in self.CASES:
+                stub = _StubInlineClient()
+                ctx = WorkflowCtx({})
+                ctx._inline_http_client = stub
+                live = await ctx._run_inline_step(key, fn)
+                checkpointed = stub.posted[0]["result"]
+                assert checkpointed == expected
+                assert live == expected and type(live) is type(expected)
+                replayed = WorkflowCtx({"completed_steps": {key: checkpointed}})
+                assert await replayed._run_inline_step(key, fn) == live
+
+        asyncio.run(run())
 
 
 # =====================================================================
