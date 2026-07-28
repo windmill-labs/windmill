@@ -59,7 +59,13 @@
 	}
 </script>
 
-<Drawer bind:this={drawer} size="900px" on:close={removeHash} {disableChatOffset}>
+<Drawer
+	bind:this={drawer}
+	size="900px"
+	on:open={() => (darkVariant = getDarkModeVariant())}
+	on:close={removeHash}
+	{disableChatOffset}
+>
 	<DrawerContent title="User settings" on:close={closeDrawer}>
 		<div class="flex flex-col gap-6 pb-8">
 			{#if scopes == undefined}

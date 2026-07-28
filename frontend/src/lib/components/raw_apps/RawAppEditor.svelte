@@ -1697,23 +1697,16 @@
 	})
 
 	let darkMode: boolean = $state(false)
-	// Dark variant forwarded to the UI Builder / preview iframes alongside
-	// `dark`. Reads the `github-dark` class (the runtime source of truth) and is
-	// refreshed on any <html> class mutation via the DarkModeObserver below.
-	// `variant` is consumed by the UI Builder editor build pinned in
-	// scripts/ui_builder_artifact.json; a pin predating variant support ignores
-	// it harmlessly and falls back to the default dark (Nord) palette.
+	// Mirrors the `github-dark` class (the runtime source of truth); the
+	// DarkModeObserver below must keep it in sync or it goes stale.
 	let darkVariant: 'default' | 'github' = $state(
 		typeof document !== 'undefined' && document.documentElement.classList.contains('github-dark')
 			? 'github'
 			: 'default'
 	)
-	// Seed the UI Builder iframe URL with the current theme so the VS Code
-	// workbench boots straight into it, instead of flashing the dark default
-	// until the host's `setDarkMode` message lands. Reads the live <html>
-	// classes rather than the reactive darkMode/darkVariant state so the src is
-	// computed once at mount — a later theme toggle updates the workbench via
-	// postMessage (see the $effect below) and must not reload the iframe.
+	// Read the DOM classes, not reactive state, so the src stays constant after
+	// mount: a reactive src would reload the iframe on every theme toggle. Live
+	// theme changes travel through postMessage instead (see the $effect below).
 	function uiBuilderIframeSrc(): string {
 		const cl = document.documentElement.classList
 		const dark = cl.contains('dark')
