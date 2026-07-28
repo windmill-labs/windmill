@@ -180,26 +180,30 @@
 		isFork && hideUnchanged ? items.filter((i) => i.unchanged_from_parent !== true) : items
 	)
 
-	// A row is actionable when it isn't already deployed this session, the user has
-	// write permission, AND it's their own draft (you can't deploy someone else's
-	// draft — those show view-only in the "all drafts" view). The server enforces
-	// the same; this keeps the UI honest. A data-pipeline bundle is never deployable
-	// from this page — its scripts deploy individually inside the pipeline view — so
-	// it's excluded from every selection path.
-	function isSelectable(item: Row): boolean {
+	// Selection gate: a row is actionable when it isn't already deployed this
+	// session AND it's the user's own draft (someone else's shows view-only in the
+	// "all drafts" view). A data-pipeline bundle is excluded — its scripts deploy
+	// individually inside the pipeline view. Every selectable row can at least be
+	// discarded: discarding your own draft never needs write permission on the
+	// path (the server enforces the same asymmetry as deploy).
+	function isDiscardable(item: Row): boolean {
 		return (
 			deploymentStatus[item.key]?.status !== 'deployed' &&
-			item.can_write &&
 			item.mine &&
 			item.draftKind !== 'data_pipeline'
 		)
 	}
 
-	// Why a row can't be deployed (drives the disabled-checkbox tooltip).
-	// `undefined` ⇒ actionable.
+	// Deploying additionally requires write permission on the path, so the Deploy
+	// count can be lower than the selection when a drafted path lost writability.
+	function isDeployable(item: Row): boolean {
+		return isDiscardable(item) && item.can_write
+	}
+
+	// Why a row can't be selected (drives the disabled-checkbox tooltip).
+	// `undefined` ⇒ selectable.
 	function blockedReason(item: Row): string | undefined {
 		if (!item.mine) return 'This draft belongs to another user'
-		if (!item.can_write) return "You don't have write permission on this path"
 		return undefined
 	}
 
@@ -316,7 +320,7 @@
 		if (!hasAutoSelected && chatMaskReady && visibleItems.length > 0) {
 			// Default intent is deploy-all; when reached from a session's Review
 			// (chatMask set), preselect only that chat's items instead.
-			const selectable = visibleItems.filter(isSelectable)
+			const selectable = visibleItems.filter(isDiscardable)
 			selectedItems = (
 				chatMask
 					? selectable.filter((i) =>
@@ -332,17 +336,20 @@
 		}
 	})
 
-	// Selected items still in the visible list and deployable. Derived (not a
-	// pruning effect) so the "Deploy N drafts" button stays reactive to the
-	// Workspace Drafts resource: deploy/discard drop items, and stale keys left in
-	// selectedItems are simply ignored here (and by deploySelected).
-	let selectedCount = $derived(
-		visibleItems.filter((i) => selectedItems.includes(i.key) && isSelectable(i)).length
+	// Selected items still in the visible list, per action. Derived (not a
+	// pruning effect) so the footer buttons stay reactive to the Workspace
+	// Drafts resource: deploy/discard drop items, and stale keys left in
+	// selectedItems are simply ignored here (and by the action handlers).
+	let deployableCount = $derived(
+		visibleItems.filter((i) => selectedItems.includes(i.key) && isDeployable(i)).length
+	)
+	let discardableCount = $derived(
+		visibleItems.filter((i) => selectedItems.includes(i.key) && isDiscardable(i)).length
 	)
 
 	let allSelected = $derived(
-		visibleItems.filter(isSelectable).length > 0 &&
-			visibleItems.filter(isSelectable).every((i) => selectedItems.includes(i.key))
+		visibleItems.filter(isDiscardable).length > 0 &&
+			visibleItems.filter(isDiscardable).every((i) => selectedItems.includes(i.key))
 	)
 
 	function toggleItem(item: { key: string }) {
@@ -354,7 +361,7 @@
 	}
 
 	function selectAll() {
-		selectedItems = visibleItems.filter(isSelectable).map((i) => i.key)
+		selectedItems = visibleItems.filter(isDiscardable).map((i) => i.key)
 	}
 
 	function deselectAll() {
@@ -394,8 +401,8 @@
 		deploying = true
 		// Snapshot the items to deploy: deployDraft invalidates the Workspace Drafts
 		// resource, so `items` can change mid-loop — iterate a stable copy. Guard on
-		// isSelectable so a non-writable row can never be deployed via a stale key.
-		const toDeploy = visibleItems.filter((i) => selectedItems.includes(i.key) && isSelectable(i))
+		// isDeployable so a non-writable row can never be deployed via a stale key.
+		const toDeploy = visibleItems.filter((i) => selectedItems.includes(i.key) && isDeployable(i))
 		let deployedAny = false
 		for (const item of toDeploy) {
 			deploymentStatus[item.key] = { status: 'loading' }
@@ -468,6 +475,52 @@
 		const item = discardTarget
 		discardTarget = undefined
 		if (item) void doDiscard(item)
+	}
+
+	// --- Bulk discard ---
+	// One click can drop many drafts at once, and some of them (draft_only with
+	// no other drafter) are permanent deletions — always confirm, listing the
+	// permanent ones explicitly.
+	let bulkDiscardItems = $state<Row[] | undefined>(undefined)
+	let discarding = $state(false)
+	const bulkPermanent = $derived((bulkDiscardItems ?? []).filter(isDestructiveDiscard))
+
+	function onDiscardSelectedClick() {
+		const toDiscard = visibleItems.filter((i) => selectedItems.includes(i.key) && isDiscardable(i))
+		if (toDiscard.length > 0) bulkDiscardItems = toDiscard
+	}
+
+	async function discardSelected(toDiscard: Row[]) {
+		discarding = true
+		let changed = false
+		for (const item of toDiscard) {
+			deploymentStatus[item.key] = { status: 'loading' }
+			const res = await discardDraft(
+				item.draftKind,
+				item.path,
+				currentWorkspaceId,
+				item.draft_only,
+				item.legacy_draft
+			)
+			if (res.success) {
+				changed = true
+				delete deploymentStatus[item.key]
+			} else {
+				deploymentStatus[item.key] = { status: 'failed', error: res.error }
+				sendUserToast(`Failed to discard ${item.path}: ${res.error}`, true)
+			}
+		}
+		discarding = false
+		selectedItems = []
+		// The Draft list refetches itself (discardDraft invalidated it); refresh
+		// the fork comparison too.
+		if (changed) onChanged?.()
+	}
+
+	function confirmBulkDiscard() {
+		const toDiscard = bulkDiscardItems
+		bulkDiscardItems = undefined
+		if (toDiscard) void discardSelected(toDiscard)
 	}
 
 	// Editor URL for a draft item, scoped to the current workspace. Raw apps live
@@ -559,7 +612,7 @@
 			{selectedItems}
 			{deploymentStatus}
 			{allSelected}
-			selectablePredicate={(item) => isSelectable(item as unknown as Row)}
+			selectablePredicate={(item) => isDiscardable(item as unknown as Row)}
 			selectBlockedReason={(item) => blockedReason(item as unknown as Row)}
 			onToggleItem={toggleItem}
 			onSelectAll={selectAll}
@@ -752,15 +805,27 @@
 
 			{#snippet footer()}
 				<div class="flex flex-col items-end gap-2">
-					<Button
-						variant="accent"
-						disabled={selectedCount === 0 || deploying || !deployPerm.ok}
-						title={!deployPerm.ok ? deployPerm.reason : undefined}
-						loading={deploying}
-						onClick={deploySelected}
-					>
-						Deploy {selectedCount} draft{selectedCount !== 1 ? 's' : ''}
-					</Button>
+					<div class="flex items-center gap-2">
+						<Button
+							variant="default"
+							destructive
+							disabled={discardableCount === 0 || deploying || discarding}
+							loading={discarding}
+							startIcon={{ icon: Undo2 }}
+							onClick={onDiscardSelectedClick}
+						>
+							Discard {discardableCount} draft{discardableCount !== 1 ? 's' : ''}
+						</Button>
+						<Button
+							variant="accent"
+							disabled={deployableCount === 0 || deploying || discarding || !deployPerm.ok}
+							title={!deployPerm.ok ? deployPerm.reason : undefined}
+							loading={deploying}
+							onClick={deploySelected}
+						>
+							Deploy {deployableCount} draft{deployableCount !== 1 ? 's' : ''}
+						</Button>
+					</div>
 					{#if !deployPerm.ok}
 						<span class="text-xs text-yellow-600">{deployPerm.reason}</span>
 					{/if}
@@ -771,6 +836,32 @@
 
 	<DiffDrawer bind:this={diffDrawer} {isFlow} />
 </div>
+
+<ConfirmationModal
+	open={bulkDiscardItems !== undefined}
+	title="Discard selected drafts"
+	confirmationText="Discard"
+	onConfirmed={confirmBulkDiscard}
+	onCanceled={() => (bulkDiscardItems = undefined)}
+>
+	<p>
+		This will discard {bulkDiscardItems?.length} draft{(bulkDiscardItems?.length ?? 0) !== 1
+			? 's'
+			: ''}. Items with a deployed version revert to it.
+	</p>
+	{#if bulkPermanent.length > 0}
+		<p class="mt-2">
+			{bulkPermanent.length}
+			{bulkPermanent.length === 1 ? 'item exists' : 'items exist'} only as a draft and will be
+			<span class="font-semibold">permanently deleted</span>:
+		</p>
+		<ul class="list-disc list-inside font-mono text-xs mt-1">
+			{#each bulkPermanent as item (item.key)}
+				<li>{item.draft_path ?? item.path}</li>
+			{/each}
+		</ul>
+	{/if}
+</ConfirmationModal>
 
 <!-- Only the destructive discard (deleting the last draft of a never-deployed
      item) opens this modal; non-destructive discards run without confirmation. -->
