@@ -22,6 +22,11 @@
 		disabled = false,
 		title = undefined
 	}: Props = $props()
+
+	// The animated ring is masked by an ::after that inherits its background from the
+	// wrapper. With no ground of its own it inherits the parent's — transparent inside a
+	// bare popover trigger — and the gradient shows through the button on hover.
+	const ground = $derived(connecting && !disableAnimation ? 'bg-surface' : '')
 </script>
 
 <AnimatedButton
@@ -29,6 +34,7 @@
 	baseRadius="6px"
 	animationDuration="2s"
 	marginWidth="2px"
+	wrapperClasses={ground}
 >
 	<Button
 		variant="default"
