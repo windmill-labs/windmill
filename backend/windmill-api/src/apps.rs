@@ -754,9 +754,11 @@ async fn get_raw_app_data(
 /// HTML wrapper that hosts a raw-app bundle inside a sandboxed, opaque-origin
 /// iframe. Served by [`get_raw_app_data`] for the `.html` "file type". It loads
 /// the bundle `.js`/`.css` as same-path subresources, shims web storage (which
-/// an opaque origin disallows), and waits for the embedder to hand it the user
-/// context via `postMessage` before evaluating the bundle — so the bundle never
-/// receives a credential and `window.ctx` is set synchronously when it runs.
+/// an opaque origin disallows), and waits for the embedder's handshake before
+/// evaluating the bundle, so `window.ctx` — and `window.process.env` when the
+/// viewer approved frontend SDK scopes — is set synchronously when it runs.
+/// That token is the only credential the bundle ever gets, and only if both
+/// handshake proofs hold (see the `windmill:ready` block below).
 fn raw_app_wrapper_html(secret: &str) -> String {
     const TEMPLATE: &str = r##"<!DOCTYPE html>
 <html>

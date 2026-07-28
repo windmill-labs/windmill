@@ -8,10 +8,11 @@ npx --yes @hey-api/openapi-ts@0.43.0  --input "${script_dirpath}/../backend/wind
 cat <<EOF - src/core/OpenAPI.ts > temp_file && mv temp_file src/core/OpenAPI.ts
 const getEnv = (key: string) => {
   if (typeof window === "undefined") {
+    // \`typeof\` first: where \`process\` is undeclared entirely (web worker), even
+    // \`process?.env\` throws a ReferenceError.
     if (typeof process !== "undefined") {
       return process?.env?.[key];
     }
-    // node
     return globalThis?.process?.env?.[key];
   }
   // browser
