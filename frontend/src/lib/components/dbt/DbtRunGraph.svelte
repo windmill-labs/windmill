@@ -202,7 +202,11 @@
 		return run.nodes.filter((n) => {
 			if (!n.relation_name) return false
 			const now = byId.get(n.unique_id)
-			return now != undefined && now !== splitRelation(n.relation_name).at(-1)
+			if (now == undefined) return false
+			// Asset paths are canonicalized to lower case, while `relation_name` is
+			// the warehouse's own spelling — Snowflake returns it upper. Comparing
+			// them raw makes every model of every Snowflake run look renamed.
+			return now.toLowerCase() !== (splitRelation(n.relation_name).at(-1) ?? '').toLowerCase()
 		}).length
 	})
 
@@ -300,7 +304,11 @@
 	async function runPreview() {
 		const ws = $workspaceStore
 		const dbt = selectedDbt
-		if (!ws || !dbt || previews[dbt.unique_id] != undefined) return
+		// A cached FAILURE must not be cached: it would leave the button dead for
+		// that model until reload. Only a result or an in-flight run blocks a
+		// re-run.
+		const cached = dbt ? previews[dbt.unique_id] : undefined
+		if (!ws || !dbt || (cached != undefined && !('error' in cached))) return
 		const key = dbt.unique_id
 		const startedAt = Date.now()
 		previews = { ...previews, [key]: { pending: true } }

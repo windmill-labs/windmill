@@ -240,7 +240,7 @@ impl DbtDescriptor {
 /// the script could never be run — `select` is an array, and interpolating one
 /// into a string is not something any invocation can satisfy.
 pub const RESERVED_ARG_NAMES: &[&str] =
-    &["select", "exclude", "vars", "full_refresh", "dbt_command"];
+    &["select", "exclude", "vars", "full_refresh", "dbt_command", "limit"];
 
 pub fn parse_dbt_descriptor(inner_content: &str) -> anyhow::Result<DbtDescriptor> {
     let d = serde_yml::from_str::<DbtDescriptor>(inner_content)

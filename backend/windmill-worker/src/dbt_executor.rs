@@ -152,7 +152,9 @@ pub async fn handle_dbt_job(
     let args = crate::common::build_args_map(job, client, conn)
         .await?
         .unwrap_or_else(|| job.args.as_ref().map(|a| a.0.clone()).unwrap_or_default());
-    let inv = Invocation { args: args.clone(), envs: envs.clone(), strict: true };
+    let raw_args = job.args.as_ref().map(|a| a.0.clone()).unwrap_or_default();
+    let inv =
+        Invocation { args: args.clone(), raw_args, envs: envs.clone(), strict: true };
     // One wall clock for the whole job. A dbt job is a sequence of
     // subprocesses — provision, deps, parse, ls, build, then the
     // `after_all` tests — and each would otherwise resolve the job's full
@@ -228,7 +230,15 @@ pub async fn handle_dbt_job(
             conn,
         )
         .await?;
-        Invocation { args: restored, ..inv }
+        // Restored args are the ones SUBMITTED, so the references they carry are
+        // resolved again now — against this caller's access, not the original's.
+        Invocation {
+            args: crate::common::transform_json(client, &job.workspace_id, &restored, job, conn)
+                .await?
+                .unwrap_or_else(|| restored.clone()),
+            raw_args: restored,
+            ..inv
+        }
     } else {
         inv
     };
@@ -2140,6 +2150,11 @@ fn split_relation(rel: &str) -> Vec<String> {
     parts.into_iter().map(|p| p.trim().to_string()).collect()
 }
 
+/// Ceiling on a preview's captured output. `--limit` bounds how many rows dbt
+/// returns, not how big they are — a single column can hold a megabyte — so the
+/// row clamp is not a memory bound on its own.
+const SHOW_MAX_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
+
 /// The `--limit` a `show` runs with, from the run's argument.
 ///
 /// Clamped, not merely defaulted: the worker buffers the whole of dbt's stdout
@@ -2178,6 +2193,16 @@ async fn run_show(
     let limit = show_limit(arg_i64(&inv.args, "limit")?);
     cmd.args(["--output", "json", "--limit", &limit.to_string()]);
     let stdout = run_capturing(cmd, "dbt show", ctx, job_id, w_id, conn).await?;
+    // Rows bound the COUNT, not the size: one column can hold a megabyte of
+    // text, so a thousand of them is a thousand megabytes. The row limit alone
+    // is not a memory bound, and this is reachable with only run permission.
+    if stdout.len() > SHOW_MAX_OUTPUT_BYTES {
+        return Err(Error::ExecutionErr(format!(
+            "this preview returned more than {} MB. Preview a narrower selection, \
+             or query the relation from a SQL script.",
+            SHOW_MAX_OUTPUT_BYTES / 1024 / 1024
+        )));
+    }
     // dbt frames the rows as `{"node": …, "show": [ … ]}`, pretty-printed across
     // lines, with a banner before it and a deprecation summary after — so
     // neither "the line starting with `{`" nor "from the first `{` to the end"
@@ -2639,8 +2664,13 @@ async fn save_run_state(
         return Ok(());
     }
     let identity = format!("{}|{:x}", p.run_identity(), inv.env_digest());
+    // The args as SUBMITTED, not as resolved: `build_args_map` turns `$var:` and
+    // `$res:` into plaintext, and this row outlives the job. Persisting the
+    // resolved value would leave a secret in the database and let a retry replay
+    // it after the grant was revoked or the value rotated. The restore path
+    // resolves the references again, under whoever is retrying.
     let args: HashMap<String, String> = inv
-        .args
+        .raw_args
         .iter()
         .map(|(k, v)| (k.clone(), v.get().to_string()))
         .collect();
@@ -2771,6 +2801,13 @@ async fn prune_old_generations(dir: &Path, keep: &str) {
 #[derive(Clone, Default)]
 pub struct Invocation {
     pub args: HashMap<String, Box<RawValue>>,
+    /// The args as SUBMITTED, before `$var:` / `$res:` / `$encrypted:` were
+    /// resolved. This is what run state persists: saving `args` would write the
+    /// resolved plaintext into `dbt_run_state` and the worker's `state.json`,
+    /// and a later `retry` would replay another caller's secret — after the
+    /// grant was revoked or the value rotated. The reference outlives the run;
+    /// what it pointed at must not.
+    pub raw_args: HashMap<String, Box<RawValue>>,
     pub envs: HashMap<String, String>,
     /// A run must fail on a `{{ }}` placeholder it cannot fill; a deploy, which
     /// has no arguments at all, tolerates them. Declared rather than inferred
