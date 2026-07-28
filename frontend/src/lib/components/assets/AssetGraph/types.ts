@@ -224,6 +224,10 @@ export interface AssetGraphResponse {
 	macro_edges?: AssetGraphMacroEdge[]
 	test_edges?: AssetGraphTestEdge[]
 	dbt_edges?: AssetGraphDbtEdge[]
+	/** The job whose snapshot the dbt half was resolved from, when one was
+	 *  asked for and found. A run page polls the graph until this is its own
+	 *  job, which is how it knows a dynamic descriptor's ingest has landed. */
+	dbt_snapshot_job?: string
 }
 
 // `ref()` lineage BETWEEN two dbt models, in the terms the canvas draws

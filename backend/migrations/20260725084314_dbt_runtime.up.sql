@@ -57,12 +57,6 @@ CREATE TABLE IF NOT EXISTS dbt_node (
   -- this is not a column lineage graph.
   columns          JSONB,
   freshness        JSONB,
-  -- Where the profile put these relations when they were ingested, so a later
-  -- run can tell whether the resource has moved since. Compared against THIS
-  -- version's deployed graph: matching the deploy lock instead would miss a
-  -- move to B and back to A, which matches the lock again while the stored
-  -- graph is still at B.
-  relation_root    TEXT,
   -- The model's SQL as written, for the graph to render. `dbt parse` fills it;
   -- `compiled_code` would need a `dbt compile`, which no phase runs.
   raw_code         TEXT,

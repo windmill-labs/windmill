@@ -9,6 +9,7 @@
 		splitUniqueId as split,
 		splitRelation,
 		statusRank as rank,
+		type DbtOutcome,
 		type DbtRun
 	} from '$lib/components/dbt/parseDbtRun'
 
@@ -16,12 +17,12 @@
 
 	// Failures first, then warnings, then skips: the run's outcome is decided by
 	// a handful of nodes and a long green list buries them.
-	let nodes = $derived([...(run.nodes ?? [])].sort((a, b) => rank(a.status) - rank(b.status)))
+	let nodes = $derived([...(run.nodes ?? [])].sort((a, b) => rank(a.status, a.outcome) - rank(b.status, b.outcome)))
 	let totals = $derived(run.totals ?? {})
 	let hasTests = $derived(nodes.some((n) => split(n.unique_id).kind === 'test'))
 
-	function statusClass(status: string): string {
-		switch (rank(status)) {
+	function statusClass(status: string, outcome?: DbtOutcome): string {
+		switch (rank(status, outcome)) {
 			case 0:
 				return 'text-red-600 dark:text-red-400'
 			case 1:
@@ -76,11 +77,11 @@
 				<tbody>
 					{#each nodes as node (node.unique_id)}
 						{@const s = split(node.unique_id)}
-						{@const r = rank(node.status)}
+						{@const r = rank(node.status, node.outcome)}
 						<tr class="border-t {r < 2 ? 'bg-surface-secondary/40' : ''}">
 							<td class="px-2 py-1">
 								<div class="flex items-center gap-1.5 min-w-0">
-									<span class={statusClass(node.status)}>
+									<span class={statusClass(node.status, node.outcome)}>
 										{#if r === 0}
 											<XCircle size={13} />
 										{:else if r === 1}
@@ -97,7 +98,7 @@
 									{/if}
 								</div>
 								{#if node.message && r < 2}
-									<div class="pl-5 text-2xs {statusClass(node.status)} truncate">
+									<div class="pl-5 text-2xs {statusClass(node.status, node.outcome)} truncate">
 										{node.message}
 									</div>
 								{/if}

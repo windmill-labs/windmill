@@ -733,9 +733,9 @@ pub async fn replace_dbt_manifest(
             "INSERT INTO dbt_node (workspace_id, script_path, script_hash, job_id, unique_id, resource_type, name,
                  asset_path, materialized, materialize_strategy, unique_key, tags, description,
                  test_kind, test_column, test_args, severity, attached_node, columns, freshness,
-                 relation_root, raw_code, original_file_path)
-             VALUES ($1, $2, $3, $23, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-                     $18, $19, $20, $21, $22)",
+                 raw_code, original_file_path)
+             VALUES ($1, $2, $3, $22, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+                     $18, $19, $20, $21)",
             workspace_id,
             script_path,
             script_hash,
@@ -755,7 +755,6 @@ pub async fn replace_dbt_manifest(
             n.attached_node,
             n.columns,
             n.freshness,
-            relation_root,
             n.raw_code,
             n.original_file_path,
             job_id,

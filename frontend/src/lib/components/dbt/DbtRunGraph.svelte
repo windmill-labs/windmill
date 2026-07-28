@@ -108,6 +108,9 @@
 	}
 
 	let timer: ReturnType<typeof setInterval> | undefined
+	// Bounded so a static descriptor, which never writes a snapshot, stops
+	// asking rather than polling for the length of the run.
+	let graphTries = 0
 	$effect(() => {
 		void scriptPath
 		void graphKey
@@ -120,15 +123,27 @@
 		// Only while in flight, and no faster than dbt finishes a model: this is a
 		// poll against the same rows the pipeline page reads, not a subscription.
 		if (running) {
-			// The GRAPH is not polled. A dynamic descriptor re-ingests it once,
-			// before the build starts, so one refetch shortly after mount picks
-			// that up — where polling it re-sent every node's SQL every two
-			// seconds for the length of the run, which is hundreds of KB a tick on
-			// a real project and buys nothing after the first.
-			const regraph = setTimeout(() => void load(), 4000)
+			// Progress is cheap and polled throughout. The GRAPH is not, so it is
+			// refetched only until this run's own snapshot appears: a dynamic
+			// descriptor re-ingests once, before the build, and how long that
+			// takes depends on cloning and provisioning — a fixed delay either
+			// fires before the ingest and never shows the run's own models, or
+			// keeps re-sending the whole graph for the length of the run.
+			// `dbt_snapshot_job` is the endpoint saying it answered from this
+			// job, which is the only reliable stop.
 			timer = setInterval(() => void loadProgress(), 2000)
+			const graphTimer = setInterval(() => {
+				// A static descriptor never snapshots, so this would poll forever
+				// on its own; the attempt cap is what ends it.
+				if (raw?.dbt_snapshot_job === jobId || graphTries >= 40) {
+					clearInterval(graphTimer)
+					return
+				}
+				graphTries += 1
+				void load()
+			}, 3000)
 			return () => {
-				clearTimeout(regraph)
+				clearInterval(graphTimer)
 				clearInterval(timer)
 			}
 		}

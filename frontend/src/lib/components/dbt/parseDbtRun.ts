@@ -1,6 +1,10 @@
 export type DbtNode = {
 	unique_id: string
 	status: string
+	/** Windmill's stable word for the same result, published beside dbt's own.
+	 *  Preferred wherever a decision is made: `status` is dbt's vocabulary and
+	 *  dbt may rename it. */
+	outcome?: DbtOutcome
 	execution_time?: number
 	rows_affected?: number
 	relation_name?: string
@@ -53,8 +57,8 @@ export function parseDbtRun(result: any): DbtRun | undefined {
 }
 
 /** Ordering rank of a node's status: 0 failed, 1 warned, 2 skipped, 3 passed. */
-export function statusRank(status: string): number {
-	switch (classifyStatus(status)) {
+export function statusRank(status: string, outcome?: DbtOutcome): number {
+	switch (outcome ?? classifyStatus(status)) {
 		case 'failed':
 			return 0
 		case 'warned':
@@ -66,19 +70,23 @@ export function statusRank(status: string): number {
 	}
 }
 
+/** The worker's stable vocabulary for a node result, published as `outcome`. */
+export type DbtOutcome = 'started' | 'passed' | 'failed' | 'warned' | 'skipped' | 'no_op' | 'unknown'
+
 /**
- * dbt's node status, reduced to the outcomes the UI distinguishes. The one
- * place the status strings are listed: two readers below need different slices
- * of the same vocabulary, and spelling it twice is how one gains a status the
- * other does not know.
+ * dbt's node status, reduced to the outcomes the UI distinguishes.
  *
- * `partial success` is dbt's word for a node that built but whose tests failed.
- * The worker counts it in `totals.error` and a retry redoes it, so showing it
- * green would contradict the job's own outcome and hide the message saying why.
+ * Only for results that predate `outcome`, or for the live event stream, which
+ * carries dbt's word alone. Anything holding a node from a job result should
+ * read `outcome` instead — that is the field the worker publishes precisely so
+ * this mapping is not the contract.
  */
 function classifyStatus(
 	status: string
 ): 'started' | 'passed' | 'failed' | 'warned' | 'skipped' | 'other' {
+	// `partial success` is dbt's word for a node that built but whose tests
+	// failed. The worker counts it in `totals.error` and a retry redoes it, so
+	// showing it green would contradict the job's own outcome.
 	switch (status.trim().toLowerCase()) {
 		case 'started':
 			return 'started'

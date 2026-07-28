@@ -923,6 +923,14 @@ struct AssetGraphResponse {
     /// instead of the project's actual shape.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     dbt_edges: Vec<DbtLineageEdge>,
+    /// The job whose snapshot the dbt half was resolved from, when one was
+    /// asked for and found. A run page polls the graph while its job runs
+    /// because a dynamic descriptor's snapshot is written mid-run, and this is
+    /// what tells it to stop: without it the page cannot distinguish "the
+    /// snapshot has not been written yet" from "this run has none", and either
+    /// polls forever or gives up before the ingest.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dbt_snapshot_job: Option<uuid::Uuid>,
 }
 
 /// One `ref()`/`source()` edge, in the terms the canvas draws: the two
@@ -1363,6 +1371,23 @@ async fn asset_graph(
     .fetch_all(&mut *tx)
     .await?;
 
+    // The same predicate `chosen` applies, answered once for the caller: it is
+    // what lets a run page stop polling. Inside the authed transaction, so the
+    // `v2_job` gate is the same one the graph itself went through.
+    let dbt_snapshot_job = match q.dbt_job_id {
+        Some(job) => sqlx::query_scalar!(
+            "SELECT g.job_id FROM dbt_graph_snapshot g
+              WHERE g.workspace_id = $1 AND g.job_id = $2
+                AND EXISTS (SELECT 1 FROM v2_job j
+                             WHERE j.id = g.job_id AND j.workspace_id = g.workspace_id)
+              LIMIT 1",
+            &w_id,
+            job,
+        )
+        .fetch_optional(&mut *tx)
+        .await?,
+        None => None,
+    };
     tx.commit().await?;
 
     // Parse each pipeline member's body once into its badge annotations, keyed
@@ -2020,6 +2045,7 @@ async fn asset_graph(
         macro_edges,
         test_edges,
         dbt_edges,
+        dbt_snapshot_job,
     }))
 }
 

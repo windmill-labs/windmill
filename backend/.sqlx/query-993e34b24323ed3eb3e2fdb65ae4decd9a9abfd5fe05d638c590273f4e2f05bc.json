@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT g.job_id FROM dbt_graph_snapshot g\n              WHERE g.workspace_id = $1 AND g.job_id = $2\n                AND EXISTS (SELECT 1 FROM v2_job j\n                             WHERE j.id = g.job_id AND j.workspace_id = g.workspace_id)\n              LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "job_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "993e34b24323ed3eb3e2fdb65ae4decd9a9abfd5fe05d638c590273f4e2f05bc"
+}
