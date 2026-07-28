@@ -1074,9 +1074,8 @@ export async function parseOpenAICompletion(
 	options?: { workspace?: string; provider?: string }
 ): Promise<{ shouldContinue: boolean; tokenUsage: ChatTokenUsage }> {
 	const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
-	// The tool call currently receiving argument deltas. When the stream moves on
-	// to the next call, the previous one is demoted from loading to queued — it
-	// won't execute until its turn in the sequential processing below.
+	// The tool call currently receiving argument deltas; when the stream moves on
+	// to the next call, the previous one is demoted to queued.
 	let streamingToolCallId: string | undefined = undefined
 	let malformedFunctionCallError = false
 	let tokenUsage = emptyChatTokenUsage()
@@ -1179,9 +1178,6 @@ export async function parseOpenAICompletion(
 					}
 					streamingToolCallId = toolCallId
 					const tool = tools.find((t) => t.def.function.name === funcName)
-					if (tool && tool.preAction) {
-						tool.preAction({ toolCallbacks: callbacks, toolId: toolCallId })
-					}
 
 					const shouldStream = tool?.streamArguments ?? false
 					const accumulatedArgs = finalToolCall.function.arguments
@@ -1225,8 +1221,7 @@ export async function parseOpenAICompletion(
 
 	callbacks.onMessageEnd()
 
-	// Stream over: every parsed call is queued until processToolCall picks it up
-	// and flips it back to loading — only the executing tool should spin.
+	// Stream over: every parsed call is queued until its turn in processToolCall.
 	for (const toolCall of Object.values(finalToolCalls)) {
 		if (toolCall.id) {
 			callbacks.setToolStatus(

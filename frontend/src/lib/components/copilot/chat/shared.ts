@@ -577,9 +577,7 @@ export type ToolDisplayMessage = {
 	result?: any
 	logs?: string
 	isLoading?: boolean
-	/** Arguments fully streamed but execution not started — tool calls in one
-	 * assistant message run sequentially, so later ones wait their turn. Only
-	 * the executing tool shows a spinner; queued ones render faded. */
+	/** Arguments fully streamed but execution not started (see queuedToolStatus). */
 	isQueued?: boolean
 	error?: string
 	needsConfirmation?: boolean
@@ -777,6 +775,11 @@ export async function processToolCall<T>({
 			typeof tool?.confirmationMessage === 'function'
 				? tool.confirmationMessage(args)
 				: tool?.confirmationMessage
+
+		// preAction fires at promotion, not stream time, so its "-ing" label covers
+		// only the execution window — queued cards keep their imperative header.
+		// Before the promotion patch, so a confirmation label still wins the header.
+		tool?.preAction?.({ toolCallbacks, toolId: toolCall.id })
 
 		toolCallbacks.setToolStatus(toolCall.id, {
 			...(requiresConfirmation

@@ -258,12 +258,9 @@ export async function parseAnthropicCompletion(
 				)
 			}
 		} else if (event.type === 'content_block_stop' && currentStreamingTool) {
-			// Args fully streamed: demote to queued — tool calls run sequentially
-			// after the message completes, and processToolCall flips each back to
-			// loading when its turn starts. Without this, every call in a
-			// multi-tool message spins while only the first is actually running.
-			// Server-side web search is exempt: it executes remotely and never goes
-			// through processToolCall, so demoting it would strand the card as queued.
+			// Args fully streamed: demote to queued (see queuedToolStatus). Server-side
+			// web search is exempt — it executes remotely and never goes through
+			// processToolCall, so demoting it would strand the card as queued.
 			if (!currentStreamingTool.isWebSearch) {
 				callbacks.setToolStatus(
 					currentStreamingTool.tempId,
@@ -370,18 +367,6 @@ export async function parseAnthropicCompletion(
 						arguments: JSON.stringify(block.input)
 					}
 				})
-				// Preprocess tool if it has a preAction
-				const tool = tools.find((t) => t.def.function.name === block.name)
-				if (tool && tool.preAction) {
-					tool.preAction({ toolCallbacks: callbacks, toolId: block.id })
-					// preActions set active "-ing" content, but the call is still waiting
-					// its turn — restore the queued header (processToolCall promotes it
-					// back to loading when execution starts).
-					callbacks.setToolStatus(
-						block.id,
-						queuedToolStatus(tools, block.name, JSON.stringify(block.input))
-					)
-				}
 			}
 		}
 

@@ -471,9 +471,7 @@ export async function parseOpenAIResponsesCompletion(
 
 	// Handle function call arguments done
 	runner.on('response.function_call_arguments.done', (event) => {
-		// Clear streaming state. The call is queued, not executing — tool calls run
-		// sequentially after the stream ends, and processToolCall flips each back to
-		// loading when its turn starts.
+		// Args fully streamed: demote to queued (see queuedToolStatus).
 		currentStreamingTool = undefined
 		callbacks.setToolStatus(
 			`${event.item_id}`,

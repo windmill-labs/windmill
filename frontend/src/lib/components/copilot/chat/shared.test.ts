@@ -1069,6 +1069,35 @@ describe('trimJob', () => {
 	})
 })
 
+describe('processToolCall preAction', () => {
+	// preAction's "-ing" label must land at execution start, not stream time —
+	// firing it earlier would relabel a still-queued card as active.
+	it('invokes preAction at promotion, before the tool fn runs', async () => {
+		const { processToolCall } = await import('./shared')
+		const calls: string[] = []
+		const tool = {
+			def: { type: 'function' as const, function: { name: 'patch_app_file', parameters: {} } },
+			preAction: () => calls.push('preAction'),
+			fn: vi.fn().mockImplementation(async () => {
+				calls.push('fn')
+				return 'ok'
+			})
+		}
+		await processToolCall({
+			tools: [tool] as any,
+			toolCall: {
+				id: 'call_1',
+				type: 'function',
+				function: { name: 'patch_app_file', arguments: '{}' }
+			},
+			helpers: {},
+			toolCallbacks: { setToolStatus: vi.fn() } as any,
+			workspace: 'test'
+		})
+		expect(calls).toEqual(['preAction', 'fn'])
+	})
+})
+
 describe('queuedToolStatus', () => {
 	const tool = (extra: Record<string, unknown> = {}) => ({
 		def: { type: 'function' as const, function: { name: 'run_script', parameters: {} } },
