@@ -2818,8 +2818,8 @@ async fn resolve_flow_step_job(
              FROM v2_job j
              LEFT JOIN v2_job_completed c ON c.id = j.id
              LEFT JOIN v2_job_queue q ON q.id = j.id
-             LEFT JOIN LATERAL (
-                 SELECT fj.ord
+             LEFT JOIN (
+                 SELECT fj.jid, fj.ord
                  FROM (SELECT COALESCE(
                          (SELECT flow_status FROM v2_job_completed WHERE id = $1),
                          (SELECT flow_status FROM v2_job_status WHERE id = $1)
@@ -2831,8 +2831,7 @@ async fn resolve_flow_step_job(
                  ) md
                  CROSS JOIN LATERAL jsonb_array_elements_text(md.m->'flow_jobs')
                      WITH ORDINALITY fj(jid, ord)
-                 WHERE fj.jid = j.id::text
-             ) pos ON true
+             ) pos ON pos.jid = j.id::text
              WHERE j.parent_job = $1 AND j.workspace_id = $2 AND j.flow_step_id = $3
                AND ($4::text[] IS NULL OR j.tag = ANY($4))
              ORDER BY pos.ord NULLS LAST, j.id",
@@ -2873,19 +2872,29 @@ async fn resolve_flow_step_job(
                 Some(node) => node,
                 None => {
                     return Ok(Err(format!(
-                        "Step \"{}\" has no iteration [{}]. Existing: {}.",
+                        "Step \"{}\" has no iteration [{}]. Existing: 1..{}.",
                         step_id,
                         index,
-                        (1..=siblings.len()).map(|i| i.to_string()).join(", ")
+                        siblings.len()
                     )));
                 }
             }
         } else if siblings.len() > 1 {
-            let statuses = siblings
+            // These diagnostics go verbatim into the model's context — cap the
+            // per-sibling listing so huge loops can't flood it.
+            const MAX_STATUSES_LISTED: usize = 20;
+            let mut statuses = siblings
                 .iter()
+                .take(MAX_STATUSES_LISTED)
                 .enumerate()
                 .map(|(i, s)| format!("[{}] {}", i + 1, s.status))
                 .join(", ");
+            if siblings.len() > MAX_STATUSES_LISTED {
+                statuses.push_str(&format!(
+                    ", … (+{} more)",
+                    siblings.len() - MAX_STATUSES_LISTED
+                ));
+            }
             return Ok(Err(
                 if is_fan_out_module(&parent_module_type) || parent_module_type.is_empty() {
                     format!(
