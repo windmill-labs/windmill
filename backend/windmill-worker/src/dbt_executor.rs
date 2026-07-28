@@ -1586,6 +1586,23 @@ fn reject_reserved_env<'a>(
 /// project runs in.
 pub const ARTIFACTS_DIR: &str = "wm_target";
 
+/// Take one attempt from the job's budget, returning its 1-based number, or
+/// `None` when nothing is left.
+///
+/// Claiming and counting are one operation because they are the retry loop's
+/// only bound: separating them is how the budget stops being spent and the loop
+/// reissues `dbt retry` until the job's deadline instead of `attempts` times.
+/// Claimed before the guards that can decline an attempt, which is harmless —
+/// each of those breaks out rather than looping again.
+fn claim_attempt(remaining: &mut u32, total: u32) -> Option<u32> {
+    if *remaining == 0 {
+        return None;
+    }
+    let attempt = total - *remaining + 1;
+    *remaining -= 1;
+    Some(attempt)
+}
+
 /// The descriptor's `retry_failed_nodes` policy, applied to whichever phase just
 /// failed. `dbt retry` rebuilds only the failed and skipped nodes, so a
 /// transient warehouse error costs those rather than the whole project.
@@ -1612,8 +1629,7 @@ async fn retry_failed_nodes(
     remaining: &mut u32,
 ) {
     let total = policy.attempts();
-    while *remaining > 0 {
-        let attempt = total - *remaining + 1;
+    while let Some(attempt) = claim_attempt(remaining, total) {
         // A cancelled or timed-out job must not start another warehouse
         // write: its failure is not the transient kind this retries, and
         // the slot is supposed to be going away. The wait itself re-checks,
@@ -1627,10 +1643,7 @@ async fn retry_failed_nodes(
         append_logs(
             &job.id,
             &job.workspace_id,
-            format!(
-                "\nRetrying the nodes that failed (attempt {attempt} of {})\n",
-                policy.attempts()
-            ),
+            format!("\nRetrying the nodes that failed (attempt {attempt} of {total})\n"),
             conn,
         )
         .await;
@@ -3551,6 +3564,29 @@ mod tests {
         // A node the retry introduces is kept rather than dropped.
         merge_results(&mut acc, vec![node("test.p.d", "fail")]);
         assert_eq!(acc.len(), 4);
+    }
+
+    // The loop this feeds is bounded by nothing else: stop spending the budget
+    // and a failing job reissues `dbt retry` until its deadline.
+    #[test]
+    fn an_attempt_is_claimed_from_the_budget_exactly_once() {
+        let mut remaining = 3;
+        let mut claimed = vec![];
+        // Bounded by this `for`, never by `claim_attempt`: a regression that
+        // stops spending the budget has to fail an assertion here, and must not
+        // be able to allocate until the machine dies. `from_fn(..).collect()`
+        // would do the latter.
+        for _ in 0..10 {
+            match claim_attempt(&mut remaining, 3) {
+                Some(n) => claimed.push(n),
+                None => break,
+            }
+        }
+        assert_eq!(claimed, vec![1, 2, 3], "numbered in order, one per attempt");
+        assert_eq!(remaining, 0);
+        assert_eq!(claim_attempt(&mut remaining, 3), None, "a spent budget grants no more");
+        let mut none = 0;
+        assert_eq!(claim_attempt(&mut none, 0), None);
     }
 
     // A second `dbt test` after a tests-only retry runs every test twice and
