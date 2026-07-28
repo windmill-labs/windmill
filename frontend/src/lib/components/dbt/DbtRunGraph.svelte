@@ -144,7 +144,48 @@
 
 	// No `resolveGraph`: that merges drafts and live editor buffers into the
 	// persisted graph, and a run page has neither. The response is the graph.
-	let graph = $derived(scoped)
+	//
+	// For a FINISHED run the node set is narrowed to what that run actually
+	// named. `/assets/graph` is the current deploy, so without this a model added
+	// after the run appears in its graph as though it had been there, and the
+	// older the run the more the picture drifts. Sources are kept regardless:
+	// dbt never lists them in `run_results.json` because it does not build them,
+	// but they are the upstream the run read.
+	let historical = $derived.by(() => {
+		if (running || !scoped) return undefined
+		const run = parseDbtRun(result)
+		if (!run?.nodes?.length) return undefined
+		const ran = new Set(run.nodes.map((n) => n.unique_id))
+		const keep = (a: (typeof scoped.assets)[number]) =>
+			a.dbt == undefined || a.dbt.resource_type === 'source' || ran.has(a.dbt.unique_id)
+		const assets = scoped.assets.filter(keep)
+		if (assets.length === scoped.assets.length) return undefined
+		const ids = new Set(assets.map((a) => `${a.kind}:${a.path}`))
+		return {
+			...scoped,
+			assets,
+			dbt_edges: (scoped.dbt_edges ?? []).filter(
+				(e) => ids.has(`table:${e.from_asset_path}`) && ids.has(`table:${e.to_asset_path}`)
+			)
+		} as AssetGraphResponse
+	})
+
+	let graph = $derived(historical ?? scoped)
+
+	// Models this run built that the project no longer has under the same id —
+	// renamed or deleted since. They cannot be drawn (the graph is the current
+	// deploy) so the count is stated rather than silently missing.
+	let goneSinceRun = $derived.by(() => {
+		if (running || !scoped) return 0
+		const run = parseDbtRun(result)
+		if (!run?.nodes?.length) return 0
+		const known = new Set(
+			scoped.assets.map((a) => a.dbt?.unique_id).filter((u): u is string => u != undefined)
+		)
+		return run.nodes.filter(
+			(n) => !known.has(n.unique_id) && /^(model|seed|snapshot)\./.test(n.unique_id)
+		).length
+	})
 
 	// A finished run's own output, joined to the graph on dbt's `unique_id`.
 	//
@@ -274,6 +315,15 @@
 	</div>
 {:else}
 	<div class="border rounded overflow-hidden flex flex-col">
+		{#if goneSinceRun > 0}
+			<div class="shrink-0 px-2 py-1 text-2xs text-secondary border-b bg-surface-secondary">
+				{goneSinceRun}
+				{goneSinceRun === 1 ? 'model' : 'models'} this run built {goneSinceRun === 1
+					? 'is'
+					: 'are'} no longer in the project — renamed or removed since, so
+				{goneSinceRun === 1 ? 'it is' : 'they are'} not drawn.
+			</div>
+		{/if}
 		<div class="h-80">
 			<AssetGraphCanvas
 				{graph}
