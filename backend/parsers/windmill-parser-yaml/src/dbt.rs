@@ -422,11 +422,6 @@ threads: 8
 full_refresh: true
 "#;
 
-    // A placeholder that takes a run argument's name would be shadowed by it,
-    // leaving a descriptor no invocation can satisfy: `select` is an array and
-    // the interpolation needs a scalar. Refused at parse, so the deploy says so
-    // rather than the script becoming unrunnable after it.
-    #[test]
     // A descriptor drives warehouse writes, so a field it does not recognise is
     // an error rather than a default. `selcet:` would otherwise leave `select`
     // empty and build the entire project; a misspelled `target` would silently
@@ -443,6 +438,10 @@ full_refresh: true
         assert!(err.contains("targt"), "{err}");
     }
 
+    // A placeholder that takes a run argument's name would be shadowed by it,
+    // leaving a descriptor no invocation can satisfy: `select` is an array and
+    // the interpolation needs a scalar. Refused at parse, so the deploy says so
+    // rather than the script becoming unrunnable after it.
     #[test]
     fn a_placeholder_may_not_take_a_run_argument_name() {
         for name in RESERVED_ARG_NAMES {

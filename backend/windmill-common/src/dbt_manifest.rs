@@ -195,7 +195,7 @@ pub struct IngestedManifest {
     pub nodes: Vec<IngestedNode>,
     pub edges: Vec<(String, String)>,
     /// The `asset` rows the owning script produces (models) and consumes
-    /// (sources) — what drives the cascade and the lineage graph.
+    /// (sources) — what the lineage graph is drawn from.
     pub assets: Vec<AssetWithAltAccessType>,
     pub dbt_version: String,
     pub adapter_type: String,
@@ -310,7 +310,7 @@ pub fn table_asset_path(
 /// as reported by dbt itself (`dbt ls`). `None` means the whole project. It
 /// scopes what this script is recorded as owning: a script that builds only
 /// `tag:nightly` must not register as the producer of every other model, or the
-/// cascade fires downstream of models it never touched. Running several scripts
+/// graph shows it owning models it never touches. Running several scripts
 /// with different selections is the intended shape (docs/dbt-runtime.md,
 /// decision 6), and this is what makes them compose.
 pub fn ingest_manifest(
@@ -330,9 +330,8 @@ pub fn ingest_manifest(
 
     // Direct parents of the selected set. A source is only this script's input
     // if something it actually builds reads it — keeping every source would
-    // make a narrowly-selected script claim reads on tables it never touches,
-    // and those reads are cascade subscriptions. The same set answers the
-    // cross-config question below.
+    // make a narrowly-selected script claim reads on tables it never touches.
+    // The same set answers the cross-config question below.
     // Without a selection the script builds everything, so every node is its
     // own builder — but a source nothing reads is still not an input.
     let direct_parents: std::collections::HashSet<&str> = {
@@ -358,7 +357,7 @@ pub fn ingest_manifest(
             // An ephemeral model is inlined as a CTE, so it produces nothing to
             // depend on — but whatever IT reads is still this script's real
             // input. Stopping at it loses the subscription entirely, and the
-            // model then never cascades when its actual source changes.
+            // model then shows no upstream edge to its actual source.
             let is_ephemeral = manifest
                 .nodes
                 .get(parent)
@@ -1086,7 +1085,7 @@ mod tests {
         assert_eq!(t.raw_code, None);
     }
 
-    // A read is a cascade subscription, so a source no model reads must not
+    // A read is an upstream edge, so a source no model reads must not
     // become one — otherwise loading an unused table dispatches the whole dbt
     // script. This holds for the unselected, whole-project case too, which is
     // the common one.
@@ -1156,7 +1155,7 @@ mod tests {
 
     // An ephemeral parent is inlined as a CTE and produces nothing to depend on,
     // but what IT reads is still the selected model's real input — stopping
-    // there loses the subscription and the model never cascades.
+    // there loses the edge and the model shows no upstream.
     #[test]
     fn dependencies_traverse_through_ephemeral_parents() {
         let m: Manifest = serde_json::from_str(

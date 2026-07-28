@@ -294,52 +294,22 @@ pub async fn handle_dbt_job(
         .retry_failed_nodes
         .filter(|_| matches!(conn, Connection::Sql(_)));
     if let Some(policy) = node_retry.filter(|_| run.is_err()) {
-        for attempt in 1..=policy.attempts() {
-            // A cancelled or timed-out job must not start another warehouse
-            // write: its failure is not the transient kind this retries, and
-            // the slot is supposed to be going away. The wait itself re-checks,
-            // since a cancel most likely arrives during it.
-            if !current_results_are_retryable(&prepared).await {
-                break;
-            }
-            if !sleep_before_retry(policy.delay_seconds, &job.id, conn, deadline).await {
-                break;
-            }
-            append_logs(
-                &job.id,
-                &job.workspace_id,
-                format!(
-                    "\nRetrying the nodes that failed (attempt {attempt} of {})\n",
-                    policy.attempts()
-                ),
-                conn,
-            )
-            .await;
-            run = run_dbt(
-                &prepared,
-                "retry",
-                &descriptor,
-                &inv,
-                job,
-                conn,
-                mem_peak,
-                canceled_by,
-                occupancy_metrics,
-                worker_name,
-                // `dbt retry` reuses the previous invocation's selection; adding
-                // one would narrow what it resumes.
-                false,
-                deadline,
-            )
-            .await;
-            // A retry's `run_results.json` describes only the nodes it redid, so
-            // it OVERLAYS the previous attempt's rather than replacing it. The
-            // job's result has to be every node this job touched.
-            merge_results(&mut results, read_run_results(&prepared.project_dir).await);
-            if run.is_ok() {
-                break;
-            }
-        }
+        retry_failed_nodes(
+            policy,
+            &prepared,
+            &descriptor,
+            &inv,
+            job,
+            conn,
+            mem_peak,
+            canceled_by,
+            occupancy_metrics,
+            worker_name,
+            deadline,
+            &mut run,
+            &mut results,
+        )
+        .await;
     }
     // A `retry` whose saved results were tests alone IS the test phase: dbt reran
     // exactly those tests, so running the suite after it would execute every test
@@ -379,6 +349,28 @@ pub async fn handle_dbt_job(
         // same node, and a duplicate would double its totals and collide as a key
         // in the result table.
         merge_results(&mut results, read_run_results(&prepared.project_dir).await);
+        // The same policy applies to a failing test. `dbt retry` redoes test
+        // nodes, and the descriptor promises to retry the ones that failed —
+        // retrying the model phase alone would exempt the failure mode
+        // `test_behavior: after_all` exists to produce.
+        if let Some(policy) = node_retry.filter(|_| run.is_err()) {
+            retry_failed_nodes(
+                policy,
+                &prepared,
+                &descriptor,
+                &inv,
+                job,
+                conn,
+                mem_peak,
+                canceled_by,
+                occupancy_metrics,
+                worker_name,
+                deadline,
+                &mut run,
+                &mut results,
+            )
+            .await;
+        }
     }
 
     save_run_state(&prepared, &job.workspace_id, &job.id, &inv, conn)
@@ -1592,6 +1584,75 @@ fn reject_reserved_env<'a>(
 pub const ARTIFACTS_DIR: &str = "wm_target";
 
 #[allow(clippy::too_many_arguments)]
+/// The descriptor's `retry_failed_nodes` policy, applied to whichever phase just
+/// failed. `dbt retry` rebuilds only the failed and skipped nodes, so a
+/// transient warehouse error costs those rather than the whole project.
+///
+/// Called after the model phase and again after the `after_all` test phase: a
+/// failing test is a failed node too.
+async fn retry_failed_nodes(
+    policy: windmill_parser_yaml::dbt::DbtNodeRetry,
+    prepared: &PreparedProject,
+    descriptor: &DbtDescriptor,
+    inv: &Invocation,
+    job: &MiniPulledJob,
+    conn: &Connection,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    occupancy_metrics: &mut OccupancyMetrics,
+    worker_name: &str,
+    deadline: JobDeadline,
+    run: &mut error::Result<()>,
+    results: &mut Vec<DbtNodeResult>,
+) {
+    for attempt in 1..=policy.attempts() {
+        // A cancelled or timed-out job must not start another warehouse
+        // write: its failure is not the transient kind this retries, and
+        // the slot is supposed to be going away. The wait itself re-checks,
+        // since a cancel most likely arrives during it.
+        if !current_results_are_retryable(prepared).await {
+            break;
+        }
+        if !sleep_before_retry(policy.delay_seconds, &job.id, conn, deadline).await {
+            break;
+        }
+        append_logs(
+            &job.id,
+            &job.workspace_id,
+            format!(
+                "\nRetrying the nodes that failed (attempt {attempt} of {})\n",
+                policy.attempts()
+            ),
+            conn,
+        )
+        .await;
+        *run = run_dbt(
+            prepared,
+            "retry",
+            descriptor,
+            inv,
+            job,
+            conn,
+            mem_peak,
+            canceled_by,
+            occupancy_metrics,
+            worker_name,
+            // `dbt retry` reuses the previous invocation's selection; adding
+            // one would narrow what it resumes.
+            false,
+            deadline,
+        )
+        .await;
+        // A retry's `run_results.json` describes only the nodes it redid, so
+        // it OVERLAYS the previous attempt's rather than replacing it. The
+        // job's result has to be every node this job touched.
+        merge_results(results, read_run_results(&prepared.project_dir).await);
+        if run.is_ok() {
+            break;
+        }
+    }
+}
+
 async fn run_dbt(
     p: &PreparedProject,
     command: &str,

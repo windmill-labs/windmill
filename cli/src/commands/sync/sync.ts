@@ -4955,7 +4955,11 @@ export async function push(
                 !isRawAppFile(change.path) &&
                 (change.path.endsWith(".script.json") ||
                   change.path.endsWith(".script.yaml") ||
-                  change.path.endsWith(".lock") ||
+                  // A `.lock` is the script's generated lockfile — except inside
+                  // a dbt bundle, where the project may author one (`uv.lock`).
+                  // Skipping it there would report the add on every push and
+                  // never apply it, because no state file is written either.
+                  (change.path.endsWith(".lock") && !isDbtModulePath(change.path)) ||
                   isFileResource(change.path))
               ) {
                 continue;
@@ -5029,7 +5033,9 @@ export async function push(
                 await writeFile(stateTarget, change.content, "utf-8");
               }
             } else if (change.name === "deleted") {
-              if (change.path.endsWith(".lock")) {
+              // Same as the added branch: a dbt project's own `.lock` is one of
+              // its files, so deleting it has to reach the parent script.
+              if (change.path.endsWith(".lock") && !isDbtModulePath(change.path)) {
                 continue;
               }
               if (isScriptModulePath(change.path)) {

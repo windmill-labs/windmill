@@ -650,11 +650,15 @@ export function isUnderGeneratedDir(rel: string, dirs: Set<string>): boolean {
  */
 export function isDbtGeneratedPath(p: string): boolean {
   const n = normalizeSep(p);
-  const suffix = DBT_MODULE_SUFFIX + "/";
-  const idx = n.indexOf(suffix);
-  if (idx === -1) return false;
-  const rel = n.slice(idx + suffix.length);
-  if (isUnderGeneratedDir(rel, dbtGeneratedDirs(n.slice(0, idx + suffix.length - 1)))) {
+  // Anchored on the outermost boundary, like every other helper here. Matching
+  // `__dbt/` anywhere would call `foo__mod/vendor/x__dbt/target/a.ts` generated
+  // dbt output, and `ignoreF` would then exclude an ordinary module file so a
+  // module-only edit never deploys its parent script.
+  if (!isDbtModulePath(n)) return false;
+  const base = getScriptBasePathFromModulePath(n)!;
+  const projectRoot = base + DBT_MODULE_SUFFIX;
+  const rel = n.slice(projectRoot.length + 1);
+  if (isUnderGeneratedDir(rel, dbtGeneratedDirs(projectRoot))) {
     return true;
   }
   // Not generated, but not carried either: the bundle drops it, so the diff

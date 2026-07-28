@@ -1479,8 +1479,8 @@ async fn create_script_internal<'c>(
     // editor and blurred which of the two a folder holds.
     //
     // Its models are still `table://` assets in the shared graph: that is what
-    // makes a native script reading one of them cascade from the dbt run, and it
-    // is independent of pipeline membership.
+    // puts a native script reading one of them on the same node, and it is
+    // independent of pipeline membership. It does not trigger that script.
     let in_pipeline = pipeline_annotations.in_pipeline && ns.language != ScriptLang::Dbt;
     // `// trigger all` → AND join barrier (else OR, the default).
     let pipeline_join_all = !pipeline_annotations.join_mode.is_any();

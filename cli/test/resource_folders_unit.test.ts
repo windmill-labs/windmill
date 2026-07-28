@@ -37,6 +37,7 @@ import {
   transformJsonPathToDir,
   isModuleEntryPoint,
   getScriptBasePathFromModulePath,
+  isDbtGeneratedPath,
   dbtGeneratedDirs,
   isUnderGeneratedDir,
   isDbtModulePath,
@@ -819,4 +820,10 @@ test("a __dbt directory nested inside an ordinary module is not a dbt project fi
   // `vendor/x__dbt/` belongs to the `foo__mod` script, not to a dbt project.
   expect(isDbtModulePath("f/x/foo__mod/vendor/x__dbt/a.ts")).toBe(false);
   expect(isDbtModulePath("f/x/foo__mod/helper.ts")).toBe(false);
+});
+
+test("a __dbt/target nested in an ordinary module is not generated dbt output", () => {
+  expect(isDbtGeneratedPath("f/x/proj__dbt/target/manifest.json")).toBe(true);
+  // Belongs to the `foo__mod` script; excluding it would drop a real edit.
+  expect(isDbtGeneratedPath("f/x/foo__mod/vendor/x__dbt/target/a.ts")).toBe(false);
 });
