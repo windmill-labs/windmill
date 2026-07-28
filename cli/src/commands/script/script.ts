@@ -262,6 +262,20 @@ export async function findResourceFile(path: string) {
   return validCandidates[0];
 }
 
+// The separator is whatever the local filesystem uses, so both are accepted:
+// on Windows these paths reach us as `my_script__mod\script.yaml`.
+const MODULE_ENTRY_META_RE = /([\\/])script\.(yaml|json|lock)$/;
+
+/**
+ * Whether a path is a module folder's own metadata file (`__mod/script.yaml`).
+ * `isModuleEntryPoint` already pins the file to `script.*` directly under
+ * `__mod/`, so this only narrows it to the metadata extensions: a `script.yaml`
+ * nested deeper in the module tree is a module file, not the script's metadata.
+ */
+function isModuleEntryMetadata(p: string): boolean {
+  return isModuleEntryPoint(p) && MODULE_ENTRY_META_RE.test(p);
+}
+
 export async function handleScriptMetadata(
   path: string,
   workspace: Workspace,
@@ -276,12 +290,7 @@ export async function handleScriptMetadata(
   const isFlatMeta = path.endsWith(".script.json") ||
     path.endsWith(".script.yaml") ||
     path.endsWith(".script.lock");
-  // Folder layout: my_script__mod/script.yaml
-  const isFolderMeta = !isFlatMeta && isScriptModulePath(path) && (
-    path.endsWith("/script.yaml") ||
-    path.endsWith("/script.json") ||
-    path.endsWith("/script.lock")
-  );
+  const isFolderMeta = !isFlatMeta && isModuleEntryMetadata(path);
   if (isFlatMeta || isFolderMeta) {
     const contentPath = await findContentFile(path);
     return handleFile(
@@ -872,17 +881,34 @@ async function createScript(
   return performance.now() - start;
 }
 
+/**
+ * A script metadata file could not be paired with exactly one script file on
+ * disk, so nothing can be deployed for it. Distinct from a deploy that reached
+ * the remote and was rejected: callers that can carry on with the rest of a
+ * changeset catch this specifically.
+ */
+export class UnresolvableScriptContentFileError extends Error {}
+
 export async function findContentFile(filePath: string) {
   // Folder layout: __mod/script.yaml -> __mod/script.ts
-  const isModuleFolderMeta =
-    filePath.endsWith("/script.yaml") || filePath.endsWith("/script.json") || filePath.endsWith("/script.lock");
-  const candidates = isModuleFolderMeta
-    ? exts.map((x) => filePath.replace(/\/script\.(yaml|json|lock)$/, "/script" + x))
-    : filePath.endsWith("script.json")
-    ? exts.map((x) => filePath.replace(".script.json", x))
-    : filePath.endsWith("script.lock")
-    ? exts.map((x) => filePath.replace(".script.lock", x))
-    : exts.map((x) => filePath.replace(".script.yaml", x));
+  const isModuleFolderMeta = isModuleEntryMetadata(filePath);
+  const toCandidate = (ext: string) =>
+    isModuleFolderMeta
+      ? filePath.replace(MODULE_ENTRY_META_RE, "$1script" + ext)
+      : filePath.endsWith("script.json")
+      ? filePath.replace(".script.json", ext)
+      : filePath.endsWith("script.lock")
+      ? filePath.replace(".script.lock", ext)
+      : filePath.replace(".script.yaml", ext);
+  // Every branch above is a no-op on a path that is neither flat nor
+  // module-entry metadata, which would make toCandidate the identity function
+  // and "resolve" the input to itself.
+  if (!isModuleFolderMeta && !/\.script\.(yaml|json|lock)$/.test(filePath)) {
+    throw new UnresolvableScriptContentFileError(
+      `${filePath} is not a script metadata file — no script file can be resolved from it.`
+    );
+  }
+  const candidates = exts.map(toCandidate);
 
   const validCandidates = (
     await Promise.all(
@@ -899,14 +925,17 @@ export async function findContentFile(filePath: string) {
     .filter((x) => x.file)
     .map((x) => x.path);
   if (validCandidates.length > 1) {
-    throw new Error(
-      "No content path given and more than one candidate found: " +
-        validCandidates.join(", ")
+    throw new UnresolvableScriptContentFileError(
+      `Multiple script files found next to ${filePath}: ${validCandidates.join(", ")} — ` +
+        `cannot tell which one the metadata belongs to. Keep exactly one.`
     );
   }
   if (validCandidates.length < 1) {
-    throw new Error(
-      `No content path given and no content file found for ${filePath}.`
+    throw new UnresolvableScriptContentFileError(
+      `No script file found next to ${filePath} — a script cannot be deployed from its metadata alone. ` +
+        `Add the matching script file (e.g. ${toCandidate(".ts")} or ${toCandidate(
+          ".py"
+        )}) or remove ${filePath}.`
     );
   }
   return validCandidates[0];

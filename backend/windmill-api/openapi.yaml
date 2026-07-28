@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.771.1
+  version: 1.773.0
   title: Windmill API
 
   contact:
@@ -727,6 +727,38 @@ paths:
       responses:
         "200":
           description: user renamed
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /users/change_email/{email}:
+    post:
+      summary: global change user email (require super admin)
+      operationId: globalUserChangeEmail
+      tags:
+        - user
+      parameters:
+        - name: email
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: new email
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                new_email:
+                  type: string
+              required:
+                - new_email
+      responses:
+        "200":
+          description: user email changed
           content:
             text/plain:
               schema:
@@ -10532,6 +10564,14 @@ paths:
           description: opaque keyset cursor from a previous page's next_cursor
           schema:
             type: string
+        - name: include_draft_only
+          in: query
+          description: >-
+            also list the caller's drafts at paths with no deployed row, sorted
+            and paginated with the deployed ones. Ignored for operators, in the
+            archived view, and under a label filter (a draft carries no labels).
+          schema:
+            type: boolean
       responses:
         "200":
           description: a page of merged, ordered runnables
@@ -10548,6 +10588,49 @@ paths:
                       $ref: "#/components/schemas/RunnableItem"
                   next_cursor:
                     type: string
+  /w/{workspace}/runnables/counts:
+    get:
+      summary: count runnables per owner (folder or user space)
+      operationId: countRunnablesByOwner
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: kinds
+          in: query
+          description: comma-separated subset of script,flow,app (default all)
+          schema:
+            type: string
+        - name: include_without_main
+          in: query
+          description: include library scripts (no runnable main)
+          schema:
+            type: boolean
+        - name: include_draft_only
+          in: query
+          description: >-
+            also count the caller's drafts at paths with no deployed row,
+            matching the same flag on /runnables/list
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: >-
+            number of runnables per owner prefix, empty owners omitted. Excludes
+            data-pipeline member scripts, which are listed as their folder's
+            single pipeline entry rather than as runnables.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - counts
+                properties:
+                  counts:
+                    type: object
+                    description: owner prefix (f/<folder> or u/<user>) to count
+                    additionalProperties:
+                      type: integer
   /w/{workspace}/flows/list:
     get:
       summary: list all flows

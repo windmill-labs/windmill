@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace SET owner = 'test2@windmill.dev' WHERE id = 'test-workspace'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "d94140411f0ddefd74732e9a755249a044397b6fbfe164bc3dfd007ccd490388"
+}

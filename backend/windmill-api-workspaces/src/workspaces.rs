@@ -2677,7 +2677,7 @@ async fn create_pg_database(
 
         if db_exists {
             drop(client);
-            let _ = join_handle.await;
+            let _ = windmill_common::shutdown_pg_connection(join_handle).await;
             return Err(Error::BadRequest(format!(
                 "Database '{}' already exists on the resource server",
                 req.target_dbname
@@ -2695,10 +2695,7 @@ async fn create_pg_database(
             })?;
 
         drop(client);
-        join_handle
-            .await
-            .map_err(|e| Error::internal_err(format!("join error: {}", e)))?
-            .map_err(|e| Error::internal_err(format!("tokio_postgres error: {}", e)))?;
+        windmill_common::shutdown_pg_connection(join_handle).await?;
     }
 
     Ok(format!("Created database '{}'", req.target_dbname))
@@ -2801,10 +2798,7 @@ async fn get_datatable_full_schema(
         .map_err(Error::internal_err)?;
 
     drop(client);
-    join_handle
-        .await
-        .map_err(|e| Error::internal_err(format!("join error: {}", e)))?
-        .map_err(|e| Error::internal_err(format!("tokio_postgres error: {}", e)))?;
+    windmill_common::shutdown_pg_connection(join_handle).await?;
 
     Ok(Json(result))
 }
@@ -6389,10 +6383,7 @@ async fn snapshot_datatable_schema(
         .map_err(Error::internal_err)?;
 
     drop(client);
-    join_handle
-        .await
-        .map_err(|e| Error::internal_err(format!("join error: {}", e)))?
-        .map_err(|e| Error::internal_err(format!("tokio_postgres error: {}", e)))?;
+    windmill_common::shutdown_pg_connection(join_handle).await?;
 
     serde_json::to_value(schema)
         .map_err(|e| Error::internal_err(format!("Failed to serialize schema: {}", e)))

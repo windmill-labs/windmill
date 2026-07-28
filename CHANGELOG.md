@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.773.0](https://github.com/windmill-labs/windmill/compare/v1.772.0...v1.773.0) (2026-07-27)
+
+
+### Features
+
+* list draft-only runnables on the homepage again ([#10361](https://github.com/windmill-labs/windmill/issues/10361)) ([7973549](https://github.com/windmill-labs/windmill/commit/7973549e7f34266dcce6e53edf6d3276015ced70))
+
+## [1.772.0](https://github.com/windmill-labs/windmill/compare/v1.771.1...v1.772.0) (2026-07-27)
+
+
+### Features
+
+* allow changing an account email in the superadmin settings ([#10355](https://github.com/windmill-labs/windmill/issues/10355)) ([f9d5da1](https://github.com/windmill-labs/windmill/commit/f9d5da11b714f61e7856008197bda3b91c2f1745))
+* build a React raw app from the script and flow detail pages ([#10337](https://github.com/windmill-labs/windmill/issues/10337)) ([a8ef98e](https://github.com/windmill-labs/windmill/commit/a8ef98edff5b413bce083f1253f59d0d20bf3e3e))
+* show per-owner runnable counts in the homepage tree (WIN-2253) ([#10351](https://github.com/windmill-labs/windmill/issues/10351)) ([50da65c](https://github.com/windmill-labs/windmill/commit/50da65c886ba1733c12fe0c041c8a7505f6bb797))
+
+
+### Bug Fixes
+
+* **ai:** make the proxy and the AI agent step read a resource the same way ([#10359](https://github.com/windmill-labs/windmill/issues/10359)) ([6e56ce1](https://github.com/windmill-labs/windmill/commit/6e56ce11dbe494129a26f61be5114c7a07d8f84f))
+* **ai:** stop teaching nonexistent while-loop iter.value state-carrying ([#10345](https://github.com/windmill-labs/windmill/issues/10345)) ([0f62891](https://github.com/windmill-labs/windmill/commit/0f62891d4310d305b599bfcd18fec4dc520ab8fc))
+* **ai:** support OpenAI/Anthropic-compatible gateways in workspace AI settings ([#10356](https://github.com/windmill-labs/windmill/issues/10356)) ([ebf68d7](https://github.com/windmill-labs/windmill/commit/ebf68d79708bb48c3db500848adfe07774920228))
+* **cli:** resolve module script metadata on windows path separators ([#10358](https://github.com/windmill-labs/windmill/issues/10358)) ([b996026](https://github.com/windmill-labs/windmill/commit/b9960267bb58c73dd92b795b033d166c2512c804))
+* **cli:** sync push no longer reports success on a script it never deployed ([#10353](https://github.com/windmill-labs/windmill/issues/10353)) ([cdd8718](https://github.com/windmill-labs/windmill/commit/cdd8718a93954b65345b1030bd6623a42e117ef9))
+* datatable full schema hangs behind a transaction-pooling postgres proxy ([#10352](https://github.com/windmill-labs/windmill/issues/10352)) ([78e115b](https://github.com/windmill-labs/windmill/commit/78e115bee5a573eb6e0abfbdccc4a0e677a80085))
+* enforce per-job authorization on cancel and force_cancel endpoints ([#10341](https://github.com/windmill-labs/windmill/issues/10341)) ([4b7ab64](https://github.com/windmill-labs/windmill/commit/4b7ab64a48d57b8b0f91ce181eee66b155159eb5))
+* **frontend:** stop spurious asset analysis toasts in the flow editor ([#10349](https://github.com/windmill-labs/windmill/issues/10349)) ([9bbfe12](https://github.com/windmill-labs/windmill/commit/9bbfe12011812fe449723202c60893790e68f9cd))
+* name the resource in the delete confirmation modal ([#10344](https://github.com/windmill-labs/windmill/issues/10344)) ([9b55f1d](https://github.com/windmill-labs/windmill/commit/9b55f1d67d632be83cd4bca70c5477a0aba9fef2))
+* **wac:** checkpoint step errors so a caught exception does not hang replay ([#10348](https://github.com/windmill-labs/windmill/issues/10348)) ([be5e3bb](https://github.com/windmill-labs/windmill/commit/be5e3bbfc43f45328b0aaa4fd0d0a6cee872ec09))
+
 ## [1.771.1](https://github.com/windmill-labs/windmill/compare/v1.771.0...v1.771.1) (2026-07-27)
 
 

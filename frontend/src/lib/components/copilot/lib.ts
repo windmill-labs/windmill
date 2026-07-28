@@ -534,12 +534,10 @@ function buildAnthropicProxyRequest({
 	const { system, messages: anthropicMessages } = convertOpenAIToAnthropicMessages(messages)
 
 	// X-Provider must be the real provider (e.g. azure_foundry) so the backend
-	// resolves the right credentials and Anthropic URL; the SDK headers tell it to
-	// route through the Anthropic Messages API.
+	// resolves the right credentials and Anthropic URL.
 	const headers: Record<string, string> = {
 		'X-Provider': modelProvider.provider,
-		'anthropic-version': '2023-06-01',
-		'X-Anthropic-SDK': 'true'
+		'anthropic-version': '2023-06-01'
 	}
 
 	if (resourcePath) {

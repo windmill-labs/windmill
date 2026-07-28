@@ -60,7 +60,7 @@
 <label
 	for={id}
 	class="{className || ''} z-auto flex flex-row items-center duration-50 {disabled
-		? 'grayscale opacity-50'
+		? 'grayscale opacity-50 cursor-not-allowed'
 		: 'cursor-pointer'}"
 	title={options?.title}
 >

@@ -1520,6 +1520,32 @@ export class StepSuspend extends Error {
   }
 }
 
+/** Serialize a failed `step()` body into the `__wmill_error` marker that task
+ *  failures also use, so it can be stored in `completed_steps`. */
+function stepErrorMarker(key: string, e: unknown): Record<string, any> {
+  const message = e instanceof Error ? e.message : String(e);
+  // Constructor name, not `e.name`: a `class MyError extends Error {}` that
+  // never assigns `this.name` reports "Error", which would make the same
+  // failure read as `MyError` in the python client and `Error` here.
+  const type = e instanceof Error ? (e.constructor?.name ?? e.name) : typeof e;
+  return { __wmill_error: true, message, step_key: key, result: { error: message, type } };
+}
+
+/** Rebuild the error a failed step throws. Both the run that produced the
+ *  failure and every later replay go through here, so a workflow's catch block
+ *  sees the same shape either way. */
+function stepErrorFromMarker(marker: any, name: string): Error {
+  const err = new Error(marker?.message || `Step '${name}' failed`);
+  // Matches the python client, which raises TaskError here; the failed body's
+  // own type stays in `result.type`. Keeps a failed job's serialized error
+  // identical across the two languages.
+  err.name = "TaskError";
+  (err as any).result = marker?.result;
+  (err as any).step_key = marker?.step_key;
+  (err as any).child_job_id = marker?.child_job_id;
+  return err;
+}
+
 export interface TaskOptions {
   timeout?: number;
   tag?: string;
@@ -1563,6 +1589,16 @@ export class WorkflowCtx {
     [k: string]: any;
   }> = [];
   private _suspended = false;
+  /** The last suspend this ctx raised. `StepSuspend` is an `Error`, so any
+   *  `catch` in the workflow body swallows it and the run would report a
+   *  `complete` whose step never reached `completed_steps`. Python is immune:
+   *  `_StepSuspend` derives from `BaseException`. */
+  private _pendingSuspend: StepSuspend | null = null;
+  /** The failure raised by the step this child round is executing. That exception
+   *  *is* the round's result, so a `catch` in the body must not be able to turn it
+   *  into a `complete` — the parent would then record the caught branch's value as
+   *  a successful step. Boxed: the thrown value may be any falsy value. */
+  private _pendingStepFailure: { error: unknown } | null = null;
   /** When set, the task matching this key executes its inner function directly */
   _executingKey: string | null;
   /** Serializes fast-path POSTs across concurrent step() calls within one
@@ -1604,12 +1640,14 @@ export class WorkflowCtx {
     dispatch_type: string = "inline",
     options?: TaskOptions,
   ): PromiseLike<any> {
+    this._rethrowSwallowed();
     const key = this._allocKey(name || script || "step");
 
     if (key in this.completed) {
       const value = this.completed[key];
       if (value && typeof value === "object" && (value as any).__wmill_error) {
         const err = new Error((value as any).message || `Task '${name}' failed`);
+        err.name = "TaskError";
         (err as any).result = (value as any).result;
         (err as any).step_key = (value as any).step_key;
         (err as any).child_job_id = (value as any).child_job_id;
@@ -1654,7 +1692,7 @@ export class WorkflowCtx {
         this.pending = [];
         const names = steps.map(s => s.name).join(", ");
         console.log(`\n--- WAC: ${names} ---`);
-        throw new StepSuspend({
+        this._raiseSuspend({
           mode: steps.length > 1 ? "parallel" : "sequential",
           steps,
         });
@@ -1674,6 +1712,7 @@ export class WorkflowCtx {
     selfApproval?: boolean;
     key?: string;
   }): PromiseLike<{ value: any; approver: string; approved: boolean }> {
+    this._rethrowSwallowed();
     if (options?.key !== undefined) assertUsableStepKey(options.key, "waitForApproval key");
     const key = this._allocKey(options?.key || "approval");
 
@@ -1700,7 +1739,7 @@ export class WorkflowCtx {
 
     // Throw immediately — approval is always a blocking step
     console.log(`\n--- WAC: approval(${key}) ---`);
-    throw new StepSuspend({
+    this._raiseSuspend({
       mode: "approval",
       key,
       timeout: options?.timeout ?? 1800,
@@ -1711,6 +1750,7 @@ export class WorkflowCtx {
   }
 
   _sleep(seconds: number): PromiseLike<void> {
+    this._rethrowSwallowed();
     const key = this._allocKey("sleep");
 
     if (key in this.completed) {
@@ -1722,7 +1762,7 @@ export class WorkflowCtx {
     }
 
     console.log(`\n--- WAC: sleep(${key}, ${seconds}s) ---`);
-    throw new StepSuspend({
+    this._raiseSuspend({
       mode: "sleep",
       key,
       seconds: Math.max(1, Math.round(seconds)),
@@ -1731,16 +1771,13 @@ export class WorkflowCtx {
   }
 
   async _runInlineStep<T>(name: string, fn: () => T | Promise<T>): Promise<T> {
+    this._rethrowSwallowed();
     const key = this._allocKey(name || "step");
 
     if (key in this.completed) {
       const value = this.completed[key];
       if (value && typeof value === "object" && (value as any).__wmill_error) {
-        const err = new Error((value as any).message || `Step '${name}' failed`);
-        (err as any).result = (value as any).result;
-        (err as any).step_key = (value as any).step_key;
-        (err as any).child_job_id = (value as any).child_job_id;
-        throw err;
+        throw stepErrorFromMarker(value, name);
       }
       return value as T;
     }
@@ -1753,7 +1790,21 @@ export class WorkflowCtx {
     const startedAt = new Date().toISOString();
     console.log(`WM_WAC_STEP: ${JSON.stringify({ key, started_at: startedAt })}`);
     const t0 = Date.now();
-    const result = await fn();
+    // A thrown step still has to reach `completed_steps`, or a replay with
+    // `_executingKey` set finds nothing recorded and parks forever on the
+    // never-resolving promise above. A nested StepSuspend is control flow,
+    // not a step failure.
+    let result: T;
+    let stepError: unknown;
+    let errored = false;
+    try {
+      result = await fn();
+    } catch (e) {
+      if ((e as any)?.name === "StepSuspend" || e instanceof StepSuspend) throw e;
+      errored = true;
+      stepError = e;
+      result = stepErrorMarker(key, e) as any;
+    }
     const durationMs = Date.now() - t0;
 
     // Fast path: POST the delta to the new per-job API endpoint and return the
@@ -1810,18 +1861,69 @@ export class WorkflowCtx {
       });
       // Swallow chain errors so a past failure does not poison future awaits.
       this._inlineChain = chainTail.catch(() => {});
+      let fastPathOk = false;
       try {
         await chainTail;
-        return result as T;
+        fastPathOk = true;
       } catch (e) {
         console.log(
           `WAC v2 inline fast path failed for key ${key}, falling back to suspend: ${e}`,
         );
         // fall through to the legacy suspend path below
       }
+      if (fastPathOk) {
+        // Throw what a replay would rebuild from the marker, never the
+        // original: a replay cannot reconstruct the original type, so throwing
+        // it here would match `e instanceof TypeError` on this run and miss on
+        // the next. `cause` is for logging only — absent on replay.
+        if (errored) {
+          throw Object.assign(stepErrorFromMarker(result, name), { cause: stepError });
+        }
+        return result as T;
+      }
     }
 
-    throw new StepSuspend({ mode: "inline_checkpoint", steps: [], key, result, started_at: startedAt, duration_ms: durationMs });
+    this._raiseSuspend({ mode: "inline_checkpoint", steps: [], key, result, started_at: startedAt, duration_ms: durationMs });
+  }
+
+  /** Raise a suspend, parking it so a body that catches it cannot make it
+   *  vanish. Every suspend raised for this ctx must go through here. */
+  _raiseSuspend(dispatchInfo: Record<string, any>): never {
+    const suspend = new StepSuspend(dispatchInfo);
+    this._pendingSuspend = suspend;
+    throw suspend;
+  }
+
+  /** Park then raise the executing step's failure. Child mode only — in a parent
+   *  round a task failure is an ordinary `TaskError` the body may handle. */
+  _raiseStepFailure(error: unknown): never {
+    this._pendingStepFailure = { error };
+    throw error;
+  }
+
+  /** Re-throw a swallowed suspend or step failure at the next SDK call. It
+   *  happened before whatever the body is doing now, so it wins: the run is
+   *  unwinding either way and everything after it re-runs on the replay. Left
+   *  set, so a body that catches in a loop can't swallow it a second time. */
+  private _rethrowSwallowed(): void {
+    if (this._pendingStepFailure) throw this._pendingStepFailure.error;
+    if (this._pendingSuspend) throw this._pendingSuspend;
+  }
+
+  /** Hand the runner a suspend the workflow body caught and swallowed, so it is
+   *  honoured instead of silently turning into a `complete`. Returns null when
+   *  the suspend propagated normally. */
+  _takePendingSuspend(): StepSuspend | null {
+    const s = this._pendingSuspend;
+    this._pendingSuspend = null;
+    return s;
+  }
+
+  /** Same for the executing step's failure, so the runner can fail the child job. */
+  _takePendingStepFailure(): { error: unknown } | null {
+    const f = this._pendingStepFailure;
+    this._pendingStepFailure = null;
+    return f;
   }
 }
 
@@ -1896,8 +1998,14 @@ export function task<T extends (...args: any[]) => Promise<any>>(
       // and throw StepSuspend with mode "step_complete" to signal that we're done
       if ((stepResult as any)?._execute_directly) {
         return (async () => {
-          const result = await fn(...args);
-          throw new StepSuspend({ mode: "step_complete", steps: [], result });
+          let result: any;
+          try {
+            result = await fn(...args);
+          } catch (e) {
+            if ((e as any)?.name === "StepSuspend" || e instanceof StepSuspend) throw e;
+            ctx._raiseStepFailure(e);
+          }
+          ctx._raiseSuspend({ mode: "step_complete", steps: [], result });
         })();
       }
       return stepResult;

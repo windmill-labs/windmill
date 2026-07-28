@@ -1206,7 +1206,22 @@
 				historyManager.markPendingChanges()
 			}
 		} else if (e.data.type === 'getBundle') {
-			getBundleResolve?.(e.data.bundle)
+			// The UI Builder omits `css` entirely when the app has no styles. Saving
+			// `undefined` drops the multipart field, and the backend then stores no
+			// css blob at all for that version. `js` gets no such default: the
+			// backend accepts any present `js` field regardless of length, so an
+			// empty one would publish a blank app instead of failing.
+			// `rawAppBundlerBridge` holds the same invariant over its own
+			// `bundleRawAppResult` message for the chat/draft path.
+			const bundle = e.data.bundle
+			if (!bundle?.js) {
+				getBundleReject?.(new Error('Raw app bundler returned an empty JavaScript bundle.'))
+			} else {
+				getBundleResolve?.({
+					js: String(bundle.js),
+					css: String(bundle.css ?? '')
+				})
+			}
 		} else if (e.data.type === 'updateModules') {
 			modules = e.data.modules
 		} else if (e.data.type === 'setActiveDocument') {
@@ -1329,10 +1344,12 @@
 	}
 
 	let getBundleResolve: (({ css, js }: { css: string; js: string }) => void) | undefined = undefined
+	let getBundleReject: ((reason: Error) => void) | undefined = undefined
 
 	async function getBundle(): Promise<{ css: string; js: string }> {
-		return new Promise((resolve) => {
+		return new Promise((resolve, reject) => {
 			getBundleResolve = resolve
+			getBundleReject = reject
 			iframe?.contentWindow?.postMessage(
 				{
 					type: 'getBundle'
