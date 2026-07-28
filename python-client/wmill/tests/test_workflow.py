@@ -1081,6 +1081,17 @@ class TestRaisingInlineStepIsCheckpointed:
         _json.dumps(marker)
         assert marker["result"]["error"]["name"] == "HostileTraceback"
 
+        # ...or reading its own attributes
+        class HostileDict(Exception):
+            def __getattribute__(self, item):
+                if item == "__dict__":
+                    raise RuntimeError("no attributes for you")
+                return super().__getattribute__(item)
+
+        marker = _step_error_marker("k", HostileDict())
+        _json.dumps(marker)
+        assert marker["result"]["error"]["name"] == "HostileDict"
+
     def test_fast_path_posts_error_and_raises_the_replay_exception(self, monkeypatch):
         """The default path: the checkpoint is POSTed and the workflow body gets
         the same ``TaskError`` a replay rebuilds from the marker — raising the

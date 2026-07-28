@@ -8,7 +8,7 @@ import { expect, test, describe } from "bun:test";
 // The two functions that decide what a caught failure looks like come from the
 // shipped module, not from the mirror below: they are what drifted from the
 // backend's shape before, so a copy of them here would guard nothing.
-import { stepErrorMarker, taskErrorFromMarker } from "../wacError";
+import { safeRead, stepErrorMarker, taskErrorFromMarker } from "../wacError";
 
 // --- Inline SDK (mirrors client.ts implementation) ---
 
@@ -171,7 +171,7 @@ class WorkflowCtx {
     try {
       result = await fn();
     } catch (e: any) {
-      if (e?.name === "StepSuspend" || e instanceof StepSuspend) throw e;
+      if (e instanceof StepSuspend || safeRead(e, "name") === "StepSuspend") throw e;
       result = stepErrorMarker(key, e);
     }
     this._raiseSuspend({
@@ -235,7 +235,7 @@ function task<T extends (...args: any[]) => Promise<any>>(
           try {
             result = await fn(...args);
           } catch (e: any) {
-            if (e?.name === "StepSuspend" || e instanceof StepSuspend) throw e;
+            if (e instanceof StepSuspend || safeRead(e, "name") === "StepSuspend") throw e;
             ctx._raiseStepFailure(e);
           }
           ctx._raiseSuspend({
@@ -1565,6 +1565,36 @@ describe("throwing inline step is checkpointed", () => {
 
     const throwingToString = { toString() { throw new Error("no"); } };
     expect(() => stepErrorMarker("k", throwingToString)).not.toThrow();
+  });
+
+  // The caller reads `.name` off the thrown value to spot a suspend, before it
+  // ever reaches the hardened marker. A hostile value escaping there leaves the
+  // step uncheckpointed and a later replay parks on it forever.
+  test("a hostile throw still reaches the checkpoint through _runInlineStep", async () => {
+    const hostile = new Proxy(
+      {},
+      {
+        get() {
+          throw new Error("get trap");
+        },
+        ownKeys() {
+          throw new Error("ownKeys trap");
+        },
+      },
+    );
+    const ctx = new WorkflowCtx({});
+    let caught: any;
+    try {
+      await ctx._runInlineStep("risky", () => {
+        throw hostile;
+      });
+    } catch (e) {
+      caught = e;
+    }
+    // the suspend carrying the checkpoint, not the hostile value itself
+    expect(caught).toBeInstanceOf(StepSuspend);
+    expect(caught.dispatchInfo.key).toBe("step_0");
+    expect(caught.dispatchInfo.result.__wmill_error).toBe(true);
   });
 
   test("a replayed step failure is named TaskError, like the python client", async () => {

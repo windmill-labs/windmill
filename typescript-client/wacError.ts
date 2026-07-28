@@ -20,9 +20,11 @@ const SERIALIZED_ERROR_FIELDS = [
   "originalColumn",
 ];
 
-/** Read a property off a value that may fight back: a proxy `get` trap or a
- *  throwing accessor turns an ordinary field read into an exception. */
-function safeRead(o: any, k: string): unknown {
+/** @internal
+ *  Read a property off a value that may fight back: a proxy `get` trap or a
+ *  throwing accessor turns an ordinary field read into an exception. Callers
+ *  are on the failure-reporting path, where nothing has been checkpointed yet. */
+export function safeRead(o: any, k: string): unknown {
   try {
     return o?.[k];
   } catch {

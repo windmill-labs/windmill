@@ -2769,7 +2769,12 @@ def _step_error_marker(key: str, exc: BaseException) -> dict:
     # there is — ``resp.raise_for_status()``, whose ``__dict__`` holds a request
     # and a response object — would otherwise fail to serialize and silently
     # drop every such failure onto the slow suspend-and-replay path.
-    extra = getattr(exc, "__dict__", None)
+    # ``getattr``'s default only swallows ``AttributeError``; an exception
+    # overriding ``__getattribute__`` raises whatever it likes from this read.
+    try:
+        extra = getattr(exc, "__dict__", None)
+    except Exception:
+        extra = None
     if extra:
         # ``default`` is where json hands back the objects it cannot represent,
         # and ``str()`` on a detached ORM row or a proxy over a closed
