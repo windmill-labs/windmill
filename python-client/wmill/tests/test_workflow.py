@@ -983,6 +983,22 @@ class TestRaisingInlineStepIsCheckpointed:
         assert "result = fn()" not in stack
         assert not stack.startswith("Traceback")
 
+    def test_custom_exception_attributes_survive_under_extra(self):
+        """A failed child job reports custom attributes under ``error.extra``;
+        a step dropping them would make the same exception carry less depending
+        on how it was run."""
+        from wmill.client import _step_error_marker
+
+        class HttpError(ValueError):
+            def __init__(self):
+                super().__init__("429")
+                self.code = 429
+
+        error = _step_error_marker("k", HttpError())["result"]["error"]
+        assert error["extra"] == {"code": 429}
+        assert error["name"] == "HttpError"
+        assert "extra" not in _step_error_marker("k", ValueError("plain"))["result"]["error"]
+
     def test_fast_path_posts_error_and_raises_the_replay_exception(self, monkeypatch):
         """The default path: the checkpoint is POSTed and the workflow body gets
         the same ``TaskError`` a replay rebuilds from the marker — raising the

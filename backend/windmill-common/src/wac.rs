@@ -125,10 +125,14 @@ mod tests {
             );
             assert_eq!(rec["result"]["error"].get("stack"), None, "{raw}");
         }
-        assert_eq!(
-            wac_failure_record("s", None, &json!(null))["message"],
-            json!("WAC step 's' failed")
-        );
+        // Nothing to say beats saying `{}`: the fallback exists for these.
+        for empty in [json!(null), json!({}), json!([]), json!({"error": ""})] {
+            assert_eq!(
+                wac_failure_record("s", None, &empty)["message"],
+                json!("WAC step 's' failed"),
+                "{empty}"
+            );
+        }
     }
 
     /// Extra keys are the failing side's own, and dropping them would lose a
@@ -188,6 +192,37 @@ mod tests {
         let stack = rec["result"]["error"]["stack"].as_str().unwrap();
         assert!(stack.len() < 100_000, "stack was not truncated");
         assert!(stack.ends_with("... (truncated)"));
+    }
+
+    /// The cap bounds what lands in the checkpoint, so it has to be bytes: a
+    /// multibyte traceback counted in characters would be up to 4x over.
+    #[test]
+    fn the_stack_cap_counts_bytes_not_characters() {
+        let rec = wac_failure_record(
+            "s",
+            None,
+            &json!({"error": {"message": "m", "stack": "é".repeat(50_000)}}),
+        );
+        let stack = rec["result"]["error"]["stack"].as_str().unwrap();
+        assert!(
+            stack.len() <= 8 * 1024 + "\n... (truncated)".len(),
+            "kept {} bytes",
+            stack.len()
+        );
+    }
+
+    /// `message` is the failure's own message; `Value::to_string` on a string
+    /// would hand the handler `"boom"` with the JSON quotes still on it.
+    #[test]
+    fn a_bare_string_failure_keeps_its_message_unquoted() {
+        assert_eq!(
+            wac_failure_record("s", None, &json!({"error": "boom"}))["message"],
+            json!("boom")
+        );
+        assert_eq!(
+            wac_failure_record("s", None, &json!("boom"))["message"],
+            json!("boom")
+        );
     }
 }
 
@@ -257,45 +292,58 @@ pub const WAC_ERROR_MARKER: &str = "__wmill_error";
 const MAX_STACK_BYTES: usize = 8 * 1024;
 
 fn truncate_stack(stack: &str) -> String {
-    match stack.char_indices().nth(MAX_STACK_BYTES) {
-        None => stack.to_string(),
-        Some((cut, _)) => format!("{}\n... (truncated)", &stack[..cut]),
+    if stack.len() <= MAX_STACK_BYTES {
+        return stack.to_string();
     }
+    // Byte budget, not characters: the cap exists to bound what goes into the
+    // checkpoint, and a multibyte traceback would otherwise be up to 4x it.
+    let mut cut = MAX_STACK_BYTES;
+    while cut > 0 && !stack.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    format!("{}\n... (truncated)", &stack[..cut])
+}
+
+/// A failure's own message, without the JSON quoting `Value::to_string` puts
+/// around a string. `None` when the value carries no message at all, so the
+/// caller's fallback wins — a reader handed `{}` learns less than one handed
+/// "WAC step 'x' failed".
+fn value_message(v: &Value) -> Option<String> {
+    match v {
+        Value::Null => None,
+        Value::String(s) if s.is_empty() => None,
+        Value::String(s) => Some(s.clone()),
+        Value::Object(o) if o.is_empty() => None,
+        Value::Array(a) if a.is_empty() => None,
+        other => Some(other.to_string()),
+    }
+}
+
+fn message_only(message: Option<String>) -> serde_json::Map<String, Value> {
+    let mut m = serde_json::Map::new();
+    if let Some(message) = message {
+        m.insert("message".to_string(), Value::String(message));
+    }
+    m
 }
 
 /// Build the failure record a caught WAC failure reads, from whatever the
 /// failing side produced.
 ///
-/// The single place this shape is decided. A task failure arrives as the child
-/// job's own result and a `step()` failure as what the SDK posted, and the two
-/// used to be assembled independently in Rust and in each SDK — which is how
-/// they came to disagree on `name` and on `stack` while claiming to be one
-/// shape. `name`, `message` and `stack` are normalized here; any other key the
-/// failing side attached to its error is passed through untouched, so a custom
-/// error's own fields survive.
+/// The single place this shape is decided, for both a task failure (arriving as
+/// the child job's own result) and a `step()` failure (as the SDK posted it).
+/// Assembling it per caller instead is how the two come to disagree on `name`
+/// or on `stack` while both claim to be one shape. `name`, `message` and
+/// `stack` are normalized here; any other key the failing side attached to its
+/// error is passed through untouched, so a custom error's own fields survive.
 pub fn wac_failure_record(step_key: &str, child_job_id: Option<&str>, raw_result: &Value) -> Value {
     let mut error = match raw_result.get("error") {
         Some(Value::Object(o)) => o.clone(),
-        // A bare string error (some executors) or a result that isn't shaped
-        // like a failure at all: keep whatever it says as the message rather
-        // than dropping it.
-        Some(Value::String(s)) => {
-            let mut m = serde_json::Map::new();
-            m.insert("message".to_string(), Value::String(s.clone()));
-            m
-        }
-        Some(other) => {
-            let mut m = serde_json::Map::new();
-            m.insert("message".to_string(), Value::String(other.to_string()));
-            m
-        }
-        None => {
-            let mut m = serde_json::Map::new();
-            if !raw_result.is_null() {
-                m.insert("message".to_string(), Value::String(raw_result.to_string()));
-            }
-            m
-        }
+        // A bare-string error (some executors), or a result not shaped like a
+        // failure at all: keep whatever it says as the message rather than
+        // dropping it.
+        Some(other) => message_only(value_message(other)),
+        None => message_only(value_message(raw_result)),
     };
 
     let name = error

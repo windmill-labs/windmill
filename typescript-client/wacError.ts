@@ -6,6 +6,20 @@
 // that decide what a caught failure looks like, so they are the ones that must
 // be tested against the shipped code rather than against a copy of it.
 
+/** Error properties the executors already report as named fields, so they must
+ *  not be repeated inside `extra`. Kept identical to the skip-list in the
+ *  generated bun/deno job wrappers. */
+const SERIALIZED_ERROR_FIELDS = [
+  "line",
+  "name",
+  "stack",
+  "column",
+  "message",
+  "sourceURL",
+  "originalLine",
+  "originalColumn",
+];
+
 /** @internal
  *  Serialize a failed `step()` body into the `__wmill_error` marker that task
  *  failures also use, so it can be stored in `completed_steps`.
@@ -24,6 +38,17 @@ export function stepErrorMarker(key: string, e: unknown): Record<string, any> {
   const error: Record<string, any> = { name, message };
   const stack = e instanceof Error ? e.stack : undefined;
   if (stack) error.stack = stack;
+  // Custom properties go under `extra`, the same key and the same skip-list the
+  // bun/deno executors use for a failed child job, so an error carrying e.g. a
+  // `code` keeps it whether it failed as a task or as a step.
+  if (e instanceof Error) {
+    const extra: Record<string, any> = {};
+    for (const k of Object.getOwnPropertyNames(e)) {
+      if (SERIALIZED_ERROR_FIELDS.includes(k)) continue;
+      extra[k] = (e as any)[k];
+    }
+    if (Object.keys(extra).length > 0) error.extra = extra;
+  }
   return { __wmill_error: true, message, step_key: key, result: { error } };
 }
 

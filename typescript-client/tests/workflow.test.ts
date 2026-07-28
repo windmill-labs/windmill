@@ -1490,6 +1490,20 @@ describe("throwing inline step is checkpointed", () => {
     expect(stepErrorMarker("k", domish).result.error.name).toBe("AbortError");
   });
 
+  // A failed child job reports custom properties under `error.extra`
+  // (bun_executor.rs). A step dropping them would make the same error carry
+  // less information depending on how it was run.
+  test("custom error properties survive under error.extra, as a task's do", async () => {
+    const e = Object.assign(new Error("429"), { code: 429, retryAfter: 5 });
+    const marker = stepErrorMarker("k", e);
+    expect(marker.result.error.extra).toEqual({ code: 429, retryAfter: 5 });
+    // the named fields the executors report separately are not duplicated
+    expect(marker.result.error.extra.message).toBeUndefined();
+    expect(marker.result.error.extra.stack).toBeUndefined();
+
+    expect(stepErrorMarker("k", new Error("plain")).result.error.extra).toBeUndefined();
+  });
+
   test("a replayed step failure is named TaskError, like the python client", async () => {
     const ctx = new WorkflowCtx({ completed_steps: { step_0: marker } });
     let caught: any;

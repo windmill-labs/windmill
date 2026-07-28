@@ -2725,6 +2725,12 @@ def _step_error_marker(key: str, exc: BaseException) -> dict:
     stack = _step_error_stack(exc)
     if stack:
         error["stack"] = stack
+    # Custom attributes go under ``extra``, the same key the python executor uses
+    # for a failed child job, so an exception carrying e.g. a ``code`` keeps it
+    # whether it failed as a task or as a step.
+    extra = getattr(exc, "__dict__", None)
+    if extra:
+        error["extra"] = extra
     return {
         "__wmill_error": True,
         "message": str(exc),
