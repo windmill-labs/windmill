@@ -24,15 +24,36 @@ const remoteUrl =
 
 const cookieDomain = process.env.ISOLATE_DEV_AUTH === '1' ? '' : 'localhost'
 
+// Cross-origin isolation headers, scoped to the same paths as the production
+// server (backend/windmill-api/src/static_assets.rs `needs_cross_origin_isolation`):
+// the raw app editor + in-browser bundler need them (SharedArrayBuffer, TS
+// workers); everything else — in particular the raw app *viewer* at
+// /apps_raw/get — must not get them, because COEP `require-corp` blocks the
+// viewed app's cross-origin subresources (external images, embeds).
 // `enforce: 'pre'` so these headers are set before SvelteKit's sirv static
 // handler serves `static/` files and ends the response without calling next().
+function needsCrossOriginIsolation(url) {
+	const [path, query = ''] = url.split('?')
+	return (
+		path.startsWith('/apps_raw/edit/') ||
+		path.startsWith('/apps_raw/add') ||
+		path.startsWith('/ui_builder/') ||
+		((path.startsWith('/public/') || path.startsWith('/a/')) &&
+			new URLSearchParams(query).has('wm_coep'))
+	)
+}
+
 let plugin = {
 	name: 'configure-response-headers',
 	enforce: 'pre',
 	configureServer: (server) => {
-		server.middlewares.use((_req, res, next) => {
-			res.setHeader('Cross-Origin-Opener-Policy', 'same-origin')
-			res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp')
+		server.middlewares.use((req, res, next) => {
+			if (needsCrossOriginIsolation(req.url ?? '')) {
+				res.setHeader('Cross-Origin-Opener-Policy', 'same-origin')
+				res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp')
+			}
+			// CORP on everything so dev assets stay loadable as subresources of
+			// isolated documents on other dev origins (e.g. 127.0.0.1 vs localhost).
 			res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin')
 			next()
 		})
