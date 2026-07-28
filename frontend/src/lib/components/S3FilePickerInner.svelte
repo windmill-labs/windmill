@@ -203,7 +203,7 @@
 
 	// Sorted after every real child of the folder but before the folder's own
 	// siblings, so the row lands at the bottom of the level it pages.
-	const LOAD_MORE_SUFFIX = '￿'
+	const LOAD_MORE_SUFFIX = '\uffff'
 	function loadMoreKey(folderKey: string | undefined): string {
 		return (folderKey ?? '') + LOAD_MORE_SUFFIX
 	}
@@ -267,6 +267,7 @@
 	}
 
 	async function loadFilesFlat() {
+		const generation = loadGeneration
 		let availableFiles = await listStoredFilesRequest({
 			workspace: ws!,
 			maxKeys: maxKeys, // fixed pages of 1000 files for now
@@ -275,6 +276,11 @@
 			storage: storage,
 			s3ResourcePath
 		})
+		// Debounced prefix searches overlap, so a slower earlier one must not
+		// land in the tree a later one already rebuilt.
+		if (generation !== loadGeneration) {
+			return
+		}
 		if (
 			availableFiles.restricted_access === null ||
 			availableFiles.restricted_access === undefined ||
@@ -447,6 +453,7 @@
 		if (marker === undefined) {
 			return
 		}
+		const generation = loadGeneration
 		const loadingKey = loadMoreKey(parentKey)
 		loadingFolderKeys.add(loadingKey)
 		try {
@@ -456,6 +463,12 @@
 			return
 		} finally {
 			loadingFolderKeys.delete(loadingKey)
+		}
+		// The tree may have been rebuilt, or the folder collapsed, while the page
+		// was in flight — either way its children must stay hidden.
+		const parentNode = parentKey !== undefined ? allFilesByKey[parentKey] : undefined
+		if (generation !== loadGeneration || parentNode?.collapsed === true) {
+			return
 		}
 		revealChildren(parentKey)
 	}
