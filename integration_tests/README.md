@@ -40,11 +40,6 @@ Add integration tests for:
 
 - [ ] Test Python SDK
 - [ ] Test job failures as well
-
-Workflow-as-Code has a behaviour matrix for both SDKs in `wac_matrix_bun.py` and
-`wac_matrix_python.py`. They run against a live Windmill rather than under
-docker-compose, because they exist to exercise the SDK a worker actually
-installs — see `docs/wac-sdk-e2e.md`.
 - [ ] Test dedicated workers
 - [ ] Error handlers and Recovery handlers for schedule
 - [ ] Concurrency limits

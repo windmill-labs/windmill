@@ -1,14 +1,11 @@
 # Exercising an unreleased SDK change end to end
 
-A WAC job installs the **published** `windmill-client` / `wmill`, so a change in
-this repo is invisible to a real job until it is injected into the worker's
-dependency cache. Unit tests cover neither the worker nor the SDK the worker
-installs, and that gap is exactly where the WAC failure contract kept coming
-apart: every finding behind #10366, #10367 and #10368 was found by review or by
-a run like the one below, never by a green suite.
-
-`integration_tests/wac_matrix_bun.py` and `integration_tests/wac_matrix_python.py`
-are the behaviour matrices. Each case is a real preview job.
+A job installs the **published** `windmill-client` / `wmill`, so a change in this
+repo is invisible to a real job until it is injected into the worker's dependency
+cache. The SDK unit suites cover neither the worker nor the SDK the worker
+installs, and that gap is where the Workflow-as-Code failure contract kept coming
+apart: every finding behind #10366, #10367 and #10368 came from review or from a
+run like the one below, never from a green suite.
 
 ## Recipe
 
@@ -22,7 +19,7 @@ DATABASE_URL=... PORT=8062 WINDMILL_DIR=/tmp/windmill-mytest \
   cargo run --features quickjs            # add ,python to run python jobs
 
 # 2. one job to populate the cache with the published SDK
-python3 integration_tests/wac_matrix_bun.py --base-url http://localhost:8062
+#    (any preview job importing the client will do)
 
 # 3. build the client and overwrite what the cache holds
 cd typescript-client && ./build.sh && npx tsdown --format esm --no-dts
@@ -36,34 +33,34 @@ cp python-client/wmill/wmill/client.py \
 find /tmp/windmill-mytest -name __pycache__ -type d -exec rm -rf {} +
 
 # 4. RESTART the backend — see below
-# 5. run the matrix again, and rm -rf /tmp/windmill-mytest when done
+# 5. run your scenarios, and rm -rf /tmp/windmill-mytest when done
 ```
 
 ## Restart the workers after injecting
 
 A worker materializes the package once and keeps using its copy, so patching the
-cache under a running backend leaves some workers on the old code. With more
-than one worker the results then **alternate run to run** as jobs land on one
-worker or the other, which reads like flakiness in the product rather than in the
-harness. Restarting after the swap makes it deterministic.
+cache under a running backend leaves some workers on the old code. With more than
+one worker the results then **alternate run to run** as jobs land on one worker or
+the other, which reads like flakiness in the product rather than in the harness.
+Restarting after the swap makes it deterministic.
 
 Symptom worth recognising: identical jobs returning two different answers in a
 stable pattern, with each run internally consistent.
 
-## Run it twice
+## Run your scenarios twice
 
-Run the matrix against the published SDK before injecting, and again after. A
-case that passes both ways is not testing what you think it is, and the matrices
-hold only cases that move: against the published SDK they score 1/8 and 1/12,
-where the one is a smoke case that exists so a harness that ran nothing at all is
-obvious. Against a client carrying #10366, #10367 and #10368 they score 8/8 and
-12/12.
+Once against the published SDK, once against the injected one. A scenario that
+behaves the same either way is not testing what you think it is, and it is easy
+to write several of those without noticing.
 
-Keep that property when adding a case. If a new one passes before your change,
-it belongs in the SDK unit suites, not here — nothing runs these automatically,
-so every case has to earn the attention of whoever runs them.
+As a calibration: a spread of WAC scenarios written this way scored 10/17 (bun)
+and 7/18 (python) against the published SDK and 17/17 and 18/18 against a client
+carrying #10366, #10367 and #10368. The ones that did not move were covering
+behaviour those PRs never touched — worth knowing before concluding that a green
+run means anything.
 
-## What the matrices do not cover
+## Worth covering, and easy to miss
 
 The deno path, `taskScript` / `taskFlow`, `waitForApproval`, and failures
-interleaved with parallelism.
+interleaved with parallelism. None of these were exercised while the failure
+record was being unified.
