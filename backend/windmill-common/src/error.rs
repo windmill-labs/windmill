@@ -254,19 +254,27 @@ pub fn to_anyhow<T: 'static + std::error::Error + Send + Sync>(e: T) -> anyhow::
 /// drops the Postgres message. Interpolate errors from a `tokio_postgres::Client`
 /// through this instead.
 pub fn pg_error_message(e: &tokio_postgres::Error) -> String {
-    if let Some(db_err) = e.as_db_error() {
-        let mut msg = db_err.message().to_string();
-        if let Some(detail) = db_err.detail() {
-            msg.push_str(&format!(" ({detail})"));
-        }
-        if let Some(hint) = db_err.hint() {
-            msg.push_str(&format!(". Hint: {hint}"));
-        }
-        return msg;
+    match e.as_db_error() {
+        Some(db_err) => format_db_error(db_err.message(), db_err.detail(), db_err.hint()),
+        // Non-database failures (io, tls, protocol) keep their message in the cause.
+        None => error_source_chain(e),
     }
-    // Non-database failures (io, tls, protocol) keep their message in the cause.
+}
+
+fn format_db_error(message: &str, detail: Option<&str>, hint: Option<&str>) -> String {
+    let mut msg = message.to_string();
+    if let Some(detail) = detail {
+        msg.push_str(&format!(" ({detail})"));
+    }
+    if let Some(hint) = hint {
+        msg.push_str(&format!(". Hint: {hint}"));
+    }
+    msg
+}
+
+fn error_source_chain(e: &dyn std::error::Error) -> String {
     let mut msg = e.to_string();
-    let mut source = std::error::Error::source(e);
+    let mut source = e.source();
     while let Some(cause) = source {
         msg.push_str(&format!(": {cause}"));
         source = cause.source();
@@ -445,5 +453,57 @@ mod tests {
         // Rust `Debug` syntax.
         let rendered = Error::JsonErr(v).to_string();
         assert_eq!(rendered, "[\n  1,\n  2,\n  3\n]");
+    }
+
+    #[test]
+    fn db_error_renders_message_with_detail_and_hint() {
+        assert_eq!(
+            super::format_db_error("permission denied for schema public", None, None),
+            "permission denied for schema public"
+        );
+        assert_eq!(
+            super::format_db_error("insert violates foreign key", Some("Key (id)=(1)"), None),
+            "insert violates foreign key (Key (id)=(1))"
+        );
+        assert_eq!(
+            super::format_db_error(
+                "column does not exist",
+                None,
+                Some("Perhaps you meant \"b\"")
+            ),
+            "column does not exist. Hint: Perhaps you meant \"b\""
+        );
+    }
+
+    #[test]
+    fn non_db_error_walks_the_source_chain() {
+        #[derive(Debug)]
+        struct Layer(&'static str, Option<Box<Layer>>);
+        impl std::fmt::Display for Layer {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str(self.0)
+            }
+        }
+        impl std::error::Error for Layer {
+            fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+                self.1
+                    .as_ref()
+                    .map(|c| c.as_ref() as &(dyn std::error::Error + 'static))
+            }
+        }
+
+        // The pinned rust-postgres build renders only the kind, so everything
+        // actionable is in the causes: they must all reach the message.
+        let err = Layer(
+            "error connecting to server",
+            Some(Box::new(Layer(
+                "tcp connect error",
+                Some(Box::new(Layer("timed out", None))),
+            ))),
+        );
+        assert_eq!(
+            super::error_source_chain(&err),
+            "error connecting to server: tcp connect error: timed out"
+        );
     }
 }

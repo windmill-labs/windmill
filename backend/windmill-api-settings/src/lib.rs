@@ -53,7 +53,7 @@ use windmill_common::{
     auth::is_super_admin_email,
     ee_oss::{get_license_plan, LicensePlan},
     email_oss::send_email_plain_text,
-    error::{self, JsonResult, Result},
+    error::{self, pg_error_message, JsonResult, Result},
     get_database_url,
     global_settings::{
         AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
@@ -1701,7 +1701,7 @@ async fn setup_custom_instance_pg_database_inner(
         .map_err(|e| {
             error::Error::ExecutionErr(format!(
                 "Failed to grant permissions to custom_instance_user: {}",
-                e.to_string(),
+                pg_error_message(&e),
             ))
         })?;
 
@@ -1720,7 +1720,8 @@ async fn setup_custom_instance_pg_database_inner(
         .await
     {
         tracing::error!(
-            "Failed to grant replication permission to custom_instance_replication_user: {e:#}"
+            "Failed to grant replication permission to custom_instance_replication_user: {}",
+            pg_error_message(&e)
         );
     }
 

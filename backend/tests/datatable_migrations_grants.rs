@@ -30,10 +30,11 @@ async fn setup_unprivileged_datatable_role(db: &Pool<Postgres>) -> anyhow::Resul
     let dbname = opts.get_database().expect("test database name").to_string();
 
     sqlx::query(&format!(
+        // Roles are cluster objects, not per-test-database ones, so this both
+        // survives re-runs and tolerates a concurrent test creating it first.
         "DO $$ BEGIN \
-           IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{ROLE}') THEN \
-             CREATE ROLE {ROLE} LOGIN PASSWORD '{ROLE_PASSWORD}'; \
-           END IF; \
+           CREATE ROLE {ROLE} LOGIN PASSWORD '{ROLE_PASSWORD}'; \
+         EXCEPTION WHEN duplicate_object THEN NULL; \
          END $$"
     ))
     .execute(db)

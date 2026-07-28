@@ -227,17 +227,22 @@ async fn ensure_wm_migrations_schema(client: &tokio_postgres::Client) -> Result<
     // existence, so probing first is what lets a data table whose role only holds
     // DML grants keep migrating against an already-created bookkeeping table.
     // `to_regclass` resolves through search_path, like the unqualified statements
-    // the rest of this module runs against it.
-    let exists = client
-        .query_one("SELECT to_regclass('_wm_migrations') IS NOT NULL", &[])
+    // the rest of this module runs against it. Takes no parameters, so it goes
+    // through the simple protocol: a named prepared statement is what stalls
+    // behind a transaction-pooling proxy (see `pg_get_full_schema`).
+    let rows = client
+        .simple_query("SELECT to_regclass('_wm_migrations') IS NOT NULL AS present")
         .await
         .map_err(|e| {
             Error::internal_err(format!(
                 "Failed to look up _wm_migrations table: {}",
                 pg_error_message(&e)
             ))
-        })?
-        .get::<_, bool>(0);
+        })?;
+    let exists = rows.iter().any(|msg| match msg {
+        tokio_postgres::SimpleQueryMessage::Row(row) => row.get("present") == Some("t"),
+        _ => false,
+    });
     if exists {
         return Ok(());
     }
