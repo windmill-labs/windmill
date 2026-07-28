@@ -949,7 +949,8 @@ pub(crate) async fn delete_workspace(
             .await
             .map_err(|e| {
                 Error::internal_err(format!(
-                    "cannot delete workspace {w_id}: returning ownership of instance database                      {dbname} to the shared role failed: {e}. Retry when it is reachable."
+                    "cannot delete workspace {w_id}: returning ownership of instance database \
+                     {dbname} to the shared role failed: {e}. Retry when it is reachable."
                 ))
             })?;
     }

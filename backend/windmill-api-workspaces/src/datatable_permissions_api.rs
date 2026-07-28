@@ -159,9 +159,10 @@ pub(crate) async fn check_shared_database_forbid(
     Ok(())
 }
 
-/// The owner role creates/drops the ephemeral roles, so it needs CREATEROLE
-/// (or superuser). True by construction for freshly provisioned instance
-/// databases; verified here for external resources and legacy instance DBs.
+/// External data tables mint their ephemeral roles as the resource's own user,
+/// so that user needs CREATEROLE (or superuser). Instance databases don't:
+/// their roles are managed by the main pool user, and the shared role is
+/// deliberately kept without CREATEROLE — never call this for them.
 pub(crate) async fn check_owner_can_create_roles(
     db: &DB,
     w_id: &str,
@@ -249,8 +250,9 @@ async fn set_datatable_permissions(
             == windmill_common::workspaces::DataTableCatalogResourceType::Instance
         {
             provision_instance_owner_role(&db, &w_id, &config.database.resource_path).await?;
+        } else {
+            check_owner_can_create_roles(&db, &w_id, &config).await?;
         }
-        check_owner_can_create_roles(&db, &w_id, &config).await?;
     }
     let args_for_audit = format!("{:?}", perms);
     audit_log(
@@ -317,6 +319,15 @@ async fn check_datatable_permissions_setup(
     check_datatable_permissions_ee_license().await?;
     let config = get_datatable_config(&db, &w_id, &datatable_name).await?;
     check_shared_database_forbid(&db, &w_id, &datatable_name, &config.database, true).await?;
+    // Only external targets need the CREATEROLE check: running it on an
+    // instance target would report on the shared role and advise granting it
+    // CREATEROLE — the very attribute this feature must keep away from the
+    // role that user SQL runs as.
+    if config.database.resource_type
+        != windmill_common::workspaces::DataTableCatalogResourceType::Postgresql
+    {
+        return Ok("ok".to_string());
+    }
     check_owner_can_create_roles(&db, &w_id, &config).await?;
     Ok("ok".to_string())
 }

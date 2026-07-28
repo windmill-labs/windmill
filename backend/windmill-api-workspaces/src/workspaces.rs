@@ -3139,10 +3139,9 @@ async fn edit_datatable_config(
             }
         }
         // An external target must be able to create the enforcement roles.
-        // Instance targets are skipped: their shared role's CREATEROLE is
-        // cluster-wide (granted at provisioning, re-checked at grant-save),
-        // and the instance database may legitimately not be set up yet when
-        // the config is saved.
+        // Instance targets are skipped: their roles are managed by the main
+        // pool user, and the instance database may legitimately not be set up
+        // yet when the config is saved.
         if self_enabled && dt.database.resource_type == DataTableCatalogResourceType::Postgresql {
             if let Err(e) =
                 crate::datatable_permissions_api::check_owner_can_create_roles(&db, &w_id, dt).await

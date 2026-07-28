@@ -421,7 +421,11 @@ pub fn instance_owner_role_name(dbname: &str) -> String {
 
 /// Credentials of a protected instance database's dedicated owner role, if it
 /// has been provisioned.
-pub async fn instance_owner_creds(db: &DB, dbname: &str) -> Result<Option<(String, String)>> {
+///
+/// Authorization: returns a full-access login for the database and performs no
+/// authorization — crate-internal on purpose; it must only ever be reached
+/// through the resolvers that gate on admin-ness or effective grants.
+pub(crate) async fn instance_owner_creds(db: &DB, dbname: &str) -> Result<Option<(String, String)>> {
     let Some(row) = sqlx::query!(
         "SELECT role_name, password, workspace_id FROM datatable_owner_role WHERE dbname = $1",
         dbname
@@ -486,7 +490,7 @@ pub async fn provision_instance_owner_role(db: &DB, w_id: &str, dbname: &str) ->
             } else {
                 client
                     .batch_execute(&format!(
-                        "CREATE ROLE {} LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOINHERIT NOREPLICATION PASSWORD {}",
+                        "CREATE ROLE {} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION PASSWORD {}",
                         quote_ident(&role),
                         quote_literal(&password)
                     ))
@@ -521,18 +525,27 @@ pub async fn provision_instance_owner_role(db: &DB, w_id: &str, dbname: &str) ->
     .execute(db)
     .await
     .map_err(|e| Error::internal_err(format!("granting {role} access to {dbname}: {e:#}")))?;
+    // CDC connects as `custom_instance_replication_user`, which reaches these
+    // databases only by inheriting `custom_instance_user` — the revoke below
+    // would take it down with the parent. It is never handed to user SQL, so
+    // a direct grant keeps triggers/capture working without reopening
+    // anything.
     sqlx::query(&format!(
-        "REVOKE CONNECT ON DATABASE {} FROM custom_instance_user",
+        "GRANT CONNECT ON DATABASE {} TO custom_instance_replication_user",
         quote_ident(dbname)
     ))
     .execute(db)
     .await
     .map_err(|e| {
         Error::internal_err(format!(
-            "revoking custom_instance_user access to {dbname}: {e:#}"
+            "granting custom_instance_replication_user access to {dbname}: {e:#}"
         ))
     })?;
 
+    // Read the cipher fresh under the lock: a key rotation may have committed
+    // while this call waited, and a cached pre-rotation cipher would make the
+    // stored owner password permanently undecryptable.
+    crate::variables::WORKSPACE_CRYPT_CACHE.remove(w_id);
     let mc = build_crypt(db, w_id).await?;
     let encrypted = encrypt(&mc, &password);
     sqlx::query!(
@@ -549,7 +562,36 @@ pub async fn provision_instance_owner_role(db: &DB, w_id: &str, dbname: &str) ->
     )
     .execute(&mut *tx)
     .await?;
+    // Commit the row BEFORE locking `custom_instance_user` out: if this call
+    // dies in between, the fallback to the shared role still works and the
+    // next call re-asserts the lockout. The reverse order would strand the
+    // database with no usable credentials at all.
     tx.commit().await?;
+
+    sqlx::query(&format!(
+        "REVOKE CONNECT ON DATABASE {} FROM custom_instance_user",
+        quote_ident(dbname)
+    ))
+    .execute(db)
+    .await
+    .map_err(|e| {
+        Error::internal_err(format!(
+            "revoking custom_instance_user access to {dbname}: {e:#}"
+        ))
+    })?;
+    // Before PG16, CREATEROLE lets a role alter ANY non-superuser role — so a
+    // caller who takes over `custom_instance_user` from an unprotected data
+    // table could simply reset this database's owner-role password. Nothing
+    // needs that attribute any more (instance role management runs as the main
+    // pool user), so drop it cluster-wide once protection is in use.
+    sqlx::query("ALTER ROLE custom_instance_user NOCREATEROLE")
+        .execute(db)
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "removing CREATEROLE from custom_instance_user: {e:#}"
+            ))
+        })?;
     Ok(())
 }
 
@@ -607,6 +649,13 @@ pub async fn deprovision_instance_owner_role(db: &DB, dbname: &str) -> Result<()
                 "restoring custom_instance_user access to {dbname}: {e:#}"
             ))
         })?;
+        // The replication role goes back to inheriting the shared role.
+        let _ = sqlx::query(&format!(
+            "REVOKE CONNECT ON DATABASE {} FROM custom_instance_replication_user",
+            quote_ident(dbname)
+        ))
+        .execute(db)
+        .await;
     }
     sqlx::query(&format!("DROP ROLE IF EXISTS {}", quote_ident(&role)))
         .execute(db)

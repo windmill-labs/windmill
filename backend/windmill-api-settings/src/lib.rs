@@ -1698,8 +1698,7 @@ async fn setup_custom_instance_pg_database_inner(
              GRANT CREATE ON SCHEMA public TO custom_instance_user;
              GRANT CREATE ON DATABASE \"{dbname}\" TO custom_instance_user;
              ALTER DEFAULT PRIVILEGES IN SCHEMA public
-                 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO custom_instance_user;
-             ALTER ROLE custom_instance_user CREATEROLE;"
+                 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO custom_instance_user;"
         ))
         .await
         .map_err(|e| {
@@ -1708,6 +1707,21 @@ async fn setup_custom_instance_pg_database_inner(
                 e.to_string(),
             ))
         })?;
+
+    // Re-running setup on a data table database that has fine-grained
+    // permissions enabled just re-granted the shared role the access the
+    // feature deliberately took away. Hand the database back to its dedicated
+    // owner role (idempotent, re-asserts the revoke).
+    if let Some(w_id) = sqlx::query_scalar!(
+        "SELECT workspace_id FROM datatable_owner_role WHERE dbname = $1",
+        dbname
+    )
+    .fetch_optional(db)
+    .await?
+    {
+        windmill_common::datatable_permissions::provision_instance_owner_role(db, &w_id, dbname)
+            .await?;
+    }
 
     // The replication attribute lives on a dedicated role used by postgres trigger
     // connections. The getter creates the role (with its stored password) when the
