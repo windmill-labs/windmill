@@ -1471,16 +1471,10 @@ async fn create_script_internal<'c>(
         } else {
             None
         };
-    // A dbt script is deliberately NOT a pipeline member. It materializes
-    // warehouse tables, so it looks like one, but pipeline membership carries an
-    // editor whose premise is that you author the transforms in it — and a dbt
-    // project is authored in a local `dbt run`/`dbt test` loop, with Windmill as
-    // the runner and viewer. Enrolling it put a dbt project in the pipeline
-    // editor and blurred which of the two a folder holds.
-    //
-    // Its models are still `table://` assets in the shared graph: that is what
-    // puts a native script reading one of them on the same node, and it is
-    // independent of pipeline membership. It does not trigger that script.
+    // dbt is deliberately not a pipeline member: that membership carries an
+    // editor whose premise is that the transforms are authored in it, and a dbt
+    // project is authored in a local `dbt run` loop. Its models reach the shared
+    // graph as `table://` assets either way (docs/dbt-runtime.md).
     let in_pipeline = pipeline_annotations.in_pipeline && ns.language != ScriptLang::Dbt;
     // `// trigger all` → AND join barrier (else OR, the default).
     let pipeline_join_all = !pipeline_annotations.join_mode.is_any();

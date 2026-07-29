@@ -388,10 +388,20 @@ Two consequences worth knowing:
   dropped would be filtered out of its own run's graph. The pinned version's
   nodes are the scope instead.
 
-## No cascade from dbt
+## No cascade from dbt, and no pipeline membership
 
 A finished dbt run does not trigger anything. Its models are recorded, drawn and
 tracked; they do not fan out.
+
+A dbt script is also not a pipeline member (`in_pipeline` is forced false for
+`ScriptLang::Dbt` at deploy). It materializes warehouse tables, so it looks like
+one, but that membership carries an editor whose premise is that you author the
+transforms in it — and a dbt project is authored in a local `dbt run` / `dbt
+test` loop, with Windmill as the runner and the viewer. Enrolling it put a dbt
+project inside the pipeline editor and blurred which of the two a folder holds.
+Its models are `table://` assets in the shared graph regardless: that is what
+puts a native script reading one of them on the same node, and it is independent
+of pipeline membership.
 
 dbt already orders its own DAG, so a cascade would only ever add one thing:
 waking a Windmill script that reads a mart. That edge is real but narrow, and
