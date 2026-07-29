@@ -83,6 +83,25 @@ export function detectFrameworks(appDir: string): { svelte: boolean; vue: boolea
  * Uses the svelte compiler from the project's node_modules
  */
 function createSveltePlugin(appDir: string): any {
+  // This converts a message in Svelte's format to esbuild's format
+  const messageConverter =
+    (source: string, filename: string) =>
+    ({ message, start, end }: any) => {
+      let location;
+      if (start && end) {
+        const lineText = source.split(/\r\n|\r|\n/g)[start.line - 1];
+        const lineEnd = start.line === end.line ? end.column : lineText.length;
+        location = {
+          file: filename,
+          line: start.line,
+          column: start.column,
+          length: lineEnd - start.column,
+          lineText,
+        };
+      }
+      return { text: message, location };
+    };
+
   return {
     name: "svelte",
     setup(build: any) {
@@ -93,29 +112,48 @@ function createSveltePlugin(appDir: string): any {
         // Load the file from the file system
         const source = await readTextFile(args.path);
         const filename = path.relative(process.cwd(), args.path);
-
-        // This converts a message in Svelte's format to esbuild's format
-        const convertMessage = ({ message, start, end }: any) => {
-          let location;
-          if (start && end) {
-            const lineText = source.split(/\r\n|\r|\n/g)[start.line - 1];
-            const lineEnd = start.line === end.line ? end.column : lineText.length;
-            location = {
-              file: filename,
-              line: start.line,
-              column: start.column,
-              length: lineEnd - start.column,
-              lineText,
-            };
-          }
-          return { text: message, location };
-        };
+        const convertMessage = messageConverter(source, filename);
 
         // Convert Svelte syntax to JavaScript
         try {
           const { js, warnings } = svelte.compile(source, { filename });
           const contents = js.code + `//# sourceMappingURL=` + js.map.toUrl();
           return { contents, warnings: warnings.map(convertMessage) };
+        } catch (e: any) {
+          return { errors: [convertMessage(e)] };
+        }
+      });
+
+      // `lib.svelte.ts` / `lib.svelte.js` are plain modules that may use runes.
+      // They need `compileModule`, otherwise `$state`/`$derived` sail through
+      // esbuild untouched and the bundle throws "$state is not defined".
+      build.onLoad({ filter: /\.svelte\.[jt]s$/ }, async (args: any) => {
+        const svelte = await import("svelte/compiler");
+
+        const source = await readTextFile(args.path);
+        const filename = path.relative(process.cwd(), args.path);
+        const convertMessage = messageConverter(source, filename);
+
+        try {
+          // `compileModule` parses with plain acorn and chokes on TypeScript, so
+          // types have to come off first (vite-plugin-svelte gets this for free
+          // by running after Vite's esbuild transform).
+          const code = filename.endsWith(".ts")
+            ? (
+                await build.esbuild.transform(source, {
+                  loader: "ts",
+                  sourcefile: filename,
+                })
+              ).code
+            : source;
+
+          const { js, warnings } = svelte.compileModule(code, { filename });
+          const contents = js.code + `//# sourceMappingURL=` + js.map.toUrl();
+          return {
+            contents,
+            loader: "js",
+            warnings: warnings.map(convertMessage),
+          };
         } catch (e: any) {
           return { errors: [convertMessage(e)] };
         }
