@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseDbtRun, relationOutcome, splitRelation, statusRank, splitUniqueId } from './parseDbtRun'
+import { parseDbtRun, relationOutcome, splitRelation, statusRank, splitUniqueId, fqnSelector} from './parseDbtRun'
 
 const run = {
 	engine: 'dbt-core-1x',
@@ -109,5 +109,27 @@ describe('splitRelation', () => {
 		// BigQuery backticks and T-SQL brackets quote too.
 		expect(splitRelation('`proj`.`data.set`.`t`')).toEqual(['proj', 'data.set', 't'])
 		expect(splitRelation('[db].[my.schema].[t]')).toEqual(['db', 'my.schema', 't'])
+	})
+})
+
+describe('fqnSelector', () => {
+	// dbt's FQN is the path within the package and its matcher must end on equal
+	// lengths, so a `<package>.<name>` selector matches nothing for the nested
+	// layout most projects use — the case a flat `models/` walkthrough hides.
+	it('spells the whole path for a nested model', () => {
+		expect(
+			fqnSelector('model.jaffle_shop.fct_orders', 'models/marts/finance/fct_orders.sql')
+		).toBe('jaffle_shop.marts.finance.fct_orders')
+	})
+
+	it('is package-qualified at the root of models/', () => {
+		expect(fqnSelector('model.jaffle_shop.stg_orders', 'models/stg_orders.sql')).toBe(
+			'jaffle_shop.stg_orders'
+		)
+	})
+
+	// Ambiguous across packages, but a selector dbt resolves rather than rejects.
+	it('falls back to the bare name without a path', () => {
+		expect(fqnSelector('model.jaffle_shop.fct_orders')).toBe('fct_orders')
 	})
 })

@@ -3225,26 +3225,39 @@ const CURRENT_GENERATION: &str = "current";
 /// removed the moment the next run publishes.
 const GENERATION_GRACE_SECS: u64 = 3600;
 
+/// How many superseded generations may sit inside the grace period at once.
+/// Each holds a manifest and a results copy, and the grace is a whole hour: a
+/// burst of runs would otherwise accumulate that many copies, and nothing after
+/// the burst comes back to remove them.
+const GENERATION_KEEP: usize = 4;
+
 async fn prune_old_generations(dir: &Path, keep: &str) {
     let Ok(mut entries) = tokio::fs::read_dir(dir).await else {
         return;
     };
     let now = std::time::SystemTime::now();
+    let mut young: Vec<(std::time::SystemTime, PathBuf)> = Vec::new();
     while let Ok(Some(e)) = entries.next_entry().await {
         let name = e.file_name().to_string_lossy().to_string();
         if !name.starts_with("gen-") || name == keep {
             continue;
         }
-        let stale = e
-            .metadata()
-            .await
-            .ok()
-            .and_then(|m| m.modified().ok())
+        let modified = e.metadata().await.ok().and_then(|m| m.modified().ok());
+        let stale = modified
             .and_then(|t| now.duration_since(t).ok())
             .is_some_and(|age| age.as_secs() > GENERATION_GRACE_SECS);
         if stale {
             tokio::fs::remove_dir_all(e.path()).await.ok();
+        } else if let Some(t) = modified {
+            young.push((t, e.path()));
         }
+    }
+    // Oldest first, so what goes is what a retry is least likely to still be
+    // copying out of.
+    young.sort_by_key(|(t, _)| *t);
+    let excess = young.len().saturating_sub(GENERATION_KEEP);
+    for (_, path) in young.into_iter().take(excess) {
+        tokio::fs::remove_dir_all(path).await.ok();
     }
 }
 

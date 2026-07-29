@@ -422,10 +422,9 @@
 				...(runArgs ?? {}),
 				...(run?.invocation_args ?? {}),
 				dbt_command: 'show',
-				// The package-qualified FQN, not the bare name: a package can ship a
-				// model whose name the project also uses, and `dbt show` takes one
-				// node — a bare name would preview the wrong one or refuse.
-				select: [fqnSelector(key)],
+				// The FQN, not the bare name: a package can ship a model whose name
+				// the project also uses, and `dbt show` takes one node.
+				select: [fqnSelector(key, selectedDbt?.original_file_path)],
 				// Cleared, not inherited: previewing a model the run excluded would
 				// reach dbt as `--select m --exclude m` and come back as a parse
 				// failure, which reads as a broken preview rather than a selection.

@@ -182,15 +182,22 @@ export function splitRelation(relation: string): string[] {
 }
 
 /**
- * A `unique_id` as a dbt FQN selector: `<package>.<name>`.
+ * A dbt FQN selector for a node: `<package>.<subdirs...>.<name>`.
  *
- * dbt resolves a bare name across every installed package, and `show` accepts a
- * single node — so a project model sharing its name with a package's is either
- * previewed wrongly or refused. The resource type is dropped: an FQN names the
- * path within a package, not the kind.
+ * dbt's FQN is the resource's whole path within its package, and its matcher
+ * must consume the selector AND end on equal lengths — so `<package>.<name>`
+ * matches nothing for a model under `models/marts/`, which is most projects.
+ * `unique_id` carries only the package and the leaf, so the middle comes from
+ * `original_file_path`: its first segment is the resource root (`models/`,
+ * `tests/`) that the FQN does not include, and the extension is dropped.
+ *
+ * Without a path, the bare name — ambiguous across packages, but a selector dbt
+ * resolves rather than one it rejects.
  */
-export function fqnSelector(uniqueId: string): string {
-	const parts = uniqueId.split('.')
-	if (parts.length < 3) return splitUniqueId(uniqueId).name
-	return parts.slice(1).join('.')
+export function fqnSelector(uniqueId: string, originalFilePath?: string): string {
+	const { name } = splitUniqueId(uniqueId)
+	const pkg = uniqueId.split('.')[1]
+	if (!pkg || !originalFilePath) return name
+	const segments = originalFilePath.split('/').slice(1, -1).filter(Boolean)
+	return [pkg, ...segments, name].join('.')
 }
