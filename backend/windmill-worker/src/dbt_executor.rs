@@ -3035,11 +3035,17 @@ async fn invalidate_run_state(
             permissioned_as,
         )
         .execute(db)
-        .await;
-    }
-    tokio::fs::remove_file(state_dir(w_id, script_path, permissioned_as).join(CURRENT_GENERATION))
         .await
-        .ok();
+        .inspect_err(|e| tracing::warn!("dbt: could not clear retry state for {script_path}: {e:#}"));
+    }
+    if let Err(e) =
+        tokio::fs::remove_file(state_dir(w_id, script_path, permissioned_as).join(CURRENT_GENERATION))
+            .await
+    {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            tracing::warn!("dbt: could not drop local retry state for {script_path}: {e:#}");
+        }
+    }
 }
 
 async fn save_run_state(
@@ -3472,9 +3478,22 @@ async fn restore_run_state(
         // An agent worker cannot read it; its local copy is all there is.
         Connection::Http(_) => None,
     };
-    let generation = match tokio::fs::read_to_string(dir.join(CURRENT_GENERATION)).await {
-        Ok(g) if latest_job.is_none_or(|id| g.trim() == format!("gen-{id}")) => g,
-        _ => return restore_from_db(p, w_id, permissioned_as, inv, conn, no_state()).await,
+    // Where the database is reachable it is the authority, including when it
+    // says nothing: no row means the last invocation left nothing resumable, and
+    // a local generation that outlived it — an unlink that failed, a process
+    // killed between the delete and the removal, a stale cache — would resurrect
+    // a run the newer one replaced and retry relations it never touched. An
+    // agent worker has no such authority to consult, so its local copy stands.
+    let local = tokio::fs::read_to_string(dir.join(CURRENT_GENERATION))
+        .await
+        .ok();
+    let generation = match (local, conn, latest_job) {
+        (Some(g), Connection::Http(_), _) => Some(g),
+        (Some(g), _, Some(id)) if g.trim() == format!("gen-{id}") => Some(g),
+        _ => None,
+    };
+    let Some(generation) = generation else {
+        return restore_from_db(p, w_id, permissioned_as, inv, conn, no_state()).await;
     };
     let snapshot = dir.join(generation.trim());
     let saved_results = tokio::fs::read_to_string(snapshot.join("run_results.json"))
