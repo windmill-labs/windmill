@@ -1781,9 +1781,15 @@ export async function elementsToMap(
     }
     const path = entry.path;
     // Include module files in the map so they're compared for changes,
-    // but they're pushed as part of their parent script via handleFile
+    // but they're pushed as part of their parent script via handleFile.
+    // `--skip-scripts` therefore covers them, and has to be applied here: the
+    // filters below are past this shortcut, so a changed module would push the
+    // parent script the flag asked to leave alone — every file of a dbt project
+    // is one of these.
     if (isScriptModulePath(path)) {
-      map[path] = await entry.getContentText();
+      if (!skips.skipScripts) {
+        map[path] = await entry.getContentText();
+      }
       continue;
     }
     if (
