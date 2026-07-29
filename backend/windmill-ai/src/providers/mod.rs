@@ -29,7 +29,12 @@ pub fn create_query_builder(
 ) -> Box<dyn QueryBuilder> {
     match credentials.provider {
         AIProvider::GoogleAI => Box::new(GoogleAIQueryBuilder::new(credentials.platform.clone())),
-        AIProvider::OpenAI => Box::new(OpenAIQueryBuilder::new(credentials.provider.clone())),
+        // Azure OpenAI serves the same Responses API as OpenAI under `/openai/v1`, and
+        // newer deployments reject a reasoning effort combined with function tools on
+        // `/chat/completions`.
+        AIProvider::OpenAI | AIProvider::AzureOpenAI => {
+            Box::new(OpenAIQueryBuilder::new(credentials.provider.clone()))
+        }
         AIProvider::Anthropic => Box::new(AnthropicQueryBuilder::new(
             credentials.provider.clone(),
             credentials.platform.clone(),
@@ -139,7 +144,7 @@ mod parity_tests {
                 AIProvider::AzureOpenAI,
                 "https://example.openai.azure.com/openai",
                 "gpt-4o",
-                "chat/completions",
+                "responses",
             ),
             case(
                 AIProvider::OpenAI,
