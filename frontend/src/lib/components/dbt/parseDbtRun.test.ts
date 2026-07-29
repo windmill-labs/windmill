@@ -34,6 +34,21 @@ describe('parseDbtRun', () => {
 		expect(parseDbtRun(failed)?.totals?.total).toBe(1)
 	})
 
+	// The failures worth reading are the ones whose message carries braces of its
+	// own — a Jinja template, the compiled SQL, an adapter's own JSON — and the
+	// payload is appended after all of it.
+	it('finds the run past braces in the error text', () => {
+		const failed = {
+			error: {
+				name: 'ExecutionErr',
+				message:
+					'execution error:\nCompilation Error in model x\n  {{ ref("missing") }} depends on {"a": 1}\n' +
+					`Non-zero exit status for dbt build: 1\n\n${JSON.stringify(run)}`
+			}
+		}
+		expect(parseDbtRun(failed)?.totals?.total).toBe(1)
+	})
+
 	// `{nodes, totals}` alone is a shape an ordinary script can return, and it
 	// would then be rendered as somebody's dbt run.
 	it('does not claim an ordinary result that happens to have nodes and totals', () => {
