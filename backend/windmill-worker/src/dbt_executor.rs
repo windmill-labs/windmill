@@ -243,7 +243,7 @@ pub(crate) async fn handle_dbt_job(
     // version's graph for the runs that did not override. A retry submits only
     // `dbt_command`, so this is re-asked once the failed run's arguments are
     // restored, below — those are the ones it actually builds with.
-    prepared.graph_refresh.add_caller_args(&args)?;
+    prepared.graph_refresh.add_caller_args(&descriptor, &args)?;
 
     let command = match arg_str(&args, "dbt_command")? {
         // Validated against an allowlist rather than passed through: the value
@@ -310,7 +310,9 @@ pub(crate) async fn handle_dbt_job(
         // models, aliases or schemas for an overridden run. This is past the
         // agent-worker guard, so the same `Connection` test keeps it from
         // reaching an ingest that cannot run there.
-        prepared.graph_refresh.add_caller_args(&inv.raw_args)?;
+        prepared
+            .graph_refresh
+            .add_caller_args(&descriptor, &inv.raw_args)?;
         if restored.needs_parse {
             // After the resolution above, so the manifest describes the project
             // the build is about to retry.
@@ -570,6 +572,22 @@ pub(crate) async fn dbt_dep(
     base_internal_url: &str,
 ) -> error::Result<String> {
     let descriptor = parse_dbt_descriptor(content)?;
+    // A DEPLOY writes a whole node set of its own, `raw_code` included, so it
+    // has to reclaim as well: hung off runs alone, a project redeployed on every
+    // push by CI and run nightly kept one full graph per push until the next
+    // run, and one deployed but never run kept them for good.
+    {
+        let (pool, prune_w_id) = (db.clone(), w_id.to_string());
+        let prune_path = script_path.to_string();
+        tokio::spawn(async move {
+            if let Err(e) =
+                windmill_common::dbt_manifest::prune_dbt_run_graphs(&pool, &prune_path, &prune_w_id)
+                    .await
+            {
+                tracing::warn!("pruning dbt graphs at deploy: {e:#}");
+            }
+        });
+    }
     // The script's own `envs`, exactly as a run gets them. A project can drive a
     // model's schema, alias or `enabled` from `env_var()`, so parsing with an
     // empty environment would record one relation at deploy and build another
@@ -820,7 +838,11 @@ impl GraphRefresh {
     }
 
     /// Fold in what this invocation's own arguments say about its model set.
-    fn add_caller_args(&mut self, args: &HashMap<String, Box<RawValue>>) -> error::Result<()> {
+    fn add_caller_args(
+        &mut self,
+        descriptor: &DbtDescriptor,
+        args: &HashMap<String, Box<RawValue>>,
+    ) -> error::Result<()> {
         if has_vars_override(args) {
             self.per_run_models = true;
             self.caller_scoped = true;
@@ -829,7 +851,7 @@ impl GraphRefresh {
         // the deployed one — but it does scope what an ingest triggered by
         // another reason records, and a subset must not be published as the
         // whole of what the script owns.
-        if arg_list(args, "select")?.is_some() || arg_list(args, "exclude")?.is_some() {
+        if selection_is_overridden(descriptor, args)? {
             self.caller_scoped = true;
         }
         Ok(())
@@ -1148,11 +1170,13 @@ pub(crate) async fn prepare_project(
     // the deploy lock: moving A→B then back to A matches the lock again while the
     // stored graph is still at B.
     //
-    // Against what the PUBLISHER recorded, which is the only thing that answers
-    // "where do the current usages point". The deploy's own root goes stale as
-    // soon as a run at a moved profile republishes; the newest ingest is wrong
-    // too, because a run whose graph matches the deploy's stores no rows at all,
-    // so the moved run's would stay newest and this would latch on forever.
+    // Against the root recorded BESIDE that graph, by whichever ingest wrote
+    // it — not against the deploy's, which goes stale the moment a run at a
+    // moved profile rewrites the graph, and not against the newest ingest of
+    // any job, since a run whose graph matches the deploy's stores no rows at
+    // all and the moved run's would stay newest forever. Recording it with the
+    // graph is what keeps the two from diverging, including for a version that
+    // no longer owns the path and so publishes nothing.
     match conn {
         Connection::Sql(db) => {
             if let Some(stored) = sqlx::query_scalar!(
@@ -2767,6 +2791,31 @@ async fn persist_ingest(
         relation_root,
     )
     .await?;
+    // Beside the graph that was just written, not beside the ownership below:
+    // this is the root the STORED VERSION GRAPH describes, and the drift check
+    // asks whether that graph still names the relations this profile builds.
+    // Hung off the publication instead, it went unwritten exactly where it is
+    // needed most — a version that cannot claim the path (an older one being
+    // run by hash, a deploy overtaken by a newer one) would rewrite its graph
+    // at the moved root and record nothing, so its next run compares against a
+    // root that is either absent or two moves stale and skips the refresh its
+    // own run page needs.
+    //
+    // Only when the DEPLOYED row is what was written: a run that stored a
+    // snapshot of its own left that graph, and its root, as they were.
+    if run_snapshot.is_none() {
+        sqlx::query!(
+            "UPDATE dbt_graph_snapshot SET published_relation_root = $4
+          WHERE workspace_id = $1 AND script_path = $2 AND script_hash = $3
+            AND job_id = '00000000-0000-0000-0000-000000000000'",
+            w_id,
+            script_path,
+            script_hash,
+            relation_root,
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
     // What follows is keyed by PATH, not by version — one row set per script —
     // so it still belongs to the newest version alone. An older deploy finishing
     // late records its graph above and stops here, rather than dragging the
@@ -2791,19 +2840,6 @@ async fn persist_ingest(
         script_path,
         &ingested.assets,
     )
-    .await?;
-    // Recorded by the publisher, because only the publisher knows where the
-    // usages just written point. The drift check reads it back.
-    sqlx::query!(
-        "UPDATE dbt_graph_snapshot SET published_relation_root = $4
-          WHERE workspace_id = $1 AND script_path = $2 AND script_hash = $3
-            AND job_id = '00000000-0000-0000-0000-000000000000'",
-        w_id,
-        script_path,
-        script_hash,
-        relation_root,
-    )
-    .execute(&mut *tx)
     .await?;
     // A `table://` subscription can never fire — nothing but dbt writes a
     // warehouse relation and a dbt run does not dispatch — so none are derived
@@ -3995,28 +4031,40 @@ fn add_selection(
     Ok(())
 }
 
+/// Whether this invocation chose its own `select`/`exclude`.
+///
+/// DIFFERENT from the descriptor's, not merely present: `parse_dbt_sig` gives
+/// both fields the descriptor's own value as their default and the generated
+/// run form posts a default back for every field the caller left untouched, so
+/// every run from the UI, a schedule, a webhook or a flow step carries them.
+/// Reading that echo as a choice is wrong in two ways at once — it drops the
+/// descriptor's `--selector` from those runs (building the whole project), and
+/// it marks their graph caller-scoped so a moved profile never republishes and
+/// never settles. Both decisions ask this one question.
+///
+/// A run that wants the whole project despite a descriptor selector names a
+/// selection that differs — `["*"]`.
+fn selection_is_overridden(
+    descriptor: &DbtDescriptor,
+    args: &HashMap<String, Box<RawValue>>,
+) -> error::Result<bool> {
+    let differs = |key: &str, from: &Vec<String>| -> error::Result<bool> {
+        Ok(arg_list(args, key)?.is_some_and(|v| &v != from))
+    };
+    Ok(differs("select", &descriptor.select)? || differs("exclude", &descriptor.exclude)?)
+}
+
 /// The descriptor's named selector, unless this run named its own selection.
 ///
 /// dbt resolves `--selector` INSTEAD of `--select`, so passing both makes the
 /// descriptor win: a preview asked for one model would return the descriptor's
 /// nodes, and a run asked for a subset would build something else. A run naming
 /// its own selection therefore replaces the descriptor's selector entirely.
-///
-/// "Its own" means DIFFERENT from the descriptor's, not merely present: the
-/// generated run form posts a value back for every field the caller left
-/// untouched, and a selector descriptor's `select` default is `[]`. Reading
-/// that as an override would drop `--selector` from every run started from the
-/// UI, a schedule or a webhook and build the whole project instead of the
-/// named selection. A run that wants the whole project despite the selector
-/// names one that differs — `["*"]`.
 fn effective_selector<'a>(
     descriptor: &'a DbtDescriptor,
     inv: &Invocation,
 ) -> error::Result<Option<&'a str>> {
-    let differs = |key: &str, from: &Vec<String>| -> error::Result<bool> {
-        Ok(arg_list(&inv.args, key)?.is_some_and(|v| &v != from))
-    };
-    if differs("select", &descriptor.select)? || differs("exclude", &descriptor.exclude)? {
+    if selection_is_overridden(descriptor, &inv.args)? {
         return Ok(None);
     }
     Ok(descriptor.selector.as_deref())
@@ -4625,6 +4673,7 @@ mod tests {
         let arg = |k: &str, v: &str| {
             HashMap::from([(k.to_string(), RawValue::from_string(v.to_string()).unwrap())])
         };
+        let descriptor = DbtDescriptor::default();
 
         // A moved profile relocates the VERSION's relations: its own graph, and
         // the ownership that answers the next drift check.
@@ -4641,7 +4690,7 @@ mod tests {
         // A `vars` override: this run's graph, and only this run's.
         let mut overridden = GraphRefresh::default();
         overridden
-            .add_caller_args(&arg("vars", r#"{"day":"2026-07-29"}"#))
+            .add_caller_args(&descriptor, &arg("vars", r#"{"day":"2026-07-29"}"#))
             .unwrap();
         assert!(overridden.needed());
         assert_eq!(overridden.snapshot_job(job), Some(job));
@@ -4654,12 +4703,26 @@ mod tests {
         // this one invocation left out.
         let mut narrowed = GraphRefresh::default();
         narrowed
-            .add_caller_args(&arg("select", r#"["stg_orders"]"#))
+            .add_caller_args(&descriptor, &arg("select", r#"["stg_orders"]"#))
             .unwrap();
         assert!(!narrowed.needed());
         narrowed.profile_drift = true;
         assert!(!narrowed.publishes_ownership());
         assert_eq!(narrowed.snapshot_job(job), Some(job));
+
+        // The generated form posts the descriptor's own `select` and `exclude`
+        // back for every run started from the UI, a schedule or a webhook.
+        // Reading that echo as a narrowing marks every such run caller-scoped,
+        // and a moved profile then has no run left that could republish: it
+        // re-detects the same drift, and pays a `dbt parse` for it, forever.
+        let echoed =
+            DbtDescriptor { select: vec!["tag:nightly".to_string()], ..Default::default() };
+        let mut untouched = GraphRefresh { profile_drift: true, ..Default::default() };
+        untouched
+            .add_caller_args(&echoed, &arg("select", r#"["tag:nightly"]"#))
+            .unwrap();
+        assert!(untouched.publishes_ownership());
+        assert_eq!(untouched.snapshot_job(job), None);
     }
 
     #[test]
