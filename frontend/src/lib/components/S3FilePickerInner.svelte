@@ -599,26 +599,50 @@
 				link.synthesized = true
 			}
 		}
-		const toLoad = chain.filter((l) => allFilesByKey[l.prefix]?.childrenLoaded !== true)
-		await Promise.all(toLoad.map((l) => loadShallowFolder(l.prefix)))
+		// Registering in loadingFolderKeys locks each folder's row while its
+		// page is in flight, so a click on an already-visible ancestor cannot
+		// start the same first-page request a second time.
+		const toLoad = chain.filter(
+			(l) => allFilesByKey[l.prefix]?.childrenLoaded !== true && !loadingFolderKeys.has(l.prefix)
+		)
+		for (const link of toLoad) {
+			loadingFolderKeys.add(link.prefix)
+		}
+		try {
+			await Promise.all(toLoad.map((l) => loadShallowFolder(l.prefix)))
+		} finally {
+			// After a reset the keys may already belong to the fresh tree's own
+			// requests; a stale settle must not unlock its rows.
+			if (generation === loadGeneration) {
+				for (const link of toLoad) {
+					loadingFolderKeys.delete(link.prefix)
+				}
+			}
+		}
 		// A reload during the fetches left the chain pointing at discarded
 		// nodes; expanding them now would show empty open folders.
 		if (generation !== loadGeneration) {
 			return
 		}
-		for (const link of chain) {
+		for (const [i, link] of chain.entries()) {
 			const folder = allFilesByKey[link.prefix]
-			if (folder === undefined || folder.type !== 'folder') {
-				return
-			}
-			if (link.synthesized && (folder.count ?? 0) === 0) {
-				// Nothing under it: the path is stale (a delete may have just
-				// emptied it), so drop the node rather than show a phantom row —
-				// including its contribution to the loaded-items footer.
-				delete allFilesByKey[link.prefix]
-				unindexChild(link.parent, link.prefix)
-				displayedFileKeys = displayedFileKeys.filter((k) => k !== link.prefix)
-				displayedCount -= 1
+			const stale =
+				folder === undefined ||
+				folder.type !== 'folder' ||
+				(link.synthesized && (folder.count ?? 0) === 0)
+			if (stale) {
+				// Nothing under this level: the path is stale (a delete may have
+				// just emptied it). Every synthesized node from here down is a
+				// phantom of the same dead path — drop them all, including their
+				// contribution to the loaded-items footer.
+				for (const tail of chain.slice(i)) {
+					if (tail.synthesized && allFilesByKey[tail.prefix] !== undefined) {
+						delete allFilesByKey[tail.prefix]
+						unindexChild(tail.parent, tail.prefix)
+						displayedFileKeys = displayedFileKeys.filter((k) => k !== tail.prefix)
+						displayedCount -= 1
+					}
+				}
 				break
 			}
 			folder.collapsed = false

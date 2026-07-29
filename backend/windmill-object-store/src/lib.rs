@@ -650,8 +650,8 @@ impl ObjectStore for FilesystemStoreIgnoringAttributes {
     }
 
     // Explicit like every other delegation here: the wrapper must forward to
-    // the inner store's implementation (LocalFileSystem's drain-and-slice
-    // default) rather than shadow it with its own copy of the trait default.
+    // the inner store's implementation rather than shadow it with its own
+    // copy of the trait default.
     async fn list_delimited_page(
         &self,
         prefix: Option<&object_store::path::Path>,
