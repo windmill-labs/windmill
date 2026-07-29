@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { House, MessagesSquare } from 'lucide-svelte'
+	import { Building, MessagesSquare } from 'lucide-svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { enterSessionMode, exitSessionMode } from './sessionSwitch.svelte'
+	import { goto } from '$lib/navigation'
 
 	// Which side of the switch is active. `nav` = workspace navigation (the classic
 	// app), `session` = the sessions sidebar + chat + preview.
@@ -20,6 +21,16 @@
 		if (next === 'session') void enterSessionMode()
 		else void exitSessionMode()
 	}
+
+	// Pressing the already-active "Workspace" side goes home, so the toggle doubles
+	// as the home button when there is no mode to switch to. It needs its own click
+	// handler because the group reports only real changes through onSelected.
+	// `onToggle` is deliberately not fired: this is a plain in-mode navigation, so
+	// the mobile menu drawer should dismiss like it does for any other nav link.
+	function onNavClick() {
+		if (mode !== 'nav') return
+		void goto('/')
+	}
 </script>
 
 <!-- Each ToggleButton renders inside a Tooltip wrapper, which is the actual flex
@@ -34,12 +45,13 @@
 		<ToggleButton
 			{item}
 			value="nav"
-			icon={isCollapsed ? House : undefined}
+			icon={isCollapsed ? Building : undefined}
 			label="Workspace"
 			iconOnly={isCollapsed}
 			tooltip={isCollapsed ? 'Workspace' : undefined}
 			size="sm"
 			class="w-full justify-center"
+			onclick={onNavClick}
 		/>
 		<ToggleButton
 			{item}

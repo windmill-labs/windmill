@@ -21,6 +21,10 @@
 		item: ToggleGroupElements['item']
 		value: ToggleGroupItemProps
 		class?: string
+		// Fires on every click, including one on the already-selected button — which
+		// the group's onSelected never reports (melt treats it as a deselection and
+		// the group keeps the current value).
+		onclick?: (e: MouseEvent) => void
 	}
 
 	let {
@@ -38,7 +42,8 @@
 		id = undefined,
 		item,
 		value,
-		class: className = ''
+		class: className = '',
+		onclick
 	}: Props = $props()
 
 	// Handle backward compatibility: small prop maps to size="sm"
@@ -74,6 +79,7 @@
 		)}
 		use:melt={$item(value)}
 		style={selectedColor ? `--selected-color: ${selectedColor}` : ''}
+		{onclick}
 	>
 		{#if icon}
 			{@const SvelteComponent = icon}
