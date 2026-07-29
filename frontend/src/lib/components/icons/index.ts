@@ -200,6 +200,13 @@ import RaindropIcon from './RaindropIcon.svelte'
 import MagentoIcon from './MagentoIcon.svelte'
 import DeelIcon from './DeelIcon.svelte'
 import GroqIcon from './GroqIcon.svelte'
+import AnthropicIcon from './AnthropicIcon.svelte'
+import DeepSeekIcon from './DeepSeekIcon.svelte'
+import OpenRouterIcon from './OpenRouterIcon.svelte'
+import GoogleAiIcon from './GoogleAiIcon.svelte'
+import UltravoxIcon from './UltravoxIcon.svelte'
+import AnsibleIcon from './AnsibleIcon.svelte'
+import SnowflakeIcon from './SnowflakeIcon.svelte'
 import TogetherAiIcon from './TogetherAiIcon.svelte'
 import RunPodIcon from './RunPodIcon.svelte'
 import SigNozIcon from './SigNozIcon.svelte'
@@ -246,7 +253,8 @@ export const APP_TO_ICON_COMPONENT = {
 	http: HttpIcon,
 	mailchimp: MailchimpIcon,
 	sendgrid: SendgridIcon,
-	snowflake: SendflakeIcon,
+	snowflake: SnowflakeIcon,
+	sendflake: SendflakeIcon,
 	ms_sql_server: MsSqlServerIcon,
 	qrcode: QRCodeIcon,
 	linkedin: LinkedinIcon,
@@ -430,6 +438,13 @@ export const APP_TO_ICON_COMPONENT = {
 	magento: MagentoIcon,
 	deel: DeelIcon,
 	groqai: GroqIcon,
+	groq: GroqIcon,
+	anthropic: AnthropicIcon,
+	deepseek: DeepSeekIcon,
+	openrouter: OpenRouterIcon,
+	googleai: GoogleAiIcon,
+	ultravox: UltravoxIcon,
+	ansible: AnsibleIcon,
 	togetherai: TogetherAiIcon,
 	runpod: RunPodIcon,
 	signoz: SigNozIcon,
@@ -454,6 +469,13 @@ export const APP_TO_ICON_COMPONENT = {
 	browserless: BrowserlessIcon,
 	wiz: WizIcon
 } as unknown as Record<string, Component> // to generate correct svelte package types
+
+// Resource types are named `<app>` or `<app>_<variant>` (e.g. `airtable_table`), so an
+// unmatched name retries on the leading segment before giving up.
+export function appIconComponent(name: string | undefined): Component | undefined {
+	if (!name) return undefined
+	return APP_TO_ICON_COMPONENT[name] ?? APP_TO_ICON_COMPONENT[name.split('_')[0]]
+}
 
 export {
 	AirtableIcon,
@@ -501,6 +523,13 @@ export {
 	ZammadIcon,
 	NextcloudIcon,
 	SendflakeIcon,
+	SnowflakeIcon,
+	AnsibleIcon,
+	AnthropicIcon,
+	DeepSeekIcon,
+	OpenRouterIcon,
+	GoogleAiIcon,
+	UltravoxIcon,
 	SurrealdbIcon,
 	ActivitypubIcon,
 	AwsEcrIcon,
