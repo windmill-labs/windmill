@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { parseDbtRun, relationOutcome, splitRelation, statusRank, splitUniqueId, fqnSelector} from './parseDbtRun'
+import {
+	parseDbtRun,
+	relationOutcome,
+	splitRelation,
+	statusRank,
+	splitUniqueId,
+	nodeSelector
+} from './parseDbtRun'
 
 const run = {
 	engine: 'dbt-core-1x',
@@ -99,11 +106,7 @@ describe('splitRelation', () => {
 	it('keeps a period that lives inside a quoted identifier', () => {
 		// The backend supports it, so rendering it as `v2.orders` names a
 		// relation that does not exist.
-		expect(splitRelation('"wh"."analytics.v2"."orders"')).toEqual([
-			'wh',
-			'analytics.v2',
-			'orders'
-		])
+		expect(splitRelation('"wh"."analytics.v2"."orders"')).toEqual(['wh', 'analytics.v2', 'orders'])
 		expect(splitRelation('"db"."schema"."name"')).toEqual(['db', 'schema', 'name'])
 		expect(splitRelation('db.schema.name')).toEqual(['db', 'schema', 'name'])
 		// BigQuery backticks and T-SQL brackets quote too.
@@ -112,24 +115,17 @@ describe('splitRelation', () => {
 	})
 })
 
-describe('fqnSelector', () => {
-	// dbt's FQN is the path within the package and its matcher must end on equal
-	// lengths, so a `<package>.<name>` selector matches nothing for the nested
-	// layout most projects use — the case a flat `models/` walkthrough hides.
-	it('spells the whole path for a nested model', () => {
-		expect(
-			fqnSelector('model.jaffle_shop.fct_orders', 'models/marts/finance/fct_orders.sql')
-		).toBe('jaffle_shop.marts.finance.fct_orders')
-	})
-
-	it('is package-qualified at the root of models/', () => {
-		expect(fqnSelector('model.jaffle_shop.stg_orders', 'models/stg_orders.sql')).toBe(
-			'jaffle_shop.stg_orders'
-		)
+describe('nodeSelector', () => {
+	// Verified against dbt-core 1.12, dbt-core 2.0.0-alpha.5 and fusion
+	// 2.0.0-preview.202: the intersection resolves to the one node whatever the
+	// project's `model-paths` is, while a path-derived FQN resolves to nothing
+	// as soon as that root is more than one segment deep.
+	it('intersects the name with its package, wherever the model sits', () => {
+		expect(nodeSelector('model.jaffle_shop.fct_orders')).toBe('fct_orders,package:jaffle_shop')
 	})
 
 	// Ambiguous across packages, but a selector dbt resolves rather than rejects.
-	it('falls back to the bare name without a path', () => {
-		expect(fqnSelector('model.jaffle_shop.fct_orders')).toBe('fct_orders')
+	it('falls back to the bare name without a package', () => {
+		expect(nodeSelector('fct_orders')).toBe('fct_orders')
 	})
 })

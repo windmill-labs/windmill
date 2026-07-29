@@ -5,7 +5,7 @@
 	// where the alternative is reading `N of M OK created` out of the log.
 	import { onDestroy, untrack } from 'svelte'
 	import { OpenAPI, JobService } from '$lib/gen'
-	import { fqnSelector, parseDbtRun, relationOutcome, splitRelation } from './parseDbtRun'
+	import { nodeSelector, parseDbtRun, relationOutcome, splitRelation } from './parseDbtRun'
 	import { Button } from '$lib/components/common'
 	import { ClipboardCopy, Code2, TableProperties } from 'lucide-svelte'
 	import { copyToClipboard } from '$lib/utils'
@@ -434,9 +434,10 @@
 				...(runArgs ?? {}),
 				...(run?.invocation_args ?? {}),
 				dbt_command: 'show',
-				// The FQN, not the bare name: a package can ship a model whose name
-				// the project also uses, and `dbt show` takes one node.
-				select: [fqnSelector(key, selectedDbt?.original_file_path)],
+				// Scoped to the node's package, not the bare name: a package can
+				// ship a model whose name the project also uses, and `dbt show`
+				// takes one node.
+				select: [nodeSelector(key)],
 				// Cleared, not inherited: previewing a model the run excluded would
 				// reach dbt as `--select m --exclude m` and come back as a parse
 				// failure, which reads as a broken preview rather than a selection.

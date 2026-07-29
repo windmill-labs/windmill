@@ -76,7 +76,14 @@ export function statusRank(status: string, outcome?: DbtOutcome): number {
 }
 
 /** The worker's stable vocabulary for a node result, published as `outcome`. */
-export type DbtOutcome = 'started' | 'passed' | 'failed' | 'warned' | 'skipped' | 'no_op' | 'unknown'
+export type DbtOutcome =
+	| 'started'
+	| 'passed'
+	| 'failed'
+	| 'warned'
+	| 'skipped'
+	| 'no_op'
+	| 'unknown'
 
 /**
  * dbt's node status, reduced to the outcomes the UI distinguishes.
@@ -182,22 +189,25 @@ export function splitRelation(relation: string): string[] {
 }
 
 /**
- * A dbt FQN selector for a node: `<package>.<subdirs...>.<name>`.
+ * A selector naming exactly one node: `<name>,package:<package>`.
  *
- * dbt's FQN is the resource's whole path within its package, and its matcher
- * must consume the selector AND end on equal lengths — so `<package>.<name>`
- * matches nothing for a model under `models/marts/`, which is most projects.
- * `unique_id` carries only the package and the leaf, so the middle comes from
- * `original_file_path`: its first segment is the resource root (`models/`,
- * `tests/`) that the FQN does not include, and the extension is dropped.
+ * The comma is dbt's intersection operator, so this reads "the node whose name
+ * is `<name>` and whose package is `<package>`" — one node, since dbt refuses
+ * two models of one name inside a package. A bare name would match the leaf of
+ * every package's FQN, and a package can ship a model whose name the project
+ * also uses.
  *
- * Without a path, the bare name — ambiguous across packages, but a selector dbt
- * resolves rather than one it rejects.
+ * Not the FQN (`<package>.<subdirs...>.<name>`), which cannot be rebuilt from
+ * `original_file_path`: how many leading segments are the resource root is
+ * `model-paths`, and dropping exactly one turns `src/models/marts/orders.sql`
+ * into `pkg.models.marts.orders`, which dbt's matcher — equal lengths, from the
+ * front — resolves to nothing at all.
+ *
+ * Without a package, the bare name — ambiguous across packages, but a selector
+ * dbt resolves rather than one it rejects.
  */
-export function fqnSelector(uniqueId: string, originalFilePath?: string): string {
+export function nodeSelector(uniqueId: string): string {
 	const { name } = splitUniqueId(uniqueId)
 	const pkg = uniqueId.split('.')[1]
-	if (!pkg || !originalFilePath) return name
-	const segments = originalFilePath.split('/').slice(1, -1).filter(Boolean)
-	return [pkg, ...segments, name].join('.')
+	return pkg ? `${name},package:${pkg}` : name
 }
