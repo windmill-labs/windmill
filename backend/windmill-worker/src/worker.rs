@@ -152,6 +152,7 @@ use crate::{
     worker_flow::handle_flow,
     worker_lockfiles::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
+        tally_unfinished_dependency_deploy,
     },
     worker_utils::{insert_ping, queue_vacuum, update_worker_ping_full},
 };
@@ -4106,6 +4107,17 @@ pub async fn handle_queued_job(
                 r
             }
         };
+
+        // The deployed version lands before the dependency job runs, so a lock
+        // generation that fails or is cancelled still leaves the item live in the
+        // workspace while the fork/parent tally — which only runs on the success
+        // path — is skipped. Tally it here so the change is still offered in the
+        // fork's "Compare & Deploy" list.
+        if job.kind.is_dependency() && (result.is_err() || canceled_by.is_some()) {
+            if let Connection::Sql(db) = conn {
+                tally_unfinished_dependency_deploy(db, job.as_ref()).await;
+            }
+        }
 
         let cjob = MiniCompletedJob::from(job.to_owned());
         drop(job);

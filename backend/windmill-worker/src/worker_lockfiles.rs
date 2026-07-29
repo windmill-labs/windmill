@@ -17,6 +17,7 @@ use windmill_common::assets::{
 use windmill_common::error::Error;
 use windmill_common::error::Result;
 use windmill_common::flows::{FlowModule, FlowModuleValue, FlowNodeId};
+use windmill_common::jobs::JobKind;
 use windmill_common::min_version::MIN_VERSION_SUPPORTS_DEBOUNCING_V2;
 use windmill_common::scripts::ScriptHash;
 #[cfg(feature = "python")]
@@ -40,7 +41,9 @@ use windmill_common::{
 pub use windmill_dep_map::{
     extract_referenced_paths, extract_relative_imports, process_relative_imports,
 };
-use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
+use windmill_git_sync::{
+    handle_deployment_metadata, tally_deployed_object_changes, DeployedObject,
+};
 use windmill_queue::{
     append_logs, CanceledBy, MiniPulledJob, WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT,
 };
@@ -843,6 +846,59 @@ fn get_deployment_msg_and_parent_path_from_args(
         })
         .flatten();
     (deployment_message, parent_path)
+}
+
+/// Record the fork/parent change tally for a dependency job that did not reach its
+/// success path.
+///
+/// The new script/flow/app version is committed before the dependency job is even
+/// pushed, so a failed or cancelled lock generation still leaves a deployed item in
+/// the workspace. The tally otherwise only runs from `handle_deployment_metadata` on
+/// the success path, and nothing ever re-scans `workspace_diff` — so without this the
+/// change stays invisible in the fork's "Compare & Deploy" list forever, with no way
+/// to surface it short of redeploying the item.
+pub async fn tally_unfinished_dependency_deploy(db: &DB, job: &MiniPulledJob) {
+    // `runnable_id` is what distinguishes a deploy from a one-off preview lock job,
+    // which has nothing saved to tally.
+    let (Some(path), Some(version)) = (job.runnable_path.clone(), job.runnable_id.map(|h| h.0))
+    else {
+        return;
+    };
+    let (_, parent_path) = get_deployment_msg_and_parent_path_from_args(job.args.clone());
+
+    let obj = match job.kind {
+        JobKind::Dependencies => DeployedObject::Script {
+            hash: ScriptHash(version),
+            path,
+            parent_path: parent_path.clone(),
+        },
+        JobKind::FlowDependencies => {
+            DeployedObject::Flow { path, parent_path: parent_path.clone(), version }
+        }
+        JobKind::AppDependencies => {
+            // `raw_app` decides the diff kind ("app" vs "raw_app"), so it has to be
+            // read back rather than guessed.
+            let raw_app =
+                sqlx::query_scalar::<_, bool>("SELECT raw_app FROM app_version WHERE id = $1")
+                    .bind(version)
+                    .fetch_optional(db)
+                    .await
+                    .unwrap_or_default()
+                    .unwrap_or(false);
+            if raw_app {
+                DeployedObject::RawApp { path, version, parent_path: parent_path.clone() }
+            } else {
+                DeployedObject::App { path, version, parent_path: parent_path.clone() }
+            }
+        }
+        _ => return,
+    };
+
+    if let Err(e) =
+        tally_deployed_object_changes(&job.workspace_id, &obj, db, parent_path.as_deref()).await
+    {
+        tracing::error!(%e, "error tallying fork changes for unfinished dependency job {}", job.id);
+    }
 }
 
 struct LockModuleError {

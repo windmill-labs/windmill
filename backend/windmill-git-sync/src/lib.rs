@@ -17,11 +17,13 @@ pub use git_sync_ee::{
     enqueue_git_pull_dry_run, enqueue_git_pull_job, handle_deployment_metadata,
     handle_deployment_metadata_batch, handle_fork_branch_creation, persist_auto_pull_state,
     reconcile_and_enqueue_pull, reconcile_fork_branch_pull, record_auto_pull_failure,
+    tally_deployed_object_changes,
 };
 
 #[cfg(not(feature = "private"))]
 pub use git_sync_oss::{
     handle_deployment_metadata, handle_deployment_metadata_batch, handle_fork_branch_creation,
+    tally_deployed_object_changes,
 };
 
 #[derive(Clone, Debug)]
