@@ -193,6 +193,24 @@
 	let loadingFolderKeys = new SvelteSet<string>()
 	/** Resume token per shallow-loaded level, keyed by folder ('' for the root). */
 	let nextMarkerByFolder: Record<string, string> = {}
+	/** Direct children of each level ('' = no parent), maintained beside
+	 * allFilesByKey: per-level operations must not rescan the whole node map,
+	 * which is a deep $state proxy, on every expand or load-more click. */
+	let childrenByParent: Record<string, string[]> = {}
+
+	function indexChild(parentPath: string | undefined, key: string) {
+		;(childrenByParent[parentPath ?? ''] ??= []).push(key)
+	}
+	function unindexChild(parentPath: string | undefined, key: string) {
+		const siblings = childrenByParent[parentPath ?? '']
+		const i = siblings?.indexOf(key) ?? -1
+		if (i >= 0) {
+			siblings.splice(i, 1)
+		}
+	}
+	function childrenOf(parentPath: string | undefined): string[] {
+		return childrenByParent[parentPath ?? ''] ?? []
+	}
 	/** Bumped by every reset; in-flight listings whose generation is stale must
 	 * not write into the tree they were started against. */
 	let loadGeneration = 0
@@ -253,22 +271,21 @@
 			// The server answered with a flat page instead: keep flat browsing.
 			shallowUnavailable = true
 			processFlatPage(availableFiles)
-		} else {
-			processShallowResponse(availableFiles, rootParentKey())
-			// un-collapse the folders containing the selected file (if any),
-			// loading each level of its ancestor chain
-			if (selectedFileKey !== undefined && !emptyString(selectedFileKey.s3)) {
-				await expandAncestors(selectedFileKey.s3)
-				// Clearing the flags below belongs to whichever load is current:
-				// a reload that started meanwhile owns the spinner now.
-				if (generation !== loadGeneration) {
-					return
-				}
-			}
+			displayedFileKeys = [...new Set(displayedFileKeys)].sort()
+			fileListLoading = false
+			fileInfoLoading = false
+			return
 		}
+		processShallowResponse(availableFiles, rootParentKey())
+		// The root level paints before the selected file's ancestor chain is
+		// opened: the chain costs one request per level and must not hold the
+		// whole list hostage.
 		displayedFileKeys = [...new Set(displayedFileKeys)].sort()
 		fileListLoading = false
 		fileInfoLoading = false
+		if (selectedFileKey !== undefined && !emptyString(selectedFileKey.s3)) {
+			await expandAncestors(selectedFileKey.s3)
+		}
 	}
 
 	async function loadFilesFlat() {
@@ -342,6 +359,7 @@
 					// flat pages carry the whole subtree, expanding must not fetch
 					childrenLoaded: true
 				}
+				indexChild(parent_path, current_path)
 				if (i == rootPathNestingLevel && current_path.startsWith(rootPath)) {
 					displayedFileKeys.push(current_path)
 				}
@@ -377,10 +395,11 @@
 		}
 	}
 
+	// Returns the number of entries the page contributed to the level.
 	function processShallowResponse(
 		availableFiles: ListStoredFilesResponse,
 		parentKey: string | undefined
-	) {
+	): number {
 		let directCount = 0
 		for (const folder of availableFiles.folders ?? []) {
 			createShallowNode(folder, 'folder', parentKey)
@@ -419,6 +438,7 @@
 			parentNode.childrenLoaded = true
 			parentNode.hasMore = !!nextMarker
 		}
+		return directCount
 	}
 
 	function createLoadMoreNode(parentKey: string | undefined) {
@@ -437,6 +457,7 @@
 				parentNode !== undefined ? parentNode.nestingLevel + 2 : rootPathNestingLevel * 2,
 			count: undefined
 		}
+		indexChild(parentKey, key)
 		if (parentKey === rootParentKey()) {
 			displayedFileKeys.push(key)
 		}
@@ -448,6 +469,7 @@
 			return
 		}
 		delete allFilesByKey[key]
+		unindexChild(parentKey, key)
 		displayedFileKeys = displayedFileKeys.filter((k) => k !== key)
 	}
 
@@ -484,11 +506,7 @@
 
 	// Make every already-loaded child of a level visible in the flat row list.
 	function revealChildren(parentKey: string | undefined) {
-		for (const file_key in allFilesByKey) {
-			if (allFilesByKey[file_key].parentPath === parentKey) {
-				displayedFileKeys.push(file_key)
-			}
-		}
+		displayedFileKeys.push(...childrenOf(parentKey))
 		displayedFileKeys = [...new Set(displayedFileKeys)].sort()
 	}
 
@@ -514,6 +532,7 @@
 			count: type === 'leaf' ? 1 : undefined,
 			childrenLoaded: type === 'leaf'
 		}
+		indexChild(parentPath, full_key)
 		if (parentPath === rootParentKey()) {
 			displayedFileKeys.push(full_key)
 		}
@@ -521,77 +540,95 @@
 
 	async function loadShallowFolder(folderKey: string, marker?: string) {
 		const generation = loadGeneration
-		const availableFiles = await listStoredFilesRequest({
-			workspace: ws!,
-			maxKeys,
-			prefix: folderKey === '' ? undefined : folderKey,
-			marker,
-			storage,
-			s3ResourcePath,
-			shallow: true
-		})
-		if (
-			generation !== loadGeneration ||
-			availableFiles.restricted_access !== false ||
-			availableFiles.folders === undefined
-		) {
-			return
+		let nextMarker = marker
+		// A page can legitimately contribute nothing visible — regexFilter can
+		// drop every file in it — so chase a bounded number of further pages
+		// rather than render an expand or "load more" click as empty. Bounded:
+		// past the cap the load-more row remains and the user decides.
+		for (let pagesFetched = 0; pagesFetched < 5; pagesFetched++) {
+			const availableFiles = await listStoredFilesRequest({
+				workspace: ws!,
+				maxKeys,
+				prefix: folderKey === '' ? undefined : folderKey,
+				marker: nextMarker,
+				storage,
+				s3ResourcePath,
+				shallow: true
+			})
+			if (
+				generation !== loadGeneration ||
+				availableFiles.restricted_access !== false ||
+				availableFiles.folders === undefined
+			) {
+				return
+			}
+			const added = processShallowResponse(
+				availableFiles,
+				folderKey === '' ? undefined : folderKey
+			)
+			nextMarker = availableFiles.next_marker ?? undefined
+			if (added > 0 || nextMarker === undefined) {
+				return
+			}
 		}
-		processShallowResponse(availableFiles, folderKey === '' ? undefined : folderKey)
 	}
 
-	// Walk the ancestor folders of fileKey below rootPath, loading and expanding
-	// each level so the selected file's node exists and is visible.
+	// Open the ancestor folders of fileKey below rootPath so its node exists
+	// and is visible. Every level is derivable from the key upfront and the
+	// listings are independent, so they load concurrently — a deep chain must
+	// not cost one round-trip per level in series.
 	async function expandAncestors(fileKey: string) {
 		const generation = loadGeneration
 		const split_path = fileKey.split('/')
+		const chain: { prefix: string; parent: string | undefined; synthesized: boolean }[] = []
 		let prefix = ''
 		for (let i = 0; i < split_path.length - 1; i++) {
-			const parentPrefix = prefix === '' ? rootParentKey() : prefix
+			const parent = prefix === '' ? rootParentKey() : prefix
 			prefix += split_path[i] + '/'
 			if (rootPath.startsWith(prefix)) {
 				continue // at or above the browsed root
 			}
-			let folder = allFilesByKey[prefix]
+			chain.push({ prefix, parent, synthesized: false })
+		}
+		for (const link of chain) {
 			// Subfolders surface as their level is paged, so an ancestor sitting
 			// past the first page of a wide level has no node yet — the path is
-			// enough to place one, and the load below proves whether it exists.
-			const synthesized = folder === undefined
-			if (synthesized) {
-				createShallowNode(prefix, 'folder', parentPrefix)
-				folder = allFilesByKey[prefix]
+			// enough to place one, and the loads below prove whether it exists.
+			if (allFilesByKey[link.prefix] === undefined) {
+				createShallowNode(link.prefix, 'folder', link.parent)
+				link.synthesized = true
 			}
+		}
+		const toLoad = chain.filter((l) => allFilesByKey[l.prefix]?.childrenLoaded !== true)
+		await Promise.all(toLoad.map((l) => loadShallowFolder(l.prefix)))
+		// A reload during the fetches left the chain pointing at discarded
+		// nodes; expanding them now would show empty open folders.
+		if (generation !== loadGeneration) {
+			return
+		}
+		for (const link of chain) {
+			const folder = allFilesByKey[link.prefix]
 			if (folder === undefined || folder.type !== 'folder') {
 				return
 			}
-			if (folder.childrenLoaded !== true) {
-				await loadShallowFolder(prefix)
-				// A reload during the fetch left `folder` pointing at a discarded
-				// node; expanding it now would show an empty open folder.
-				if (generation !== loadGeneration) {
-					return
-				}
-			}
-			if (synthesized && (folder.count ?? 0) === 0) {
+			if (link.synthesized && (folder.count ?? 0) === 0) {
 				// Nothing under it: the path is stale (a delete may have just
 				// emptied it), so drop the node rather than show a phantom row —
 				// including its contribution to the loaded-items footer.
-				delete allFilesByKey[prefix]
-				displayedFileKeys = displayedFileKeys.filter((k) => k !== prefix)
+				delete allFilesByKey[link.prefix]
+				unindexChild(link.parent, link.prefix)
+				displayedFileKeys = displayedFileKeys.filter((k) => k !== link.prefix)
 				displayedCount -= 1
-				return
+				break
 			}
 			folder.collapsed = false
 			// The whole chain is being opened, so the folder belongs on screen
 			// itself — a synthesized one below the root level is not covered by
 			// the reveal loops, and its children would render with no row above.
-			displayedFileKeys.push(prefix)
-			for (const file_key in allFilesByKey) {
-				if (allFilesByKey[file_key].parentPath === prefix) {
-					displayedFileKeys.push(file_key)
-				}
-			}
+			displayedFileKeys.push(link.prefix)
+			displayedFileKeys.push(...childrenOf(link.prefix))
 		}
+		displayedFileKeys = [...new Set(displayedFileKeys)].sort()
 	}
 
 	async function loadFileMetadataPlusPreviewAsync(fileKey: string | undefined) {
@@ -726,6 +763,7 @@
 		page = 0
 		listMarkers = []
 		nextMarkerByFolder = {}
+		childrenByParent = {}
 		loadingFolderKeys.clear()
 		// re-detect on every reload: switching storage can change whether the
 		// server serves shallow listings
@@ -886,13 +924,14 @@
 					}
 				}
 				// Re-add the currently hidden element to displayed_file_keys
-				for (let file_key in allFilesByKey) {
-					let file_info = allFilesByKey[file_key]
-					if (file_info.parentPath === item_key) {
-						displayedFileKeys.push(file_key)
-						if (file_info.type === 'folder' && !file_info.collapsed) {
-							selectItem(displayedFileKeys.length - 1, false)
-						}
+				for (const file_key of childrenOf(item_key)) {
+					const file_info = allFilesByKey[file_key]
+					if (file_info === undefined) {
+						continue
+					}
+					displayedFileKeys.push(file_key)
+					if (file_info.type === 'folder' && !file_info.collapsed) {
+						selectItem(displayedFileKeys.length - 1, false)
 					}
 				}
 			}
