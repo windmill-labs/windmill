@@ -3,7 +3,7 @@
 	// click a running job. The live per-model state the worker records is what
 	// makes it worth having here: nodes go amber then green as dbt walks the DAG,
 	// where the alternative is reading `N of M OK created` out of the log.
-	import { onDestroy } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
 	import { OpenAPI, JobService } from '$lib/gen'
 	import { parseDbtRun, relationOutcome, splitRelation, splitUniqueId } from './parseDbtRun'
 	import { Button } from '$lib/components/common'
@@ -115,6 +115,9 @@
 	// Bounded so a static descriptor, which never writes a snapshot, stops
 	// asking rather than polling for the length of the run.
 	let graphTries = 0
+	// Deliberately not `$state`: this guards an effect against its own writes, so
+	// reading it must not make the effect depend on it.
+	let finalLoadFor: string | undefined = undefined
 	$effect(() => {
 		void scriptPath
 		void graphKey
@@ -123,6 +126,7 @@
 		// next run's snapshot poll before it starts, and stale progress colours
 		// its models with another run's statuses.
 		graphTries = 0
+		finalLoadFor = undefined
 		polled = new Map()
 		raw = undefined
 		void load()
@@ -172,13 +176,19 @@
 		// emit no node events never produce the progress that would have ended
 		// it early. Without this a snapshot written late is never displayed, and
 		// the page keeps the deployed fallback for good.
-		else {
+		else if (finalLoadFor !== (jobId ?? '')) {
+			// Once per finished job, not once per response: `load()` assigns
+			// `raw`, which recomputes `settled`, which would re-enter this effect
+			// and fetch the whole graph again for as long as the page is open.
+			// The guard is a plain variable so reading it adds no dependency, and
+			// `settled` is read untracked for the same reason.
+			finalLoadFor = jobId ?? ''
 			void load()
 			// `settled` colours a finished run with no request. The poll is the
 			// fallback for one that produced no `run_results.json` at all —
 			// cancelled or killed — whose relations the worker settles in the
 			// table instead.
-			if (!settled) void loadProgress()
+			if (!untrack(() => settled)) void loadProgress()
 		}
 		return () => clearInterval(timer)
 	})

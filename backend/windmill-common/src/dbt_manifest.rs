@@ -307,6 +307,7 @@ fn truncate_sql(code: &str) -> String {
 
 /// One ingested dbt node, ready to be written to `dbt_node`.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+#[serde(default)]
 pub struct IngestedNode {
     pub unique_id: String,
     pub resource_type: String,
@@ -334,6 +335,9 @@ pub struct IngestedNode {
 // whole manifest to the server, which stores it with the same function the SQL
 // path uses.
 #[derive(Debug, Default, Serialize, Deserialize)]
+// `default`: these cross the wire for an agent worker, and a field the serializer
+// skips must not make the whole manifest unparseable on the other side.
+#[serde(default)]
 pub struct IngestedManifest {
     pub nodes: Vec<IngestedNode>,
     pub edges: Vec<(String, String)>,

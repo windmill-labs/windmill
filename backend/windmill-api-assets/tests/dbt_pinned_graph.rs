@@ -148,3 +148,46 @@ async fn without_a_run_the_same_caller_sees_no_dbt_nodes(db: Pool<Postgres>) {
         "an unpinned graph is the caller's own view of the workspace: {body}"
     );
 }
+
+/// Archiving retires the script; it must not retire the runs that already
+/// happened. The pinned read resolves versions through a CTE that skips archived
+/// rows, so nothing about the CURRENT workspace graph depends on the sidecar
+/// surviving — which is exactly why deleting it looks safe and is not.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn archiving_the_script_leaves_its_finished_runs_renderable(db: Pool<Postgres>) {
+    let job = uuid::Uuid::from_u128(7);
+    seed(&db, job).await;
+    sqlx::query!(
+        "UPDATE script SET archived = true WHERE workspace_id = $1 AND hash = $2",
+        WS,
+        HASH
+    )
+    .execute(&db)
+    .await
+    .unwrap();
+
+    let admin = ApiAuthed { is_admin: true, ..outsider() };
+    let pinned = PinnedRun { job_id: job, script_path: PATH.to_string(), script_hash: HASH };
+    let res = asset_graph_for(
+        &admin,
+        WS,
+        UserDB::new(db.clone()),
+        db.clone(),
+        query(),
+        Some(pinned),
+    )
+    .await
+    .unwrap();
+    assert!(
+        serde_json::to_value(&res.0).unwrap().to_string().contains("orders"),
+        "a completed run of an archived version still renders its models"
+    );
+
+    let now = asset_graph_for(&admin, WS, UserDB::new(db.clone()), db.clone(), query(), None)
+        .await
+        .unwrap();
+    assert!(
+        !serde_json::to_value(&now.0).unwrap().to_string().contains("model.p.orders"),
+        "while the workspace graph, which describes what is live, drops it"
+    );
+}

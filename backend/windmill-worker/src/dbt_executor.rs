@@ -2563,10 +2563,12 @@ async fn ingest_from_run(
                 .post::<_, serde_json::Value>(
                     &format!("/api/agent_workers/dbt_graph/{}", job.workspace_id),
                     None,
+                    // Only the job id: the server reads the path and version
+                    // from the job it verified, so this cannot name another
+                    // script's graph.
                     &serde_json::json!({
-                        "script_path": script_path,
-                        "script_hash": job.runnable_id.map(|h| h.0),
-                        "job_id": snapshot_job,
+                        "job_id": job.id,
+                        "per_run": snapshot_job.is_some(),
                         "relation_root": p.relation_root(),
                         "manifest": ingested,
                     }),
