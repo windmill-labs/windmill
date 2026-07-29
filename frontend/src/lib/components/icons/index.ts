@@ -254,7 +254,6 @@ export const APP_TO_ICON_COMPONENT = {
 	mailchimp: MailchimpIcon,
 	sendgrid: SendgridIcon,
 	snowflake: SnowflakeIcon,
-	sendflake: SendflakeIcon,
 	ms_sql_server: MsSqlServerIcon,
 	qrcode: QRCodeIcon,
 	linkedin: LinkedinIcon,

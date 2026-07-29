@@ -9,7 +9,14 @@
 
 <svg {width} {height} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
 	<defs>
-		<linearGradient id="googleai-gemini-gradient" x1="0" y1="24" x2="24" y2="0">
+		<linearGradient
+			id="googleai-gemini-gradient"
+			x1="0"
+			y1="24"
+			x2="24"
+			y2="0"
+			gradientUnits="userSpaceOnUse"
+		>
 			<stop offset="0" stop-color="#4285F4" />
 			<stop offset="0.52" stop-color="#9B72CB" />
 			<stop offset="1" stop-color="#D96570" />

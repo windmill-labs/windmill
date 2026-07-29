@@ -187,7 +187,8 @@
 	let resourceEditor: ResourceEditorDrawer | undefined = $state()
 	let hovering = $state(false)
 	let isDatatableSelected = $derived(value?.startsWith('datatable://') ?? false)
-	let SelectedIcon = $derived(appIconComponent(collection.find((x) => x?.value == value)?.type))
+	let typeByPath = $derived(new Map(collection.map((x) => [x.value, x.type])))
+	let SelectedIcon = $derived(appIconComponent(typeByPath.get(value!)))
 </script>
 
 <AppConnect
@@ -255,7 +256,7 @@
 			inputLeadingSnippet={SelectedIcon ? selectedIconSnippet : undefined}
 		>
 			{#snippet startSnippet({ item })}
-				{@const Icon = appIconComponent(collection.find((x) => x?.value == item.value)?.type)}
+				{@const Icon = appIconComponent(typeByPath.get(item.value))}
 				{#if Icon}
 					<span class="shrink-0 text-secondary">
 						<Icon height="16px" width="16px" size={16} />
