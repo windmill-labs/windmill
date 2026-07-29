@@ -197,6 +197,7 @@ pub(crate) async fn handle_dbt_job(
             {
                 tracing::warn!("pruning dbt run graph snapshots: {e:#}");
             }
+            prune_run_state(&pool, &prune_w_id, &prune_path).await;
         });
     }
     let prepared = prepare_project(
@@ -3305,6 +3306,15 @@ async fn save_run_state(
         invalidate_run_state(w_id, &p.script_path, caller, conn).await;
         return Ok(());
     };
+    // An all-green run has nothing for `dbt retry` to resume — it builds from
+    // the error, fail and skipped nodes alone — so storing it would keep a row
+    // and a directory per caller for a retry that is refused anyway. It still
+    // SUPERSEDES the previous run, whose failures are no longer what last
+    // happened here, so the state goes rather than staying.
+    if !has_retryable_node(&results) {
+        invalidate_run_state(w_id, &p.script_path, caller, conn).await;
+        return Ok(());
+    }
     let mut durable_err = None;
     if let Connection::Sql(db) = conn {
         {
@@ -3418,6 +3428,53 @@ async fn save_run_state(
     }
     prune_old_generations(&dir, &generation).await;
     Ok(())
+}
+
+/// How long a saved run stays resumable. A retry follows its failure within
+/// minutes in practice; the bound exists because this state is keyed by CALLER,
+/// so a shared `on_behalf_of` script would otherwise keep a row and a directory
+/// for everyone who has ever run it, with nothing to remove them.
+const RUN_STATE_RETENTION_DAYS: i32 = 30;
+
+/// Drop saved runs nobody can still resume: the rows for this script, and the
+/// worker-local directories of any script, since those are keyed by a digest
+/// that names neither.
+async fn prune_run_state(db: &sqlx::Pool<sqlx::Postgres>, w_id: &str, script_path: &str) {
+    if !script_path.is_empty() {
+        let _ = sqlx::query!(
+            "DELETE FROM dbt_run_state
+              WHERE workspace_id = $1 AND script_path = $2
+                AND updated_at < now() - make_interval(days => $3)",
+            w_id,
+            script_path,
+            RUN_STATE_RETENTION_DAYS,
+        )
+        .execute(db)
+        .await
+        .inspect_err(|e| tracing::warn!("pruning dbt retry state: {e:#}"));
+    }
+    let root = PathBuf::from(&*DBT_CACHE_DIR).join("state");
+    let Ok(mut entries) = tokio::fs::read_dir(&root).await else {
+        return;
+    };
+    let now = std::time::SystemTime::now();
+    let max_age = std::time::Duration::from_secs(RUN_STATE_RETENTION_DAYS as u64 * 24 * 60 * 60);
+    while let Ok(Some(e)) = entries.next_entry().await {
+        // The pointer, not the directory: a generation added or pruned inside it
+        // moves the directory's own mtime, while the pointer is written by the
+        // last save — which is what "still resumable" means.
+        let last = tokio::fs::metadata(e.path().join(CURRENT_GENERATION))
+            .await
+            .or(e.metadata().await)
+            .ok()
+            .and_then(|m| m.modified().ok());
+        if last
+            .and_then(|t| now.duration_since(t).ok())
+            .is_some_and(|age| age > max_age)
+        {
+            tokio::fs::remove_dir_all(e.path()).await.ok();
+        }
+    }
 }
 
 /// Names the generation directory a retry reads. Replaced by rename, so it is
