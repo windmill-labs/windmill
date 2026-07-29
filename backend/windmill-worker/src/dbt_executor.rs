@@ -215,39 +215,16 @@ pub(crate) async fn handle_dbt_job(
         modules,
     )
     .await;
-    // Preparation runs before anything that could clear stale state, and it can
-    // fail for reasons that have nothing to do with the saved run — a profile
-    // that no longer resolves, a cancelled provision. The invocation still
-    // produced nothing resumable, so the previous one must not stay
-    // authoritative.
-    //
-    // Two commands are exempt. A retry is trying to USE that state, and failing
-    // to prepare is not a verdict on it. A read-only command builds nothing, so
-    // it can supersede nothing — and the run page's row preview is exactly that
-    // command, run as the principal this state is keyed by, so letting a failed
-    // preview clear it would take the retry away from the run being looked at.
-    let judges_saved_state = {
-        let cmd = arg_str(&args, "dbt_command")?;
-        !matches!(cmd.as_deref(), Some("retry"))
-            && !cmd
-                .as_deref()
-                .is_some_and(windmill_parser_yaml::dbt::is_read_only_command)
-    };
-    let mut prepared = match prepared {
-        Ok(p) => p,
-        Err(e) => {
-            if judges_saved_state {
-                invalidate_run_state(
-                    &job.workspace_id,
-                    job.runnable_path.as_deref().unwrap_or_default(),
-                    &job.permissioned_as,
-                    conn,
-                )
-                .await;
-            }
-            return Err(e);
-        }
-    };
+    // A preparation failure leaves the saved run alone. Everything up to here —
+    // writing the bundle, `dbt deps`, provisioning an engine, rendering the
+    // profile — touches no relation, so the warehouse is exactly what the
+    // previous run left and its failures are still the accurate description of
+    // it. Only an interrupted BUILD invalidates that, which the save at the end
+    // of the job decides. Cancelling during a provision is the reachable case,
+    // and clearing there would silently cost a resumable failure; a resume that
+    // no longer fits is refused by `run_identity` and the arguments digest
+    // anyway.
+    let mut prepared = prepared?;
 
     // A `vars` run argument overrides the descriptor's, and vars drive `enabled`,
     // alias, schema, database and materialization — so this run's models are not
@@ -359,8 +336,10 @@ pub(crate) async fn handle_dbt_job(
     // would replace the last real run's models with a SELECT's.
     if prepared.graph_refresh.needed() && !windmill_parser_yaml::dbt::is_read_only_command(&command)
     {
+        // A parse and an ingest write no relation either, so a failure in either
+        // leaves the saved run as accurate as the preparation exits above do.
         if command != "retry" {
-            let parsed = run_dbt_parse(
+            run_dbt_parse(
                 &prepared,
                 &descriptor,
                 &inv,
@@ -369,34 +348,12 @@ pub(crate) async fn handle_dbt_job(
                 &job.workspace_id,
                 conn,
             )
-            .await;
-            // Nothing resumable came of this run, so the previous one's state
-            // must not stay authoritative — these exits never reach the save
-            // that would otherwise clear it.
-            if let Err(e) = parsed {
-                invalidate_run_state(
-                    &job.workspace_id,
-                    &prepared.script_path,
-                    &job.permissioned_as,
-                    conn,
-                )
-                .await;
-                return Err(e);
-            }
+            .await?;
         }
         // For a retry the restored manifest already describes the invocation
         // being resumed, so only the ingest runs — with that invocation's
         // arguments, which the selection resolver needs to interpolate.
-        if let Err(e) = ingest_from_run(&prepared, &descriptor, &inv, &mut ctx, job, conn).await {
-            invalidate_run_state(
-                &job.workspace_id,
-                &prepared.script_path,
-                &job.permissioned_as,
-                conn,
-            )
-            .await;
-            return Err(e);
-        }
+        ingest_from_run(&prepared, &descriptor, &inv, &mut ctx, job, conn).await?;
     }
 
     // A read-only command has its own path: dbt prints the rows to stdout, so it
@@ -3755,11 +3712,9 @@ async fn restore_run_state(
     else {
         return restore_from_db(p, w_id, permissioned_as, inv, conn, no_state()).await;
     };
-    // dbt builds a retry's graph from the error, fail and skipped nodes alone,
-    // so retrying an all-green run selects nothing and writes nothing — and a
-    // job that succeeds having written nothing still dispatches every
-    // deploy-time write, waking every downstream consumer for relations no one
-    // touched. Refuse instead.
+    // dbt builds a retry's graph from the error, fail and skipped nodes alone, so
+    // retrying an all-green run selects nothing and builds nothing. Refused
+    // rather than reported as a successful run of nothing.
     if !has_retryable_node(&saved_results) {
         return Err(nothing_to_retry());
     }
@@ -4566,9 +4521,6 @@ mod tests {
         }
     }
 
-    // A retry of an all-green run selects nothing, writes nothing, and still
-    // succeeds — and a successful dbt job dispatches every deploy-time write,
-    // so it would wake every downstream consumer for relations no one touched.
     // A retry rewrites `run_results.json` with only the nodes it redid, so the
     // job's own result has to be the union: replacing would drop every node that
     // succeeded before it, and nothing would settle their materializations.
@@ -4735,10 +4687,9 @@ mod tests {
         assert!(has_retryable_node("not json"));
     }
 
-    /// Every exit that produces no `run_results.json` must forget the previous
-    /// run's state. `save_run_state` handles the ones that reach it; the
-    /// pre-build failures never do, and a retry resuming an older invocation
-    /// writes relations the run that just failed never touched.
+    /// An interrupted BUILD leaves the warehouse in a state the previous run's
+    /// failures no longer describe, so that state has to go — including its local
+    /// generation, which a retry landing back on this worker reads first.
     #[tokio::test]
     async fn invalidating_run_state_drops_the_local_generation() {
         let dir = state_dir("ws", "f/a/one", "u/alice");

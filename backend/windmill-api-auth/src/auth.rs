@@ -844,19 +844,17 @@ pub async fn resolve_opt_job_authed(
 /// below strips the prefix and returns that name verbatim. From a request it
 /// would let any member mint a token that speaks as a named user.
 ///
-/// Two shapes, for two reasons. `ephemeral-script-end-user-` is the one that
-/// names a PERSON: the arm below strips the prefix and returns the rest
-/// verbatim. `ephemeral-` is what `is_user_token` reads as a system token, so a
-/// client-chosen one is a token its own owner cannot list or revoke.
+/// One shape: `ephemeral-script-end-user-`, whose arm below strips the prefix and
+/// returns the rest verbatim, so the label names a PERSON.
 ///
-/// `webhook-` / `http-` / `email-` / `ws-` stay allowed: they yield the label
-/// itself, which cannot collide with a username, and the trigger panels mint
-/// exactly those through the public API by design — `token_label_idor.rs` guards
-/// it. Collision between two such tokens is not defended here at all:
+/// Every other arm yields a value that is prefixed or fixed and so cannot be a
+/// username — and `webhook-` / `http-` / `email-` / `ws-` are minted through the
+/// public API by the trigger panels on purpose, with `token_label_idor.rs`
+/// guarding that. Collision between two such tokens is not defended here at all:
 /// GHSA-8x8x-88qc-qp4r settled that by refusing to trust this name for
 /// authorization.
 pub fn is_reserved_token_label(label: &str) -> bool {
-    label.starts_with("ephemeral-script-end-user-") || label.starts_with("ephemeral-webhook-")
+    label.starts_with("ephemeral-script-end-user-")
 }
 
 fn username_override_from_label(label: Option<String>) -> Option<String> {
@@ -887,10 +885,9 @@ fn username_override_from_label(label: Option<String>) -> Option<String> {
 mod label_tests {
     use super::{is_reserved_token_label, username_override_from_label};
 
-    /// Reserved when the label becomes a bare username, or when it claims to be
-    /// a system token (`is_user_token` hides those from their owner's list).
-    /// Anything else is a client's to choose — `token_label_idor.rs` pins the
-    /// trigger panels' own shapes, which must keep working.
+    /// Reserved exactly when the label becomes a bare username. Anything else is
+    /// a client's to choose — `token_label_idor.rs` pins the trigger panels' own
+    /// shapes, which must keep working.
     #[test]
     fn only_labels_that_become_a_bare_username_are_reserved() {
         assert_eq!(
@@ -898,12 +895,11 @@ mod label_tests {
             Some("alice".to_string()),
             "this is the shape that impersonates a person"
         );
-        for label in ["ephemeral-script-end-user-alice", "ephemeral-webhook-kafka-ab12c"] {
-            assert!(is_reserved_token_label(label), "`{label}` must be refused");
-        }
+        assert!(is_reserved_token_label("ephemeral-script-end-user-alice"));
         // Minted by the webhook / route / email panels through the public API, and
         // prefixed, so they name no user.
         for label in [
+            "ephemeral-webhook-kafka-ab12c",
             "webhook-test-user-2-ab12",
             "http-test-user-2-cd34",
             "email-test-user-2-ef56",

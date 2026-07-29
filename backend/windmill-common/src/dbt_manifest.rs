@@ -196,8 +196,11 @@ pub const RUN_GRAPH_RETENTION_DAYS: i32 = 30;
 
 /// Drop the run snapshots older than the retention window, across the instance.
 ///
-/// Called by the runs that write them, so this table needs no background sweep —
-/// the same shape `dbt_run_progress` uses.
+/// Called by everything that writes them — a run, a deploy, and the endpoint an
+/// agent worker publishes through — so this table needs no background sweep, the
+/// same shape `dbt_run_progress` uses. A writer that does not call it is a
+/// configuration with no sweep at all: an agent-only project is deployed once and
+/// never runs where the pool is reachable.
 ///
 /// Also drops the deploy graphs of the running script beyond
 /// `DEPLOYED_GRAPH_VERSIONS_KEPT`, which is the only reclamation those have.

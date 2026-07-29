@@ -259,8 +259,17 @@ caller cannot pin one project's version while naming another's run.
 
 ## What a dbt job returns, and which half of it is a contract
 
-The result is `{engine, engine_version, command, totals, nodes}`, and each node
-carries both `status` and `outcome`.
+The result is `{engine, engine_version, command, totals, nodes, invocation_args}`,
+and each node carries both `status` and `outcome`.
+
+`invocation_args` is the arguments the run used, as SUBMITTED — a `$var:` stays a
+reference, so no resolved value is published — and it is omitted when empty. It
+exists because a `dbt retry` restores the failed run's arguments inside the
+worker and never writes them back to the retry job, whose own args are just
+`{"dbt_command": "retry"}`: the row preview, which is a `dbt show` of the same
+project, has nowhere else to get them. On a retry it is therefore ANOTHER
+invocation's arguments, which is why a hidden run saves no state at all (see the
+retry section).
 
 `status` is dbt's own word, verbatim — `success`, `error`, `partial success`,
 `no-op`. It is what the log says and what dbt's docs describe, so it belongs in
