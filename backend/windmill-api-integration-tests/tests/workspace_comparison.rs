@@ -1275,11 +1275,13 @@ async fn test_fork_tally_ahead_without_deploy_to(db: Pool<Postgres>) -> anyhow::
         Ok(())
     };
 
-    // The tally runs in a `tokio::spawn` inside `handle_deployment_metadata`.
+    // The tally runs in a `tokio::spawn` inside `handle_deployment_metadata`, one
+    // upsert per upstream target. Stopping at the first non-NULL read would let a
+    // dedup regression slip through: it shows `ahead = 1` between the two upserts.
+    // So keep sampling after the row appears and return the settled value.
     let ahead_for = async |path: &str| -> anyhow::Result<Option<i32>> {
-        let mut ahead = None;
-        for _ in 0..40 {
-            ahead = sqlx::query_scalar!(
+        let read = async || -> anyhow::Result<Option<i32>> {
+            Ok(sqlx::query_scalar!(
                 "SELECT ahead FROM workspace_diff
                  WHERE source_workspace_id = 'test-workspace'
                    AND fork_workspace_id = 'wm-fork-no-deploy-to'
@@ -1288,11 +1290,19 @@ async fn test_fork_tally_ahead_without_deploy_to(db: Pool<Postgres>) -> anyhow::
                 path
             )
             .fetch_optional(&db)
-            .await?;
+            .await?)
+        };
+        let mut ahead = None;
+        for _ in 0..40 {
+            ahead = read().await?;
             if ahead.is_some() {
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        for _ in 0..10 {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            ahead = read().await?;
         }
         Ok(ahead)
     };
