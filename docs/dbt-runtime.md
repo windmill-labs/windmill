@@ -197,16 +197,17 @@ construction: a `vars` value spelled with a `{{ placeholder }}`, or an `env`
 value spelled `$var:` (re-resolved every run). dbt vars can steer `enabled`,
 aliases, schemas, databases and materializations, so for those the deploy cannot
 know what will run and the graph is re-ingested from every run's own manifest. A
-run that cannot refresh those rows fails rather than showing a stale graph —
-which also means those descriptors cannot run on an agent worker, whose only DB
-access is through the API.
+run that cannot refresh those rows fails rather than showing a stale graph.
 
-Agent workers are further limited: any dbt script whose profile Windmill resolves
-is refused there, because the agent can neither read the relation root the graph
-was ingested against nor re-ingest it — so a profile changed since the last
-ingest would leave the graph naming relations the run never touched, with nothing
-to detect it. A project bringing its own `profiles.yml` has no root for Windmill
-to track and runs there normally.
+An agent worker reaches the database only through the API, so it POSTs the graph
+it parsed to `/api/agent_workers/dbt_graph/{workspace}` instead of writing it —
+which is why it needs no way to READ the stored relation root: publishing settles
+what comparing it would have asked. Dynamic descriptors and Windmill-resolved
+profiles therefore both run there. What an agent does not get is LIVE progress —
+that is a per-model event stream, and a round trip per node is the wrong trade —
+so its per-model state is settled from `run_results.json` when the run ends, and
+its retry state lives only in the worker-local generation. See
+[agent-worker-e2e.md](./agent-worker-e2e.md).
 
 The refresh happens **before** the build, from a `dbt parse` with this run's own
 vars and env, so a run in flight is already showing the models it is building.

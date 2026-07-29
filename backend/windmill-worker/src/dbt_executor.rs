@@ -199,7 +199,7 @@ pub(crate) async fn handle_dbt_job(
             }
         });
     }
-    let mut prepared = prepare_project(
+    let prepared = prepare_project(
         &descriptor,
         inner_content,
         locks.as_ref(),
@@ -214,7 +214,28 @@ pub(crate) async fn handle_dbt_job(
         &envs,
         modules,
     )
-    .await?;
+    .await;
+    // Preparation runs before anything that could clear stale state, and it can
+    // fail for reasons that have nothing to do with the saved run — a profile
+    // that no longer resolves, a cancelled provision. The invocation still
+    // produced nothing resumable, so the previous one must not stay
+    // authoritative. A retry is exempt: it is trying to USE that state, and
+    // failing to prepare is not a verdict on it.
+    let mut prepared = match prepared {
+        Ok(p) => p,
+        Err(e) => {
+            if arg_str(&args, "dbt_command")?.as_deref() != Some("retry") {
+                invalidate_run_state(
+                    &job.workspace_id,
+                    job.runnable_path.as_deref().unwrap_or_default(),
+                    &job.permissioned_as,
+                    conn,
+                )
+                .await;
+            }
+            return Err(e);
+        }
+    };
 
     // A `vars` run argument overrides the descriptor's, and vars drive `enabled`,
     // alias, schema, database and materialization — so this run's models are not
