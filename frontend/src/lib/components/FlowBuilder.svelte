@@ -777,7 +777,9 @@
 		onClick: () => void
 	}> = []
 
-	if (untrack(() => customUi).topBar?.extraDeployOptions != false) {
+	// In a session pane every one of these leaves the session (details page, new
+	// tab), so the deploy button carries no dropdown there — as in ScriptBuilder.
+	if (untrack(() => customUi).topBar?.extraDeployOptions != false && !inSessionPane) {
 		if (!newFlow) {
 			dropdownItems.push({
 				label: 'Exit & see details',

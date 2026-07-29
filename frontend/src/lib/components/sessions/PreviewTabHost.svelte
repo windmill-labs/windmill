@@ -12,8 +12,7 @@
 	import { resolvePreviewTab, parsePreviewItemRoute } from './previewRouter'
 	import { withMenuHidden } from './sessionMode.svelte'
 	import ArtifactViewer from '../copilot/chat/artifacts/ArtifactViewer.svelte'
-	import { setContext } from 'svelte'
-	import type { FlowPanelModalHostContext } from '../flows/types'
+	import { setOverlayHost } from '../common/overlayHost'
 
 	let {
 		tab,
@@ -118,10 +117,11 @@
 		active ? 'z-10 opacity-100 pointer-events-auto' : 'z-0 opacity-0 pointer-events-none'
 	)
 
-	// The editor's own detached-panel modal anchors here rather than to the document,
-	// so it stays within this tab and hides with it when another tab takes over.
+	// Overlays the editor opens (drawers, its detached-panel modal) anchor here rather
+	// than to the document, so they stay within this tab and hide with it when another
+	// tab takes over.
 	let editorEl: HTMLDivElement | undefined = $state()
-	setContext<FlowPanelModalHostContext>('flowPanelModalHost', () => editorEl)
+	setOverlayHost(() => editorEl)
 
 	let flashing = $state(false)
 	let flashTimer: ReturnType<typeof setTimeout> | undefined

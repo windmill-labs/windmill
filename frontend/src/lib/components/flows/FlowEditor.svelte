@@ -8,11 +8,8 @@
 	import WindmillIcon from '../icons/WindmillIcon.svelte'
 	import { Skeleton } from '../common'
 	import { getContext, onDestroy, onMount, setContext } from 'svelte'
-	import type {
-		FlowEditorContext,
-		FlowPanelDetachContext,
-		FlowPanelModalHostContext
-	} from './types'
+	import type { FlowEditorContext, FlowPanelDetachContext } from './types'
+	import { getOverlayHost } from '$lib/components/common/overlayHost'
 	import Portal from '$lib/components/Portal.svelte'
 	import { zIndexes } from '$lib/zIndexes'
 	import { isFlowLevelPanelTarget } from '$lib/components/graph/selectionUtils.svelte'
@@ -139,8 +136,8 @@
 
 	const panelOverlay = useOverlayStack(() => panelMode === 'modal' && panelModalOpen, openedDrawers)
 
-	const modalHostContext = getContext<FlowPanelModalHostContext | undefined>('flowPanelModalHost')
-	const modalHost = $derived(modalHostContext?.())
+	const overlayHost = getOverlayHost()
+	const modalHost = $derived(overlayHost?.())
 
 	function openPanelModalFromGraph(e: MouseEvent) {
 		// Only nodes that can take the selection, or the modal would open on whatever

@@ -6,6 +6,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import EEOnly from '$lib/components/EEOnly.svelte'
 	import { enterpriseLicense } from '$lib/stores'
+	import { getOverlayHost } from '../overlayHost'
 
 	interface Props {
 		aiId?: string | undefined
@@ -53,10 +54,18 @@
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
+
+	// A drawer anchored to a pane (see overlayHost) is as tall as that pane, so
+	// sizing against the viewport would overflow it.
+	const overlayHost = getOverlayHost()
+	const anchored = $derived(!!overlayHost?.())
 </script>
 
 <div
-	class={classNames('flex flex-col divide-y', fullScreen ? 'h-screen max-h-screen' : 'h-full')}
+	class={classNames(
+		'flex flex-col divide-y',
+		fullScreen && !anchored ? 'h-screen max-h-screen' : 'h-full'
+	)}
 	{id}
 >
 	<div class="flex justify-between w-full items-center pl-2 pr-4 py-2 gap-2">

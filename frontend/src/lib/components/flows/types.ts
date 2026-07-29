@@ -147,8 +147,3 @@ export type FlowPanelDetachContext = {
 	dockVisible: () => boolean
 	dock: () => void
 }
-
-/** Element the detached step-details modal is anchored to. Hosts that embed the flow
- *  editor in their own box (a session tab) provide it; unset means the document body,
- *  so the modal covers the window. */
-export type FlowPanelModalHostContext = () => HTMLElement | undefined
