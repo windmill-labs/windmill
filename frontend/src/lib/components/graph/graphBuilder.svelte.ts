@@ -62,6 +62,8 @@ export type GraphEventHandlers = {
 	deleteBranch: (detail: { id: string; index: number }, label: string) => void
 	select: (mod: string | FlowModule) => void
 	delete: (detail: { id: string }, label: string) => void
+	/** Drop a node that only mirrors run state (the error handler marker). Never edits the flow. */
+	dismissRunNode: (id: string) => void
 	newBranch: (id: string) => void
 	move: (detail: { id: string }) => void
 	duplicate: (detail: { id: string }) => void
@@ -123,6 +125,7 @@ export type FlowNode =
 	| CollapsedGroupN
 	| GroupHeadN
 	| GroupEndN
+	| FailureModuleN
 
 export type InputN = {
 	type: 'input2'
@@ -160,6 +163,18 @@ export type ModuleN = {
 		isOwner: boolean
 		assets: AssetWithAltAccessType[] | undefined
 		moduleAction: ModuleActionInfo | undefined
+	}
+}
+
+/** The error handler as it appears in the editor graph once a run triggered it: an inert
+ * marker of where the handler fired, not an editable step of the flow structure. */
+export type FailureModuleN = {
+	type: 'failureModule'
+	data: {
+		id: string
+		module: FlowModule
+		eventHandlers: GraphEventHandlers
+		flowModuleState: GraphModuleState | undefined
 	}
 }
 
@@ -387,7 +402,13 @@ export function topologicalSort(
 		if (visited.has(id)) return
 		visited.add(id)
 
-		const node = nodeMap.get(id)!
+		// A parent id with no node is a bug in whoever built the graph, but the whole editor
+		// unmounts if this throws, so warn and let the rest of the graph render.
+		const node = nodeMap.get(id)
+		if (!node) {
+			console.warn('Edge to a node that does not exist: ', id)
+			return
+		}
 		node.parentIds?.forEach(visit)
 		result.push(node)
 	}
@@ -479,6 +500,29 @@ export function graphBuilder(
 				},
 				type: 'module',
 				selectable: true
+			})
+
+			return module.id
+		}
+
+		// In the editor the error handler is configured from its own header button, so its graph node
+		// is only a marker of the last run: inert, dismissable, and never selectable. Everywhere else
+		// (run view, viewers) it stays a regular step card.
+		function addFailureNode(module: FlowModule) {
+			if (!extra.editMode) {
+				return addNode(module)
+			}
+
+			nodes.push({
+				id: module.id,
+				data: {
+					id: module.id,
+					module,
+					eventHandlers: eventHandlers,
+					flowModuleState: extra.flowModuleStates?.[module.id]
+				},
+				type: 'failureModule',
+				selectable: false
 			})
 
 			return module.id
@@ -1193,7 +1237,17 @@ export function graphBuilder(
 			processModules(topLevelItems, undefined, inputNode, resultNode, false, undefined)
 		}
 
+		// Before the failure markers: the preprocessor can be the step that failed, and a marker is
+		// only anchored to a step already present in `nodes`.
+		if (preprocessorModule) {
+			addNode(preprocessorModule)
+			const id = JSON.parse(JSON.stringify(preprocessorModule.id))
+			addEdge(id, 'Input', undefined, undefined, { type: 'empty' })
+		}
+
 		if (failureModule) {
+			// Keyed by failing step, so a step that failed several times (loop iterations each run
+			// their own handler, with ids like `failure-0-1`) gets one marker, not a stack of them.
 			let toAdd: Record<string, string> = {}
 			Object.keys(extra.flowModuleStates ?? {}).forEach((id) => {
 				if (id.startsWith('failure')) {
@@ -1205,19 +1259,19 @@ export function graphBuilder(
 			})
 
 			Object.entries(toAdd).forEach((x) => {
-				addNode({ ...failureModule, id: x[1] })
+				// Run state outlives the flow it ran on: a step deleted since the run keeps its marker
+				// in `flowModuleStates`. Anchoring the marker to a step that is no longer in the graph
+				// leaves a parent id no node answers to, which the layout cannot sort.
+				if (!nodes.some((n) => n.id === x[0])) {
+					return
+				}
+				addFailureNode({ ...failureModule, id: x[1] })
 				addEdge(x[0], x[1], undefined, undefined, { type: 'empty' })
 			})
 		}
 
-		if (preprocessorModule) {
-			addNode(preprocessorModule)
-			const id = JSON.parse(JSON.stringify(preprocessorModule.id))
-			addEdge(id, 'Input', undefined, undefined, { type: 'empty' })
-		}
-
 		if (failureModule && !extra.flowModuleStates) {
-			addNode(failureModule)
+			addFailureNode(failureModule)
 		}
 
 		Object.keys(parents).forEach((key) => {

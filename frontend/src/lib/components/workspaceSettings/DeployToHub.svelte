@@ -287,8 +287,9 @@
 									{/if}
 									<Tooltip>
 										Resource types the selected items depend on (whether passed as inputs or
-										referenced by a hardcoded path). Synced to the Hub so a fork knows what
-										credentials it needs to fill.
+										referenced by a hardcoded path). A stub resource of each type is synced to the
+										Hub so a fork knows what credentials it needs to fill. Publishing a type's own
+										definition is opt-in — tick it in the details drawer.
 									</Tooltip>
 								</span>
 								{#if s.dependencyTypes.length === 0}
@@ -303,6 +304,9 @@
 												: 'bg-surface'}"
 										>
 											{r.resource_type}
+											{#if s.exportedResourceTypes.has(r.resource_type)}
+												<Badge color="blue" size="xs">exported</Badge>
+											{/if}
 										</span>
 									{/each}
 									<Button
@@ -311,7 +315,9 @@
 										wrapperClasses="ml-auto"
 										onclick={() => resourceDrawer?.openDrawer()}
 									>
-										View details
+										{s.exportedDependencyTypes.length > 0
+											? `View details (${s.exportedDependencyTypes.length} type definition${s.exportedDependencyTypes.length > 1 ? 's' : ''} exported)`
+											: 'View details'}
 									</Button>
 								{/if}
 							</div>
@@ -830,11 +836,18 @@
 			<DrawerContent title="Resource dependencies" on:close={() => resourceDrawer?.closeDrawer()}>
 				<div class="flex flex-col gap-4">
 					<p class="text-xs text-secondary">
-						Resource types the selected items depend on. Each is synced to the Hub so a fork knows
-						what credentials it needs to fill. <span class="font-semibold">Input</span> means the
-						item takes the resource as a parameter;
+						Resource types the selected items depend on. A stub resource of each type is synced to
+						the Hub so a fork knows what credentials it needs to fill.
+						<span class="font-semibold">Input</span> means the item takes the resource as a
+						parameter;
 						<span class="font-semibold">hardcoded path</span> means the item pins a specific resource
 						path in its code.
+					</p>
+					<p class="text-xs text-secondary">
+						Publishing a type's own <span class="font-semibold">definition</span> (its schema and
+						description) is a separate, explicit choice: tick
+						<span class="font-semibold">Export type definition</span> only for custom types the Hub doesn't
+						already know. Standard types are already defined on the Hub and need no export.
 					</p>
 					{#if s.dependencyTypes.length === 0}
 						<span class="text-xs text-hint">No resource references in the current selection.</span>
@@ -852,6 +865,19 @@
 									<span class="text-[11px] text-hint">
 										{r.usages.length} usage{r.usages.length > 1 ? 's' : ''}
 									</span>
+									<div class="ml-auto shrink-0">
+										<Toggle
+											size="xs"
+											checked={s.exportedResourceTypes.has(r.resource_type)}
+											disabled={s.deploying}
+											on:change={() => s.toggleResourceTypeExport(r.resource_type)}
+											options={{
+												right: 'Export type definition',
+												rightTooltip:
+													'Publishes this resource type (name, schema, description) to the Hub project. Leave off if the Hub already defines it.'
+											}}
+										/>
+									</div>
 								</div>
 								<div class="flex flex-col gap-3">
 									{#each r.usages as u, ui (ui)}

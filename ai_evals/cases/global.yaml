@@ -1877,3 +1877,49 @@
         stringIncludesAnyOf:
           - email
   skipJudge: true
+
+# --- Windmill Hub reuse (search_hub_scripts + read_workspace_item on a hub/ path) ---
+# Holded's API is obscure enough that a model writing from memory cannot reproduce
+# its endpoint and `key` auth header — so the draft's fidelity to the published
+# script is what proves the hub content was actually fetched, not guessed.
+- id: global-hub1-reuse-hub-script
+  prompt: |-
+    I want to email one of my Holded invoices to a customer from Windmill.
+    There is already a script for that on the Windmill hub — reuse it instead of writing
+    your own, and save it as a draft script at `f/evals/global/holded_send_document`.
+    Leave it as an AI draft; do not deploy it.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 12
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        path: f/evals/global/holded_send_document
+        language: bun
+        valueIncludes:
+          - api.holded.com/api/invoicing/v1/documents
+          # `mailTemplateId` is an optional field of the published script's body
+          # that a model writing from memory does not invent, so it is what
+          # separates reusing the hub script from re-deriving one that merely
+          # hits the same endpoint.
+          - mailTemplateId
+  toolExpect:
+    requiredToolsUsed:
+      - search_hub_scripts
+      - read_workspace_item
+      - write_script
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: read_workspace_item
+        field: path
+        stringIncludesAnyOf:
+          - hub/
+  judgeChecklist:
+    - the draft sends an existing Holded document by email rather than creating one
+    - the request targets Holded's document send endpoint, not an invented URL
+    - authentication uses Holded's own key header rather than a bearer token
+    - the document type, document id, and recipient emails are inputs to the script
+    - the result stays an AI draft and is not deployed

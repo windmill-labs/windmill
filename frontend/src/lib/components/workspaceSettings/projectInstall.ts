@@ -20,6 +20,7 @@ import {
 } from '../triggers/workspaceTriggersList'
 import { updatePolicy } from '$lib/components/apps/editor/appPolicy'
 import { updateRawAppPolicy } from '$lib/sharedUtils'
+import { apiErrorMessage as errorMessage } from '$lib/utils'
 import type { App } from '$lib/components/apps/types'
 import { runScriptAndPollResult } from '$lib/components/jobs/utils'
 import {
@@ -72,18 +73,6 @@ export function varContainmentViolation(value: any, folder: string): string | un
 		}
 	}
 	return undefined
-}
-
-// Surface the backend's explanation: API errors carry the real message in
-// `.body` (plain text for Windmill 4xx), while `.message` is the generic
-// status text ("Bad Request"). Prefer the body so e.g. a path/route_path
-// collision reads as the actual reason, not just "Bad Request".
-function errorMessage(e: any): string {
-	const body = e?.body
-	if (typeof body === 'string' && body.trim() !== '') return body
-	if (body && typeof body === 'object')
-		return body.error?.message ?? body.message ?? JSON.stringify(body)
-	return e?.message ?? String(e)
 }
 
 // Recompute an app's execution policy from its (retargeted) value, mirroring

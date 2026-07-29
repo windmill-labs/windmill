@@ -426,13 +426,18 @@
 				navigation.cancel()
 				window.location.href = navigation.to!.url.href
 			}
-		} else if (toPath && (isEditorPath(currentPath) || window.crossOriginIsolated)) {
+		} else if (toPath && isEditorPath(currentPath)) {
 			// Reverse of the guard above: leaving the isolated editor document must
 			// also fully reload, or its COEP header sticks for the rest of the SPA
 			// session and blocks CORP-less cross-origin subresources (e.g. images in
 			// a viewed app — see needs_cross_origin_isolation in static_assets.rs).
-			// The path check covers plain-HTTP origins, where `crossOriginIsolated`
-			// stays false even with the headers applied.
+			// Key off the path, never `window.crossOriginIsolated`: a deployment may
+			// isolate the whole site (frontend/static/_headers does, for Cloudflare
+			// Pages), and there the flag is true on every page — turning every
+			// navigation into a full page load, while the reload it forces cannot
+			// clear an isolation the next document asserts too. Among the routes this
+			// layout governs, only the editor is served the headers, so entering it is
+			// the only way into an isolated document here.
 			navigation.cancel()
 			window.location.href = navigation.to!.url.href
 		}
@@ -1047,7 +1052,7 @@
 						style:width="{railWidth}rem"
 					>
 						<div
-							class="flex-1 flex flex-col min-h-0 h-screen shadow-[inset_-1px_0_0_0_rgb(var(--color-border-light))] dark:shadow-[inset_-1px_0_0_0_#374151]"
+							class="flex-1 flex flex-col min-h-0 h-screen shadow-[inset_-1px_0_0_0_rgb(var(--color-border-light))] dark:shadow-[inset_-1px_0_0_0_#374151] [html.github-dark_&]:shadow-[inset_-1px_0_0_0_rgb(var(--color-border-light))]"
 							style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}
 						>
 							{#if !isCollapsed}

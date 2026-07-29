@@ -2,11 +2,22 @@
 
 import asyncio
 import json
+import pathlib
 import pytest
 
 from datetime import datetime, timezone
 
 from wmill.client import WorkflowCtx, _StepSuspend, TaskError, workflow, task, step, sleep, parallel, wait_for_approval, _run_workflow, _run_workflow_async
+
+
+class _FakeItems(dict):
+    """A mapping whose ``items()`` yields something that is not a key/value pair."""
+
+    def __bool__(self):
+        return True
+
+    def items(self):
+        return [None]
 
 
 class _StubInlineClient:
@@ -968,6 +979,59 @@ class TestErrorPropagation:
         assert "step failed" in r["result"]["caught"]
 
 
+class TestFailureRecordCorpus:
+    """The cases both SDKs must agree on, from the corpus the typescript suite
+    also reads. Its `_readme` states the contract and why it is shared."""
+
+    CORPUS = json.loads(
+        (
+            pathlib.Path(__file__).resolve().parents[3]
+            / "backend/windmill-common/src/wac_failure_corpus.json"
+        ).read_text()
+    )
+
+    @staticmethod
+    def _construct(spec: dict) -> BaseException:
+        exc = type(spec["name"], (Exception,), {})(spec["message"])
+        for key, value in (spec.get("props") or {}).items():
+            setattr(exc, key, value)
+        if spec.get("circular_prop"):
+            cyclic: dict = {}
+            cyclic["self"] = cyclic
+            setattr(exc, spec["circular_prop"], cyclic)
+        return exc
+
+    @pytest.mark.parametrize("case", CORPUS["cases"], ids=lambda c: c["case"])
+    def test_marker_matches_the_shared_contract(self, case):
+        exc = self._construct(case["thrown"])
+
+        def raiser():
+            raise exc
+
+        # through the real step path, so the stack is the one a failure actually
+        # records rather than one this test happens to construct
+        async def run():
+            ctx = WorkflowCtx({})
+            try:
+                await ctx._run_inline_step("k", raiser)
+            except _StepSuspend as suspended:
+                return suspended.dispatch_info["result"]
+            raise AssertionError("a raising step did not suspend")
+
+        error = asyncio.run(run())["result"]["error"]
+
+        expect = case["expect"]
+        assert error["name"] == expect["name"]
+        assert error["message"] == expect["message"]
+        assert ("stack" in error) == (expect["stack"] == "present")
+        if "extra" in expect:
+            assert error["extra"] == expect["extra"]
+        for absent in expect.get("absent", []):
+            assert absent not in error
+        # whatever it kept has to survive the trip to the checkpoint
+        json.dumps(error, allow_nan=False)
+
+
 class TestRaisingInlineStepIsCheckpointed:
     """A ``step()`` whose body raises must still land in ``completed_steps``.
 
@@ -1091,6 +1155,52 @@ class TestRaisingInlineStepIsCheckpointed:
         marker = _step_error_marker("k", HostileDict())
         _json.dumps(marker)
         assert marker["result"]["error"]["name"] == "HostileDict"
+
+        # ...or an overridden __dict__, whatever shape it takes
+        class NotAMapping(Exception):
+            @property
+            def __dict__(self):
+                return "definitely not a mapping"
+
+        marker = _step_error_marker("k", NotAMapping())
+        _json.dumps(marker)
+        assert marker["result"]["error"]["name"] == "NotAMapping"
+
+        class YieldsNonPairs(Exception):
+            @property
+            def __dict__(self):
+                return _FakeItems()
+
+        marker = _step_error_marker("k", YieldsNonPairs())
+        _json.dumps(marker)
+        assert marker["result"]["error"]["name"] == "YieldsNonPairs"
+
+        class OddKey(Exception):
+            def __init__(self):
+                super().__init__("boom")
+                self.code = 429
+
+        odd = OddKey()
+        odd.__dict__[(1, 2)] = "tuple key"
+        marker = _step_error_marker("k", odd)
+        _json.dumps(marker)  # a surviving tuple key would raise here
+        assert marker["result"]["error"]["extra"] == {"code": 429}
+
+        class ExplodingKey:
+            def __init__(self):
+                self.hashed = 0
+
+            def __hash__(self):
+                self.hashed += 1
+                if self.hashed > 1:
+                    raise RuntimeError("second hash")
+                return 1
+
+        exploding = OddKey()
+        exploding.__dict__[ExplodingKey()] = "x"
+        marker = _step_error_marker("k", exploding)
+        _json.dumps(marker)
+        assert marker["result"]["error"]["extra"] == {"code": 429}
 
         # A float is serializable, so `default=` never sees NaN — it would go out
         # as a bare `NaN` literal, which is not JSON and which the backend

@@ -26,6 +26,7 @@
 
 	const isSuccessful = $derived(
 		!message.isLoading &&
+			!message.isQueued &&
 			!message.error &&
 			!message.needsConfirmation &&
 			!message.isStreamingArguments
@@ -64,7 +65,14 @@
 {#if activeUserQuestion}
 	<AskUserQuestionDisplay toolCallId={message.tool_call_id} userQuestion={activeUserQuestion} />
 {:else}
-	<div class="font-mono text-xs">
+	<!-- Queued calls (waiting their turn behind the executing tool) are faded: the
+	     reduced weight is what says "not started" — no icon, no spinner. -->
+	<div
+		class={twMerge(
+			'font-mono text-xs',
+			message.isQueued && !message.error ? 'opacity-60 hover:opacity-100 transition-opacity' : ''
+		)}
+	>
 		<!-- Collapsible Header -->
 		{#snippet headerButton()}
 			<button
