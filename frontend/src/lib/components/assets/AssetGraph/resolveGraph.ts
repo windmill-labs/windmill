@@ -867,7 +867,7 @@ function overlayInferredLineage(acc: Accumulator, input: ResolveGraphInput) {
  * the transforms it materializes (its sources are inputs, not transforms).
  *
  * Only the DRAWING is dropped. The producer rows these are derived from still
- * drive cascade dispatch and "who produced this".
+ * answer "who produced this".
  */
 export function dbtAssociations(
 	runnables: Array<{ usage_kind: string; path: string; dbt?: unknown }>,

@@ -337,7 +337,7 @@ pub(crate) async fn handle_dbt_job(
     // would replace the last real run's models with a SELECT's.
     if prepared.graph_is_per_run && !windmill_parser_yaml::dbt::is_read_only_command(&command) {
         if command != "retry" {
-            run_dbt_parse(
+            let parsed = run_dbt_parse(
                 &prepared,
                 &descriptor,
                 &inv,
@@ -346,12 +346,34 @@ pub(crate) async fn handle_dbt_job(
                 &job.workspace_id,
                 conn,
             )
-            .await?;
+            .await;
+            // Nothing resumable came of this run, so the previous one's state
+            // must not stay authoritative — these exits never reach the save
+            // that would otherwise clear it.
+            if let Err(e) = parsed {
+                invalidate_run_state(
+                    &job.workspace_id,
+                    &prepared.script_path,
+                    &job.permissioned_as,
+                    conn,
+                )
+                .await;
+                return Err(e);
+            }
         }
         // For a retry the restored manifest already describes the invocation
         // being resumed, so only the ingest runs — with that invocation's
         // arguments, which the selection resolver needs to interpolate.
-        ingest_from_run(&prepared, &descriptor, &inv, &mut ctx, job, conn).await?;
+        if let Err(e) = ingest_from_run(&prepared, &descriptor, &inv, &mut ctx, job, conn).await {
+            invalidate_run_state(
+                &job.workspace_id,
+                &prepared.script_path,
+                &job.permissioned_as,
+                conn,
+            )
+            .await;
+            return Err(e);
+        }
     }
 
     // A read-only command has its own path: dbt prints the rows to stdout, so it
@@ -2988,6 +3010,38 @@ fn state_dir(w_id: &str, script_path: &str, permissioned_as: &str) -> PathBuf {
         .join(digest(&format!("{w_id}/{script_path}/{permissioned_as}")))
 }
 
+/// Forget any saved retry state for this principal and script.
+///
+/// Called wherever an invocation ends without producing a resumable
+/// `run_results.json` — including the pre-build exits, which never reach the
+/// save. Leaving the previous run's state behind lets `dbt retry` resume ITS
+/// failed nodes, writing relations the run that actually just failed never
+/// touched.
+async fn invalidate_run_state(
+    w_id: &str,
+    script_path: &str,
+    permissioned_as: &str,
+    conn: &Connection,
+) {
+    if script_path.is_empty() {
+        return;
+    }
+    if let Connection::Sql(db) = conn {
+        let _ = sqlx::query!(
+            "DELETE FROM dbt_run_state
+              WHERE workspace_id = $1 AND script_path = $2 AND permissioned_as = $3",
+            w_id,
+            script_path,
+            permissioned_as,
+        )
+        .execute(db)
+        .await;
+    }
+    tokio::fs::remove_file(state_dir(w_id, script_path, permissioned_as).join(CURRENT_GENERATION))
+        .await
+        .ok();
+}
+
 async fn save_run_state(
     p: &PreparedProject,
     w_id: &str,
@@ -3031,20 +3085,7 @@ async fn save_run_state(
     // nodes, which are not what last ran here. Both copies go, so neither can
     // answer for the other.
     let Some(results) = results else {
-        if let Connection::Sql(db) = conn {
-            let _ = sqlx::query!(
-                "DELETE FROM dbt_run_state
-                  WHERE workspace_id = $1 AND script_path = $2 AND permissioned_as = $3",
-                w_id,
-                &p.script_path,
-                permissioned_as,
-            )
-            .execute(db)
-            .await;
-        }
-        tokio::fs::remove_file(state_dir(w_id, &p.script_path, permissioned_as).join(CURRENT_GENERATION))
-            .await
-            .ok();
+        invalidate_run_state(w_id, &p.script_path, permissioned_as, conn).await;
         return Ok(());
     };
     let mut durable_err = None;
@@ -4366,6 +4407,31 @@ mod tests {
         // Unreadable results let dbt decide rather than refusing a retry the
         // user may well need.
         assert!(has_retryable_node("not json"));
+    }
+
+
+    /// Every exit that produces no `run_results.json` must forget the previous
+    /// run's state. `save_run_state` handles the ones that reach it; the
+    /// pre-build failures never do, and a retry resuming an older invocation
+    /// writes relations the run that just failed never touched.
+    #[tokio::test]
+    async fn invalidating_run_state_drops_the_local_generation() {
+        let dir = state_dir("ws", "f/a/one", "u/alice");
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        tokio::fs::write(dir.join(CURRENT_GENERATION), b"gen-old")
+            .await
+            .unwrap();
+
+        let http = Connection::Http(windmill_common::worker::HttpClient {
+            client: reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build(),
+            base_internal_url: String::new(),
+        });
+        invalidate_run_state("ws", "f/a/one", "u/alice", &http).await;
+
+        assert!(
+            !dir.join(CURRENT_GENERATION).exists(),
+            "the pointer a retry reads must be gone"
+        );
     }
 
     #[test]

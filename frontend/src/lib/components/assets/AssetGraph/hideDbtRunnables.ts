@@ -4,8 +4,8 @@ import type { AssetGraphResponse } from './types'
  * The pipeline's view of a folder that also holds a dbt project.
  *
  * The relations a dbt project materializes belong on this graph: they are what
- * a pipeline script downstream of a mart reads, and what makes it cascade from
- * the dbt run. The dbt *script* does not. It is not a pipeline member — it is
+ * a pipeline script downstream of a mart reads, so the lineage into it is
+ * visible. The dbt *script* does not. It is not a pipeline member — it is
  * authored in a local `dbt run` loop and has its own script and run pages — so
  * rendering it beside the pipeline's own scripts is what blurs which of the two
  * a folder holds.
