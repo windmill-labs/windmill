@@ -3022,11 +3022,33 @@ async fn save_run_state(
     // The durable copy, so a retry works from any worker of the group. Only
     // `run_results.json`: the manifest is a pure function of what `identity`
     // already pins, so the resuming worker re-derives it with a `dbt parse`.
+    let results = tokio::fs::read_to_string(p.project_dir.join(ARTIFACTS_DIR).join("run_results.json"))
+        .await
+        .ok();
+    // No `run_results.json` means this invocation produced nothing resumable —
+    // cancelled, timed out, or dead before dbt wrote one. The previous run's
+    // state must not stay authoritative: `dbt retry` would resume ITS failed
+    // nodes, which are not what last ran here. Both copies go, so neither can
+    // answer for the other.
+    let Some(results) = results else {
+        if let Connection::Sql(db) = conn {
+            let _ = sqlx::query!(
+                "DELETE FROM dbt_run_state
+                  WHERE workspace_id = $1 AND script_path = $2 AND permissioned_as = $3",
+                w_id,
+                &p.script_path,
+                permissioned_as,
+            )
+            .execute(db)
+            .await;
+        }
+        tokio::fs::remove_file(state_dir(w_id, &p.script_path, permissioned_as).join(CURRENT_GENERATION))
+            .await
+            .ok();
+        return Ok(());
+    };
     let mut durable_err = None;
     if let Connection::Sql(db) = conn {
-        if let Ok(results) =
-            tokio::fs::read_to_string(p.project_dir.join(ARTIFACTS_DIR).join("run_results.json"))
-                .await
         {
             durable_err = sqlx::query!(
                 "INSERT INTO dbt_run_state (workspace_id, script_path, permissioned_as, identity, args, run_results, job_id, updated_at)
@@ -3528,12 +3550,9 @@ fn merge_results(into: &mut Vec<DbtNodeResult>, from: Vec<DbtNodeResult>) {
 
 /// What a dbt node's status means, in the three terms this runtime acts on.
 ///
-/// One helper because six comparisons drifted apart: two folded case and four
-/// did not, while dbt-core 1.x echoes the author's casing and 2.x uppercases.
-/// And `partial success` -- a node that built but whose tests failed -- was
-/// read as a failure when counting totals and when deciding a retry, but fell
-/// through to "says nothing" at the two sites that settle the RELATION, so the
-/// model stayed `Running` on a finished job until some later run ended clean.
+/// Every site classifies through here: dbt-core 1.x echoes the author's casing
+/// where 2.x uppercases, so comparing statuses inline gives each site its own
+/// answer for the same node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DbtNodeOutcome {
     Started,

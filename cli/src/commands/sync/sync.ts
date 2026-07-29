@@ -2954,23 +2954,26 @@ async function pushParentScriptForModule(
   // A dbt project's descriptor sits beside its folder, never inside it: the
   // folder is the project, and dbt owns every name in it.
   if (isDbt) {
+    // Only the LOOKUP is tolerated: a module with no descriptor beside it is a
+    // stray file, not an error. Deploying it is not — swallowing that would let
+    // a module-only push report success while the remote project is unchanged.
+    let contentPath: string | undefined;
     try {
-      const contentPath = await findContentFile(
-        scriptBasePath + ".script.yaml",
-      );
-      if (contentPath) {
-        await handleFile(
-          contentPath,
-          workspace,
-          alreadySynced,
-          message,
-          opts,
-          rawWorkspaceDependencies,
-          codebases,
-        );
-      }
+      contentPath = await findContentFile(scriptBasePath + ".script.yaml");
     } catch {
       log.debug(`Could not find parent script for dbt module: ${modulePath}`);
+      return;
+    }
+    if (contentPath) {
+      await handleFile(
+        contentPath,
+        workspace,
+        alreadySynced,
+        message,
+        opts,
+        rawWorkspaceDependencies,
+        codebases,
+      );
     }
     return;
   }
