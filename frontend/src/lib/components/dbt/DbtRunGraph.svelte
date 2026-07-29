@@ -326,19 +326,36 @@
 	let relationDrift = $derived.by(() => {
 		if (running || !graph) return 0
 		if (!run?.nodes?.length) return 0
+		// Schema AND name, because the move this is most likely to be reporting —
+		// a profile repointed at another schema — leaves every model's name
+		// exactly where it was. An asset path is `<resource>/<schema>/<name>`,
+		// and its schema segment is `<database>.<schema>` only when the model
+		// overrode the target's database.
 		const byId = new Map(
 			graph.assets
 				.filter((a) => a.dbt?.unique_id)
-				.map((a) => [a.dbt!.unique_id, a.path.split('/').at(-1)])
+				.map((a) => [a.dbt!.unique_id, a.path.split('/').slice(-2)])
 		)
 		return run.nodes.filter((n) => {
 			if (!n.relation_name) return false
 			const now = byId.get(n.unique_id)
-			if (now == undefined) return false
+			if (now == undefined || now.length < 2) return false
+			const [nowSchema, nowName] = now
+			const parts = splitRelation(n.relation_name)
+			const name = parts.at(-1) ?? ''
+			const schema = parts.at(-2) ?? ''
+			// Qualified against qualified: an unqualified segment says the model
+			// is in the target's own database, which the relation names anyway,
+			// so comparing it would report a move on every node.
+			const wrote =
+				nowSchema.includes('.') && parts.length > 2 ? `${parts.at(-3)}.${schema}` : schema
 			// Asset paths are canonicalized to lower case, while `relation_name` is
 			// the warehouse's own spelling — Snowflake returns it upper. Comparing
 			// them raw makes every model of every Snowflake run look renamed.
-			return now.toLowerCase() !== (splitRelation(n.relation_name).at(-1) ?? '').toLowerCase()
+			return (
+				nowName.toLowerCase() !== name.toLowerCase() ||
+				nowSchema.toLowerCase() !== wrote.toLowerCase()
+			)
 		}).length
 	})
 
