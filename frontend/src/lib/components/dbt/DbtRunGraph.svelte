@@ -162,7 +162,13 @@
 		selection = undefined
 		previews = {}
 		rowsFor = undefined
-		void load()
+		// Only while the run is in flight. A FINISHED run is loaded by the effect
+		// below, which owns that case because a snapshot can land after the run
+		// ends — and on mount both effects fire in the same tick, so loading here
+		// too fetched the whole graph, every model's SQL included, twice. Read
+		// untracked: a dependency on `running` would re-run this reset, and its
+		// resets, the moment the run finishes.
+		if (untrack(() => running)) void load()
 		void jobId
 		void loadProgress()
 	})
@@ -344,17 +350,19 @@
 			const parts = splitRelation(n.relation_name)
 			const name = parts.at(-1) ?? ''
 			const schema = parts.at(-2) ?? ''
-			// Qualified against qualified: an unqualified segment says the model
-			// is in the target's own database, which the relation names anyway,
-			// so comparing it would report a move on every node.
-			const wrote =
-				nowSchema.includes('.') && parts.length > 2 ? `${parts.at(-3)}.${schema}` : schema
+			const qualified = parts.length > 2 ? `${parts.at(-3)}.${schema}` : schema
+			// Either spelling counts as unmoved. A segment holding a period is
+			// ambiguous — the model overrode its database, or the schema's own name
+			// contains one — and an unqualified segment says the model is in the
+			// target's own database, which the relation names anyway, so demanding
+			// the qualified form would report a move on every node.
 			// Asset paths are canonicalized to lower case, while `relation_name` is
 			// the warehouse's own spelling — Snowflake returns it upper. Comparing
 			// them raw makes every model of every Snowflake run look renamed.
+			const here = nowSchema.toLowerCase()
 			return (
 				nowName.toLowerCase() !== name.toLowerCase() ||
-				nowSchema.toLowerCase() !== wrote.toLowerCase()
+				(here !== schema.toLowerCase() && here !== qualified.toLowerCase())
 			)
 		}).length
 	})

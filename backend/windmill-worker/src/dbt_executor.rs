@@ -867,11 +867,15 @@ impl GraphRefresh {
             self.per_run_models = true;
             self.caller_scoped = true;
         }
-        // A narrowed selection needs no graph of its own — it builds a subset of
-        // the deployed one — but it does scope what an ingest triggered by
-        // another reason records, and a subset must not be published as the
-        // whole of what the script owns.
+        // A selection the caller chose needs a graph of its own: it is not
+        // necessarily a SUBSET of the deployed one. A descriptor deployed with
+        // `select: ["tag:nightly"]` and overridden with `["stg_orders"]` or
+        // `["*"]` builds models the deployed graph never had, and those are the
+        // ones whose progress, SQL and lineage the run page would have nothing
+        // to draw. It stays caller-scoped, so the subset it records is its own
+        // and not what the script owns.
         if selection_is_overridden(descriptor, args)? {
+            self.per_run_models = true;
             self.caller_scoped = true;
         }
         Ok(())
@@ -4769,19 +4773,19 @@ mod tests {
         assert_eq!(overridden.snapshot_job(job), Some(job));
         assert!(!overridden.publishes_ownership());
 
-        // A narrowed selection re-ingests nothing on its own — it builds a
-        // subset of the deployed graph — but it scopes an ingest another reason
-        // triggered: that subset must neither become the whole of what the
-        // script owns nor replace the version's graph, which holds the models
-        // this one invocation left out.
+        // A caller's own selection ingests its own graph: it is not necessarily a
+        // subset of the deployed one — `["*"]` against a descriptor that selects
+        // `tag:nightly` builds models the deployed graph never had — and those
+        // are the models the run page would have nothing to draw for. It stays
+        // caller-scoped, so that subset neither becomes what the script owns nor
+        // replaces the version's graph, which holds the models it left out.
         let mut narrowed = GraphRefresh::default();
         narrowed
             .add_caller_args(&descriptor, &arg("select", r#"["stg_orders"]"#))
             .unwrap();
-        assert!(!narrowed.needed());
-        narrowed.profile_drift = true;
-        assert!(!narrowed.publishes_ownership());
+        assert!(narrowed.needed());
         assert_eq!(narrowed.snapshot_job(job), Some(job));
+        assert!(!narrowed.publishes_ownership());
 
         // The generated form posts the descriptor's own `select` and `exclude`
         // back for every run started from the UI, a schedule or a webhook.
