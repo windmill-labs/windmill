@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, tick } from 'svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import type { FlowEditorContext } from '../types'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
-	import { Button, Drawer } from '$lib/components/common'
+	import { Button, Drawer, Tab, Tabs } from '$lib/components/common'
 	import { getStepPropPicker } from '../previousResults'
 
 	import { Play } from 'lucide-svelte'
@@ -14,6 +14,7 @@
 	import FlowLoopIterationPreview from '$lib/components/FlowLoopIterationPreview.svelte'
 	import IteratorGen from '$lib/components/copilot/IteratorGen.svelte'
 	import FlowRunSettings from './FlowRunSettings.svelte'
+	import StepSettingsBadges from './StepSettingsBadges.svelte'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
 
 	import InputTransformForm from '$lib/components/InputTransformForm.svelte'
@@ -21,6 +22,7 @@
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
 	import { emptySchema } from '$lib/utils'
+	import { slideDynamic } from '$lib/transitions'
 
 	const { previewArgs, flowStateStore, flowStore, currentEditor } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -67,8 +69,14 @@
 		}
 	}
 
+	let selectedTab = $state('loop')
+
 	useUiIntent(`forloopflow-${mod.id}`, {
-		openTab: (tab) => {
+		openTab: async (tab) => {
+			// Every setting the intent can name lives in the other tab, which only mounts
+			// `runSettings` once selected.
+			selectedTab = 'settings'
+			await tick()
 			runSettings?.openSetting(tab)
 		}
 	})
@@ -120,6 +128,8 @@
 		'The JavaScript expression that will be evaluated to get the list of items to iterate over. Example: ["banana", "apple", flow_input.my_fruit].'
 	const DEFAULT_PARALLELISM = 4
 	const PARALLELISM_LABEL = 'Max concurrent iterations'
+	const SQUASH_PARALLEL_CONFLICT =
+		'Squash and Run in parallel are mutually exclusive: squashing runs every iteration in sequence on a single worker. Turn the other one off to use this.'
 	const PARALLELISM_TOOLTIP =
 		'Cap how many iterations run at once, so a huge loop does not flood the workers.'
 </script>
@@ -154,7 +164,7 @@
 					<Button
 						on:click={() => (previewOpen = true)}
 						startIcon={{ icon: Play }}
-						variant="accent"
+						variant="default"
 						size="sm">Test an iteration</Button
 					>
 				</div>
@@ -162,153 +172,165 @@
 		</div>
 	{/snippet}
 
-	<div class="flex h-full min-h-0 flex-col gap-6 overflow-auto p-4">
+	<div class="flex h-full min-h-0 flex-col">
 		{#if mod.value.type === 'forloopflow'}
-			<section>
-				<PropPickerWrapper
-					popover={true}
-					flow_input={stepPropPicker.pickableProperties.flow_input}
-					notSelectable
-					displayContext={false}
-					pickableProperties={stepPropPicker.pickableProperties}
-					on:select={({ detail }) => {
-						editor?.insertAtCursor(detail)
-						editor?.focus()
-					}}
-				>
-					<InputTransformForm
-						bind:arg={
-							() => (mod.value as ForloopFlow).iterator,
-							(v) => {
-								;(mod.value as ForloopFlow).iterator = v
-							}
-						}
-						argName="iterator"
-						label={ITERATOR_LABEL}
-						headerTooltip={ITERATOR_TOOLTIP}
-						schema={iteratorSchema}
-						noDynamicToggle
-						extraLib={stepPropPicker.extraLib}
-						pickableProperties={stepPropPicker.pickableProperties}
-						previousModuleId={previousModule?.id}
-						bind:suggestion
-						bind:focused={iteratorFieldFocused}
-						aiOnKeyUp={iteratorGen?.onKeyUp}
-						bind:editor
-					>
-						{#snippet aiGen()}
-							{#if enableAi}
-								<IteratorGen
-									bind:this={iteratorGen}
-									focused={iteratorFieldFocused}
-									arg={(mod.value as ForloopFlow).iterator}
-									on:showExpr={(e) => (suggestion = e.detail || undefined)}
-									on:setExpr={(e) => setExpr(e.detail)}
-									pickableProperties={stepPropPicker.pickableProperties}
-								/>
-							{/if}
-						{/snippet}
-					</InputTransformForm>
-				</PropPickerWrapper>
-			</section>
+			<Tabs bind:selected={selectedTab} wrapperClass="shrink-0">
+				<Tab value="loop" label="Loop" />
+				<Tab value="settings" label="Run settings">
+					{#snippet extra()}
+						<StepSettingsBadges flowModule={mod} />
+					{/snippet}
+				</Tab>
+			</Tabs>
 
-			<section class="flex flex-col gap-6">
-				<div class="flex flex-col gap-6">
-					<Toggle
-						size="xs"
-						textClass="text-xs font-normal text-primary"
-						bind:checked={mod.value.skip_failures}
-						options={{
-							right: 'Skip failures',
-							rightTooltip:
-								'If disabled, the flow will fail as soon as one of the iteration fail. Otherwise, the error will be collected as the result of the iteration. Regardless of this setting, if a flow level error handler is defined, it will process the error. (Workspace error handlers will NOT be used to process errors if enabled.)',
-							rightDocumentationLink: 'https://www.windmill.dev/docs/flows/flow_loops'
-						}}
-					/>
-					<Toggle
-						size="xs"
-						textClass="text-xs font-normal text-primary"
-						bind:checked={mod.value.squash}
-						on:change={({ detail }) => {
-							;(mod.value as ForloopFlow).squash = detail
-						}}
-						disabled={mod.value.parallel}
-						options={{
-							right: 'Squash',
-							rightTooltip:
-								'Squashing a for loop runs all iterations on the same worker, using a single runner per step for the entire loop. This eliminates cold starts between iterations for supported languages (Bun, Deno, and Python).',
-							rightDocumentationLink: 'https://www.windmill.dev/docs/flows/flow_loops'
-						}}
-					/>
-					<!-- Its own group: the setting's input belongs to the toggle above it, not
-					     24px away like the next setting. -->
-					<div class="flex flex-col gap-2">
+			<div class="flex min-h-0 flex-1 flex-col gap-8 overflow-auto p-4">
+				{#if selectedTab === 'loop'}
+					<section>
+						<PropPickerWrapper
+							popover={true}
+							flow_input={stepPropPicker.pickableProperties.flow_input}
+							notSelectable
+							displayContext={false}
+							pickableProperties={stepPropPicker.pickableProperties}
+							on:select={({ detail }) => {
+								editor?.insertAtCursor(detail)
+								editor?.focus()
+							}}
+						>
+							<InputTransformForm
+								bind:arg={
+									() => (mod.value as ForloopFlow).iterator,
+									(v) => {
+										;(mod.value as ForloopFlow).iterator = v
+									}
+								}
+								argName="iterator"
+								label={ITERATOR_LABEL}
+								headerTooltip={ITERATOR_TOOLTIP}
+								schema={iteratorSchema}
+								noDynamicToggle
+								extraLib={stepPropPicker.extraLib}
+								pickableProperties={stepPropPicker.pickableProperties}
+								previousModuleId={previousModule?.id}
+								bind:suggestion
+								bind:focused={iteratorFieldFocused}
+								aiOnKeyUp={iteratorGen?.onKeyUp}
+								bind:editor
+							>
+								{#snippet aiGen()}
+									{#if enableAi}
+										<IteratorGen
+											bind:this={iteratorGen}
+											focused={iteratorFieldFocused}
+											arg={(mod.value as ForloopFlow).iterator}
+											on:showExpr={(e) => (suggestion = e.detail || undefined)}
+											on:setExpr={(e) => setExpr(e.detail)}
+											pickableProperties={stepPropPicker.pickableProperties}
+										/>
+									{/if}
+								{/snippet}
+							</InputTransformForm>
+						</PropPickerWrapper>
+					</section>
+					<section class="flex flex-col gap-6">
 						<Toggle
 							size="xs"
 							textClass="text-xs font-normal text-primary"
-							bind:checked={mod.value.parallel}
-							on:change={({ detail }) => {
-								// An absent `parallelism` means "no cap" to the worker, and the input form
-								// renders nothing without a value — so seed one when parallel is switched on.
-								;(mod.value as ForloopFlow).parallelism = detail
-									? { type: 'static', value: DEFAULT_PARALLELISM }
-									: undefined
-							}}
-							disabled={mod.value.squash}
+							bind:checked={mod.value.skip_failures}
 							options={{
-								right: 'Run in parallel',
-								rightTooltip: 'Run the iterations concurrently instead of one after the other.',
+								right: 'Skip failures',
+								rightTooltip:
+									'If disabled, the flow will fail as soon as one of the iteration fail. Otherwise, the error will be collected as the result of the iteration. Regardless of this setting, if a flow level error handler is defined, it will process the error. (Workspace error handlers will NOT be used to process errors if enabled.)',
 								rightDocumentationLink: 'https://www.windmill.dev/docs/flows/flow_loops'
 							}}
 						/>
-						{#if mod.value.parallel}
-							<PropPickerWrapper
-								popover={true}
-								flow_input={stepPropPicker.pickableProperties.flow_input}
-								notSelectable
-								displayContext={false}
-								pickableProperties={stepPropPicker.pickableProperties}
-								on:select={({ detail }) => {
-									parallelismEditor?.insertAtCursor(detail)
-									parallelismEditor?.focus()
+						<Toggle
+							size="xs"
+							textClass="text-xs font-normal text-primary"
+							bind:checked={mod.value.squash}
+							on:change={({ detail }) => {
+								;(mod.value as ForloopFlow).squash = detail
+							}}
+							disabled={mod.value.parallel}
+							options={{
+								title: mod.value.parallel ? SQUASH_PARALLEL_CONFLICT : undefined,
+								right: 'Squash',
+								rightTooltip:
+									'Squashing a for loop runs all iterations on the same worker, using a single runner per step for the entire loop. This eliminates cold starts between iterations for supported languages (Bun, Deno, and Python).',
+								rightDocumentationLink: 'https://www.windmill.dev/docs/flows/flow_loops'
+							}}
+						/>
+						<!-- Its own group: the setting's input belongs to the toggle above it, not
+						     24px away like the next setting. -->
+						<div class="flex flex-col gap-2">
+							<Toggle
+								size="xs"
+								textClass="text-xs font-normal text-primary"
+								bind:checked={mod.value.parallel}
+								on:change={({ detail }) => {
+									// An absent `parallelism` means "no cap" to the worker, and the input form
+									// renders nothing without a value — so seed one when parallel is switched on.
+									;(mod.value as ForloopFlow).parallelism = detail
+										? { type: 'static', value: DEFAULT_PARALLELISM }
+										: undefined
 								}}
-							>
-							<InputTransformForm
-								bind:arg={
-									() => (mod.value as ForloopFlow).parallelism,
-									(v) => {
-										;(mod.value as ForloopFlow).parallelism = v
-									}
-								}
-								argName="parallelism"
-								label={PARALLELISM_LABEL}
-								headerTooltip={PARALLELISM_TOOLTIP}
-								schema={parallelismSchema}
-								argExtra={{ min: 1, step: 1 }}
-								animateAppear
-								previousModuleId={previousModule?.id}
-								bind:editor={parallelismEditor}
+								disabled={mod.value.squash}
+								options={{
+									title: mod.value.squash ? SQUASH_PARALLEL_CONFLICT : undefined,
+									right: 'Run in parallel',
+									rightTooltip: 'Run the iterations concurrently instead of one after the other.',
+									rightDocumentationLink: 'https://www.windmill.dev/docs/flows/flow_loops'
+								}}
 							/>
-							</PropPickerWrapper>
-						{/if}
-					</div>
+							{#if mod.value.parallel}
+								<div class="pl-9" transition:slideDynamic>
+									<PropPickerWrapper
+										popover={true}
+										flow_input={stepPropPicker.pickableProperties.flow_input}
+										notSelectable
+										displayContext={false}
+										pickableProperties={stepPropPicker.pickableProperties}
+										on:select={({ detail }) => {
+											parallelismEditor?.insertAtCursor(detail)
+											parallelismEditor?.focus()
+										}}
+									>
+										<InputTransformForm
+											bind:arg={
+												() => (mod.value as ForloopFlow).parallelism,
+												(v) => {
+													;(mod.value as ForloopFlow).parallelism = v
+												}
+											}
+											argName="parallelism"
+											label={PARALLELISM_LABEL}
+											headerTooltip={PARALLELISM_TOOLTIP}
+											schema={parallelismSchema}
+											argExtra={{ min: 1, step: 1 }}
+											animateAppear
+											previousModuleId={previousModule?.id}
+											bind:editor={parallelismEditor}
+										/>
+									</PropPickerWrapper>
+								</div>
+							{/if}
+						</div>
 
-					<FlowModuleEarlyStop blocks="stop-after" bind:flowModule={mod} />
-				</div>
-			</section>
-
-			<section>
-				<FlowRunSettings
-					embedded
-					loopSubset
-					earlyStopBlocks="all-iters"
-					bind:this={runSettings}
-					bind:flowModule={mod}
-					{parentModule}
-					{previousModule}
-					selectedId={mod.id}
-				/>
-			</section>
+						<FlowModuleEarlyStop blocks="stop-after" bind:flowModule={mod} />
+					</section>
+				{:else}
+					<FlowRunSettings
+						embedded
+						loopSubset
+						earlyStopBlocks="all-iters"
+						bind:this={runSettings}
+						bind:flowModule={mod}
+						{parentModule}
+						{previousModule}
+						selectedId={mod.id}
+					/>
+				{/if}
+			</div>
 		{/if}
 	</div>
 </FlowCard>

@@ -3,6 +3,7 @@
 	import type { FlowModule } from '$lib/gen'
 	import { stepSettingDefaults } from '../flowStepSettings'
 	import { SecondsInput } from '$lib/components/common'
+	import { slideDynamic } from '$lib/transitions'
 
 	interface Props {
 		flowModule: FlowModule
@@ -38,6 +39,8 @@
 		}}
 	/>
 	{#if enabled}
-		<SecondsInput bind:seconds={flowModule.delete_after_secs} {disabled} size="sm" />
+		<div class="pl-9" transition:slideDynamic>
+			<SecondsInput bind:seconds={flowModule.delete_after_secs} {disabled} size="sm" />
+		</div>
 	{/if}
 </div>

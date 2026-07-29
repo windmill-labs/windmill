@@ -6,6 +6,7 @@
 	import Label from '$lib/components/Label.svelte'
 	import JsonEditor from '$lib/components/JsonEditor.svelte'
 	import { untrack } from 'svelte'
+	import { slideDynamic } from '$lib/transitions'
 
 	interface Props {
 		flowModule: FlowModule
@@ -81,10 +82,12 @@
 		}}
 	/>
 	{#if isMockEnabled}
-		<Label label="Pinned value">
-			{#key renderCount}
-				<JsonEditor {code} on:changeValue={updateMockValue} />
-			{/key}
-		</Label>
+		<div class="pl-9" transition:slideDynamic>
+			<Label label="Pinned value">
+				{#key renderCount}
+					<JsonEditor {code} on:changeValue={updateMockValue} />
+				{/key}
+			</Label>
+		</div>
 	{/if}
 </div>

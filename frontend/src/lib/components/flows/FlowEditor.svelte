@@ -389,7 +389,7 @@
 
 	{#if showStepHint}
 		<div
-			class="pointer-events-none absolute bottom-2 left-3 z-30 flex items-center gap-1.5 text-xs text-tertiary"
+			class="pointer-events-none absolute bottom-2 left-3 z-30 flex items-center gap-1.5 text-xs text-hint"
 		>
 			<MousePointerClick size={13} />
 			Double click a step to explore its content

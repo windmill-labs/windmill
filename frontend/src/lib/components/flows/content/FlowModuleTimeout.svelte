@@ -11,6 +11,7 @@
 	import type { FlowEditorContext } from '../types'
 	import { getStepPropPicker } from '../previousResults'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
+	import { slideDynamic } from '$lib/transitions'
 
 	interface Props {
 		flowModule: FlowModule
@@ -75,29 +76,31 @@
 		}}
 	/>
 	{#if flowModule.timeout && schema.properties['timeout']}
-		<PropPickerWrapper
-			popover={true}
-			flow_input={stepPropPicker.pickableProperties.flow_input}
-			notSelectable
-			pickableProperties={stepPropPicker.pickableProperties}
-			on:select={({ detail }) => {
-				editor?.insertAtCursor(detail)
-				editor?.focus()
-			}}
-		>
-			<InputTransformForm
-				bind:arg={flowModule.timeout}
-				argName="timeout"
-				{schema}
-				{previousModuleId}
-				argExtra={{ seconds: true }}
-				bind:editor
-			/>
-		</PropPickerWrapper>
+		<div class="pl-9" transition:slideDynamic>
+			<PropPickerWrapper
+				popover={true}
+				flow_input={stepPropPicker.pickableProperties.flow_input}
+				notSelectable
+				pickableProperties={stepPropPicker.pickableProperties}
+				on:select={({ detail }) => {
+					editor?.insertAtCursor(detail)
+					editor?.focus()
+				}}
+			>
+				<InputTransformForm
+					bind:arg={flowModule.timeout}
+					argName="timeout"
+					{schema}
+					{previousModuleId}
+					argExtra={{ seconds: true }}
+					bind:editor
+				/>
+			</PropPickerWrapper>
+		</div>
 	{/if}
 
 	{#if flowModule.timeout && flowModule.timeout.type !== 'static'}
-		<div class="mt-4">
+		<div class="mt-4 pl-9" transition:slideDynamic>
 			<Alert title="Dynamic timeout only used when testing the full flow" type="info">
 				<p class="text-xs">
 					A dynamic timeout expression is evaluated when running the full flow. It is ignored when

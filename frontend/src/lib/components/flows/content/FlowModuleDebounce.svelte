@@ -57,4 +57,5 @@
 	placeholder={`$workspace/flow/<flow_path>-${flowModule.id}`}
 	size="xs"
 	fontClass="text-xs font-normal text-primary"
+	indentContent
 />

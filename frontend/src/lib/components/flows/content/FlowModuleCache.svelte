@@ -6,6 +6,7 @@
 	import { stepSettingDefaults } from '../flowStepSettings'
 	import { SecondsInput } from '../../common'
 	import WorkspaceScriptSettingInfo from './WorkspaceScriptSettingInfo.svelte'
+	import { slideDynamic } from '$lib/transitions'
 
 	interface Props {
 		flowModule: FlowModule
@@ -72,21 +73,23 @@
 			}}
 		/>
 		{#if isCacheEnabled}
-			<Label label="How long to keep cache valid">
-				<SecondsInput bind:seconds={flowModule.cache_ttl} />
-			</Label>
-			<Toggle
-				size="2xs"
-				bind:checked={
-					() => flowModule.cache_ignore_s3_path,
-					(v) => (flowModule.cache_ignore_s3_path = v || undefined)
-				}
-				options={{
-					right: 'Ignore S3 object paths',
-					rightTooltip:
-						'If two S3 objects passed as input have the same content, they will hit the same cache entry, regardless of their path.'
-				}}
-			/>
+			<div class="flex flex-col gap-2 pl-9" transition:slideDynamic>
+				<Label label="How long to keep cache valid">
+					<SecondsInput bind:seconds={flowModule.cache_ttl} />
+				</Label>
+				<Toggle
+					size="2xs"
+					bind:checked={
+						() => flowModule.cache_ignore_s3_path,
+						(v) => (flowModule.cache_ignore_s3_path = v || undefined)
+					}
+					options={{
+						right: 'Ignore S3 object paths',
+						rightTooltip:
+							'If two S3 objects passed as input have the same content, they will hit the same cache entry, regardless of their path.'
+					}}
+				/>
+			</div>
 		{/if}
 	{/if}
 </div>

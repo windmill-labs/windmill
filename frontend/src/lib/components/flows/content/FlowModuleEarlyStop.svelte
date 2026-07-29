@@ -11,6 +11,7 @@
 	import { NEVER_TESTED_THIS_FAR } from '../models'
 	import { getStepPropPicker } from '../previousResults'
 	import { dfs } from '../previousResults'
+	import { slideDynamic } from '$lib/transitions'
 
 	const { flowStateStore, flowStore, previewArgs } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -170,6 +171,7 @@
 			}
 		}}
 		options={{
+			title: isParallelLoop ? stopAfterCopy.tooltip : undefined,
 			right: stopAfterCopy.label,
 			rightTooltip: stopAfterCopy.tooltip,
 			rightDocumentationLink: 'https://www.windmill.dev/docs/flows/early_stop'
@@ -199,44 +201,44 @@
 
 <div class="flex flex-col items-start gap-6">
 	{#if blocks !== 'all-iters' && !isBranchAll}
-		<div class="w-full flex flex-col gap-6">
+		<div class="w-full flex flex-col gap-2">
 			<PropPickerWrapper
-					popover={true}
-					flow_input={stepPropPicker.pickableProperties.flow_input}
-					notSelectable
-					result={earlyStopResult}
-					extraResults={isLoop ? { all_iters: result } : undefined}
-					displayContext={false}
-					pickableProperties={stepPropPicker.pickableProperties}
-					on:select={({ detail }) => {
-						stopAfterEditor?.insertAtCursor(detail)
-						stopAfterEditor?.focus()
-					}}
-				>
-					<InputTransformForm
-						bind:arg={
-							() => flowModule.stop_after_if,
-							(v) => {
-								flowModule.stop_after_if = v
-							}
+				popover={true}
+				flow_input={stepPropPicker.pickableProperties.flow_input}
+				notSelectable
+				result={earlyStopResult}
+				extraResults={isLoop ? { all_iters: result } : undefined}
+				displayContext={false}
+				pickableProperties={stepPropPicker.pickableProperties}
+				on:select={({ detail }) => {
+					stopAfterEditor?.insertAtCursor(detail)
+					stopAfterEditor?.focus()
+				}}
+			>
+				<InputTransformForm
+					bind:arg={
+						() => flowModule.stop_after_if,
+						(v) => {
+							flowModule.stop_after_if = v
 						}
-						argName="stop_after_if"
-						argType="javascript"
-						collapsed={!isStopAfterIfEnabled || isParallelLoop}
-						animateAppear
-						header={stopAfterToggle}
-						noDynamicToggle
-						schema={predicateSchema}
-						previousModuleId={undefined}
-						pickableProperties={stepPropPicker.pickableProperties}
-						extraLib={`declare const result = ${JSON.stringify(earlyStopResult)};\n` +
-							stepPropPicker.extraLib +
-							(isLoop ? `\ndeclare const all_iters = ${JSON.stringify(result)};` : '')}
-						bind:editor={stopAfterEditor}
-					/>
+					}
+					argName="stop_after_if"
+					argType="javascript"
+					collapsed={!isStopAfterIfEnabled || isParallelLoop}
+					animateAppear
+					header={stopAfterToggle}
+					noDynamicToggle
+					schema={predicateSchema}
+					previousModuleId={undefined}
+					pickableProperties={stepPropPicker.pickableProperties}
+					extraLib={`declare const result = ${JSON.stringify(earlyStopResult)};\n` +
+						stepPropPicker.extraLib +
+						(isLoop ? `\ndeclare const all_iters = ${JSON.stringify(result)};` : '')}
+					bind:editor={stopAfterEditor}
+				/>
 			</PropPickerWrapper>
 			{#if isStopAfterIfEnabled && !breakableParent && !isLoop}
-				<div class="flex flex-col gap-2">
+				<div class="flex flex-col gap-2 pl-9" transition:slideDynamic>
 					<Toggle
 						size="xs"
 						bind:checked={
@@ -278,61 +280,62 @@
 				</div>
 			{/if}
 			{#if raise_error_message_stop_after_if && flowModule.stop_after_if}
-				<input
-					type="text"
-					bind:value={flowModule.stop_after_if.error_message}
-					placeholder="Enter custom error message (optional)"
-				/>
-				<Toggle
-					size="xs"
-					bind:checked={flowModule.stop_after_if.error_include_result}
-					options={{
-						right: 'Include result in error',
-						rightTooltip:
-							"When enabled, this step's output is embedded inside the raised error object (as error.result) instead of being discarded. The flow result stays { error }."
-					}}
-				/>
+				<div class="flex flex-col gap-2 pl-9" transition:slideDynamic>
+					<input
+						type="text"
+						bind:value={flowModule.stop_after_if.error_message}
+						placeholder="Enter custom error message (optional)"
+					/>
+					<Toggle
+						size="xs"
+						bind:checked={flowModule.stop_after_if.error_include_result}
+						options={{
+							right: 'Include result in error',
+							rightTooltip:
+								"When enabled, this step's output is embedded inside the raised error object (as error.result) instead of being discarded. The flow result stays { error }."
+						}}
+					/>
+				</div>
 			{/if}
 		</div>
 	{/if}
 
 	{#if blocks !== 'stop-after' && (isLoop || isBranchAll)}
-		<div class="w-full flex flex-col gap-6">
+		<div class="w-full flex flex-col gap-2">
 			<PropPickerWrapper
-					popover={true}
-					flow_input={stepPropPicker.pickableProperties.flow_input}
-					notSelectable
-					{result}
-					displayContext={false}
-					pickableProperties={stepPropPicker.pickableProperties}
-					on:select={({ detail }) => {
-						stopAfterAllItersEditor?.insertAtCursor(detail)
-						stopAfterAllItersEditor?.focus()
-					}}
-				>
-					<InputTransformForm
-						bind:arg={
-							() => flowModule.stop_after_all_iters_if,
-							(v) => {
-								flowModule.stop_after_all_iters_if = v
-							}
+				popover={true}
+				flow_input={stepPropPicker.pickableProperties.flow_input}
+				notSelectable
+				{result}
+				displayContext={false}
+				pickableProperties={stepPropPicker.pickableProperties}
+				on:select={({ detail }) => {
+					stopAfterAllItersEditor?.insertAtCursor(detail)
+					stopAfterAllItersEditor?.focus()
+				}}
+			>
+				<InputTransformForm
+					bind:arg={
+						() => flowModule.stop_after_all_iters_if,
+						(v) => {
+							flowModule.stop_after_all_iters_if = v
 						}
-						argName="stop_after_all_iters_if"
-						argType="javascript"
-						collapsed={!isStopAfterAllIterationsEnabled}
-						animateAppear
-						header={stopAfterAllItersToggle}
-						noDynamicToggle
-						schema={predicateSchema}
-						previousModuleId={undefined}
-						pickableProperties={stepPropPicker.pickableProperties}
-						extraLib={`declare const result = ${JSON.stringify(result)};\n` +
-							stepPropPicker.extraLib}
-						bind:editor={stopAfterAllItersEditor}
-					/>
+					}
+					argName="stop_after_all_iters_if"
+					argType="javascript"
+					collapsed={!isStopAfterAllIterationsEnabled}
+					animateAppear
+					header={stopAfterAllItersToggle}
+					noDynamicToggle
+					schema={predicateSchema}
+					previousModuleId={undefined}
+					pickableProperties={stepPropPicker.pickableProperties}
+					extraLib={`declare const result = ${JSON.stringify(result)};\n` + stepPropPicker.extraLib}
+					bind:editor={stopAfterAllItersEditor}
+				/>
 			</PropPickerWrapper>
 			{#if isStopAfterAllIterationsEnabled && !breakableParent}
-				<div class="flex flex-col gap-2">
+				<div class="flex flex-col gap-2 pl-9" transition:slideDynamic>
 					<Toggle
 						size="xs"
 						bind:checked={
@@ -374,20 +377,22 @@
 				</div>
 			{/if}
 			{#if raise_error_message_stop_after_all_if && flowModule.stop_after_all_iters_if}
-				<input
-					type="text"
-					bind:value={flowModule.stop_after_all_iters_if.error_message}
-					placeholder="Enter custom error message (optional)"
-				/>
-				<Toggle
-					size="xs"
-					bind:checked={flowModule.stop_after_all_iters_if.error_include_result}
-					options={{
-						right: 'Include result in error',
-						rightTooltip:
-							"When enabled, this step's output is embedded inside the raised error object (as error.result) instead of being discarded. The flow result stays { error }."
-					}}
-				/>
+				<div class="flex flex-col gap-2 pl-9" transition:slideDynamic>
+					<input
+						type="text"
+						bind:value={flowModule.stop_after_all_iters_if.error_message}
+						placeholder="Enter custom error message (optional)"
+					/>
+					<Toggle
+						size="xs"
+						bind:checked={flowModule.stop_after_all_iters_if.error_include_result}
+						options={{
+							right: 'Include result in error',
+							rightTooltip:
+								"When enabled, this step's output is embedded inside the raised error object (as error.result) instead of being discarded. The flow result stays { error }."
+						}}
+					/>
+				</div>
 			{/if}
 		</div>
 	{/if}

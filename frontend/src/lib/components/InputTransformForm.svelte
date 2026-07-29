@@ -771,8 +771,10 @@
 
 		{#if !collapsed}
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<!-- A custom header means a setting's toggle owns this field, so the input is
+			     indented under the toggle's label: `xs` switch (w-7) plus its ml-2. -->
 			<div
-				class="relative w-full"
+				class="relative w-full {header ? 'pl-9' : ''}"
 				onkeyup={handleKeyUp}
 				transition:slideDynamic|global={{ duration: animateAppear ? 150 : 0 }}
 			>

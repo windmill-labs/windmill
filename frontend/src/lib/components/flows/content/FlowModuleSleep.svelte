@@ -9,6 +9,7 @@
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import type { FlowEditorContext } from '../types'
 	import { getStepPropPicker } from '../previousResults'
+	import { slideDynamic } from '$lib/transitions'
 
 	interface Props {
 		flowModule: FlowModule
@@ -63,26 +64,28 @@
 		}}
 	/>
 	{#if flowModule.sleep && schema.properties['sleep']}
-		<PropPickerWrapper
-			popover={true}
-			flow_input={stepPropPicker.pickableProperties.flow_input}
-			notSelectable
-			{result}
-			displayContext={false}
-			pickableProperties={stepPropPicker.pickableProperties}
-			on:select={({ detail }) => {
-				editor?.insertAtCursor(detail)
-				editor?.focus()
-			}}
-		>
-			<InputTransformForm
-				bind:arg={flowModule.sleep}
-				argName="sleep"
-				{schema}
-				{previousModuleId}
-				argExtra={{ seconds: true, clearable: false }}
-				bind:editor
-			/>
-		</PropPickerWrapper>
+		<div class="pl-9" transition:slideDynamic>
+			<PropPickerWrapper
+				popover={true}
+				flow_input={stepPropPicker.pickableProperties.flow_input}
+				notSelectable
+				{result}
+				displayContext={false}
+				pickableProperties={stepPropPicker.pickableProperties}
+				on:select={({ detail }) => {
+					editor?.insertAtCursor(detail)
+					editor?.focus()
+				}}
+			>
+				<InputTransformForm
+					bind:arg={flowModule.sleep}
+					argName="sleep"
+					{schema}
+					{previousModuleId}
+					argExtra={{ seconds: true, clearable: false }}
+					bind:editor
+				/>
+			</PropPickerWrapper>
+		</div>
 	{/if}
 </div>

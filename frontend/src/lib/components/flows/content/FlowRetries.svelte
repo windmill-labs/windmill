@@ -15,6 +15,7 @@
 	import { NEVER_TESTED_THIS_FAR } from '../models'
 	import { validateRetryConfig } from '$lib/utils'
 	import EEOnly from '$lib/components/EEOnly.svelte'
+	import { slideDynamic } from '$lib/transitions'
 
 	interface Props {
 		flowModuleRetry: Retry | undefined
@@ -193,7 +194,7 @@
 	/>
 
 	{#if !retriesOff}
-		<div class="flex flex-col gap-6">
+		<div class="flex flex-col gap-6 pl-9" transition:slideDynamic>
 			<ToggleButtonGroup
 				selected={retriesOff ? displayDelayType : delayType}
 				disabled={kindDisabled}

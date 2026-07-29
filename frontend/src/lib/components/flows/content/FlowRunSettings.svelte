@@ -29,6 +29,7 @@
 	import FlowModuleDebounce from './FlowModuleDebounce.svelte'
 	import FlowModuleMock from './FlowModuleMock.svelte'
 	import WorkspaceScriptSettingInfo from './WorkspaceScriptSettingInfo.svelte'
+	import { slideDynamic } from '$lib/transitions'
 
 	const { pathStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -208,37 +209,39 @@
 										}}
 									/>
 									{#if concurrencyOn}
-										<Label label="Max number of executions within the time window">
-											<input
-												disabled={concurrencyOff}
-												bind:value={flowModule.value.concurrent_limit}
-												type="number"
-												min="1"
-												class="!w-24"
-											/>
-										</Label>
-										<Label label="Time window in seconds">
-											<SecondsInput
-												disabled={concurrencyOff}
-												bind:seconds={flowModule.value.concurrency_time_window_s}
-												clearable
-											/>
-										</Label>
-										<Label label="Custom concurrency key (optional)">
-											{#snippet header()}
-												<Tooltip>
-													Concurrency keys are global, you can have them be workspace specific using
-													the variable `$workspace`. You can also use an argument's value using
-													`$args[name_of_arg]`</Tooltip
-												>
-											{/snippet}
-											<input
-												type="text"
-												disabled={concurrencyOff}
-												bind:value={flowModule.value.custom_concurrency_key}
-												placeholder={`$workspace/script/${$pathStore}-$args[foo]`}
-											/>
-										</Label>
+										<div class="flex flex-col gap-2 pl-9" transition:slideDynamic>
+											<Label label="Max number of executions within the time window">
+												<input
+													disabled={concurrencyOff}
+													bind:value={flowModule.value.concurrent_limit}
+													type="number"
+													min="1"
+													class="!w-24"
+												/>
+											</Label>
+											<Label label="Time window in seconds">
+												<SecondsInput
+													disabled={concurrencyOff}
+													bind:seconds={flowModule.value.concurrency_time_window_s}
+													clearable
+												/>
+											</Label>
+											<Label label="Custom concurrency key (optional)">
+												{#snippet header()}
+													<Tooltip>
+														Concurrency keys are global, you can have them be workspace specific
+														using the variable `$workspace`. You can also use an argument's value
+														using `$args[name_of_arg]`</Tooltip
+													>
+												{/snippet}
+												<input
+													type="text"
+													disabled={concurrencyOff}
+													bind:value={flowModule.value.custom_concurrency_key}
+													placeholder={`$workspace/script/${$pathStore}-$args[foo]`}
+												/>
+											</Label>
+										</div>
 									{/if}
 								</div>
 							{/if}
@@ -266,23 +269,25 @@
 							}}
 						/>
 						{#if flowModule.priority !== undefined}
-							<Label label="Priority number">
-								{#snippet header()}
-									<Tooltip>The higher the number, the higher the priority.</Tooltip>
-								{/snippet}
-								<input
-									type="number"
-									class="!w-24"
-									bind:value={flowModule.priority}
-									onchange={() => {
-										if (flowModule.priority && flowModule.priority > 100) {
-											flowModule.priority = 100
-										} else if (flowModule.priority && flowModule.priority < 0) {
-											flowModule.priority = 0
-										}
-									}}
-								/>
-							</Label>
+							<div class="pl-9" transition:slideDynamic>
+								<Label label="Priority number">
+									{#snippet header()}
+										<Tooltip>The higher the number, the higher the priority.</Tooltip>
+									{/snippet}
+									<input
+										type="number"
+										class="!w-24"
+										bind:value={flowModule.priority}
+										onchange={() => {
+											if (flowModule.priority && flowModule.priority > 100) {
+												flowModule.priority = 100
+											} else if (flowModule.priority && flowModule.priority < 0) {
+												flowModule.priority = 0
+											}
+										}}
+									/>
+								</Label>
+							</div>
 						{/if}
 						{#if !$enterpriseLicense || isCloudHosted()}
 							<Alert type="warning" title="Limitation" size="xs">

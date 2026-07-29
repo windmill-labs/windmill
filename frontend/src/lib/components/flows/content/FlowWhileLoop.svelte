@@ -1,14 +1,15 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, tick } from 'svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import type { FlowEditorContext } from '../types'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { Button, Drawer, Alert } from '$lib/components/common'
+	import { Button, Drawer, Alert, Tab, Tabs } from '$lib/components/common'
 
 	import { Play } from 'lucide-svelte'
 	import type { FlowModule, Job, WhileloopFlow } from '$lib/gen'
 	import FlowLoopIterationPreview from '$lib/components/FlowLoopIterationPreview.svelte'
 	import FlowRunSettings from './FlowRunSettings.svelte'
+	import StepSettingsBadges from './StepSettingsBadges.svelte'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
 	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
 
@@ -31,8 +32,14 @@
 
 	let previewIterationArgs = $derived(flowStateStore.val[mod.id]?.previewArgs ?? {})
 
+	let selectedTab = $state('loop')
+
 	useUiIntent(`whileloopflow-${mod.id}`, {
-		openTab: (tab) => {
+		openTab: async (tab) => {
+			// Every setting the intent can name lives in the other tab, which only mounts
+			// `runSettings` once selected.
+			selectedTab = 'settings'
+			await tick()
 			runSettings?.openSetting(tab)
 		}
 	})
@@ -62,7 +69,7 @@
 					<Button
 						on:click={() => (previewOpen = true)}
 						startIcon={{ icon: Play }}
-						variant="accent"
+						variant="default"
 						size="sm">Test an iteration</Button
 					>
 				</div>
@@ -70,63 +77,75 @@
 		</div>
 	{/snippet}
 
-	<div class="flex h-full min-h-0 flex-col gap-6 overflow-auto p-4">
-		{#if !noEditor}
-			<Alert
-				type="info"
-				title="While loops"
-				size="xs"
-				documentationLink="https://www.windmill.dev/docs/flows/while_loops"
-			>
-				Add steps inside the while loop but have one of them use early stop/break in their Advanced
-				settings (or do it at the loop level that will watch the last step) to break out of the
-				while loop (otherwise it will loop forever and you will have to cancel the flow manually).
-			</Alert>
-		{/if}
-
+	<div class="flex h-full min-h-0 flex-col">
 		{#if mod.value.type === 'whileloopflow'}
-			<section class="flex flex-col gap-6">
-				<Toggle
-					size="xs"
-					textClass="text-xs font-normal text-primary"
-					bind:checked={mod.value.skip_failures}
-					options={{
-						right: 'Skip failures',
-						rightTooltip:
-							'If disabled, the flow will fail as soon as one of the iteration fail. Otherwise, the error will be collected as the result of the iteration. Regardless of this setting, if a flow level error handler is defined, it will process the error. (Workspace error handlers will NOT be used to process errors if enabled.)',
-						rightDocumentationLink: 'https://www.windmill.dev/docs/flows/while_loops'
-					}}
-				/>
-				<Toggle
-					size="xs"
-					textClass="text-xs font-normal text-primary"
-					bind:checked={mod.value.squash}
-					on:change={({ detail }) => {
-						;(mod.value as WhileloopFlow).squash = detail
-					}}
-					options={{
-						right: 'Squash',
-						rightTooltip:
-							'Squashing a while loop runs all iterations on the same worker, using a single runner per step for the entire loop. This eliminates cold starts between iterations for supported languages (Bun, Deno, and Python).',
-						rightDocumentationLink: 'https://www.windmill.dev/docs/flows/while_loops'
-					}}
-				/>
+			<Tabs bind:selected={selectedTab} wrapperClass="shrink-0">
+				<Tab value="loop" label="Loop" />
+				<Tab value="settings" label="Run settings">
+					{#snippet extra()}
+						<StepSettingsBadges flowModule={mod} />
+					{/snippet}
+				</Tab>
+			</Tabs>
 
-				<FlowModuleEarlyStop blocks="stop-after" bind:flowModule={mod} />
-			</section>
+			<div class="flex min-h-0 flex-1 flex-col gap-8 overflow-auto p-4">
+				{#if selectedTab === 'loop'}
+					{#if !noEditor}
+						<Alert
+							type="info"
+							title="While loops"
+							size="xs"
+							documentationLink="https://www.windmill.dev/docs/flows/while_loops"
+						>
+							Add steps inside the while loop but have one of them use early stop/break in their
+							Advanced settings (or do it at the loop level that will watch the last step) to break
+							out of the while loop (otherwise it will loop forever and you will have to cancel the
+							flow manually).
+						</Alert>
+					{/if}
 
-			<section>
-				<FlowRunSettings
-					embedded
-					loopSubset
-					earlyStopBlocks="all-iters"
-					bind:this={runSettings}
-					bind:flowModule={mod}
-					{parentModule}
-					{previousModule}
-					selectedId={mod.id}
-				/>
-			</section>
+					<section class="flex flex-col gap-6">
+						<FlowModuleEarlyStop blocks="stop-after" bind:flowModule={mod} />
+
+						<Toggle
+							size="xs"
+							textClass="text-xs font-normal text-primary"
+							bind:checked={mod.value.skip_failures}
+							options={{
+								right: 'Skip failures',
+								rightTooltip:
+									'If disabled, the flow will fail as soon as one of the iteration fail. Otherwise, the error will be collected as the result of the iteration. Regardless of this setting, if a flow level error handler is defined, it will process the error. (Workspace error handlers will NOT be used to process errors if enabled.)',
+								rightDocumentationLink: 'https://www.windmill.dev/docs/flows/while_loops'
+							}}
+						/>
+						<Toggle
+							size="xs"
+							textClass="text-xs font-normal text-primary"
+							bind:checked={mod.value.squash}
+							on:change={({ detail }) => {
+								;(mod.value as WhileloopFlow).squash = detail
+							}}
+							options={{
+								right: 'Squash',
+								rightTooltip:
+									'Squashing a while loop runs all iterations on the same worker, using a single runner per step for the entire loop. This eliminates cold starts between iterations for supported languages (Bun, Deno, and Python).',
+								rightDocumentationLink: 'https://www.windmill.dev/docs/flows/while_loops'
+							}}
+						/>
+					</section>
+				{:else}
+					<FlowRunSettings
+						embedded
+						loopSubset
+						earlyStopBlocks="all-iters"
+						bind:this={runSettings}
+						bind:flowModule={mod}
+						{parentModule}
+						{previousModule}
+						selectedId={mod.id}
+					/>
+				{/if}
+			</div>
 		{/if}
 	</div>
 </FlowCard>

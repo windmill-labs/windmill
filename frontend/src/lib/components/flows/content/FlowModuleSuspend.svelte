@@ -5,7 +5,7 @@
 	import type SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { getContext, tick, untrack } from 'svelte'
 
-	import { Alert, Tab, Tabs } from '$lib/components/common'
+	import { Alert, Button, Tab, Tabs } from '$lib/components/common'
 	import { GroupService, type FlowModule } from '$lib/gen'
 	import { emptySchema, emptyString } from '$lib/utils'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores.js'
@@ -15,7 +15,9 @@
 	import Label from '$lib/components/Label.svelte'
 	import SuspendDrawer from './SuspendDrawer.svelte'
 	import EditableSchemaDrawer from '$lib/components/schema/EditableSchemaDrawer.svelte'
-	import AddProperty from '$lib/components/schema/AddProperty.svelte'
+	import SchemaForm from '$lib/components/SchemaForm.svelte'
+	import { Pen, Plus } from 'lucide-svelte'
+	import { slideDynamic } from '$lib/transitions'
 
 	const { selectionManager, flowStateStore, opWorkspace } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -68,10 +70,20 @@
 		}
 	})
 
-	let jsonView: boolean = $state(false)
+	let formEditor: EditableSchemaDrawer | undefined = $state(undefined)
+	// Stands in for the form's schema until the step has one, so the editor can be mounted
+	// (and thus openable) before the first field exists.
+	let draftFormSchema = $state(emptySchema())
+
+	function openFormEditor() {
+		if (flowModule.suspend && !flowModule.suspend.resume_form) {
+			flowModule.suspend.resume_form = { schema: draftFormSchema }
+		}
+		formEditor?.openDrawer()
+	}
 </script>
 
-<div class="flex w-full flex-col gap-6">
+<div class="flex w-full flex-col gap-2">
 	<Toggle
 		size="xs"
 		textClass="text-xs font-normal text-primary"
@@ -92,16 +104,13 @@
 	/>
 
 	{#if isSuspendEnabled}
-		<div class="flex flex-col gap-3">
-			<div class="flex flex-row items-center justify-between gap-2">
-				<div class="overflow-x-auto scrollbar-hidden">
-					<Tabs bind:selected={suspendTabSelected}>
-						<Tab value="core" label="Core" />
-						<Tab value="form" label="Form" />
-						<Tab value="permissions" label="Permissions" />
-					</Tabs>
-				</div>
-				<SuspendDrawer text="Approval/Prompt helpers" variant="subtle" />
+		<div class="flex flex-col gap-3 pl-9" transition:slideDynamic>
+			<div class="overflow-x-auto scrollbar-hidden">
+				<Tabs bind:selected={suspendTabSelected}>
+					<Tab value="core" label="Core" />
+					<Tab value="form" label="Form" />
+					<Tab value="permissions" label="Permissions" />
+				</Tabs>
 			</div>
 
 			{#if suspendTabSelected === 'core'}
@@ -127,6 +136,8 @@
 					</Label>
 
 					<Toggle
+						size="xs"
+						textClass="text-xs font-normal text-primary"
 						options={{
 							right: 'Continue on disapproval/timeout',
 							rightTooltip: `Instead of failing the flow and bubbling up the error, continue to the next step which would allow to put a branchone right after to handle both cases separately. 
@@ -165,6 +176,8 @@
 					{/if}
 					<div class="flex flex-col gap-2">
 						<Toggle
+							size="xs"
+							textClass="text-xs font-normal text-primary"
 							disabled={!flowModule.suspend || emptyString($enterpriseLicense)}
 							checked={Boolean(flowModule.suspend?.user_auth_required)}
 							options={{
@@ -187,6 +200,8 @@
 						/>
 
 						<Toggle
+							size="xs"
+							textClass="text-xs font-normal text-primary"
 							options={{
 								right: 'Disable self-approval',
 								rightTooltip: 'The user who triggered the flow will not be allowed to approve it'
@@ -230,87 +245,75 @@
 					</div>
 				</div>
 			{:else}
-				<div class="grid grid-cols-4 gap-6">
-					<div class="col-span-2">
-						{#if flowModule?.suspend?.resume_form}
-							<EditableSchemaDrawer
-								bind:schema={flowModule.suspend.resume_form.schema}
-								{jsonView}
-							/>
-						{:else if emptyString($enterpriseLicense)}
-							<Alert type="warning" title="Adding a form to the approval page is an EE feature" />
-						{:else if !flowModule.suspend}
-							<div class="pointer-events-none opacity-50">
-								<AddProperty schema={{}} />
-							</div>
-						{:else}
-							<div class="flex flex-col items-end mb-2 w-full">
-								<Toggle
-									checked={false}
-									size="xs"
-									options={{
-										right: 'JSON editor',
-										rightTooltip:
-											'Arguments can be edited either using the wizard, or by editing their JSON Schema.'
-									}}
-									lightMode
-									on:change={() => {
-										if (flowModule.suspend) {
-											flowModule.suspend.resume_form = {
-												schema: emptySchema()
-											}
-										}
-										jsonView = true
-									}}
-								/>
-							</div>
-							<AddProperty
-								on:change={(e) => {
-									jsonView = false
-									if (flowModule.suspend) {
-										flowModule.suspend.resume_form = {
-											schema: e.detail
-										}
-									}
-								}}
-								schema={{}}
-							/>
-						{/if}
-					</div>
-					<div class="col-span-2 flex flex-col gap-4">
-						{#if flowModule.suspend}
-							{#if emptyString($enterpriseLicense)}
-								<Alert type="warning" title="Adding a form to the approval page is an EE feature" />
-							{/if}
-
-							<div class="flex flex-col gap-2">
-								<div class="flex">
-									<SuspendDrawer text="Default args & Dynamic enums help" />
-								</div>
-							</div>
-						{/if}
-						{#if flowModule.suspend}
-							<Toggle
-								bind:checked={flowModule.suspend.hide_cancel}
-								size="xs"
-								options={{
-									right: 'Hide cancel button on approval page'
-								}}
-								disabled={!Boolean(flowModule?.suspend?.resume_form)}
-							/>
-						{:else}
-							<Toggle
-								checked={false}
-								size="xs"
-								options={{
-									right: 'Hide cancel button on approval page'
-								}}
+				<div class="flex flex-col gap-4">
+					{#if flowModule?.suspend?.resume_form}
+						<div class="flex justify-end">
+							<Button
+								unifiedSize="xs"
+								variant="default"
+								startIcon={{ icon: Pen }}
+								on:click={openFormEditor}
+							>
+								Edit form
+							</Button>
+						</div>
+						<!-- The approval page renders the form with the same component; here it only
+						     shows what approvers will see, and editing happens in the drawer. -->
+						<div class="rounded-md border p-2">
+							<SchemaForm
+								schema={flowModule.suspend.resume_form.schema}
 								disabled
+								noVariablePicker
 							/>
-						{/if}
-					</div>
+						</div>
+					{:else if emptyString($enterpriseLicense)}
+						<Alert type="warning" title="Adding a form to the approval page is an EE feature" />
+					{:else}
+						<Button
+							unifiedSize="md"
+							variant="default"
+							btnClasses="w-full border-dashed"
+							startIcon={{ icon: Plus }}
+							on:click={openFormEditor}
+						>
+							Add a form
+						</Button>
+					{/if}
+
+					<EditableSchemaDrawer
+						bind:this={formEditor}
+						bind:schema={
+							() => flowModule.suspend?.resume_form?.schema ?? draftFormSchema,
+							(v) => {
+								if (flowModule.suspend) {
+									flowModule.suspend.resume_form = { schema: v }
+								}
+							}
+						}
+						drawerOnly
+					/>
+
+					{#if flowModule.suspend?.resume_form}
+						<Toggle
+							textClass="text-xs font-normal text-primary"
+							size="xs"
+							checked={Boolean(flowModule.suspend.hide_cancel)}
+							on:change={(e) => {
+								if (flowModule.suspend) {
+									flowModule.suspend.hide_cancel = e.detail
+								}
+							}}
+							options={{
+								right: 'Hide cancel button on approval page'
+							}}
+						/>
+					{/if}
 				</div>
 			{/if}
+
+			<div class="flex justify-end">
+				<SuspendDrawer text="Approval/Prompt helpers" />
+			</div>
 		</div>
 	{/if}
 </div>

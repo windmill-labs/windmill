@@ -2,6 +2,7 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
+	import StepSettingsBadges from './StepSettingsBadges.svelte'
 	import Editor from '$lib/components/Editor.svelte'
 	import EditorBar, {
 		EDITOR_BAR_WIDTH_THRESHOLD,
@@ -1070,7 +1071,11 @@
 											/>
 										{/if}
 										{#if !preprocessorModule && !isAgentTool}
-											<Tab value="advanced" label="Run settings" />
+											<Tab value="advanced" label="Run settings">
+												{#snippet extra()}
+													<StepSettingsBadges {flowModule} />
+												{/snippet}
+											</Tab>
 										{/if}
 									</Tabs>
 									{#if visibleSelected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow' || flowModule.value.type == 'aiagent')}

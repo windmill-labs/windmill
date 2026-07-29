@@ -5,6 +5,7 @@
 	import { enterpriseLicense } from '$lib/stores'
 	import Label from '../Label.svelte'
 	import type { Schema } from '$lib/common'
+	import { slideDynamic } from '$lib/transitions'
 
 	let {
 		debounce_delay_s = $bindable(),
@@ -16,7 +17,8 @@
 		placeholder,
 		size = 'xs',
 		color = undefined,
-		fontClass = 'font-normal'
+		fontClass = 'font-normal',
+		indentContent = false
 	}: {
 		debounce_delay_s: number | undefined
 		debounce_key: string | undefined
@@ -28,6 +30,8 @@
 		size: 'xs' | 'sm'
 		color?: 'nord' | undefined
 		fontClass?: string
+		/** Align the fields under the toggle's label, as the flow step settings do. */
+		indentContent?: boolean
 	} = $props()
 
 	// Check if an originalType like "string | string[]" is a top-level
@@ -118,7 +122,7 @@
 	</div>
 
 	{#if !off}
-		<div class="flex flex-col gap-4 mt-2">
+		<div class="flex flex-col gap-4 mt-2 {indentContent ? 'pl-9' : ''}" transition:slideDynamic>
 			<Label label="Delay in seconds">
 				<SecondsInput disabled={off} bind:seconds={debounce_delay_s} />
 			</Label>
