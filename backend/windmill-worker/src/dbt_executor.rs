@@ -197,7 +197,6 @@ pub(crate) async fn handle_dbt_job(
             {
                 tracing::warn!("pruning dbt run graph snapshots: {e:#}");
             }
-            prune_run_state(&pool, &prune_w_id, &prune_path).await;
         });
     }
     let prepared = prepare_project(
@@ -241,7 +240,7 @@ pub(crate) async fn handle_dbt_job(
                 invalidate_run_state(
                     &job.workspace_id,
                     job.runnable_path.as_deref().unwrap_or_default(),
-                    StateCaller::of(job),
+                    &job.permissioned_as,
                     conn,
                 )
                 .await;
@@ -283,7 +282,7 @@ pub(crate) async fn handle_dbt_job(
         let restored = restore_run_state(
             &prepared,
             &job.workspace_id,
-            StateCaller::of(job),
+            &job.permissioned_as,
             &inv,
             conn,
         )
@@ -371,7 +370,7 @@ pub(crate) async fn handle_dbt_job(
                 invalidate_run_state(
                     &job.workspace_id,
                     &prepared.script_path,
-                    StateCaller::of(job),
+                    &job.permissioned_as,
                     conn,
                 )
                 .await;
@@ -385,7 +384,7 @@ pub(crate) async fn handle_dbt_job(
             invalidate_run_state(
                 &job.workspace_id,
                 &prepared.script_path,
-                StateCaller::of(job),
+                &job.permissioned_as,
                 conn,
             )
             .await;
@@ -518,7 +517,7 @@ pub(crate) async fn handle_dbt_job(
     if let Err(e) = save_run_state(
         &prepared,
         &job.workspace_id,
-        StateCaller::of(job),
+        &job.permissioned_as,
         &job.id,
         &inv,
         conn,
@@ -3189,32 +3188,13 @@ pub(crate) async fn read_manifest(
 /// group can read; only an agent worker, which cannot reach that table, is
 /// limited to what its own disk holds.
 ///
-/// Keyed by principal AND caller, matching `dbt_run_state`. An agent worker
-/// never reads that table, so this cache is the whole boundary there: without it
-/// one caller's saved `select` and `vars` are restorable by the next — and an
-/// `on_behalf_of` script gives every caller the same principal, so the principal
-/// alone does not separate them.
-fn state_dir(w_id: &str, script_path: &str, caller: StateCaller<'_>) -> PathBuf {
-    PathBuf::from(&*DBT_CACHE_DIR).join("state").join(digest(&format!(
-        "{w_id}/{script_path}/{}/{}",
-        caller.permissioned_as, caller.created_by
-    )))
-}
-
-/// Who a saved run belongs to. `permissioned_as` is what the retry will execute
-/// AS; `created_by` is who asked for it, and an `on_behalf_of` script collapses
-/// every caller onto one principal, so both are needed to tell two callers'
-/// saved runs apart.
-#[derive(Clone, Copy)]
-pub struct StateCaller<'a> {
-    pub permissioned_as: &'a str,
-    pub created_by: &'a str,
-}
-
-impl<'a> StateCaller<'a> {
-    fn of(job: &'a MiniPulledJob) -> Self {
-        StateCaller { permissioned_as: &job.permissioned_as, created_by: &job.created_by }
-    }
+/// Keyed by principal as well, matching `dbt_run_state`. An agent worker never
+/// reads that table, so this cache is the whole boundary there: without it one
+/// principal's saved `select` and `vars` are restorable by the next.
+fn state_dir(w_id: &str, script_path: &str, permissioned_as: &str) -> PathBuf {
+    PathBuf::from(&*DBT_CACHE_DIR)
+        .join("state")
+        .join(digest(&format!("{w_id}/{script_path}/{permissioned_as}")))
 }
 
 /// Forget any saved retry state for this principal and script.
@@ -3227,7 +3207,7 @@ impl<'a> StateCaller<'a> {
 async fn invalidate_run_state(
     w_id: &str,
     script_path: &str,
-    caller: StateCaller<'_>,
+    permissioned_as: &str,
     conn: &Connection,
 ) {
     if script_path.is_empty() {
@@ -3236,12 +3216,10 @@ async fn invalidate_run_state(
     if let Connection::Sql(db) = conn {
         let _ = sqlx::query!(
             "DELETE FROM dbt_run_state
-              WHERE workspace_id = $1 AND script_path = $2 AND permissioned_as = $3
-                AND created_by = $4",
+              WHERE workspace_id = $1 AND script_path = $2 AND permissioned_as = $3",
             w_id,
             script_path,
-            caller.permissioned_as,
-            caller.created_by,
+            permissioned_as,
         )
         .execute(db)
         .await
@@ -3249,8 +3227,10 @@ async fn invalidate_run_state(
             tracing::warn!("dbt: could not clear retry state for {script_path}: {e:#}")
         });
     }
-    if let Err(e) =
-        tokio::fs::remove_file(state_dir(w_id, script_path, caller).join(CURRENT_GENERATION)).await
+    if let Err(e) = tokio::fs::remove_file(
+        state_dir(w_id, script_path, permissioned_as).join(CURRENT_GENERATION),
+    )
+    .await
     {
         if e.kind() != std::io::ErrorKind::NotFound {
             tracing::warn!("dbt: could not drop local retry state for {script_path}: {e:#}");
@@ -3262,9 +3242,8 @@ async fn save_run_state(
     p: &PreparedProject,
     w_id: &str,
     // Part of the state's key: a retry replaces the caller's arguments with
-    // these, so neither another principal nor another caller of the same
-    // `on_behalf_of` script may restore them.
-    caller: StateCaller<'_>,
+    // these, so another principal must not be able to restore them.
+    permissioned_as: &str,
     // Scopes the staging directory. Keyed by project digest, two concurrent
     // runs of one script would stage into the same place and publish a mixture.
     job_id: &Uuid,
@@ -3303,25 +3282,16 @@ async fn save_run_state(
     // nodes, which are not what last ran here. Both copies go, so neither can
     // answer for the other.
     let Some(results) = results else {
-        invalidate_run_state(w_id, &p.script_path, caller, conn).await;
+        invalidate_run_state(w_id, &p.script_path, permissioned_as, conn).await;
         return Ok(());
     };
-    // An all-green run has nothing for `dbt retry` to resume — it builds from
-    // the error, fail and skipped nodes alone — so storing it would keep a row
-    // and a directory per caller for a retry that is refused anyway. It still
-    // SUPERSEDES the previous run, whose failures are no longer what last
-    // happened here, so the state goes rather than staying.
-    if !has_retryable_node(&results) {
-        invalidate_run_state(w_id, &p.script_path, caller, conn).await;
-        return Ok(());
-    }
     let mut durable_err = None;
     if let Connection::Sql(db) = conn {
         {
             durable_err = sqlx::query!(
-                "INSERT INTO dbt_run_state (workspace_id, script_path, permissioned_as, created_by, identity, args, run_results, job_id, updated_at)
-                 VALUES ($1, $2, $7, $8, $3, $4, $5, $6, now())
-                 ON CONFLICT (workspace_id, script_path, permissioned_as, created_by) DO UPDATE SET
+                "INSERT INTO dbt_run_state (workspace_id, script_path, permissioned_as, identity, args, run_results, job_id, updated_at)
+                 VALUES ($1, $2, $7, $3, $4, $5, $6, now())
+                 ON CONFLICT (workspace_id, script_path, permissioned_as) DO UPDATE SET
                    identity = EXCLUDED.identity, args = EXCLUDED.args,
                    run_results = EXCLUDED.run_results, job_id = EXCLUDED.job_id,
                    updated_at = now()",
@@ -3331,8 +3301,7 @@ async fn save_run_state(
                 serde_json::to_value(&args).unwrap_or_default(),
                 results,
                 job_id,
-                caller.permissioned_as,
-                caller.created_by,
+                permissioned_as,
             )
             .execute(db)
             .await
@@ -3359,10 +3328,10 @@ async fn save_run_state(
     // but the local pointer is removed either way, which is what a retry landing
     // back on this worker reads first.
     if let Some(e) = durable_err {
-        invalidate_run_state(w_id, &p.script_path, caller, conn).await;
+        invalidate_run_state(w_id, &p.script_path, permissioned_as, conn).await;
         return Err(e.into());
     }
-    let dir = state_dir(w_id, &p.script_path, caller);
+    let dir = state_dir(w_id, &p.script_path, permissioned_as);
     let generation = format!("gen-{job_id}");
     // A local publication that gives up leaves the PREVIOUS generation's pointer
     // in place. Where a durable row exists that is harmless — `restore` takes a
@@ -3372,7 +3341,7 @@ async fn save_run_state(
     // that is not the last one to have happened here.
     let abandon_local = || async {
         if matches!(conn, Connection::Http(_)) {
-            invalidate_run_state(w_id, &p.script_path, caller, conn).await;
+            invalidate_run_state(w_id, &p.script_path, permissioned_as, conn).await;
         }
         Ok(())
     };
@@ -3428,53 +3397,6 @@ async fn save_run_state(
     }
     prune_old_generations(&dir, &generation).await;
     Ok(())
-}
-
-/// How long a saved run stays resumable. A retry follows its failure within
-/// minutes in practice; the bound exists because this state is keyed by CALLER,
-/// so a shared `on_behalf_of` script would otherwise keep a row and a directory
-/// for everyone who has ever run it, with nothing to remove them.
-const RUN_STATE_RETENTION_DAYS: i32 = 30;
-
-/// Drop saved runs nobody can still resume: the rows for this script, and the
-/// worker-local directories of any script, since those are keyed by a digest
-/// that names neither.
-async fn prune_run_state(db: &sqlx::Pool<sqlx::Postgres>, w_id: &str, script_path: &str) {
-    if !script_path.is_empty() {
-        let _ = sqlx::query!(
-            "DELETE FROM dbt_run_state
-              WHERE workspace_id = $1 AND script_path = $2
-                AND updated_at < now() - make_interval(days => $3)",
-            w_id,
-            script_path,
-            RUN_STATE_RETENTION_DAYS,
-        )
-        .execute(db)
-        .await
-        .inspect_err(|e| tracing::warn!("pruning dbt retry state: {e:#}"));
-    }
-    let root = PathBuf::from(&*DBT_CACHE_DIR).join("state");
-    let Ok(mut entries) = tokio::fs::read_dir(&root).await else {
-        return;
-    };
-    let now = std::time::SystemTime::now();
-    let max_age = std::time::Duration::from_secs(RUN_STATE_RETENTION_DAYS as u64 * 24 * 60 * 60);
-    while let Ok(Some(e)) = entries.next_entry().await {
-        // The pointer, not the directory: a generation added or pruned inside it
-        // moves the directory's own mtime, while the pointer is written by the
-        // last save — which is what "still resumable" means.
-        let last = tokio::fs::metadata(e.path().join(CURRENT_GENERATION))
-            .await
-            .or(e.metadata().await)
-            .ok()
-            .and_then(|m| m.modified().ok());
-        if last
-            .and_then(|t| now.duration_since(t).ok())
-            .is_some_and(|age| age > max_age)
-        {
-            tokio::fs::remove_dir_all(e.path()).await.ok();
-        }
-    }
 }
 
 /// Names the generation directory a retry reads. Replaced by rename, so it is
@@ -3642,7 +3564,7 @@ struct SavedRunState {
 async fn restore_from_db(
     p: &PreparedProject,
     w_id: &str,
-    caller: StateCaller<'_>,
+    permissioned_as: &str,
     inv: &Invocation,
     conn: &Connection,
     no_state: Error,
@@ -3654,12 +3576,10 @@ async fn restore_from_db(
     };
     let Some(row) = sqlx::query!(
         "SELECT identity, args, run_results FROM dbt_run_state
-         WHERE workspace_id = $1 AND script_path = $2 AND permissioned_as = $3
-           AND created_by = $4",
+         WHERE workspace_id = $1 AND script_path = $2 AND permissioned_as = $3",
         w_id,
         &p.script_path,
-        caller.permissioned_as,
-        caller.created_by
+        permissioned_as
     )
     .fetch_optional(db)
     .await?
@@ -3736,7 +3656,7 @@ pub struct RestoredRun {
 async fn restore_run_state(
     p: &PreparedProject,
     w_id: &str,
-    caller: StateCaller<'_>,
+    permissioned_as: &str,
     inv: &Invocation,
     conn: &Connection,
 ) -> error::Result<RestoredRun> {
@@ -3749,7 +3669,7 @@ async fn restore_run_state(
                 .to_string(),
         ));
     }
-    let dir = state_dir(w_id, &p.script_path, caller);
+    let dir = state_dir(w_id, &p.script_path, permissioned_as);
     // The pointer is resolved ONCE and everything is read out of the generation
     // it names. Generations are immutable, so the arguments, the manifest and
     // the results necessarily describe the same invocation; resolving the
@@ -3772,12 +3692,10 @@ async fn restore_run_state(
     let latest_job = match conn {
         Connection::Sql(db) => sqlx::query_scalar!(
             "SELECT job_id FROM dbt_run_state
-              WHERE workspace_id = $1 AND script_path = $2 AND permissioned_as = $3
-                AND created_by = $4",
+              WHERE workspace_id = $1 AND script_path = $2 AND permissioned_as = $3",
             w_id,
             &p.script_path,
-            caller.permissioned_as,
-            caller.created_by
+            permissioned_as
         )
         .fetch_optional(db)
         .await?
@@ -3800,7 +3718,7 @@ async fn restore_run_state(
         _ => None,
     };
     let Some(generation) = generation else {
-        return restore_from_db(p, w_id, caller, inv, conn, no_state()).await;
+        return restore_from_db(p, w_id, permissioned_as, inv, conn, no_state()).await;
     };
     let snapshot = dir.join(generation.trim());
     // The local generation is a fast path over the row the database holds for
@@ -3810,7 +3728,7 @@ async fn restore_run_state(
     // row to fall back on and gets that report, which is then true.
     let Ok(saved_results) = tokio::fs::read_to_string(snapshot.join("run_results.json")).await
     else {
-        return restore_from_db(p, w_id, caller, inv, conn, no_state()).await;
+        return restore_from_db(p, w_id, permissioned_as, inv, conn, no_state()).await;
     };
     // dbt builds a retry's graph from the error, fail and skipped nodes alone,
     // so retrying an all-green run selects nothing and writes nothing — and a
@@ -3825,7 +3743,7 @@ async fn restore_run_state(
         .ok()
         .and_then(|s| serde_json::from_str::<SavedRunState>(&s).ok())
     else {
-        return restore_from_db(p, w_id, caller, inv, conn, no_state()).await;
+        return restore_from_db(p, w_id, permissioned_as, inv, conn, no_state()).await;
     };
     let (saved_prefix, saved_args_digest) = split_identity(&saved.identity);
     if saved_prefix != format!("{}|{}", p.run_identity(), inv.env_digest()) {
@@ -4798,8 +4716,7 @@ mod tests {
     /// writes relations the run that just failed never touched.
     #[tokio::test]
     async fn invalidating_run_state_drops_the_local_generation() {
-        let alice = StateCaller { permissioned_as: "u/alice", created_by: "alice" };
-        let dir = state_dir("ws", "f/a/one", alice);
+        let dir = state_dir("ws", "f/a/one", "u/alice");
         tokio::fs::create_dir_all(&dir).await.unwrap();
         tokio::fs::write(dir.join(CURRENT_GENERATION), b"gen-old")
             .await
@@ -4809,7 +4726,7 @@ mod tests {
             client: reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build(),
             base_internal_url: String::new(),
         });
-        invalidate_run_state("ws", "f/a/one", alice, &http).await;
+        invalidate_run_state("ws", "f/a/one", "u/alice", &http).await;
 
         assert!(
             !dir.join(CURRENT_GENERATION).exists(),
@@ -4882,36 +4799,25 @@ mod tests {
     }
 
     #[test]
-    fn retry_state_is_per_script_principal_and_caller() {
-        let alice = StateCaller { permissioned_as: "u/alice", created_by: "alice" };
-        let bob = StateCaller { permissioned_as: "u/bob", created_by: "bob" };
+    fn retry_state_is_per_script_and_principal() {
         assert_ne!(
-            state_dir("ws", "f/a/one", alice),
-            state_dir("ws", "f/a/two", alice)
+            state_dir("ws", "f/a/one", "u"),
+            state_dir("ws", "f/a/two", "u")
         );
         assert_ne!(
-            state_dir("ws1", "f/a/one", alice),
-            state_dir("ws2", "f/a/one", alice)
+            state_dir("ws1", "f/a/one", "u"),
+            state_dir("ws2", "f/a/one", "u")
         );
         assert_eq!(
-            state_dir("ws", "f/a/one", alice),
-            state_dir("ws", "f/a/one", alice)
+            state_dir("ws", "f/a/one", "u"),
+            state_dir("ws", "f/a/one", "u")
         );
         // A retry replaces the caller's arguments with the saved ones, and an
         // agent worker has no database row to fall back on: this separation is
         // the only thing keeping one principal's `select`/`vars` from another.
         assert_ne!(
-            state_dir("ws", "f/a/one", alice),
-            state_dir("ws", "f/a/one", bob)
-        );
-        // An `on_behalf_of` script runs every caller's job as the SAME
-        // principal, so the principal alone would put both of them on one saved
-        // run — and the next caller to press retry would replay, and be shown,
-        // the previous one's arguments.
-        let owner = "u/owner";
-        assert_ne!(
-            state_dir("ws", "f/a/one", StateCaller { permissioned_as: owner, created_by: "alice" }),
-            state_dir("ws", "f/a/one", StateCaller { permissioned_as: owner, created_by: "bob" })
+            state_dir("ws", "f/a/one", "u/alice"),
+            state_dir("ws", "f/a/one", "u/bob")
         );
     }
 

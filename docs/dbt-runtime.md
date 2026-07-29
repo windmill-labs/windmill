@@ -699,6 +699,28 @@ provides observability.
    generic retry, which has no per-language hook to change the invoked command.
    Each attempt gets a fresh job dir, so the previous run's `target/` is cached
    per (workspace, script) on the worker and restored for a retry.
+
+   **Who may resume it.** The state is keyed `(workspace, script_path,
+   permissioned_as)` — one saved run per script per identity it executes as —
+   because `dbt_command: retry` names no job: it means "resume the last failure
+   of this script", the way `dbt retry` resumes whatever the target dir holds.
+   So anyone entitled to run the script as that principal may resume its last
+   failure, which is the same capability as re-running that job: running the
+   script requires read access on it, and that access shows them the run and its
+   arguments already.
+
+   For an `on_behalf_of` script that means every caller shares one saved run,
+   since they all execute as the owner — deliberately, since the state describes
+   the script's last run under the owner's identity rather than any one caller's.
+   The residual: a run pushed `invisible_to_owner` is hidden from the other
+   callers, yet its arguments come back through a retry's `invocation_args`, so
+   they are recoverable when the job itself is not readable. Keying by the
+   initiating caller does not fix it — `created_by` is `display_username()`,
+   which a token LABEL supplies, so two callers can share it and one can name a
+   third person (GHSA-8x8x-88qc-qp4r, whose fix was to stop trusting that name).
+   Closing it properly means making a retry NAME the job it resumes and
+   authorizing that as a job read, which is a change to the run argument rather
+   than to the key.
 8. Test failures honor dbt's `severity`: `error` fails the job, `warn` surfaces
    without failing. Overriding this would make the same project behave differently
    on Windmill than locally, breaking the core promise.
