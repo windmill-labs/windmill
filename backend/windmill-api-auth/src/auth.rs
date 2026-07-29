@@ -835,33 +835,6 @@ pub async fn resolve_opt_job_authed(
     Err((Error::NotAuthorized("Unauthorized".to_string()), parts))
 }
 
-/// Whether a token label is one this module reads as an IDENTITY, and which
-/// therefore only the server may set.
-///
-/// A delegated job's own token is labelled `ephemeral-script-end-user-<the
-/// person who launched it>` (`create_token`, windmill-queue/src/jobs.rs) so that
-/// what the script does through the API is attributed to them rather than to the
-/// owner it executes as, and `username_override_from_label` turns that back into
-/// a username. Accepted from a request, it lets any member mint a token that
-/// speaks as somebody else: `created_by` on every job they push is that name,
-/// and anything keyed by it — a job read's fast path, dbt's retry state — treats
-/// them as that person.
-///
-/// Lists every arm below whose override the LABEL gets to choose. `Ephemeral lsp
-/// token` is deliberately absent: its override is the fixed sentinel `lsp`, so it
-/// names nothing the caller picked, and the editor mints exactly that label for
-/// its language server through this same endpoint (`Editor.svelte`). The `label-`
-/// form is absent for the same reason — prefixed, so it cannot collide with a
-/// username.
-pub fn is_reserved_token_label(label: &str) -> bool {
-    label.starts_with("ephemeral-script-end-user-")
-        || label.starts_with("ephemeral-webhook-")
-        || label.starts_with("webhook-")
-        || label.starts_with("http-")
-        || label.starts_with("email-")
-        || label.starts_with("ws-")
-}
-
 fn username_override_from_label(label: Option<String>) -> Option<String> {
     match label {
         Some(label)
@@ -883,55 +856,6 @@ fn username_override_from_label(label: Option<String>) -> Option<String> {
             Some(format!("label-{label}"))
         }
         _ => None,
-    }
-}
-
-#[cfg(test)]
-mod label_tests {
-    use super::{is_reserved_token_label, username_override_from_label};
-
-    /// The two must agree: anything the auth layer turns into a name other than
-    /// the prefixed `label-` form is a name the server alone may assign.
-    #[test]
-    fn every_identity_bearing_label_is_reserved() {
-        for label in [
-            "ephemeral-script-end-user-alice",
-            "ephemeral-webhook-kafka-ab12c",
-            "webhook-x",
-            "http-x",
-            "email-x",
-            "ws-x",
-        ] {
-            let over = username_override_from_label(Some(label.to_string()));
-            assert!(
-                over.is_some_and(|o| !o.starts_with("label-")),
-                "`{label}` no longer carries an identity; drop it from the reserved list"
-            );
-            assert!(is_reserved_token_label(label), "`{label}` must be refused");
-        }
-        // What an ordinary token may still be called, including the shapes the
-        // module reads as "no override at all".
-        // Including the editor's language-server token, whose override is a
-        // fixed sentinel rather than a name it chose.
-        for label in [
-            "my ci token",
-            "session",
-            "ephemeral-script",
-            "debugger-token",
-            "Ephemeral lsp token",
-        ] {
-            assert!(!is_reserved_token_label(label), "`{label}` must stay allowed");
-        }
-        assert_eq!(
-            username_override_from_label(Some("Ephemeral lsp token".to_string())),
-            Some("lsp".to_string())
-        );
-        // The impersonating one is the reason this exists: it yields the bare
-        // username, so it collides with a real user rather than a label.
-        assert_eq!(
-            username_override_from_label(Some("ephemeral-script-end-user-alice".to_string())),
-            Some("alice".to_string())
-        );
     }
 }
 

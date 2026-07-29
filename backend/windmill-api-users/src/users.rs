@@ -2755,23 +2755,6 @@ pub async fn create_session_token<'c>(
 
 // create_token_internal is re-exported from windmill-api-auth above
 
-/// Some token labels are how the auth layer learns WHO a token speaks for — the
-/// label of a delegated job's own token carries the username of whoever launched
-/// it. The server assigns those; a request that could pick one would be choosing
-/// its own `created_by`, and everything keyed by that name would believe it.
-/// Native triggers and app-embed tokens build their labels themselves and do not
-/// come through here.
-fn reject_reserved_label(label: Option<&str>) -> Result<()> {
-    if label.is_some_and(windmill_api_auth::is_reserved_token_label) {
-        return Err(Error::BadRequest(format!(
-            "`{}` is a reserved token label: Windmill assigns these to the tokens it \
-             issues for a job, and they decide which user a token acts as. Choose another label.",
-            label.unwrap_or_default()
-        )));
-    }
-    Ok(())
-}
-
 async fn create_token(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
@@ -2782,7 +2765,6 @@ async fn create_token(
     check_token_create_rate_limit(&authed.username)?;
 
     windmill_api_auth::ensure_scopes_within_caller(&authed, token_config.scopes.as_deref())?;
-    reject_reserved_label(token_config.label.as_deref())?;
 
     let mut tx = db.begin().await?;
 
@@ -2816,9 +2798,6 @@ async fn impersonate(
             "impersonate_username is required".to_string(),
         ));
     }
-    // Impersonation names its subject in `impersonate_email`; a label that ALSO
-    // renames the caller would attribute this token's jobs to a third identity.
-    reject_reserved_label(new_token.label.as_deref())?;
 
     let impersonated = new_token.impersonate_email.unwrap();
 
