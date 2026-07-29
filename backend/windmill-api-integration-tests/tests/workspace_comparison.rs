@@ -1249,61 +1249,77 @@ async fn test_fork_tally_ahead_without_deploy_to(db: Pool<Postgres>) -> anyhow::
         resp.status()
     );
 
-    // The state under test: a fork linked to its parent but with no `deploy_to`.
-    // An admin can produce this from workspace settings at any time.
+    // bash needs no lock generation, so `create_script` tallies inline instead of
+    // deferring to a dependency job (no worker runs in this test).
+    let deploy = async |path: &str| -> anyhow::Result<()> {
+        let resp = admin
+            .client()
+            .post(&format!("{base_url}/w/wm-fork-no-deploy-to/scripts/create"))
+            .json(&json!({
+                "path": path,
+                "summary": "",
+                "description": "",
+                "content": "echo 1",
+                "language": "bash",
+                "schema": {"type": "object", "properties": {}, "required": []},
+            }))
+            .send()
+            .await?;
+        let status = resp.status();
+        assert!(
+            status.is_success(),
+            "script create failed: {} — {}",
+            status,
+            resp.text().await?
+        );
+        Ok(())
+    };
+
+    // The tally runs in a `tokio::spawn` inside `handle_deployment_metadata`.
+    let ahead_for = async |path: &str| -> anyhow::Result<Option<i32>> {
+        let mut ahead = None;
+        for _ in 0..40 {
+            ahead = sqlx::query_scalar!(
+                "SELECT ahead FROM workspace_diff
+                 WHERE source_workspace_id = 'test-workspace'
+                   AND fork_workspace_id = 'wm-fork-no-deploy-to'
+                   AND kind = 'script'
+                   AND path = $1",
+                path
+            )
+            .fetch_optional(&db)
+            .await?;
+            if ahead.is_some() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        Ok(ahead)
+    };
+
+    // ------ A fork's default state: the settings clone sets `deploy_to` to the
+    // parent, so both upstream keys name it. Tallying both must still count once.
+    deploy("u/admin/with_deploy_to").await?;
+    assert_eq!(
+        ahead_for("u/admin/with_deploy_to").await?,
+        Some(1),
+        "deploy_to and parent_workspace_id name the same workspace here — the change must be counted once, not twice"
+    );
+
+    // ------ The reported state (#10401): a fork still linked to its parent but
+    // with no `deploy_to`. An admin can produce this from workspace settings at
+    // any time, and older forks never had it set.
     sqlx::query!(
         "UPDATE workspace_settings SET deploy_to = NULL WHERE workspace_id = 'wm-fork-no-deploy-to'"
     )
     .execute(&db)
     .await?;
 
-    // bash needs no lock generation, so `create_script` tallies inline instead of
-    // deferring to a dependency job (no worker runs in this test).
-    let resp = admin
-        .client()
-        .post(&format!("{base_url}/w/wm-fork-no-deploy-to/scripts/create"))
-        .json(&json!({
-            "path": "u/admin/tallied",
-            "summary": "",
-            "description": "",
-            "content": "echo 1",
-            "language": "bash",
-            "schema": {"type": "object", "properties": {}, "required": []},
-        }))
-        .send()
-        .await?;
-    let status = resp.status();
-    assert!(
-        status.is_success(),
-        "script create failed: {} — {}",
-        status,
-        resp.text().await?
-    );
-
-    // The tally runs in a `tokio::spawn` inside `handle_deployment_metadata`.
-    let mut ahead = None;
-    for _ in 0..40 {
-        ahead = sqlx::query_scalar!(
-            "SELECT ahead FROM workspace_diff
-             WHERE source_workspace_id = 'test-workspace'
-               AND fork_workspace_id = 'wm-fork-no-deploy-to'
-               AND kind = 'script'
-               AND path = 'u/admin/tallied'"
-        )
-        .fetch_optional(&db)
-        .await?;
-        if ahead.is_some() {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    }
-
-    // Exactly one: tallying both `deploy_to` and `parent_workspace_id` must not
-    // double-count when they point at the same workspace.
+    deploy("u/admin/without_deploy_to").await?;
     assert_eq!(
-        ahead,
+        ahead_for("u/admin/without_deploy_to").await?,
         Some(1),
-        "a fork with no deploy_to must still record its change once against its parent"
+        "a fork with no deploy_to must still record its change against its parent"
     );
 
     Ok(())
