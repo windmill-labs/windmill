@@ -93,6 +93,7 @@ pub async fn handle_dependency_job(
     token: &str,
     occupancy_metrics: &mut OccupancyMetrics,
     raw_workspace_dependencies_o: Option<RawWorkspaceDependencies>,
+    deployment_tallied: &mut bool,
 ) -> error::Result<Box<RawValue>> {
     // Processing a dependency job - these jobs handle lockfile generation and dependency updates
     // for scripts, flows, and apps when their dependencies or imported scripts change
@@ -288,6 +289,9 @@ pub async fn handle_dependency_job(
             {
                 tracing::error!(%e, "error handling deployment metadata");
             }
+            // The tally is part of what `handle_deployment_metadata` does; anything
+            // that fails below must not make the caller record it a second time.
+            *deployment_tallied = true;
 
             process_relative_imports(
                 db,
@@ -381,6 +385,7 @@ pub async fn handle_flow_dependency_job(
     token: &str,
     occupancy_metrics: &mut OccupancyMetrics,
     raw_workspace_dependencies_o: Option<RawWorkspaceDependencies>,
+    deployment_tallied: &mut bool,
 ) -> error::Result<Box<serde_json::value::RawValue>> {
     tracing::debug!("Processing flow dependency job");
     tracing::trace!("Job details: {:?}", &job);
@@ -665,7 +670,7 @@ pub async fn handle_flow_dependency_job(
     }) {
         // Skip phase 3. Phase 1's deletes are committed; flow is left with no
         // deps and the previous `flow.value`. Self-healing on next dep job.
-        tally_unfinished_dependency_deploy(db, &job).await;
+        tally_unfinished_dependency_deploy(db, &job, deployment_tallied).await;
         return Ok(to_raw_value_owned(json!({
             "status": "Flow lock generation was canceled",
         })));
@@ -815,6 +820,7 @@ pub async fn handle_flow_dependency_job(
         {
             tracing::error!(%e, "error handling deployment metadata");
         }
+        *deployment_tallied = true;
     }
 
     Ok(to_raw_value_owned(json!({
@@ -858,7 +864,20 @@ fn get_deployment_msg_and_parent_path_from_args(
 /// the success path, and nothing ever re-scans `workspace_diff` — so without this the
 /// change stays invisible in the fork's "Compare & Deploy" list forever, with no way
 /// to surface it short of redeploying the item.
-pub(crate) async fn tally_unfinished_dependency_deploy(db: &DB, job: &MiniPulledJob) {
+///
+/// Sets `tallied` so the caller does not tally the same deploy twice: the tally
+/// increments `ahead`, and a dependency handler can fail *after* having reached
+/// `handle_deployment_metadata`.
+pub(crate) async fn tally_unfinished_dependency_deploy(
+    db: &DB,
+    job: &MiniPulledJob,
+    tallied: &mut bool,
+) {
+    if *tallied {
+        return;
+    }
+    *tallied = true;
+
     // `runnable_id` is what distinguishes a deploy from a one-off preview lock job,
     // which has nothing saved to tally.
     let (Some(path), Some(version)) = (job.runnable_path.clone(), job.runnable_id.map(|h| h.0))
@@ -866,16 +885,15 @@ pub(crate) async fn tally_unfinished_dependency_deploy(db: &DB, job: &MiniPulled
         return;
     };
     let (_, parent_path) = get_deployment_msg_and_parent_path_from_args(job.args.clone());
+    // `parent_path` is the previous path, set whether or not the deploy renamed the
+    // item. Only an actual rename is a second (now removed) path to tally.
+    let renamed_from = parent_path.clone().filter(|p| *p != path);
 
     let obj = match job.kind {
-        JobKind::Dependencies => DeployedObject::Script {
-            hash: ScriptHash(version),
-            path,
-            parent_path: parent_path.clone(),
-        },
-        JobKind::FlowDependencies => {
-            DeployedObject::Flow { path, parent_path: parent_path.clone(), version }
+        JobKind::Dependencies => {
+            DeployedObject::Script { hash: ScriptHash(version), path, parent_path }
         }
+        JobKind::FlowDependencies => DeployedObject::Flow { path, parent_path, version },
         JobKind::AppDependencies => {
             // `raw_app` decides the diff kind ("app" vs "raw_app"), so it has to be
             // read back rather than guessed — a wrong kind writes a row nothing reads.
@@ -893,16 +911,16 @@ pub(crate) async fn tally_unfinished_dependency_deploy(db: &DB, job: &MiniPulled
                 }
             };
             if raw_app {
-                DeployedObject::RawApp { path, version, parent_path: parent_path.clone() }
+                DeployedObject::RawApp { path, version, parent_path }
             } else {
-                DeployedObject::App { path, version, parent_path: parent_path.clone() }
+                DeployedObject::App { path, version, parent_path }
             }
         }
         _ => return,
     };
 
     if let Err(e) =
-        tally_deployed_object_changes(&job.workspace_id, &obj, db, parent_path.as_deref()).await
+        tally_deployed_object_changes(&job.workspace_id, &obj, db, renamed_from.as_deref()).await
     {
         tracing::error!(%e, "error tallying fork changes for unfinished dependency job {}", job.id);
     }
@@ -2076,6 +2094,7 @@ pub async fn handle_app_dependency_job(
     token: &str,
     occupancy_metrics: &mut OccupancyMetrics,
     raw_workspace_dependencies_o: Option<RawWorkspaceDependencies>,
+    deployment_tallied: &mut bool,
 ) -> error::Result<()> {
     let job_path = job.runnable_path.clone().ok_or_else(|| {
         error::Error::internal_err(
@@ -2224,7 +2243,7 @@ pub async fn handle_app_dependency_job(
             tracing::error!(%job.id, %err, "error checking cancelation for job {0}: {err}", job.id);
             false
         }) {
-            tally_unfinished_dependency_deploy(db, &job).await;
+            tally_unfinished_dependency_deploy(db, &job, deployment_tallied).await;
             return Ok(());
         }
 
@@ -2270,6 +2289,7 @@ pub async fn handle_app_dependency_job(
         {
             tracing::error!(%e, "error handling deployment metadata");
         }
+        *deployment_tallied = true;
 
         // tx = PushIsolationLevel::Transaction(new_tx);
         // tx = handle_deployment_metadata(

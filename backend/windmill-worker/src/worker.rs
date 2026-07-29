@@ -3959,6 +3959,9 @@ pub async fn handle_queued_job(
         } else {
             None
         };
+        // Set by the dependency handlers once they reach `handle_deployment_metadata`,
+        // so the fallback tally below never counts the same deploy twice.
+        let mut deployment_tallied = false;
         // Box::pin all async branches to prevent large match enum on stack
         let result = match job.kind {
             JobKind::Dependencies => match conn {
@@ -3976,6 +3979,7 @@ pub async fn handle_queued_job(
                         &client.token,
                         occupancy_metrics,
                         raw_workspace_dependencies_o,
+                        &mut deployment_tallied,
                     ))
                     .await
                 }
@@ -4000,6 +4004,7 @@ pub async fn handle_queued_job(
                         &client.token,
                         occupancy_metrics,
                         raw_workspace_dependencies_o,
+                        &mut deployment_tallied,
                     ))
                     .await
                 }
@@ -4022,6 +4027,7 @@ pub async fn handle_queued_job(
                     &client.token,
                     occupancy_metrics,
                     raw_workspace_dependencies_o,
+                    &mut deployment_tallied,
                 ))
                 .await
                 .map(|()| serde_json::from_str("{}").unwrap()),
@@ -4108,14 +4114,17 @@ pub async fn handle_queued_job(
             }
         };
 
-        // The deployed version lands before the dependency job runs, so a lock
-        // generation that fails or is cancelled still leaves the item live in the
-        // workspace while the fork/parent tally — which only runs on the success
-        // path — is skipped. Tally it here so the change is still offered in the
-        // fork's "Compare & Deploy" list.
-        if job.kind.is_dependency() && (result.is_err() || canceled_by.is_some()) {
+        // A lock generation that failed or was cancelled still leaves the deployed
+        // version live in the workspace, so its fork/parent change must be tallied.
+        // `AlreadyCompleted` is not such a failure — another worker owns the job.
+        if job.kind.is_dependency()
+            && (result
+                .as_ref()
+                .is_err_and(|err| !matches!(err, &Error::AlreadyCompleted(_)))
+                || canceled_by.is_some())
+        {
             if let Connection::Sql(db) = conn {
-                tally_unfinished_dependency_deploy(db, job.as_ref()).await;
+                tally_unfinished_dependency_deploy(db, job.as_ref(), &mut deployment_tallied).await;
             }
         }
 
