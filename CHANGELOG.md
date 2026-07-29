@@ -1,5 +1,67 @@
 # Changelog
 
+## [1.775.2](https://github.com/windmill-labs/windmill/compare/v1.775.1...v1.775.2) (2026-07-29)
+
+
+### Bug Fixes
+
+* **cli:** compile runes in .svelte.ts / .svelte.js modules ([#10400](https://github.com/windmill-labs/windmill/issues/10400)) ([9c37b02](https://github.com/windmill-labs/windmill/commit/9c37b0217c79390271d9855abe135df02f35c41f))
+* distinguish waiting-on-user from streaming in ai sessions ([#10396](https://github.com/windmill-labs/windmill/issues/10396)) ([a17ccbd](https://github.com/windmill-labs/windmill/commit/a17ccbdd0d3c9f2f6234c4cc70d0917e83eeaceb))
+* surface the real reason git sync settings saves are rejected ([#10398](https://github.com/windmill-labs/windmill/issues/10398)) ([33d2845](https://github.com/windmill-labs/windmill/commit/33d28456cc8ef9f64301eb3dd6dad6d7325018e3))
+
+## [1.775.1](https://github.com/windmill-labs/windmill/compare/v1.775.0...v1.775.1) (2026-07-28)
+
+
+### Bug Fixes
+
+* **ai:** render pending parallel tool calls as faded queued cards ([#10208](https://github.com/windmill-labs/windmill/issues/10208)) ([d842f76](https://github.com/windmill-labs/windmill/commit/d842f765a457f0c80a2cd1eb06bc703167512160))
+* **frontend:** add the preprocessor node before the error handler markers ([#10395](https://github.com/windmill-labs/windmill/issues/10395)) ([39dd411](https://github.com/windmill-labs/windmill/commit/39dd411481d450b1cdb92ddba3a8b613ddd2218a))
+
+## [1.775.0](https://github.com/windmill-labs/windmill/compare/v1.774.0...v1.775.0) (2026-07-28)
+
+
+### Features
+
+* add github dark mode variant switchable in user settings ([#10002](https://github.com/windmill-labs/windmill/issues/10002)) ([bd24664](https://github.com/windmill-labs/windmill/commit/bd246644c962f754a8477353d49ed39ba9b87ffd))
+* validate and make explicit the hub project's resource type export ([#10388](https://github.com/windmill-labs/windmill/issues/10388)) ([91b8ce5](https://github.com/windmill-labs/windmill/commit/91b8ce581a15baf7fc9ea4e983b50f233cf5e023))
+
+
+### Bug Fixes
+
+* render the flow editor's error handler node as an inert run marker ([#10391](https://github.com/windmill-labs/windmill/issues/10391)) ([bff6545](https://github.com/windmill-labs/windmill/commit/bff654596fb9cf8b086919367614ba0915cd7b87))
+* truncate strings on char boundaries to avoid panics on multibyte input ([#10390](https://github.com/windmill-labs/windmill/issues/10390)) ([faa2aaf](https://github.com/windmill-labs/windmill/commit/faa2aaf214444f4fbb129f10a46060d4a8ab3ae8))
+
+## [1.774.0](https://github.com/windmill-labs/windmill/compare/v1.773.0...v1.774.0) (2026-07-28)
+
+
+### Features
+
+* **ai-chat:** add get_flow_run_details tool for per-step flow run results ([#10374](https://github.com/windmill-labs/windmill/issues/10374)) ([c12e7c3](https://github.com/windmill-labs/windmill/commit/c12e7c34310b417e89f94efc3c412b3c7278344b))
+* **ai-chat:** recall queued/last message into the composer ([#10191](https://github.com/windmill-labs/windmill/issues/10191)) ([ad0fef4](https://github.com/windmill-labs/windmill/commit/ad0fef4a2e0ea63ae00562ff10d9ebbae66c42d0))
+* bulk discard selected drafts on the compare & deploy page ([#10372](https://github.com/windmill-labs/windmill/issues/10372)) ([ac970ef](https://github.com/windmill-labs/windmill/commit/ac970efa1698e42ad1e7b3cea5f06f18a567269d))
+* reusable AI agent steps with rigid linking and edit/fork ([#9825](https://github.com/windmill-labs/windmill/issues/9825)) ([3b95a2d](https://github.com/windmill-labs/windmill/commit/3b95a2d0967544640feb53fe962a8215e049f4d2))
+
+
+### Bug Fixes
+
+* **ai-agent:** keep tool description through flow deployment ([#10373](https://github.com/windmill-labs/windmill/issues/10373)) ([8d684c0](https://github.com/windmill-labs/windmill/commit/8d684c0b2305798a781685ca022b1b9dc0731cf0))
+* **ai-chat:** make hub script paths readable from the global chat ([#10381](https://github.com/windmill-labs/windmill/issues/10381)) ([5feec9b](https://github.com/windmill-labs/windmill/commit/5feec9b4cd3cdd4eed3edf5be0fc42dabfeb13d2))
+* **ai:** resolve deployment-pinned Azure base URLs to the v1 surface ([#10362](https://github.com/windmill-labs/windmill/issues/10362)) ([621718b](https://github.com/windmill-labs/windmill/commit/621718b32fe5322638039d4a560b845e11b38008))
+* **apps:** stop cross-origin isolating the raw app viewer ([#10370](https://github.com/windmill-labs/windmill/issues/10370)) ([3c2dab9](https://github.com/windmill-labs/windmill/commit/3c2dab9f8f302e2f80ef800a4271bfe5aa152767))
+* **datatable:** provision the replication user on managed postgres ([#10375](https://github.com/windmill-labs/windmill/issues/10375)) ([1b6b2aa](https://github.com/windmill-labs/windmill/commit/1b6b2aa8598100b5327ecc3e16f1541db95f9e47))
+* **frontend:** preserve top-level flow settings in AI flow tools ([#10369](https://github.com/windmill-labs/windmill/issues/10369)) ([a544dfd](https://github.com/windmill-labs/windmill/commit/a544dfde9a5f409247e78ef1c1aac2b9699d9ac8))
+* home kind filter no longer resets a fork or reloads the page ([#10384](https://github.com/windmill-labs/windmill/issues/10384)) ([2a2ef41](https://github.com/windmill-labs/windmill/commit/2a2ef411525f032743af93f143c10ad373c20fc8))
+* loop "Test an iteration" progress bar, while-loop modules and schema ([#10357](https://github.com/windmill-labs/windmill/issues/10357)) ([350eb66](https://github.com/windmill-labs/windmill/commit/350eb66560d2626c4100a21edb2101cdfa4a0a72))
+* make same worker mutually exclusive with retries and sleeps in the flow editor ([#10379](https://github.com/windmill-labs/windmill/issues/10379)) ([ecde945](https://github.com/windmill-labs/windmill/commit/ecde94567c5ec43002a06d2d765927e0d89640a4))
+* mark Setup URL as required in self-managed GitHub App instructions ([#10380](https://github.com/windmill-labs/windmill/issues/10380)) ([c4e7568](https://github.com/windmill-labs/windmill/commit/c4e75683a8a346f4cb39038f3045c94f3a9621b2))
+* raw apps with no stylesheet were permanently un-deployable ([#10364](https://github.com/windmill-labs/windmill/issues/10364)) ([8a96e3a](https://github.com/windmill-labs/windmill/commit/8a96e3a4ec47c0a28dd422b31388f7f0cced8e67))
+* show draft badge and disable the toggle for draft-only triggers ([#10155](https://github.com/windmill-labs/windmill/issues/10155)) ([b0c7e09](https://github.com/windmill-labs/windmill/commit/b0c7e0917376248cda0f894b138075d82f19f620))
+* surface postgres publication errors as 400 instead of 500 ([#10376](https://github.com/windmill-labs/windmill/issues/10376)) ([5e52346](https://github.com/windmill-labs/windmill/commit/5e523462423f73419df25e4d7aa1cd2e77c0228a))
+* surface the real postgres error when data table migrations fail ([#10371](https://github.com/windmill-labs/windmill/issues/10371)) ([fbf9f04](https://github.com/windmill-labs/windmill/commit/fbf9f04e107c674474f61c1559a2f1e56dfeeaba))
+* **wac:** one failure record for tasks and steps, in every round ([#10368](https://github.com/windmill-labs/windmill/issues/10368)) ([aeaea57](https://github.com/windmill-labs/windmill/commit/aeaea57ca1a0fac02157035530e84c3588a7aec1))
+* **wac:** report a task failure the child round's body catches ([#10366](https://github.com/windmill-labs/windmill/issues/10366)) ([727d22b](https://github.com/windmill-labs/windmill/commit/727d22b9a1f9520788afb9b519be8fcd8fd64319))
+* **wac:** return the checkpointed value from step(), not the live object ([#10367](https://github.com/windmill-labs/windmill/issues/10367)) ([044ce39](https://github.com/windmill-labs/windmill/commit/044ce39e5f9c8207287e19a0d2eefa22b79188f2))
+
 ## [1.773.0](https://github.com/windmill-labs/windmill/compare/v1.772.0...v1.773.0) (2026-07-27)
 
 

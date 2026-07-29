@@ -20,6 +20,7 @@ import { formatResourceTypes } from './utils'
 import {
 	appendPendingToolImages,
 	processToolCall,
+	queuedToolStatus,
 	type Tool,
 	type ToolCallbacks
 } from './chat/shared'
@@ -1073,6 +1074,9 @@ export async function parseOpenAICompletion(
 	options?: { workspace?: string; provider?: string }
 ): Promise<{ shouldContinue: boolean; tokenUsage: ChatTokenUsage }> {
 	const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
+	// The tool call currently receiving argument deltas; when the stream moves on
+	// to the next call, the previous one is demoted to queued.
+	let streamingToolCallId: string | undefined = undefined
 	let malformedFunctionCallError = false
 	let tokenUsage = emptyChatTokenUsage()
 
@@ -1163,10 +1167,17 @@ export async function parseOpenAICompletion(
 					id: toolCallId
 				} = finalToolCall
 				if (funcName && toolCallId) {
-					const tool = tools.find((t) => t.def.function.name === funcName)
-					if (tool && tool.preAction) {
-						tool.preAction({ toolCallbacks: callbacks, toolId: toolCallId })
+					if (streamingToolCallId !== undefined && streamingToolCallId !== toolCallId) {
+						const previous = Object.values(finalToolCalls).find(
+							(tc) => tc.id === streamingToolCallId
+						)
+						callbacks.setToolStatus(
+							streamingToolCallId,
+							queuedToolStatus(tools, previous?.function?.name ?? '', previous?.function?.arguments)
+						)
 					}
+					streamingToolCallId = toolCallId
+					const tool = tools.find((t) => t.def.function.name === funcName)
 
 					const shouldStream = tool?.streamArguments ?? false
 					const accumulatedArgs = finalToolCall.function.arguments
@@ -1179,10 +1190,13 @@ export async function parseOpenAICompletion(
 						}
 					}
 
-					// Display tool call with streaming parameters if enabled
+					// Display tool call with streaming parameters if enabled. isQueued is
+					// cleared explicitly: a provider may interleave deltas of parallel
+					// calls, re-promoting a call that was already demoted to queued.
 					callbacks.setToolStatus(toolCallId, {
 						isLoading: true,
-						content: tool?.streamingLabel ?? `Calling ${funcName}...`,
+						isQueued: false,
+						content: tool?.streamingLabel ?? `Preparing ${funcName}...`,
 						toolName: funcName,
 						isStreamingArguments: shouldStream,
 						showFade: tool?.showFade,
@@ -1207,10 +1221,13 @@ export async function parseOpenAICompletion(
 
 	callbacks.onMessageEnd()
 
-	// Clear streaming state for all tool calls
+	// Stream over: every parsed call is queued until its turn in processToolCall.
 	for (const toolCall of Object.values(finalToolCalls)) {
 		if (toolCall.id) {
-			callbacks.setToolStatus(toolCall.id, { isStreamingArguments: false })
+			callbacks.setToolStatus(
+				toolCall.id,
+				queuedToolStatus(tools, toolCall.function?.name ?? '', toolCall.function?.arguments)
+			)
 		}
 	}
 
@@ -1240,6 +1257,7 @@ export async function parseOpenAICompletion(
 			if (invalidToolCallIds.has(toolCall.id)) {
 				callbacks.setToolStatus(toolCall.id, {
 					isLoading: false,
+					isQueued: false,
 					isStreamingArguments: false,
 					error: 'Tool call arguments were invalid or truncated'
 				})

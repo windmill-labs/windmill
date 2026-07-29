@@ -5,10 +5,40 @@
  */
 import { expect, test, describe } from "bun:test";
 
-// The two functions that decide what a caught failure looks like come from the
-// shipped module, not from the mirror below: they are what drifted from the
-// backend's shape before, so a copy of them here would guard nothing.
+// From the shipped module, not the mirror below: these decide what a caught
+// failure looks like and what is the SDK's own control flow, so a copy here
+// would guard nothing.
 import { isSuspendSignal, stepErrorMarker, taskErrorFromMarker } from "../wacError";
+
+// The cases both SDKs must agree on, from the corpus the python suite also
+// reads. Its `_readme` states the contract and why it is shared.
+import corpus from "../../backend/windmill-common/src/wac_failure_corpus.json";
+
+describe("shared failure-record corpus", () => {
+  const construct = (spec: any): any => {
+    const e: any = Object.assign(new Error(spec.message), { name: spec.name });
+    for (const [k, v] of Object.entries(spec.props ?? {})) e[k] = v;
+    if (spec.circular_prop) {
+      const cyclic: any = {};
+      cyclic.self = cyclic;
+      e[spec.circular_prop] = cyclic;
+    }
+    return e;
+  };
+
+  for (const c of (corpus as any).cases) {
+    test(c.case, () => {
+      const error = stepErrorMarker("k", construct(c.thrown)).result.error;
+      expect(error.name).toBe(c.expect.name);
+      expect(error.message).toBe(c.expect.message);
+      expect("stack" in error).toBe(c.expect.stack === "present");
+      if (c.expect.extra) expect(error.extra).toEqual(c.expect.extra);
+      for (const absent of c.expect.absent ?? []) expect(absent in error).toBe(false);
+      // whatever it kept has to survive the trip to the checkpoint
+      expect(() => JSON.stringify(error)).not.toThrow();
+    });
+  }
+});
 
 // --- Inline SDK (mirrors client.ts implementation) ---
 
