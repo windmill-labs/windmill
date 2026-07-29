@@ -148,6 +148,12 @@
 		finalLoadFor = undefined
 		polled = new Map()
 		raw = undefined
+		// Both are written by `load` alone and describe the run it answered for,
+		// so they are as run-scoped as `raw`: left behind, the gap before the new
+		// run's answer falls past `{#if loading}` to the "no models in the asset
+		// graph" notice — a claim about the descriptor, on a project that is fine.
+		loading = true
+		failed = false
 		// Previews are keyed by `unique_id` alone, which is the same string for the
 		// same model in every run — so without this the next run opens showing the
 		// previous one's rows, and `runPreview` treats them as cached and refuses
@@ -271,9 +277,11 @@
 	// persisted graph, and a run page has neither. The response is the graph.
 	//
 	// For a FINISHED run the node set is narrowed to what that run actually
-	// named. `/assets/graph` is the current deploy, so without this a model added
-	// after the run appears in its graph as though it had been there, and the
-	// older the run the more the picture drifts. Sources are kept regardless:
+	// named. The response is that VERSION's graph, which is not the same as that
+	// RUN's: a later run of the version can rewrite it — a moved profile does —
+	// and a run whose own snapshot has aged past retention falls back to it. So
+	// without this a model the version has but this run did not build appears in
+	// its graph as though it had. Sources are kept regardless:
 	// dbt never lists them in `run_results.json` because it does not build them,
 	// but they are the upstream the run read.
 	let historical = $derived.by(() => {
@@ -309,9 +317,10 @@
 	let graph = $derived(historical ?? scoped)
 
 	// Models whose id survived but whose RELATION changed since — an alias,
-	// schema or database edit. The graph is the current deploy, so the node is
-	// today's relation while the run wrote a different one; saying so beats the
-	// page asserting this run materialized a table that did not exist then.
+	// schema or database edit. The graph on screen is the version's as it stands
+	// now, which a later run at a moved profile rewrites, so the node can name a
+	// relation this run did not write; saying so beats the page asserting this
+	// run materialized a table that did not exist then.
 	// Detecting it needs no snapshot: the result carries the relation each node
 	// actually wrote.
 	let relationDrift = $derived.by(() => {
@@ -333,9 +342,10 @@
 		}).length
 	})
 
-	// Models this run built that the project no longer has under the same id —
-	// renamed or deleted since. They cannot be drawn (the graph is the current
-	// deploy) so the count is stated rather than silently missing.
+	// Models this run built that the graph on screen no longer has under the same
+	// id — renamed or deleted since, or dropped from a version graph rewritten
+	// after this run. They cannot be drawn, so the count is stated rather than
+	// silently missing.
 	let goneSinceRun = $derived.by(() => {
 		if (running || !scoped) return 0
 		if (!run?.nodes?.length) return 0

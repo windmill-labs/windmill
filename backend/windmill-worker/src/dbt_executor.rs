@@ -219,12 +219,24 @@ pub(crate) async fn handle_dbt_job(
     // fail for reasons that have nothing to do with the saved run — a profile
     // that no longer resolves, a cancelled provision. The invocation still
     // produced nothing resumable, so the previous one must not stay
-    // authoritative. A retry is exempt: it is trying to USE that state, and
-    // failing to prepare is not a verdict on it.
+    // authoritative.
+    //
+    // Two commands are exempt. A retry is trying to USE that state, and failing
+    // to prepare is not a verdict on it. A read-only command builds nothing, so
+    // it can supersede nothing — and the run page's row preview is exactly that
+    // command, run as the principal this state is keyed by, so letting a failed
+    // preview clear it would take the retry away from the run being looked at.
+    let judges_saved_state = {
+        let cmd = arg_str(&args, "dbt_command")?;
+        !matches!(cmd.as_deref(), Some("retry"))
+            && !cmd
+                .as_deref()
+                .is_some_and(windmill_parser_yaml::dbt::is_read_only_command)
+    };
     let mut prepared = match prepared {
         Ok(p) => p,
         Err(e) => {
-            if arg_str(&args, "dbt_command")?.as_deref() != Some("retry") {
+            if judges_saved_state {
                 invalidate_run_state(
                     &job.workspace_id,
                     job.runnable_path.as_deref().unwrap_or_default(),
@@ -826,13 +838,23 @@ impl GraphRefresh {
 
     /// Whether this ingest also becomes what the script owns.
     ///
-    /// A caller-scoped one never does, drift included: republishing an
-    /// override's relations is the failure the snapshot exists to avoid, so a
-    /// drifted run that overrode its arguments keeps re-detecting the drift
-    /// until an ordinary run of the descriptor settles it — a wasted `dbt
-    /// parse` per run, where the alternative is silently wrong ownership.
+    /// Exactly when it wrote the VERSION's graph and the caller scoped nothing.
+    /// The workspace graph takes an asset's relations from the `asset` rows and
+    /// its models, SQL, tests and `ref()` lineage from that version's
+    /// `dbt_node`/`dbt_edge`, so publishing relations the version's graph does
+    /// not name leaves those assets with no model behind them — a placeholder
+    /// that moves an alias would empty the current graph of everything dbt
+    /// contributes to it.
+    ///
+    /// So a run that stored a snapshot of its own publishes nothing, which
+    /// leaves two cases settled elsewhere and deliberately: an override's
+    /// relations are a one-off and are meant not to stand as the script's, and a
+    /// dynamic descriptor at a moved profile keeps its ownership at the deploy's
+    /// relations until a redeploy — every run of it still shows its own models,
+    /// and it re-parses regardless, so the undetected-forever drift costs it
+    /// nothing it was not already paying.
     fn publishes_ownership(&self) -> bool {
-        !self.caller_scoped
+        !self.caller_scoped && !self.per_run_models
     }
 
     /// Fold in what this invocation's own arguments say about its model set.
@@ -3299,10 +3321,22 @@ async fn save_run_state(
     }
     let dir = state_dir(w_id, &p.script_path, permissioned_as);
     let generation = format!("gen-{job_id}");
+    // A local publication that gives up leaves the PREVIOUS generation's pointer
+    // in place. Where a durable row exists that is harmless — `restore` takes a
+    // local generation only when the row names it, so it falls back to the row,
+    // which this run has already written. An agent worker has no row, so that
+    // pointer is the whole of what a retry reads, and it would answer for a run
+    // that is not the last one to have happened here.
+    let abandon_local = |kept: bool| async move {
+        if !kept && matches!(conn, Connection::Http(_)) {
+            invalidate_run_state(w_id, &p.script_path, permissioned_as, conn).await;
+        }
+        Ok(())
+    };
     let staging = dir.join(&generation);
     tokio::fs::remove_dir_all(&staging).await.ok();
     if tokio::fs::create_dir_all(&staging).await.is_err() {
-        return Ok(());
+        return abandon_local(false).await;
     }
     for f in ["run_results.json", "manifest.json"] {
         if tokio::fs::copy(p.project_dir.join(ARTIFACTS_DIR).join(f), staging.join(f))
@@ -3310,7 +3344,7 @@ async fn save_run_state(
             .is_err()
         {
             tokio::fs::remove_dir_all(&staging).await.ok();
-            return Ok(());
+            return abandon_local(false).await;
         }
     }
     // What produced it. `latest` and placeholder refs move, and a redeploy can
@@ -3332,7 +3366,7 @@ async fn save_run_state(
     .is_err()
     {
         tokio::fs::remove_dir_all(&staging).await.ok();
-        return Ok(());
+        return abandon_local(false).await;
     }
     // Publishing is one rename over the pointer file. A reader either sees the
     // previous generation's name or this one's, never a directory being
@@ -3347,7 +3381,7 @@ async fn save_run_state(
     {
         tokio::fs::remove_file(&pointer_staging).await.ok();
         tokio::fs::remove_dir_all(&staging).await.ok();
-        return Ok(());
+        return abandon_local(false).await;
     }
     prune_old_generations(&dir, &generation).await;
     Ok(())
@@ -4696,10 +4730,12 @@ mod tests {
         assert_eq!(drift.snapshot_job(job), None);
         assert!(drift.publishes_ownership());
 
-        // A dynamic descriptor: this run's graph, still the script's relations.
+        // A dynamic descriptor: this run's graph, under its own job id — and
+        // nothing published, because the `asset` rows and the version's nodes
+        // must describe one picture, and the version's are the deploy's.
         let dynamic = GraphRefresh { per_run_models: true, ..Default::default() };
         assert_eq!(dynamic.snapshot_job(job), Some(job));
-        assert!(dynamic.publishes_ownership());
+        assert!(!dynamic.publishes_ownership());
 
         // A `vars` override: this run's graph, and only this run's.
         let mut overridden = GraphRefresh::default();
