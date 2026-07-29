@@ -8170,7 +8170,6 @@ dependencies = [
 [[package]]
 name = "object_store"
 version = "0.12.0"
-source = "git+https://github.com/diegoimbert/arrow-rs-object-store?rev=a75c080f2fe821c28754481d840cd0aeccb0f42e#a75c080f2fe821c28754481d840cd0aeccb0f42e"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -8178,29 +8177,36 @@ dependencies = [
  "chrono",
  "form_urlencoded",
  "futures",
+ "getrandom 0.2.17",
+ "getrandom 0.3.4",
  "http 1.4.2",
  "http-body-util",
  "httparse",
  "humantime",
  "hyper 1.11.0",
+ "hyper-util",
  "itertools 0.14.0",
  "md-5 0.10.6",
+ "nix 0.30.1",
  "parking_lot",
  "percent-encoding",
  "quick-xml",
  "rand 0.9.0",
+ "regex",
  "reqwest 0.12.28",
  "ring 0.17.14",
  "rustls-pemfile 2.2.0",
  "serde",
  "serde_json",
  "serde_urlencoded",
+ "tempfile",
  "thiserror 2.0.19",
  "tokio",
  "tracing",
  "url",
  "walkdir",
  "wasm-bindgen-futures",
+ "wasm-bindgen-test",
  "web-time",
 ]
 
