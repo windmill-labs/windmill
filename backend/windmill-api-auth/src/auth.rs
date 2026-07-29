@@ -835,6 +835,26 @@ pub async fn resolve_opt_job_authed(
     Err((Error::NotAuthorized("Unauthorized".to_string()), parts))
 }
 
+/// Whether a token label is one the server alone may set, because this module
+/// turns it into a BARE username.
+///
+/// A delegated job's own token is labelled `ephemeral-script-end-user-<the person
+/// who launched it>` (`create_token`, windmill-queue/src/jobs.rs) so its API
+/// calls are attributed to them rather than to the owner it runs as, and the arm
+/// below strips the prefix and returns that name verbatim. From a request it
+/// would let any member mint a token that speaks as a named user.
+///
+/// Only the arms yielding a bare name belong here. `webhook-` / `http-` /
+/// `email-` / `ws-` yield the label itself, which cannot collide with a username
+/// — and the trigger panels mint exactly those through the public API by design,
+/// with `token_label_idor.rs` guarding it. The `label-` fallback and the `lsp`
+/// sentinel are prefixed or fixed for the same reason. Label collision between
+/// two such tokens is not defended here at all: GHSA-8x8x-88qc-qp4r settled that
+/// by refusing to trust this name for authorization.
+pub fn is_reserved_token_label(label: &str) -> bool {
+    label.starts_with("ephemeral-script-end-user-") || label.starts_with("ephemeral-webhook-")
+}
+
 fn username_override_from_label(label: Option<String>) -> Option<String> {
     match label {
         Some(label)
@@ -856,6 +876,44 @@ fn username_override_from_label(label: Option<String>) -> Option<String> {
             Some(format!("label-{label}"))
         }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod label_tests {
+    use super::{is_reserved_token_label, username_override_from_label};
+
+    /// Reserved exactly when the label becomes a bare username. Anything else is
+    /// a label a client is allowed to choose — `token_label_idor.rs` pins the
+    /// trigger panels' own shapes, which must keep working.
+    #[test]
+    fn only_labels_that_become_a_bare_username_are_reserved() {
+        assert_eq!(
+            username_override_from_label(Some("ephemeral-script-end-user-alice".to_string())),
+            Some("alice".to_string()),
+            "this is the shape that impersonates a person"
+        );
+        for label in ["ephemeral-script-end-user-alice", "ephemeral-webhook-kafka-ab12c"] {
+            assert!(is_reserved_token_label(label), "`{label}` must be refused");
+        }
+        // Minted by the webhook / route / email panels through the public API, and
+        // prefixed, so they name no user.
+        for label in [
+            "webhook-test-user-2-ab12",
+            "http-test-user-2-cd34",
+            "email-test-user-2-ef56",
+            "ws-x",
+            "my-ci-token",
+            "Ephemeral lsp token",
+            "session",
+        ] {
+            assert!(!is_reserved_token_label(label), "`{label}` must stay allowed");
+            assert!(
+                username_override_from_label(Some(label.to_string()))
+                    .is_none_or(|o| o != "alice"),
+                "`{label}` must not be able to name a user"
+            );
+        }
     }
 }
 
