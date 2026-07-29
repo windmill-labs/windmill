@@ -3016,12 +3016,16 @@ async fn save_run_state(
     // The durable copy, so a retry works from any worker of the group. Only
     // `run_results.json`: the manifest is a pure function of what `identity`
     // already pins, so the resuming worker re-derives it with a `dbt parse`.
+    // Held, not returned, until the worker-local copy has been written too: the
+    // local one is what an agent worker retries from, so a failed insert must not
+    // cost it as well.
+    let mut durable_err = None;
     if let Connection::Sql(db) = conn {
         if let Ok(results) =
             tokio::fs::read_to_string(p.project_dir.join(ARTIFACTS_DIR).join("run_results.json"))
                 .await
         {
-            let _ = sqlx::query!(
+            durable_err = sqlx::query!(
                 "INSERT INTO dbt_run_state (workspace_id, script_path, permissioned_as, identity, args, run_results, job_id, updated_at)
                  VALUES ($1, $2, $7, $3, $4, $5, $6, now())
                  ON CONFLICT (workspace_id, script_path, permissioned_as) DO UPDATE SET
@@ -3037,7 +3041,8 @@ async fn save_run_state(
                 permissioned_as,
             )
             .execute(db)
-            .await;
+            .await
+            .err();
         }
     }
     // Each run writes its OWN generation directory, which is never modified
@@ -3051,7 +3056,7 @@ async fn save_run_state(
     let staging = dir.join(&generation);
     tokio::fs::remove_dir_all(&staging).await.ok();
     if tokio::fs::create_dir_all(&staging).await.is_err() {
-        return Ok(());
+        return durable_err.map_or(Ok(()), |e| Err(e.into()));
     }
     for f in ["run_results.json", "manifest.json"] {
         if tokio::fs::copy(p.project_dir.join(ARTIFACTS_DIR).join(f), staging.join(f))
@@ -3059,7 +3064,7 @@ async fn save_run_state(
             .is_err()
         {
             tokio::fs::remove_dir_all(&staging).await.ok();
-            return Ok(());
+            return durable_err.map_or(Ok(()), |e| Err(e.into()));
         }
     }
     // What produced it. `latest` and placeholder refs move, and a redeploy can
@@ -3081,7 +3086,7 @@ async fn save_run_state(
     .is_err()
     {
         tokio::fs::remove_dir_all(&staging).await.ok();
-        return Ok(());
+        return durable_err.map_or(Ok(()), |e| Err(e.into()));
     }
     // Publishing is one rename over the pointer file. A reader either sees the
     // previous generation's name or this one's, never a directory being
@@ -3096,10 +3101,10 @@ async fn save_run_state(
     {
         tokio::fs::remove_file(&pointer_staging).await.ok();
         tokio::fs::remove_dir_all(&staging).await.ok();
-        return Ok(());
+        return durable_err.map_or(Ok(()), |e| Err(e.into()));
     }
     prune_old_generations(&dir, &generation).await;
-    Ok(())
+    durable_err.map_or(Ok(()), |e| Err(e.into()))
 }
 
 /// Names the generation directory a retry reads. Replaced by rename, so it is
