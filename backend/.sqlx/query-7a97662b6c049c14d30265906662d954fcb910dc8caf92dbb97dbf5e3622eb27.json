@@ -1,0 +1,37 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT identity, args, run_results FROM dbt_run_state\n         WHERE workspace_id = $1 AND script_path = $2 AND permissioned_as = $3\n           AND created_by = $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "identity",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "args",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 2,
+        "name": "run_results",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "7a97662b6c049c14d30265906662d954fcb910dc8caf92dbb97dbf5e3622eb27"
+}

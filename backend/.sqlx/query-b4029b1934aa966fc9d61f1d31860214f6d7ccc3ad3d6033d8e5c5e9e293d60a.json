@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO dbt_run_state (workspace_id, script_path, permissioned_as, created_by, identity, args, run_results, job_id, updated_at)\n                 VALUES ($1, $2, $7, $8, $3, $4, $5, $6, now())\n                 ON CONFLICT (workspace_id, script_path, permissioned_as, created_by) DO UPDATE SET\n                   identity = EXCLUDED.identity, args = EXCLUDED.args,\n                   run_results = EXCLUDED.run_results, job_id = EXCLUDED.job_id,\n                   updated_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Uuid",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b4029b1934aa966fc9d61f1d31860214f6d7ccc3ad3d6033d8e5c5e9e293d60a"
+}

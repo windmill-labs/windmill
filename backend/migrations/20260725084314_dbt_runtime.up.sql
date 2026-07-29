@@ -131,6 +131,11 @@ CREATE TABLE IF NOT EXISTS dbt_run_state (
   -- — that would hand them the literal `select` and `vars` of a run they were
   -- never entitled to see.
   permissioned_as VARCHAR(255) NOT NULL,
+  -- And the caller who invoked it, which `permissioned_as` does not identify:
+  -- an `on_behalf_of` script runs every caller's job as its owner, so keying on
+  -- the principal alone puts all of them on one row and lets the next caller
+  -- restore — and replay — the previous one's arguments.
+  created_by   VARCHAR(255) NOT NULL,
   identity     TEXT NOT NULL,
   -- The invocation's job arguments. `dbt retry` reuses the original selection
   -- and vars, so the graph refresh and the build must agree with them rather
@@ -141,7 +146,7 @@ CREATE TABLE IF NOT EXISTS dbt_run_state (
   run_results  TEXT NOT NULL,
   job_id       UUID,
   updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-  PRIMARY KEY (workspace_id, script_path, permissioned_as)
+  PRIMARY KEY (workspace_id, script_path, permissioned_as, created_by)
 );
 
 -- Live per-model progress for one RUN.
