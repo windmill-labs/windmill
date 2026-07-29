@@ -17,8 +17,9 @@ use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
     user_drafts::{
-        delete_all_drafts_for_path, delete_own_draft_for_path, fetch_draft_only_list_rows,
-        overlay_or_draft_only, UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
+        delete_all_drafts_for_path, delete_own_draft_for_path, draft_targets_runnable,
+        fetch_draft_only_list_rows, overlay_or_draft_only, UserDraftItemKind, WithDraftOverlay,
+        WithDraftQuery,
     },
     utils::{paginate, Pagination, StripPath},
     worker::CLOUD_HOSTED,
@@ -599,21 +600,28 @@ async fn list_triggers<T: TriggerCrud>(
     Extension(db): Extension<DB>,
     Path(workspace_id): Path<String>,
     Query(query): Query<StandardTriggerQuery>,
-) -> JsonResult<Vec<T::Trigger>> {
+) -> JsonResult<Vec<serde_json::Value>> {
     let mut tx = user_db.begin(&authed).await?;
-    let mut triggers = handler
+    let deployed = handler
         .list_triggers(&mut *tx, &workspace_id, Some(&query), Some(&authed.email))
         .await?;
     tx.commit().await?;
 
+    // Serialized rather than kept as `T::Trigger`: the synthesized draft rows
+    // below are the editor's config shape, which does NOT round-trip through
+    // `T::TriggerConfig` — required fields the editor never writes (`route_path_key`
+    // on HTTP) and fields a half-configured new trigger hasn't got yet would make
+    // `from_value` fail, silently hiding the draft. The response body is the same
+    // either way, so the merge happens on JSON.
+    let mut triggers = deployed
+        .into_iter()
+        .map(|t| serde_json::to_value(t).map_err(Error::from))
+        .collect::<Result<Vec<serde_json::Value>>>()?;
+
     // Append the authed user's draft-only triggers of this kind; see scripts.rs.
-    // Best-effort: the editor's TriggerData shape overlaps T::Trigger but a per-kind
-    // config can deviate, so drop a row on deserialize failure rather than fail the list.
     if query.include_draft_only.unwrap_or(false)
         && !authed.is_operator
         && query.page.unwrap_or(0) == 0
-        && query.path.is_none()
-        && query.is_flow.is_none()
         && query.path_start.is_none()
         && query.label.is_none()
     {
@@ -631,6 +639,9 @@ async fn list_triggers<T: TriggerCrud>(
                 Ok(v) => v,
                 Err(_) => continue,
             };
+            if !draft_targets_runnable(&v, query.path.as_deref(), query.is_flow) {
+                continue;
+            }
             let serde_json::Value::Object(mut map) = v else {
                 continue;
             };
@@ -657,15 +668,20 @@ async fn list_triggers<T: TriggerCrud>(
             map.insert("draft_only".into(), serde_json::Value::Bool(true));
             // Synthesized rows are the authed user's draft.
             map.insert("is_draft".into(), serde_json::Value::Bool(true));
-            match serde_json::from_value::<T::Trigger>(serde_json::Value::Object(map)) {
-                Ok(t) => triggers.push(t),
-                Err(_) => continue,
+            // The `draft` row's key addresses the trigger; the value's `path` is
+            // only where it will deploy. Surfacing the key as `path` is what lets
+            // a renamed draft still be opened, updated and deleted.
+            if let Some(intended) = map.insert("path".into(), row.path.clone().into()) {
+                if intended.as_str() != Some(row.path.as_str()) {
+                    map.insert("draft_path".into(), intended);
+                }
             }
+            triggers.push(serde_json::Value::Object(map));
         }
     }
 
     let allowed = build_scope_path_predicate(&authed, T::scope_domain_name(), "read");
-    triggers.retain(|t| allowed(t.trigger_path()));
+    triggers.retain(|t| allowed(t.get("path").and_then(|p| p.as_str()).unwrap_or("")));
 
     Ok(Json(triggers))
 }

@@ -17,16 +17,16 @@
 	} = $props()
 	let natsTriggerEditor: NatsTriggerEditorInner | undefined = $state(undefined)
 
-	async function openNatsTriggerEditor(isFlow: boolean, isDraft: boolean) {
-		if (isDraft) {
-			natsTriggerEditor?.openNew(isFlow, path, defaultValues)
+	async function openNatsTriggerEditor(isFlow: boolean) {
+		if (selectedTrigger.isNew) {
+			natsTriggerEditor?.openNew(isFlow, path, { ...defaultValues, path: selectedTrigger.path })
 		} else {
 			natsTriggerEditor?.openEdit(selectedTrigger.path, isFlow, selectedTrigger.draftConfig)
 		}
 	}
 
 	onMount(() => {
-		natsTriggerEditor && openNatsTriggerEditor(isFlow, selectedTrigger.isDraft ?? false)
+		natsTriggerEditor && openNatsTriggerEditor(isFlow)
 	})
 
 	const cloudDisabled = $derived(isCloudHosted())

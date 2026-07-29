@@ -17,16 +17,16 @@
 	} = $props()
 	let gcpTriggerEditor: GcpTriggerEditorInner | undefined = $state(undefined)
 
-	async function openGcpTriggerEditor(isFlow: boolean, isDraft: boolean) {
-		if (isDraft) {
-			gcpTriggerEditor?.openNew(isFlow, path, defaultValues)
+	async function openGcpTriggerEditor(isFlow: boolean) {
+		if (selectedTrigger.isNew) {
+			gcpTriggerEditor?.openNew(isFlow, path, { ...defaultValues, path: selectedTrigger.path })
 		} else {
 			gcpTriggerEditor?.openEdit(selectedTrigger.path, isFlow, defaultValues)
 		}
 	}
 
 	onMount(() => {
-		gcpTriggerEditor && openGcpTriggerEditor(isFlow, selectedTrigger.isDraft ?? false)
+		gcpTriggerEditor && openGcpTriggerEditor(isFlow)
 	})
 
 	const cloudDisabled = $derived(isCloudHosted())

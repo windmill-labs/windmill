@@ -234,3 +234,110 @@ async fn test_schedule_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     Ok(())
 }
+
+/// The flow/script editor lists its own triggers with `path` + `is_flow`, and
+/// needs its undeployed ones back. Draft-only rows are synthesized from the
+/// `draft` table, which no SQL filter reaches, so they are matched on the draft
+/// value's own `script_path`/`is_flow` — and reported under the draft row's key,
+/// with `draft_path` carrying the path the user renamed it to.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_list_draft_only_schedules_scoped_to_runnable(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let list_url = format!("http://localhost:{port}/api/w/test-workspace/schedules/list");
+
+    // Two drafts on the target flow (one of them renamed away from its key) and
+    // one on a different runnable.
+    for (key, value) in [
+        (
+            "u/test-user/target_schedule",
+            json!({
+                "path": "u/test-user/target_schedule",
+                "schedule": "0 0 * * * *",
+                "timezone": "UTC",
+                "script_path": "f/test/target_flow",
+                "is_flow": true,
+            }),
+        ),
+        (
+            "u/test-user/renamed_key",
+            json!({
+                "path": "u/test-user/nicer_name",
+                "schedule": "0 0 * * * *",
+                "timezone": "UTC",
+                "script_path": "f/test/target_flow",
+                "is_flow": true,
+            }),
+        ),
+        (
+            "u/test-user/other_schedule",
+            json!({
+                "path": "u/test-user/other_schedule",
+                "schedule": "0 0 * * * *",
+                "timezone": "UTC",
+                "script_path": "f/test/other_flow",
+                "is_flow": true,
+            }),
+        ),
+    ] {
+        let resp = authed(client().post(format!(
+            "http://localhost:{port}/api/w/test-workspace/drafts/update/trigger_schedule/{key}"
+        )))
+        .json(&json!({ "value": value }))
+        .send()
+        .await
+        .unwrap();
+        assert_eq!(resp.status(), 200, "seeding draft {key}");
+    }
+
+    let rows: Vec<serde_json::Value> = authed(client().get(&list_url))
+        .query(&[
+            ("path", "f/test/target_flow"),
+            ("is_flow", "true"),
+            ("include_draft_only", "true"),
+        ])
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await?;
+
+    let mut paths: Vec<&str> = rows
+        .iter()
+        .map(|r| r["path"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    paths.sort();
+    assert_eq!(
+        paths,
+        vec!["u/test-user/renamed_key", "u/test-user/target_schedule"],
+        "only this runnable's drafts, keyed by their draft row"
+    );
+
+    let renamed = rows
+        .iter()
+        .find(|r| r["path"] == "u/test-user/renamed_key")
+        .unwrap();
+    assert_eq!(renamed["draft_path"], "u/test-user/nicer_name");
+    assert_eq!(renamed["draft_only"], true);
+    let unrenamed = rows
+        .iter()
+        .find(|r| r["path"] == "u/test-user/target_schedule")
+        .unwrap();
+    assert!(
+        unrenamed.get("draft_path").is_none(),
+        "no draft_path when the key already is the intended path"
+    );
+
+    // Without the flag the same query stays deployed-only.
+    let rows: Vec<serde_json::Value> = authed(client().get(&list_url))
+        .query(&[("path", "f/test/target_flow"), ("is_flow", "true")])
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await?;
+    assert!(rows.is_empty(), "drafts must not leak without the flag");
+
+    Ok(())
+}

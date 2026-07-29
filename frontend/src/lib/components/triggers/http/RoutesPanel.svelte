@@ -16,9 +16,9 @@
 		...restProps
 	} = $props()
 
-	async function openRouteEditor(isFlow: boolean, isDraft: boolean) {
-		if (isDraft) {
-			routeEditor?.openNew(isFlow, path, defaultValues)
+	async function openRouteEditor(isFlow: boolean) {
+		if (selectedTrigger.isNew) {
+			routeEditor?.openNew(isFlow, path, { ...defaultValues, path: selectedTrigger.path })
 		} else {
 			routeEditor?.openEdit(selectedTrigger.path, isFlow, defaultValues)
 		}
@@ -26,7 +26,7 @@
 
 	onMount(() => {
 		if (routeEditor) {
-			openRouteEditor(isFlow, selectedTrigger.isDraft ?? false)
+			openRouteEditor(isFlow)
 		}
 	})
 </script>

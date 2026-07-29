@@ -23918,6 +23918,10 @@ components:
         so the home page can render a "Draft" badge. Gated to
         non-operators + page 0 + no narrowing filters on the backend so
         picker callers stay deployed-only and pagination stays clean.
+        On the trigger and schedule list endpoints the `path`/`is_flow`
+        pair is exempt from that rule: it narrows to a runnable, and the
+        appended rows are matched on the draft's own `script_path`/`is_flow`,
+        so a flow/script editor can list its undeployed triggers.
       schema:
         type: boolean
     Id:
@@ -27465,6 +27469,13 @@ components:
             (over a deployed row or a synthesized draft-only row).
             Frontend appends a `*` to the displayed name.
           type: boolean
+        draft_path:
+          description: |
+            Where a synthesized draft-only row will deploy to, when it was
+            renamed away from the `draft` row's key. `path` stays the key —
+            what get/update/delete address — so a renamed draft is still
+            addressable. Absent when the two agree.
+          type: string
         inherited_labels:
           type: array
           items:
@@ -27804,6 +27815,13 @@ components:
             (over a deployed row or a synthesized draft-only row).
             Frontend appends a `*` to the displayed name.
           type: boolean
+        draft_path:
+          description: |
+            Where a synthesized draft-only row will deploy to, when it was
+            renamed away from the `draft` row's key. `path` stays the key —
+            what get/update/delete address — so a renamed draft is still
+            addressable. Absent when the two agree.
+          type: string
       required:
         - path
         - script_path

@@ -78,6 +78,7 @@
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
 	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
+	import { NO_TRIGGER_DRAFT_TARGET } from '$lib/components/triggers/utils'
 
 	let flow: Flow | undefined = $state()
 	let can_write = $state(false)
@@ -110,7 +111,8 @@
 		triggersCount,
 		simplifiedPoll: writable(false),
 		showCaptureHint: writable(undefined),
-		triggersState
+		triggersState,
+		draftTarget: () => NO_TRIGGER_DRAFT_TARGET
 	})
 
 	setContext(

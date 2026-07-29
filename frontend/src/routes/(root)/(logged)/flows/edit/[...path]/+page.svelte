@@ -16,7 +16,6 @@
 	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
 	import { type OtherDraftUser } from '$lib/components/common/confirmationModal/OtherUsersDraftsModal.svelte'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
-	import type { Trigger } from '$lib/components/triggers/utils'
 	import { onDestroy, tick, untrack } from 'svelte'
 	import { stripNewDraftFlag, stripNewDraftFlagOnSave, shouldSeedNewDraft } from '$lib/newDraftFlag'
 	import type { stepState } from '$lib/components/stepHistoryLoader.svelte'
@@ -115,7 +114,6 @@
 
 	let savedPrimarySchedule: ScheduleTrigger | undefined = $state(undefined)
 
-	let draftTriggersFromUrl: Trigger[] | undefined = $state(undefined)
 	let selectedTriggerIndexFromUrl: number | undefined = $state(undefined)
 	let loadedFromHistoryFromUrl:
 		| { flowJobInitial: boolean | undefined; stepsState: Record<string, stepState> }
@@ -141,7 +139,6 @@
 		// Builder-dependent setup is captured here and applied AFTER the builder
 		// remounts (see end of loadFlow): during a reload renderEditor is false,
 		// so flowBuilder is unmounted and direct calls would no-op.
-		let draftTriggersToApply: Trigger[] | undefined = undefined
 		let applyPrimarySchedule = false
 		// `?new_draft=true` (from `/flows/add`'s redirect): a fresh, never-saved
 		// `draft_{uuid}` path. Skip both fetches (they 404) and seed empty with
@@ -248,7 +245,6 @@
 				if (forkState.initialArgs) {
 					initialArgs = forkState.initialArgs
 				}
-				draftTriggersFromUrl = forkState.draft_triggers
 				selectedTriggerIndexFromUrl = forkState.selected_trigger
 				seedSelectedId = forkState.selectedId
 			} else if (templatePath) {
@@ -428,8 +424,6 @@
 			draftSync.draft = flowToRender
 		}
 
-		flowBuilder?.setDraftTriggers(undefined)
-
 		await initFlow(flow, flowStore, flowStateStore)
 		if (tok !== loadFlowToken) return
 		loading = false
@@ -441,7 +435,6 @@
 		await tick()
 		if (tok !== loadFlowToken) return
 		if (applyPrimarySchedule) flowBuilder?.setPrimarySchedule(savedPrimarySchedule)
-		flowBuilder?.setDraftTriggers(draftTriggersToApply)
 		flowBuilder?.loadFlowState()
 	}
 
@@ -580,7 +573,6 @@
 		bind:savedFlow
 		{diffDrawer}
 		{savedPrimarySchedule}
-		{draftTriggersFromUrl}
 		{selectedTriggerIndexFromUrl}
 		{version}
 		{draftBaseVersion}

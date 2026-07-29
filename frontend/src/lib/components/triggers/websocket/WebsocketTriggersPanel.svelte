@@ -16,16 +16,16 @@
 	} = $props()
 	let wsTriggerEditor: WebsocketTriggerEditorInner | undefined = $state(undefined)
 
-	async function openWebsocketTriggerEditor(isFlow: boolean, isDraft: boolean) {
-		if (isDraft) {
-			wsTriggerEditor?.openNew(isFlow, path, defaultValues)
+	async function openWebsocketTriggerEditor(isFlow: boolean) {
+		if (selectedTrigger.isNew) {
+			wsTriggerEditor?.openNew(isFlow, path, { ...defaultValues, path: selectedTrigger.path })
 		} else {
 			wsTriggerEditor?.openEdit(selectedTrigger.path, isFlow, selectedTrigger.draftConfig)
 		}
 	}
 
 	onMount(() => {
-		openWebsocketTriggerEditor(isFlow, selectedTrigger.isDraft ?? false)
+		openWebsocketTriggerEditor(isFlow)
 	})
 
 	const cloudDisabled = $derived(isCloudHosted())

@@ -55,10 +55,6 @@
 		onEmailDomain,
 		...props
 	}: Props = $props()
-
-	$effect(() => {
-		console.log('selectedTrigger', selectedTrigger)
-	})
 </script>
 
 {#if selectedTrigger.type === 'http'}

@@ -5,7 +5,7 @@
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import TriggerLabel from '$lib/components/triggers/TriggerLabel.svelte'
-	import { triggerIconMap } from '$lib/components/triggers/utils'
+	import { triggerDraftKind, triggerIconMap } from '$lib/components/triggers/utils'
 	import { Star } from 'lucide-svelte'
 	import ToggleButtonGroup from '../toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../toggleButton-v2/ToggleButton.svelte'
@@ -27,26 +27,23 @@
 		confirmed: { selectedTriggers: Trigger[] }
 	}>()
 
-	function toggleTrigger(trigger: Trigger, selected: 'discard' | 'deploy') {
-		if (selected === 'discard') {
-			if (trigger.isDraft) {
-				selectedTriggers = selectedTriggers.filter((t) => !t.isDraft || t.id !== trigger.id)
-			} else {
-				selectedTriggers = selectedTriggers.filter(
-					(t) => t.isDraft || t.type !== trigger.type || t.path !== trigger.path
-				)
-			}
+	/** Identity across the list. Draft-backed triggers are keyed by their draft
+	 * path; the kinds without a draft row have no path until they deploy, so they
+	 * fall back to the client id assigned when they were added. */
+	function triggerKey(trigger: Trigger): string {
+		return `${trigger.type}:${trigger.path ?? trigger.id ?? ''}`
+	}
+
+	function toggleTrigger(trigger: Trigger, selected: 'skip' | 'deploy') {
+		if (selected === 'skip') {
+			selectedTriggers = selectedTriggers.filter((t) => triggerKey(t) !== triggerKey(trigger))
 		} else if (!isSelected(selectedTriggers, trigger)) {
 			selectedTriggers = [...selectedTriggers, trigger]
 		}
 	}
 
 	function isSelected(triggers: Trigger[], trigger: Trigger): boolean {
-		if (trigger.isDraft) {
-			return triggers.some((t) => t.id === trigger.id)
-		} else {
-			return triggers.some((t) => t.path === trigger.path && t.type === trigger.type)
-		}
+		return triggers.some((t) => triggerKey(t) === triggerKey(trigger))
 	}
 
 	function checkSavePermissions(trigger: Trigger) {
@@ -57,7 +54,10 @@
 			!$userStore?.is_super_admin &&
 			trigger.isDraft
 
-		const invalidConfig = !trigger.draftConfig?.canSave
+		// Only the kinds without a draft row carry their config here. For the rest
+		// it lives server-side, where an incomplete one surfaces as a deploy error —
+		// non-destructive, since a failed deploy leaves the draft in place.
+		const invalidConfig = !triggerDraftKind(trigger.type) && !trigger.draftConfig?.canSave
 
 		return invalidConfig ? 'invalid-config' : adminOnly ? 'admin-only' : 'deploy'
 	}
@@ -70,7 +70,7 @@
 
 <ConfirmationModal
 	{open}
-	title="Draft triggers detected !"
+	title="Undeployed trigger changes"
 	confirmationText={isFlow ? 'Deploy Flow' : 'Deploy Script'}
 	type="reload"
 	showIcon={false}
@@ -79,8 +79,7 @@
 >
 	<div class="flex flex-col w-full gap-8 pb-4">
 		<div class="text-secondary text-sm">
-			{`${isFlow ? 'Your flow' : 'Your script'} has draft triggers. Select which draft triggers to deploy with the ${isFlow ? 'flow' : 'script'}. Undeployed
-			draft triggers will be permanently deleted.`}
+			{`${isFlow ? 'Your flow' : 'Your script'} has undeployed trigger changes. Select which to deploy alongside the ${isFlow ? 'flow' : 'script'}; the rest stay as drafts.`}
 		</div>
 
 		<div class={draftTriggers.length > 5 ? 'h-[300px]' : ''}>
@@ -124,19 +123,19 @@
 									<div class="flex justify-start">
 										<ToggleButtonGroup
 											class="w-fit h-fit"
-											selected={isSelectedTrigger ? 'deploy' : 'discard'}
+											selected={isSelectedTrigger ? 'deploy' : 'skip'}
 											on:selected={(e) => toggleTrigger(trigger, e.detail)}
 										>
 											{#snippet children({ item })}
 												<ToggleButton
-													label={!trigger.isDraft && trigger.draftConfig ? 'Reset' : 'Discard'}
-													value={'discard'}
+													label="Skip"
+													value={'skip'}
 													{item}
 													small
 													class="data-[state=on]:text-white data-[state=on]:bg-red-400 justify-center"
 												/>
 												<ToggleButton
-													label={!trigger.isDraft && trigger.draftConfig ? 'Update' : 'Deploy'}
+													label={trigger.isDraft ? 'Deploy' : 'Update'}
 													value={'deploy'}
 													{item}
 													small
@@ -157,7 +156,7 @@
 					{#if draftTriggers.length === 0}
 						<tr>
 							<td colspan="3" class="text-center py-6 text-gray-500 dark:text-gray-400 text-sm">
-								No draft triggers found
+								No undeployed trigger changes
 							</td>
 						</tr>
 					{/if}

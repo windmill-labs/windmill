@@ -17,16 +17,16 @@
 	} = $props()
 	let amqpTriggerEditor: AmqpTriggerEditorInner | undefined = $state(undefined)
 
-	async function openAmqpTriggerEditor(isFlow: boolean, isDraft: boolean) {
-		if (isDraft) {
-			amqpTriggerEditor?.openNew(isFlow, path, defaultValues)
+	async function openAmqpTriggerEditor(isFlow: boolean) {
+		if (selectedTrigger.isNew) {
+			amqpTriggerEditor?.openNew(isFlow, path, { ...defaultValues, path: selectedTrigger.path })
 		} else {
 			amqpTriggerEditor?.openEdit(selectedTrigger.path, isFlow, selectedTrigger.draftConfig)
 		}
 	}
 
 	onMount(() => {
-		amqpTriggerEditor && openAmqpTriggerEditor(isFlow, selectedTrigger.isDraft ?? false)
+		amqpTriggerEditor && openAmqpTriggerEditor(isFlow)
 	})
 
 	const cloudDisabled = $derived(isCloudHosted())

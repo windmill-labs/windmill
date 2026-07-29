@@ -3,7 +3,6 @@
 		FlowService,
 		type Flow,
 		type PathScript,
-		type OpenFlow,
 		type InputTransform,
 		type TriggersCount,
 		CaptureService,
@@ -96,7 +95,13 @@
 	import DeployButton from './DeployButton.svelte'
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 	import type { Trigger } from './triggers/utils'
-	import { deployTriggers, handleSelectTriggerFromKind } from './triggers/utils'
+	import {
+		deployTriggers,
+		handleSelectTriggerFromKind,
+		repointTriggerDrafts,
+		triggerHasPendingChanges
+	} from './triggers/utils'
+	import type { TriggerDraftTarget } from './triggers/utils'
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
 	import { StepsInputArgs } from './flows/stepsInputArgs.svelte'
@@ -132,7 +137,6 @@
 		savedPrimarySchedule = undefined,
 		version = undefined,
 		draftBaseVersion = undefined,
-		draftTriggersFromUrl = undefined,
 		selectedTriggerIndexFromUrl = undefined,
 		children,
 		loadedFromHistoryFromUrl,
@@ -246,8 +250,7 @@
 				// `flowStore.val.path` doesn't track those edits, so without this the
 				// rename wouldn't show up in the diff and the unsaved-changes warning
 				// wouldn't fire when leaving with a pending rename.
-				path: $pathStore,
-				draft_triggers: structuredClone(triggersState.getDraftTriggersSnapshot())
+				path: $pathStore
 			}
 		}
 	}
@@ -289,13 +292,23 @@
 		primaryScheduleStore.set(schedule)
 	}
 
-	export function setDraftTriggers(triggers: Trigger[] | undefined) {
-		triggersState.setTriggers([
-			...(triggers ?? []),
-			...triggersState.triggers.filter((t) => !t.draftConfig)
-		])
-		loadTriggers()
-	}
+
+
+	// Trigger drafts carry the runnable's path in `script_path`. That path stays
+	// editable until the first deploy, so follow renames here rather than only at
+	// deploy time — a draft deployed on its own (triggers page, Review & Deploy)
+	// reads what is stored. Debounced: the path field rewrites on every keystroke.
+	let repointTimer: ReturnType<typeof setTimeout> | undefined
+	$effect(() => {
+		const target = triggerDraftTarget()
+		if (!target.runnablePath || !target.workspace) return
+		clearTimeout(repointTimer)
+		repointTimer = setTimeout(
+			() => void repointTriggerDrafts($state.snapshot(triggersState.triggers), target),
+			800
+		)
+		return () => clearTimeout(repointTimer)
+	})
 
 	export function setSelectedTriggerIndex(index: number | undefined) {
 		triggersState.selectedTriggerIndex = index
@@ -393,7 +406,7 @@
 	async function saveFlow(deploymentMsg?: string, triggersToDeploy?: Trigger[]): Promise<void> {
 		if (!triggersToDeploy) {
 			// Check if there are draft triggers that need confirmation
-			const draftTriggers = triggersState.triggers.filter((trigger) => trigger.draftConfig)
+			const draftTriggers = triggersState.triggers.filter(triggerHasPendingChanges)
 			if (draftTriggers.length > 0) {
 				draftTriggersModalOpen = true
 				confirmDeploymentCallback = async (triggersToDeploy: Trigger[]) => {
@@ -474,27 +487,7 @@
 					},
 					runnableKind: 'flow'
 				})
-				if (triggersToDeploy) {
-					await deployTriggers(
-						triggersToDeploy,
-						opWorkspace,
-						!!$userStore?.is_admin || !!$userStore?.is_super_admin,
-						usedTriggerKinds,
-						$pathStore,
-						true
-					)
-				}
 			} else {
-				if (triggersToDeploy) {
-					await deployTriggers(
-						triggersToDeploy,
-						opWorkspace,
-						!!$userStore?.is_admin || !!$userStore?.is_super_admin,
-						usedTriggerKinds,
-						initialPath
-					)
-				}
-
 				await FlowService.updateFlow({
 					workspace: opWorkspace!,
 					path: initialPath,
@@ -516,18 +509,31 @@
 				})
 			}
 
+			// Triggers deploy after the flow, never before: their `script_path`
+			// points at the path this deploy just created or renamed to.
+			if (triggersToDeploy?.length) {
+				const failed = await deployTriggers(
+					triggersToDeploy,
+					opWorkspace,
+					!!$userStore?.is_admin || !!$userStore?.is_super_admin,
+					usedTriggerKinds,
+					$pathStore,
+					true
+				)
+				for (const { trigger, error } of failed) {
+					sendUserToast(`Could not deploy ${trigger.type} trigger: ${error}`, true)
+				}
+			}
+
 			// New/updated path now exists server-side — drop the autocomplete
 			// cache so it shows up immediately instead of after the 60s TTL.
 			invalidateWorkspacePaths(opWorkspace!)
 
-			const { draft_triggers: _, ...newSavedFlow } = flowStore.val as OpenFlow & {
-				draft_triggers: Trigger[]
-			}
 			savedFlow = {
-				...structuredClone($state.snapshot(newSavedFlow)),
+				...structuredClone($state.snapshot(flowStore.val)),
 				path: $pathStore
 			} as Flow
-			setDraftTriggers([])
+			await loadTriggers()
 			loadingSave = false
 			onDeploy?.({ path: $pathStore })
 		} catch (err) {
@@ -782,32 +788,41 @@
 		new Triggers(
 			[
 				{ type: 'webhook', path: '', isDraft: false },
-				{ type: 'default_email', path: '', isDraft: false },
-				...(untrack(() => draftTriggersFromUrl) ?? [])
+				{ type: 'default_email', path: '', isDraft: false }
 			],
 			untrack(() => selectedTriggerIndexFromUrl)
 		)
 	)
 
+	const triggerDraftTarget = (): TriggerDraftTarget => ({
+		runnablePath: $pathStore,
+		isFlow: true,
+		workspace: opWorkspace
+	})
+
 	setContext<TriggerContext>('TriggerContext', {
 		triggersCount,
 		simplifiedPoll,
 		showCaptureHint,
-		triggersState
+		triggersState,
+		draftTarget: triggerDraftTarget
 	})
 
 	export async function loadTriggers() {
-		if (initialPath == '') return
-		$triggersCount = await FlowService.getTriggersCountOfFlow({
-			workspace: opWorkspace!,
-			path: initialPath
-		})
+		// An undeployed flow has no deployed triggers to count, but it can already
+		// have drafted ones — fetch against the path they were drafted at.
+		if (initialPath != '') {
+			$triggersCount = await FlowService.getTriggersCountOfFlow({
+				workspace: opWorkspace!,
+				path: initialPath
+			})
+		}
 
 		// Initialize triggers using utility function
 		await triggersState.fetchTriggers(
 			triggersCount,
 			opWorkspace,
-			initialPath,
+			initialPath || $pathStore,
 			true,
 			$primaryScheduleStore,
 			$userStore
@@ -947,7 +962,6 @@
 	async function openDiffDrawer() {
 		if (!savedFlow) return
 		await syncWithDeployed()
-		const currentDraftTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
 		diffDrawer?.openDrawer()
 		const currentFlow = flowStore.val
 		diffDrawer?.setDiff({
@@ -955,8 +969,7 @@
 			deployed: deployedValue ?? savedFlow,
 			current: {
 				...currentFlow,
-				path: $pathStore,
-				draft_triggers: currentDraftTriggers
+				path: $pathStore
 			}
 		})
 	}
@@ -1268,7 +1281,7 @@
 
 <DraftTriggersConfirmationModal
 	bind:open={draftTriggersModalOpen}
-	draftTriggers={triggersState.triggers.filter((t) => t.draftConfig)}
+	draftTriggers={triggersState.triggers.filter(triggerHasPendingChanges)}
 	isFlow={true}
 	on:canceled={() => {
 		draftTriggersModalOpen = false
@@ -1385,7 +1398,7 @@
 					unifiedSize={headerBtnSize}
 					on:openTriggers={(e) => {
 						select('Trigger')
-						handleSelectTriggerFromKind(triggersState, triggersCount, initialPath, e.detail.kind)
+						handleSelectTriggerFromKind(triggersState, triggersCount, triggerDraftTarget(), e.detail.kind)
 						captureOn.set(true)
 						showCaptureHint.set(true)
 					}}

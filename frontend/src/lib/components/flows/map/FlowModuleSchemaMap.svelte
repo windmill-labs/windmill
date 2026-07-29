@@ -136,7 +136,7 @@
 	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
 
 	const moveManager = new MoveManager()
-	const { triggersCount, triggersState } = getContext<TriggerContext>('TriggerContext')
+	const { triggersCount, triggersState, draftTarget } = getContext<TriggerContext>('TriggerContext')
 
 	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
 
@@ -820,7 +820,7 @@
 					})
 				}
 				if (detail.kind == 'trigger') {
-					setScheduledPollSchedule(triggersState, triggersCount)
+					setScheduledPollSchedule(triggersState, triggersCount, draftTarget())
 				}
 				if (detail.flow?.path) {
 					loadLastJob(detail.flow.path, module.id)

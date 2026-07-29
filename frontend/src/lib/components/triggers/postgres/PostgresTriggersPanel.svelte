@@ -19,16 +19,16 @@
 
 	let postgresTriggerEditor: PostgresTriggerEditorInner | undefined = $state(undefined)
 
-	async function openPostgresTriggerEditor(isFlow: boolean, isDraft: boolean) {
-		if (isDraft) {
-			postgresTriggerEditor?.openNew(isFlow, path, defaultValues, newDraft)
+	async function openPostgresTriggerEditor(isFlow: boolean) {
+		if (selectedTrigger.isNew) {
+			postgresTriggerEditor?.openNew(isFlow, path, { ...defaultValues, path: selectedTrigger.path }, newDraft)
 		} else {
 			postgresTriggerEditor?.openEdit(selectedTrigger.path, isFlow, defaultValues)
 		}
 	}
 
 	onMount(() => {
-		postgresTriggerEditor && openPostgresTriggerEditor(isFlow, selectedTrigger.isDraft ?? false)
+		postgresTriggerEditor && openPostgresTriggerEditor(isFlow)
 	})
 
 	const cloudDisabled = $derived(isCloudHosted())

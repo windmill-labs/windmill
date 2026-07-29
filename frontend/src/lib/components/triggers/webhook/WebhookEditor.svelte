@@ -7,6 +7,7 @@
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { Triggers } from '$lib/components/triggers/triggers.svelte'
 	import type { TriggersCount } from '$lib/gen'
+	import { NO_TRIGGER_DRAFT_TARGET } from '../utils'
 
 	// WebhooksPanel → TriggerTokens reads the 'TriggerContext' to publish the
 	// webhook token count. The pipeline canvas isn't a trigger editor, so no
@@ -16,7 +17,8 @@
 		triggersCount: writable<TriggersCount | undefined>(undefined),
 		simplifiedPoll: writable(false),
 		showCaptureHint: writable(undefined),
-		triggersState: new Triggers()
+		triggersState: new Triggers(),
+		draftTarget: () => NO_TRIGGER_DRAFT_TARGET
 	})
 
 	let open = $state(false)

@@ -29,9 +29,9 @@
 		...restProps
 	}: Props = $props()
 
-	async function openEmailTriggerEditor(isFlow: boolean, isDraft: boolean) {
-		if (isDraft) {
-			emailTriggerEditor?.openNew(isFlow, path, defaultValues)
+	async function openEmailTriggerEditor(isFlow: boolean) {
+		if (selectedTrigger.isNew) {
+			emailTriggerEditor?.openNew(isFlow, path, { ...defaultValues, path: selectedTrigger.path })
 		} else {
 			emailTriggerEditor?.openEdit(selectedTrigger.path ?? '', isFlow, defaultValues)
 		}
@@ -39,7 +39,7 @@
 
 	onMount(() => {
 		if (emailTriggerEditor) {
-			openEmailTriggerEditor(isFlow, selectedTrigger.isDraft ?? false)
+			openEmailTriggerEditor(isFlow)
 		}
 	})
 

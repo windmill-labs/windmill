@@ -25,7 +25,15 @@ import {
 } from '$lib/gen'
 import { enterpriseLicense } from '$lib/stores'
 
-import { getLightConfig, sortTriggers, updateTriggersCount, type Trigger } from './utils'
+import {
+	getLightConfig,
+	newDraftTriggerPath,
+	sortTriggers,
+	triggerDraftKind,
+	updateTriggersCount,
+	type Trigger,
+	type TriggerDraftTarget
+} from './utils'
 import { get, type Writable } from 'svelte/store'
 import type { TriggerType } from './utils'
 import type { UserExt } from '$lib/stores'
@@ -77,38 +85,58 @@ export class Triggers {
 		this.#triggers[triggerIndex].draftConfig = draftConfig
 	}
 
-	getDraftTriggersSnapshot(): Trigger[] | undefined {
-		const draftTriggers = this.#triggers.filter((t) => t.draftConfig)
-		return draftTriggers.length > 0 ? $state.snapshot(draftTriggers) : undefined
-	}
-
 	getSelectedTriggerSnapshot(): number | undefined {
 		return $state.snapshot(this.#selectedTriggerIndex)
 	}
 
+	/** Add an undeployed trigger to the editor's list. For the draft-backed kinds
+	 * this writes the `trigger_*` draft row up front — draft rows are path-keyed,
+	 * so the trigger needs a path before the user has typed one, and persisting
+	 * immediately is what makes it survive a reload. Native kinds have no draft
+	 * row yet and keep their config in `draftConfig` until deploy. */
 	addDraftTrigger(
 		triggersCountStore: Writable<TriggersCount | undefined>,
 		type: TriggerType,
-		path?: string,
-		draftCfg?: Record<string, any>
+		target: TriggerDraftTarget,
+		seedCfg?: Record<string, any>
 	): number {
 		const primaryScheduleExists = this.#triggers.some((t) => t.type === 'schedule' && t.isPrimary)
-
-		// Create the new draft trigger
-		const draftId = generateRandomString()
 		const isPrimary = type === 'schedule' && !primaryScheduleExists
-		const newTrigger = {
-			id: draftId,
+		const draftKind = triggerDraftKind(type)
+		const { runnablePath, isFlow, workspace } = target
+
+		// Reserve the path the draft row will be keyed at. The row itself is
+		// written by the editor panel's autosave, which is what turns the form's
+		// defaults into a complete config — seeding a partial one here would leave
+		// required fields unset and crash the editors that don't default them.
+		const path =
+			draftKind && workspace
+				? newDraftTriggerPath(
+						runnablePath,
+						type,
+						this.#triggers.filter((t) => t.type === type).map((t) => t.path ?? ''),
+						isPrimary
+					)
+				: undefined
+
+		const newTrigger: Trigger = {
+			id: generateRandomString(),
 			type,
 			path,
 			isPrimary,
 			isDraft: true,
-			draftConfig: draftCfg
+			isNew: true,
+			hasDraft: !!draftKind,
+			// Until the row exists this is the editor's starting point, whatever the
+			// kind — `TriggersWrapper` hands it to `openNew` as defaults. It carries
+			// the runnable explicitly: the editors otherwise fall back to the fake
+			// capture path an undeployed runnable is given.
+			draftConfig: { ...seedCfg, script_path: runnablePath, is_flow: isFlow }
 		}
 
 		this.#triggers.push(newTrigger)
 
-		updateTriggersCount(triggersCountStore, type, 'add', newTrigger.draftConfig)
+		updateTriggersCount(triggersCountStore, type, 'add', seedCfg)
 
 		return this.#triggers.length - 1
 	}
@@ -133,31 +161,39 @@ export class Triggers {
 		user: UserExt | undefined = undefined
 	): number {
 		const currentTriggers = this.#triggers
-		// Identify triggers with draftConfig to preserve
-		const configuredTriggers = currentTriggers.filter(
-			(t) => t.type === type && !t.isDraft && t.draftConfig
+		// Preserve the editor-local config of the kinds that have no draft row
+		// (native); every other kind's pending state lives in the backend rows.
+		const configMap = new Map<string, Record<string, any>>(
+			currentTriggers
+				.filter((t) => t.type === type && t.draftConfig)
+				.map((t) => [t.path ?? '', t.draftConfig!])
 		)
 
-		const configMap = new Map<string, { draftConfig: Record<string, any> }>()
+		const backendTriggers = remoteTriggers.map((trigger) => ({
+			type: type as TriggerType,
+			path: trigger.path,
+			isPrimary: type === 'schedule' && trigger.path === trigger.script_path,
+			// `draft_only` rows are synthesized from a draft with no deployed
+			// counterpart; `is_draft` also covers a draft layered on a deployed row.
+			isDraft: !!trigger.draft_only,
+			hasDraft: !!trigger.is_draft,
+			draftPath: trigger.draft_path,
+			canWrite: canWrite(trigger.path, trigger.extra_perms, user),
+			draftConfig: configMap.get(trigger.path),
+			lightConfig: getLightConfig(type, trigger)
+		}))
 
-		configuredTriggers.forEach((t) => {
-			configMap.set(t.path ?? '', { draftConfig: t.draftConfig! })
-		})
-
-		const backendTriggers = remoteTriggers.map((trigger) => {
-			const { draftConfig } = configMap.get(trigger.path) ?? {}
-			return {
-				type: type as TriggerType,
-				path: trigger.path,
-				isPrimary: type === 'schedule' && trigger.path === trigger.script_path,
-				isDraft: false,
-				canWrite: canWrite(trigger.path, trigger.extra_perms, user),
-				draftConfig: draftConfig,
-				lightConfig: getLightConfig(type, trigger)
-			}
-		})
-
-		const filteredTriggers = currentTriggers.filter((t) => t.type !== type || t.isDraft)
+		// A locally-added trigger survives only until the backend knows about it:
+		// an `isNew` one until its editor's autosave creates the draft row, a
+		// native one (no draft row at all) until it deploys.
+		const backendPaths = new Set(remoteTriggers.map((t) => t.path))
+		const filteredTriggers = currentTriggers.filter(
+			(t) =>
+				t.type !== type ||
+				(t.isDraft &&
+					!backendPaths.has(t.path ?? '') &&
+					(t.isNew || !triggerDraftKind(t.type)))
+		)
 		const newTriggers = sortTriggers([...filteredTriggers, ...backendTriggers])
 		this.#triggers = newTriggers
 
@@ -196,7 +232,8 @@ export class Triggers {
 			const allDeployedSchedules: Schedule[] = await ScheduleService.listSchedules({
 				workspace: workspaceId,
 				path,
-				isFlow
+				isFlow,
+				includeDraftOnly: true
 			})
 
 			const scheduleCount = this.updateTriggers(allDeployedSchedules, 'schedule', user)
@@ -232,7 +269,8 @@ export class Triggers {
 			const wsTriggers = await WebsocketTriggerService.listWebsocketTriggers({
 				workspace: workspaceId,
 				path,
-				isFlow
+				isFlow,
+				includeDraftOnly: true
 			})
 			const wsCount = this.updateTriggers(wsTriggers, 'websocket', user)
 			triggersCountStore.update((triggersCount) => {
@@ -258,7 +296,8 @@ export class Triggers {
 			const pgTriggers: PostgresTrigger[] = await PostgresTriggerService.listPostgresTriggers({
 				workspace: workspaceId,
 				path,
-				isFlow
+				isFlow,
+				includeDraftOnly: true
 			})
 			const pgCount = this.updateTriggers(pgTriggers, 'postgres', user)
 			triggersCountStore.update((triggersCount) => {
@@ -284,7 +323,8 @@ export class Triggers {
 			const kafkaTriggers: KafkaTrigger[] = await KafkaTriggerService.listKafkaTriggers({
 				workspace: workspaceId,
 				path,
-				isFlow
+				isFlow,
+				includeDraftOnly: true
 			})
 			const kafkaCount = this.updateTriggers(kafkaTriggers, 'kafka', user)
 			triggersCountStore.update((triggersCount) => {
@@ -310,7 +350,8 @@ export class Triggers {
 			const natsTriggers = await NatsTriggerService.listNatsTriggers({
 				workspace: workspaceId,
 				path,
-				isFlow
+				isFlow,
+				includeDraftOnly: true
 			})
 			const natsCount = this.updateTriggers(natsTriggers, 'nats', user)
 			triggersCountStore.update((triggersCount) => {
@@ -336,7 +377,8 @@ export class Triggers {
 			const mqttTriggers = await MqttTriggerService.listMqttTriggers({
 				workspace: workspaceId,
 				path,
-				isFlow
+				isFlow,
+				includeDraftOnly: true
 			})
 			const mqttCount = this.updateTriggers(mqttTriggers, 'mqtt', user)
 			triggersCountStore.update((triggersCount) => {
@@ -362,7 +404,8 @@ export class Triggers {
 			const amqpTriggers = await AmqpTriggerService.listAmqpTriggers({
 				workspace: workspaceId,
 				path,
-				isFlow
+				isFlow,
+				includeDraftOnly: true
 			})
 			const amqpCount = this.updateTriggers(amqpTriggers, 'amqp', user)
 			triggersCountStore.update((triggersCount) => {
@@ -388,7 +431,8 @@ export class Triggers {
 			const sqsTriggers = await SqsTriggerService.listSqsTriggers({
 				workspace: workspaceId,
 				path,
-				isFlow
+				isFlow,
+				includeDraftOnly: true
 			})
 			const sqsCount = this.updateTriggers(sqsTriggers, 'sqs', user)
 			triggersCountStore.update((triggersCount) => {
@@ -414,7 +458,8 @@ export class Triggers {
 			const gcpTriggers: GcpTrigger[] = await GcpTriggerService.listGcpTriggers({
 				workspace: workspaceId,
 				path,
-				isFlow
+				isFlow,
+				includeDraftOnly: true
 			})
 			const gcpCount = this.updateTriggers(gcpTriggers, 'gcp', user)
 			triggersCountStore.update((triggersCount) => {
@@ -440,7 +485,8 @@ export class Triggers {
 			const azureTriggers: AzureTrigger[] = await AzureTriggerService.listAzureTriggers({
 				workspace: workspaceId,
 				path,
-				isFlow
+				isFlow,
+				includeDraftOnly: true
 			})
 			const azureCount = this.updateTriggers(azureTriggers, 'azure', user)
 			triggersCountStore.update((triggersCount) => {
@@ -466,7 +512,8 @@ export class Triggers {
 			const httpTriggers: HttpTrigger[] = await HttpTriggerService.listHttpTriggers({
 				workspace: workspaceId,
 				path,
-				isFlow
+				isFlow,
+				includeDraftOnly: true
 			})
 			const httpCount = this.updateTriggers(httpTriggers, 'http', user)
 			triggersCountStore.update((triggersCount) => {
@@ -492,7 +539,8 @@ export class Triggers {
 			const emailTriggers: EmailTrigger[] = await EmailTriggerService.listEmailTriggers({
 				workspace: workspaceId,
 				path,
-				isFlow
+				isFlow,
+				includeDraftOnly: true
 			})
 			const emailCount = this.updateTriggers(emailTriggers, 'email', user)
 			triggersCountStore.update((triggersCount) => {

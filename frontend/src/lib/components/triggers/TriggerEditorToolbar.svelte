@@ -5,7 +5,7 @@
 
 	import { Tooltip } from '../meltComponents'
 	import DeleteTriggerButton from './DeleteTriggerButton.svelte'
-	import { type Trigger } from './utils'
+	import { triggerHasPendingChanges, type Trigger } from './utils'
 	import TriggerSuspendedJobsModal from './TriggerSuspendedJobsModal.svelte'
 	import type { TriggerMode } from '$lib/gen'
 	import TriggerModeToggle from './TriggerModeToggle.svelte'
@@ -49,6 +49,7 @@
 	}: Props = $props()
 
 	const canSave = $derived((permissions === 'write' && edit) || permissions === 'create')
+	const triggerPending = $derived(!!trigger && triggerHasPendingChanges(trigger))
 </script>
 
 {#if !allowDraft}
@@ -78,7 +79,7 @@
 	{/if}
 {:else}
 	<div class="flex flex-row gap-2 items-center">
-		{#if !trigger?.draftConfig}
+		{#if !triggerPending}
 			<div class="center-center">
 				<TriggerModeToggle
 					canWrite={permissions !== 'none'}
@@ -91,7 +92,7 @@
 		{/if}
 		{#if trigger?.isDraft || permissions === 'create'}
 			<DeleteTriggerButton {onDelete} {trigger} />
-		{:else if !trigger?.isDraft && trigger?.draftConfig}
+		{:else if !trigger?.isDraft && triggerPending}
 			<Button
 				unifiedSize="sm"
 				startIcon={{ icon: RotateCcw }}
@@ -109,7 +110,7 @@
 					variant="accent"
 					unifiedSize="sm"
 					startIcon={{ icon: Save }}
-					disabled={saveDisabled || cloudDisabled || !isDeployed || !trigger?.draftConfig}
+					disabled={saveDisabled || cloudDisabled || !isDeployed || !triggerPending}
 					on:click={() => {
 						onUpdate?.()
 					}}

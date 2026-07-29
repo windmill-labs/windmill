@@ -3,7 +3,12 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Plus, Star, Loader2, RotateCcw } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { triggerIconMap, type Trigger, type TriggerType } from './utils'
+	import {
+		triggerHasPendingChanges,
+		triggerIconMap,
+		type Trigger,
+		type TriggerType
+	} from './utils'
 	import AddTriggersButton from './AddTriggersButton.svelte'
 	import TriggerLabel from './TriggerLabel.svelte'
 	import DeleteTriggerButton from './DeleteTriggerButton.svelte'
@@ -103,7 +108,7 @@
 							{#if !['default_email', 'webhook', 'cli'].includes(trigger.type)}
 								{#if trigger.isDraft}
 									<DeleteTriggerButton {trigger} onDelete={() => onDeleteDraft?.(index)} small />
-								{:else if !!trigger.draftConfig && !trigger.isDraft}
+								{:else if triggerHasPendingChanges(trigger) && !trigger.isDraft}
 									<Button
 										size="xs"
 										color="light"

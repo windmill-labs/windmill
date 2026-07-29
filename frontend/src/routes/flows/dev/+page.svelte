@@ -28,6 +28,7 @@
 	import { Triggers } from '$lib/components/triggers/triggers.svelte'
 	import { StepsInputArgs } from '$lib/components/flows/stepsInputArgs.svelte'
 	import { ModulesTestStates } from '$lib/components/modulesTest.svelte'
+	import { NO_TRIGGER_DRAFT_TARGET } from '$lib/components/triggers/utils'
 
 	let token = page.url.searchParams.get('wm_token') ?? undefined
 	let workspace = page.url.searchParams.get('workspace') ?? undefined
@@ -88,7 +89,8 @@
 		triggersCount: triggersCount,
 		simplifiedPoll: writable(false),
 		showCaptureHint: writable(undefined),
-		triggersState: new Triggers()
+		triggersState: new Triggers(),
+		draftTarget: () => NO_TRIGGER_DRAFT_TARGET
 	})
 
 	setContext<FlowEditorContext>('FlowEditorContext', {

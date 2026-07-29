@@ -13,9 +13,9 @@
 		...restProps
 	} = $props()
 
-	function openScheduleEditor(isFlow: boolean, isDraft: boolean) {
-		if (isDraft) {
-			scheduleEditor?.openNew(isFlow, path, defaultValues)
+	function openScheduleEditor(isFlow: boolean) {
+		if (selectedTrigger.isNew) {
+			scheduleEditor?.openNew(isFlow, path, { ...defaultValues, path: selectedTrigger.path })
 		} else {
 			scheduleEditor?.openEdit(selectedTrigger.path, isFlow, defaultValues)
 		}
@@ -24,7 +24,7 @@
 	onMount(() => {
 		selectedTrigger?.type === 'schedule' &&
 			scheduleEditor &&
-			openScheduleEditor(isFlow, selectedTrigger.isDraft ?? false)
+			openScheduleEditor(isFlow)
 	})
 </script>
 

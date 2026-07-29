@@ -18,16 +18,16 @@
 	} = $props()
 	let kafkaTriggerEditor: KafkaTriggerEditorInner | undefined = $state(undefined)
 
-	async function openKafkaTriggerEditor(isFlow: boolean, isDraft: boolean) {
-		if (isDraft) {
-			kafkaTriggerEditor?.openNew(isFlow, path, defaultValues)
+	async function openKafkaTriggerEditor(isFlow: boolean) {
+		if (selectedTrigger.isNew) {
+			kafkaTriggerEditor?.openNew(isFlow, path, { ...defaultValues, path: selectedTrigger.path })
 		} else {
 			kafkaTriggerEditor?.openEdit(selectedTrigger.path, isFlow, defaultValues)
 		}
 	}
 
 	onMount(() => {
-		openKafkaTriggerEditor(isFlow, selectedTrigger.isDraft ?? false)
+		openKafkaTriggerEditor(isFlow)
 	})
 
 	const cloudDisabled = $derived(isCloudHosted())

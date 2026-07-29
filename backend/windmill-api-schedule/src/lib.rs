@@ -28,8 +28,8 @@ use windmill_common::{
     error::{Error, JsonResult, Result},
     schedule::Schedule,
     user_drafts::{
-        delete_all_drafts_for_path, fetch_draft_only_list_rows, overlay_or_draft_only,
-        UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
+        delete_all_drafts_for_path, draft_targets_runnable, fetch_draft_only_list_rows,
+        overlay_or_draft_only, UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
     },
     utils::{
         escape_ilike_pattern, not_found_if_none, paginate, Pagination, ScheduleType, StripPath,
@@ -732,6 +732,13 @@ pub struct ScheduleLight {
     #[sqlx(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inherited_labels: Option<Vec<String>>,
+    /// The path a synthesized draft-only row will deploy to, when the user
+    /// renamed it away from the `draft` row's key. `path` stays the key — it is
+    /// what get/update/delete address — so a renamed draft can still be opened.
+    /// Same split as flows and apps. `None` when they agree.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub draft_path: Option<String>,
 }
 async fn list_schedule(
     authed: ApiAuthed,
@@ -832,8 +839,6 @@ async fn list_schedule(
     if lsq.include_draft_only.unwrap_or(false)
         && !authed.is_operator
         && offset == 0
-        && lsq.path.is_none()
-        && lsq.is_flow.is_none()
         && lsq.args.is_none()
         && lsq.path_start.is_none()
         && lsq.schedule_path.is_none()
@@ -853,15 +858,19 @@ async fn list_schedule(
         for row in draft_only_rows {
             let v: serde_json::Value =
                 serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
-            // Schedule editor's draft mirrors NewSchedule: { path, schedule, timezone, script_path, is_flow, enabled?, summary?, labels? }
-            let path = v
-                .get("path")
-                .and_then(|s| s.as_str())
-                .unwrap_or("")
-                .to_string();
-            if path.is_empty() {
+            if !draft_targets_runnable(&v, lsq.path.as_deref(), lsq.is_flow) {
                 continue;
             }
+            // Schedule editor's draft mirrors NewSchedule: { path, schedule, timezone, script_path, is_flow, enabled?, summary?, labels? }
+            // The `draft` row's key addresses the schedule; the value's `path` is
+            // only where it will deploy. Reporting the key as `path` is what lets
+            // a renamed draft still be opened, updated and deleted.
+            let intended_path = v.get("path").and_then(|s| s.as_str()).unwrap_or("");
+            if intended_path.is_empty() {
+                continue;
+            }
+            let draft_path = (intended_path != row.path).then(|| intended_path.to_string());
+            let path = row.path.clone();
             let schedule = v
                 .get("schedule")
                 .and_then(|x| x.as_str())
@@ -909,6 +918,7 @@ async fn list_schedule(
                 draft_only: Some(true),
                 // Synthesized rows are the authed user's draft.
                 is_draft: Some(true),
+                draft_path,
             });
         }
     }

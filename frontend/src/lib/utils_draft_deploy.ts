@@ -44,7 +44,6 @@ import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 import { invalidateWorkspaceComparison } from '$lib/workspaceComparison'
 import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
 import { userStore } from '$lib/stores'
-import { deployTriggers, type Trigger } from '$lib/components/triggers/utils'
 import { saveScheduleFromCfg } from '$lib/components/flows/scheduleUtils'
 import { saveHttpRouteFromCfg } from '$lib/components/triggers/http/utils'
 import { saveWebsocketTriggerFromCfg } from '$lib/components/triggers/websocket/utils'
@@ -405,26 +404,6 @@ export async function fetchDraftBaseStale(
 }
 
 /**
- * Deploy a script/flow draft's trigger changes the same way the editors do.
- * Scripts and flows can carry `draft_triggers`; the create/update call below
- * deletes the draft row, so without this the saved trigger edits would be
- * silently lost. Uses the shared `deployTriggers` (a throwaway `usedTriggerKinds`
- * store is fine — it only tracks kinds for the editor UI). `isNew` forces each
- * trigger's `script_path` to the deployed path (matches the editors' new path).
- */
-async function deployDraftTriggers(
-	draftTriggers: Trigger[] | undefined,
-	workspace: string,
-	path: string,
-	isNew: boolean
-): Promise<void> {
-	const triggers = (draftTriggers ?? []).filter((t) => t?.draftConfig)
-	if (triggers.length === 0) return
-	const isAdmin = !!(get(userStore)?.is_admin || get(userStore)?.is_super_admin)
-	await deployTriggers(triggers, workspace, isAdmin, writable<string[]>([]), path, isNew)
-}
-
-/**
  * Promote a draft to deployed by replaying the editor's create/update call with
  * the stored draft value. The matching draft row is deleted server-side by the
  * create/update handler. Returns the same `{ success, error? }` shape as the
@@ -449,7 +428,7 @@ export async function deployDraft(
 			const r = (await ScriptService.getScriptByPath({ workspace, path, getDraft: true })) as any
 			const d = r.draft ?? r
 			// Drop editor-only / server-managed keys; deploy as a real (non-draft) version.
-			const { draft_triggers: draftTriggers, draft_only: _o, ...rest } = d
+			const { draft_triggers: _t, draft_only: _o, ...rest } = d
 			const scriptPath = d.path ?? path
 			// Deploy at the draft's path so a rename in the draft is honored (same as
 			// the editor: createScript at the new path with parent_hash links lineage).
@@ -462,8 +441,6 @@ export async function deployDraft(
 					deployment_message: deploymentMessage
 				}
 			})
-			// Then deploy any draft trigger edits, so they aren't dropped with the draft.
-			await deployDraftTriggers(draftTriggers, workspace, scriptPath, true)
 		} else if (kind === 'flow') {
 			const r = (await FlowService.getFlowByPath({ workspace, path, getDraft: true })) as any
 			const d = r.draft ?? r
@@ -493,13 +470,6 @@ export async function deployDraft(
 			} else {
 				await FlowService.updateFlow({ workspace, path, requestBody })
 			}
-			// Then deploy any draft trigger edits, so they aren't dropped with the draft.
-			await deployDraftTriggers(
-				d.draft_triggers,
-				workspace,
-				d.draft_path ?? d.path ?? path,
-				draftOnly
-			)
 		} else if (kind === 'app') {
 			// `raw_app` is handled above; only visual apps reach here.
 			const r = (await AppService.getAppByPath({ workspace, path, getDraft: true })) as any

@@ -65,6 +65,14 @@ export interface TriggerDraftSync {
 	 */
 	maybeRestore(): Promise<void>
 	/**
+	 * Persist the form's current config as the draft for a trigger that has no
+	 * row yet — an `openNew` opened from a flow/script editor, where the trigger
+	 * is already listed and must survive a reload. Also consumes the entry's
+	 * one-shot seed guard, so the user's first edit isn't swallowed. No-op
+	 * without a path (a list page's ad-hoc "New trigger" has nothing to key on).
+	 */
+	persistNew(): Promise<void>
+	/**
 	 * Drop the local draft for `path` and reset the form to the deployed
 	 * baseline. Backs the banner's "Discard" action.
 	 */
@@ -225,6 +233,15 @@ export function useTriggerDraftSync(opts: TriggerDraftSyncOptions): TriggerDraft
 					workspace: ws
 				})
 			}
+		},
+		async persistNew() {
+			const ws = opts.workspace()
+			const p = opts.path()
+			const cfg = opts.getCfg()
+			if (!ws || !p || cfg == null) return
+			const snapshot = structuredClone($state.snapshot(cfg)) as Cfg
+			UserDraft.seed(opts.itemKind, p, snapshot, { workspace: ws })
+			await UserDraft.forcePersist(opts.itemKind, p, { workspace: ws })
 		},
 		async resetToDeployed(path: string) {
 			const deployedCfg = structuredClone($state.snapshot(opts.deployed())) as Cfg

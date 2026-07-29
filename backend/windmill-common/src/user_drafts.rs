@@ -398,6 +398,35 @@ pub async fn fetch_draft_only_list_rows(
     Ok(rows)
 }
 
+/// Whether a trigger draft's JSON targets the runnable a list query narrows to.
+/// The trigger list endpoints narrow by `(path, is_flow)` — meaning the
+/// *runnable* the trigger fires, matched in SQL against `script_path`/`is_flow`
+/// on deployed rows. Synthesized draft-only rows have no SQL to filter them, so
+/// the same pair is read out of the draft value here. A query that narrows on
+/// neither matches every draft.
+pub fn draft_targets_runnable(
+    value: &serde_json::Value,
+    script_path: Option<&str>,
+    is_flow: Option<bool>,
+) -> bool {
+    if let Some(p) = script_path {
+        if value.get("script_path").and_then(|x| x.as_str()) != Some(p) {
+            return false;
+        }
+    }
+    if let Some(f) = is_flow {
+        if value
+            .get("is_flow")
+            .and_then(|x| x.as_bool())
+            .unwrap_or(false)
+            != f
+        {
+            return false;
+        }
+    }
+    true
+}
+
 /// The get-by-path draft choreography, shared by every entity's "get by path"
 /// route. Given the deployed entity as an `Option` (caller maps its own "not
 /// found" to `None`):

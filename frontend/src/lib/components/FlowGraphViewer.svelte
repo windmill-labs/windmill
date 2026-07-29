@@ -14,6 +14,7 @@
 	import { untrack } from 'svelte'
 	import { publishLinkedAgentTools } from './flows/flowState'
 	import { linkedToolsScope } from './flows/linkedAgentToolsStore.svelte'
+	import { NO_TRIGGER_DRAFT_TARGET } from '$lib/components/triggers/utils'
 
 	interface Props {
 		flow: {
@@ -61,7 +62,8 @@
 			triggersCount,
 			simplifiedPoll: writable(false),
 			showCaptureHint: writable(undefined),
-			triggersState: new Triggers()
+			triggersState: new Triggers(),
+			draftTarget: () => NO_TRIGGER_DRAFT_TARGET
 		})
 	}
 

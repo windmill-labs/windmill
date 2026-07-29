@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { userStore, workspaceStore } from '$lib/stores'
+	import { UserDraft } from '$lib/userDraft.svelte'
 	import FlowCard from '../flows/common/FlowCard.svelte'
 	import { getContext, onDestroy, createEventDispatcher } from 'svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
@@ -16,7 +17,8 @@
 		triggerTypeToCaptureKind,
 		type TriggerType,
 		CLOUD_DISABLED_TRIGGER_TYPES,
-		type Trigger
+		type Trigger,
+		triggerDraftKind
 	} from './utils'
 	import { isCloudHosted } from '$lib/cloud'
 	import {
@@ -83,7 +85,7 @@
 	let loading = $state(false)
 
 	const useVerticalTriggerBar = $derived(width < 1000)
-	const { triggersState, triggersCount } = getContext<TriggerContext>('TriggerContext')
+	const { triggersState, triggersCount, draftTarget } = getContext<TriggerContext>('TriggerContext')
 
 	const flowEditorContext = getContext<FlowEditorContext | undefined>('FlowEditorContext')
 	const chatInputEnabled = $derived(
@@ -161,16 +163,21 @@
 		if (triggerIndex === undefined) {
 			return
 		}
+		const trigger = triggersState.triggers[triggerIndex]
 		// If the trigger is deployed, delete the trigger from the db
-		if (
-			!triggersState.triggers[triggerIndex].isDraft &&
-			triggersState.triggers[triggerIndex].path
-		) {
+		if (!trigger.isDraft && trigger.path) {
 			await deleteDeployedTrigger(triggerIndex)
 		}
-
 		triggersState.deleteTrigger(triggersCount, triggerIndex)
 		triggersState.selectedTriggerIndex = triggersState.triggers.length - 1
+
+		// Drop the draft row too, else the trigger reappears on the next fetch.
+		// After the list update, so the editor panel's autosave has unmounted
+		// rather than re-persisting the config it still holds.
+		const draftKind = triggerDraftKind(trigger.type)
+		if (draftKind && trigger.path && $workspaceStore) {
+			UserDraft.remove(draftKind, trigger.path, { workspace: $workspaceStore })
+		}
 	}
 
 	async function handleUpdate(trigger: number | undefined, path: string) {
@@ -318,32 +325,42 @@
 		onDeployTrigger?.({ type: triggerType, id: triggerId, path: triggerPath })
 	}
 
+	/** Editor-local config for the kinds with no draft row (native). Every other
+	 * kind persists through its own `useTriggerDraftSync`, and mirroring here
+	 * would put the same pending change in two places. */
 	function handleUpdateDraftConfig(
 		triggerIndex: number | undefined,
 		newConfig: Record<string, any>,
 		saveDisabled: boolean
 	) {
-		console.log('handleUpdateDraftConfig', triggerIndex, newConfig, saveDisabled)
-		if (triggerIndex && triggerIndex !== -1 && newConfig) {
-			triggersState.setDraftConfig(triggerIndex, { ...newConfig, canSave: !saveDisabled })
-		}
+		if (triggerIndex === undefined || triggerIndex === -1 || !newConfig) return
+		if (triggerDraftKind(triggersState.triggers[triggerIndex].type)) return
+		triggersState.setDraftConfig(triggerIndex, { ...newConfig, canSave: !saveDisabled })
 	}
 
-	function handleResetDraft(trigger: number | undefined) {
-		if (!trigger) {
+	/** Discard the pending changes on a deployed trigger, restoring what is live.
+	 * `renderCount` remounts the panel so its form reloads from the backend. */
+	async function handleResetDraft(triggerIndex: number | undefined) {
+		if (triggerIndex === undefined || triggerIndex === -1) {
 			return
 		}
-		triggersState.setDraftConfig(trigger, undefined)
+		const trigger = triggersState.triggers[triggerIndex]
+		const draftKind = triggerDraftKind(trigger.type)
+		if (draftKind && trigger.path && $workspaceStore) {
+			UserDraft.remove(draftKind, trigger.path, { workspace: $workspaceStore })
+			triggersState.triggers[triggerIndex].hasDraft = false
+		} else {
+			triggersState.setDraftConfig(triggerIndex, undefined)
+		}
 		renderCount++
 	}
 
-	function handleAddTrigger(type: TriggerType) {
-		const newTrigger = triggersState.addDraftTrigger(
+	async function handleAddTrigger(type: TriggerType) {
+		triggersState.selectedTriggerIndex = await triggersState.addDraftTrigger(
 			triggersCount,
 			type,
-			type === 'schedule' ? initialPath : undefined
+			draftTarget()
 		)
-		triggersState.selectedTriggerIndex = newTrigger
 	}
 
 	const cloudDisabled = $derived(

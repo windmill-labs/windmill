@@ -18,16 +18,16 @@
 	} = $props()
 	let sqsTriggerEditor: SqsTriggerEditorInner | undefined = $state(undefined)
 
-	async function openSqsTriggerEditor(isFlow: boolean, isDraft: boolean) {
-		if (isDraft) {
-			sqsTriggerEditor?.openNew(isFlow, path, defaultValues)
+	async function openSqsTriggerEditor(isFlow: boolean) {
+		if (selectedTrigger.isNew) {
+			sqsTriggerEditor?.openNew(isFlow, path, { ...defaultValues, path: selectedTrigger.path })
 		} else {
 			sqsTriggerEditor?.openEdit(selectedTrigger.path, isFlow, selectedTrigger.draftConfig)
 		}
 	}
 
 	onMount(() => {
-		sqsTriggerEditor && openSqsTriggerEditor(isFlow, selectedTrigger.isDraft ?? false)
+		sqsTriggerEditor && openSqsTriggerEditor(isFlow)
 	})
 
 	const cloudDisabled = $derived(isCloudHosted())

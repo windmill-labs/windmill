@@ -28,8 +28,11 @@ pub struct StandardTriggerQuery {
     pub path_start: Option<String>,
     pub label: Option<String>,
     /// When true, append per-user draft rows whose path has no
-    /// deployed trigger of this kind. Same gate as scripts/flows/apps:
-    /// non-operators, offset 0, no narrowing filters.
+    /// deployed trigger of this kind. Gated to non-operators at offset 0
+    /// with no `path_start`/`label` filter. `path`/`is_flow` ARE honored —
+    /// they narrow to a runnable, and the appended rows are filtered on the
+    /// draft's own `script_path`/`is_flow` so the flow/script editor can list
+    /// its undeployed triggers.
     pub include_draft_only: Option<bool>,
 }
 
@@ -62,6 +65,13 @@ pub struct BaseTrigger {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub is_draft: Option<bool>,
+    /// The path a synthesized draft-only row will deploy to, when the user
+    /// renamed it away from the `draft` row's key. `path` stays the key — it
+    /// is what get/update/delete address — so a renamed draft can still be
+    /// opened. Same split as flows and apps. `None` when they agree.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub draft_path: Option<String>,
 }
 
 #[derive(Debug, FromRow, Clone, Serialize, Deserialize)]

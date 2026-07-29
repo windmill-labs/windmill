@@ -187,7 +187,10 @@
 			path = defaultValues?.path ?? ''
 			message_attributes = defaultValues?.message_attributes ?? []
 			aws_auth_resource_type = defaultValues?.aws_auth_resource_type ?? 'credentials'
-			initialPath = ''
+			// Key the local autosave at the path this trigger will live at, so a
+			// never-deployed one is still drafted. Empty for an ad-hoc "New
+			// trigger" from a list page, which has nothing to key on until saved.
+			initialPath = path
 			edit = false
 			dirtyPath = false
 			mode = defaultValues?.mode ?? 'enabled'
@@ -199,6 +202,8 @@
 			selectedPermissionedAs = undefined
 			preservePermissionedAs = false
 			originalConfig = undefined
+			// Editor-created trigger: it is already listed, so write its draft now.
+			await draftSync.persistNew()
 		} finally {
 			initialConfig = structuredClone($state.snapshot(getSaveCfg()))
 			clearTimeout(loadingTimeout)

@@ -17,16 +17,16 @@
 	} = $props()
 	let mqttTriggerEditor: MqttTriggerEditorInner | undefined = $state(undefined)
 
-	async function openMqttTriggerEditor(isFlow: boolean, isDraft: boolean) {
-		if (isDraft) {
-			mqttTriggerEditor?.openNew(isFlow, path, defaultValues)
+	async function openMqttTriggerEditor(isFlow: boolean) {
+		if (selectedTrigger.isNew) {
+			mqttTriggerEditor?.openNew(isFlow, path, { ...defaultValues, path: selectedTrigger.path })
 		} else {
 			mqttTriggerEditor?.openEdit(selectedTrigger.path, isFlow, selectedTrigger.draftConfig)
 		}
 	}
 
 	onMount(() => {
-		mqttTriggerEditor && openMqttTriggerEditor(isFlow, selectedTrigger.isDraft ?? false)
+		mqttTriggerEditor && openMqttTriggerEditor(isFlow)
 	})
 
 	const cloudDisabled = $derived(isCloudHosted())

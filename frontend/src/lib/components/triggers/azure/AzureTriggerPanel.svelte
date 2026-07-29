@@ -17,16 +17,16 @@
 	} = $props()
 	let azureTriggerEditor: AzureTriggerEditorInner | undefined = $state(undefined)
 
-	async function openAzureTriggerEditor(isFlow: boolean, isDraft: boolean) {
-		if (isDraft) {
-			azureTriggerEditor?.openNew(isFlow, path, defaultValues)
+	async function openAzureTriggerEditor(isFlow: boolean) {
+		if (selectedTrigger.isNew) {
+			azureTriggerEditor?.openNew(isFlow, path, { ...defaultValues, path: selectedTrigger.path })
 		} else {
 			azureTriggerEditor?.openEdit(selectedTrigger.path, isFlow, defaultValues)
 		}
 	}
 
 	onMount(() => {
-		azureTriggerEditor && openAzureTriggerEditor(isFlow, selectedTrigger.isDraft ?? false)
+		azureTriggerEditor && openAzureTriggerEditor(isFlow)
 	})
 
 	const cloudDisabled = $derived(isCloudHosted())
