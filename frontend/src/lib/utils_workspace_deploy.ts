@@ -17,7 +17,8 @@ import {
 	UserService,
 	VariableService,
 	WebsocketTriggerService,
-	WorkspaceService
+	WorkspaceService,
+	type User
 } from '$lib/gen'
 import {
 	fetchProtectionRulesForWorkspace,
@@ -167,7 +168,10 @@ function legacyTriggerKind(kind: TriggerDeployKind) {
 	return map[kind]
 }
 
-function makeProvider(): DeployProvider {
+/** An identity in both formats the app policy stores it in. */
+export type AppIdentity = { email: string; permissionedAs: string }
+
+function makeProvider(appIdentity?: AppIdentity): DeployProvider {
 	return {
 		existsFlowByPath: (p) => FlowService.existsFlowByPath(p),
 		existsScriptByPath: (p) => ScriptService.existsScriptByPath(p),
@@ -183,7 +187,22 @@ function makeProvider(): DeployProvider {
 		getScriptByPath: (p) => ScriptService.getScriptByPath(p),
 		createScript: (p) => ScriptService.createScript(p),
 		archiveScriptByPath: (p) => ScriptService.archiveScriptByPath(p),
-		getAppByPath: (p) => AppService.getAppByPath(p),
+		// An app's identity lives in its policy, and the shared deploy forwards the source policy
+		// untouched — it only turns `onBehalfOf` into `preserve_on_behalf_of: true`. Rewriting the
+		// policy on the way out is therefore the only way a chosen identity reaches the target; the
+		// backend honours it (`should_preserve` requires `policy.on_behalf_of.is_some()`).
+		getAppByPath: async (p) => {
+			const app = await AppService.getAppByPath(p)
+			if (!appIdentity) return app
+			return {
+				...app,
+				policy: {
+					...app.policy,
+					on_behalf_of: appIdentity.permissionedAs,
+					on_behalf_of_email: appIdentity.email
+				}
+			}
+		},
 		createApp: (p) => AppService.createApp(p),
 		updateApp: (p) => AppService.updateApp(p),
 		createAppRaw: (p) => AppService.createAppRaw(p),
@@ -267,6 +286,12 @@ export interface DeployItemParams {
 	 * If undefined, the deploying user's identity is used.
 	 */
 	onBehalfOf?: string
+	/**
+	 * `u/username` form of `onBehalfOf`. Apps keep their identity in the app policy rather than in a
+	 * top-level field, and the policy holds both formats — so without this an app deploy can only
+	 * carry the source's identity over, never a chosen one. Ignored for every other kind.
+	 */
+	onBehalfOfPermissionedAs?: string
 }
 
 /**
@@ -275,7 +300,15 @@ export interface DeployItemParams {
  * which carries its sub-kind in `additionalInformation`.
  */
 export async function deployItem(params: DeployItemParams): Promise<DeployResult> {
-	const { kind, path, workspaceFrom, workspaceTo, additionalInformation, onBehalfOf } = params
+	const {
+		kind,
+		path,
+		workspaceFrom,
+		workspaceTo,
+		additionalInformation,
+		onBehalfOf,
+		onBehalfOfPermissionedAs
+	} = params
 
 	if (kind === 'trigger') {
 		// Legacy path: `DeployWorkspace.svelte` doesn't know the per-kind trigger
@@ -313,8 +346,12 @@ export async function deployItem(params: DeployItemParams): Promise<DeployResult
 		}
 	}
 
+	const appIdentity =
+		(kind === 'app' || kind === 'raw_app') && onBehalfOf && onBehalfOfPermissionedAs
+			? { email: onBehalfOf, permissionedAs: onBehalfOfPermissionedAs }
+			: undefined
 	return sharedDeployItem(
-		makeProvider(),
+		makeProvider(appIdentity),
 		kind as DeployKind,
 		path,
 		workspaceFrom,
@@ -393,6 +430,23 @@ export async function getOnBehalfOf(
 	return sharedGetOnBehalfOf(makeProvider(), kind as DeployKind, path, workspace)
 }
 
+/**
+ * `getOnBehalfOf` without its swallow-and-return-undefined. A caller that offers an identity choice
+ * only when the source has one must be able to tell "carries no identity" from "could not read it":
+ * conflating them silently reassigns the deployed item to whoever deployed it.
+ */
+export async function getOnBehalfOfOrThrow(
+	kind: 'script' | 'flow' | 'app' | 'raw_app',
+	path: string,
+	workspace: string
+): Promise<string | undefined> {
+	const provider = makeProvider()
+	if (kind === 'flow') return (await provider.getFlowByPath({ workspace, path })).on_behalf_of_email
+	if (kind === 'script')
+		return (await provider.getScriptByPath({ workspace, path })).on_behalf_of_email
+	return (await provider.getAppByPath({ workspace, path })).policy?.on_behalf_of_email
+}
+
 export type DeployPermission = { ok: boolean; reason?: string }
 
 /**
@@ -406,9 +460,13 @@ export type DeployPermission = { ok: boolean; reason?: string }
  * Fails open on any error — the server still enforces on the actual deploy.
  * Shared by the session dock and the compare page so both gate identically.
  */
-export async function checkDeployPermission(workspace: string): Promise<DeployPermission> {
+export async function checkDeployPermission(
+	workspace: string,
+	/** Pre-fetched `whoami` for `workspace`, to save a round trip when the caller already has one. */
+	whoami?: User
+): Promise<DeployPermission> {
 	try {
-		const me = await UserService.whoami({ workspace })
+		const me = whoami ?? (await UserService.whoami({ workspace }))
 		if (me.operator) {
 			return { ok: false, reason: "You're an operator in this workspace — operators can't deploy" }
 		}
@@ -429,5 +487,70 @@ export async function checkDeployPermission(workspace: string): Promise<DeployPe
 		return { ok: true }
 	} catch {
 		return { ok: true }
+	}
+}
+
+/**
+ * Whether `me` may write at `path` in `workspace` — the per-item half of the deploy gate, which
+ * `checkDeployPermission`'s workspace-level rules don't cover. Same fail-open contract.
+ */
+async function checkPathWritePermission(
+	workspace: string,
+	path: string,
+	me: User
+): Promise<DeployPermission> {
+	if (me.is_admin) return { ok: true }
+	const owner = path.match(/^u\/([^/]+)\//)?.[1]
+	if (owner) {
+		return owner === me.username
+			? { ok: true }
+			: {
+					ok: false,
+					reason: `${path} is owned by u/${owner} — only they or a workspace admin can write there`
+				}
+	}
+	const folder = path.match(/^f\/([^/]+)\//)?.[1]
+	if (!folder || me.folders?.includes(folder)) return { ok: true }
+	try {
+		// A folder the target doesn't have yet is created by the deploy, with the deployer as its
+		// owner — lacking write access to something that doesn't exist isn't a refusal.
+		if (!(await checkItemExists('folder', `f/${folder}`, workspace))) return { ok: true }
+	} catch {
+		// Inconclusive: let the deploy decide rather than refusing on a failed probe.
+		return { ok: true }
+	}
+	return { ok: false, reason: `You don't have write access to folder ${folder}` }
+}
+
+export type DeployTargetAccess = {
+	permission: DeployPermission
+	/** Whether the user may hand the item an identity other than their own. */
+	canPreserveOnBehalfOf: boolean
+	/** The caller as `workspace` knows them — usernames are per-workspace, emails are not. */
+	me?: AppIdentity
+}
+
+/**
+ * What the target workspace says about landing one item in it: the workspace-level gate, write
+ * access to the item's path, and whether another identity may be preserved. Bundled so one `whoami`
+ * answers all of it, and so a refusal is known before the deploy rather than as a 403 on confirm.
+ */
+export async function checkItemDeployAccess(
+	workspace: string,
+	path: string
+): Promise<DeployTargetAccess> {
+	let me: User
+	try {
+		me = await UserService.whoami({ workspace })
+	} catch {
+		return { permission: { ok: true }, canPreserveOnBehalfOf: false }
+	}
+	const workspaceLevel = await checkDeployPermission(workspace, me)
+	return {
+		permission: workspaceLevel.ok
+			? await checkPathWritePermission(workspace, path, me)
+			: workspaceLevel,
+		canPreserveOnBehalfOf: me.is_admin || (me.groups ?? []).includes('wm_deployers'),
+		me: { email: me.email, permissionedAs: `u/${me.username}` }
 	}
 }

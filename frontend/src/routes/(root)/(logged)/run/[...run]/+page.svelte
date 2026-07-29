@@ -835,7 +835,7 @@
 						<Button
 							href={buildForkEditUrl(isScript ? 'script' : 'flow', job?.script_path ?? '')}
 							onClick={(e) =>
-								onEditInForkClick(e, isScript ? 'script' : 'flow', job?.script_path ?? '')}
+								onEditInForkClick(e, isScript ? 'script' : 'flow', job?.script_path ?? '', { hasHref: true })}
 							unifiedSize="md"
 							variant="default"
 							size="sm"

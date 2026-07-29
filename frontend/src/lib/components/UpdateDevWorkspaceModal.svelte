@@ -7,12 +7,12 @@
 	import { updateDevWorkspaceModal } from '$lib/utils/editInForkModal.svelte'
 	import { devWorkspaceEditUrl } from '$lib/utils/editInFork'
 	import {
-		checkDeployPermission,
+		checkItemDeployAccess,
 		checkItemExists,
 		deployItem,
-		getOnBehalfOf,
-		type DeployPermission,
-		type DeployResult
+		getOnBehalfOfOrThrow,
+		type DeployResult,
+		type DeployTargetAccess
 	} from '$lib/utils_workspace_deploy'
 	import { COMPARE_ITEMS_PARAM } from '$lib/components/sessions/modifiedItemsMask'
 	import OnBehalfOfSelector, {
@@ -21,22 +21,59 @@
 		type OnBehalfOfDetails
 	} from '$lib/components/OnBehalfOfSelector.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { UserService } from '$lib/gen'
-	import type { Kind } from '$lib/utils_deployable'
-	import { resource } from 'runed'
 
 	const pending = $derived(updateDevWorkspaceModal.val)
 
 	let updating = $state(false)
+	/** The user picker stacks above this dialog and owns the keyboard while it's up (`keyListen`). */
+	let pickerOpen = $state(false)
 
-	// Re-checked per opened item: the modal is mounted for the whole session and the
-	// rules can change under it.
-	const permissionRes = resource(
-		() => pending?.devWorkspaceId,
-		async (dev): Promise<DeployPermission | undefined> =>
-			dev ? await checkDeployPermission(dev) : undefined
+	/**
+	 * A lookup tagged with the request it answers. Requests outlive the prompt that started them
+	 * (no abort signal on the client), so cancelling and reopening leaves two in flight — without
+	 * the tag the last to settle decides this item's permissions and identity. `undefined` means
+	 * "not looked up yet", which is what gates confirming.
+	 */
+	type Tagged<T> = { req: NonNullable<typeof pending>; value: T }
+	function forPending<T>(res: Tagged<T> | undefined): Tagged<T> | undefined {
+		return res && res.req === pending ? res : undefined
+	}
+
+	// Re-run per opened item: the modal is mounted for the whole session, the rules can change under
+	// it, and write access is per-path so it can differ between two items in the same workspace.
+	let accessLookup = $state<Tagged<DeployTargetAccess> | undefined>(undefined)
+	let sourceLookup = $state<Tagged<{ onBehalfOf?: string; failed?: boolean }> | undefined>(
+		undefined
 	)
-	const permission = $derived(permissionRes.current)
+
+	$effect(() => {
+		const req = pending
+		accessLookup = undefined
+		sourceLookup = undefined
+		onBehalfOfChoice = undefined
+		customOnBehalfOf = undefined
+		if (!req) return
+		let live = true
+		void checkItemDeployAccess(req.devWorkspaceId, req.itemPath).then((value) => {
+			if (live) accessLookup = { req, value }
+		})
+		// `failed` rather than `undefined`: an unreadable source is not one with no identity, and
+		// conflating them would quietly hand the copy to the deploying user.
+		void getOnBehalfOfOrThrow(req.itemType, req.itemPath, req.prodWorkspaceId).then(
+			(onBehalfOf) => {
+				if (live) sourceLookup = { req, value: { onBehalfOf } }
+			},
+			() => {
+				if (live) sourceLookup = { req, value: { failed: true } }
+			}
+		)
+		return () => {
+			live = false
+		}
+	})
+
+	const access = $derived(forPending(accessLookup))
+	const permission = $derived(access?.value.permission)
 
 	// The compare page's update direction (prod -> dev) with this one item preselected. Where the
 	// confirm button leads when the user can't deploy here, so the request still has somewhere to go.
@@ -48,62 +85,59 @@
 			: ''
 	)
 
-	// Falls open while the check is in flight — the server enforces on the deploy anyway.
+	// Falls open while the check is in flight so the modal doesn't flash a refusal it may retract;
+	// confirming stays blocked until it lands (see `confirmBlocked`).
 	const canDeploy = $derived(permission?.ok !== false)
 
 	// Identity the item will run under once it lands in the dev workspace. Offered only when the
 	// prod item has an on_behalf_of of its own — otherwise there is no identity to carry over and
 	// the deploying user is the only sensible answer (`needsOnBehalfOfSelection`).
-	const sourceOnBehalfOfRes = resource(
-		() => pending,
-		async (req): Promise<string | undefined> =>
-			req ? await getOnBehalfOf(req.itemType as Kind, req.itemPath, req.prodWorkspaceId) : undefined
-	)
+	const sourceOnBehalfOf = $derived(forPending(sourceLookup))
 	const showOnBehalfOf = $derived(
-		!!pending && needsOnBehalfOfSelection(pending.itemType, sourceOnBehalfOfRes.current)
+		!!pending && needsOnBehalfOfSelection(pending.itemType, sourceOnBehalfOf?.value.onBehalfOf)
 	)
 
-	// Picking anyone but yourself is admin/wm_deployers-only, mirroring the compare page's gate.
-	const canPreserveRes = resource(
-		() => pending?.devWorkspaceId,
-		async (dev): Promise<boolean> => {
-			if (!dev) return false
-			try {
-				const me = await UserService.whoami({ workspace: dev })
-				return me.is_admin || me.groups?.includes('wm_deployers') || false
-			} catch {
-				return false
-			}
-		}
-	)
-
-	// Left unset until the user picks, and confirming is blocked meanwhile — the compare page
-	// gates its deploy the same way. The selector's own "preserve the target's value" default
-	// can't apply here: the item is absent from the dev workspace, which is why this prompt is up.
+	// Left unset until the user picks, and confirming is blocked meanwhile. The selector's own
+	// "preserve the target's value" default can't apply: the item is absent from the dev workspace.
 	let onBehalfOfChoice = $state<OnBehalfOfChoice>(undefined)
 	let customOnBehalfOf = $state<OnBehalfOfDetails | undefined>(undefined)
 
-	$effect(() => {
-		pending
-		onBehalfOfChoice = undefined
-		customOnBehalfOf = undefined
-	})
+	// 'me' is sent explicitly rather than left blank. Sending nothing means "no preference", which
+	// lets the target folder's `default_permissioned_as` claim the item — so the option labelled
+	// "me" would deploy it as somebody else. No choice at all (selector hidden) still defers to it.
+	const chosenIdentity = $derived(
+		onBehalfOfChoice === 'custom'
+			? customOnBehalfOf
+			: onBehalfOfChoice === 'me'
+				? access?.value.me
+				: undefined
+	)
 
 	const onBehalfOfUnset = $derived(showOnBehalfOf && onBehalfOfChoice === undefined)
-	// Also blocked while the lookup is in flight: until it lands we don't know whether a choice is
-	// required, and confirming immediately (Enter is bound to it) would skip one that was.
-	const onBehalfOfBlocking = $derived(sourceOnBehalfOfRes.loading || onBehalfOfUnset)
+	// Blocked until both lookups land *for this item* — Enter is bound to confirm, so a fast one
+	// would otherwise deploy past the permission check and skip a required choice. Not blocked once
+	// refused: the button leads to the compare page then.
+	const sourceOnBehalfOfFailed = $derived(!!sourceOnBehalfOf?.value.failed)
+	// An identity has to be picked but we don't know who "me" is there, so no choice can be honoured:
+	// sending nothing would hand the item to the folder default instead.
+	const targetIdentityUnknown = $derived(showOnBehalfOf && !!access && !access.value.me)
+	const confirmBlocked = $derived(
+		canDeploy &&
+			(!access ||
+				!sourceOnBehalfOf ||
+				sourceOnBehalfOfFailed ||
+				targetIdentityUnknown ||
+				onBehalfOfUnset)
+	)
 
 	function close() {
 		updateDevWorkspaceModal.val = undefined
 	}
 
 	/**
-	 * Deploying `f/<folder>/<name>` into a workspace that has no `<folder>` succeeds but leaves the
-	 * item orphaned — it lands with no folder to carry its permissions. The compare page avoids this
-	 * because its diff lists the folder as its own item and deploys `folder:` entries first; a
-	 * single-item update has to bring the folder itself. Anything else the item needs (resources,
-	 * variables, resource types) is still the compare page's job, exactly as it is there.
+	 * Deploying `f/<folder>/<name>` into a workspace with no `<folder>` succeeds but orphans the
+	 * item — it lands with no folder to carry its permissions. Anything else it needs (resources,
+	 * variables, resource types) stays the compare page's job, exactly as it is there.
 	 */
 	async function ensureFolder(req: NonNullable<typeof pending>): Promise<DeployResult> {
 		const folder = req.itemPath.match(/^f\/([^/]+)\//)?.[1]
@@ -111,9 +145,10 @@
 		const folderPath = `f/${folder}`
 		try {
 			if (await checkItemExists('folder', folderPath, req.devWorkspaceId)) return { success: true }
-		} catch {
-			// Inconclusive: let the item deploy decide rather than blocking on the probe.
-			return { success: true }
+		} catch (e) {
+			// The one probe that must not fail open: deploying while the folder is in fact missing is
+			// the orphaning above, and nothing downstream would catch it.
+			return { success: false, error: `could not check whether ${folderPath} exists (${e})` }
 		}
 		return await deployItem({
 			kind: 'folder',
@@ -123,9 +158,21 @@
 		})
 	}
 
+	async function presenceInDev(
+		req: NonNullable<typeof pending>
+	): Promise<'present' | 'absent' | 'unknown'> {
+		try {
+			return (await checkItemExists(req.itemType, req.itemPath, req.devWorkspaceId))
+				? 'present'
+				: 'absent'
+		} catch {
+			return 'unknown'
+		}
+	}
+
 	async function confirm() {
 		const req = pending
-		if (!req) return
+		if (!req || updating) return
 		if (!canDeploy) {
 			close()
 			await goto(compareHref)
@@ -135,13 +182,35 @@
 		// Folders carry no on_behalf_of, so only the item itself takes one.
 		let result = await ensureFolder(req)
 		if (result.success) {
+			// As late as possible before the write: the prompt is only up because the item was absent,
+			// and the shared deploy silently switches to an update once it isn't, overwriting whoever
+			// landed it. Narrows the window to this one request rather than closing it — only a
+			// create-only write on the server can do that.
+			const presence = await presenceInDev(req)
+			if (presence === 'present') {
+				updating = false
+				close()
+				sendUserToast(`${req.itemPath} is already in ${req.devWorkspaceName}, opening it`)
+				await goto(devWorkspaceEditUrl(req.itemType, req.itemPath, req.devWorkspaceId))
+				return
+			}
+			if (presence === 'unknown') {
+				// Someone may have landed it meanwhile and writing would overwrite them, so this probe
+				// can't fail open either. Prompt stays up so a retry is one click away.
+				updating = false
+				sendUserToast(
+					`Could not check whether ${req.itemPath} is already in ${req.devWorkspaceName}`,
+					true
+				)
+				return
+			}
 			result = await deployItem({
 				kind: req.itemType,
 				path: req.itemPath,
 				workspaceFrom: req.prodWorkspaceId,
 				workspaceTo: req.devWorkspaceId,
-				// Omitted for 'me' — the backend then falls back to the deploying user.
-				onBehalfOf: onBehalfOfChoice === 'custom' ? customOnBehalfOf?.email : undefined
+				onBehalfOf: chosenIdentity?.email,
+				onBehalfOfPermissionedAs: chosenIdentity?.permissionedAs
 			})
 		}
 		updating = false
@@ -165,7 +234,8 @@
 	title="{pending?.devWorkspaceName} is behind on this item"
 	confirmationText={canDeploy ? 'Update and edit' : 'Open compare page'}
 	loading={updating}
-	confirmDisabled={canDeploy && onBehalfOfBlocking}
+	keyListen={!pickerOpen}
+	confirmDisabled={confirmBlocked}
 	onConfirmed={confirm}
 	onCanceled={close}
 >
@@ -179,7 +249,25 @@
 			<p class="mt-2">
 				Update <b>{pending.devWorkspaceName}</b> with it to edit it there.
 			</p>
-			{#if showOnBehalfOf}
+			{#if sourceOnBehalfOfFailed}
+				<div class="mt-2">
+					<Alert type="error" size="xs" title="Could not read {pending.itemPath}">
+						Its "run on behalf of" user is unknown, so updating could silently reassign the item to
+						you. Retry from the compare page.
+					</Alert>
+				</div>
+			{:else if targetIdentityUnknown}
+				<div class="mt-2">
+					<Alert
+						type="error"
+						size="xs"
+						title="Could not read your account in {pending.devWorkspaceName}"
+					>
+						This item needs a "run on behalf of" user and none can be applied without it. Retry from
+						the compare page.
+					</Alert>
+				</div>
+			{:else if showOnBehalfOf}
 				<div class="mt-3 flex items-center gap-2">
 					<span class="text-xs text-secondary">Runs on behalf of</span>
 					<OnBehalfOfSelector
@@ -191,9 +279,11 @@
 							if (details) customOnBehalfOf = details
 						}}
 						kind={pending.itemType}
-						canPreserve={canPreserveRes.current ?? false}
+						canPreserve={access?.value.canPreserveOnBehalfOf ?? false}
 						customValue={customOnBehalfOf?.permissionedAs}
 						aboveConfirmationModal
+						onPickerOpenChange={(open) => (pickerOpen = open)}
+						myPermissionedAs={access?.value.me?.permissionedAs}
 					/>
 				</div>
 				{#if onBehalfOfUnset}

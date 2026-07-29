@@ -2,8 +2,9 @@
 	import { Pen } from 'lucide-svelte'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 	import {
-		buildForkEditUrl,
+		devWorkspaceEditUrl,
 		editInForkLabel,
+		forkWorkspaceUrl,
 		onEditInForkClick,
 		type ItemType
 	} from '$lib/utils/editInFork'
@@ -19,6 +20,12 @@
 
 	let dev = $derived(findCanonicalDevWorkspace($workspaceStore, $userWorkspaces))
 	let label = $derived(editInForkLabel($workspaceStore, $userWorkspaces))
+	// Built from the reactive `dev` rather than `buildForkEditUrl`, whose store reads are untracked:
+	// the href would otherwise stay frozen at mount while the label kept updating, so a row that
+	// outlives a workspace change would offer to fork a workspace that already has a dev.
+	let href = $derived(
+		dev ? devWorkspaceEditUrl(itemType, path, dev.id) : forkWorkspaceUrl(itemType, path)
+	)
 </script>
 
 <!-- title on the wrapper, not on <Button>: Button renders its `title` prop only in the
@@ -30,8 +37,8 @@
 		wrapperClasses="max-w-56"
 		unifiedSize="md"
 		startIcon={{ icon: Pen }}
-		href={buildForkEditUrl(itemType, path)}
-		onClick={(e) => onEditInForkClick(e, itemType, path)}
+		{href}
+		onClick={(e) => onEditInForkClick(e, itemType, path, { hasHref: true })}
 	>
 		{#if dev}
 			<!-- Split so only the workspace name ellipsizes — "Edit in" always stays whole. -->

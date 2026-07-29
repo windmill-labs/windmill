@@ -39,11 +39,10 @@
 		"Client got disposed and can't be restarted."
 	]
 
-	// This is the only load of the workspace list for the whole session, and an
-	// empty `$userWorkspaces` degrades silently rather than erroring: the "edit in
-	// dev workspace" affordance falls back to a generic "Edit in fork", the
-	// no-direct-deploy alert loses its dev-workspace wording, the fork banner
-	// disappears. Retry a failed load instead of leaving the tab in that state.
+	// The only load of the workspace list for the whole session, and an empty `$userWorkspaces`
+	// degrades silently rather than erroring — the edit-in-dev affordance, the no-direct-deploy
+	// alert and the fork banner all quietly lose their dev workspace. Retry rather than strand
+	// the tab in that state.
 	const WORKSPACE_LIST_RETRY_DELAYS_MS = [1000, 3000, 8000]
 	async function setUserWorkspaceStore() {
 		for (let attempt = 0; ; attempt++) {

@@ -10,6 +10,7 @@ import {
 import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
 import { isRuleActive, canUserBypassRuleKind } from '$lib/workspaceProtectionRules.svelte'
 import { goto } from '$lib/navigation'
+import { sendUserToast } from '$lib/toast'
 import { checkItemExists } from '$lib/utils_workspace_deploy'
 import { updateDevWorkspaceModal } from '$lib/utils/editInForkModal.svelte'
 
@@ -70,9 +71,13 @@ function editPathFor(itemType: ItemType, itemPath: string): string {
 export function buildForkEditUrl(itemType: ItemType, itemPath: string): string {
 	// When the current ("prod") workspace has a canonical dev workspace, edits are funneled there.
 	const dev = findCanonicalDevWorkspace(get(workspaceStore), get(userWorkspaces))
-	if (dev) {
-		return devWorkspaceEditUrl(itemType, itemPath, dev.id)
-	}
+	return dev
+		? devWorkspaceEditUrl(itemType, itemPath, dev.id)
+		: forkWorkspaceUrl(itemType, itemPath)
+}
+
+/** Fork-creation flow, coming back to the item's editor once the fork exists. */
+export function forkWorkspaceUrl(itemType: ItemType, itemPath: string): string {
 	return `${base}/user/fork_workspace?rd=${encodeURIComponent(editPathFor(itemType, itemPath))}`
 }
 
@@ -94,12 +99,16 @@ export function devWorkspaceEditUrl(
  * it and return undefined. Shared by the row buttons and the editors' "Edit in <dev>" dropdown
  * entries.
  */
+let latestResolve = 0
+
 async function resolveEditInForkTarget(
 	itemType: ItemType,
 	itemPath: string,
 	prod: string,
 	dev: UserWorkspace
 ): Promise<string | undefined> {
+	const seq = ++latestResolve
+	const from = { path: window.location.pathname, workspace: get(workspaceStore) }
 	let exists: boolean
 	try {
 		exists = await checkItemExists(itemType, itemPath, dev.id)
@@ -107,6 +116,12 @@ async function resolveEditInForkTarget(
 		// Inconclusive — go anyway and let the editor report whatever is actually wrong.
 		exists = true
 	}
+	// Only act if the user is still where they asked from. A later click supersedes this one, and
+	// navigating or switching workspace abandons it — the modal is layout-global and `goto` is
+	// unconditional, so a late answer would otherwise hijack whatever they moved on to.
+	if (seq !== latestResolve) return undefined
+	if (window.location.pathname !== from.path || get(workspaceStore) !== from.workspace)
+		return undefined
 	if (exists) return devWorkspaceEditUrl(itemType, itemPath, dev.id)
 	updateDevWorkspaceModal.val = {
 		itemType,
@@ -126,19 +141,29 @@ function currentDevWorkspace(): { prod: string; dev: UserWorkspace } | undefined
 }
 
 /**
- * Click handler for the "Edit in <dev workspace>" affordance on a link. Modifier/middle clicks fall
- * through to the raw href so open-in-new-tab keeps working.
+ * Click handler for the "Edit in <dev workspace>" affordance. Menu entries carry no href — the
+ * destination is only known after an async probe — so this navigates itself by default. Link
+ * callers pass `hasHref` so modifier/middle clicks still open the raw href in a new tab, and so the
+ * no-dev-workspace case is left to the anchor rather than being navigated twice.
  */
 export async function onEditInForkClick(
 	e: Event | undefined,
 	itemType: ItemType,
-	itemPath: string
+	itemPath: string,
+	{ hasHref = false }: { hasHref?: boolean } = {}
 ): Promise<void> {
 	const click = e as MouseEvent | undefined
-	if (click?.ctrlKey || click?.metaKey || click?.shiftKey || click?.altKey || click?.button) return
-	// No dev workspace: the href is the fork-creation flow, which needs no resolving.
+	if (
+		hasHref &&
+		(click?.ctrlKey || click?.metaKey || click?.shiftKey || click?.altKey || click?.button)
+	)
+		return
 	const target = currentDevWorkspace()
-	if (!target) return
+	if (!target) {
+		// Nothing to probe: the destination is the fork-creation flow, which the anchor already points at.
+		if (!hasHref) await goto(forkWorkspaceUrl(itemType, itemPath))
+		return
+	}
 	e?.preventDefault()
 	const url = await resolveEditInForkTarget(itemType, itemPath, target.prod, target.dev)
 	if (url) await goto(url)
@@ -146,8 +171,7 @@ export async function onEditInForkClick(
 
 /**
  * "Edit in <dev workspace>" from an editor's dropdown, which opens a new tab rather than navigating
- * away from work in progress. Popups opened after the existence check can be blocked once the
- * click's transient activation has lapsed — navigate in place then, rather than doing nothing.
+ * away from work in progress.
  */
 export async function openEditInFork(itemType: ItemType, itemPath: string): Promise<void> {
 	const target = currentDevWorkspace()
@@ -157,5 +181,10 @@ export async function openEditInFork(itemType: ItemType, itemPath: string): Prom
 	}
 	const url = await resolveEditInForkTarget(itemType, itemPath, target.prod, target.dev)
 	if (!url) return
-	if (!window.open(url)) await goto(url)
+	if (!window.open(url)) {
+		// Blocked, because the existence check outlived the click's transient activation. Falling
+		// back to navigating in place would throw away whatever this editor is holding — the whole
+		// reason this entry opens a tab — so say so instead.
+		sendUserToast(`Allow popups to open ${itemPath} in ${target.dev.name}`, true)
+	}
 }

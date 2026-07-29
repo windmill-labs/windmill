@@ -63,6 +63,17 @@
 		 * z-index above the popover layer — without this they open behind the dialog hosting them.
 		 */
 		aboveConfirmationModal?: boolean
+		/**
+		 * Fires as the user picker opens and closes. A host that binds its own Enter/Escape handler
+		 * must suspend it meanwhile: both handlers sit on `window`, where `stopPropagation` can't
+		 * separate them, so Escape in the picker would also dismiss the host.
+		 */
+		onPickerOpenChange?: (open: boolean) => void
+		/**
+		 * `u/username` to label the "me" option with. Usernames are per-workspace, so the current
+		 * one is the wrong name whenever the deploy targets a different workspace.
+		 */
+		myPermissionedAs?: string
 	}
 
 	let {
@@ -75,7 +86,9 @@
 		customValue,
 		isDeployment = true,
 		folderDefault = undefined,
-		aboveConfirmationModal = false
+		aboveConfirmationModal = false,
+		onPickerOpenChange = undefined,
+		myPermissionedAs = undefined
 	}: Props = $props()
 
 	const isTrigger = $derived(kind === 'trigger' || isTriggerOrScheduleKind(kind))
@@ -114,7 +127,9 @@
 
 	let targetDisplayName = $derived(resolveDisplayName(targetValue))
 	let customDisplayName = $derived(resolveDisplayName(customValue))
-	let myDisplayName = $derived($userStore?.username ? `u/${$userStore.username}` : undefined)
+	let myDisplayName = $derived(
+		myPermissionedAs ?? ($userStore?.username ? `u/${$userStore.username}` : undefined)
+	)
 
 	let activeUsers = $derived(users.filter((u) => !u.disabled))
 	let filteredUsers = $derived(
@@ -158,6 +173,11 @@
 		onSelect('custom', { email: user.email, permissionedAs: `u/${user.username}` })
 		modalOpen = false
 	}
+
+	// Covers every close path — the X, the overlay, Escape — not just `selectUser`.
+	$effect(() => {
+		onPickerOpenChange?.(modalOpen)
+	})
 
 	let selectedDisplayName = $derived.by(() => {
 		if (selected === 'target') return targetDisplayName

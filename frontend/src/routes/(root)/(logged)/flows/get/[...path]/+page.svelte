@@ -320,7 +320,7 @@
 				label: editInForkLabel($workspaceStore, $userWorkspaces),
 				buttonProps: {
 					href: buildForkEditUrl('flow', flow.path),
-					onClick: (e: Event | undefined) => onEditInForkClick(e, 'flow', flow.path),
+					onClick: (e: Event | undefined) => onEditInForkClick(e, 'flow', flow.path, { hasHref: true }),
 					unifiedSize: 'md',
 					variant: !showEditButtons ? 'default' : 'subtle',
 					startIcon: Pen

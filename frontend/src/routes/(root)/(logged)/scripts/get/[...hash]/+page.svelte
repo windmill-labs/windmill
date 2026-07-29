@@ -400,7 +400,7 @@
 				label: editInForkLabel($workspaceStore, $userWorkspaces),
 				buttonProps: {
 					href: buildForkEditUrl('script', script.path),
-					onClick: (e: Event | undefined) => onEditInForkClick(e, 'script', script.path),
+					onClick: (e: Event | undefined) => onEditInForkClick(e, 'script', script.path, { hasHref: true }),
 					unifiedSize: 'md',
 					variant: !showEditButtons ? 'default' : 'subtle',
 					startIcon: Pen
