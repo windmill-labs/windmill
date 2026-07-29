@@ -61,7 +61,7 @@
 	import CompareModeToggle, { type CompareMode } from './CompareModeToggle.svelte'
 	import { editUrlFor } from './sessions/forkEditUrl'
 	import { diffInMask } from './sessions/modifiedItemsMask'
-	import DatatableSchemaDiff from './DatatableSchemaDiff.svelte'
+	import ForkedDatatablesWithoutMigrations from './ForkedDatatablesWithoutMigrations.svelte'
 
 	interface Props {
 		currentWorkspaceId: string
@@ -1508,7 +1508,7 @@
 			/>
 		</div>
 
-		<DatatableSchemaDiff {currentWorkspaceId} {parentWorkspaceId} />
+		<ForkedDatatablesWithoutMigrations workspaceId={currentWorkspaceId} />
 
 		{#if pinnedItems.length > 0}
 			<div class="bg-surface-tertiary p-4 rounded-md border flex flex-col gap-2">

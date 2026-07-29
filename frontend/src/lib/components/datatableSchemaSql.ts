@@ -3,11 +3,6 @@ import type {
 	TableEditorValuesColumn,
 	TableEditorForeignKey
 } from '$lib/components/apps/components/display/dbtable/tableEditor'
-import {
-	diffTableEditorValues,
-	type AlterTableValues,
-	makeAlterTableQueries
-} from '$lib/components/apps/components/display/dbtable/queries/alterTable'
 import { renderForeignKey } from '$lib/components/apps/components/display/dbtable/queries/dbQueriesUtils'
 import type { GetDatatableFullSchemaResponse } from '$lib/gen'
 
@@ -55,79 +50,9 @@ export function apiSchemaToEditorSchema(apiSchema: GetDatatableFullSchemaRespons
 	return result
 }
 
-export type TableDiff = {
+export type TableRef = {
 	schemaName: string
 	tableName: string
-	kind: 'added' | 'removed' | 'modified'
-	operations?: AlterTableValues
-}
-
-export type DatatableDiff = {
-	datatableName: string
-	aheadChanges: TableDiff[]
-	behindChanges: TableDiff[]
-	originalSchema: DatabaseSchema
-	parentSchema: DatabaseSchema
-	forkSchema: DatabaseSchema
-}
-
-export function diffDatabaseSchemas(
-	original: DatabaseSchema,
-	current: DatabaseSchema
-): TableDiff[] {
-	const diffs: TableDiff[] = []
-	const allSchemas = new Set([...Object.keys(original), ...Object.keys(current)])
-	for (const schemaName of allSchemas) {
-		const origTables = original[schemaName] ?? {}
-		const currTables = current[schemaName] ?? {}
-		const allTables = new Set([...Object.keys(origTables), ...Object.keys(currTables)])
-		for (const tableName of allTables) {
-			const origTable = origTables[tableName]
-			const currTable = currTables[tableName]
-			if (!origTable && currTable) {
-				diffs.push({ schemaName, tableName, kind: 'added' })
-			} else if (origTable && !currTable) {
-				diffs.push({ schemaName, tableName, kind: 'removed' })
-			} else if (origTable && currTable) {
-				const currWithInitial: TableEditorValues = {
-					...currTable,
-					columns: currTable.columns.map((col) => ({
-						...col,
-						initialName: col.name,
-						defaultValue: col.defaultValue ? `{${col.defaultValue}}` : undefined
-					}))
-				}
-				const origTableTransformed: TableEditorValues = {
-					...origTable,
-					columns: origTable.columns.map((col) => ({
-						...col,
-						defaultValue: col.defaultValue ? `{${col.defaultValue}}` : undefined
-					}))
-				}
-				const diff = diffTableEditorValues(origTableTransformed, currWithInitial)
-				if (diff.operations.length > 0) {
-					diffs.push({ schemaName, tableName, kind: 'modified', operations: diff })
-				}
-			}
-		}
-	}
-	return diffs
-}
-
-export function computeDatatableDiff(
-	datatableName: string,
-	originalSchema: DatabaseSchema,
-	parentSchema: DatabaseSchema,
-	forkSchema: DatabaseSchema
-): DatatableDiff {
-	return {
-		datatableName,
-		behindChanges: diffDatabaseSchemas(originalSchema, parentSchema),
-		aheadChanges: diffDatabaseSchemas(originalSchema, forkSchema),
-		originalSchema,
-		parentSchema,
-		forkSchema
-	}
 }
 
 /** Detect PostgreSQL auto-increment columns and return the serial type + cleaned props.
@@ -152,7 +77,7 @@ function resolveColumnType(c: TableEditorValuesColumn): {
  * required for circular FKs, where no creation order satisfies inline FKs.
  */
 export function generateAddedTableSql(
-	change: TableDiff,
+	change: TableRef,
 	sourceSchema: DatabaseSchema,
 	options?: { ifNotExists?: boolean }
 ): { create: string; constraints: string[] } | undefined {
@@ -196,25 +121,4 @@ export function generateAddedTableSql(
 		)
 	}
 	return { create, constraints }
-}
-
-export function generateMigrationSql(
-	change: TableDiff,
-	sourceSchema: DatabaseSchema,
-	options?: { ifNotExists?: boolean }
-): string {
-	if (change.kind === 'modified' && change.operations) {
-		const queries = makeAlterTableQueries(change.operations, 'postgresql', change.schemaName)
-		if (queries.length === 0) return ''
-		return 'BEGIN;\n' + queries.join('\n') + '\nCOMMIT;'
-	}
-	if (change.kind === 'added') {
-		const gen = generateAddedTableSql(change, sourceSchema, options)
-		if (!gen) return ''
-		return `BEGIN;\n${[gen.create, ...gen.constraints].join('\n')}\nCOMMIT;`
-	}
-	if (change.kind === 'removed') {
-		return `BEGIN;\nDROP TABLE IF EXISTS "${change.schemaName}"."${change.tableName}";\nCOMMIT;`
-	}
-	return ''
 }
