@@ -1285,13 +1285,19 @@ pub async fn asset_graph_for(
                   -- carries no RLS of its own, so the body is returned only when
                   -- the caller can see the script that produced it. This runs in
                   -- the authed transaction, so `script`'s RLS answers it.
+                  -- Matched on the HASH as well: `extra_perms` is per row, so a
+                  -- path recreated with narrower ones leaves the archived version
+                  -- readable, and a path-only probe would answer for THAT grant
+                  -- while returning this version's source.
                   CASE WHEN EXISTS (
                       SELECT 1 FROM script sc
                        WHERE sc.workspace_id = n.workspace_id AND sc.path = n.script_path
+                         AND sc.hash = n.script_hash
                   ) THEN n.raw_code END AS raw_code,
                   CASE WHEN EXISTS (
                       SELECT 1 FROM script sc
                        WHERE sc.workspace_id = n.workspace_id AND sc.path = n.script_path
+                         AND sc.hash = n.script_hash
                   ) THEN n.original_file_path END AS original_file_path
              FROM dbt_node n
              JOIN live l ON l.path = n.script_path AND l.hash = n.script_hash

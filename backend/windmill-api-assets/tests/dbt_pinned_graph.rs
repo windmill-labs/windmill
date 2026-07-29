@@ -191,3 +191,87 @@ async fn archiving_the_script_leaves_its_finished_runs_renderable(db: Pool<Postg
         "while the workspace graph, which describes what is live, drops it"
     );
 }
+
+/// `extra_perms` is a grant on a ROW, so a path recreated with narrower ones
+/// leaves the old version readable to whoever the old row named. The source
+/// probe therefore has to name the version it is about to return: matched on
+/// the path alone, that stale grant answered for the pinned version's SQL and
+/// handed a viewer the body of a project they were never given.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn an_old_grant_at_the_same_path_does_not_expose_a_newer_version(db: Pool<Postgres>) {
+    const V2: i64 = 43;
+    let v1_job = uuid::Uuid::from_u128(7);
+    let v2_job = uuid::Uuid::from_u128(8);
+    seed(&db, v1_job).await;
+
+    // The version the outsider WAS granted, archived — the shape the grant
+    // outlives the deploy in.
+    sqlx::query!(
+        r#"UPDATE script SET archived = true, extra_perms = '{"u/outsider": true}'::jsonb
+            WHERE workspace_id = $1 AND hash = $2"#,
+        WS,
+        HASH
+    )
+    .execute(&db)
+    .await
+    .unwrap();
+
+    // The version they were not.
+    sqlx::query!(
+        "INSERT INTO script (workspace_id, hash, path, summary, description, content,
+                             created_by, language, lock)
+         VALUES ($1, $2, $3, '', '', 'profile: {}', 'test-user', 'dbt', '')",
+        WS,
+        V2,
+        PATH,
+    )
+    .execute(&db)
+    .await
+    .unwrap();
+    sqlx::query!(
+        "INSERT INTO dbt_graph_snapshot (workspace_id, script_path, script_hash, job_id, digest)
+         VALUES ($1, $2, $3, $4, 'd2')",
+        WS,
+        PATH,
+        V2,
+        v2_job
+    )
+    .execute(&db)
+    .await
+    .unwrap();
+    sqlx::query!(
+        "INSERT INTO dbt_node (workspace_id, script_path, script_hash, job_id, unique_id,
+                               resource_type, name, asset_path, raw_code, tags)
+         VALUES ($1, $2, $3, $4, 'model.p.orders', 'model', 'orders',
+                 'u/a/wh/analytics/orders', 'select 2', '{}')",
+        WS,
+        PATH,
+        V2,
+        v2_job
+    )
+    .execute(&db)
+    .await
+    .unwrap();
+
+    let pinned = PinnedRun { job_id: v2_job, script_path: PATH.to_string(), script_hash: V2 };
+    let res = asset_graph_for(
+        &outsider(),
+        WS,
+        UserDB::new(db.clone()),
+        db.clone(),
+        query(),
+        Some(pinned),
+    )
+    .await
+    .unwrap();
+    let body = serde_json::to_value(&res.0).unwrap().to_string();
+
+    assert!(
+        body.contains("orders"),
+        "the run they were given still renders its models: {body}"
+    );
+    assert!(
+        !body.contains("select 2"),
+        "but not the SQL of a version their grant never covered: {body}"
+    );
+}
