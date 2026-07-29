@@ -183,10 +183,20 @@ export function splitRelation(relation: string): string[] {
 	const parts: string[] = []
 	let current = ''
 	let quote: string | undefined
-	for (const c of relation) {
+	for (let i = 0; i < relation.length; i++) {
+		const c = relation[i]
 		if (quote !== undefined) {
-			if (c === quote || (quote === '[' && c === ']')) quote = undefined
-			else current += c
+			const close = quote === '[' ? ']' : quote
+			if (c === close) {
+				// Doubled, which is how each of these dialects escapes its own
+				// delimiter: one literal character, not the end of the identifier.
+				if (relation[i + 1] === close) {
+					current += close
+					i++
+				} else {
+					quote = undefined
+				}
+			} else current += c
 		} else if (c === '"' || c === '`' || c === '[') {
 			quote = c
 		} else if (c === '.') {

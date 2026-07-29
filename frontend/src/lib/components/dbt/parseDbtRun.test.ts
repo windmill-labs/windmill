@@ -128,6 +128,15 @@ describe('splitRelation', () => {
 		expect(splitRelation('`proj`.`data.set`.`t`')).toEqual(['proj', 'data.set', 't'])
 		expect(splitRelation('[db].[my.schema].[t]')).toEqual(['db', 'my.schema', 't'])
 	})
+
+	// Every one of these dialects escapes its delimiter by doubling it. Dropping
+	// the pair renames the relation, and the manifest keeps the real spelling —
+	// so the run's status would be recorded against a key no graph node has.
+	it('keeps a delimiter the identifier escaped by doubling', () => {
+		expect(splitRelation('"wh"."schema"."a""b"')).toEqual(['wh', 'schema', 'a"b'])
+		expect(splitRelation('`proj`.`da``ta`.`t`')).toEqual(['proj', 'da`ta', 't'])
+		expect(splitRelation('[db].[my]]schema].[t]')).toEqual(['db', 'my]schema', 't'])
+	})
 })
 
 describe('nodeSelector', () => {

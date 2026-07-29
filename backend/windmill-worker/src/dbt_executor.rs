@@ -2473,11 +2473,23 @@ fn split_relation(rel: &str) -> Vec<String> {
     let mut parts = Vec::new();
     let mut current = String::new();
     let mut quote: Option<char> = None;
-    for c in rel.chars() {
+    let mut chars = rel.chars().peekable();
+    while let Some(c) = chars.next() {
         match quote {
             Some(q) => {
-                if c == q || (q == '[' && c == ']') {
-                    quote = None;
+                let close = if q == '[' { ']' } else { q };
+                if c == close {
+                    // Doubled, which is how every one of these dialects escapes
+                    // its own delimiter: one literal character, not the end of
+                    // the identifier. Dropping it renames the relation, and the
+                    // manifest keeps the real spelling — so the run would record
+                    // its progress against a key no node has.
+                    if chars.peek() == Some(&close) {
+                        chars.next();
+                        current.push(close);
+                    } else {
+                        quote = None;
+                    }
                 } else {
                     current.push(c);
                 }
@@ -4435,6 +4447,17 @@ mod tests {
                 Some("wh")
             ),
             Some("f/prod/wh/analytics.v2/orders".to_string())
+        );
+        // A doubled delimiter is that delimiter, literally: the manifest keeps
+        // the real spelling, so dropping the pair here records the run's
+        // progress against a key no node has.
+        assert_eq!(
+            split_relation("\"wh\".\"schema\".\"a\"\"b\""),
+            vec!["wh", "schema", "a\"b"]
+        );
+        assert_eq!(
+            split_relation("[db].[my]]schema].[t]"),
+            vec!["db", "my]schema", "t"]
         );
     }
 
