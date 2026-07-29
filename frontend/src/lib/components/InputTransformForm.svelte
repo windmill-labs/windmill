@@ -43,6 +43,7 @@
 	import { inputBorderClass } from './text_input/TextInput.svelte'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	import { slideDynamic } from '$lib/transitions'
+	import InputError from './InputError.svelte'
 
 	interface Props {
 		schema: Schema | { properties?: Record<string, any>; required?: string[] }
@@ -61,6 +62,8 @@
 		collapsed?: boolean
 		/** Slide the input in and out as `collapsed` flips. */
 		animateAppear?: boolean
+		/** Message shown under the field, which also turns its border red. */
+		error?: string | undefined
 		headerTooltip?: string | undefined
 		headerTooltipIconClass?: string
 		HeaderTooltipIcon?: any
@@ -103,6 +106,7 @@
 		argType = undefined,
 		collapsed = false,
 		animateAppear = false,
+		error = undefined,
 		headerTooltip = undefined,
 		headerTooltipIconClass = '',
 		HeaderTooltipIcon = InfoIcon,
@@ -800,6 +804,8 @@
 							{@render innerInput()}
 						</div>
 
+						<InputError {error} />
+
 						<!-- Rendered outside the `suggestion ? opacity-0` wrapper so the AI
 					     step-input autocompletion (ghost text, accepted with Tab) doesn't
 					     hide the Help dropdown — the two stay independent. -->
@@ -918,7 +924,7 @@
 								</ArgInput>
 							{:else if argKind === 'javascript' && arg.expr != undefined}
 								<div
-									class={`bg-surface-input rounded-md flex flex-col pl-2 overflow-auto ${inputBorderClass({ forceFocus: focused })}`}
+									class={`bg-surface-input rounded-md flex flex-col pl-2 overflow-auto ${inputBorderClass({ forceFocus: focused, error: !!error })}`}
 								>
 									<SimpleEditor
 										small

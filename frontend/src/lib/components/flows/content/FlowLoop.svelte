@@ -21,7 +21,7 @@
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
-	import { emptySchema } from '$lib/utils'
+	import { emptySchema, emptyString } from '$lib/utils'
 	import { slideDynamic } from '$lib/transitions'
 
 	const { previewArgs, flowStateStore, flowStore, currentEditor } =
@@ -124,7 +124,20 @@
 
 	let suggestion: string | undefined = $state(undefined)
 
+	// A loop with nothing to iterate over fails at runtime, and the step's own inputs
+	// aren't schema-checked like a script's — so the field says it here.
+	const iterator = $derived(
+		mod.value.type === 'forloopflow' ? (mod.value as ForloopFlow).iterator : undefined
+	)
+	const iteratorMissing = $derived.by(() => {
+		if (iterator == undefined) return true
+		if (iterator.type === 'javascript') return emptyString(iterator.expr)
+		if (iterator.type === 'static') return iterator.value == undefined
+		return false
+	})
+
 	const ITERATOR_LABEL = 'Iterator expression'
+	const ITERATOR_MISSING = 'An iterator expression is required for the loop to run.'
 	const ITERATOR_TOOLTIP =
 		'The JavaScript expression that will be evaluated to get the list of items to iterate over. Example: ["banana", "apple", flow_input.my_fruit].'
 	const DEFAULT_PARALLELISM = 4
@@ -208,6 +221,7 @@
 								argName="iterator"
 								label={ITERATOR_LABEL}
 								headerTooltip={ITERATOR_TOOLTIP}
+								error={iteratorMissing ? ITERATOR_MISSING : undefined}
 								schema={iteratorSchema}
 								noDynamicToggle
 								extraLib={stepPropPicker.extraLib}
