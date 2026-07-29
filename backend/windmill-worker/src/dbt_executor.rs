@@ -223,30 +223,10 @@ pub(crate) async fn handle_dbt_job(
     // `dbt_command`, so this is re-asked once the failed run's arguments are
     // restored, below — those are the ones it actually builds with.
     //
-    // Only where the graph could be re-ingested. An agent worker cannot, and
-    // refusing the run over it would ground a project whose DESCRIPTOR is
-    // perfectly static the moment someone passes `vars`; the guard below is for
-    // descriptors that cannot name their models at all. Such a run keeps the
-    // deployed graph, which is what it had before this override existed.
-    if has_vars_override(&args) && matches!(conn, Connection::Sql(_)) {
+    if has_vars_override(&args) {
         prepared.graph_is_per_run = true;
     }
 
-    // Before any invocation: a per-run graph has to be re-ingested for this run's
-    // models to be the ones shown, and an agent worker reaches the DB only
-    // through the API. Refusing after `dbt build` would leave the warehouse
-    // written and the job failed, and a retry would repeat the write.
-    if prepared.graph_is_per_run
-        && prepared.resource_path.is_some()
-        && !matches!(conn, Connection::Sql(_))
-    {
-        return Err(Error::BadRequest(
-            "this dbt script resolves its models per run, so its asset graph must be re-ingested \
-             after every run — which an agent worker cannot do. Use literal `vars` and no \
-             `$var:` env, or run it on a worker with a database connection."
-                .to_string(),
-        ));
-    }
 
     let command = match arg_str(&args, "dbt_command")? {
         // Validated against an allowlist rather than passed through: the value
@@ -313,7 +293,7 @@ pub(crate) async fn handle_dbt_job(
         // models, aliases or schemas for an overridden run. This is past the
         // agent-worker guard, so the same `Connection` test keeps it from
         // reaching an ingest that cannot run there.
-        if has_vars_override(&inv.raw_args) && matches!(conn, Connection::Sql(_)) {
+        if has_vars_override(&inv.raw_args) {
             prepared.graph_is_per_run = true;
         }
         if restored.needs_parse {
@@ -1097,24 +1077,11 @@ pub(crate) async fn prepare_project(
                 }
             }
         }
-        // An agent worker can neither read the stored root nor re-ingest, so it
-        // cannot establish that the graph still describes what this run will
-        // build. Matching the deploy lock is not proof: another worker may have
-        // re-ingested a different root after a drift that has since been undone.
-        // Refuse only when the profile is one Windmill resolves — a project
-        // bringing its own `profiles.yml` has no root for Windmill to track, and
-        // its graph was never keyed on one.
-        Connection::Http(_) => {
-            if prepared.resource_path.is_some() {
-                return Err(Error::BadRequest(format!(
-                    "this dbt script's asset graph is keyed on the relations its profile \
-                     resolves to (`{}`), and an agent worker can neither verify nor re-ingest \
-                     that — so a profile changed since the last ingest would silently cascade \
-                     from the wrong relations. Run it on a worker with a database connection",
-                    prepared.relation_root()
-                )));
-            }
-        }
+        // An agent worker cannot READ the stored root to compare it, but it can
+        // publish, and publishing settles the question the comparison was asking:
+        // it re-ingests what it parsed, so the stored graph describes this run's
+        // profile whether or not it drifted.
+        Connection::Http(_) => prepared.graph_is_per_run = true,
     }
     install_packages(&prepared, &mut *ctx, job_id, w_id, conn).await?;
     Ok(prepared)
@@ -2554,13 +2521,6 @@ async fn ingest_from_run(
     let Some(resource_path) = p.resource_path.as_deref() else {
         return Ok(());
     };
-    // The caller rejects this configuration before invoking dbt; this is the
-    // backstop for any other path into the ingest.
-    let Connection::Sql(db) = conn else {
-        return Err(Error::internal_err(
-            "cannot re-ingest a dbt graph without a database connection".to_string(),
-        ));
-    };
     let Some(script_path) = job.runnable_path.as_deref() else {
         return Ok(());
     };
@@ -2575,21 +2535,48 @@ async fn ingest_from_run(
         p.default_database.as_deref(),
         selected.as_ref(),
     );
-    persist_ingest(
-        db,
-        &job.workspace_id,
-        script_path,
-        &ingested,
-        &p.relation_root(),
-        job.runnable_id
-            .map(|h| GraphPublisher::Version(h.0))
-            .unwrap_or(GraphPublisher::Unversioned),
-        // Only a dynamic descriptor snapshots per run. A static one re-ingests
-        // the same graph its deploy wrote, so a snapshot per run would be a copy
-        // of the version's graph for every run of it.
-        p.graph_is_per_run.then_some(job.id),
-    )
-    .await?;
+    // Only a dynamic descriptor snapshots per run. A static one re-ingests the
+    // same graph its deploy wrote, so a snapshot per run would be a copy of the
+    // version's graph for every run of it.
+    let snapshot_job = p.graph_is_per_run.then_some(job.id);
+    match conn {
+        Connection::Sql(db) => {
+            persist_ingest(
+                db,
+                &job.workspace_id,
+                script_path,
+                &ingested,
+                &p.relation_root(),
+                job.runnable_id
+                    .map(|h| GraphPublisher::Version(h.0))
+                    .unwrap_or(GraphPublisher::Unversioned),
+                snapshot_job,
+            )
+            .await?;
+        }
+        // An agent worker reaches these tables only through the API. Publishing
+        // is the whole of what it needs: a worker that can replace the graph
+        // never has to establish that the stored one still describes its
+        // profile, because it stores what it just parsed.
+        Connection::Http(client) => {
+            client
+                .post::<_, serde_json::Value>(
+                    &format!("/api/agent_workers/dbt_graph/{}", job.workspace_id),
+                    None,
+                    &serde_json::json!({
+                        "script_path": script_path,
+                        "script_hash": job.runnable_id.map(|h| h.0),
+                        "job_id": snapshot_job,
+                        "relation_root": p.relation_root(),
+                        "manifest": ingested,
+                    }),
+                )
+                .await
+                .map_err(|e| {
+                    Error::internal_err(format!("publishing dbt graph from an agent worker: {e:#}"))
+                })?;
+        }
+    }
     // Synchronously, not through the notify poller: the ingest just rewrote this
     // script's `asset` rows and the poll is seconds away, so anything in this
     // process reading the producer map meanwhile would see the pre-refresh copy.

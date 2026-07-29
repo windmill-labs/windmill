@@ -306,7 +306,7 @@ fn truncate_sql(code: &str) -> String {
 }
 
 /// One ingested dbt node, ready to be written to `dbt_node`.
-#[derive(Serialize, Debug, Clone, PartialEq, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
 pub struct IngestedNode {
     pub unique_id: String,
     pub resource_type: String,
@@ -330,7 +330,10 @@ pub struct IngestedNode {
     pub original_file_path: Option<String>,
 }
 
-#[derive(Debug, Default)]
+// Serde: an agent worker cannot write these tables directly, so it posts the
+// whole manifest to the server, which stores it with the same function the SQL
+// path uses.
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct IngestedManifest {
     pub nodes: Vec<IngestedNode>,
     pub edges: Vec<(String, String)>,
