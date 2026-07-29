@@ -43,6 +43,7 @@ import { classicAppDraftParts } from '$lib/appDiffSides'
 import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 import { invalidateWorkspaceComparison } from '$lib/workspaceComparison'
 import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
+import { migrateLegacyDraftTriggers } from '$lib/legacyDraftTriggers'
 import { userStore } from '$lib/stores'
 import { saveScheduleFromCfg } from '$lib/components/flows/scheduleUtils'
 import { saveHttpRouteFromCfg } from '$lib/components/triggers/http/utils'
@@ -403,6 +404,24 @@ export async function fetchDraftBaseStale(
 	}
 }
 
+
+/** Deploy the trigger drafts just promoted out of a legacy `draft_triggers`
+ * array. Before triggers had their own rows they deployed alongside their
+ * runnable, so deploying the runnable must still land them rather than leave
+ * them behind as drafts. Failures are surfaced but don't fail the deploy — the
+ * runnable is already live and the draft survives for a retry. */
+async function deployMigratedTriggers(
+	migrated: { kind: DraftKind; path: string }[],
+	workspace: string
+): Promise<void> {
+	for (const { kind, path } of migrated) {
+		const res = await deployDraft(kind, path, workspace, { draftOnly: true })
+		if (!res.success) {
+			console.error(`Could not deploy migrated ${kind} at ${path}: ${res.error}`)
+		}
+	}
+}
+
 /**
  * Promote a draft to deployed by replaying the editor's create/update call with
  * the stored draft value. The matching draft row is deleted server-side by the
@@ -428,10 +447,18 @@ export async function deployDraft(
 			const r = (await ScriptService.getScriptByPath({ workspace, path, getDraft: true })) as any
 			const d = r.draft ?? r
 			// Drop editor-only / server-managed keys; deploy as a real (non-draft) version.
-			const { draft_triggers: _t, draft_only: _o, ...rest } = d
+			const { draft_triggers: legacyTriggers, draft_only: _o, ...rest } = d
 			const scriptPath = d.path ?? path
 			// Deploy at the draft's path so a rename in the draft is honored (same as
 			// the editor: createScript at the new path with parent_hash links lineage).
+			// Drafts written before triggers had their own rows carry them inline;
+			// promote them first — the create below deletes the draft they live in.
+			const migratedTriggers = await migrateLegacyDraftTriggers({
+				legacy: legacyTriggers,
+				runnablePath: scriptPath,
+				isFlow: false,
+				workspace
+			})
 			await ScriptService.createScript({
 				workspace,
 				requestBody: {
@@ -441,6 +468,7 @@ export async function deployDraft(
 					deployment_message: deploymentMessage
 				}
 			})
+			await deployMigratedTriggers(migratedTriggers, workspace)
 		} else if (kind === 'flow') {
 			const r = (await FlowService.getFlowByPath({ workspace, path, getDraft: true })) as any
 			const d = r.draft ?? r
@@ -462,6 +490,12 @@ export async function deployDraft(
 				labels: d.labels,
 				deployment_message: deploymentMessage
 			}
+			const migratedTriggers = await migrateLegacyDraftTriggers({
+				legacy: d.draft_triggers,
+				runnablePath: requestBody.path,
+				isFlow: true,
+				workspace
+			})
 			// Draft-only flows have NO flow row (they live solely in the
 			// draft table), so they deploy via createFlow; a draft on a
 			// deployed flow updates it.
@@ -470,6 +504,7 @@ export async function deployDraft(
 			} else {
 				await FlowService.updateFlow({ workspace, path, requestBody })
 			}
+			await deployMigratedTriggers(migratedTriggers, workspace)
 		} else if (kind === 'app') {
 			// `raw_app` is handled above; only visual apps reach here.
 			const r = (await AppService.getAppByPath({ workspace, path, getDraft: true })) as any

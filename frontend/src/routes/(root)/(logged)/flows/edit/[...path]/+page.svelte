@@ -28,6 +28,7 @@
 		discardDraftAfterDeploy,
 		runResetToDeployed
 	} from '$lib/userDraftToast'
+	import { migrateLegacyDraftTriggers } from '$lib/legacyDraftTriggers'
 
 	let version: undefined | number = $state(undefined)
 
@@ -422,6 +423,20 @@
 			// Overwrite the cell with the effective flow. The first cell write after
 			// `acquireEntry` is swallowed by the syncer's seed guard, so no POST.
 			draftSync.draft = flowToRender
+		}
+
+		// Drafts written before triggers had their own rows carry their trigger
+		// configs inline; promote them and drop the dead field.
+		const legacyTriggers = (flowToRender as any).draft_triggers
+		if (legacyTriggers && $workspaceStore) {
+			await migrateLegacyDraftTriggers({
+				legacy: legacyTriggers,
+				runnablePath: (flowToRender as any).draft_path ?? flowToRender.path,
+				isFlow: true,
+				workspace: $workspaceStore
+			})
+			const { draft_triggers: _legacy, ...rest } = draftSync.draft as any
+			draftSync.draft = rest
 		}
 
 		await initFlow(flow, flowStore, flowStateStore)

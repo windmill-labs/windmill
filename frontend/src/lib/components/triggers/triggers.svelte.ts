@@ -34,6 +34,7 @@ import {
 	type Trigger,
 	type TriggerDraftTarget
 } from './utils'
+import { UserDraft } from '$lib/userDraft.svelte'
 import { get, type Writable } from 'svelte/store'
 import type { TriggerType } from './utils'
 import type { UserExt } from '$lib/stores'
@@ -89,26 +90,29 @@ export class Triggers {
 		return $state.snapshot(this.#selectedTriggerIndex)
 	}
 
-	/** Add an undeployed trigger to the editor's list. For the draft-backed kinds
-	 * this writes the `trigger_*` draft row up front — draft rows are path-keyed,
-	 * so the trigger needs a path before the user has typed one, and persisting
-	 * immediately is what makes it survive a reload. Native kinds have no draft
-	 * row yet and keep their config in `draftConfig` until deploy. */
-	addDraftTrigger(
+	/** Add an undeployed trigger to the editor's list.
+	 *
+	 * Draft rows are path-keyed, so the path is reserved here. Who writes the row
+	 * depends on where the config comes from: a caller-supplied `seedCfg` is
+	 * already complete (a scheduled poll, a trigger step's primary schedule), so
+	 * it is written now and the trigger is deployable without ever opening its
+	 * panel. Without one, only the editor's `openNew` can produce a complete
+	 * config, so the trigger stays `isNew` until that autosave lands.
+	 *
+	 * Native kinds have no draft row at all and keep their config in
+	 * `draftConfig` until they deploy. */
+	async addDraftTrigger(
 		triggersCountStore: Writable<TriggersCount | undefined>,
 		type: TriggerType,
 		target: TriggerDraftTarget,
 		seedCfg?: Record<string, any>
-	): number {
+	): Promise<number> {
 		const primaryScheduleExists = this.#triggers.some((t) => t.type === 'schedule' && t.isPrimary)
 		const isPrimary = type === 'schedule' && !primaryScheduleExists
 		const draftKind = triggerDraftKind(type)
 		const { runnablePath, isFlow, workspace } = target
 
-		// Reserve the path the draft row will be keyed at. The row itself is
-		// written by the editor panel's autosave, which is what turns the form's
-		// defaults into a complete config — seeding a partial one here would leave
-		// required fields unset and crash the editors that don't default them.
+		// Reserve the path the draft row is keyed at.
 		const path =
 			draftKind && workspace
 				? newDraftTriggerPath(
@@ -119,19 +123,30 @@ export class Triggers {
 					)
 				: undefined
 
+		// The runnable is carried explicitly: the editors otherwise fall back to the
+		// fake capture path an undeployed runnable is given.
+		const seed = { ...seedCfg, script_path: runnablePath, is_flow: isFlow }
+		// Only a caller-supplied config is complete enough to store; writing the
+		// bare seed would leave required fields unset for the editors that read a
+		// draft back without defaulting them.
+		const writeNow = !!draftKind && !!workspace && !!path && !!seedCfg
+
+		if (writeNow) {
+			UserDraft.save(draftKind!, path!, { ...seed, path }, { workspace })
+			await UserDraft.forcePersist(draftKind!, path!, { workspace })
+		}
+
 		const newTrigger: Trigger = {
 			id: generateRandomString(),
 			type,
 			path,
 			isPrimary,
 			isDraft: true,
-			isNew: true,
-			hasDraft: !!draftKind,
-			// Until the row exists this is the editor's starting point, whatever the
-			// kind — `TriggersWrapper` hands it to `openNew` as defaults. It carries
-			// the runnable explicitly: the editors otherwise fall back to the fake
-			// capture path an undeployed runnable is given.
-			draftConfig: { ...seedCfg, script_path: runnablePath, is_flow: isFlow }
+			isNew: !!draftKind && !writeNow,
+			hasDraft: writeNow,
+			newTriggerSeed: seed,
+			// Pending state, for the kinds with nowhere else to hold it.
+			draftConfig: draftKind ? undefined : seed
 		}
 
 		this.#triggers.push(newTrigger)
@@ -162,17 +177,21 @@ export class Triggers {
 	): number {
 		const currentTriggers = this.#triggers
 		// Preserve the editor-local config of the kinds that have no draft row
-		// (native); every other kind's pending state lives in the backend rows.
+		// (native); every other kind's pending state lives in the backend rows, and
+		// carrying anything local onto them would read as a permanent "Modified".
 		const configMap = new Map<string, Record<string, any>>(
 			currentTriggers
-				.filter((t) => t.type === type && t.draftConfig)
+				.filter((t) => t.type === type && t.draftConfig && !triggerDraftKind(t.type))
 				.map((t) => [t.path ?? '', t.draftConfig!])
 		)
 
 		const backendTriggers = remoteTriggers.map((trigger) => ({
 			type: type as TriggerType,
 			path: trigger.path,
-			isPrimary: type === 'schedule' && trigger.path === trigger.script_path,
+			// `path` is the draft row's key on a draft-only row; the schedule is the
+			// primary when the path it will DEPLOY to is the runnable's own.
+			isPrimary:
+				type === 'schedule' && (trigger.draft_path ?? trigger.path) === trigger.script_path,
 			// `draft_only` rows are synthesized from a draft with no deployed
 			// counterpart; `is_draft` also covers a draft layered on a deployed row.
 			isDraft: !!trigger.draft_only,

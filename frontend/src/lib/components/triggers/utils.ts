@@ -112,8 +112,11 @@ export type Trigger = {
 	draftPath?: string
 	/** Added in this editor session and not yet written to the `draft` table. Its
 	 * editor opens through `openNew`, the path that fills a complete config; the
-	 * resulting autosave is what creates the row. */
+	 * resulting autosave is what creates the row, after which this clears. */
 	isNew?: boolean
+	/** Starting values for that `openNew`. NOT pending state — it is the defaults
+	 * the form opens on, so it must not count as a change or reach a deploy. */
+	newTriggerSeed?: Record<string, any>
 	/** Editor-local unsaved config, for the trigger kinds that have no draft row
 	 * yet (native only — see `triggerDraftKind`). */
 	draftConfig?: Record<string, any>
@@ -438,11 +441,21 @@ export async function repointTriggerDrafts(
 			if (!kind || !trigger.path || !triggerHasPendingChanges(trigger)) return
 			const draft = await readTriggerDraft(kind, trigger.path, workspace)
 			if (!draft) return
-			if (draft.script_path === runnablePath && draft.is_flow === isFlow) return
+			// The primary schedule is the one deploying to the runnable's own path,
+			// so a rename moves where it deploys too — otherwise it stops reading as
+			// primary on the next reload and lands at the stale path.
+			const intendedPath = trigger.isPrimary ? runnablePath : draft.path
+			if (
+				draft.script_path === runnablePath &&
+				draft.is_flow === isFlow &&
+				draft.path === intendedPath
+			) {
+				return
+			}
 			UserDraft.save(
 				kind,
 				trigger.path,
-				{ ...draft, script_path: runnablePath, is_flow: isFlow },
+				{ ...draft, path: intendedPath, script_path: runnablePath, is_flow: isFlow },
 				{ workspace }
 			)
 		})

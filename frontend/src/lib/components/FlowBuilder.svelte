@@ -1188,7 +1188,9 @@
 		selectedId && untrack(() => select(selectedId))
 	})
 	$effect.pre(() => {
-		initialPath && initialPath != '' && opWorkspace && untrack(() => loadTriggers())
+		// Not gated on `initialPath`: an undeployed flow has no deployed triggers
+		// but can already have drafted ones (loadTriggers falls back to $pathStore).
+		opWorkspace && untrack(() => loadTriggers())
 	})
 	$effect.pre(() => {
 		const hasAiDiff = aiChatManager.flowAiChatHelpers?.hasPendingChanges() ?? false

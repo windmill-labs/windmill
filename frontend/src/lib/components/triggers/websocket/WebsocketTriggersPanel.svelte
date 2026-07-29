@@ -18,7 +18,12 @@
 
 	async function openWebsocketTriggerEditor(isFlow: boolean) {
 		if (selectedTrigger.isNew) {
-			wsTriggerEditor?.openNew(isFlow, path, { ...defaultValues, path: selectedTrigger.path })
+			await wsTriggerEditor?.openNew(isFlow, (selectedTrigger.newTriggerSeed?.script_path ?? path), { ...defaultValues, path: selectedTrigger.path })
+			// The autosave inside `openNew` created the draft row, so this trigger is
+			// no longer new: re-selecting it must reload that row, not reset the form
+			// to defaults and overwrite what the user just configured.
+			selectedTrigger.isNew = false
+			selectedTrigger.newTriggerSeed = undefined
 		} else {
 			wsTriggerEditor?.openEdit(selectedTrigger.path, isFlow, selectedTrigger.draftConfig)
 		}

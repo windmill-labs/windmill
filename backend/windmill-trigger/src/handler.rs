@@ -672,7 +672,9 @@ async fn list_triggers<T: TriggerCrud>(
             // only where it will deploy. Surfacing the key as `path` is what lets
             // a renamed draft still be opened, updated and deleted.
             if let Some(intended) = map.insert("path".into(), row.path.clone().into()) {
-                if intended.as_str() != Some(row.path.as_str()) {
+                let intended_str = intended.as_str().unwrap_or("");
+                // A half-filled editor may not have a path yet; that is not a rename.
+                if !intended_str.is_empty() && intended_str != row.path {
                     map.insert("draft_path".into(), intended);
                 }
             }

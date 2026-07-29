@@ -55,6 +55,15 @@
 		onEmailDomain,
 		...props
 	}: Props = $props()
+	// `newTriggerSeed` seeds `openNew` and applies ONLY while the trigger is new.
+	// Once its row exists, passing anything here would short-circuit the editors'
+	// backend load (`loadTrigger` returns early on a `defaultConfig`) and show the
+	// seed instead of the saved draft — overwriting it on the next autosave.
+	const draftDefaults = $derived(
+		selectedTrigger.isNew
+			? selectedTrigger.newTriggerSeed
+			: (selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined)
+	)
 </script>
 
 {#if selectedTrigger.type === 'http'}
@@ -62,7 +71,7 @@
 		{selectedTrigger}
 		{isFlow}
 		path={initialPath || fakeInitialPath}
-		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		defaultValues={draftDefaults}
 		{customLabel}
 		{...props}
 	/>
@@ -90,7 +99,7 @@
 		{isFlow}
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
-		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		defaultValues={draftDefaults}
 		{schema}
 		{customLabel}
 		{...props}
@@ -100,7 +109,7 @@
 		{isFlow}
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
-		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		defaultValues={draftDefaults}
 		{customLabel}
 		{...props}
 	/>
@@ -109,7 +118,7 @@
 		{isFlow}
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
-		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		defaultValues={draftDefaults}
 		{customLabel}
 		{...props}
 	/>
@@ -118,7 +127,7 @@
 		{isFlow}
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
-		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		defaultValues={draftDefaults}
 		{customLabel}
 		{...props}
 	/>
@@ -127,7 +136,7 @@
 		{isFlow}
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
-		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		defaultValues={draftDefaults}
 		{customLabel}
 		{...props}
 	/>
@@ -136,7 +145,7 @@
 		{isFlow}
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
-		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		defaultValues={draftDefaults}
 		{customLabel}
 		{...props}
 	/>
@@ -145,7 +154,7 @@
 		{isFlow}
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
-		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		defaultValues={draftDefaults}
 		{customLabel}
 		{...props}
 	/>
@@ -154,7 +163,7 @@
 		{isFlow}
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
-		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		defaultValues={draftDefaults}
 		{customLabel}
 		{...props}
 	/>
@@ -163,7 +172,7 @@
 		{isFlow}
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
-		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		defaultValues={draftDefaults}
 		{customLabel}
 		{...props}
 	/>
@@ -172,7 +181,7 @@
 		{isFlow}
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
-		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		defaultValues={draftDefaults}
 		{customLabel}
 		{...props}
 	/>
@@ -181,7 +190,7 @@
 		{isFlow}
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
-		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		defaultValues={draftDefaults}
 		{customLabel}
 		{onEmailDomain}
 		{...props}
@@ -194,7 +203,7 @@
 		{isFlow}
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
-		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		defaultValues={draftDefaults}
 		{customLabel}
 		{...props}
 	/>
@@ -204,7 +213,7 @@
 		{isFlow}
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
-		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		defaultValues={draftDefaults}
 		{customLabel}
 		{...props}
 	/>
@@ -214,7 +223,7 @@
 		{isFlow}
 		path={initialPath || fakeInitialPath}
 		{selectedTrigger}
-		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		defaultValues={draftDefaults}
 		{customLabel}
 		{...props}
 	/>

@@ -21,7 +21,12 @@
 
 	async function openPostgresTriggerEditor(isFlow: boolean) {
 		if (selectedTrigger.isNew) {
-			postgresTriggerEditor?.openNew(isFlow, path, { ...defaultValues, path: selectedTrigger.path }, newDraft)
+			await postgresTriggerEditor?.openNew(isFlow, (selectedTrigger.newTriggerSeed?.script_path ?? path), { ...defaultValues, path: selectedTrigger.path }, newDraft)
+			// The autosave inside `openNew` created the draft row, so this trigger is
+			// no longer new: re-selecting it must reload that row, not reset the form
+			// to defaults and overwrite what the user just configured.
+			selectedTrigger.isNew = false
+			selectedTrigger.newTriggerSeed = undefined
 		} else {
 			postgresTriggerEditor?.openEdit(selectedTrigger.path, isFlow, defaultValues)
 		}

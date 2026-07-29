@@ -16,7 +16,7 @@
  *
  * Idempotent: the caller strips the field, so a converted draft has none.
  */
-import { UserDraft } from '$lib/userDraft.svelte'
+import { UserDraft, type UserDraftItemKind } from '$lib/userDraft.svelte'
 import { newDraftTriggerPath, triggerDraftKind, type Trigger } from '$lib/components/triggers/utils'
 
 export async function migrateLegacyDraftTriggers(opts: {
@@ -24,12 +24,12 @@ export async function migrateLegacyDraftTriggers(opts: {
 	runnablePath: string
 	isFlow: boolean
 	workspace: string
-}): Promise<boolean> {
+}): Promise<{ kind: UserDraftItemKind; path: string }[]> {
 	const { legacy, runnablePath, isFlow, workspace } = opts
-	if (!Array.isArray(legacy) || legacy.length === 0) return false
+	if (!Array.isArray(legacy) || legacy.length === 0) return []
 
 	const taken: string[] = []
-	let migrated = false
+	const migrated: { kind: UserDraftItemKind; path: string }[] = []
 	for (const trigger of legacy) {
 		const cfg = trigger?.draftConfig
 		const kind = trigger?.type ? triggerDraftKind(trigger.type) : undefined
@@ -49,7 +49,7 @@ export async function migrateLegacyDraftTriggers(opts: {
 			{ workspace }
 		)
 		await UserDraft.forcePersist(kind, path, { workspace })
-		migrated = true
+		migrated.push({ kind, path })
 	}
 	return migrated
 }

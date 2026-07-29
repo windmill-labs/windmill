@@ -865,11 +865,11 @@ async fn list_schedule(
             // The `draft` row's key addresses the schedule; the value's `path` is
             // only where it will deploy. Reporting the key as `path` is what lets
             // a renamed draft still be opened, updated and deleted.
+            // The row key addresses the draft, so a value with no `path` yet (a
+            // half-filled editor) is still listable — same as the trigger handler.
             let intended_path = v.get("path").and_then(|s| s.as_str()).unwrap_or("");
-            if intended_path.is_empty() {
-                continue;
-            }
-            let draft_path = (intended_path != row.path).then(|| intended_path.to_string());
+            let draft_path =
+                (!intended_path.is_empty() && intended_path != row.path).then(|| intended_path.to_string());
             let path = row.path.clone();
             let schedule = v
                 .get("schedule")

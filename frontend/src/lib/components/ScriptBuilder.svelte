@@ -309,18 +309,19 @@
 	})
 
 	export async function loadTriggers() {
-		if (!initialPath) {
-			return
+		// An undeployed script has no deployed triggers to count, but it can already
+		// have drafted ones — fetch against the path they were drafted at.
+		if (initialPath) {
+			$triggersCount = await ScriptService.getTriggersCountOfScript({
+				workspace: opWorkspace!,
+				path: initialPath
+			})
 		}
-		$triggersCount = await ScriptService.getTriggersCountOfScript({
-			workspace: opWorkspace!,
-			path: initialPath
-		})
 
 		await triggersState.fetchTriggers(
 			triggersCount,
 			opWorkspace,
-			initialPath,
+			initialPath || script.path,
 			false,
 			$primaryScheduleStore,
 			$userStore
@@ -1017,7 +1018,9 @@
 		}
 	}
 	$effect(() => {
-		initialPath != '' && untrack(() => loadTriggers())
+		// Not gated on `initialPath`: an undeployed script can already have drafted
+		// triggers (loadTriggers falls back to the live path).
+		untrack(() => loadTriggers())
 	})
 	let langs = $derived(
 		processLangs(script.language, $defaultScripts?.order ?? Object.keys(defaultScriptLanguages))

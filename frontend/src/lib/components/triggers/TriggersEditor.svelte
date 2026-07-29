@@ -2,7 +2,7 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import FlowCard from '../flows/common/FlowCard.svelte'
-	import { getContext, onDestroy, createEventDispatcher } from 'svelte'
+	import { getContext, onDestroy, createEventDispatcher, tick } from 'svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import TriggersTable from './TriggersTable.svelte'
@@ -171,9 +171,10 @@
 		triggersState.deleteTrigger(triggersCount, triggerIndex)
 		triggersState.selectedTriggerIndex = triggersState.triggers.length - 1
 
+		// Let the panel unmount before dropping the row: its autosave still holds
+		// the config and would write it straight back as a fresh draft.
+		await tick()
 		// Drop the draft row too, else the trigger reappears on the next fetch.
-		// After the list update, so the editor panel's autosave has unmounted
-		// rather than re-persisting the config it still holds.
 		const draftKind = triggerDraftKind(trigger.type)
 		if (draftKind && trigger.path && $workspaceStore) {
 			UserDraft.remove(draftKind, trigger.path, { workspace: $workspaceStore })
