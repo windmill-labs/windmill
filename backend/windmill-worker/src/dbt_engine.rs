@@ -95,6 +95,8 @@ pub async fn provision_engine(
     conn: &Connection,
     ctx: &mut JobCtx<'_>,
 ) -> error::Result<ProvisionedEngine> {
+    let pinned_version = checked_version(pinned_version, "engine_version")?;
+    let pinned_adapter_version = checked_version(pinned_adapter_version, "adapter_version")?;
     tokio::fs::create_dir_all(&*DBT_CACHE_DIR).await.ok();
     match engine {
         DbtEngine::DbtCore1x => {
@@ -112,6 +114,31 @@ pub async fn provision_engine(
         DbtEngine::DbtCore2x => provision_core_2x(pinned_version, job_id, w_id, conn, ctx).await,
         DbtEngine::Fusion => provision_fusion(pinned_version, job_id, w_id, conn, ctx).await,
     }
+}
+
+/// A version out of the lockfile, which is CALLER DATA: a preview run submits
+/// its own `lock` alongside its content, so nothing about this string has been
+/// through a deploy.
+///
+/// It is interpolated into the engine cache path and into a pip requirement,
+/// and provisioning runs on the host rather than inside the dbt jail — a
+/// `../..` in it would download an archive and extract it anywhere the worker
+/// can write. Accepted only as a plain version token, which every version any
+/// of the three engines publishes already is.
+fn checked_version<'a>(v: Option<&'a str>, field: &str) -> error::Result<Option<&'a str>> {
+    if let Some(v) = v {
+        let plain = v.len() <= 64
+            && v.starts_with(|c: char| c.is_ascii_alphanumeric())
+            && v.chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '+'));
+        if !plain {
+            return Err(Error::BadRequest(format!(
+                "the lockfile's `{field}` is not a version: expected a token of letters, digits, \
+                 `.`, `-`, `_` or `+` starting with a letter or digit, got `{v}`"
+            )));
+        }
+    }
+    Ok(v)
 }
 
 /// A uv venv per (dbt version, adapter): the adapter is a separate pip package
@@ -695,5 +722,30 @@ mod core1x_tests {
         // Fusion has it built in, and there is no package to install.
         assert!(DbtAdapter::Salesforce.pip_package().is_empty());
         assert_eq!(DbtAdapter::Salesforce.name(), "salesforce");
+    }
+
+    /// A preview submits its own lockfile, so this string reaches a path join
+    /// and a pip requirement straight from the caller, on the host and outside
+    /// the jail.
+    #[test]
+    fn a_lockfile_version_cannot_leave_the_cache_directory() {
+        for v in ["1.12.0", "2.0.0-alpha.5", "2.0.0-preview.202"] {
+            assert_eq!(checked_version(Some(v), "engine_version").unwrap(), Some(v));
+        }
+        for v in [
+            "../../../../etc",
+            "1.0/../..",
+            "..",
+            ".ssh",
+            "-rf",
+            "1.0 --index-url=http://x",
+            "1.0\n",
+        ] {
+            assert!(
+                checked_version(Some(v), "engine_version").is_err(),
+                "`{v}` must be refused before it reaches a path"
+            );
+        }
+        assert!(checked_version(None, "engine_version").unwrap().is_none());
     }
 }

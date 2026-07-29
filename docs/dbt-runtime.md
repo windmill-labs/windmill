@@ -565,8 +565,13 @@ the selector grammar; Cosmos's manifest path had to, and it is a recurring sourc
 of divergence. One thing is decided before dbt sees them: a run that spells out
 `select` or `exclude` drops the descriptor's `selector`, because dbt resolves
 `--selector` *instead of* `--select` and passing both would silently build the
-descriptor's nodes rather than the ones the run asked for. `[]` counts as
-spelling it out — that is how a run asks for the whole project.
+descriptor's nodes rather than the ones the run asked for. "Spells out" means
+DIFFERS from the descriptor's own value, not merely "was submitted": the
+generated run form posts a default back for every field left untouched, and a
+selector descriptor's `select` default is `[]`, so reading a submitted `[]` as
+an override dropped `--selector` from every run started from the UI, a schedule
+or a webhook and built the whole project. A run that wants the whole project
+despite the selector asks for it with a selection that differs — `["*"]`.
 `select` and `vars` are overridable per run via job args. The **graph** stays the
 deployed descriptor's: asset rows are written at deploy, like every other
 language's, so a run-arg override changes what gets built without changing what

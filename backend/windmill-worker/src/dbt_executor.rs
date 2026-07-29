@@ -3999,14 +3999,24 @@ fn add_selection(
 ///
 /// dbt resolves `--selector` INSTEAD of `--select`, so passing both makes the
 /// descriptor win: a preview asked for one model would return the descriptor's
-/// nodes, and a run asked for a subset would build something else. A run that
-/// spells out `select` or `exclude` — including as `[]`, which is how one asks
-/// for the whole project — replaces the descriptor's selection entirely.
+/// nodes, and a run asked for a subset would build something else. A run naming
+/// its own selection therefore replaces the descriptor's selector entirely.
+///
+/// "Its own" means DIFFERENT from the descriptor's, not merely present: the
+/// generated run form posts a value back for every field the caller left
+/// untouched, and a selector descriptor's `select` default is `[]`. Reading
+/// that as an override would drop `--selector` from every run started from the
+/// UI, a schedule or a webhook and build the whole project instead of the
+/// named selection. A run that wants the whole project despite the selector
+/// names one that differs — `["*"]`.
 fn effective_selector<'a>(
     descriptor: &'a DbtDescriptor,
     inv: &Invocation,
 ) -> error::Result<Option<&'a str>> {
-    if arg_list(&inv.args, "select")?.is_some() || arg_list(&inv.args, "exclude")?.is_some() {
+    let differs = |key: &str, from: &Vec<String>| -> error::Result<bool> {
+        Ok(arg_list(&inv.args, key)?.is_some_and(|v| &v != from))
+    };
+    if differs("select", &descriptor.select)? || differs("exclude", &descriptor.exclude)? {
         return Ok(None);
     }
     Ok(descriptor.selector.as_deref())
@@ -4193,13 +4203,20 @@ mod tests {
             effective_selector(&descriptor, &selects(r#"["stg_orders"]"#)).unwrap(),
             None
         );
-        // `[]` asks for the whole project, so it drops the selector too and
-        // leaves the run with no selection at all.
+        // The generated form posts the descriptor's own `[]` back for a field
+        // nobody touched, so that is not an override: reading it as one drops
+        // the selector from every run started from the UI, a schedule or a
+        // webhook, and builds the whole project. `["*"]` is how a run asks for
+        // that on purpose.
         assert_eq!(
             effective_selector(&descriptor, &selects("[]")).unwrap(),
+            Some("nightly")
+        );
+        assert!(has_selection(&descriptor, &selects("[]")).unwrap());
+        assert_eq!(
+            effective_selector(&descriptor, &selects(r#"["*"]"#)).unwrap(),
             None
         );
-        assert!(!has_selection(&descriptor, &selects("[]")).unwrap());
     }
 
     // A retry runs in a new job directory, and a profile with a private CA
