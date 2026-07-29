@@ -31,7 +31,8 @@ pub fn create_query_builder(
         AIProvider::GoogleAI => Box::new(GoogleAIQueryBuilder::new(credentials.platform.clone())),
         // Azure OpenAI serves the same Responses API as OpenAI under `/openai/v1`, and
         // newer deployments reject a reasoning effort combined with function tools on
-        // `/chat/completions`.
+        // `/chat/completions`. This cannot be decided per model: on Azure the model name
+        // is a user-chosen deployment name, which says nothing about the model behind it.
         AIProvider::OpenAI | AIProvider::AzureOpenAI => {
             Box::new(OpenAIQueryBuilder::new(credentials.provider.clone()))
         }
