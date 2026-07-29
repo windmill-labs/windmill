@@ -38,7 +38,9 @@ import type { Kind } from '$lib/utils_deployable'
 import {
 	canRecord,
 	canRecordSession,
+	inputResourceTypes,
 	mergeAppTableOrigin,
+	HIDDEN_RESOURCE_TYPES,
 	type DeployItem
 } from './deployToHubItems'
 import type { AssetGraphResponse } from '$lib/components/assets/AssetGraph/types'
@@ -92,8 +94,6 @@ const ITEM_KIND_ROUTE: Record<ItemKind, string> = {
 	raw_app: 'apps_raw/get'
 }
 
-const HIDDEN_RESOURCE_TYPES = new Set(['app_theme', 'state', 'cache'])
-
 // Prune a folder's asset graph to a set of scripts so a pipeline recording only
 // runs, renders and samples the project's included members — a deselected branch
 // (its nodes, code, logs/results and table samples) never enters the recording.
@@ -112,20 +112,6 @@ function pruneGraphToScripts(graph: AssetGraphResponse, scripts: Set<string>): A
 		(t) => scripts.has(t.runnable_path) && scripts.has(t.producer_path)
 	)
 	return { assets, runnables, edges, triggers, macro_edges, test_edges }
-}
-
-function typesFromSchema(schema: any): string[] {
-	const out = new Set<string>()
-	const props = schema?.properties
-	if (props && typeof props === 'object') {
-		for (const key of Object.keys(props)) {
-			const fmt = props[key]?.format
-			if (typeof fmt === 'string' && fmt.startsWith('resource-')) {
-				out.add(fmt.slice('resource-'.length))
-			}
-		}
-	}
-	return [...out]
 }
 
 type DependencyUsage =
@@ -219,6 +205,14 @@ export class DeployToHubSession {
 	// they pick up the fresh SQL (Monaco doesn't sync external `code` changes).
 	migrationsGeneration = $state(0)
 
+	// Resource type names declared by the workspace, used to tell a real type from
+	// an arbitrary `resource-<x>` arg format. Stays undefined until the list loads.
+	resourceTypeNames = $state<Set<string> | undefined>(undefined)
+	// Resource types the user explicitly opted into publishing. Opt-in, never
+	// derived from the selection: exporting a type definition to the Hub is a
+	// deliberate act, so the default is to export none.
+	exportedResourceTypes = $state<Set<string>>(new Set())
+
 	bundlePreview = $state<ProjectBundle | undefined>(undefined)
 	detectingResources = $state(false)
 	// Data tables (→ tables) the current selection reads/writes, detected off the
@@ -257,9 +251,24 @@ export class DeployToHubSession {
 
 	load() {
 		void this.#loadWorkspace()
+		void this.#loadResourceTypeNames()
 		void this.#loadTriggers()
 		void this.rehydrateFromHub()
 		void this.#loadPipelineGraph()
+	}
+
+	// Deliberately not `resourceTypesStore.getResourceTypes()`: its error path
+	// resolves to a non-empty `['error_fetching_names']`, which here would read as
+	// a real catalog and filter out every legitimate type. A failure must leave the
+	// catalog unset so validation stays off.
+	async #loadResourceTypeNames() {
+		try {
+			const names = await ResourceService.listResourceTypeNames({ workspace: this.workspace })
+			if (this.#disposed) return
+			this.resourceTypeNames = new Set(names)
+		} catch (e: any) {
+			console.error('failed to load resource type names, resource type validation is off', e)
+		}
 	}
 
 	filteredWorkspaceItems = $derived(
@@ -372,8 +381,7 @@ export class DeployToHubSession {
 					itemPath: it.path
 				})
 			}
-			for (const t of typesFromSchema(it.schema)) {
-				if (HIDDEN_RESOURCE_TYPES.has(t)) continue
+			for (const t of inputResourceTypes(it.schema, this.resourceTypeNames)) {
 				ensure(t).usages.push({ role: 'input', label, kind: it.kind, itemPath: it.path })
 			}
 		}
@@ -399,6 +407,22 @@ export class DeployToHubSession {
 		}
 		return [...byType.values()].sort((a, b) => a.resource_type.localeCompare(b.resource_type))
 	})
+
+	// Only the types the user ticked, restricted to what the current selection
+	// actually depends on — deselecting the last item that used a type drops it
+	// from the export without the user having to untick it.
+	exportedDependencyTypes = $derived(
+		this.dependencyTypes
+			.map((d) => d.resource_type)
+			.filter((rt) => this.exportedResourceTypes.has(rt))
+	)
+
+	toggleResourceTypeExport = (resource_type: string) => {
+		const next = new Set(this.exportedResourceTypes)
+		if (next.has(resource_type)) next.delete(resource_type)
+		else next.add(resource_type)
+		this.exportedResourceTypes = next
+	}
 
 	toggleItem = (item: { key: string }) => {
 		const next = new Set(this.manualDeselected)
@@ -827,9 +851,13 @@ export class DeployToHubSession {
 		if (this.deploying || this.triggersLoading || this.triggerDiscoveryFailed) return
 		this.deploying = true
 		try {
+			// Captured at click time rather than read in #deployAll, which only runs
+			// after the draft request resolves: what gets published must be what was
+			// ticked on confirmation, whatever mutates `exportedResourceTypes` after.
+			const exportedTypes = new Set(this.exportedResourceTypes)
 			if (!(await this.#createDraft())) return
 			onDraftCreated?.()
-			await this.#deployAll()
+			await this.#deployAll(exportedTypes)
 		} finally {
 			this.deploying = false
 		}
@@ -1048,7 +1076,7 @@ export class DeployToHubSession {
 		return results.reduce((a: number, b) => a + b, 0)
 	}
 
-	async #deployAll() {
+	async #deployAll(exportedTypes: Set<string>) {
 		const slug = this.hubSlug
 		// Snapshot the selection up-front: `selectedItems`/`relevantTriggers` are
 		// derived from live workspace data and `migrationDrafts` is edited in the
@@ -1096,14 +1124,22 @@ export class DeployToHubSession {
 			// was replaced (workspace/folder switch) in the meantime.
 			if (this.#disposed) return
 
-			// Types come from $res: stubs AND schema inputs (resource-<type>).
-			const inputTypes = bundle.items
-				.flatMap((i) => typesFromSchema(i.schema))
-				.filter((t) => !HIDDEN_RESOURCE_TYPES.has(t))
+			// Types come from $res: stubs AND schema inputs (resource-<type>). A stub's
+			// type is declared by an existing resource, so it needs no validation; an
+			// input's is a free-form format string, so it does.
+			const inputTypes = bundle.items.flatMap((i) =>
+				inputResourceTypes(i.schema, this.resourceTypeNames)
+			)
 			const types = [
 				...new Set([...bundle.resourceStubs.map((s) => s.resource_type), ...inputTypes])
 			]
-			const depFailures = await this.#pushResourceTypes(slug, types)
+			// Only the types the user ticked are published. The others still get their
+			// stub below, so a fork knows which credential to fill; only the type
+			// definition itself stays out of the Hub.
+			const depFailures = await this.#pushResourceTypes(
+				slug,
+				types.filter((t) => exportedTypes.has(t))
+			)
 
 			// Input-type deps with no path get a conventional f/<slug>/<type> stub.
 			const stubsByPath = new Map<string, { path: string; resource_type: string }>()
@@ -1185,7 +1221,10 @@ export class DeployToHubSession {
 					this.hubHasRemoteLogo = this.hubLogo !== null
 					this.hubLogo = undefined
 				} catch (e: any) {
-					sendUserToast(`Logo ${this.hubLogo ? 'upload' : 'removal'} failed: ${e?.message ?? e}`, true)
+					sendUserToast(
+						`Logo ${this.hubLogo ? 'upload' : 'removal'} failed: ${e?.message ?? e}`,
+						true
+					)
 					failures++
 				}
 			}

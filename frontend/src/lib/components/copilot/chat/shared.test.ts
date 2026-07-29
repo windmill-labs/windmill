@@ -888,6 +888,55 @@ describe('isActiveUserQuestion', () => {
 	})
 })
 
+describe('pendingUserAction', () => {
+	const toolMessage = (overrides: Partial<ToolDisplayMessage> = {}): ToolDisplayMessage => ({
+		role: 'tool',
+		tool_call_id: 'call_p',
+		content: 'running',
+		isLoading: true,
+		...overrides
+	})
+
+	const question = toolMessage({ userQuestion: { question: 'Pick one', choices: ['a'] } })
+
+	it('distinguishes an unanswered question from a staged confirmation', async () => {
+		const { pendingUserAction } = await import('./shared')
+		expect(pendingUserAction([question])).toBe('question')
+		expect(pendingUserAction([toolMessage({ needsConfirmation: true })])).toBe('confirmation')
+	})
+
+	it('is undefined for a tool the AI is running on its own', async () => {
+		const { pendingUserAction } = await import('./shared')
+		expect(pendingUserAction([toolMessage()])).toBe(undefined)
+		expect(pendingUserAction([toolMessage({ needsConfirmation: true, isLoading: false })])).toBe(
+			undefined
+		)
+	})
+
+	// A multi-tool turn creates every card before running the calls one at a time,
+	// so the blocked card is not the last message.
+	it('finds a blocked card sitting behind queued ones', async () => {
+		const { pendingUserAction } = await import('./shared')
+		expect(pendingUserAction([question, toolMessage(), toolMessage()])).toBe('question')
+		expect(pendingUserAction([toolMessage({ needsConfirmation: true }), toolMessage()])).toBe(
+			'confirmation'
+		)
+	})
+
+	// Text emitted between two tool calls lands as an assistant card between them.
+	it('finds a blocked card behind an interleaved assistant card', async () => {
+		const { pendingUserAction } = await import('./shared')
+		const assistant: DisplayMessage = { role: 'assistant', content: 'and also…' }
+		expect(pendingUserAction([question, assistant, toolMessage()])).toBe('question')
+	})
+
+	it('stops at the previous turn rather than reviving its resolved cards', async () => {
+		const { pendingUserAction } = await import('./shared')
+		const userMessage: DisplayMessage = { role: 'user', index: 0, content: 'go on' }
+		expect(pendingUserAction([question, userMessage, toolMessage()])).toBe(undefined)
+	})
+})
+
 describe('pollJobCompletion detach', () => {
 	function makeCallbacks() {
 		return {
@@ -1066,6 +1115,68 @@ describe('trimJob', () => {
 		const job = { id: 'j1', success: true, result: 42 }
 		trimJob(job as any)
 		expect(job.result).toBe(42)
+	})
+})
+
+describe('processToolCall preAction', () => {
+	// preAction's "-ing" label must land at execution start, not stream time —
+	// firing it earlier would relabel a still-queued card as active.
+	it('invokes preAction at promotion, before the tool fn runs', async () => {
+		const { processToolCall } = await import('./shared')
+		const calls: string[] = []
+		const tool = {
+			def: { type: 'function' as const, function: { name: 'patch_app_file', parameters: {} } },
+			preAction: () => calls.push('preAction'),
+			fn: vi.fn().mockImplementation(async () => {
+				calls.push('fn')
+				return 'ok'
+			})
+		}
+		await processToolCall({
+			tools: [tool] as any,
+			toolCall: {
+				id: 'call_1',
+				type: 'function',
+				function: { name: 'patch_app_file', arguments: '{}' }
+			},
+			helpers: {},
+			toolCallbacks: { setToolStatus: vi.fn() } as any,
+			workspace: 'test'
+		})
+		expect(calls).toEqual(['preAction', 'fn'])
+	})
+})
+
+describe('queuedToolStatus', () => {
+	const tool = (extra: Record<string, unknown> = {}) => ({
+		def: { type: 'function' as const, function: { name: 'run_script', parameters: {} } },
+		fn: vi.fn(),
+		...extra
+	})
+
+	it('humanizes snake_case and camelCase tool names by default', async () => {
+		const { queuedToolStatus } = await import('./shared')
+		expect(queuedToolStatus([], 'run_script', '{}')).toMatchObject({
+			isLoading: false,
+			isQueued: true,
+			isStreamingArguments: false,
+			content: 'Run script'
+		})
+		expect(queuedToolStatus([], 'askUserQuestion', '{}').content).toBe('Ask user question')
+	})
+
+	it('derives the label from parsed args via queuedLabel', async () => {
+		const { queuedToolStatus } = await import('./shared')
+		const t = tool({ queuedLabel: (args: any) => `Test ${args.path}` })
+		expect(queuedToolStatus([t] as any, 'run_script', '{"path": "u/admin/x"}').content).toBe(
+			'Test u/admin/x'
+		)
+	})
+
+	it('falls back to the humanized name when args are truncated', async () => {
+		const { queuedToolStatus } = await import('./shared')
+		const t = tool({ queuedLabel: (args: any) => `Test ${args.path}` })
+		expect(queuedToolStatus([t] as any, 'run_script', '{"path": "u/adm').content).toBe('Run script')
 	})
 })
 
