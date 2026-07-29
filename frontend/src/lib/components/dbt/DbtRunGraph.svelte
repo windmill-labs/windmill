@@ -60,6 +60,7 @@
 	async function load() {
 		const ws = $workspaceStore
 		if (!ws) return
+		const gen = runGen
 		try {
 			const params = new URLSearchParams({ asset_kinds: 'table' })
 			if (folder) params.set('folder', folder)
@@ -73,16 +74,23 @@
 			const res = await fetch(appendViewToken(`${OpenAPI.BASE ?? ''}${path}?${params}`), {
 				credentials: 'include'
 			})
+			// The page may have moved to another run while this was in flight, and
+			// this answer describes the one it left: assigning it would replace the
+			// current run's graph — or its loading and failure state — with the
+			// previous run's, and nothing would fetch again to correct it.
+			if (gen !== runGen) return
 			if (!res.ok) {
 				failed = true
 				return
 			}
-			raw = (await res.json()) as AssetGraphResponse
+			const body = (await res.json()) as AssetGraphResponse
+			if (gen !== runGen) return
+			raw = body
 			failed = false
 		} catch {
-			failed = true
+			if (gen === runGen) failed = true
 		} finally {
-			loading = false
+			if (gen === runGen) loading = false
 		}
 	}
 
@@ -96,8 +104,12 @@
 	async function loadProgress() {
 		const ws = $workspaceStore
 		if (!ws || !jobId) return
+		const gen = runGen
 		try {
 			const rows = await JobService.getRunProgress({ workspace: ws, id: jobId })
+			// Same reason as `load`: these are another run's per-model statuses once
+			// the page has moved on, and they would colour this run's models.
+			if (gen !== runGen) return
 			const next = new Map<string, AssetRunState>()
 			for (const r of rows) {
 				next.set(`asset:${r.asset_kind}:${r.asset_path}`, {
@@ -118,11 +130,13 @@
 	// Deliberately not `$state`: this guards an effect against its own writes, so
 	// reading it must not make the effect depend on it.
 	let finalLoadFor: string | undefined = undefined
-	// Bumped whenever the run changes; a preview that resolves against an older
-	// generation belongs to a run no longer on screen. Deliberately not `$state`,
-	// like `finalLoadFor` above: the effect below writes it, and reading it must
-	// not make that effect depend on it.
-	let previewGen = 0
+	// Which run this component is showing. SvelteKit reuses it across runs, so
+	// every response that outlives the navigation — a graph, a progress poll, a
+	// preview — is checked against the generation it was requested under, or the
+	// previous run's answer overwrites the current one's and stays on screen.
+	// Deliberately not `$state`, like `finalLoadFor` above: the effect below
+	// writes it, and reading it must not make that effect depend on it.
+	let runGen = 0
 	$effect(() => {
 		void scriptPath
 		void graphKey
@@ -138,7 +152,7 @@
 		// same model in every run — so without this the next run opens showing the
 		// previous one's rows, and `runPreview` treats them as cached and refuses
 		// to fetch. The generation drops anything already in flight.
-		previewGen += 1
+		runGen += 1
 		selection = undefined
 		previews = {}
 		rowsFor = undefined
@@ -160,15 +174,20 @@
 			// `dbt_snapshot_job` is the endpoint saying it answered from this
 			// job, which is the only reliable stop.
 			timer = setInterval(() => void loadProgress(), 2000)
-			const graphTimer = setInterval(() => {
+			// Backed off rather than evenly spaced, because for a whole class of
+			// runs neither stop below is ever reached and this walks to its cap:
+			// `dbt_snapshot_job` never matches for a static descriptor, and
+			// `polled` stays empty for the length of the run on the engines that
+			// emit no node events. Each try re-sends every model's SQL, so the
+			// useful tries stay close together and the rest grow apart.
+			let graphDelay = 3000
+			let graphTimer: ReturnType<typeof setTimeout> | undefined
+			const pollGraph = () => {
 				// Two ways to be done, and the second is the common one. The
 				// ingest happens BEFORE the build, so once any model reports
 				// progress it has already run: a snapshot that is not here by
-				// then is a snapshot this run never writes — which is every
-				// static descriptor. The cap is only a backstop for a run that
-				// somehow reports no progress at all.
-				if (raw?.dbt_snapshot_job === jobId || polled.size > 0 || graphTries >= 40) {
-					clearInterval(graphTimer)
+				// then is a snapshot this run never writes.
+				if (raw?.dbt_snapshot_job === jobId || polled.size > 0 || graphTries >= 12) {
 					// One last load on the way out. Progress proves the ingest
 					// happened; it does not prove the previous tick SAW it, and
 					// dbt's compile window is usually wider than one tick.
@@ -177,9 +196,12 @@
 				}
 				graphTries += 1
 				void load()
-			}, 3000)
+				graphDelay = Math.min(graphDelay * 1.6, 30000)
+				graphTimer = setTimeout(pollGraph, graphDelay)
+			}
+			graphTimer = setTimeout(pollGraph, graphDelay)
 			return () => {
-				clearInterval(graphTimer)
+				clearTimeout(graphTimer)
 				clearInterval(timer)
 			}
 		}
@@ -423,7 +445,7 @@
 		// re-run.
 		const cached = previews[key]
 		if (cached != undefined && !('error' in cached)) return
-		const gen = previewGen
+		const gen = runGen
 		const startedAt = Date.now()
 		previews = { ...previews, [key]: { pending: true } }
 		try {
@@ -467,17 +489,17 @@
 					done.success && res?.show
 						? { rows: res.show, tookMs: Date.now() - startedAt, node: res.node }
 						: { error: 'The preview job failed — open it from Runs for the detail.' }
-				if (gen !== previewGen) return
+				if (gen !== runGen) return
 				previews = { ...previews, [key]: next }
 				return
 			}
-			if (gen !== previewGen) return
+			if (gen !== runGen) return
 			previews = {
 				...previews,
 				[key]: { error: 'The preview is still running; open it from Runs.' }
 			}
 		} catch (e) {
-			if (gen !== previewGen) return
+			if (gen !== runGen) return
 			previews = {
 				...previews,
 				[key]: { error: e instanceof Error ? e.message : String(e) }
