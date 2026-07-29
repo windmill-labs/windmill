@@ -119,8 +119,10 @@
 	// reading it must not make the effect depend on it.
 	let finalLoadFor: string | undefined = undefined
 	// Bumped whenever the run changes; a preview that resolves against an older
-	// generation belongs to a run no longer on screen.
-	let previewGen = $state(0)
+	// generation belongs to a run no longer on screen. Deliberately not `$state`,
+	// like `finalLoadFor` above: the effect below writes it, and reading it must
+	// not make that effect depend on it.
+	let previewGen = 0
 	$effect(() => {
 		void scriptPath
 		void graphKey
