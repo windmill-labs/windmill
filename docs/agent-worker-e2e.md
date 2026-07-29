@@ -77,8 +77,16 @@ dbt scripts default to the `dbt` tag.
 
 ```bash
 AGENT_TOKEN="$AT" BASE_INTERNAL_URL=http://localhost:8420 MODE=agent \
+  WINDMILL_DIR=/home/$USER/wmagent \
   WORKER_GROUP=agentgrp WORKER_TAGS=dbt PORT=8499 ./target/debug/windmill
 ```
+
+`WINDMILL_DIR` off `/tmp` matters on a dev box. Jobs fail with `IoErr: Disk quota
+exceeded (os error 122)` while writing the project's files, and `df` looks
+healthy — free space and free inodes both. `/tmp` is a tmpfs and Linux supports
+per-user quotas on it, so the limit is the user's, not the filesystem's; several
+agent sessions' caches under `/tmp` are enough to reach it. Point the worker at a
+real disk instead of trying to clean up under the quota.
 
 Confirm it registered rather than trusting a quiet log:
 
@@ -105,13 +113,19 @@ curl -s -H "Authorization: Bearer $TOK" \
 
 ## What dbt does on an agent worker
 
-A dbt script whose profile comes from a Windmill resource (`$res:`) is **refused**
-there, by design: the graph is keyed on the relations the profile resolves to, and
-an agent can neither read the stored root to verify it nor re-ingest a new one, so
-a profile edited since the last ingest would silently cascade from the wrong
-relations. A project carrying its own `profiles.yml` has no such key and runs.
+Runs, retries, and publishes its graph — including a per-run snapshot for a
+dynamic descriptor, which it POSTs to `/api/agent_workers/dbt_graph/{workspace}`
+rather than writing itself.
 
-Beyond that, and independent of the profile: no live progress (the reporter needs
-a SQL connection, so per-model state is settled from `run_results.json` at the
-end), no per-run graph snapshot, and retry state that lives only in the
-worker-local generation — which is why `state_dir` is keyed by principal.
+What it does not get is LIVE progress: the reporter tails a JSON event log and
+needs a SQL connection, so per-model state is settled from `run_results.json`
+when the run ends. Retry state lives only in the worker-local generation, since
+there is no database row to arbitrate against — which is why `state_dir` is keyed
+by principal.
+
+Confirming a run really exercised that path:
+
+```sql
+SELECT job_id, count(*) FROM dbt_node WHERE script_path = '<path>' GROUP BY job_id;
+-- a row keyed to the JOB id (not the zero UUID) means the agent published a snapshot
+```
