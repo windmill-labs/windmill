@@ -21262,6 +21262,7 @@ paths:
             type: integer
         - name: marker
           in: query
+          description: Resume token from the previous page's `next_marker`. Opaque to the client (for shallow listings it is the object store's own continuation token) and only valid for the same prefix and listing mode it was issued for.
           schema:
             type: string
         - name: prefix
@@ -21405,6 +21406,7 @@ paths:
             type: integer
         - name: marker
           in: query
+          description: Resume token from the previous page's `next_marker`. Opaque to the client (for shallow listings it is the object store's own continuation token) and only valid for the same prefix and listing mode it was issued for.
           schema:
             type: string
         - name: prefix

@@ -649,8 +649,9 @@ impl ObjectStore for FilesystemStoreIgnoringAttributes {
         self.0.list_with_delimiter(prefix).await
     }
 
-    // Explicit so the inner store's native paging is reached; the trait
-    // default would enumerate the whole level instead.
+    // Explicit like every other delegation here: the wrapper must forward to
+    // the inner store's implementation (LocalFileSystem's drain-and-slice
+    // default) rather than shadow it with its own copy of the trait default.
     async fn list_delimited_page(
         &self,
         prefix: Option<&object_store::path::Path>,
