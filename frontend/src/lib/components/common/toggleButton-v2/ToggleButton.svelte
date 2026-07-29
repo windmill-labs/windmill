@@ -82,7 +82,9 @@
 		style={selectedColor ? `--selected-color: ${selectedColor}` : ''}
 		onclick={onActivate}
 		onkeydown={(e) => {
-			if (e.key === 'Enter' || e.key === ' ') onActivate?.(e)
+			// `repeat` filtered out: a held key keeps firing keydown, and one activation
+			// must mean one call however the consumer's side effect behaves.
+			if (!e.repeat && (e.key === 'Enter' || e.key === ' ')) onActivate?.(e)
 		}}
 	>
 		{#if icon}

@@ -4,6 +4,8 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { enterSessionMode, exitSessionMode } from './sessionSwitch.svelte'
 	import { goto } from '$lib/navigation'
+	import { page } from '$app/state'
+	import { base } from '$lib/base'
 
 	// Which side of the switch is active. `nav` = workspace navigation (the classic
 	// app), `session` = the sessions sidebar + chat + preview.
@@ -28,6 +30,9 @@
 	// drawer should dismiss like it does for any other nav link.
 	function onNavActivate() {
 		if (mode !== 'nav') return
+		// `goto` has no same-URL short-circuit, so navigating from home would push a
+		// duplicate history entry and make the next Back press look broken.
+		if (page.url.pathname === `${base}/`) return
 		void goto('/')
 	}
 </script>
