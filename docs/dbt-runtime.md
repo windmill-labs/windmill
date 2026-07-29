@@ -196,8 +196,10 @@ The one case that cannot be settled at deploy is a descriptor that is dynamic by
 construction: a `vars` value spelled with a `{{ placeholder }}`, or an `env`
 value spelled `$var:` (re-resolved every run). dbt vars can steer `enabled`,
 aliases, schemas, databases and materializations, so for those the deploy cannot
-know what will run and the graph is re-ingested from every run's own manifest. A
-run that cannot refresh those rows fails rather than showing a stale graph.
+know what will run and the graph is re-ingested from every run's own manifest,
+under that run's job id. A run that cannot refresh those rows fails rather than
+showing a stale graph. What the SCRIPT owns stays the deploy's — see "Which
+run's graph becomes what the script owns" for why the two cannot diverge.
 
 An agent worker reaches the database only through the API, so it POSTs the graph
 it parsed to `/api/agent_workers/dbt_graph/{workspace}` instead of writing it —
@@ -317,14 +319,25 @@ reason is carried rather than a bool (`GraphRefresh`):
 
 | Cause | Graph written | Path-keyed `asset` ownership |
 |---|---|---|
-| Descriptor is dynamic (`{{ }}` in `vars`, `$var:` in `env`) | under the job id | republished |
+| Descriptor is dynamic (`{{ }}` in `vars`, `$var:` in `env`) | under the job id | untouched |
 | The run overrode `vars` | under the job id | untouched |
 | The run narrowed `select`/`exclude` | nothing, unless another cause already made it ingest — then under the job id | untouched |
 | The profile moved since the last publish | the **version's** graph | republished |
 
-The middle row is what a snapshot is for: an override's schemas and aliases must
-not stand as the script's ownership until the next deploy, since an ordinary run
-of a static descriptor never ingests again to correct them.
+Ownership follows the version's graph exactly, which is what the first three
+rows have in common: the workspace graph takes an asset's relations from the
+`asset` rows and its models, SQL, tests and `ref()` lineage from that version's
+`dbt_node`/`dbt_edge`, so publishing relations the version's graph does not name
+leaves those assets with no model behind them — a placeholder that moves an
+alias would empty the current graph of everything dbt contributes to it. A run
+storing a snapshot of its own therefore publishes nothing, and an override's
+schemas and aliases do not stand as the script's until the next deploy, which is
+what a snapshot is for.
+
+The consequence for a dynamic descriptor is that its ownership stays the
+deploy's, and a profile that moves under one is settled by a redeploy rather than
+by a run: every run of it already shows its own models and re-parses regardless,
+so the drift it keeps re-detecting costs it nothing it was not already paying.
 
 The last row is the one that has to publish. The drift check compares the
 resolved root against `published_relation_root`, so a run that saw a move and
@@ -334,11 +347,12 @@ snapshot nobody reads. It rewrites the VERSION's graph rather than a per-run
 snapshot for the same reason: once the root is republished no later run detects
 the move, so a snapshot would leave those runs reading the pre-move rows.
 
-Caller-scoped wins where they meet: a drifted run that also overrode its
-arguments snapshots under its job id and publishes nothing, and the drift is
-settled by the next ordinary run — a wasted parse per overriding run, where the
-alternative is one caller's subset standing as the script's own, or replacing
-the version's graph with a picture missing every model that run did not select.
+A snapshot wins where they meet: a drifted run that also overrode its arguments,
+or whose descriptor is dynamic, snapshots under its job id and publishes
+nothing, and the drift is settled by an ordinary run of a static descriptor or
+by a redeploy — a wasted parse per overriding run, where the alternative is one
+caller's subset standing as the script's own, or replacing the version's graph
+with a picture missing every model that run did not select.
 
 Both halves have a retention story, and they differ because their readers do. A
 run's snapshot expires on a clock — 30 days — because the run page that reads it
