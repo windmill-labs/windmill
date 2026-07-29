@@ -201,9 +201,11 @@ run that cannot refresh those rows fails rather than showing a stale graph.
 
 An agent worker reaches the database only through the API, so it POSTs the graph
 it parsed to `/api/agent_workers/dbt_graph/{workspace}` instead of writing it —
-which is why it needs no way to READ the stored relation root: publishing settles
-what comparing it would have asked. Dynamic descriptors and Windmill-resolved
-profiles therefore both run there. What an agent does not get is LIVE progress —
+which is why it needs no way to READ the stored relation root: it re-ingests
+every run, so its own run page shows the profile it actually used. What it
+publishes is that per-run snapshot alone — the path-keyed ownership rows are
+written by the deploy and by database-connected workers. Dynamic descriptors and
+Windmill-resolved profiles therefore both run there. What an agent does not get is LIVE progress —
 that is a per-model event stream, and a round trip per node is the wrong trade —
 so its per-model state is settled from `run_results.json` when the run ends, and
 its retry state lives only in the worker-local generation. See
@@ -307,6 +309,36 @@ change which models exist — so the usual dynamic run (a date var) resolves to
 exactly the graph the deploy stored, and storing that per run would duplicate an
 unchanging picture. Those runs write nothing and read the version's graph
 through the fallback; only a run whose model set really differs pays.
+
+### Which run's graph becomes what the script owns
+
+Re-ingesting has several causes and they do not want the same thing, so the
+reason is carried rather than a bool (`GraphRefresh`):
+
+| Cause | Graph written | Path-keyed `asset` ownership |
+|---|---|---|
+| Descriptor is dynamic (`{{ }}` in `vars`, `$var:` in `env`) | under the job id | republished |
+| The run overrode `vars` | under the job id | untouched |
+| The run narrowed `select`/`exclude` | nothing, unless another cause already made it ingest — then under the job id | untouched |
+| The profile moved since the last publish | the **version's** graph | republished |
+
+The middle row is what a snapshot is for: an override's schemas and aliases must
+not stand as the script's ownership until the next deploy, since an ordinary run
+of a static descriptor never ingests again to correct them.
+
+The last row is the one that has to publish. The drift check compares the
+resolved root against `published_relation_root`, so a run that saw a move and
+did not republish leaves the next run seeing the same move — forever, with the
+asset rows still naming the old schema and every run paying a `dbt parse` for a
+snapshot nobody reads. It rewrites the VERSION's graph rather than a per-run
+snapshot for the same reason: once the root is republished no later run detects
+the move, so a snapshot would leave those runs reading the pre-move rows.
+
+Caller-scoped wins where they meet: a drifted run that also overrode its
+arguments snapshots under its job id and publishes nothing, and the drift is
+settled by the next ordinary run — a wasted parse per overriding run, where the
+alternative is one caller's subset standing as the script's own, or replacing
+the version's graph with a picture missing every model that run did not select.
 
 Both halves have a retention story, and they differ because their readers do. A
 run's snapshot expires on a clock — 30 days — because the run page that reads it

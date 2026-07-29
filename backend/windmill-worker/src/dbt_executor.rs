@@ -243,11 +243,7 @@ pub(crate) async fn handle_dbt_job(
     // version's graph for the runs that did not override. A retry submits only
     // `dbt_command`, so this is re-asked once the failed run's arguments are
     // restored, below — those are the ones it actually builds with.
-    //
-    if has_vars_override(&args) {
-        prepared.graph_is_per_run = true;
-    }
-
+    prepared.graph_refresh.add_caller_args(&args)?;
 
     let command = match arg_str(&args, "dbt_command")? {
         // Validated against an allowlist rather than passed through: the value
@@ -314,9 +310,7 @@ pub(crate) async fn handle_dbt_job(
         // models, aliases or schemas for an overridden run. This is past the
         // agent-worker guard, so the same `Connection` test keeps it from
         // reaching an ingest that cannot run there.
-        if has_vars_override(&inv.raw_args) {
-            prepared.graph_is_per_run = true;
-        }
+        prepared.graph_refresh.add_caller_args(&inv.raw_args)?;
         if restored.needs_parse {
             // After the resolution above, so the manifest describes the project
             // the build is about to retry.
@@ -344,7 +338,8 @@ pub(crate) async fn handle_dbt_job(
     // (docs/dbt-runtime.md).
     // A read-only command builds nothing, so re-publishing the graph from it
     // would replace the last real run's models with a SELECT's.
-    if prepared.graph_is_per_run && !windmill_parser_yaml::dbt::is_read_only_command(&command) {
+    if prepared.graph_refresh.needed() && !windmill_parser_yaml::dbt::is_read_only_command(&command)
+    {
         if command != "retry" {
             let parsed = run_dbt_parse(
                 &prepared,
@@ -651,6 +646,7 @@ pub(crate) async fn dbt_dep(
             &prepared.relation_root(),
             publisher,
             None,
+            true,
         )
         .await?;
         if published {
@@ -765,13 +761,88 @@ async fn deploying_script_hash(db: &sqlx::Pool<sqlx::Postgres>, job_id: &Uuid) -
         .flatten()
 }
 
+/// Why a run re-ingests its graph instead of trusting the deployed version's —
+/// and, since the reasons differ in WHOSE graph the result is, what becomes of
+/// it.
+///
+/// A model set the CALLER chose is a one-off: it is stored under the job id so
+/// the run page shows what it built, and the script's ownership is left alone,
+/// or an override's schemas and aliases would stand as the script's until the
+/// next deploy. One the PROJECT decides — a descriptor dynamic by construction,
+/// a profile that moved — is what every later run of this version sees too, so
+/// it is published as what the script owns. Publishing is also what ENDS a
+/// drift: the check reads back the published root, so a run that detected a
+/// move and did not republish leaves the next run detecting the same move.
+#[derive(Clone, Copy, Default)]
+pub struct GraphRefresh {
+    /// This run's models are not the deployed descriptor's: a `{{ }}`
+    /// placeholder in `vars` or a `$var:` in `env` (re-resolved every run), or
+    /// an invocation that overrode `vars`. Vars steer `enabled`, alias, schema,
+    /// database and materialization, so the deployed graph names another run's
+    /// relations.
+    per_run_models: bool,
+    /// Part of what this run's graph describes was chosen by the caller: an
+    /// overridden `vars`, or a `select`/`exclude` narrowing the ingest to a
+    /// subset of the project.
+    caller_scoped: bool,
+    /// The profile resolves somewhere other than where the published usages
+    /// point. The relations moved for the VERSION, not for one invocation.
+    profile_drift: bool,
+}
+
+impl GraphRefresh {
+    /// Whether this run parses and ingests a graph of its own at all.
+    fn needed(&self) -> bool {
+        self.per_run_models || self.profile_drift
+    }
+
+    /// The job to key this graph under, or `None` to write the version's own.
+    ///
+    /// Only a DRIFT alone writes the version's: the move is permanent, and
+    /// storing it per run would leave every later run — which no longer detects
+    /// a drift, because this one published the new root — reading the pre-move
+    /// rows. Anything the caller shaped, a narrowed `select` included, goes
+    /// under the job id: written as the version's it would drop from that
+    /// version's graph every model this one invocation did not select.
+    fn snapshot_job(&self, job_id: uuid::Uuid) -> Option<uuid::Uuid> {
+        (self.per_run_models || self.caller_scoped).then_some(job_id)
+    }
+
+    /// Whether this ingest also becomes what the script owns.
+    ///
+    /// A caller-scoped one never does, drift included: republishing an
+    /// override's relations is the failure the snapshot exists to avoid, so a
+    /// drifted run that overrode its arguments keeps re-detecting the drift
+    /// until an ordinary run of the descriptor settles it — a wasted `dbt
+    /// parse` per run, where the alternative is silently wrong ownership.
+    fn publishes_ownership(&self) -> bool {
+        !self.caller_scoped
+    }
+
+    /// Fold in what this invocation's own arguments say about its model set.
+    fn add_caller_args(&mut self, args: &HashMap<String, Box<RawValue>>) -> error::Result<()> {
+        if has_vars_override(args) {
+            self.per_run_models = true;
+            self.caller_scoped = true;
+        }
+        // A narrowed selection needs no graph of its own — it builds a subset of
+        // the deployed one — but it does scope what an ingest triggered by
+        // another reason records, and a subset must not be published as the
+        // whole of what the script owns.
+        if arg_list(args, "select")?.is_some() || arg_list(args, "exclude")?.is_some() {
+            self.caller_scoped = true;
+        }
+        Ok(())
+    }
+}
+
 pub struct PreparedProject {
     pub project_dir: PathBuf,
     pub profiles_dir: PathBuf,
     pub engine: ProvisionedEngine,
-    /// A var that can steer what the project produces makes the deploy-time
-    /// graph a guess, so each run re-ingests its own manifest.
-    pub graph_is_per_run: bool,
+    /// Why this run's graph is its own rather than the deployed version's, if
+    /// it is.
+    pub graph_refresh: GraphRefresh,
     /// Digest of the project's own files: the identity of the code that runs.
     /// It keys the package cache (a `local:` dependency's content appears in no
     /// manifest) and gates retry state, so a project edited between attempts
@@ -919,12 +990,15 @@ pub(crate) async fn prepare_project(
     // caller's own `vars` override does the same; it is added by the caller of
     // this function, which is where the run's arguments are known.
     let has_placeholder = |v: &str| v.contains("{{");
-    let graph_is_per_run = descriptor
-        .vars
-        .values()
-        .flat_map(windmill_parser_yaml::dbt::string_leaves)
-        .any(has_placeholder)
-        || descriptor.env.values().any(|v| v.starts_with("$var:"));
+    let graph_refresh = GraphRefresh {
+        per_run_models: descriptor
+            .vars
+            .values()
+            .flat_map(windmill_parser_yaml::dbt::string_leaves)
+            .any(has_placeholder)
+            || descriptor.env.values().any(|v| v.starts_with("$var:")),
+        ..Default::default()
+    };
 
     let (profiles_dir, resource_path, adapter, default_database, default_schema, profile_digest) =
         write_profiles(descriptor, &project_dir, job_dir, client, job_id).await?;
@@ -1057,7 +1131,7 @@ pub(crate) async fn prepare_project(
         project_dir,
         profiles_dir,
         engine,
-        graph_is_per_run,
+        graph_refresh,
         resource_path,
         target: descriptor.profile.target.clone(),
         descriptor_content: descriptor_content.to_string(),
@@ -1094,15 +1168,17 @@ pub(crate) async fn prepare_project(
             .flatten()
             {
                 if stored != prepared.relation_root() {
-                    prepared.graph_is_per_run = true;
+                    prepared.graph_refresh.profile_drift = true;
                 }
             }
         }
         // An agent worker cannot READ the stored root to compare it, but it can
         // publish, and publishing settles the question the comparison was asking:
         // it re-ingests what it parsed, so the stored graph describes this run's
-        // profile whether or not it drifted.
-        Connection::Http(_) => prepared.graph_is_per_run = true,
+        // profile whether or not it drifted. Under its own job id, since it
+        // cannot tell a moved profile from an unmoved one and must not overwrite
+        // the version's graph on the strength of a guess.
+        Connection::Http(_) => prepared.graph_refresh.per_run_models = true,
     }
     install_packages(&prepared, &mut *ctx, job_id, w_id, conn).await?;
     Ok(prepared)
@@ -2556,10 +2632,11 @@ async fn ingest_from_run(
         p.default_database.as_deref(),
         selected.as_ref(),
     );
-    // Only a dynamic descriptor snapshots per run. A static one re-ingests the
-    // same graph its deploy wrote, so a snapshot per run would be a copy of the
-    // version's graph for every run of it.
-    let snapshot_job = p.graph_is_per_run.then_some(job.id);
+    // Only a run whose models are its own snapshots per run. A static
+    // descriptor at a moved profile re-ingests the VERSION's graph, since the
+    // move outlives the run; one that neither drifted nor overrode anything
+    // re-ingests the same graph its deploy wrote and stores nothing.
+    let snapshot_job = p.graph_refresh.snapshot_job(job.id);
     match conn {
         Connection::Sql(db) => {
             persist_ingest(
@@ -2572,6 +2649,7 @@ async fn ingest_from_run(
                     .map(|h| GraphPublisher::Version(h.0))
                     .unwrap_or(GraphPublisher::Unversioned),
                 snapshot_job,
+                p.graph_refresh.publishes_ownership(),
             )
             .await?;
         }
@@ -2628,7 +2706,8 @@ enum GraphPublisher {
 /// Write one ingest: the sidecar rows and the `asset` usages the manifest
 /// implies. No subscriptions — a `table://` one could never fire.
 ///
-/// Returns whether it published the path-keyed half.
+/// Returns whether this job was still the one entitled to the path-keyed half —
+/// false once a newer version has superseded it, or once the version is gone.
 async fn persist_ingest(
     db: &sqlx::Pool<sqlx::Postgres>,
     w_id: &str,
@@ -2636,11 +2715,15 @@ async fn persist_ingest(
     ingested: &windmill_common::dbt_manifest::IngestedManifest,
     relation_root: &str,
     publisher: GraphPublisher,
-    // Set for a RUN of a dynamic descriptor, whose model set depends on its
-    // arguments: that graph is a snapshot of this run and must not overwrite
-    // what another run of the same version saw. A deploy passes `None` and
-    // writes the version's own graph.
+    // Set for a RUN whose model set depends on its own arguments: that graph is
+    // a snapshot of this run and must not overwrite what another run of the same
+    // version saw. A deploy passes `None` and writes the version's own graph, as
+    // does a run that found the profile moved — that move is the version's.
     run_snapshot: Option<uuid::Uuid>,
+    // Whether this ingest also becomes what the SCRIPT owns: the path-keyed
+    // `asset` usages, and the relation root the drift check reads back. False
+    // for a graph the caller's own arguments scoped (`GraphRefresh`).
+    publish_ownership: bool,
 ) -> error::Result<bool> {
     let GraphPublisher::Version(script_hash) = publisher else {
         // No version to attribute the graph to — an inline or preview run, which
@@ -2689,12 +2772,12 @@ async fn persist_ingest(
     // late records its graph above and stops here, rather than dragging the
     // script's current usages back to what it saw.
     //
-    // A run SNAPSHOT stops here for the same reason. It describes one
-    // invocation, and a `vars` override is a one-off: publishing its relations
-    // as the script's ownership would leave the workspace graph showing that
-    // run's schemas and aliases until the next deploy, since an ordinary run of
-    // a static descriptor never ingests again to correct it.
-    if run_snapshot.is_some() {
+    // A CALLER-SCOPED graph stops here for the same reason. A `vars` override or
+    // a narrowed `select` describes one invocation: publishing its relations as
+    // the script's ownership would leave the workspace graph showing that run's
+    // schemas, aliases and subset until the next deploy, since an ordinary run
+    // of a static descriptor never ingests again to correct it.
+    if !publish_ownership {
         tx.commit().await?;
         return Ok(true);
     }
@@ -3064,11 +3147,14 @@ async fn invalidate_run_state(
         )
         .execute(db)
         .await
-        .inspect_err(|e| tracing::warn!("dbt: could not clear retry state for {script_path}: {e:#}"));
+        .inspect_err(|e| {
+            tracing::warn!("dbt: could not clear retry state for {script_path}: {e:#}")
+        });
     }
-    if let Err(e) =
-        tokio::fs::remove_file(state_dir(w_id, script_path, permissioned_as).join(CURRENT_GENERATION))
-            .await
+    if let Err(e) = tokio::fs::remove_file(
+        state_dir(w_id, script_path, permissioned_as).join(CURRENT_GENERATION),
+    )
+    .await
     {
         if e.kind() != std::io::ErrorKind::NotFound {
             tracing::warn!("dbt: could not drop local retry state for {script_path}: {e:#}");
@@ -3110,9 +3196,10 @@ async fn save_run_state(
     // The durable copy, so a retry works from any worker of the group. Only
     // `run_results.json`: the manifest is a pure function of what `identity`
     // already pins, so the resuming worker re-derives it with a `dbt parse`.
-    let results = tokio::fs::read_to_string(p.project_dir.join(ARTIFACTS_DIR).join("run_results.json"))
-        .await
-        .ok();
+    let results =
+        tokio::fs::read_to_string(p.project_dir.join(ARTIFACTS_DIR).join("run_results.json"))
+            .await
+            .ok();
     // No `run_results.json` means this invocation produced nothing resumable —
     // cancelled, timed out, or dead before dbt wrote one. The previous run's
     // state must not stay authoritative: `dbt retry` would resume ITS failed
@@ -3328,13 +3415,6 @@ fn stable_digest<'a>(parts: impl Iterator<Item = &'a str>) -> String {
     format!("{:x}", h.finalize())
 }
 
-/// The saved identity, split at the point resolution happens.
-///
-/// The project, warehouse, engine and env can be checked before anything is
-/// restored. The resolved-arguments digest cannot: the retry REQUEST carries
-/// only `dbt_command`, and the arguments to compare are the saved ones after
-/// this caller has re-resolved them — which happens later, in `handle_dbt_job`.
-/// Comparing the whole string up front would refuse every retry.
 /// Whether the invocation overrides the descriptor's `vars`, which decides
 /// whether its graph is its own rather than the deployed one.
 fn has_vars_override(args: &HashMap<String, Box<RawValue>>) -> bool {
@@ -3342,6 +3422,13 @@ fn has_vars_override(args: &HashMap<String, Box<RawValue>>) -> bool {
         .is_some_and(|r| !matches!(r.get().trim(), "" | "null" | "{}"))
 }
 
+/// The saved identity, split at the point resolution happens.
+///
+/// The project, warehouse, engine and env can be checked before anything is
+/// restored. The resolved-arguments digest cannot: the retry REQUEST carries
+/// only `dbt_command`, and the arguments to compare are the saved ones after
+/// this caller has re-resolved them — which happens later, in `handle_dbt_job`.
+/// Comparing the whole string up front would refuse every retry.
 fn split_identity(identity: &str) -> (&str, Option<&str>) {
     // Tagged, not positional. The previous format was `<identity>|<env>`, so
     // taking "everything after the last `|`" reads a pre-upgrade row's env
@@ -3457,7 +3544,8 @@ pub struct RestoredRun {
     /// must use — still unresolved, so the caller resolves before using them.
     pub args: HashMap<String, Box<RawValue>>,
     /// Whether a `dbt parse` still owes a `manifest.json`. The local snapshot
-    /// carries one; the database row does not.
+    /// carries one — unless it was pruned mid-restore; the database row never
+    /// does.
     pub needs_parse: bool,
     /// The resolved-arguments digest the saved run had, checked once the caller
     /// has re-resolved those arguments.
@@ -3537,9 +3625,15 @@ async fn restore_run_state(
         return restore_from_db(p, w_id, permissioned_as, inv, conn, no_state()).await;
     };
     let snapshot = dir.join(generation.trim());
-    let saved_results = tokio::fs::read_to_string(snapshot.join("run_results.json"))
-        .await
-        .map_err(|_| no_state())?;
+    // The local generation is a fast path over the row the database holds for
+    // this same run — the pointer was accepted only because it names that run —
+    // so a generation pruned out from under this restore falls back to the row
+    // rather than reporting there is nothing to resume. An agent worker has no
+    // row to fall back on and gets that report, which is then true.
+    let Ok(saved_results) = tokio::fs::read_to_string(snapshot.join("run_results.json")).await
+    else {
+        return restore_from_db(p, w_id, permissioned_as, inv, conn, no_state()).await;
+    };
     // dbt builds a retry's graph from the error, fail and skipped nodes alone,
     // so retrying an all-green run selects nothing and writes nothing — and a
     // job that succeeds having written nothing still dispatches every
@@ -3548,11 +3642,13 @@ async fn restore_run_state(
     if !has_retryable_node(&saved_results) {
         return Err(nothing_to_retry());
     }
-    let saved: SavedRunState = tokio::fs::read_to_string(snapshot.join("state.json"))
+    let Some(saved) = tokio::fs::read_to_string(snapshot.join("state.json"))
         .await
         .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default();
+        .and_then(|s| serde_json::from_str::<SavedRunState>(&s).ok())
+    else {
+        return restore_from_db(p, w_id, permissioned_as, inv, conn, no_state()).await;
+    };
     let (saved_prefix, saved_args_digest) = split_identity(&saved.identity);
     if saved_prefix != format!("{}|{}", p.run_identity(), inv.env_digest()) {
         return Err(different_project());
@@ -3560,18 +3656,27 @@ async fn restore_run_state(
     let saved_args_digest = saved_args_digest.map(str::to_string);
     let target = p.project_dir.join(ARTIFACTS_DIR);
     tokio::fs::create_dir_all(&target).await.ok();
-    for f in ["run_results.json", "manifest.json"] {
-        tokio::fs::copy(snapshot.join(f), target.join(f)).await.ok();
-    }
-    // The snapshot carried `manifest.json` across, so nothing has to re-derive
-    // one.
+    // From the bytes this restore already read, not by copying the file a second
+    // time: a burst of saves can prune this generation while the restore is
+    // walking it, and a `dbt retry` whose `run_results.json` went missing
+    // rebuilds nothing and reports success. The manifest has no such copy in
+    // hand, so a failed one falls back to deriving it — a `dbt parse`, which is
+    // what a database restore pays anyway.
+    tokio::fs::write(target.join("run_results.json"), &saved_results)
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!("could not restore the previous run's results: {e}"))
+        })?;
+    let needs_parse = tokio::fs::copy(snapshot.join("manifest.json"), target.join("manifest.json"))
+        .await
+        .is_err();
     Ok(RestoredRun {
         args: saved
             .args
             .into_iter()
             .filter_map(|(k, v)| Some((k, RawValue::from_string(v).ok()?)))
             .collect(),
-        needs_parse: false,
+        needs_parse,
         args_digest: saved_args_digest,
     })
 }
@@ -4469,7 +4574,6 @@ mod tests {
         assert!(has_retryable_node("not json"));
     }
 
-
     /// Every exit that produces no `run_results.json` must forget the previous
     /// run's state. `save_run_state` handles the ones that reach it; the
     /// pre-build failures never do, and a retry resuming an older invocation
@@ -4492,6 +4596,53 @@ mod tests {
             !dir.join(CURRENT_GENERATION).exists(),
             "the pointer a retry reads must be gone"
         );
+    }
+
+    /// Why a run re-ingests decides what becomes of the result. Drift is the one
+    /// that MUST publish: the check reads back the published root, so a drifted
+    /// run that only snapshots leaves the next run detecting the same move, and
+    /// the asset rows naming the schema the project no longer builds into.
+    #[test]
+    fn what_a_refresh_publishes_depends_on_why_it_happened() {
+        let job = uuid::Uuid::new_v4();
+        let arg = |k: &str, v: &str| {
+            HashMap::from([(k.to_string(), RawValue::from_string(v.to_string()).unwrap())])
+        };
+
+        // A moved profile relocates the VERSION's relations: its own graph, and
+        // the ownership that answers the next drift check.
+        let drift = GraphRefresh { profile_drift: true, ..Default::default() };
+        assert!(drift.needed());
+        assert_eq!(drift.snapshot_job(job), None);
+        assert!(drift.publishes_ownership());
+
+        // A dynamic descriptor: this run's graph, still the script's relations.
+        let dynamic = GraphRefresh { per_run_models: true, ..Default::default() };
+        assert_eq!(dynamic.snapshot_job(job), Some(job));
+        assert!(dynamic.publishes_ownership());
+
+        // A `vars` override: this run's graph, and only this run's.
+        let mut overridden = GraphRefresh::default();
+        overridden
+            .add_caller_args(&arg("vars", r#"{"day":"2026-07-29"}"#))
+            .unwrap();
+        assert!(overridden.needed());
+        assert_eq!(overridden.snapshot_job(job), Some(job));
+        assert!(!overridden.publishes_ownership());
+
+        // A narrowed selection re-ingests nothing on its own — it builds a
+        // subset of the deployed graph — but it scopes an ingest another reason
+        // triggered: that subset must neither become the whole of what the
+        // script owns nor replace the version's graph, which holds the models
+        // this one invocation left out.
+        let mut narrowed = GraphRefresh::default();
+        narrowed
+            .add_caller_args(&arg("select", r#"["stg_orders"]"#))
+            .unwrap();
+        assert!(!narrowed.needed());
+        narrowed.profile_drift = true;
+        assert!(!narrowed.publishes_ownership());
+        assert_eq!(narrowed.snapshot_job(job), Some(job));
     }
 
     #[test]
