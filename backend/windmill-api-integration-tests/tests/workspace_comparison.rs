@@ -1206,6 +1206,109 @@ async fn test_compare_workspaces_rename_visibility_ee_e2e(
     Ok(())
 }
 
+/// Regression test for #10401. The fork -> parent ("ahead") side of the tally
+/// used to key off `workspace_settings.deploy_to`, while the parent -> fork
+/// ("behind") side keys off `workspace.parent_workspace_id`. A fork whose
+/// `deploy_to` was never set or was later cleared therefore recorded no ahead
+/// change at all, and since nothing ever re-scans `workspace_diff`, every change
+/// made in it stayed permanently absent from its "Deploy to <parent>" list.
+///
+/// Gated on `private` for the same reason as the rename test above: the OSS
+/// `handle_deployment_metadata` is a no-op, so no rows would ever be written.
+#[cfg(feature = "private")]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_fork_tally_ahead_without_deploy_to(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base_url = format!("http://localhost:{port}/api");
+    let admin = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+
+    sqlx::query!("DELETE FROM skip_workspace_diff_tally")
+        .execute(&db)
+        .await?;
+
+    let resp = admin
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/create_fork"
+        ))
+        .json(&json!({
+            "id": "wm-fork-no-deploy-to",
+            "name": "No deploy_to Fork",
+        }))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "fork creation failed: {}",
+        resp.status()
+    );
+
+    // The state under test: a fork linked to its parent but with no `deploy_to`.
+    // An admin can produce this from workspace settings at any time.
+    sqlx::query!(
+        "UPDATE workspace_settings SET deploy_to = NULL WHERE workspace_id = 'wm-fork-no-deploy-to'"
+    )
+    .execute(&db)
+    .await?;
+
+    // bash needs no lock generation, so `create_script` tallies inline instead of
+    // deferring to a dependency job (no worker runs in this test).
+    let resp = admin
+        .client()
+        .post(&format!("{base_url}/w/wm-fork-no-deploy-to/scripts/create"))
+        .json(&json!({
+            "path": "u/admin/tallied",
+            "summary": "",
+            "description": "",
+            "content": "echo 1",
+            "language": "bash",
+            "schema": {"type": "object", "properties": {}, "required": []},
+        }))
+        .send()
+        .await?;
+    let status = resp.status();
+    assert!(
+        status.is_success(),
+        "script create failed: {} — {}",
+        status,
+        resp.text().await?
+    );
+
+    // The tally runs in a `tokio::spawn` inside `handle_deployment_metadata`.
+    let mut ahead = None;
+    for _ in 0..40 {
+        ahead = sqlx::query_scalar!(
+            "SELECT ahead FROM workspace_diff
+             WHERE source_workspace_id = 'test-workspace'
+               AND fork_workspace_id = 'wm-fork-no-deploy-to'
+               AND kind = 'script'
+               AND path = 'u/admin/tallied'"
+        )
+        .fetch_optional(&db)
+        .await?;
+        if ahead.is_some() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+
+    // Exactly one: tallying both `deploy_to` and `parent_workspace_id` must not
+    // double-count when they point at the same workspace.
+    assert_eq!(
+        ahead,
+        Some(1),
+        "a fork with no deploy_to must still record its change once against its parent"
+    );
+
+    Ok(())
+}
+
 /// Regression test for WIN-1975. A non-admin user creating a script in a fork-
 /// only folder used to get the spurious
 /// "this fork has changes not visible to your user" warning because
