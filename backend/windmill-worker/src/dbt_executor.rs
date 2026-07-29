@@ -3183,11 +3183,11 @@ pub(crate) async fn read_manifest(
         .map_err(|e| Error::internal_err(format!("could not parse manifest.json: {e}")))
 }
 
-/// `dbt retry` reads `run_results.json` from the previous invocation.
-/// Windmill gives each attempt a fresh job dir, so the state is kept in a
-/// worker-local cache keyed by the script — which is also its limitation: a
-/// retry that lands on a different worker finds nothing and says so, rather
-/// than silently rebuilding everything.
+/// `dbt retry` reads `run_results.json` from the previous invocation, and
+/// Windmill gives each attempt a fresh job dir — so this is where the last one
+/// is kept. It is a fast path over `dbt_run_state`, which any worker of the
+/// group can read; only an agent worker, which cannot reach that table, is
+/// limited to what its own disk holds.
 ///
 /// Keyed by principal AND caller, matching `dbt_run_state`. An agent worker
 /// never reads that table, so this cache is the whole boundary there: without it
@@ -3370,8 +3370,8 @@ async fn save_run_state(
     // which this run has already written. An agent worker has no row, so that
     // pointer is the whole of what a retry reads, and it would answer for a run
     // that is not the last one to have happened here.
-    let abandon_local = |kept: bool| async move {
-        if !kept && matches!(conn, Connection::Http(_)) {
+    let abandon_local = || async {
+        if matches!(conn, Connection::Http(_)) {
             invalidate_run_state(w_id, &p.script_path, caller, conn).await;
         }
         Ok(())
@@ -3379,7 +3379,7 @@ async fn save_run_state(
     let staging = dir.join(&generation);
     tokio::fs::remove_dir_all(&staging).await.ok();
     if tokio::fs::create_dir_all(&staging).await.is_err() {
-        return abandon_local(false).await;
+        return abandon_local().await;
     }
     for f in ["run_results.json", "manifest.json"] {
         if tokio::fs::copy(p.project_dir.join(ARTIFACTS_DIR).join(f), staging.join(f))
@@ -3387,7 +3387,7 @@ async fn save_run_state(
             .is_err()
         {
             tokio::fs::remove_dir_all(&staging).await.ok();
-            return abandon_local(false).await;
+            return abandon_local().await;
         }
     }
     // What produced it. `latest` and placeholder refs move, and a redeploy can
@@ -3409,7 +3409,7 @@ async fn save_run_state(
     .is_err()
     {
         tokio::fs::remove_dir_all(&staging).await.ok();
-        return abandon_local(false).await;
+        return abandon_local().await;
     }
     // Publishing is one rename over the pointer file. A reader either sees the
     // previous generation's name or this one's, never a directory being
@@ -3424,7 +3424,7 @@ async fn save_run_state(
     {
         tokio::fs::remove_file(&pointer_staging).await.ok();
         tokio::fs::remove_dir_all(&staging).await.ok();
-        return abandon_local(false).await;
+        return abandon_local().await;
     }
     prune_old_generations(&dir, &generation).await;
     Ok(())
