@@ -980,7 +980,11 @@
 	// Existing modules are left alone: switching away and back must not discard a
 	// project the user has already grown.
 	function seedDbtProject() {
-		if (Object.keys(script.modules ?? {}).length > 0) return
+		// Keyed on the project file rather than on "has any modules at all": a
+		// draft that grew modules under another language carries none of what dbt
+		// needs, and the worker refuses a bundle with no `dbt_project.yml` — so
+		// that draft reached dbt in a state it could neither deploy nor run.
+		if (script.modules?.['dbt_project.yml']) return
 		script.modules = {
 			'dbt_project.yml': {
 				content:
@@ -990,7 +994,10 @@
 			'models/example.sql': {
 				content: 'select 1 as id\n',
 				language: 'dbt'
-			}
+			},
+			// Last, so anything already written wins: the previous language's
+			// helper files are inert to dbt and are the user's to remove.
+			...(script.modules ?? {})
 		}
 	}
 

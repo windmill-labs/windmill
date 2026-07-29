@@ -3,7 +3,7 @@
 ## ENUMs
 action_kind: create, update, delete, execute
 asset_access_type: r, w, rw
-asset_kind: s3object, resource, variable, ducklake, datatable
+asset_kind: s3object, resource, variable, ducklake, datatable, table
 asset_usage_kind: script, flow, job
 authentication_method: none, windmill, api_key, basic_http, custom_script, signature
 autoscaling_event_type: full_scaleout, scalein, scaleout
@@ -19,6 +19,7 @@ job_status: success, failure, canceled, skipped
 job_trigger_kind: webhook, http, websocket, kafka, email, nats, schedule, app, ui, postgres, sqs, gcp, mqtt, nextcloud, ci_test
 log_mode: standalone, server, worker, agent, indexer, mcp
 login_type: password, github
+materialization_status: running, materialized, failed
 message_type: user, assistant, tool
 metric_kind: scalar_int, scalar_float, timeseries_int, timeseries_float
 mqtt_client_version: v3, v5
@@ -26,7 +27,7 @@ native_trigger_service: nextcloud
 request_type: sync, async, sync_sse
 runnable_type: ScriptHash, ScriptPath, FlowPath
 script_kind: script, trigger, failure, command, approval, preprocessor
-script_lang: python3, deno, go, bash, postgresql, nativets, bun, mysql, bigquery, snowflake, graphql, powershell, mssql, php, bunnative, rust, ansible, csharp, oracledb, nu, java, duckdb, ruby, rlang
+script_lang: python3, deno, go, bash, postgresql, nativets, bun, mysql, bigquery, snowflake, graphql, powershell, mssql, php, bunnative, rust, ansible, csharp, oracledb, nu, java, duckdb, ruby, rlang, dbt
 trigger_kind: webhook, http, websocket, kafka, email, nats, postgres, sqs, mqtt, gcp, default_email, nextcloud
 trigger_mode: enabled, disabled, suspended
 workspace_key_kind: cloud
@@ -65,6 +66,16 @@ ci_test_reference: workspace_id(char), test_script_path(char), test_script_hash(
 concurrency_settings: hash(bigint), concurrency_key(char), concurrent_limit(int), concurrency_time_window_s(int)
 config: name(char), config(jsonb)
 custom_concurrency_key_ended: key(char), ended_at(ts)
+dbt_edge: workspace_id(char), script_path(char), script_hash(bigint), job_id(uuid), parent_unique_id(text), child_unique_id(text), ingested_at(ts)
+  FK: (workspace_id) -> workspace(id), (workspace_id, script_hash) -> script(workspace_id, hash)
+dbt_graph_snapshot: workspace_id(char), script_path(char), script_hash(bigint), job_id(uuid), digest(text), published_relation_root(text), ingested_at(ts)
+  FK: (workspace_id) -> workspace(id), (workspace_id, script_hash) -> script(workspace_id, hash)
+dbt_node: workspace_id(char), script_path(char), script_hash(bigint), job_id(uuid), unique_id(text), resource_type(text), name(text), asset_path(text), materialized(text), materialize_strategy(text), unique_key(text), tags(text[]), description(text), test_kind(text), test_column(text), test_args(jsonb), severity(text), attached_node(text), columns(jsonb), freshness(jsonb), raw_code(text), original_file_path(text), ingested_at(ts)
+  FK: (workspace_id) -> workspace(id), (workspace_id, script_hash) -> script(workspace_id, hash)
+dbt_run_progress: workspace_id(char), job_id(uuid), asset_kind(asset_kind), asset_path(char), status(materialization_status), row_count(bigint), error(text), updated_at(ts)
+  FK: (workspace_id) -> workspace(id)
+dbt_run_state: workspace_id(char), script_path(char), permissioned_as(char), identity(text), args(jsonb), run_results(text), job_id(uuid), updated_at(ts)
+  FK: (workspace_id) -> workspace(id)
 debounce_key: key(char), job_id(uuid), previous_job_id(uuid), first_started_at(ts), debounced_times(int)
 debounce_stale_data: job_id(uuid), to_relock(text[])
 debouncing_settings: hash(bigint), debounce_key(char), debounce_delay_s(int), max_total_debouncing_time(int), max_total_debounces_amount(int), debounce_args_to_accumulate(text[])
