@@ -206,7 +206,6 @@ import OpenRouterIcon from './OpenRouterIcon.svelte'
 import GoogleAiIcon from './GoogleAiIcon.svelte'
 import UltravoxIcon from './UltravoxIcon.svelte'
 import AnsibleIcon from './AnsibleIcon.svelte'
-import SnowflakeIcon from './SnowflakeIcon.svelte'
 import TogetherAiIcon from './TogetherAiIcon.svelte'
 import RunPodIcon from './RunPodIcon.svelte'
 import SigNozIcon from './SigNozIcon.svelte'
@@ -253,7 +252,7 @@ export const APP_TO_ICON_COMPONENT = {
 	http: HttpIcon,
 	mailchimp: MailchimpIcon,
 	sendgrid: SendgridIcon,
-	snowflake: SnowflakeIcon,
+	snowflake: SendflakeIcon,
 	ms_sql_server: MsSqlServerIcon,
 	qrcode: QRCodeIcon,
 	linkedin: LinkedinIcon,
@@ -522,7 +521,6 @@ export {
 	ZammadIcon,
 	NextcloudIcon,
 	SendflakeIcon,
-	SnowflakeIcon,
 	AnsibleIcon,
 	AnthropicIcon,
 	DeepSeekIcon,
