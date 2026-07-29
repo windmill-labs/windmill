@@ -3167,11 +3167,12 @@ fn state_dir(w_id: &str, script_path: &str, permissioned_as: &str) -> PathBuf {
 
 /// Forget any saved retry state for this principal and script.
 ///
-/// Called wherever an invocation ends without producing a resumable
-/// `run_results.json` — including the pre-build exits, which never reach the
-/// save. Leaving the previous run's state behind lets `dbt retry` resume ITS
-/// failed nodes, writing relations the run that actually just failed never
-/// touched.
+/// Called where an invocation ran the BUILD and left nothing resumable —
+/// cancelled, timed out, dead before dbt wrote `run_results.json` — because the
+/// warehouse is then no longer what the previous run's failures describe, and a
+/// `dbt retry` would rebuild against a state that moved under it. Also where the
+/// run is hidden from the script's owners, which keeps no state at all. A
+/// failure BEFORE the build touches no relation and leaves the saved run alone.
 async fn invalidate_run_state(
     w_id: &str,
     script_path: &str,

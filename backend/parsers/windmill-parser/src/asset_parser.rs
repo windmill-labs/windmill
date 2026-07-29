@@ -800,14 +800,19 @@ pub fn canonicalize_table_asset_path(path: &str) -> String {
     )
 }
 
-fn unquote_identifier(s: &str) -> &str {
+/// A doubled delimiter inside a quoted identifier is that delimiter, literally —
+/// the same rule the worker's `split_relation` applies to `relation_name`. Both
+/// have to decode it or one spelling of a table becomes two graph nodes: the dbt
+/// model under `sales"east`, its native consumer under `sales""east`.
+fn unquote_identifier(s: &str) -> String {
     let s = s.trim();
     for (open, close) in [('"', '"'), ('`', '`'), ('[', ']')] {
         if s.len() >= 2 && s.starts_with(open) && s.ends_with(close) {
-            return &s[1..s.len() - 1];
+            let inner = &s[1..s.len() - 1];
+            return inner.replace(&format!("{close}{close}"), &close.to_string());
         }
     }
-    s
+    s.to_string()
 }
 
 /// Unquote a schema segment, which carries a `<database>.<schema>` pair when a
@@ -819,9 +824,20 @@ fn unquote_schema_segment(s: &str) -> String {
     let mut parts: Vec<String> = Vec::new();
     let mut current = String::new();
     let mut quote: Option<char> = None;
-    for c in s.trim().chars() {
+    let mut chars = s.trim().chars().peekable();
+    while let Some(c) = chars.next() {
         match quote {
-            Some(q) if c == q || (q == '[' && c == ']') => quote = None,
+            // A doubled delimiter is one literal character, not the end of the
+            // identifier — see `unquote_identifier`.
+            Some(q) if c == q || (q == '[' && c == ']') => {
+                let close = if q == '[' { ']' } else { q };
+                if chars.peek() == Some(&close) {
+                    chars.next();
+                    current.push(close);
+                } else {
+                    quote = None;
+                }
+            }
             Some(_) => current.push(c),
             None if c == '"' || c == '`' || c == '[' => quote = Some(c),
             // Only an UNQUOTED period separates the database from the schema;
@@ -1755,6 +1771,43 @@ mod pipeline_annotation_tests {
                 Cow::Owned("f/prod/wh/sales.v2/orders".into())
             ))
         );
+    }
+
+    // Every dialect here escapes its own delimiter by doubling it, and the
+    // worker's `split_relation` decodes it — so a canonicalizer that did not
+    // would file the dbt model under `sales"east` and the native script reading
+    // it under `sales""east`, which is the split this key exists to prevent.
+    #[test]
+    fn a_doubled_delimiter_canonicalizes_like_the_relation_it_names() {
+        for (spelling, expected) in [
+            (
+                "table://f/prod/wh/\"sales\"\"east\"/\"orders\"",
+                "f/prod/wh/sales\"east/orders",
+            ),
+            (
+                "table://f/prod/wh/analytics/\"order\"\"s\"",
+                "f/prod/wh/analytics/order\"s",
+            ),
+            (
+                "table://f/prod/wh/`da``ta`/`orders`",
+                "f/prod/wh/da`ta/orders",
+            ),
+            (
+                "table://f/prod/wh/[my]]schema]/[orders]",
+                "f/prod/wh/my]schema/orders",
+            ),
+            // And in one half of a database-qualified segment.
+            (
+                "table://f/prod/wh/\"arch\"\"ive\".\"sales\"/orders",
+                "f/prod/wh/arch\"ive.sales/orders",
+            ),
+        ] {
+            assert_eq!(
+                parse_asset_syntax(spelling, false),
+                Some((AssetKind::Table, Cow::Owned(expected.into()))),
+                "spelling {spelling} did not canonicalize"
+            );
+        }
     }
 
     #[test]
