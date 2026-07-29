@@ -600,11 +600,10 @@
 							flowStore.val.value.priority = 100
 						}
 					}}
+					eeOnly={true}
 					options={{
 						right: `Label as high priority`,
-						rightTooltip: `All jobs scheduled by flows labeled as high priority take precedence over the other jobs in the jobs queue. Higher priority numbers are executed first. ${
-							!$enterpriseLicense ? 'This is a feature only available on enterprise edition.' : ''
-						}`,
+						rightTooltip: `All jobs scheduled by flows labeled as high priority take precedence over the other jobs in the jobs queue. Higher priority numbers are executed first.`,
 						rightDocumentationLink: 'https://www.windmill.dev/docs/flows/priority'
 					}}
 				>
@@ -627,9 +626,6 @@
 								}
 							}}
 						/>
-						{#if !$enterpriseLicense || isCloudHosted()}
-							<EEOnly />
-						{/if}
 					{/snippet}
 				</Toggle>
 
@@ -647,7 +643,7 @@
 					}}
 					options={{
 						right: 'Delete all step results after completion',
-						rightTooltip: `When enabled, the logs, arguments and results of all flow steps will be deleted after the specified delay once the flow completes. Set to 0 for immediate deletion. The deletion is irreversible. ${!$enterpriseLicense ? 'This is a feature only available on enterprise edition.' : ''}`
+						rightTooltip: `When enabled, the logs, arguments and results of all flow steps will be deleted after the specified delay once the flow completes. Set to 0 for immediate deletion. The deletion is irreversible.`
 					}}
 					eeOnly={true}
 				/>

@@ -168,16 +168,11 @@
 				</div>
 			{:else if suspendTabSelected === 'permissions'}
 				<div class="flex flex-col gap-3">
-					{#if emptyString($enterpriseLicense)}
-						<Alert
-							type="warning"
-							title="Editing permissions is only available in enterprise version"
-						/>
-					{/if}
 					<div class="flex flex-col gap-2">
 						<Toggle
 							size="xs"
 							textClass="text-xs font-normal text-primary"
+							eeOnly
 							disabled={!flowModule.suspend || emptyString($enterpriseLicense)}
 							checked={Boolean(flowModule.suspend?.user_auth_required)}
 							options={{
@@ -202,6 +197,7 @@
 						<Toggle
 							size="xs"
 							textClass="text-xs font-normal text-primary"
+							eeOnly
 							options={{
 								right: 'Disable self-approval',
 								rightTooltip: 'The user who triggered the flow will not be allowed to approve it'

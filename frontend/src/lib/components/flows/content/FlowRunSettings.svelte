@@ -289,10 +289,11 @@
 								</Label>
 							</div>
 						{/if}
-						{#if !$enterpriseLicense || isCloudHosted()}
+						<!-- The EE half of this limitation is the toggle's own badge; only the
+						     cloud one needs saying. -->
+						{#if isCloudHosted()}
 							<Alert type="warning" title="Limitation" size="xs">
-								Setting priority is only available for enterprise edition and not available on the
-								cloud.
+								Setting priority is not available on the cloud.
 							</Alert>
 						{/if}
 					</div>

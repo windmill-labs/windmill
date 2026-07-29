@@ -14,15 +14,14 @@
 
 	let enabled = $derived(flowModule.delete_after_secs != null)
 
-	let tip = $derived(
-		'The logs, arguments and results of this flow step are permanently deleted after the configured delay once the flow completes (they may be briefly visible in the UI while running). This also applies to a failed step: the error will not be accessible. The deletion is irreversible. Set to 0 for immediate deletion.' +
-			(disabled ? ' This option is only available on Windmill Enterprise Edition.' : '')
-	)
+	const tip =
+		'The logs, arguments and results of this flow step are permanently deleted after the configured delay once the flow completes (they may be briefly visible in the UI while running). This also applies to a failed step: the error will not be accessible. The deletion is irreversible. Set to 0 for immediate deletion.'
 </script>
 
 <div class="flex flex-col gap-2">
 	<Toggle
 		{disabled}
+		eeOnly
 		size="xs"
 		textClass="text-xs font-normal text-primary"
 		checked={enabled}
