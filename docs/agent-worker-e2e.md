@@ -26,6 +26,16 @@ Verify before spending time on the handshake — the panic string must be absent
 strings target/debug/windmill | grep -c "Agent mode is only available in the EE"   # want 0
 ```
 
+**Pin this feature set for the whole session.** `target/debug/windmill` is one
+path shared by every feature combination, and cargo swaps the cached artifact in
+and out as the set changes — a `cargo build --features quickjs` (or any build
+with a different set) in another pane silently replaces the binary the server and
+agent are about to run, and the swap back "completes" in under a second, so it
+does not look like a rebuild happened. The symptom is the agent 401ing again
+after it had been working, or the EE panic reappearing. Re-run the `strings`
+check above whenever anything unexpected regresses, and start the server and the
+agent from the SAME build.
+
 ## 2. Run the server without a local worker
 
 `MODE=server` so nothing else drains the queue and the agent is provably the one
