@@ -118,6 +118,9 @@
 	// Deliberately not `$state`: this guards an effect against its own writes, so
 	// reading it must not make the effect depend on it.
 	let finalLoadFor: string | undefined = undefined
+	// Bumped whenever the run changes; a preview that resolves against an older
+	// generation belongs to a run no longer on screen.
+	let previewGen = $state(0)
 	$effect(() => {
 		void scriptPath
 		void graphKey
@@ -129,6 +132,14 @@
 		finalLoadFor = undefined
 		polled = new Map()
 		raw = undefined
+		// Previews are keyed by `unique_id` alone, which is the same string for the
+		// same model in every run — so without this the next run opens showing the
+		// previous one's rows, and `runPreview` treats them as cached and refuses
+		// to fetch. The generation drops anything already in flight.
+		previewGen += 1
+		selection = undefined
+		previews = {}
+		rowsFor = undefined
 		void load()
 		void jobId
 		void loadProgress()
@@ -410,6 +421,7 @@
 		// re-run.
 		const cached = previews[key]
 		if (cached != undefined && !('error' in cached)) return
+		const gen = previewGen
 		const startedAt = Date.now()
 		previews = { ...previews, [key]: { pending: true } }
 		try {
@@ -452,14 +464,17 @@
 					done.success && res?.show
 						? { rows: res.show, tookMs: Date.now() - startedAt, node: res.node }
 						: { error: 'The preview job failed — open it from Runs for the detail.' }
+				if (gen !== previewGen) return
 				previews = { ...previews, [key]: next }
 				return
 			}
+			if (gen !== previewGen) return
 			previews = {
 				...previews,
 				[key]: { error: 'The preview is still running; open it from Runs.' }
 			}
 		} catch (e) {
+			if (gen !== previewGen) return
 			previews = {
 				...previews,
 				[key]: { error: e instanceof Error ? e.message : String(e) }

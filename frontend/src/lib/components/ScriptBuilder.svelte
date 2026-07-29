@@ -455,21 +455,7 @@
 				}
 			}
 		} else if (script.language === 'dbt') {
-			// A dbt script's modules ARE its dbt project, and the runtime refuses one
-			// without a `dbt_project.yml`. Seed a project that builds, so Deploy and
-			// Run work from here; growing it is `wmill sync pull` and a local editor,
-			// which is where dbt development happens.
-			script.modules = {
-				'dbt_project.yml': {
-					content:
-						'name: my_dbt_project\nversion: "1.0"\nprofile: my_dbt_project\nmodels:\n  my_dbt_project:\n    +materialized: view\n',
-					language: 'dbt'
-				},
-				'models/example.sql': {
-					content: 'select 1 as id\n',
-					language: 'dbt'
-				}
-			}
+			seedDbtProject()
 		}
 		const restarter = scheduleRestartSync(userDraftPath, { waitForContent: true })
 		initContent(script.language, script.kind, template).finally(() => restarter.markContentReady())
@@ -987,6 +973,27 @@
 
 	function handleDeployTrigger(_trigger: Trigger) {}
 
+	// A dbt script's modules ARE its dbt project, and the runtime refuses one
+	// without a `dbt_project.yml`. Seeded from BOTH entry points — the empty-script
+	// bootstrap and the language picker — because reaching dbt by switching an
+	// existing draft otherwise produces a script that cannot deploy or run.
+	// Existing modules are left alone: switching away and back must not discard a
+	// project the user has already grown.
+	function seedDbtProject() {
+		if (Object.keys(script.modules ?? {}).length > 0) return
+		script.modules = {
+			'dbt_project.yml': {
+				content:
+					'name: my_dbt_project\nversion: "1.0"\nprofile: my_dbt_project\nmodels:\n  my_dbt_project:\n    +materialized: view\n',
+				language: 'dbt'
+			},
+			'models/example.sql': {
+				content: 'select 1 as id\n',
+				language: 'dbt'
+			}
+		}
+	}
+
 	function onScriptLanguageTrigger(lang: 'docker' | 'bunnative' | ScriptLang) {
 		if (lang == 'docker') {
 			template = 'docker'
@@ -999,6 +1006,9 @@
 		//
 		initContent(language, script.kind, template)
 		script.language = language
+		if (language === 'dbt') {
+			seedDbtProject()
+		}
 	}
 
 	function onSummaryChange(value: string) {
