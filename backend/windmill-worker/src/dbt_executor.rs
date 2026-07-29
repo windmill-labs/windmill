@@ -2667,6 +2667,16 @@ async fn persist_ingest(
     // so it still belongs to the newest version alone. An older deploy finishing
     // late records its graph above and stops here, rather than dragging the
     // script's current usages back to what it saw.
+    //
+    // A run SNAPSHOT stops here for the same reason. It describes one
+    // invocation, and a `vars` override is a one-off: publishing its relations
+    // as the script's ownership would leave the workspace graph showing that
+    // run's schemas and aliases until the next deploy, since an ordinary run of
+    // a static descriptor never ingests again to correct it.
+    if run_snapshot.is_some() {
+        tx.commit().await?;
+        return Ok(true);
+    }
     if !claim_graph_publication(&mut tx, w_id, script_path, publisher).await? {
         tx.commit().await?;
         return Ok(false);

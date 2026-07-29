@@ -180,3 +180,17 @@ export function splitRelation(relation: string): string[] {
 	parts.push(current)
 	return parts.map((p) => p.trim())
 }
+
+/**
+ * A `unique_id` as a dbt FQN selector: `<package>.<name>`.
+ *
+ * dbt resolves a bare name across every installed package, and `show` accepts a
+ * single node — so a project model sharing its name with a package's is either
+ * previewed wrongly or refused. The resource type is dropped: an FQN names the
+ * path within a package, not the kind.
+ */
+export function fqnSelector(uniqueId: string): string {
+	const parts = uniqueId.split('.')
+	if (parts.length < 3) return splitUniqueId(uniqueId).name
+	return parts.slice(1).join('.')
+}
