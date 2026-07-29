@@ -23,11 +23,10 @@
 	}
 
 	// Pressing the already-active "Workspace" side goes home, so the toggle doubles
-	// as the home button when there is no mode to switch to. It needs its own click
-	// handler because the group reports only real changes through onSelected.
-	// `onToggle` is deliberately not fired: this is a plain in-mode navigation, so
-	// the mobile menu drawer should dismiss like it does for any other nav link.
-	function onNavClick() {
+	// as the home button when there is no mode to switch to. `onToggle` is
+	// deliberately not fired: this is a plain in-mode navigation, so the mobile menu
+	// drawer should dismiss like it does for any other nav link.
+	function onNavActivate() {
 		if (mode !== 'nav') return
 		void goto('/')
 	}
@@ -51,7 +50,7 @@
 			tooltip={isCollapsed ? 'Workspace' : undefined}
 			size="sm"
 			class="w-full justify-center"
-			onclick={onNavClick}
+			onActivate={onNavActivate}
 		/>
 		<ToggleButton
 			{item}
