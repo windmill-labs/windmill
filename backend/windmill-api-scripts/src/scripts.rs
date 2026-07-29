@@ -2095,9 +2095,17 @@ async fn create_script_internal<'c>(
             clear_static_asset_usage(&mut *tx, &w_id, old, AssetUsageKind::Script).await?;
             // The saved retry state travels rather than being cleared: nothing
             // regenerates it, so dropping it would throw away a resumable
-            // failure for what is only a rename.
-            windmill_common::dbt_manifest::move_dbt_run_state(&mut tx, &w_id, old, &ns.path)
-                .await?;
+            // failure for what is only a rename. Only while the destination is
+            // still dbt — a rename that also converts the language would
+            // otherwise reinstate at the new path the state the branch above
+            // just cleared, leaving one user's arguments and results under a
+            // path no dbt script occupies.
+            if ns.language == ScriptLang::Dbt {
+                windmill_common::dbt_manifest::move_dbt_run_state(&mut tx, &w_id, old, &ns.path)
+                    .await?;
+            } else {
+                windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, old).await?;
+            }
         }
     }
     for spec in &pipeline_triggers {

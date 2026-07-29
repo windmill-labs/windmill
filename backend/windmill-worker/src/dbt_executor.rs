@@ -219,11 +219,10 @@ pub(crate) async fn handle_dbt_job(
     // A `vars` run argument overrides the descriptor's, and vars drive `enabled`,
     // alias, schema, database and materialization — so this run's models are not
     // the deployed graph's. It snapshots under its own job id, leaving the
-    // version's graph for the runs that did not override.
-    if args
-        .get("vars")
-        .is_some_and(|r| !matches!(r.get().trim(), "" | "null" | "{}"))
-    {
+    // version's graph for the runs that did not override. A retry submits only
+    // `dbt_command`, so this is re-asked once the failed run's arguments are
+    // restored, below — those are the ones it actually builds with.
+    if has_vars_override(&args) {
         prepared.graph_is_per_run = true;
     }
 
@@ -301,6 +300,13 @@ pub(crate) async fn handle_dbt_job(
                         .to_string(),
                 ));
             }
+        }
+        // The restored arguments are what this retry builds with, so they decide
+        // its graph — asked again here because the retry's own submission carries
+        // only `dbt_command`, and the deployed graph would show the wrong enabled
+        // models, aliases or schemas for an overridden run.
+        if has_vars_override(&inv.raw_args) {
+            prepared.graph_is_per_run = true;
         }
         if restored.needs_parse {
             // After the resolution above, so the manifest describes the project
@@ -3016,9 +3022,6 @@ async fn save_run_state(
     // The durable copy, so a retry works from any worker of the group. Only
     // `run_results.json`: the manifest is a pure function of what `identity`
     // already pins, so the resuming worker re-derives it with a `dbt parse`.
-    // Held, not returned, until the worker-local copy has been written too: the
-    // local one is what an agent worker retries from, so a failed insert must not
-    // cost it as well.
     let mut durable_err = None;
     if let Connection::Sql(db) = conn {
         if let Ok(results) =
@@ -3051,12 +3054,21 @@ async fn save_run_state(
     // A's manifest and arguments — and a reader copying that directory could
     // straddle a replacement and take half of each. A retry resuming a mixture
     // is worse than one that finds nothing.
+    // A failed durable write means this generation is not published locally
+    // either. `restore` accepts a local generation only when the database row
+    // names it, so publishing one the database never recorded would have this
+    // worker reject its own newest state and resume the previous run's instead.
+    // An agent worker is unaffected: it attempts no durable write, so there is
+    // no error to hold.
+    if let Some(e) = durable_err {
+        return Err(e.into());
+    }
     let dir = state_dir(w_id, &p.script_path, permissioned_as);
     let generation = format!("gen-{job_id}");
     let staging = dir.join(&generation);
     tokio::fs::remove_dir_all(&staging).await.ok();
     if tokio::fs::create_dir_all(&staging).await.is_err() {
-        return durable_err.map_or(Ok(()), |e| Err(e.into()));
+        return Ok(());
     }
     for f in ["run_results.json", "manifest.json"] {
         if tokio::fs::copy(p.project_dir.join(ARTIFACTS_DIR).join(f), staging.join(f))
@@ -3064,7 +3076,7 @@ async fn save_run_state(
             .is_err()
         {
             tokio::fs::remove_dir_all(&staging).await.ok();
-            return durable_err.map_or(Ok(()), |e| Err(e.into()));
+            return Ok(());
         }
     }
     // What produced it. `latest` and placeholder refs move, and a redeploy can
@@ -3086,7 +3098,7 @@ async fn save_run_state(
     .is_err()
     {
         tokio::fs::remove_dir_all(&staging).await.ok();
-        return durable_err.map_or(Ok(()), |e| Err(e.into()));
+        return Ok(());
     }
     // Publishing is one rename over the pointer file. A reader either sees the
     // previous generation's name or this one's, never a directory being
@@ -3101,10 +3113,10 @@ async fn save_run_state(
     {
         tokio::fs::remove_file(&pointer_staging).await.ok();
         tokio::fs::remove_dir_all(&staging).await.ok();
-        return durable_err.map_or(Ok(()), |e| Err(e.into()));
+        return Ok(());
     }
     prune_old_generations(&dir, &generation).await;
-    durable_err.map_or(Ok(()), |e| Err(e.into()))
+    Ok(())
 }
 
 /// Names the generation directory a retry reads. Replaced by rename, so it is
@@ -3213,6 +3225,13 @@ fn stable_digest<'a>(parts: impl Iterator<Item = &'a str>) -> String {
 /// only `dbt_command`, and the arguments to compare are the saved ones after
 /// this caller has re-resolved them — which happens later, in `handle_dbt_job`.
 /// Comparing the whole string up front would refuse every retry.
+/// Whether the invocation overrides the descriptor's `vars`, which decides
+/// whether its graph is its own rather than the deployed one.
+fn has_vars_override(args: &HashMap<String, Box<RawValue>>) -> bool {
+    args.get("vars")
+        .is_some_and(|r| !matches!(r.get().trim(), "" | "null" | "{}"))
+}
+
 fn split_identity(identity: &str) -> (&str, Option<&str>) {
     // Tagged, not positional. The previous format was `<identity>|<env>`, so
     // taking "everything after the last `|`" reads a pre-upgrade row's env
