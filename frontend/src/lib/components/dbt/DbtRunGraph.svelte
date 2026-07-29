@@ -399,7 +399,16 @@
 		// relation two projects both materialize carries only one project's node.
 		// Showing that project's SQL under this run would be a different model's
 		// source; when this run names the node, it is this run's.
-		if (run?.nodes?.length && !run.nodes.some((n) => n.unique_id === dbt.unique_id)) {
+		//
+		// Sources are exempt because a run never executes one: they appear in no
+		// `run_results.json`, so requiring them there would call every source on
+		// every finished run another project's — the warning says a second
+		// project materializes this relation, and nothing materializes a source.
+		if (
+			dbt.resource_type !== 'source' &&
+			run?.nodes?.length &&
+			!run.nodes.some((n) => n.unique_id === dbt.unique_id)
+		) {
 			return undefined
 		}
 		return dbt
@@ -519,13 +528,14 @@
 
 	// The relation this model writes, fully qualified, as dbt reported it for THIS
 	// run. There is no table browser to link to, so the next best affordance is
-	// the exact name to paste into a SQL client — quote-aware, because a period
-	// inside a quoted identifier is part of the name, not a separator.
+	// the exact name to paste into a SQL client — verbatim, quoting included: an
+	// identifier holding a period or a space is only valid quoted, and stripping
+	// the quotes turns `"wh"."analytics.v2"."Order Items"` into four parts of a
+	// name that resolves to nothing.
 	let selectedRelation = $derived.by(() => {
 		const sel = selection
 		if (sel?.kind !== 'asset' || !selectedDbt) return undefined
-		const rel = run?.nodes?.find((n) => n.unique_id === selectedDbt!.unique_id)?.relation_name
-		return rel ? splitRelation(rel).join('.') : undefined
+		return run?.nodes?.find((n) => n.unique_id === selectedDbt!.unique_id)?.relation_name
 	})
 </script>
 

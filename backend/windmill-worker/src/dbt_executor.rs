@@ -3286,7 +3286,15 @@ async fn save_run_state(
     // worker reject its own newest state and resume the previous run's instead.
     // An agent worker is unaffected: it attempts no durable write, so there is
     // no error to hold.
+    //
+    // What the PREVIOUS run left has to go with it, for the reason the
+    // no-results branch above gives: this run happened, so a retry resuming the
+    // one before it would rebuild nodes that are not what last failed here.
+    // Best effort — the delete goes to the database that just refused a write —
+    // but the local pointer is removed either way, which is what a retry landing
+    // back on this worker reads first.
     if let Some(e) = durable_err {
+        invalidate_run_state(w_id, &p.script_path, permissioned_as, conn).await;
         return Err(e.into());
     }
     let dir = state_dir(w_id, &p.script_path, permissioned_as);

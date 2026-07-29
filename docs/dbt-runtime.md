@@ -578,12 +578,13 @@ language's, so a run-arg override changes what gets built without changing what
 the graph says the script owns. Split the project into several scripts
 (decision 6) when the graph itself should differ.
 
-A `vars` override is the same: gating the graph refresh on it would leave that
-override's relations recorded for the next default run, which then builds the
-descriptor's while the graph shows the override's. What DOES refresh per run is a
-property of the descriptor — a `{{ }}` placeholder in `vars` or a `$var:` value
-in `env` — because those are dynamic on every run, not just the one that passed
-an argument.
+A `vars` override does re-ingest — vars steer `enabled`, aliases, schemas and
+materializations, so the deployed graph would name another run's relations — but
+under the job id alone, never as what the script owns: publishing an override's
+relations would leave them recorded for the next default run, which then builds
+the descriptor's while the graph shows the override's. See "Which run's graph
+becomes what the script owns" for the whole table, including the profile move
+that is the one cause a run publishes.
 
 `vars` interpolates from job args with `interpolate_template` (`common.rs`,
 shared with the Ansible executor). The syntax is `{{ arg_name }}`.
