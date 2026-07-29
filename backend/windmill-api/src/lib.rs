@@ -105,6 +105,10 @@ mod runnables;
 #[cfg(all(feature = "private", feature = "parquet"))]
 pub mod s3_proxy_ee;
 mod s3_proxy_oss;
+#[cfg(all(feature = "private", feature = "parquet"))]
+pub mod storage_list_ee;
+#[cfg(feature = "parquet")]
+mod storage_list_oss;
 mod workspace_dependencies;
 
 mod approvals;

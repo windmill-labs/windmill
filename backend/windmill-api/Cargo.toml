@@ -18,7 +18,7 @@ agent_worker_server = ["dep:windmill-worker", "dep:windmill-api-agent-workers"]
 enterprise_saml = ["dep:samael", "dep:libxml"]
 benchmark = []
 embedding = ["windmill-api-embeddings/embedding"]
-parquet = ["dep:datafusion", "windmill-common/parquet", "windmill-object-store/parquet", "windmill-worker?/parquet", "windmill-api-users/parquet", "windmill-api-settings/parquet", "windmill-api-workspaces/parquet", "dep:aws-sigv4", "dep:aws-sdk-config"]
+parquet = ["dep:datafusion", "windmill-common/parquet", "windmill-object-store/parquet", "windmill-worker?/parquet", "windmill-api-users/parquet", "windmill-api-settings/parquet", "windmill-api-workspaces/parquet", "dep:aws-sigv4", "dep:aws-sdk-config", "dep:quick-xml"]
 prometheus = ["windmill-common/prometheus", "windmill-queue/prometheus", "dep:prometheus", "windmill-worker?/prometheus", "windmill-api-scripts/prometheus"]
 openidconnect = ["dep:openidconnect", "windmill-common/openidconnect", "windmill-store/openidconnect"]
 tantivy = ["dep:windmill-indexer"]
@@ -128,6 +128,7 @@ hmac.workspace = true
 cookie.workspace = true
 sha2.workspace = true
 urlencoding.workspace = true
+quick-xml = { workspace = true, optional = true }
 lazy_static.workspace = true
 prometheus = { workspace = true, optional = true }
 async_zip = { workspace = true, optional = true }
