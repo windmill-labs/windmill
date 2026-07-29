@@ -23024,8 +23024,10 @@ paths:
         - name: dbt_script_hash
           in: query
           description: >
-            The deployed version the job ran, so the graph shows that deploy's
-            models, SQL and `ref()` lineage rather than today's.
+            Fallback only, for a job that names no deployed script — a preview or
+            a flow. For a script job the version comes from the job row itself,
+            so this is ignored: which deploy's models, SQL and `ref()` lineage
+            are shown is not the caller's to choose.
           schema:
             type: string
       responses:

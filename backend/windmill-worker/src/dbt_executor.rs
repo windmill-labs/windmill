@@ -320,9 +320,16 @@ pub(crate) async fn handle_dbt_job(
         // its graph — asked again here because the retry's own submission carries
         // only `dbt_command`, and the deployed graph would show the wrong enabled
         // models, aliases or schemas for an overridden run.
+        //
+        // RESOLVED, like the selection resolver and the build itself: a saved
+        // `select` spelled `$res:` is a string until it is resolved, and reading
+        // the raw form refuses the retry outright as "must be a list of strings"
+        // — for a reference that still resolves to the very list the failed run
+        // built with. `raw_args` stays what is persisted and published, so no
+        // resolved secret outlives the job.
         prepared
             .graph_refresh
-            .add_caller_args(&descriptor, &inv.raw_args)?;
+            .add_caller_args(&descriptor, &inv.args)?;
         if restored.needs_parse {
             // After the resolution above, so the manifest describes the project
             // the build is about to retry.
@@ -810,8 +817,8 @@ pub struct GraphRefresh {
     /// relations.
     per_run_models: bool,
     /// Part of what this run's graph describes was chosen by the caller: an
-    /// overridden `vars`, or a `select`/`exclude` narrowing the ingest to a
-    /// subset of the project.
+    /// overridden `vars`, or a `select`/`exclude` of its own — which may narrow
+    /// the descriptor's selection or reach outside it entirely.
     caller_scoped: bool,
     /// The profile resolves somewhere other than where the published usages
     /// point. The relations moved for the VERSION, not for one invocation.
@@ -829,9 +836,10 @@ impl GraphRefresh {
     /// Only a DRIFT alone writes the version's: the move is permanent, and
     /// storing it per run would leave every later run — which no longer detects
     /// a drift, because this one published the new root — reading the pre-move
-    /// rows. Anything the caller shaped, a narrowed `select` included, goes
-    /// under the job id: written as the version's it would drop from that
-    /// version's graph every model this one invocation did not select.
+    /// rows. Anything the caller shaped goes under the job id, in both
+    /// directions: written as the version's, a narrowing selection would drop
+    /// every model this invocation left out, and a widening one would add models
+    /// that version never had.
     fn snapshot_job(&self, job_id: uuid::Uuid) -> Option<uuid::Uuid> {
         (self.per_run_models || self.caller_scoped).then_some(job_id)
     }
