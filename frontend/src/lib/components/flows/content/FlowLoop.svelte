@@ -58,6 +58,7 @@
 	iteratorSchema.properties['iterator'] = {
 		type: 'array'
 	}
+	iteratorSchema.required = ['iterator']
 
 	if (mod.value.type === 'forloopflow') {
 		const forloopValue = mod.value as ForloopFlow
