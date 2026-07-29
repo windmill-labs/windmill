@@ -331,8 +331,8 @@
 </div>
 
 {#if rawApp}
-	<h2>Frontend API access</h2>
-	<div class="my-6">
+	<h2 class="text-xs font-semibold">Frontend API access</h2>
+	<div class="mb-6 mt-2">
 		<div class="text-xs text-secondary mb-3">
 			Let the app's frontend code call the Windmill API through the <code>windmill-client</code>
 			SDK, authenticated as <b>the viewer</b> (unlike runnables, which run on behalf of the publisher).
@@ -362,7 +362,7 @@
 					}}
 					disabled={!savedApp}
 				/>
-				<div class="text-xs text-tertiary ml-10">{scope.description}</div>
+				<div class="text-xs text-hint ml-9">{scope.description}</div>
 			</div>
 		{/each}
 		{#if newApp}
