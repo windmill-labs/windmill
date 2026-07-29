@@ -665,6 +665,7 @@ pub async fn handle_flow_dependency_job(
     }) {
         // Skip phase 3. Phase 1's deletes are committed; flow is left with no
         // deps and the previous `flow.value`. Self-healing on next dep job.
+        tally_unfinished_dependency_deploy(db, &job).await;
         return Ok(to_raw_value_owned(json!({
             "status": "Flow lock generation was canceled",
         })));
@@ -857,7 +858,7 @@ fn get_deployment_msg_and_parent_path_from_args(
 /// the success path, and nothing ever re-scans `workspace_diff` — so without this the
 /// change stays invisible in the fork's "Compare & Deploy" list forever, with no way
 /// to surface it short of redeploying the item.
-pub async fn tally_unfinished_dependency_deploy(db: &DB, job: &MiniPulledJob) {
+pub(crate) async fn tally_unfinished_dependency_deploy(db: &DB, job: &MiniPulledJob) {
     // `runnable_id` is what distinguishes a deploy from a one-off preview lock job,
     // which has nothing saved to tally.
     let (Some(path), Some(version)) = (job.runnable_path.clone(), job.runnable_id.map(|h| h.0))
@@ -877,14 +878,20 @@ pub async fn tally_unfinished_dependency_deploy(db: &DB, job: &MiniPulledJob) {
         }
         JobKind::AppDependencies => {
             // `raw_app` decides the diff kind ("app" vs "raw_app"), so it has to be
-            // read back rather than guessed.
-            let raw_app =
-                sqlx::query_scalar::<_, bool>("SELECT raw_app FROM app_version WHERE id = $1")
-                    .bind(version)
-                    .fetch_optional(db)
-                    .await
-                    .unwrap_or_default()
-                    .unwrap_or(false);
+            // read back rather than guessed — a wrong kind writes a row nothing reads.
+            let raw_app = match sqlx::query_scalar!(
+                "SELECT raw_app FROM app_version WHERE id = $1",
+                version
+            )
+            .fetch_optional(db)
+            .await
+            {
+                Ok(v) => v.unwrap_or(false),
+                Err(e) => {
+                    tracing::error!(%e, "could not read app_version {version} to tally fork changes");
+                    return;
+                }
+            };
             if raw_app {
                 DeployedObject::RawApp { path, version, parent_path: parent_path.clone() }
             } else {
@@ -2217,6 +2224,7 @@ pub async fn handle_app_dependency_job(
             tracing::error!(%job.id, %err, "error checking cancelation for job {0}: {err}", job.id);
             false
         }) {
+            tally_unfinished_dependency_deploy(db, &job).await;
             return Ok(());
         }
 
