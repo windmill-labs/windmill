@@ -307,9 +307,7 @@ pub(crate) async fn handle_dbt_job(
         // The restored arguments are what this retry builds with, so they decide
         // its graph — asked again here because the retry's own submission carries
         // only `dbt_command`, and the deployed graph would show the wrong enabled
-        // models, aliases or schemas for an overridden run. This is past the
-        // agent-worker guard, so the same `Connection` test keeps it from
-        // reaching an ingest that cannot run there.
+        // models, aliases or schemas for an overridden run.
         prepared
             .graph_refresh
             .add_caller_args(&descriptor, &inv.raw_args)?;
@@ -953,10 +951,18 @@ impl PreparedProject {
         // `test_behavior` all change which nodes a run touches, and enumerating
         // them means the next field added to the descriptor is silently left
         // out of the check.
+        //
+        // The RESOLVED engine and adapter versions, not just the engine kind:
+        // an unchanged project redeployed after a release resolves a newer dbt
+        // or adapter, and the artifacts of the older one are what the saved
+        // state holds. The lockfile exists to pin exactly this, so a retry that
+        // ignored it would feed one version's `run_results.json` to another.
         format!(
-            "{}|{}|{}|{}|{}|{}",
+            "{}|{}|{}|{}|{}|{}|{}|{}",
             self.project_digest,
             self.engine.engine.as_str(),
+            self.engine.version,
+            self.engine.adapter_version.as_deref().unwrap_or(""),
             digest(&self.descriptor_content),
             self.env_digest(),
             self.relation_root(),
@@ -4078,17 +4084,17 @@ fn effective_exclude(descriptor: &DbtDescriptor, inv: &Invocation) -> error::Res
     Ok(arg_list(&inv.args, "exclude")?.unwrap_or_else(|| descriptor.exclude.clone()))
 }
 
-/// Whether an invocation selects a subset at all. `[]` from a run clears the
-/// descriptor's selector, which puts the run back to the whole project.
+/// Whether an invocation selects a subset at all, from whichever of the
+/// descriptor's fields and the run's arguments end up in force.
 fn has_selection(descriptor: &DbtDescriptor, inv: &Invocation) -> error::Result<bool> {
     Ok(!effective_select(descriptor, inv)?.is_empty()
         || !effective_exclude(descriptor, inv)?.is_empty()
         || effective_selector(descriptor, inv)?.is_some())
 }
 
-/// An explicitly supplied list, including an empty one — passing `[]` is how a
-/// run clears a selector the descriptor sets, so it must not read as "absent"
-/// and fall back to the descriptor.
+/// An explicitly supplied list, including an empty one — `[]` is how a run asks
+/// for the whole project where the descriptor named a selection, so it must not
+/// read as "absent" and fall back to that selection.
 ///
 /// A malformed one is an error rather than an absence: argument-schema
 /// validation is opt-in, so treating `"stg_orders"` as unset would silently run
@@ -4176,11 +4182,11 @@ mod tests {
         assert_eq!(ev.error.as_deref(), Some("boom"));
     }
 
-    // A run clears a descriptor selector by passing `[]`. Reading that as
-    // "absent" would fall back to the descriptor and build a different model
-    // set than the run asked for.
+    // `[]` against a descriptor that names a selection is how a run asks for the
+    // whole project. Reading it as "absent" would fall back to the descriptor's
+    // and build a different model set than the run asked for.
     #[test]
-    fn an_empty_override_clears_the_descriptor_selection() {
+    fn an_empty_override_widens_a_descriptor_selection() {
         let descriptor =
             DbtDescriptor { select: vec!["tag:nightly".to_string()], ..Default::default() };
         let cleared = Invocation {
