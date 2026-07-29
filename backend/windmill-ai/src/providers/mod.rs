@@ -48,6 +48,15 @@ pub fn create_query_builder(
     }
 }
 
+/// The builder for the same resource on the OpenAI-compatible `/chat/completions`
+/// surface, for a provider whose preferred surface it turned out not to serve
+/// (`QueryBuilder::supports_chat_completions_fallback`).
+pub fn create_chat_completions_query_builder(
+    credentials: &ProviderCredentials,
+) -> Box<dyn QueryBuilder> {
+    Box::new(OtherQueryBuilder::new(credentials.provider.clone()))
+}
+
 /// The proxy (workspace/instance AI settings) and the query builder (AI agent step)
 /// each derive the endpoint and the credential header for the same resource. They
 /// must agree, or a resource authenticates in one and 401s in the other.

@@ -77,6 +77,15 @@ pub trait QueryBuilder: Send + Sync {
         false
     }
 
+    /// Whether a rejected request may be retried on the `/chat/completions`
+    /// surface of the same resource. Azure serves the Responses API for only a
+    /// subset of models and regions, and an Azure model name is a user-chosen
+    /// deployment name that says nothing about the model behind it, so such a
+    /// resource can only find out by being asked.
+    fn supports_chat_completions_fallback(&self, _base_url: &str) -> bool {
+        false
+    }
+
     /// Build a provider-specific request from an OpenAI-compatible proxy request.
     fn build_proxy_request(&self, args: &ProxyBuildArgs<'_>) -> Result<ProxyRequest, Error> {
         Err(Error::BadRequest(format!(

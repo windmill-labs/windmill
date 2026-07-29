@@ -23,7 +23,7 @@ use crate::ai::tools::McpClientStub as McpClient;
 use windmill_ai::{
     ai_providers::AIProvider,
     image_handler::upload_image_to_s3,
-    providers::create_query_builder,
+    providers::{create_chat_completions_query_builder, create_query_builder},
     proxy::{
         common_outbound_headers, needs_unavailable_oauth_exchange, retain_effective_credentials,
     },
@@ -834,7 +834,7 @@ pub async fn run_agent(
     let api_key = credentials.api_key.as_deref().unwrap_or("");
 
     // Create the query builder for the provider
-    let query_builder = create_query_builder(&credentials, args.provider.get_model());
+    let mut query_builder = create_query_builder(&credentials, args.provider.get_model());
 
     // Initialize messages
     let mut messages =
@@ -1185,24 +1185,25 @@ pub async fn run_agent(
             let pinned_ai_client = pinned_ai_client_for(base_url).await?;
 
             // Helper to build HTTP request with headers
-            let build_http_request = |body: String| {
-                let mut req = pinned_ai_client
-                    .post(&endpoint)
-                    .timeout(timeout)
-                    .header("Content-Type", "application/json");
+            let build_http_request =
+                |endpoint: &str, auth_headers: &[(&'static str, String)], body: String| {
+                    let mut req = pinned_ai_client
+                        .post(endpoint)
+                        .timeout(timeout)
+                        .header("Content-Type", "application/json");
 
-                for (header_name, header_value) in &auth_headers {
-                    req = req.header(*header_name, header_value.clone());
-                }
+                    for (header_name, header_value) in auth_headers {
+                        req = req.header(*header_name, header_value.clone());
+                    }
 
-                for (header_name, header_value) in &trailing_headers {
-                    req = req.header(header_name.as_str(), header_value.as_str());
-                }
+                    for (header_name, header_value) in &trailing_headers {
+                        req = req.header(header_name.as_str(), header_value.as_str());
+                    }
 
-                req.body(body)
-            };
+                    req.body(body)
+                };
 
-            let resp = build_http_request(request_body.clone())
+            let resp = build_http_request(&endpoint, &auth_headers, request_body.clone())
                 .send()
                 .await
                 .map_err(|e| Error::internal_err(format!("Failed to call API: {}", e)))?;
@@ -1225,7 +1226,65 @@ pub async fn run_agent(
                             || text.contains("include_usage")
                             || text.contains("Additional properties are not allowed"));
 
-                    if should_retry {
+                    // A resource that does not serve the endpoint this provider prefers
+                    // (an Azure deployment outside the Responses API's model/region
+                    // matrix) rejects the route itself, so the same step runs on
+                    // `/chat/completions` instead, this iteration and the ones after it.
+                    let should_fall_back_to_chat_completions = query_builder
+                        .supports_chat_completions_fallback(base_url)
+                        && matches!(status.as_u16(), 400 | 404)
+                        && *output_type == OutputType::Text;
+
+                    if should_fall_back_to_chat_completions {
+                        tracing::info!(
+                            "Endpoint rejected the request ({}), falling back to chat/completions",
+                            status
+                        );
+
+                        query_builder = create_chat_completions_query_builder(&credentials);
+
+                        let fallback_body = query_builder
+                            .build_request(&build_args, client, &job.workspace_id)
+                            .await?;
+                        let fallback_endpoint = query_builder.get_endpoint(
+                            base_url,
+                            args.provider.get_model(),
+                            output_type,
+                        );
+                        let fallback_auth_headers = retain_effective_credentials(
+                            &credentials,
+                            query_builder.get_auth_headers(api_key, base_url, output_type),
+                        );
+
+                        let fallback_resp = build_http_request(
+                            &fallback_endpoint,
+                            &fallback_auth_headers,
+                            fallback_body,
+                        )
+                        .send()
+                        .await
+                        .map_err(|e| {
+                            Error::internal_err(format!(
+                                "Failed to call API on chat/completions fallback: {}",
+                                e
+                            ))
+                        })?;
+
+                        match fallback_resp.error_for_status_ref() {
+                            Ok(_) => fallback_resp,
+                            Err(fallback_e) => {
+                                let fallback_text = fallback_resp
+                                    .text()
+                                    .await
+                                    .unwrap_or_else(|_| "<failed to read body>".to_string());
+                                return Err(Error::internal_err(format!(
+                                    "API error: {} - {} (the chat/completions fallback also \
+                                     failed: {} - {})",
+                                    e, text, fallback_e, fallback_text
+                                )));
+                            }
+                        }
+                    } else if should_retry {
                         tracing::info!(
                             "Retrying request without stream_options due to provider incompatibility"
                         );
@@ -1234,8 +1293,10 @@ pub async fn run_agent(
                             .build_request_without_usage(&build_args, client, &job.workspace_id)
                             .await?;
 
-                        let retry_resp =
-                            build_http_request(retry_body).send().await.map_err(|e| {
+                        let retry_resp = build_http_request(&endpoint, &auth_headers, retry_body)
+                            .send()
+                            .await
+                            .map_err(|e| {
                                 Error::internal_err(format!("Failed to call API on retry: {}", e))
                             })?;
 
