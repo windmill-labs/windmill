@@ -2,6 +2,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import process from "node:process";
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 import * as log from "../../core/log.ts";
 import { colors } from "@cliffy/ansi/colors";
 import * as windmillUtils from "@windmill-labs/shared-utils";
@@ -79,10 +81,40 @@ export function detectFrameworks(appDir: string): { svelte: boolean; vue: boolea
 }
 
 /**
+ * Loads the Svelte compiler out of the *app's* node_modules.
+ *
+ * The app brings its own Svelte runtime via package.json, and compiler and
+ * runtime have to agree on internals: Svelte 5.52.0 moved delegated event
+ * handlers off `element.__click` onto a Symbol-keyed map, so an older
+ * compiler's `onclick` output is silently ignored by a newer runtime — the app
+ * builds and renders with every handler dead. A bare `import("svelte/compiler")`
+ * resolves against this CLI instead, whose own svelte floats independently of
+ * the app's, which is exactly how the two drift apart.
+ *
+ * Falls back to the CLI's own compiler when the app has none resolvable.
+ */
+export async function loadSvelteCompiler(appDir: string): Promise<any> {
+  try {
+    const requireFromApp = createRequire(
+      path.join(path.resolve(appDir), "package.json")
+    );
+    const entry = requireFromApp.resolve("svelte/compiler");
+    return await import(pathToFileURL(entry).href);
+  } catch {
+    return await import("svelte/compiler");
+  }
+}
+
+/**
  * Creates a Svelte esbuild plugin
  * Uses the svelte compiler from the project's node_modules
  */
 function createSveltePlugin(appDir: string): any {
+  // Resolved once per build, not per file.
+  let compilerPromise: Promise<any> | undefined;
+  const svelteCompiler = () =>
+    (compilerPromise ??= loadSvelteCompiler(appDir));
+
   // This converts a message in Svelte's format to esbuild's format
   const messageConverter =
     (source: string, filename: string) =>
@@ -106,8 +138,7 @@ function createSveltePlugin(appDir: string): any {
     name: "svelte",
     setup(build: any) {
       build.onLoad({ filter: /\.svelte$/ }, async (args: any) => {
-        // Import svelte compiler from the project's node_modules
-        const svelte = await import("svelte/compiler");
+        const svelte = await svelteCompiler();
 
         // Load the file from the file system
         const source = await readTextFile(args.path);
@@ -128,7 +159,7 @@ function createSveltePlugin(appDir: string): any {
       // They need `compileModule`, otherwise `$state`/`$derived` sail through
       // esbuild untouched and the bundle throws "$state is not defined".
       build.onLoad({ filter: /\.svelte\.[jt]s$/ }, async (args: any) => {
-        const svelte = await import("svelte/compiler");
+        const svelte = await svelteCompiler();
 
         const source = await readTextFile(args.path);
         const filename = path.relative(process.cwd(), args.path);
