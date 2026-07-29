@@ -3221,9 +3221,11 @@ async fn archive_script_by_path(
     .map_err(|e| Error::internal_err(format!("archiving script in {w_id}: {e:#}")))?;
 
     clear_static_asset_usage(&mut *tx, &w_id, path, AssetUsageKind::Script).await?;
-    // The dbt sidecar is keyed by script path with no FK, so an archived dbt
-    // script would keep supplying provenance for relations it no longer owns.
-    windmill_common::dbt_manifest::clear_dbt_manifest(&mut tx, &w_id, path).await?;
+    // The graph stays: the pinned read resolves versions through a CTE that
+    // already skips archived rows, so it stops answering for current relations
+    // either way, while deleting it would empty the Models panel of every
+    // completed run of the project. Retry state does go — nothing may resume a
+    // script that is no longer live.
     windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, path).await?;
     // Pipeline event hygiene: an archived script must not be triggered by
     // anything. Wipe declared `// on ...` edges (asset-event subscribers
@@ -3307,8 +3309,8 @@ async fn archive_script_by_hash(
 
     check_scopes(&authed, || format!("scripts:write:{}", &script.path))?;
     clear_static_asset_usage_by_script_hash(&mut *tx, &w_id, hash).await?;
-    windmill_common::dbt_manifest::clear_dbt_manifest_version(&mut tx, &w_id, &script.path, hash.0)
-        .await?;
+    // The version's graph stays: its finished runs still render from it, and
+    // the live-version CTE already skips archived rows. Deletion clears it.
     windmill_common::dbt_manifest::clear_dbt_run_state_if_path_retired(
         &mut tx,
         &w_id,

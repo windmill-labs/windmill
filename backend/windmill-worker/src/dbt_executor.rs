@@ -222,7 +222,13 @@ pub(crate) async fn handle_dbt_job(
     // version's graph for the runs that did not override. A retry submits only
     // `dbt_command`, so this is re-asked once the failed run's arguments are
     // restored, below — those are the ones it actually builds with.
-    if has_vars_override(&args) {
+    //
+    // Only where the graph could be re-ingested. An agent worker cannot, and
+    // refusing the run over it would ground a project whose DESCRIPTOR is
+    // perfectly static the moment someone passes `vars`; the guard below is for
+    // descriptors that cannot name their models at all. Such a run keeps the
+    // deployed graph, which is what it had before this override existed.
+    if has_vars_override(&args) && matches!(conn, Connection::Sql(_)) {
         prepared.graph_is_per_run = true;
     }
 
@@ -304,8 +310,10 @@ pub(crate) async fn handle_dbt_job(
         // The restored arguments are what this retry builds with, so they decide
         // its graph — asked again here because the retry's own submission carries
         // only `dbt_command`, and the deployed graph would show the wrong enabled
-        // models, aliases or schemas for an overridden run.
-        if has_vars_override(&inv.raw_args) {
+        // models, aliases or schemas for an overridden run. This is past the
+        // agent-worker guard, so the same `Connection` test keeps it from
+        // reaching an ingest that cannot run there.
+        if has_vars_override(&inv.raw_args) && matches!(conn, Connection::Sql(_)) {
             prepared.graph_is_per_run = true;
         }
         if restored.needs_parse {
