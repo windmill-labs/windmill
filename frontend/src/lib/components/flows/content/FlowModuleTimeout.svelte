@@ -2,10 +2,9 @@
 	import InputTransformForm from '$lib/components/InputTransformForm.svelte'
 	import type SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import Label from '$lib/components/Label.svelte'
 
 	import type { FlowModule } from '$lib/gen'
-	import { Alert, SecondsInput } from '../../common'
+	import { Alert } from '../../common'
 	import { emptySchema } from '$lib/utils'
 	import { getContext } from 'svelte'
 	import PropPickerWrapper from '$lib/components/flows/propPicker/PropPickerWrapper.svelte'
@@ -70,39 +69,32 @@
 			}
 		}}
 		options={{
-			right: 'Add a custom timeout for this step',
+			right: 'Custom timeout',
 			rightTooltip:
 				"The custom timeout is used instead of the instance timeout for the step. The step's timeout cannot be greater than the instance timeout."
 		}}
 	/>
-	<Label label="Timeout duration" class="mt-2">
-		{#if flowModule.timeout && schema.properties['timeout']}
-			<div class="border">
-				<PropPickerWrapper
-					popover={true}
-					flow_input={stepPropPicker.pickableProperties.flow_input}
-					notSelectable
-					pickableProperties={stepPropPicker.pickableProperties}
-					on:select={({ detail }) => {
-						editor?.insertAtCursor(detail)
-						editor?.focus()
-					}}
-				>
-					<InputTransformForm
-						bind:arg={flowModule.timeout}
-						argName="timeout"
-						{schema}
-						{previousModuleId}
-						argExtra={{ seconds: true }}
-						bind:editor
-					/>
-				</PropPickerWrapper>
-			</div>
-		{:else}
-			<SecondsInput disabled />
-			<div class="text-secondary text-sm">OR use a dynamic expression</div>
-		{/if}
-	</Label>
+	{#if flowModule.timeout && schema.properties['timeout']}
+		<PropPickerWrapper
+			popover={true}
+			flow_input={stepPropPicker.pickableProperties.flow_input}
+			notSelectable
+			pickableProperties={stepPropPicker.pickableProperties}
+			on:select={({ detail }) => {
+				editor?.insertAtCursor(detail)
+				editor?.focus()
+			}}
+		>
+			<InputTransformForm
+				bind:arg={flowModule.timeout}
+				argName="timeout"
+				{schema}
+				{previousModuleId}
+				argExtra={{ seconds: true }}
+				bind:editor
+			/>
+		</PropPickerWrapper>
+	{/if}
 
 	{#if flowModule.timeout && flowModule.timeout.type !== 'static'}
 		<div class="mt-4">

@@ -9,18 +9,18 @@
 	import { Button, Drawer } from '$lib/components/common'
 	import { getStepPropPicker } from '../previousResults'
 
-	import { Play, FunctionSquare } from 'lucide-svelte'
+	import { Play } from 'lucide-svelte'
 	import type { FlowModule, ForloopFlow, Job } from '$lib/gen'
 	import FlowLoopIterationPreview from '$lib/components/FlowLoopIterationPreview.svelte'
 	import IteratorGen from '$lib/components/copilot/IteratorGen.svelte'
 	import FlowRunSettings from './FlowRunSettings.svelte'
+	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
 
-	import FlowExpressionEditor from './FlowExpressionEditor.svelte'
+	import InputTransformForm from '$lib/components/InputTransformForm.svelte'
+	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
 	import { emptySchema } from '$lib/utils'
-	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
 	const { previewArgs, flowStateStore, flowStore, currentEditor } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -44,17 +44,17 @@
 	let editor: SimpleEditor | undefined = $state(undefined)
 	let parallelismEditor: SimpleEditor | undefined = $state(undefined)
 	let runSettings: FlowRunSettings | undefined = $state(undefined)
-	let parallelismType: 'static' | 'javascript' | undefined = $state(
-		mod.value.type === 'forloopflow'
-			? mod.value.parallelism?.type === 'javascript'
-				? 'javascript'
-				: 'static'
-			: undefined
-	)
 
 	let parallelismSchema = $state(emptySchema())
 	parallelismSchema.properties['parallelism'] = {
-		type: 'number'
+		type: 'integer'
+	}
+
+	// `array` keeps the field on the expression editor: an iterator is never a literal
+	// the static input could hold, which is also why the type switch is hidden.
+	let iteratorSchema = $state(emptySchema())
+	iteratorSchema.properties['iterator'] = {
+		type: 'array'
 	}
 
 	if (mod.value.type === 'forloopflow') {
@@ -114,6 +114,14 @@
 	})
 
 	let suggestion: string | undefined = $state(undefined)
+
+	const ITERATOR_LABEL = 'Iterator expression'
+	const ITERATOR_TOOLTIP =
+		'The JavaScript expression that will be evaluated to get the list of items to iterate over. Example: ["banana", "apple", flow_input.my_fruit].'
+	const DEFAULT_PARALLELISM = 4
+	const PARALLELISM_LABEL = 'Max concurrent iterations'
+	const PARALLELISM_TOOLTIP =
+		'Cap how many iterations run at once, so a huge loop does not flood the workers.'
 </script>
 
 <Drawer bind:open={previewOpen} alwaysOpen size="75%">
@@ -157,32 +165,38 @@
 	<div class="flex h-full min-h-0 flex-col gap-6 overflow-auto p-4">
 		{#if mod.value.type === 'forloopflow'}
 			<section>
-				{#if mod.value.iterator.type == 'javascript'}
-					<FlowExpressionEditor
-						bind:code={
-							() => {
-								const it = (mod.value as ForloopFlow).iterator
-								return it.type === 'javascript' ? it.expr : ''
-							},
+				<PropPickerWrapper
+					popover={true}
+					flow_input={stepPropPicker.pickableProperties.flow_input}
+					notSelectable
+					displayContext={false}
+					pickableProperties={stepPropPicker.pickableProperties}
+					on:select={({ detail }) => {
+						editor?.insertAtCursor(detail)
+						editor?.focus()
+					}}
+				>
+					<InputTransformForm
+						bind:arg={
+							() => (mod.value as ForloopFlow).iterator,
 							(v) => {
-								;(mod.value as ForloopFlow).iterator = { type: 'javascript', expr: v }
+								;(mod.value as ForloopFlow).iterator = v
 							}
 						}
-						label="Iterator expression"
-						documentationLink="https://www.windmill.dev/docs/flows/flow_loops"
-						pickableProperties={stepPropPicker.pickableProperties}
+						argName="iterator"
+						label={ITERATOR_LABEL}
+						headerTooltip={ITERATOR_TOOLTIP}
+						schema={iteratorSchema}
+						noDynamicToggle
 						extraLib={stepPropPicker.extraLib}
-						id="flow-editor-iterator-expression"
+						pickableProperties={stepPropPicker.pickableProperties}
+						previousModuleId={previousModule?.id}
+						bind:suggestion
 						bind:focused={iteratorFieldFocused}
+						aiOnKeyUp={iteratorGen?.onKeyUp}
 						bind:editor
-						{suggestion}
-						onKeyUp={iteratorGen?.onKeyUp}
 					>
-						{#snippet tooltip()}
-							The JavaScript expression that will be evaluated to get the list of items to iterate
-							over. Example : ["banana", "apple", flow_input.my_fruit].
-						{/snippet}
-						{#snippet headerExtra()}
+						{#snippet aiGen()}
 							{#if enableAi}
 								<IteratorGen
 									bind:this={iteratorGen}
@@ -194,160 +208,100 @@
 								/>
 							{/if}
 						{/snippet}
-					</FlowExpressionEditor>
-				{:else}
-					<Button
-						on:click={() => {
-							if (mod.value.type === 'forloopflow') mod.value.iterator.type = 'javascript'
-						}}
-					/>
-				{/if}
+					</InputTransformForm>
+				</PropPickerWrapper>
 			</section>
 
-			<section class="flex flex-col gap-4">
-				<div class="flex flex-row flex-wrap gap-6">
-					<div class="flex-shrink-0">
-						<div class="mb-2 text-xs font-semibold text-emphasis"
-							>Skip failures <Tooltip
-								documentationLink="https://www.windmill.dev/docs/flows/flow_loops"
-								>If disabled, the flow will fail as soon as one of the iteration fail. Otherwise,
-								the error will be collected as the result of the iteration. Regardless of this
-								setting, if a flow level error handler is defined, it will process the error.
-								(Workspace error handlers will NOT be used to process errors if enabled.)</Tooltip
-							></div
-						>
-						<Toggle bind:checked={mod.value.skip_failures} />
-					</div>
-					<div class="flex-shrink-0">
-						<div class="mb-2 text-xs font-semibold text-emphasis"
-							>Squash
-							<Tooltip documentationLink="https://www.windmill.dev/docs/flows/flow_loops">
-								Squashing a for loop runs all iterations on the same worker, using a single runner
-								per step for the entire loop. This eliminates cold starts between iterations for
-								supported languages (Bun, Deno, and Python).
-							</Tooltip>
-						</div>
+			<section class="flex flex-col gap-6">
+				<div class="flex flex-col gap-6">
+					<Toggle
+						size="xs"
+						textClass="text-xs font-normal text-primary"
+						bind:checked={mod.value.skip_failures}
+						options={{
+							right: 'Skip failures',
+							rightTooltip:
+								'If disabled, the flow will fail as soon as one of the iteration fail. Otherwise, the error will be collected as the result of the iteration. Regardless of this setting, if a flow level error handler is defined, it will process the error. (Workspace error handlers will NOT be used to process errors if enabled.)',
+							rightDocumentationLink: 'https://www.windmill.dev/docs/flows/flow_loops'
+						}}
+					/>
+					<Toggle
+						size="xs"
+						textClass="text-xs font-normal text-primary"
+						bind:checked={mod.value.squash}
+						on:change={({ detail }) => {
+							;(mod.value as ForloopFlow).squash = detail
+						}}
+						disabled={mod.value.parallel}
+						options={{
+							right: 'Squash',
+							rightTooltip:
+								'Squashing a for loop runs all iterations on the same worker, using a single runner per step for the entire loop. This eliminates cold starts between iterations for supported languages (Bun, Deno, and Python).',
+							rightDocumentationLink: 'https://www.windmill.dev/docs/flows/flow_loops'
+						}}
+					/>
+					<!-- Its own group: the setting's input belongs to the toggle above it, not
+					     24px away like the next setting. -->
+					<div class="flex flex-col gap-2">
 						<Toggle
-							bind:checked={mod.value.squash}
-							on:change={({ detail }) => {
-								;(mod.value as ForloopFlow).squash = detail
-							}}
-							disabled={mod.value.parallel}
-						/>
-					</div>
-					<div class="flex-shrink-0">
-						<div class="mb-2 text-xs font-semibold text-emphasis">Run in parallel</div>
-						<Toggle
+							size="xs"
+							textClass="text-xs font-normal text-primary"
 							bind:checked={mod.value.parallel}
 							on:change={({ detail }) => {
-								if (detail === false) {
-									;(mod.value as ForloopFlow).parallelism = undefined
-								}
+								// An absent `parallelism` means "no cap" to the worker, and the input form
+								// renders nothing without a value — so seed one when parallel is switched on.
+								;(mod.value as ForloopFlow).parallelism = detail
+									? { type: 'static', value: DEFAULT_PARALLELISM }
+									: undefined
 							}}
 							disabled={mod.value.squash}
+							options={{
+								right: 'Run in parallel',
+								rightTooltip: 'Run the iterations concurrently instead of one after the other.',
+								rightDocumentationLink: 'https://www.windmill.dev/docs/flows/flow_loops'
+							}}
 						/>
-					</div>
-					<div class="flex-shrink-0" class:opacity-50={!mod.value.parallel}>
-						<div class="mb-2 text-xs font-semibold text-emphasis"
-							>Parallelism <Tooltip
-								>Assign a maximum number of branches run in parallel to control huge for-loops.</Tooltip
-							>
-						</div>
-						<div class="flex gap-2 items-center">
-							<input
-								type="number"
-								min="1"
-								class="w-20 px-2 py-1 text-sm border border-gray-200 dark:border-gray-700 rounded bg-surface"
-								disabled={!mod.value.parallel || parallelismType === 'javascript'}
-								placeholder={parallelismType === 'javascript' ? 'Expression' : ''}
-								bind:value={
-									() => {
-										const parallelismExpr = (mod.value as ForloopFlow).parallelism
-
-										return parallelismExpr && parallelismExpr.type === 'static'
-											? parallelismExpr.value
-											: ''
-									},
-									(value) => {
-										if (value === '' || value === null || value === undefined) {
-											;(mod.value as ForloopFlow).parallelism = undefined
-										} else {
-											;(mod.value as ForloopFlow).parallelism = {
-												type: 'static',
-												value
-											}
-										}
-									}
-								}
-							/>
-							<ToggleButtonGroup
-								disabled={!mod.value.parallel}
-								bind:selected={parallelismType}
-								on:selected={(e) => {
-									const forLoopFlow = mod.value as ForloopFlow
-									if (e.detail == parallelismType) return
-									if (e.detail === 'javascript') {
-										if (!forLoopFlow.parallelism || forLoopFlow.parallelism.type !== 'javascript') {
-											;(mod.value as ForloopFlow).parallelism = {
-												type: 'javascript',
-												expr: ''
-											}
-										}
-									} else {
-										if (!forLoopFlow.parallelism || forLoopFlow.parallelism.type !== 'static') {
-											;(mod.value as ForloopFlow).parallelism = {
-												type: 'static',
-												value: 0
-											}
-										}
-									}
+						{#if mod.value.parallel}
+							<PropPickerWrapper
+								popover={true}
+								flow_input={stepPropPicker.pickableProperties.flow_input}
+								notSelectable
+								displayContext={false}
+								pickableProperties={stepPropPicker.pickableProperties}
+								on:select={({ detail }) => {
+									parallelismEditor?.insertAtCursor(detail)
+									parallelismEditor?.focus()
 								}}
 							>
-								{#snippet children({ item })}
-									<ToggleButton small label="static" value="static" {item} />
-
-									<ToggleButton
-										small
-										tooltip="JavaScript expression ('flow_input' or 'results')."
-										value="javascript"
-										icon={FunctionSquare}
-										{item}
-									/>
-								{/snippet}
-							</ToggleButtonGroup>
-						</div>
+							<InputTransformForm
+								bind:arg={
+									() => (mod.value as ForloopFlow).parallelism,
+									(v) => {
+										;(mod.value as ForloopFlow).parallelism = v
+									}
+								}
+								argName="parallelism"
+								label={PARALLELISM_LABEL}
+								headerTooltip={PARALLELISM_TOOLTIP}
+								schema={parallelismSchema}
+								argExtra={{ min: 1, step: 1 }}
+								animateAppear
+								previousModuleId={previousModule?.id}
+								bind:editor={parallelismEditor}
+							/>
+							</PropPickerWrapper>
+						{/if}
 					</div>
-				</div>
 
-				{#if mod.value.type === 'forloopflow' && mod.value.parallel && mod.value.parallelism?.type == 'javascript'}
-					<FlowExpressionEditor
-						bind:code={
-							() => {
-								const p = (mod.value as ForloopFlow).parallelism
-								return p && p.type === 'javascript' ? p.expr : ''
-							},
-							(v) => {
-								;(mod.value as ForloopFlow).parallelism = { type: 'javascript', expr: v }
-							}
-						}
-						label="Parallelism expression"
-						pickableProperties={stepPropPicker.pickableProperties}
-						extraLib={stepPropPicker.extraLib}
-						bind:editor={parallelismEditor}
-						id="flow-editor-parallel-expression"
-					>
-						{#snippet tooltip()}
-							JavaScript expression that defines the maximum number of parallel executions. Example:
-							flow_input.max_parallel || 3
-						{/snippet}
-					</FlowExpressionEditor>
-				{/if}
+					<FlowModuleEarlyStop blocks="stop-after" bind:flowModule={mod} />
+				</div>
 			</section>
 
 			<section>
 				<FlowRunSettings
 					embedded
 					loopSubset
+					earlyStopBlocks="all-iters"
 					bind:this={runSettings}
 					bind:flowModule={mod}
 					{parentModule}

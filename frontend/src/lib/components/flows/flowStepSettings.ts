@@ -321,14 +321,6 @@ export function describeStepSettings(
 	}))
 }
 
-/** Keyed lookup over the same data, for surfaces that render a fixed layout. */
-export function stepSettingsByKey(
-	mod: FlowModule,
-	referenced?: ScriptAdvancedSettingsFields
-): Partial<Record<StepSettingKey, StepSettingView>> {
-	return Object.fromEntries(describeStepSettings(mod, referenced).map((v) => [v.key, v]))
-}
-
 /** How a trigger step decides it has nothing to process. Stored on the step at
  *  creation, so changing it only affects newly created steps. */
 // Falsy-or-empty, not `result == undefined`: a trigger returning nothing new may say so

@@ -160,10 +160,8 @@
 >
 	{#if popover}
 		<!-- The picker lives on each input's connect button here, so the row keeps its
-		     full width. -->
-		<div class={noPadding ? '' : 'p-2'}>
-			{@render children?.()}
-		</div>
+		     full width — and its own spacing, since the setting around it lays that out. -->
+		{@render children?.()}
 	{:else}
 		<Splitpanes class={$propPickerConfig ? 'splitpanes-remove-splitter' : ''}>
 			<Pane minSize={20} size={60} class={'relative !transition-none'}>

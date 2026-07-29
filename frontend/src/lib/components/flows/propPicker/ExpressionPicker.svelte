@@ -66,7 +66,6 @@
 	{#snippet trigger()}
 		<FlowPlugConnect
 			connecting={connect.isArmed(id)}
-			disableAnimation={inModalPanel}
 			{disabled}
 			title="Connect a property from a previous step"
 		/>

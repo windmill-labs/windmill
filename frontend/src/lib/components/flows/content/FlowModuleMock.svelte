@@ -55,7 +55,7 @@
 	}
 </script>
 
-<div class="flex flex-col gap-3">
+<div class="flex flex-col gap-2">
 	<Toggle
 		size="xs"
 		textClass="text-xs font-normal text-primary"
@@ -75,22 +75,16 @@
 			}
 		}}
 		options={{
-			right: 'Return a pinned value instead of running this step',
+			right: 'Pin output',
 			rightTooltip:
 				'While pinned, the step returns this value immediately instead of executing. The same control lives on the step in the graph.'
 		}}
 	/>
-	<Label label="Pinned value">
-		{#if isMockEnabled}
+	{#if isMockEnabled}
+		<Label label="Pinned value">
 			{#key renderCount}
 				<JsonEditor {code} on:changeValue={updateMockValue} />
 			{/key}
-		{:else}
-			<pre class="text-xs border rounded p-2 bg-surface-disabled"
-				>{flowModule.mock?.return_value
-					? JSON.stringify(flowModule.mock?.return_value, null, 2)
-					: ''}</pre
-			>
-		{/if}
-	</Label>
+		</Label>
+	{/if}
 </div>

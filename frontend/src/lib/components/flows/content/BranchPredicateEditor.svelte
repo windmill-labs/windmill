@@ -6,7 +6,10 @@
 	import type { FlowEditorContext } from '../types'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import PredicateGen from '$lib/components/copilot/PredicateGen.svelte'
-	import FlowExpressionEditor from './FlowExpressionEditor.svelte'
+	import InputTransformForm from '$lib/components/InputTransformForm.svelte'
+	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
+	import type SimpleEditor from '$lib/components/SimpleEditor.svelte'
+	import { emptySchema } from '$lib/utils'
 
 	interface Props {
 		branch: {
@@ -24,6 +27,12 @@
 	// Collapsed until edited: the editor mounts Monaco, and a branch-one step renders one
 	// of these per branch, so mounting them all scales panel cost with branch count.
 	let open = $state(false)
+	let editor: SimpleEditor | undefined = $state(undefined)
+
+	// The predicate is a bare string on `branch`, so the form is told its kind through
+	// `argType` rather than inferring one from the value.
+	let predicateSchema = $state(emptySchema())
+	predicateSchema.properties['expr'] = { type: 'boolean' }
 
 	const { previewArgs, flowStateStore, flowStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -42,28 +51,45 @@
 </script>
 
 {#if open}
-	<FlowExpressionEditor
-		label="Run this branch if"
-		bind:code={branch.expr}
+	<PropPickerWrapper
+		popover={true}
+		flow_input={stepPropPicker.pickableProperties.flow_input}
+		notSelectable
+		displayContext={false}
 		pickableProperties={stepPropPicker.pickableProperties}
-		extraLib={stepPropPicker.extraLib}
-		id="flow-editor-edit-predicate"
+		on:select={({ detail }) => {
+			editor?.insertAtCursor(detail)
+			editor?.focus()
+		}}
 	>
-		{#snippet tooltip()}
-			The first branch whose expression evaluates to true is the one that runs.
-		{/snippet}
-		{#snippet headerExtra()}
-			{#if enableAi}
-				<PredicateGen
-					on:setExpr={(e) => {
-						branch.expr = e.detail
-					}}
-					on:updateSummary
-					pickableProperties={stepPropPicker.pickableProperties}
-				/>
-			{/if}
-		{/snippet}
-	</FlowExpressionEditor>
+		<!-- `branch` itself is the arg: the form reads and writes `arg.expr` in place, which
+		     is exactly where the predicate lives. Its other keys are inert here. -->
+		<InputTransformForm
+			bind:arg={branch}
+			argName="expr"
+			argType="javascript"
+			label="Run this branch if"
+			headerTooltip="The first branch whose expression evaluates to true is the one that runs."
+			noDynamicToggle
+			schema={predicateSchema}
+			previousModuleId={previousModule?.id}
+			pickableProperties={stepPropPicker.pickableProperties}
+			extraLib={stepPropPicker.extraLib}
+			bind:editor
+		>
+			{#snippet aiGen()}
+				{#if enableAi}
+					<PredicateGen
+						on:setExpr={(e) => {
+							branch.expr = e.detail
+						}}
+						on:updateSummary
+						pickableProperties={stepPropPicker.pickableProperties}
+					/>
+				{/if}
+			{/snippet}
+		</InputTransformForm>
+	</PropPickerWrapper>
 {:else}
 	<div class="flex flex-col gap-2">
 		<div class="text-xs font-semibold text-emphasis">Run this branch if</div>

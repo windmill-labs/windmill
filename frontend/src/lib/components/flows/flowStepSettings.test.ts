@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import type { FlowModule } from '$lib/gen'
-import { describeStepSettings, hasInlineConcurrency, stepSettingsByKey } from './flowStepSettings'
+import { describeStepSettings, hasInlineConcurrency } from './flowStepSettings'
+
+const stepSettingsByKey = (...args: Parameters<typeof describeStepSettings>) =>
+	Object.fromEntries(describeStepSettings(...args).map((v) => [v.key, v]))
 
 function step(overrides: Partial<FlowModule> = {}): FlowModule {
 	return {

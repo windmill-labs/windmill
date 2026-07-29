@@ -3,13 +3,13 @@
 	import FlowCard from '../common/FlowCard.svelte'
 	import type { FlowEditorContext } from '../types'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { Button, Drawer, Alert } from '$lib/components/common'
 
 	import { Play } from 'lucide-svelte'
 	import type { FlowModule, Job, WhileloopFlow } from '$lib/gen'
 	import FlowLoopIterationPreview from '$lib/components/FlowLoopIterationPreview.svelte'
 	import FlowRunSettings from './FlowRunSettings.svelte'
+	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
 	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
 
 	const { flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -85,43 +85,41 @@
 		{/if}
 
 		{#if mod.value.type === 'whileloopflow'}
-			<section class="flex flex-col gap-4">
-				<div class="flex flex-row flex-wrap gap-6">
-					<div class="flex-shrink-0">
-						<div class="mb-2 text-xs font-semibold text-emphasis"
-							>Skip failures <Tooltip
-								documentationLink="https://www.windmill.dev/docs/flows/while_loops"
-								>If disabled, the flow will fail as soon as one of the iteration fail. Otherwise,
-								the error will be collected as the result of the iteration. Regardless of this
-								setting, if a flow level error handler is defined, it will process the error.
-								(Workspace error handlers will NOT be used to process errors if enabled.)</Tooltip
-							></div
-						>
-						<Toggle bind:checked={mod.value.skip_failures} />
-					</div>
-					<div class="flex-shrink-0">
-						<div class="mb-2 text-xs font-semibold text-emphasis"
-							>Squash
-							<Tooltip documentationLink="https://www.windmill.dev/docs/flows/while_loops">
-								Squashing a while loop runs all iterations on the same worker, using a single runner
-								per step for the entire loop. This eliminates cold starts between iterations for
-								supported languages (Bun, Deno, and Python).
-							</Tooltip>
-						</div>
-						<Toggle
-							bind:checked={mod.value.squash}
-							on:change={({ detail }) => {
-								;(mod.value as WhileloopFlow).squash = detail
-							}}
-						/>
-					</div>
-				</div>
+			<section class="flex flex-col gap-6">
+				<Toggle
+					size="xs"
+					textClass="text-xs font-normal text-primary"
+					bind:checked={mod.value.skip_failures}
+					options={{
+						right: 'Skip failures',
+						rightTooltip:
+							'If disabled, the flow will fail as soon as one of the iteration fail. Otherwise, the error will be collected as the result of the iteration. Regardless of this setting, if a flow level error handler is defined, it will process the error. (Workspace error handlers will NOT be used to process errors if enabled.)',
+						rightDocumentationLink: 'https://www.windmill.dev/docs/flows/while_loops'
+					}}
+				/>
+				<Toggle
+					size="xs"
+					textClass="text-xs font-normal text-primary"
+					bind:checked={mod.value.squash}
+					on:change={({ detail }) => {
+						;(mod.value as WhileloopFlow).squash = detail
+					}}
+					options={{
+						right: 'Squash',
+						rightTooltip:
+							'Squashing a while loop runs all iterations on the same worker, using a single runner per step for the entire loop. This eliminates cold starts between iterations for supported languages (Bun, Deno, and Python).',
+						rightDocumentationLink: 'https://www.windmill.dev/docs/flows/while_loops'
+					}}
+				/>
+
+				<FlowModuleEarlyStop blocks="stop-after" bind:flowModule={mod} />
 			</section>
 
 			<section>
 				<FlowRunSettings
 					embedded
 					loopSubset
+					earlyStopBlocks="all-iters"
 					bind:this={runSettings}
 					bind:flowModule={mod}
 					{parentModule}

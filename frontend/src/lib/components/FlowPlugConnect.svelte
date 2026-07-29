@@ -8,8 +8,6 @@
 		connecting: boolean
 		id?: undefined | string
 		wrapperClasses?: string
-		/** Suppress the animated ring (e.g. the sessions modal panel). */
-		disableAnimation?: boolean
 		disabled?: boolean
 		title?: string
 	}
@@ -18,7 +16,6 @@
 		connecting,
 		id = undefined,
 		wrapperClasses = '',
-		disableAnimation = false,
 		disabled = false,
 		title = undefined
 	}: Props = $props()
@@ -27,7 +24,7 @@
 	// encloses the button. Give it an opaque ground while animating, or the gradient shows
 	// straight through. It can't go on the wrapper itself — the scoped `.gradient-button`
 	// rule outranks a utility class there.
-	const animating = $derived(connecting && !disableAnimation)
+	const animating = $derived(connecting)
 </script>
 
 <div class="flex {animating ? 'bg-surface rounded-md' : ''}">
@@ -43,14 +40,15 @@
 			{...title ? { title } : {}}
 			{...id ? { id } : {}}
 			wrapperClasses={twMerge(
-				// Shrink by exactly the animated ring's margin so the button keeps its
-				// footprint and nothing beside it shifts when a connect is armed.
-				animating ? 'h-6 w-7' : 'h-7 w-8',
+				// h-5 matches ButtonType.UnifiedHeightClasses.xs, the height of the
+				// static/expression switch it sits next to. Shrink by exactly the animated
+				// ring's margin so the footprint holds and nothing beside it shifts.
+				animating ? 'h-4 w-7' : 'h-5 w-8',
 				'p-0',
 				wrapperClasses
 			)}
 		>
-			<Plug size={14} />
+			<Plug size={12} />
 		</Button>
 	</AnimatedButton>
 </div>

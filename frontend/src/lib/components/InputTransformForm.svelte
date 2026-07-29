@@ -11,14 +11,13 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
 	import type { InputCat, DynamicInput as DynamicInputTypes } from '$lib/utils'
-	import { createEventDispatcher, getContext, onDestroy, untrack } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy, untrack, type Snippet } from 'svelte'
 	import { computeShow } from '$lib/utils'
 
 	import ArgInput from './ArgInput.svelte'
 	import FieldHeader from './FieldHeader.svelte'
 	import DynamicInputHelpBox from './flows/content/DynamicInputHelpBox.svelte'
 	import type { PropPickerWrapperContext } from './flows/propPicker/PropPickerWrapper.svelte'
-	import type { PropPickerContext } from './prop_picker'
 	import { codeToStaticTemplate, getDefaultExpr } from './flows/utils.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import { Button, ButtonType } from '$lib/components/common'
@@ -43,11 +42,25 @@
 	import S3ArrayHelperButton from './S3ArrayHelperButton.svelte'
 	import { inputBorderClass } from './text_input/TextInput.svelte'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
+	import { slideDynamic } from '$lib/transitions'
 
 	interface Props {
 		schema: Schema | { properties?: Record<string, any>; required?: string[] }
 		arg: InputTransform | any
 		argName: string
+		/** Display name, when the schema key isn't what the user should read. */
+		label?: string
+		/** Replaces the label header, so a setting's own toggle can name the field. */
+		header?: Snippet
+		/** The kind this field always holds, for a value that doesn't carry a `type` of its
+		 *  own — a flow predicate is stored as a bare `{ expr }`. */
+		argType?: InputTransform['type']
+		/** Keep only the header: the setting owning this field is switched off, so there is
+		 *  no value yet. Rendering the header here (rather than swapping in a bare toggle
+		 *  outside) keeps one persistent row, so the field can slide in and out under it. */
+		collapsed?: boolean
+		/** Slide the input in and out as `collapsed` flips. */
+		animateAppear?: boolean
 		headerTooltip?: string | undefined
 		headerTooltipIconClass?: string
 		HeaderTooltipIcon?: any
@@ -57,7 +70,16 @@
 		pickForField?: string | undefined
 		variableEditor?: VariableEditor | undefined
 		itemPicker?: ItemPicker | undefined
+		/** Hide the static/expression switch, for a field that only ever holds one kind.
+		 *  The connect button and the AI helper stay. */
 		noDynamicToggle?: boolean
+		/** Replaces the default StepInputGen, for a field with its own AI helper. That
+		 *  helper drives `suggestion` (its ghost text) and `aiOnKeyUp` (Tab to accept),
+		 *  which the built-in one reaches through `stepInputGen` instead. */
+		aiGen?: Snippet
+		suggestion?: string
+		focused?: boolean
+		aiOnKeyUp?: (e: KeyboardEvent) => void
 		argExtra?: Record<string, any>
 		pickableProperties?: PickableProperties | undefined
 		enableAi?: boolean
@@ -76,6 +98,11 @@
 		schema = $bindable(),
 		arg = $bindable(),
 		argName = $bindable(),
+		label = undefined,
+		header = undefined,
+		argType = undefined,
+		collapsed = false,
+		animateAppear = false,
 		headerTooltip = undefined,
 		headerTooltipIconClass = '',
 		HeaderTooltipIcon = InfoIcon,
@@ -86,6 +113,10 @@
 		variableEditor = undefined,
 		itemPicker = undefined,
 		noDynamicToggle = false,
+		aiGen = undefined,
+		suggestion = $bindable(),
+		focused = $bindable(),
+		aiOnKeyUp = undefined,
 		argExtra = {},
 		pickableProperties = undefined,
 		enableAi = false,
@@ -121,9 +152,6 @@
 
 	const propPickerWrapperContext: PropPickerWrapperContext | undefined =
 		getContext<PropPickerWrapperContext>('PropPickerWrapper')
-	// Modal panel (sessions) suppresses the blue connect-ring animations.
-	const propPickerCtx = getContext<PropPickerContext | undefined>('PropPickerContext')
-	const suppressConnectAnimation = $derived(propPickerCtx?.inModalPanel?.() ?? false)
 	const pickerMode = $derived(propPickerWrapperContext?.pickerMode?.() ?? 'pane')
 	// Settings rows hand their properties to the wrapper, not to this form.
 	const connectableProperties = $derived(
@@ -152,7 +180,11 @@
 		allowedAiTransforms === undefined || allowedAiTransforms.includes(argName)
 	)
 
-	let propertyType = $state(getPropertyType(arg))
+	// `argType` wins over whatever the value carries: a predicate has no `type` field, so
+	// inferring would land it on the static input instead of the expression editor.
+	const argKind = $derived(argType ?? arg?.type)
+	// Seeded once: `propertyType` is what the user switches, and `argType` is fixed per field.
+	let propertyType = $state(untrack(() => argType) ?? getPropertyType(arg))
 
 	function setExpr() {
 		const newArg = $exprsToSet?.[argName]
@@ -276,7 +308,7 @@
 		) {
 			setJavaScriptExpr(arg.value)
 		} else {
-			stepInputGen?.onKeyUp?.(e)
+			;(aiOnKeyUp ?? stepInputGen?.onKeyUp)?.(e)
 		}
 	}
 
@@ -471,7 +503,6 @@
 		resourceTypes = await getResourceTypes()
 	}
 
-	let focused = $state(false)
 	let stepInputGen: StepInputGen | undefined = $state(undefined)
 
 	loadResourceTypes()
@@ -507,8 +538,6 @@
 			['s3object', 's3_object'].includes(schema?.properties?.[argName]?.items?.resourceType)
 	)
 
-	let suggestion: string | undefined = $state()
-
 	// Svelte bug ...
 	// Somehow the value is updated in the UI of the parent, but not in the children
 	// when passed as a prop. setTimeout is a workaround to force the update
@@ -519,91 +548,103 @@
 	})
 </script>
 
-{#if arg != undefined && !hidden}
+{#if (arg != undefined || collapsed) && !hidden}
 	<div class={twMerge('relative group flex flex-col gap-1', className)}>
-		<div class="flex flex-row flex-wrap justify-between gap-1">
-			<div class="flex grow min-h-7 items-end">
-				<FieldHeader
-					label={argName}
-					simpleTooltip={headerTooltip}
-					simpleTooltipIconClass={headerTooltipIconClass}
-					SimpleTooltipIcon={HeaderTooltipIcon}
-					format={schema?.properties?.[argName]?.format}
-					contentEncoding={schema?.properties?.[argName]?.contentEncoding}
-					required={schema.required?.includes(argName)}
-					type={schema.properties?.[argName]?.type}
-				/>
+		<!-- `relative` so the absolute button cluster below anchors to this row rather than
+		     to the whole field, letting it share the label's baseline. -->
+		<div class="relative flex flex-row flex-wrap justify-between gap-1">
+			<!-- min-h-7 reserves room for the button cluster beside a plain label; a custom
+			     header is a control of its own and sets the row's height itself. -->
+			<div class="flex grow items-end {header ? '' : 'min-h-7'}">
+				{#if header}
+					{@render header()}
+				{:else}
+					<FieldHeader
+						label={label ?? argName}
+						simpleTooltip={headerTooltip}
+						simpleTooltipIconClass={headerTooltipIconClass}
+						SimpleTooltipIcon={HeaderTooltipIcon}
+						format={schema?.properties?.[argName]?.format}
+						contentEncoding={schema?.properties?.[argName]?.contentEncoding}
+						required={schema.required?.includes(argName)}
+						type={schema.properties?.[argName]?.type}
+					/>
 
-				{#if isStaticTemplate(inputCat)}
-					<div>
-						<span
-							class="border text-gray-400 dark:text-gray-500 text-2xs font-medium mr-2 px-1 !py-[1px] rounded ml-2.5 {propertyType ==
-								'static' && arg.type === 'javascript'
-								? 'visible'
-								: 'invisible'}"
-						>
-							{'${...}'}
-						</span>
-					</div>
+					{#if isStaticTemplate(inputCat)}
+						<div>
+							<span
+								class="border text-gray-400 dark:text-gray-500 text-2xs font-medium mr-2 px-1 !py-[1px] rounded ml-2.5 {propertyType ==
+									'static' && arg?.type === 'javascript'
+									? 'visible'
+									: 'invisible'}"
+							>
+								{'${...}'}
+							</span>
+						</div>
+					{/if}
 				{/if}
 			</div>
-			{#if !noDynamicToggle}
-				<div
-					class="flex flex-row gap-x-2 z-10 absolute right-0 group-hover:bg-surface transition-colors"
-				>
-					{#if enableAi}
-						<StepInputGen
-							bind:this={stepInputGen}
-							{focused}
-							{arg}
-							schemaProperty={schema?.properties?.[argName]}
-							on:showExpr={(e) => (suggestion = e.detail || undefined)}
-							on:setExpr={(e) => {
-								arg = { type: 'javascript', expr: e.detail }
-								propertyType = 'javascript'
-								monaco?.setCode('')
-								monaco?.insertAtCursor(e.detail)
-							}}
-							{pickableProperties}
-							{argName}
-						/>
-					{/if}
+			<!-- Nothing to connect to or switch while collapsed: there is no value yet. -->
+			<div
+				class="flex flex-row items-end gap-x-2 z-10 absolute right-0 bottom-0 group-hover:bg-surface transition-colors {collapsed
+					? 'hidden'
+					: ''}"
+			>
+				{#if aiGen}
+					{@render aiGen()}
+				{:else if enableAi}
+					<StepInputGen
+						bind:this={stepInputGen}
+						{focused}
+						{arg}
+						schemaProperty={schema?.properties?.[argName]}
+						on:showExpr={(e) => (suggestion = e.detail || undefined)}
+						on:setExpr={(e) => {
+							arg = { type: 'javascript', expr: e.detail }
+							propertyType = 'javascript'
+							monaco?.setCode('')
+							monaco?.insertAtCursor(e.detail)
+						}}
+						{pickableProperties}
+						{argName}
+					/>
+				{/if}
 
-					{#if propPickerWrapperContext && pickerMode === 'popover'}
-						<!-- Settings rows have no picker pane, so the properties hang off the
+				{#if propPickerWrapperContext && pickerMode === 'popover'}
+					<!-- Settings rows have no picker pane, so the properties hang off the
 						     button itself, exactly as the other expression inputs do. -->
-						<ExpressionPicker
-							id={argName}
-							pickableProperties={connectableProperties}
-							onSelect={(path) => {
-								connectProperty(path)
-								dispatch('change', { argName })
-							}}
-						/>
-					{:else if propPickerWrapperContext}
-						<FlowPlugConnect
-							wrapperClasses={twMerge(
-								'group-hover:opacity-100 transition-opacity',
-								!connecting ? 'opacity-0' : ''
-							)}
-							id="flow-editor-plug"
-							{connecting}
-							disableAnimation={suppressConnectAnimation}
-							on:click={() => {
-								if ($propPickerConfig?.propName == argName) {
-									clearFocus()
-								} else {
-									focusProp?.(argName, (path) => {
-										connectProperty(path)
-										dispatch('change', { argName })
-										return true
-									})
-								}
-							}}
-						/>
-					{/if}
+					<ExpressionPicker
+						id={argName}
+						pickableProperties={connectableProperties}
+						onSelect={(path) => {
+							connectProperty(path)
+							dispatch('change', { argName })
+						}}
+					/>
+				{:else if propPickerWrapperContext}
+					<FlowPlugConnect
+						wrapperClasses={twMerge(
+							'group-hover:opacity-100 transition-opacity',
+							!connecting ? 'opacity-0' : ''
+						)}
+						id="flow-editor-plug"
+						{connecting}
+						on:click={() => {
+							if ($propPickerConfig?.propName == argName) {
+								clearFocus()
+							} else {
+								focusProp?.(argName, (path) => {
+									connectProperty(path)
+									dispatch('change', { argName })
+									return true
+								})
+							}
+						}}
+					/>
+				{/if}
 
-					<div class="{ButtonType.UnifiedHeightClasses.sm} relative">
+				{#if !noDynamicToggle}
+					<div class="{ButtonType.UnifiedHeightClasses.xs} relative">
 						<ToggleButtonGroup
 							selected={visiblePropertyType}
 							class="h-full"
@@ -724,218 +765,224 @@
 							{/snippet}
 						</ToggleButtonGroup>
 					</div>
-				</div>
-			{/if}
+				{/if}
+			</div>
 		</div>
 
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="relative w-full" onkeyup={handleKeyUp}>
-			<!-- {inputCat}
+		{#if !collapsed}
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div
+				class="relative w-full"
+				onkeyup={handleKeyUp}
+				transition:slideDynamic|global={{ duration: animateAppear ? 150 : 0 }}
+			>
+				<!-- {inputCat}
 			{propertyType} -->
-			<div class="relative flex flex-row items-top gap-1 justify-between">
-				<div class="min-w-0 grow">
-					{#if suggestion}
+				<div class="relative flex flex-row items-top gap-1 justify-between">
+					<div class="min-w-0 grow">
+						{#if suggestion}
+							<div
+								class={`bg-surface-input rounded-md pl-2 overflow-auto ${inputBorderClass({ forceFocus: true })}`}
+							>
+								<FakeMonacoPlaceHolder autoheight code={suggestion} fontSize={12} />
+							</div>
+						{/if}
 						<div
-							class={`bg-surface-input rounded-md pl-2 overflow-auto ${inputBorderClass({ forceFocus: true })}`}
+							class={suggestion ? 'opacity-0 absolute' : ''}
+							onkeydowncapture={(e) => {
+								if (e.key === 'Tab' && suggestion) {
+									e.preventDefault()
+								}
+							}}
 						>
-							<FakeMonacoPlaceHolder autoheight code={suggestion} fontSize={12} />
+							{@render innerInput()}
 						</div>
-					{/if}
-					<div
-						class={suggestion ? 'opacity-0 absolute' : ''}
-						onkeydowncapture={(e) => {
-							if (e.key === 'Tab' && suggestion) {
-								e.preventDefault()
-							}
-						}}
-					>
-						{@render innerInput()}
-					</div>
 
-					<!-- Rendered outside the `suggestion ? opacity-0` wrapper so the AI
+						<!-- Rendered outside the `suggestion ? opacity-0` wrapper so the AI
 					     step-input autocompletion (ghost text, accepted with Tab) doesn't
 					     hide the Help dropdown — the two stay independent. -->
-					{#if !hideHelpButton && propertyType === 'javascript' && arg?.type === 'javascript' && arg.expr != undefined}
-						<DynamicInputHelpBox />
-					{/if}
+						{#if !hideHelpButton && propertyType === 'javascript' && argKind === 'javascript' && arg.expr != undefined}
+							<DynamicInputHelpBox />
+						{/if}
 
-					{#snippet innerInput()}
-						{#if propertyType === 'ai'}
-							<div
-								class="text-sm text-tertiary italic p-3 bg-surface-secondary rounded-md border border-gray-200"
-							>
-								<span class="flex items-center gap-2 text-xs">
-									<InfoIcon size={13} />
-									This field will be filled by the AI agent dynamically
-								</span>
-							</div>
-							{#if argName && schema?.properties?.[argName]?.description}
-								<div class="text-xs italic py-1 text-hint">
-									<pre class="font-main whitespace-normal">
-										{schema.properties[argName].description}
-									</pre>
+						{#snippet innerInput()}
+							{#if propertyType === 'ai'}
+								<div
+									class="text-sm text-tertiary italic p-3 bg-surface-secondary rounded-md border border-gray-200"
+								>
+									<span class="flex items-center gap-2 text-xs">
+										<InfoIcon size={13} />
+										This field will be filled by the AI agent dynamically
+									</span>
 								</div>
-							{/if}
-						{:else if isStaticTemplate(inputCat) && propertyType == 'static' && !noDynamicToggle}
-							<div class="flex flex-col gap-1">
 								{#if argName && schema?.properties?.[argName]?.description}
-									<div class="text-xs text-secondary">
+									<div class="text-xs italic py-1 text-hint">
 										<pre class="font-main whitespace-normal">
 										{schema.properties[argName].description}
-										</pre>
+									</pre>
 									</div>
 								{/if}
+							{:else if isStaticTemplate(inputCat) && propertyType == 'static' && !noDynamicToggle}
+								<div class="flex flex-col gap-1">
+									{#if argName && schema?.properties?.[argName]?.description}
+										<div class="text-xs text-secondary">
+											<pre class="font-main whitespace-normal">
+										{schema.properties[argName].description}
+										</pre>
+										</div>
+									{/if}
 
-								{#if arg}
-									<TemplateEditor
-										bind:this={monacoTemplate}
-										{extraLib}
-										on:focus={onFocus}
-										on:blur={() => {
-											focused = false
-										}}
-										bind:code={arg.value}
-										fontSize={12}
-										on:change={() => {
-											dispatch('change', { argName, arg })
-										}}
-										loadAsync
-										class="bg-surface-input"
-									/>
-								{/if}
-							</div>
-						{:else if (propertyType === undefined || propertyType == 'static') && schema?.properties?.[argName]}
-							<ArgInput
-								{resourceTypes}
-								noMargin
-								compact
-								on:focus={onFocus}
-								on:blur={() => {
-									focused = false
-								}}
-								shouldDispatchChanges
-								on:change={() => {
-									dispatch('change', { argName, arg })
-								}}
-								label={argName}
-								bind:editor={monaco}
-								bind:description={schema.properties[argName].description}
-								bind:value={arg.value}
-								type={schema.properties[argName].type}
-								oneOf={schema.properties[argName].oneOf}
-								required={schema.required?.includes(argName)}
-								bind:pattern={schema.properties[argName].pattern}
-								bind:valid={inputCheck}
-								defaultValue={schema.properties[argName].default}
-								bind:enum_={schema.properties[argName].enum}
-								bind:format={schema.properties[argName].format}
-								contentEncoding={schema.properties[argName].contentEncoding}
-								bind:itemsType={schema.properties[argName].items}
-								properties={schema.properties[argName].properties}
-								nestedRequired={schema.properties[argName].required}
-								displayHeader={false}
-								extra={argExtra}
-								{variableEditor}
-								{itemPicker}
-								bind:pickForField
-								showSchemaExplorer
-								nullable={schema.properties[argName].nullable}
-								bind:title={schema.properties[argName].title}
-								bind:placeholder={schema.properties[argName].placeholder}
-								{helperScript}
-								{s3StorageConfigured}
-								{chatInputEnabled}
-								otherArgs={Object.fromEntries(
-									Object.entries(otherArgs).map(([key, transform]) => [
-										key,
-										transform?.type === 'static'
-											? transform.value
-											: transform?.type === 'javascript'
-												? transform.expr
-												: undefined
-									])
-								)}
-							>
-								{#snippet innerBottomSnippet()}
-									{#if shouldShowS3ArrayHelper}
-										<S3ArrayHelperButton
-											{connecting}
-											onClick={() =>
-												switchToJsAndConnect((path) =>
-													appendPathToArrayExpr(arg?.type === 'javascript' ? arg.expr : '', path)
-												)}
+									{#if arg}
+										<TemplateEditor
+											bind:this={monacoTemplate}
+											{extraLib}
+											on:focus={onFocus}
+											on:blur={() => {
+												focused = false
+											}}
+											bind:code={arg.value}
+											fontSize={12}
+											on:change={() => {
+												dispatch('change', { argName, arg })
+											}}
+											loadAsync
+											class="bg-surface-input"
 										/>
 									{/if}
-								{/snippet}
-							</ArgInput>
-						{:else if arg?.type === 'javascript' && arg.expr != undefined}
-							<div
-								class={`bg-surface-input rounded-md flex flex-col pl-2 overflow-auto ${inputBorderClass({ forceFocus: focused })}`}
-							>
-								<SimpleEditor
-									small
-									bind:this={monaco}
-									bind:code={arg.expr}
-									{extraLib}
-									lang="javascript"
-									shouldBindKey={false}
-									renderLineHighlight="none"
-									hideLineNumbers
-									on:focus={() => {
-										focused = true
-										updatePropsBeingEdited(true)
-									}}
+								</div>
+							{:else if (propertyType === undefined || propertyType == 'static') && schema?.properties?.[argName]}
+								<ArgInput
+									{resourceTypes}
+									noMargin
+									compact
+									on:focus={onFocus}
 									on:blur={() => {
 										focused = false
-										updatePropsBeingEdited(false)
 									}}
+									shouldDispatchChanges
 									on:change={() => {
 										dispatch('change', { argName, arg })
 									}}
-									autoHeight
-									loadAsync
-								/>
-								<!-- <input type="text" bind:value={arg.expr} /> -->
-							</div>
-
-							{#if shouldShowS3ArrayHelper}
-								<S3ArrayHelperButton
-									class="mt-2"
-									{connecting}
-									onClick={() =>
-										focusProp?.(argName, (path) => {
-											appendPathToArrayExpr(arg.expr, path)
-											return true
-										})}
-								/>
-							{/if}
-
-							{#if argName && schema?.properties?.[argName]?.description}
-								<div class="text-xs italic py-1 text-secondary">
-									<pre class="font-main whitespace-normal"
-										>{schema.properties[argName].description}</pre
-									>
+									label={argName}
+									bind:editor={monaco}
+									bind:description={schema.properties[argName].description}
+									bind:value={arg.value}
+									type={schema.properties[argName].type}
+									oneOf={schema.properties[argName].oneOf}
+									required={schema.required?.includes(argName)}
+									bind:pattern={schema.properties[argName].pattern}
+									bind:valid={inputCheck}
+									defaultValue={schema.properties[argName].default}
+									bind:enum_={schema.properties[argName].enum}
+									bind:format={schema.properties[argName].format}
+									contentEncoding={schema.properties[argName].contentEncoding}
+									bind:itemsType={schema.properties[argName].items}
+									properties={schema.properties[argName].properties}
+									nestedRequired={schema.properties[argName].required}
+									displayHeader={false}
+									extra={argExtra}
+									{variableEditor}
+									{itemPicker}
+									bind:pickForField
+									showSchemaExplorer
+									nullable={schema.properties[argName].nullable}
+									bind:title={schema.properties[argName].title}
+									bind:placeholder={schema.properties[argName].placeholder}
+									{helperScript}
+									{s3StorageConfigured}
+									{chatInputEnabled}
+									otherArgs={Object.fromEntries(
+										Object.entries(otherArgs).map(([key, transform]) => [
+											key,
+											transform?.type === 'static'
+												? transform.value
+												: transform?.type === 'javascript'
+													? transform.expr
+													: undefined
+										])
+									)}
+								>
+									{#snippet innerBottomSnippet()}
+										{#if shouldShowS3ArrayHelper}
+											<S3ArrayHelperButton
+												{connecting}
+												onClick={() =>
+													switchToJsAndConnect((path) =>
+														appendPathToArrayExpr(arg?.type === 'javascript' ? arg.expr : '', path)
+													)}
+											/>
+										{/if}
+									{/snippet}
+								</ArgInput>
+							{:else if argKind === 'javascript' && arg.expr != undefined}
+								<div
+									class={`bg-surface-input rounded-md flex flex-col pl-2 overflow-auto ${inputBorderClass({ forceFocus: focused })}`}
+								>
+									<SimpleEditor
+										small
+										bind:this={monaco}
+										bind:code={arg.expr}
+										{extraLib}
+										lang="javascript"
+										shouldBindKey={false}
+										renderLineHighlight="none"
+										hideLineNumbers
+										on:focus={() => {
+											focused = true
+											updatePropsBeingEdited(true)
+										}}
+										on:blur={() => {
+											focused = false
+											updatePropsBeingEdited(false)
+										}}
+										on:change={() => {
+											dispatch('change', { argName, arg })
+										}}
+										autoHeight
+										loadAsync
+									/>
+									<!-- <input type="text" bind:value={arg.expr} /> -->
 								</div>
-							{/if}
 
-							<div class="mb-2"></div>
-						{:else}
-							<span class="text-xs text-red-500">
-								Not recognized input type {argName} ({arg.expr}, {propertyType})
-							</span>
-							<div class="flex mt-2">
-								<Button
-									variant="default"
-									size="xs"
-									on:click={() => {
-										arg.expr = ''
-									}}>Set expr to empty string</Button
-								></div
-							>
-						{/if}
-					{/snippet}
+								{#if shouldShowS3ArrayHelper}
+									<S3ArrayHelperButton
+										class="mt-2"
+										{connecting}
+										onClick={() =>
+											focusProp?.(argName, (path) => {
+												appendPathToArrayExpr(arg.expr, path)
+												return true
+											})}
+									/>
+								{/if}
+
+								{#if argName && schema?.properties?.[argName]?.description}
+									<div class="text-xs italic py-1 text-secondary">
+										<pre class="font-main whitespace-normal"
+											>{schema.properties[argName].description}</pre
+										>
+									</div>
+								{/if}
+
+								<div class="mb-2"></div>
+							{:else}
+								<span class="text-xs text-red-500">
+									Not recognized input type {argName} ({arg.expr}, {propertyType})
+								</span>
+								<div class="flex mt-2">
+									<Button
+										variant="default"
+										size="xs"
+										on:click={() => {
+											arg.expr = ''
+										}}>Set expr to empty string</Button
+									></div
+								>
+							{/if}
+						{/snippet}
+					</div>
 				</div>
 			</div>
-		</div>
+		{/if}
 	</div>
 {/if}

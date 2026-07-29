@@ -33,15 +33,11 @@
 			}
 		}}
 		options={{
-			right: 'Delete logs, arguments and results after the flow is complete',
+			right: 'Delete after use',
 			rightTooltip: tip
 		}}
 	/>
-	<div class="mt-2">
-		<SecondsInput
-			bind:seconds={flowModule.delete_after_secs}
-			disabled={disabled || !enabled}
-			size="sm"
-		/>
-	</div>
+	{#if enabled}
+		<SecondsInput bind:seconds={flowModule.delete_after_secs} {disabled} size="sm" />
+	{/if}
 </div>

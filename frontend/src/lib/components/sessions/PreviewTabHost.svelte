@@ -12,6 +12,8 @@
 	import { resolvePreviewTab, parsePreviewItemRoute } from './previewRouter'
 	import { withMenuHidden } from './sessionMode.svelte'
 	import ArtifactViewer from '../copilot/chat/artifacts/ArtifactViewer.svelte'
+	import { setContext } from 'svelte'
+	import type { FlowPanelModalHostContext } from '../flows/types'
 
 	let {
 		tab,
@@ -116,6 +118,11 @@
 		active ? 'z-10 opacity-100 pointer-events-auto' : 'z-0 opacity-0 pointer-events-none'
 	)
 
+	// The editor's own detached-panel modal anchors here rather than to the document,
+	// so it stays within this tab and hides with it when another tab takes over.
+	let editorEl: HTMLDivElement | undefined = $state()
+	setContext<FlowPanelModalHostContext>('flowPanelModalHost', () => editorEl)
+
 	let flashing = $state(false)
 	let flashTimer: ReturnType<typeof setTimeout> | undefined
 	// Guard against the effect's non-pulse reruns (tab/runtime changes) firing a flash.
@@ -152,7 +159,11 @@
 {/snippet}
 
 {#if slot.kind === 'editor' && mounted && runtime}
-	<div class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}" aria-hidden={!active}>
+	<div
+		bind:this={editorEl}
+		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
+		aria-hidden={!active}
+	>
 		<!-- Dynamic imports: the live editors pull in the heaviest module graphs in
 		     the app (FlowBuilder, ScriptBuilder/Monaco, the raw-app editor, the
 		     pipeline graph). Loading them only when an editor tab first mounts keeps

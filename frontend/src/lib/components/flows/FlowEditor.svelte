@@ -8,7 +8,13 @@
 	import WindmillIcon from '../icons/WindmillIcon.svelte'
 	import { Skeleton } from '../common'
 	import { getContext, onDestroy, onMount, setContext } from 'svelte'
-	import type { FlowEditorContext, FlowPanelDetachContext } from './types'
+	import type {
+		FlowEditorContext,
+		FlowPanelDetachContext,
+		FlowPanelModalHostContext
+	} from './types'
+	import Portal from '$lib/components/Portal.svelte'
+	import { zIndexes } from '$lib/zIndexes'
 	import { isFlowLevelPanelTarget } from '$lib/components/graph/selectionUtils.svelte'
 
 	import { writable } from 'svelte/store'
@@ -132,6 +138,9 @@
 	let panelModalOpen = $state(false)
 
 	const panelOverlay = useOverlayStack(() => panelMode === 'modal' && panelModalOpen, openedDrawers)
+
+	const modalHostContext = getContext<FlowPanelModalHostContext | undefined>('flowPanelModalHost')
+	const modalHost = $derived(modalHostContext?.())
 
 	function openPanelModalFromGraph(e: MouseEvent) {
 		// Only nodes that can take the selection, or the modal would open on whatever
@@ -386,14 +395,21 @@
 			Double click a step to explore its content
 		</div>
 	{/if}
+</div>
 
-	<!-- Overlay is `absolute` within this component's own `#flow-editor` box, so
-	     it always covers THIS editor instance (never the whole viewport, never a
-	     sibling flow editor) — anchoring is by DOM containment, not a lookup. -->
-	{#if panelMode === 'modal' && panelModalOpen}
+<!-- Portalled out of `#flow-editor` so the modal covers the chrome around the editor
+     (sidebar, top bar) rather than only the editor's own box. A host that embeds the
+     editor in its own box provides an anchor element instead, keeping the modal inside
+     it — one flow editor's modal must never cover a sibling's tab. -->
+{#if panelMode === 'modal' && panelModalOpen}
+	<Portal target={modalHost ?? 'body'} class="contents">
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="absolute inset-0 z-40 flex justify-center p-2" role="dialog">
+		<div
+			class="{modalHost ? 'absolute' : 'fixed'} inset-0 flex justify-center px-2 py-6"
+			style="z-index: {zIndexes.disposables}"
+			role="dialog"
+		>
 			<div class="absolute inset-0 bg-black/20" onclick={() => (panelModalOpen = false)}></div>
 			<div
 				class="relative flex w-full max-w-4xl flex-col overflow-hidden rounded-md border bg-surface shadow-xl"
@@ -434,8 +450,8 @@
 				</div>
 			</div>
 		</div>
-	{/if}
-</div>
+	</Portal>
+{/if}
 
 <svelte:window
 	onkeydown={(e) => {

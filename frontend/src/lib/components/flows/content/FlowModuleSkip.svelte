@@ -1,10 +1,13 @@
 <script lang="ts">
 	import Toggle from '$lib/components/Toggle.svelte'
-	import FlowExpressionEditor from './FlowExpressionEditor.svelte'
+	import InputTransformForm from '$lib/components/InputTransformForm.svelte'
+	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
+	import type SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import type { FlowModule } from '$lib/gen'
 	import { stepSettingDefaults } from '../flowStepSettings'
 	import type { FlowEditorContext } from '../types'
 	import { getContext } from 'svelte'
+	import { emptySchema } from '$lib/utils'
 	import { getStepPropPicker } from '../previousResults'
 
 	const { flowStateStore, flowStore, previewArgs } =
@@ -17,6 +20,13 @@
 	}
 
 	let { flowModule = $bindable(), parentModule, previousModule }: Props = $props()
+
+	let editor: SimpleEditor | undefined = $state(undefined)
+
+	// A predicate is stored as a bare `{ expr }`, so the form is told its kind through
+	// `argType` rather than inferring one from the value.
+	let schema = $state(emptySchema())
+	schema.properties['skip_if'] = { type: 'boolean' }
 
 	let stepPropPicker = $derived(
 		getStepPropPicker(
@@ -39,7 +49,7 @@
 	let isSkipEnabled = $derived(Boolean(flowModule.skip_if))
 </script>
 
-<div class="flex w-full flex-col items-start gap-2">
+{#snippet skipToggle()}
 	<Toggle
 		size="xs"
 		textClass="text-xs font-normal text-primary"
@@ -52,25 +62,44 @@
 			}
 		}}
 		options={{
-			right: 'Skip step if condition is met',
+			right: 'Skip step if',
 			rightTooltip:
 				"If the condition is met, the step behaves as an identity step, passing the previous step's result through unchanged."
 		}}
 	/>
+{/snippet}
 
-	<div class="w-full">
-		<FlowExpressionEditor
-			disabled={!isSkipEnabled}
-			label="Skip condition expression"
-			bind:code={
-				() => flowModule.skip_if?.expr ?? '',
+<div class="w-full">
+	<PropPickerWrapper
+		popover={true}
+		flow_input={stepPropPicker.pickableProperties.flow_input}
+		notSelectable
+		{result}
+		displayContext={false}
+		pickableProperties={stepPropPicker.pickableProperties}
+		on:select={({ detail }) => {
+			editor?.insertAtCursor(detail)
+			editor?.focus()
+		}}
+	>
+		<InputTransformForm
+			bind:arg={
+				() => flowModule.skip_if,
 				(v) => {
-					if (flowModule.skip_if) flowModule.skip_if.expr = v
+					flowModule.skip_if = v
 				}
 			}
+			argName="skip_if"
+			argType="javascript"
+			collapsed={!isSkipEnabled}
+			animateAppear
+			header={skipToggle}
+			noDynamicToggle
+			{schema}
+			previousModuleId={previousModule?.id}
 			pickableProperties={stepPropPicker.pickableProperties}
-			{result}
 			extraLib={`declare const result = ${JSON.stringify(result)};\n` + stepPropPicker.extraLib}
+			bind:editor
 		/>
-	</div>
+	</PropPickerWrapper>
 </div>
