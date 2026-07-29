@@ -217,7 +217,7 @@
 />
 {#snippet selectedIconSnippet()}
 	{#if SelectedIcon}
-		<SelectedIcon height="16px" width="16px" size={16} />
+		<SelectedIcon height="14px" width="14px" size={14} />
 	{/if}
 {/snippet}
 
@@ -259,7 +259,7 @@
 				{@const Icon = appIconComponent(typeByPath.get(item.value))}
 				{#if Icon}
 					<span class="shrink-0 text-secondary">
-						<Icon height="16px" width="16px" size={16} />
+						<Icon height="14px" width="14px" size={14} />
 					</span>
 				{/if}
 			{/snippet}
