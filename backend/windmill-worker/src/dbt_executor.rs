@@ -525,6 +525,7 @@ pub(crate) async fn handle_dbt_job(
         &prepared,
         &job.workspace_id,
         &job.permissioned_as,
+        job.visible_to_owner,
         &job.id,
         &inv,
         conn,
@@ -816,10 +817,6 @@ pub struct GraphRefresh {
     /// database and materialization, so the deployed graph names another run's
     /// relations.
     per_run_models: bool,
-    /// Part of what this run's graph describes was chosen by the caller: an
-    /// overridden `vars`, or a `select`/`exclude` of its own — which may narrow
-    /// the descriptor's selection or reach outside it entirely.
-    caller_scoped: bool,
     /// The profile resolves somewhere other than where the published usages
     /// point. The relations moved for the VERSION, not for one invocation.
     profile_drift: bool,
@@ -836,12 +833,12 @@ impl GraphRefresh {
     /// Only a DRIFT alone writes the version's: the move is permanent, and
     /// storing it per run would leave every later run — which no longer detects
     /// a drift, because this one published the new root — reading the pre-move
-    /// rows. Anything the caller shaped goes under the job id, in both
+    /// rows. A run whose models are its own goes under the job id, in both
     /// directions: written as the version's, a narrowing selection would drop
     /// every model this invocation left out, and a widening one would add models
     /// that version never had.
     fn snapshot_job(&self, job_id: uuid::Uuid) -> Option<uuid::Uuid> {
-        (self.per_run_models || self.caller_scoped).then_some(job_id)
+        self.per_run_models.then_some(job_id)
     }
 
     /// Whether this ingest also becomes what the script owns.
@@ -861,8 +858,12 @@ impl GraphRefresh {
     /// relations until a redeploy — every run of it still shows its own models,
     /// and it re-parses regardless, so the undetected-forever drift costs it
     /// nothing it was not already paying.
+    ///
+    /// The exact complement of `snapshot_job`, which is what lets the agent
+    /// worker's payload carry one `per_run` bit and no second flag: decouple the
+    /// two and that wire format stops describing this decision.
     fn publishes_ownership(&self) -> bool {
-        !self.caller_scoped && !self.per_run_models
+        !self.per_run_models
     }
 
     /// Fold in what this invocation's own arguments say about its model set.
@@ -873,7 +874,6 @@ impl GraphRefresh {
     ) -> error::Result<()> {
         if has_vars_override(args) {
             self.per_run_models = true;
-            self.caller_scoped = true;
         }
         // A selection the caller chose needs a graph of its own: it is not
         // necessarily a SUBSET of the deployed one. A descriptor deployed with
@@ -884,7 +884,6 @@ impl GraphRefresh {
         // and not what the script owns.
         if selection_is_overridden(descriptor, args)? {
             self.per_run_models = true;
-            self.caller_scoped = true;
         }
         Ok(())
     }
@@ -3256,6 +3255,14 @@ async fn save_run_state(
     // Part of the state's key: a retry replaces the caller's arguments with
     // these, so another principal must not be able to restore them.
     permissioned_as: &str,
+    // Whether the run this state describes is visible to the script's owners.
+    // A HIDDEN run keeps none: the state is keyed by the principal, which every
+    // caller of an `on_behalf_of` script shares, and a retry publishes the
+    // arguments it restored — so for a run the other callers cannot read, that
+    // retry would be the one way to see them. For a visible run it discloses
+    // nothing, since running the script requires the read access that already
+    // shows them the run and its arguments.
+    visible_to_owner: bool,
     // Scopes the staging directory. Keyed by project digest, two concurrent
     // runs of one script would stage into the same place and publish a mixture.
     job_id: &Uuid,
@@ -3263,6 +3270,12 @@ async fn save_run_state(
     conn: &Connection,
 ) -> error::Result<()> {
     if p.script_path.is_empty() {
+        return Ok(());
+    }
+    // The previous run's state goes with it: this invocation happened, so those
+    // failures are no longer what last ran here.
+    if !visible_to_owner {
+        invalidate_run_state(w_id, &p.script_path, permissioned_as, conn).await;
         return Ok(());
     }
     let identity = format!(
@@ -4784,8 +4797,8 @@ mod tests {
         // A caller's own selection ingests its own graph: it is not necessarily a
         // subset of the deployed one — `["*"]` against a descriptor that selects
         // `tag:nightly` builds models the deployed graph never had — and those
-        // are the models the run page would have nothing to draw for. It stays
-        // caller-scoped, so that subset neither becomes what the script owns nor
+        // are the models the run page would have nothing to draw for. Under its
+        // own job id, so that subset neither becomes what the script owns nor
         // replaces the version's graph, which holds the models it left out.
         let mut narrowed = GraphRefresh::default();
         narrowed

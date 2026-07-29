@@ -1101,14 +1101,9 @@ const _: () = {
             let content = src.get_utf8("code.txt")?;
             let lock = src.get_utf8("lock.txt").ok();
             let meta = src.get_json("info.json").ok();
-            // A script's modules are part of what it IS: dropping them here
-            // makes the first fetch (which goes to the database) behave
-            // differently from every later one, so a worker restart silently
-            // starts running the script without its own files.
-            //
-            // Always present, even for a script with none, so an entry written
-            // before modules were cached fails to import and is refetched
-            // rather than serving a script stripped of its own files forever.
+            // Required, even when empty: a script's modules are part of what it
+            // IS, so an entry without them must fail to import and be refetched
+            // rather than serve the script stripped of its own files.
             let modules: Option<std::collections::HashMap<String, ScriptModule>> =
                 src.get_json("modules.json")?;
             Ok(Self { content, lock, meta, modules })

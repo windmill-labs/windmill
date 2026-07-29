@@ -844,13 +844,17 @@ pub async fn resolve_opt_job_authed(
 /// below strips the prefix and returns that name verbatim. From a request it
 /// would let any member mint a token that speaks as a named user.
 ///
-/// Only the arms yielding a bare name belong here. `webhook-` / `http-` /
-/// `email-` / `ws-` yield the label itself, which cannot collide with a username
-/// — and the trigger panels mint exactly those through the public API by design,
-/// with `token_label_idor.rs` guarding it. The `label-` fallback and the `lsp`
-/// sentinel are prefixed or fixed for the same reason. Label collision between
-/// two such tokens is not defended here at all: GHSA-8x8x-88qc-qp4r settled that
-/// by refusing to trust this name for authorization.
+/// Two shapes, for two reasons. `ephemeral-script-end-user-` is the one that
+/// names a PERSON: the arm below strips the prefix and returns the rest
+/// verbatim. `ephemeral-` is what `is_user_token` reads as a system token, so a
+/// client-chosen one is a token its own owner cannot list or revoke.
+///
+/// `webhook-` / `http-` / `email-` / `ws-` stay allowed: they yield the label
+/// itself, which cannot collide with a username, and the trigger panels mint
+/// exactly those through the public API by design — `token_label_idor.rs` guards
+/// it. Collision between two such tokens is not defended here at all:
+/// GHSA-8x8x-88qc-qp4r settled that by refusing to trust this name for
+/// authorization.
 pub fn is_reserved_token_label(label: &str) -> bool {
     label.starts_with("ephemeral-script-end-user-") || label.starts_with("ephemeral-webhook-")
 }
@@ -883,8 +887,9 @@ fn username_override_from_label(label: Option<String>) -> Option<String> {
 mod label_tests {
     use super::{is_reserved_token_label, username_override_from_label};
 
-    /// Reserved exactly when the label becomes a bare username. Anything else is
-    /// a label a client is allowed to choose — `token_label_idor.rs` pins the
+    /// Reserved when the label becomes a bare username, or when it claims to be
+    /// a system token (`is_user_token` hides those from their owner's list).
+    /// Anything else is a client's to choose — `token_label_idor.rs` pins the
     /// trigger panels' own shapes, which must keep working.
     #[test]
     fn only_labels_that_become_a_bare_username_are_reserved() {

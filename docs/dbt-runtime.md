@@ -712,15 +712,19 @@ provides observability.
    For an `on_behalf_of` script that means every caller shares one saved run,
    since they all execute as the owner — deliberately, since the state describes
    the script's last run under the owner's identity rather than any one caller's.
-   The residual: a run pushed `invisible_to_owner` is hidden from the other
-   callers, yet its arguments come back through a retry's `invocation_args`, so
-   they are recoverable when the job itself is not readable. Keying by the
-   initiating caller does not fix it — `created_by` is `display_username()`,
-   which a token LABEL supplies, so two callers can share it and one can name a
-   third person (GHSA-8x8x-88qc-qp4r, whose fix was to stop trusting that name).
-   Closing it properly means making a retry NAME the job it resumes and
-   authorizing that as a job read, which is a change to the run argument rather
-   than to the key.
+
+   That equivalence holds only while the run is READABLE, so the one run that
+   breaks it saves nothing: a job pushed `invisible_to_owner` is hidden from the
+   script's owners, and a retry publishes the arguments it restored, which would
+   make that retry the one way to see them. A hidden run therefore keeps no
+   retry state at all — it cannot be resumed by anyone, including whoever
+   launched it, which is the cheaper half of the trade. Keying by the initiating
+   caller would not have worked instead: `created_by` is `display_username()`,
+   which a token LABEL supplies, so two callers can share one value and one can
+   name a third person (GHSA-8x8x-88qc-qp4r, whose fix was to stop trusting that
+   name for authorization). Having a retry NAME the job it resumes, authorized as
+   a job read, is the design that would let a hidden run be retried by its own
+   author; it is a change to the run argument rather than to the key.
 8. Test failures honor dbt's `severity`: `error` fails the job, `warn` surfaces
    without failing. Overriding this would make the same project behave differently
    on Windmill than locally, breaking the core promise.
