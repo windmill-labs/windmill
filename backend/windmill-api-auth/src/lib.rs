@@ -92,6 +92,14 @@ impl ApiAuthed {
             _ => &self.username,
         }
     }
+
+    /// Set an override that names the entity acting, e.g. a trigger. Assigning
+    /// `username_override` on its own would keep the provenance flag of whatever this authed
+    /// was built from, and a stale `true` makes `display_username` ignore the new value.
+    pub fn set_acting_username_override(&mut self, username_override: Option<String>) {
+        self.username_override = username_override;
+        self.username_override_is_token_label = false;
+    }
 }
 
 impl From<ApiAuthed> for Authed {
@@ -869,7 +877,6 @@ pub async fn fetch_api_authed_from_permissioned_as(
                 groups: authed.groups,
                 folders: authed.folders,
                 scopes: authed.scopes,
-                // Callers pass a trigger/app identity here, never a generic token label.
                 username_override: None,
                 username_override_is_token_label: false,
                 token_prefix: authed.token_prefix,
@@ -889,7 +896,8 @@ pub async fn fetch_api_authed_from_permissioned_as(
         }
     };
 
-    api_authed.username_override = username_override;
+    // Callers pass a trigger or app identity here, never a token label.
+    api_authed.set_acting_username_override(username_override);
     Ok(api_authed)
 }
 
@@ -1237,10 +1245,19 @@ mod tests {
             "alice"
         );
 
-        // Trigger tokens name the entity that fired the request, so they keep the slot.
+        // A trigger-*shaped* label is just as user-settable as any other, so it is credited
+        // the same way. Its value is still kept as the override, for `require_job_read_access`.
+        let webhookish = owner_of("webhook-f/svc/my_script");
+        assert_eq!(webhookish.display_username(), "alice");
         assert_eq!(
-            owner_of("webhook-f/svc/my_script").display_username(),
-            "webhook-f/svc/my_script"
+            webhookish.username_override.as_deref(),
+            Some("webhook-f/svc/my_script")
+        );
+
+        // Only labels the token API refuses to mint name the entity that fired the request.
+        assert_eq!(
+            owner_of("ephemeral-webhook-google-abc12").display_username(),
+            "ephemeral-webhook-google-abc12"
         );
         assert_eq!(
             owner_of("ephemeral-script-end-user-enduser42").display_username(),

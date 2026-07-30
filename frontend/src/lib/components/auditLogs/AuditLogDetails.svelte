@@ -10,6 +10,10 @@
 
 	let { logs, selectedId = undefined }: Props = $props()
 
+	// `span` holds the caller's token prefix, except for job-minted worker tokens, which
+	// stamp the job they run for instead.
+	const JOB_SPAN_PREFIX = 'job-span-'
+
 	const ViewFlowOp: AuditLog['operation'][] = ['jobs.run.flow', 'flows.create', 'flows.update']
 
 	const ViewAppOp: AuditLog['operation'][] = ['apps.create', 'apps.update']
@@ -25,9 +29,14 @@
 					<span class="text-xs">{log.id}</span>
 				</div>
 				{#if log.span}
+					{@const isJobSpan = log.span.startsWith(JOB_SPAN_PREFIX)}
 					<div class="flex flex-col gap-1">
-						<span class="font-semibold text-xs text-emphasis">Token prefix</span>
-						<span class="text-xs break-all">{log.span}</span>
+						<span class="font-semibold text-xs text-emphasis">
+							{isJobSpan ? 'Job' : 'Token prefix'}
+						</span>
+						<span class="text-xs break-all">
+							{isJobSpan ? log.span.slice(JOB_SPAN_PREFIX.length) : log.span}
+						</span>
 					</div>
 				{/if}
 				<div class="flex flex-col gap-1">

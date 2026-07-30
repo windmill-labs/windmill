@@ -846,19 +846,19 @@ pub async fn resolve_opt_job_authed(
     Err((Error::NotAuthorized("Unauthorized".to_string()), parts))
 }
 
-/// Returns the override and whether it is a generic user-token label. Only the last arm
-/// yields such a label; every other arm names the entity that fired the request. The two are
-/// not distinguishable by value — the `ephemeral-script-end-user-` arm forwards a
-/// `created_by` verbatim, and that may itself be a `label-*` string.
+/// Returns the override and whether it names the token's *label* rather than the entity that
+/// fired the request. Callers must not re-derive the second element from the first: the
+/// `ephemeral-script-end-user-` arm forwards a `created_by` verbatim, and `created_by` is
+/// unconstrained, so it may itself look like any of these shapes.
+///
+/// Only labels the token API refuses to mint are trusted to name a principal. It rejects
+/// `ephemeral*` (`is_user_token`), so those cannot be forged. `email-*` is the exception: the
+/// SMTP trigger mints it and the worker keys email-trigger handling off that exact prefix, yet
+/// a member can create a token with it. Grounding that one in issuance rather than shape needs
+/// the token row to record who minted it.
 pub(crate) fn username_override_from_label(label: Option<String>) -> (Option<String>, bool) {
     match label {
-        Some(label)
-            if label.starts_with("ephemeral-webhook-")
-                || label.starts_with("webhook-")
-                || label.starts_with("http-")
-                || label.starts_with("email-")
-                || label.starts_with("ws-") =>
-        {
+        Some(label) if label.starts_with("ephemeral-webhook-") || label.starts_with("email-") => {
             (Some(label), false)
         }
         Some(label) if label.starts_with("ephemeral-script-end-user-") => (
@@ -870,6 +870,16 @@ pub(crate) fn username_override_from_label(label: Option<String>) -> (Option<Str
             false,
         ),
         Some(label) if label == "Ephemeral lsp token" => (Some("lsp".to_string()), false),
+        // Nothing mints these: they are a naming convention for user-created tokens. The
+        // override keeps the bare label because `require_job_read_access` matches it against
+        // the `created_by` of jobs launched under it.
+        Some(label)
+            if label.starts_with("webhook-")
+                || label.starts_with("http-")
+                || label.starts_with("ws-") =>
+        {
+            (Some(label), true)
+        }
         Some(label) if label != "ephemeral-script" && label != "session" && !label.is_empty() => (
             Some(format!("{}{label}", crate::GENERIC_TOKEN_LABEL_PREFIX)),
             true,
