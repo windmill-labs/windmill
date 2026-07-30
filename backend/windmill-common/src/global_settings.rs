@@ -133,6 +133,15 @@ pub fn validate_webhook_base_url(value: &str) -> Result<(), String> {
             value
         ));
     }
+    // The receiver built from this is stored per repository in the workspace's
+    // `git_sync` settings, which workspace admins can read — so userinfo here would
+    // hand them a credential a superadmin configured. Never echo the value back in
+    // this message.
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(
+            "must not embed a username or password: the receiver URL is stored in workspace settings, where it is readable by workspace admins".to_string(),
+        );
+    }
     if value.chars().any(char::is_whitespace) {
         return Err(format!("must not contain whitespace: {}", value));
     }
@@ -410,12 +419,20 @@ mod tests {
             "https://x/a b",
             "https://hooks.example.com?",
             "https://hooks.example.com#",
+            "https://user:password@hooks.example.com",
+            "https://user@hooks.example.com",
         ];
         for v in accept {
-            assert!(validate_webhook_base_url(v).is_ok(), "'{v}' should be accepted");
+            assert!(
+                validate_webhook_base_url(v).is_ok(),
+                "'{v}' should be accepted"
+            );
         }
         for v in reject {
-            assert!(validate_webhook_base_url(v).is_err(), "'{v}' should be rejected");
+            assert!(
+                validate_webhook_base_url(v).is_err(),
+                "'{v}' should be rejected"
+            );
         }
     }
 

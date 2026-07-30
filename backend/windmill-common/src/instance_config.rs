@@ -1277,8 +1277,9 @@ pub fn diff_worker_configs(
 }
 
 /// Declaratively replace the global settings, applying the `github_app_webhook_base_url`
-/// write rules: reject a value the API would reject, and re-point the webhooks
-/// already registered with GitHub when it changes.
+/// write rules: reject a value the API would reject, and re-point any webhook already
+/// registered with GitHub that is not on the configured receiver. The re-point runs on
+/// every apply, not only when the value changed — see the sweep call below for why.
 ///
 /// Every declarative writer (the `sync-config` CLI, the Kubernetes operator's
 /// ConfigMap sync) MUST go through this rather than calling
@@ -1350,21 +1351,21 @@ pub enum WebhookSweep {
 /// Re-point every git-sync webhook that is not already on the configured receiver.
 ///
 /// The only place that decides await-vs-detach, so the trade-off is stated once.
-/// Detaching is safe because the sweep is single-flight (a second one skips rather
-/// than queues) and idempotent, so whatever is still stale is picked up by the next
-/// trigger — a later operator tick or the next write of the setting.
+/// Either way the request is never dropped: sweeps are serialized, and one arriving
+/// while another runs is coalesced into a single follow-up sweep that re-reads the
+/// settings — so the newest receiver always wins.
 ///
 /// A no-op on non-EE builds.
+///
+/// AUTHORIZATION: mutates remote webhooks across *every* workspace and takes no
+/// authed context, so callers MUST have established superadmin or equivalent system
+/// authority (the HTTP callers sit behind `require_super_admin`; the CLI and operator
+/// run with direct instance credentials).
 pub async fn reconcile_repo_webhooks(db: &sqlx::Pool<sqlx::Postgres>, sweep: WebhookSweep) {
     #[cfg(all(feature = "enterprise", feature = "private"))]
     match sweep {
         WebhookSweep::Await => crate::git_sync_ee::reconcile_all_repo_webhooks(db).await,
-        WebhookSweep::Detach => {
-            let db = db.clone();
-            tokio::spawn(async move {
-                crate::git_sync_ee::reconcile_all_repo_webhooks(&db).await;
-            });
-        }
+        WebhookSweep::Detach => crate::git_sync_ee::queue_reconcile_all_repo_webhooks(db),
     }
     #[cfg(not(all(feature = "enterprise", feature = "private")))]
     let _ = (db, sweep);

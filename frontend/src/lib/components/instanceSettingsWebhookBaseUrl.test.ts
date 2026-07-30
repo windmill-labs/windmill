@@ -27,7 +27,9 @@ const REJECTED = [
 	'https://hooks.example.com:abc',
 	'https://x/a b',
 	'https://hooks.example.com?',
-	'https://hooks.example.com#'
+	'https://hooks.example.com#',
+	'https://user:password@hooks.example.com',
+	'https://user@hooks.example.com'
 ]
 
 describe('isValidWebhookBaseUrl', () => {
