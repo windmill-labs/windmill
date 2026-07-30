@@ -588,6 +588,43 @@ export function moduleFileExclusion(
   return size > MAX_MODULE_BYTES ? "oversized" : undefined;
 }
 
+/**
+ * The refusal an oversized dbt project file earns, raised WITHOUT reading it.
+ *
+ * dbt would have read the file, so deploying the project without it ships
+ * something that compiles here and fails at run time with a missing relation —
+ * hence an error rather than a skip. Every path that would otherwise load the
+ * body (the sync map, the push) asks first: a multi-gigabyte seed must not be
+ * buffered just to be refused.
+ */
+export function oversizedModuleFileError(relPath: string, size: number): Error {
+  return new Error(
+    `${relPath} is ${Math.ceil(size / 1024 / 1024)} MB, over the ` +
+      `${MAX_MODULE_BYTES / 1024 / 1024} MB per-file limit for a dbt project file. ` +
+      `Deploying without it would leave the project incomplete — shrink the file, or ` +
+      `keep it out of the project folder.`,
+  );
+}
+
+/**
+ * Refuse an oversized dbt project file before its content is read. `undefined`
+ * for everything else, including binary files the bundle merely drops.
+ */
+export function oversizedDbtFileError(
+  fullPath: string,
+  relPath: string,
+): Error | undefined {
+  if (!isDbtModulePath(relPath)) return undefined;
+  if (moduleFileExclusion(fullPath) !== "oversized") return undefined;
+  let size = 0;
+  try {
+    size = fs.statSync(fullPath).size;
+  } catch {
+    return undefined;
+  }
+  return oversizedModuleFileError(relPath, size);
+}
+
 /** Whether a path is inside a dbt project's module folder specifically: those
  *  files are taken verbatim, with no language inference. */
 export function isDbtModulePath(p: string): boolean {

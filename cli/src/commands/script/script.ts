@@ -74,6 +74,7 @@ import {
   dbtGeneratedDirs,
   isUnderGeneratedDir,
   moduleFileExclusion,
+  oversizedModuleFileError,
   MAX_MODULE_BYTES,
   isModuleEntryPoint,
   getScriptBasePathFromModulePath,
@@ -758,13 +759,7 @@ export async function readModulesFromDisk(
             // read it, so shipping the project without it deploys something that
             // compiles here and fails at run time with a missing relation.
             if (exclusion === "oversized") {
-              const size = fs.statSync(fullPath).size;
-              throw new Error(
-                `${relPath} is ${Math.ceil(size / 1024 / 1024)} MB, over the ` +
-                  `${MAX_MODULE_BYTES / 1024 / 1024} MB per-file limit for a dbt project file. ` +
-                  `Deploying without it would leave the project incomplete — shrink the file, or ` +
-                  `keep it out of the project folder.`,
-              );
+              throw oversizedModuleFileError(relPath, fs.statSync(fullPath).size);
             }
             log.warn(
               `Skipping ${relPath}: not a text file, so it is not part of the dbt project the ` +

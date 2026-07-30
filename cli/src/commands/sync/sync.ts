@@ -156,6 +156,7 @@ import {
   getFolderSuffixWithSep,
   getNonDottedPaths,
   isScriptModulePath,
+  oversizedDbtFileError,
   getModuleFolderSuffix,
   isDbtModulePath,
   isDbtGeneratedPath,
@@ -541,8 +542,14 @@ export async function FSFSElement(
         }
       },
       async getContentText(): Promise<string> {
-        const content = await readTextFile(localP);
         const itemPath = localP.substring(p.length + 1);
+        // BEFORE the read: an oversized dbt project file stays visible to the
+        // diff on purpose (so the push reports it rather than silently shipping
+        // an incomplete project), and buffering a multi-gigabyte seed to reach
+        // that error is what this refusal exists to avoid.
+        const oversized = oversizedDbtFileError(localP, itemPath);
+        if (oversized) throw oversized;
+        const content = await readTextFile(localP);
         const r = await addCodebaseDigestIfRelevant(
           itemPath,
           content,
