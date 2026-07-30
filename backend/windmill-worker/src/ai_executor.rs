@@ -23,7 +23,10 @@ use crate::ai::tools::McpClientStub as McpClient;
 use windmill_ai::{
     ai_providers::AIProvider,
     image_handler::upload_image_to_s3,
-    providers::{create_chat_completions_query_builder, create_query_builder},
+    providers::{
+        create_chat_completions_query_builder, create_query_builder, is_chat_completions_only,
+        remember_chat_completions_only,
+    },
     proxy::{
         common_outbound_headers, needs_unavailable_oauth_exchange, retain_effective_credentials,
     },
@@ -835,6 +838,11 @@ pub async fn run_agent(
 
     // Create the query builder for the provider
     let mut query_builder = create_query_builder(&credentials, args.provider.get_model());
+    if query_builder.supports_chat_completions_fallback(base_url)
+        && is_chat_completions_only(base_url, args.provider.get_model())
+    {
+        query_builder = create_chat_completions_query_builder(&credentials);
+    }
     // Both outlive the iteration that discovers them: a request shape or a route the
     // endpoint rejected once stays rejected for the whole step.
     let mut include_usage = true;
@@ -1260,6 +1268,7 @@ pub async fn run_agent(
                                 "Endpoint rejected the request ({}), falling back to chat/completions",
                                 status
                             );
+                            remember_chat_completions_only(base_url, args.provider.get_model());
                             query_builder = create_chat_completions_query_builder(&credentials);
                             include_usage = true;
                         } else {
