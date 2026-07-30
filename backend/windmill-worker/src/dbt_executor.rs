@@ -258,6 +258,7 @@ pub(crate) async fn handle_dbt_job(
             &job.workspace_id,
             &job.permissioned_as,
             &inv,
+            &job.created_by,
             conn,
         )
         .await?;
@@ -3614,11 +3615,90 @@ pub struct RestoredRun {
 /// shapes the graph only once it has a value, and parsing with the reference
 /// verbatim would hand the build a manifest of a different project than the one
 /// it goes on to build.
+/// Whether the caller of THIS job may read the run a retry would resume.
+///
+/// The state is keyed by execution principal, so every caller of an
+/// `on_behalf_of` script shares one saved run. Under a folder that matches job
+/// visibility exactly, but a `u/<owner>` script shared through `extra_perms` has
+/// no folder policy — a grantee cannot read the run, while a retry would publish
+/// its arguments.
+///
+/// Mirrors `require_job_read_access`: you can always read a job you launched,
+/// otherwise the row must be visible under your own RLS. NOT `job_perms`, which
+/// carries the identity the job RUNS as — for an `on_behalf_of` script that is
+/// the owner, and probing as the owner would authorize every caller.
+async fn caller_may_resume(
+    db: &sqlx::Pool<sqlx::Postgres>,
+    w_id: &str,
+    caller: &str,
+    saved_job: &Uuid,
+) -> error::Result<bool> {
+    let Some(saved) = sqlx::query!(
+        "SELECT created_by, permissioned_as FROM v2_job WHERE id = $1 AND workspace_id = $2",
+        saved_job,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    else {
+        // Pruned by retention: nothing to authorize against, and the identity
+        // check still gates what the state may resume.
+        return Ok(true);
+    };
+    if saved.created_by == caller {
+        return Ok(true);
+    }
+    let Some(usr) = sqlx::query!(
+        "SELECT email, is_admin FROM usr WHERE workspace_id = $1 AND username = $2",
+        w_id,
+        caller
+    )
+    .fetch_optional(db)
+    .await?
+    else {
+        // Not a member: a trigger or schedule launched the saved run under a
+        // principal no user answers for, so no grant can be established.
+        return Ok(false);
+    };
+    if usr.is_admin {
+        return Ok(true);
+    }
+    let groups =
+        windmill_common::auth::get_groups_for_user(w_id, caller, &usr.email, db).await?;
+    let folders =
+        windmill_common::auth::get_folders_for_user(w_id, caller, &groups, db).await?;
+    let authed = windmill_common::db::Authed {
+        email: usr.email,
+        username: caller.to_string(),
+        is_admin: false,
+        is_operator: false,
+        groups,
+        folders,
+        scopes: None,
+        token_prefix: None,
+    };
+    let mut tx = windmill_common::db::UserDB::new(db.clone())
+        .begin(&authed)
+        .await?;
+    let visible = sqlx::query_scalar!(
+        "SELECT 1 FROM v2_job WHERE id = $1 AND workspace_id = $2",
+        saved_job,
+        w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .is_some();
+    tx.commit().await?;
+    Ok(visible)
+}
+
 async fn restore_run_state(
     p: &PreparedProject,
     w_id: &str,
     permissioned_as: &str,
     inv: &Invocation,
+    // Who submitted this retry, whose access the saved run is checked against.
+    caller: &str,
     conn: &Connection,
 ) -> error::Result<RestoredRun> {
     if p.script_path.is_empty() {
@@ -3660,6 +3740,14 @@ async fn restore_run_state(
         // An agent worker cannot read it; its local copy is all there is.
         Connection::Http(_) => None,
     };
+    if let (Connection::Sql(db), Some(saved_job)) = (conn, latest_job.as_ref()) {
+        if !caller_may_resume(db, w_id, caller, saved_job).await? {
+            return Err(Error::BadRequest(
+                "the last run of this script was made by someone else and you cannot read it, so                  its arguments are not yours to resume; run the script normally instead"
+                    .to_string(),
+            ));
+        }
+    }
     // Authoritative including when it says nothing: no row means the last
     // invocation left nothing resumable, and a local generation that outlived it
     // would resurrect a run the newer one replaced. An agent worker has no such

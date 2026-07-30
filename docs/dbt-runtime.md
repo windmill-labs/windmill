@@ -765,16 +765,23 @@ provides observability.
    since they all execute as the owner — deliberately, since the state describes
    the script's last run under the owner's identity rather than any one caller's.
 
-   **Where that equivalence comes from, and the one place it does not hold.** For
-   a script under `f/`, `see_folder_extra_perms_user` makes a job readable to
-   everyone with read on the folder, which is also what grants execution — so a
-   caller who can retry can already open the run and read its arguments, and the
-   retry adds nothing. A script under `u/<owner>/` shared through `extra_perms` is
-   the exception: no folder policy applies, `see_own_path` matches the owner
-   alone, and an `on_behalf_of` run is `permissioned_as` the owner — so a grantee
-   cannot read that run, nor even their own, while a retry would hand them its
-   arguments. Sharing an `on_behalf_of` dbt script through a folder rather than a
-   user path keeps the two capabilities equal.
+   **The equivalence is enforced, not assumed.** A retry resumes the saved run
+   only if its caller could read that run, by the rule
+   `require_job_read_access` applies: you can always read a job you launched,
+   otherwise the row must be visible under your own RLS. So for a script under
+   `f/`, where `see_folder_extra_perms_user` makes a job readable to everyone with
+   read on the folder — which is also what grants execution — every caller may
+   resume every other's failure, as above. A script under `u/<owner>/` shared
+   through `extra_perms` is where that would have broken: no folder policy
+   applies, `see_own_path` matches the owner alone, and an `on_behalf_of` run is
+   `permissioned_as` the owner, so a grantee can read neither the run nor their
+   own — and a retry is refused rather than handing them its arguments.
+
+   Checked against the CALLER, never `job_perms`: those carry the identity the
+   job runs AS, which for an `on_behalf_of` script is the owner, so probing with
+   them would authorize everyone. A saved run whose job has aged out of retention
+   cannot be authorized against and is allowed — the identity check still gates
+   what it may resume.
 
    That equivalence holds only while the run is READABLE, so the one run that
    breaks it saves nothing: a job pushed `invisible_to_owner` is hidden from the
