@@ -1282,17 +1282,13 @@
 		externalPreviewWindow.postMessage(msg, window.location.origin)
 	}
 
-	// Frontend SDK in the preview: `app-preview.html` evaluates the js we post, so
-	// prefixing the env is what a bundled `windmill-client` needs — it reads
-	// `window.process.env` at module load. Without it the SDK keeps its build-time
-	// default base (`http://localhost:8000`) and calls leave for the wrong host.
-	// The token is scoped to the policy being edited so the preview hits the same
-	// 403s the deployed app would.
-	// Every payload states the env outright, including the tokenless one: the
-	// preview shell reuses a single window across builds, so merely omitting the
-	// prologue would leave a previously minted token in place for later bundles.
-	// Removing the property rather than blanking it keeps the preview identical to
-	// a deployed app with no scopes, where `window.process` is simply absent.
+	// `app-preview.html` evaluates the js we post, so prefixing the env is what a
+	// bundled `windmill-client` needs — it reads `window.process.env` at module
+	// load. Scoped to the policy being edited, so preview hits the same 403s.
+
+	// Stated on every payload, tokenless included: the preview shell reuses one
+	// window across builds, so omitting it would leave an old token in place.
+	// Deleting rather than blanking matches a deployed app with no scopes.
 	const NO_SDK_ENV_JS = 'try { delete window.process } catch (_) {}\n'
 	let previewSdkEnvJs = $state(NO_SDK_ENV_JS)
 	// Identifies the request whose answer is still wanted. Toggling scopes starts a

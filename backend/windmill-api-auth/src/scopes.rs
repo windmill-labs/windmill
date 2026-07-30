@@ -489,12 +489,8 @@ pub fn check_route_access(
         }
     }
 
-    // Raw-app SDK tokens (sentinel). The viewer approved a named list of
-    // permissions, so each must grant what its prompt says and no more:
-    // `jobs:run` runs the deployed runnables the viewer already can — never
-    // request-supplied code — and `users:read` reads their own identity, not the
-    // workspace member directory (`users/list`, `users/list_usage`) the domain
-    // scope would otherwise reach.
+    // Each declared scope must grant what its prompt said and no more:
+    // `jobs:run` only deployed runnables, `users:read` only the viewer's identity.
     if has_raw_app_sdk_sentinel(Some(token_scopes)) {
         if let Some(suffix) = route_suffix.as_deref() {
             if is_request_supplied_code_route(suffix) {
@@ -724,32 +720,19 @@ pub fn has_app_embed_sentinel(scopes: Option<&[String]>) -> bool {
     scopes.is_some_and(|s| s.iter().any(|x| x == APP_EMBED_SENTINEL))
 }
 
-/// Sentinel scope in raw-app frontend SDK tokens. Grants nothing itself;
-/// `check_route_access` uses it to narrow the declared scopes down to what the
-/// viewer's permission prompt actually promised: it denies the
-/// request-supplied-code endpoints `jobs:run` would otherwise reach, and confines
-/// `users:read` to `users/whoami` (never the workspace member directory).
+/// Sentinel in raw-app SDK tokens. Grants nothing; `check_route_access` uses it
+/// to narrow the declared scopes to what the viewer's prompt promised.
 pub const RAW_APP_SDK_SENTINEL: &str = "raw_app_sdk";
 
 pub fn has_raw_app_sdk_sentinel(scopes: Option<&[String]>) -> bool {
     scopes.is_some_and(|s| s.iter().any(|x| x == RAW_APP_SDK_SENTINEL))
 }
 
-/// Endpoints that run code the caller supplies in the request — or names by job
-/// id. `jobs:run` reaches them by design (the editor's preview, dependency and
-/// workflow-as-code surface), but a raw-app SDK token is handed to untrusted app
-/// JS and can be exfiltrated off-origin, so for it "run scripts and flows" must
-/// mean the deployed runnables the viewer can already run — not arbitrary code.
-/// Without this, a captured SDK token escalates to the viewer's full account:
-/// these jobs run attacker-chosen code (or resolve and install attacker-chosen
-/// packages on a worker) and their own ephemeral credential is unscoped and
-/// permissioned as the viewer. The last two count even though their bodies carry
-/// no code, because they re-run code a *named* job already holds:
-/// `workflow_as_code` copies the named queued job's `raw_code` into a new job
-/// with no ownership check, and restarting a completed preview flow re-runs its
-/// stored `raw_flow`. Either replays a pre-staged preview as the viewer, and the
-/// scope layer can't tell a preview restart from a deployed-flow one.
-/// The SDK never calls these — its run helpers are all by path/hash.
+/// Endpoints that run code the caller supplies, or names by job id — the latter
+/// re-run code a named job already holds (`workflow_as_code` copies its
+/// `raw_code`, `restart/f` its `raw_flow`), with no ownership check. Their jobs
+/// get an unscoped credential as the viewer, so reaching any of them would make a
+/// captured SDK token a full account takeover.
 fn is_request_supplied_code_route(suffix: &str) -> bool {
     // Prefixes, so the `_async` variants are covered too.
     const CODE_ROUTES: [&str; 10] = [

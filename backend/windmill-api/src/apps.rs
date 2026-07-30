@@ -333,11 +333,9 @@ pub struct Policy {
     // with the viewer's full session, the pre-isolation behavior.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sandbox: Option<bool>,
-    /// Author-declared scopes for the frontend SDK token (raw apps): when set and
-    /// non-empty, viewers can mint a short-lived token carrying THEIR identity
-    /// restricted to these scopes, handed to the app bundle so `windmill-client`
-    /// calls run as the viewer. Must be a subset of `FRONTEND_SDK_ALLOWED_SCOPES`.
-    /// Absent/empty means the bundle receives no credential (the default).
+    /// Raw apps: scopes a viewer may mint a token for, so the bundle's
+    /// `windmill-client` calls run as them. Subset of
+    /// `FRONTEND_SDK_ALLOWED_SCOPES`; absent means no credential (the default).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub frontend_sdk_scopes: Option<Vec<String>>,
 }
@@ -760,9 +758,8 @@ async fn get_raw_app_data(
 /// the bundle `.js`/`.css` as same-path subresources, shims web storage (which
 /// an opaque origin disallows), and waits for the embedder's handshake before
 /// evaluating the bundle, so `window.ctx` — and `window.process.env` when the
-/// viewer approved frontend SDK scopes — is set synchronously when it runs.
-/// That token is the only credential the bundle ever gets, and only if both
-/// handshake proofs hold (see the `windmill:ready` block below).
+/// viewer approved SDK scopes — is set synchronously when it runs. That token is
+/// the bundle's only credential, gated on both handshake proofs below.
 fn raw_app_wrapper_html(secret: &str) -> String {
     const TEMPLATE: &str = r##"<!DOCTYPE html>
 <html>
@@ -1239,18 +1236,9 @@ pub const APP_EMBED_SCOPES: [&str; 5] = [
 /// (e.g. after a `401` from the iframe) so this can stay short.
 const APP_EMBED_TOKEN_VALIDITY_HOURS: i64 = 12;
 
-/// Scopes an app author may declare in `Policy::frontend_sdk_scopes` (the
-/// viewer-identity token handed to a raw app's bundled `windmill-client`).
-///
-/// These exclusions make the grant bounded rather than "act as this viewer":
-/// - no `apps:*` scope, so the mint endpoints (Apps domain, default-denied for a
-///   scoped token) are unreachable and the token cannot renew itself past 12h;
-/// - `jobs:run` means *deployed* runnables only — the `raw_app_sdk` sentinel
-///   `mint_raw_app_sdk_token` adds denies the request-supplied-code endpoints,
-///   which would otherwise turn the token into arbitrary execution as the viewer
-///   (and hand the app an unscoped job credential);
-/// - `users:read` is confined by that same sentinel to the viewer's own identity,
-///   never the workspace member directory. See `scopes.rs`.
+/// Scopes an app author may declare in `Policy::frontend_sdk_scopes`. No `apps:*`
+/// scope, so the token cannot reach the mint endpoints and renew itself; the
+/// `raw_app_sdk` sentinel narrows the rest (see `scopes.rs`).
 pub const FRONTEND_SDK_ALLOWED_SCOPES: [&str; 5] = [
     "jobs:run",
     "jobs:read",
@@ -1291,16 +1279,11 @@ fn validate_frontend_sdk_scopes(policy: &Policy) -> Result<()> {
     Ok(())
 }
 
-/// Mint the short-lived viewer-identity token a raw app's bundle uses for
-/// `windmill-client` calls. Its scopes are the policy-declared
-/// `frontend_sdk_scopes`; confinement is the regular default-deny scope system,
-/// narrowed by the `raw_app_sdk` sentinel (which denies the request-supplied-code
-/// endpoints `jobs:run` would otherwise reach — see `scopes.rs`).
+/// Mint the viewer-identity token a raw app's bundle uses for `windmill-client`.
 ///
-/// The CALLER MUST establish that `authed` may hold this app's credential: this
-/// mints unconditionally otherwise. The viewer endpoints (via
-/// [`build_embed_token_response`]) verify read access; `mint_preview_sdk_token`
-/// requires `apps:write:<path>`, the author granting to themselves.
+/// The CALLER MUST establish that `authed` may hold this app's credential: the
+/// viewer endpoints verify read access, `mint_preview_sdk_token` requires
+/// `apps:write:<path>`.
 async fn mint_raw_app_sdk_token(
     db: &DB,
     w_id: &str,
@@ -1343,26 +1326,13 @@ async fn mint_raw_app_sdk_token(
     Ok((token, expiration))
 }
 
-/// Shared tail of the three embed-token endpoints (by secret, by path, and the
-/// EE by-custom-path variant): resolves which credential — if any — the viewer
-/// gets for this app. Sandboxed low-code apps get the narrow embed token; raw
-/// apps whose policy declares `frontend_sdk_scopes` get the viewer-scoped SDK
-/// token once the viewer confirms the permission prompt (`sdk_consent`).
+/// Shared tail of the three embed-token endpoints: which credential the viewer
+/// gets. Sandboxed low-code gets the embed token; a raw app declaring
+/// `frontend_sdk_scopes` gets the SDK token once `sdk_consent` is set.
+/// `sdk_consent` is the viewer's answer, not a boundary — the boundary is the
+/// scope set, capped by the viewer's own permissions.
 ///
-/// For an unsandboxed app `sdk_consent` is the viewer's answer to that prompt,
-/// not a security boundary: its bundle runs same-origin with the viewer's session
-/// and can call this endpoint itself. The boundary is the scope set — the token
-/// can never exceed the policy-declared scopes, which are also capped by the
-/// viewer's own permissions. Sandbox isolation is what contains an app's code; a
-/// sandboxed app has no other way to call the API directly, so there the prompt
-/// decides its whole API surface (its policy-approved runnables still run either
-/// way, through the bridge).
-///
-/// The CALLER MUST verify that `opt_authed` may view `app_path` before calling:
-/// this mints on their behalf unconditionally and does no visibility check of its
-/// own. All three call sites — `get_app_embed_token`,
-/// `get_app_embed_token_for_path` and the EE custom-path variant — access-check
-/// first.
+/// The CALLER MUST verify that `opt_authed` may view `app_path`.
 pub async fn build_embed_token_response(
     db: &DB,
     w_id: &str,
@@ -1422,16 +1392,11 @@ pub struct PreviewSdkTokenRequest {
     pub scopes: Vec<String>,
 }
 
-/// Mint a frontend SDK token for the raw-app editor's own preview.
-///
-/// The author grants this to themselves: it is minted from their session, capped
-/// by their own scopes (`ensure_scopes_within_caller`) and by
-/// `FRONTEND_SDK_ALLOWED_SCOPES`, and narrowed by the same `raw_app_sdk` sentinel
-/// as the viewer path — so it conveys nothing they could not already mint with
-/// `users/tokens/create`. Taking the scopes from the request (rather than the
-/// deployed policy) is what lets the preview match an app whose scopes are not
-/// deployed yet; `execute_component` accepts client-supplied policy for editor
-/// previews on the same reasoning.
+/// Mint an SDK token for the raw-app editor's own preview. The author grants it
+/// to themselves — minted from their session and capped the same way, so it
+/// conveys nothing `users/tokens/create` wouldn't. Scopes come from the request
+/// so the preview matches an app whose scopes aren't deployed yet, as
+/// `execute_component` already does for editor previews.
 async fn mint_preview_sdk_token(
     authed: ApiAuthed,
     OptJobAuthed { job_id, .. }: OptJobAuthed,
@@ -1492,10 +1457,9 @@ pub struct EmbedTokenResponse {
     /// the endpoint is re-called with `sdk_consent=true`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sdk_scopes: Option<Vec<String>>,
-    /// Raw apps with declared SDK scopes: the caller's own email, so the viewer
-    /// can key its stored "do not ask again" per person (that store lives in the
-    /// embedder origin's localStorage, shared by everyone using the browser).
-    /// Only ever the requester's own identity — set alongside `sdk_scopes`.
+    /// The caller's own email, so the viewer can key its stored "do not ask
+    /// again" per person — that localStorage is shared across everyone using the
+    /// browser. Set alongside `sdk_scopes`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub viewer_email: Option<String>,
 }
@@ -5000,13 +4964,9 @@ mod embed_token_tests {
             .includes(&required));
     }
 
-    /// The raw-app frontend SDK token is bounded by no `apps:*` scope (so the
-    /// Apps-domain mint endpoints are unreachable and a captured token can't renew
-    /// itself past its expiry) and by the `raw_app_sdk` sentinel (so `jobs:run`
-    /// can't reach the endpoints that run caller-supplied or caller-named code —
-    /// which would escalate a captured token to arbitrary execution as the viewer
-    /// — and `users:read` can't reach the workspace member directory).
-    /// Lock all of it, plus the viewer-permissioned surface each curated scope grants.
+    /// Locks what the SDK token can reach: no `apps:*` (so it can't renew itself),
+    /// and the `raw_app_sdk` sentinel keeping `jobs:run` off the code-running
+    /// endpoints and `users:read` off the member directory.
     #[test]
     fn frontend_sdk_scopes_reach_declared_domains_but_never_mint_routes() {
         // Mirror mint_raw_app_sdk_token: declared scopes + the narrowing sentinel.

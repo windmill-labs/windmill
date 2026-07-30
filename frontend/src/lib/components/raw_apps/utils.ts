@@ -164,11 +164,9 @@ export function unsandboxedRawAppHtml(
 	ctx: any,
 	baseUrl: string,
 	initialHash: string,
-	/** When the viewer consented to the app's declared frontend-SDK scopes, the
-	 * minted viewer token + connection settings, exposed as `window.process.env`
-	 * (WM_TOKEN/BASE_URL/WM_WORKSPACE) BEFORE the bundle runs so a bundled
-	 * `windmill-client` auto-configures at module load. Absent otherwise — the
-	 * bundle then receives no credential and no API base. */
+	/** Consented SDK token + connection settings, emitted as `window.process.env`
+	 * before the bundle runs so a bundled `windmill-client` auto-configures.
+	 * Absent means the bundle gets no credential. */
 	sdkEnv?: Record<string, string>
 ) {
 	return `<!DOCTYPE html>

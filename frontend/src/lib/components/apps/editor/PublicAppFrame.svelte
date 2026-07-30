@@ -296,26 +296,20 @@
 		}
 	}
 
-	/** Re-request the token with the viewer's consent. The token is optional by
-	 * construction (that is the "Open without granting" path), so a mint that
-	 * fails for any reason other than lost access must still render the app
-	 * credential-less rather than fail it: `ensure_scopes_within_caller` legitimately
-	 * denies a viewer whose own session is scope-restricted (an external-JWT share
-	 * link), and failing there would make the app permanently unviewable for them.
-	 * Returns whether a token was actually obtained. */
+	/** Re-request the token with consent. The token is optional (see "Open without
+	 * granting"), so any failure other than lost access still renders the app
+	 * credential-less — a scope-restricted viewer (external-JWT share link) would
+	 * otherwise never see it. Returns whether a token was obtained. */
 	async function mintWithConsent(): Promise<boolean> {
 		const approved = sdkScopes ?? []
 		const wasRaw = isRaw
 		const wasSandboxed = sandboxed
 		try {
 			const resp = await fetchEmbedToken({ sdkConsent: true })
-			// A redeploy while the prompt was open can change how the app must render,
-			// and with it what `token` even means — the viewer's SDK token for a raw
-			// app, the iframe's embed token for sandboxed low-code. Rendering from the
-			// first response's mode would either bypass newly enabled isolation or
-			// hand the opaque viewer nothing. Start over instead of trying to route a
-			// fresh token into stale mode state. Bounded so an app redeployed on every
-			// fetch can't bounce the viewer forever.
+			// A redeploy during the prompt changes what `token` means (SDK token when
+			// raw, embed token when sandboxed low-code), so rendering from the first
+			// response's mode would bypass new isolation or leave the viewer
+			// unauthenticated. Start over; bounded so redeploys can't bounce forever.
 			const modeChanged =
 				(resp.raw_app ?? false) !== wasRaw || (resp.sandbox ?? false) !== wasSandboxed
 			if (modeChanged) {
