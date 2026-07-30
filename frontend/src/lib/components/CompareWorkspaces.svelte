@@ -15,6 +15,7 @@
 		RefreshCw,
 		UserPlus
 	} from 'lucide-svelte'
+	import { untrack } from 'svelte'
 	import type { CiTestResult } from '$lib/gen'
 	import { Alert, Badge } from './common'
 	import {
@@ -950,6 +951,25 @@
 			selectDefault()
 			hasAutoSelected = true
 		}
+	})
+
+	// A recompute swaps the comparison under a selection made against the previous
+	// one, and a row can change meaning across the two: an item selected while it
+	// merely differed, then deleted here, comes back as "deploying this removes it
+	// there". That is the one action this view makes opt-in, so a tick from before
+	// the change must not authorize it. Only for an arbitrary target — against the
+	// parent, propagating a deletion is the point and is selected by default.
+	$effect(() => {
+		const diffs = comparison?.diffs
+		if (!diffs || !isArbitraryTarget) return
+		untrack(() => {
+			const removesInTarget = new Set(
+				diffs.filter((d) => d.exists_in_fork === false).map((d) => getItemKey(d))
+			)
+			if (selectedItems.some((k) => removesInTarget.has(k))) {
+				selectedItems = selectedItems.filter((k) => !removesInTarget.has(k))
+			}
+		})
 	})
 
 	// Reset override when selection or direction changes

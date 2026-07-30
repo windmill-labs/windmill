@@ -9689,10 +9689,16 @@ async fn seed_full_diff_scan(
     )
     .execute(&mut *tx)
     .await?;
+    // The DELETE is what gives the replace semantics; `ON CONFLICT` only covers two
+    // scans of the same pair racing: under READ COMMITTED the second one's DELETE
+    // resumes on a snapshot predating the first one's inserts, deletes nothing, and
+    // would then collide on the primary key.
     sqlx::query!(
         "INSERT INTO workspace_diff (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes)
         SELECT $1, $2, path, kind, 1, 0, NULL
-        FROM unnest($3::varchar[], $4::varchar[]) AS t(kind, path)",
+        FROM unnest($3::varchar[], $4::varchar[]) AS t(kind, path)
+        ON CONFLICT (source_workspace_id, fork_workspace_id, path, kind)
+        DO UPDATE SET ahead = 1, behind = 0, has_changes = NULL",
         target_workspace_id,
         w_id,
         &kinds,
