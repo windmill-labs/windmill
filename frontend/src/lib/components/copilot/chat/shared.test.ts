@@ -888,6 +888,55 @@ describe('isActiveUserQuestion', () => {
 	})
 })
 
+describe('pendingUserAction', () => {
+	const toolMessage = (overrides: Partial<ToolDisplayMessage> = {}): ToolDisplayMessage => ({
+		role: 'tool',
+		tool_call_id: 'call_p',
+		content: 'running',
+		isLoading: true,
+		...overrides
+	})
+
+	const question = toolMessage({ userQuestion: { question: 'Pick one', choices: ['a'] } })
+
+	it('distinguishes an unanswered question from a staged confirmation', async () => {
+		const { pendingUserAction } = await import('./shared')
+		expect(pendingUserAction([question])).toBe('question')
+		expect(pendingUserAction([toolMessage({ needsConfirmation: true })])).toBe('confirmation')
+	})
+
+	it('is undefined for a tool the AI is running on its own', async () => {
+		const { pendingUserAction } = await import('./shared')
+		expect(pendingUserAction([toolMessage()])).toBe(undefined)
+		expect(pendingUserAction([toolMessage({ needsConfirmation: true, isLoading: false })])).toBe(
+			undefined
+		)
+	})
+
+	// A multi-tool turn creates every card before running the calls one at a time,
+	// so the blocked card is not the last message.
+	it('finds a blocked card sitting behind queued ones', async () => {
+		const { pendingUserAction } = await import('./shared')
+		expect(pendingUserAction([question, toolMessage(), toolMessage()])).toBe('question')
+		expect(pendingUserAction([toolMessage({ needsConfirmation: true }), toolMessage()])).toBe(
+			'confirmation'
+		)
+	})
+
+	// Text emitted between two tool calls lands as an assistant card between them.
+	it('finds a blocked card behind an interleaved assistant card', async () => {
+		const { pendingUserAction } = await import('./shared')
+		const assistant: DisplayMessage = { role: 'assistant', content: 'and also…' }
+		expect(pendingUserAction([question, assistant, toolMessage()])).toBe('question')
+	})
+
+	it('stops at the previous turn rather than reviving its resolved cards', async () => {
+		const { pendingUserAction } = await import('./shared')
+		const userMessage: DisplayMessage = { role: 'user', index: 0, content: 'go on' }
+		expect(pendingUserAction([question, userMessage, toolMessage()])).toBe(undefined)
+	})
+})
+
 describe('pollJobCompletion detach', () => {
 	function makeCallbacks() {
 		return {

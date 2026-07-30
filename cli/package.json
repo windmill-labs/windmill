@@ -26,7 +26,7 @@
     "minimatch": "^10.0.0",
     "open": "^10.0.0",
     "pg-gateway": "0.3.0-beta.4",
-    "svelte": "^5.45.2",
+    "svelte": "^5.56.8",
     "tar-stream": "^3.1.7",
     "windmill-parser-wasm-asset": "1.753.0",
     "windmill-parser-wasm-csharp": "1.510.1",
