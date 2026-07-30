@@ -249,7 +249,13 @@
 		}
 		return () => clearInterval(timer)
 	})
-	onDestroy(() => clearInterval(timer))
+	// Read by the preview poll, which outlives the component otherwise: its own
+	// loop is what has to stop, since there is no interval to clear.
+	let destroyed = false
+	onDestroy(() => {
+		destroyed = true
+		clearInterval(timer)
+	})
 
 	// Parsed once: five derivations below read it, and `result` is the whole
 	// `run_results.json` the job returned.
@@ -273,12 +279,9 @@
 		}
 	}
 
-	// A selection of tests alone — `resource_type:test`, a unit test, or a tag only
-	// tests carry — builds nothing, and a test is not a relation, so the ingest
-	// keeps nodes with no asset to hang on and the graph comes back empty. The run
-	// is fine; without saying so the empty state blames the descriptor's warehouse
-	// identity, which is the one cause this is not. Both kinds, like the worker's
-	// own `retry_was_the_test_phase`: dbt spells a unit test `unit_test.<pkg>.…`.
+	// A test is not a relation, so a run selecting tests alone has an empty graph
+	// and a healthy one — where the empty state otherwise blames the descriptor's
+	// warehouse identity. Both kinds: dbt spells a unit test `unit_test.<pkg>.…`.
 	let ranTestsOnly = $derived(
 		!!run?.nodes?.length &&
 			run.nodes.every((n) => ['test', 'unit_test'].includes(splitUniqueId(n.unique_id).kind))
@@ -317,13 +320,10 @@
 		} as AssetGraphResponse
 	})
 
-	// No `resolveGraph`: it merges drafts and editor buffers, which a run page has
-	// neither of.
-	//
 	// A FINISHED run is narrowed to what it named: the response is the VERSION's
-	// graph, which a later run at a moved profile rewrites, so a model this run
-	// never built would appear as though it had. Sources are kept — dbt lists none
-	// in `run_results.json`, but they are the upstream it read.
+	// graph, so a model this run never built would appear as though it had. Sources
+	// stay — dbt lists none in `run_results.json`, but the run read them. (No
+	// `resolveGraph`: it merges drafts and editor buffers a run page has neither of.)
 	let historical = $derived.by(() => {
 		if (running || !scoped) return undefined
 		if (!run?.nodes?.length) return undefined
@@ -416,12 +416,9 @@
 	})
 
 	// A finished run's own output, joined on dbt's `unique_id` — what both sides
-	// already carry, where matching on the relation name would redo the worker's
-	// path derivation here.
-	//
-	// This is what makes an old run still render correctly: the per-relation state
-	// table keeps ONE row per relation stamped with whichever job wrote it last, so
-	// reading that instead lets a later run take the earlier one's models away.
+	// carry, where the relation name would redo the worker's path derivation. The
+	// per-relation state table holds ONE row per relation, whichever job wrote it
+	// last, so reading THAT would show an old run a later one's models.
 	let settled = $derived.by(() => {
 		if (running) return undefined
 		if (!run?.nodes?.length || !graph) return undefined
@@ -452,12 +449,9 @@
 		const dbt = graph?.assets.find((a) => a.kind === sel.asset_kind && a.path === sel.path)?.dbt
 		if (!dbt) return undefined
 		// Provenance keeps one winner per relation workspace-wide, so a relation two
-		// projects materialize carries one project's node — and showing that SQL
-		// under this run would be a different model's source.
-		//
-		// Sources are exempt: a run executes none, so they appear in no
-		// `run_results.json`, and requiring them there would call every source of
-		// every finished run another project's.
+		// projects materialize carries one project's node, whose SQL is not this
+		// run's. Sources are exempt: a run executes none, so none appear in
+		// `run_results.json`.
 		if (
 			dbt.resource_type !== 'source' &&
 			run?.nodes?.length &&
@@ -547,9 +541,12 @@
 					})
 				: await JobService.runScriptByPath({ workspace: ws, path: scriptPath, requestBody })
 			// Polled rather than awaited: a preview is a job, and its engine may
-			// need provisioning on a cold worker.
+			// need provisioning on a cold worker. Stopped as soon as the page moves
+			// on, or navigating between runs leaves a request per second running for
+			// a minute and a half per preview started.
 			for (let i = 0; i < 90; i++) {
 				await new Promise((r) => setTimeout(r, 1000))
+				if (gen !== runGen || destroyed) return
 				const done = await JobService.getCompletedJobResultMaybe({ workspace: ws, id })
 				if (!done.completed) continue
 				const res = done.result as { node?: string; show?: Record<string, unknown>[] } | undefined
