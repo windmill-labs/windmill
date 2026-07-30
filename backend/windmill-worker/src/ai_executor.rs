@@ -1149,20 +1149,13 @@ pub async fn run_agent(
                 has_websearch,
             };
 
-            let request_body = query_builder
-                .build_request(&build_args, client, &job.workspace_id)
-                .await?;
-
-            let endpoint =
-                query_builder.get_endpoint(base_url, args.provider.get_model(), output_type);
-            let auth_headers = query_builder.get_auth_headers(api_key, base_url, output_type);
             // A worker cannot run the client credentials exchange, so an OAuth resource
             // has no token here: the request would carry an empty credential and come
             // back 401.
             if needs_unavailable_oauth_exchange(
                 &credentials,
                 args.provider.resource.token_url.as_deref(),
-                &auth_headers,
+                &query_builder.get_auth_headers(api_key, base_url, output_type),
             ) {
                 return Err(Error::ExecutionErr(format!(
                     "The {:?} resource authenticates with OAuth, which AI agent steps do not \
@@ -1171,7 +1164,6 @@ pub async fn run_agent(
                     credentials.provider
                 )));
             }
-            let auth_headers = retain_effective_credentials(&credentials, auth_headers);
 
             let timeout = resolve_job_timeout(conn, &job.workspace_id, job.id, job.timeout)
                 .await
@@ -1203,118 +1195,78 @@ pub async fn run_agent(
                     req.body(body)
                 };
 
-            let resp = build_http_request(&endpoint, &auth_headers, request_body.clone())
-                .send()
-                .await
-                .map_err(|e| Error::internal_err(format!("Failed to call API: {}", e)))?;
+            // Two request shapes can be rejected by the endpoint rather than by the
+            // model: `stream_options`, which not every OpenAI-compatible provider
+            // accepts, and the route itself, when an Azure resource is outside the
+            // Responses API's model/region matrix. Each is retried once, and whatever
+            // answers is kept for the rest of the step.
+            let mut include_usage = true;
+            let resp = loop {
+                let request_body = if include_usage {
+                    query_builder
+                        .build_request(&build_args, client, &job.workspace_id)
+                        .await?
+                } else {
+                    query_builder
+                        .build_request_without_usage(&build_args, client, &job.workspace_id)
+                        .await?
+                };
+                let endpoint =
+                    query_builder.get_endpoint(base_url, args.provider.get_model(), output_type);
+                let auth_headers = retain_effective_credentials(
+                    &credentials,
+                    query_builder.get_auth_headers(api_key, base_url, output_type),
+                );
 
-            // Check if request failed and we should retry without stream_options
-            let resp = match resp.error_for_status_ref() {
-                Ok(_) => resp,
-                Err(e) => {
-                    let status = resp.status();
-                    let text = resp
-                        .text()
-                        .await
-                        .unwrap_or_else(|_| "<failed to read body>".to_string());
+                let resp = build_http_request(&endpoint, &auth_headers, request_body)
+                    .send()
+                    .await
+                    .map_err(|e| Error::internal_err(format!("Failed to call API: {}", e)))?;
 
-                    // Retry without stream_options if provider supports it and error suggests incompatibility
-                    // Common error patterns: 400 Bad Request with mentions of stream_options or include_usage
-                    let should_retry = query_builder.supports_retry_without_usage()
-                        && status.as_u16() == 400
-                        && (text.contains("stream_options")
-                            || text.contains("include_usage")
-                            || text.contains("Additional properties are not allowed"));
-
-                    // A resource that does not serve the endpoint this provider prefers
-                    // (an Azure deployment outside the Responses API's model/region
-                    // matrix) rejects the route itself, so the same step runs on
-                    // `/chat/completions` instead, this iteration and the ones after it.
-                    let should_fall_back_to_chat_completions = query_builder
-                        .supports_chat_completions_fallback(base_url)
-                        && matches!(status.as_u16(), 400 | 404)
-                        && *output_type == OutputType::Text;
-
-                    if should_fall_back_to_chat_completions {
-                        tracing::info!(
-                            "Endpoint rejected the request ({}), falling back to chat/completions",
-                            status
-                        );
-
-                        query_builder = create_chat_completions_query_builder(&credentials);
-
-                        let fallback_body = query_builder
-                            .build_request(&build_args, client, &job.workspace_id)
-                            .await?;
-                        let fallback_endpoint = query_builder.get_endpoint(
-                            base_url,
-                            args.provider.get_model(),
-                            output_type,
-                        );
-                        let fallback_auth_headers = retain_effective_credentials(
-                            &credentials,
-                            query_builder.get_auth_headers(api_key, base_url, output_type),
-                        );
-
-                        let fallback_resp = build_http_request(
-                            &fallback_endpoint,
-                            &fallback_auth_headers,
-                            fallback_body,
-                        )
-                        .send()
-                        .await
-                        .map_err(|e| {
-                            Error::internal_err(format!(
-                                "Failed to call API on chat/completions fallback: {}",
-                                e
-                            ))
-                        })?;
-
-                        match fallback_resp.error_for_status_ref() {
-                            Ok(_) => fallback_resp,
-                            Err(fallback_e) => {
-                                let fallback_text = fallback_resp
-                                    .text()
-                                    .await
-                                    .unwrap_or_else(|_| "<failed to read body>".to_string());
-                                return Err(Error::internal_err(format!(
-                                    "API error: {} - {} (the chat/completions fallback also \
-                                     failed: {} - {})",
-                                    e, text, fallback_e, fallback_text
-                                )));
-                            }
-                        }
-                    } else if should_retry {
-                        tracing::info!(
-                            "Retrying request without stream_options due to provider incompatibility"
-                        );
-
-                        let retry_body = query_builder
-                            .build_request_without_usage(&build_args, client, &job.workspace_id)
-                            .await?;
-
-                        let retry_resp = build_http_request(&endpoint, &auth_headers, retry_body)
-                            .send()
+                match resp.error_for_status_ref() {
+                    Ok(_) => break resp,
+                    Err(e) => {
+                        let status = resp.status();
+                        let text = resp
+                            .text()
                             .await
-                            .map_err(|e| {
-                                Error::internal_err(format!("Failed to call API on retry: {}", e))
-                            })?;
+                            .unwrap_or_else(|_| "<failed to read body>".to_string());
 
-                        match retry_resp.error_for_status_ref() {
-                            Ok(_) => retry_resp,
-                            Err(retry_e) => {
-                                let retry_text = retry_resp
-                                    .text()
-                                    .await
-                                    .unwrap_or_else(|_| "<failed to read body>".to_string());
-                                return Err(Error::internal_err(format!(
-                                    "API error on retry: {} - {}",
-                                    retry_e, retry_text
-                                )));
-                            }
+                        // Common error patterns: 400 Bad Request with mentions of stream_options or include_usage
+                        let rejects_usage_tracking = include_usage
+                            && query_builder.supports_retry_without_usage()
+                            && status.as_u16() == 400
+                            && (text.contains("stream_options")
+                                || text.contains("include_usage")
+                                || text.contains("Additional properties are not allowed"));
+
+                        // Only the first call of the step may re-route: an endpoint that
+                        // does not serve this API rejects that one already, whereas a
+                        // rejection once the conversation is under way is about the
+                        // conversation (context length, content filter, tool schema).
+                        let route_unserved = i == 0
+                            && query_builder.supports_chat_completions_fallback(base_url)
+                            && matches!(status.as_u16(), 400 | 404)
+                            && *output_type == OutputType::Text;
+
+                        if rejects_usage_tracking {
+                            tracing::info!(
+                                "Retrying request without stream_options due to provider incompatibility"
+                            );
+                            include_usage = false;
+                        } else if route_unserved {
+                            tracing::info!(
+                                "Endpoint rejected the request ({}), falling back to chat/completions",
+                                status
+                            );
+                            query_builder = create_chat_completions_query_builder(&credentials);
+                            include_usage = true;
+                        } else {
+                            return Err(Error::internal_err(format!(
+                                "API error calling {}: {} - {}",
+                                endpoint, e, text
+                            )));
                         }
-                    } else {
-                        return Err(Error::internal_err(format!("API error: {} - {}", e, text)));
                     }
                 }
             };
