@@ -8,9 +8,31 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 // The package's own runtime YAML parser, so generating schemas needs no extra dependency.
-const { parse: parseYaml } = require("@stoplight/yaml");
+const { parseWithPointers } = require("@stoplight/yaml");
 
 const { generateSchemas } = require("./generate-resource-schemas.js");
+
+// Severity 0 is DiagnosticSeverity.Error.
+const YAML_ERROR = 0;
+
+// parseWithPointers recovers from syntax errors rather than throwing, so an unchecked parse
+// can hand back a spec silently missing whatever it failed to read — schemas that drop a
+// definition and lint that quietly stops validating it.
+function parseSpec(filePath) {
+  const { data, diagnostics } = parseWithPointers(
+    fs.readFileSync(filePath, "utf8")
+  );
+  const errors = diagnostics.filter((d) => d.severity === YAML_ERROR);
+  if (errors.length > 0) {
+    throw new Error(
+      `${filePath} is not valid YAML:\n` +
+        errors
+          .map((d) => `  line ${d.range.start.line + 1}: ${d.message}`)
+          .join("\n")
+    );
+  }
+  return data;
+}
 
 const packageDir = path.join(__dirname, "..");
 const repoDir = path.join(packageDir, "..");
@@ -57,14 +79,11 @@ function main() {
     const openflowOutputPath = path.join(outputDir, "openflow.json");
     const backendOutputPath = path.join(tmpDir, "backend-openapi.json");
 
-    const openflowSchema = parseYaml(
-      fs.readFileSync(path.join(repoDir, "openflow.openapi.yaml"), "utf8")
+    const openflowSchema = parseSpec(
+      path.join(repoDir, "openflow.openapi.yaml")
     );
-    const backendSchema = parseYaml(
-      fs.readFileSync(
-        path.join(repoDir, "backend", "windmill-api", "openapi.yaml"),
-        "utf8"
-      )
+    const backendSchema = parseSpec(
+      path.join(repoDir, "backend", "windmill-api", "openapi.yaml")
     );
 
     removeDiscriminatorMappings(openflowSchema);

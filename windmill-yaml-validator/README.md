@@ -199,8 +199,9 @@ are picked up with no publish or link step:
 bun run src/main.ts lint
 ```
 
-The published package still exists for editor integrations and is republished on every
-release tag.
+The published package still exists for editor integrations. CI does not publish it —
+`.github/change-versions.sh` moves its version with each release, but pushing that version
+to npm is a manual `./publish.sh`.
 
 ### Schema Generation
 
