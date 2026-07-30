@@ -302,6 +302,15 @@
 		const approved = sdkScopes ?? []
 		try {
 			const resp = await fetchEmbedToken({ sdkConsent: true })
+			// This response is the fresher view of how the app must render. A redeploy
+			// while the prompt was open can have turned sandbox isolation on, and
+			// rendering from the first response's `sandbox: false` would put the new
+			// bundle on the same-origin blob path — bypassing the isolation the
+			// publisher just enabled.
+			sandboxed = resp.sandbox ?? false
+			isRaw = resp.raw_app ?? false
+			appPath = resp.app_path ?? appPath
+			workspaceId = resp.workspace_id ?? workspaceId
 			const granted = resp.sdk_scopes ?? []
 			if (!granted.every((s) => approved.includes(s))) {
 				// The app was redeployed with more scopes between the prompt and the
