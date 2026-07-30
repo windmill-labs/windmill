@@ -1281,13 +1281,29 @@
 				{#snippet alerts()}
 					{#if comparisonError}
 						<!-- A refresh failed over a comparison that did load: the list below is
-						     still on screen, so flag it as possibly out of date. -->
+						     still on screen, so flag it as possibly out of date. This branch also
+						     covers a comparison that failed right after a scan, where it shadows
+						     the scan prompt below — hence Retry, which is the only action left
+						     (the candidates are already seeded; only the comparison must re-run). -->
 						<Alert
 							title="Could not refresh the comparison with {parentWorkspaceId}"
 							type="error"
 							class="my-2"
 						>
-							{comparisonError}
+							<div class="flex flex-col gap-2 items-start">
+								<span>{comparisonError}</span>
+								{#if onRetry}
+									<Button
+										variant="default"
+										unifiedSize="xs"
+										startIcon={{ icon: RefreshCw }}
+										disabled={scanning}
+										onClick={() => onRetry?.()}
+									>
+										Retry
+									</Button>
+								{/if}
+							</div>
 						</Alert>
 					{:else if awaitingScan}
 						<Alert title="Compare with {parentWorkspaceId}" type="info" class="my-2">

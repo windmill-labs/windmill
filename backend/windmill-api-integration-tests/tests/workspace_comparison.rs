@@ -2035,6 +2035,42 @@ async fn test_full_diff_scan_against_arbitrary_workspace(db: Pool<Postgres>) -> 
         );
     }
 
+    // Renaming the migration moves its candidate path. A re-scan must replace the
+    // candidate set, not add to it: the previous path still resolves to the same
+    // `(datatable, timestamp)`, so keeping it would list one migration twice.
+    sqlx::query!(
+        "UPDATE datatable_migrations SET name = 'renamed_again'
+         WHERE workspace_id = 'test-workspace' AND datatable = 'dt'"
+    )
+    .execute(&db)
+    .await?;
+    client
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/seed_full_diff/other-workspace"
+        ))
+        .send()
+        .await?;
+    let rescanned: serde_json::Value = client
+        .client()
+        .get(&compare_url)
+        .send()
+        .await?
+        .json()
+        .await?;
+    let migrations: Vec<&str> = rescanned["diffs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|d| d["kind"] == "datatable_migration")
+        .map(|d| d["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        migrations,
+        vec!["dt/20260101000001_renamed_again"],
+        "a re-scan replaces the candidate set, so the pre-rename path is gone: {rescanned}"
+    );
+
     // An arbitrary pair is only comparable to someone who administers both sides:
     // otherwise admin of one workspace would be enough to learn how much of another
     // differs from it. test-user-2 is a plain member of test-workspace.

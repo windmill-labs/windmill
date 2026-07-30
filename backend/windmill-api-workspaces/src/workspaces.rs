@@ -8921,9 +8921,11 @@ pub struct WorkspaceComparison {
     pub hidden_ahead: HiddenItemsSummary,
     pub hidden_behind: HiddenItemsSummary,
     /// When the pair is outside the fork lineage, when its candidate set was last
-    /// seeded by an explicit full scan. `None` means the pair has never been
+    /// seeded by an explicit full scan. Absent means the pair has never been
     /// scanned, so an empty `diffs` says nothing about whether the two workspaces
-    /// agree. Always `None` for a lineage pair, which the tally keeps current.
+    /// agree. Always absent for a lineage pair, which the tally keeps current.
+    /// Omitted rather than null, as the schema declares.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub full_scan_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
@@ -9673,16 +9675,24 @@ async fn seed_full_diff_scan(
     let paths: Vec<String> = candidates.iter().map(|(_, p)| p.clone()).collect();
 
     let mut tx = db.begin().await?;
-    // The scan is authoritative for this pair: it resets every candidate to undecided
-    // and one-way. A pre-existing row here is either a previous scan's (whose verdict
-    // the compare recomputes regardless) or a leftover from a lineage link since
-    // dissolved, whose `behind` would silently hide the item from the one-way list.
+    // The scan replaces this pair's candidate set rather than adding to it. Merging
+    // would keep a key the new scan no longer produces, and the comparison
+    // re-evaluates every row of a non-lineage pair, so a renamed migration or an
+    // app converted to a raw app would come back beside its new key — the very
+    // duplicate the collapses above remove, one Recompute later. Nothing of value is
+    // dropped: the verdicts are recomputed anyway, and rows left by a lineage link
+    // since dissolved carry a `behind` that would hide the item from the one-way list.
+    sqlx::query!(
+        "DELETE FROM workspace_diff WHERE source_workspace_id = $1 AND fork_workspace_id = $2",
+        target_workspace_id,
+        w_id,
+    )
+    .execute(&mut *tx)
+    .await?;
     sqlx::query!(
         "INSERT INTO workspace_diff (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes)
         SELECT $1, $2, path, kind, 1, 0, NULL
-        FROM unnest($3::varchar[], $4::varchar[]) AS t(kind, path)
-        ON CONFLICT (source_workspace_id, fork_workspace_id, path, kind)
-        DO UPDATE SET ahead = 1, behind = 0, has_changes = NULL",
+        FROM unnest($3::varchar[], $4::varchar[]) AS t(kind, path)",
         target_workspace_id,
         w_id,
         &kinds,
