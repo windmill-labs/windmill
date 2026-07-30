@@ -434,6 +434,12 @@ pub struct AutoPullSettings {
     /// HMAC secret for the repo webhook, encrypted at rest (managed-app, phase 2).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub webhook_secret: Option<String>,
+    /// Receiver URL the live webhook was registered with. Compared against the
+    /// currently configured one to re-register the hook when the instance's
+    /// webhook base URL changes. `None` on hooks created before this was
+    /// recorded, which are left alone rather than churned on every save.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub webhook_url: Option<String>,
     /// Why the repo has no active webhook while one was requested (auto/webhook
     /// mode): instance base URL unset, app missing the webhook permission, etc.
     /// Surfaced in the UI as a "falling back to polling" warning; `None` when the
@@ -460,6 +466,7 @@ impl std::fmt::Debug for AutoPullSettings {
                 "webhook_secret",
                 &self.webhook_secret.as_ref().map(|_| "<redacted>"),
             )
+            .field("webhook_url", &self.webhook_url)
             .field("webhook_error", &self.webhook_error)
             .field("last_synced_sha", &self.last_synced_sha)
             .field("last_pull_status", &self.last_pull_status)
@@ -2241,6 +2248,7 @@ mod tests {
             sync_forks: false,
             webhook_id: None,
             webhook_secret: None,
+            webhook_url: None,
             webhook_error: None,
             last_synced_sha: synced
                 .iter()

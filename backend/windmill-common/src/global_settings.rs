@@ -102,6 +102,10 @@ pub const HTTP_ROUTE_WORKSPACED_ROUTE_SETTING: &str = "http_route_workspaced_rou
 pub const SECRET_BACKEND_SETTING: &str = "secret_backend";
 pub const MIN_KEEP_ALIVE_VERSION_SETTING: &str = "min_keep_alive_version";
 pub const GITHUB_ENTERPRISE_APP_SETTING: &str = "github_enterprise_app";
+/// Base URL GitHub delivers git-sync repository webhooks to. Falls back to
+/// `base_url` when unset; set it when the browser-facing URL is not reachable
+/// from GitHub and a separate ingress fronts the API for inbound webhooks.
+pub const GITHUB_APP_WEBHOOK_BASE_URL_SETTING: &str = "github_app_webhook_base_url";
 pub const INSTANCE_EVENTS_WEBHOOK_SETTING: &str = "instance_events_webhook";
 pub const WORKSPACE_REGISTRIES_SETTING: &str = "workspace_registries";
 pub const RESTART_COORDINATION_SETTING: &str = "_restart_coordination";

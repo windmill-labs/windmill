@@ -778,8 +778,8 @@ fn redact_git_sync_webhook_secrets(git_sync: &mut serde_json::Value) {
     }
 }
 
-/// Zero the server-owned auto-pull fields (webhook id/secret/error, synced sha,
-/// last pull status) on a client-supplied `AutoPullSettings`. The client only
+/// Zero the server-owned auto-pull fields (webhook id/secret/url/error, synced
+/// sha, last pull status) on a client-supplied `AutoPullSettings`. The client only
 /// controls `enabled` / `mode` / `poll_interval_s`; the rest is written by the
 /// server (webhook creation, poller) and must never be trusted from the request —
 /// otherwise a caller could inject a webhook id/secret or fake sync state.
@@ -788,6 +788,7 @@ fn clear_client_supplied_auto_pull_state(
 ) {
     auto_pull.webhook_id = None;
     auto_pull.webhook_secret = None;
+    auto_pull.webhook_url = None;
     auto_pull.webhook_error = None;
     auto_pull.last_synced_sha = std::collections::HashMap::new();
     auto_pull.last_pull_status = None;
@@ -910,6 +911,9 @@ async fn persist_reconciled_webhook_fields(
         if let Some(secret) = &new_ap.webhook_secret {
             patch.insert("webhook_secret".to_string(), serde_json::json!(secret));
         }
+        if let Some(url) = &new_ap.webhook_url {
+            patch.insert("webhook_url".to_string(), serde_json::json!(url));
+        }
         if let Some(err) = &new_ap.webhook_error {
             patch.insert("webhook_error".to_string(), serde_json::json!(err));
         }
@@ -924,7 +928,7 @@ async fn persist_reconciled_webhook_fields(
                     CASE WHEN elem->>'git_repo_resource_path' = $2
                           AND jsonb_typeof(elem->'auto_pull') = 'object'
                         THEN jsonb_set(elem, '{auto_pull}',
-                             ((elem->'auto_pull') - 'webhook_id' - 'webhook_secret' - 'webhook_error') || $3)
+                             ((elem->'auto_pull') - 'webhook_id' - 'webhook_secret' - 'webhook_url' - 'webhook_error') || $3)
                         ELSE elem END)
                  FROM jsonb_array_elements(git_sync->'repositories') AS elem)
             )
@@ -3623,6 +3627,7 @@ async fn edit_git_sync_config(
                 {
                     new_ap.webhook_id = old_ap.webhook_id;
                     new_ap.webhook_secret = old_ap.webhook_secret.clone();
+                    new_ap.webhook_url = old_ap.webhook_url.clone();
                     new_ap.last_synced_sha = old_ap.last_synced_sha.clone();
                     new_ap.last_pull_status = old_ap.last_pull_status.clone();
                 }
@@ -3879,6 +3884,7 @@ async fn edit_git_sync_repository(
                 new_ap.last_pull_status = old_ap.last_pull_status.clone();
                 new_ap.webhook_id = old_ap.webhook_id;
                 new_ap.webhook_secret = old_ap.webhook_secret.clone();
+                new_ap.webhook_url = old_ap.webhook_url.clone();
             }
             // UI omitted auto_pull (e.g. older client): keep existing config.
             (None, Some(_)) => {

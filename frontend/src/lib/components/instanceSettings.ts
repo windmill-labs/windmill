@@ -947,6 +947,24 @@ export const settings: Record<string, Setting[]> = {
 				if (!v?.self_managed) return true
 				return !!(v?.base_url && v?.app_id && v?.app_slug && v?.client_id && v?.private_key)
 			}
+		},
+		{
+			label: 'Webhook base url',
+			description:
+				'Base url GitHub delivers git sync webhooks to, without trailing slash. Leave empty to use the instance base url. Set it when GitHub cannot reach the base url and a separate ingress fronts this instance for inbound webhooks.',
+			key: 'github_app_webhook_base_url',
+			fieldType: 'text',
+			placeholder: 'https://windmill-webhooks.company.com',
+			storage: 'setting',
+			ee_only: '',
+			error: 'Webhook base url must start with http:// or https:// and not end with / or a space',
+			isValid: (value: string | undefined) =>
+				value == undefined ||
+				value === '' ||
+				(value.startsWith('http') &&
+					value.includes('://') &&
+					!value.endsWith('/') &&
+					!value.endsWith(' '))
 		}
 	],
 	WebSocket: [
