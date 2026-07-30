@@ -259,8 +259,11 @@
 			scriptHash != undefined &&
 			((run?.totals?.error ?? 0) > 0 || (run?.totals?.skipped ?? 0) > 0)
 	)
+	// `dbt_retry_job` names THIS run: the saved failure is keyed by script and
+	// principal, so resuming from an older run's page would otherwise pick up
+	// whatever failed most recently instead.
 	let resumeHref = $derived(
-		`/scripts/get/${scriptHash}?workspace=${$workspaceStore}#dbt_command=%22retry%22`
+		`/scripts/get/${scriptHash}?workspace=${$workspaceStore}#dbt_command=%22retry%22&dbt_retry_job=%22${jobId}%22`
 	)
 
 	let ranTestsOnly = $derived(

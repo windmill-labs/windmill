@@ -253,11 +253,17 @@ pub(crate) async fn handle_dbt_job(
     // failed invocation's selection and vars, so every phase must agree with them.
     let mut restored_results_digest: Option<String> = None;
     let inv = if command == "retry" {
+        // Read BEFORE the restore replaces the arguments: a caller looking at one
+        // failed run may name it, and the state is keyed by principal rather than
+        // by job — so without this a retry of an old run silently resumes whatever
+        // failed last instead.
+        let expected = arg_str(&inv.args, "dbt_retry_job")?;
         let restored = restore_run_state(
             &prepared,
             &job.workspace_id,
             &job.permissioned_as,
             &inv,
+            expected.as_deref(),
             conn,
         )
         .await?;
@@ -3635,6 +3641,8 @@ async fn restore_run_state(
     w_id: &str,
     permissioned_as: &str,
     inv: &Invocation,
+    // The run the caller means to resume, when they named one.
+    expected_job: Option<&str>,
     conn: &Connection,
 ) -> error::Result<RestoredRun> {
     if p.script_path.is_empty() {
@@ -3676,6 +3684,14 @@ async fn restore_run_state(
         Connection::Http(_) => None,
     };
     let latest_job = saved_state.flatten();
+    if let (Some(expected), Some(saved)) = (expected_job, latest_job.as_ref()) {
+        if expected != saved.to_string() {
+            return Err(Error::BadRequest(format!(
+                "the last failure saved for this script is {saved}, not the run you asked to \
+                 resume; open that run to retry it, or run the script normally"
+            )));
+        }
+    }
     // Authoritative including when it says nothing: no row means the last
     // invocation left nothing resumable, and a local generation that outlived it
     // would resurrect a run the newer one replaced. An agent worker has no such

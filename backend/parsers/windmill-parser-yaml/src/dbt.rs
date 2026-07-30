@@ -409,7 +409,8 @@ pub fn dbt_arg_schema(inner_content: &str) -> anyhow::Result<serde_json::Value> 
                 "select" => (
                     Some(
                         "dbt selection syntax, e.g. `tag:nightly`, `stg_orders+`, \
-                         `state:modified`. Empty runs the descriptor's own selection.",
+                         `config.materialized:incremental`. Empty runs the descriptor's own \
+                         selection.",
                     ),
                     Some("fields.dbt_command != 'retry'"),
                 ),

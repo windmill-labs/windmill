@@ -677,9 +677,10 @@ components:
             - ruby
             - rlang
             - duckdb
-            # NOT dbt: a dbt script is a descriptor naming a git repo, and the
-            # worker rejects inline execution — advertising it here would let
-            # such a flow validate and then always fail at runtime.
+            # NOT dbt: a dbt script runs the project carried as its module
+            # bundle, which an inline snippet has none of, and the worker rejects
+            # inline execution — advertising it here would let such a flow
+            # validate and then always fail at runtime.
             # for related places search: ADD_NEW_LANG
         path:
           type: string

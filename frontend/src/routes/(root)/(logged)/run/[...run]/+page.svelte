@@ -824,7 +824,10 @@
 							? [
 									{
 										label: 'dbt retry with same args',
-										onClick: () => runImmediately({ dbt_command: 'retry' })
+										// Naming the run: the saved failure is keyed by script and principal,
+										// so a later run of the same script would otherwise be what resumes.
+										onClick: () =>
+											runImmediately({ dbt_command: 'retry', dbt_retry_job: job?.id })
 									}
 								]
 							: []),
