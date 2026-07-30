@@ -1304,9 +1304,9 @@ async fn install_packages(
             conn,
         )
         .await;
-        // A restore that lost the race anyway — the sweep fired in the gap after
-        // `exists()` — is a cache MISS, not a failed job: `dbt deps` resolves the
-        // tree again. Falling through costs a fetch; failing costs the run.
+        // A tree that went missing between `exists()` and the copy is a cache MISS,
+        // not a failed job: `dbt deps` resolves it again. Falling through costs a
+        // fetch; failing costs the run.
         if restored.is_ok() {
             append_logs(
                 job_id,
@@ -3634,10 +3634,13 @@ pub struct RestoredRun {
 /// no folder policy — a grantee cannot read the run, while a retry would publish
 /// its arguments.
 ///
-/// Mirrors `require_job_read_access`: you can always read a job you launched,
-/// otherwise the row must be visible under your own RLS. NOT `job_perms`, which
-/// carries the identity the job RUNS as — for an `on_behalf_of` script that is
-/// the owner, and probing as the owner would authorize every caller.
+/// Visibility under the caller's OWN RLS, and nothing else. `require_job_read_access`
+/// also grants "you launched it", but that compares `created_by`, which is a display
+/// name derived from a token label — so a worker cannot tell a launcher from a
+/// collision. Dropping it costs `dbt retry` on a `u/<owner>` script shared through
+/// `extra_perms`, whose runs RLS shows to the owner alone; every other shape keeps it.
+/// NOT `job_perms` either: those carry the identity the job RUNS as, which for an
+/// `on_behalf_of` script is the owner, so probing with them authorizes every caller.
 /// `None` when the retry may proceed, otherwise why it may not.
 async fn resume_refusal(
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -3645,14 +3648,15 @@ async fn resume_refusal(
     caller: &str,
     saved_job: &Uuid,
 ) -> error::Result<Option<&'static str>> {
-    let Some(saved) = sqlx::query!(
-        "SELECT created_by, permissioned_as FROM v2_job WHERE id = $1 AND workspace_id = $2",
+    let exists = sqlx::query_scalar!(
+        "SELECT 1 FROM v2_job WHERE id = $1 AND workspace_id = $2",
         saved_job,
         w_id
     )
     .fetch_optional(db)
     .await?
-    else {
+    .is_some();
+    if !exists {
         // Pruned by retention. Nothing is left to authorize against, and the state
         // outlives the job — so this fails closed rather than handing the last
         // failure's arguments to whoever asks next.
@@ -3660,9 +3664,6 @@ async fn resume_refusal(
             "the run this state describes has aged out of the job retention window, so Windmill \
              cannot check whether it is yours to resume; run the script normally instead",
         ));
-    };
-    if saved.created_by == caller {
-        return Ok(None);
     }
     let Some(usr) = sqlx::query!(
         "SELECT email, is_admin FROM usr WHERE workspace_id = $1 AND username = $2",
@@ -3857,6 +3858,30 @@ async fn restore_run_state(
     let needs_parse = tokio::fs::copy(snapshot.join("manifest.json"), target.join("manifest.json"))
         .await
         .is_err();
+    // The generation was chosen from a row read before the authorization and the
+    // file work above. A run finishing in that window publishes a newer one, and
+    // resuming the superseded generation redoes nodes it has already rebuilt —
+    // appending to an incremental model twice. Re-read and refuse rather than
+    // resume what is no longer the last failure here.
+    if let Connection::Sql(db) = conn {
+        let still = sqlx::query_scalar!(
+            "SELECT job_id FROM dbt_run_state
+              WHERE workspace_id = $1 AND script_path = $2 AND permissioned_as = $3",
+            w_id,
+            &p.script_path,
+            permissioned_as
+        )
+        .fetch_optional(db)
+        .await?
+        .flatten();
+        if still != latest_job {
+            return Err(Error::BadRequest(
+                "another run of this script finished while this retry was starting, so its saved \
+                 failures are no longer the last ones; retry again to resume those"
+                    .to_string(),
+            ));
+        }
+    }
     Ok(RestoredRun {
         args: saved
             .args

@@ -298,6 +298,29 @@ fn n(v: &Value, k: &str) -> Option<i64> {
     v.get(k).and_then(|x| x.as_i64())
 }
 
+/// A resource's port, which may arrive as a JSON number or as a string —
+/// resources are user-supplied JSON and nothing coerces the field. Reading only
+/// `as_i64` sent `"5433"` to the adapter default, which connects to whatever
+/// listens there and reports nothing; a value that is present but not a port is
+/// refused rather than replaced.
+fn port_of(resource: &Value, default: i64) -> error::Result<i64> {
+    let bad = |v: &Value| {
+        Error::BadRequest(format!(
+            "resource `port` must be a number, got `{v}`; correct the resource"
+        ))
+    };
+    match resource.get("port") {
+        None | Some(Value::Null) => Ok(default),
+        Some(Value::Number(n)) => n.as_i64().ok_or_else(|| bad(&Value::Number(n.clone()))),
+        Some(Value::String(s)) if s.trim().is_empty() => Ok(default),
+        Some(Value::String(s)) => s
+            .trim()
+            .parse::<i64>()
+            .map_err(|_| bad(&Value::String(s.clone()))),
+        Some(other) => Err(bad(other)),
+    }
+}
+
 /// The rendered `profiles.yml` body plus the `(schema, database)` the target
 /// resolves to. The caller needs those two to spell the `table://` asset paths
 /// of models that do not override them.
@@ -358,7 +381,7 @@ pub fn render_profile(
                 "port".into(),
                 // dbt validates `port` against a JSON schema that demands an
                 // integer; a quoted scalar is rejected outright.
-                ProfileValue::Number(n(resource, "port").unwrap_or(adapter.default_port())),
+                ProfileValue::Number(port_of(resource, adapter.default_port())?),
             ));
             out.push((adapter.database_key().into(), quoted(&dbname)));
             database = Some(dbname.clone());

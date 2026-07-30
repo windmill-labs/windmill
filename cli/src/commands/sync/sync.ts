@@ -1384,8 +1384,12 @@ function ZipFSElement(
               parsed["modules"] && Object.keys(parsed["modules"]).length > 0;
             // A dbt script's module folder holds its dbt project and nothing
             // else, so its lock stays beside the folder like a plain script's.
+            // Zip keys are `/`-separated while `p` carries the OS separator, so
+            // on Windows the unnormalized lookup misses and the project is laid
+            // out as `__mod` — the one layout dbt cannot be run from.
             const isDbtScript =
-              removeSuffix(p, ".script.json") + ".dbt.yaml" in zip.files;
+              removeSuffix(p.replaceAll(SEP, "/"), ".script.json") + ".dbt.yaml" in
+              zip.files;
             if (
               parsed["lock"] &&
               parsed["lock"] != "" &&
@@ -1511,8 +1515,10 @@ function ZipFSElement(
       const hasModules = scriptModules && Object.keys(scriptModules).length > 0;
       // A dbt script's module folder is its dbt project, so nothing of
       // Windmill's goes inside it: the metadata stays beside the folder and the
-      // folder is what `--project-dir` points at.
-      const isDbt = removeSuffix(p, ".script.json") + ".dbt.yaml" in zip.files;
+      // folder is what `--project-dir` points at. Normalized like the resource
+      // lookup above: zip keys are `/`-separated and `p` is not on Windows.
+      const isDbt =
+        removeSuffix(p.replaceAll(SEP, "/"), ".script.json") + ".dbt.yaml" in zip.files;
 
       // Compute base path and module folder
       const metaExt = useYaml ? ".yaml" : ".json";

@@ -85,6 +85,7 @@ export const EXTENSION_TO_LANGUAGE: Record<string, SupportedLanguage> = {
   "playbook.yml": "ansible",
   "java": "java",
   "duckdb.sql": "duckdb",
+  "dbt.yaml": "dbt",
   "rb": "ruby",
   // Plain .ts defaults to bun (will be overridden by defaultTs setting)
   "ts": "bun",

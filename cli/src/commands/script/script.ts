@@ -752,10 +752,29 @@ export async function readModulesFromDisk(
           // its first 8 KB, so a multi-gigabyte seed next to the project costs
           // that rather than being loaded whole just to be rejected.
           if (!isBundledModuleFile(fullPath)) {
+            // Over the limit but readable as text — a large seed CSV is the
+            // realistic case — is refused rather than skipped: dbt WOULD have
+            // read it, so shipping the project without it deploys something that
+            // compiles here and fails at run time with a missing relation.
+            let oversizedText = false;
+            try {
+              oversizedText =
+                fs.statSync(fullPath).size > MAX_MODULE_BYTES &&
+                !fs.readFileSync(fullPath).subarray(0, 8000).includes(0);
+            } catch {
+              oversizedText = false;
+            }
+            if (oversizedText) {
+              throw new Error(
+                `${relPath} is ${Math.ceil(fs.statSync(fullPath).size / 1024 / 1024)} MB, over the ` +
+                  `${MAX_MODULE_BYTES / 1024 / 1024} MB per-file limit for a dbt project file. ` +
+                  `Deploying without it would leave the project incomplete — shrink the file, or ` +
+                  `keep it out of the project folder.`,
+              );
+            }
             log.warn(
-              `Skipping ${relPath}: not a text file, or over the ` +
-                `${MAX_MODULE_BYTES / 1024 / 1024} MB per-file limit, so it is not part of the ` +
-                `dbt project the bundle carries`,
+              `Skipping ${relPath}: not a text file, so it is not part of the dbt project the ` +
+                `bundle carries — dbt does not read it either`,
             );
             continue;
           }

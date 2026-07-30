@@ -696,9 +696,12 @@ Consequences worth knowing before choosing whether to commit a lockfile:
   redeploy re-pins and clears it; committing the lock avoids it entirely.
 
 Nothing evicts these worker-local caches — package trees, engine installs and retry
-state alike. An operator's `cache_clear` reclaims them, exactly as it does for every
-other language. Engine installs dominate the space by two orders of magnitude
-(~270–290 MB each, bounded by engine version), not the dependency trees.
+state alike — and `cache_clear` does not reach them either: it removes
+`$WINDMILL_DIR/cache/`, while all three live under `$WINDMILL_DIR/cache_nomount/`,
+as bun's cache does. An operator reclaims them by deleting that directory. Engine
+installs dominate the space by two orders of magnitude (~270–290 MB each, bounded
+by engine version) and package trees grow one tree per edit of a project that
+declares packages; branch `dbt-cache-retention-followup` holds sweeps for both.
 
 ## Run path
 
@@ -766,16 +769,20 @@ provides observability.
    the script's last run under the owner's identity rather than any one caller's.
 
    **The equivalence is enforced, not assumed.** A retry resumes the saved run
-   only if its caller could read that run, by the rule
-   `require_job_read_access` applies: you can always read a job you launched,
-   otherwise the row must be visible under your own RLS. So for a script under
-   `f/`, where `see_folder_extra_perms_user` makes a job readable to everyone with
-   read on the folder — which is also what grants execution — every caller may
-   resume every other's failure, as above. A script under `u/<owner>/` shared
-   through `extra_perms` is where that would have broken: no folder policy
-   applies, `see_own_path` matches the owner alone, and an `on_behalf_of` run is
-   `permissioned_as` the owner, so a grantee can read neither the run nor their
-   own — and a retry is refused rather than handing them its arguments.
+   only if the row is visible under the CALLER's own RLS. For a script under `f/`,
+   `see_folder_extra_perms_user` makes a job readable to everyone with read on the
+   folder — which is also what grants execution — so every caller may resume every
+   other's failure, as above. An ordinary script's runs are `permissioned_as` the
+   caller, so `see_own` covers them.
+
+   `require_job_read_access` also grants "you can always read a job you launched",
+   and this deliberately does NOT: that grant compares `created_by`, a display name
+   derived from a token label, and a worker cannot tell a launcher from a
+   collision. The cost is that an `on_behalf_of` script under `u/<owner>/` shared
+   through `extra_perms` can be resumed by the owner alone — its runs are
+   `permissioned_as` the owner, so RLS shows them to nobody else, not even the
+   grantee who launched one. Sharing such a script through a folder gives every
+   caller the resume back.
 
    Checked against the CALLER, never `job_perms`: those carry the identity the
    job runs AS, which for an `on_behalf_of` script is the owner, so probing with

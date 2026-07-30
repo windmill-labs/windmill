@@ -8,6 +8,7 @@
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import { ChevronDown, ChevronRight, FileText } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
+	import { copyToClipboard } from '$lib/utils'
 
 	let { modules, scriptPath }: { modules: Record<string, ScriptModule>; scriptPath: string } =
 		$props()
@@ -143,7 +144,7 @@ wmill sync push</pre
 						<Button
 							size="xs2"
 							variant="subtle"
-							on:click={() => navigator.clipboard.writeText(modules[effective]?.content ?? '')}
+							on:click={() => copyToClipboard(modules[effective]?.content ?? '')}
 						>
 							Copy
 						</Button>

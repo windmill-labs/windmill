@@ -39,11 +39,22 @@
 		return s < 1 ? `${Math.round(s * 1000)}ms` : `${s.toFixed(2)}s`
 	}
 
-	// dbt qualifies every part, and the database is the same for every row in a
-	// run: the schema and name are what tells two relations apart.
+	// dbt qualifies every part. The database is dropped only when every row shares
+	// it, which is the common case and the noisiest to repeat — a model that
+	// overrode `database` would otherwise render identically to a same-named
+	// relation in another catalog.
+	let oneDatabase = $derived(
+		new Set(
+			nodes
+				.map((n) => n.relation_name)
+				.filter((r): r is string => !!r)
+				.map((r) => splitRelation(r).slice(0, -2).join('.'))
+		).size <= 1
+	)
 	function fmtRelation(relation: string | undefined): string | undefined {
 		if (!relation) return undefined
-		return splitRelation(relation).slice(-2).join('.')
+		const parts = splitRelation(relation)
+		return (oneDatabase ? parts.slice(-2) : parts).join('.')
 	}
 </script>
 

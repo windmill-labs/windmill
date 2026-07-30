@@ -3,7 +3,7 @@
  * Tests both dotted (.flow, .app, .raw_app) and non-dotted (__flow, __app, __raw_app) modes.
  */
 
-import { expect, test, describe, beforeEach } from "bun:test";
+import { expect, test, describe, beforeEach, afterEach } from "bun:test";
 import {
   setNonDottedPaths,
   getNonDottedPaths,
@@ -673,15 +673,24 @@ describe("dbtGeneratedDirs", () => {
   const os = require("node:os");
   const nodePath = require("node:path");
   let dir: string;
+  // Every temp directory this block makes, so none outlives the run: the helper
+  // below mints one per call by design.
+  let made: string[] = [];
 
   beforeEach(() => {
     dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), "dbtgen-"));
+    made = [dir];
+  });
+
+  afterEach(() => {
+    for (const d of made) fs.rmSync(d, { recursive: true, force: true });
   });
 
   // A fresh directory per call: `dbtGeneratedDirs` memoizes per project folder,
   // since within one sync the project file does not change under it.
   const write = (yml: string) => {
     const d = fs.mkdtempSync(nodePath.join(os.tmpdir(), "dbtgen-"));
+    made.push(d);
     fs.writeFileSync(nodePath.join(d, "dbt_project.yml"), yml);
     return dbtGeneratedDirs(d);
   };
@@ -759,6 +768,10 @@ describe("isBundledModuleFile", () => {
 
   beforeEach(() => {
     dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), "bundled-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 
   const write = (name: string, data: Buffer | string) => {
