@@ -11,6 +11,7 @@
 	import Select from './select/Select.svelte'
 	import ExploreAssetButton, { assetCanBeExplored } from './ExploreAssetButton.svelte'
 	import DropdownV2 from './DropdownV2.svelte'
+	import { appIconComponent } from './icons'
 
 	interface Props {
 		initialValue?: string | undefined
@@ -186,6 +187,8 @@
 	let resourceEditor: ResourceEditorDrawer | undefined = $state()
 	let hovering = $state(false)
 	let isDatatableSelected = $derived(value?.startsWith('datatable://') ?? false)
+	let typeByPath = $derived(new Map(collection.map((x) => [x.value, x.type])))
+	let SelectedIcon = $derived(appIconComponent(typeByPath.get(value!)))
 </script>
 
 <AppConnect
@@ -212,6 +215,12 @@
 		}
 	}}
 />
+{#snippet selectedIconSnippet()}
+	{#if SelectedIcon}
+		<SelectedIcon height="14px" width="14px" size={14} />
+	{/if}
+{/snippet}
+
 <!-- {JSON.stringify({ value, collection })} -->
 <div class="flex flex-col w-full items-start {className}">
 	<div
@@ -244,7 +253,16 @@
 			placeholder={placeholder ?? `${resourceType ?? 'any'} resource`}
 			itemLabelWrapperClasses="flex-1"
 			id="resource-picker-select"
+			inputLeadingSnippet={SelectedIcon ? selectedIconSnippet : undefined}
 		>
+			{#snippet startSnippet({ item })}
+				{@const Icon = appIconComponent(typeByPath.get(item.value))}
+				{#if Icon}
+					<span class="shrink-0 text-secondary">
+						<Icon height="14px" width="14px" size={14} />
+					</span>
+				{/if}
+			{/snippet}
 			{#snippet endSnippet({ item, close })}
 				{#if !item.value?.startsWith('datatable://')}
 					<Button
