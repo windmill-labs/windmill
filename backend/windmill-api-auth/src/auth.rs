@@ -835,7 +835,7 @@ pub async fn resolve_opt_job_authed(
     Err((Error::NotAuthorized("Unauthorized".to_string()), parts))
 }
 
-fn username_override_from_label(label: Option<String>) -> Option<String> {
+pub(crate) fn username_override_from_label(label: Option<String>) -> Option<String> {
     match label {
         Some(label)
             if label.starts_with("ephemeral-webhook-")
@@ -853,7 +853,7 @@ fn username_override_from_label(label: Option<String>) -> Option<String> {
         ),
         Some(label) if label == "Ephemeral lsp token" => Some("lsp".to_string()),
         Some(label) if label != "ephemeral-script" && label != "session" && !label.is_empty() => {
-            Some(format!("label-{label}"))
+            Some(format!("{}{label}", crate::GENERIC_TOKEN_LABEL_PREFIX))
         }
         _ => None,
     }

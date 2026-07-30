@@ -37,6 +37,13 @@ pub use auth::{
 
 // ------------ ApiAuthed & OptJobAuthed types ------------
 
+/// Prefix `username_override_from_label` puts on the label of a generic user token. Unlike
+/// the trigger-token overrides it sits next to, such a label is arbitrary user-controlled
+/// text naming no principal, so `display_username` skips it. The override itself must keep
+/// this form: `require_job_read_access` matches it against `created_by` to let a token
+/// re-read the jobs it launched.
+pub const GENERIC_TOKEN_LABEL_PREFIX: &str = "label-";
+
 #[derive(Default, Clone, Debug)]
 pub struct OptJobAuthed {
     pub job_id: Option<uuid::Uuid>,
@@ -72,8 +79,15 @@ impl ApiAuthed {
         }
     }
 
+    /// The name a run triggered by this principal is credited to (`v2_job.created_by`, and
+    /// the audit `end_user`). A trigger-token override names the entity that fired the
+    /// request and wins; a generic token label does not, so the token owner is credited and
+    /// stays traceable even when `permissioned_as` is an on-behalf-of identity.
     pub fn display_username(&self) -> &str {
-        self.username_override.as_ref().unwrap_or(&self.username)
+        match self.username_override.as_deref() {
+            Some(o) if !o.starts_with(GENERIC_TOKEN_LABEL_PREFIX) => o,
+            _ => &self.username,
+        }
     }
 }
 
@@ -1192,6 +1206,35 @@ mod tests {
             scopes: scopes.map(|v| v.into_iter().map(String::from).collect()),
             ..Default::default()
         }
+    }
+
+    /// `display_username` is what `push` credits a run to, so a token label standing in for
+    /// it erases the caller from `created_by` and from the audit trail — irrecoverably when
+    /// `permissioned_as` is an on-behalf-of identity that also takes the `username` slot.
+    #[test]
+    fn generic_token_label_credits_the_token_owner() {
+        let owner_of = |label: &str| ApiAuthed {
+            username: "huangm".into(),
+            username_override: auth::username_override_from_label(Some(label.to_string())),
+            ..Default::default()
+        };
+
+        // Arbitrary user-chosen labels, and the auto-generated MCP OAuth one.
+        assert_eq!(owner_of("my-personal-token").display_username(), "huangm");
+        assert_eq!(
+            owner_of("mcp-oauth-mcp-client-9f3a1c").display_username(),
+            "huangm"
+        );
+
+        // Trigger tokens name the entity that fired the request, so they keep the slot.
+        assert_eq!(
+            owner_of("webhook-f/svc/my_script").display_username(),
+            "webhook-f/svc/my_script"
+        );
+        assert_eq!(
+            owner_of("ephemeral-script-end-user-enduser42").display_username(),
+            "enduser42"
+        );
     }
 
     // Regression tests for the Preview path traversal: a Preview's path skips the

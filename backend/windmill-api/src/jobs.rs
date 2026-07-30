@@ -1103,9 +1103,10 @@ async fn require_job_read_access(
     // identity, i.e. its `permissioned_as_email` (the token owner's email, never set from
     // the label) equals `authed.email`. This still admits every legitimate same-owner
     // re-read (trigger tokens reading their own webhook/http/email jobs, the
-    // ephemeral-script-end-user worker token, generic labeled tokens) while denying
-    // cross-principal collisions. The DB hit only happens when an override is present and
-    // matches, so the common session/token path stays query-free.
+    // ephemeral-script-end-user worker token, and jobs whose stored `created_by` is a
+    // `label-*` override) while denying cross-principal collisions. The DB hit only happens
+    // when an override is present and matches, so the common session/token path stays
+    // query-free.
     if authed
         .username_override
         .as_deref()
