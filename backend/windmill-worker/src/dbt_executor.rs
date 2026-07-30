@@ -1743,13 +1743,13 @@ const NSJAIL_CONFIG_RUN_DBT_CONTENT: &str = include_str!("../nsjail/run.dbt.conf
 /// reads and writes local files — so they are the project's code, not
 /// Windmill's, and the same isolation every other executor applies has to
 /// apply here.
-/// Apply the invocation's environment to a dbt command.
 ///
-/// Under a sandbox this must NOT touch the launcher: `dbt_command` returns the
-/// process that execs nsjail, and these values come from caller-controlled
-/// script metadata — `LD_PRELOAD` naming a library from the checkout would be
-/// loaded by the dynamic linker as the worker, before isolation exists. The
-/// jail profile carries them to the child instead (see `sandbox_config`).
+/// The invocation's environment must NOT reach the launcher under a sandbox:
+/// what this returns is the process that execs nsjail, and those values come
+/// from caller-controlled script metadata — an `LD_PRELOAD` naming a library
+/// from the project bundle would be loaded by the dynamic linker as the worker,
+/// before isolation exists. The jail profile carries them to the child instead
+/// (see `sandbox_config`).
 pub(crate) fn dbt_command(p: &PreparedProject, args: &[&str]) -> Command {
     let mut cmd = match p.sandbox_config.as_ref().map(|c| c.path()) {
         Some(config) => {
@@ -4260,20 +4260,23 @@ fn flatten_command(
             DBT_COMMANDS.join(", ")
         ))
     };
-    let fields = serde_json::from_str::<HashMap<String, Box<RawValue>>>(block.get())
+    let mut fields = serde_json::from_str::<HashMap<String, Box<RawValue>>>(block.get())
         .map_err(|_| malformed())?;
     if arg_str(&fields, DBT_COMMAND_LABEL)?.is_none() {
         return Err(malformed());
     }
+    let label = fields.remove(DBT_COMMAND_LABEL);
     for (k, v) in fields {
         // A placeholder of the same name would otherwise be overwritten by the
         // block — they are reserved for exactly that reason.
-        let k = if k == DBT_COMMAND_LABEL {
-            "dbt_command".to_string()
-        } else {
-            k
-        };
         args.insert(k, v);
+    }
+    // LAST, and from the variant's label alone: a block carrying a `dbt_command`
+    // of its own would otherwise land on the same key, and which command ran
+    // would be map iteration order — the malformed check above, arrived at from
+    // the other side.
+    if let Some(label) = label {
+        args.insert("dbt_command".to_string(), label);
     }
     Ok(args)
 }
@@ -5042,6 +5045,16 @@ mod tests {
         );
         assert_eq!(arg_i64(&out, "limit").unwrap(), Some(3));
         assert!(!out.contains_key(DBT_COMMAND_ARG));
+        // The variant's label decides, not map iteration order: a block carrying a
+        // `dbt_command` of its own lands on the same key.
+        let both = flatten_command(args(
+            r#"{"command": {"label": "show", "dbt_command": "build"}}"#,
+        ))
+        .unwrap();
+        assert_eq!(
+            arg_str(&both, "dbt_command").unwrap().as_deref(),
+            Some("show")
+        );
     }
 
     /// An agent reaches no database, so the row that answers "is this the run you
