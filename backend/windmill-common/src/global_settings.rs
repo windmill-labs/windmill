@@ -130,10 +130,9 @@ pub fn validate_webhook_base_url(value: &str) -> Result<(), String> {
         );
     }
     if !matches!(url.scheme(), "http" | "https") {
-        return Err(format!(
-            "must use the http or https scheme, got '{}'",
-            url.scheme()
-        ));
+        // The scheme is submitted text too — `hunter2://host` parses fine — so it is
+        // named, not echoed, like every other branch here.
+        return Err("must use the http or https scheme".to_string());
     }
     if !url.has_host() {
         return Err("must include a host".to_string());
@@ -421,6 +420,8 @@ mod tests {
             format!("https://hooks.example.com?token={SECRET}"),
             format!("https://hooks.example.com#{SECRET}"),
             format!("https://hooks.example.com/{SECRET} x"),
+            // A custom scheme parses fine, so the scheme itself is attacker-chosen text.
+            format!("{SECRET}://hooks.example.com"),
         ] {
             let err = validate_webhook_base_url(&bad).expect_err("should be rejected");
             assert!(

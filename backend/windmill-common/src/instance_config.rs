@@ -1348,7 +1348,9 @@ pub enum WebhookSweep {
     Detach,
 }
 
-/// Re-point every git-sync webhook that is not already on the configured receiver.
+/// Reconcile every git-sync webhook that is not already on the configured receiver:
+/// re-point the ones pointing elsewhere, and retry the ones whose last attempt
+/// failed — which may mean registering a hook that never got created.
 ///
 /// The only place that decides await-vs-detach, so the trade-off is stated once.
 /// Either way the request is never dropped: sweeps are serialized, and one arriving
