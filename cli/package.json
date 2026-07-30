@@ -52,6 +52,7 @@
     "@types/node": "^22.0.0",
     "@types/tar-stream": "^3.1.4",
     "@types/ws": "^8.5.0",
+    "ajv": "^8.17.1",
     "typescript": "^5.7.0"
   }
 }
