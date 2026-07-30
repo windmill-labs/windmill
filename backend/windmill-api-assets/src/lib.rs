@@ -960,8 +960,11 @@ pub struct PinnedRun {
 
 /// The asset graph, optionally as one run saw it.
 ///
-/// `Some(pinned)` means the caller has already passed `require_job_read_access`
-/// for that job; nothing below re-decides it.
+/// AUTHORIZES NOTHING BY ITSELF. Every caller owes it two checks, because the
+/// answer is workspace asset data reached through a route whose own URL segment
+/// decides the scope domain: `assets:read` always, and `require_job_read_access`
+/// for the job when passing `Some(pinned)` — which is then taken as already
+/// done, since the pinned path and hash come from that job's row.
 pub async fn asset_graph_for(
     authed: &ApiAuthed,
     w_id: &str,
