@@ -149,8 +149,17 @@ async fn lookup_tag_workspace(workspace_id: &str, db: &Pool<Postgres>) -> TagWor
     .fetch_optional(db)
     .await
     {
-        Ok(row) => {
-            let id = row.unwrap_or_else(|| workspace_id.to_string());
+        // No row means the workspace does not exist yet, or its chain is broken: both are "we
+        // cannot resolve this", so fall back to its own id for this call WITHOUT caching. Caching
+        // it would pin a fork to its own unserved id for the whole TTL — a rename resolves the new
+        // id before the row lands, and every job pushed until the TTL expires would queue.
+        Ok(None) => {
+            return TagWorkspace {
+                id: workspace_id.to_string(),
+                is_fork: workspace_id.starts_with(WM_FORK_PREFIX),
+            }
+        }
+        Ok(Some(id)) => {
             let is_fork = id != workspace_id || workspace_id.starts_with(WM_FORK_PREFIX);
             TagWorkspace { id, is_fork }
         }

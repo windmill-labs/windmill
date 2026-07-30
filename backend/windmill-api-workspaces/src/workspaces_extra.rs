@@ -804,6 +804,15 @@ pub(crate) async fn change_workspace_id(
         }
     }
 
+    // The renamed workspace resolves under its new id, which anything touching it during the rename
+    // may already have cached as unresolvable. Sweep both ids: the new one so it picks up its real
+    // lineage, the old one because its row is now archived.
+    windmill_queue::tags::invalidate_fork_parent_cache(&rw.new_id);
+    windmill_queue::tags::invalidate_fork_parent_cache(&old_id);
+    if let Err(e) = windmill_queue::tags::notify_fork_lineage_change(&db, &rw.new_id).await {
+        tracing::warn!("failed to broadcast fork lineage change: {e:#}");
+    }
+
     // The children's parent_workspace_id changed (old root -> new root); invalidate their fork-parent
     // routing cache and their billing-workspace mapping so jobs route + meter under the renamed root
     // rather than the old (archived) one, instead of waiting for the caches' TTLs.
@@ -823,11 +832,6 @@ pub(crate) async fn change_workspace_id(
         }
         #[cfg(feature = "cloud")]
         windmill_common::workspaces::invalidate_billing_workspace_cache(child);
-    }
-    if !reparented_children.is_empty() {
-        if let Err(e) = windmill_queue::tags::notify_fork_lineage_change(&db, &rw.new_id).await {
-            tracing::warn!("failed to broadcast fork lineage change: {e:#}");
-        }
     }
 
     // Archive old workspace: disable schedules, cancel remaining jobs, set deleted=true
