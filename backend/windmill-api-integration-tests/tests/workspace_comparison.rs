@@ -1926,11 +1926,16 @@ async fn test_full_diff_scan_against_arbitrary_workspace(db: Pool<Postgres>) -> 
     .execute(&db)
     .await?;
 
-    let compare_url =
-        format!("{base_url}/w/other-workspace/workspaces/compare/test-workspace");
+    let compare_url = format!("{base_url}/w/other-workspace/workspaces/compare/test-workspace");
 
     // Before any scan: no candidate set, so no diffs — and `full_scan_at` says so.
-    let before: serde_json::Value = client.client().get(&compare_url).send().await?.json().await?;
+    let before: serde_json::Value = client
+        .client()
+        .get(&compare_url)
+        .send()
+        .await?
+        .json()
+        .await?;
     assert_eq!(
         before["diffs"].as_array().map(|d| d.len()),
         Some(0),
@@ -1954,7 +1959,13 @@ async fn test_full_diff_scan_against_arbitrary_workspace(db: Pool<Postgres>) -> 
         scan.status()
     );
 
-    let after: serde_json::Value = client.client().get(&compare_url).send().await?.json().await?;
+    let after: serde_json::Value = client
+        .client()
+        .get(&compare_url)
+        .send()
+        .await?
+        .json()
+        .await?;
     assert!(
         !after["full_scan_at"].is_null(),
         "a scanned pair must report when it was scanned: {after}"
@@ -1978,6 +1989,38 @@ async fn test_full_diff_scan_against_arbitrary_workspace(db: Pool<Postgres>) -> 
             "an arbitrary pair is compared one way only: {diff}"
         );
     }
+
+    // An arbitrary pair is only comparable to someone who administers both sides:
+    // otherwise admin of one workspace would be enough to learn how much of another
+    // differs from it. test-user-2 is a plain member of test-workspace.
+    sqlx::query!(
+        "INSERT INTO usr (workspace_id, email, username, is_admin, role)
+         VALUES ('other-workspace', 'test2@windmill.dev', 'test-user-2', true, 'Admin')"
+    )
+    .execute(&db)
+    .await?;
+    let non_admin = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN_2".to_string(),
+    );
+    let refused = non_admin.client().get(&compare_url).send().await?;
+    assert!(
+        refused.status().is_client_error(),
+        "comparing an arbitrary pair without admin on both sides must be refused: {}",
+        refused.status()
+    );
+    let refused_scan = non_admin
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/seed_full_diff/other-workspace"
+        ))
+        .send()
+        .await?;
+    assert!(
+        refused_scan.status().is_client_error(),
+        "seeding a scan without admin on both sides must be refused: {}",
+        refused_scan.status()
+    );
 
     // The lineage pair has a continuous tally whose direction a one-way scan would
     // overwrite, so scanning it is refused.

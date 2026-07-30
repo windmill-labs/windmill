@@ -1086,7 +1086,24 @@
 	</Alert>
 {/if}
 
-{#if comparison}
+{#if comparisonError && !comparison}
+	<!-- Nothing to compare, so the merge card can't render — but the picker has to
+	     stay reachable: a target the caller can't compare is chosen from the picker
+	     itself, and without a way back the page would be a dead end. -->
+	<div class="flex flex-col gap-3 items-start">
+		<Alert title="Could not compare with {parentWorkspaceId}" type="error" class="my-2 w-full">
+			{comparisonError}
+		</Alert>
+		{#if onSelectTarget}
+			<CompareTargetPicker
+				{currentWorkspaceId}
+				targetWorkspaceId={parentWorkspaceId}
+				parentWorkspaceId={lineageParentId}
+				onSelected={onSelectTarget}
+			/>
+		{/if}
+	</div>
+{:else if comparison}
 	{@const selectedConflicts = conflictingDiffs.filter((e) =>
 		selectedItems.includes(getItemKey(e))
 	).length}
@@ -1246,7 +1263,13 @@
 
 				{#snippet alerts()}
 					{#if comparisonError}
-						<Alert title="Could not compare with {parentWorkspaceId}" type="error" class="my-2">
+						<!-- A refresh failed over a comparison that did load: the list below is
+						     still on screen, so flag it as possibly out of date. -->
+						<Alert
+							title="Could not refresh the comparison with {parentWorkspaceId}"
+							type="error"
+							class="my-2"
+						>
 							{comparisonError}
 						</Alert>
 					{:else if awaitingScan}
