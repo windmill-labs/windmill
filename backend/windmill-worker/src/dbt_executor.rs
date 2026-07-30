@@ -3533,6 +3533,10 @@ async fn restore_from_db(
     // replace the row between that read and this one, and restoring a different
     // run than the one selected resumes failures nobody asked for.
     chosen_job: Option<&Uuid>,
+    // The run the caller NAMED, which outranks the above: absent a row at the
+    // first read there is nothing to have chosen, and a row that appears before
+    // this one must still be the run they asked for.
+    expected_job: Option<&str>,
     conn: &Connection,
     no_state: Error,
 ) -> error::Result<RestoredRun> {
@@ -3559,7 +3563,12 @@ async fn restore_from_db(
     else {
         return Err(no_state);
     };
-    if chosen_job.is_some() && row.job_id.as_ref() != chosen_job {
+    if let Some(expected) = expected_job {
+        let held = row.job_id.map(|j| j.to_string());
+        if held.as_deref() != Some(expected) {
+            return Err(wrong_run(expected, held.as_deref(), "for this script"));
+        }
+    } else if chosen_job.is_some() && row.job_id.as_ref() != chosen_job {
         return Err(no_state);
     }
     let (saved_prefix, saved_args_digest) = split_identity(&row.identity);
@@ -3601,6 +3610,23 @@ fn different_project() -> Error {
          not describe this one; run the script normally instead"
             .to_string(),
     )
+}
+
+/// A retry named a run other than the one whose failure is held. Both ids are
+/// spelled out: only one failure is kept per script per principal, so a later run
+/// replaces it, and without the held id "that is not the one" reads as a bug.
+fn wrong_run(asked: &str, held: Option<&str>, held_where: &str) -> Error {
+    Error::BadRequest(match held {
+        Some(held) => format!(
+            "you asked to resume run {asked}, but the failure saved {held_where} is run {held}; \
+             only the most recent one is kept. Open {held} to retry that one, or run the script \
+             normally"
+        ),
+        None => format!(
+            "you asked to resume run {asked}, but no failure is saved {held_where}; run the \
+             script normally to rebuild"
+        ),
+    })
 }
 
 fn nothing_to_retry() -> Error {
@@ -3650,11 +3676,11 @@ fn chosen_generation(
     };
     if let (Some(expected), Some(g)) = (expected_job, generation.as_ref()) {
         if g.trim() != format!("gen-{expected}") {
-            return Err(Error::BadRequest(format!(
-                "this worker's saved failure is {}, not the run you asked to resume; open that \
-                 run to retry it, or run the script normally",
-                g.trim().trim_start_matches("gen-")
-            )));
+            return Err(wrong_run(
+                expected,
+                Some(g.trim().trim_start_matches("gen-")),
+                "on this worker",
+            ));
         }
     }
     Ok(generation)
@@ -3700,25 +3726,28 @@ async fn restore_run_state(
     // let a retry on an idle worker resume an older invocation. The local snapshot
     // is a fast path only when it names that same run: it already holds a manifest.
     let saved_state = match conn {
-        Connection::Sql(db) => sqlx::query_scalar!(
-            "SELECT job_id FROM dbt_run_state
+        Connection::Sql(db) => {
+            sqlx::query_scalar!(
+                "SELECT job_id FROM dbt_run_state
               WHERE workspace_id = $1 AND script_path = $2 AND permissioned_as = $3",
-            w_id,
-            &p.script_path,
-            permissioned_as
-        )
-        .fetch_optional(db)
-        .await?,
+                w_id,
+                &p.script_path,
+                permissioned_as
+            )
+            .fetch_optional(db)
+            .await?
+        }
         // An agent worker cannot read it; its local copy is all there is.
         Connection::Http(_) => None,
     };
     let latest_job = saved_state.flatten();
     if let (Some(expected), Some(saved)) = (expected_job, latest_job.as_ref()) {
         if expected != saved.to_string() {
-            return Err(Error::BadRequest(format!(
-                "the last failure saved for this script is {saved}, not the run you asked to \
-                 resume; open that run to retry it, or run the script normally"
-            )));
+            return Err(wrong_run(
+                expected,
+                Some(&saved.to_string()),
+                "for this script",
+            ));
         }
     }
     // Authoritative including when it says nothing: no row means the last
@@ -3730,8 +3759,17 @@ async fn restore_run_state(
         .ok();
     let generation = chosen_generation(local, conn, latest_job, expected_job)?;
     let Some(generation) = generation else {
-        return restore_from_db(p, w_id, permissioned_as, inv, latest_job.as_ref(), conn, no_state())
-            .await;
+        return restore_from_db(
+            p,
+            w_id,
+            permissioned_as,
+            inv,
+            latest_job.as_ref(),
+            expected_job,
+            conn,
+            no_state(),
+        )
+        .await;
     };
     let snapshot = dir.join(generation.trim());
     // The local generation is a fast path over the row for this same run, so one
@@ -3740,8 +3778,17 @@ async fn restore_run_state(
     // report, which is then true.
     let Ok(saved_results) = tokio::fs::read_to_string(snapshot.join("run_results.json")).await
     else {
-        return restore_from_db(p, w_id, permissioned_as, inv, latest_job.as_ref(), conn, no_state())
-            .await;
+        return restore_from_db(
+            p,
+            w_id,
+            permissioned_as,
+            inv,
+            latest_job.as_ref(),
+            expected_job,
+            conn,
+            no_state(),
+        )
+        .await;
     };
     // dbt builds a retry's graph from the error, fail and skipped nodes alone, so
     // retrying an all-green run selects nothing and builds nothing. Refused
@@ -3754,8 +3801,17 @@ async fn restore_run_state(
         .ok()
         .and_then(|s| serde_json::from_str::<SavedRunState>(&s).ok())
     else {
-        return restore_from_db(p, w_id, permissioned_as, inv, latest_job.as_ref(), conn, no_state())
-            .await;
+        return restore_from_db(
+            p,
+            w_id,
+            permissioned_as,
+            inv,
+            latest_job.as_ref(),
+            expected_job,
+            conn,
+            no_state(),
+        )
+        .await;
     };
     let (saved_prefix, saved_args_digest) = split_identity(&saved.identity);
     if saved_prefix != format!("{}|{}", p.run_identity(), inv.env_digest()) {
@@ -4800,8 +4856,9 @@ mod tests {
         let err = chosen_generation(local(), &http, None, Some(&asked_for.to_string()))
             .expect_err("a generation the caller did not name must not be resumed");
         assert!(
-            err.to_string().contains(&saved.to_string()),
-            "the refusal names what the worker holds, got: {err}"
+            err.to_string().contains(&saved.to_string())
+                && err.to_string().contains(&asked_for.to_string()),
+            "the refusal names both the run asked for and the one held, got: {err}"
         );
 
         // The run it does hold, and a caller naming none, both still resume.
@@ -4809,7 +4866,10 @@ mod tests {
             chosen_generation(local(), &http, None, Some(&saved.to_string())).unwrap(),
             local()
         );
-        assert_eq!(chosen_generation(local(), &http, None, None).unwrap(), local());
+        assert_eq!(
+            chosen_generation(local(), &http, None, None).unwrap(),
+            local()
+        );
     }
 
     /// Why a run re-ingests decides what becomes of the result. Drift is the one
