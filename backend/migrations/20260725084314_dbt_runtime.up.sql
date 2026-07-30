@@ -100,14 +100,16 @@ CREATE TABLE IF NOT EXISTS dbt_graph_snapshot (
   script_hash  BIGINT NOT NULL,
   job_id       UUID NOT NULL,
   digest       TEXT NOT NULL,
-  -- On the DEPLOYED row only: the relation root the path-keyed `asset` usages
-  -- were last published at, written by whichever ingest published them.
+  -- On the DEPLOYED row only: the relation root the last ingest to write this
+  -- row resolved. Written by every ingest that is not a run's own snapshot,
+  -- including one that publishes no ownership — a version that cannot claim the
+  -- path would otherwise record nothing and compare against a stale root.
   --
   -- The drift check needs "where do the current usages point", and no other
   -- row answers it: the deploy's own root goes stale the moment a run at a
   -- moved profile republishes, and "the newest ingest" is wrong because a run
   -- whose graph matches the deploy's stores nothing at all.
-  published_relation_root TEXT,
+  relation_root_at_last_ingest TEXT,
   ingested_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (workspace_id, script_path, script_hash, job_id),
   -- Same cascade as the rows it stands for. A marker outliving its nodes is

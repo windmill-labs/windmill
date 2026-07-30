@@ -349,7 +349,7 @@ by a run: every run of it already shows its own models and re-parses regardless,
 so the drift it keeps re-detecting costs it nothing it was not already paying.
 
 The last row is the one that has to publish. The drift check compares the
-resolved root against `published_relation_root`, so a run that saw a move and
+resolved root against `relation_root_at_last_ingest`, so a run that saw a move and
 did not republish leaves the next run seeing the same move — forever, with the
 asset rows still naming the old schema and every run paying a `dbt parse` for a
 snapshot nobody reads. It rewrites the VERSION's graph rather than a per-run

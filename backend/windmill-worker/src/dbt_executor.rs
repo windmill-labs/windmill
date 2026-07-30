@@ -1192,7 +1192,7 @@ pub(crate) async fn prepare_project(
     match conn {
         Connection::Sql(db) => {
             if let Some(stored) = sqlx::query_scalar!(
-                "SELECT published_relation_root FROM dbt_graph_snapshot
+                "SELECT relation_root_at_last_ingest FROM dbt_graph_snapshot
                   WHERE workspace_id = $1 AND script_path = $2 AND script_hash = $3
                     AND job_id = '00000000-0000-0000-0000-000000000000'",
                 w_id,
@@ -2905,7 +2905,7 @@ async fn persist_ingest(
     // snapshot of its own left that graph, and its root, as they were.
     if run_snapshot.is_none() {
         sqlx::query!(
-            "UPDATE dbt_graph_snapshot SET published_relation_root = $4
+            "UPDATE dbt_graph_snapshot SET relation_root_at_last_ingest = $4
           WHERE workspace_id = $1 AND script_path = $2 AND script_hash = $3
             AND job_id = '00000000-0000-0000-0000-000000000000'",
             w_id,
