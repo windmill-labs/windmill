@@ -115,17 +115,19 @@ pub const GITHUB_APP_WEBHOOK_BASE_URL_SETTING: &str = "github_app_webhook_base_u
 /// (`httpss://`), a missing host, embedded whitespace, or a query/fragment
 /// (appending a path after `?`/`#` keeps it inside the query/fragment).
 ///
-/// Every message here runs the value through [`redact_userinfo`] first. These
-/// strings travel further than the submitter: the declarative path wraps them into
-/// `sync-config` output and operator reconcile logs, so a credential in the rejected
-/// value must not ride along.
+/// No message here can carry a credential, by construction rather than by
+/// scrubbing: the parse-failure branch is the only one that sees an arbitrary
+/// string and it never echoes it, and every branch below it runs after userinfo
+/// has been rejected. That matters because these strings reach further than the
+/// submitter — the declarative path wraps them into `sync-config` output and
+/// operator reconcile logs.
 pub fn validate_webhook_base_url(value: &str) -> Result<(), String> {
     let value = value.trim();
-    let shown = redact_userinfo(value);
-    let url = url::Url::parse(value)
-        .map_err(|e| format!("must be an absolute http(s) URL ({}): {}", e, shown))?;
-    // Checked before anything that could report the value, so a credential can never
-    // reach a message even when the URL is also malformed some other way.
+    // Deliberately no `{value}`: this is the one branch reachable with a string that
+    // was never parsed, so it is the one branch that could echo userinfo. The
+    // `ParseError` text names the defect on its own.
+    let url = url::Url::parse(value).map_err(|e| format!("must be an absolute http(s) URL: {e}"))?;
+    // Before any branch that reports the value, so the ones below are safe to.
     if !url.username().is_empty() || url.password().is_some() {
         return Err(
             "must not embed a username or password: the receiver URL is stored in workspace settings, where it is readable by workspace admins".to_string(),
@@ -138,42 +140,24 @@ pub fn validate_webhook_base_url(value: &str) -> Result<(), String> {
         ));
     }
     if !url.has_host() {
-        return Err(format!("must include a host: {}", shown));
+        return Err(format!("must include a host: {}", value));
     }
     if url.query().is_some() || url.fragment().is_some() {
         return Err(format!(
             "must not include a query string or fragment, since the webhook path is appended to it: {}",
-            shown
+            value
         ));
     }
     if value.chars().any(char::is_whitespace) {
-        return Err(format!("must not contain whitespace: {}", shown));
+        return Err(format!("must not contain whitespace: {}", value));
     }
     // Matches the sibling `base_url` / `hub_base_url` convention. The receiver
     // builder trims it anyway, so this is about keeping the stored value canonical
     // rather than about reachability.
     if value.ends_with('/') {
-        return Err(format!("must not end with a trailing slash: {}", shown));
+        return Err(format!("must not end with a trailing slash: {}", value));
     }
     Ok(())
-}
-
-/// Replace any `user:password@` between the scheme and the host with `***@`.
-///
-/// Deliberately string-based rather than `Url`-based: the values that most need
-/// redacting are the ones too malformed for `Url::parse` to have succeeded on.
-fn redact_userinfo(value: &str) -> String {
-    let Some((scheme, rest)) = value.split_once("//") else {
-        return value.to_string();
-    };
-    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-    // The *last* `@` in the authority delimits userinfo, not the first: a password
-    // may itself contain `@`, and cutting at the first one would leave the rest of it
-    // in the message.
-    match rest[..authority_end].rfind('@') {
-        Some(at) => format!("{}//***@{}", scheme, &rest[at + 1..]),
-        None => value.to_string(),
-    }
 }
 
 pub const INSTANCE_EVENTS_WEBHOOK_SETTING: &str = "instance_events_webhook";
@@ -430,10 +414,13 @@ mod tests {
             format!("https://admin:{SECRET}@"),
             format!("https://admin:{SECRET}@hooks.example.com#f"),
             format!("admin:{SECRET}@not-a-url"),
-            // Multiple `@` in the authority: the last one delimits userinfo, and the
-            // malformed host makes this fail at the parse branch specifically.
+            // Reach the parse-failure branch, the only one that sees an unvalidated
+            // string: multiple `@`, an invalid scheme, and no `//` at all.
             format!("https://alias@admin:{SECRET}@["),
             format!("https://a@b@admin:{SECRET}@hooks.example.com"),
+            format!("1x:{SECRET}@hooks.example.com"),
+            format!("ad min:{SECRET}@hooks.example.com"),
+            format!("{SECRET}@"),
         ] {
             let err = validate_webhook_base_url(&bad).expect_err("should be rejected");
             assert!(
