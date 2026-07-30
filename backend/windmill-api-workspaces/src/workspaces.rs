@@ -885,66 +885,6 @@ async fn reject_parent_only_git_sync_settings_on_fork<'a>(
     Ok(())
 }
 
-/// Persist only the reconciled webhook fields (id/secret/url/error/mode) for
-/// `changed` repos, one targeted JSONB update per repo (same pattern as the EE auto-pull
-/// status writer). The webhook reconcile runs after the main save has committed,
-/// so a read-modify-write of the whole blob would clobber a poller status write
-/// or another settings save landing in the gap. `mode` is carried too: the
-/// reconcile normalizes webhook -> polling for repos that can't register hooks,
-/// and losing that would leave the poller skipping a webhook-mode repo that has
-/// no webhook. A repo whose `auto_pull` was concurrently removed is left alone.
-#[cfg(all(feature = "enterprise", feature = "private"))]
-async fn persist_reconciled_webhook_fields(
-    db: &DB,
-    w_id: &str,
-    changed: &[(String, windmill_common::workspaces::AutoPullSettings)],
-) -> Result<()> {
-    for (path, new_ap) in changed {
-        let mut patch = serde_json::Map::new();
-        patch.insert(
-            "mode".to_string(),
-            serde_json::to_value(&new_ap.mode).map_err(|e| Error::internal_err(e.to_string()))?,
-        );
-        if let Some(id) = new_ap.webhook_id {
-            patch.insert("webhook_id".to_string(), serde_json::json!(id));
-        }
-        if let Some(secret) = &new_ap.webhook_secret {
-            patch.insert("webhook_secret".to_string(), serde_json::json!(secret));
-        }
-        if let Some(url) = &new_ap.webhook_url {
-            patch.insert("webhook_url".to_string(), serde_json::json!(url));
-        }
-        if let Some(err) = &new_ap.webhook_error {
-            patch.insert("webhook_error".to_string(), serde_json::json!(err));
-        }
-        let patch = serde_json::Value::Object(patch);
-        sqlx::query!(
-            r#"
-            UPDATE workspace_settings
-            SET git_sync = jsonb_set(
-                git_sync,
-                '{repositories}',
-                (SELECT jsonb_agg(
-                    CASE WHEN elem->>'git_repo_resource_path' = $2
-                          AND jsonb_typeof(elem->'auto_pull') = 'object'
-                        THEN jsonb_set(elem, '{auto_pull}',
-                             ((elem->'auto_pull') - 'webhook_id' - 'webhook_secret' - 'webhook_url' - 'webhook_error') || $3)
-                        ELSE elem END)
-                 FROM jsonb_array_elements(git_sync->'repositories') AS elem)
-            )
-            WHERE workspace_id = $1
-              AND jsonb_typeof(git_sync->'repositories') = 'array'
-            "#,
-            w_id,
-            path,
-            patch,
-        )
-        .execute(db)
-        .await?;
-    }
-    Ok(())
-}
-
 async fn get_settings(
     authed: ApiAuthed,
     Path(w_id): Path<String>,
@@ -3693,21 +3633,14 @@ async fn edit_git_sync_config(
     // leaves polling on.
     #[cfg(all(feature = "enterprise", feature = "private"))]
     if let Some((mut settings, removed_webhooks)) = post_commit {
-        let mut changed: Vec<(String, windmill_common::workspaces::AutoPullSettings)> = Vec::new();
         for repo in settings.repositories.iter_mut() {
-            let before = serde_json::to_value(&repo.auto_pull).ok();
+            // `sync_repo_webhook` writes back the webhook fields it changes itself,
+            // under the repository's lock — persisting them out here would reopen
+            // the window a concurrent reconcile can interleave into.
             if let Err(e) = windmill_common::git_sync_ee::sync_repo_webhook(&db, &w_id, repo).await
             {
                 tracing::warn!("git auto-pull: webhook sync error: {}", e);
             }
-            if serde_json::to_value(&repo.auto_pull).ok() != before {
-                if let Some(ap) = repo.auto_pull.as_ref() {
-                    changed.push((repo.git_repo_resource_path.clone(), ap.clone()));
-                }
-            }
-        }
-        if let Err(e) = persist_reconciled_webhook_fields(&db, &w_id, &changed).await {
-            tracing::warn!("git auto-pull: webhook field persist error: {}", e);
         }
         for (path, hook_id) in removed_webhooks {
             if let Ok(url) =
@@ -3926,29 +3859,17 @@ async fn edit_git_sync_repository(
     .await?;
     tx.commit().await?;
 
-    // Post-commit: create/remove the webhook to match the saved config and persist
-    // the resulting hook id/secret. Best-effort — a failure leaves polling on.
+    // Post-commit: create/remove the webhook to match the saved config. The
+    // resulting hook id/secret/url are written back by `sync_repo_webhook` under the
+    // repository's lock. Best-effort — a failure leaves polling on.
     #[cfg(all(feature = "enterprise", feature = "private"))]
+    if let Some(repo) = git_sync_settings
+        .repositories
+        .iter_mut()
+        .find(|r| r.git_repo_resource_path == new_config.git_repo_resource_path)
     {
-        let mut changed: Vec<(String, windmill_common::workspaces::AutoPullSettings)> = Vec::new();
-        if let Some(repo) = git_sync_settings
-            .repositories
-            .iter_mut()
-            .find(|r| r.git_repo_resource_path == new_config.git_repo_resource_path)
-        {
-            let before = serde_json::to_value(&repo.auto_pull).ok();
-            if let Err(e) = windmill_common::git_sync_ee::sync_repo_webhook(&db, &w_id, repo).await
-            {
-                tracing::warn!("git auto-pull: webhook sync error: {}", e);
-            }
-            if serde_json::to_value(&repo.auto_pull).ok() != before {
-                if let Some(ap) = repo.auto_pull.as_ref() {
-                    changed.push((repo.git_repo_resource_path.clone(), ap.clone()));
-                }
-            }
-        }
-        if let Err(e) = persist_reconciled_webhook_fields(&db, &w_id, &changed).await {
-            tracing::warn!("git auto-pull: webhook field persist error: {}", e);
+        if let Err(e) = windmill_common::git_sync_ee::sync_repo_webhook(&db, &w_id, repo).await {
+            tracing::warn!("git auto-pull: webhook sync error: {}", e);
         }
     }
 

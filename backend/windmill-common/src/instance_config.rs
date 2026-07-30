@@ -1276,19 +1276,28 @@ pub fn diff_worker_configs(
     ConfigsDiff { upserts, deletes }
 }
 
-/// Declaratively replace the global settings, applying the per-setting write
-/// rules that the HTTP endpoints enforce in their pre-write hook.
+/// Declaratively replace the global settings, applying the `github_app_webhook_base_url`
+/// write rules: reject a value the API would reject, and re-point the webhooks
+/// already registered with GitHub when it changes.
 ///
 /// Every declarative writer (the `sync-config` CLI, the Kubernetes operator's
 /// ConfigMap sync) MUST go through this rather than calling
-/// [`apply_settings_diff`] directly: those paths bypass the HTTP hook entirely,
-/// so without this a value the API would reject gets persisted, and a changed
-/// webhook receiver never reaches the hooks already registered with GitHub.
+/// [`apply_settings_diff`] directly, or those two effects are silently skipped.
+/// Note this is *not* the full equivalent of the HTTP layer's pre-write hook —
+/// that also enforces rules for `automate_username_creation`,
+/// `critical_alert_mute_ui` and `app_workspaced_route`, which the declarative
+/// paths have never applied. A new rule added there does not appear here for free.
 ///
-/// The webhook sweep is awaited rather than detached because both callers are
-/// short-lived (a one-shot CLI, an operator reconcile tick) and would exit before
-/// a spawned task finished. Repositories already on the current receiver make no
-/// GitHub calls, so an unchanged instance pays nothing.
+/// The webhook sweep is awaited rather than detached so the write is complete when
+/// this returns: the CLI exits immediately afterwards, and an operator tick must
+/// not report success while the hooks still point elsewhere. Repositories already
+/// on the current receiver make no GitHub calls, so an unchanged instance pays
+/// nothing.
+///
+/// AUTHORIZATION: replaces instance-wide settings and mutates remote webhooks in
+/// every workspace, taking no authed context, so callers MUST have established
+/// superadmin or equivalent system authority (the CLI and the operator both run
+/// with direct instance credentials).
 pub async fn sync_global_settings_declarative(
     db: &sqlx::Pool<sqlx::Postgres>,
     current: &BTreeMap<String, serde_json::Value>,
