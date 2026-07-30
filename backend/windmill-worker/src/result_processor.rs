@@ -689,8 +689,52 @@ pub async fn handle_receive_completed_job(
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> Option<Arc<MiniPulledJob>> {
-    let token = jc.token.clone();
     let workspace = jc.job.workspace_id.clone();
+    // The client built here drives post-completion orchestration (the next step's input
+    // transforms fetch prior step results), which outlives the finished step. The step's own
+    // token has a `SCRIPT_TOKEN_EXPIRY` lifetime, so reusing it would fail that orchestration
+    // once the step itself ran longer than the token lives; refresh it when the step is old enough.
+    let token_maybe_expired = jc
+        .duration
+        .is_some_and(|d| d as u64 >= *windmill_common::worker::SCRIPT_TOKEN_EXPIRY * 1000 / 2);
+    let token = if jc.job.is_flow_step() && token_maybe_expired {
+        // Mirror `create_token`'s label so run-on-behalf-of flows keep their end-user override.
+        let label = if jc.job.permissioned_as != format!("u/{}", jc.job.created_by)
+            && jc.job.permissioned_as != jc.job.created_by
+        {
+            format!("ephemeral-script-end-user-{}", jc.job.created_by)
+        } else {
+            "ephemeral-script".to_string()
+        };
+        match windmill_common::auth::create_token_for_owner(
+            db,
+            &jc.job.workspace_id,
+            &jc.job.permissioned_as,
+            &label,
+            *windmill_common::worker::SCRIPT_TOKEN_EXPIRY,
+            &jc.job.permissioned_as_email,
+            &jc.job.id,
+            None,
+            Some(format!(
+                "job-span-{}",
+                jc.job.flow_innermost_root_job.unwrap_or(jc.job.id)
+            )),
+        )
+        .warn_after_seconds(5)
+        .await
+        {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::warn!(
+                    "could not mint fresh flow-orchestration token for job {}, reusing step token: {e:#}",
+                    jc.job.id
+                );
+                jc.token.clone()
+            }
+        }
+    } else {
+        jc.token.clone()
+    };
     let client = AuthedClient::new(base_internal_url.to_string(), workspace, token, None);
     let job = jc.job.clone();
     let mem_peak = jc.mem_peak.clone();
