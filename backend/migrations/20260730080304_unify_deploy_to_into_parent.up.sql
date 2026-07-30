@@ -23,7 +23,7 @@ CREATE TABLE workspace_deploy_to_unmigrated (
     recorded_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 COMMENT ON TABLE workspace_deploy_to_unmigrated IS
-    'Legacy workspace_settings.deploy_to links that could not be expressed as fork lineage when the column was dropped. Written once by migration 20260730080304; never written by the application.';
+    'Legacy workspace_settings.deploy_to links that could not be expressed as fork lineage when the column was dropped. Written once by migration 20260730080304; never written by the application. Dropped again by that migration when every link converted, so it only exists where something was preserved.';
 
 DO $$
 DECLARE
@@ -155,6 +155,12 @@ BEGIN
     SELECT count(*) INTO dev_count FROM convertible WHERE as_dev;
     RAISE NOTICE 'deploy_to unification: linked % workspace(s) to their parent (% as dev workspaces), % preserved in workspace_deploy_to_unmigrated',
         converted_count, dev_count, (SELECT count(*) FROM workspace_deploy_to_unmigrated);
+
+    -- Nothing to preserve is the normal outcome; leaving an empty table behind on every instance
+    -- forever buys nothing. It survives only where it holds something an operator needs to see.
+    IF NOT EXISTS (SELECT 1 FROM workspace_deploy_to_unmigrated) THEN
+        DROP TABLE workspace_deploy_to_unmigrated;
+    END IF;
 END $$;
 
 -- Resolve workspace-specific resources/variables over the fork lineage instead of the `deploy_to`

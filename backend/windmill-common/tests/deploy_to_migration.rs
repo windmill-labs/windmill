@@ -171,3 +171,30 @@ async fn deploy_to_folds_into_lineage(db: Pool<Postgres>) {
         ]
     );
 }
+
+/// The outcome almost every instance sees: every link converts, so the migration leaves no
+/// leftovers table behind and rollback still works without one.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn clean_conversion_leaves_no_leftovers_table(db: Pool<Postgres>) {
+    db.execute(DOWN).await.expect("restore pre-migration shape");
+
+    insert_ws(&db, "cprod", false).await;
+    insert_ws(&db, "cstaging", false).await;
+    set_deploy_to(&db, "cprod", None).await;
+    set_deploy_to(&db, "cstaging", Some("cprod")).await;
+
+    db.execute(UP).await.expect("run unification migration");
+
+    assert_eq!(
+        lineage(&db, "cstaging").await,
+        (Some("cprod".to_string()), true)
+    );
+    let table_exists: Option<String> =
+        sqlx::query_scalar("SELECT to_regclass('public.workspace_deploy_to_unmigrated')::text")
+            .fetch_one(&db)
+            .await
+            .expect("probe leftovers table");
+    assert_eq!(table_exists, None, "empty leftovers table must not survive");
+
+    db.execute(DOWN).await.expect("roll back without the table");
+}

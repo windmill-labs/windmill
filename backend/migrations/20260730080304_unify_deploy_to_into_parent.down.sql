@@ -13,12 +13,19 @@ UPDATE workspace_settings ws
  WHERE w.id = ws.workspace_id
    AND w.parent_workspace_id IS NOT NULL;
 
-UPDATE workspace_settings ws
-   SET deploy_to = u.deploy_to
-  FROM workspace_deploy_to_unmigrated u
- WHERE u.workspace_id = ws.workspace_id;
-
-DROP TABLE workspace_deploy_to_unmigrated;
+-- The up migration keeps this table only when it preserved something, so restore from it
+-- conditionally. plpgsql plans a branch's statements only when it runs, so the references below
+-- are safe when the table was dropped.
+DO $$
+BEGIN
+    IF to_regclass('public.workspace_deploy_to_unmigrated') IS NOT NULL THEN
+        UPDATE workspace_settings ws
+           SET deploy_to = u.deploy_to
+          FROM workspace_deploy_to_unmigrated u
+         WHERE u.workspace_id = ws.workspace_id;
+        DROP TABLE workspace_deploy_to_unmigrated;
+    END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS workspace_settings_deploy_to_idx
     ON workspace_settings (deploy_to)
