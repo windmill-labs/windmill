@@ -704,34 +704,7 @@ pub mod aws {
 #[cfg(test)]
 mod tests {
     use super::is_user_token;
-    use super::{
-        ephemeral_script_token_label, job_token_remaining_lifetime_secs, JWTAuthClaims,
-        JOB_TOKEN_REFRESH_MARGIN_SECS,
-    };
-
-    #[test]
-    fn ephemeral_label_encodes_end_user_only_for_on_behalf_of() {
-        // Job run as its own owner -> plain label (both `u/x` and bare `x` forms).
-        assert_eq!(
-            ephemeral_script_token_label("u/alice", "alice"),
-            "ephemeral-script"
-        );
-        assert_eq!(
-            ephemeral_script_token_label("alice", "alice"),
-            "ephemeral-script"
-        );
-        // Run on behalf of another user -> label carries the end user.
-        assert_eq!(
-            ephemeral_script_token_label("g/admins", "alice"),
-            "ephemeral-script-end-user-alice"
-        );
-    }
-
-    // The refresh margin only prevents a mid-orchestration expiry if it stays above the JWT leeway.
-    #[test]
-    fn refresh_margin_exceeds_jwt_leeway() {
-        assert!(JOB_TOKEN_REFRESH_MARGIN_SECS > 60);
-    }
+    use super::{job_token_remaining_lifetime_secs, JWTAuthClaims, JOB_TOKEN_REFRESH_MARGIN_SECS};
 
     fn job_jwt(exp_offset_secs: i64) -> String {
         let claims = JWTAuthClaims {

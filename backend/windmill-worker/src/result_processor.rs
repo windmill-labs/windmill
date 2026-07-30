@@ -727,8 +727,15 @@ pub async fn handle_receive_completed_job(
                 jc.token.clone()
             }),
             // No perms row (e.g. a zombie replay after the queue row was reaped): keep the step
-            // token rather than minting an identity from untrusted payload fields.
-            Ok(None) => jc.token.clone(),
+            // token rather than minting an identity from untrusted payload fields. The token is
+            // near expiry, so trace it — the downstream fetch may hit the original failure.
+            Ok(None) => {
+                tracing::warn!(
+                    "no job_perms row to refresh flow-orchestration token for job {}, reusing step token",
+                    jc.job.id
+                );
+                jc.token.clone()
+            }
             // A transient DB error must not silently reuse the near-expired token without a trace,
             // or the very failure this guards against recurs invisibly.
             Err(e) => {
