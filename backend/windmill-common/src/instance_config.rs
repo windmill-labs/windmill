@@ -1288,11 +1288,11 @@ pub fn diff_worker_configs(
 /// `critical_alert_mute_ui` and `app_workspaced_route`, which the declarative
 /// paths have never applied. A new rule added there does not appear here for free.
 ///
-/// The webhook sweep is awaited rather than detached so the write is complete when
-/// this returns: the CLI exits immediately afterwards, and an operator tick must
-/// not report success while the hooks still point elsewhere. Repositories already
-/// on the current receiver make no GitHub calls, so an unchanged instance pays
-/// nothing.
+/// The caller picks how the webhook sweep runs via [`WebhookSweep`]: `Await` means
+/// the hooks are settled by the time this returns, `Detach` means only the settings
+/// write is, with the sweep converging shortly after. Repositories already on the
+/// current receiver are filtered out before any of it, so a converged instance costs
+/// one query and no GitHub calls either way.
 ///
 /// AUTHORIZATION: replaces instance-wide settings and mutates remote webhooks in
 /// every workspace, taking no authed context, so callers MUST have established
@@ -1305,13 +1305,19 @@ pub async fn sync_global_settings_declarative(
     sweep: WebhookSweep,
 ) -> anyhow::Result<()> {
     let webhook_key = crate::global_settings::GITHUB_APP_WEBHOOK_BASE_URL_SETTING;
-    if let Some(s) = desired
-        .get(webhook_key)
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.trim().is_empty())
-    {
-        crate::global_settings::validate_webhook_base_url(s)
-            .map_err(|e| anyhow::anyhow!("{webhook_key}: {e}"))?;
+    // Non-string shapes are rejected rather than ignored: `as_str()` alone would let a
+    // bool/number/object through as if the key were absent, and the diff below would
+    // then persist it — where the HTTP path answers "must be a URL string".
+    match desired.get(webhook_key) {
+        None | Some(serde_json::Value::Null) => {}
+        Some(serde_json::Value::String(s)) if s.trim().is_empty() => {}
+        Some(serde_json::Value::String(s)) => crate::global_settings::validate_webhook_base_url(s)
+            .map_err(|e| anyhow::anyhow!("{webhook_key}: {e}"))?,
+        Some(other) => {
+            return Err(anyhow::anyhow!(
+                "{webhook_key} must be a URL string, got {other}"
+            ))
+        }
     }
 
     let diff = diff_global_settings(current, desired, ApplyMode::Replace);
@@ -1323,14 +1329,36 @@ pub async fn sync_global_settings_declarative(
     // failed. Any gate makes the first failure permanent until someone re-saves that
     // workspace by hand — including the clear-by-omission case, where a later run has
     // the key in neither `desired` nor `current` and so would never retry the move
-    // back to `base_url`. A converged instance makes no GitHub calls.
+    // back to `base_url`.
+    reconcile_repo_webhooks(db, sweep).await;
+
+    Ok(())
+}
+
+/// Whether the caller can block while the git-sync webhooks are re-pointed.
+#[derive(Clone, Copy, Debug)]
+pub enum WebhookSweep {
+    /// One-shot callers (the `sync-config` CLI) that exit right after and would kill
+    /// a detached task before it finished.
+    Await,
+    /// Callers that must stay responsive regardless of GitHub latency: HTTP handlers,
+    /// and long-running reconcilers whose tick would otherwise delay everything else
+    /// it manages.
+    Detach,
+}
+
+/// Re-point every git-sync webhook that is not already on the configured receiver.
+///
+/// The only place that decides await-vs-detach, so the trade-off is stated once.
+/// Detaching is safe because the sweep is single-flight (a second one skips rather
+/// than queues) and idempotent, so whatever is still stale is picked up by the next
+/// trigger — a later operator tick or the next write of the setting.
+///
+/// A no-op on non-EE builds.
+pub async fn reconcile_repo_webhooks(db: &sqlx::Pool<sqlx::Postgres>, sweep: WebhookSweep) {
     #[cfg(all(feature = "enterprise", feature = "private"))]
     match sweep {
         WebhookSweep::Await => crate::git_sync_ee::reconcile_all_repo_webhooks(db).await,
-        // Long-running reconcilers must not block their tick on GitHub: a sweep
-        // slower than the interval would delay every other setting they manage, and
-        // the missed ticks would then fire back-to-back. The next tick retries
-        // whatever is still stale, and the sweep is single-flight.
         WebhookSweep::Detach => {
             let db = db.clone();
             tokio::spawn(async move {
@@ -1339,20 +1367,7 @@ pub async fn sync_global_settings_declarative(
         }
     }
     #[cfg(not(all(feature = "enterprise", feature = "private")))]
-    let _ = sweep;
-
-    Ok(())
-}
-
-/// Whether the caller can block on the webhook sweep.
-#[derive(Clone, Copy, Debug)]
-pub enum WebhookSweep {
-    /// One-shot callers (the `sync-config` CLI) that exit right after and would kill
-    /// a detached task before it finished.
-    Await,
-    /// Long-running reconcilers (the Kubernetes operator) whose tick must stay
-    /// responsive regardless of GitHub latency.
-    Detach,
+    let _ = (db, sweep);
 }
 
 /// Apply a settings diff to the global_settings table.

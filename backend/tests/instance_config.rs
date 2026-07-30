@@ -1461,6 +1461,22 @@ async fn declarative_sync_rejects_an_unusable_webhook_base_url(db: Pool<Postgres
         "the error should name the offending setting, got: {err}"
     );
 
+    // A non-string shape must be rejected too, not silently treated as "absent" and
+    // then persisted by the diff.
+    let mut wrong_type = BTreeMap::new();
+    wrong_type.insert(
+        "github_app_webhook_base_url".to_string(),
+        serde_json::json!(true),
+    );
+    windmill_common::instance_config::sync_global_settings_declarative(
+        &db,
+        &BTreeMap::new(),
+        &wrong_type,
+        WebhookSweep::Await,
+    )
+    .await
+    .expect_err("a non-string webhook base url must fail the sync");
+
     assert_eq!(
         count_global_settings(&db).await,
         before,

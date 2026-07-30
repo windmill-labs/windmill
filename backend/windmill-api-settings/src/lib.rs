@@ -861,26 +861,10 @@ pub async fn set_global_setting_internal(
 
     #[cfg(all(feature = "enterprise", feature = "private"))]
     if reconcile_webhooks {
-        spawn_webhook_receiver_reconcile(db);
+        instance_config::reconcile_repo_webhooks(db, instance_config::WebhookSweep::Detach).await;
     }
 
     Ok(())
-}
-
-/// Re-point every live git-sync webhook after the receiver base URL changed.
-///
-/// Detached rather than awaited: the sweep walks every repository on the instance
-/// making sequential GitHub calls (each up to a 20s timeout), so awaiting it would
-/// tie the settings response time to the number of configured repositories and to
-/// GitHub's availability. The setting itself is already committed at this point,
-/// and each repository's own settings save reconciles it again anyway, so losing
-/// the task to a restart only delays convergence.
-#[cfg(all(feature = "enterprise", feature = "private"))]
-fn spawn_webhook_receiver_reconcile(db: &DB) {
-    let db = db.clone();
-    tokio::spawn(async move {
-        windmill_common::git_sync_ee::reconcile_all_repo_webhooks(&db).await;
-    });
 }
 
 /// Run side-effect hooks for specific settings before writing to DB.
@@ -1238,7 +1222,8 @@ async fn set_instance_config(
 
         #[cfg(all(feature = "enterprise", feature = "private"))]
         if reconcile_webhooks {
-            spawn_webhook_receiver_reconcile(&db);
+            instance_config::reconcile_repo_webhooks(&db, instance_config::WebhookSweep::Detach)
+                .await;
         }
     }
 
