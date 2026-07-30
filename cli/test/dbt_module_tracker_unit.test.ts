@@ -63,6 +63,23 @@ describe("buildTracker with a dbt project", () => {
     }
   });
 
+  // Regression: hoisting the module check above the extension gate made
+  // `<base>__mod/script.yaml` — a folder-layout script's METADATA, which is an
+  // entry-point path — look like its own content file. Pushed as one, the
+  // metadata pass asks for the language of `.yaml` and aborts the command. Not a
+  // dbt shape at all; reached by editing the summary of any modular script.
+  test("a modular script's own metadata resolves to its content file", async () => {
+    fs.mkdirSync(path.join(dir, "f/helpers/util__mod"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "f/helpers/util__mod/script.yaml"), "{}");
+    fs.writeFileSync(
+      path.join(dir, "f/helpers/util__mod/script.ts"),
+      "export function main() {}\n",
+    );
+    expect(await tracked("f/helpers/util__mod/script.yaml")).toEqual([
+      "f/helpers/util__mod/script.ts",
+    ]);
+  });
+
   test("and a Windows-separated path", async () => {
     expect(
       await tracked("f\\analytics\\analytics__dbt\\models\\stg_orders.sql"),

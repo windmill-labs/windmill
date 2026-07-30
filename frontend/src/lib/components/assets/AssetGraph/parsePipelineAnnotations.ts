@@ -34,35 +34,59 @@ function canonicalizeTablePath(path: string): string {
 	if (parts.length < 3) return path
 	const name = parts.pop()!
 	const schema = parts.pop()!
-	return [...parts, unquoteSegment(schema).toLowerCase(), unquoteSegment(name).toLowerCase()].join(
-		'/'
-	)
+	return [
+		...parts,
+		unquoteSegment(schema).toLowerCase(),
+		unquoteIdentifier(name).toLowerCase()
+	].join('/')
 }
 
-/** Strip the warehouses' quote characters from an identifier segment. The
- *  schema segment carries a `<database>.<schema>` pair when a relation
- *  overrode its database, and each half is separately quotable, so only an
- *  unquoted period separates them — one inside an identifier is part of the
- *  name. */
-function unquoteSegment(s: string): string {
-	const parts: string[] = []
-	let current = ''
-	let quote: string | undefined = undefined
-	for (const c of s.trim()) {
-		if (quote !== undefined) {
-			if (c === quote || (quote === '[' && c === ']')) quote = undefined
-			else current += c
-		} else if (c === '"' || c === '`' || c === '[') {
-			quote = c
-		} else if (c === '.') {
-			parts.push(current)
-			current = ''
-		} else {
-			current += c
+/** Mirrors the worker's `unquote_identifier`, and must keep mirroring it: a quote
+ *  counts only when it wraps the WHOLE identifier — a lone one inside an
+ *  already-decoded name is part of the name — and a doubled delimiter inside a
+ *  quoted one is that delimiter, which is how every dialect escapes it. Disagree
+ *  with the backend here and the live canvas connects an annotation to a
+ *  different key than the deploy does, which is two nodes for one table. */
+function unquoteIdentifier(s: string): string {
+	const t = s.trim()
+	for (const [open, close] of [
+		['"', '"'],
+		['`', '`'],
+		['[', ']']
+	] as const) {
+		if (t.length >= 2 && t.startsWith(open) && t.endsWith(close)) {
+			return t.slice(1, -1).split(close + close).join(close)
 		}
 	}
-	parts.push(current)
-	return parts.join('.')
+	return t
+}
+
+/** The schema segment carries a `<database>.<schema>` pair when a relation
+ *  overrode its database, and each half is separately quotable, so only an
+ *  UNQUOTED period separates them — one inside an identifier is part of the
+ *  name. Mirrors `unquote_schema_segment`. */
+function unquoteSegment(s: string): string {
+	const t = s.trim()
+	const parts: string[] = []
+	let start = 0
+	let quote: string | undefined = undefined
+	for (let i = 0; i < t.length; i++) {
+		const c = t[i]
+		if (quote !== undefined) {
+			const close = quote === '[' ? ']' : quote
+			if (c === close) {
+				if (t[i + 1] === close) i++
+				else quote = undefined
+			}
+		} else if ((c === '"' || c === '`' || c === '[') && i === start) {
+			quote = c
+		} else if (c === '.') {
+			parts.push(t.slice(start, i))
+			start = i + 1
+		}
+	}
+	parts.push(t.slice(start))
+	return parts.map(unquoteIdentifier).join('.')
 }
 
 // Native trigger keywords — `// on <kind>`. Each is marker-only: the

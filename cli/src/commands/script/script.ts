@@ -276,7 +276,7 @@ const MODULE_ENTRY_META_RE = /([\\/])script\.(yaml|json|lock)$/;
  * `__mod/`, so this only narrows it to the metadata extensions: a `script.yaml`
  * nested deeper in the module tree is a module file, not the script's metadata.
  */
-function isModuleEntryMetadata(p: string): boolean {
+export function isModuleEntryMetadata(p: string): boolean {
   return isModuleEntryPoint(p) && MODULE_ENTRY_META_RE.test(p);
 }
 

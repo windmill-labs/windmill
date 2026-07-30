@@ -62,6 +62,29 @@ describe('parseDbtRun', () => {
 		}
 	})
 
+	// The payload carries one object per node, so a scan bounded by brace COUNT
+	// gives up on an ordinary project — a few hundred nodes, tests included — and
+	// silently loses the per-model table on exactly the runs it exists for.
+	it('finds the run in a payload with hundreds of nodes', () => {
+		const big = {
+			...run,
+			totals: { total: 400, success: 399, error: 1, warn: 0, skipped: 0 },
+			nodes: Array.from({ length: 400 }, (_, i) => ({
+				unique_id: `model.p.m${i}`,
+				status: i === 0 ? 'error' : 'success'
+			}))
+		}
+		const failed = {
+			error: {
+				name: 'ExecutionErr',
+				message:
+					'execution error:\nCompilation Error {{ ref("x") }} {"a": 1}\n\n' +
+					JSON.stringify(big, null, 2)
+			}
+		}
+		expect(parseDbtRun(failed)?.nodes?.length).toBe(400)
+	})
+
 	it('is undefined for anything unparseable', () => {
 		expect(parseDbtRun(undefined)).toBeUndefined()
 		expect(parseDbtRun('a string')).toBeUndefined()

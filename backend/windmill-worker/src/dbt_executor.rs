@@ -1305,22 +1305,15 @@ async fn install_packages(
     let target = p
         .project_dir
         .join(packages_install_path(&p.project_dir).await);
-    // A project with no checked-in `package-lock.yml` asked dbt to RESOLVE its
-    // ranges and mutable git revisions, and dbt would do that on every run. The
-    // cache would pin the first resolution for as long as the project is used —
-    // each hit refreshes the marker — so an unlocked tree is treated as a miss
-    // once it is a day old and `dbt deps` resolves again. A locked project keeps
-    // its tree indefinitely: the lock is in the key, and pinning is what it asked
-    // for.
-    let unlocked_and_stale = !p.project_dir.join("package-lock.yml").exists()
-        && tokio::fs::metadata(last_used_marker(&cached))
-            .await
-            .or(tokio::fs::metadata(&cached).await)
-            .ok()
-            .and_then(|m| m.modified().ok())
-            .and_then(|t| std::time::SystemTime::now().duration_since(t).ok())
-            .is_some_and(|age| age > std::time::Duration::from_secs(24 * 60 * 60));
-    if cached.exists() && !unlocked_and_stale {
+    // KNOWN LIMITATION, deliberately not addressed here: a project with no
+    // checked-in `package-lock.yml` asked dbt to resolve its ranges and mutable
+    // git revisions, and dbt would re-resolve on every run — a hit skips `dbt
+    // deps` entirely, so the first resolution is pinned until something in the
+    // key changes (any project edit does). Expiring a hit needs a PUBLICATION
+    // timestamp, which the last-use marker is not, and a publish that can replace
+    // a populated directory, which `rename` is not; both are new machinery rather
+    // than a condition here.
+    if cached.exists() {
         // BEFORE the copy, not after. The tree this matters for is the one at the
         // retention edge, where the first use in a fortnight is also when the
         // sweep would take it: marked afterwards, the source looks stale for the

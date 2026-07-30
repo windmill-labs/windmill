@@ -254,6 +254,29 @@ describe('table:// canonicalization', () => {
 		)
 	})
 
+	// Every dialect escapes its own delimiter by doubling it, and the worker and
+	// `canonicalize_table_asset_path` both decode it — a live annotation that did
+	// not would point the canvas at a different key than the deploy, which is two
+	// nodes for one table. The decoded spelling has to land there too: this
+	// function also sees names that have already been through `split_relation`.
+	it('decodes a doubled delimiter, and leaves a lone one alone', () => {
+		expect(readPath('// on table://u/me/wh/"sales""east"/"orders"')).toBe(
+			'u/me/wh/sales"east/orders'
+		)
+		expect(readPath('// on table://u/me/wh/analytics/"order""s"')).toBe(
+			'u/me/wh/analytics/order"s'
+		)
+		expect(readPath('// on table://u/me/wh/`da``ta`/`orders`')).toBe('u/me/wh/da`ta/orders')
+		expect(readPath('// on table://u/me/wh/[my]]schema]/[orders]')).toBe(
+			'u/me/wh/my]schema/orders'
+		)
+		// Already decoded: a lone delimiter is part of the name, not an opening
+		// quote, so both spellings agree.
+		expect(readPath('// on table://u/me/wh/sales"east/orders')).toBe(
+			readPath('// on table://u/me/wh/"sales""east"/"orders"')
+		)
+	})
+
 	it('leaves the resource path alone', () => {
 		expect(readPath('// on table://u/Me/WH/analytics/orders')).toBe(
 			'u/Me/WH/analytics/orders'

@@ -52,6 +52,7 @@ import {
   exts,
   findContentFile,
   findResourceFile,
+  isModuleEntryMetadata,
   handleScriptMetadata,
   UnresolvableScriptContentFileError,
   removeExtensionToPath,
@@ -2828,6 +2829,21 @@ interface ChangeTracker {
 /// separators: searching the raw path for `__dbt/` found nothing on Windows,
 /// where the folder is spelled `__dbt\`, so every model edit there was skipped.
 async function addModuleParentToChanged(p: string, tracker: ChangeTracker) {
+  // A folder layout's METADATA — `<base>__mod/script.yaml` — is an entry-point
+  // path too, and it is not a content file: pushed as one, the metadata pass
+  // asks `inferContentTypeFromFilePath` for the language of `.yaml` and aborts
+  // the whole command. It resolves to its content file like any other metadata.
+  if (isModuleEntryMetadata(p)) {
+    try {
+      const contentPath = await findContentFile(p);
+      if (contentPath && !tracker.scripts.includes(contentPath)) {
+        tracker.scripts.push(contentPath);
+      }
+    } catch {
+      // ignore — content file not found
+    }
+    return;
+  }
   if (isModuleEntryPoint(p)) {
     // Entry point (e.g. __mod/script.ts) IS the parent script content file.
     if (!tracker.scripts.includes(p)) {
