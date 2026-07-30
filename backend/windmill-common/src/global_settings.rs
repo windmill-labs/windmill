@@ -386,20 +386,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn webhook_base_url_rejects_unreachable_values() {
-        for ok in [
+    fn webhook_base_url_matches_the_ui_validator() {
+        // Kept in lockstep with `isValidWebhookBaseUrl` in
+        // frontend/src/lib/components/instanceSettings.ts: a value the field accepts
+        // must not 400 on save, and vice versa.
+        let accept = [
             "https://hooks.example.com",
             "http://hooks.example.com:8080",
             "https://example.com/windmill",
             " https://hooks.example.com ",
-        ] {
-            assert!(
-                validate_webhook_base_url(ok).is_ok(),
-                "'{ok}' should be accepted"
-            );
-        }
-        // Each of these concatenates into a URL GitHub could not deliver to.
-        for bad in [
+            "https://[::1]:8000",
+        ];
+        let reject = [
             "httpss://hooks.example.com",
             "hooks.example.com",
             "ftp://hooks.example.com",
@@ -408,11 +406,14 @@ mod tests {
             "https://hooks.example.com#frag",
             "https://hooks example.com",
             "https://hooks.example.com/",
-        ] {
-            assert!(
-                validate_webhook_base_url(bad).is_err(),
-                "'{bad}' should be rejected"
-            );
+            "https://hooks.example.com:abc",
+            "https://x/a b",
+        ];
+        for v in accept {
+            assert!(validate_webhook_base_url(v).is_ok(), "'{v}' should be accepted");
+        }
+        for v in reject {
+            assert!(validate_webhook_base_url(v).is_err(), "'{v}' should be rejected");
         }
     }
 

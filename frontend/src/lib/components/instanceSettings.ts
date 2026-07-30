@@ -129,6 +129,34 @@ export const scimSamlSetting: Setting[] = [
 	}
 ]
 
+/**
+ * Mirror of `validate_webhook_base_url` in backend/windmill-common/src/global_settings.rs.
+ * Parses rather than pattern-matches so the two agree on the awkward cases (an
+ * invalid port like `https://x:abc`, IPv6 hosts, surrounding whitespace) — the
+ * server trims and runs `Url::parse`, so this does the same. The webhook path is
+ * appended to this value verbatim, hence no query, fragment or trailing slash.
+ */
+export function isValidWebhookBaseUrl(value: string | undefined): boolean {
+	if (value == undefined || value.trim() === '') return true
+	const trimmed = value.trim()
+	let url: URL
+	try {
+		url = new URL(trimmed)
+	} catch {
+		return false
+	}
+	return (
+		(url.protocol === 'http:' || url.protocol === 'https:') &&
+		url.host !== '' &&
+		url.search === '' &&
+		url.hash === '' &&
+		// `new URL` silently percent-encodes a space in the path, where the server
+		// rejects it outright.
+		!/\s/.test(trimmed) &&
+		!trimmed.endsWith('/')
+	)
+}
+
 export const settings: Record<string, Setting[]> = {
 	Core: [
 		{
@@ -959,12 +987,7 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: '',
 			error:
 				'Webhook base url must be an http:// or https:// url with a host, no query string or fragment, and no trailing slash',
-			// Mirrors validate_webhook_base_url on the server, which rejects the same
-			// values; the webhook path is appended to this verbatim.
-			isValid: (value: string | undefined) =>
-				value == undefined ||
-				value === '' ||
-				(/^https?:\/\/[^\s/?#]+(\/[^\s?#]*)?$/.test(value) && !value.endsWith('/'))
+			isValid: isValidWebhookBaseUrl
 		}
 	],
 	WebSocket: [
