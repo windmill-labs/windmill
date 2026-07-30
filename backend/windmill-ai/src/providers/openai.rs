@@ -508,6 +508,10 @@ impl QueryBuilder for OpenAIQueryBuilder {
         build_openai_compatible_proxy_request(args)
     }
 
+    fn supports_chat_completions_fallback(&self, base_url: &str) -> bool {
+        self.provider_kind.is_azure(base_url)
+    }
+
     async fn parse_streaming_response(
         &self,
         response: reqwest::Response,
