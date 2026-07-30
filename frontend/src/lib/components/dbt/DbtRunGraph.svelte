@@ -16,6 +16,8 @@
 	import { ClipboardCopy, Code2, TableProperties } from 'lucide-svelte'
 	import { copyToClipboard } from '$lib/utils'
 	import { workspaceStore } from '$lib/stores'
+	import { goto } from '$lib/navigation'
+	import { sendUserToast } from '$lib/toast'
 	import { appendViewToken } from '$lib/viewToken'
 	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
 	import type { AssetGraphResponse, AssetRunState } from '$lib/components/assets/AssetGraph/types'
@@ -250,21 +252,39 @@
 	// is fine; without saying so the empty state blames the descriptor's warehouse
 	// identity, which is the one cause this is not. Both kinds, like the worker's
 	// own `retry_was_the_test_phase`: dbt spells a unit test `unit_test.<pkg>.…`.
+
 	// A failed run's obvious next action is "Run again", which prefills the
 	// arguments it just ran — rebuilding the whole project. `dbt retry` redoes the
-	// failed and skipped nodes alone, and nothing on the page says so, so the form
-	// is offered with the command already switched.
+	// failed and skipped nodes alone, and nothing on the page says so.
 	let resumable = $derived(
 		!running &&
 			scriptHash != undefined &&
 			((run?.totals?.error ?? 0) > 0 || (run?.totals?.skipped ?? 0) > 0)
 	)
-	// `dbt_retry_job` names THIS run: the saved failure is keyed by script and
-	// principal, so resuming from an older run's page would otherwise pick up
+	let resuming = $state(false)
+
+	// Submitted rather than linked to the run form: `dbt_retry_job` is not a form
+	// field — it names THIS run, and the saved failure is keyed by script and
+	// principal — so a form the caller re-submits would drop it and resume
 	// whatever failed most recently instead.
-	let resumeHref = $derived(
-		`/scripts/get/${scriptHash}?workspace=${$workspaceStore}#dbt_command=%22retry%22&dbt_retry_job=%22${jobId}%22`
-	)
+	async function resume() {
+		const ws = $workspaceStore
+		if (!ws || scriptHash == undefined || resuming) return
+		resuming = true
+		try {
+			const id = await JobService.runScriptByHash({
+				workspace: ws,
+				hash: String(scriptHash),
+				requestBody: { dbt_command: 'retry', dbt_retry_job: jobId },
+				skipPreprocessor: true
+			})
+			await goto(`/run/${id}?workspace=${ws}`)
+		} catch (e) {
+			sendUserToast(`Could not resume this run: ${e}`, true)
+		} finally {
+			resuming = false
+		}
+	}
 
 	let ranTestsOnly = $derived(
 		!!run?.nodes?.length &&
@@ -689,9 +709,13 @@
 			0) > 0 && (run?.totals?.skipped ?? 0) > 0
 			? ', '
 			: ''}{(run?.totals?.skipped ?? 0) > 0 ? `${run?.totals?.skipped} skipped` : ''}.
-		<a href={resumeHref} class="text-blue-500 hover:underline">Run again with <span
-				class="font-mono">dbt_command: retry</span
-			></a> to rebuild only those, instead of the whole project.
+		<button
+			class="text-blue-500 hover:underline disabled:opacity-50"
+			disabled={resuming}
+			onclick={resume}
+			>{resuming ? 'Resuming…' : 'Resume this run'}</button
+		> to rebuild only those with <span class="font-mono">dbt retry</span>, instead of the whole
+		project.
 	</div>
 {/if}
 

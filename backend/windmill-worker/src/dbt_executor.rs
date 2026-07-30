@@ -3631,6 +3631,35 @@ pub struct RestoredRun {
     pub results_digest: String,
 }
 
+/// Which worker-local generation a restore may use, if any.
+///
+/// The pointer is a fast path over the database row and is accepted only when it
+/// names the run that row does. An agent has no row — so for it the pointer is
+/// all there is, and its own name is the only thing that can answer "is this the
+/// run you asked to resume", which is why the check below is not the caller's.
+fn chosen_generation(
+    local: Option<String>,
+    conn: &Connection,
+    latest_job: Option<Uuid>,
+    expected_job: Option<&str>,
+) -> error::Result<Option<String>> {
+    let generation = match (local, conn, latest_job) {
+        (Some(g), Connection::Http(_), _) => Some(g),
+        (Some(g), _, Some(id)) if g.trim() == format!("gen-{id}") => Some(g),
+        _ => None,
+    };
+    if let (Some(expected), Some(g)) = (expected_job, generation.as_ref()) {
+        if g.trim() != format!("gen-{expected}") {
+            return Err(Error::BadRequest(format!(
+                "this worker's saved failure is {}, not the run you asked to resume; open that \
+                 run to retry it, or run the script normally",
+                g.trim().trim_start_matches("gen-")
+            )));
+        }
+    }
+    Ok(generation)
+}
+
 /// Restore the previous invocation. The `dbt parse` a database restore needs is
 /// left to the caller so it runs on RESOLVED arguments: a `$var:` reference
 /// shapes the graph only once it has a value, and parsing with the reference
@@ -3699,11 +3728,7 @@ async fn restore_run_state(
     let local = tokio::fs::read_to_string(dir.join(CURRENT_GENERATION))
         .await
         .ok();
-    let generation = match (local, conn, latest_job) {
-        (Some(g), Connection::Http(_), _) => Some(g),
-        (Some(g), _, Some(id)) if g.trim() == format!("gen-{id}") => Some(g),
-        _ => None,
-    };
+    let generation = chosen_generation(local, conn, latest_job, expected_job)?;
     let Some(generation) = generation else {
         return restore_from_db(p, w_id, permissioned_as, inv, latest_job.as_ref(), conn, no_state())
             .await;
@@ -4755,6 +4780,36 @@ mod tests {
             !dir.join(CURRENT_GENERATION).exists(),
             "the pointer a retry reads must be gone"
         );
+    }
+
+    /// An agent reaches no database, so the row that answers "is this the run you
+    /// asked to resume" is not there — only the generation the worker itself
+    /// wrote. Unchecked, a retry naming one failed run resumes whichever failed
+    /// last on that worker, which is what the run page's two retry actions would
+    /// otherwise do from any older run.
+    #[test]
+    fn an_agent_refuses_a_generation_the_caller_did_not_name() {
+        let http = Connection::Http(windmill_common::worker::HttpClient {
+            client: reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build(),
+            base_internal_url: String::new(),
+        });
+        let saved = uuid::Uuid::new_v4();
+        let asked_for = uuid::Uuid::new_v4();
+        let local = || Some(format!("gen-{saved}"));
+
+        let err = chosen_generation(local(), &http, None, Some(&asked_for.to_string()))
+            .expect_err("a generation the caller did not name must not be resumed");
+        assert!(
+            err.to_string().contains(&saved.to_string()),
+            "the refusal names what the worker holds, got: {err}"
+        );
+
+        // The run it does hold, and a caller naming none, both still resume.
+        assert_eq!(
+            chosen_generation(local(), &http, None, Some(&saved.to_string())).unwrap(),
+            local()
+        );
+        assert_eq!(chosen_generation(local(), &http, None, None).unwrap(), local());
     }
 
     /// Why a run re-ingests decides what becomes of the result. Drift is the one
