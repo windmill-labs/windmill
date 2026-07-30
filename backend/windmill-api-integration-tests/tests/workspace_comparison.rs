@@ -1213,6 +1213,9 @@ async fn test_compare_workspaces_rename_visibility_ee_e2e(
 /// change at all, and since nothing ever re-scans `workspace_diff`, every change
 /// made in it stayed permanently absent from its "Deploy to <parent>" list.
 ///
+/// The lineage is now authoritative and `deploy_to` is only the fallback for a
+/// pairing with no lineage, so both states below must tally against the parent.
+///
 /// Gated on `private` for the same reason as the rename test above: the OSS
 /// `handle_deployment_metadata` is a no-op, so no rows would ever be written.
 #[cfg(feature = "private")]
@@ -1275,10 +1278,11 @@ async fn test_fork_tally_ahead_without_deploy_to(db: Pool<Postgres>) -> anyhow::
         Ok(())
     };
 
-    // The tally runs in a `tokio::spawn` inside `handle_deployment_metadata`, one
-    // upsert per upstream target. Stopping at the first non-NULL read would let a
-    // dedup regression slip through: it shows `ahead = 1` between the two upserts.
-    // So keep sampling after the row appears and return the settled value.
+    // The tally runs in a `tokio::spawn` inside `handle_deployment_metadata`.
+    // Stopping at the first non-NULL read would let a regression that tallies the
+    // same deploy against two upstream workspaces slip through: it shows `ahead = 1`
+    // between the upserts. So keep sampling after the row appears and return the
+    // settled value.
     let ahead_for = async |path: &str| -> anyhow::Result<Option<i32>> {
         let read = async || -> anyhow::Result<Option<i32>> {
             Ok(sqlx::query_scalar!(
@@ -1308,7 +1312,7 @@ async fn test_fork_tally_ahead_without_deploy_to(db: Pool<Postgres>) -> anyhow::
     };
 
     // ------ A fork's default state: the settings clone sets `deploy_to` to the
-    // parent, so both upstream keys name it. Tallying both must still count once.
+    // parent, so both candidate keys name it. The change must be counted once.
     deploy("u/admin/with_deploy_to").await?;
     assert_eq!(
         ahead_for("u/admin/with_deploy_to").await?,
