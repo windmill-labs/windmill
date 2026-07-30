@@ -82,7 +82,10 @@ use windmill_common::{
 use windmill_object_store::object_store_reexports::{Attribute, Attributes};
 use windmill_store::resources::get_resource_value_interpolated_internal;
 
-use windmill_api_auth::{create_token_internal, ensure_scopes_within_caller, NewToken};
+use windmill_api_auth::{
+    create_token_internal, ensure_scopes_within_caller, forbid_superadmin_job_token, NewToken,
+    OptJobAuthed,
+};
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::{push, PushArgs, PushArgsOwned, PushIsolationLevel};
 
@@ -1350,10 +1353,12 @@ async fn mint_raw_app_sdk_token(
 /// decides its whole API surface (its policy-approved runnables still run either
 /// way, through the bridge).
 ///
-/// The CALLER MUST verify that `opt_authed` may view `app_path` before calling:
-/// this mints on their behalf unconditionally and does no visibility check of its
-/// own. Every call site — `get_app_embed_token`, `get_app_embed_token_for_path`
-/// and the EE custom-path variant — access-checks first.
+/// The CALLER MUST establish that `opt_authed` may have this app's credential
+/// before calling: this mints on their behalf unconditionally and does no check of
+/// its own. The three viewer endpoints — `get_app_embed_token`,
+/// `get_app_embed_token_for_path` and the EE custom-path variant — verify read
+/// access; `mint_preview_sdk_token` (the editor) instead requires
+/// `apps:write:<path>`, since there the author is granting to themselves.
 pub async fn build_embed_token_response(
     db: &DB,
     w_id: &str,
@@ -1423,10 +1428,15 @@ pub struct PreviewSdkTokenRequest {
 /// previews on the same reasoning.
 async fn mint_preview_sdk_token(
     authed: ApiAuthed,
+    OptJobAuthed { job_id, .. }: OptJobAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(req): Json<PreviewSdkTokenRequest>,
 ) -> Result<String> {
+    // This mints a credential that outlives the request, so an ephemeral job token
+    // must not be able to launder itself into one — the same reason
+    // `users/tokens/create` refuses.
+    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     if authed.is_operator {
         return Err(Error::NotAuthorized(
             "Operators cannot preview raw apps".to_string(),

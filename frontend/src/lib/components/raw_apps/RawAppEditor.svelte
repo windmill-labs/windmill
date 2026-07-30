@@ -1289,37 +1289,46 @@
 	// The token is scoped to the policy being edited so the preview hits the same
 	// 403s the deployed app would.
 	let previewSdkEnvJs = $state('')
-	let previewSdkTokenFor: string | undefined = undefined
+	// Identifies the request whose answer is still wanted. Toggling scopes starts a
+	// new mint while an older one is in flight, and an out-of-order answer would
+	// otherwise hand the preview the wrong scope set — or restore a token after all
+	// scopes were removed.
+	let previewSdkKey: string | undefined = undefined
 
 	$effect(() => {
 		const scopes = policy?.frontend_sdk_scopes ?? []
-		const key = scopes.join(',')
-		if (key === previewSdkTokenFor) return
-		previewSdkTokenFor = key
-		if (scopes.length === 0 || !opWorkspace) {
+		const ws = opWorkspace
+		const key = `${ws ?? ''}|${scopes.join(',')}`
+		if (key === previewSdkKey) return
+		previewSdkKey = key
+		if (scopes.length === 0 || !ws) {
 			previewSdkEnvJs = ''
 			return
 		}
-		mintPreviewSdkToken(scopes)
+		mintPreviewSdkToken(scopes, ws, key)
 	})
 
-	async function mintPreviewSdkToken(scopes: string[]) {
+	async function mintPreviewSdkToken(scopes: string[], ws: string, key: string) {
 		try {
 			const token = await AppService.mintPreviewSdkToken({
-				workspace: opWorkspace!,
+				workspace: ws,
 				requestBody: { path, scopes }
 			})
+			if (key !== previewSdkKey) return
 			previewSdkEnvJs = `window.process = { env: ${JSON.stringify({
 				WM_TOKEN: token,
 				BASE_URL: window.location.origin,
-				WM_WORKSPACE: opWorkspace
+				WM_WORKSPACE: ws
 			}).replace(/</g, '\\u003c')} };\n`
 			// Re-feed so an already-rendered preview picks the env up.
 			if (lastBuild) feedPreviewIframe(lastBuild)
 			syncExternalPreview()
 		} catch (e) {
 			console.warn('Could not mint a preview SDK token', e)
+			if (key !== previewSdkKey) return
 			previewSdkEnvJs = ''
+			// Let the next change retry instead of latching off for the session.
+			previewSdkKey = undefined
 		}
 	}
 
@@ -1339,9 +1348,11 @@
 	function feedPreviewIframe(build: { css: string; js: string }) {
 		runtimeError = undefined
 		emptyRender = false
+		// Same-origin app-preview.html, and the payload now carries a token — address
+		// it to our origin rather than '*', as the detached preview already does.
 		previewIframe?.contentWindow?.postMessage(
 			{ type: 'preview', css: build.css, js: previewSdkEnvJs + build.js },
-			'*'
+			window.location.origin
 		)
 	}
 
