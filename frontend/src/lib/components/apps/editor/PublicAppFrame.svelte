@@ -207,6 +207,8 @@
 	// The viewer's own email (from the embed-token response), used to key the
 	// stored "do not ask again" per person on this shared browser origin.
 	let viewerEmail = $state('')
+	// One-shot: see `mintWithConsent`.
+	let restartedForModeChange = false
 
 	// WIN-2006: publisher opted this app into sandbox isolation (alpha). When false
 	// (the default) the app runs same-origin with the viewer's full session — the
@@ -300,13 +302,24 @@
 	 * Returns whether a token was actually obtained. */
 	async function mintWithConsent(): Promise<boolean> {
 		const approved = sdkScopes ?? []
+		const wasRaw = isRaw
+		const wasSandboxed = sandboxed
 		try {
 			const resp = await fetchEmbedToken({ sdkConsent: true })
-			// This response is the fresher view of how the app must render. A redeploy
-			// while the prompt was open can have turned sandbox isolation on, and
-			// rendering from the first response's `sandbox: false` would put the new
-			// bundle on the same-origin blob path — bypassing the isolation the
-			// publisher just enabled.
+			// A redeploy while the prompt was open can change how the app must render,
+			// and with it what `token` even means — the viewer's SDK token for a raw
+			// app, the iframe's embed token for sandboxed low-code. Rendering from the
+			// first response's mode would either bypass newly enabled isolation or
+			// hand the opaque viewer nothing. Start over instead of trying to route a
+			// fresh token into stale mode state; `restartedForModeChange` keeps an app
+			// being redeployed repeatedly from bouncing us in a loop.
+			const modeChanged =
+				(resp.raw_app ?? false) !== wasRaw || (resp.sandbox ?? false) !== wasSandboxed
+			if (modeChanged && !restartedForModeChange) {
+				restartedForModeChange = true
+				await initEmbedder()
+				return false
+			}
 			sandboxed = resp.sandbox ?? false
 			isRaw = resp.raw_app ?? false
 			appPath = resp.app_path ?? appPath
