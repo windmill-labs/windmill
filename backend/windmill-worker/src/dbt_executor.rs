@@ -224,15 +224,10 @@ pub(crate) async fn handle_dbt_job(
         modules,
     )
     .await;
-    // A preparation failure leaves the saved run alone. Everything up to here —
-    // writing the bundle, `dbt deps`, provisioning an engine, rendering the
-    // profile — touches no relation, so the warehouse is exactly what the
-    // previous run left and its failures are still the accurate description of
-    // it. Only an interrupted BUILD invalidates that, which the save at the end
-    // of the job decides. Cancelling during a provision is the reachable case,
-    // and clearing there would silently cost a resumable failure; a resume that
-    // no longer fits is refused by `run_identity` and the arguments digest
-    // anyway.
+    // A preparation failure leaves the saved run alone: nothing up to here — the
+    // bundle, `dbt deps`, the engine, the profile — touches a relation, so the
+    // previous run's failures still describe the warehouse. Only an interrupted
+    // BUILD invalidates that, which the save at the end of the job decides.
     let mut prepared = prepared?;
 
     // A `vars` run argument overrides the descriptor's, and vars drive `enabled`,
@@ -1542,8 +1537,9 @@ async fn write_profiles(
         .map(|t| {
             DbtAdapter::from_resource_type(t).ok_or_else(|| {
                 Error::BadRequest(format!(
-                    "`profile.type: {t}` is not a supported dbt adapter \
-                     (postgres, snowflake, bigquery, databricks)"
+                    "`profile.type: {t}` is not a supported dbt adapter (postgres, redshift, \
+                     mysql, duckdb, clickhouse, snowflake, bigquery, databricks, salesforce, \
+                     mssql, oracle)"
                 ))
             })
         })
