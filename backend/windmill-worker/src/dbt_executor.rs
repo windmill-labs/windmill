@@ -197,9 +197,13 @@ pub(crate) async fn handle_dbt_job(
             {
                 tracing::warn!("pruning dbt run graph snapshots: {e:#}");
             }
-            prune_package_cache().await;
         });
     }
+    // Not inside the branch above: this is a walk of the worker's own disk and
+    // needs no database, while an agent worker — which has none — installs
+    // packages like any other. Retention that depends on the connection is not
+    // retention, the same reason the graph sweep runs from every dbt job.
+    tokio::spawn(prune_package_cache());
     let prepared = prepare_project(
         &descriptor,
         inner_content,
@@ -1299,7 +1303,15 @@ async fn install_packages(
         .project_dir
         .join(packages_install_path(&p.project_dir).await);
     if cached.exists() {
-        copy_dir_watched(
+        // BEFORE the copy, not after. The tree this matters for is the one at the
+        // retention edge, where the first use in a fortnight is also when the
+        // sweep would take it: marked afterwards, the source looks stale for the
+        // length of the copy and a concurrent job's sweep can remove it
+        // mid-restore. Beside the tree, never inside it — the copy takes this
+        // directory into the project, and a marker in `dbt_packages/` would ride
+        // along.
+        tokio::fs::write(last_used_marker(&cached), b"").await.ok();
+        let restored = copy_dir_watched(
             &cached,
             &target,
             "restoring cached dbt_packages",
@@ -1308,21 +1320,28 @@ async fn install_packages(
             w_id,
             conn,
         )
-        .await?;
-        // Beside the tree, never inside it: the restore copies this directory
-        // into the project, and a marker in `dbt_packages/` would ride along.
-        // The sweep reclaims by age, and a tree's own mtime is when it was
-        // published — so without this a project unchanged for months is evicted
-        // from under the jobs still using it.
-        tokio::fs::write(last_used_marker(&cached), b"").await.ok();
+        .await;
+        // A restore that lost the race anyway — the sweep fired in the gap after
+        // `exists()` — is a cache MISS, not a failed job: `dbt deps` resolves the
+        // tree again. Falling through costs a fetch; failing costs the run.
+        if restored.is_ok() {
+            append_logs(
+                job_id,
+                w_id,
+                "\nReusing cached dbt_packages\n".to_string(),
+                conn,
+            )
+            .await;
+            return Ok(());
+        }
+        tokio::fs::remove_dir_all(&target).await.ok();
         append_logs(
             job_id,
             w_id,
-            "\nReusing cached dbt_packages\n".to_string(),
+            "\nCached dbt_packages went away mid-restore; resolving them again\n".to_string(),
             conn,
         )
         .await;
-        return Ok(());
     }
     run_prep_command(
         p,
@@ -3439,11 +3458,12 @@ async fn prune_package_cache() {
         } else {
             std::time::Duration::from_secs(PACKAGES_RETENTION_DAYS * 24 * 60 * 60)
         };
-        let last = tokio::fs::metadata(last_used_marker(&e.path()))
-            .await
-            .or(e.metadata().await)
-            .ok()
-            .and_then(|m| m.modified().ok());
+        let last = match tokio::fs::metadata(last_used_marker(&e.path())).await {
+            Ok(m) => m.modified().ok(),
+            // No marker: a tree published and never restored, or a staging
+            // directory, so its own mtime is when it last mattered.
+            Err(_) => e.metadata().await.ok().and_then(|m| m.modified().ok()),
+        };
         if last
             .and_then(|t| now.duration_since(t).ok())
             .is_some_and(|age| age > max_age)

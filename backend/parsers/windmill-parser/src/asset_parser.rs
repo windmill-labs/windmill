@@ -820,34 +820,55 @@ fn unquote_identifier(s: &str) -> String {
 /// stripping only the outer pair leaves `"Archive"."Sales"` as
 /// `Archive"."Sales` — a different key from the ingest's `archive.sales`, which
 /// silently splits the model and its native consumer into two nodes.
+///
+/// The halves go through `unquote_identifier`, which requires the quote at both
+/// ends, because this function sees both a warehouse SPELLING (from a `table://`
+/// annotation) and an already-DECODED identifier (from `table_asset_path`, whose
+/// callers ran `split_relation` or read the manifest) and cannot tell them apart.
+/// A lone `"` in a decoded name — `sa"les` — must survive: treated as opening a
+/// quote it would be dropped, filing the ingest's `sa"les` under `sales` while
+/// the annotation's `"sa""les"` decodes to `sa"les`, which is the split this
+/// canonicalization exists to prevent.
 fn unquote_schema_segment(s: &str) -> String {
-    let mut parts: Vec<String> = Vec::new();
-    let mut current = String::new();
+    let s = s.trim();
+    let mut parts: Vec<&str> = Vec::new();
+    let mut start = 0usize;
     let mut quote: Option<char> = None;
-    let mut chars = s.trim().chars().peekable();
-    while let Some(c) = chars.next() {
+    let bytes: Vec<(usize, char)> = s.char_indices().collect();
+    let mut k = 0usize;
+    while k < bytes.len() {
+        let (i, c) = bytes[k];
         match quote {
-            // A doubled delimiter is one literal character, not the end of the
-            // identifier — see `unquote_identifier`.
-            Some(q) if c == q || (q == '[' && c == ']') => {
+            Some(q) => {
                 let close = if q == '[' { ']' } else { q };
-                if chars.peek() == Some(&close) {
-                    chars.next();
-                    current.push(close);
-                } else {
-                    quote = None;
+                if c == close {
+                    // Doubled: a literal delimiter, so the quote stays open.
+                    if bytes.get(k + 1).map(|(_, n)| *n) == Some(close) {
+                        k += 1;
+                    } else {
+                        quote = None;
+                    }
                 }
             }
-            Some(_) => current.push(c),
-            None if c == '"' || c == '`' || c == '[' => quote = Some(c),
+            // Only a quote that OPENS the part can be a delimiter; one in the
+            // middle of a decoded identifier is part of the name.
+            None if (c == '"' || c == '`' || c == '[') && i == start => quote = Some(c),
             // Only an UNQUOTED period separates the database from the schema;
             // one inside an identifier is part of the name.
-            None if c == '.' => parts.push(std::mem::take(&mut current)),
-            None => current.push(c),
+            None if c == '.' => {
+                parts.push(&s[start..i]);
+                start = i + c.len_utf8();
+            }
+            None => {}
         }
+        k += 1;
     }
-    parts.push(current);
-    parts.join(".")
+    parts.push(&s[start..]);
+    parts
+        .into_iter()
+        .map(unquote_identifier)
+        .collect::<Vec<_>>()
+        .join(".")
 }
 
 // Tokenize a `key=value [key="quoted value"] ...` option string. Bare
@@ -1806,6 +1827,25 @@ mod pipeline_annotation_tests {
                 parse_asset_syntax(spelling, false),
                 Some((AssetKind::Table, Cow::Owned(expected.into()))),
                 "spelling {spelling} did not canonicalize"
+            );
+        }
+        // The DECODED form has to land on the same key, in both halves: this
+        // function sees the warehouse's spelling from an annotation and an
+        // already-decoded identifier from the ingest, and cannot tell them
+        // apart. A lone delimiter treated as opening a quote would be dropped —
+        // `sa"les` filed as `sales` — and the two derivations would split.
+        for (decoded, spelled) in [
+            ("table://f/prod/wh/sa\"les/orders", "table://f/prod/wh/\"sa\"\"les\"/orders"),
+            ("table://f/prod/wh/analytics/order\"s", "table://f/prod/wh/analytics/\"order\"\"s\""),
+            (
+                "table://f/prod/wh/arch\"ive.sales/orders",
+                "table://f/prod/wh/\"arch\"\"ive\".\"sales\"/orders",
+            ),
+        ] {
+            assert_eq!(
+                parse_asset_syntax(decoded, false),
+                parse_asset_syntax(spelled, false),
+                "the decoded and quoted spellings of {decoded} disagree"
             );
         }
     }
