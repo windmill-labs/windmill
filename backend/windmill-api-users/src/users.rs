@@ -2764,6 +2764,17 @@ async fn create_token(
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     check_token_create_rate_limit(&authed.username)?;
 
+    // Same reserved namespaces as `update_token_label`, enforced here too: minting is just
+    // as capable of colliding as relabelling. `username_override_from_label` trusts these
+    // shapes to name the entity acting, so a forged one would put an arbitrary name in
+    // `created_by` and the audit trail. Server-minted trigger and app tokens call
+    // `create_token_internal` directly and are unaffected.
+    if !windmill_common::auth::is_user_token(token_config.label.as_deref()) {
+        return Err(Error::BadRequest(
+            "label collides with a reserved system-token namespace".to_string(),
+        ));
+    }
+
     windmill_api_auth::ensure_scopes_within_caller(&authed, token_config.scopes.as_deref())?;
 
     let mut tx = db.begin().await?;

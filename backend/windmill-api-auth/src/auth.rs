@@ -851,11 +851,12 @@ pub async fn resolve_opt_job_authed(
 /// `ephemeral-script-end-user-` arm forwards a `created_by` verbatim, and `created_by` is
 /// unconstrained, so it may itself look like any of these shapes.
 ///
-/// Only labels the token API refuses to mint are trusted to name a principal. It rejects
-/// `ephemeral*` (`is_user_token`), so those cannot be forged. `email-*` is the exception: the
-/// SMTP trigger mints it and the worker keys email-trigger handling off that exact prefix, yet
-/// a member can create a token with it. Grounding that one in issuance rather than shape needs
-/// the token row to record who minted it.
+/// Only reserved namespaces are trusted to name the entity acting. `create_token` and
+/// `update_token_label` both reject them (`is_user_token`), so a member cannot mint one and
+/// the label can only have come from a server-side mint. `email-*` is the exception: the SMTP
+/// trigger mints it and the worker keys email-trigger handling off that exact prefix, yet it
+/// stays user-mintable. Grounding that one in issuance rather than shape needs the token row
+/// to record who minted it.
 pub(crate) fn username_override_from_label(label: Option<String>) -> (Option<String>, bool) {
     match label {
         Some(label) if label.starts_with("ephemeral-webhook-") || label.starts_with("email-") => {
@@ -870,9 +871,10 @@ pub(crate) fn username_override_from_label(label: Option<String>) -> (Option<Str
             false,
         ),
         Some(label) if label == "Ephemeral lsp token" => (Some("lsp".to_string()), false),
-        // Nothing mints these: they are a naming convention for user-created tokens. The
-        // override keeps the bare label because `require_job_read_access` matches it against
-        // the `created_by` of jobs launched under it.
+        // User-mintable, so they name nobody in particular — the trigger panels merely
+        // pre-fill `webhook-`/`http-`. The override keeps the bare label because
+        // `require_job_read_access` matches it against the `created_by` of jobs launched
+        // under it, which these shapes produced while they were trusted.
         Some(label)
             if label.starts_with("webhook-")
                 || label.starts_with("http-")
