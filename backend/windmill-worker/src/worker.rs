@@ -152,6 +152,7 @@ use crate::{
     worker_flow::handle_flow,
     worker_lockfiles::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
+        tally_unfinished_dependency_deploy,
     },
     worker_utils::{insert_ping, queue_vacuum, update_worker_ping_full},
 };
@@ -2349,6 +2350,27 @@ pub async fn run_worker(
         );
     }
 
+    // Dedicated workers wait for the init script before installing their dependencies, so it has to
+    // be queued before they are spawned.
+    if i_worker == 1 {
+        // Initialize runtime asset inserter for batched database inserts
+        if let Connection::Sql(db) = conn {
+            init_runtime_asset_loop(db.clone(), killpill_rx.resubscribe());
+        }
+        if let Err(e) = queue_init_bash_maybe(conn, same_worker_tx.clone(), &worker_name).await {
+            resolve_init_script(InitScriptState::Aborted);
+            killpill_tx.send();
+            tracing::error!(worker = %worker_name, hostname = %hostname, "Error queuing init bash script for worker {worker_name}: {e:#}");
+            return;
+        }
+        spawn_periodic_script_task(
+            worker_name.clone(),
+            conn.clone(),
+            same_worker_tx.clone(),
+            killpill_rx.resubscribe(),
+        );
+    }
+
     // (dedi_path, dedicated_worker_tx, dedicated_worker_handle)
     // Option<Sender<Arc<QueuedJob>>>,
     // Option<JoinHandle<()>>,
@@ -2378,24 +2400,6 @@ pub async fn run_worker(
         HashMap<String, Sender<DedicatedWorkerJob>>,
         Vec<JoinHandle<()>>,
     ) = (HashMap::new(), vec![]);
-
-    if i_worker == 1 {
-        // Initialize runtime asset inserter for batched database inserts
-        if let Connection::Sql(db) = conn {
-            init_runtime_asset_loop(db.clone(), killpill_rx.resubscribe());
-        }
-        if let Err(e) = queue_init_bash_maybe(conn, same_worker_tx.clone(), &worker_name).await {
-            killpill_tx.send();
-            tracing::error!(worker = %worker_name, hostname = %hostname, "Error queuing init bash script for worker {worker_name}: {e:#}");
-            return;
-        }
-        spawn_periodic_script_task(
-            worker_name.clone(),
-            conn.clone(),
-            same_worker_tx.clone(),
-            killpill_rx.resubscribe(),
-        );
-    }
 
     #[cfg(feature = "prometheus")]
     let _worker_dedicated_channel_queue_send_duration = {
@@ -3314,6 +3318,12 @@ pub async fn run_worker(
 
     tracing::info!(worker = %worker_name, hostname = %hostname, "worker {} exiting", worker_name);
 
+    // Only this worker runs the init job, so if its loop exited before doing so, nothing ever will:
+    // release whoever waits on it, otherwise joining the dedicated worker handles below hangs.
+    if i_worker == 1 {
+        resolve_init_script(InitScriptState::Aborted);
+    }
+
     #[cfg(feature = "enterprise")]
     {
         let valid_key = LICENSE_KEY_VALID.load(std::sync::atomic::Ordering::Relaxed);
@@ -3371,6 +3381,81 @@ pub async fn run_worker(
     tracing::info!(worker = %worker_name, hostname = %hostname, "number of jobs executed: {}", jobs_executed);
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum InitScriptState {
+    Pending,
+    Completed,
+    Aborted,
+}
+
+lazy_static::lazy_static! {
+    /// State of the INIT_SCRIPT job, which is the documented hook to prepare the host (CA
+    /// certificates, proxies, mounts), so anything reaching the network at startup waits on it. The
+    /// init job is executed by the main loop, which only starts once dedicated workers have been
+    /// spawned, hence a gate rather than plain ordering. Every path that gives up on running it
+    /// MUST resolve the gate, or waiters park forever and worker teardown hangs joining them.
+    static ref INIT_SCRIPT_STATE: tokio::sync::watch::Sender<InitScriptState> =
+        tokio::sync::watch::channel(InitScriptState::Pending).0;
+}
+
+/// Called with the post-processing verdict, which is the only one that accounts for `wm_failure`.
+pub(crate) fn init_script_finished(success: bool) {
+    resolve_init_script(if success {
+        InitScriptState::Completed
+    } else {
+        InitScriptState::Aborted
+    });
+}
+
+fn resolve_init_script(state: InitScriptState) {
+    INIT_SCRIPT_STATE.send_if_modified(|current| {
+        if *current == InitScriptState::Pending {
+            *current = state;
+            true
+        } else {
+            false
+        }
+    });
+}
+
+/// Returns false when the init script will never succeed (it failed, or the worker is shutting
+/// down), in which case the caller must give up instead of preparing anything.
+// Only called from the dedicated worker paths, which are gated behind the `private` feature.
+#[allow(dead_code)]
+pub(crate) async fn wait_for_init_script_completed(
+    killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
+) -> bool {
+    let mut rx = INIT_SCRIPT_STATE.subscribe();
+    let state = *rx.borrow_and_update();
+    if state != InitScriptState::Pending {
+        return state == InitScriptState::Completed;
+    }
+    tracing::info!("waiting for init script to complete before installing dependencies");
+    // recv() is cancel-safe, so losing the select does not consume the killpill the caller still
+    // needs.
+    tokio::select! {
+        _ = rx.changed() => *rx.borrow_and_update() == InitScriptState::Completed,
+        _ = killpill_rx.recv() => false,
+    }
+}
+
+#[cfg(test)]
+mod init_script_gate_tests {
+    use super::*;
+
+    // The gate is a process-global whose first resolution wins, so this must stay the only test
+    // that resolves it.
+    #[tokio::test]
+    async fn aborting_the_init_script_releases_waiters_for_good() {
+        let (_killpill_tx, mut killpill_rx) = tokio::sync::broadcast::channel(1);
+        resolve_init_script(InitScriptState::Aborted);
+        // Parking here instead would hang worker teardown on the dedicated worker handles.
+        assert!(!wait_for_init_script_completed(&mut killpill_rx).await);
+        resolve_init_script(InitScriptState::Completed);
+        assert!(!wait_for_init_script_completed(&mut killpill_rx).await);
+    }
+}
+
 async fn queue_init_bash_maybe<'c>(
     conn: &Connection,
     same_worker_tx: SameWorkerSender,
@@ -3383,6 +3468,7 @@ async fn queue_init_bash_maybe<'c>(
         };
         Some((uuid, content))
     } else {
+        resolve_init_script(InitScriptState::Completed);
         None
     };
     if let Some((uuid, content)) = uuid_content {
@@ -3958,6 +4044,9 @@ pub async fn handle_queued_job(
         } else {
             None
         };
+        // Set by the dependency handlers once they reach `handle_deployment_metadata`,
+        // so the fallback tally below never counts the same deploy twice.
+        let mut deployment_tallied = false;
         // Box::pin all async branches to prevent large match enum on stack
         let result = match job.kind {
             JobKind::Dependencies => match conn {
@@ -3975,6 +4064,7 @@ pub async fn handle_queued_job(
                         &client.token,
                         occupancy_metrics,
                         raw_workspace_dependencies_o,
+                        &mut deployment_tallied,
                     ))
                     .await
                 }
@@ -3999,6 +4089,7 @@ pub async fn handle_queued_job(
                         &client.token,
                         occupancy_metrics,
                         raw_workspace_dependencies_o,
+                        &mut deployment_tallied,
                     ))
                     .await
                 }
@@ -4021,6 +4112,7 @@ pub async fn handle_queued_job(
                     &client.token,
                     occupancy_metrics,
                     raw_workspace_dependencies_o,
+                    &mut deployment_tallied,
                 ))
                 .await
                 .map(|()| serde_json::from_str("{}").unwrap()),
@@ -4106,6 +4198,20 @@ pub async fn handle_queued_job(
                 r
             }
         };
+
+        // A lock generation that failed or was cancelled still leaves the deployed
+        // version live in the workspace, so its fork/parent change must be tallied.
+        // `AlreadyCompleted` is not such a failure — another worker owns the job.
+        if job.kind.is_dependency()
+            && (result
+                .as_ref()
+                .is_err_and(|err| !matches!(err, &Error::AlreadyCompleted(_)))
+                || canceled_by.is_some())
+        {
+            if let Connection::Sql(db) = conn {
+                tally_unfinished_dependency_deploy(db, job.as_ref(), &mut deployment_tallied).await;
+            }
+        }
 
         let cjob = MiniCompletedJob::from(job.to_owned());
         drop(job);

@@ -1206,6 +1206,118 @@ async fn test_compare_workspaces_rename_visibility_ee_e2e(
     Ok(())
 }
 
+/// Regression test for #10401. The fork -> parent ("ahead") side of the tally
+/// used to key off `workspace_settings.deploy_to` while the parent -> fork
+/// ("behind") side keyed off `workspace.parent_workspace_id`, so a fork whose
+/// `deploy_to` disagreed recorded no ahead change at all and its edits stayed
+/// permanently absent from "Deploy to <parent>". Both sides now read the
+/// lineage, which is the only key left.
+///
+/// Gated on `private` for the same reason as the rename test above: the OSS
+/// `handle_deployment_metadata` is a no-op, so no rows would ever be written.
+#[cfg(feature = "private")]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_fork_tally_ahead_against_parent(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base_url = format!("http://localhost:{port}/api");
+    let admin = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+
+    sqlx::query!("DELETE FROM skip_workspace_diff_tally")
+        .execute(&db)
+        .await?;
+
+    let resp = admin
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/create_fork"
+        ))
+        .json(&json!({
+            "id": "wm-fork-tally",
+            "name": "Tally Fork",
+        }))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "fork creation failed: {}",
+        resp.status()
+    );
+
+    // bash needs no lock generation, so `create_script` tallies inline instead of
+    // deferring to a dependency job (no worker runs in this test).
+    let deploy = async |path: &str| -> anyhow::Result<()> {
+        let resp = admin
+            .client()
+            .post(&format!("{base_url}/w/wm-fork-tally/scripts/create"))
+            .json(&json!({
+                "path": path,
+                "summary": "",
+                "description": "",
+                "content": "echo 1",
+                "language": "bash",
+                "schema": {"type": "object", "properties": {}, "required": []},
+            }))
+            .send()
+            .await?;
+        let status = resp.status();
+        assert!(
+            status.is_success(),
+            "script create failed: {} — {}",
+            status,
+            resp.text().await?
+        );
+        Ok(())
+    };
+
+    // The tally runs in a `tokio::spawn` inside `handle_deployment_metadata`.
+    // Stopping at the first non-NULL read would let a regression that tallies the
+    // same deploy against two upstream workspaces slip through: it shows `ahead = 1`
+    // between the upserts. So keep sampling after the row appears and return the
+    // settled value.
+    let ahead_for = async |path: &str| -> anyhow::Result<Option<i32>> {
+        let read = async || -> anyhow::Result<Option<i32>> {
+            Ok(sqlx::query_scalar!(
+                "SELECT ahead FROM workspace_diff
+                 WHERE source_workspace_id = 'test-workspace'
+                   AND fork_workspace_id = 'wm-fork-tally'
+                   AND kind = 'script'
+                   AND path = $1",
+                path
+            )
+            .fetch_optional(&db)
+            .await?)
+        };
+        let mut ahead = None;
+        for _ in 0..40 {
+            ahead = read().await?;
+            if ahead.is_some() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        for _ in 0..10 {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            ahead = read().await?;
+        }
+        Ok(ahead)
+    };
+
+    deploy("u/admin/tallied").await?;
+    assert_eq!(
+        ahead_for("u/admin/tallied").await?,
+        Some(1),
+        "a fork's change must record once against its parent"
+    );
+
+    Ok(())
+}
+
 /// Regression test for WIN-1975. A non-admin user creating a script in a fork-
 /// only folder used to get the spurious
 /// "this fork has changes not visible to your user" warning because
@@ -1235,8 +1347,7 @@ async fn test_compare_workspaces_fork_only_folder_visibility(
     .execute(&db)
     .await?;
 
-    // Create fork via the API so cloning + workspace_settings.deploy_to wiring
-    // matches what production sees.
+    // Create fork via the API so the cloning and lineage wiring matches what production sees.
     let client_admin = windmill_api_client::create_client(
         &format!("http://localhost:{port}"),
         "SECRET_TOKEN".to_string(),

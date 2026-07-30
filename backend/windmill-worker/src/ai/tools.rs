@@ -369,6 +369,8 @@ async fn execute_windmill_tool(
         tool_call_args.insert(key.clone(), result);
     }
 
+    let is_ai_agent_tool = matches!(tool_value, FlowModuleValue::AIAgent { .. });
+
     let job_payload = match tool_value {
         FlowModuleValue::Script { path: script_path, hash: script_hash, tag_override, .. } => {
             script_to_payload(
@@ -611,6 +613,7 @@ async fn execute_windmill_tool(
                 tool_module,
                 job_id,
                 outcome.is_success(),
+                is_ai_agent_tool,
                 inner_job_completed_rx,
                 messages,
                 final_events_str,
@@ -682,6 +685,15 @@ async fn handle_tool_execution_error(
     Ok(())
 }
 
+/// Extract the `output` field of an `AIAgentResult` envelope, serialized back to JSON.
+/// Returns `None` if the result is not a JSON object carrying an `output` field.
+fn extract_ai_agent_output(result: &RawValue) -> Option<String> {
+    serde_json::from_str::<HashMap<String, &RawValue>>(result.get())
+        .ok()?
+        .get("output")
+        .map(|output| output.get().to_string())
+}
+
 /// Handle tool execution success
 async fn handle_tool_execution_success(
     ctx: &mut ToolExecutionContext<'_>,
@@ -689,14 +701,16 @@ async fn handle_tool_execution_success(
     tool_module: &windmill_common::flows::FlowModule,
     job_id: Uuid,
     success: bool,
+    is_ai_agent_tool: bool,
     inner_job_completed_rx: JobCompletedReceiver,
     messages: &mut Vec<OpenAIMessage>,
     final_events_str: &mut String,
 ) -> Result<(), Error> {
     let send_result = inner_job_completed_rx.bounded_rx.try_recv().ok();
 
-    let result = if let Some(SendResult {
-        result: SendResultPayload::JobCompleted(ref jc), ..
+    let (result, job_success) = if let Some(SendResult {
+        result: SendResultPayload::JobCompleted(ref jc),
+        ..
     }) = send_result
     {
         let result = jc.result.clone();
@@ -738,16 +752,26 @@ async fn handle_tool_execution_success(
             .await
             .map_err(|e| Error::internal_err(format!("Failed to add completed job error: {e}")))?;
         }
-        result
+        (result, jc.success)
     } else {
         return Err(Error::internal_err(
             "Tool job completed but no result".to_string(),
         ));
     };
 
+    // A nested agent returns the whole `AIAgentResult` envelope: on top of `output` it carries
+    // the child's entire message history, stream log and token usage. Feeding that back would
+    // grow the caller's context by the child's full transcript on every call, so the caller only
+    // sees `output`. The envelope stays intact in the tool job's completed row.
+    let tool_result = if is_ai_agent_tool && job_success {
+        extract_ai_agent_output(&result).unwrap_or_else(|| result.get().to_string())
+    } else {
+        result.get().to_string()
+    };
+
     messages.push(OpenAIMessage {
         role: "tool".to_string(),
-        content: Some(OpenAIContent::Text(result.get().to_string())),
+        content: Some(OpenAIContent::Text(tool_result.clone())),
         tool_call_id: Some(tool_call.id.clone()),
         agent_action: Some(AgentAction::ToolCall {
             job_id,
@@ -762,7 +786,7 @@ async fn handle_tool_execution_success(
         let tool_result_event = StreamingEvent::ToolResult {
             call_id: tool_call.id.clone(),
             function_name: tool_call.function.name.clone(),
-            result: result.get().to_string(),
+            result: tool_result,
             success: true,
         };
         stream_event_processor
@@ -838,5 +862,27 @@ async fn add_tool_message_to_chat(
                 }
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extract_ai_agent_output;
+    use serde_json::value::RawValue;
+
+    #[test]
+    fn extracts_only_the_output_of_an_agent_result() {
+        let envelope = RawValue::from_string(
+            r#"{"output":{"answer":"42"},"messages":[{"role":"user","content":"hi"}],"wm_stream":"...","usage":{"total_tokens":10}}"#
+                .to_string(),
+        )
+        .unwrap();
+        assert_eq!(
+            extract_ai_agent_output(&envelope).as_deref(),
+            Some(r#"{"answer":"42"}"#)
+        );
+
+        let not_an_envelope = RawValue::from_string(r#"["a"]"#.to_string()).unwrap();
+        assert_eq!(extract_ai_agent_output(&not_an_envelope), None);
     }
 }

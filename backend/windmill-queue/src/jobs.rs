@@ -6420,7 +6420,17 @@ async fn push_inner<'c, 'd>(
             tag = None;
         }
 
-        let interpolated_tag = tag.map(|x| interpolate_args(x, &args, workspace_id));
+        // `$workspace` must resolve the same way the default tags below do, or an explicit tag and
+        // a default tag from the same workspace address two different worker pools. Resolving costs
+        // a lookup, so pay it only for tags that actually interpolate `$workspace`.
+        let interpolated_tag = match tag {
+            None => None,
+            Some(x) if x.contains("$workspace") => {
+                let tag_ws = crate::tags::tag_workspace_id(&workspace_id, db).await;
+                Some(interpolate_args(x, &args, &tag_ws))
+            }
+            Some(x) => Some(interpolate_args(x, &args, workspace_id)),
+        };
         let effective_ws = per_workspace_tag(&workspace_id, db).await;
 
         let default = || {
