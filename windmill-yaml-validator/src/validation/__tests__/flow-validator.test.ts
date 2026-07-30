@@ -338,6 +338,14 @@ describe("WindmillYamlValidator", () => {
           expect(result.errors).toHaveLength(0);
         });
 
+        it("should validate an AI agent flow linked to an ai_agent resource", () => {
+          const validFlow = readSample("valid-aiagent-linked.yaml");
+
+          const result = validator.validate(validFlow, { type: "flow" });
+
+          expect(result.errors).toHaveLength(0);
+        });
+
         it("should validate an AI agent flow with parallel execution enabled", () => {
           const validFlow = readSample("valid-aiagent-parallel.yaml");
 
@@ -351,21 +359,6 @@ describe("WindmillYamlValidator", () => {
       });
 
       describe("invalid AI agent flows", () => {
-        it("should return errors for AI agent missing required tools field", () => {
-          const invalidFlow = readSample("invalid-aiagent-missing-tools.yaml");
-
-          const result = validator.validate(invalidFlow, { type: "flow" });
-
-          expect(result.errors.length).toBeGreaterThan(0);
-          expect(
-            result.errors.some(
-              (error) =>
-                error.keyword === "required" &&
-                error.params?.missingProperty === "tools"
-            )
-          ).toBe(true);
-        });
-
         it("should return errors for AI agent missing type field", () => {
           const invalidFlow = readSample("invalid-aiagent-missing-type.yaml");
 
