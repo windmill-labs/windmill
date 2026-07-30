@@ -186,6 +186,8 @@
 
 	let count = $state(0)
 	let displayedCount = $state(0)
+	/** Flat (non-lazy) listing: whether the last page came back full. */
+	let flatHasMore = $state(false)
 
 	let filter = $state('')
 
@@ -392,7 +394,12 @@
 			if (regexFilter && !regexFilter.test(file_path.s3)) {
 				continue
 			}
-			displayedCount += 1
+			// Only count keys not already in the tree: a page can legitimately repeat
+			// entries, and counting them again makes the total climb while the list
+			// stays put.
+			if (allFilesByKey[file_path.s3] === undefined) {
+				displayedCount += 1
+			}
 			let split_path = file_path.s3.split('/')
 			let parent_path: string | undefined = undefined
 			let current_path: string | undefined = undefined
@@ -429,6 +436,12 @@
 				}
 			}
 		}
+		// A short page means the listing is exhausted. Deriving "there is more" from
+		// `count % maxKeys` instead would keep offering another page whenever the total
+		// happens to be an exact multiple of the page size, and each of those clicks
+		// runs off the end of `listMarkers`, sends no marker, and silently re-fetches
+		// the first page.
+		flatHasMore = availableFiles.windmill_large_files.length === maxKeys
 		if (listMarkers.length == page) {
 			count += availableFiles.windmill_large_files.length
 			const nextMarker =
@@ -600,6 +613,7 @@
 		folderState = {}
 		count = 0
 		displayedCount = 0
+		flatHasMore = false
 		page = 0
 		listMarkers = []
 		fileMetadata = undefined
@@ -958,11 +972,11 @@
 							<div>{displayedCount} item{displayedCount === 1 ? '' : 's'} shown</div>
 						{:else}
 							<div>
-								{displayedCount}{count % maxKeys === 0 ? '+' : ''}
+								{displayedCount}{flatHasMore ? '+' : ''}
 								{displayedCount !== count ? 'filtered ' : ''}items (including inside folders)
 							</div>
 
-							{#if count % maxKeys === 0}
+							{#if flatHasMore}
 								<Button
 									variant="default"
 									size="xs2"
