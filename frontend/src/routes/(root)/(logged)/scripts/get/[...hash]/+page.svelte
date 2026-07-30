@@ -343,6 +343,15 @@
 	}
 
 	let args: Record<string, any> | undefined = $state(undefined)
+	// Set by "Run again" on a FAILED dbt run. The form is prefilled with that run's
+	// arguments, which rebuild the whole project; `dbt retry` redoes its failed and
+	// skipped nodes alone. Shown until the caller switches the command themselves,
+	// so the choice stays theirs.
+	let dbtRetryHint = $derived(
+		page.url.searchParams.get('dbt_retry_hint') === 'true' &&
+			script?.language === 'dbt' &&
+			args?.['dbt_command'] !== 'retry'
+	)
 	let hash = window.location.hash
 	if (hash.length > 1) {
 		try {
@@ -864,6 +873,17 @@
 									}}
 									runnableType="script"
 								/>
+							{/if}
+
+							{#if dbtRetryHint}
+								<div class="mb-2">
+									<Alert type="info" size="xs" title="This run failed — you can resume it">
+										These are the arguments of the run you came from, so running now rebuilds the
+										whole project. Setting <span class="font-mono">dbt_command</span> to
+										<span class="font-mono">retry</span> rebuilds only the nodes that failed or were
+										skipped.
+									</Alert>
+								</div>
 							{/if}
 
 							<RunForm

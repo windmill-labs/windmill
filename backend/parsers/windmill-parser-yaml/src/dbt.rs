@@ -265,6 +265,19 @@ pub fn parse_dbt_descriptor(inner_content: &str) -> anyhow::Result<DbtDescriptor
 pub fn parse_dbt_sig(inner_content: &str) -> anyhow::Result<MainArgSignature> {
     let d = parse_dbt_descriptor(inner_content)?;
     let mut args = vec![
+        // FIRST because it decides what the run does — the rest only narrow it.
+        // `retry` resumes from the previous run's failure point rather than
+        // rebuilding. Enumerated so the run form offers a dropdown, and so the
+        // value cannot reach the engine as an arbitrary subcommand.
+        Arg {
+            name: "dbt_command".to_string(),
+            otyp: None,
+            typ: Typ::Str(Some(DBT_COMMANDS.iter().map(|c| c.to_string()).collect())),
+            has_default: true,
+            default: Some(serde_json::json!(default_command(&d))),
+            oidx: None,
+            otyp_inferred: false,
+        },
         Arg {
             name: "select".to_string(),
             otyp: None,
@@ -314,18 +327,6 @@ pub fn parse_dbt_sig(inner_content: &str) -> anyhow::Result<MainArgSignature> {
             typ: Typ::Int,
             has_default: true,
             default: Some(serde_json::json!(DBT_SHOW_DEFAULT_LIMIT)),
-            oidx: None,
-            otyp_inferred: false,
-        },
-        // `retry` resumes from the previous run's failure point rather than
-        // rebuilding. Enumerated so the run form offers it and so the value
-        // cannot reach the engine as an arbitrary subcommand.
-        Arg {
-            name: "dbt_command".to_string(),
-            otyp: None,
-            typ: Typ::Str(Some(DBT_COMMANDS.iter().map(|c| c.to_string()).collect())),
-            has_default: true,
-            default: Some(serde_json::json!(default_command(&d))),
             oidx: None,
             otyp_inferred: false,
         },
@@ -541,6 +542,9 @@ full_refresh: true
         assert_eq!(d.engine(), DbtEngine::DbtCore1x);
     }
 
+    // The ORDER is asserted, not just the set: the schema's `order` is built from
+    // this vec and the run form follows it, so `dbt_command` leading is what puts
+    // the choice of what the run does above the fields that only narrow it.
     #[test]
     fn signature_exposes_overridable_fields_and_placeholders() {
         let sig = parse_dbt_sig(DESCRIPTOR).unwrap();
@@ -548,12 +552,12 @@ full_refresh: true
         assert_eq!(
             names,
             vec![
+                "dbt_command",
                 "select",
                 "exclude",
                 "vars",
                 "full_refresh",
                 "limit",
-                "dbt_command",
                 "day"
             ]
         );

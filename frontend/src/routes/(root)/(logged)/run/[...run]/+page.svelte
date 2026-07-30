@@ -430,7 +430,7 @@
 	}
 
 	let runImmediatelyLoading = $state(false)
-	async function runImmediately() {
+	async function runImmediately(argsOverride?: ScriptArgs) {
 		runImmediatelyLoading = true
 		try {
 			let args = job?.args as ScriptArgs
@@ -440,6 +440,7 @@
 					id: job?.id!
 				})) as ScriptArgs
 			}
+			args = { ...args, ...(argsOverride ?? {}) }
 
 			const commonArgs = {
 				workspace: $workspaceStore!,
@@ -795,8 +796,17 @@
 			{#if job?.job_kind === 'script' || job?.job_kind === 'script_hub' || job?.job_kind === 'flow'}
 				<Button
 					on:click|once={async () => {
+						// The form is prefilled with the arguments this run used, which for a
+						// failed dbt run means rebuilding the whole project. Carry a flag so the
+						// form can say that resuming exists, without choosing it for the caller.
+						const hint =
+							job?.language === 'dbt' && job?.type === 'CompletedJob' && job?.success === false
+								? (viewHref.includes('?') ? '&' : '?') + 'dbt_retry_hint=true'
+								: ''
 						goto(
-							viewHref + `#${computeSharableHash(job?.args, await getRerunTagOverride(job?.args))}`
+							viewHref +
+								hint +
+								`#${computeSharableHash(job?.args, await getRerunTagOverride(job?.args))}`
 						)
 					}}
 					unifiedSize="md"
@@ -804,6 +814,20 @@
 					startIcon={{ icon: RefreshCw }}
 					loading={runImmediatelyLoading}
 					dropdownItems={[
+						// A failed dbt run's cheap next step is resuming its failed and skipped
+						// nodes rather than rebuilding the project, and `dbt_command` is the
+						// only argument that differs. Offered first, and only where it can
+						// resume: a run that succeeded has no saved failure left to resume.
+						...(job?.language === 'dbt' &&
+						job?.type === 'CompletedJob' &&
+						job?.success === false
+							? [
+									{
+										label: 'dbt retry with same args',
+										onClick: () => runImmediately({ dbt_command: 'retry' })
+									}
+								]
+							: []),
 						{
 							label: 'Run immediately with same args',
 							onClick: () => runImmediately()
