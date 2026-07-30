@@ -13,7 +13,7 @@ use crate::job_helpers_oss::{
     spawn_storage_usage_recount_floored,
 };
 use crate::{
-    auth::{get_end_user_email, OptTokened},
+    auth::{get_end_user_email, AuthCache, OptTokened},
     db::{ApiAuthed, DB},
     jobs::RunJobQuery,
     users::{require_owner_of_path, require_path_read_access_for_preview, OptAuthed},
@@ -1297,16 +1297,21 @@ fn validate_frontend_sdk_scopes(policy: &Policy) -> Result<()> {
 /// narrowed by the `raw_app_sdk` sentinel (which denies the request-supplied-code
 /// endpoints `jobs:run` would otherwise reach — see `scopes.rs`).
 ///
-/// The CALLER MUST have verified the viewer's access to `app_path`: this mints
-/// unconditionally for `authed`. All call sites go through
-/// [`build_embed_token_response`], whose three handlers each access-check first.
+/// The CALLER MUST establish that `authed` may hold this app's credential: this
+/// mints unconditionally otherwise. The viewer endpoints (via
+/// [`build_embed_token_response`]) verify read access; `mint_preview_sdk_token`
+/// requires `apps:write:<path>`, the author granting to themselves.
 async fn mint_raw_app_sdk_token(
     db: &DB,
     w_id: &str,
     app_path: &str,
     authed: &ApiAuthed,
     scopes: &[String],
+    job_id: Option<uuid::Uuid>,
 ) -> Result<(String, chrono::DateTime<chrono::Utc>)> {
+    // This credential outlives the request, so an ephemeral job token must not be
+    // able to launder itself into one — the reason `users/tokens/create` refuses.
+    forbid_superadmin_job_token(db, &authed.email, job_id).await?;
     // An embed token represents untrusted app JS; it must not bootstrap a
     // broader SDK credential (same guard as `mint_app_embed_token`).
     if windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref()) {
@@ -1367,6 +1372,7 @@ pub async fn build_embed_token_response(
     policy: &EmbedPolicyView,
     opt_authed: Option<&ApiAuthed>,
     sdk_consent: bool,
+    job_id: Option<uuid::Uuid>,
 ) -> Result<EmbedTokenResponse> {
     // Only advertise scopes where a token could actually be minted, so the viewer
     // is never shown a permission prompt that can grant nothing: an anonymous
@@ -1379,7 +1385,8 @@ pub async fn build_embed_token_response(
     let (token, expiration) = if raw_app {
         match (&sdk_scopes, opt_authed) {
             (Some(scopes), Some(authed)) if sdk_consent => {
-                let (t, e) = mint_raw_app_sdk_token(db, w_id, app_path, authed, scopes).await?;
+                let (t, e) =
+                    mint_raw_app_sdk_token(db, w_id, app_path, authed, scopes, job_id).await?;
                 (Some(t), Some(e))
             }
             _ => (None, None),
@@ -1433,10 +1440,6 @@ async fn mint_preview_sdk_token(
     Path(w_id): Path<String>,
     Json(req): Json<PreviewSdkTokenRequest>,
 ) -> Result<String> {
-    // This mints a credential that outlives the request, so an ephemeral job token
-    // must not be able to launder itself into one — the same reason
-    // `users/tokens/create` refuses.
-    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     if authed.is_operator {
         return Err(Error::NotAuthorized(
             "Operators cannot preview raw apps".to_string(),
@@ -1444,7 +1447,7 @@ async fn mint_preview_sdk_token(
     }
     check_scopes(&authed, || format!("apps:write:{}", req.path))?;
     let (token, _expiration) =
-        mint_raw_app_sdk_token(&db, &w_id, &req.path, &authed, &req.scopes).await?;
+        mint_raw_app_sdk_token(&db, &w_id, &req.path, &authed, &req.scopes, job_id).await?;
     Ok(token)
 }
 
@@ -1583,11 +1586,22 @@ pub async fn mint_app_embed_token(
 /// access to the app.
 async fn get_app_embed_token(
     OptAuthed(opt_authed): OptAuthed,
+    // Resolved from the token when there is one: this endpoint serves anonymous
+    // viewers too, so it cannot take an extractor that requires auth.
+    OptTokened { token }: OptTokened,
+    Extension(cache): Extension<Arc<AuthCache>>,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, secret)): Path<(String, String)>,
     Query(sdk_query): Query<EmbedTokenQuery>,
 ) -> JsonResult<EmbedTokenResponse> {
+    let job_id = match token.as_deref() {
+        Some(t) => cache
+            .get_opt_job_authed(Some(w_id.clone()), t)
+            .await
+            .and_then(|x| x.job_id),
+        None => None,
+    };
     let id = get_id_from_secret(&db, &w_id, secret, None).await?;
 
     let app = sqlx::query!(
@@ -1644,6 +1658,7 @@ async fn get_app_embed_token(
         &policy,
         authed_for_token.as_ref(),
         sdk_query.sdk_consent,
+        job_id,
     )
     .await?;
     Ok(Json(resp))
@@ -1688,6 +1703,7 @@ pub fn parse_embed_policy(policy_str: &str) -> Result<EmbedPolicyView> {
 /// scoped token. Raw apps get no token (single-iframe with the page credential).
 async fn get_app_embed_token_for_path(
     authed: ApiAuthed,
+    OptJobAuthed { job_id, .. }: OptJobAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
@@ -1723,6 +1739,7 @@ async fn get_app_embed_token_for_path(
         &policy,
         Some(&authed),
         sdk_query.sdk_consent,
+        job_id,
     )
     .await?;
     Ok(Json(resp))

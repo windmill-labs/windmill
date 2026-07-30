@@ -1327,8 +1327,8 @@
 			console.warn('Could not mint a preview SDK token', e)
 			if (key !== previewSdkKey) return
 			previewSdkEnvJs = ''
-			// Let the next change retry instead of latching off for the session.
-			previewSdkKey = undefined
+			// Deliberately keep the key: clearing it would re-trigger the effect and
+			// spin on a failing mint. Editing the scopes retries.
 		}
 	}
 
