@@ -112,7 +112,6 @@ pub fn workspaced_service() -> Router {
         .route("/edit_webhook", post(edit_webhook))
         .route("/edit_auto_invite", post(edit_auto_invite))
         .route("/edit_instance_groups", post(edit_instance_groups))
-        .route("/edit_deploy_to", post(edit_deploy_to))
         .route(
             "/get_secondary_storage_names",
             get(get_secondary_storage_names),
@@ -273,8 +272,6 @@ pub struct WorkspaceSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub webhook: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub deploy_to: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_config: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub large_file_storage: Option<serde_json::Value>,
@@ -390,12 +387,6 @@ struct RunSlackMessageTestJobRequest {
 #[derive(Serialize)]
 struct RunSlackMessageTestJobResponse {
     job_uuid: String,
-}
-
-#[cfg(feature = "enterprise")]
-#[derive(Deserialize)]
-struct EditDeployTo {
-    deploy_to: Option<String>,
 }
 
 #[allow(dead_code)]
@@ -969,7 +960,6 @@ async fn get_settings(
             customer_id,
             plan,
             webhook,
-            deploy_to,
             ai_config,
             large_file_storage,
             datatable,
@@ -1393,23 +1383,26 @@ fn extract_instance_ai_model_summary(
 struct DeployTo {
     deploy_to: Option<String>,
 }
+/// The workspace this one deploys into: its fork parent, or nothing when it is a root. The response
+/// field keeps the `deploy_to` name that predates the fork lineage, so existing clients (the deploy
+/// drawer, the resource/variable editors) read it unchanged.
 async fn get_deploy_to(
     authed: ApiAuthed,
     Path(w_id): Path<String>,
     Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<DeployTo> {
     let mut tx = user_db.begin(&authed).await?;
-    let settings = sqlx::query_as!(
-        DeployTo,
-        "SELECT deploy_to FROM workspace_settings WHERE workspace_id = $1",
+    let deploy_to = sqlx::query_scalar!(
+        "SELECT parent_workspace_id FROM workspace WHERE id = $1",
         &w_id
     )
-    .fetch_one(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await
-    .map_err(|e| Error::internal_err(format!("getting deploy_to: {e:#}")))?;
+    .map_err(|e| Error::internal_err(format!("getting deploy target: {e:#}")))?
+    .flatten();
 
     tx.commit().await?;
-    Ok(Json(settings))
+    Ok(Json(DeployTo { deploy_to }))
 }
 
 async fn edit_slack_command(
@@ -1698,64 +1691,6 @@ async fn get_secondary_storage_names(
     Ok(Json(result))
 }
 
-#[cfg(feature = "enterprise")]
-async fn edit_deploy_to(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path(w_id): Path<String>,
-    ApiAuthed { is_admin, username, .. }: ApiAuthed,
-    Json(es): Json<EditDeployTo>,
-) -> Result<String> {
-    require_admin(is_admin, &username)?;
-
-    let mut tx = db.begin().await?;
-    sqlx::query!(
-        "UPDATE workspace_settings SET deploy_to = $1 WHERE workspace_id = $2",
-        es.deploy_to,
-        &w_id
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    audit_log(
-        &mut *tx,
-        &authed,
-        "workspaces.edit_deploy_to",
-        ActionKind::Update,
-        &w_id,
-        Some(&authed.email),
-        Some(
-            [(
-                "script",
-                es.deploy_to.unwrap_or("NO_DEPLOY_TO".to_string()).as_str(),
-            )]
-            .into(),
-        ),
-    )
-    .await?;
-    tx.commit().await?;
-
-    handle_deployment_metadata(
-        &authed.email,
-        &authed.username,
-        &db,
-        &w_id,
-        DeployedObject::Settings { setting_type: "deploy_to".to_string() },
-        None,
-        false,
-        None,
-    )
-    .await?;
-
-    Ok(format!("Edit deploy to for {}", &w_id))
-}
-
-#[cfg(not(feature = "enterprise"))]
-async fn edit_deploy_to() -> Result<String> {
-    return Err(Error::BadRequest(
-        "Deploy to is only available on enterprise".to_string(),
-    ));
-}
 
 pub const BANNED_DOMAINS: &str = include_str!("../../windmill-api/banned_domains.txt");
 pub const MAX_CUSTOM_PROMPT_LENGTH: usize = 5000;
@@ -5632,7 +5567,6 @@ async fn update_workspace_settings(
         r#"
         UPDATE workspace_settings
         SET
-            deploy_to = $1,
             ai_config = source_ws.ai_config,
             large_file_storage = source_ws.large_file_storage,
             ducklake = source_ws.ducklake,
@@ -7103,7 +7037,7 @@ struct DetachDevWorkspace {
 }
 
 /// Pair an existing standalone workspace to this workspace ("prod") as its dev workspace, without
-/// cloning any data (both already exist). Sets the dev's parent + deploy_to to prod and, optionally,
+/// cloning any data (both already exist). Sets the dev's parent to prod and, optionally,
 /// locks prod against direct deployment.
 async fn attach_dev_workspace(
     authed: ApiAuthed,
@@ -7236,8 +7170,7 @@ async fn attach_dev_workspace(
     // `true` would survive a later detach and would make the settings page submit a value the API
     // rejects on a fork.
     sqlx::query!(
-        "UPDATE workspace_settings SET deploy_to = $1, error_handler_fallback_to_instance_alerts = false WHERE workspace_id = $2",
-        &prod_w_id,
+        "UPDATE workspace_settings SET error_handler_fallback_to_instance_alerts = false WHERE workspace_id = $1",
         &dev_w_id
     )
     .execute(&mut *tx)
@@ -7304,9 +7237,13 @@ async fn attach_dev_workspace(
     .await?;
     tx.commit().await?;
 
-    // The dev workspace's parent just changed (none -> prod); drop its cached fork->parent mapping
-    // so per-workspace job tags route to the prod family immediately rather than after the TTL.
+    // The dev workspace's lineage just changed (none -> prod); drop its cached tag workspace so
+    // per-workspace job tags route to the prod family immediately rather than after the TTL. Tag
+    // resolution walks ancestors, so its own forks resolve through it and must be dropped too.
     windmill_queue::tags::invalidate_fork_parent_cache(&dev_w_id);
+    for id in windmill_common::workspaces::list_fork_descendants(&db, &dev_w_id).await? {
+        windmill_queue::tags::invalidate_fork_parent_cache(&id);
+    }
     // Best-effort: the hooks captured before the strip above are unreachable now
     // (their auto_pull is gone), so remove them from GitHub.
     #[cfg(all(feature = "enterprise", feature = "private"))]
@@ -7419,6 +7356,9 @@ async fn detach_dev_workspace(
     windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(&dev_w_id);
     for id in windmill_common::workspaces::list_fork_descendants(&db, &dev_w_id).await? {
         windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(&id);
+        // Tag resolution walks ancestors, so a descendant's cached tag workspace resolved through
+        // the workspace whose dev flag just changed.
+        windmill_queue::tags::invalidate_fork_parent_cache(&id);
     }
     #[cfg(feature = "cloud")]
     {

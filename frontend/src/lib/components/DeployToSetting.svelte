@@ -1,22 +1,18 @@
 <script lang="ts">
 	import { WorkspaceService } from '$lib/gen'
-	import { enterpriseLicense, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { fade } from 'svelte/transition'
 	import Tooltip from './Tooltip.svelte'
 	import { Plus, X } from 'lucide-svelte'
 	import { Button } from './common'
+	import TextInput from './text_input/TextInput.svelte'
 	import Toggle from './Toggle.svelte'
 	import { emptyString } from '$lib/utils'
 	import { validateDeployPathFilters } from '$lib/validators/workspaceSettings'
 	import Alert from './common/alert/Alert.svelte'
 	import SettingsFooter from './workspaceSettings/SettingsFooter.svelte'
 	import SettingCard from './instanceSettings/SettingCard.svelte'
-	import Select from './select/Select.svelte'
-
-	let deployableWorkspaces = $derived(
-		$usersWorkspaceStore?.workspaces.map((w) => w.id).filter((w) => w != $workspaceStore)
-	)
 
 	type DeployUITypeMap = {
 		scripts: boolean
@@ -40,25 +36,24 @@
 	}
 
 	let {
-		workspaceToDeployTo = $bindable(),
 		deployUiSettings = $bindable({
 			include_path: [],
 			include_type: all_ok
 		}),
 		hasUnsavedChanges = false,
+		parentWorkspaceId,
 		onSave,
-		onDiscard,
-		onWorkspaceToDeployToSave
+		onDiscard
 	}: {
-		workspaceToDeployTo: string | undefined
 		deployUiSettings: {
 			include_path: string[]
 			include_type: DeployUITypeMap
 		}
 		hasUnsavedChanges?: boolean
+		/** Set on a fork or dev workspace, where the deploy target is the parent and not a choice. */
+		parentWorkspaceId?: string
 		onSave?: () => void
 		onDiscard: () => void
-		onWorkspaceToDeployToSave?: (workspaceToDeployTo: string | undefined) => void
 	} = $props()
 
 	// Validation state
@@ -101,25 +96,6 @@
 		return result
 	}
 
-	async function editWorkspaceToDeployTo() {
-		try {
-			await WorkspaceService.editDeployTo({
-				workspace: $workspaceStore ?? '',
-				requestBody: { deploy_to: workspaceToDeployTo === '' ? undefined : workspaceToDeployTo }
-			})
-
-			if (workspaceToDeployTo === '' || workspaceToDeployTo === undefined) {
-				sendUserToast('Disabled setting deployable workspace')
-				onWorkspaceToDeployToSave?.(undefined)
-			} else {
-				sendUserToast('Set deployable workspace to ' + workspaceToDeployTo)
-				onWorkspaceToDeployToSave?.(workspaceToDeployTo)
-			}
-		} catch (error) {
-			sendUserToast(`Failed to save workspace deployment setting: ${error}`, true)
-		}
-	}
-
 	async function editWindmillDeploymentUISettings() {
 		// Validate before saving
 		const validationResult = validateDeployPathFilters(deployUiSettings.include_path)
@@ -132,10 +108,6 @@
 		let include_type = deployUITypeMapToArray(deployUiSettings.include_type, true)
 
 		try {
-			// Save workspace to deploy to first
-			await editWorkspaceToDeployTo()
-
-			// Then save deployment UI settings
 			await WorkspaceService.editWorkspaceDeployUiSettings({
 				workspace: $workspaceStore!,
 				requestBody: {
@@ -153,17 +125,12 @@
 	}
 </script>
 
-<SettingCard label="Workspace to link to" class="mt-6">
-	<Select
-		items={[
-			{ label: 'Disable deployment', value: '' },
-			...(deployableWorkspaces ?? []).map((w) => ({ label: w, value: w }))
-		]}
-		bind:value={workspaceToDeployTo}
-		placeholder={deployableWorkspaces?.length === 0
-			? 'No workspace deployable to'
-			: 'Select workspace'}
-	/>
+<SettingCard label="Workspace this one deploys into" class="mt-6">
+	<TextInput value={parentWorkspaceId ?? ''} inputProps={{ disabled: true }} />
+	<div class="text-xs text-secondary mt-2">
+		This workspace is a fork of <b>{parentWorkspaceId}</b> and deploys there. Pairing is managed by
+		the fork lineage, not by this page.
+	</div>
 </SettingCard>
 <SettingCard
 	label="Deployable items"
@@ -284,7 +251,7 @@
 		onSave={editWindmillDeploymentUISettings}
 		{onDiscard}
 		saveLabel="Save deployment UI"
-		disabled={workspaceToDeployTo == undefined || hasValidationErrors}
+		disabled={hasValidationErrors}
 		class="mt-8"
 	/>
 {/if}

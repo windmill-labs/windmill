@@ -1570,7 +1570,15 @@ pub async fn update_flow_status_after_job_completion_internal(
                     .await?;
                 }
                 if let Some(t) = tag {
-                    tag = Some(interpolate_args(t, &args, &flow_job.workspace_id));
+                    // Resolving costs a lookup, so pay it only when `$workspace` is present.
+                    tag = Some(if t.contains("$workspace") {
+                        let tag_ws =
+                            windmill_queue::tags::tag_workspace_id(&flow_job.workspace_id, db)
+                                .await;
+                        interpolate_args(t, &args, &tag_ws)
+                    } else {
+                        interpolate_args(t, &args, &flow_job.workspace_id)
+                    });
                 }
             } else if concurrent_limit.is_some() {
                 insert_concurrency_key_capped(

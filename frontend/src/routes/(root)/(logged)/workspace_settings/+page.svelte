@@ -173,7 +173,6 @@
 	let plan: string | undefined = $state(undefined)
 	let customer_id: string | undefined = $state(undefined)
 	let webhook: string | undefined = $state(undefined)
-	let workspaceToDeployTo: string | undefined = $state(undefined)
 	let errorHandlerSelected: ErrorHandler = $state('slack')
 	let errorHandlerScriptPath: string | undefined = $state(undefined)
 	let errorHandlerItemKind: 'flow' | 'script' = $state('script')
@@ -193,7 +192,6 @@
 	let aiSettingsComponent: AISettings | undefined = $state(undefined)
 	let hasAiSettingsChanges = $state(false)
 	// Track initial deploy settings for unsaved changes detection
-	let initialWorkspaceToDeployTo: string | undefined = $state(undefined)
 	let initialDeployUiSettings: {
 		include_path: string[]
 		include_type: {
@@ -349,9 +347,7 @@
 	// The instance channels are not a valid destination on cloud or on a fork. Never select a tab
 	// the group does not render: saving would submit a value the API rejects, locking the whole
 	// error handler behind a 400.
-	const canUseInstanceAlerts = $derived(
-		!isCloudHosted() && !currentWorkspace?.parent_workspace_id
-	)
+	const canUseInstanceAlerts = $derived(!isCloudHosted() && !currentWorkspace?.parent_workspace_id)
 	const isForkOwner = $derived(
 		Boolean(currentWorkspace?.parent_workspace_id) &&
 			currentWorkspace?.created_by === $userStore?.email
@@ -592,7 +588,6 @@
 		teamsInitialPath = teamsScriptPath
 		plan = settings.plan
 		customer_id = settings.customer_id
-		workspaceToDeployTo = settings.deploy_to
 		webhook = settings.webhook
 
 		aiInitialConfig = settings.ai_config ?? {}
@@ -660,7 +655,6 @@
 		}
 
 		// Store initial deploy settings state for unsaved changes detection
-		initialWorkspaceToDeployTo = workspaceToDeployTo
 		initialDeployUiSettings = clone(deployUiSettings)
 
 		// Store initial webhook state for unsaved changes detection
@@ -950,26 +944,14 @@
 
 	// Function to check if there are unsaved changes in deploy settings
 	function getDeploySettingsInitialAndModifiedValues() {
-		// Normalize empty strings to undefined for consistent comparison
-		const normalizeWorkspaceValue = (value: string | undefined) =>
-			value === '' ? undefined : value
-
-		const savedValue = {
-			workspaceToDeployTo: normalizeWorkspaceValue(initialWorkspaceToDeployTo),
-			deployUiSettings: initialDeployUiSettings
+		return {
+			savedValue: { deployUiSettings: initialDeployUiSettings },
+			modifiedValue: { deployUiSettings: deployUiSettings }
 		}
-
-		const modifiedValue = {
-			workspaceToDeployTo: normalizeWorkspaceValue(workspaceToDeployTo),
-			deployUiSettings: deployUiSettings
-		}
-
-		return { savedValue, modifiedValue }
 	}
 
 	// Function to discard unsaved deploy settings changes
 	function discardDeploySettingsChanges() {
-		workspaceToDeployTo = initialWorkspaceToDeployTo
 		deployUiSettings = clone(initialDeployUiSettings)
 	}
 
@@ -1167,6 +1149,10 @@
 		!currentWorkspace?.parent_workspace_id || (currentWorkspace?.is_dev_workspace ?? false)
 	)
 
+	// The Deployment UI tab configures what may be promoted into the parent, so it only means
+	// something for a fork. A root workspace deploys nowhere.
+	const showDeployToTab = $derived(Boolean(currentWorkspace?.parent_workspace_id))
+
 	// Navigation groups for sidebar
 	const adminNavigationGroups = $derived([
 		{
@@ -1208,13 +1194,17 @@
 					aiDescription: 'Git sync workspace settings',
 					isEE: true
 				},
-				{
-					id: 'deploy_to',
-					label: 'Deployment UI',
-					aiId: 'workspace-settings-deploy-to',
-					aiDescription: 'Deployment UI workspace settings',
-					isEE: true
-				},
+				...(showDeployToTab
+					? [
+							{
+								id: 'deploy_to',
+								label: 'Deployment UI',
+								aiId: 'workspace-settings-deploy-to',
+								aiDescription: 'Deployment UI workspace settings',
+								isEE: true
+							}
+						]
+					: []),
 				...(showDevWorkspaceTab
 					? [
 							{
@@ -1409,25 +1399,19 @@
 							{/if}
 						{:else if tab == 'deploy_to'}
 							<SettingsPageHeader
-								title="Link this workspace to another staging / prod workspace"
-								description="Connecting this workspace with another staging/production workspace enables web-based deployment to that workspace."
+								title="Deploying into {currentWorkspace?.parent_workspace_id}"
+								description="This workspace is a fork, so it deploys into its parent. Choose which items the deploy UI may promote."
 								link="https://www.windmill.dev/docs/core_concepts/staging_prod"
 							/>
 							{#if $enterpriseLicense}
 								<DeployToSetting
-									bind:workspaceToDeployTo
 									bind:deployUiSettings
 									hasUnsavedChanges={hasDeploySettingsChanges}
+									parentWorkspaceId={currentWorkspace?.parent_workspace_id ?? undefined}
 									onSave={() => {
-										// Update initial state after successful save
-										initialWorkspaceToDeployTo = workspaceToDeployTo
 										initialDeployUiSettings = clone(deployUiSettings)
 									}}
 									onDiscard={discardDeploySettingsChanges}
-									onWorkspaceToDeployToSave={(newWorkspaceToDeployTo) => {
-										// Update initial state after workspace to deploy to is saved
-										initialWorkspaceToDeployTo = newWorkspaceToDeployTo
-									}}
 								/>
 							{:else}
 								<div class="my-2"
