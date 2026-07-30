@@ -1799,7 +1799,12 @@ export async function elementsToMap(
       !isRawAppFile(path) &&
       !isWorkspaceDependencies(path)
     ) {
-      if (json && path.endsWith(".yaml")) continue;
+      // The metadata format decides which of the two metadata twins is read,
+      // and drops the other. A dbt descriptor is not metadata: `<name>.dbt.yaml`
+      // is the script's CONTENT and exists in both modes, so dropping it here
+      // leaves a `--json` workspace whose scripts have metadata, a lock and a
+      // whole project bundle but no descriptor to run.
+      if (json && path.endsWith(".yaml") && !path.endsWith(".dbt.yaml")) continue;
       if (!json && path.endsWith(".json")) continue;
 
       if (

@@ -9,7 +9,7 @@ import { expect, test, describe, beforeEach, afterEach } from "bun:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { buildTracker } from "../src/commands/sync/sync.ts";
+import { buildTracker, elementsToMap } from "../src/commands/sync/sync.ts";
 
 describe("buildTracker with a dbt project", () => {
   let dir: string;
@@ -84,5 +84,33 @@ describe("buildTracker with a dbt project", () => {
     expect(
       await tracked("f\\analytics\\analytics__dbt\\models\\stg_orders.sql"),
     ).toEqual(["f/analytics/analytics.dbt.yaml"]);
+  });
+
+  // A dbt descriptor is the script's CONTENT and is `.dbt.yaml` in both metadata
+  // formats. `--json` drops every other `.yaml` as the metadata twin it does not
+  // read — dropping this one too leaves a workspace whose dbt scripts have
+  // metadata, a lock and a project bundle, but nothing to run.
+  test("--json keeps the descriptor while dropping metadata yaml", async () => {
+    const file = (path: string) => ({
+      path,
+      isDirectory: false,
+      getChildren: async function* () {},
+      getContentText: async () => "x",
+    });
+    const root = {
+      path: "",
+      isDirectory: true,
+      getChildren: async function* () {
+        yield file("f/analytics/analytics.dbt.yaml");
+        yield file("f/analytics/analytics.script.yaml");
+        yield file("f/analytics/analytics.script.json");
+      },
+      getContentText: async () => "",
+    };
+    const map = await elementsToMap(root as any, () => false, true, {});
+    expect(Object.keys(map).sort()).toEqual([
+      "f/analytics/analytics.dbt.yaml",
+      "f/analytics/analytics.script.json",
+    ]);
   });
 });

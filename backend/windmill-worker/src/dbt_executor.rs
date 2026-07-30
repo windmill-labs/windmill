@@ -3209,8 +3209,8 @@ async fn save_run_state(
     // restored — so that retry would be the one way to see a run they cannot read.
     // A visible run discloses nothing they could not already read.
     visible_to_owner: bool,
-    // Scopes the staging directory. Keyed by project digest, two concurrent
-    // runs of one script would stage into the same place and publish a mixture.
+    // Names this run's generation directory, so two runs of one script stage into
+    // their own and cannot publish a mixture of each other's artifacts.
     job_id: &Uuid,
     inv: &Invocation,
     // Digest of the `run_results.json` a retry restored, when this run is one.
@@ -3753,7 +3753,10 @@ async fn restore_run_state(
     // last, while `current` names only what THIS one saw — preferring local would
     // let a retry on an idle worker resume an older invocation. The local snapshot
     // is a fast path only when it names that same run: it already holds a manifest.
-    let latest_job = match conn {
+    // Option<Option<_>>, kept unflattened: `job_id` is nullable, and a row naming
+    // no job is not the same as no row at all. Collapsing the two skips the check
+    // below for the first, which is the one case it cannot afford to miss.
+    let saved_state = match conn {
         Connection::Sql(db) => sqlx::query_scalar!(
             "SELECT job_id FROM dbt_run_state
               WHERE workspace_id = $1 AND script_path = $2 AND permissioned_as = $3",
@@ -3762,16 +3765,29 @@ async fn restore_run_state(
             permissioned_as
         )
         .fetch_optional(db)
-        .await?
-        .flatten(),
+        .await?,
         // An agent worker cannot read it; its local copy is all there is.
         Connection::Http(_) => None,
     };
-    if let (Connection::Sql(db), Some(saved_job)) = (conn, latest_job.as_ref()) {
-        if let Some(why) = resume_refusal(db, w_id, caller, saved_job).await? {
-            return Err(Error::BadRequest(why.to_string()));
+    if let Connection::Sql(db) = conn {
+        match saved_state.as_ref() {
+            Some(Some(saved_job)) => {
+                if let Some(why) = resume_refusal(db, w_id, caller, saved_job).await? {
+                    return Err(Error::BadRequest(why.to_string()));
+                }
+            }
+            Some(None) => {
+                return Err(Error::BadRequest(
+                    "the saved run names no job, so Windmill cannot check whether it is yours to \
+                     resume; run the script normally instead"
+                        .to_string(),
+                ))
+            }
+            // No state at all: the restore below reports that, which is accurate.
+            None => {}
         }
     }
+    let latest_job = saved_state.flatten();
     // Authoritative including when it says nothing: no row means the last
     // invocation left nothing resumable, and a local generation that outlived it
     // would resurrect a run the newer one replaced. An agent worker has no such

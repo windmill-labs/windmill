@@ -161,9 +161,14 @@ fn graph_digest(ingested: &IngestedManifest, relation_root: &str) -> String {
     // explicitly not stable across Rust releases. A drifting hash would store a full
     // snapshot every run, looking exactly like the suppression never working.
     let mut h = Sha256::new();
+    // Delimited and serialized, both parts the same way: `{:?}` renames a field
+    // with the struct, changing every digest once for nothing, and unseparated
+    // parts let one part's tail read as the next part's head.
     h.update(relation_root.as_bytes());
+    h.update(b"\0");
     h.update(serde_json::to_string(&ingested.nodes).unwrap_or_default().as_bytes());
-    h.update(format!("{:?}", ingested.edges).as_bytes());
+    h.update(b"\0");
+    h.update(serde_json::to_string(&ingested.edges).unwrap_or_default().as_bytes());
     format!("{:x}", h.finalize())
 }
 
