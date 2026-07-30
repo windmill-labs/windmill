@@ -21,11 +21,14 @@
 			let node = root
 			const parts = p.split('/')
 			parts.forEach((part, i) => {
-				const isFile = i === parts.length - 1
 				const path = parts.slice(0, i + 1).join('/')
 				let next = node.children.find((c) => c.name === part)
 				if (!next) {
-					next = { name: part, path: isFile ? path : '', children: [] }
+					// Directories carry their full path too: it is what makes a node
+					// identity, and two of the same name at one depth under different
+					// parents — `models/staging` and `tests/staging` — would otherwise
+					// share a collapse key and fold together.
+					next = { name: part, path, children: [] }
 					node.children.push(next)
 				}
 				node = next

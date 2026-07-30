@@ -667,23 +667,27 @@ A project declaring `packages.yml` ranges or a mutable git revision asks dbt to
 deploy, and pins the result — the same contract every other language's lockfile
 gets here.
 
-The deploy runs `dbt deps` for real (no expected resolution exists yet, so no cache
-is consulted) and records the digest of the `package-lock.yml` it produced into
-`DbtDependencyLocks`. That digest then keys the worker-local package cache, and joins
-the run identity that gates `dbt retry`. A run restores the tree under that key; a
-worker that resolves anything else is refused rather than run, because accepting it
-would let one resolution's `run_results.json` decide what a retry rebuilds.
+The deploy records the digest of the `package-lock.yml` dbt produced into
+`DbtDependencyLocks`. That digest keys the worker-local package cache and joins the
+run identity that gates `dbt retry`. A run restores the tree under that key; a worker
+that resolves anything else is refused rather than run, because accepting it would let
+one resolution's `run_results.json` decide what a retry rebuilds.
+
+Only a run has a resolution to be held to. The deploy establishes one and accepts
+whatever dbt returns — including a `package-lock.yml` dbt rewrites itself, which it
+does whenever the `sha1_hash` it stored for `packages.yml` no longer matches. Holding
+the deploy to a committed lock would refuse the first deploy after a package is added,
+with no way out, since redeploying resolves the same way again.
 
 Consequences worth knowing before choosing whether to commit a lockfile:
 
 - **To pick up a newer version of a ranged dependency, deploy again.** A deploy of
   byte-identical content is accepted and creates a new version, so nothing has to be
   edited to force re-resolution.
-- **Committing `package-lock.yml` makes deploys cache-hit**, since the checked-in
-  file is itself the expected resolution. Without one, every deploy of that project
-  pays a real `dbt deps`. This is dbt's own recommendation for the same reason.
-- A project whose committed lock disagrees with the resolution recorded for the
-  deployed version is refused, naming the redeploy as the fix.
+- **A committed `package-lock.yml` lets a deploy hit the cache**, since it is the
+  digest the lookup is keyed on before `dbt deps` has run. A project without one, or
+  whose committed lock is not what dbt resolves, pays a real `dbt deps` per deploy.
+  This is dbt's own recommendation for the same reason.
 
 Nothing evicts these worker-local caches — package trees, engine installs and retry
 state alike. An operator's `cache_clear` reclaims them, exactly as it does for every

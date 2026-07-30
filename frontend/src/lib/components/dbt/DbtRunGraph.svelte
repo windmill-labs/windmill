@@ -57,10 +57,19 @@
 	let loading = $state(true)
 	let failed = $state(false)
 
+	// Two loads of the SAME run overlap: the poll issues one on its way out, and
+	// the finished-run effect issues another. Nothing orders two requests to one
+	// endpoint, and the older of these answers with the DEPLOYED graph — so if it
+	// lands second it replaces the run's own snapshot, and by then the poll has
+	// stopped and the final load has already fired, leaving a finished run showing
+	// a graph that is not its own.
+	let graphSeq = 0
 	async function load() {
 		const ws = $workspaceStore
 		if (!ws) return
 		const gen = runGen
+		const seq = ++graphSeq
+		const current = () => gen === runGen && seq === graphSeq
 		try {
 			const params = new URLSearchParams({ asset_kinds: 'table' })
 			if (folder) params.set('folder', folder)
@@ -77,20 +86,21 @@
 			// The page may have moved to another run while this was in flight, and
 			// this answer describes the one it left: assigning it would replace the
 			// current run's graph — or its loading and failure state — with the
-			// previous run's, and nothing would fetch again to correct it.
-			if (gen !== runGen) return
+			// previous run's, and nothing would fetch again to correct it. A newer
+			// request for the SAME run supersedes this one just as completely.
+			if (!current()) return
 			if (!res.ok) {
 				failed = true
 				return
 			}
 			const body = (await res.json()) as AssetGraphResponse
-			if (gen !== runGen) return
+			if (!current()) return
 			raw = body
 			failed = false
 		} catch {
-			if (gen === runGen) failed = true
+			if (current()) failed = true
 		} finally {
-			if (gen === runGen) loading = false
+			if (current()) loading = false
 		}
 	}
 

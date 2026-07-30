@@ -264,6 +264,9 @@ pub(crate) async fn handle_dbt_job(
     // restored — along with the ARGUMENTS it ran with, since dbt reuses that
     // invocation's selection and vars and the graph refresh, the build and the
     // test phase must all agree with it.
+    // What a retry started from, so the save below can tell dbt's own results from
+    // the ones this run only restored.
+    let mut restored_results_digest: Option<String> = None;
     let inv = if command == "retry" {
         let restored = restore_run_state(
             &prepared,
@@ -273,6 +276,7 @@ pub(crate) async fn handle_dbt_job(
             conn,
         )
         .await?;
+        restored_results_digest = Some(restored.results_digest.clone());
         // Restored args are the ones SUBMITTED, so the references they carry are
         // resolved again now — against this caller's access, not the original's.
         let inv = Invocation {
@@ -494,6 +498,7 @@ pub(crate) async fn handle_dbt_job(
         job.visible_to_owner,
         &job.id,
         &inv,
+        restored_results_digest.as_deref(),
         conn,
     )
     .await
@@ -1325,19 +1330,13 @@ async fn install_packages(
     if !declares_packages {
         return Ok(None);
     }
+    // A committed `package-lock.yml` is a starting point, not the answer: dbt
+    // rewrites it whenever the `sha1_hash` it recorded for `packages.yml` no longer
+    // matches, so holding a resolution to the committed file would refuse the first
+    // deploy after a package is added — with no way out, since redeploying resolves
+    // the same way again. It keys the cache lookup, and the deploy records whatever
+    // dbt actually resolved.
     let project_lock_digest = package_lock_digest(&p.project_dir).await?;
-    if let (Some(pinned), Some(project)) = (
-        p.package_lock_digest.as_deref(),
-        project_lock_digest.as_deref(),
-    ) {
-        if pinned != project {
-            return Err(Error::BadRequest(
-                "the project's package-lock.yml differs from the dependency resolution recorded \
-                 for this script version; redeploy the project"
-                    .to_string(),
-            ));
-        }
-    }
     let expected_lock_digest = p
         .package_lock_digest
         .as_deref()
@@ -1410,11 +1409,13 @@ async fn install_packages(
                 .to_string(),
         )
     })?;
-    if let Some(expected) = expected_lock_digest {
-        if expected != resolved_lock_digest {
+    // Against the PIN alone. Only a run has a resolution to be held to; the deploy
+    // is where one is established, so it accepts what dbt resolved and records it.
+    if let Some(pinned) = p.package_lock_digest.as_deref() {
+        if pinned != resolved_lock_digest {
             return Err(Error::BadRequest(
-                "this project's dbt dependencies resolve differently from the version deployed \
-                 in Windmill; commit package-lock.yml or redeploy to accept the new resolution"
+                "this project's dbt dependencies resolve differently here from the resolution \
+                 recorded when this script version was deployed; redeploy to accept the new one"
                     .to_string(),
             ));
         }
@@ -3323,6 +3324,8 @@ async fn save_run_state(
     // runs of one script would stage into the same place and publish a mixture.
     job_id: &Uuid,
     inv: &Invocation,
+    // Digest of the `run_results.json` a retry restored, when this run is one.
+    restored_results_digest: Option<&str>,
     conn: &Connection,
 ) -> error::Result<()> {
     if p.script_path.is_empty() {
@@ -3366,6 +3369,15 @@ async fn save_run_state(
         invalidate_run_state(w_id, &p.script_path, permissioned_as, conn).await;
         return Ok(());
     };
+    // A retry that ended before dbt rewrote the file leaves exactly what the
+    // restore put there. Republishing it would date the PREVIOUS attempt's
+    // failures to this job, and the next retry would rebuild nodes this one had
+    // already redone — appending to an incremental model a second time. Same
+    // reasoning as the branch above: nothing resumable happened here.
+    if restored_results_digest == Some(digest(&results).as_str()) {
+        invalidate_run_state(w_id, &p.script_path, permissioned_as, conn).await;
+        return Ok(());
+    }
     let mut durable_err = None;
     if let Connection::Sql(db) = conn {
         {
@@ -3687,6 +3699,7 @@ async fn restore_from_db(
         args: restored_args(row.args),
         needs_parse: true,
         args_digest: saved_args_digest,
+        results_digest: digest(&row.run_results),
     })
 }
 
@@ -3727,6 +3740,12 @@ pub struct RestoredRun {
     /// The resolved-arguments digest the saved run had, checked once the caller
     /// has re-resolved those arguments.
     pub args_digest: Option<String>,
+    /// Digest of the `run_results.json` this restore put in the job directory.
+    /// A retry that ends before dbt rewrites that file — cancelled, timed out —
+    /// leaves it there unchanged, and saving it would republish the PREVIOUS
+    /// attempt's failures as the newest state, so the retry after this one would
+    /// redo nodes this one already rebuilt.
+    pub results_digest: String,
 }
 
 /// Restore the previous invocation. The `dbt parse` a database restore needs is
@@ -3853,6 +3872,7 @@ async fn restore_run_state(
             .collect(),
         needs_parse,
         args_digest: saved_args_digest,
+        results_digest: digest(&saved_results),
     })
 }
 
