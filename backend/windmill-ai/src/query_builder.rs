@@ -11,9 +11,6 @@ pub struct BuildRequestArgs<'a> {
     pub messages: &'a [OpenAIMessage],
     pub tools: Option<&'a [ToolDef]>,
     pub model: &'a str,
-    /// The resource's endpoint, for the request shapes a provider only accepts on
-    /// some of the endpoints it serves.
-    pub base_url: &'a str,
     pub temperature: Option<f32>,
     /// Provider-native reasoning effort token (e.g. `low`, `high`, `none`).
     /// Each `build_request` maps it onto the provider's thinking config.

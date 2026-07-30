@@ -857,7 +857,6 @@ mod tests {
             messages,
             tools: None,
             model: "claude-sonnet-4",
-            base_url: "https://api.anthropic.com/v1",
             temperature: None,
             reasoning_effort: None,
             max_tokens: None,

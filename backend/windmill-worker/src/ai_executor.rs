@@ -1149,7 +1149,6 @@ pub async fn run_agent(
                 messages: &messages,
                 tools: tool_defs.as_deref(),
                 model: args.provider.get_model(),
-                base_url,
                 temperature: args.temperature,
                 reasoning_effort: args.provider.get_reasoning_effort(),
                 max_tokens: args.max_completion_tokens,
@@ -1278,8 +1277,11 @@ pub async fn run_agent(
                                 "Endpoint rejected the request ({}), falling back to chat/completions",
                                 status
                             );
-                            rerouted_by_a_route_rejection =
-                                identifies_unserved_route(status.as_u16(), &text);
+                            rerouted_by_a_route_rejection = identifies_unserved_route(
+                                status.as_u16(),
+                                &text,
+                                args.provider.get_model(),
+                            );
                             query_builder = create_chat_completions_query_builder(&credentials);
                             include_usage = true;
                         } else {
