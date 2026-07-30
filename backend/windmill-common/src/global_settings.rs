@@ -115,19 +115,15 @@ pub const GITHUB_APP_WEBHOOK_BASE_URL_SETTING: &str = "github_app_webhook_base_u
 /// (`httpss://`), a missing host, embedded whitespace, or a query/fragment
 /// (appending a path after `?`/`#` keeps it inside the query/fragment).
 ///
-/// No message here can carry a credential, by construction rather than by
-/// scrubbing: the parse-failure branch is the only one that sees an arbitrary
-/// string and it never echoes it, and every branch below it runs after userinfo
-/// has been rejected. That matters because these strings reach further than the
-/// submitter — the declarative path wraps them into `sync-config` output and
-/// operator reconcile logs.
+/// No message here echoes the submitted value. Userinfo is not the only secret a
+/// URL can carry — `?token=…` is just as common — so rather than enumerating the
+/// shapes worth hiding, no branch reports the value at all and each says what was
+/// wrong with it instead. That matters because these strings reach further than the
+/// submitter: the declarative path wraps them into `sync-config` output and operator
+/// reconcile logs.
 pub fn validate_webhook_base_url(value: &str) -> Result<(), String> {
     let value = value.trim();
-    // Deliberately no `{value}`: this is the one branch reachable with a string that
-    // was never parsed, so it is the one branch that could echo userinfo. The
-    // `ParseError` text names the defect on its own.
     let url = url::Url::parse(value).map_err(|e| format!("must be an absolute http(s) URL: {e}"))?;
-    // Before any branch that reports the value, so the ones below are safe to.
     if !url.username().is_empty() || url.password().is_some() {
         return Err(
             "must not embed a username or password: the receiver URL is stored in workspace settings, where it is readable by workspace admins".to_string(),
@@ -140,22 +136,22 @@ pub fn validate_webhook_base_url(value: &str) -> Result<(), String> {
         ));
     }
     if !url.has_host() {
-        return Err(format!("must include a host: {}", value));
+        return Err("must include a host".to_string());
     }
     if url.query().is_some() || url.fragment().is_some() {
-        return Err(format!(
-            "must not include a query string or fragment, since the webhook path is appended to it: {}",
-            value
-        ));
+        return Err(
+            "must not include a query string or fragment, since the webhook path is appended to it"
+                .to_string(),
+        );
     }
     if value.chars().any(char::is_whitespace) {
-        return Err(format!("must not contain whitespace: {}", value));
+        return Err("must not contain whitespace".to_string());
     }
     // Matches the sibling `base_url` / `hub_base_url` convention. The receiver
     // builder trims it anyway, so this is about keeping the stored value canonical
     // rather than about reachability.
     if value.ends_with('/') {
-        return Err(format!("must not end with a trailing slash: {}", value));
+        return Err("must not end with a trailing slash".to_string());
     }
     Ok(())
 }
@@ -421,6 +417,10 @@ mod tests {
             format!("1x:{SECRET}@hooks.example.com"),
             format!("ad min:{SECRET}@hooks.example.com"),
             format!("{SECRET}@"),
+            // A query token is just as sensitive as userinfo and reaches the same logs.
+            format!("https://hooks.example.com?token={SECRET}"),
+            format!("https://hooks.example.com#{SECRET}"),
+            format!("https://hooks.example.com/{SECRET} x"),
         ] {
             let err = validate_webhook_base_url(&bad).expect_err("should be rejected");
             assert!(

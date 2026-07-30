@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT workspace_id, elem->>'git_repo_resource_path' AS \"repo_path!\",\n                  elem->'auto_pull'->>'webhook_url' AS webhook_url,\n                  elem->'auto_pull'->>'webhook_error' AS webhook_error\n           FROM workspace_settings, LATERAL jsonb_array_elements(git_sync->'repositories') AS elem\n           WHERE jsonb_typeof(git_sync->'repositories') = 'array'\n             AND elem->>'git_repo_resource_path' IS NOT NULL\n             AND (elem->'auto_pull'->'webhook_id' IS NOT NULL\n                  OR elem->'auto_pull'->>'webhook_error' IS NOT NULL)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "repo_path!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "webhook_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "webhook_error",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "3badc25bdbd886a4699513a9fed6426fa332ffef9bbd5ec76e2ce130f121e2d4"
+}
