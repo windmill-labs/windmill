@@ -3354,18 +3354,19 @@ async fn save_run_state(
     let mut durable_err = None;
     if let Connection::Sql(db) = conn {
         {
-            // Only while a LIVE version stays at this path — the same test
-            // `clear_dbt_run_state_if_path_retired` retires it by, since a rename
-            // leaves the old path archived rather than deleted. A rename or a
-            // delete moves or clears these rows and a job already running finishes
-            // after: writing then would strand a failure at a path the script
-            // left, or recreate one for whatever is next created there to inherit.
+            // Only while a live dbt version stays at this path — the test
+            // `clear_dbt_run_state_if_path_retired` retires state by, plus the
+            // language, since a rename leaves the old path archived rather than
+            // deleted and a path can come back as another language. A job already
+            // running finishes after those move or clear the row: writing then
+            // strands a failure where the script no longer is.
             durable_err = sqlx::query!(
                 "INSERT INTO dbt_run_state (workspace_id, script_path, permissioned_as, identity, args, run_results, job_id, retryable, updated_at)
                  SELECT $1::varchar, $2::varchar, $7::varchar, $3::text, $4::jsonb, $5::text, $6::uuid, $8::boolean, now()
                   WHERE EXISTS (SELECT 1 FROM script
                                  WHERE workspace_id = $1 AND path = $2
-                                   AND deleted = false AND archived = false)
+                                   AND deleted = false AND archived = false
+                                   AND language = 'dbt')
                  ON CONFLICT (workspace_id, script_path, permissioned_as) DO UPDATE SET
                    identity = EXCLUDED.identity, args = EXCLUDED.args,
                    run_results = EXCLUDED.run_results, job_id = EXCLUDED.job_id,
@@ -4206,15 +4207,13 @@ fn sole_placeholder(s: &str) -> Option<&str> {
     .then_some(inner)
 }
 
-/// A supplied scalar, refusing a wrong-typed one rather than reading it as
-/// absent: argument-schema validation is opt-in, so `dbt_command: 1` would
-/// otherwise run the default command and `full_refresh: "false"` would still
-/// full-refresh — the caller silently getting something else than asked for.
 /// One job argument, absent when unset or JSON `null` — a schema-less run sends
 /// the key with a null rather than omitting it, and both mean "not given".
+///
 /// A wrong TYPE is an error rather than an absence: argument-schema validation
-/// is opt-in, so reading it as unset would silently fall back to the
-/// descriptor's value instead of the one the caller asked for.
+/// is opt-in, so `dbt_command: 1` read as unset would run the default command
+/// and `full_refresh: "false"` would still full-refresh, the caller silently
+/// getting something other than what they asked for.
 fn arg<T: serde::de::DeserializeOwned>(
     args: &HashMap<String, Box<RawValue>>,
     k: &str,

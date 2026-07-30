@@ -942,6 +942,12 @@ async fn get_dbt_resumable_for_script(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
 ) -> error::JsonResult<Option<Uuid>> {
+    // The cutoff `require_job_read_access` applies for the sibling routes, which
+    // this one cannot reach through: user-authored app JS holds an app-embed
+    // token, confined to the jobs it launched, and this answers with a job id.
+    if windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref()) {
+        return Ok(Json(None));
+    }
     let path = script_path.to_path();
     let Some(permissioned_as) = dbt_retry_principal(&user_db, &authed, &w_id, path).await?
     else {
