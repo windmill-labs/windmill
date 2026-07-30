@@ -1691,7 +1691,6 @@ async fn get_secondary_storage_names(
     Ok(Json(result))
 }
 
-
 pub const BANNED_DOMAINS: &str = include_str!("../../windmill-api/banned_domains.txt");
 pub const MAX_CUSTOM_PROMPT_LENGTH: usize = 5000;
 
@@ -7599,6 +7598,14 @@ async fn archive_workspace(
 
     if let Some(prod) = dev_lock_parent {
         windmill_common::workspaces::invalidate_protection_rules_cache(&prod);
+    }
+
+    // Archiving a dev workspace clears its dev flag, which is one of the inputs tag resolution
+    // walks: it and every fork beneath it stop keeping their own id and fall through to an
+    // ancestor. Sweep them so routing follows immediately rather than after the cache TTL.
+    windmill_queue::tags::invalidate_fork_parent_cache(&w_id);
+    for id in windmill_common::workspaces::list_fork_descendants(&db, &w_id).await? {
+        windmill_queue::tags::invalidate_fork_parent_cache(&id);
     }
 
     Ok(format!(

@@ -32,42 +32,66 @@ DECLARE
     converted_count INT;
     dev_count INT;
 BEGIN
-    -- Follow each workspace's `deploy_to` chain to classify it. `parent_workspace_id` has an FK and
-    -- every chain walker assumes an acyclic graph bounded by depth 20, so a chain that loops or runs
-    -- deeper than that cannot be represented.
+    -- Rows that could become lineage at all: a live source with no parent yet, pointing at a live
+    -- workspace other than itself.
+    CREATE TEMP TABLE eligible ON COMMIT DROP AS
+        SELECT ws.workspace_id, ws.deploy_to
+        FROM workspace_settings ws
+        JOIN workspace src ON src.id = ws.workspace_id
+        JOIN workspace tgt ON tgt.id = ws.deploy_to
+        WHERE ws.deploy_to IS NOT NULL
+          AND ws.deploy_to <> ws.workspace_id
+          AND NOT src.deleted AND NOT tgt.deleted
+          AND src.parent_workspace_id IS NULL;
+
+    -- Cycle detection has to run over the lineage as it would exist AFTER conversion, not over the
+    -- `deploy_to` graph alone: a root whose target is one of its own existing forks would close a
+    -- loop that no `deploy_to` edge reveals. Every eligible source is parentless, so the combined
+    -- edge set still gives each node at most one parent.
+    CREATE TEMP TABLE edge ON COMMIT DROP AS
+        SELECT id AS child, parent_workspace_id AS parent
+        FROM workspace WHERE parent_workspace_id IS NOT NULL
+      UNION ALL
+        SELECT workspace_id, deploy_to FROM eligible;
+
     CREATE TEMP TABLE chain_info ON COMMIT DROP AS
         WITH RECURSIVE walk(start_id, cur_id, depth, path, cyclic) AS (
-            SELECT ws.workspace_id, ws.deploy_to, 1,
-                   ARRAY[ws.workspace_id, ws.deploy_to], ws.deploy_to = ws.workspace_id
-            FROM workspace_settings ws
-            WHERE ws.deploy_to IS NOT NULL
+            SELECT e.child, e.parent, 1, ARRAY[e.child, e.parent], e.parent = e.child
+            FROM edge e
           UNION ALL
-            SELECT w.start_id, nxt.deploy_to, w.depth + 1,
-                   w.path || nxt.deploy_to, nxt.deploy_to = ANY(w.path)
+            SELECT w.start_id, nxt.parent, w.depth + 1,
+                   w.path || nxt.parent, nxt.parent = ANY(w.path)
             FROM walk w
-            JOIN workspace_settings nxt ON nxt.workspace_id = w.cur_id
-            WHERE nxt.deploy_to IS NOT NULL AND NOT w.cyclic AND w.depth < 25
+            JOIN edge nxt ON nxt.child = w.cur_id
+            WHERE NOT w.cyclic AND w.depth < 25
         )
         SELECT start_id, bool_or(cyclic) AS cyclic, max(depth) AS chain_depth
         FROM walk GROUP BY start_id;
 
+    -- Every remaining link gets a verdict. A fork whose `deploy_to` already names its parent is the
+    -- redundant seed every fork carried, so dropping it loses nothing and it is not reported.
     CREATE TEMP TABLE classified ON COMMIT DROP AS
         SELECT ws.workspace_id, ws.deploy_to,
                CASE
+                   WHEN src.parent_workspace_id = ws.deploy_to THEN 'redundant'
+                   WHEN src.deleted THEN 'source workspace is archived'
                    WHEN ws.deploy_to = ws.workspace_id THEN 'self-reference'
-                   WHEN tgt.id IS NULL THEN 'target workspace does not exist or is archived'
-                   WHEN src.parent_workspace_id IS NOT NULL THEN 'already a fork or dev workspace'
-                   WHEN ci.cyclic THEN 'deploy target chain forms a cycle'
-                   WHEN ci.chain_depth > 20 THEN 'deploy target chain exceeds the depth limit'
+                   WHEN tgt.id IS NULL THEN 'target workspace does not exist'
+                   WHEN tgt.deleted THEN 'target workspace is archived'
+                   WHEN src.parent_workspace_id IS NOT NULL
+                       THEN 'already a fork, pointing somewhere other than its parent'
+                   WHEN ci.cyclic THEN 'linking it would form a cycle in the workspace lineage'
+                   WHEN ci.chain_depth > 20 THEN 'chain exceeds the lineage depth limit'
                END AS reason
         FROM workspace_settings ws
-        JOIN workspace src ON src.id = ws.workspace_id AND NOT src.deleted
-        LEFT JOIN workspace tgt ON tgt.id = ws.deploy_to AND NOT tgt.deleted
+        JOIN workspace src ON src.id = ws.workspace_id
+        LEFT JOIN workspace tgt ON tgt.id = ws.deploy_to
         LEFT JOIN chain_info ci ON ci.start_id = ws.workspace_id
         WHERE ws.deploy_to IS NOT NULL;
 
     INSERT INTO workspace_deploy_to_unmigrated (workspace_id, deploy_to, reason)
-        SELECT workspace_id, deploy_to, reason FROM classified WHERE reason IS NOT NULL;
+        SELECT workspace_id, deploy_to, reason
+        FROM classified WHERE reason IS NOT NULL AND reason <> 'redundant';
 
     FOR leftover IN SELECT workspace_id, deploy_to, reason FROM workspace_deploy_to_unmigrated
     LOOP
@@ -77,7 +101,7 @@ BEGIN
 
     CREATE TEMP TABLE convertible ON COMMIT DROP AS
         SELECT c.workspace_id, c.deploy_to,
-               -- Sole claimant on a root target that has no dev workspace yet, mirroring what
+               -- Sole claimant on a free root that has no dev workspace yet, mirroring what
                -- `attach_dev_workspace` would allow. Anything else stays a plain fork.
                (COUNT(*) OVER (PARTITION BY c.deploy_to) = 1
                 AND tgt.parent_workspace_id IS NULL
@@ -91,7 +115,7 @@ BEGIN
                     WHERE c2.workspace_id = c.deploy_to AND c2.reason IS NULL
                 )) AS as_dev
         FROM classified c
-        JOIN workspace tgt ON tgt.id = c.deploy_to AND NOT tgt.deleted
+        JOIN workspace tgt ON tgt.id = c.deploy_to
         WHERE c.reason IS NULL;
 
     FOR demoted IN SELECT workspace_id, deploy_to FROM convertible WHERE NOT as_dev
@@ -105,6 +129,7 @@ BEGIN
            is_dev_workspace = c.as_dev
       FROM convertible c
      WHERE w.id = c.workspace_id;
+    GET DIAGNOSTICS converted_count = ROW_COUNT;
 
     -- A converted workspace is now parent-managed, exactly as if `attach_dev_workspace` had run.
     -- That path also strips git-sync state that would otherwise keep pulling and pushing against
@@ -127,7 +152,6 @@ BEGIN
      WHERE c.workspace_id = ws.workspace_id
        AND jsonb_typeof(ws.git_sync->'repositories') = 'array';
 
-    GET DIAGNOSTICS converted_count = ROW_COUNT;
     SELECT count(*) INTO dev_count FROM convertible WHERE as_dev;
     RAISE NOTICE 'deploy_to unification: linked % workspace(s) to their parent (% as dev workspaces), % preserved in workspace_deploy_to_unmigrated',
         converted_count, dev_count, (SELECT count(*) FROM workspace_deploy_to_unmigrated);

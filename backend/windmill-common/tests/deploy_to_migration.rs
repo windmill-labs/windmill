@@ -59,6 +59,10 @@ async fn deploy_to_folds_into_lineage(db: Pool<Postgres>) {
         ("selfref", false),
         ("cyc1", false),
         ("cyc2", false),
+        ("cycroot", false),
+        ("wm-fork-cyc", false), // existing fork of cycroot; cycroot -> it would close a loop
+        ("gone", true),         // archived source: its link must still be recorded
+        ("seeded", false),      // existing fork whose deploy_to is just the seeded parent
     ] {
         insert_ws(&db, id, deleted).await;
     }
@@ -75,8 +79,22 @@ async fn deploy_to_folds_into_lineage(db: Pool<Postgres>) {
         ("selfref", Some("selfref")),
         ("cyc1", Some("cyc2")),
         ("cyc2", Some("cyc1")),
+        ("cycroot", Some("wm-fork-cyc")),
+        ("wm-fork-cyc", None),
+        ("gone", Some("prod")),
+        ("seeded", Some("prod")),
     ] {
         set_deploy_to(&db, id, target).await;
+    }
+
+    // Pre-existing lineage the migration must respect rather than loop through.
+    for (child, parent) in [("wm-fork-cyc", "cycroot"), ("seeded", "prod")] {
+        sqlx::query("UPDATE workspace SET parent_workspace_id = $2 WHERE id = $1")
+            .bind(child)
+            .bind(parent)
+            .execute(&db)
+            .await
+            .expect("seed lineage");
     }
 
     db.execute(UP).await.expect("run unification migration");
@@ -118,10 +136,22 @@ async fn deploy_to_folds_into_lineage(db: Pool<Postgres>) {
         vec![
             ("cyc1".to_string(), "cyc2".to_string()),
             ("cyc2".to_string(), "cyc1".to_string()),
+            // Linking cycroot to its own fork would close a loop no deploy_to edge reveals.
+            ("cycroot".to_string(), "wm-fork-cyc".to_string()),
+            // An archived source still had a real link; it must not vanish with the column.
+            ("gone".to_string(), "prod".to_string()),
             ("selfref".to_string(), "selfref".to_string()),
+            ("stale".to_string(), "prod".to_string()),
         ]
     );
     assert_eq!(lineage(&db, "selfref").await, (None, false));
+    // cycroot keeps its own fork and gains no parent of its own.
+    assert_eq!(lineage(&db, "cycroot").await, (None, false));
+    // A fork whose deploy_to merely repeated its parent loses nothing, so it is not reported.
+    assert_eq!(
+        lineage(&db, "seeded").await,
+        (Some("prod".to_string()), false)
+    );
 
     // Rollback restores every link, including the ones that could not convert.
     db.execute(DOWN).await.expect("roll back");
