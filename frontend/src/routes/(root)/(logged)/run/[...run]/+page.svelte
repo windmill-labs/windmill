@@ -509,7 +509,9 @@
 	// the submitted arguments at enqueue, while the ones being resumed are restored
 	// later, inside the worker.
 	async function resumeDbtRun() {
-		await runImmediately({ dbt_command: 'retry', dbt_retry_job: job?.id })
+		// The whole command block, not a merge into the run's own: a retry takes
+		// no other override — it rebuilds with the arguments the failed run had.
+		await runImmediately({ command: { label: 'retry', dbt_retry_job: job?.id } })
 	}
 
 	let showEditButton = $derived(!isRuleActive('DisableDirectDeployment'))

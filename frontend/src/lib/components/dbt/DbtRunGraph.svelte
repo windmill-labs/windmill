@@ -512,23 +512,29 @@
 		const startedAt = Date.now()
 		previews = { ...previews, [key]: { pending: true } }
 		try {
+			// The run's own arguments, so a required `{{ }}` var resolves and an
+			// overridden one points at the relation on screen. The result's copy
+			// wins: a `dbt retry` job's own arguments name the run it resumed,
+			// while what it ran with is the restored ones published here.
+			const ran = { ...(runArgs ?? {}), ...(run?.invocation_args ?? {}) } as Record<string, any>
 			const requestBody = {
-				// The run's own arguments, so a required `{{ }}` var resolves and an
-				// overridden one points at the relation on screen. The result's copy
-				// wins: a `dbt retry` job carries only `dbt_command`, while what it
-				// ran with is the restored arguments published here.
-				...(runArgs ?? {}),
-				...(run?.invocation_args ?? {}),
-				dbt_command: 'show',
-				// Scoped to the node's package, not the bare name: a package can
-				// ship a model whose name the project also uses, and `dbt show`
-				// takes one node.
-				select: [nodeSelector(key)],
-				// Cleared, not inherited: previewing a model the run excluded would
-				// reach dbt as `--select m --exclude m` and come back as a parse
-				// failure, which reads as a broken preview rather than a selection.
-				exclude: [],
-				limit: 25
+				...ran,
+				command: {
+					label: 'show',
+					// Only `vars` carries over from the run's command block: the rest
+					// either name this preview's own node or belong to a command
+					// `show` is not.
+					vars: ran.command?.vars ?? {},
+					// Scoped to the node's package, not the bare name: a package can
+					// ship a model whose name the project also uses, and `dbt show`
+					// takes one node.
+					select: [nodeSelector(key)],
+					// Cleared, not inherited: previewing a model the run excluded would
+					// reach dbt as `--select m --exclude m` and come back as a parse
+					// failure, which reads as a broken preview rather than a selection.
+					exclude: [],
+					limit: 25
+				}
 			}
 			// By HASH whenever the graph is pinned: the SQL on screen is that
 			// version's, and running the deployed one would show today's rows

@@ -235,11 +235,14 @@ impl DbtDescriptor {
     }
 }
 
-/// Run arguments the descriptor's own fields already claim. A `{{ placeholder }}`
-/// may not take one of these names: the built-in argument would shadow it, and
-/// the script could never be run — `select` is an array, and interpolating one
-/// into a string is not something any invocation can satisfy.
+/// Names a `{{ placeholder }}` may not take. `command` is the argument holding
+/// the run's command block; the rest are the fields inside it, which the worker
+/// spreads over the run's arguments to read them — a placeholder of the same
+/// name would be shadowed there, and the script could never be run (`select` is
+/// an array, and interpolating one into a string is not something any invocation
+/// can satisfy).
 pub const RESERVED_ARG_NAMES: &[&str] = &[
+    "command",
     "select",
     "exclude",
     "vars",
@@ -265,92 +268,138 @@ pub fn parse_dbt_descriptor(inner_content: &str) -> anyhow::Result<DbtDescriptor
     Ok(d)
 }
 
-/// Run-time arguments of a dbt script: the descriptor fields that can be
-/// overridden per run (decision 7), plus one argument per `{{ placeholder }}`
-/// the descriptor interpolates. Defaults come from the descriptor, so an
-/// untouched run reproduces it exactly.
+/// The single argument holding the command and the overrides it takes. Its
+/// variant IS the command, so a run cannot carry an override the command
+/// ignores: `retry` rebuilds the failed run's nodes with the arguments that run
+/// had, and `full_refresh` means nothing to a `show`.
+pub const DBT_COMMAND_ARG: &str = "command";
+
+/// The variant discriminator, which is the key Windmill's run form tags a
+/// `oneOf` value with.
+pub const DBT_COMMAND_LABEL: &str = "label";
+
+fn list_arg(name: &str, default: &[String]) -> Arg {
+    Arg {
+        name: name.to_string(),
+        otyp: None,
+        typ: Typ::List(Box::new(Typ::Str(None))),
+        has_default: true,
+        default: Some(serde_json::json!(default)),
+        oidx: None,
+        otyp_inferred: false,
+    }
+}
+
+/// An OVERRIDE map, so its default is empty rather than a copy of the
+/// descriptor's vars. Seeding it with the descriptor would make the run form
+/// post the raw `{{ placeholder }}` text back and clobber the value the worker
+/// just interpolated for it.
+fn vars_arg() -> Arg {
+    Arg {
+        name: "vars".to_string(),
+        otyp: None,
+        typ: Typ::Object(windmill_parser::ObjectType::new(None, Some(vec![]))),
+        has_default: true,
+        default: Some(serde_json::json!({})),
+        oidx: None,
+        otyp_inferred: false,
+    }
+}
+
+/// What each command takes, in form order. The lists overlap where the commands
+/// genuinely do: a `show` narrows the project the same way a `build` does.
+fn command_variants(d: &DbtDescriptor) -> Vec<(&'static str, Vec<Arg>)> {
+    let selection = || {
+        vec![
+            list_arg("select", &d.select),
+            list_arg("exclude", &d.exclude),
+            vars_arg(),
+        ]
+    };
+    vec![
+        (
+            "build",
+            selection()
+                .into_iter()
+                .chain([Arg {
+                    name: "full_refresh".to_string(),
+                    otyp: None,
+                    typ: Typ::Bool,
+                    has_default: true,
+                    default: Some(serde_json::json!(d.full_refresh)),
+                    oidx: None,
+                    otyp_inferred: false,
+                }])
+                .collect(),
+        ),
+        (
+            "retry",
+            // The run it resumes, named rather than implied: only the latest
+            // failure of this script is kept, so "resume the last one" would
+            // silently aim somewhere else the moment another run failed. No
+            // default, so this variant requires it.
+            vec![Arg {
+                name: "dbt_retry_job".to_string(),
+                otyp: None,
+                typ: Typ::Str(None),
+                has_default: false,
+                default: None,
+                oidx: None,
+                otyp_inferred: false,
+            }],
+        ),
+        (
+            "show",
+            selection()
+                .into_iter()
+                .chain([Arg {
+                    name: "limit".to_string(),
+                    otyp: None,
+                    typ: Typ::Int,
+                    has_default: true,
+                    default: Some(serde_json::json!(DBT_SHOW_DEFAULT_LIMIT)),
+                    oidx: None,
+                    otyp_inferred: false,
+                }])
+                .collect(),
+        ),
+    ]
+}
+
+/// The command block a run gets when it overrides nothing: the descriptor's own
+/// selection under the descriptor's default command, so an untouched run
+/// reproduces it exactly.
+fn default_command_value(d: &DbtDescriptor) -> serde_json::Value {
+    let label = default_command(d);
+    let mut obj = serde_json::Map::new();
+    obj.insert(DBT_COMMAND_LABEL.to_string(), serde_json::json!(label));
+    for arg in command_variants(d)
+        .into_iter()
+        .find(|(l, _)| *l == label)
+        .map(|(_, args)| args)
+        .unwrap_or_default()
+    {
+        if let Some(default) = arg.default {
+            obj.insert(arg.name, default);
+        }
+    }
+    serde_json::Value::Object(obj)
+}
+
+/// Run-time arguments of a dbt script: the command block above, plus one
+/// argument per `{{ placeholder }}` the descriptor interpolates. Placeholders
+/// stay top-level — they are the project's own inputs, not a command's.
 pub fn parse_dbt_sig(inner_content: &str) -> anyhow::Result<MainArgSignature> {
     let d = parse_dbt_descriptor(inner_content)?;
-    let mut args = vec![
-        // FIRST because it decides what the run does — the rest only narrow it.
-        // `retry` resumes from the previous run's failure point rather than
-        // rebuilding. Enumerated so the run form offers a dropdown, and so the
-        // value cannot reach the engine as an arbitrary subcommand.
-        Arg {
-            name: "dbt_command".to_string(),
-            otyp: None,
-            typ: Typ::Str(Some(DBT_COMMANDS.iter().map(|c| c.to_string()).collect())),
-            has_default: true,
-            default: Some(serde_json::json!(default_command(&d))),
-            oidx: None,
-            otyp_inferred: false,
-        },
-        // The run a `retry` resumes, named rather than implied: only the latest
-        // failure of this script is kept, so "resume the last one" would silently
-        // aim somewhere else the moment another run failed. No default, so the
-        // form requires it — and only for `retry`, which is when it is shown.
-        Arg {
-            name: "dbt_retry_job".to_string(),
-            otyp: None,
-            typ: Typ::Str(None),
-            has_default: false,
-            default: None,
-            oidx: None,
-            otyp_inferred: false,
-        },
-        Arg {
-            name: "select".to_string(),
-            otyp: None,
-            typ: Typ::List(Box::new(Typ::Str(None))),
-            has_default: true,
-            default: Some(serde_json::json!(d.select)),
-            oidx: None,
-            otyp_inferred: false,
-        },
-        Arg {
-            name: "exclude".to_string(),
-            otyp: None,
-            typ: Typ::List(Box::new(Typ::Str(None))),
-            has_default: true,
-            default: Some(serde_json::json!(d.exclude)),
-            oidx: None,
-            otyp_inferred: false,
-        },
-        // An OVERRIDE map, so its default is empty rather than a copy of the
-        // descriptor's vars. Seeding it with the descriptor would make the run
-        // form post the raw `{{ placeholder }}` text back and clobber the value
-        // the worker just interpolated for it.
-        Arg {
-            name: "vars".to_string(),
-            otyp: None,
-            typ: Typ::Object(windmill_parser::ObjectType::new(None, Some(vec![]))),
-            has_default: true,
-            default: Some(serde_json::json!({})),
-            oidx: None,
-            otyp_inferred: false,
-        },
-        Arg {
-            name: "full_refresh".to_string(),
-            otyp: None,
-            typ: Typ::Bool,
-            has_default: true,
-            default: Some(serde_json::json!(d.full_refresh)),
-            oidx: None,
-            otyp_inferred: false,
-        },
-        // Rows a `show` returns. Ignored by every other command, and offered on
-        // the form because a preview of a wide table is a different ask from a
-        // preview of a narrow one.
-        Arg {
-            name: "limit".to_string(),
-            otyp: None,
-            typ: Typ::Int,
-            has_default: true,
-            default: Some(serde_json::json!(DBT_SHOW_DEFAULT_LIMIT)),
-            oidx: None,
-            otyp_inferred: false,
-        },
-    ];
+    let mut args = vec![Arg {
+        name: DBT_COMMAND_ARG.to_string(),
+        otyp: None,
+        typ: Typ::Object(windmill_parser::ObjectType::new(None, Some(vec![]))),
+        has_default: true,
+        default: Some(default_command_value(&d)),
+        oidx: None,
+        otyp_inferred: false,
+    }];
 
     for name in placeholders(&d) {
         if args.iter().any(|a| a.name == name) {
@@ -387,91 +436,65 @@ pub fn parse_dbt_sig(inner_content: &str) -> anyhow::Result<MainArgSignature> {
 /// has no dbt arm, so they leave the schema untouched. Without this a dbt
 /// script deploys with an empty schema and its run form offers none of the
 /// overrides — and an edited descriptor keeps the previous one's arguments.
-/// Built from `parse_dbt_sig` so the argument list has exactly one definition.
+/// The command is a `oneOf` rather than an enum beside the overrides it selects:
+/// a variant carries exactly the arguments its command takes, so `dbt_retry_job`
+/// is required where it means something and absent everywhere else, and no run
+/// can submit a `full_refresh` to a command that ignores it. The run form renders
+/// it as a toggle over the variants and tags the value with `label`.
 pub fn dbt_arg_schema(inner_content: &str) -> anyhow::Result<serde_json::Value> {
+    let d = parse_dbt_descriptor(inner_content)?;
     let sig = parse_dbt_sig(inner_content)?;
     let mut properties = serde_json::Map::new();
     let mut required: Vec<serde_json::Value> = vec![];
     let mut order: Vec<serde_json::Value> = vec![];
-    for arg in &sig.args {
-        let mut prop = match &arg.typ {
-            Typ::Bool => serde_json::json!({"type": "boolean"}),
-            // `limit` is an integer to the worker, which clamps it; without this
-            // the generated clients and the run form offer no numeric control.
-            Typ::Int => serde_json::json!({"type": "integer"}),
-            Typ::List(_) => serde_json::json!({"type": "array", "items": {"type": "string"}}),
-            Typ::Object(_) => serde_json::json!({"type": "object"}),
-            Typ::Str(Some(variants)) => serde_json::json!({"type": "string", "enum": variants}),
-            Typ::Str(None) => serde_json::json!({"type": "string"}),
-            // A placeholder takes the JSON type of whatever is passed, so it is
-            // deliberately left untyped rather than guessed at.
-            _ => serde_json::json!({}),
-        };
-        if let (Some(obj), Some(default)) = (prop.as_object_mut(), arg.default.as_ref()) {
-            obj.insert("default".to_string(), default.clone());
-        }
-        // What each field is for, and WHEN it applies: `retry` restores the
-        // arguments of the run it resumes, so every override below it is ignored,
-        // and `limit` belongs to `show` alone. The form hides what a command
-        // ignores — `showExpr` also drops the value from the payload — so the
-        // choice of command shapes the rest of the form rather than sitting under
-        // fields that quietly do nothing.
-        if let Some(obj) = prop.as_object_mut() {
-            let (description, show) = match arg.name.as_str() {
-                "dbt_command" => (
-                    Some(
-                        "`build` runs the project. `retry` resumes the last failed run of this \
-                         script, rebuilding only its failed and skipped nodes and reusing the \
-                         arguments it ran with. `show` previews one selected model's rows \
-                         without building; a selection naming several returns the first.",
-                    ),
-                    None,
-                ),
-                "dbt_retry_job" => (
-                    Some(
-                        "The failed run to resume, by run id. Its failed and skipped nodes are \
-                         rebuilt with the arguments it ran with, so the overrides below do not \
-                         apply. Resuming from that run's page fills this in.",
-                    ),
-                    Some("fields.dbt_command == 'retry'"),
-                ),
-                "select" => (
-                    Some(
-                        "dbt selection syntax, e.g. `tag:nightly`, `stg_orders+`, \
-                         `config.materialized:incremental`. Empty runs the descriptor's own \
-                         selection.",
-                    ),
-                    Some("fields.dbt_command != 'retry'"),
-                ),
-                "exclude" => (
-                    Some("Nodes to leave out of the selection above, same syntax."),
-                    Some("fields.dbt_command != 'retry'"),
-                ),
-                "vars" => (
-                    Some(
-                        "dbt `--vars`, merged over the descriptor's. A var that changes which \
-                         models exist makes this run store its own graph rather than the \
-                         deployed one.",
-                    ),
-                    Some("fields.dbt_command != 'retry'"),
-                ),
-                "full_refresh" => (
-                    Some("Rebuild incremental models from scratch instead of appending."),
-                    Some("fields.dbt_command == 'build'"),
-                ),
-                "limit" => (
-                    Some("Rows a `show` returns."),
-                    Some("fields.dbt_command == 'show'"),
-                ),
-                // A placeholder the descriptor interpolates: its meaning is the
-                // project's, so there is nothing generic to say about it.
-                _ => (None, Some("fields.dbt_command != 'retry'")),
-            };
-            if let Some(d) = description {
-                obj.insert("description".to_string(), serde_json::json!(d));
+
+    let variants: Vec<serde_json::Value> = command_variants(&d)
+        .into_iter()
+        .map(|(label, args)| {
+            let mut props = serde_json::Map::new();
+            let mut var_required: Vec<serde_json::Value> = vec![];
+            let mut var_order: Vec<serde_json::Value> = vec![serde_json::json!(DBT_COMMAND_LABEL)];
+            // The discriminator. Single-valued, so the form's toggle is what sets
+            // it and a submitted block cannot claim one command while carrying
+            // another's fields.
+            props.insert(
+                DBT_COMMAND_LABEL.to_string(),
+                serde_json::json!({"type": "string", "enum": [label]}),
+            );
+            for arg in args {
+                if !arg.has_default {
+                    var_required.push(serde_json::json!(arg.name));
+                }
+                var_order.push(serde_json::json!(arg.name));
+                props.insert(arg.name.clone(), property_of(&arg));
             }
-            if let Some(e) = show {
-                obj.insert("showExpr".to_string(), serde_json::json!(e));
+            serde_json::json!({
+                "title": label,
+                "type": "object",
+                "properties": props,
+                "order": var_order,
+                "required": var_required,
+            })
+        })
+        .collect();
+
+    for arg in &sig.args {
+        let mut prop = property_of(arg);
+        if arg.name == DBT_COMMAND_ARG {
+            if let Some(obj) = prop.as_object_mut() {
+                obj.insert(
+                    "oneOf".to_string(),
+                    serde_json::Value::Array(variants.clone()),
+                );
+                obj.insert(
+                    "description".to_string(),
+                    serde_json::json!(
+                        "`build` runs the project. `retry` resumes a failed run, rebuilding only \
+                         its failed and skipped nodes with the arguments it ran with. `show` \
+                         previews one selected model's rows without building; a selection naming \
+                         several returns the first."
+                    ),
+                );
             }
         }
         if !arg.has_default {
@@ -487,6 +510,53 @@ pub fn dbt_arg_schema(inner_content: &str) -> anyhow::Result<serde_json::Value> 
         "required": required,
         "order": order,
     }))
+}
+
+/// One argument as a JSON-schema property, with the description the run form
+/// shows under its label.
+fn property_of(arg: &Arg) -> serde_json::Value {
+    let mut prop = match &arg.typ {
+        Typ::Bool => serde_json::json!({"type": "boolean"}),
+        // `limit` is an integer to the worker, which clamps it; without this the
+        // generated clients and the run form offer no numeric control.
+        Typ::Int => serde_json::json!({"type": "integer"}),
+        Typ::List(_) => serde_json::json!({"type": "array", "items": {"type": "string"}}),
+        Typ::Object(_) => serde_json::json!({"type": "object"}),
+        Typ::Str(Some(variants)) => serde_json::json!({"type": "string", "enum": variants}),
+        Typ::Str(None) => serde_json::json!({"type": "string"}),
+        // A placeholder takes the JSON type of whatever is passed, so it is
+        // deliberately left untyped rather than guessed at.
+        _ => serde_json::json!({}),
+    };
+    if let Some(obj) = prop.as_object_mut() {
+        if let Some(default) = arg.default.as_ref() {
+            obj.insert("default".to_string(), default.clone());
+        }
+        let description = match arg.name.as_str() {
+            "dbt_retry_job" => Some(
+                "The failed run to resume, by run id. Its failed and skipped nodes are rebuilt \
+                 with the arguments it ran with. Resuming from that run's page fills this in.",
+            ),
+            "select" => Some(
+                "dbt selection syntax, e.g. `tag:nightly`, `stg_orders+`, \
+                 `config.materialized:incremental`. Empty runs the descriptor's own selection.",
+            ),
+            "exclude" => Some("Nodes to leave out of the selection above, same syntax."),
+            "vars" => Some(
+                "dbt `--vars`, merged over the descriptor's. A var that changes which models \
+                 exist makes this run store its own graph rather than the deployed one.",
+            ),
+            "full_refresh" => Some("Rebuild incremental models from scratch instead of appending."),
+            "limit" => Some("Rows a `show` returns."),
+            // A placeholder the descriptor interpolates: its meaning is the
+            // project's, so there is nothing generic to say about it.
+            _ => None,
+        };
+        if let Some(d) = description {
+            obj.insert("description".to_string(), serde_json::json!(d));
+        }
+    }
+    prop
 }
 
 /// `{{ name }}` placeholders in the interpolated descriptor fields, in a stable
@@ -583,35 +653,62 @@ full_refresh: true
     // The run form is built from this schema, and nothing else can build it:
     // the browser and the CLI both infer through a wasm parser that has no dbt
     // arm, so a missing property here is an override the user cannot reach.
+    // The variants are what make the form show a command's own fields and only
+    // those, so each is asserted by the arguments it carries.
     #[test]
     fn the_schema_carries_every_run_override_and_placeholder() {
         let schema = dbt_arg_schema(DESCRIPTOR).unwrap();
         let props = schema["properties"].as_object().unwrap();
-        for name in ["select", "exclude", "vars", "full_refresh", "dbt_command"] {
-            assert!(props.contains_key(name), "missing {name}: {schema}");
-        }
+        let variants = props[DBT_COMMAND_ARG]["oneOf"].as_array().unwrap();
+        let of = |label: &str| {
+            let v = variants
+                .iter()
+                .find(|v| v["title"] == label)
+                .unwrap_or_else(|| panic!("no `{label}` variant: {schema}"));
+            let mut names: Vec<String> = v["properties"]
+                .as_object()
+                .unwrap()
+                .keys()
+                .filter(|k| k.as_str() != DBT_COMMAND_LABEL)
+                .cloned()
+                .collect();
+            names.sort();
+            (v.clone(), names)
+        };
+
+        let (build, build_args) = of("build");
+        assert_eq!(build_args, ["exclude", "full_refresh", "select", "vars"]);
+        assert_eq!(build["properties"]["full_refresh"]["type"], "boolean");
+        // Defaults come from the descriptor, so an untouched run reproduces it.
         assert_eq!(
-            props["dbt_command"]["enum"],
-            serde_json::json!(DBT_COMMANDS)
+            build["properties"]["select"]["default"],
+            serde_json::json!(["tag:nightly+"])
         );
-        assert_eq!(props["full_refresh"]["type"], "boolean");
+        // The discriminator takes one value per variant: the toggle sets it, and
+        // a block cannot claim one command while carrying another's fields.
+        assert_eq!(
+            build["properties"][DBT_COMMAND_LABEL]["enum"],
+            serde_json::json!(["build"])
+        );
+
+        let (retry, retry_args) = of("retry");
+        assert_eq!(retry_args, ["dbt_retry_job"]);
+        // Required where it means something, rather than required everywhere and
+        // hidden: a retry names the run it resumes.
+        assert_eq!(retry["required"], serde_json::json!(["dbt_retry_job"]));
+
+        let (show, show_args) = of("show");
+        assert_eq!(show_args, ["exclude", "limit", "select", "vars"]);
         // The worker clamps `limit` as an integer; the schema has to say so, or
         // the run form offers a free-text box for a number.
-        assert_eq!(props["limit"]["type"], "integer");
-        assert_eq!(props["limit"]["default"], 100);
+        assert_eq!(show["properties"]["limit"]["type"], "integer");
+        assert_eq!(show["properties"]["limit"]["default"], 100);
+
         // Every `{{ placeholder }}` the descriptor interpolates is an argument a
-        // run must supply — the overrides above all default to the descriptor's
-        // own values instead. `dbt_retry_job` joins them: a retry names the run it
-        // resumes, and the form asks for it only under `retry`, where `showExpr`
-        // both hides the field and exempts it from the requirement.
-        assert_eq!(
-            schema["required"],
-            serde_json::json!(["dbt_retry_job", "day"])
-        );
-        assert_eq!(
-            props["dbt_retry_job"]["showExpr"],
-            "fields.dbt_command == 'retry'"
-        );
+        // run must supply. The command block is not one: it defaults to the
+        // descriptor's own selection under the descriptor's command.
+        assert_eq!(schema["required"], serde_json::json!(["day"]));
+        assert_eq!(schema["order"], serde_json::json!([DBT_COMMAND_ARG, "day"]));
     }
 
     #[test]
@@ -635,43 +732,26 @@ full_refresh: true
     }
 
     // The ORDER is asserted, not just the set: the schema's `order` is built from
-    // this vec and the run form follows it, so `dbt_command` leading is what puts
-    // the choice of what the run does above the fields that only narrow it.
+    // this vec and the run form follows it, so the command block leading is what
+    // puts the choice of what the run does above the project's own inputs.
     #[test]
-    fn signature_exposes_overridable_fields_and_placeholders() {
+    fn signature_exposes_the_command_block_and_placeholders() {
         let sig = parse_dbt_sig(DESCRIPTOR).unwrap();
         let names: Vec<&str> = sig.args.iter().map(|a| a.name.as_str()).collect();
-        assert_eq!(
-            names,
-            vec![
-                "dbt_command",
-                "dbt_retry_job",
-                "select",
-                "exclude",
-                "vars",
-                "full_refresh",
-                "limit",
-                "day"
-            ]
-        );
-        // Enumerated, so the run form offers `retry` and an arbitrary value
-        // can't reach the engine as a subcommand.
-        let cmd = sig.args.iter().find(|a| a.name == "dbt_command").unwrap();
-        assert_eq!(
-            cmd.typ,
-            Typ::Str(Some(DBT_COMMANDS.iter().map(|c| c.to_string()).collect()))
-        );
+        assert_eq!(names, vec![DBT_COMMAND_ARG, "day"]);
+        // An untouched run reproduces the descriptor: its default is the whole
+        // block — the descriptor's command, carrying the descriptor's selection.
+        let cmd = sig.args.iter().find(|a| a.name == DBT_COMMAND_ARG).unwrap();
+        let default = cmd.default.clone().unwrap();
         // `build`, not `run`: `run` covers models only, so a selection naming a
         // seed or a snapshot would silently not build it.
-        assert_eq!(cmd.default, Some(serde_json::json!("build")));
-        // Defaults come from the descriptor so an untouched run reproduces it.
-        let select = sig.args.iter().find(|a| a.name == "select").unwrap();
-        assert_eq!(select.default, Some(serde_json::json!(["tag:nightly+"])));
+        assert_eq!(default[DBT_COMMAND_LABEL], serde_json::json!("build"));
+        assert_eq!(default["select"], serde_json::json!(["tag:nightly+"]));
+        assert_eq!(default["full_refresh"], serde_json::json!(true));
         // `vars` is the exception: it overrides, so its default must be empty.
         // Seeded with the descriptor, the run form would post `{{ day }}` back
         // and overwrite the value the worker interpolated for it.
-        let vars = sig.args.iter().find(|a| a.name == "vars").unwrap();
-        assert_eq!(vars.default, Some(serde_json::json!({})));
+        assert_eq!(default["vars"], serde_json::json!({}));
         // Placeholders are required (the descriptor names no value for them)
         // and untyped, so a `{{ }}` var can carry a boolean or a number rather
         // than the string "false", which Jinja treats as truthy.

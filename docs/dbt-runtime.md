@@ -266,8 +266,8 @@ and each node carries both `status` and `outcome`.
 reference, so no resolved value is published — and it is omitted when empty. It
 exists because a `dbt retry` restores the failed run's arguments inside the
 worker and never writes them back to the retry job, whose own args are just
-`{"dbt_command": "retry", "dbt_retry_job": "<id>"}`: the row preview, which is a
-`dbt show` of the same project, has nowhere else to get them. On a retry it is therefore ANOTHER
+`{"command": {"label": "retry", "dbt_retry_job": "<id>"}}`: the row preview, which
+is a `dbt show` of the same project, has nowhere else to get them. On a retry it is therefore ANOTHER
 invocation's arguments, which is why a hidden run saves no state at all (see the
 retry section).
 
@@ -714,6 +714,26 @@ after per-model Airflow tasks proved roughly 6x slower (about 5.5 minutes for on
 google/fhir-dbt-analytics). dbt's own threading provides parallelism; Windmill
 provides observability.
 
+### The run's arguments are one command block
+
+A run takes a single `command` argument, plus one argument per `{{ placeholder }}`
+the descriptor interpolates. `command` is a `oneOf` whose variant IS the command,
+so it carries exactly the overrides that command takes:
+
+```jsonc
+{"command": {"label": "build", "select": [], "exclude": [], "vars": {}, "full_refresh": false}}
+{"command": {"label": "retry", "dbt_retry_job": "019fb410-8ea9-…"}}
+{"command": {"label": "show",  "select": ["stg_orders"], "exclude": [], "vars": {}, "limit": 100}}
+```
+
+The union is the point: `dbt_retry_job` is required where it means something and
+absent everywhere else, `full_refresh` cannot reach a command that ignores it, and
+the run form renders a toggle over the variants rather than a list of fields that
+quietly do nothing. The worker spreads the block over the run's arguments to read
+them — `label` becomes `dbt_command` — which is why a `{{ placeholder }}` may not
+take one of those names (`RESERVED_ARG_NAMES`). What a run SUBMITTED keeps the
+block, since that is what `dbt_run_state` saves and `invocation_args` publishes.
+
 1. Materialise the script's modules into the job directory, restore
    `dbt_packages/` from cache.
 2. Render `profiles.yml` from the resource, or use the project's own file with
@@ -752,13 +772,14 @@ provides observability.
    growing with the project (732 KB against 12 KB on a six-node fixture), but
    the manifest is a pure function of the project files, vars and env — all of
    which the stored identity already pins — so a worker restoring from the
-   database re-derives it with a `dbt parse` of about a second. It is a run argument
-   (`dbt_command: retry`) rather than the automatic behavior of Windmill's
-   generic retry, which has no per-language hook to change the invoked command.
+   database re-derives it with a `dbt parse` of about a second. It is a run
+   argument (the `retry` command variant) rather than the automatic behavior of
+   Windmill's generic retry, which has no per-language hook to change the invoked
+   command.
    Each attempt gets a fresh job dir, so the previous run's `target/` is cached
    per (workspace, script) on the worker and restored for a retry.
 
-   **Naming the run.** `dbt_command: retry` requires `dbt_retry_job`, the id of
+   **Naming the run.** The `retry` variant requires `dbt_retry_job`, the id of
    the run to resume, and the worker refuses one that is not the run it holds —
    naming both ids, since "that is not the one" is otherwise indistinguishable
    from "nothing is saved". Only the latest failure of a script is kept, so an

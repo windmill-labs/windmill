@@ -23,7 +23,10 @@ use windmill_common::materialization::{
     record_materialization, MaterializationStatus, RecordMaterializationRequest,
 };
 use windmill_common::worker::{to_raw_value, write_file, Connection};
-use windmill_parser_yaml::{parse_dbt_descriptor, DbtDescriptor, DbtTestBehavior, DBT_COMMANDS};
+use windmill_parser_yaml::{
+    parse_dbt_descriptor, DbtDescriptor, DbtTestBehavior, DBT_COMMANDS, DBT_COMMAND_ARG,
+    DBT_COMMAND_LABEL,
+};
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::common::{
@@ -175,9 +178,14 @@ pub(crate) async fn handle_dbt_job(
     // `$var:` / `$res:` / `$encrypted:` reference, so passing one raw sends the
     // literal string to `--vars` — a placeholder holding a schema or an `enabled`
     // flag would then build a different slice of the project than was asked for.
-    let args = crate::common::build_args_map(job, client, conn)
-        .await?
-        .unwrap_or_else(|| job.args.as_ref().map(|a| a.0.clone()).unwrap_or_default());
+    let args = flatten_command(
+        crate::common::build_args_map(job, client, conn)
+            .await?
+            .unwrap_or_else(|| job.args.as_ref().map(|a| a.0.clone()).unwrap_or_default()),
+    );
+    // As submitted, command block and all: this is what the state saves and the
+    // result publishes, and both describe an invocation of this script, not one
+    // executor's view of it.
     let raw_args = job.args.as_ref().map(|a| a.0.clone()).unwrap_or_default();
     let inv = Invocation { args: args.clone(), raw_args, envs: envs.clone(), strict: true };
     // One wall clock for the whole job. A dbt job is a sequence of
@@ -260,9 +268,9 @@ pub(crate) async fn handle_dbt_job(
         let expected = arg_str(&inv.args, "dbt_retry_job")?.filter(|s| !s.trim().is_empty());
         let Some(expected) = expected else {
             return Err(Error::BadRequest(
-                "`dbt_command: retry` needs `dbt_retry_job`, the id of the run to resume. Open \
-                 that run and use `Resume this run`, or pass its id: only the latest failure of \
-                 this script is kept, so a retry names which one it means"
+                "a `retry` needs `dbt_retry_job`, the id of the run to resume. Open that run and \
+                 use `Resume this run`, or pass its id: only the latest failure of this script is \
+                 kept, so a retry names which one it means"
                     .to_string(),
             ));
         };
@@ -279,15 +287,11 @@ pub(crate) async fn handle_dbt_job(
         // Restored args are the ones SUBMITTED, so the references they carry are
         // resolved again now — against this caller's access, not the original's.
         let inv = Invocation {
-            args: crate::common::transform_json(
-                client,
-                &job.workspace_id,
-                &restored.args,
-                job,
-                conn,
-            )
-            .await?
-            .unwrap_or_else(|| restored.args.clone()),
+            args: flatten_command(
+                crate::common::transform_json(client, &job.workspace_id, &restored.args, job, conn)
+                    .await?
+                    .unwrap_or_else(|| restored.args.clone()),
+            ),
             raw_args: restored.args,
             ..inv
         };
@@ -4145,6 +4149,36 @@ fn arg<T: serde::de::DeserializeOwned>(
     serde_json::from_str::<T>(raw.get())
         .map(Some)
         .map_err(|e| Error::BadRequest(format!("`{k}` must be {expected}: {e}")))
+}
+
+/// The run's arguments with the command block spread over them, its variant
+/// `label` under `dbt_command`.
+///
+/// A run submits one `command` argument whose `oneOf` variant IS the command, so
+/// an override belongs to the command that takes it. Every reader below wants a
+/// single map, and the block is spread here rather than at each of them so the
+/// two shapes never both reach one. `raw_args` keeps the submitted shape: it is
+/// what the state saves and the result publishes.
+fn flatten_command(mut args: HashMap<String, Box<RawValue>>) -> HashMap<String, Box<RawValue>> {
+    let Some(block) = args.remove(DBT_COMMAND_ARG) else {
+        return args;
+    };
+    let Ok(fields) = serde_json::from_str::<HashMap<String, Box<RawValue>>>(block.get()) else {
+        // Not an object: left for `dbt_command` to reject by name, with the
+        // allowlist's message, rather than failing here as a parse error.
+        return args;
+    };
+    for (k, v) in fields {
+        // A placeholder of the same name would otherwise be overwritten by the
+        // block — they are reserved for exactly that reason.
+        let k = if k == DBT_COMMAND_LABEL {
+            "dbt_command".to_string()
+        } else {
+            k
+        };
+        args.insert(k, v);
+    }
+    args
 }
 
 /// Empty reads as absent: it is what an untouched text field sends.

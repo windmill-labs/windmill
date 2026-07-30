@@ -366,16 +366,16 @@
 	$effect(() => {
 		const ws = $workspaceStore
 		const path = script?.path
-		const retry = args?.['dbt_command'] === 'retry'
-		if (!ws || !path || script?.language !== 'dbt' || !retry) return
-		if (args?.['dbt_retry_job'] || dbtResumableAsked === path) return
+		const command = args?.['command'] as Record<string, any> | undefined
+		if (!ws || !path || script?.language !== 'dbt' || command?.label !== 'retry') return
+		if (command['dbt_retry_job'] || dbtResumableAsked === path) return
 		dbtResumableAsked = path
 		JobService.getDbtResumableForScript({ workspace: ws, path })
 			.then((held) => {
 				const current = untrack(() => args)
-				if (!held || !current || current['dbt_command'] !== 'retry' || current['dbt_retry_job'])
-					return
-				args = { ...current, dbt_retry_job: held }
+				const block = current?.['command'] as Record<string, any> | undefined
+				if (!held || !current || block?.label !== 'retry' || block['dbt_retry_job']) return
+				args = { ...current, command: { ...block, dbt_retry_job: held } }
 				if (jsonView) {
 					runForm?.setCode(JSON.stringify(args, null, '\t'))
 				}

@@ -22994,7 +22994,7 @@ paths:
       summary: Which run a dbt retry of this job's script would resume
       description: >
         One failed run is saved per script per execution principal, so a
-        `dbt_command: retry` resumes that one — not necessarily the run being
+        `retry` resumes that one — not necessarily the run being
         looked at. Returns the job id the saved state holds, or null when there is
         nothing to resume, so a run page can offer the resume only where it would
         reach this run. Authorized through the job, like `run_progress`.
@@ -23024,7 +23024,7 @@ paths:
     get:
       summary: Which run a dbt retry of this script would resume for the caller
       description: >
-        `dbt_command: retry` requires `dbt_retry_job`, and the run form has no job
+        A `retry` requires `dbt_retry_job`, and the run form has no job
         id to hand. Returns the one the caller's own retry would land on — the
         saved failure for the principal the run would execute as, which is the
         script's author for an `on_behalf_of` script and the caller otherwise — or
