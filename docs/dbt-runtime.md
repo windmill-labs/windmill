@@ -681,9 +681,11 @@ with no way out, since redeploying resolves the same way again.
 
 Consequences worth knowing before choosing whether to commit a lockfile:
 
-- **To pick up a newer version of a ranged dependency, deploy again.** A deploy of
-  byte-identical content is accepted and creates a new version, so nothing has to be
-  edited to force re-resolution.
+- **To pick up a newer version of a ranged dependency, deploy a CHANGE.** Only a
+  deploy re-resolves, and an unchanged push is skipped as a no-op — the lock and the
+  schema are both derived, so they are compared as they would be stored rather than
+  as they arrive. Editing `packages.yml`, or committing the `package-lock.yml` you
+  want, is what moves a pinned resolution.
 - **A committed `package-lock.yml` lets a deploy hit the cache**, since it is the
   digest the lookup is keyed on before `dbt deps` has run. A project without one, or
   whose committed lock is not what dbt resolves, pays a real `dbt deps` per deploy.
@@ -693,7 +695,8 @@ Consequences worth knowing before choosing whether to commit a lockfile:
   resolution only from a cache hit. Once upstream publishes a new version, that
   script keeps running on every worker already holding its tree and fails on the
   first cold one — same commit, same arguments, different outcome by worker. A
-  redeploy re-pins and clears it; committing the lock avoids it entirely.
+  deploy that changes something re-pins and clears it; committing the lock avoids it
+  entirely.
 
 Nothing evicts these worker-local caches — package trees, engine installs and retry
 state alike — and `cache_clear` does not reach them either: it removes
