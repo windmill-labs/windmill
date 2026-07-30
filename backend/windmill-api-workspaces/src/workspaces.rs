@@ -9675,6 +9675,18 @@ async fn seed_full_diff_scan(
     let paths: Vec<String> = candidates.iter().map(|(_, p)| p.clone()).collect();
 
     let mut tx = db.begin().await?;
+    // Serialize scans of this pair. Two of them would otherwise interleave into a
+    // union rather than a replacement: under READ COMMITTED the second one's DELETE
+    // resumes on a snapshot predating the first one's inserts, so it removes nothing,
+    // and any key only the first enumerated survives — exactly the duplicate the
+    // replacement is here to prevent.
+    sqlx::query!(
+        "SELECT pg_advisory_xact_lock(hashtext('workspace_diff_full_scan:' || $1 || '/' || $2))",
+        target_workspace_id,
+        w_id,
+    )
+    .execute(&mut *tx)
+    .await?;
     // The scan replaces this pair's candidate set rather than adding to it. Merging
     // would keep a key the new scan no longer produces, and the comparison
     // re-evaluates every row of a non-lineage pair, so a renamed migration or an

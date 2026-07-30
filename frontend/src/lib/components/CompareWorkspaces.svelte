@@ -629,13 +629,22 @@
 
 	// All *diff* items selected. Trigger items are opt-in and don't count
 	// toward "all selected" — see item merge below in deployableItems.
+	// Deploying a row the current workspace lacks deletes it in the target. Against
+	// the parent that is a real deletion to propagate and is selected like anything
+	// else; against an arbitrary target the two workspaces were simply never in sync,
+	// so it takes an explicit act on that row. No bulk action may sweep one in.
+	function removesInTarget(diff: WorkspaceItemDiff): boolean {
+		return isArbitraryTarget && diff.exists_in_fork === false
+	}
+	let bulkSelectableDiffs = $derived(selectableDiffs.filter((d) => !removesInTarget(d)))
+
 	let allSelected = $derived(
-		selectableDiffs.length > 0 &&
-			selectableDiffs.every((d) => selectedItems.includes(getItemKey(d)))
+		bulkSelectableDiffs.length > 0 &&
+			bulkSelectableDiffs.every((d) => selectedItems.includes(getItemKey(d)))
 	)
 
 	async function selectAll() {
-		selectedItems = selectableDiffs
+		selectedItems = bulkSelectableDiffs
 			.map((d) => getItemKey(d))
 			.filter((k) => !(deploymentStatus[k]?.status == 'deployed'))
 	}
@@ -866,14 +875,8 @@
 			selectedItems = []
 			return
 		}
-		// Against an arbitrary target, a row the current workspace lacks is not
-		// evidence of a deletion — the two workspaces were simply never in sync — so
-		// deploying it (which removes it there) has to be opted into row by row.
-		const filtered = selectableDiffs.filter(
-			(d) =>
-				!isTriggerOrScheduleKind(d.kind) &&
-				!hasDraft(d) &&
-				!(isArbitraryTarget && d.exists_in_fork === false)
+		const filtered = bulkSelectableDiffs.filter(
+			(d) => !isTriggerOrScheduleKind(d.kind) && !hasDraft(d)
 		)
 		const conflictSafe = mergeIntoParent
 			? filtered
@@ -953,21 +956,23 @@
 		}
 	})
 
-	// A recompute swaps the comparison under a selection made against the previous
-	// one, and a row can change meaning across the two: an item selected while it
+	// A row can change meaning between two comparisons: an item selected while it
 	// merely differed, then deleted here, comes back as "deploying this removes it
-	// there". That is the one action this view makes opt-in, so a tick from before
-	// the change must not authorize it. Only for an arbitrary target — against the
-	// parent, propagating a deletion is the point and is selected by default.
+	// there". A tick that predates the flip never chose that, so it is revoked —
+	// but only for a row that just flipped. Clearing every destructive row instead
+	// would also revoke a deliberate opt-in on any refresh, and refreshes happen
+	// without a recompute (`onChanged` fires from the per-row workspace-specific
+	// button), silently dropping the one choice this view asks the user to make.
+	let removalKeys = new Set<string>()
 	$effect(() => {
 		const diffs = comparison?.diffs
-		if (!diffs || !isArbitraryTarget) return
+		if (!diffs) return
 		untrack(() => {
-			const removesInTarget = new Set(
-				diffs.filter((d) => d.exists_in_fork === false).map((d) => getItemKey(d))
-			)
-			if (selectedItems.some((k) => removesInTarget.has(k))) {
-				selectedItems = selectedItems.filter((k) => !removesInTarget.has(k))
+			const current = new Set(diffs.filter(removesInTarget).map((d) => getItemKey(d)))
+			const flipped = [...current].filter((k) => !removalKeys.has(k))
+			removalKeys = current
+			if (flipped.some((k) => selectedItems.includes(k))) {
+				selectedItems = selectedItems.filter((k) => !flipped.includes(k))
 			}
 		})
 	})
@@ -1151,6 +1156,7 @@
 				{selectedItems}
 				{deploymentStatus}
 				{allSelected}
+				bulkExcluded={(item) => removesInTarget(item.diff as WorkspaceItemDiff)}
 				onToggleItem={(item) => toggleKey(item.key)}
 				onSelectAll={selectAll}
 				onDeselectAll={deselectAll}
