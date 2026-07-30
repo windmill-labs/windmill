@@ -2520,7 +2520,10 @@ fn show_limit(requested: Option<i64>) -> i64 {
         .unwrap_or(windmill_parser_yaml::dbt::DBT_SHOW_DEFAULT_LIMIT as i64)
 }
 
-/// `dbt show`: SELECT from the selected node and return its rows.
+/// `dbt show`: SELECT from the selected node and return its rows. dbt prints one
+/// document per selected node and the result is a single preview, so a selection
+/// naming several returns the first — which is what the argument's description
+/// tells the caller.
 ///
 /// Captured rather than streamed, for the same reason `dbt ls` is: the job-log
 /// writer is what `NO_LOGS_AT_ALL` discards, and these rows ARE the result, not

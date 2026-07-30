@@ -239,8 +239,14 @@ impl DbtDescriptor {
 /// may not take one of these names: the built-in argument would shadow it, and
 /// the script could never be run — `select` is an array, and interpolating one
 /// into a string is not something any invocation can satisfy.
-pub const RESERVED_ARG_NAMES: &[&str] =
-    &["select", "exclude", "vars", "full_refresh", "dbt_command", "limit"];
+pub const RESERVED_ARG_NAMES: &[&str] = &[
+    "select",
+    "exclude",
+    "vars",
+    "full_refresh",
+    "dbt_command",
+    "limit",
+];
 
 pub fn parse_dbt_descriptor(inner_content: &str) -> anyhow::Result<DbtDescriptor> {
     let d = serde_yml::from_str::<DbtDescriptor>(inner_content)
@@ -402,7 +408,8 @@ pub fn dbt_arg_schema(inner_content: &str) -> anyhow::Result<serde_json::Value> 
                     Some(
                         "`build` runs the project. `retry` resumes the last failed run of this \
                          script, rebuilding only its failed and skipped nodes and reusing the \
-                         arguments it ran with. `show` previews a model's rows without building.",
+                         arguments it ran with. `show` previews one selected model's rows \
+                         without building; a selection naming several returns the first.",
                     ),
                     None,
                 ),
@@ -539,9 +546,8 @@ full_refresh: true
     #[test]
     fn a_placeholder_may_not_take_a_run_argument_name() {
         for name in RESERVED_ARG_NAMES {
-            let d = format!(
-                "profile:\n  resource: $res:u/rf/wh\nvars:\n  v: \"{{{{ {name} }}}}\"\n"
-            );
+            let d =
+                format!("profile:\n  resource: $res:u/rf/wh\nvars:\n  v: \"{{{{ {name} }}}}\"\n");
             let err = parse_dbt_descriptor(&d).unwrap_err().to_string();
             assert!(err.contains(name), "{name}: {err}");
         }
