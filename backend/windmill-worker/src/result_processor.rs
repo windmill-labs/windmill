@@ -689,20 +689,28 @@ pub async fn handle_receive_completed_job(
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> Option<Arc<MiniPulledJob>> {
-    // WIN-2263: a flow step's ephemeral JWT (`jc.token`) is minted at step pull time with a
-    // lifetime of `SCRIPT_TOKEN_EXPIRY` (900s on cloud). It is reused here to build the client
-    // that drives post-completion flow orchestration — including the next step's input-transform
-    // isolated-eval, which fetches prior steps' results (`[...results.x]`). When the finished step
-    // ran longer than the token's lifetime (minus the 60s JWT leeway), that reused token is already
-    // expired and the result fetch is rejected as anonymous. Mint a fresh token for flow-step
-    // completions so the orchestration client's lifetime is independent of how long the step ran.
     let workspace = jc.job.workspace_id.clone();
-    let token = if jc.job.is_flow_step() {
+    // The client built here drives post-completion orchestration (the next step's input
+    // transforms fetch prior step results), which outlives the finished step. The step's own
+    // token has a `SCRIPT_TOKEN_EXPIRY` lifetime, so reusing it would fail that orchestration
+    // once the step itself ran longer than the token lives; refresh it when the step is old enough.
+    let token_maybe_expired = jc
+        .duration
+        .is_some_and(|d| d as u64 >= *windmill_common::worker::SCRIPT_TOKEN_EXPIRY * 1000 / 2);
+    let token = if jc.job.is_flow_step() && token_maybe_expired {
+        // Mirror `create_token`'s label so run-on-behalf-of flows keep their end-user override.
+        let label = if jc.job.permissioned_as != format!("u/{}", jc.job.created_by)
+            && jc.job.permissioned_as != jc.job.created_by
+        {
+            format!("ephemeral-script-end-user-{}", jc.job.created_by)
+        } else {
+            "ephemeral-script".to_string()
+        };
         match windmill_common::auth::create_token_for_owner(
             db,
             &jc.job.workspace_id,
             &jc.job.permissioned_as,
-            "ephemeral-script",
+            &label,
             *windmill_common::worker::SCRIPT_TOKEN_EXPIRY,
             &jc.job.permissioned_as_email,
             &jc.job.id,
@@ -712,12 +720,13 @@ pub async fn handle_receive_completed_job(
                 jc.job.flow_innermost_root_job.unwrap_or(jc.job.id)
             )),
         )
+        .warn_after_seconds(5)
         .await
         {
             Ok(t) => t,
             Err(e) => {
                 tracing::warn!(
-                    "WIN-2263: could not mint fresh flow-orchestration token for job {}, reusing step token: {e:#}",
+                    "could not mint fresh flow-orchestration token for job {}, reusing step token: {e:#}",
                     jc.job.id
                 );
                 jc.token.clone()
