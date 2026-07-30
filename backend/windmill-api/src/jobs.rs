@@ -136,6 +136,7 @@ pub fn workspaced_service() -> Router {
     Router::new()
         .route("/run_progress/{id}", get(get_run_progress))
         .route("/dbt_graph/{id}", get(get_dbt_run_graph))
+        .route("/dbt_resumable/{id}", get(get_dbt_resumable))
         .route(
             "/run/f/{*script_path}",
             post(run_flow_by_path)
@@ -875,6 +876,56 @@ async fn get_dbt_run_graph(
                 script_hash: hash,
             });
     windmill_api_assets::asset_graph_for(&authed, &w_id, user_db, db, q, pinned).await
+}
+
+/// Which run of this job's script `dbt retry` would resume, if any.
+///
+/// One failure is saved per script per execution principal, so a page showing an
+/// older failed run cannot tell whether resuming would reach THIS run or a later
+/// one — and offering it there would resume a run the reader is not looking at.
+/// The answer is the job id the state holds, for the caller to compare.
+async fn get_dbt_resumable(
+    authed: ApiAuthed,
+    OptViewToken(view_token): OptViewToken,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, job_id)): Path<(String, Uuid)>,
+) -> error::JsonResult<Option<Uuid>> {
+    let Some(job) = sqlx::query!(
+        "SELECT created_by, runnable_path, permissioned_as FROM v2_job
+          WHERE id = $1 AND workspace_id = $2",
+        job_id,
+        &w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    else {
+        return Ok(Json(None));
+    };
+    require_job_read_access(
+        &db,
+        &user_db,
+        &authed,
+        &w_id,
+        &job_id,
+        &job.created_by,
+        view_token.as_deref(),
+    )
+    .await?;
+    let Some(script_path) = job.runnable_path else {
+        return Ok(Json(None));
+    };
+    let resumable = sqlx::query_scalar!(
+        "SELECT job_id FROM dbt_run_state
+          WHERE workspace_id = $1 AND script_path = $2 AND permissioned_as = $3",
+        &w_id,
+        script_path,
+        job.permissioned_as
+    )
+    .fetch_optional(&db)
+    .await?
+    .flatten();
+    Ok(Json(resumable))
 }
 
 /// Lives with the job routes, not the asset ones, because it is job-scoped and

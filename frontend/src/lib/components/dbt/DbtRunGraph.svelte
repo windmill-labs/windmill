@@ -13,7 +13,7 @@
 		splitUniqueId
 	} from './parseDbtRun'
 	import { Button } from '$lib/components/common'
-	import { ClipboardCopy, Code2, TableProperties } from 'lucide-svelte'
+	import { ClipboardCopy, Code2, RefreshCw, TableProperties } from 'lucide-svelte'
 	import { copyToClipboard } from '$lib/utils'
 	import { workspaceStore } from '$lib/stores'
 	import { goto } from '$lib/navigation'
@@ -249,11 +249,24 @@
 	// A failed run's obvious next action is "Run again", which prefills the
 	// arguments it just ran — rebuilding the whole project. `dbt retry` redoes the
 	// failed and skipped nodes alone, and nothing on the page says so.
-	let resumable = $derived(
-		!running &&
-			scriptHash != undefined &&
-			((run?.totals?.error ?? 0) > 0 || (run?.totals?.skipped ?? 0) > 0)
-	)
+	// One failure is saved per script per principal, so a later run of the same
+	// script takes the state over — and the worker would refuse a resume aimed at
+	// this one. Ask which run it holds rather than offering something that fails.
+	let resumableJob = $state<string | undefined>(undefined)
+	$effect(() => {
+		const ws = $workspaceStore
+		const id = jobId
+		const failed = !running && ((run?.totals?.error ?? 0) > 0 || (run?.totals?.skipped ?? 0) > 0)
+		resumableJob = undefined
+		if (!ws || !id || !failed) return
+		JobService.getDbtResumable({ workspace: ws, id })
+			.then((held) => {
+				// The page may have moved to another run while this was in flight.
+				if (jobId === id) resumableJob = held ?? undefined
+			})
+			.catch(() => {})
+	})
+	let resumable = $derived(!running && scriptHash != undefined && resumableJob === jobId)
 	let resuming = $state(false)
 
 	// Submitted rather than linked to the run form: `dbt_retry_job` is not a form
@@ -707,14 +720,20 @@
 		{(run?.totals?.error ?? 0) > 0 ? `${run?.totals?.error} failed` : ''}{(run?.totals?.error ??
 			0) > 0 && (run?.totals?.skipped ?? 0) > 0
 			? ', '
-			: ''}{(run?.totals?.skipped ?? 0) > 0 ? `${run?.totals?.skipped} skipped` : ''}.
-		<button
-			class="text-blue-500 hover:underline disabled:opacity-50"
-			disabled={resuming}
-			onclick={resume}
-			>{resuming ? 'Resuming…' : 'Resume this run'}</button
-		> to rebuild only those with <span class="font-mono">dbt retry</span>, instead of the whole
-		project.
+			: ''}{(run?.totals?.skipped ?? 0) > 0 ? `${run?.totals?.skipped} skipped` : ''}. Rebuild only
+		those with <span class="font-mono">dbt retry</span>, instead of the whole project.
+		<span class="inline-block ml-1 align-middle">
+			<Button
+				unifiedSize="2xs"
+				variant="subtle"
+				disabled={resuming}
+				startIcon={{
+					icon: resuming ? Loader2 : RefreshCw,
+					classes: resuming ? 'animate-spin' : undefined
+				}}
+				on:click={resume}>{resuming ? 'Resuming' : 'Resume this run'}</Button
+			>
+		</span>
 	</div>
 {/if}
 
@@ -727,9 +746,9 @@
 {:else if !graph}
 	<div class="text-xs text-secondary p-3">
 		{#if ranTestsOnly}
-			This run selected tests alone, so it built no models. A dbt test is an assertion
-			rather than a relation, so it has no node here — the models it asserts against
-			belong to the runs that build them. Its results are in the table below.
+			This run selected tests alone, so it built no models. A dbt test is an assertion rather than a
+			relation, so it has no node here — the models it asserts against belong to the runs that build
+			them. Its results are in the table below.
 		{:else}
 			This dbt script has no models in the asset graph. A project that brings its own
 			<span class="font-mono">profiles.yml</span> without naming a

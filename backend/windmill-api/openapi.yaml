@@ -22989,6 +22989,37 @@ paths:
                 items:
                   $ref: "#/components/schemas/MaterializedPartition"
 
+  /w/{workspace}/jobs/dbt_resumable/{id}:
+    get:
+      summary: Which run a dbt retry of this job's script would resume
+      description: >
+        One failed run is saved per script per execution principal, so a
+        `dbt_command: retry` resumes that one — not necessarily the run being
+        looked at. Returns the job id the saved state holds, or null when there is
+        nothing to resume, so a run page can offer the resume only where it would
+        reach this run. Authorized through the job, like `run_progress`.
+      operationId: getDbtResumable
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          description: The job whose script and principal decide the saved failure
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: the job id a retry would resume, or null
+          content:
+            application/json:
+              schema:
+                type: string
+                format: uuid
+                nullable: true
+
   /w/{workspace}/jobs/dbt_graph/{id}:
     get:
       summary: Get the asset graph as one run saw it
