@@ -1210,9 +1210,8 @@ pub async fn run_agent(
             // `stream_options`, which not every OpenAI-compatible provider accepts, and
             // the route itself, when an Azure resource is outside the Responses API's
             // model/region matrix. Each is retried once with that part dropped.
-            // Set when this send re-routed, so the endpoint that answered is the one
-            // remembered: a rejection the fallback did not resolve says nothing about
-            // which routes the deployment serves.
+            // Set where the route is found to be absent, and read once the fallback has
+            // answered: a rejection it did not resolve says nothing about the deployment.
             let mut rerouted_by_a_route_rejection = false;
             let resp = loop {
                 let request_body = if include_usage {
