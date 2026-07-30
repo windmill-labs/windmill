@@ -1522,6 +1522,14 @@ pub async fn update_flow_status_after_job_completion_internal(
             });
             let require_args = concurrency_requires_args || has_debouncing;
             let mut tag = tag_and_concurrency_key.as_ref().and_then(|x| x.tag.clone());
+            // `$workspace` does not depend on the preprocessor's output, so it has to resolve even
+            // when nothing forced us to fetch args. Leaving it to the `$args` branch below writes a
+            // `$workspace`-only tag back verbatim, naming a queue no worker serves.
+            if let Some(t) = tag.as_ref().filter(|t| t.contains("$workspace")) {
+                let tag_ws =
+                    windmill_queue::tags::tag_workspace_id(&flow_job.workspace_id, db).await;
+                tag = Some(t.replace("$workspace", &tag_ws));
+            }
             let concurrency_key = tag_and_concurrency_key
                 .as_ref()
                 .and_then(|x| x.concurrency_key.clone());
@@ -1570,6 +1578,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     .await?;
                 }
                 if let Some(t) = tag {
+                    // `$workspace` is already resolved above; this fills in `$args`.
                     tag = Some(interpolate_args(t, &args, &flow_job.workspace_id));
                 }
             } else if concurrent_limit.is_some() {

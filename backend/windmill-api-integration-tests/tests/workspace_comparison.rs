@@ -1207,20 +1207,17 @@ async fn test_compare_workspaces_rename_visibility_ee_e2e(
 }
 
 /// Regression test for #10401. The fork -> parent ("ahead") side of the tally
-/// used to key off `workspace_settings.deploy_to`, while the parent -> fork
-/// ("behind") side keys off `workspace.parent_workspace_id`. A fork whose
-/// `deploy_to` was never set or was later cleared therefore recorded no ahead
-/// change at all, and since nothing ever re-scans `workspace_diff`, every change
-/// made in it stayed permanently absent from its "Deploy to <parent>" list.
-///
-/// The lineage is now authoritative and `deploy_to` is only the fallback for a
-/// pairing with no lineage, so both states below must tally against the parent.
+/// used to key off `workspace_settings.deploy_to` while the parent -> fork
+/// ("behind") side keyed off `workspace.parent_workspace_id`, so a fork whose
+/// `deploy_to` disagreed recorded no ahead change at all and its edits stayed
+/// permanently absent from "Deploy to <parent>". Both sides now read the
+/// lineage, which is the only key left.
 ///
 /// Gated on `private` for the same reason as the rename test above: the OSS
 /// `handle_deployment_metadata` is a no-op, so no rows would ever be written.
 #[cfg(feature = "private")]
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_fork_tally_ahead_without_deploy_to(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_fork_tally_ahead_against_parent(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
 
     let server = ApiServer::start(db.clone()).await?;
@@ -1241,8 +1238,8 @@ async fn test_fork_tally_ahead_without_deploy_to(db: Pool<Postgres>) -> anyhow::
             "{base_url}/w/test-workspace/workspaces/create_fork"
         ))
         .json(&json!({
-            "id": "wm-fork-no-deploy-to",
-            "name": "No deploy_to Fork",
+            "id": "wm-fork-tally",
+            "name": "Tally Fork",
         }))
         .send()
         .await?;
@@ -1257,7 +1254,7 @@ async fn test_fork_tally_ahead_without_deploy_to(db: Pool<Postgres>) -> anyhow::
     let deploy = async |path: &str| -> anyhow::Result<()> {
         let resp = admin
             .client()
-            .post(&format!("{base_url}/w/wm-fork-no-deploy-to/scripts/create"))
+            .post(&format!("{base_url}/w/wm-fork-tally/scripts/create"))
             .json(&json!({
                 "path": path,
                 "summary": "",
@@ -1288,7 +1285,7 @@ async fn test_fork_tally_ahead_without_deploy_to(db: Pool<Postgres>) -> anyhow::
             Ok(sqlx::query_scalar!(
                 "SELECT ahead FROM workspace_diff
                  WHERE source_workspace_id = 'test-workspace'
-                   AND fork_workspace_id = 'wm-fork-no-deploy-to'
+                   AND fork_workspace_id = 'wm-fork-tally'
                    AND kind = 'script'
                    AND path = $1",
                 path
@@ -1311,29 +1308,11 @@ async fn test_fork_tally_ahead_without_deploy_to(db: Pool<Postgres>) -> anyhow::
         Ok(ahead)
     };
 
-    // ------ A fork's default state: the settings clone sets `deploy_to` to the
-    // parent, so both candidate keys name it. The change must be counted once.
-    deploy("u/admin/with_deploy_to").await?;
+    deploy("u/admin/tallied").await?;
     assert_eq!(
-        ahead_for("u/admin/with_deploy_to").await?,
+        ahead_for("u/admin/tallied").await?,
         Some(1),
-        "deploy_to and parent_workspace_id name the same workspace here — the change must be counted once, not twice"
-    );
-
-    // ------ The reported state (#10401): a fork still linked to its parent but
-    // with no `deploy_to`. An admin can produce this from workspace settings at
-    // any time, and older forks never had it set.
-    sqlx::query!(
-        "UPDATE workspace_settings SET deploy_to = NULL WHERE workspace_id = 'wm-fork-no-deploy-to'"
-    )
-    .execute(&db)
-    .await?;
-
-    deploy("u/admin/without_deploy_to").await?;
-    assert_eq!(
-        ahead_for("u/admin/without_deploy_to").await?,
-        Some(1),
-        "a fork with no deploy_to must still record its change against its parent"
+        "a fork's change must record once against its parent"
     );
 
     Ok(())
@@ -1368,8 +1347,7 @@ async fn test_compare_workspaces_fork_only_folder_visibility(
     .execute(&db)
     .await?;
 
-    // Create fork via the API so cloning + workspace_settings.deploy_to wiring
-    // matches what production sees.
+    // Create fork via the API so the cloning and lineage wiring matches what production sees.
     let client_admin = windmill_api_client::create_client(
         &format!("http://localhost:{port}"),
         "SECRET_TOKEN".to_string(),
