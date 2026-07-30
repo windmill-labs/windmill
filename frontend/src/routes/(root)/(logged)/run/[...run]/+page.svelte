@@ -796,17 +796,8 @@
 			{#if job?.job_kind === 'script' || job?.job_kind === 'script_hub' || job?.job_kind === 'flow'}
 				<Button
 					on:click|once={async () => {
-						// The form is prefilled with the arguments this run used, which for a
-						// failed dbt run means rebuilding the whole project. Carry a flag so the
-						// form can say that resuming exists, without choosing it for the caller.
-						const hint =
-							job?.language === 'dbt' && job?.type === 'CompletedJob' && job?.success === false
-								? (viewHref.includes('?') ? '&' : '?') + 'dbt_retry_hint=true'
-								: ''
 						goto(
-							viewHref +
-								hint +
-								`#${computeSharableHash(job?.args, await getRerunTagOverride(job?.args))}`
+							viewHref + `#${computeSharableHash(job?.args, await getRerunTagOverride(job?.args))}`
 						)
 					}}
 					unifiedSize="md"

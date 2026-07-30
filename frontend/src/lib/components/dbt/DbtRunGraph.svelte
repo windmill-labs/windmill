@@ -246,13 +246,6 @@
 	// `run_results.json` the job returned.
 	let run = $derived(parseDbtRun(result))
 
-	// A selection of tests alone — `resource_type:test`, a unit test, or a tag only
-	// tests carry — builds nothing, and a test is not a relation, so the ingest
-	// keeps nodes with no asset to hang on and the graph comes back empty. The run
-	// is fine; without saying so the empty state blames the descriptor's warehouse
-	// identity, which is the one cause this is not. Both kinds, like the worker's
-	// own `retry_was_the_test_phase`: dbt spells a unit test `unit_test.<pkg>.…`.
-
 	// A failed run's obvious next action is "Run again", which prefills the
 	// arguments it just ran — rebuilding the whole project. `dbt retry` redoes the
 	// failed and skipped nodes alone, and nothing on the page says so.
@@ -286,6 +279,12 @@
 		}
 	}
 
+	// A selection of tests alone — `resource_type:test`, a unit test, or a tag only
+	// tests carry — builds nothing, and a test is not a relation, so the ingest
+	// keeps nodes with no asset to hang on and the graph comes back empty. The run
+	// is fine; without saying so the empty state blames the descriptor's warehouse
+	// identity, which is the one cause this is not. Both kinds, like the worker's
+	// own `retry_was_the_test_phase`: dbt spells a unit test `unit_test.<pkg>.…`.
 	let ranTestsOnly = $derived(
 		!!run?.nodes?.length &&
 			run.nodes.every((n) => ['test', 'unit_test'].includes(splitUniqueId(n.unique_id).kind))
