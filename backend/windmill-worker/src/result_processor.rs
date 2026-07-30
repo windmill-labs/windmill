@@ -690,43 +690,50 @@ pub async fn handle_receive_completed_job(
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> Option<Arc<MiniPulledJob>> {
     let workspace = jc.job.workspace_id.clone();
-    // The client built here drives post-completion orchestration (the next step's input
-    // transforms fetch prior step results), which outlives the finished step. The step's own
-    // token has a `SCRIPT_TOKEN_EXPIRY` lifetime, so reusing it would fail that orchestration
-    // once the step itself ran longer than the token lives; refresh it when the step is old enough.
-    let token_maybe_expired = jc
-        .duration
-        .is_some_and(|d| d as u64 >= *windmill_common::worker::SCRIPT_TOKEN_EXPIRY * 1000 / 2);
-    let token = if jc.job.is_flow_step() && token_maybe_expired {
-        // Mirror `create_token`'s label so run-on-behalf-of flows keep their end-user override.
-        let label = if jc.job.permissioned_as != format!("u/{}", jc.job.created_by)
-            && jc.job.permissioned_as != jc.job.created_by
-        {
-            format!("ephemeral-script-end-user-{}", jc.job.created_by)
-        } else {
-            "ephemeral-script".to_string()
-        };
-        match windmill_common::auth::create_token_for_owner(
-            db,
-            &jc.job.workspace_id,
+    // This client drives post-completion orchestration (the next step's input transforms fetch
+    // prior results) and outlives the finished step, so the step's own token can already be near
+    // expiry. Refresh it — but only from the server-written job_perms row, never from the
+    // completion payload's owner fields, which are untrusted on the agent-worker path.
+    let token = if jc.job.is_flow_step()
+        && windmill_common::auth::job_token_remaining_lifetime_secs(&jc.token)
+            .is_some_and(|r| r < windmill_common::auth::JOB_TOKEN_REFRESH_MARGIN_SECS)
+    {
+        let label = windmill_common::auth::ephemeral_script_token_label(
             &jc.job.permissioned_as,
-            &label,
-            *windmill_common::worker::SCRIPT_TOKEN_EXPIRY,
-            &jc.job.permissioned_as_email,
-            &jc.job.id,
-            None,
-            Some(format!(
-                "job-span-{}",
-                jc.job.flow_innermost_root_job.unwrap_or(jc.job.id)
-            )),
-        )
-        .warn_after_seconds(5)
-        .await
-        {
-            Ok(t) => t,
-            Err(e) => {
+            &jc.job.created_by,
+        );
+        match windmill_common::auth::get_job_perms(db, &jc.job.id, &jc.job.workspace_id).await {
+            Ok(Some(perms)) => windmill_common::auth::create_token_for_owner(
+                db,
+                &jc.job.workspace_id,
+                &jc.job.permissioned_as,
+                &label,
+                *windmill_common::worker::SCRIPT_TOKEN_EXPIRY,
+                &jc.job.permissioned_as_email,
+                &jc.job.id,
+                Some(perms),
+                Some(format!(
+                    "job-span-{}",
+                    jc.job.flow_innermost_root_job.unwrap_or(jc.job.id)
+                )),
+            )
+            .warn_after_seconds(5)
+            .await
+            .unwrap_or_else(|e| {
                 tracing::warn!(
                     "could not mint fresh flow-orchestration token for job {}, reusing step token: {e:#}",
+                    jc.job.id
+                );
+                jc.token.clone()
+            }),
+            // No perms row (e.g. a zombie replay after the queue row was reaped): keep the step
+            // token rather than minting an identity from untrusted payload fields.
+            Ok(None) => jc.token.clone(),
+            // A transient DB error must not silently reuse the near-expired token without a trace,
+            // or the very failure this guards against recurs invisibly.
+            Err(e) => {
+                tracing::warn!(
+                    "could not load job_perms to refresh flow-orchestration token for job {}, reusing step token: {e:#}",
                     jc.job.id
                 );
                 jc.token.clone()
