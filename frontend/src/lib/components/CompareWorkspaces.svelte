@@ -11,6 +11,7 @@
 		FileJson,
 		FlaskConical,
 		GitFork,
+		ChevronDown,
 		Loader2,
 		RefreshCw,
 		UserPlus
@@ -1202,22 +1203,48 @@
 											{/if}
 										</Badge>
 										<ArrowRight size={16} />
-										<Badge
-											color="transparent"
-											class="font-semibold"
-											title={!mergeIntoParent
-												? currentWorkspaceInfo.name
-												: parentWorkspaceInfo.name}
-										>
-											<span class="text-secondary">into:</span>
-											{#if !mergeIntoParent}
-												<GitFork size={14} />
-												<span class="text-emphasis">{currentWorkspaceInfo.id}</span>
-											{:else}
-												<Building size={14} />
-												<span class="text-emphasis">{parentWorkspaceInfo.id}</span>
-											{/if}
-										</Badge>
+										<!-- The destination doubles as the way to change it: retargeting is
+										     rare enough not to earn a control of its own, and the badge already
+										     names the thing being picked. Only in the deploy direction — the
+										     "into" of an update is this workspace, which isn't a choice. -->
+										{#if mergeIntoParent && onSelectTarget}
+											<CompareTargetPicker
+												{currentWorkspaceId}
+												targetWorkspaceId={parentWorkspaceId}
+												parentWorkspaceId={lineageParentId}
+												disabled={deploying || scanning}
+												onSelected={onSelectTarget}
+											>
+												{#snippet triggerContent()}
+													<span
+														title="Deploying into {parentWorkspaceInfo.name} — click to compare against another workspace"
+														class="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-semibold border border-transparent hover:border-gray-300 dark:hover:border-gray-600 hover:bg-surface-hover transition-colors"
+													>
+														<span class="text-secondary">into:</span>
+														<Building size={14} />
+														<span class="text-emphasis">{parentWorkspaceInfo.id}</span>
+														<ChevronDown size={12} class="text-tertiary" />
+													</span>
+												{/snippet}
+											</CompareTargetPicker>
+										{:else}
+											<Badge
+												color="transparent"
+												class="font-semibold"
+												title={!mergeIntoParent
+													? currentWorkspaceInfo.name
+													: parentWorkspaceInfo.name}
+											>
+												<span class="text-secondary">into:</span>
+												{#if !mergeIntoParent}
+													<GitFork size={14} />
+													<span class="text-emphasis">{currentWorkspaceInfo.id}</span>
+												{:else}
+													<Building size={14} />
+													<span class="text-emphasis">{parentWorkspaceInfo.id}</span>
+												{/if}
+											</Badge>
+										{/if}
 									</div>
 								{/if}
 								<div class="flex items-center gap-2 text-sm">
@@ -1233,20 +1260,11 @@
 									{/if}
 								</div>
 							</div>
-							<!-- Retargeting is rare enough to stay out of the way: a plain
-							     subtle button, and (for an arbitrary target only) the scan
-							     freshness it depends on. -->
-							<div class="flex flex-wrap gap-2 items-center">
-								{#if onSelectTarget}
-									<CompareTargetPicker
-										{currentWorkspaceId}
-										targetWorkspaceId={parentWorkspaceId}
-										parentWorkspaceId={lineageParentId}
-										disabled={deploying || scanning}
-										onSelected={onSelectTarget}
-									/>
-								{/if}
-								{#if isArbitraryTarget && fullScanAt}
+							<!-- Retargeting lives on the destination badge above. Only the scan
+							     freshness an arbitrary target depends on is surfaced here; the
+							     lineage comparison has a continuous tally and needs neither. -->
+							{#if isArbitraryTarget && fullScanAt}
+								<div class="flex flex-wrap gap-2 items-center">
 									<span class="text-2xs text-tertiary">
 										Diff computed {displayDate(fullScanAt)}
 									</span>
@@ -1260,8 +1278,8 @@
 									>
 										{scanning ? 'Computing…' : 'Recompute'}
 									</Button>
-								{/if}
-							</div>
+								</div>
+							{/if}
 						</div>
 					</div>
 				{/snippet}

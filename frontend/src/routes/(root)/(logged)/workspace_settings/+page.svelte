@@ -41,7 +41,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { clone, emptyString, encodeState, hasUnsavedChanges } from '$lib/utils'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
-	import { Slack } from 'lucide-svelte'
+	import { Slack, Target } from 'lucide-svelte'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
@@ -1409,6 +1409,25 @@
 									>
 								{/if}
 							{/if}
+						<!-- Last, and below the lineage target above: the escape hatch for a
+						     destination the lineage cannot express. -->
+						<div class="flex flex-col gap-2 max-w-2xl mt-8 pt-6 border-t">
+							<span class="text-xs font-semibold text-emphasis">Deploy into another workspace</span>
+							<p class="text-sm text-secondary">
+								Promotion normally follows the lineage, from this workspace into its parent. For a
+								one-off migration you can instead point the merge UI at any workspace you administer;
+								it computes a full diff over both workspaces and deploys the items you pick, one way.
+							</p>
+							<div>
+								<Button
+									variant="default"
+									startIcon={{ icon: Target }}
+									onclick={() => goto(`${base}/forks/compare?mode=fork`)}
+								>
+									Merge into another workspace
+								</Button>
+							</div>
+						</div>
 						{:else if tab == 'rulesets'}
 							<SettingsPageHeader
 								title="Workspace Protection Rulesets"

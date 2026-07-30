@@ -15,6 +15,10 @@
 		parentWorkspaceId?: string
 		disabled?: boolean
 		onSelected: (target: string) => void
+		/** Replaces the default "Change target" button. Lets a caller that already
+		 * names the destination on screen turn that into the trigger, rather than
+		 * repeating it in a button beside it. */
+		triggerContent?: import('svelte').Snippet
 	}
 
 	let {
@@ -22,7 +26,8 @@
 		targetWorkspaceId,
 		parentWorkspaceId,
 		disabled = false,
-		onSelected
+		onSelected,
+		triggerContent
 	}: Props = $props()
 
 	let picked = $state<string | undefined>(undefined)
@@ -51,16 +56,20 @@
 	contentClasses="p-4"
 >
 	{#snippet trigger()}
-		<Button
-			variant="subtle"
-			unifiedSize="xs"
-			nonCaptureEvent
-			{disabled}
-			startIcon={{ icon: Target }}
-			title="Compare against a workspace other than {parentWorkspaceId ?? 'the default target'}"
-		>
-			Change target
-		</Button>
+		{#if triggerContent}
+			{@render triggerContent()}
+		{:else}
+			<Button
+				variant="subtle"
+				unifiedSize="xs"
+				nonCaptureEvent
+				{disabled}
+				startIcon={{ icon: Target }}
+				title="Compare against a workspace other than {parentWorkspaceId ?? 'the default target'}"
+			>
+				Change target
+			</Button>
+		{/if}
 	{/snippet}
 	{#snippet content({ close })}
 		<div class="flex flex-col gap-3 w-80">
