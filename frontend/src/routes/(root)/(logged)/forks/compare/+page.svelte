@@ -205,16 +205,24 @@
 		})
 	})
 
+	// Several requests can be in flight at once — a retarget, a navigation, and the
+	// post-deploy catch-up polls all issue their own. Only the most recently issued
+	// may land: an older one carries the previous target's comparison, or an error
+	// that has nothing to do with the pair now on screen.
+	let comparisonReq = 0
 	async function checkForChanges() {
 		if (!currentWorkspaceId || !compareTargetId) {
 			return
 		}
+		const seq = ++comparisonReq
 
 		try {
 			const result = await fetchWorkspaceComparison(compareTargetId, currentWorkspaceId)
-
+			if (seq !== comparisonReq) return
 			comparison = result
+			comparisonError = undefined
 		} catch (e: any) {
+			if (seq !== comparisonReq) return
 			comparisonError = e?.body ?? e?.message ?? String(e)
 			console.error('Failed to compare workspaces:', e)
 		}

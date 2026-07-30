@@ -27,9 +27,12 @@
 
 	let picked = $state<string | undefined>(undefined)
 
+	// A direct child (fork or dev workspace) is excluded: the pair is a lineage pair,
+	// which the scan refuses, so it would offer a "Compute diff" that can only fail.
+	// The lineage parent stays — picking it returns to the tallied comparison.
 	let candidates = $derived(
 		$userWorkspaces
-			.filter((w) => w.id !== currentWorkspaceId)
+			.filter((w) => w.id !== currentWorkspaceId && w.parent_workspace_id !== currentWorkspaceId)
 			.map((w) => ({
 				label:
 					w.id === parentWorkspaceId

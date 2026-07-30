@@ -1926,6 +1926,17 @@ async fn test_full_diff_scan_against_arbitrary_workspace(db: Pool<Postgres>) -> 
     .execute(&db)
     .await?;
 
+    // The same migration under a different name on each side: one logical item, two
+    // candidate paths, which the scan must collapse.
+    sqlx::query!(
+        "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up)
+         VALUES
+         ('test-workspace', 'dt', 20260101000001, 'renamed_here', 'ALTER TABLE t ADD COLUMN a int'),
+         ('other-workspace', 'dt', 20260101000001, 'named_there', 'ALTER TABLE t ADD COLUMN a int')"
+    )
+    .execute(&db)
+    .await?;
+
     let compare_url = format!("{base_url}/w/other-workspace/workspaces/compare/test-workspace");
 
     // Before any scan: no candidate set, so no diffs — and `full_scan_at` says so.
@@ -1979,8 +1990,12 @@ async fn test_full_diff_scan_against_arbitrary_workspace(db: Pool<Postgres>) -> 
     paths.sort();
     assert_eq!(
         paths,
-        vec!["f/shared/differs", "f/shared/only_here"],
-        "the scan keeps only what differs, dropping the identical script: {after}"
+        vec![
+            "dt/20260101000001_renamed_here",
+            "f/shared/differs",
+            "f/shared/only_here"
+        ],
+        "the scan keeps only what differs, drops the identical script, and collapses the renamed migration to this workspace's path: {after}"
     );
     for diff in after["diffs"].as_array().unwrap() {
         assert_eq!(

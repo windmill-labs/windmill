@@ -9633,7 +9633,25 @@ async fn seed_full_diff_scan(
     }
 
     let mut candidates = list_all_item_keys(&db, &w_id).await?;
-    candidates.extend(list_all_item_keys(&db, &target_workspace_id).await?);
+    let target_items = list_all_item_keys(&db, &target_workspace_id).await?;
+
+    // A data table migration keeps its identity across a rename, so the same
+    // `(datatable, timestamp)` can carry a different name on each side — one logical
+    // item under two paths. The comparison matches on `(datatable, timestamp)`, so
+    // seeding both would list and deploy it twice. Keep this workspace's path: it is
+    // the version a deploy writes.
+    let own_migrations: HashSet<(String, i64)> = candidates
+        .iter()
+        .filter(|(kind, _)| kind == "datatable_migration")
+        .filter_map(|(_, path)| {
+            crate::datatable_migrations::parse_datatable_migration_diff_path(path)
+        })
+        .collect();
+    candidates.extend(target_items.into_iter().filter(|(kind, path)| {
+        kind != "datatable_migration"
+            || !crate::datatable_migrations::parse_datatable_migration_diff_path(path)
+                .is_some_and(|key| own_migrations.contains(&key))
+    }));
     candidates.sort();
     candidates.dedup();
 
@@ -10517,7 +10535,6 @@ const TRIGGER_OR_SCHEDULE_TABLES: &[&str] = &[
     "nats_trigger",
     "postgres_trigger",
     "mqtt_trigger",
-    "amqp_trigger",
     "sqs_trigger",
     "gcp_trigger",
     "azure_trigger",

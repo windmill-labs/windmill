@@ -1204,7 +1204,7 @@
 										unifiedSize="xs"
 										startIcon={{ icon: RefreshCw }}
 										disabled={deploying || scanning}
-										title="Re-enumerate every item on both sides. Needed to pick up items created since the last scan."
+										title="Re-enumerate every item on both sides. Needed to pick up anything created or changed since the last scan."
 										onClick={() => onScan?.()}
 									>
 										{scanning ? 'Computing…' : 'Recompute'}
@@ -1295,7 +1295,8 @@
 					{#if isArbitraryTarget && !awaitingScan}
 						<Alert title="One-way deploy outside the lineage" type="warning" size="xs" class="my-2">
 							Items are compared as of the last scan, and can only be sent from this workspace into
-							{parentWorkspaceId}. Recompute the diff to pick up items created on either side since.
+							{parentWorkspaceId}. Anything created or changed on either side since is missing from
+							the list until you recompute.
 						</Alert>
 					{/if}
 					{#if draftCount > 0}

@@ -1399,7 +1399,7 @@ async fn generate_initial_datatable_migration(
 
 /// A datatable migration diff item has path `<datatable>/<timestamp>_<name>`.
 /// Parse out the (datatable, timestamp) needed to look it up.
-fn parse_datatable_migration_diff_path(path: &str) -> Option<(String, i64)> {
+pub(crate) fn parse_datatable_migration_diff_path(path: &str) -> Option<(String, i64)> {
     let (datatable, file) = path.split_once('/')?;
     let ts_str: String = file.chars().take_while(|c| c.is_ascii_digit()).collect();
     let timestamp = ts_str.parse::<i64>().ok()?;
