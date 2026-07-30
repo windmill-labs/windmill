@@ -294,10 +294,6 @@ fn s(v: &Value, k: &str) -> Option<String> {
         .filter(|x| !x.is_empty())
 }
 
-fn n(v: &Value, k: &str) -> Option<i64> {
-    v.get(k).and_then(|x| x.as_i64())
-}
-
 /// A resource's port, which may arrive as a JSON number or as a string —
 /// resources are user-supplied JSON and nothing coerces the field. Reading only
 /// `as_i64` sent `"5433"` to the adapter default, which connects to whatever

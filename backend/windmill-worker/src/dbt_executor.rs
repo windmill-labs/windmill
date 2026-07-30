@@ -736,14 +736,15 @@ async fn deploying_script_hash(db: &sqlx::Pool<sqlx::Postgres>, job_id: &Uuid) -
 /// and, since the reasons differ in WHOSE graph the result is, what becomes of
 /// it.
 ///
-/// A model set the CALLER chose is a one-off: it is stored under the job id so
-/// the run page shows what it built, and the script's ownership is left alone,
-/// or an override's schemas and aliases would stand as the script's until the
-/// next deploy. One the PROJECT decides — a descriptor dynamic by construction,
-/// a profile that moved — is what every later run of this version sees too, so
-/// it is published as what the script owns. Publishing is also what ENDS a
-/// drift: the check reads back the published root, so a run that detected a
-/// move and did not republish leaves the next run detecting the same move.
+/// A model set this RUN decides — a caller's override, or a descriptor dynamic by
+/// construction — is stored under the job id so the run page shows what it built,
+/// leaving the script's ownership alone: those schemas and aliases would otherwise
+/// stand as the script's until the next deploy.
+///
+/// A moved PROFILE is the one that republishes, because every later run of this
+/// version resolves there too. Publishing is also what ENDS a drift: the check
+/// reads back the published root, so a run that saw a move and did not republish
+/// leaves the next one seeing the same move.
 #[derive(Clone, Copy, Default)]
 pub struct GraphRefresh {
     /// This run's models are not the deployed descriptor's: a `{{ }}`
@@ -2923,8 +2924,10 @@ async fn resolve_selection(
     // does. Placeholders that only a run can fill are dropped rather than
     // failing the deploy.
     add_vars(&mut cmd, descriptor, inv)?;
-    // The types spelled out rather than `all`, which dbt-core 2.x rejects.
-    for t in ["model", "source", "seed", "snapshot", "test"] {
+    // Spelled out rather than `all`, which dbt-core 2.x rejects — and `unit_test`
+    // is its own type, so omitting it resolves a unit-test selection to the empty
+    // set. All three engines accept every value here.
+    for t in ["model", "source", "seed", "snapshot", "test", "unit_test"] {
         cmd.args(["--resource-type", t]);
     }
     cmd.args(["--output", "json", "--quiet"]);
@@ -3532,6 +3535,12 @@ async fn restore_from_db(
         // state is not exposed there.
         return Err(no_state);
     };
+    // The principal IS the boundary, and deliberately: a retry resumes what last
+    // ran as this identity, not what this caller ran. Adding a caller check needs an
+    // identity the worker does not have — `created_by` is a display name a token
+    // label supplies — and resuming grants nothing a caller entitled to run the
+    // script lacks. What it does add, the resumed arguments echoed in the result,
+    // and the one sharing shape where that crosses a line, are in docs/dbt-runtime.md.
     let Some(row) = sqlx::query!(
         "SELECT identity, args, run_results, job_id FROM dbt_run_state
          WHERE workspace_id = $1 AND script_path = $2 AND permissioned_as = $3",
