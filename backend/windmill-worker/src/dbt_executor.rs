@@ -203,7 +203,10 @@ pub(crate) async fn handle_dbt_job(
     // needs no database, while an agent worker — which has none — installs
     // packages like any other. Retention that depends on the connection is not
     // retention, the same reason the graph sweep runs from every dbt job.
-    tokio::spawn(prune_package_cache());
+    tokio::spawn(async {
+        prune_package_cache().await;
+        prune_stale_state_dirs().await;
+    });
     let prepared = prepare_project(
         &descriptor,
         inner_content,
@@ -1302,7 +1305,22 @@ async fn install_packages(
     let target = p
         .project_dir
         .join(packages_install_path(&p.project_dir).await);
-    if cached.exists() {
+    // A project with no checked-in `package-lock.yml` asked dbt to RESOLVE its
+    // ranges and mutable git revisions, and dbt would do that on every run. The
+    // cache would pin the first resolution for as long as the project is used —
+    // each hit refreshes the marker — so an unlocked tree is treated as a miss
+    // once it is a day old and `dbt deps` resolves again. A locked project keeps
+    // its tree indefinitely: the lock is in the key, and pinning is what it asked
+    // for.
+    let unlocked_and_stale = !p.project_dir.join("package-lock.yml").exists()
+        && tokio::fs::metadata(last_used_marker(&cached))
+            .await
+            .or(tokio::fs::metadata(&cached).await)
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| std::time::SystemTime::now().duration_since(t).ok())
+            .is_some_and(|age| age > std::time::Duration::from_secs(24 * 60 * 60));
+    if cached.exists() && !unlocked_and_stale {
         // BEFORE the copy, not after. The tree this matters for is the one at the
         // retention edge, where the first use in a fortnight is also when the
         // sweep would take it: marked afterwards, the source looks stale for the
@@ -3225,15 +3243,18 @@ async fn invalidate_run_state(
             tracing::warn!("dbt: could not clear retry state for {script_path}: {e:#}")
         });
     }
-    if let Err(e) = tokio::fs::remove_file(
-        state_dir(w_id, script_path, permissioned_as).join(CURRENT_GENERATION),
-    )
-    .await
-    {
+    let dir = state_dir(w_id, script_path, permissioned_as);
+    if let Err(e) = tokio::fs::remove_file(dir.join(CURRENT_GENERATION)).await {
         if e.kind() != std::io::ErrorKind::NotFound {
             tracing::warn!("dbt: could not drop local retry state for {script_path}: {e:#}");
         }
     }
+    // The generations too, not only the pointer that named one. `prune_old_generations`
+    // otherwise runs at the tail of a successful SAVE, so a script whose last run
+    // went green — which forgets its state here — stranded the failed run's
+    // directory, and each holds a `manifest.json` that grows with the project.
+    // Keeps nothing, and still honours the grace window a retry mid-copy needs.
+    prune_old_generations(&dir, "").await;
 }
 
 async fn save_run_state(
@@ -3409,6 +3430,42 @@ async fn save_run_state(
     }
     prune_old_generations(&dir, &generation).await;
     Ok(())
+}
+
+/// How long a state directory nobody has written to is kept. The generations
+/// inside one are bounded by `GENERATION_KEEP`, but the DIRECTORIES are per
+/// (script, principal) and only that script's own runs sweep them — so a script
+/// that stops running, or a principal who stops running it, leaves its last
+/// generations (a `manifest.json` each) behind for good.
+const STATE_DIR_RETENTION_DAYS: u64 = 30;
+
+/// Reclaim the retry state of scripts and principals that have stopped running.
+///
+/// Keyed by a digest of (workspace, path, principal), so this cannot tell which
+/// script a directory belongs to and reclaims by age alone — the same shape the
+/// package sweep uses, and for the same reason: retention that runs only for the
+/// script being run is not retention for the ones that are not.
+async fn prune_stale_state_dirs() {
+    let root = PathBuf::from(&*DBT_CACHE_DIR).join("state");
+    let Ok(mut entries) = tokio::fs::read_dir(&root).await else {
+        return;
+    };
+    let now = std::time::SystemTime::now();
+    let max_age = std::time::Duration::from_secs(STATE_DIR_RETENTION_DAYS * 24 * 60 * 60);
+    while let Ok(Some(e)) = entries.next_entry().await {
+        // The POINTER's mtime: a save rewrites it, while the directory's own moves
+        // whenever a generation is added or pruned inside it.
+        let last = match tokio::fs::metadata(e.path().join(CURRENT_GENERATION)).await {
+            Ok(m) => m.modified().ok(),
+            Err(_) => e.metadata().await.ok().and_then(|m| m.modified().ok()),
+        };
+        if last
+            .and_then(|t| now.duration_since(t).ok())
+            .is_some_and(|age| age > max_age)
+        {
+            tokio::fs::remove_dir_all(e.path()).await.ok();
+        }
+    }
 }
 
 /// A cache hit's timestamp, kept as a SIBLING of the tree it dates so the restore

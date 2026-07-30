@@ -52,23 +52,25 @@ export function parseDbtRun(result: any): DbtRun | undefined {
 	if (direct) return direct
 	const msg = result?.error?.message
 	if (typeof msg !== 'string') return undefined
-	// Every `{` is tried, not just the first. The payload is appended AFTER the
-	// error text, and dbt's own errors are full of braces — a Jinja template, a
-	// compiled SQL fragment, an adapter's JSON — so anchoring on the first one
-	// parses the error message instead and the whole run summary is lost on
-	// exactly the failures worth reading. Bounded, because this is a UI path and
-	// the message is the project's to shape.
-	let from = 0
+	// From the LAST `{` backwards. The payload is appended after the error text,
+	// and dbt's own errors are full of braces — a Jinja template, a compiled SQL
+	// fragment, an adapter's JSON — so anchoring on the first one parses the error
+	// message instead and loses the summary on exactly the failures worth reading.
+	// Backwards finds it on the first or second try, where forwards parses the
+	// whole remaining message once per brace in the error. Bounded, because this
+	// is a UI path and the message is the project's to shape.
+	let end = msg.length
 	for (let tries = 0; tries < 200; tries++) {
-		const start = msg.indexOf('{', from)
+		const start = msg.lastIndexOf('{', end)
 		if (start === -1) return undefined
 		try {
 			const run = asDbtRun(JSON.parse(msg.slice(start)))
 			if (run) return run
 		} catch {
-			// Not the payload; the next brace may be.
+			// Not the payload's opening brace; an earlier one may be.
 		}
-		from = start + 1
+		end = start - 1
+		if (end < 0) return undefined
 	}
 	return undefined
 }

@@ -251,6 +251,12 @@ pub async fn prune_dbt_run_graphs(
     // a re-ingest by a late-finishing job must not promote an old version.
     // Scoped to one (workspace, path), which `index_script_on_path_created_at`
     // serves directly.
+    // In ONE transaction with the orphan sweep below. Separately, a propagated
+    // error or a worker restart in the gap leaves graph rows whose marker is
+    // already gone — and since the sweep only runs when a marker went, every
+    // later call computes `retired == 0` and skips it, so those rows are
+    // unreachable for good. Committed together, the gap does not exist.
+    let mut tx = db.begin().await?;
     let retired = sqlx::query!(
         "WITH keep AS (
            SELECT hash FROM script
@@ -265,12 +271,12 @@ pub async fn prune_dbt_run_graphs(
         workspace_id,
         script_path,
     )
-    .execute(db)
+    .execute(&mut *tx)
     .await?
     .rows_affected();
-    // Only when a marker actually went. These two are the complement of every
-    // partial index here — all of them `WHERE job_id <> DEPLOYED` — so they are
-    // sequential scans, and past the keep-count is rare.
+    // Only when a marker actually went: these two are the complement of every
+    // partial index here — all of them `WHERE job_id <> DEPLOYED` — and past the
+    // keep-count is rare, so the ordinary run should pay for neither.
     if retired > 0 {
         for table in ["dbt_node", "dbt_edge"] {
             sqlx::query(&format!(
@@ -285,10 +291,11 @@ pub async fn prune_dbt_run_graphs(
             ))
             .bind(workspace_id)
             .bind(script_path)
-            .execute(db)
+            .execute(&mut *tx)
             .await?;
         }
     }
+    tx.commit().await?;
     Ok(())
 }
 
@@ -928,7 +935,8 @@ pub async fn move_dbt_run_state(
 /// Drop the saved retry state, but only once NO live version of the path is
 /// left.
 ///
-/// `dbt_run_state`'s key is the path — there is one saved run per script, not
+/// `dbt_run_state`'s key is the path and the principal — one saved run per script
+/// per identity it executes as, not
 /// one per version — so archiving or deleting a single version must not take it
 /// with them: the live version's `dbt retry` would be refused and the
 /// partial-failure resume lost. It does not need to be version-scoped either,

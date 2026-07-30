@@ -912,6 +912,22 @@ pub async fn create_token_internal(
     authed: &ApiAuthed,
     token_config: NewToken,
 ) -> Result<String> {
+    // Here rather than on the routes: this is the one path every caller-supplied
+    // label reaches, so the invariant sits where someone would break it by adding
+    // another. The server's own minting does not come through here — a job's token
+    // is `create_token_for_owner` — and the labels its callers do choose
+    // (`embed_app:`, `ephemeral-webhook-`) are not reserved.
+    if token_config
+        .label
+        .as_deref()
+        .is_some_and(crate::is_reserved_token_label)
+    {
+        return Err(Error::BadRequest(format!(
+            "`{}` is a reserved token label: Windmill assigns it to the token it issues for a \
+             delegated job, and it decides which user that token acts as. Choose another label.",
+            token_config.label.unwrap_or_default()
+        )));
+    }
     use tracing::Instrument;
     use windmill_audit::{audit_oss::audit_log, ActionKind};
     use windmill_common::{
