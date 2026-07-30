@@ -196,7 +196,8 @@ impl AuthCache {
                             tracing::error!("JWT auth error: workspace_id mismatch");
                             return None;
                         }
-                        let username_override = username_override_from_label(claims.label);
+                        let (username_override, username_override_is_token_label) =
+                            username_override_from_label(claims.label);
 
                         let authed = ApiAuthed {
                             email: claims.email,
@@ -211,6 +212,7 @@ impl AuthCache {
                             // WM_TOKEN) keeps full user privileges as before.
                             scopes: claims.scopes,
                             username_override,
+                            username_override_is_token_label,
                             token_prefix: claims.audit_span,
                             read_only: false,
                         };
@@ -265,7 +267,8 @@ impl AuthCache {
                             (Some(owner), Some(email), super_admin, _, label, read_only)
                                 if w_id.is_some() =>
                             {
-                                let username_override = username_override_from_label(label);
+                                let (username_override, username_override_is_token_label) =
+                                    username_override_from_label(label);
                                 if let Some((prefix, name)) = owner.split_once('/') {
                                     if prefix == "u" {
                                         let lookup = if super_admin {
@@ -308,6 +311,7 @@ impl AuthCache {
                                                 folders,
                                                 scopes: None,
                                                 username_override,
+                                                username_override_is_token_label,
                                                 token_prefix: Some(safe_token_prefix(token)),
                                                 read_only,
                                             })
@@ -358,6 +362,7 @@ impl AuthCache {
                                                 folders,
                                                 scopes: None,
                                                 username_override,
+                                                username_override_is_token_label,
                                                 token_prefix: Some(safe_token_prefix(token)),
                                                 read_only,
                                             })
@@ -386,7 +391,8 @@ impl AuthCache {
                                 }
                             }
                             (_, Some(email), super_admin, scopes, label, read_only) => {
-                                let username_override = username_override_from_label(label);
+                                let (username_override, username_override_is_token_label) =
+                                    username_override_from_label(label);
                                 if w_id.is_some() {
                                     let row_o = sqlx::query!(
                                         "SELECT username, is_admin, operator FROM usr WHERE
@@ -429,6 +435,7 @@ impl AuthCache {
                                                 folders,
                                                 scopes,
                                                 username_override,
+                                                username_override_is_token_label,
                                                 token_prefix: Some(safe_token_prefix(token)),
                                                 read_only,
                                             })
@@ -450,6 +457,7 @@ impl AuthCache {
                                                     folders: vec![],
                                                     scopes,
                                                     username_override,
+                                                    username_override_is_token_label,
                                                     token_prefix: Some(safe_token_prefix(token)),
                                                     read_only,
                                                 }),
@@ -473,6 +481,7 @@ impl AuthCache {
                                         folders: Vec::new(),
                                         scopes,
                                         username_override,
+                                        username_override_is_token_label,
                                         token_prefix: Some(safe_token_prefix(token)),
                                         read_only,
                                     })
@@ -508,6 +517,7 @@ impl AuthCache {
                         folders: Vec::new(),
                         scopes: None,
                         username_override: None,
+                        username_override_is_token_label: false,
                         token_prefix: Some(safe_token_prefix(token)),
                         read_only: false,
                     };
@@ -715,6 +725,7 @@ fn no_auth_admin_authed() -> ApiAuthed {
         folders: Vec::new(),
         scopes: None,
         username_override: None,
+        username_override_is_token_label: false,
         token_prefix: None,
         read_only: false,
     }
@@ -835,7 +846,11 @@ pub async fn resolve_opt_job_authed(
     Err((Error::NotAuthorized("Unauthorized".to_string()), parts))
 }
 
-pub(crate) fn username_override_from_label(label: Option<String>) -> Option<String> {
+/// Returns the override and whether it is a generic user-token label. Only the last arm
+/// yields such a label; every other arm names the entity that fired the request. The two are
+/// not distinguishable by value — the `ephemeral-script-end-user-` arm forwards a
+/// `created_by` verbatim, and that may itself be a `label-*` string.
+pub(crate) fn username_override_from_label(label: Option<String>) -> (Option<String>, bool) {
     match label {
         Some(label)
             if label.starts_with("ephemeral-webhook-")
@@ -844,18 +859,22 @@ pub(crate) fn username_override_from_label(label: Option<String>) -> Option<Stri
                 || label.starts_with("email-")
                 || label.starts_with("ws-") =>
         {
-            Some(label)
+            (Some(label), false)
         }
-        Some(label) if label.starts_with("ephemeral-script-end-user-") => Some(
-            label
-                .trim_start_matches("ephemeral-script-end-user-")
-                .to_string(),
+        Some(label) if label.starts_with("ephemeral-script-end-user-") => (
+            Some(
+                label
+                    .trim_start_matches("ephemeral-script-end-user-")
+                    .to_string(),
+            ),
+            false,
         ),
-        Some(label) if label == "Ephemeral lsp token" => Some("lsp".to_string()),
-        Some(label) if label != "ephemeral-script" && label != "session" && !label.is_empty() => {
-            Some(format!("{}{label}", crate::GENERIC_TOKEN_LABEL_PREFIX))
-        }
-        _ => None,
+        Some(label) if label == "Ephemeral lsp token" => (Some("lsp".to_string()), false),
+        Some(label) if label != "ephemeral-script" && label != "session" && !label.is_empty() => (
+            Some(format!("{}{label}", crate::GENERIC_TOKEN_LABEL_PREFIX)),
+            true,
+        ),
+        _ => (None, false),
     }
 }
 

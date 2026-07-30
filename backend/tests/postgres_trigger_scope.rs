@@ -20,6 +20,7 @@ fn scoped_authed(scopes: Vec<&str>) -> ApiAuthed {
         folders: vec![],
         scopes: Some(scopes.into_iter().map(str::to_string).collect()),
         username_override: None,
+        username_override_is_token_label: false,
         token_prefix: None,
         read_only: false,
     }

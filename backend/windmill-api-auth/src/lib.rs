@@ -37,11 +37,9 @@ pub use auth::{
 
 // ------------ ApiAuthed & OptJobAuthed types ------------
 
-/// Prefix `username_override_from_label` puts on the label of a generic user token. Unlike
-/// the trigger-token overrides it sits next to, such a label is arbitrary user-controlled
-/// text naming no principal, so `display_username` skips it. The override itself must keep
-/// this form: `require_job_read_access` matches it against `created_by` to let a token
-/// re-read the jobs it launched.
+/// Prefix `username_override_from_label` puts on the label of a generic user token. The
+/// override keeps this form even though `display_username` skips it: `require_job_read_access`
+/// matches it against `created_by` to let a token re-read the jobs it launched.
 pub const GENERIC_TOKEN_LABEL_PREFIX: &str = "label-";
 
 #[derive(Default, Clone, Debug)]
@@ -61,6 +59,11 @@ pub struct ApiAuthed {
     pub folders: Vec<(String, bool, bool)>,
     pub scopes: Option<Vec<String>>,
     pub username_override: Option<String>,
+    /// Whether `username_override` is a generic user-token label rather than a name that
+    /// identifies the requester. It cannot be recovered from the value: the ephemeral
+    /// end-user override passes a `created_by` through verbatim, and that may itself be a
+    /// `label-*` string. Only `username_override_from_label` sets it.
+    pub username_override_is_token_label: bool,
     pub token_prefix: Option<String>,
     pub read_only: bool,
 }
@@ -85,7 +88,7 @@ impl ApiAuthed {
     /// stays traceable even when `permissioned_as` is an on-behalf-of identity.
     pub fn display_username(&self) -> &str {
         match self.username_override.as_deref() {
-            Some(o) if !o.starts_with(GENERIC_TOKEN_LABEL_PREFIX) => o,
+            Some(o) if !self.username_override_is_token_label => o,
             _ => &self.username,
         }
     }
@@ -117,6 +120,7 @@ impl From<Authed> for ApiAuthed {
             folders: value.folders,
             scopes: value.scopes,
             username_override: None,
+            username_override_is_token_label: false,
             token_prefix: value.token_prefix,
             read_only: false,
         }
@@ -865,7 +869,9 @@ pub async fn fetch_api_authed_from_permissioned_as(
                 groups: authed.groups,
                 folders: authed.folders,
                 scopes: authed.scopes,
+                // Callers pass a trigger/app identity here, never a generic token label.
                 username_override: None,
+                username_override_is_token_label: false,
                 token_prefix: authed.token_prefix,
                 read_only: false,
             };
@@ -1213,10 +1219,15 @@ mod tests {
     /// `permissioned_as` is an on-behalf-of identity that also takes the `username` slot.
     #[test]
     fn generic_token_label_credits_the_token_owner() {
-        let owner_of = |label: &str| ApiAuthed {
-            username: "alice".into(),
-            username_override: auth::username_override_from_label(Some(label.to_string())),
-            ..Default::default()
+        let owner_of = |label: &str| {
+            let (username_override, username_override_is_token_label) =
+                auth::username_override_from_label(Some(label.to_string()));
+            ApiAuthed {
+                username: "alice".into(),
+                username_override,
+                username_override_is_token_label,
+                ..Default::default()
+            }
         };
 
         // Arbitrary user-chosen labels, and the auto-generated MCP OAuth one.
@@ -1234,6 +1245,14 @@ mod tests {
         assert_eq!(
             owner_of("ephemeral-script-end-user-enduser42").display_username(),
             "enduser42"
+        );
+
+        // The end-user token forwards a `created_by` verbatim, and `created_by` is not
+        // constrained to a username — a job launched before the owner was credited still
+        // carries `label-*`. That is an end user, not this token's label, so it stands.
+        assert_eq!(
+            owner_of("ephemeral-script-end-user-label-alice").display_username(),
+            "label-alice"
         );
     }
 

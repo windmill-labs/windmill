@@ -24,6 +24,12 @@
 					<span class="font-semibold text-xs text-emphasis">ID</span>
 					<span class="text-xs">{log.id}</span>
 				</div>
+				{#if log.span}
+					<div class="flex flex-col gap-1">
+						<span class="font-semibold text-xs text-emphasis">Token prefix</span>
+						<span class="text-xs break-all">{log.span}</span>
+					</div>
+				{/if}
 				<div class="flex flex-col gap-1">
 					<span class="font-semibold text-xs text-emphasis">Parameters</span>
 					<div class="text-xs p-2 bg-surface-secondary rounded-md">
