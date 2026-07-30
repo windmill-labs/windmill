@@ -2126,9 +2126,7 @@ fn spawn_progress_reporter(
     Some(tokio::spawn(async move {
         use tokio::io::{AsyncReadExt, AsyncSeekExt};
         let mut offset = 0u64;
-        // A tick can land mid-write, leaving a trailing partial line; hold it
-        // over rather than dropping the event it belongs to.
-        let mut carry = String::new();
+        let mut tail = LogTail::default();
         loop {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             let Ok(mut f) = tokio::fs::File::open(&log_file).await else {
@@ -2140,7 +2138,7 @@ fn spawn_progress_reporter(
             let len = f.metadata().await.map(|m| m.len()).unwrap_or(0);
             if len < offset {
                 offset = 0;
-                carry.clear();
+                tail = LogTail::default();
             }
             if len == offset {
                 continue;
@@ -2150,18 +2148,21 @@ fn spawn_progress_reporter(
             if f.seek(std::io::SeekFrom::Start(offset)).await.is_err() {
                 continue;
             }
+            // BOUNDED, and heap-allocated: this reader runs in the worker
+            // process, outside the jailed child's memory limit, so reading a
+            // whole tail a macro can make arbitrarily large would take down
+            // every job on the worker. What is left waits for the next tick.
             let mut buf = Vec::new();
-            if f.read_to_end(&mut buf).await.is_err() {
+            if (&mut f)
+                .take(LOG_TICK_MAX_BYTES)
+                .read_to_end(&mut buf)
+                .await
+                .is_err()
+            {
                 continue;
             }
             offset += buf.len() as u64;
-            // Append BEFORE looking for the last newline: a line spanning three
-            // reads would otherwise have its middle fragment replace the first,
-            // and the reassembled line would be invalid JSON.
-            carry.push_str(&String::from_utf8_lossy(&buf));
-            let complete_upto = carry.rfind('\n').map(|i| i + 1).unwrap_or(0);
-            let chunk = carry[..complete_upto].to_string();
-            carry = carry[complete_upto..].to_string();
+            let chunk = tail.push(&String::from_utf8_lossy(&buf));
             for line in chunk.lines() {
                 let Some(ev) = parse_node_event(line, &resource_path, default_database.as_deref())
                 else {
@@ -2193,6 +2194,52 @@ fn spawn_progress_reporter(
             }
         }
     }))
+}
+
+/// How much of dbt's log one tick of the tailer takes, and how long one event
+/// may be. Both bound what the WORKER process holds: the reader lives there,
+/// not in the jailed child, and a macro can print anything into a log line.
+const LOG_TICK_MAX_BYTES: u64 = 1 << 20;
+const LOG_LINE_MAX_BYTES: usize = 256 * 1024;
+
+/// Complete lines out of a log read in chunks.
+///
+/// A tick can land mid-write, leaving a trailing partial line; it is held over
+/// rather than dropping the event it belongs to — unless it grows past
+/// `LOG_LINE_MAX_BYTES`, which no node event does, and then it is discarded
+/// through its next newline so the events after it still arrive.
+#[derive(Default)]
+struct LogTail {
+    carry: String,
+    /// Inside an over-long line: everything up to its end is dropped.
+    skipping: bool,
+}
+
+impl LogTail {
+    fn push(&mut self, chunk: &str) -> String {
+        if self.skipping {
+            match chunk.find('\n') {
+                Some(i) => {
+                    self.skipping = false;
+                    self.carry.push_str(&chunk[i + 1..]);
+                }
+                None => return String::new(),
+            }
+        } else {
+            // Appended BEFORE looking for the last newline: a line spanning
+            // three reads would otherwise have its middle fragment replace the
+            // first, and the reassembled line would be invalid JSON.
+            self.carry.push_str(chunk);
+        }
+        let complete_upto = self.carry.rfind('\n').map(|i| i + 1).unwrap_or(0);
+        let complete = self.carry[..complete_upto].to_string();
+        self.carry.drain(..complete_upto);
+        if self.carry.len() > LOG_LINE_MAX_BYTES {
+            self.carry.clear();
+            self.skipping = true;
+        }
+        complete
+    }
 }
 
 /// One `node_info`-carrying dbt log event turned into the materialization
@@ -4924,6 +4971,32 @@ mod tests {
             !dir.join(CURRENT_GENERATION).exists(),
             "the pointer a retry reads must be gone"
         );
+    }
+
+    /// The tailer runs in the WORKER process, outside the jailed child's memory
+    /// limit, and a dbt macro decides how long a log line is. An unbounded line
+    /// must be dropped rather than held, and the events after it must still
+    /// arrive — a tailer that stops reporting is a run with a blank graph.
+    #[test]
+    fn an_oversized_log_line_is_dropped_without_stopping_the_tailer() {
+        let mut tail = LogTail::default();
+        let event = |name: &str| format!(r#"{{"info":{{"name":"{name}"}}}}"#);
+
+        // A line split across reads is reassembled, not dropped.
+        assert_eq!(tail.push("{\"a\":1"), "");
+        assert_eq!(tail.push(",\"b\":2}\n"), "{\"a\":1,\"b\":2}\n");
+
+        // One that never ends is discarded, in bounded memory, ...
+        let huge = "x".repeat(LOG_LINE_MAX_BYTES / 2 + 1);
+        assert_eq!(tail.push(&huge), "");
+        assert_eq!(tail.push(&huge), "");
+        assert!(tail.carry.is_empty(), "the over-long line is not held");
+        assert_eq!(tail.push(&huge), "", "still inside that line");
+
+        // ... through its end, after which the next events come through.
+        let resumed = tail.push(&format!("tail-of-the-huge-line\n{}\n", event("ok")));
+        assert_eq!(resumed, format!("{}\n", event("ok")));
+        assert_eq!(tail.push(&format!("{}\n", event("next"))), format!("{}\n", event("next")));
     }
 
     /// A command block that names nothing must not read as "no command given":
