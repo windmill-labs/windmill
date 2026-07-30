@@ -1254,11 +1254,14 @@ mod tests {
             Some("webhook-f/svc/my_script")
         );
 
-        // Only labels the token API refuses to mint name the entity that fired the request.
+        // Only labels `create_token` refuses to mint name the entity that fired the request.
         assert_eq!(
             owner_of("ephemeral-webhook-google-abc12").display_username(),
             "ephemeral-webhook-google-abc12"
         );
+
+        // Minted by the editor through the public handler, so it names no principal either.
+        assert_eq!(owner_of("Ephemeral lsp token").display_username(), "alice");
         assert_eq!(
             owner_of("ephemeral-script-end-user-enduser42").display_username(),
             "enduser42"

@@ -179,6 +179,9 @@ async fn test_trigger_token_labels_still_creatable(db: Pool<Postgres>) -> anyhow
         "http-test-user-2-cd34",
         "email-test-user-2-ef56",
         "my-ci-token",
+        // Minted client-side by the editor (every TypeScript editor load) and the debugger.
+        "Ephemeral lsp token",
+        "debugger-token",
     ] {
         let resp = create_token_with_label(port, "SECRET_TOKEN_2", label).await;
         assert_eq!(
@@ -204,9 +207,8 @@ async fn test_reserved_token_labels_not_creatable(db: Pool<Postgres>) -> anyhow:
     for label in [
         "ephemeral-webhook-forged",
         "ephemeral-script-end-user-svcaccount",
-        "Ephemeral lsp token",
+        "ephemeral-script",
         "session",
-        "debugger-token",
         "mcp-oauth-forged",
     ] {
         let resp = create_token_with_label(port, "SECRET_TOKEN_2", label).await;
