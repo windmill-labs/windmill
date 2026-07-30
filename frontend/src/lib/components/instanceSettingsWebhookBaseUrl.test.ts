@@ -3,9 +3,9 @@ import { isValidWebhookBaseUrl } from './instanceSettings'
 
 /**
  * Kept in lockstep with `webhook_base_url_matches_the_ui_validator` in
- * backend/windmill-common/src/global_settings.rs — the same table, so a value the
- * field accepts can never 400 on save and vice versa. The two have drifted twice
- * already (an invalid port, then a bare `?`/`#`), which is why both sides pin it.
+ * backend/windmill-common/src/global_settings.rs — the same table on both sides, so
+ * a value this field accepts can never be rejected on save, and vice versa. Add
+ * cases to both or neither.
  */
 const ACCEPTED = [
 	'https://hooks.example.com',

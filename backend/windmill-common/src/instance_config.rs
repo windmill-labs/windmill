@@ -1314,16 +1314,23 @@ pub async fn sync_global_settings_declarative(
     }
 
     let diff = diff_global_settings(current, desired, ApplyMode::Replace);
-    let webhook_base_url_changed =
-        diff.upserts.contains_key(webhook_key) || diff.deletes.iter().any(|k| k == webhook_key);
+    // Keyed on the setting being declared at all, not on the diff: these callers are
+    // reconcilers that re-apply the same config repeatedly, and that repetition is
+    // what retries a repository whose last hook move failed (it keeps its old hook
+    // id, so it stays a candidate). Gating on the diff would make the first failure
+    // permanent until someone re-saved that workspace by hand. Repositories already
+    // on the current receiver are compared locally, so a converged instance makes no
+    // GitHub calls.
+    let reconcile_webhooks =
+        desired.contains_key(webhook_key) || diff.deletes.iter().any(|k| k == webhook_key);
     apply_settings_diff(db, &diff).await?;
 
     #[cfg(all(feature = "enterprise", feature = "private"))]
-    if webhook_base_url_changed {
+    if reconcile_webhooks {
         crate::git_sync_ee::reconcile_all_repo_webhooks(db).await;
     }
     #[cfg(not(all(feature = "enterprise", feature = "private")))]
-    let _ = webhook_base_url_changed;
+    let _ = reconcile_webhooks;
 
     Ok(())
 }

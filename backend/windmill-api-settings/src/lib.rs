@@ -783,27 +783,14 @@ pub async fn set_global_setting_internal(
         value
     };
 
-    // Read before writing: the git-sync webhooks already registered with GitHub
-    // point at the old receiver, so they must be re-pointed after the write —
-    // but only when the value really moved, since the sweep talks to GitHub.
-    // `Null` and `""` both mean "unset" here (the write below deletes the row for
-    // either), so they must normalize to the same thing as a missing row or
-    // re-clearing an already-unset setting would look like a change.
+    // Every write of this key re-points the git-sync webhooks already registered
+    // with GitHub, deliberately without first checking that the value moved: a
+    // repository whose previous move failed keeps its old hook id, so re-saving the
+    // same value is how an admin retries it. The sweep is cheap when there is
+    // nothing to do — repositories already on the current receiver are compared
+    // locally and make no GitHub calls.
     #[cfg(all(feature = "enterprise", feature = "private"))]
-    let webhook_base_url_changed = key == GITHUB_APP_WEBHOOK_BASE_URL_SETTING && {
-        fn as_set_value(v: Option<&serde_json::Value>) -> Option<&str> {
-            v.and_then(|v| v.as_str())
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-        }
-        let stored = sqlx::query_scalar!(
-            "SELECT value FROM global_settings WHERE name = $1",
-            GITHUB_APP_WEBHOOK_BASE_URL_SETTING
-        )
-        .fetch_optional(db)
-        .await?;
-        as_set_value(stored.as_ref()) != as_set_value(Some(&value))
-    };
+    let reconcile_webhooks = key == GITHUB_APP_WEBHOOK_BASE_URL_SETTING;
 
     // EE gate for workspace-fairness settings. Workspace fairness only matters
     // on multi-tenant clusters; it is licensed as an Enterprise feature so the
@@ -870,7 +857,7 @@ pub async fn set_global_setting_internal(
     }
 
     #[cfg(all(feature = "enterprise", feature = "private"))]
-    if webhook_base_url_changed {
+    if reconcile_webhooks {
         spawn_webhook_receiver_reconcile(db);
     }
 
@@ -1202,14 +1189,12 @@ async fn set_instance_config(
             .upserts
             .iter()
             .any(|(key, _)| key == AI_CONFIG_SETTING);
-        // Same reason as in `set_global_setting_internal`: hooks already on GitHub
-        // keep the old receiver until they are re-pointed. `settings_diff` only
-        // lists keys that actually changed.
+        // Same reason as in `set_global_setting_internal`, including the retry
+        // semantics: keyed on the key being *submitted* rather than on the diff, so
+        // re-applying an unchanged config re-attempts a repository whose previous
+        // move failed.
         #[cfg(all(feature = "enterprise", feature = "private"))]
-        let webhook_base_url_changed = settings_diff
-            .upserts
-            .iter()
-            .any(|(key, _)| key == GITHUB_APP_WEBHOOK_BASE_URL_SETTING)
+        let reconcile_webhooks = desired_map.contains_key(GITHUB_APP_WEBHOOK_BASE_URL_SETTING)
             || settings_diff
                 .deletes
                 .iter()
@@ -1249,7 +1234,7 @@ async fn set_instance_config(
         }
 
         #[cfg(all(feature = "enterprise", feature = "private"))]
-        if webhook_base_url_changed {
+        if reconcile_webhooks {
             spawn_webhook_receiver_reconcile(&db);
         }
     }
