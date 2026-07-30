@@ -480,6 +480,11 @@
 			} else {
 				sendUserToast('Cannot run this job immediately', true)
 			}
+		} catch (err) {
+			// A refusal is the interesting case here: the worker rejects a `dbt
+			// retry` whose run is no longer the saved one, and a caller who saw
+			// nothing happen would just click again.
+			sendUserToast(`Could not create job: ${err}`, true)
 		} finally {
 			runImmediatelyLoading = false
 		}

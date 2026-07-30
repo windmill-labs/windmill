@@ -182,7 +182,7 @@ pub(crate) async fn handle_dbt_job(
         crate::common::build_args_map(job, client, conn)
             .await?
             .unwrap_or_else(|| job.args.as_ref().map(|a| a.0.clone()).unwrap_or_default()),
-    );
+    )?;
     // As submitted, command block and all: this is what the state saves and the
     // result publishes, and both describe an invocation of this script, not one
     // executor's view of it.
@@ -274,12 +274,19 @@ pub(crate) async fn handle_dbt_job(
                     .to_string(),
             ));
         };
+        // Parsed, not compared as text: the saved run is a `uuid`, and an id
+        // that differs only in case or in braces names the same run.
+        let expected = Uuid::parse_str(expected.trim()).map_err(|_| {
+            Error::BadRequest(format!(
+                "`dbt_retry_job` must be the id of the run to resume, got `{expected}`"
+            ))
+        })?;
         let restored = restore_run_state(
             &prepared,
             &job.workspace_id,
             &job.permissioned_as,
             &inv,
-            expected.trim(),
+            expected,
             conn,
         )
         .await?;
@@ -291,7 +298,7 @@ pub(crate) async fn handle_dbt_job(
                 crate::common::transform_json(client, &job.workspace_id, &restored.args, job, conn)
                     .await?
                     .unwrap_or_else(|| restored.args.clone()),
-            ),
+            )?,
             raw_args: restored.args,
             ..inv
         };
@@ -3289,9 +3296,16 @@ async fn save_run_state(
     let mut durable_err = None;
     if let Connection::Sql(db) = conn {
         {
+            // Only while a script still lives at this path. A rename or a delete
+            // moves or clears these rows, and a job that was already running
+            // finishes after: writing then would leave a failure resumable at a
+            // path the script left, or recreate one under a deleted script for
+            // whatever is next created there to inherit.
             durable_err = sqlx::query!(
                 "INSERT INTO dbt_run_state (workspace_id, script_path, permissioned_as, identity, args, run_results, job_id, retryable, updated_at)
-                 VALUES ($1, $2, $7, $3, $4, $5, $6, $8, now())
+                 SELECT $1::varchar, $2::varchar, $7::varchar, $3::text, $4::jsonb, $5::text, $6::uuid, $8::boolean, now()
+                  WHERE EXISTS (SELECT 1 FROM script
+                                 WHERE workspace_id = $1 AND path = $2 AND NOT deleted)
                  ON CONFLICT (workspace_id, script_path, permissioned_as) DO UPDATE SET
                    identity = EXCLUDED.identity, args = EXCLUDED.args,
                    run_results = EXCLUDED.run_results, job_id = EXCLUDED.job_id,
@@ -3552,7 +3566,7 @@ async fn restore_from_db(
     // The run the caller named. Re-checked here rather than trusted from the
     // caller's earlier read: another invocation can replace the row in between,
     // and the row this restore actually reads must still be that run.
-    expected_job: &str,
+    expected_job: Uuid,
     conn: &Connection,
     no_state: Error,
 ) -> error::Result<RestoredRun> {
@@ -3579,9 +3593,12 @@ async fn restore_from_db(
     else {
         return Err(no_state);
     };
-    let held = row.job_id.map(|j| j.to_string());
-    if held.as_deref() != Some(expected_job) {
-        return Err(wrong_run(expected_job, held.as_deref(), "for this script"));
+    if row.job_id != Some(expected_job) {
+        return Err(wrong_run(
+            expected_job,
+            row.job_id.map(|j| j.to_string()).as_deref(),
+            "for this script",
+        ));
     }
     let (saved_prefix, saved_args_digest) = split_identity(&row.identity);
     if saved_prefix != format!("{}|{}", p.run_identity(), inv.env_digest()) {
@@ -3627,7 +3644,7 @@ fn different_project() -> Error {
 /// A retry named a run other than the one whose failure is held. Both ids are
 /// spelled out: only one failure is kept per script per principal, so a later run
 /// replaces it, and without the held id "that is not the one" reads as a bug.
-fn wrong_run(asked: &str, held: Option<&str>, held_where: &str) -> Error {
+fn wrong_run(asked: Uuid, held: Option<&str>, held_where: &str) -> Error {
     Error::BadRequest(match held {
         Some(held) => format!(
             "you asked to resume run {asked}, but the failure saved {held_where} is run {held}; \
@@ -3679,7 +3696,7 @@ fn chosen_generation(
     local: Option<String>,
     conn: &Connection,
     latest_job: Option<Uuid>,
-    expected_job: &str,
+    expected_job: Uuid,
 ) -> error::Result<Option<String>> {
     let generation = match (local, conn, latest_job) {
         (Some(g), Connection::Http(_), _) => Some(g),
@@ -3709,7 +3726,7 @@ async fn restore_run_state(
     permissioned_as: &str,
     inv: &Invocation,
     // The run the caller means to resume, which a retry always names.
-    expected_job: &str,
+    expected_job: Uuid,
     conn: &Connection,
 ) -> error::Result<RestoredRun> {
     if p.script_path.is_empty() {
@@ -3753,8 +3770,8 @@ async fn restore_run_state(
         Connection::Http(_) => None,
     };
     let latest_job = saved_state.flatten();
-    if let Some(saved) = latest_job.as_ref() {
-        if expected_job != saved.to_string() {
+    if let Some(saved) = latest_job {
+        if expected_job != saved {
             return Err(wrong_run(
                 expected_job,
                 Some(&saved.to_string()),
@@ -4159,15 +4176,35 @@ fn arg<T: serde::de::DeserializeOwned>(
 /// single map, and the block is spread here rather than at each of them so the
 /// two shapes never both reach one. `raw_args` keeps the submitted shape: it is
 /// what the state saves and the result publishes.
-fn flatten_command(mut args: HashMap<String, Box<RawValue>>) -> HashMap<String, Box<RawValue>> {
+/// A block that is present must NAME a command: dropping a malformed one would
+/// leave no command at all, which reads as "the descriptor's default" — so
+/// `{"command": "show"}` would build the project the caller meant to preview.
+/// Argument-schema validation is opt-in, so this is the only check a direct
+/// request passes through.
+fn flatten_command(
+    mut args: HashMap<String, Box<RawValue>>,
+) -> error::Result<HashMap<String, Box<RawValue>>> {
     let Some(block) = args.remove(DBT_COMMAND_ARG) else {
-        return args;
+        return Ok(args);
     };
-    let Ok(fields) = serde_json::from_str::<HashMap<String, Box<RawValue>>>(block.get()) else {
-        // Not an object: left for `dbt_command` to reject by name, with the
-        // allowlist's message, rather than failing here as a parse error.
-        return args;
+    // `null` is how a schema-less run sends "not given", like every other
+    // argument, and means the descriptor's own command.
+    if block.get().trim() == "null" {
+        return Ok(args);
+    }
+    let malformed = || {
+        Error::BadRequest(format!(
+            "`{DBT_COMMAND_ARG}` must be an object naming what to run, e.g. \
+             `{{\"{DBT_COMMAND_LABEL}\": \"{}\"}}` — one of {}",
+            DBT_COMMANDS[0],
+            DBT_COMMANDS.join(", ")
+        ))
     };
+    let fields = serde_json::from_str::<HashMap<String, Box<RawValue>>>(block.get())
+        .map_err(|_| malformed())?;
+    if arg_str(&fields, DBT_COMMAND_LABEL)?.is_none() {
+        return Err(malformed());
+    }
     for (k, v) in fields {
         // A placeholder of the same name would otherwise be overwritten by the
         // block — they are reserved for exactly that reason.
@@ -4178,7 +4215,7 @@ fn flatten_command(mut args: HashMap<String, Box<RawValue>>) -> HashMap<String, 
         };
         args.insert(k, v);
     }
-    args
+    Ok(args)
 }
 
 /// Empty reads as absent: it is what an untouched text field sends.
@@ -4877,6 +4914,47 @@ mod tests {
         );
     }
 
+    /// A command block that names nothing must not read as "no command given":
+    /// that is the descriptor's default, so a mistyped `show` would BUILD the
+    /// project — the one direction a read-only command must never fail in.
+    /// Argument-schema validation is opt-in, so this is the only check between a
+    /// direct request and the engine.
+    #[test]
+    fn a_command_block_that_names_no_command_is_refused() {
+        let args = |json: &str| {
+            serde_json::from_str::<HashMap<String, Box<RawValue>>>(json).expect("test payload")
+        };
+        for payload in [
+            r#"{"command": "show"}"#,
+            r#"{"command": {}}"#,
+            r#"{"command": {"select": ["a"]}}"#,
+            r#"{"command": {"label": null}}"#,
+            r#"{"command": {"label": ""}}"#,
+            r#"{"command": []}"#,
+        ] {
+            let err = flatten_command(args(payload))
+                .expect_err("a block naming no command must not fall back to the default");
+            assert!(
+                err.to_string().contains("naming what to run"),
+                "{payload}: {err}"
+            );
+        }
+        // Absent and `null` both mean "the descriptor's own command", which is
+        // what an empty run submits.
+        for payload in ["{}", r#"{"command": null}"#] {
+            let out = flatten_command(args(payload)).expect(payload);
+            assert!(!out.contains_key("dbt_command"), "{payload}");
+        }
+        // A named one spreads, its label under the name every reader uses.
+        let out = flatten_command(args(r#"{"command": {"label": "show", "limit": 3}}"#)).unwrap();
+        assert_eq!(
+            arg_str(&out, "dbt_command").unwrap().as_deref(),
+            Some("show")
+        );
+        assert_eq!(arg_i64(&out, "limit").unwrap(), Some(3));
+        assert!(!out.contains_key(DBT_COMMAND_ARG));
+    }
+
     /// An agent reaches no database, so the row that answers "is this the run you
     /// asked to resume" is not there — only the generation the worker itself
     /// wrote. Unchecked, a retry naming one failed run resumes whichever failed
@@ -4892,7 +4970,7 @@ mod tests {
         let asked_for = uuid::Uuid::new_v4();
         let local = || Some(format!("gen-{saved}"));
 
-        let err = chosen_generation(local(), &http, None, &asked_for.to_string())
+        let err = chosen_generation(local(), &http, None, asked_for)
             .expect_err("a generation the caller did not name must not be resumed");
         assert!(
             err.to_string().contains(&saved.to_string())
@@ -4901,7 +4979,7 @@ mod tests {
         );
 
         assert_eq!(
-            chosen_generation(local(), &http, None, &saved.to_string()).unwrap(),
+            chosen_generation(local(), &http, None, saved).unwrap(),
             local(),
             "the run it does hold still resumes"
         );

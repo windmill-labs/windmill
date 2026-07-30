@@ -22991,13 +22991,14 @@ paths:
 
   /w/{workspace}/jobs/dbt_resumable/{id}:
     get:
-      summary: Which run a dbt retry of this job's script would resume
+      summary: Whether a dbt retry by this caller would resume this run
       description: >
-        One failed run is saved per script per execution principal, so a
-        `retry` resumes that one — not necessarily the run being
-        looked at. Returns the job id the saved state holds, or null when there is
-        nothing to resume, so a run page can offer the resume only where it would
-        reach this run. Authorized through the job, like `run_progress`.
+        One failed run is saved per script per execution principal, so a `retry`
+        resumes that one — not necessarily the run being looked at. Answers about
+        THIS run alone: its own id when a retry submitted by this caller would
+        resume it, null otherwise (a later run holds the state, the run left
+        nothing to rebuild, or the caller's runs execute as another principal).
+        Authorized through the job, like `run_progress`.
       operationId: getDbtResumable
       tags:
         - job
@@ -23012,7 +23013,7 @@ paths:
             format: uuid
       responses:
         "200":
-          description: the job id a retry would resume, or null
+          description: this job's id when a retry would resume it, or null
           content:
             application/json:
               schema:

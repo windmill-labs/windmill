@@ -704,7 +704,7 @@ state alike — and `cache_clear` does not reach them either: it removes
 as bun's cache does. An operator reclaims them by deleting that directory. Engine
 installs dominate the space by two orders of magnitude (~270–290 MB each, bounded
 by engine version) and package trees grow one tree per edit of a project that
-declares packages; branch `dbt-cache-retention-followup` holds sweeps for both.
+declares packages. Sweeping either on an age or a size bound is follow-up work.
 
 ## Run path
 
