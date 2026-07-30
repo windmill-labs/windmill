@@ -1288,12 +1288,24 @@
 	// default base (`http://localhost:8000`) and calls leave for the wrong host.
 	// The token is scoped to the policy being edited so the preview hits the same
 	// 403s the deployed app would.
-	let previewSdkEnvJs = $state('')
+	// Every payload states the env outright, including the tokenless one: the
+	// preview shell reuses a single window across builds, so merely omitting the
+	// prologue would leave a previously minted token in place for later bundles.
+	const NO_SDK_ENV_JS = 'window.process = { env: {} };\n'
+	let previewSdkEnvJs = $state(NO_SDK_ENV_JS)
 	// Identifies the request whose answer is still wanted. Toggling scopes starts a
 	// new mint while an older one is in flight, and an out-of-order answer would
 	// otherwise hand the preview the wrong scope set — or restore a token after all
 	// scopes were removed.
 	let previewSdkKey: string | undefined = undefined
+
+	/** Assign the prologue and re-feed, so a running preview stops using a
+	 * credential the policy no longer grants. */
+	function setPreviewSdkEnv(js: string) {
+		previewSdkEnvJs = js
+		if (lastBuild) feedPreviewIframe(lastBuild)
+		syncExternalPreview()
+	}
 
 	$effect(() => {
 		const scopes = policy?.frontend_sdk_scopes ?? []
@@ -1302,7 +1314,7 @@
 		if (key === previewSdkKey) return
 		previewSdkKey = key
 		if (scopes.length === 0 || !ws) {
-			previewSdkEnvJs = ''
+			setPreviewSdkEnv(NO_SDK_ENV_JS)
 			return
 		}
 		mintPreviewSdkToken(scopes, ws, key)
@@ -1315,18 +1327,17 @@
 				requestBody: { path, scopes }
 			})
 			if (key !== previewSdkKey) return
-			previewSdkEnvJs = `window.process = { env: ${JSON.stringify({
-				WM_TOKEN: token,
-				BASE_URL: window.location.origin,
-				WM_WORKSPACE: ws
-			}).replace(/</g, '\\u003c')} };\n`
-			// Re-feed so an already-rendered preview picks the env up.
-			if (lastBuild) feedPreviewIframe(lastBuild)
-			syncExternalPreview()
+			setPreviewSdkEnv(
+				`window.process = { env: ${JSON.stringify({
+					WM_TOKEN: token,
+					BASE_URL: window.location.origin,
+					WM_WORKSPACE: ws
+				}).replace(/</g, '\\u003c')} };\n`
+			)
 		} catch (e) {
 			console.warn('Could not mint a preview SDK token', e)
 			if (key !== previewSdkKey) return
-			previewSdkEnvJs = ''
+			setPreviewSdkEnv(NO_SDK_ENV_JS)
 			// The key stays set, so a failed mint is not retried until the scopes or
 			// workspace actually change — which is the only thing this effect reacts to.
 		}
