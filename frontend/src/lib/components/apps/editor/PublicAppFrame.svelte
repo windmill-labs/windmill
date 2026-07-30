@@ -207,6 +207,9 @@
 	// The viewer's own email (from the embed-token response), used to key the
 	// stored "do not ask again" per person on this shared browser origin.
 	let viewerEmail = $state('')
+	// Set once the viewer declined, or a mint failed for a reason other than lost
+	// access: from then on the app renders credential-less without asking again.
+	let sdkTokenless = false
 	// See `mintWithConsent`: every render-mode change restarts initialization, but
 	// a bounded number of times so an app being redeployed continuously can't spin
 	// the viewer.
@@ -278,7 +281,7 @@
 			sdkScopes = resp.sdk_scopes?.length ? resp.sdk_scopes : undefined
 			viewerEmail = resp.viewer_email ?? ''
 			sdkToken = undefined
-			if (sdkScopes) {
+			if (sdkScopes && !sdkTokenless) {
 				if (!hasStoredSdkConsent(viewerEmail, workspaceId ?? '', appPath ?? '', sdkScopes)) {
 					// Ask before the app's code runs. For an unsandboxed app this is a
 					// decision point rather than a boundary — it runs with the viewer's
@@ -344,7 +347,14 @@
 				return false
 			}
 			console.warn('Failed to mint the raw app frontend SDK token', e)
+			// The failed request left us no fresh view of how the app must render, and
+			// the first response's mode may already be stale (a redeploy can have
+			// enabled sandbox isolation while the prompt was open). Re-init for current
+			// metadata; `sdkTokenless` stops that pass from retrying the mint.
 			sdkToken = undefined
+			sdkTokenless = true
+			await initEmbedder()
+			return false
 		}
 		finishReady()
 		return sdkToken !== undefined
@@ -374,11 +384,14 @@
 	}
 
 	/** Declined: render the app anyway, with no credential for its frontend code
-	 * (its SDK calls then fail unauthorized). Never stored, so the next visit
-	 * asks again. */
+	 * (its SDK calls then fail unauthorized). Never stored, so the next visit asks
+	 * again. Re-init rather than rendering straight away: the app may have been
+	 * redeployed while the prompt was open, and rendering from the pre-prompt mode
+	 * could put a now-sandboxed bundle on the same-origin path. */
 	function onSdkConsentDecline() {
 		sdkToken = undefined
-		finishReady()
+		sdkTokenless = true
+		initEmbedder()
 	}
 
 	function postTokenToIframe() {
