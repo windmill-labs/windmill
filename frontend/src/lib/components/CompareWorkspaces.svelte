@@ -1216,15 +1216,20 @@
 												onSelected={onSelectTarget}
 											>
 												{#snippet triggerContent()}
-													<span
+													<!-- The same Badge as the `merge:` side, so the pair reads as one
+													     statement; `clickable` is the only difference, and the chevron
+													     says the destination is the part that can change. -->
+													<Badge
+														color="transparent"
+														clickable
+														class="font-semibold"
 														title="Deploying into {parentWorkspaceInfo.name} — click to compare against another workspace"
-														class="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-semibold border border-transparent hover:border-gray-300 dark:hover:border-gray-600 hover:bg-surface-hover transition-colors"
 													>
 														<span class="text-secondary">into:</span>
 														<Building size={14} />
 														<span class="text-emphasis">{parentWorkspaceInfo.id}</span>
 														<ChevronDown size={12} class="text-tertiary" />
-													</span>
+													</Badge>
 												{/snippet}
 											</CompareTargetPicker>
 										{:else}
