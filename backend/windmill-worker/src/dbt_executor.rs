@@ -258,7 +258,6 @@ pub(crate) async fn handle_dbt_job(
             &job.workspace_id,
             &job.permissioned_as,
             &inv,
-            &job.created_by,
             conn,
         )
         .await?;
@@ -467,7 +466,6 @@ pub(crate) async fn handle_dbt_job(
         &job.id,
         &inv,
         restored_results_digest.as_deref(),
-        &job.created_by,
         conn,
     )
     .await
@@ -3215,8 +3213,6 @@ async fn save_run_state(
     inv: &Invocation,
     // Digest of the `run_results.json` a retry restored, when this run is one.
     restored_results_digest: Option<&str>,
-    // Who launched this run, recorded so an agent worker can authorize a retry.
-    caller: &str,
     conn: &Connection,
 ) -> error::Result<()> {
     if p.script_path.is_empty() {
@@ -3327,7 +3323,7 @@ async fn save_run_state(
     // a changed script variable makes the saved results describe relations a retry
     // would not produce. The arguments come back too, since `dbt retry` reuses the
     // original invocation's selection and vars rather than this job's.
-    let state = SavedRunState { identity, args, created_by: Some(caller.to_string()) };
+    let state = SavedRunState { identity, args };
     if tokio::fs::write(
         staging.join("state.json"),
         serde_json::to_vec(&state).unwrap_or_default(),
@@ -3509,12 +3505,6 @@ struct SavedRunState {
     /// the original selection and vars, so refreshing the graph for it needs
     /// these rather than the retry request's.
     args: HashMap<String, String>,
-    /// Who launched the saved run. An agent worker reaches no database, so the
-    /// database check cannot run there and this is the whole of what it can
-    /// authorize against: only the launcher may resume. Absent on a generation
-    /// written before this field, which is therefore not resumable on an agent.
-    #[serde(default)]
-    created_by: Option<String>,
 }
 
 /// The durable half of the restore: the worker-local generation is gone (or this
@@ -3530,10 +3520,10 @@ async fn restore_from_db(
     w_id: &str,
     permissioned_as: &str,
     inv: &Invocation,
-    // The run the caller was authorized against. Another invocation of this
-    // script can replace the row between the two reads, and restoring what was
-    // never authorized is the hole the check exists to close.
-    authorized_job: Option<&Uuid>,
+    // The run this restore chose, read once by the caller. Another invocation can
+    // replace the row between that read and this one, and restoring a different
+    // run than the one selected resumes failures nobody asked for.
+    chosen_job: Option<&Uuid>,
     conn: &Connection,
     no_state: Error,
 ) -> error::Result<RestoredRun> {
@@ -3554,7 +3544,7 @@ async fn restore_from_db(
     else {
         return Err(no_state);
     };
-    if authorized_job.is_some() && row.job_id.as_ref() != authorized_job {
+    if chosen_job.is_some() && row.job_id.as_ref() != chosen_job {
         return Err(no_state);
     }
     let (saved_prefix, saved_args_digest) = split_identity(&row.identity);
@@ -3626,95 +3616,6 @@ pub struct RestoredRun {
     pub results_digest: String,
 }
 
-/// Whether the caller of THIS job may read the run a retry would resume.
-///
-/// The state is keyed by execution principal, so every caller of an
-/// `on_behalf_of` script shares one saved run. Under a folder that matches job
-/// visibility exactly, but a `u/<owner>` script shared through `extra_perms` has
-/// no folder policy — a grantee cannot read the run, while a retry would publish
-/// its arguments.
-///
-/// Visibility under the caller's OWN RLS, and nothing else. `require_job_read_access`
-/// also grants "you launched it", but that compares `created_by`, which is a display
-/// name derived from a token label — so a worker cannot tell a launcher from a
-/// collision. Dropping it costs `dbt retry` on a `u/<owner>` script shared through
-/// `extra_perms`, whose runs RLS shows to the owner alone; every other shape keeps it.
-/// NOT `job_perms` either: those carry the identity the job RUNS as, which for an
-/// `on_behalf_of` script is the owner, so probing with them authorizes every caller.
-/// `None` when the retry may proceed, otherwise why it may not.
-async fn resume_refusal(
-    db: &sqlx::Pool<sqlx::Postgres>,
-    w_id: &str,
-    caller: &str,
-    saved_job: &Uuid,
-) -> error::Result<Option<&'static str>> {
-    let exists = sqlx::query_scalar!(
-        "SELECT 1 FROM v2_job WHERE id = $1 AND workspace_id = $2",
-        saved_job,
-        w_id
-    )
-    .fetch_optional(db)
-    .await?
-    .is_some();
-    if !exists {
-        // Pruned by retention. Nothing is left to authorize against, and the state
-        // outlives the job — so this fails closed rather than handing the last
-        // failure's arguments to whoever asks next.
-        return Ok(Some(
-            "the run this state describes has aged out of the job retention window, so Windmill \
-             cannot check whether it is yours to resume; run the script normally instead",
-        ));
-    }
-    let Some(usr) = sqlx::query!(
-        "SELECT email, is_admin FROM usr WHERE workspace_id = $1 AND username = $2",
-        w_id,
-        caller
-    )
-    .fetch_optional(db)
-    .await?
-    else {
-        // The caller is not a workspace member — a trigger or schedule, which no
-        // user answers for — so no grant can be established for them.
-        return Ok(Some(
-            "this retry was not submitted by a workspace member, so Windmill cannot check whether \
-             the run it would resume is readable; run the script normally instead",
-        ));
-    };
-    if usr.is_admin {
-        return Ok(None);
-    }
-    let groups =
-        windmill_common::auth::get_groups_for_user(w_id, caller, &usr.email, db).await?;
-    let folders =
-        windmill_common::auth::get_folders_for_user(w_id, caller, &groups, db).await?;
-    let authed = windmill_common::db::Authed {
-        email: usr.email,
-        username: caller.to_string(),
-        is_admin: false,
-        is_operator: false,
-        groups,
-        folders,
-        scopes: None,
-        token_prefix: None,
-    };
-    let mut tx = windmill_common::db::UserDB::new(db.clone())
-        .begin(&authed)
-        .await?;
-    let visible = sqlx::query_scalar!(
-        "SELECT 1 FROM v2_job WHERE id = $1 AND workspace_id = $2",
-        saved_job,
-        w_id
-    )
-    .fetch_optional(&mut *tx)
-    .await?
-    .is_some();
-    tx.commit().await?;
-    Ok((!visible).then_some(
-        "the last run of this script was made by someone else and you cannot read it, so its \
-         arguments are not yours to resume; run the script normally instead",
-    ))
-}
-
 /// Restore the previous invocation. The `dbt parse` a database restore needs is
 /// left to the caller so it runs on RESOLVED arguments: a `$var:` reference
 /// shapes the graph only once it has a value, and parsing with the reference
@@ -3725,8 +3626,6 @@ async fn restore_run_state(
     w_id: &str,
     permissioned_as: &str,
     inv: &Invocation,
-    // Who submitted this retry, whose access the saved run is checked against.
-    caller: &str,
     conn: &Connection,
 ) -> error::Result<RestoredRun> {
     if p.script_path.is_empty() {
@@ -3754,9 +3653,6 @@ async fn restore_run_state(
     // last, while `current` names only what THIS one saw — preferring local would
     // let a retry on an idle worker resume an older invocation. The local snapshot
     // is a fast path only when it names that same run: it already holds a manifest.
-    // Option<Option<_>>, kept unflattened: `job_id` is nullable, and a row naming
-    // no job is not the same as no row at all. Collapsing the two skips the check
-    // below for the first, which is the one case it cannot afford to miss.
     let saved_state = match conn {
         Connection::Sql(db) => sqlx::query_scalar!(
             "SELECT job_id FROM dbt_run_state
@@ -3770,24 +3666,6 @@ async fn restore_run_state(
         // An agent worker cannot read it; its local copy is all there is.
         Connection::Http(_) => None,
     };
-    if let Connection::Sql(db) = conn {
-        match saved_state.as_ref() {
-            Some(Some(saved_job)) => {
-                if let Some(why) = resume_refusal(db, w_id, caller, saved_job).await? {
-                    return Err(Error::BadRequest(why.to_string()));
-                }
-            }
-            Some(None) => {
-                return Err(Error::BadRequest(
-                    "the saved run names no job, so Windmill cannot check whether it is yours to \
-                     resume; run the script normally instead"
-                        .to_string(),
-                ))
-            }
-            // No state at all: the restore below reports that, which is accurate.
-            None => {}
-        }
-    }
     let latest_job = saved_state.flatten();
     // Authoritative including when it says nothing: no row means the last
     // invocation left nothing resumable, and a local generation that outlived it
@@ -3833,16 +3711,6 @@ async fn restore_run_state(
     if saved_prefix != format!("{}|{}", p.run_identity(), inv.env_digest()) {
         return Err(different_project());
     }
-    // Only reachable with no database behind it — a worker with one authorized the
-    // row above, under rules this cannot evaluate (folder reads, groups, admin).
-    // So the agent applies the half it can prove: the launcher may resume.
-    if matches!(conn, Connection::Http(_)) && saved.created_by.as_deref() != Some(caller) {
-        return Err(Error::BadRequest(
-            "this worker cannot check whether you may read the run being resumed, and it was \
-             launched by someone else; run the script normally instead"
-                .to_string(),
-        ));
-    }
     let saved_args_digest = saved_args_digest.map(str::to_string);
     let target = p.project_dir.join(ARTIFACTS_DIR);
     tokio::fs::create_dir_all(&target).await.ok();
@@ -3858,11 +3726,11 @@ async fn restore_run_state(
     let needs_parse = tokio::fs::copy(snapshot.join("manifest.json"), target.join("manifest.json"))
         .await
         .is_err();
-    // The generation was chosen from a row read before the authorization and the
-    // file work above. A run finishing in that window publishes a newer one, and
-    // resuming the superseded generation redoes nodes it has already rebuilt —
-    // appending to an incremental model twice. Re-read and refuse rather than
-    // resume what is no longer the last failure here.
+    // The generation was chosen from a row read before the file work above. A run
+    // finishing in that window publishes a newer one, and resuming the superseded
+    // generation redoes nodes it has already rebuilt — appending to an incremental
+    // model twice. Re-read and refuse rather than resume what is no longer the last
+    // failure here.
     if let Connection::Sql(db) = conn {
         let still = sqlx::query_scalar!(
             "SELECT job_id FROM dbt_run_state

@@ -768,39 +768,30 @@ provides observability.
    since they all execute as the owner — deliberately, since the state describes
    the script's last run under the owner's identity rather than any one caller's.
 
-   **The equivalence is enforced, not assumed.** A retry resumes the saved run
-   only if the row is visible under the CALLER's own RLS. For a script under `f/`,
-   `see_folder_extra_perms_user` makes a job readable to everyone with read on the
-   folder — which is also what grants execution — so every caller may resume every
-   other's failure, as above. An ordinary script's runs are `permissioned_as` the
-   caller, so `see_own` covers them.
+   **What a retry actually adds, and where that crosses a line.** Resuming grants
+   no capability a caller lacks: they may already run the script as that principal,
+   and a plain run builds everything the descriptor selects, of which a retry
+   rebuilds a subset. The one thing it adds is information — the result carries
+   `invocation_args`, the resumed run's arguments as SUBMITTED, because a retry
+   job's own args are just `{"dbt_command": "retry"}` and the row preview needs the
+   real ones.
 
-   `require_job_read_access` also grants "you can always read a job you launched",
-   and this deliberately does NOT: that grant compares `created_by`, a display name
-   derived from a token label, and a worker cannot tell a launcher from a
-   collision. The cost is that an `on_behalf_of` script under `u/<owner>/` shared
-   through `extra_perms` can be resumed by the owner alone — its runs are
-   `permissioned_as` the owner, so RLS shows them to nobody else, not even the
-   grantee who launched one. Sharing such a script through a folder gives every
-   caller the resume back.
+   For almost every shape the caller could already read that run, so nothing
+   crosses: under `f/`, `see_folder_extra_perms_user` makes a job readable to
+   everyone with read on the folder, which is also what grants execution; an
+   ordinary script's runs are `permissioned_as` the caller, and another user's runs
+   are keyed under their own principal and unreachable. It takes all three of a
+   `u/<owner>` path, `extra_perms` sharing and `on_behalf_of` for "may run as this
+   principal" to be broader than "may read this principal's jobs" — and there a
+   grantee learns the literal argument values of another's run. References stay
+   references, so no resolved secret is among them.
 
-   Checked against the CALLER, never `job_perms`: those carry the identity the
-   job runs AS, which for an `on_behalf_of` script is the owner, so probing with
-   them would authorize everyone. Anything the check cannot evaluate is refused
-   rather than waved through — a saved run whose job has aged out of retention, a
-   row naming no job, a caller who is not a workspace member, and, on an agent
-   worker, any resume by someone other than the run's launcher, since an agent
-   reaches no database and can prove nothing else.
-
-   **By identity, not by token scope.** A token entitled to run the script may
-   resume that principal's last failure even when it is denied `jobs:read`, which
-   `require_job_read_access` would refuse — the worker never sees the submitting
-   token, only the identity persisted with the job, and neither `v2_job` nor
-   `job_perms` records a scope. What such a token obtains is the arguments AS
-   SUBMITTED, so a `$var:` or `$res:` reference is re-resolved under whoever
-   retries rather than disclosed. Closing it means persisting the submitting
-   token's scopes with the job, which nothing does today and which is worth doing
-   for every language at once rather than for dbt alone.
+   That residual is accepted rather than gated. A gate needs the caller's identity,
+   and a worker has only `created_by` — `display_username()`, which a token LABEL
+   supplies. Resolving it as a username denies every labelled token (a CI token
+   becomes `label-<name>`, which is no workspace member) and still trusts a name;
+   authorizing where the caller is real means the submitting path, not the worker.
+   The exposure did not justify either.
 
    That equivalence holds only while the run is READABLE, so the one run that
    breaks it saves nothing: a job pushed `invisible_to_owner` is hidden from the
