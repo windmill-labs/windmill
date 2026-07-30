@@ -993,7 +993,7 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: '',
 			error:
-				'Webhook base url must be an http:// or https:// url with a host, no query string or fragment, and no trailing slash',
+				'Webhook base url must be an http:// or https:// url with a host, no embedded username or password, no query string or fragment, and no trailing slash',
 			isValid: isValidWebhookBaseUrl
 		}
 	],

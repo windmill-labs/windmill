@@ -436,8 +436,12 @@ pub struct AutoPullSettings {
     pub webhook_secret: Option<String>,
     /// Receiver URL the live webhook was registered with. Compared against the
     /// currently configured one to re-register the hook when the instance's
-    /// webhook base URL changes. `None` on hooks created before this was
-    /// recorded, which are left alone rather than churned on every save.
+    /// webhook base URL changes.
+    ///
+    /// `None` on hooks predating this field: the reconcile then asks GitHub where
+    /// that hook actually points and backfills this when it matches, replaces it
+    /// when it doesn't, and registers a fresh hook when GitHub reports it gone. Only
+    /// a failed lookup leaves the hook untouched, to be retried later.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub webhook_url: Option<String>,
     /// Why the repo has no active webhook while one was requested (auto/webhook

@@ -114,10 +114,23 @@ pub const GITHUB_APP_WEBHOOK_BASE_URL_SETTING: &str = "github_app_webhook_base_u
 /// rather than silently producing an unreachable hook: a wrong scheme
 /// (`httpss://`), a missing host, embedded whitespace, or a query/fragment
 /// (appending a path after `?`/`#` keeps it inside the query/fragment).
+///
+/// Every message here runs the value through [`redact_userinfo`] first. These
+/// strings travel further than the submitter: the declarative path wraps them into
+/// `sync-config` output and operator reconcile logs, so a credential in the rejected
+/// value must not ride along.
 pub fn validate_webhook_base_url(value: &str) -> Result<(), String> {
     let value = value.trim();
+    let shown = redact_userinfo(value);
     let url = url::Url::parse(value)
-        .map_err(|e| format!("must be an absolute http(s) URL ({}): {}", e, value))?;
+        .map_err(|e| format!("must be an absolute http(s) URL ({}): {}", e, shown))?;
+    // Checked before anything that could report the value, so a credential can never
+    // reach a message even when the URL is also malformed some other way.
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(
+            "must not embed a username or password: the receiver URL is stored in workspace settings, where it is readable by workspace admins".to_string(),
+        );
+    }
     if !matches!(url.scheme(), "http" | "https") {
         return Err(format!(
             "must use the http or https scheme, got '{}'",
@@ -125,34 +138,42 @@ pub fn validate_webhook_base_url(value: &str) -> Result<(), String> {
         ));
     }
     if !url.has_host() {
-        return Err(format!("must include a host: {}", value));
+        return Err(format!("must include a host: {}", shown));
     }
     if url.query().is_some() || url.fragment().is_some() {
         return Err(format!(
             "must not include a query string or fragment, since the webhook path is appended to it: {}",
-            value
+            shown
         ));
     }
-    // The receiver built from this is stored per repository in the workspace's
-    // `git_sync` settings, which workspace admins can read — so userinfo here would
-    // hand them a credential a superadmin configured. Never echo the value back in
-    // this message.
-    if !url.username().is_empty() || url.password().is_some() {
-        return Err(
-            "must not embed a username or password: the receiver URL is stored in workspace settings, where it is readable by workspace admins".to_string(),
-        );
-    }
     if value.chars().any(char::is_whitespace) {
-        return Err(format!("must not contain whitespace: {}", value));
+        return Err(format!("must not contain whitespace: {}", shown));
     }
     // Matches the sibling `base_url` / `hub_base_url` convention. The receiver
     // builder trims it anyway, so this is about keeping the stored value canonical
     // rather than about reachability.
     if value.ends_with('/') {
-        return Err(format!("must not end with a trailing slash: {}", value));
+        return Err(format!("must not end with a trailing slash: {}", shown));
     }
     Ok(())
 }
+
+/// Replace any `user:password@` between the scheme and the host with `***@`.
+///
+/// Deliberately string-based rather than `Url`-based: the values that most need
+/// redacting are the ones too malformed for `Url::parse` to have succeeded on.
+fn redact_userinfo(value: &str) -> String {
+    let Some((scheme, rest)) = value.split_once("//") else {
+        return value.to_string();
+    };
+    // Userinfo ends at the first `@` before the authority ends (`/`, `?` or `#`).
+    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    match rest[..authority_end].find('@') {
+        Some(at) => format!("{}//***@{}", scheme, &rest[at + 1..]),
+        None => value.to_string(),
+    }
+}
+
 pub const INSTANCE_EVENTS_WEBHOOK_SETTING: &str = "instance_events_webhook";
 pub const WORKSPACE_REGISTRIES_SETTING: &str = "workspace_registries";
 pub const RESTART_COORDINATION_SETTING: &str = "_restart_coordination";
@@ -393,6 +414,28 @@ pub fn workspace_integration_auth_endpoint(client_name: &str, base_url: &str) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn webhook_base_url_errors_never_echo_credentials() {
+        // These strings reach sync-config output and operator logs, so no branch may
+        // report the value verbatim. The secret is distinctive so this asserts on the
+        // credential leaking, not on the wording of the message.
+        const SECRET: &str = "hunter2xyzzy";
+        for bad in [
+            format!("https://admin:{SECRET}@hooks.example.com"),
+            format!("https://admin:{SECRET}@hooks.example.com?x=1"),
+            format!("https://admin:{SECRET}@hooks.example.com/"),
+            format!("https://admin:{SECRET}@"),
+            format!("https://admin:{SECRET}@hooks.example.com#f"),
+            format!("admin:{SECRET}@not-a-url"),
+        ] {
+            let err = validate_webhook_base_url(&bad).expect_err("should be rejected");
+            assert!(
+                !err.contains(SECRET),
+                "'{bad}' leaked its credential into: {err}"
+            );
+        }
+    }
 
     #[test]
     fn webhook_base_url_matches_the_ui_validator() {
