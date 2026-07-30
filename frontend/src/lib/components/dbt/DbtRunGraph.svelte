@@ -5,7 +5,13 @@
 	// where the alternative is reading `N of M OK created` out of the log.
 	import { onDestroy, untrack } from 'svelte'
 	import { OpenAPI, JobService } from '$lib/gen'
-	import { nodeSelector, parseDbtRun, relationOutcome, splitRelation } from './parseDbtRun'
+	import {
+		nodeSelector,
+		parseDbtRun,
+		relationOutcome,
+		splitRelation,
+		splitUniqueId
+	} from './parseDbtRun'
 	import { Button } from '$lib/components/common'
 	import { ClipboardCopy, Code2, TableProperties } from 'lucide-svelte'
 	import { copyToClipboard } from '$lib/utils'
@@ -237,6 +243,15 @@
 	// Parsed once: five derivations below read it, and `result` is the whole
 	// `run_results.json` the job returned.
 	let run = $derived(parseDbtRun(result))
+
+	// A selection of tests alone — `resource_type:test`, or a tag only tests carry
+	// — builds nothing, and a test is not a relation, so the ingest keeps nodes
+	// that have no asset to hang on and the graph comes back empty. The run is
+	// fine; without saying so the empty state blames the descriptor's warehouse
+	// identity, which is the one cause this is not.
+	let ranTestsOnly = $derived(
+		!!run?.nodes?.length && run.nodes.every((n) => splitUniqueId(n.unique_id).kind === 'test')
+	)
 
 	// A run page is about one script, so the graph is the relations it reads and
 	// writes — a folder's other projects are noise here, and so is a node for the
@@ -658,9 +673,15 @@
 	<div class="text-xs text-secondary p-3">Could not load the model graph.</div>
 {:else if !graph}
 	<div class="text-xs text-secondary p-3">
-		This dbt script has no models in the asset graph. A project that brings its own
-		<span class="font-mono">profiles.yml</span> without naming a
-		<span class="font-mono">profile.resource</span> has no warehouse identity to key them on.
+		{#if ranTestsOnly}
+			This run selected tests alone, so it built no models. A dbt test is an assertion
+			rather than a relation, so it has no node here — the models it asserts against
+			belong to the runs that build them. Its results are in the table below.
+		{:else}
+			This dbt script has no models in the asset graph. A project that brings its own
+			<span class="font-mono">profiles.yml</span> without naming a
+			<span class="font-mono">profile.resource</span> has no warehouse identity to key them on.
+		{/if}
 	</div>
 {:else}
 	<div class="border rounded overflow-hidden flex flex-col">
