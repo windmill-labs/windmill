@@ -14,6 +14,7 @@ sed -i -e "/version: /s/: .*/: $VERSION/" ${root_dirpath}/openflow.openapi.yaml
 sed -i -e "/\"version\": /s/: .*,/: \"$VERSION\",/" ${root_dirpath}/typescript-client/package.json
 sed -i -e "/\"version\": /s/: .*,/: \"$VERSION\",/" ${root_dirpath}/typescript-client/jsr.json
 sed -i -e "/\"version\": /s/: .*,/: \"$VERSION\",/" ${root_dirpath}/frontend/package.json
+sed -i -e "/\"version\": /s/: .*,/: \"$VERSION\",/" ${root_dirpath}/windmill-yaml-validator/package.json
 sed -i -e "/^version =/s/= .*/= \"$VERSION\"/" ${root_dirpath}/python-client/wmill/pyproject.toml
 sed -i -e "/^windmill-api =/s/= .*/= \"\\^$VERSION\"/" ${root_dirpath}/python-client/wmill/pyproject.toml
 sed -i -e "/^[[:space:]]*ModuleVersion[[:space:]]*=/s/= .*/= '$VERSION'/" ${root_dirpath}/powershell-client/WindmillClient/WindmillClient.psd1

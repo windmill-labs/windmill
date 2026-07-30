@@ -5,8 +5,9 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "./gen_openflow_schema.sh && tsc",
-    "pretest": "./gen_openflow_schema.sh",
+    "gen": "node scripts/gen-schemas.js",
+    "build": "npm run gen && tsc",
+    "pretest": "npm run gen",
     "test": "jest",
     "test:watch": "jest --watch",
     "prepublishOnly": "npm run build"

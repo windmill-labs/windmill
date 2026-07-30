@@ -167,7 +167,7 @@ npm run build
 
 The build process:
 
-1. Runs `gen_openflow_schema.sh` to generate:
+1. Runs `npm run gen` (`scripts/gen-schemas.js`) to generate:
    - `src/gen/openflow.json`
    - `src/gen/schedule.json`
    - `src/gen/triggers/*.json`
@@ -186,26 +186,27 @@ Run tests in watch mode:
 npm test:watch
 ```
 
-### Testing locally with the CLI
+### Relationship with the CLI
 
-To test local changes before publishing, use `npm link`:
+`wmill lint` does not use the published package: it imports `src/index.ts` directly, and
+`cli`'s `preinstall` regenerates `src/gen` from the repo's OpenAPI specs. Lint therefore
+always validates against the schema of the commit it is built from, and local changes here
+are picked up with no publish or link step:
 
 ```bash
-# In windmill-yaml-validator/
-npm run build
-npm link
-
 # In cli/
-npm link windmill-yaml-validator
 bun run src/main.ts lint
 ```
+
+The published package still exists for editor integrations and is republished on every
+release tag.
 
 ### Schema Generation
 
 The validator uses a JSON schema generated from the OpenAPI specification:
 
 ```bash
-./gen_openflow_schema.sh
+npm run gen
 ```
 
 This script:

@@ -23,6 +23,9 @@ const CLI_EXCLUDED_FIELDS = new Set([
   "extra_perms",
   "email",
   "mode",
+  // `wmill sync pull` replaces it with the `has_permissioned_as` marker, so it is
+  // never present in a synced file even though the API requires it.
+  "permissioned_as",
 ]);
 
 const TARGET_SCHEMAS = {
@@ -231,4 +234,8 @@ function main() {
   console.log("Generated schedule and trigger schemas");
 }
 
-main();
+module.exports = { generateSchemas };
+
+if (require.main === module) {
+  main();
+}
