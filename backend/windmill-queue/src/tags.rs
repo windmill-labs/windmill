@@ -27,6 +27,10 @@ lazy_static::lazy_static! {
 /// Channel on which a lineage change is broadcast to every server and worker process.
 pub const FORK_LINEAGE_CHANGE_CHANNEL: &str = "notify_fork_lineage_change";
 
+/// Payload meaning "drop every entry". A change to the shape of the tree invalidates an unbounded
+/// set of descendants, which is not worth enumerating; a change to what a single id denotes is.
+const CLEAR_ALL: &str = "*";
+
 /// Drop the cached tag workspace for a workspace. Call after mutating `parent_workspace_id` or
 /// `is_dev_workspace` (attaching/detaching a dev workspace) so job tags resolve against the new
 /// lineage immediately instead of after the cache TTL. Resolution walks ancestors, so a workspace's
@@ -36,25 +40,42 @@ pub fn invalidate_fork_parent_cache(workspace_id: &str) {
     FORK_PARENT_CACHE.remove(workspace_id);
 }
 
-/// Drop every cached tag workspace. Used by the lineage-change listener: resolution depends on a
-/// whole ancestor chain, so a mutation invalidates an unbounded set of descendants and clearing all
-/// of it costs one lookup per active workspace on the next push. Lineage changes are rare admin
-/// actions, so that is cheaper than broadcasting an id per affected workspace and safer than
-/// trying to enumerate them.
-pub fn clear_fork_parent_cache() {
-    FORK_PARENT_CACHE.clear();
+/// Apply a broadcast lineage change to this process's cache.
+pub fn apply_fork_lineage_change(payload: &str) {
+    if payload == CLEAR_ALL {
+        FORK_PARENT_CACHE.clear();
+    } else {
+        FORK_PARENT_CACHE.remove(payload);
+    }
 }
 
-/// Broadcast a lineage change so every process drops its cached tag workspaces. Called after the
-/// mutation commits, alongside the local invalidation: a lost event only means replicas wait out
-/// the cache TTL, which is what they did before the broadcast existed.
+/// Broadcast that one workspace id now denotes something else, so every process drops just that
+/// entry. Ids are reclaimable, so a deleted fork's mapping must not outlive it: the id can be
+/// claimed again under a different parent well inside the cache TTL.
 pub async fn notify_fork_lineage_change<'e>(
     executor: impl sqlx::Executor<'e, Database = Postgres>,
     workspace_id: &str,
 ) -> Result<(), sqlx::Error> {
+    broadcast(executor, workspace_id).await
+}
+
+/// Broadcast that the shape of the tree changed, so every process drops every entry. Used where a
+/// mutation moves an unbounded set of descendants; these are rare admin actions.
+pub async fn notify_fork_lineage_reset<'e>(
+    executor: impl sqlx::Executor<'e, Database = Postgres>,
+) -> Result<(), sqlx::Error> {
+    broadcast(executor, CLEAR_ALL).await
+}
+
+/// Called after the mutation commits, alongside the local invalidation: a lost event only means
+/// replicas wait out the cache TTL, which is what they did before the broadcast existed.
+async fn broadcast<'e>(
+    executor: impl sqlx::Executor<'e, Database = Postgres>,
+    payload: &str,
+) -> Result<(), sqlx::Error> {
     sqlx::query("INSERT INTO notify_event (channel, payload) VALUES ($1, $2)")
         .bind(FORK_LINEAGE_CHANGE_CHANNEL)
-        .bind(workspace_id)
+        .bind(payload)
         .execute(executor)
         .await?;
     Ok(())

@@ -1712,11 +1712,8 @@ async fn process_notify_event(
             windmill_common::variables::WORKSPACE_CRYPT_CACHE.remove(payload);
         }
         c if c == windmill_queue::tags::FORK_LINEAGE_CHANGE_CHANNEL => {
-            tracing::info!(
-                "Fork lineage change detected on {}, clearing tag workspace cache",
-                payload
-            );
-            windmill_queue::tags::clear_fork_parent_cache();
+            tracing::info!("Fork lineage change detected ({payload}), dropping tag workspace cache");
+            windmill_queue::tags::apply_fork_lineage_change(payload);
         }
         "notify_workspace_premium_change" => {
             tracing::info!(

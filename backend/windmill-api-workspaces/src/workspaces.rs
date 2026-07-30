@@ -7246,7 +7246,7 @@ async fn attach_dev_workspace(
     {
         windmill_queue::tags::invalidate_fork_parent_cache(&id);
     }
-    if let Err(e) = windmill_queue::tags::notify_fork_lineage_change(&db, &dev_w_id).await {
+    if let Err(e) = windmill_queue::tags::notify_fork_lineage_reset(&db).await {
         tracing::warn!("failed to broadcast fork lineage change: {e:#}");
     }
     // Best-effort: the hooks captured before the strip above are unreachable now
@@ -7365,7 +7365,7 @@ async fn detach_dev_workspace(
         // the workspace whose dev flag just changed.
         windmill_queue::tags::invalidate_fork_parent_cache(&id);
     }
-    if let Err(e) = windmill_queue::tags::notify_fork_lineage_change(&db, &dev_w_id).await {
+    if let Err(e) = windmill_queue::tags::notify_fork_lineage_reset(&db).await {
         tracing::warn!("failed to broadcast fork lineage change: {e:#}");
     }
     #[cfg(feature = "cloud")]
@@ -7617,7 +7617,7 @@ async fn archive_workspace(
         {
             windmill_queue::tags::invalidate_fork_parent_cache(&id);
         }
-        if let Err(e) = windmill_queue::tags::notify_fork_lineage_change(&db, &w_id).await {
+        if let Err(e) = windmill_queue::tags::notify_fork_lineage_reset(&db).await {
             tracing::warn!("failed to broadcast fork lineage change: {e:#}");
         }
     }

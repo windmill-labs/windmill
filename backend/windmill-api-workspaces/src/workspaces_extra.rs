@@ -809,7 +809,7 @@ pub(crate) async fn change_workspace_id(
     // archived row. Drop both rather than reason about which cached answers are still true.
     windmill_queue::tags::invalidate_fork_parent_cache(&rw.new_id);
     windmill_queue::tags::invalidate_fork_parent_cache(&old_id);
-    if let Err(e) = windmill_queue::tags::notify_fork_lineage_change(&db, &rw.new_id).await {
+    if let Err(e) = windmill_queue::tags::notify_fork_lineage_reset(&db).await {
         tracing::warn!("failed to broadcast fork lineage change: {e:#}");
     }
 
@@ -1208,13 +1208,17 @@ pub(crate) async fn delete_workspace(
             windmill_queue::tags::invalidate_fork_parent_cache(&id);
         }
     }
-    // Only a deletion that orphans descendants changes what anyone else resolves to. Deleting a
-    // leaf — which is what ephemeral fork churn does constantly — leaves every other lineage
-    // intact, and broadcasting would make every replica drop its whole tag cache for nothing.
-    if !orphaned_children.is_empty() {
-        if let Err(e) = windmill_queue::tags::notify_fork_lineage_change(&db, &w_id).await {
-            tracing::warn!("failed to broadcast fork lineage change: {e:#}");
-        }
+    // The id is reclaimable, so its cached mapping must not outlive it anywhere: it can be claimed
+    // again under a different parent well inside the TTL. That is a one-entry drop, cheap enough for
+    // the ephemeral fork churn this endpoint sees. Orphaning descendants reshapes the tree instead,
+    // which no single id identifies.
+    let broadcast = if orphaned_children.is_empty() {
+        windmill_queue::tags::notify_fork_lineage_change(&db, &w_id).await
+    } else {
+        windmill_queue::tags::notify_fork_lineage_reset(&db).await
+    };
+    if let Err(e) = broadcast {
+        tracing::warn!("failed to broadcast fork lineage change: {e:#}");
     }
 
     Ok(format!("Deleted workspace {}", &w_id))
