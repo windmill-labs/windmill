@@ -649,8 +649,11 @@
 			.filter((k) => !(deploymentStatus[k]?.status == 'deployed'))
 		// Adds to the selection rather than replacing it, so a removal row the user
 		// opted into individually survives — the group checkbox, which only toggles
-		// its own rows, already behaves that way.
-		const keptOptIns = selectedItems.filter((k) => !bulk.includes(k))
+		// its own rows, already behaves that way. Restricted to rows still in the
+		// list: a key pruned by a recompute would otherwise be counted by the deploy
+		// button and then reported as undeployable.
+		const listed = new Set(selectableDiffs.map((d) => getItemKey(d)))
+		const keptOptIns = selectedItems.filter((k) => !bulk.includes(k) && listed.has(k))
 		selectedItems = [...bulk, ...keptOptIns]
 	}
 

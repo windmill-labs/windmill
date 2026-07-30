@@ -416,6 +416,8 @@
 			onChanged={refreshCounts}
 			{isFork}
 			parentWorkspaceId={parentWorkspaceId ?? undefined}
+			{compareTargetId}
+			oneWayCompare={isArbitraryTarget}
 			{deployCount}
 			{updateCount}
 			{draftCount}
