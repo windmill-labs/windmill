@@ -141,6 +141,15 @@ BEGIN
      WHERE w.id = c.workspace_id;
     GET DIAGNOSTICS converted_count = ROW_COUNT;
 
+    -- Dispatch already ignores this flag once a workspace has a parent, but the settings page keeps
+    -- submitting the stored `true`, which the API rejects on a fork -- locking the whole error
+    -- handler behind a 400. `attach_dev_workspace` clears it for the same reason.
+    UPDATE workspace_settings ws
+       SET error_handler_fallback_to_instance_alerts = false
+      FROM convertible c
+     WHERE c.workspace_id = ws.workspace_id
+       AND ws.error_handler_fallback_to_instance_alerts;
+
     -- A converted workspace is now parent-managed, exactly as if `attach_dev_workspace` had run.
     -- That path also strips git-sync state that would otherwise keep pulling and pushing against
     -- the workspace's pre-conversion tracked branch: promotion repos are dropped, and auto-pull and
