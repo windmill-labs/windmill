@@ -23,7 +23,10 @@ use crate::ai::tools::McpClientStub as McpClient;
 use windmill_ai::{
     ai_providers::AIProvider,
     image_handler::upload_image_to_s3,
-    providers::create_query_builder,
+    providers::{
+        create_chat_completions_query_builder, create_query_builder, is_chat_completions_only,
+        remember_chat_completions_only,
+    },
     proxy::{
         common_outbound_headers, needs_unavailable_oauth_exchange, retain_effective_credentials,
     },
@@ -834,7 +837,15 @@ pub async fn run_agent(
     let api_key = credentials.api_key.as_deref().unwrap_or("");
 
     // Create the query builder for the provider
-    let query_builder = create_query_builder(&credentials, args.provider.get_model());
+    let mut query_builder = create_query_builder(&credentials, args.provider.get_model());
+    if query_builder.supports_chat_completions_fallback(base_url)
+        && is_chat_completions_only(base_url, args.provider.get_model())
+    {
+        query_builder = create_chat_completions_query_builder(&credentials);
+    }
+    // Both outlive the iteration that discovers them: a request shape or a route the
+    // endpoint rejected once stays rejected for the whole step.
+    let mut include_usage = true;
 
     // Initialize messages
     let mut messages =
@@ -1149,20 +1160,13 @@ pub async fn run_agent(
                 has_websearch,
             };
 
-            let request_body = query_builder
-                .build_request(&build_args, client, &job.workspace_id)
-                .await?;
-
-            let endpoint =
-                query_builder.get_endpoint(base_url, args.provider.get_model(), output_type);
-            let auth_headers = query_builder.get_auth_headers(api_key, base_url, output_type);
             // A worker cannot run the client credentials exchange, so an OAuth resource
             // has no token here: the request would carry an empty credential and come
             // back 401.
             if needs_unavailable_oauth_exchange(
                 &credentials,
                 args.provider.resource.token_url.as_deref(),
-                &auth_headers,
+                &query_builder.get_auth_headers(api_key, base_url, output_type),
             ) {
                 return Err(Error::ExecutionErr(format!(
                     "The {:?} resource authenticates with OAuth, which AI agent steps do not \
@@ -1171,7 +1175,6 @@ pub async fn run_agent(
                     credentials.provider
                 )));
             }
-            let auth_headers = retain_effective_credentials(&credentials, auth_headers);
 
             let timeout = resolve_job_timeout(conn, &job.workspace_id, job.id, job.timeout)
                 .await
@@ -1185,75 +1188,107 @@ pub async fn run_agent(
             let pinned_ai_client = pinned_ai_client_for(base_url).await?;
 
             // Helper to build HTTP request with headers
-            let build_http_request = |body: String| {
-                let mut req = pinned_ai_client
-                    .post(&endpoint)
-                    .timeout(timeout)
-                    .header("Content-Type", "application/json");
+            let build_http_request =
+                |endpoint: &str, auth_headers: &[(&'static str, String)], body: String| {
+                    let mut req = pinned_ai_client
+                        .post(endpoint)
+                        .timeout(timeout)
+                        .header("Content-Type", "application/json");
 
-                for (header_name, header_value) in &auth_headers {
-                    req = req.header(*header_name, header_value.clone());
-                }
+                    for (header_name, header_value) in auth_headers {
+                        req = req.header(*header_name, header_value.clone());
+                    }
 
-                for (header_name, header_value) in &trailing_headers {
-                    req = req.header(header_name.as_str(), header_value.as_str());
-                }
+                    for (header_name, header_value) in &trailing_headers {
+                        req = req.header(header_name.as_str(), header_value.as_str());
+                    }
 
-                req.body(body)
-            };
+                    req.body(body)
+                };
 
-            let resp = build_http_request(request_body.clone())
-                .send()
-                .await
-                .map_err(|e| Error::internal_err(format!("Failed to call API: {}", e)))?;
+            // An endpoint can reject the request shape rather than the model:
+            // `stream_options`, which not every OpenAI-compatible provider accepts, and
+            // the route itself, when an Azure resource is outside the Responses API's
+            // model/region matrix. Each is retried once with that part dropped.
+            // Set where the route is found to be absent, and read once the fallback has
+            // answered: a rejection it did not resolve says nothing about the deployment.
+            let mut rerouted_by_a_route_rejection = false;
+            let resp = loop {
+                let request_body = if include_usage {
+                    query_builder
+                        .build_request(&build_args, client, &job.workspace_id)
+                        .await?
+                } else {
+                    query_builder
+                        .build_request_without_usage(&build_args, client, &job.workspace_id)
+                        .await?
+                };
+                let endpoint =
+                    query_builder.get_endpoint(base_url, args.provider.get_model(), output_type);
+                let auth_headers = retain_effective_credentials(
+                    &credentials,
+                    query_builder.get_auth_headers(api_key, base_url, output_type),
+                );
 
-            // Check if request failed and we should retry without stream_options
-            let resp = match resp.error_for_status_ref() {
-                Ok(_) => resp,
-                Err(e) => {
-                    let status = resp.status();
-                    let text = resp
-                        .text()
-                        .await
-                        .unwrap_or_else(|_| "<failed to read body>".to_string());
+                let resp = build_http_request(&endpoint, &auth_headers, request_body)
+                    .send()
+                    .await
+                    .map_err(|e| Error::internal_err(format!("Failed to call API: {}", e)))?;
 
-                    // Retry without stream_options if provider supports it and error suggests incompatibility
-                    // Common error patterns: 400 Bad Request with mentions of stream_options or include_usage
-                    let should_retry = query_builder.supports_retry_without_usage()
-                        && status.as_u16() == 400
-                        && (text.contains("stream_options")
-                            || text.contains("include_usage")
-                            || text.contains("Additional properties are not allowed"));
-
-                    if should_retry {
-                        tracing::info!(
-                            "Retrying request without stream_options due to provider incompatibility"
-                        );
-
-                        let retry_body = query_builder
-                            .build_request_without_usage(&build_args, client, &job.workspace_id)
-                            .await?;
-
-                        let retry_resp =
-                            build_http_request(retry_body).send().await.map_err(|e| {
-                                Error::internal_err(format!("Failed to call API on retry: {}", e))
-                            })?;
-
-                        match retry_resp.error_for_status_ref() {
-                            Ok(_) => retry_resp,
-                            Err(retry_e) => {
-                                let retry_text = retry_resp
-                                    .text()
-                                    .await
-                                    .unwrap_or_else(|_| "<failed to read body>".to_string());
-                                return Err(Error::internal_err(format!(
-                                    "API error on retry: {} - {}",
-                                    retry_e, retry_text
-                                )));
-                            }
+                match resp.error_for_status_ref() {
+                    Ok(_) => {
+                        if rerouted_by_a_route_rejection {
+                            remember_chat_completions_only(base_url, args.provider.get_model());
                         }
-                    } else {
-                        return Err(Error::internal_err(format!("API error: {} - {}", e, text)));
+                        break resp;
+                    }
+                    Err(e) => {
+                        let status = resp.status();
+                        let text = resp
+                            .text()
+                            .await
+                            .unwrap_or_else(|_| "<failed to read body>".to_string());
+
+                        // Common error patterns: 400 Bad Request with mentions of stream_options or include_usage
+                        let rejects_usage_tracking = include_usage
+                            && query_builder.supports_retry_without_usage()
+                            && status.as_u16() == 400
+                            && (text.contains("stream_options")
+                                || text.contains("include_usage")
+                                || text.contains("Additional properties are not allowed"));
+
+                        // Only the first call of the step may re-route: an endpoint that
+                        // does not serve this API rejects that one already, whereas a
+                        // rejection once the conversation is under way is about the
+                        // conversation (context length, content filter, tool schema).
+                        let route_unserved = i == 0
+                            && query_builder.supports_chat_completions_fallback(base_url)
+                            && matches!(status.as_u16(), 400 | 404)
+                            && *output_type == OutputType::Text;
+
+                        if rejects_usage_tracking {
+                            tracing::info!(
+                                "Retrying request without stream_options due to provider incompatibility"
+                            );
+                            include_usage = false;
+                        } else if route_unserved {
+                            tracing::info!(
+                                "Endpoint rejected the request ({}), falling back to chat/completions",
+                                status
+                            );
+                            // Only a 404 says the route is absent. A 400 is ambiguous —
+                            // a deployment that does serve the route rejects tool
+                            // schemas, blocked hosted tools and filtered content the
+                            // same way — so it re-routes this step and nothing more.
+                            rerouted_by_a_route_rejection = status.as_u16() == 404;
+                            query_builder = create_chat_completions_query_builder(&credentials);
+                            include_usage = true;
+                        } else {
+                            return Err(Error::internal_err(format!(
+                                "API error calling {}: {} - {}",
+                                endpoint, e, text
+                            )));
+                        }
                     }
                 }
             };
