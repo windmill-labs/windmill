@@ -15,6 +15,7 @@
 	import { Button } from '$lib/components/common'
 	import { ClipboardCopy, Code2, RefreshCw, TableProperties } from 'lucide-svelte'
 	import { copyToClipboard } from '$lib/utils'
+	import { isWindmillTooBigObject } from '$lib/components/job_args'
 	import { workspaceStore } from '$lib/stores'
 	import { appendViewToken } from '$lib/viewToken'
 	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
@@ -514,7 +515,22 @@
 			// overridden one points at the relation on screen. The result's copy
 			// wins: a `dbt retry` job's own arguments name the run it resumed,
 			// while what it ran with is the restored ones published here.
-			const ran = { ...(runArgs ?? {}), ...(run?.invocation_args ?? {}) } as Record<string, any>
+			//
+			// Fetched when they were too big to inline: while the run is still going
+			// there is no result to fall back on, so the placeholder would submit a
+			// preview with none of the descriptor's required vars.
+			let submitted: Record<string, unknown> = runArgs ?? {}
+			if (jobId && isWindmillTooBigObject(submitted)) {
+				try {
+					submitted = ((await JobService.getJobArgs({ workspace: ws, id: jobId })) ??
+						{}) as Record<string, unknown>
+				} catch {
+					// Leave the placeholder: the preview may still resolve, and its own
+					// failure says more than refusing to try.
+				}
+				if (gen !== runGen || destroyed) return
+			}
+			const ran = { ...submitted, ...(run?.invocation_args ?? {}) } as Record<string, any>
 			const requestBody = {
 				...ran,
 				command: {

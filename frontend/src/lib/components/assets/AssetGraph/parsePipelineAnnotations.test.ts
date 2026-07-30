@@ -277,6 +277,15 @@ describe('table:// canonicalization', () => {
 		)
 	})
 
+	// `canonicalize_table_asset_path` folds with `to_ascii_lowercase`, so this
+	// must too: full-Unicode folding turns `Sélection` into `sélection` here and
+	// `sÉlection` at deploy — two nodes for one table, which is the split this
+	// canonicalization exists to prevent. Every warehouse accepts such names.
+	it('folds case the way the deploy does, ASCII only', () => {
+		expect(readPath('// on table://u/me/wh/Sélection/Orders')).toBe('u/me/wh/sélection/orders')
+		expect(readPath('// on table://u/me/wh/ОТЧЁТ/Orders')).toBe('u/me/wh/ОТЧЁТ/orders')
+	})
+
 	it('leaves the resource path alone', () => {
 		expect(readPath('// on table://u/Me/WH/analytics/orders')).toBe(
 			'u/Me/WH/analytics/orders'

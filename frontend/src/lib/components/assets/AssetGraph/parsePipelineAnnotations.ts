@@ -34,11 +34,18 @@ function canonicalizeTablePath(path: string): string {
 	if (parts.length < 3) return path
 	const name = parts.pop()!
 	const schema = parts.pop()!
-	return [
-		...parts,
-		unquoteSegment(schema).toLowerCase(),
-		unquoteIdentifier(name).toLowerCase()
-	].join('/')
+	return [...parts, asciiLower(unquoteSegment(schema)), asciiLower(unquoteIdentifier(name))].join(
+		'/'
+	)
+}
+
+/** ASCII only, because `canonicalize_table_asset_path` folds with
+ *  `to_ascii_lowercase`. Full-Unicode `toLowerCase` disagrees on any accented or
+ *  Cyrillic identifier — every warehouse accepts those — and the deploy and the
+ *  live canvas would then canonicalize one table to two nodes, which is the
+ *  split this whole function exists to prevent. */
+function asciiLower(s: string): string {
+	return s.replace(/[A-Z]/g, (c) => c.toLowerCase())
 }
 
 /** Mirrors the worker's `unquote_identifier`, and must keep mirroring it: a quote
