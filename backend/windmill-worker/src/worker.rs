@@ -3155,13 +3155,6 @@ pub async fn run_worker(
                     )
                     .await;
 
-                    if is_init_script {
-                        resolve_init_script(match &job_result {
-                            Ok(outcome) if outcome.is_success() => InitScriptState::Completed,
-                            _ => InitScriptState::Aborted,
-                        });
-                    }
-
                     match job_result {
                         Ok(ref outcome) if !outcome.is_success() && is_init_script => {
                             tracing::error!("init script job failed, exiting");
@@ -3400,9 +3393,18 @@ lazy_static::lazy_static! {
     /// certificates, proxies, mounts), so anything reaching the network at startup waits on it. The
     /// init job is executed by the main loop, which only starts once dedicated workers have been
     /// spawned, hence a gate rather than plain ordering. Every path that gives up on running it
-    /// MUST leave `Pending`, or waiters park forever and worker teardown hangs joining them.
+    /// MUST resolve the gate, or waiters park forever and worker teardown hangs joining them.
     static ref INIT_SCRIPT_STATE: tokio::sync::watch::Sender<InitScriptState> =
         tokio::sync::watch::channel(InitScriptState::Pending).0;
+}
+
+/// Called with the post-processing verdict, which is the only one that accounts for `wm_failure`.
+pub(crate) fn init_script_finished(success: bool) {
+    resolve_init_script(if success {
+        InitScriptState::Completed
+    } else {
+        InitScriptState::Aborted
+    });
 }
 
 fn resolve_init_script(state: InitScriptState) {
@@ -3418,6 +3420,8 @@ fn resolve_init_script(state: InitScriptState) {
 
 /// Returns false when the init script will never succeed (it failed, or the worker is shutting
 /// down), in which case the caller must give up instead of preparing anything.
+// Only called from the dedicated worker paths, which are gated behind the `private` feature.
+#[allow(dead_code)]
 pub(crate) async fn wait_for_init_script_completed(
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
 ) -> bool {
