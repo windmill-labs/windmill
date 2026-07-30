@@ -409,6 +409,14 @@ pub fn start_background_processor(
                     .warn_after_seconds(10)
                     .await;
 
+                    // Resolved here rather than from the main loop's outcome because `wm_failure`
+                    // can flip an exit-zero init script to a failure, and dedicated workers must
+                    // not install against a host it failed to prepare. An agent server relays other
+                    // workers' init scripts, so it has no say over its own gate.
+                    if is_init_script && !is_agent_server {
+                        crate::worker::init_script_finished(final_success);
+                    }
+
                     if is_init_script && !final_success {
                         if is_agent_server {
                             // The failed init script belongs to a remote agent
