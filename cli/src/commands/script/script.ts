@@ -756,17 +756,30 @@ export async function readModulesFromDisk(
             // realistic case — is refused rather than skipped: dbt WOULD have
             // read it, so shipping the project without it deploys something that
             // compiles here and fails at run time with a missing relation.
+            // Bounded exactly like `isBundledModuleFile`: the file is over the
+            // limit by definition here, so reading it whole to classify it is
+            // what that path exists to avoid — a multi-gigabyte seed would be
+            // loaded just to be refused.
+            let size = 0;
             let oversizedText = false;
             try {
-              oversizedText =
-                fs.statSync(fullPath).size > MAX_MODULE_BYTES &&
-                !fs.readFileSync(fullPath).subarray(0, 8000).includes(0);
+              size = fs.statSync(fullPath).size;
+              if (size > MAX_MODULE_BYTES) {
+                const fd = fs.openSync(fullPath, "r");
+                try {
+                  const head = Buffer.alloc(8000);
+                  const read = fs.readSync(fd, head, 0, 8000, 0);
+                  oversizedText = !head.subarray(0, read).includes(0);
+                } finally {
+                  fs.closeSync(fd);
+                }
+              }
             } catch {
               oversizedText = false;
             }
             if (oversizedText) {
               throw new Error(
-                `${relPath} is ${Math.ceil(fs.statSync(fullPath).size / 1024 / 1024)} MB, over the ` +
+                `${relPath} is ${Math.ceil(size / 1024 / 1024)} MB, over the ` +
                   `${MAX_MODULE_BYTES / 1024 / 1024} MB per-file limit for a dbt project file. ` +
                   `Deploying without it would leave the project incomplete — shrink the file, or ` +
                   `keep it out of the project folder.`,
