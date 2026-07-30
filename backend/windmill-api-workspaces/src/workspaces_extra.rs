@@ -804,9 +804,9 @@ pub(crate) async fn change_workspace_id(
         }
     }
 
-    // The renamed workspace resolves under its new id, which anything touching it during the rename
-    // may already have cached as unresolvable. Sweep both ids: the new one so it picks up its real
-    // lineage, the old one because its row is now archived.
+    // A rename changes which workspace each id denotes. Workspace ids are reclaimable, so the new
+    // id may still carry a previous occupant's cached resolution, and the old id now names an
+    // archived row. Drop both rather than reason about which cached answers are still true.
     windmill_queue::tags::invalidate_fork_parent_cache(&rw.new_id);
     windmill_queue::tags::invalidate_fork_parent_cache(&old_id);
     if let Err(e) = windmill_queue::tags::notify_fork_lineage_change(&db, &rw.new_id).await {

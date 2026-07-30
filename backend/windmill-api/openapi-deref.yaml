@@ -5002,8 +5002,6 @@ paths:
                     type: string
                   webhook:
                     type: string
-                  deploy_to:
-                    type: string
                   ai_config:
                     type: object
                     properties: &ref_50

@@ -141,9 +141,9 @@ BEGIN
      WHERE w.id = c.workspace_id;
     GET DIAGNOSTICS converted_count = ROW_COUNT;
 
-    -- Dispatch already ignores this flag once a workspace has a parent, but the settings page keeps
-    -- submitting the stored `true`, which the API rejects on a fork -- locking the whole error
-    -- handler behind a 400. `attach_dev_workspace` clears it for the same reason.
+    -- Dispatch ignores this flag once a workspace has a parent, but the stored `true` outlives the
+    -- pairing: detaching later would silently re-enable instance alerting nobody asked for.
+    -- `attach_dev_workspace` clears it for the same reason.
     UPDATE workspace_settings ws
        SET error_handler_fallback_to_instance_alerts = false
       FROM convertible c
