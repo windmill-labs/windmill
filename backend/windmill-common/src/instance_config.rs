@@ -1276,6 +1276,49 @@ pub fn diff_worker_configs(
     ConfigsDiff { upserts, deletes }
 }
 
+/// Declaratively replace the global settings, applying the per-setting write
+/// rules that the HTTP endpoints enforce in their pre-write hook.
+///
+/// Every declarative writer (the `sync-config` CLI, the Kubernetes operator's
+/// ConfigMap sync) MUST go through this rather than calling
+/// [`apply_settings_diff`] directly: those paths bypass the HTTP hook entirely,
+/// so without this a value the API would reject gets persisted, and a changed
+/// webhook receiver never reaches the hooks already registered with GitHub.
+///
+/// The webhook sweep is awaited rather than detached because both callers are
+/// short-lived (a one-shot CLI, an operator reconcile tick) and would exit before
+/// a spawned task finished. Repositories already on the current receiver make no
+/// GitHub calls, so an unchanged instance pays nothing.
+pub async fn sync_global_settings_declarative(
+    db: &sqlx::Pool<sqlx::Postgres>,
+    current: &BTreeMap<String, serde_json::Value>,
+    desired: &BTreeMap<String, serde_json::Value>,
+) -> anyhow::Result<()> {
+    let webhook_key = crate::global_settings::GITHUB_APP_WEBHOOK_BASE_URL_SETTING;
+    if let Some(s) = desired
+        .get(webhook_key)
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
+    {
+        crate::global_settings::validate_webhook_base_url(s)
+            .map_err(|e| anyhow::anyhow!("{webhook_key}: {e}"))?;
+    }
+
+    let diff = diff_global_settings(current, desired, ApplyMode::Replace);
+    let webhook_base_url_changed =
+        diff.upserts.contains_key(webhook_key) || diff.deletes.iter().any(|k| k == webhook_key);
+    apply_settings_diff(db, &diff).await?;
+
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    if webhook_base_url_changed {
+        crate::git_sync_ee::reconcile_all_repo_webhooks(db).await;
+    }
+    #[cfg(not(all(feature = "enterprise", feature = "private")))]
+    let _ = webhook_base_url_changed;
+
+    Ok(())
+}
+
 /// Apply a settings diff to the global_settings table.
 pub async fn apply_settings_diff(
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -1456,42 +1499,7 @@ impl InstanceConfig {
                 .await?;
         let current_settings: BTreeMap<String, serde_json::Value> = rows.into_iter().collect();
 
-        // The HTTP settings endpoints validate per-key before writing; this path
-        // writes straight through, so it has to apply the same rule or a value
-        // GitHub can never deliver to would be persisted silently.
-        if let Some(v) =
-            desired_settings.get(crate::global_settings::GITHUB_APP_WEBHOOK_BASE_URL_SETTING)
-        {
-            if let Some(s) = v.as_str().filter(|s| !s.trim().is_empty()) {
-                crate::global_settings::validate_webhook_base_url(s).map_err(|e| {
-                    anyhow::anyhow!(
-                        "{}: {e}",
-                        crate::global_settings::GITHUB_APP_WEBHOOK_BASE_URL_SETTING
-                    )
-                })?;
-            }
-        }
-
-        let settings_diff =
-            diff_global_settings(&current_settings, &desired_settings, ApplyMode::Replace);
-        let webhook_base_url_changed = settings_diff
-            .upserts
-            .contains_key(crate::global_settings::GITHUB_APP_WEBHOOK_BASE_URL_SETTING)
-            || settings_diff
-                .deletes
-                .iter()
-                .any(|k| k == crate::global_settings::GITHUB_APP_WEBHOOK_BASE_URL_SETTING);
-        apply_settings_diff(db, &settings_diff).await?;
-
-        // Awaited, not detached: `sync-config` is a one-shot CLI that exits right
-        // after this, so a spawned sweep would be killed before it re-pointed
-        // anything. Hooks already on the new receiver make no GitHub calls.
-        #[cfg(all(feature = "enterprise", feature = "private"))]
-        if webhook_base_url_changed {
-            crate::git_sync_ee::reconcile_all_repo_webhooks(db).await;
-        }
-        #[cfg(not(all(feature = "enterprise", feature = "private")))]
-        let _ = webhook_base_url_changed;
+        sync_global_settings_declarative(db, &current_settings, &desired_settings).await?;
 
         // Worker configs
         let desired_configs: BTreeMap<String, serde_json::Value> = self

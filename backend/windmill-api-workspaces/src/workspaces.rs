@@ -885,8 +885,8 @@ async fn reject_parent_only_git_sync_settings_on_fork<'a>(
     Ok(())
 }
 
-/// Persist only the reconciled webhook fields (id/secret/error/mode) for `changed`
-/// repos, one targeted JSONB update per repo (same pattern as the EE auto-pull
+/// Persist only the reconciled webhook fields (id/secret/url/error/mode) for
+/// `changed` repos, one targeted JSONB update per repo (same pattern as the EE auto-pull
 /// status writer). The webhook reconcile runs after the main save has committed,
 /// so a read-modify-write of the whole blob would clobber a poller status write
 /// or another settings save landing in the gap. `mode` is carried too: the

@@ -786,16 +786,24 @@ pub async fn set_global_setting_internal(
     // Read before writing: the git-sync webhooks already registered with GitHub
     // point at the old receiver, so they must be re-pointed after the write —
     // but only when the value really moved, since the sweep talks to GitHub.
+    // `Null` and `""` both mean "unset" here (the write below deletes the row for
+    // either), so they must normalize to the same thing as a missing row or
+    // re-clearing an already-unset setting would look like a change.
     #[cfg(all(feature = "enterprise", feature = "private"))]
-    let webhook_base_url_changed = key == GITHUB_APP_WEBHOOK_BASE_URL_SETTING
-        && sqlx::query_scalar!(
+    let webhook_base_url_changed = key == GITHUB_APP_WEBHOOK_BASE_URL_SETTING && {
+        fn as_set_value(v: Option<&serde_json::Value>) -> Option<&str> {
+            v.and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+        }
+        let stored = sqlx::query_scalar!(
             "SELECT value FROM global_settings WHERE name = $1",
             GITHUB_APP_WEBHOOK_BASE_URL_SETTING
         )
         .fetch_optional(db)
-        .await?
-        .as_ref()
-            != Some(&value);
+        .await?;
+        as_set_value(stored.as_ref()) != as_set_value(Some(&value))
+    };
 
     // EE gate for workspace-fairness settings. Workspace fairness only matters
     // on multi-tenant clusters; it is licensed as an Enterprise feature so the
