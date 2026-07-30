@@ -3397,13 +3397,10 @@ impl PulledJob {
 pub async fn create_token(db: &DB, job: &MiniPulledJob, perms: Option<JobPerms>) -> String {
     // skipping test runs
     if job.workspace_id != "" {
-        let label = if job.permissioned_as != format!("u/{}", job.created_by)
-            && job.permissioned_as != job.created_by
-        {
-            format!("ephemeral-script-end-user-{}", job.created_by)
-        } else {
-            "ephemeral-script".to_string()
-        };
+        let label = windmill_common::auth::ephemeral_script_token_label(
+            &job.permissioned_as,
+            &job.created_by,
+        );
         windmill_common::auth::create_token_for_owner(
             db,
             &job.workspace_id,
