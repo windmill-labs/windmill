@@ -15,7 +15,7 @@
 		fetchProtectionRulesForWorkspace,
 		isRuleUnconditionallyActiveInRulesets
 	} from '$lib/workspaceProtectionRules.svelte'
-	import { GitFork, ExternalLink } from 'lucide-svelte'
+	import { GitFork, ExternalLink, Target } from 'lucide-svelte'
 	import { resource } from 'runed'
 
 	let currentWs = $derived($userWorkspaces.find((w) => w.id === $workspaceStore))
@@ -150,6 +150,12 @@
 		} finally {
 			busy = false
 		}
+	}
+
+	// The merge UI is the only place that deploys into a workspace outside the
+	// lineage, so this is the entry point for a one-off migration.
+	function openArbitraryMerge() {
+		goto(`${base}/forks/compare?mode=fork`)
 	}
 
 	async function detach(devId: string) {
@@ -294,3 +300,17 @@
 		</div>
 	</div>
 {/if}
+
+<div class="flex flex-col gap-2 max-w-2xl mt-8 pt-6 border-t">
+	<span class="text-xs font-semibold text-emphasis">Deploy into another workspace</span>
+	<p class="text-sm text-secondary">
+		Promotion normally follows the lineage, from this workspace into its parent. For a one-off
+		migration you can instead point the merge UI at any workspace you administer; it computes a full
+		diff over both workspaces and deploys the items you pick, one way.
+	</p>
+	<div>
+		<Button variant="default" startIcon={{ icon: Target }} onclick={openArbitraryMerge}>
+			Merge into another workspace
+		</Button>
+	</div>
+</div>

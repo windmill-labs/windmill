@@ -1880,3 +1880,128 @@ async fn test_compare_workspaces_fork_admin_source_hidden_ahead(
 
     Ok(())
 }
+
+/// The merge UI can target a workspace outside the fork lineage. Nothing tallies
+/// such a pair, so its comparison rests on an explicit full scan: before one, an
+/// empty `diffs` must be distinguishable from "the two workspaces agree", and the
+/// scan itself must seed only what actually differs, one way (WIN-2266).
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_full_diff_scan_against_arbitrary_workspace(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let client = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+    let base_url = format!("http://localhost:{port}/api");
+
+    // A second root workspace, unrelated to test-workspace by lineage.
+    sqlx::query!(
+        "INSERT INTO workspace (id, name, owner) VALUES ('other-workspace', 'other-workspace', 'test-user')"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO usr (workspace_id, email, username, is_admin, role)
+         VALUES ('other-workspace', 'test@windmill.dev', 'test-user', true, 'Admin')"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!("INSERT INTO workspace_settings (workspace_id) VALUES ('other-workspace')")
+        .execute(&db)
+        .await?;
+
+    // One script identical on both sides, one that differs, one that exists only here.
+    sqlx::query!(
+        "INSERT INTO script (workspace_id, path, hash, content, summary, description, language, created_by, created_at, archived, schema_validation, ws_error_handler_muted, deleted)
+         VALUES
+         ('test-workspace', 'f/shared/same', 1, 'def main(): pass', 'Same', '', 'python3', 'test@windmill.dev', NOW(), false, false, false, false),
+         ('test-workspace', 'f/shared/differs', 2, 'def main(): return 1', 'Differs', '', 'python3', 'test@windmill.dev', NOW(), false, false, false, false),
+         ('test-workspace', 'f/shared/only_here', 3, 'def main(): return 2', 'Only here', '', 'python3', 'test@windmill.dev', NOW(), false, false, false, false),
+         ('other-workspace', 'f/shared/same', 4, 'def main(): pass', 'Same', '', 'python3', 'test@windmill.dev', NOW(), false, false, false, false),
+         ('other-workspace', 'f/shared/differs', 5, 'def main(): return 99', 'Differs', '', 'python3', 'test@windmill.dev', NOW(), false, false, false, false)"
+    )
+    .execute(&db)
+    .await?;
+
+    let compare_url =
+        format!("{base_url}/w/other-workspace/workspaces/compare/test-workspace");
+
+    // Before any scan: no candidate set, so no diffs — and `full_scan_at` says so.
+    let before: serde_json::Value = client.client().get(&compare_url).send().await?.json().await?;
+    assert_eq!(
+        before["diffs"].as_array().map(|d| d.len()),
+        Some(0),
+        "an unscanned arbitrary pair has no diffs: {before}"
+    );
+    assert!(
+        before["full_scan_at"].is_null(),
+        "an unscanned arbitrary pair must report no scan: {before}"
+    );
+
+    let scan = client
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/seed_full_diff/other-workspace"
+        ))
+        .send()
+        .await?;
+    assert!(
+        scan.status().is_success(),
+        "seeding the scan should succeed: {}",
+        scan.status()
+    );
+
+    let after: serde_json::Value = client.client().get(&compare_url).send().await?.json().await?;
+    assert!(
+        !after["full_scan_at"].is_null(),
+        "a scanned pair must report when it was scanned: {after}"
+    );
+    let mut paths: Vec<&str> = after["diffs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d["path"].as_str().unwrap())
+        .collect();
+    paths.sort();
+    assert_eq!(
+        paths,
+        vec!["f/shared/differs", "f/shared/only_here"],
+        "the scan keeps only what differs, dropping the identical script: {after}"
+    );
+    for diff in after["diffs"].as_array().unwrap() {
+        assert_eq!(
+            (diff["ahead"].as_i64(), diff["behind"].as_i64()),
+            (Some(1), Some(0)),
+            "an arbitrary pair is compared one way only: {diff}"
+        );
+    }
+
+    // The lineage pair has a continuous tally whose direction a one-way scan would
+    // overwrite, so scanning it is refused.
+    let fork = client
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/create_fork"
+        ))
+        .json(&json!({"id": "wm-fork-test-workspace", "name": "Test Fork", "color": "#0000ff"}))
+        .send()
+        .await?;
+    assert!(fork.status().is_success(), "fork creation should succeed");
+    let lineage_scan = client
+        .client()
+        .post(&format!(
+            "{base_url}/w/wm-fork-test-workspace/workspaces/seed_full_diff/test-workspace"
+        ))
+        .send()
+        .await?;
+    assert!(
+        lineage_scan.status().is_client_error(),
+        "scanning a lineage pair must be refused: {}",
+        lineage_scan.status()
+    );
+
+    Ok(())
+}

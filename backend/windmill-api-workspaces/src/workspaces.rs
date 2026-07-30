@@ -183,6 +183,10 @@ pub fn workspaced_service() -> Router {
             post(reset_workspace_diffs),
         )
         .route("/compare/{target_workspace_id}", get(compare_workspaces))
+        .route(
+            "/seed_full_diff/{target_workspace_id}",
+            post(seed_full_diff_scan),
+        )
         .route("/create_pg_database", post(create_pg_database))
         .route("/import_pg_database", post(import_pg_database))
         .route("/export_pg_schema", post(export_pg_schema))
@@ -4946,16 +4950,23 @@ async fn check_fork_w_id_conflict(db: &DB, w_id: &str) -> Result<()> {
 }
 
 /// A fork id is reusable: it is freed when a fork is deleted and can be claimed
-/// again under the same name. `workspace_diff` and `skip_workspace_diff_tally`
-/// are keyed by workspace id with no FK cascade, so a freshly created fork could
-/// inherit cached diff state from a previous occupant of its id — a stale skip
-/// row suppresses comparison entirely, and stale workspace_diff rows produce a
-/// spurious "changes not visible" warning that hides the deploy button. Clear
-/// both so a new fork always starts with clean diff state, regardless of how the
-/// id was freed.
+/// again under the same name. `workspace_diff`, `workspace_diff_full_scan` and
+/// `skip_workspace_diff_tally` are keyed by workspace id with no FK cascade, so a
+/// freshly created fork could inherit cached diff state from a previous occupant
+/// of its id — a stale skip row suppresses comparison entirely, a stale full-scan
+/// row makes a never-scanned pair report as scanned and up to date, and stale
+/// workspace_diff rows produce a spurious "changes not visible" warning that hides
+/// the deploy button. Clear all three so a new fork always starts with clean diff
+/// state, regardless of how the id was freed.
 async fn purge_stale_fork_diff_state(db: &DB, fork_id: &str) -> Result<()> {
     sqlx::query!(
         "DELETE FROM workspace_diff WHERE source_workspace_id = $1 OR fork_workspace_id = $1",
+        fork_id
+    )
+    .execute(db)
+    .await?;
+    sqlx::query!(
+        "DELETE FROM workspace_diff_full_scan WHERE source_workspace_id = $1 OR fork_workspace_id = $1",
         fork_id
     )
     .execute(db)
@@ -7164,6 +7175,25 @@ async fn attach_dev_workspace(
     )
     .execute(&mut *tx)
     .await?;
+    // The pair may have been compared as an arbitrary target before it was linked. Those rows were
+    // seeded one-way (everything `ahead`, direction guessed), which the tally must not inherit as
+    // its own history — drop them and the scan marker so the lineage diff starts from the tally.
+    sqlx::query!(
+        "DELETE FROM workspace_diff_full_scan WHERE (source_workspace_id = $1 AND fork_workspace_id = $2)
+            OR (source_workspace_id = $2 AND fork_workspace_id = $1)",
+        &prod_w_id,
+        &dev_w_id,
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!(
+        "DELETE FROM workspace_diff WHERE (source_workspace_id = $1 AND fork_workspace_id = $2)
+            OR (source_workspace_id = $2 AND fork_workspace_id = $1)",
+        &prod_w_id,
+        &dev_w_id,
+    )
+    .execute(&mut *tx)
+    .await?;
     // Clearing the instance-alert opt-in here keeps the stored setting truthful for a workspace
     // that becomes parent-managed: dispatch enforces the fork boundary on its own, but a lingering
     // `true` would survive a later detach and would make the settings page submit a value the API
@@ -8890,6 +8920,11 @@ pub struct WorkspaceComparison {
     /// — never leak the paths of items the ACL is hiding from a regular user.
     pub hidden_ahead: HiddenItemsSummary,
     pub hidden_behind: HiddenItemsSummary,
+    /// When the pair is outside the fork lineage, when its candidate set was last
+    /// seeded by an explicit full scan. `None` means the pair has never been
+    /// scanned, so an empty `diffs` says nothing about whether the two workspaces
+    /// agree. Always `None` for a lineage pair, which the tally keeps current.
+    pub full_scan_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Serialize, Default)]
@@ -8971,17 +9006,67 @@ async fn compare_workspaces(
 ) -> JsonResult<WorkspaceComparison> {
     // require_admin(authed.is_admin, &authed.username)?;
 
-    let skipped_comparison: bool = sqlx::query_scalar(
-        "SELECT EXISTS(
+    // Only the lineage pair (source is the fork's parent) is kept current by the
+    // deploy tally. Any other pair is an explicit arbitrary-target comparison,
+    // which behaves differently on three counts, all handled below: it needs an
+    // explicit full scan to have a candidate set at all, it re-evaluates every
+    // candidate instead of trusting the cache, and it demands admin on both sides.
+    let is_lineage_pair = sqlx::query_scalar!(
+        "SELECT parent_workspace_id = $2 FROM workspace WHERE id = $1",
+        fork_workspace_id,
+        source_workspace_id,
+    )
+    .fetch_optional(&db)
+    .await?
+    .flatten()
+    .unwrap_or(false);
+
+    // Loaded eagerly only for the arbitrary pair, whose authorization needs it; the
+    // lineage path keeps it out of its early returns and loads it below.
+    let mut fork_authed: Option<ApiAuthed> = None;
+
+    let full_scan_at = if is_lineage_pair {
+        None
+    } else {
+        // An arbitrary pair exposes the two workspaces to each other, so require the
+        // caller to be an admin of both (superadmin folds into `is_admin` on either
+        // side). Without this, being an admin of one workspace would be enough to
+        // learn how many items of each kind differ in a workspace one merely belongs to.
+        let fa = load_workspace_authed(&db, &authed, &fork_workspace_id).await?;
+        if !(authed.is_admin && fa.is_admin) {
+            return Err(Error::BadRequest(format!(
+                "Comparing {fork_workspace_id} with {source_workspace_id}, which is not its parent workspace, requires being an admin of both workspaces"
+            )));
+        }
+        fork_authed = Some(fa);
+        sqlx::query_scalar!(
+            "SELECT scanned_at FROM workspace_diff_full_scan
+            WHERE source_workspace_id = $1 AND fork_workspace_id = $2",
+            source_workspace_id,
+            fork_workspace_id,
+        )
+        .fetch_optional(&db)
+        .await?
+    };
+
+    // `skip_workspace_diff_tally` marks workspaces that predate the tally, whose
+    // lineage diff can therefore never be reconstructed from it. It says nothing
+    // about a pair whose candidate set was just enumerated in full.
+    let skipped_comparison: bool = if full_scan_at.is_some() {
+        false
+    } else {
+        sqlx::query_scalar(
+            "SELECT EXISTS(
             SELECT 1 FROM skip_workspace_diff_tally
             WHERE workspace_id = $1
         )",
-    )
-    .bind(&fork_workspace_id)
-    .fetch_one(&db)
-    .await?;
+        )
+        .bind(&fork_workspace_id)
+        .fetch_one(&db)
+        .await?
+    };
 
-    if skipped_comparison {
+    if skipped_comparison || (!is_lineage_pair && full_scan_at.is_none()) {
         return Ok(Json(WorkspaceComparison {
             all_ahead_items_visible: true,
             all_behind_items_visible: true,
@@ -8990,6 +9075,7 @@ async fn compare_workspaces(
             summary: Default::default(),
             hidden_ahead: Default::default(),
             hidden_behind: Default::default(),
+            full_scan_at,
         }));
     }
 
@@ -9029,11 +9115,18 @@ async fn compare_workspaces(
     // synchronously on delete). Probe both sides in one batched query per kind
     // (mirroring `query_visible_items`) rather than per row, to keep the hot
     // compare path off an O(number of cached diffs) sequence of round trips.
+    //
+    // An arbitrary pair skips the probe entirely: nothing resets its cache, so it
+    // re-evaluates every candidate below and the staleness question never arises.
+    let trust_cache = is_lineage_pair;
     let (live_source, live_fork) = {
         let mut cached_source: HashMap<&str, Vec<&str>> = HashMap::new();
         let mut cached_fork: HashMap<&str, Vec<&str>> = HashMap::new();
         for item in &diff_items {
-            if item.has_changes == Some(true) && (item.kind == "script" || item.kind == "flow") {
+            if trust_cache
+                && item.has_changes == Some(true)
+                && (item.kind == "script" || item.kind == "flow")
+            {
                 if item.exists_in_source.unwrap_or(false) {
                     cached_source
                         .entry(item.kind.as_str())
@@ -9056,7 +9149,7 @@ async fn compare_workspaces(
 
     let mut confirmed_diffs = vec![];
     for item in diff_items {
-        if let Some(has_changes) = item.has_changes {
+        if let Some(has_changes) = item.has_changes.filter(|_| trust_cache) {
             if !has_changes {
                 // Defensive: rows that compared equal are normally deleted, so
                 // this is rarely hit. Not a diff — skip.
@@ -9194,7 +9287,10 @@ async fn compare_workspaces(
     // "this fork has changes not visible to your user" warning. Build a
     // matching authed for the fork so each side's visibility check uses the
     // right RLS context.
-    let fork_authed = load_workspace_authed(&db, &authed, &fork_workspace_id).await?;
+    let fork_authed = match fork_authed {
+        Some(fa) => fa,
+        None => load_workspace_authed(&db, &authed, &fork_workspace_id).await?,
+    };
     let visible_diffs = filter_visible_diffs(
         &confirmed_diffs,
         &source_workspace_id,
@@ -9329,7 +9425,256 @@ async fn compare_workspaces(
         summary,
         hidden_ahead,
         hidden_behind,
+        full_scan_at,
     }));
+}
+
+/// Every `(kind, path)` deployable item currently in a workspace, keyed the same
+/// way `workspace_diff` rows are. Mirrors the kind → table mapping of
+/// `query_visible_items`, minus its path filter: this enumerates the candidate set
+/// for a pair no tally maintains.
+///
+/// Runs on `&db` (no RLS). Enumerating everything is what makes the diff complete;
+/// per-item authorization stays in `filter_visible_diffs`, and reaching this at all
+/// requires admin of both workspaces.
+async fn list_all_item_keys(db: &DB, workspace_id: &str) -> Result<Vec<(String, String)>> {
+    let mut keys: Vec<(String, String)> = vec![];
+
+    fn push(keys: &mut Vec<(String, String)>, kind: &str, paths: Vec<String>) {
+        keys.extend(paths.into_iter().map(|p| (kind.to_string(), p)));
+    }
+
+    push(
+        &mut keys,
+        "script",
+        sqlx::query_scalar!(
+            "SELECT DISTINCT path FROM script WHERE workspace_id = $1 AND archived = false",
+            workspace_id
+        )
+        .fetch_all(db)
+        .await?,
+    );
+    push(
+        &mut keys,
+        "flow",
+        sqlx::query_scalar!(
+            "SELECT path FROM flow WHERE workspace_id = $1 AND archived = false",
+            workspace_id
+        )
+        .fetch_all(db)
+        .await?,
+    );
+    // Raw apps live in the `app` table too — what sets them apart is `raw_app` on
+    // their latest version. The kind decides which editor the merge UI links to and
+    // which deploy path an item takes, so read it from the version, as the delete
+    // handler does when it picks the DeployedObject variant.
+    for row in sqlx::query!(
+        "SELECT app.path, app_version.raw_app FROM app
+        JOIN app_version ON app_version.id = app.versions[array_upper(app.versions, 1)]
+        WHERE app.workspace_id = $1",
+        workspace_id
+    )
+    .fetch_all(db)
+    .await?
+    {
+        keys.push((
+            if row.raw_app { "raw_app" } else { "app" }.to_string(),
+            row.path,
+        ));
+    }
+    push(
+        &mut keys,
+        "resource",
+        sqlx::query_scalar!(
+            "SELECT path FROM resource WHERE workspace_id = $1",
+            workspace_id
+        )
+        .fetch_all(db)
+        .await?,
+    );
+    push(
+        &mut keys,
+        "variable",
+        sqlx::query_scalar!(
+            "SELECT path FROM variable WHERE workspace_id = $1",
+            workspace_id
+        )
+        .fetch_all(db)
+        .await?,
+    );
+    push(
+        &mut keys,
+        "resource_type",
+        sqlx::query_scalar!(
+            "SELECT name FROM resource_type WHERE workspace_id = $1",
+            workspace_id
+        )
+        .fetch_all(db)
+        .await?,
+    );
+    push(
+        &mut keys,
+        "folder",
+        sqlx::query_scalar!(
+            "SELECT 'f/' || name FROM folder WHERE workspace_id = $1",
+            workspace_id
+        )
+        .fetch_all(db)
+        .await?
+        .into_iter()
+        .flatten()
+        .collect(),
+    );
+    push(
+        &mut keys,
+        "datatable_migration",
+        sqlx::query_scalar!(
+            "SELECT datatable || '/' || timestamp || '_' || name FROM datatable_migrations
+            WHERE workspace_id = $1",
+            workspace_id
+        )
+        .fetch_all(db)
+        .await?
+        .into_iter()
+        .flatten()
+        .collect(),
+    );
+    for table in TRIGGER_OR_SCHEDULE_TABLES {
+        // SAFETY: `table` comes from the hardcoded TRIGGER_OR_SCHEDULE_TABLES
+        // allowlist, not user input.
+        let sql = format!("SELECT path FROM {table} WHERE workspace_id = $1");
+        push(
+            &mut keys,
+            table,
+            sqlx::query_scalar(&sql)
+                .bind(workspace_id)
+                .fetch_all(db)
+                .await?,
+        );
+    }
+
+    Ok(keys)
+}
+
+#[derive(Serialize)]
+pub struct FullDiffScan {
+    /// Candidate items the scan will compare — the union of both workspaces'
+    /// items. The comparison itself prunes the ones that turn out to be equal.
+    pub candidates: usize,
+    pub scanned_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Seed the `workspace_diff` candidate set for a pair the fork tally does not
+/// maintain, so the merge UI can target a workspace outside the lineage.
+///
+/// The tally only ever records a fork against its parent, so an arbitrary pair
+/// starts with no rows and would compare as "identical". This enumerates every
+/// item on both sides as an undecided candidate (`has_changes = NULL`) and records
+/// the scan; the following `compare_workspaces` is what actually compares them,
+/// keeps the differing rows and deletes the rest. That first comparison is the
+/// expensive step — it costs a per-kind query pair per candidate — which is why
+/// scanning is an explicit action and its result is left in `workspace_diff` for
+/// subsequent loads to reuse.
+///
+/// Direction is one-way: candidates are seeded `ahead = 1`, i.e. changes to push
+/// from `w_id` into `target_workspace_id`. A cold scan has no deploy history to
+/// tell which side moved, so there is nothing to say in the other direction.
+async fn seed_full_diff_scan(
+    authed: ApiAuthed,
+    Path((w_id, target_workspace_id)): Path<(String, String)>,
+    Extension(db): Extension<DB>,
+) -> JsonResult<FullDiffScan> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    if w_id == target_workspace_id {
+        return Err(Error::BadRequest(
+            "Cannot compare a workspace with itself".to_string(),
+        ));
+    }
+
+    let target_exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM workspace WHERE id = $1 AND deleted = false)",
+        target_workspace_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(false);
+    if !target_exists {
+        return Err(Error::NotFound(format!(
+            "Workspace {target_workspace_id} does not exist"
+        )));
+    }
+
+    let target_authed = load_workspace_authed(&db, &authed, &target_workspace_id).await?;
+    if !target_authed.is_admin {
+        return Err(Error::BadRequest(format!(
+            "Computing a diff against {target_workspace_id} requires being an admin of it"
+        )));
+    }
+
+    // The lineage pair has its own tally, whose `ahead`/`behind` counters say which
+    // side a change came from. Seeding one-way candidates over it would overwrite
+    // that direction with a guess, so leave the lineage comparison to the tally.
+    let lineage_pair = sqlx::query_scalar!(
+        "SELECT EXISTS(
+            SELECT 1 FROM workspace
+            WHERE (id = $1 AND parent_workspace_id = $2) OR (id = $2 AND parent_workspace_id = $1)
+        )",
+        w_id,
+        target_workspace_id,
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(false);
+    if lineage_pair {
+        return Err(Error::BadRequest(format!(
+            "{w_id} and {target_workspace_id} are already linked by the fork lineage — their diff is tracked continuously and needs no full scan"
+        )));
+    }
+
+    let mut candidates = list_all_item_keys(&db, &w_id).await?;
+    candidates.extend(list_all_item_keys(&db, &target_workspace_id).await?);
+    candidates.sort();
+    candidates.dedup();
+
+    let kinds: Vec<String> = candidates.iter().map(|(k, _)| k.clone()).collect();
+    let paths: Vec<String> = candidates.iter().map(|(_, p)| p.clone()).collect();
+
+    let mut tx = db.begin().await?;
+    // The scan is authoritative for this pair: it resets every candidate to undecided
+    // and one-way. A pre-existing row here is either a previous scan's (whose verdict
+    // the compare recomputes regardless) or a leftover from a lineage link since
+    // dissolved, whose `behind` would silently hide the item from the one-way list.
+    sqlx::query!(
+        "INSERT INTO workspace_diff (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes)
+        SELECT $1, $2, path, kind, 1, 0, NULL
+        FROM unnest($3::varchar[], $4::varchar[]) AS t(kind, path)
+        ON CONFLICT (source_workspace_id, fork_workspace_id, path, kind)
+        DO UPDATE SET ahead = 1, behind = 0, has_changes = NULL",
+        target_workspace_id,
+        w_id,
+        &kinds,
+        &paths,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    let scanned_at = sqlx::query_scalar!(
+        "INSERT INTO workspace_diff_full_scan (source_workspace_id, fork_workspace_id)
+        VALUES ($1, $2)
+        ON CONFLICT (source_workspace_id, fork_workspace_id) DO UPDATE SET scanned_at = now()
+        RETURNING scanned_at",
+        target_workspace_id,
+        w_id,
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    Ok(Json(FullDiffScan {
+        candidates: candidates.len(),
+        scanned_at,
+    }))
 }
 
 /// Build an `ApiAuthed` for the same user but scoped to a different workspace.
@@ -10172,6 +10517,7 @@ const TRIGGER_OR_SCHEDULE_TABLES: &[&str] = &[
     "nats_trigger",
     "postgres_trigger",
     "mqtt_trigger",
+    "amqp_trigger",
     "sqs_trigger",
     "gcp_trigger",
     "azure_trigger",

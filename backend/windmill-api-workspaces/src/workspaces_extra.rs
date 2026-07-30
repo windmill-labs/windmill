@@ -434,6 +434,22 @@ pub(crate) async fn change_workspace_id(
     .execute(&mut *tx)
     .await?;
 
+    info!("Updating workspace_diff_full_scan table");
+    sqlx::query!(
+        "UPDATE workspace_diff_full_scan SET source_workspace_id = $1 WHERE source_workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!(
+        "UPDATE workspace_diff_full_scan SET fork_workspace_id = $1 WHERE fork_workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
     info!("Updating workspace_fork_deployment_request table");
     sqlx::query!(
         "UPDATE workspace_fork_deployment_request SET source_workspace_id = $1 WHERE source_workspace_id = $2",
@@ -1090,13 +1106,20 @@ pub(crate) async fn delete_workspace(
         .execute(&mut *tx)
         .await?;
 
-    // workspace_diff and skip_workspace_diff_tally are keyed by workspace id with no
-    // FK cascade. A fork id is reused when a fork is deleted and recreated under the
-    // same name, so leaving these rows behind leaks the previous fork's cached diff
-    // verdicts onto the new fork — causing a spurious "changes not visible" warning
-    // that hides the deploy button.
+    // workspace_diff, workspace_diff_full_scan and skip_workspace_diff_tally are keyed
+    // by workspace id with no FK cascade. A fork id is reused when a fork is deleted
+    // and recreated under the same name, so leaving these rows behind leaks the
+    // previous fork's cached diff verdicts onto the new fork — causing a spurious
+    // "changes not visible" warning that hides the deploy button.
     sqlx::query!(
         "DELETE FROM workspace_diff WHERE source_workspace_id = $1 OR fork_workspace_id = $1",
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM workspace_diff_full_scan WHERE source_workspace_id = $1 OR fork_workspace_id = $1",
         &w_id
     )
     .execute(&mut *tx)
