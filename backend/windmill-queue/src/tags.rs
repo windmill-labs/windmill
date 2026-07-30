@@ -31,11 +31,10 @@ pub const FORK_LINEAGE_CHANGE_CHANNEL: &str = "notify_fork_lineage_change";
 /// set of descendants, which is not worth enumerating; a change to what a single id denotes is.
 const CLEAR_ALL: &str = "*";
 
-/// Drop the cached tag workspace for a workspace. Call after mutating `parent_workspace_id` or
-/// `is_dev_workspace` (attaching/detaching a dev workspace) so job tags resolve against the new
-/// lineage immediately instead of after the cache TTL. Resolution walks ancestors, so a workspace's
-/// descendants must be invalidated too. This only reaches the calling process; pair it with
-/// [`notify_fork_lineage_change`] so replicas do not keep serving the old answer.
+/// Drop one cached tag workspace in THIS process only. Resolution walks ancestors, so a mutation
+/// also invalidates every descendant; sweep them here as well. Replicas need a broadcast to match:
+/// [`notify_fork_lineage_reset`] when a subtree moved (attach, detach, archive, rename, a delete
+/// that orphans), or [`notify_fork_lineage_change`] when a single id changed what it denotes.
 pub fn invalidate_fork_parent_cache(workspace_id: &str) {
     FORK_PARENT_CACHE.remove(workspace_id);
 }
