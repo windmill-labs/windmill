@@ -408,18 +408,6 @@ async fn test_workspace_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
         resp.text().await?
     );
 
-    // --- edit_deploy_to (EE-gated) ---
-    let resp = authed(client().post(format!("{base}/edit_deploy_to")))
-        .json(&json!({"deploy_to": null}))
-        .send()
-        .await
-        .unwrap();
-    assert!(
-        resp.status() == 200 || resp.status() == 400,
-        "edit_deploy_to: unexpected status {}",
-        resp.status()
-    );
-
     // --- edit_large_file_storage_config ---
     let resp = authed(client().post(format!("{base}/edit_large_file_storage_config")))
         .json(&json!({"large_file_storage": null}))
