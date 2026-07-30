@@ -106,6 +106,38 @@ pub const GITHUB_ENTERPRISE_APP_SETTING: &str = "github_enterprise_app";
 /// `base_url` when unset; set it when the browser-facing URL is not reachable
 /// from GitHub and a separate ingress fronts the API for inbound webhooks.
 pub const GITHUB_APP_WEBHOOK_BASE_URL_SETTING: &str = "github_app_webhook_base_url";
+
+/// Validate a [`GITHUB_APP_WEBHOOK_BASE_URL_SETTING`] value.
+///
+/// The receiver path is appended to it verbatim, so anything that doesn't
+/// concatenate into a URL GitHub can POST to must be rejected at write time
+/// rather than silently producing an unreachable hook: a wrong scheme
+/// (`httpss://`), a missing host, embedded whitespace, or a query/fragment
+/// (appending a path after `?`/`#` keeps it inside the query/fragment).
+pub fn validate_webhook_base_url(value: &str) -> Result<(), String> {
+    let value = value.trim();
+    let url = url::Url::parse(value)
+        .map_err(|e| format!("must be an absolute http(s) URL ({}): {}", e, value))?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err(format!(
+            "must use the http or https scheme, got '{}'",
+            url.scheme()
+        ));
+    }
+    if !url.has_host() {
+        return Err(format!("must include a host: {}", value));
+    }
+    if url.query().is_some() || url.fragment().is_some() {
+        return Err(format!(
+            "must not include a query string or fragment, since the webhook path is appended to it: {}",
+            value
+        ));
+    }
+    if value.chars().any(char::is_whitespace) {
+        return Err(format!("must not contain whitespace: {}", value));
+    }
+    Ok(())
+}
 pub const INSTANCE_EVENTS_WEBHOOK_SETTING: &str = "instance_events_webhook";
 pub const WORKSPACE_REGISTRIES_SETTING: &str = "workspace_registries";
 pub const RESTART_COORDINATION_SETTING: &str = "_restart_coordination";
@@ -346,6 +378,36 @@ pub fn workspace_integration_auth_endpoint(client_name: &str, base_url: &str) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn webhook_base_url_rejects_unreachable_values() {
+        for ok in [
+            "https://hooks.example.com",
+            "http://hooks.example.com:8080",
+            "https://example.com/windmill",
+            " https://hooks.example.com ",
+        ] {
+            assert!(
+                validate_webhook_base_url(ok).is_ok(),
+                "'{ok}' should be accepted"
+            );
+        }
+        // Each of these concatenates into a URL GitHub could not deliver to.
+        for bad in [
+            "httpss://hooks.example.com",
+            "hooks.example.com",
+            "ftp://hooks.example.com",
+            "https://",
+            "https://hooks.example.com?token=x",
+            "https://hooks.example.com#frag",
+            "https://hooks example.com",
+        ] {
+            assert!(
+                validate_webhook_base_url(bad).is_err(),
+                "'{bad}' should be rejected"
+            );
+        }
+    }
 
     #[test]
     fn agent_workers_can_read_operational_settings() {

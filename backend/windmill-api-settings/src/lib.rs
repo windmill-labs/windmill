@@ -58,12 +58,12 @@ use windmill_common::{
     global_settings::{
         AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
         CRITICAL_ALERT_MUTE_UI_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_HUB_SETTING,
-        EMAIL_DOMAIN_SETTING, ENV_SETTINGS, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
-        HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING, MAX_RETENTION_OVERRIDE_WORKSPACES,
-        RETENTION_PERIOD_SECS_OVERRIDES_SETTING, RUFF_CONFIG_SETTING,
-        WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
-        WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
-        WS_BASE_URL_SETTING,
+        EMAIL_DOMAIN_SETTING, ENV_SETTINGS, GITHUB_APP_WEBHOOK_BASE_URL_SETTING,
+        HTTP_ROUTE_WORKSPACED_ROUTE_SETTING, HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
+        MAX_RETENTION_OVERRIDE_WORKSPACES, RETENTION_PERIOD_SECS_OVERRIDES_SETTING,
+        RUFF_CONFIG_SETTING, WORKSPACE_FAIRNESS_DURATION_SECS_SETTING,
+        WORKSPACE_FAIRNESS_ENABLED_SETTING, WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING,
+        WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING, WS_BASE_URL_SETTING,
     },
     instance_config::{self, ApplyMode, InstanceConfig},
     server::Smtp,
@@ -783,6 +783,20 @@ pub async fn set_global_setting_internal(
         value
     };
 
+    // Read before writing: the git-sync webhooks already registered with GitHub
+    // point at the old receiver, so they must be re-pointed after the write —
+    // but only when the value really moved, since the sweep talks to GitHub.
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    let webhook_base_url_changed = key == GITHUB_APP_WEBHOOK_BASE_URL_SETTING
+        && sqlx::query_scalar!(
+            "SELECT value FROM global_settings WHERE name = $1",
+            GITHUB_APP_WEBHOOK_BASE_URL_SETTING
+        )
+        .fetch_optional(db)
+        .await?
+        .as_ref()
+            != Some(&value);
+
     // EE gate for workspace-fairness settings. Workspace fairness only matters
     // on multi-tenant clusters; it is licensed as an Enterprise feature so the
     // setter rejects writes from non-EE builds. Disabling/clearing writes are
@@ -845,6 +859,11 @@ pub async fn set_global_setting_internal(
 
     if should_bump_instance_ai_revision {
         bump_instance_ai_config_revision();
+    }
+
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    if webhook_base_url_changed {
+        windmill_common::git_sync_ee::reconcile_all_repo_webhooks(db).await;
     }
 
     Ok(())
@@ -1078,6 +1097,30 @@ async fn run_setting_pre_write_hook(
                 }
             }
         }
+        GITHUB_APP_WEBHOOK_BASE_URL_SETTING => {
+            // A bad value here yields a webhook GitHub can never deliver to, and the
+            // failure only shows up much later as "falling back to polling" on a
+            // repository — so reject it at the boundary instead.
+            match value {
+                // Clearing (delete row) is handled by the caller; allow it through.
+                serde_json::Value::Null => {}
+                serde_json::Value::String(s) if s.trim().is_empty() => {}
+                serde_json::Value::String(s) => {
+                    windmill_common::global_settings::validate_webhook_base_url(s).map_err(
+                        |e| {
+                            error::Error::BadRequest(format!(
+                                "{GITHUB_APP_WEBHOOK_BASE_URL_SETTING}: {e}"
+                            ))
+                        },
+                    )?;
+                }
+                _ => {
+                    return Err(error::Error::BadRequest(format!(
+                        "{GITHUB_APP_WEBHOOK_BASE_URL_SETTING} must be a URL string"
+                    )));
+                }
+            }
+        }
         _ => {}
     }
     Ok(())
@@ -1135,6 +1178,18 @@ async fn set_instance_config(
             .upserts
             .iter()
             .any(|(key, _)| key == AI_CONFIG_SETTING);
+        // Same reason as in `set_global_setting_internal`: hooks already on GitHub
+        // keep the old receiver until they are re-pointed. `settings_diff` only
+        // lists keys that actually changed.
+        #[cfg(all(feature = "enterprise", feature = "private"))]
+        let webhook_base_url_changed = settings_diff
+            .upserts
+            .iter()
+            .any(|(key, _)| key == GITHUB_APP_WEBHOOK_BASE_URL_SETTING)
+            || settings_diff
+                .deletes
+                .iter()
+                .any(|key| key == GITHUB_APP_WEBHOOK_BASE_URL_SETTING);
 
         // Mirror the per-key EE gate in `set_global_setting_internal`. Without
         // this, the bulk endpoint would let a non-EE superadmin persist
@@ -1167,6 +1222,11 @@ async fn set_instance_config(
 
         if ai_config_changed {
             bump_instance_ai_config_revision();
+        }
+
+        #[cfg(all(feature = "enterprise", feature = "private"))]
+        if webhook_base_url_changed {
+            windmill_common::git_sync_ee::reconcile_all_repo_webhooks(&db).await;
         }
     }
 

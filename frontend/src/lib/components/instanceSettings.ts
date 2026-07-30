@@ -957,14 +957,14 @@ export const settings: Record<string, Setting[]> = {
 			placeholder: 'https://windmill-webhooks.company.com',
 			storage: 'setting',
 			ee_only: '',
-			error: 'Webhook base url must start with http:// or https:// and not end with / or a space',
+			error:
+				'Webhook base url must be an http:// or https:// url with a host, no query string or fragment, and no trailing slash',
+			// Mirrors validate_webhook_base_url on the server, which rejects the same
+			// values; the webhook path is appended to this verbatim.
 			isValid: (value: string | undefined) =>
 				value == undefined ||
 				value === '' ||
-				(value.startsWith('http') &&
-					value.includes('://') &&
-					!value.endsWith('/') &&
-					!value.endsWith(' '))
+				(/^https?:\/\/[^\s/?#]+(\/[^\s?#]*)?$/.test(value) && !value.endsWith('/'))
 		}
 	],
 	WebSocket: [
