@@ -266,8 +266,8 @@ and each node carries both `status` and `outcome`.
 reference, so no resolved value is published — and it is omitted when empty. It
 exists because a `dbt retry` restores the failed run's arguments inside the
 worker and never writes them back to the retry job, whose own args are just
-`{"dbt_command": "retry"}`: the row preview, which is a `dbt show` of the same
-project, has nowhere else to get them. On a retry it is therefore ANOTHER
+`{"dbt_command": "retry", "dbt_retry_job": "<id>"}`: the row preview, which is a
+`dbt show` of the same project, has nowhere else to get them. On a retry it is therefore ANOTHER
 invocation's arguments, which is why a hidden run saves no state at all (see the
 retry section).
 
@@ -758,14 +758,24 @@ provides observability.
    Each attempt gets a fresh job dir, so the previous run's `target/` is cached
    per (workspace, script) on the worker and restored for a retry.
 
+   **Naming the run.** `dbt_command: retry` requires `dbt_retry_job`, the id of
+   the run to resume, and the worker refuses one that is not the run it holds —
+   naming both ids, since "that is not the one" is otherwise indistinguishable
+   from "nothing is saved". Only the latest failure of a script is kept, so an
+   unnamed retry would mean "whatever failed last" and would quietly resume a
+   different run than the caller was looking at. The run page's `Resume this run`
+   and `Run again → dbt retry with same args` both fill it in; on the run form,
+   choosing `retry` prefills it with the run that caller's own retry would land
+   on. It is not a selector: naming a run other than the saved one is refused,
+   not resumed.
+
    **Who may resume it.** The state is keyed `(workspace, script_path,
-   permissioned_as)` — one saved run per script per identity it executes as —
-   because `dbt_command: retry` names no job: it means "resume the last failure
-   of this script", the way `dbt retry` resumes whatever the target dir holds.
-   So anyone entitled to run the script as that principal may resume its last
+   permissioned_as)` — one saved run per script per identity it executes as — so
+   anyone entitled to run the script as that principal may resume its last
    failure, which is the same capability as re-running that job: running the
    script requires read access on it, and that access shows them the run and its
-   arguments already.
+   arguments already. Naming the run neither widens nor narrows that; the id is
+   checked against what the state holds, not against the caller.
 
    For an `on_behalf_of` script that means every caller shares one saved run,
    since they all execute as the owner — deliberately, since the state describes
@@ -776,8 +786,8 @@ provides observability.
    and a plain run builds everything the descriptor selects, of which a retry
    rebuilds a subset. The one thing it adds is information — the result carries
    `invocation_args`, the resumed run's arguments as SUBMITTED, because a retry
-   job's own args are just `{"dbt_command": "retry"}` and the row preview needs the
-   real ones.
+   job's own args are just the command and the run it names, and the row preview
+   needs the real ones.
 
    For almost every shape the caller could already read that run, so nothing
    crosses: under `f/`, `see_folder_extra_perms_user` makes a job readable to
@@ -805,9 +815,10 @@ provides observability.
    caller would not have worked instead: `created_by` is `display_username()`,
    which a token LABEL supplies, so two callers can share one value and one can
    name a third person (GHSA-8x8x-88qc-qp4r, whose fix was to stop trusting that
-   name for authorization). Having a retry NAME the job it resumes, authorized as
-   a job read, is the design that would let a hidden run be retried by its own
-   author; it is a change to the run argument rather than to the key.
+   name for authorization). A retry does name the run it resumes, but that name is
+   checked against the saved state rather than authorized as a job read — doing
+   the latter, which is what would let a hidden run be resumed by its own author,
+   needs the submitting path, where the caller is real.
 8. Test failures honor dbt's `severity`: `error` fails the job, `warn` surfaces
    without failing. Overriding this would make the same project behave differently
    on Windmill than locally, breaking the core promise.

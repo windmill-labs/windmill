@@ -245,6 +245,7 @@ pub const RESERVED_ARG_NAMES: &[&str] = &[
     "vars",
     "full_refresh",
     "dbt_command",
+    "dbt_retry_job",
     "limit",
 ];
 
@@ -281,6 +282,19 @@ pub fn parse_dbt_sig(inner_content: &str) -> anyhow::Result<MainArgSignature> {
             typ: Typ::Str(Some(DBT_COMMANDS.iter().map(|c| c.to_string()).collect())),
             has_default: true,
             default: Some(serde_json::json!(default_command(&d))),
+            oidx: None,
+            otyp_inferred: false,
+        },
+        // The run a `retry` resumes, named rather than implied: only the latest
+        // failure of this script is kept, so "resume the last one" would silently
+        // aim somewhere else the moment another run failed. No default, so the
+        // form requires it — and only for `retry`, which is when it is shown.
+        Arg {
+            name: "dbt_retry_job".to_string(),
+            otyp: None,
+            typ: Typ::Str(None),
+            has_default: false,
+            default: None,
             oidx: None,
             otyp_inferred: false,
         },
@@ -412,6 +426,14 @@ pub fn dbt_arg_schema(inner_content: &str) -> anyhow::Result<serde_json::Value> 
                          without building; a selection naming several returns the first.",
                     ),
                     None,
+                ),
+                "dbt_retry_job" => (
+                    Some(
+                        "The failed run to resume, by run id. Its failed and skipped nodes are \
+                         rebuilt with the arguments it ran with, so the overrides below do not \
+                         apply. Resuming from that run's page fills this in.",
+                    ),
+                    Some("fields.dbt_command == 'retry'"),
                 ),
                 "select" => (
                     Some(
@@ -577,10 +599,19 @@ full_refresh: true
         // the run form offers a free-text box for a number.
         assert_eq!(props["limit"]["type"], "integer");
         assert_eq!(props["limit"]["default"], 100);
-        // Every `{{ placeholder }}` the descriptor interpolates is an argument
-        // a run must supply — the overrides above all default to the
-        // descriptor's own values instead.
-        assert_eq!(schema["required"], serde_json::json!(["day"]));
+        // Every `{{ placeholder }}` the descriptor interpolates is an argument a
+        // run must supply — the overrides above all default to the descriptor's
+        // own values instead. `dbt_retry_job` joins them: a retry names the run it
+        // resumes, and the form asks for it only under `retry`, where `showExpr`
+        // both hides the field and exempts it from the requirement.
+        assert_eq!(
+            schema["required"],
+            serde_json::json!(["dbt_retry_job", "day"])
+        );
+        assert_eq!(
+            props["dbt_retry_job"]["showExpr"],
+            "fields.dbt_command == 'retry'"
+        );
     }
 
     #[test]
@@ -614,6 +645,7 @@ full_refresh: true
             names,
             vec![
                 "dbt_command",
+                "dbt_retry_job",
                 "select",
                 "exclude",
                 "vars",

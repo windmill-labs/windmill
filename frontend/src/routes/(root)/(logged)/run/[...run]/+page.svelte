@@ -485,6 +485,33 @@
 		}
 	}
 
+	// Whether a `dbt retry` submitted from here would resume THIS run: only the
+	// latest failure of a script is kept per principal, so a later run of it — or
+	// one that failed with nothing to rebuild — leaves this page's retry refused.
+	// Both entry points to it, the dropdown item and the graph's banner, ask.
+	let dbtResumable = $state(false)
+	$effect(() => {
+		const ws = $workspaceStore
+		const id = job?.id
+		const failed = job?.language === 'dbt' && job?.type === 'CompletedJob' && !job?.success
+		dbtResumable = false
+		if (!ws || !id || !failed) return
+		JobService.getDbtResumable({ workspace: ws, id })
+			.then((held) => {
+				// The page may have moved on, or the workspace changed, in flight.
+				if (job?.id === id && $workspaceStore === ws) dbtResumable = held === id
+			})
+			.catch(() => {})
+	})
+
+	// The retry goes through `runImmediately` so it carries the run's own arguments
+	// and resolved tag: worker tags, debounce and concurrency keys interpolate from
+	// the submitted arguments at enqueue, while the ones being resumed are restored
+	// later, inside the worker.
+	async function resumeDbtRun() {
+		await runImmediately({ dbt_command: 'retry', dbt_retry_job: job?.id })
+	}
+
 	let showEditButton = $derived(!isRuleActive('DisableDirectDeployment'))
 
 	$effect(() => {
@@ -807,21 +834,9 @@
 					dropdownItems={[
 						// A failed dbt run's cheap next step is resuming its failed and skipped
 						// nodes rather than rebuilding the project, and `dbt_command` is the
-						// only argument that differs. Offered first, and only where it can
-						// resume: a run that succeeded has no saved failure left to resume.
-						...(job?.language === 'dbt' &&
-						job?.type === 'CompletedJob' &&
-						job?.success === false
-							? [
-									{
-										label: 'dbt retry with same args',
-										// Naming the run: the saved failure is keyed by script and principal,
-										// so a later run of the same script would otherwise be what resumes.
-										onClick: () =>
-											runImmediately({ dbt_command: 'retry', dbt_retry_job: job?.id })
-									}
-								]
-							: []),
+						// only argument that differs. Offered first, and only while the saved
+						// failure is still this run — which is what `dbtResumable` answers.
+						...(dbtResumable ? [{ label: 'dbt retry with same args', onClick: resumeDbtRun }] : []),
 						{
 							label: 'Run immediately with same args',
 							onClick: () => runImmediately()
@@ -1004,6 +1019,8 @@
 							result={job.type === 'CompletedJob' ? job.result : undefined}
 							scriptHash={job.script_hash}
 							runArgs={job.args}
+							canResume={dbtResumable}
+							onResume={resumeDbtRun}
 						/>
 					</div>
 				{/if}

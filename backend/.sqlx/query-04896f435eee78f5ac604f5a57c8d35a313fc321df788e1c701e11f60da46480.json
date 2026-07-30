@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT created_by, runnable_path, permissioned_as FROM v2_job\n          WHERE id = $1 AND workspace_id = $2",
+  "query": "SELECT created_by, runnable_path FROM v2_job\n          WHERE id = $1 AND workspace_id = $2",
   "describe": {
     "columns": [
       {
@@ -12,11 +12,6 @@
         "ordinal": 1,
         "name": "runnable_path",
         "type_info": "Varchar"
-      },
-      {
-        "ordinal": 2,
-        "name": "permissioned_as",
-        "type_info": "Varchar"
       }
     ],
     "parameters": {
@@ -27,9 +22,8 @@
     },
     "nullable": [
       false,
-      true,
-      false
+      true
     ]
   },
-  "hash": "d8ceb11beafab6a8b02dc078faf3dfbeb3d9847c194309e12acab97b872c33c1"
+  "hash": "04896f435eee78f5ac604f5a57c8d35a313fc321df788e1c701e11f60da46480"
 }

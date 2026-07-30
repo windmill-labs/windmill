@@ -138,6 +138,10 @@ pub fn workspaced_service() -> Router {
         .route("/dbt_graph/{id}", get(get_dbt_run_graph))
         .route("/dbt_resumable/{id}", get(get_dbt_resumable))
         .route(
+            "/dbt_resumable_script/p/{*script_path}",
+            get(get_dbt_resumable_for_script),
+        )
+        .route(
             "/run/f/{*script_path}",
             post(run_flow_by_path)
                 .head(|| async { "" })
@@ -878,12 +882,13 @@ async fn get_dbt_run_graph(
     windmill_api_assets::asset_graph_for(&authed, &w_id, user_db, db, q, pinned).await
 }
 
-/// Which run of this job's script `dbt retry` would resume, if any.
+/// Whether a `dbt retry` submitted by this caller would resume THIS run.
 ///
 /// One failure is saved per script per execution principal, so a page showing an
-/// older failed run cannot tell whether resuming would reach THIS run or a later
-/// one — and offering it there would resume a run the reader is not looking at.
-/// The answer is the job id the state holds, for the caller to compare.
+/// older failed run cannot tell whether resuming would reach it or a later one —
+/// and offering it there would submit a retry the worker refuses. Answers about
+/// this run alone: the id when it is the one, `null` otherwise, so no other run's
+/// id leaves through a page that only needs a yes or no.
 async fn get_dbt_resumable(
     authed: ApiAuthed,
     OptViewToken(view_token): OptViewToken,
@@ -892,7 +897,7 @@ async fn get_dbt_resumable(
     Path((w_id, job_id)): Path<(String, Uuid)>,
 ) -> error::JsonResult<Option<Uuid>> {
     let Some(job) = sqlx::query!(
-        "SELECT created_by, runnable_path, permissioned_as FROM v2_job
+        "SELECT created_by, runnable_path FROM v2_job
           WHERE id = $1 AND workspace_id = $2",
         job_id,
         &w_id
@@ -915,17 +920,90 @@ async fn get_dbt_resumable(
     let Some(script_path) = job.runnable_path else {
         return Ok(Json(None));
     };
-    let resumable = sqlx::query_scalar!(
-        "SELECT job_id FROM dbt_run_state
-          WHERE workspace_id = $1 AND script_path = $2 AND permissioned_as = $3",
-        &w_id,
-        script_path,
-        job.permissioned_as
+    // The CALLER's principal, not the one this run executed as: a retry is a new
+    // job submitted by whoever is reading, so a run of Alice's that Bob may read
+    // is not one Bob's retry could resume.
+    let Some(permissioned_as) =
+        dbt_retry_principal(&db, &user_db, &authed, &w_id, &script_path).await?
+    else {
+        return Ok(Json(None));
+    };
+    let resumable = resumable_run(&db, &w_id, &script_path, &permissioned_as).await?;
+    Ok(Json(resumable.filter(|id| *id == job_id)))
+}
+
+/// Which run a `dbt retry` of this SCRIPT would resume for this caller, if any.
+///
+/// The run form asks: `dbt_retry_job` is required for a retry and a job id is not
+/// something to type from memory.
+async fn get_dbt_resumable_for_script(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, script_path)): Path<(String, StripPath)>,
+) -> error::JsonResult<Option<Uuid>> {
+    let path = script_path.to_path();
+    let Some(permissioned_as) = dbt_retry_principal(&db, &user_db, &authed, &w_id, path).await?
+    else {
+        return Ok(Json(None));
+    };
+    Ok(Json(
+        resumable_run(&db, &w_id, path, &permissioned_as).await?,
+    ))
+}
+
+/// The identity a run of this script submitted by this caller would execute as,
+/// which is the key `dbt_run_state` is saved under — the author for an
+/// `on_behalf_of` script and the caller otherwise, the same choice
+/// `run_script_by_path` makes. `None` when the caller cannot see the script.
+async fn dbt_retry_principal(
+    db: &DB,
+    user_db: &UserDB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    path: &str,
+) -> error::Result<Option<String>> {
+    // Through the user db: which of a script's runs you could resume is for
+    // whoever can see the script.
+    let mut tx = user_db.clone().begin(authed).await?;
+    let script = sqlx::query!(
+        "SELECT created_by, on_behalf_of_email FROM script
+          WHERE path = $1 AND workspace_id = $2 AND archived = false AND deleted = false
+          ORDER BY created_at DESC LIMIT 1",
+        path,
+        w_id
     )
-    .fetch_optional(&db)
+    .fetch_optional(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(script.map(|s| {
+        if s.on_behalf_of_email.is_some() {
+            username_to_permissioned_as(&s.created_by)
+        } else {
+            username_to_permissioned_as(&authed.username)
+        }
+    }))
+}
+
+/// The saved failure for this script and principal, when there is one to resume.
+/// A run that left nothing retryable is saved too — so a retry can say the run
+/// succeeded rather than that nothing is saved — but it is not resumable.
+async fn resumable_run(
+    db: &DB,
+    w_id: &str,
+    path: &str,
+    permissioned_as: &str,
+) -> error::Result<Option<Uuid>> {
+    Ok(sqlx::query_scalar!(
+        "SELECT job_id FROM dbt_run_state
+          WHERE workspace_id = $1 AND script_path = $2 AND permissioned_as = $3 AND retryable",
+        w_id,
+        path,
+        permissioned_as
+    )
+    .fetch_optional(db)
     .await?
-    .flatten();
-    Ok(Json(resumable))
+    .flatten())
 }
 
 /// Lives with the job routes, not the asset ones, because it is job-scoped and

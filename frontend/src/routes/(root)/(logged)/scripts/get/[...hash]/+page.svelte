@@ -359,6 +359,30 @@
 		}
 	}
 
+	// A dbt retry must name the run it resumes, and a job id is not something to
+	// type from memory: picking `retry` fills the field with the run this caller's
+	// retry would land on. Filled once per script, so clearing it stays cleared.
+	let dbtResumableAsked: string | undefined = $state(undefined)
+	$effect(() => {
+		const ws = $workspaceStore
+		const path = script?.path
+		const retry = args?.['dbt_command'] === 'retry'
+		if (!ws || !path || script?.language !== 'dbt' || !retry) return
+		if (args?.['dbt_retry_job'] || dbtResumableAsked === path) return
+		dbtResumableAsked = path
+		JobService.getDbtResumableForScript({ workspace: ws, path })
+			.then((held) => {
+				const current = untrack(() => args)
+				if (!held || !current || current['dbt_command'] !== 'retry' || current['dbt_retry_job'])
+					return
+				args = { ...current, dbt_retry_job: held }
+				if (jsonView) {
+					runForm?.setCode(JSON.stringify(args, null, '\t'))
+				}
+			})
+			.catch(() => {})
+	})
+
 	let moveDrawer: MoveDrawer | undefined = $state()
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
 	let persistentScriptDrawer: PersistentScriptDrawer | undefined = $state()

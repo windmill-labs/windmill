@@ -16,8 +16,6 @@
 	import { ClipboardCopy, Code2, RefreshCw, TableProperties } from 'lucide-svelte'
 	import { copyToClipboard } from '$lib/utils'
 	import { workspaceStore } from '$lib/stores'
-	import { goto } from '$lib/navigation'
-	import { sendUserToast } from '$lib/toast'
 	import { appendViewToken } from '$lib/viewToken'
 	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
 	import type { AssetGraphResponse, AssetRunState } from '$lib/components/assets/AssetGraph/types'
@@ -31,7 +29,9 @@
 		running = false,
 		result,
 		scriptHash,
-		runArgs
+		runArgs,
+		canResume = false,
+		onResume
 	}: {
 		scriptPath: string
 		/** The run whose per-model progress to show. dbt records a state per
@@ -53,6 +53,15 @@
 		 *  `{{ }}` var is refused without them, and an overridden one would
 		 *  otherwise query a different relation than the page is showing. */
 		runArgs?: Record<string, unknown>
+		/** Whether a `dbt retry` by this caller would resume THIS run. One failure
+		 *  is saved per script per principal, so a later run of the same script
+		 *  takes the state over and the worker refuses a resume aimed here. */
+		canResume?: boolean
+		/** Submits that retry. The caller owns it so the run's own arguments and
+		 *  resolved tag come along: worker tags, debounce and concurrency keys are
+		 *  interpolated from the submitted arguments at enqueue, long before the
+		 *  worker restores the ones being resumed. */
+		onResume?: () => Promise<unknown> | void
 	} = $props()
 
 	// The graph endpoint is folder-scoped; a script outside `f/` has no folder and
@@ -249,44 +258,16 @@
 	// A failed run's obvious next action is "Run again", which prefills the
 	// arguments it just ran — rebuilding the whole project. `dbt retry` redoes the
 	// failed and skipped nodes alone, and nothing on the page says so.
-	// One failure is saved per script per principal, so a later run of the same
-	// script takes the state over — and the worker would refuse a resume aimed at
-	// this one. Ask which run it holds rather than offering something that fails.
-	let resumableJob = $state<string | undefined>(undefined)
-	$effect(() => {
-		const ws = $workspaceStore
-		const id = jobId
-		const failed = !running && ((run?.totals?.error ?? 0) > 0 || (run?.totals?.skipped ?? 0) > 0)
-		resumableJob = undefined
-		if (!ws || !id || !failed) return
-		JobService.getDbtResumable({ workspace: ws, id })
-			.then((held) => {
-				// The page may have moved to another run while this was in flight.
-				if (jobId === id) resumableJob = held ?? undefined
-			})
-			.catch(() => {})
-	})
-	let resumable = $derived(!running && scriptHash != undefined && resumableJob === jobId)
+	let resumable = $derived(
+		canResume && !running && ((run?.totals?.error ?? 0) > 0 || (run?.totals?.skipped ?? 0) > 0)
+	)
 	let resuming = $state(false)
 
-	// Submitted rather than linked to the run form: `dbt_retry_job` is not a form
-	// field — it names THIS run, and the saved failure is keyed by script and
-	// principal — so a form the caller re-submits would drop it and resume
-	// whatever failed most recently instead.
 	async function resume() {
-		const ws = $workspaceStore
-		if (!ws || scriptHash == undefined || resuming) return
+		if (resuming) return
 		resuming = true
 		try {
-			const id = await JobService.runScriptByHash({
-				workspace: ws,
-				hash: String(scriptHash),
-				requestBody: { dbt_command: 'retry', dbt_retry_job: jobId },
-				skipPreprocessor: true
-			})
-			await goto(`/run/${id}?workspace=${ws}`)
-		} catch (e) {
-			sendUserToast(`Could not resume this run: ${e}`, true)
+			await onResume?.()
 		} finally {
 			resuming = false
 		}

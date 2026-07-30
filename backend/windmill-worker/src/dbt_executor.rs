@@ -253,17 +253,25 @@ pub(crate) async fn handle_dbt_job(
     // failed invocation's selection and vars, so every phase must agree with them.
     let mut restored_results_digest: Option<String> = None;
     let inv = if command == "retry" {
-        // Read BEFORE the restore replaces the arguments: a caller looking at one
-        // failed run may name it, and the state is keyed by principal rather than
-        // by job — so without this a retry of an old run silently resumes whatever
-        // failed last instead.
-        let expected = arg_str(&inv.args, "dbt_retry_job")?;
+        // Read BEFORE the restore replaces the arguments. A retry must name the run
+        // it resumes: only the latest failure of this script is kept, so an unnamed
+        // one would mean "whatever failed last" and quietly resume a different run
+        // than the caller was looking at.
+        let expected = arg_str(&inv.args, "dbt_retry_job")?.filter(|s| !s.trim().is_empty());
+        let Some(expected) = expected else {
+            return Err(Error::BadRequest(
+                "`dbt_command: retry` needs `dbt_retry_job`, the id of the run to resume. Open \
+                 that run and use `Resume this run`, or pass its id: only the latest failure of \
+                 this script is kept, so a retry names which one it means"
+                    .to_string(),
+            ));
+        };
         let restored = restore_run_state(
             &prepared,
             &job.workspace_id,
             &job.permissioned_as,
             &inv,
-            expected.as_deref(),
+            expected.trim(),
             conn,
         )
         .await?;
@@ -3278,12 +3286,12 @@ async fn save_run_state(
     if let Connection::Sql(db) = conn {
         {
             durable_err = sqlx::query!(
-                "INSERT INTO dbt_run_state (workspace_id, script_path, permissioned_as, identity, args, run_results, job_id, updated_at)
-                 VALUES ($1, $2, $7, $3, $4, $5, $6, now())
+                "INSERT INTO dbt_run_state (workspace_id, script_path, permissioned_as, identity, args, run_results, job_id, retryable, updated_at)
+                 VALUES ($1, $2, $7, $3, $4, $5, $6, $8, now())
                  ON CONFLICT (workspace_id, script_path, permissioned_as) DO UPDATE SET
                    identity = EXCLUDED.identity, args = EXCLUDED.args,
                    run_results = EXCLUDED.run_results, job_id = EXCLUDED.job_id,
-                   updated_at = now()",
+                   retryable = EXCLUDED.retryable, updated_at = now()",
                 w_id,
                 &p.script_path,
                 identity,
@@ -3291,6 +3299,11 @@ async fn save_run_state(
                 results,
                 job_id,
                 permissioned_as,
+                // Read back by the API to decide whether anything may offer a
+                // resume; the restore re-checks the results themselves, which is
+                // what tells a retry the run succeeded rather than that no state
+                // exists.
+                has_retryable_node(&results),
             )
             .execute(db)
             .await
@@ -3532,14 +3545,10 @@ async fn restore_from_db(
     w_id: &str,
     permissioned_as: &str,
     inv: &Invocation,
-    // The run this restore chose, read once by the caller. Another invocation can
-    // replace the row between that read and this one, and restoring a different
-    // run than the one selected resumes failures nobody asked for.
-    chosen_job: Option<&Uuid>,
-    // The run the caller NAMED, which outranks the above: absent a row at the
-    // first read there is nothing to have chosen, and a row that appears before
-    // this one must still be the run they asked for.
-    expected_job: Option<&str>,
+    // The run the caller named. Re-checked here rather than trusted from the
+    // caller's earlier read: another invocation can replace the row in between,
+    // and the row this restore actually reads must still be that run.
+    expected_job: &str,
     conn: &Connection,
     no_state: Error,
 ) -> error::Result<RestoredRun> {
@@ -3566,13 +3575,9 @@ async fn restore_from_db(
     else {
         return Err(no_state);
     };
-    if let Some(expected) = expected_job {
-        let held = row.job_id.map(|j| j.to_string());
-        if held.as_deref() != Some(expected) {
-            return Err(wrong_run(expected, held.as_deref(), "for this script"));
-        }
-    } else if chosen_job.is_some() && row.job_id.as_ref() != chosen_job {
-        return Err(no_state);
+    let held = row.job_id.map(|j| j.to_string());
+    if held.as_deref() != Some(expected_job) {
+        return Err(wrong_run(expected_job, held.as_deref(), "for this script"));
     }
     let (saved_prefix, saved_args_digest) = split_identity(&row.identity);
     if saved_prefix != format!("{}|{}", p.run_identity(), inv.env_digest()) {
@@ -3670,17 +3675,17 @@ fn chosen_generation(
     local: Option<String>,
     conn: &Connection,
     latest_job: Option<Uuid>,
-    expected_job: Option<&str>,
+    expected_job: &str,
 ) -> error::Result<Option<String>> {
     let generation = match (local, conn, latest_job) {
         (Some(g), Connection::Http(_), _) => Some(g),
         (Some(g), _, Some(id)) if g.trim() == format!("gen-{id}") => Some(g),
         _ => None,
     };
-    if let (Some(expected), Some(g)) = (expected_job, generation.as_ref()) {
-        if g.trim() != format!("gen-{expected}") {
+    if let Some(g) = generation.as_ref() {
+        if g.trim() != format!("gen-{expected_job}") {
             return Err(wrong_run(
-                expected,
+                expected_job,
                 Some(g.trim().trim_start_matches("gen-")),
                 "on this worker",
             ));
@@ -3699,8 +3704,8 @@ async fn restore_run_state(
     w_id: &str,
     permissioned_as: &str,
     inv: &Invocation,
-    // The run the caller means to resume, when they named one.
-    expected_job: Option<&str>,
+    // The run the caller means to resume, which a retry always names.
+    expected_job: &str,
     conn: &Connection,
 ) -> error::Result<RestoredRun> {
     if p.script_path.is_empty() {
@@ -3744,10 +3749,10 @@ async fn restore_run_state(
         Connection::Http(_) => None,
     };
     let latest_job = saved_state.flatten();
-    if let (Some(expected), Some(saved)) = (expected_job, latest_job.as_ref()) {
-        if expected != saved.to_string() {
+    if let Some(saved) = latest_job.as_ref() {
+        if expected_job != saved.to_string() {
             return Err(wrong_run(
-                expected,
+                expected_job,
                 Some(&saved.to_string()),
                 "for this script",
             ));
@@ -3767,7 +3772,6 @@ async fn restore_run_state(
             w_id,
             permissioned_as,
             inv,
-            latest_job.as_ref(),
             expected_job,
             conn,
             no_state(),
@@ -3786,7 +3790,6 @@ async fn restore_run_state(
             w_id,
             permissioned_as,
             inv,
-            latest_job.as_ref(),
             expected_job,
             conn,
             no_state(),
@@ -3809,7 +3812,6 @@ async fn restore_run_state(
             w_id,
             permissioned_as,
             inv,
-            latest_job.as_ref(),
             expected_job,
             conn,
             no_state(),
@@ -4856,7 +4858,7 @@ mod tests {
         let asked_for = uuid::Uuid::new_v4();
         let local = || Some(format!("gen-{saved}"));
 
-        let err = chosen_generation(local(), &http, None, Some(&asked_for.to_string()))
+        let err = chosen_generation(local(), &http, None, &asked_for.to_string())
             .expect_err("a generation the caller did not name must not be resumed");
         assert!(
             err.to_string().contains(&saved.to_string())
@@ -4864,14 +4866,10 @@ mod tests {
             "the refusal names both the run asked for and the one held, got: {err}"
         );
 
-        // The run it does hold, and a caller naming none, both still resume.
         assert_eq!(
-            chosen_generation(local(), &http, None, Some(&saved.to_string())).unwrap(),
-            local()
-        );
-        assert_eq!(
-            chosen_generation(local(), &http, None, None).unwrap(),
-            local()
+            chosen_generation(local(), &http, None, &saved.to_string()).unwrap(),
+            local(),
+            "the run it does hold still resumes"
         );
     }
 

@@ -139,6 +139,11 @@ CREATE TABLE IF NOT EXISTS dbt_run_state (
   -- repetitive JSON that TOAST's compression handles well (about nine to one).
   run_results  TEXT NOT NULL,
   job_id       UUID,
+  -- Whether those results hold a node `dbt retry` would rebuild. A run that
+  -- failed before building anything, or succeeded outright, is still saved —
+  -- restoring it is how a retry can say the run succeeded rather than that no
+  -- state exists — but nothing may offer it as resumable.
+  retryable    BOOLEAN NOT NULL DEFAULT false,
   updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (workspace_id, script_path, permissioned_as)
 );
