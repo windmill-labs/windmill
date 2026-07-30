@@ -779,9 +779,21 @@ provides observability.
 
    Checked against the CALLER, never `job_perms`: those carry the identity the
    job runs AS, which for an `on_behalf_of` script is the owner, so probing with
-   them would authorize everyone. A saved run whose job has aged out of retention
-   cannot be authorized against and is allowed — the identity check still gates
-   what it may resume.
+   them would authorize everyone. Anything the check cannot evaluate is refused
+   rather than waved through — a saved run whose job has aged out of retention, a
+   row naming no job, a caller who is not a workspace member, and, on an agent
+   worker, any resume by someone other than the run's launcher, since an agent
+   reaches no database and can prove nothing else.
+
+   **By identity, not by token scope.** A token entitled to run the script may
+   resume that principal's last failure even when it is denied `jobs:read`, which
+   `require_job_read_access` would refuse — the worker never sees the submitting
+   token, only the identity persisted with the job, and neither `v2_job` nor
+   `job_perms` records a scope. What such a token obtains is the arguments AS
+   SUBMITTED, so a `$var:` or `$res:` reference is re-resolved under whoever
+   retries rather than disclosed. Closing it means persisting the submitting
+   token's scopes with the job, which nothing does today and which is worth doing
+   for every language at once rather than for dbt alone.
 
    That equivalence holds only while the run is READABLE, so the one run that
    breaks it saves nothing: a job pushed `invisible_to_owner` is hidden from the
