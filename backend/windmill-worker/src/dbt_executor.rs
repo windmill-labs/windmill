@@ -1725,7 +1725,8 @@ async fn packages_install_path(project_dir: &Path) -> error::Result<String> {
         .all(|c| matches!(c, std::path::Component::Normal(_)))
     {
         return Err(Error::BadRequest(format!(
-            "`packages-install-path: {declared}` in dbt_project.yml points outside the project;              it must be a path within it, such as `dbt_packages`"
+            "`packages-install-path: {declared}` in dbt_project.yml points outside the \
+             project; it must be a path within it, such as `dbt_packages`"
         )));
     }
     Ok(declared)
@@ -4233,6 +4234,7 @@ fn arg<T: serde::de::DeserializeOwned>(
 /// single map, and the block is spread here rather than at each of them so the
 /// two shapes never both reach one. `raw_args` keeps the submitted shape: it is
 /// what the state saves and the result publishes.
+///
 /// A block that is present must NAME a command: dropping a malformed one would
 /// leave no command at all, which reads as "the descriptor's default" — so
 /// `{"command": "show"}` would build the project the caller meant to preview.
@@ -4778,9 +4780,10 @@ mod tests {
         assert_eq!(packages_install_path(root).await.unwrap(), "dbt_packages");
         for escape in ["/etc", "../../etc", "a/../../b"] {
             write(&format!("name: p\npackages-install-path: \"{escape}\"\n"));
-            packages_install_path(root)
-                .await
-                .expect_err("{escape} must not be honoured");
+            assert!(
+                packages_install_path(root).await.is_err(),
+                "{escape} must not be honoured"
+            );
         }
     }
 

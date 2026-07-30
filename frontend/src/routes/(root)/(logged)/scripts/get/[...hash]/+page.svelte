@@ -372,6 +372,10 @@
 		dbtResumableAsked = path
 		JobService.getDbtResumableForScript({ workspace: ws, path })
 			.then((held) => {
+				// The page may show another script, or another workspace, by now:
+				// filling THIS answer into that form aims its retry at a run of a
+				// script it is not, which only a reload could undo.
+				if ($workspaceStore !== ws || script?.path !== path) return
 				const current = untrack(() => args)
 				const block = current?.['command'] as Record<string, any> | undefined
 				if (!held || !current || block?.label !== 'retry' || block['dbt_retry_job']) return
