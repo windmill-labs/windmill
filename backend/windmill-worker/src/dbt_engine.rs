@@ -401,13 +401,16 @@ async fn provision_fusion(
     let script = fetch_under_job(
         "the Fusion installer",
         async {
-            windmill_common::utils::HTTP_CLIENT
+            let net = |e: reqwest::Error| Error::internal_err(format!("fetching the installer: {e}"));
+            Ok(windmill_common::utils::HTTP_CLIENT
                 .get(&*DBT_FUSION_INSTALL_URL)
                 .send()
-                .await?
-                .error_for_status()?
+                .await
+                .and_then(|r| r.error_for_status())
+                .map_err(net)?
                 .text()
                 .await
+                .map_err(net)?)
         },
         job_id,
         w_id,
@@ -551,7 +554,7 @@ async fn fetch_under_job<T, F>(
     ctx: &mut JobCtx<'_>,
 ) -> error::Result<T>
 where
-    F: std::future::Future<Output = reqwest::Result<T>>,
+    F: std::future::Future<Output = error::Result<T>>,
 {
     run_future_with_polling_update_job_poller(
         *job_id,
@@ -581,16 +584,38 @@ async fn fetch_and_extract(
     conn: &Connection,
     ctx: &mut JobCtx<'_>,
 ) -> error::Result<()> {
-    let bytes = fetch_under_job(
+    let tarball_guard = Scratch::new(std::env::temp_dir().join(format!("wm-dbt-{job_id}.tar.gz")));
+    let tarball = tarball_guard.path().to_path_buf();
+    // STREAMED to disk, never held whole: an engine archive is ~290 MB, this
+    // runs in the shared worker process rather than the job's subprocess, and
+    // several cold jobs provision at once — buffering would multiply that until
+    // the worker dies, taking every job on it along.
+    fetch_under_job(
         url,
         async {
-            windmill_common::utils::HTTP_CLIENT
+            use futures::StreamExt;
+            use tokio::io::AsyncWriteExt;
+            let net = |e: reqwest::Error| Error::internal_err(format!("fetching {url}: {e}"));
+            let mut resp = windmill_common::utils::HTTP_CLIENT
                 .get(url)
                 .send()
-                .await?
-                .error_for_status()?
-                .bytes()
                 .await
+                .and_then(|r| r.error_for_status())
+                .map_err(net)?
+                .bytes_stream();
+            let mut file = tokio::fs::File::create(&tarball)
+                .await
+                .map_err(|e| Error::internal_err(format!("writing {url}: {e}")))?;
+            while let Some(chunk) = resp.next().await {
+                let chunk = chunk.map_err(net)?;
+                file.write_all(&chunk)
+                    .await
+                    .map_err(|e| Error::internal_err(format!("writing {url}: {e}")))?;
+            }
+            file.flush()
+                .await
+                .map_err(|e| Error::internal_err(format!("writing {url}: {e}")))?;
+            Ok(())
         },
         job_id,
         w_id,
@@ -598,11 +623,6 @@ async fn fetch_and_extract(
         ctx,
     )
     .await?;
-    let tarball_guard = Scratch::new(std::env::temp_dir().join(format!("wm-dbt-{job_id}.tar.gz")));
-    let tarball = tarball_guard.path().to_path_buf();
-    tokio::fs::write(&tarball, &bytes)
-        .await
-        .map_err(|e| Error::internal_err(format!("writing {url}: {e}")))?;
     let staging_guard = Scratch::new(staging_path(dir, job_id));
     let staging = staging_guard.path().to_path_buf();
     tokio::fs::create_dir_all(&staging)
