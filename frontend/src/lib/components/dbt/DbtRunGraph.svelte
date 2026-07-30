@@ -250,6 +250,19 @@
 	// is fine; without saying so the empty state blames the descriptor's warehouse
 	// identity, which is the one cause this is not. Both kinds, like the worker's
 	// own `retry_was_the_test_phase`: dbt spells a unit test `unit_test.<pkg>.…`.
+	// A failed run's obvious next action is "Run again", which prefills the
+	// arguments it just ran — rebuilding the whole project. `dbt retry` redoes the
+	// failed and skipped nodes alone, and nothing on the page says so, so the form
+	// is offered with the command already switched.
+	let resumable = $derived(
+		!running &&
+			scriptHash != undefined &&
+			((run?.totals?.error ?? 0) > 0 || (run?.totals?.skipped ?? 0) > 0)
+	)
+	let resumeHref = $derived(
+		`/scripts/get/${scriptHash}?workspace=${$workspaceStore}#dbt_command=%22retry%22`
+	)
+
 	let ranTestsOnly = $derived(
 		!!run?.nodes?.length &&
 			run.nodes.every((n) => ['test', 'unit_test'].includes(splitUniqueId(n.unique_id).kind))
@@ -666,6 +679,18 @@
 		</div>
 	{/if}
 {/snippet}
+
+{#if resumable}
+	<div class="mb-2 px-2 py-1 text-2xs text-secondary border rounded bg-surface-secondary">
+		{(run?.totals?.error ?? 0) > 0 ? `${run?.totals?.error} failed` : ''}{(run?.totals?.error ??
+			0) > 0 && (run?.totals?.skipped ?? 0) > 0
+			? ', '
+			: ''}{(run?.totals?.skipped ?? 0) > 0 ? `${run?.totals?.skipped} skipped` : ''}.
+		<a href={resumeHref} class="text-blue-500 hover:underline">Run again with <span
+				class="font-mono">dbt_command: retry</span
+			></a> to rebuild only those, instead of the whole project.
+	</div>
+{/if}
 
 {#if loading}
 	<div class="flex items-center gap-2 text-xs text-secondary p-3">
