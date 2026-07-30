@@ -7271,7 +7271,7 @@ async fn attach_dev_workspace(
     // Same reparent invalidates the billing-workspace mapping so its usage meters to prod at once. The
     // candidate can bring its own fork subtree, whose descendants had resolved their (now-stale) root
     // to the candidate's old family; invalidate them too so they meter to prod without waiting out the
-    // 60s TTL. Their immediate fork->parent links don't move, so the tag-routing cache needs no change.
+    // 60s TTL. The tag cache is swept above: resolution walks the whole chain, not the immediate link.
     #[cfg(feature = "cloud")]
     {
         windmill_common::workspaces::invalidate_billing_workspace_cache(&dev_w_id);
