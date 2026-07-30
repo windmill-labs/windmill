@@ -790,6 +790,14 @@ block, since that is what `dbt_run_state` saves and `invocation_args` publishes.
    on. It is not a selector: naming a run other than the saved one is refused,
    not resumed.
 
+   **Concurrency is the script's, not the retry's.** A retry that starts while
+   another run of the same script is in flight rebuilds nodes that run may also
+   be rebuilding — appending an incremental model twice. That is what two
+   concurrent `build`s of one project do as well: dbt takes no cross-process
+   lock, so a project that must not run twice at once sets the script's
+   concurrency limit, which covers its retries with it. A lock held across a
+   dbt execution instead would outlive worker deaths and cancellations.
+
    **Who may resume it.** The state is keyed `(workspace, script_path,
    permissioned_as)` — one saved run per script per identity it executes as — so
    anyone entitled to run the script as that principal may resume its last
