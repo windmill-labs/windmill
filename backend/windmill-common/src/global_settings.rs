@@ -166,9 +166,11 @@ fn redact_userinfo(value: &str) -> String {
     let Some((scheme, rest)) = value.split_once("//") else {
         return value.to_string();
     };
-    // Userinfo ends at the first `@` before the authority ends (`/`, `?` or `#`).
     let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-    match rest[..authority_end].find('@') {
+    // The *last* `@` in the authority delimits userinfo, not the first: a password
+    // may itself contain `@`, and cutting at the first one would leave the rest of it
+    // in the message.
+    match rest[..authority_end].rfind('@') {
         Some(at) => format!("{}//***@{}", scheme, &rest[at + 1..]),
         None => value.to_string(),
     }
@@ -428,6 +430,10 @@ mod tests {
             format!("https://admin:{SECRET}@"),
             format!("https://admin:{SECRET}@hooks.example.com#f"),
             format!("admin:{SECRET}@not-a-url"),
+            // Multiple `@` in the authority: the last one delimits userinfo, and the
+            // malformed host makes this fail at the parse branch specifically.
+            format!("https://alias@admin:{SECRET}@["),
+            format!("https://a@b@admin:{SECRET}@hooks.example.com"),
         ] {
             let err = validate_webhook_base_url(&bad).expect_err("should be rejected");
             assert!(
