@@ -156,12 +156,10 @@ pub struct TestMetadata {
 /// storing a snapshot rather than suppressing one that differs.
 fn graph_digest(ingested: &IngestedManifest, relation_root: &str) -> String {
     use sha2::{Digest, Sha256};
-    // SHA-256, not `DefaultHasher`: this value is written to the database and
-    // compared against on later runs, possibly by a worker built with a
-    // different toolchain — and `DefaultHasher`'s output is explicitly not
-    // stable across Rust releases. A drifting hash would silently stop matching
-    // and every dynamic run would store a full snapshot again, looking exactly
-    // like the suppression never working.
+    // SHA-256, not `DefaultHasher`: this is written to the database and compared on
+    // later runs, possibly by a worker on another toolchain, and `DefaultHasher` is
+    // explicitly not stable across Rust releases. A drifting hash would store a full
+    // snapshot every run, looking exactly like the suppression never working.
     let mut h = Sha256::new();
     h.update(relation_root.as_bytes());
     h.update(serde_json::to_string(&ingested.nodes).unwrap_or_default().as_bytes());
@@ -246,17 +244,13 @@ pub async fn prune_dbt_run_graphs(
     )
     .execute(db)
     .await?;
-    // The version graphs beyond the keep-count. Ordered by the script's own
-    // `created_at`, so "newest" means newest deploy rather than newest ingest —
-    // a re-ingest by a late-finishing job must not promote an old version.
-    // Scoped to one (workspace, path), which `index_script_on_path_created_at`
-    // serves directly.
-    // In ONE transaction with the orphan sweep below. Separately, a propagated
-    // error or a worker restart in the gap leaves graph rows whose marker is
-    // already gone — and since the sweep only runs when a marker went, every
-    // later call computes `retired == 0` and skips it, so those rows are
-    // unreachable for good. Committed together, the gap does not exist.
+    // In ONE transaction with the orphan sweep: a restart in the gap leaves graph
+    // rows whose marker is gone, and since the sweep runs only when a marker went,
+    // every later call computes `retired == 0` and skips them for good.
     let mut tx = db.begin().await?;
+    // Ordered by the script's own `created_at`, so "newest" is the newest deploy
+    // and not the newest ingest: a late-finishing job must not promote an old
+    // version. Scoped to one (workspace, path), which the path index serves.
     let retired = sqlx::query!(
         "WITH keep AS (
            SELECT hash FROM script
@@ -404,11 +398,10 @@ fn asset_path_for(
     default_database: Option<&str>,
 ) -> Option<String> {
     node.relation_name.as_ref()?;
-    // `schema` is dbt's RESOLVED schema; `config.schema` is only the custom
-    // suffix `generate_schema_name` combines with the target's (a snapshot
-    // configured `schema: snapshots` under target schema `analytics` lands in
-    // `analytics_snapshots`). Keying on the config value would name a relation
-    // that does not exist, and the mismatch is invisible until nothing links.
+    // `schema` is dbt's RESOLVED schema; `config.schema` is only the suffix
+    // `generate_schema_name` combines with the target's (`schema: snapshots` under
+    // `analytics` lands in `analytics_snapshots`). Keying on the config value names
+    // a relation that does not exist, invisibly, until nothing links.
     let schema = node.schema.as_deref()?;
     // `identifier` for a source, `alias` for a model; `name` only when neither
     // is set. Using `name` for a source declared `name: orders, identifier:
@@ -485,12 +478,10 @@ pub fn ingest_manifest(
     };
     let mut assets: HashMap<(AssetKind, String), AssetUsageAccessType> = HashMap::new();
 
-    // Direct parents of the selected set. A source is only this script's input
-    // if something it actually builds reads it — keeping every source would
-    // make a narrowly-selected script claim reads on tables it never touches.
-    // The same set answers the cross-config question below.
-    // Without a selection the script builds everything, so every node is its
-    // own builder — but a source nothing reads is still not an input.
+    // A source is this script's input only if something it builds reads it, or a
+    // narrowly-selected script claims reads on tables it never touches. Without a
+    // selection it builds everything, and a source nothing reads is still not an
+    // input. The same set answers the cross-config question below.
     let direct_parents: std::collections::HashSet<&str> = {
         let mut out = std::collections::HashSet::new();
         let mut queue: Vec<&str> = manifest
@@ -532,11 +523,10 @@ pub fn ingest_manifest(
         out
     };
     for (unique_id, node) in manifest.nodes.iter().chain(manifest.sources.iter()) {
-        // Whether this script SELECTED the node — i.e. builds it — as opposed to
-        // merely depending on it. A selection's direct parents are kept either
-        // way, because an edge needs both endpoints: drop the parent and the
-        // `ref()` that reaches it has nothing to point at, leaving two relations
-        // on the graph with no line between them.
+        // Whether this script BUILDS the node, as opposed to depending on it. Direct
+        // parents are kept either way, because an edge needs both endpoints: drop
+        // one and the `ref()` reaching it has nothing to point at, leaving two
+        // relations with no line between them.
         let is_selected = selected.is_none_or(|sel| sel.contains(unique_id.as_str()));
         let keep = match node.resource_type.as_str() {
             "source" => direct_parents.contains(unique_id.as_str()),
@@ -717,12 +707,10 @@ pub async fn replace_dbt_manifest(
     let job_id = job_id.unwrap_or(DEPLOYED_GRAPH);
     let digest = graph_digest(ingested, relation_root);
     if job_id != DEPLOYED_GRAPH {
-        // A snapshot only earns its storage by DIFFERING from the version's
-        // graph. Marking a descriptor dynamic is conservative — a `{{ }}` in
-        // `vars` says the arguments feed dbt, not that they change which models
-        // exist — so the usual dynamic run resolves to the very graph the deploy
-        // stored. Writing it again per run is a full duplicate of a picture that
-        // never changed; the read falls back to the version's graph anyway.
+        // A snapshot earns its storage only by DIFFERING from the version's graph.
+        // Marking a descriptor dynamic is conservative — a `{{ }}` in `vars` says
+        // the arguments feed dbt, not that they change which models exist — so the
+        // usual dynamic run duplicates a picture the read falls back to anyway.
         let deployed = sqlx::query_scalar!(
             "SELECT digest FROM dbt_graph_snapshot
               WHERE workspace_id = $1 AND script_path = $2 AND script_hash = $3

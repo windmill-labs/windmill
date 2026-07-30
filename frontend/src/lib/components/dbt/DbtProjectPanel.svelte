@@ -1,10 +1,9 @@
 <script lang="ts">
 	import type { ComponentProps } from 'svelte'
-	// A dbt script's modules ARE its dbt project, so they are browsed as the tree
-	// dbt itself expects rather than as the flat tab strip a couple of helper
-	// files get. Read-only on purpose: dbt development is a local loop (`dbt run
-	// --select`, `dbt test` against a dev target) and a browser textarea over one
-	// file of a project is a worse version of it.
+	// A dbt script's modules ARE its project, so they are browsed as the tree dbt
+	// expects rather than the flat tab strip helper files get. Read-only on purpose:
+	// dbt development is a local loop, and a browser textarea over one file of a
+	// project is a worse version of it.
 	import type { ScriptModule } from '$lib/gen'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import { ChevronDown, ChevronRight, FileText } from 'lucide-svelte'
@@ -64,11 +63,10 @@
 				: Object.keys(modules).sort()[0]
 	)
 
-	// A dbt project holds SQL, YAML and the odd Python model; `ansible` is how
-	// this component spells YAML. Anything else (`.md`, `.csv`, `.txt`) falls to
-	// `bash`, whose grammar leaves prose alone — NOT `undefined`, which
-	// HighlightCode resolves to TypeScript and which would litter a seed file
-	// with keyword colouring.
+	// `ansible` is how this component spells YAML. Anything else (`.md`, `.csv`)
+	// falls to `bash`, whose grammar leaves prose alone — NOT `undefined`, which
+	// HighlightCode resolves to TypeScript and would litter a seed file with
+	// keyword colouring.
 	function langOf(path: string): ComponentProps<typeof HighlightCode>['language'] {
 		if (path.endsWith('.sql')) return 'sql'
 		if (path.endsWith('.yml') || path.endsWith('.yaml')) return 'ansible'

@@ -390,13 +390,10 @@ pub fn render_profile(
                     .or(Some("public".into())),
             };
         }
-        // Not in decision 9's adapter mappings, and their Windmill resources do
-        // not carry what dbt needs: an `oracledb` resource is
-        // `{user, password, database}` with no host/protocol/service, and
-        // dbt-sqlserver requires an ODBC `driver` the images do not install.
-        // Rendering a profile from them would produce one that cannot connect,
-        // so route them to the project's own `profiles.yml` — the path that
-        // exists precisely so an unmodified project runs as-is.
+        // Their Windmill resources do not carry what dbt needs — an `oracledb`
+        // resource has no host/service, dbt-sqlserver needs an ODBC `driver` the
+        // images lack — so a rendered profile could not connect. They go through
+        // the project's own `profiles.yml` instead.
         DbtAdapter::Duckdb
         | DbtAdapter::Clickhouse
         | DbtAdapter::Salesforce
@@ -628,24 +625,9 @@ mod tests {
         assert!(p.yaml.contains("      port: 5439\n"), "{}", p.yaml);
     }
 
-    // A credential is attacker-influenced text pasted into a resource. Left
-    // unquoted, a `\n` or a `"` in it would close the scalar and let the rest
-    // of the value be read as further profile keys (e.g. a different `host`),
-    // silently redirecting the run at another warehouse.
-    // dbt-mysql has no database/schema split: one `schema` key is the database.
-    // Emitting the generic one too yields a profile with two `schema` keys.
-    // A SQL Server resource has the same host/dbname shape as a Postgres one.
-    // Guessing Postgres for it would point dbt-postgres at port 1433 instead of
-    // producing the licensing error, so an ambiguous resource must decline.
-    // dbt rejects a BigQuery target with no dataset, and a service-account JSON
-    // carries none — so the descriptor has to supply it, and saying which field
-    // is missing beats a downstream dbt error.
-    // `snowflake_oauth` maps to the Snowflake adapter, but its credential is a
-    // token, which dbt only honors with `authenticator: oauth`. Forwarding
-    // neither renders a profile with no credential at all.
     // A resource's private CA is the only way a `verify-full` connection can
-    // succeed, and `root_certificate_pem` is also what identifies the resource
-    // as Postgres — forwarding one and dropping the other is incoherent.
+    // succeed, and `root_certificate_pem` is also what identifies the resource as
+    // Postgres — forwarding one and dropping the other is incoherent.
     #[test]
     fn postgres_forwards_its_root_certificate() {
         let r = json!({"host": "h", "dbname": "d", "sslmode": "verify-full",
@@ -689,6 +671,9 @@ mod tests {
         assert_eq!(p.root_certificate_pem, None);
     }
 
+    // `snowflake_oauth` maps to the Snowflake adapter, but its credential is a
+    // token, which dbt honors only with `authenticator: oauth`. Forwarding neither
+    // renders a profile with no credential at all.
     #[test]
     fn snowflake_oauth_renders_its_token() {
         let r = json!({"account_identifier": "acc", "username": "u", "token": "tok",
@@ -711,6 +696,9 @@ mod tests {
         assert!(p.yaml.contains("      token: \"tok\"\n"));
     }
 
+    // dbt rejects a BigQuery target with no dataset and a service-account JSON
+    // carries none, so the descriptor has to supply it — and naming the missing
+    // field beats a downstream dbt error.
     #[test]
     fn bigquery_requires_a_dataset() {
         let r = json!({"project_id": "p", "client_email": "e", "private_key": "k"});
@@ -742,6 +730,8 @@ mod tests {
         assert_eq!(p.schema.as_deref(), Some("marts"));
     }
 
+    // A SQL Server resource has a Postgres resource's shape, so guessing Postgres
+    // points dbt-postgres at port 1433 instead of producing the licensing error.
     #[test]
     fn ambiguous_host_resources_decline_rather_than_guess() {
         let mssql = json!({"host": "h", "dbname": "d", "user": "u", "password": "p"});
@@ -758,6 +748,8 @@ mod tests {
         );
     }
 
+    // dbt-mysql has no database/schema split: one `schema` key is the database, so
+    // emitting the generic one too yields a profile with two.
     #[test]
     fn mysql_emits_exactly_one_schema_key() {
         let r = json!({"host": "h", "dbname": "sales", "user": "u"});
@@ -801,6 +793,9 @@ mod tests {
         assert!(v.get("evil").is_none());
     }
 
+    // A credential is attacker-influenced text. Unquoted, a `\n` or `"` closes the
+    // scalar and the rest reads as further profile keys — a different `host`,
+    // silently redirecting the run at another warehouse.
     #[test]
     fn credentials_cannot_break_out_of_their_scalar() {
         let r = json!({"host": "h", "dbname": "d",
@@ -826,11 +821,9 @@ mod tests {
         );
     }
 
-    // The dbt adapter gate mirrors the two native script languages still behind
-    // an enterprise license, and it is a RUNTIME check because one dbt executor
-    // serves every adapter. A refactor that reached for a bare
-    // `LICENSE_KEY_VALID` would silently let CE through, since the OSS variant
-    // initializes it to `true`.
+    // A RUNTIME check, because one dbt executor serves every adapter. A refactor
+    // reaching for a bare `LICENSE_KEY_VALID` would silently let CE through, since
+    // the OSS variant initializes it to `true`.
     #[test]
     fn only_mssql_and_oracle_are_enterprise_gated() {
         for a in [

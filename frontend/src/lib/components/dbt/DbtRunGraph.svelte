@@ -57,12 +57,10 @@
 	let loading = $state(true)
 	let failed = $state(false)
 
-	// Two loads of the SAME run overlap: the poll issues one on its way out, and
-	// the finished-run effect issues another. Nothing orders two requests to one
-	// endpoint, and the older of these answers with the DEPLOYED graph — so if it
-	// lands second it replaces the run's own snapshot, and by then the poll has
-	// stopped and the final load has already fired, leaving a finished run showing
-	// a graph that is not its own.
+	// Two loads of the SAME run overlap — the poll's parting one and the
+	// finished-run effect's — and nothing orders two requests to one endpoint. The
+	// older answers with the DEPLOYED graph, so landing second it replaces the run's
+	// own snapshot with nothing left to fetch again and correct it.
 	let graphSeq = 0
 	async function load() {
 		const ws = $workspaceStore
@@ -84,10 +82,9 @@
 				credentials: 'include'
 			})
 			// The page may have moved to another run while this was in flight, and
-			// this answer describes the one it left: assigning it would replace the
-			// current run's graph — or its loading and failure state — with the
-			// previous run's, and nothing would fetch again to correct it. A newer
-			// request for the SAME run supersedes this one just as completely.
+			// assigning that answer would leave the previous run's graph — or its
+			// loading state — on screen with nothing to correct it. A newer request
+			// for the SAME run supersedes this one just as completely.
 			if (!current()) return
 			if (!res.ok) {
 				failed = true
@@ -104,11 +101,10 @@
 		}
 	}
 
-	// `asset:<kind>:<path>` -> what this run is doing to that relation. That is
-	// the id shape the canvas builds its nodes with; a bare `kind:path` looks
-	// right and silently never matches. Polled while the job runs; a retry
-	// rewrites the same rows, so a failed node returns to `running` and on to its
-	// new outcome by itself.
+	// `asset:<kind>:<path>` -> what this run is doing to that relation: the id shape
+	// the canvas builds its nodes with, where a bare `kind:path` looks right and
+	// silently never matches. A retry rewrites the same rows, so a failed node
+	// returns to `running` and on to its new outcome by itself.
 	let polled = $state<Map<string, AssetRunState>>(new Map())
 
 	async function loadProgress() {
@@ -140,12 +136,10 @@
 	// Deliberately not `$state`: this guards an effect against its own writes, so
 	// reading it must not make the effect depend on it.
 	let finalLoadFor: string | undefined = undefined
-	// Which run this component is showing. SvelteKit reuses it across runs, so
-	// every response that outlives the navigation — a graph, a progress poll, a
-	// preview — is checked against the generation it was requested under, or the
-	// previous run's answer overwrites the current one's and stays on screen.
-	// Deliberately not `$state`, like `finalLoadFor` above: the effect below
-	// writes it, and reading it must not make that effect depend on it.
+	// SvelteKit reuses this component across runs, so every response that outlives
+	// the navigation — graph, progress poll, preview — is checked against the
+	// generation it was requested under, or the previous run's answer stays on
+	// screen. Not `$state`: the effect below writes it and must not depend on it.
 	let runGen = 0
 	$effect(() => {
 		void scriptPath
@@ -172,12 +166,10 @@
 		selection = undefined
 		previews = {}
 		rowsFor = undefined
-		// Only while the run is in flight. A FINISHED run is loaded by the effect
-		// below, which owns that case because a snapshot can land after the run
-		// ends — and on mount both effects fire in the same tick, so loading here
-		// too fetched the whole graph, every model's SQL included, twice. Read
-		// untracked: a dependency on `running` would re-run this reset, and its
-		// resets, the moment the run finishes.
+		// Only while in flight; the effect below owns a FINISHED run, since a
+		// snapshot can land after the run ends. On mount both fire in the same tick,
+		// so loading here too fetches the whole graph twice. Untracked: depending on
+		// `running` would re-run this reset the moment the run finishes.
 		if (untrack(() => running)) void load()
 		void jobId
 		void loadProgress()
@@ -187,21 +179,15 @@
 		// Only while in flight, and no faster than dbt finishes a model: this is a
 		// poll against the same rows the pipeline page reads, not a subscription.
 		if (running) {
-			// Progress is cheap and polled throughout. The GRAPH is not, so it is
-			// refetched only until this run's own snapshot appears: a dynamic
-			// descriptor re-ingests once, before the build, and how long that
-			// takes depends on cloning and provisioning — a fixed delay either
-			// fires before the ingest and never shows the run's own models, or
-			// keeps re-sending the whole graph for the length of the run.
-			// `dbt_snapshot_job` is the endpoint saying it answered from this
-			// job, which is the only reliable stop.
+			// The GRAPH is refetched only until this run's own snapshot appears: a
+			// dynamic descriptor re-ingests once before the build, after a clone and
+			// a provision, so a fixed delay either fires too early to ever show the
+			// run's models or re-sends the whole graph for the length of the run.
 			timer = setInterval(() => void loadProgress(), 2000)
-			// Backed off rather than evenly spaced, because for a whole class of
-			// runs neither stop below is ever reached and this walks to its cap:
-			// `dbt_snapshot_job` never matches for a static descriptor, and
-			// `polled` stays empty for the length of the run on the engines that
-			// emit no node events. Each try re-sends every model's SQL, so the
-			// useful tries stay close together and the rest grow apart.
+			// Backed off, because for a whole class of runs neither stop below is
+			// reached and this walks to its cap: `dbt_snapshot_job` never matches a
+			// static descriptor, and `polled` stays empty on engines emitting no node
+			// events. Each try re-sends every model's SQL.
 			let graphDelay = 3000
 			let graphTimer: ReturnType<typeof setTimeout> | undefined
 			const pollGraph = () => {
@@ -227,18 +213,15 @@
 				clearInterval(timer)
 			}
 		}
-		// The run has finished. Load the graph once more unconditionally: the
-		// poll above gives up after a bounded number of tries, and provisioning
-		// plus `dbt deps` can outlast that on a cold worker — while engines that
-		// emit no node events never produce the progress that would have ended
-		// it early. Without this a snapshot written late is never displayed, and
-		// the page keeps the deployed fallback for good.
+		// One unconditional load once the run has finished: the poll above gives up
+		// after a bounded number of tries, which provisioning plus `dbt deps` can
+		// outlast on a cold worker. Without this a snapshot written late is never
+		// displayed and the page keeps the deployed fallback for good.
 		else if (finalLoadFor !== (jobId ?? '')) {
-			// Once per finished job, not once per response: `load()` assigns
-			// `raw`, which recomputes `settled`, which would re-enter this effect
-			// and fetch the whole graph again for as long as the page is open.
-			// The guard is a plain variable so reading it adds no dependency, and
-			// `settled` is read untracked for the same reason.
+			// Once per finished job, not per response: `load()` assigns `raw`, which
+			// recomputes `settled`, which re-enters this effect and refetches the
+			// whole graph for as long as the page is open. A plain variable, so
+			// reading it adds no dependency.
 			finalLoadFor = jobId ?? ''
 			void load()
 			// `settled` colours a finished run with no request. The poll is the
@@ -261,11 +244,10 @@
 	// from another, but here the whole graph already IS that project.
 	let scoped = $derived.by(() => {
 		if (!raw) return undefined
-		// Asked for a specific version, the response IS that version's project —
-		// every dbt-owned relation in it belongs to this script. Scoping by usage
-		// edges would undo that: those rows are path-keyed and describe the
-		// current deploy, so a model this version had and a later one dropped has
-		// no edge to be found by.
+		// Asked for a specific version, the response IS that version's project.
+		// Scoping by usage edges would undo that: those rows are path-keyed and
+		// describe the current deploy, so a model this version had and a later one
+		// dropped has no edge to be found by.
 		const assetIds = scriptHash
 			? new Set(raw.assets.filter((a) => a.dbt).map((a) => `${a.kind}:${a.path}`))
 			: new Set(
@@ -289,17 +271,13 @@
 		} as AssetGraphResponse
 	})
 
-	// No `resolveGraph`: that merges drafts and live editor buffers into the
-	// persisted graph, and a run page has neither. The response is the graph.
+	// No `resolveGraph`: it merges drafts and editor buffers, which a run page has
+	// neither of.
 	//
-	// For a FINISHED run the node set is narrowed to what that run actually
-	// named. The response is that VERSION's graph, which is not the same as that
-	// RUN's: a later run of the version can rewrite it — a moved profile does —
-	// and a run whose own snapshot has aged past retention falls back to it. So
-	// without this a model the version has but this run did not build appears in
-	// its graph as though it had. Sources are kept regardless:
-	// dbt never lists them in `run_results.json` because it does not build them,
-	// but they are the upstream the run read.
+	// A FINISHED run is narrowed to what it named: the response is the VERSION's
+	// graph, which a later run at a moved profile rewrites, so a model this run
+	// never built would appear as though it had. Sources are kept — dbt lists none
+	// in `run_results.json`, but they are the upstream it read.
 	let historical = $derived.by(() => {
 		if (running || !scoped) return undefined
 		if (!run?.nodes?.length) return undefined
@@ -313,10 +291,9 @@
 			a.dbt.resource_type === 'source' ||
 			ran.has(a.dbt.unique_id) ||
 			// Provenance keeps one winner per relation, so a relation two projects
-			// both write may carry the OTHER project's model. This run cannot be
-			// judged against an id that was never its own — keeping it shows the
-			// relation the run did write, where dropping it makes the run look like
-			// it built fewer models than it did.
+			// write may carry the OTHER project's model — and this run cannot be
+			// judged against an id that was never its own. Dropping it would make the
+			// run look like it built fewer models than it did.
 			!ranPackages.has(pkg(a.dbt.unique_id))
 		const assets = scoped.assets.filter(keep)
 		if (assets.length === scoped.assets.length) return undefined
@@ -332,21 +309,17 @@
 
 	let graph = $derived(historical ?? scoped)
 
-	// Models whose id survived but whose RELATION changed since — an alias,
-	// schema or database edit. The graph on screen is the version's as it stands
-	// now, which a later run at a moved profile rewrites, so the node can name a
-	// relation this run did not write; saying so beats the page asserting this
-	// run materialized a table that did not exist then.
-	// Detecting it needs no snapshot: the result carries the relation each node
-	// actually wrote.
+	// Models whose id survived but whose RELATION changed — an alias, schema or
+	// database edit. The graph on screen is the version's as it stands now, so a
+	// node can name a relation this run did not write, and saying so beats
+	// asserting the run materialized a table that did not exist then.
 	let relationDrift = $derived.by(() => {
 		if (running || !graph) return 0
 		if (!run?.nodes?.length) return 0
-		// Schema AND name, because the move this is most likely to be reporting —
-		// a profile repointed at another schema — leaves every model's name
-		// exactly where it was. An asset path is `<resource>/<schema>/<name>`,
-		// and its schema segment is `<database>.<schema>` only when the model
-		// overrode the target's database.
+		// Schema AND name: the move most likely being reported, a profile repointed
+		// at another schema, leaves every model's name where it was. An asset path is
+		// `<resource>/<schema>/<name>`, whose schema segment is `<database>.<schema>`
+		// only when the model overrode the target's database.
 		const byId = new Map(
 			graph.assets
 				.filter((a) => a.dbt?.unique_id)
@@ -361,14 +334,10 @@
 			const name = parts.at(-1) ?? ''
 			const schema = parts.at(-2) ?? ''
 			const qualified = parts.length > 2 ? `${parts.at(-3)}.${schema}` : schema
-			// Either spelling counts as unmoved. A segment holding a period is
-			// ambiguous — the model overrode its database, or the schema's own name
-			// contains one — and an unqualified segment says the model is in the
-			// target's own database, which the relation names anyway, so demanding
-			// the qualified form would report a move on every node.
-			// Asset paths are canonicalized to lower case, while `relation_name` is
-			// the warehouse's own spelling — Snowflake returns it upper. Comparing
-			// them raw makes every model of every Snowflake run look renamed.
+			// Either spelling counts as unmoved: an unqualified segment names the
+			// target's own database, so demanding the qualified form reports a move on
+			// every node. Lower-cased because `relation_name` is the warehouse's own —
+			// Snowflake's is upper, and comparing raw looks like a rename.
 			const here = nowSchema.toLowerCase()
 			return (
 				nowName.toLowerCase() !== name.toLowerCase() ||
@@ -400,17 +369,13 @@
 		).length
 	})
 
-	// A finished run's own output, joined to the graph on dbt's `unique_id`.
-	//
-	// This is what makes an old run still render correctly. The alternative,
-	// reading the per-relation state table, cannot: that table keeps ONE row per
-	// relation stamped with whichever job wrote it last, so a later run silently
-	// takes the earlier one's models away. The result is the run's own, is stored
-	// with the job, and is deleted with it.
-	//
-	// `unique_id` is the join because it is what both sides already carry —
-	// matching on the warehouse relation name would mean redoing the worker's
+	// A finished run's own output, joined on dbt's `unique_id` — what both sides
+	// already carry, where matching on the relation name would redo the worker's
 	// path derivation here.
+	//
+	// This is what makes an old run still render correctly: the per-relation state
+	// table keeps ONE row per relation stamped with whichever job wrote it last, so
+	// reading that instead lets a later run take the earlier one's models away.
 	let settled = $derived.by(() => {
 		if (running) return undefined
 		if (!run?.nodes?.length || !graph) return undefined
@@ -440,15 +405,13 @@
 		if (sel?.kind !== 'asset') return undefined
 		const dbt = graph?.assets.find((a) => a.kind === sel.asset_kind && a.path === sel.path)?.dbt
 		if (!dbt) return undefined
-		// Provenance is one winner per relation across the whole workspace, so a
-		// relation two projects both materialize carries only one project's node.
-		// Showing that project's SQL under this run would be a different model's
-		// source; when this run names the node, it is this run's.
+		// Provenance keeps one winner per relation workspace-wide, so a relation two
+		// projects materialize carries one project's node — and showing that SQL
+		// under this run would be a different model's source.
 		//
-		// Sources are exempt because a run never executes one: they appear in no
-		// `run_results.json`, so requiring them there would call every source on
-		// every finished run another project's — the warning says a second
-		// project materializes this relation, and nothing materializes a source.
+		// Sources are exempt: a run executes none, so they appear in no
+		// `run_results.json`, and requiring them there would call every source of
+		// every finished run another project's.
 		if (
 			dbt.resource_type !== 'source' &&
 			run?.nodes?.length &&
@@ -504,11 +467,10 @@
 		previews = { ...previews, [key]: { pending: true } }
 		try {
 			const requestBody = {
-				// The run's own arguments first, so a required `{{ }}` var resolves
-				// and an overridden one points at the relation on screen. The
-				// result's copy wins over the job's: a `dbt retry` job carries
-				// only `dbt_command`, and what it actually ran with is the failed
-				// run's arguments, which the worker restored and published here.
+				// The run's own arguments, so a required `{{ }}` var resolves and an
+				// overridden one points at the relation on screen. The result's copy
+				// wins: a `dbt retry` job carries only `dbt_command`, while what it
+				// ran with is the restored arguments published here.
 				...(runArgs ?? {}),
 				...(run?.invocation_args ?? {}),
 				dbt_command: 'show',
@@ -571,12 +533,10 @@
 		return dbt != undefined
 	})
 
-	// The relation this model writes, fully qualified, as dbt reported it for THIS
-	// run. There is no table browser to link to, so the next best affordance is
-	// the exact name to paste into a SQL client — verbatim, quoting included: an
-	// identifier holding a period or a space is only valid quoted, and stripping
-	// the quotes turns `"wh"."analytics.v2"."Order Items"` into four parts of a
-	// name that resolves to nothing.
+	// Fully qualified, as dbt reported it for THIS run, and verbatim — quoting
+	// included. There is no table browser to link to, so this is the name to paste
+	// into a SQL client, and stripping the quotes turns `"wh"."analytics.v2"."Order
+	// Items"` into four parts of a name that resolves to nothing.
 	let selectedRelation = $derived.by(() => {
 		const sel = selection
 		if (sel?.kind !== 'asset' || !selectedDbt) return undefined

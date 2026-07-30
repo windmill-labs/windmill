@@ -83,11 +83,9 @@ pub struct ProvisionedEngine {
 pub async fn provision_engine(
     engine: DbtEngine,
     adapter: DbtAdapter,
-    // The version the lockfile pinned at deploy. Honoring it is what makes the
-    // lockfile a lockfile: without it a script silently changes dbt version
-    // when the instance upgrades or lands on a differently configured worker.
-    // `None` for a deploy (which is what writes the pin) and for a script whose
-    // lock predates it.
+    // What makes the lockfile a lockfile: without it a script silently changes dbt
+    // version when the instance upgrades or lands on a different worker. `None` for
+    // a deploy, which is what writes the pin.
     pinned_version: Option<&str>,
     pinned_adapter_version: Option<&str>,
     job_id: &Uuid,
@@ -211,11 +209,10 @@ async fn provision_core_1x(
         conn,
     )
     .await;
-    // Build beside the target and rename: two jobs racing on the same worker
-    // must not observe a half-installed venv through the `bin.exists()` check.
-    // `--relocatable` is what makes that rename safe — without it uv bakes the
-    // staging path into every entry point's shebang and the moved venv's `dbt`
-    // fails with ENOENT.
+    // Build beside the target and rename, so two jobs racing on one worker cannot
+    // observe a half-installed venv through `bin.exists()`. `--relocatable` makes
+    // the rename safe: without it uv bakes the staging path into every shebang and
+    // the moved venv's `dbt` fails with ENOENT.
     let staging_guard = Scratch::new(staging_path(&dir, job_id));
     let staging = staging_guard.path().to_path_buf();
     tokio::fs::remove_dir_all(&staging).await.ok();
@@ -523,11 +520,9 @@ impl Drop for Scratch {
             let _ = std::fs::remove_dir_all(&p);
             let _ = std::fs::remove_file(&p);
         };
-        // Off the runtime thread. What is being removed is a half-installed
-        // virtualenv or an extracted engine — thousands of files — and `Drop`
-        // runs inside the job future, so removing it synchronously stalls every
-        // other job scheduled on that thread. Detached rather than awaited
-        // because a `Drop` cannot await; the removal was already fire-and-forget.
+        // Off the runtime thread: this removes thousands of files and `Drop` runs
+        // inside the job future, so doing it synchronously stalls every other job
+        // on that thread. Detached because a `Drop` cannot await.
         match tokio::runtime::Handle::try_current() {
             Ok(handle) => {
                 handle.spawn_blocking(remove);
@@ -701,12 +696,10 @@ async fn run_tool(
 mod core1x_tests {
     use super::*;
 
-    // Several adapters cap the dbt-core they accept BELOW the version this
-    // runtime would otherwise ask for (dbt-mysql at ~=1.7, dbt-oracle and
-    // dbt-databricks below 1.12), and dbt-salesforce has no 1.x package at all.
-    // Pinning core independently of the adapter made those projects fail at
-    // provisioning with a resolver dump, so the install asks for a ceiling and
-    // lets the adapter decide.
+    // Several adapters cap dbt-core below what this runtime would ask for
+    // (dbt-mysql ~=1.7, dbt-oracle and dbt-databricks below 1.12) and
+    // dbt-salesforce has no 1.x package at all, so pinning core independently made
+    // those projects fail at provisioning. The install names a ceiling instead.
     #[test]
     fn every_adapter_either_names_a_package_or_is_fusion_only() {
         for a in DbtAdapter::ALL {

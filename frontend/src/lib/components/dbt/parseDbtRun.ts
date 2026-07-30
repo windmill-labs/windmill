@@ -53,11 +53,9 @@ export function parseDbtRun(result: any): DbtRun | undefined {
 	const msg = result?.error?.message
 	if (typeof msg !== 'string') return undefined
 	// The payload is appended pretty-printed, so its `{` is the only one at COLUMN
-	// ZERO: every nested object in it is indented, and dbt's own error text —
-	// a Jinja template, a compiled SQL fragment, an adapter's JSON — carries its
-	// braces mid-line. Counting braces instead needs a cap, and either direction
-	// blows it on a real project: forwards on an error full of them, backwards on
-	// one `{` per node (a few hundred nodes is ordinary).
+	// ZERO — everything nested is indented, and dbt's own error text carries its
+	// braces mid-line. Counting braces instead needs a cap that a real project
+	// blows: forwards on an error full of them, backwards on one `{` per node.
 	for (const line of lineStarts(msg)) {
 		if (msg[line] !== '{') continue
 		try {

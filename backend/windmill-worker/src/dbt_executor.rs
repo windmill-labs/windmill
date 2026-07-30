@@ -171,11 +171,10 @@ pub(crate) async fn handle_dbt_job(
         })
         .transpose()?;
 
-    // Through `build_args_map`, like every other executor: an argument may be a
-    // `$var:` / `$res:` / `$encrypted:` reference, and dbt has no idea what those
-    // are. Passing them raw sends the literal string to `--vars`, so a
-    // placeholder holding a schema or an `enabled` flag would build a different
-    // slice of the project than the caller asked for.
+    // Through `build_args_map`, like every other executor: dbt cannot resolve a
+    // `$var:` / `$res:` / `$encrypted:` reference, so passing one raw sends the
+    // literal string to `--vars` — a placeholder holding a schema or an `enabled`
+    // flag would then build a different slice of the project than was asked for.
     let args = crate::common::build_args_map(job, client, conn)
         .await?
         .unwrap_or_else(|| job.args.as_ref().map(|a| a.0.clone()).unwrap_or_default());
@@ -190,11 +189,9 @@ pub(crate) async fn handle_dbt_job(
     // together through the whole executor, so passing them apart means each new
     // phase grows another five parameters and another copy of this literal.
     let mut ctx = JobCtx { mem_peak, canceled_by, occupancy_metrics, worker_name, deadline };
-    // Detached, and from EVERY dbt run rather than from the progress reporter:
-    // that reporter exists only for engines emitting node events, so hanging the
-    // prune off it left a Fusion-only or dbt-core-2x instance accumulating rows
-    // it would never delete. Retention that depends on an engine choice is not
-    // retention.
+    // From EVERY dbt run, not from the progress reporter: that reporter runs only
+    // for engines emitting node events, so hanging the prune off it leaves a
+    // Fusion-only or dbt-core-2x instance accumulating rows nothing deletes.
     if let Connection::Sql(pool) = conn {
         let (pool, prune_w_id) = (pool.clone(), job.workspace_id.clone());
         let prune_path = job.runnable_path.clone().unwrap_or_default();
@@ -230,20 +227,17 @@ pub(crate) async fn handle_dbt_job(
     // BUILD invalidates that, which the save at the end of the job decides.
     let mut prepared = prepared?;
 
-    // A `vars` run argument overrides the descriptor's, and vars drive `enabled`,
-    // alias, schema, database and materialization — so this run's models are not
-    // the deployed graph's. It snapshots under its own job id, leaving the
-    // version's graph for the runs that did not override. A retry submits only
-    // `dbt_command`, so this is re-asked once the failed run's arguments are
-    // restored, below — those are the ones it actually builds with.
+    // A `vars` override drives `enabled`, alias, schema, database and
+    // materialization, so the run's models are not the deployed graph's: it
+    // snapshots under its own job id. Re-asked below for a retry, which submits
+    // only `dbt_command` until the failed run's arguments are restored.
     prepared.graph_refresh.add_caller_args(&descriptor, &args)?;
 
     let command = match arg_str(&args, "dbt_command")? {
-        // Validated against an allowlist rather than passed through: the value
-        // becomes the dbt subcommand, and running a script needs weaker
-        // permission than editing it — an unchecked arg would let a runner
-        // invoke `clean`, `seed` or `source freshness` on the descriptor's
-        // warehouse.
+        // An allowlist, not a passthrough: the value becomes the dbt subcommand,
+        // and running a script needs weaker permission than editing it — so an
+        // unchecked arg would let a runner invoke `clean` or `seed` on the
+        // descriptor's warehouse.
         Some(c) if DBT_COMMANDS.contains(&c.as_str()) => c,
         Some(c) => {
             return Err(Error::BadRequest(format!(
@@ -253,14 +247,10 @@ pub(crate) async fn handle_dbt_job(
         }
         None => windmill_parser_yaml::default_dbt_command(&descriptor).to_string(),
     };
-    // `dbt retry` resumes from the previous run's `run_results.json`, which is
-    // what makes one-job-per-invocation defensible: a partial failure does not
-    // force a full rebuild. Each attempt gets a fresh job dir, so that state is
-    // restored — along with the ARGUMENTS it ran with, since dbt reuses that
-    // invocation's selection and vars and the graph refresh, the build and the
-    // test phase must all agree with it.
-    // What a retry started from, so the save below can tell dbt's own results from
-    // the ones this run only restored.
+    // `dbt retry` resumes from the previous run's `run_results.json`, which is what
+    // makes one-job-per-invocation defensible. Each attempt gets a fresh job dir, so
+    // that state is restored along with the ARGUMENTS it ran with: dbt reuses the
+    // failed invocation's selection and vars, so every phase must agree with them.
     let mut restored_results_digest: Option<String> = None;
     let inv = if command == "retry" {
         let restored = restore_run_state(
@@ -301,17 +291,10 @@ pub(crate) async fn handle_dbt_job(
                 ));
             }
         }
-        // The restored arguments are what this retry builds with, so they decide
-        // its graph — asked again here because the retry's own submission carries
-        // only `dbt_command`, and the deployed graph would show the wrong enabled
-        // models, aliases or schemas for an overridden run.
-        //
-        // RESOLVED, like the selection resolver and the build itself: a saved
-        // `select` spelled `$res:` is a string until it is resolved, and reading
-        // the raw form refuses the retry outright as "must be a list of strings"
-        // — for a reference that still resolves to the very list the failed run
-        // built with. `raw_args` stays what is persisted and published, so no
-        // resolved secret outlives the job.
+        // The restored arguments decide this retry's graph, and RESOLVED ones: a
+        // saved `select` spelled `$res:` is a string until resolved, so reading the
+        // raw form refuses the retry as "must be a list of strings" for a reference
+        // that resolves to the very list the failed run built with.
         prepared
             .graph_refresh
             .add_caller_args(&descriptor, &inv.args)?;
@@ -334,14 +317,10 @@ pub(crate) async fn handle_dbt_job(
         inv
     };
 
-    // A per-run graph is ingested BEFORE the build, from a `dbt parse` with this
-    // run's vars, so the models shown are the ones about to be built rather than
-    // the previous run's. Rows are keyed by path, version AND job, so no two
-    // runs collide — what still belongs to the newest version alone is the
-    // path-keyed `asset` usage, which `claim_graph_publication` arbitrates
-    // (docs/dbt-runtime.md).
-    // A read-only command builds nothing, so re-publishing the graph from it
-    // would replace the last real run's models with a SELECT's.
+    // Ingested BEFORE the build, from a `dbt parse` with this run's vars, so the
+    // models shown are the ones about to be built. Rows are keyed by path, version
+    // AND job so no two runs collide; the path-keyed `asset` usage belongs to one
+    // version, which `claim_graph_publication` arbitrates (docs/dbt-runtime.md).
     if prepared.graph_refresh.needed() && !windmill_parser_yaml::dbt::is_read_only_command(&command)
     {
         // A parse and an ingest write no relation either, so a failure in either
@@ -364,10 +343,9 @@ pub(crate) async fn handle_dbt_job(
         ingest_from_run(&prepared, &descriptor, &inv, &mut ctx, job, conn).await?;
     }
 
-    // A read-only command has its own path: dbt prints the rows to stdout, so it
-    // is captured rather than streamed through the job-log writer, and none of
-    // what follows applies — nothing was built, so there is no graph to publish,
-    // no materialization to record, no test phase and nothing to retry.
+    // A read-only command prints rows to stdout, so it is captured rather than
+    // streamed, and nothing below applies: nothing was built, so there is no graph
+    // to publish, no materialization, no test phase and nothing to retry.
     if windmill_parser_yaml::dbt::is_read_only_command(&command) {
         return run_show(
             &prepared,
@@ -393,22 +371,16 @@ pub(crate) async fn handle_dbt_job(
     )
     .await;
 
-    // `after_all` is two invocations: models first, then tests, so a test
-    // failure does not stop the models that were going to build anyway. Each
-    // invocation REWRITES `run_results.json`, so the model results have to be
-    // read before the test phase overwrites them — otherwise the job reports
-    // tests only, and nothing settles the models' materializations.
+    // `after_all` is two invocations, models then tests, and each REWRITES
+    // `run_results.json` — so the model results are read before the test phase
+    // overwrites them, or the job reports tests alone and nothing settles the
+    // models' materializations.
     let mut results = read_run_results(&prepared.project_dir).await;
 
-    // Automatic node-level retry, inside this job. A `dbt retry` rebuilds only
-    // the failed and skipped nodes, so a transient warehouse error costs those
-    // rather than the project — and doing it here means the previous attempt's
-    // `run_results.json` is still in the job directory, with no state to
-    // persist and no worker to land back on.
-    // Not on an agent worker: its cancellation arrives through a poller that
-    // does not run between attempts and it cannot read `v2_job_queue`, so the
-    // wait below could not be interrupted and a cancelled job would hold its
-    // slot for the whole delay and then start another dbt process.
+    // In-job node retry: rebuilding only the failed and skipped nodes, while the
+    // previous attempt's `run_results.json` is still in the job directory. Never on
+    // an agent worker, which cannot read `v2_job_queue` — the wait below would be
+    // uninterruptible, so a cancelled job would hold its slot and then start dbt.
     let node_retry = descriptor
         .retry_failed_nodes
         .filter(|_| matches!(conn, Connection::Sql(_)));
@@ -667,20 +639,16 @@ pub(crate) async fn dbt_dep(
         !published
     } else {
         // No warehouse identity, so nothing can be ingested — but this version's
-        // rows must still go. Leaving them means a descriptor edited to use its
-        // own profiles.yml keeps claiming ownership of relations it no longer
-        // describes, and keeps cascading from them.
-        //
-        // This VERSION's, not the path's: the ownership being given up is the
-        // path-keyed `asset` usages cleared on the next line, while every older
-        // version's graph is what its own finished runs still render. Wiping the
-        // path would empty those pages of models, SQL and lineage.
-        //
-        // The clear is a publication too — a newer deploy's graph must not be
-        // wiped by an older job that no longer describes the script.
+        // rows must still go, or a descriptor moved to its own profiles.yml keeps
+        // claiming relations it no longer describes.
         let mut tx = db.begin().await?;
+        // Clearing is a publication too: an older job that no longer describes the
+        // script must not wipe a newer deploy's graph.
         let published = claim_graph_publication(&mut tx, w_id, script_path, publisher).await?;
         if published {
+            // This VERSION's rows, never the path's: what is given up is the
+            // path-keyed usage cleared below, while an older version's graph is
+            // what its own finished runs still render.
             if let GraphPublisher::Version(hash) = publisher {
                 windmill_common::dbt_manifest::clear_dbt_manifest_version(
                     &mut tx,
@@ -842,13 +810,10 @@ impl GraphRefresh {
         if has_vars_override(args) {
             self.per_run_models = true;
         }
-        // A selection the caller chose needs a graph of its own: it is not
-        // necessarily a SUBSET of the deployed one. A descriptor deployed with
-        // `select: ["tag:nightly"]` and overridden with `["stg_orders"]` or
-        // `["*"]` builds models the deployed graph never had, and those are the
-        // ones whose progress, SQL and lineage the run page would have nothing
-        // to draw. It stays caller-scoped, so the subset it records is its own
-        // and not what the script owns.
+        // A caller's selection is not necessarily a SUBSET of the deployed one:
+        // deployed `select: ["tag:nightly"]`, overridden with `["*"]`, builds models
+        // the deployed graph never had — and those are the ones whose progress, SQL
+        // and lineage the run page would otherwise have nothing to draw.
         if selection_is_overridden(descriptor, args)? {
             self.per_run_models = true;
         }
@@ -950,17 +915,10 @@ impl PreparedProject {
     /// is in it because `env_var()` can drive a model's schema, database, alias
     /// or `enabled`.
     fn run_identity(&self) -> String {
-        // The descriptor is digested whole rather than field by field:
-        // `select`, `exclude`, `selector`, `vars`, `full_refresh` and
-        // `test_behavior` all change which nodes a run touches, and enumerating
-        // them means the next field added to the descriptor is silently left
-        // out of the check.
-        //
-        // The RESOLVED engine and adapter versions, not just the engine kind:
-        // an unchanged project redeployed after a release resolves a newer dbt
-        // or adapter, and the artifacts of the older one are what the saved
-        // state holds. The lockfile exists to pin exactly this, so a retry that
-        // ignored it would feed one version's `run_results.json` to another.
+        // The descriptor whole, not field by field, or the next field added to it
+        // is silently left out. And the RESOLVED engine and adapter versions: an
+        // unchanged project redeployed after a release resolves a newer dbt, whose
+        // retry would otherwise feed one version's `run_results.json` to another.
         format!(
             "{}|{}|{}|{}|{}|{}|{}|{}|{}",
             self.project_digest,
@@ -1017,11 +975,9 @@ pub(crate) async fn prepare_project(
                 .to_string(),
         ));
     }
-    // Vars can drive `enabled`, alias, schema, database and materialization, so
-    // a placeholder var or a `$var:` env value (re-resolved every run) makes the
-    // deploy-time graph a guess, and each run re-ingests its own manifest. The
-    // caller's own `vars` override does the same; it is added by the caller of
-    // this function, which is where the run's arguments are known.
+    // Vars drive `enabled`, alias, schema, database and materialization, so a
+    // placeholder var or a `$var:` env value (re-resolved every run) makes the
+    // deploy-time graph a guess and each run re-ingests its own manifest.
     let has_placeholder = |v: &str| v.contains("{{");
     let graph_refresh = GraphRefresh {
         per_run_models: descriptor
@@ -1176,19 +1132,10 @@ pub(crate) async fn prepare_project(
         script_path: script_path.to_string(),
         env,
     };
-    // A profile resource moved — a changed schema, dataset or catalog — relocates
-    // every relation the project builds, so the stored graph names ones that no
-    // longer exist. Compared against THIS VERSION's graph as stored, not against
-    // the deploy lock: moving A→B then back to A matches the lock again while the
-    // stored graph is still at B.
-    //
-    // Against the root recorded BESIDE that graph, by whichever ingest wrote
-    // it — not against the deploy's, which goes stale the moment a run at a
-    // moved profile rewrites the graph, and not against the newest ingest of
-    // any job, since a run whose graph matches the deploy's stores no rows at
-    // all and the moved run's would stay newest forever. Recording it with the
-    // graph is what keeps the two from diverging, including for a version that
-    // no longer owns the path and so publishes nothing.
+    // A moved profile relocates every relation, so the stored graph names ones that
+    // no longer exist. Compared against the root recorded beside THIS VERSION's
+    // graph: not the deploy lock, which A→B→A matches while the graph sits at B,
+    // and not the newest ingest of any job, which a matching run never writes.
     match conn {
         Connection::Sql(db) => {
             if let Some(stored) = sqlx::query_scalar!(
@@ -1208,12 +1155,10 @@ pub(crate) async fn prepare_project(
                 }
             }
         }
-        // An agent worker cannot READ the stored root to compare it, but it can
-        // publish, and publishing settles the question the comparison was asking:
-        // it re-ingests what it parsed, so the stored graph describes this run's
-        // profile whether or not it drifted. Under its own job id, since it
-        // cannot tell a moved profile from an unmoved one and must not overwrite
-        // the version's graph on the strength of a guess.
+        // An agent cannot READ the stored root, but publishing settles what the
+        // comparison asks: it re-ingests what it parsed. Under its own job id,
+        // since it cannot tell a moved profile from an unmoved one and must not
+        // overwrite the version's graph on a guess.
         Connection::Http(_) => prepared.graph_refresh.per_run_models = true,
     }
     prepared.package_lock_digest =
@@ -1295,16 +1240,10 @@ async fn install_packages(
     w_id: &str,
     conn: &Connection,
 ) -> error::Result<Option<String>> {
-    // A cache hit skips `dbt deps` entirely, so the key has to cover everything
-    // that determines the resolved tree: the declared packages, a
-    // `package-lock.yml` pinning versions two projects with identical ranges
-    // would resolve differently, and any `local:` dependency's content, which is
-    // in no manifest at all — the project digest stands in for it.
-    //
-    // Workspace identity is in the key: `dbt deps` can fetch private git
-    // packages, so a shared tree would let one workspace execute another's
-    // private package code without ever authenticating. Both environments are
-    // keyed too, since `packages.yml` can read `env_var()`.
+    // A hit skips `dbt deps`, so the key covers what determines the tree: declared
+    // packages, a committed lock, and a `local:` dependency's content (no manifest
+    // holds it; the project digest stands in). Workspace too — `dbt deps` fetches
+    // private git packages, and a shared tree would run one workspace's for another.
     let mut key = format!(
         "{w_id}\n{}\n{}\n{:x}\n",
         p.project_digest,
@@ -1325,12 +1264,10 @@ async fn install_packages(
     if !declares_packages {
         return Ok(None);
     }
-    // A committed `package-lock.yml` is a starting point, not the answer: dbt
-    // rewrites it whenever the `sha1_hash` it recorded for `packages.yml` no longer
-    // matches, so holding a resolution to the committed file would refuse the first
-    // deploy after a package is added — with no way out, since redeploying resolves
-    // the same way again. It keys the cache lookup, and the deploy records whatever
-    // dbt actually resolved.
+    // A committed `package-lock.yml` keys the lookup but is not the answer: dbt
+    // rewrites it when the `sha1_hash` it recorded for `packages.yml` stops
+    // matching, so holding the deploy to it would refuse the first deploy after a
+    // package is added, with no way out. The deploy records what dbt resolved.
     let project_lock_digest = package_lock_digest(&p.project_dir).await?;
     let expected_lock_digest = p
         .package_lock_digest
@@ -1552,16 +1489,10 @@ async fn write_profiles(
             .parent()
             .ok_or_else(|| Error::BadRequest("profile.profiles_yml has no parent".to_string()))?
             .to_path_buf();
-        // The adapter still has to be known, because the bundled dbt-core 1.x
-        // engine needs the matching pip package installed. The project's own
-        // file spells it, and that file is what dbt actually connects with — so
-        // it is READ even when the descriptor declares a type, and a descriptor
-        // that disagrees is refused rather than believed.
-        //
-        // Licensing is the reason this cannot be a hint. The Rust engines carry
-        // every adapter in the binary, so a descriptor saying `postgres` over a
-        // `profiles.yml` whose target is `sqlserver` would pass the CE check and
-        // then have dbt connect with the enterprise adapter anyway.
+        // Read from the project's own file even when the descriptor declares a type:
+        // the file is what dbt connects with. Licensing is why it cannot be a hint —
+        // the Rust engines carry every adapter, so a descriptor claiming `postgres`
+        // over a `sqlserver` target would pass the CE check and connect anyway.
         let actual = adapter_from_profiles_yml(
             &path,
             &project_profile_name(project_dir).await,
@@ -1579,12 +1510,10 @@ async fn write_profiles(
         }
         let adapter = actual;
         ensure_adapter_licensed(adapter)?;
-        // A resource alongside the project's own file names the warehouse for
-        // asset identity only: the connection comes from the file. It is still
-        // READ here, and only here, because reading is what authorizes it —
+        // A resource beside the project's own file names the warehouse for asset
+        // identity only. It is still READ, because reading is what authorizes it:
         // otherwise a script editor could publish `table://<any resource>/...`
-        // writes, and wake that warehouse's subscribers, while connecting
-        // somewhere else entirely.
+        // writes while connecting somewhere else entirely.
         if let Some(rp) = resource_path.as_deref() {
             client
                 .get_resource_value_interpolated::<serde_json::Value>(rp, Some(job_id.to_string()))
@@ -1809,11 +1738,9 @@ pub(crate) fn dbt_command(p: &PreparedProject, args: &[&str]) -> Command {
         .env("PATH", PATH_ENV.as_str())
         .env("TZ", TZ_ENV.as_str())
         .env("GIT_PATH", GIT_PATH.as_str());
-    // The descriptor's environment is the PROJECT's, and the invocation's is
-    // the script's; both belong to the child. Under a sandbox they reach it
-    // through the jail profile instead of this process, because placing them
-    // here would hand them to the dynamic loader that execs nsjail itself —
-    // `LD_PRELOAD` naming a library from the project would then run as the
+    // Both environments belong to the child. Under a sandbox they reach it through
+    // the jail profile instead: set here, they would reach the dynamic loader that
+    // execs nsjail itself, so an `LD_PRELOAD` from the project would run as the
     // worker, before any isolation exists.
     if p.sandbox_config.is_none() {
         cmd.envs(p.env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
@@ -1826,13 +1753,10 @@ pub(crate) fn dbt_command(p: &PreparedProject, args: &[&str]) -> Command {
     cmd.args(args)
         .arg("--profiles-dir")
         .arg(&p.profiles_dir)
-        // Where `manifest.json` and `run_results.json` land. A project may set
-        // `target-path` in `dbt_project.yml`, and every artifact this runtime
-        // reads — the graph, the per-node results, the retry state — is found
-        // by path, so the location is Windmill's to decide. As an env var
-        // rather than `--target-path`, which `dbt deps` rejects outright. Set
-        // last so neither environment above can displace it, belt to the
-        // braces of `reject_reserved_env`.
+        // Every artifact this runtime reads is found by path, so the location is
+        // Windmill's to decide and not the project's `target-path`. An env var
+        // because `dbt deps` rejects `--target-path`, and set last so neither
+        // environment above can displace it.
         .env("DBT_TARGET_PATH", ARTIFACTS_DIR);
     cmd
 }
@@ -2539,11 +2463,10 @@ fn split_relation(rel: &str) -> Vec<String> {
             Some(q) => {
                 let close = if q == '[' { ']' } else { q };
                 if c == close {
-                    // Doubled, which is how every one of these dialects escapes
-                    // its own delimiter: one literal character, not the end of
-                    // the identifier. Dropping it renames the relation, and the
-                    // manifest keeps the real spelling — so the run would record
-                    // its progress against a key no node has.
+                    // Doubled is how these dialects escape their delimiter: one
+                    // literal character, not the end of the identifier. Dropping
+                    // it renames the relation, so the run records progress
+                    // against a key no node has.
                     if chars.peek() == Some(&close) {
                         chars.next();
                         current.push(close);
@@ -2619,12 +2542,10 @@ async fn run_show(
         SHOW_MAX_OUTPUT_BYTES,
     )
     .await?;
-    // dbt frames the rows as `{"node": …, "show": [ … ]}`, pretty-printed across
-    // lines, with a banner before it and a deprecation summary after — so
-    // neither "the line starting with `{`" nor "from the first `{` to the end"
-    // parses. A streaming deserializer stops at the end of the first complete
-    // document and ignores the trailing text. Returned verbatim rather than
-    // reshaped: the caller renders whatever columns the model has.
+    // dbt frames the rows as `{"node": …, "show": [ … ]}`, pretty-printed, with a
+    // banner before and a deprecation summary after — so neither "the line starting
+    // with `{`" nor "first `{` to the end" parses. A streaming deserializer stops at
+    // the first complete document and ignores the rest.
     let mut from = 0;
     while let Some(rel) = stdout[from..].find('{') {
         let at = from + rel;
@@ -2855,18 +2776,10 @@ async fn persist_ingest(
         return Ok(false);
     };
     let mut tx = db.begin().await?;
-    // A version DELETED while this job ran had its graph cleared by the route
-    // that did it. Deletion only soft-updates `script`, so the foreign key still
-    // accepts these rows — and the pinned graph query deliberately serves
-    // non-live versions, so re-inserting here republishes model SQL a user
-    // deleted.
-    //
-    // `archived` is deliberately NOT part of this: `create_script` archives the
-    // parent on every redeploy, so treating it as a deletion would refuse the
-    // ordinary case of deploying v2 while v1's dependency job is still parsing,
-    // and v1 would never get the graph its own finished runs render from. The
-    // explicit `archive_script_by_hash` is still covered — it updates inside its
-    // transaction, so `FOR UPDATE` makes it wait here and clear afterwards.
+    // Deletion only soft-updates `script`, so re-inserting would republish model
+    // SQL a user deleted. NOT `archived`: every redeploy archives the parent, and
+    // treating that as deletion would deny v1 the graph its own runs render. An
+    // explicit archive still waits on `FOR UPDATE` and clears afterwards.
     let deleted = sqlx::query_scalar!(
         "SELECT deleted FROM script WHERE workspace_id = $1 AND hash = $2 FOR UPDATE",
         w_id,
@@ -2878,9 +2791,9 @@ async fn persist_ingest(
     if deleted {
         return Ok(false);
     }
-    // The graph is written without regard to NEWER versions: its rows are keyed
-    // by this one, so an older deploy finishing late cannot overwrite a newer
-    // one's, and its own runs still need their graph to render.
+    // Written without regard to NEWER versions: the rows are keyed by this one, so
+    // an older deploy finishing late overwrites nothing and its own runs still
+    // render.
     windmill_common::dbt_manifest::replace_dbt_manifest(
         &mut tx,
         w_id,
@@ -2891,18 +2804,10 @@ async fn persist_ingest(
         relation_root,
     )
     .await?;
-    // Beside the graph that was just written, not beside the ownership below:
-    // this is the root the STORED VERSION GRAPH describes, and the drift check
-    // asks whether that graph still names the relations this profile builds.
-    // Hung off the publication instead, it went unwritten exactly where it is
-    // needed most — a version that cannot claim the path (an older one being
-    // run by hash, a deploy overtaken by a newer one) would rewrite its graph
-    // at the moved root and record nothing, so its next run compares against a
-    // root that is either absent or two moves stale and skips the refresh its
-    // own run page needs.
-    //
-    // Only when the DEPLOYED row is what was written: a run that stored a
-    // snapshot of its own left that graph, and its root, as they were.
+    // Beside the graph just written, not the ownership below: this is the root the
+    // STORED VERSION GRAPH describes. Hung off publication, a version that cannot
+    // claim the path records nothing and compares against a stale root forever.
+    // Only the DEPLOYED row: a run's own snapshot left its root as it was.
     if run_snapshot.is_none() {
         sqlx::query!(
             "UPDATE dbt_graph_snapshot SET relation_root_at_last_ingest = $4
@@ -2916,16 +2821,10 @@ async fn persist_ingest(
         .execute(&mut *tx)
         .await?;
     }
-    // What follows is keyed by PATH, not by version — one row set per script —
-    // so it still belongs to the newest version alone. An older deploy finishing
-    // late records its graph above and stops here, rather than dragging the
-    // script's current usages back to what it saw.
-    //
-    // A CALLER-SCOPED graph stops here for the same reason. A `vars` override or
-    // a narrowed `select` describes one invocation: publishing its relations as
-    // the script's ownership would leave the workspace graph showing that run's
-    // schemas, aliases and subset until the next deploy, since an ordinary run
-    // of a static descriptor never ingests again to correct it.
+    // What follows is keyed by PATH, so it belongs to the newest version alone: an
+    // older deploy, or a run whose `vars`/`select` describe one invocation, stops
+    // here. Publishing either as ownership would leave the workspace graph wrong
+    // until the next deploy, since a static descriptor never ingests again.
     if !publish_ownership {
         tx.commit().await?;
         return Ok(true);
@@ -2941,12 +2840,9 @@ async fn persist_ingest(
         &ingested.assets,
     )
     .await?;
-    // A `table://` subscription can never fire — nothing but dbt writes a
-    // warehouse relation and a dbt run does not dispatch — so none are derived
-    // from the manifest any more. The delete stays: it clears the rows earlier
-    // versions wrote, which would otherwise keep drawing cascade arrows that
-    // wake nothing. Authored refs are excluded because the deploy now refuses
-    // them outright, so any left are from before that check.
+    // A `table://` subscription can never fire, so none are derived from the
+    // manifest. The delete stays to clear what earlier versions wrote, which would
+    // otherwise keep drawing cascade arrows that wake nothing.
     sqlx::query!(
         "DELETE FROM script_trigger
           WHERE workspace_id = $1 AND runnable_kind = 'script' AND runnable_path = $2
@@ -3033,11 +2929,10 @@ async fn resolve_selection(
     }
     cmd.args(["--output", "json", "--quiet"]);
     add_selection(&mut cmd, descriptor, inv)?;
-    // Captured directly rather than through `handle_child`: its `pipe_stdout`
-    // path runs the output through the job-log writer, which `NO_LOGS_AT_ALL`
-    // discards — the selection would then resolve to the empty set and the
-    // ingest would wipe the script's assets and subscriptions while dbt went on
-    // building the descriptor's models.
+    // Captured directly, not through `handle_child`: its `pipe_stdout` path goes
+    // through the job-log writer, which `NO_LOGS_AT_ALL` discards — the selection
+    // would resolve to the empty set and the ingest would wipe the script's assets
+    // while dbt went on building the descriptor's models.
     let stdout = run_capturing(cmd, "dbt ls", ctx, job_id, w_id, conn, LS_MAX_OUTPUT_BYTES).await?;
     let mut set = std::collections::HashSet::new();
     for line in stdout.lines() {
@@ -3294,11 +3189,10 @@ async fn invalidate_run_state(
             tracing::warn!("dbt: could not drop local retry state for {script_path}: {e:#}");
         }
     }
-    // The generations too, not only the pointer that named one. `prune_old_generations`
-    // otherwise runs at the tail of a successful SAVE, so a script whose last run
-    // went green — which forgets its state here — stranded the failed run's
-    // directory, and each holds a `manifest.json` that grows with the project.
-    // Keeps only grace-protected generations a retry may already be copying.
+    // The generations too, not only the pointer. `prune_old_generations` otherwise
+    // runs at the tail of a successful SAVE, so a script whose last run went green
+    // stranded the failed run's directory, each holding a `manifest.json` that
+    // grows with the project. Keeps only what a retry may already be copying.
     prune_old_generations(&dir, "").await;
 }
 
@@ -3308,13 +3202,10 @@ async fn save_run_state(
     // Part of the state's key: a retry replaces the caller's arguments with
     // these, so another principal must not be able to restore them.
     permissioned_as: &str,
-    // Whether the run this state describes is visible to the script's owners.
-    // A HIDDEN run keeps none: the state is keyed by the principal, which every
-    // caller of an `on_behalf_of` script shares, and a retry publishes the
-    // arguments it restored — so for a run the other callers cannot read, that
-    // retry would be the one way to see them. For a visible run it discloses
-    // nothing, since running the script requires the read access that already
-    // shows them the run and its arguments.
+    // A HIDDEN run keeps no state: the key is the principal, which every caller of
+    // an `on_behalf_of` script shares, and a retry publishes the arguments it
+    // restored — so that retry would be the one way to see a run they cannot read.
+    // A visible run discloses nothing they could not already read.
     visible_to_owner: bool,
     // Scopes the staging directory. Keyed by project digest, two concurrent
     // runs of one script would stage into the same place and publish a mixture.
@@ -3339,11 +3230,10 @@ async fn save_run_state(
         inv.env_digest(),
         inv.resolved_args_digest()
     );
-    // The args as SUBMITTED, not as resolved: `build_args_map` turns `$var:` and
-    // `$res:` into plaintext, and this row outlives the job. Persisting the
-    // resolved value would leave a secret in the database and let a retry replay
-    // it after the grant was revoked or the value rotated. The restore path
-    // resolves the references again, under whoever is retrying.
+    // As SUBMITTED, not resolved: `build_args_map` turns `$var:` and `$res:` into
+    // plaintext and this row outlives the job, so persisting the resolved value
+    // would leave a secret in the database and let a retry replay it after the
+    // grant was revoked. The restore resolves again, under whoever retries.
     let args: HashMap<String, String> = inv
         .raw_args
         .iter()
@@ -3356,20 +3246,18 @@ async fn save_run_state(
         tokio::fs::read_to_string(p.project_dir.join(ARTIFACTS_DIR).join("run_results.json"))
             .await
             .ok();
-    // No `run_results.json` means this invocation produced nothing resumable —
-    // cancelled, timed out, or dead before dbt wrote one. The previous run's
-    // state must not stay authoritative: `dbt retry` would resume ITS failed
-    // nodes, which are not what last ran here. Both copies go, so neither can
-    // answer for the other.
+    // No `run_results.json` means nothing resumable happened — cancelled, timed
+    // out, dead before dbt wrote one. The previous run's state must not stay
+    // authoritative, or `dbt retry` resumes ITS failed nodes, which are not what
+    // last ran here. Both copies go, so neither answers for the other.
     let Some(results) = results else {
         invalidate_run_state(w_id, &p.script_path, permissioned_as, conn).await;
         return Ok(());
     };
-    // A retry that ended before dbt rewrote the file leaves exactly what the
-    // restore put there. Republishing it would date the PREVIOUS attempt's
-    // failures to this job, and the next retry would rebuild nodes this one had
-    // already redone — appending to an incremental model a second time. Same
-    // reasoning as the branch above: nothing resumable happened here.
+    // A retry that ended before dbt rewrote the file leaves what the restore put
+    // there. Republishing dates the PREVIOUS attempt's failures to this job, so the
+    // next retry rebuilds nodes this one already redid — appending to an
+    // incremental model twice. As above: nothing resumable happened here.
     if restored_results_digest == Some(digest(&results).as_str()) {
         invalidate_run_state(w_id, &p.script_path, permissioned_as, conn).await;
         return Ok(());
@@ -3397,37 +3285,20 @@ async fn save_run_state(
             .err();
         }
     }
-    // Each run writes its OWN generation directory, which is never modified
-    // afterwards, and publication is a rename of the pointer naming it. Runs
-    // that replaced one live directory could interleave — B's results beside
-    // A's manifest and arguments — and a reader copying that directory could
-    // straddle a replacement and take half of each. A retry resuming a mixture
-    // is worse than one that finds nothing.
-    // A failed durable write means this generation is not published locally
-    // either. `restore` accepts a local generation only when the database row
-    // names it, so publishing one the database never recorded would have this
-    // worker reject its own newest state and resume the previous run's instead.
-    // An agent worker is unaffected: it attempts no durable write, so there is
-    // no error to hold.
-    //
-    // What the PREVIOUS run left has to go with it, for the reason the
-    // no-results branch above gives: this run happened, so a retry resuming the
-    // one before it would rebuild nodes that are not what last failed here.
-    // Best effort — the delete goes to the database that just refused a write —
-    // but the local pointer is removed either way, which is what a retry landing
-    // back on this worker reads first.
+    // A failed durable write leaves this generation unpublished locally too:
+    // `restore` takes a local one only when the row names it, so publishing what no
+    // row records would have this worker reject its own newest state. The previous
+    // run's goes with it, since resuming it would rebuild the wrong nodes.
     if let Some(e) = durable_err {
         invalidate_run_state(w_id, &p.script_path, permissioned_as, conn).await;
         return Err(e.into());
     }
     let dir = state_dir(w_id, &p.script_path, permissioned_as);
     let generation = format!("gen-{job_id}");
-    // A local publication that gives up leaves the PREVIOUS generation's pointer
-    // in place. Where a durable row exists that is harmless — `restore` takes a
-    // local generation only when the row names it, so it falls back to the row,
-    // which this run has already written. An agent worker has no row, so that
-    // pointer is the whole of what a retry reads, and it would answer for a run
-    // that is not the last one to have happened here.
+    // Giving up leaves the PREVIOUS generation's pointer in place, which is
+    // harmless where a durable row exists — `restore` falls back to it. An agent
+    // worker has no row, so that pointer is all a retry reads, and it would answer
+    // for a run that is not the last one to have happened here.
     let abandon_local = || async {
         if matches!(conn, Connection::Http(_)) {
             invalidate_run_state(w_id, &p.script_path, permissioned_as, conn).await;
@@ -3448,16 +3319,10 @@ async fn save_run_state(
             return abandon_local().await;
         }
     }
-    // What produced it. `latest` and placeholder refs move, and a redeploy can
-    // repoint the profile, so resuming one invocation's failed nodes against a
-    // different checkout — or a different warehouse — is worse than not
-    // resuming at all. The arguments come back too: `dbt retry` reuses the
-    // original invocation's selection and vars, so refreshing the graph for it
-    // needs those, not this job's.
-    // Includes the invocation's own environment: script-level variables are
-    // applied to parse, ls and the build just as the descriptor's are, so a
-    // change to one after a failure makes the saved results describe relations
-    // a retry would not produce.
+    // What produced it, environment included: a moved ref, a repointed profile or
+    // a changed script variable makes the saved results describe relations a retry
+    // would not produce. The arguments come back too, since `dbt retry` reuses the
+    // original invocation's selection and vars rather than this job's.
     let state = SavedRunState { identity, args };
     if tokio::fs::write(
         staging.join("state.json"),
@@ -3766,10 +3631,9 @@ async fn restore_run_state(
         ));
     }
     let dir = state_dir(w_id, &p.script_path, permissioned_as);
-    // The pointer is resolved ONCE and everything is read out of the generation
-    // it names. Generations are immutable, so the arguments, the manifest and
-    // the results necessarily describe the same invocation; resolving the
-    // directory again per file could pair one run's arguments with another's
+    // Resolved ONCE, with everything read out of the generation it names.
+    // Generations are immutable, so arguments, manifest and results describe one
+    // invocation; resolving per file could pair one run's arguments with another's
     // results.
     let no_state = || {
         Error::BadRequest(
@@ -3778,13 +3642,10 @@ async fn restore_run_state(
                 .to_string(),
         )
     };
-    // The database row is the authoritative latest state: it is written by
-    // whichever worker ran last, while this worker's `current` names only the
-    // last run IT saw. Preferring the local copy would let a retry routed back
-    // to an idle worker resume an older invocation than the one that just
-    // failed elsewhere. The local snapshot is used only when it names that same
-    // run, where it is a pure fast path — it already holds the manifest, so the
-    // restore skips the `dbt parse` that re-deriving one costs.
+    // The row is the authoritative latest state, written by whichever worker ran
+    // last, while `current` names only what THIS one saw — preferring local would
+    // let a retry on an idle worker resume an older invocation. The local snapshot
+    // is a fast path only when it names that same run: it already holds a manifest.
     let latest_job = match conn {
         Connection::Sql(db) => sqlx::query_scalar!(
             "SELECT job_id FROM dbt_run_state
@@ -3799,12 +3660,10 @@ async fn restore_run_state(
         // An agent worker cannot read it; its local copy is all there is.
         Connection::Http(_) => None,
     };
-    // Where the database is reachable it is the authority, including when it
-    // says nothing: no row means the last invocation left nothing resumable, and
-    // a local generation that outlived it — an unlink that failed, a process
-    // killed between the delete and the removal, a stale cache — would resurrect
-    // a run the newer one replaced and retry relations it never touched. An
-    // agent worker has no such authority to consult, so its local copy stands.
+    // Authoritative including when it says nothing: no row means the last
+    // invocation left nothing resumable, and a local generation that outlived it
+    // would resurrect a run the newer one replaced. An agent worker has no such
+    // authority to consult, so its local copy stands.
     let local = tokio::fs::read_to_string(dir.join(CURRENT_GENERATION))
         .await
         .ok();
@@ -3817,11 +3676,10 @@ async fn restore_run_state(
         return restore_from_db(p, w_id, permissioned_as, inv, conn, no_state()).await;
     };
     let snapshot = dir.join(generation.trim());
-    // The local generation is a fast path over the row the database holds for
-    // this same run — the pointer was accepted only because it names that run —
-    // so a generation pruned out from under this restore falls back to the row
-    // rather than reporting there is nothing to resume. An agent worker has no
-    // row to fall back on and gets that report, which is then true.
+    // The local generation is a fast path over the row for this same run, so one
+    // pruned out from under this restore falls back to the row rather than
+    // reporting nothing to resume. An agent worker has no row and gets that
+    // report, which is then true.
     let Ok(saved_results) = tokio::fs::read_to_string(snapshot.join("run_results.json")).await
     else {
         return restore_from_db(p, w_id, permissioned_as, inv, conn, no_state()).await;
@@ -3846,12 +3704,10 @@ async fn restore_run_state(
     let saved_args_digest = saved_args_digest.map(str::to_string);
     let target = p.project_dir.join(ARTIFACTS_DIR);
     tokio::fs::create_dir_all(&target).await.ok();
-    // From the bytes this restore already read, not by copying the file a second
-    // time: a burst of saves can prune this generation while the restore is
-    // walking it, and a `dbt retry` whose `run_results.json` went missing
-    // rebuilds nothing and reports success. The manifest has no such copy in
-    // hand, so a failed one falls back to deriving it — a `dbt parse`, which is
-    // what a database restore pays anyway.
+    // From the bytes already read, not by copying the file again: a burst of saves
+    // can prune this generation mid-restore, and a `dbt retry` whose
+    // `run_results.json` went missing rebuilds nothing and reports success. The
+    // manifest has no such copy, so a failure there falls back to a `dbt parse`.
     tokio::fs::write(target.join("run_results.json"), &saved_results)
         .await
         .map_err(|e| {
@@ -4087,11 +3943,9 @@ fn interpolate_value(
         serde_json::Value::String(s) => {
             match crate::common::interpolate_template(s, Some(args), field) {
                 // A var whose ENTIRE value is one placeholder takes the
-                // argument's own type: `strict: "{{ strict }}"` given `false`
-                // must reach dbt as a boolean, since the string "false" is
-                // truthy in Jinja — the same trap literal vars were fixed for.
-                // A placeholder embedded in surrounding text stays a string,
-                // which is what interpolation into text means.
+                // argument's own type: `"{{ strict }}"` given `false` must reach
+                // dbt as a boolean, since "false" is truthy in Jinja. Embedded in
+                // text it stays a string, which is what interpolation means.
                 Ok(v) => match sole_placeholder(s).and_then(|name| args.get(name)) {
                     Some(raw) => {
                         serde_json::from_str(raw.get()).unwrap_or(serde_json::Value::String(v))
@@ -4363,15 +4217,10 @@ mod tests {
         assert!(has_selection(&descriptor, &malformed).is_err());
     }
 
-    // dbt resolves `--selector` INSTEAD of `--select`, so a descriptor selector
-    // left on alongside an explicit selection makes the descriptor win: a
-    // preview of one model returns another's rows, and a run builds nodes it
-    // was not asked for.
-    // The saved identity is compared in two halves because resolution happens
-    // between them: everything before the last `|` is checkable up front, the
-    // digest after it only once the caller has re-resolved the saved arguments.
-    // Comparing the whole string up front refuses every retry, since the retry
-    // request carries only `dbt_command`.
+    // Compared in two halves because resolution happens between them: the prefix
+    // is checkable up front, the digest only once the caller has re-resolved the
+    // saved arguments. Comparing the whole string up front refuses every retry,
+    // whose request carries only `dbt_command`.
     #[test]
     fn the_identity_splits_at_the_resolved_arguments() {
         let (prefix, args) = split_identity("proj|wh|engine|deadbeef|args=c0ffee");
@@ -4391,6 +4240,9 @@ mod tests {
     }
 
     #[test]
+    // dbt resolves `--selector` INSTEAD of `--select`, so a descriptor selector
+    // left on alongside an explicit selection makes the descriptor win: a preview
+    // of one model returns another's rows.
     fn a_runs_own_selection_replaces_the_descriptor_selector() {
         let descriptor =
             DbtDescriptor { selector: Some("nightly".to_string()), ..Default::default() };
@@ -4411,11 +4263,10 @@ mod tests {
             effective_selector(&descriptor, &selects(r#"["stg_orders"]"#)).unwrap(),
             None
         );
-        // The generated form posts the descriptor's own `[]` back for a field
-        // nobody touched, so that is not an override: reading it as one drops
-        // the selector from every run started from the UI, a schedule or a
-        // webhook, and builds the whole project. `["*"]` is how a run asks for
-        // that on purpose.
+        // The generated form posts the descriptor's own `[]` back for a field nobody
+        // touched, so that is not an override: reading it as one drops the selector
+        // from every UI, schedule and webhook run and builds the whole project.
+        // `["*"]` is how a run asks for that on purpose.
         assert_eq!(
             effective_selector(&descriptor, &selects("[]")).unwrap(),
             Some("nightly")
@@ -4462,10 +4313,9 @@ mod tests {
         assert_ne!(first, recerted);
     }
 
-    // The jail profile is protobuf text format, and both the project path (a
-    // directory named by whoever wrote the repo) and the descriptor's
-    // environment land inside string literals. An unescaped quote or newline
-    // would close the literal and let the rest be read as further directives —
+    // The jail profile is protobuf text format, and the project path and the
+    // descriptor's environment land inside string literals. An unescaped quote or
+    // newline closes the literal and lets the rest be read as further directives —
     // extra host bind mounts, for one.
     #[test]
     fn jail_values_cannot_close_their_string_and_add_directives() {
@@ -4494,11 +4344,10 @@ mod tests {
         assert!(envars.starts_with("envar: \"LD_PRELOAD="), "{envars}");
     }
 
-    // THREE sites derive a `table://` key: the manifest ingest (which creates
-    // the graph node), the live events, and the end-of-run settlement. They must
-    // agree exactly — a site that derives it differently records progress
-    // against a path no node has, the run still succeeds, and the graph simply
-    // never moves. Nothing else catches that.
+    // THREE sites derive a `table://` key: the manifest ingest, the live events and
+    // the end-of-run settlement. One deriving it differently records progress
+    // against a path no node has — the run still succeeds and the graph never
+    // moves. Nothing else catches that.
     #[test]
     fn all_three_key_derivations_agree() {
         use windmill_common::dbt_manifest::{ingest_manifest, Manifest};
@@ -4561,13 +4410,9 @@ mod tests {
         );
     }
 
-    // `dbt retry` restores the previous run's target/ from this directory. Two
-    // dbt scripts in one workspace must not share it, or a retry resumes
-    // another project's run_results.json against this project — and an empty
-    // script_path is exactly how that happened.
-    // dbt vars are typed, and Jinja treats the string "false" as truthy. A var
-    // that IS a placeholder must therefore carry the argument's own type
-    // through, while one embedded in text stays the string it interpolates to.
+    // dbt vars are typed and Jinja treats the string "false" as truthy, so a var
+    // that IS a placeholder carries the argument's own type through, while one
+    // embedded in text stays the string it interpolates to.
     #[test]
     fn placeholder_vars_keep_the_arguments_type() {
         use windmill_parser_yaml::parse_dbt_descriptor;
@@ -4888,12 +4733,10 @@ mod tests {
         assert_eq!(overridden.snapshot_job(job), Some(job));
         assert!(!overridden.publishes_ownership());
 
-        // A caller's own selection ingests its own graph: it is not necessarily a
-        // subset of the deployed one — `["*"]` against a descriptor that selects
-        // `tag:nightly` builds models the deployed graph never had — and those
-        // are the models the run page would have nothing to draw for. Under its
-        // own job id, so that subset neither becomes what the script owns nor
-        // replaces the version's graph, which holds the models it left out.
+        // A caller's selection is not necessarily a subset of the deployed one —
+        // `["*"]` against `tag:nightly` builds models the deployed graph never had,
+        // which the run page would have nothing to draw. Under its own job id, so it
+        // neither becomes what the script owns nor replaces the version's graph.
         let mut narrowed = GraphRefresh::default();
         narrowed
             .add_caller_args(&descriptor, &arg("select", r#"["stg_orders"]"#))
@@ -4902,10 +4745,9 @@ mod tests {
         assert_eq!(narrowed.snapshot_job(job), Some(job));
         assert!(!narrowed.publishes_ownership());
 
-        // The generated form posts the descriptor's own `select` and `exclude`
-        // back for every run started from the UI, a schedule or a webhook.
-        // Reading that echo as a narrowing marks every such run caller-scoped,
-        // and a moved profile then has no run left that could republish: it
+        // The form posts the descriptor's own `select` back for every UI, schedule
+        // and webhook run. Reading that echo as a narrowing marks all of them
+        // caller-scoped, leaving a moved profile no run that could republish: it
         // re-detects the same drift, and pays a `dbt parse` for it, forever.
         let echoed =
             DbtDescriptor { select: vec!["tag:nightly".to_string()], ..Default::default() };
@@ -4917,6 +4759,9 @@ mod tests {
         assert_eq!(untouched.snapshot_job(job), None);
     }
 
+    // `dbt retry` restores the previous run's target/ from this directory, so two
+    // dbt scripts must not share one — a retry would resume another project's
+    // `run_results.json`, which an empty script_path is exactly how it happened.
     #[test]
     fn retry_state_is_per_script_and_principal() {
         assert_ne!(
