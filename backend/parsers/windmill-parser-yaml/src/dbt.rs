@@ -390,6 +390,60 @@ pub fn dbt_arg_schema(inner_content: &str) -> anyhow::Result<serde_json::Value> 
         if let (Some(obj), Some(default)) = (prop.as_object_mut(), arg.default.as_ref()) {
             obj.insert("default".to_string(), default.clone());
         }
+        // What each field is for, and WHEN it applies: `retry` restores the
+        // arguments of the run it resumes, so every override below it is ignored,
+        // and `limit` belongs to `show` alone. The form hides what a command
+        // ignores — `showExpr` also drops the value from the payload — so the
+        // choice of command shapes the rest of the form rather than sitting under
+        // fields that quietly do nothing.
+        if let Some(obj) = prop.as_object_mut() {
+            let (description, show) = match arg.name.as_str() {
+                "dbt_command" => (
+                    Some(
+                        "`build` runs the project. `retry` resumes the last failed run of this \
+                         script, rebuilding only its failed and skipped nodes and reusing the \
+                         arguments it ran with. `show` previews a model's rows without building.",
+                    ),
+                    None,
+                ),
+                "select" => (
+                    Some(
+                        "dbt selection syntax, e.g. `tag:nightly`, `stg_orders+`, \
+                         `state:modified`. Empty runs the descriptor's own selection.",
+                    ),
+                    Some("fields.dbt_command != 'retry'"),
+                ),
+                "exclude" => (
+                    Some("Nodes to leave out of the selection above, same syntax."),
+                    Some("fields.dbt_command != 'retry'"),
+                ),
+                "vars" => (
+                    Some(
+                        "dbt `--vars`, merged over the descriptor's. A var that changes which \
+                         models exist makes this run store its own graph rather than the \
+                         deployed one.",
+                    ),
+                    Some("fields.dbt_command != 'retry'"),
+                ),
+                "full_refresh" => (
+                    Some("Rebuild incremental models from scratch instead of appending."),
+                    Some("fields.dbt_command == 'build'"),
+                ),
+                "limit" => (
+                    Some("Rows a `show` returns."),
+                    Some("fields.dbt_command == 'show'"),
+                ),
+                // A placeholder the descriptor interpolates: its meaning is the
+                // project's, so there is nothing generic to say about it.
+                _ => (None, Some("fields.dbt_command != 'retry'")),
+            };
+            if let Some(d) = description {
+                obj.insert("description".to_string(), serde_json::json!(d));
+            }
+            if let Some(e) = show {
+                obj.insert("showExpr".to_string(), serde_json::json!(e));
+            }
+        }
         if !arg.has_default {
             required.push(serde_json::json!(arg.name));
         }
