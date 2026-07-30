@@ -1503,4 +1503,30 @@ mod tests {
             ]
         );
     }
+
+    /// The whole manifest crosses the wire when an agent worker publishes its
+    /// graph, so what `ingest_manifest` produces has to survive its own
+    /// serializer. A field skipped when empty and required on the way back makes
+    /// every publish a 422 — invisible to a normal worker, which writes the rows
+    /// directly.
+    #[test]
+    fn an_ingested_manifest_survives_the_agent_wire() {
+        let manifest: Manifest = serde_json::from_str(
+            r#"{"nodes":{"model.p.customers":{
+                 "resource_type":"model","name":"customers","alias":"customers",
+                 "schema":"analytics","database":"wh",
+                 "relation_name":"\"wh\".\"analytics\".\"customers\""}},
+               "parent_map":{"model.p.customers":[]}}"#,
+        )
+        .unwrap();
+        let ingested = ingest_manifest(&manifest, "f/prod/wh", Some("wh"), None);
+        assert!(!ingested.assets.is_empty(), "fixture must produce an asset");
+
+        let wire = serde_json::to_value(&ingested).unwrap();
+        let back: IngestedManifest = serde_json::from_value(wire.clone())
+            .unwrap_or_else(|e| panic!("agent publish would 422: {e}\npayload: {wire}"));
+        assert_eq!(back.nodes.len(), ingested.nodes.len());
+        assert_eq!(back.assets.len(), ingested.assets.len());
+        assert_eq!(back.assets[0].path, ingested.assets[0].path);
+    }
 }

@@ -61,6 +61,11 @@ pub struct DbtDependencyLocks {
     /// resolve different runtime behavior.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub adapter_version: Option<String>,
+    /// Digest of the `package-lock.yml` produced at deploy. Package trees are
+    /// worker-local, so a cache miss on another worker must prove it resolved
+    /// the same dependencies before it may run this script version.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub package_lock_digest: Option<String>,
     pub manifest_digest: String,
     pub engine: String,
     pub engine_version: String,
@@ -159,8 +164,12 @@ pub(crate) async fn handle_dbt_job(
     modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
 ) -> error::Result<Box<RawValue>> {
     let descriptor = parse_dbt_descriptor(inner_content)?;
-    let locks: Option<DbtDependencyLocks> =
-        requirements_o.and_then(|s| serde_json::from_str(s).ok());
+    let locks: Option<DbtDependencyLocks> = requirements_o
+        .map(|s| {
+            serde_json::from_str(s)
+                .map_err(|e| Error::internal_err(format!("reading the dbt lockfile: {e}")))
+        })
+        .transpose()?;
 
     // Through `build_args_map`, like every other executor: an argument may be a
     // `$var:` / `$res:` / `$encrypted:` reference, and dbt has no idea what those
@@ -715,6 +724,7 @@ pub(crate) async fn dbt_dep(
         engine: prepared.engine.engine.as_str().to_string(),
         engine_version: prepared.engine.version.clone(),
         adapter_version: prepared.engine.adapter_version.clone(),
+        package_lock_digest: prepared.package_lock_digest.clone(),
     })
     .map_err(|e| Error::internal_err(format!("serializing the dbt lockfile: {e}")))
 }
@@ -858,6 +868,10 @@ pub struct PreparedProject {
     /// manifest) and gates retry state, so a project edited between attempts
     /// cannot resume the old one.
     pub project_digest: String,
+    /// Resolution produced by `dbt deps` at deploy. The package cache is local
+    /// to one worker; this makes a cache miss on another worker fail closed if
+    /// an unlocked range or mutable Git revision has moved meanwhile.
+    pub package_lock_digest: Option<String>,
     /// Windmill resource path of the warehouse, the `<resource_path>` component
     /// of every `table://` asset this project produces. `None` when the project
     /// brings its own `profiles.yml` and declares no resource, in which case
@@ -948,8 +962,9 @@ impl PreparedProject {
         // state holds. The lockfile exists to pin exactly this, so a retry that
         // ignored it would feed one version's `run_results.json` to another.
         format!(
-            "{}|{}|{}|{}|{}|{}|{}|{}",
+            "{}|{}|{}|{}|{}|{}|{}|{}|{}",
             self.project_digest,
+            self.package_lock_digest.as_deref().unwrap_or(""),
             self.engine.engine.as_str(),
             self.engine.version,
             self.engine.adapter_version.as_deref().unwrap_or(""),
@@ -1134,6 +1149,7 @@ pub(crate) async fn prepare_project(
     };
     let mut prepared = PreparedProject {
         project_digest,
+        package_lock_digest: locks.and_then(|l| l.package_lock_digest.clone()),
         invocation_env: sorted_invocation_env.clone(),
         invocation_env_digest: {
             use std::hash::{Hash, Hasher};
@@ -1200,7 +1216,8 @@ pub(crate) async fn prepare_project(
         // the version's graph on the strength of a guess.
         Connection::Http(_) => prepared.graph_refresh.per_run_models = true,
     }
-    install_packages(&prepared, &mut *ctx, job_id, w_id, conn).await?;
+    prepared.package_lock_digest =
+        install_packages(&prepared, locks.is_some(), &mut *ctx, job_id, w_id, conn).await?;
     Ok(prepared)
 }
 /// Identity of the project's own files: what the run reproduces, and what a
@@ -1248,15 +1265,30 @@ async fn resolve_env(
     Ok(out)
 }
 
-/// `dbt deps`, with `dbt_packages/` restored from a cache keyed by the digest
-/// of `packages.yml` — the file that determines the whole tree.
+async fn package_lock_digest(project_dir: &Path) -> error::Result<Option<String>> {
+    match tokio::fs::read_to_string(project_dir.join("package-lock.yml")).await {
+        Ok(lock) => Ok(Some(digest(&lock))),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(Error::internal_err(format!(
+            "reading the dbt package lock: {e}"
+        ))),
+    }
+}
+
+fn package_cache_key(base: &str, lock_digest: &str) -> String {
+    digest(&format!("{base}\nresolved-lock\n{lock_digest}"))
+}
+
+/// Resolve or restore `dbt_packages/`, proving the tree matches the dependency
+/// resolution recorded when this script version was deployed.
 async fn install_packages(
     p: &PreparedProject,
+    require_pinned_resolution: bool,
     ctx: &mut JobCtx<'_>,
     job_id: &Uuid,
     w_id: &str,
     conn: &Connection,
-) -> error::Result<()> {
+) -> error::Result<Option<String>> {
     // A cache hit skips `dbt deps` entirely, so the key has to cover everything
     // that determines the resolved tree: the declared packages, a
     // `package-lock.yml` pinning versions two projects with identical ranges
@@ -1285,11 +1317,31 @@ async fn install_packages(
         key.push_str(&tokio::fs::read_to_string(&path).await.unwrap_or_default());
     }
     if !declares_packages {
-        return Ok(());
+        return Ok(None);
     }
-    let cached = PathBuf::from(&*DBT_CACHE_DIR)
-        .join("packages")
-        .join(digest(&key));
+    let project_lock_digest = package_lock_digest(&p.project_dir).await?;
+    if let (Some(pinned), Some(project)) = (
+        p.package_lock_digest.as_deref(),
+        project_lock_digest.as_deref(),
+    ) {
+        if pinned != project {
+            return Err(Error::BadRequest(
+                "the project's package-lock.yml differs from the dependency resolution recorded \
+                 for this script version; redeploy the project"
+                    .to_string(),
+            ));
+        }
+    }
+    let expected_lock_digest = p
+        .package_lock_digest
+        .as_deref()
+        .or(project_lock_digest.as_deref());
+    if require_pinned_resolution && expected_lock_digest.is_none() {
+        return Err(Error::BadRequest(
+            "this script's lock predates deployment-pinned dbt dependencies; redeploy the project"
+                .to_string(),
+        ));
+    }
     // Where `dbt deps` actually writes. `packages-install-path` is a project
     // setting, and assuming the default means a project that moved it gets no
     // cache at all: the publish finds nothing to copy and every job resolves
@@ -1297,18 +1349,14 @@ async fn install_packages(
     let target = p
         .project_dir
         .join(packages_install_path(&p.project_dir).await);
-    // Two limitations of this cache, both deliberate. Nothing evicts a tree: the
-    // key covers the whole project digest, so every edit of a project that
-    // declares packages publishes another, and an operator's `cache_clear` is
-    // what reclaims them, as it is for every other language. And a project with
-    // no checked-in `package-lock.yml` asked dbt to RESOLVE its ranges and
-    // mutable git revisions, which a hit skips — so the first resolution stands
-    // until something in the key changes. Expiring a hit needs a publication
-    // timestamp and a publish that can replace a populated tree, which is its
-    // own change rather than a condition here.
-    if cached.exists() {
+    let cached = expected_lock_digest.map(|lock| {
+        PathBuf::from(&*DBT_CACHE_DIR)
+            .join("packages")
+            .join(package_cache_key(&key, lock))
+    });
+    if let Some(cached) = cached.as_ref().filter(|cached| cached.exists()) {
         let restored = copy_dir_watched(
-            &cached,
+            cached,
             &target,
             "restoring cached dbt_packages",
             ctx,
@@ -1328,7 +1376,7 @@ async fn install_packages(
                 conn,
             )
             .await;
-            return Ok(());
+            return Ok(expected_lock_digest.map(str::to_string));
         }
         tokio::fs::remove_dir_all(&target).await.ok();
         append_logs(
@@ -1349,10 +1397,29 @@ async fn install_packages(
         conn,
     )
     .await?;
+    let resolved_lock_digest = package_lock_digest(&p.project_dir).await?.ok_or_else(|| {
+        Error::ExecutionErr(
+            "`dbt deps` completed without producing package-lock.yml; Windmill cannot pin this \
+             dependency resolution across workers"
+                .to_string(),
+        )
+    })?;
+    if let Some(expected) = expected_lock_digest {
+        if expected != resolved_lock_digest {
+            return Err(Error::BadRequest(
+                "this project's dbt dependencies resolve differently from the version deployed \
+                 in Windmill; commit package-lock.yml or redeploy to accept the new resolution"
+                    .to_string(),
+            ));
+        }
+    }
     if target.exists() {
+        let cached = PathBuf::from(&*DBT_CACHE_DIR)
+            .join("packages")
+            .join(package_cache_key(&key, &resolved_lock_digest));
         publish_to_cache(&target, &cached, ctx, job_id, w_id, conn).await;
     }
-    Ok(())
+    Ok(Some(resolved_lock_digest))
 }
 
 /// Copy `from` into a sibling of `cached`, then move it into place.
@@ -3228,7 +3295,7 @@ async fn invalidate_run_state(
     // otherwise runs at the tail of a successful SAVE, so a script whose last run
     // went green — which forgets its state here — stranded the failed run's
     // directory, and each holds a `manifest.json` that grows with the project.
-    // Keeps nothing, and still honours the grace window a retry mid-copy needs.
+    // Keeps only grace-protected generations a retry may already be copying.
     prune_old_generations(&dir, "").await;
 }
 
@@ -3538,7 +3605,7 @@ fn split_identity(identity: &str) -> (&str, Option<&str>) {
     // taking "everything after the last `|`" reads a pre-upgrade row's env
     // digest as an arguments digest, leaves `<identity>` as the prefix, and
     // rejects every saved failure on the instance as a different project.
-    match identity.split_once(ARGS_DIGEST_TAG) {
+    match identity.rsplit_once(ARGS_DIGEST_TAG) {
         Some((prefix, args)) => (prefix, Some(args)),
         None => (identity, None),
     }
@@ -4288,6 +4355,11 @@ mod tests {
         let (prefix, args) = split_identity("proj|wh|engine|deadbeef|args=c0ffee");
         assert_eq!(prefix, "proj|wh|engine|deadbeef");
         assert_eq!(args, Some("c0ffee"));
+        // Profile targets and other identity inputs are user-controlled. A
+        // literal `args=` inside one must stay in the identity prefix.
+        let (prefix, args) = split_identity("proj|target=blue|args=warehouse|deadbeef|args=c0ffee");
+        assert_eq!(prefix, "proj|target=blue|args=warehouse|deadbeef");
+        assert_eq!(args, Some("c0ffee"));
         // A PRE-UPGRADE row, which ends in the env digest and has plenty of
         // `|` in it. Splitting on the last one would take that digest for an
         // arguments digest and make every saved failure unretryable.
@@ -4523,6 +4595,29 @@ mod tests {
         // separators keep `ab|c` from digesting the same as `a|bc`.
         let renamed = m(&[("models/b.sql", "select 1"), ("dbt_project.yml", "name: p")]);
         assert_ne!(project_digest(Some(&a)), project_digest(Some(&renamed)));
+    }
+
+    #[tokio::test]
+    async fn package_cache_identity_includes_the_resolved_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("package-lock.yml"),
+            "packages:\n  - package: dbt-labs/dbt_utils\n    version: 1.3.0\n",
+        )
+        .unwrap();
+        let first = package_lock_digest(dir.path()).await.unwrap().unwrap();
+        std::fs::write(
+            dir.path().join("package-lock.yml"),
+            "packages:\n  - package: dbt-labs/dbt_utils\n    version: 1.4.0\n",
+        )
+        .unwrap();
+        let second = package_lock_digest(dir.path()).await.unwrap().unwrap();
+
+        assert_ne!(first, second);
+        assert_ne!(
+            package_cache_key("same project and environment", &first),
+            package_cache_key("same project and environment", &second)
+        );
     }
 
     // The path is project-controlled and both cache copies are rooted at it, so
