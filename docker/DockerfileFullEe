@@ -51,14 +51,19 @@ COPY --from=ghcr.io/nushell/nushell:0.101.0-bookworm /usr/bin/nu /usr/bin/nu
 
 # Java
 RUN apt-get -y update && apt-get install -y default-jdk
-RUN curl -fLo coursier https://github.com/coursier/coursier/releases/download/v2.1.24/coursier \
-	&& mv ./coursier /usr/bin/coursier \
-	&& chmod +x /usr/bin/coursier
-# The worker runs coursier with COURSIER_CACHE=$WINDMILL_DIR/cache/java/coursier-cache, so the
-# bootstrap JARs must be pre-warmed there: at coursier's default (~/.cache/coursier) they are
-# re-downloaded from Maven Central on the first java job, which fails on air-gapped networks.
-RUN mkdir -p /tmp/windmill/cache/java/coursier-cache \
-	&& COURSIER_CACHE=/tmp/windmill/cache/java/coursier-cache /usr/bin/java -jar /usr/bin/coursier about
+ARG COURSIER_VERSION=2.1.24
+# The released coursier launcher downloads its own JARs from Maven Central on first run, so java
+# jobs break on air-gapped networks; a build-time cache pre-warm cannot fix that because the cache
+# the worker reads lives under WINDMILL_DIR, which deployments mount over. Hence a self-contained
+# assembly, smoke-tested below: `about` must succeed and leave the cache it is given empty.
+RUN curl -fLo /tmp/coursier-launcher https://github.com/coursier/coursier/releases/download/v${COURSIER_VERSION}/coursier \
+	&& COURSIER_CACHE=/tmp/coursier-build-cache /usr/bin/java -jar /tmp/coursier-launcher \
+		bootstrap io.get-coursier:coursier-cli_2.13:${COURSIER_VERSION} --assembly -o /usr/bin/coursier \
+	&& chmod +x /usr/bin/coursier \
+	&& mkdir -p /tmp/coursier-verify \
+	&& COURSIER_CACHE=/tmp/coursier-verify /usr/bin/java -jar /usr/bin/coursier about \
+	&& [ -z "$(ls -A /tmp/coursier-verify)" ] \
+	&& rm -rf /tmp/coursier-launcher /tmp/coursier-build-cache /tmp/coursier-verify /root/.cache/coursier
 
 # Ruby
 RUN apt-get install -y ruby ruby-bundler
@@ -73,9 +78,7 @@ RUN apt-get install -y iptables
 # Kerberos runtime
 RUN apt-get install -y libsasl2-modules-gssapi-mit krb5-user
 
-# Fix runtime cache permissions for non-root user support (uid 1000, etc.)
-# The build pre-populates these caches with root-owned files (uv tool install ansible, the
-# coursier bootstrap), while the worker may run as any uid and needs to write to them.
-RUN set -e; for d in /tmp/windmill/cache/uv /tmp/windmill/cache/java; do \
-        chmod -R a+rw "$d"; find "$d" -type d -exec chmod 777 {} + ; \
-    done
+# Fix UV cache permissions for non-root user support (uid 1000, etc.)
+# The uv tool install ansible command populates the UV cache with root-owned files
+RUN chmod -R a+rw /tmp/windmill/cache/uv && \
+    find /tmp/windmill/cache/uv -type d -exec chmod 777 {} +
