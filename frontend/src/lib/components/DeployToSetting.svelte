@@ -42,6 +42,7 @@
 		}),
 		hasUnsavedChanges = false,
 		parentWorkspaceId,
+		isDevWorkspace = false,
 		onSave,
 		onDiscard
 	}: {
@@ -52,6 +53,8 @@
 		hasUnsavedChanges?: boolean
 		/** Set on a fork or dev workspace, where the deploy target is the parent and not a choice. */
 		parentWorkspaceId?: string
+		/** Dev workspaces and plain forks both deploy into the parent but are not the same thing. */
+		isDevWorkspace?: boolean
 		onSave?: () => void
 		onDiscard: () => void
 	} = $props()
@@ -128,8 +131,8 @@
 <SettingCard label="Workspace this one deploys into" class="mt-6">
 	<TextInput value={parentWorkspaceId ?? ''} inputProps={{ disabled: true }} />
 	<div class="text-xs text-secondary mt-2">
-		This workspace is a fork of <b>{parentWorkspaceId}</b> and deploys there. Pairing is managed by
-		the fork lineage, not by this page.
+		This workspace is the {isDevWorkspace ? 'dev workspace' : 'fork'} of <b>{parentWorkspaceId}</b> and
+		deploys there. Pairing is managed by the workspace lineage, not by this page.
 	</div>
 </SettingCard>
 <SettingCard

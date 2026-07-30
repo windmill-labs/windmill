@@ -1,9 +1,10 @@
 -- Restores the column and the `deploy_to`-based traversal.
 --
--- Not a faithful inverse of the data change. Every fork and dev workspace had `deploy_to` seeded to
--- its parent, so re-deriving it from `parent_workspace_id` restores those rows exactly. It cannot
--- undo the up migration's conversions: a legacy pair that became a fork keeps its
--- `parent_workspace_id` here, and pairs the up migration skipped lost their `deploy_to` for good.
+-- Every fork and dev workspace had `deploy_to` seeded to its parent, so re-deriving it from
+-- `parent_workspace_id` restores those rows exactly, and the links the up migration could not
+-- convert come back from `workspace_deploy_to_unmigrated`. What this does not undo is the up
+-- migration's conversions: a legacy pair that became a fork keeps its `parent_workspace_id`, so it
+-- reads as a fork afterwards rather than as the standalone workspace it once was.
 ALTER TABLE workspace_settings ADD COLUMN deploy_to VARCHAR(255);
 
 UPDATE workspace_settings ws
@@ -11,6 +12,13 @@ UPDATE workspace_settings ws
   FROM workspace w
  WHERE w.id = ws.workspace_id
    AND w.parent_workspace_id IS NOT NULL;
+
+UPDATE workspace_settings ws
+   SET deploy_to = u.deploy_to
+  FROM workspace_deploy_to_unmigrated u
+ WHERE u.workspace_id = ws.workspace_id;
+
+DROP TABLE workspace_deploy_to_unmigrated;
 
 CREATE INDEX IF NOT EXISTS workspace_settings_deploy_to_idx
     ON workspace_settings (deploy_to)

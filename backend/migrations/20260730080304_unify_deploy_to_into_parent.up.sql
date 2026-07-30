@@ -6,66 +6,98 @@
 -- A converted pair becomes a dev workspace when it can: that is what a long-lived staging paired
 -- with prod actually is, and it keeps its own tag domain and promotion mode, so no worker
 -- configuration changes underneath it. Only one dev workspace is allowed per parent
--- (`workspace_canonical_dev_idx`), so a pair becomes a plain fork instead when several workspaces
--- name the same target, or when that target already has a dev workspace. Those keep their link but
--- borrow the parent's job tags; an admin can re-attach one of them as the dev workspace afterwards.
+-- (`workspace_canonical_dev_idx`) and the app only ever attaches a dev to a root, so a pair becomes
+-- a plain fork when it fails either test. Those keep their link but borrow the parent's job tags;
+-- an admin can re-attach one of them as the dev workspace afterwards.
+--
+-- Chains (`dev -> staging -> prod`) convert too: `parent_workspace_id` represents them natively, up
+-- to the depth-20 backstop that billing and count resolution walk.
+
+-- Whatever the lineage genuinely cannot express is preserved here rather than destroyed with the
+-- column. `deploy_to` was admin-settable to any workspace, so these rows are real configuration; an
+-- operator needs to see what was dropped, and the down migration restores from this table.
+CREATE TABLE workspace_deploy_to_unmigrated (
+    workspace_id VARCHAR(50) PRIMARY KEY REFERENCES workspace(id) ON DELETE CASCADE,
+    deploy_to VARCHAR(255) NOT NULL,
+    reason TEXT NOT NULL,
+    recorded_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+COMMENT ON TABLE workspace_deploy_to_unmigrated IS
+    'Legacy workspace_settings.deploy_to links that could not be expressed as fork lineage when the column was dropped. Written once by migration 20260730080304; never written by the application.';
 
 DO $$
 DECLARE
-    skipped RECORD;
+    leftover RECORD;
+    demoted RECORD;
     converted_count INT;
+    dev_count INT;
 BEGIN
-    -- `parent_workspace_id` has an FK and every chain walker assumes a DAG rooted at a parentless
-    -- node, so a pair that cannot be expressed that way is reported and left unlinked rather than
-    -- forced into a shape that would break traversal.
-    FOR skipped IN
+    -- Follow each workspace's `deploy_to` chain to classify it. `parent_workspace_id` has an FK and
+    -- every chain walker assumes an acyclic graph bounded by depth 20, so a chain that loops or runs
+    -- deeper than that cannot be represented.
+    CREATE TEMP TABLE chain_info ON COMMIT DROP AS
+        WITH RECURSIVE walk(start_id, cur_id, depth, path, cyclic) AS (
+            SELECT ws.workspace_id, ws.deploy_to, 1,
+                   ARRAY[ws.workspace_id, ws.deploy_to], ws.deploy_to = ws.workspace_id
+            FROM workspace_settings ws
+            WHERE ws.deploy_to IS NOT NULL
+          UNION ALL
+            SELECT w.start_id, nxt.deploy_to, w.depth + 1,
+                   w.path || nxt.deploy_to, nxt.deploy_to = ANY(w.path)
+            FROM walk w
+            JOIN workspace_settings nxt ON nxt.workspace_id = w.cur_id
+            WHERE nxt.deploy_to IS NOT NULL AND NOT w.cyclic AND w.depth < 25
+        )
+        SELECT start_id, bool_or(cyclic) AS cyclic, max(depth) AS chain_depth
+        FROM walk GROUP BY start_id;
+
+    CREATE TEMP TABLE classified ON COMMIT DROP AS
         SELECT ws.workspace_id, ws.deploy_to,
                CASE
                    WHEN ws.deploy_to = ws.workspace_id THEN 'self-reference'
-                   WHEN tgt.id IS NULL THEN 'target does not exist'
+                   WHEN tgt.id IS NULL THEN 'target workspace does not exist or is archived'
                    WHEN src.parent_workspace_id IS NOT NULL THEN 'already a fork or dev workspace'
-                   WHEN tgt.parent_workspace_id IS NOT NULL THEN 'target is itself a fork'
-                   ELSE 'chain: target also has a deploy target'
+                   WHEN ci.cyclic THEN 'deploy target chain forms a cycle'
+                   WHEN ci.chain_depth > 20 THEN 'deploy target chain exceeds the depth limit'
                END AS reason
         FROM workspace_settings ws
-        JOIN workspace src ON src.id = ws.workspace_id
-        LEFT JOIN workspace tgt ON tgt.id = ws.deploy_to
-        LEFT JOIN workspace_settings tgt_ws ON tgt_ws.workspace_id = ws.deploy_to
-        WHERE ws.deploy_to IS NOT NULL
-          AND (ws.deploy_to = ws.workspace_id
-               OR tgt.id IS NULL
-               OR src.parent_workspace_id IS NOT NULL
-               OR tgt.parent_workspace_id IS NOT NULL
-               OR tgt_ws.deploy_to IS NOT NULL)
+        JOIN workspace src ON src.id = ws.workspace_id AND NOT src.deleted
+        LEFT JOIN workspace tgt ON tgt.id = ws.deploy_to AND NOT tgt.deleted
+        LEFT JOIN chain_info ci ON ci.start_id = ws.workspace_id
+        WHERE ws.deploy_to IS NOT NULL;
+
+    INSERT INTO workspace_deploy_to_unmigrated (workspace_id, deploy_to, reason)
+        SELECT workspace_id, deploy_to, reason FROM classified WHERE reason IS NOT NULL;
+
+    FOR leftover IN SELECT workspace_id, deploy_to, reason FROM workspace_deploy_to_unmigrated
     LOOP
-        RAISE NOTICE 'deploy_to unification: skipping % -> % (%)',
-            skipped.workspace_id, skipped.deploy_to, skipped.reason;
+        RAISE WARNING 'deploy_to unification: % -> % kept in workspace_deploy_to_unmigrated (%)',
+            leftover.workspace_id, leftover.deploy_to, leftover.reason;
     END LOOP;
 
     CREATE TEMP TABLE convertible ON COMMIT DROP AS
-        SELECT ws.workspace_id, ws.deploy_to,
-               -- Sole claimant on a target that has no dev workspace yet: the pairing survives
-               -- as-is. Otherwise the one-dev-per-parent index forces a plain fork.
-               (COUNT(*) OVER (PARTITION BY ws.deploy_to) = 1
+        SELECT c.workspace_id, c.deploy_to,
+               -- Sole claimant on a root target that has no dev workspace yet, mirroring what
+               -- `attach_dev_workspace` would allow. Anything else stays a plain fork.
+               (COUNT(*) OVER (PARTITION BY c.deploy_to) = 1
+                AND tgt.parent_workspace_id IS NULL
                 AND NOT EXISTS (
                     SELECT 1 FROM workspace d
-                    WHERE d.parent_workspace_id = ws.deploy_to
+                    WHERE d.parent_workspace_id = c.deploy_to
                       AND d.is_dev_workspace AND NOT d.deleted
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM classified c2
+                    WHERE c2.workspace_id = c.deploy_to AND c2.reason IS NULL
                 )) AS as_dev
-        FROM workspace_settings ws
-        JOIN workspace src ON src.id = ws.workspace_id
-        JOIN workspace tgt ON tgt.id = ws.deploy_to
-        LEFT JOIN workspace_settings tgt_ws ON tgt_ws.workspace_id = ws.deploy_to
-        WHERE ws.deploy_to IS NOT NULL
-          AND ws.deploy_to <> ws.workspace_id
-          AND src.parent_workspace_id IS NULL
-          AND tgt.parent_workspace_id IS NULL
-          AND tgt_ws.deploy_to IS NULL;
+        FROM classified c
+        JOIN workspace tgt ON tgt.id = c.deploy_to AND NOT tgt.deleted
+        WHERE c.reason IS NULL;
 
-    FOR skipped IN SELECT workspace_id, deploy_to FROM convertible WHERE NOT as_dev
+    FOR demoted IN SELECT workspace_id, deploy_to FROM convertible WHERE NOT as_dev
     LOOP
-        RAISE NOTICE 'deploy_to unification: % -> % becomes a plain fork (target already has a dev workspace, or several workspaces name it); its jobs will use the parent''s tags',
-            skipped.workspace_id, skipped.deploy_to;
+        RAISE NOTICE 'deploy_to unification: % -> % becomes a plain fork (target is not a free root); its jobs will use the parent''s tags',
+            demoted.workspace_id, demoted.deploy_to;
     END LOOP;
 
     UPDATE workspace w
@@ -74,9 +106,31 @@ BEGIN
       FROM convertible c
      WHERE w.id = c.workspace_id;
 
+    -- A converted workspace is now parent-managed, exactly as if `attach_dev_workspace` had run.
+    -- That path also strips git-sync state that would otherwise keep pulling and pushing against
+    -- the workspace's pre-conversion tracked branch: promotion repos are dropped, and auto-pull and
+    -- fork PRs are cleared on the rest. Any managed webhook is left registered but inert -- the
+    -- migration cannot call GitHub -- and is cleaned up on the next settings save.
+    UPDATE workspace_settings ws
+       SET git_sync = jsonb_set(
+               ws.git_sync,
+               '{repositories}',
+               COALESCE((
+                   SELECT jsonb_agg(
+                              (elem - 'auto_pull' - 'open_pr_error')
+                              || jsonb_build_object('fork_open_prs', false))
+                   FROM jsonb_array_elements(ws.git_sync->'repositories') AS elem
+                   WHERE COALESCE((elem->>'use_individual_branch')::boolean, false) = false
+               ), '[]'::jsonb)
+           )
+      FROM convertible c
+     WHERE c.workspace_id = ws.workspace_id
+       AND jsonb_typeof(ws.git_sync->'repositories') = 'array';
+
     GET DIAGNOSTICS converted_count = ROW_COUNT;
-    RAISE NOTICE 'deploy_to unification: linked % workspace(s) to their parent (% as dev workspaces)',
-        converted_count, (SELECT count(*) FROM convertible WHERE as_dev);
+    SELECT count(*) INTO dev_count FROM convertible WHERE as_dev;
+    RAISE NOTICE 'deploy_to unification: linked % workspace(s) to their parent (% as dev workspaces), % preserved in workspace_deploy_to_unmigrated',
+        converted_count, dev_count, (SELECT count(*) FROM workspace_deploy_to_unmigrated);
 END $$;
 
 -- Resolve workspace-specific resources/variables over the fork lineage instead of the `deploy_to`

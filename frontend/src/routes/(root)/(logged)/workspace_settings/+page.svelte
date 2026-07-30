@@ -339,6 +339,10 @@
 		}
 	})
 	const currentWorkspace = $derived($userWorkspaces.find((w) => w.id === $workspaceStore))
+
+	// The Deployment UI tab configures what may be promoted into the parent, so it only means
+	// something for a fork. A root workspace deploys nowhere.
+	const showDeployToTab = $derived(Boolean(currentWorkspace?.parent_workspace_id))
 	const canAdmin = $derived(($userStore?.is_admin ?? false) || Boolean($superadmin))
 	// The creator of a fork gets the fork members screen even when they are not an admin of it:
 	// their `usr` row is copied from the parent, so forking as an ordinary developer leaves them
@@ -389,6 +393,11 @@
 		// Both 'success_handler' and 'error_handler' URLs map to 'error_handler' tab
 		if (selectedTab === 'success_handler') {
 			return 'error_handler'
+		}
+		// A root workspace deploys nowhere, so this tab has no parent to render and its filters
+		// could never apply. The nav item is hidden, but the URL is still reachable directly.
+		if (selectedTab === 'deploy_to' && !showDeployToTab) {
+			return 'general'
 		}
 		return selectedTab || 'users'
 	})
@@ -1149,9 +1158,6 @@
 		!currentWorkspace?.parent_workspace_id || (currentWorkspace?.is_dev_workspace ?? false)
 	)
 
-	// The Deployment UI tab configures what may be promoted into the parent, so it only means
-	// something for a fork. A root workspace deploys nowhere.
-	const showDeployToTab = $derived(Boolean(currentWorkspace?.parent_workspace_id))
 
 	// Navigation groups for sidebar
 	const adminNavigationGroups = $derived([
@@ -1400,7 +1406,7 @@
 						{:else if tab == 'deploy_to'}
 							<SettingsPageHeader
 								title="Deploying into {currentWorkspace?.parent_workspace_id}"
-								description="This workspace is a fork, so it deploys into its parent. Choose which items the deploy UI may promote."
+								description="This workspace deploys into its parent. Choose which items the deploy UI may promote."
 								link="https://www.windmill.dev/docs/core_concepts/staging_prod"
 							/>
 							{#if $enterpriseLicense}
@@ -1408,6 +1414,7 @@
 									bind:deployUiSettings
 									hasUnsavedChanges={hasDeploySettingsChanges}
 									parentWorkspaceId={currentWorkspace?.parent_workspace_id ?? undefined}
+									isDevWorkspace={currentWorkspace?.is_dev_workspace ?? false}
 									onSave={() => {
 										initialDeployUiSettings = clone(deployUiSettings)
 									}}

@@ -806,19 +806,20 @@ pub(crate) async fn change_workspace_id(
 
     // The children's parent_workspace_id changed (old root -> new root); invalidate their fork-parent
     // routing cache and their billing-workspace mapping so jobs route + meter under the renamed root
-    // rather than the old (archived) one, instead of waiting for the caches' TTLs. Deeper descendants
-    // (fork-of-fork) self-heal via the 60s billing-cache TTL.
+    // rather than the old (archived) one, instead of waiting for the caches' TTLs.
     for child in &reparented_children {
         windmill_queue::tags::invalidate_fork_parent_cache(child);
         windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(child);
         // Grandchildren's cached chains contain the old (renamed-away) ancestor id; a stale
-        // chain drops all defer ancestors in the ducklake resolver, so sweep the subtree
-        // rather than letting it wait out the TTL.
+        // chain drops all defer ancestors in the ducklake resolver, and tag resolution walks to
+        // the nearest servable ancestor, so a nested fork would be tagged for the old root and
+        // nothing would serve it. Sweep the subtree rather than letting it wait out the TTL.
         for id in windmill_common::workspaces::list_fork_descendants(&db, child)
             .await
             .unwrap_or_default()
         {
             windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(&id);
+            windmill_queue::tags::invalidate_fork_parent_cache(&id);
         }
         #[cfg(feature = "cloud")]
         windmill_common::workspaces::invalidate_billing_workspace_cache(child);
@@ -1183,17 +1184,19 @@ pub(crate) async fn delete_workspace(
             windmill_common::workspaces::invalidate_team_plan_cache(id);
         }
     }
-    // Deeper descendants' cached ancestor CHAINS still contain the deleted workspace; unlike
-    // the sibling caches (which self-heal harmlessly via TTL), a stale chain makes the
-    // ducklake resolver drop all defer ancestors (all-or-nothing on broken links) — a visible
-    // defer/chips outage for up to the TTL. Anchor at the orphaned children: the deleted row
-    // is gone, but their subtrees are intact.
+    // Deeper descendants' cached ancestor CHAINS still contain the deleted workspace: a stale
+    // chain makes the ducklake resolver drop all defer ancestors (all-or-nothing on broken
+    // links), and tag resolution walks to the nearest servable ancestor, so a nested fork would
+    // keep a tag naming the deleted workspace that nothing serves. Anchor at the orphaned
+    // children: the deleted row is gone, but their subtrees are intact.
     for child in orphaned_children.iter() {
+        windmill_queue::tags::invalidate_fork_parent_cache(child);
         for id in windmill_common::workspaces::list_fork_descendants(&db, child)
             .await
             .unwrap_or_default()
         {
             windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(&id);
+            windmill_queue::tags::invalidate_fork_parent_cache(&id);
         }
     }
 
