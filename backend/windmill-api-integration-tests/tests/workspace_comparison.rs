@@ -1880,3 +1880,252 @@ async fn test_compare_workspaces_fork_admin_source_hidden_ahead(
 
     Ok(())
 }
+
+/// The merge UI can target a workspace outside the fork lineage. Nothing tallies
+/// such a pair, so its comparison rests on an explicit full scan: before one, an
+/// empty `diffs` must be distinguishable from "the two workspaces agree", and the
+/// scan itself must seed only what actually differs, one way (WIN-2266).
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_full_diff_scan_against_arbitrary_workspace(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let client = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+    let base_url = format!("http://localhost:{port}/api");
+
+    // A second root workspace, unrelated to test-workspace by lineage.
+    sqlx::query!(
+        "INSERT INTO workspace (id, name, owner) VALUES ('other-workspace', 'other-workspace', 'test-user')"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO usr (workspace_id, email, username, is_admin, role)
+         VALUES ('other-workspace', 'test@windmill.dev', 'test-user', true, 'Admin')"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!("INSERT INTO workspace_settings (workspace_id) VALUES ('other-workspace')")
+        .execute(&db)
+        .await?;
+
+    // One script identical on both sides, one that differs, one that exists only here.
+    sqlx::query!(
+        "INSERT INTO script (workspace_id, path, hash, content, summary, description, language, created_by, created_at, archived, schema_validation, ws_error_handler_muted, deleted)
+         VALUES
+         ('test-workspace', 'f/shared/same', 1, 'def main(): pass', 'Same', '', 'python3', 'test@windmill.dev', NOW(), false, false, false, false),
+         ('test-workspace', 'f/shared/differs', 2, 'def main(): return 1', 'Differs', '', 'python3', 'test@windmill.dev', NOW(), false, false, false, false),
+         ('test-workspace', 'f/shared/only_here', 3, 'def main(): return 2', 'Only here', '', 'python3', 'test@windmill.dev', NOW(), false, false, false, false),
+         ('other-workspace', 'f/shared/same', 4, 'def main(): pass', 'Same', '', 'python3', 'test@windmill.dev', NOW(), false, false, false, false),
+         ('other-workspace', 'f/shared/differs', 5, 'def main(): return 99', 'Differs', '', 'python3', 'test@windmill.dev', NOW(), false, false, false, false)"
+    )
+    .execute(&db)
+    .await?;
+
+    // The same app path, a normal app here and a raw app there: one logical item that
+    // keys as two kinds, which the scan must collapse onto this workspace's kind.
+    for (ws, raw) in [("test-workspace", false), ("other-workspace", true)] {
+        let app_id = sqlx::query_scalar!(
+            "INSERT INTO app (workspace_id, path, summary, policy, versions)
+             VALUES ($1, 'f/shared/converted', 'Converted', '{}'::jsonb, ARRAY[]::bigint[])
+             RETURNING id",
+            ws,
+        )
+        .fetch_one(&db)
+        .await?;
+        let version = sqlx::query_scalar!(
+            "INSERT INTO app_version (app_id, value, created_by, created_at, raw_app)
+             VALUES ($1, $2, 'test@windmill.dev', NOW(), $3) RETURNING id",
+            app_id,
+            json!({"grid": []}),
+            raw,
+        )
+        .fetch_one(&db)
+        .await?;
+        sqlx::query!(
+            "UPDATE app SET versions = ARRAY[$2::bigint] WHERE id = $1",
+            app_id,
+            version,
+        )
+        .execute(&db)
+        .await?;
+    }
+
+    // The same migration under a different name on each side: one logical item, two
+    // candidate paths, which the scan must collapse.
+    sqlx::query!(
+        "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up)
+         VALUES
+         ('test-workspace', 'dt', 20260101000001, 'renamed_here', 'ALTER TABLE t ADD COLUMN a int'),
+         ('other-workspace', 'dt', 20260101000001, 'named_there', 'ALTER TABLE t ADD COLUMN a int')"
+    )
+    .execute(&db)
+    .await?;
+
+    let compare_url = format!("{base_url}/w/other-workspace/workspaces/compare/test-workspace");
+
+    // Before any scan: no candidate set, so no diffs — and `full_scan_at` says so.
+    let before: serde_json::Value = client
+        .client()
+        .get(&compare_url)
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(
+        before["diffs"].as_array().map(|d| d.len()),
+        Some(0),
+        "an unscanned arbitrary pair has no diffs: {before}"
+    );
+    assert!(
+        before["full_scan_at"].is_null(),
+        "an unscanned arbitrary pair must report no scan: {before}"
+    );
+
+    let scan = client
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/seed_full_diff/other-workspace"
+        ))
+        .send()
+        .await?;
+    assert!(
+        scan.status().is_success(),
+        "seeding the scan should succeed: {}",
+        scan.status()
+    );
+
+    let after: serde_json::Value = client
+        .client()
+        .get(&compare_url)
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert!(
+        !after["full_scan_at"].is_null(),
+        "a scanned pair must report when it was scanned: {after}"
+    );
+    let mut keys: Vec<(&str, &str)> = after["diffs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| (d["kind"].as_str().unwrap(), d["path"].as_str().unwrap()))
+        .collect();
+    keys.sort();
+    assert_eq!(
+        keys,
+        vec![
+            ("app", "f/shared/converted"),
+            ("datatable_migration", "dt/20260101000001_renamed_here"),
+            ("script", "f/shared/differs"),
+            ("script", "f/shared/only_here"),
+        ],
+        "the scan keeps only what differs, drops the identical script, and collapses the renamed migration and the app/raw-app conversion onto this workspace's key: {after}"
+    );
+    for diff in after["diffs"].as_array().unwrap() {
+        assert_eq!(
+            (diff["ahead"].as_i64(), diff["behind"].as_i64()),
+            (Some(1), Some(0)),
+            "an arbitrary pair is compared one way only: {diff}"
+        );
+    }
+
+    // Renaming the migration moves its candidate path. A re-scan must replace the
+    // candidate set, not add to it: the previous path still resolves to the same
+    // `(datatable, timestamp)`, so keeping it would list one migration twice.
+    sqlx::query!(
+        "UPDATE datatable_migrations SET name = 'renamed_again'
+         WHERE workspace_id = 'test-workspace' AND datatable = 'dt'"
+    )
+    .execute(&db)
+    .await?;
+    client
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/seed_full_diff/other-workspace"
+        ))
+        .send()
+        .await?;
+    let rescanned: serde_json::Value = client
+        .client()
+        .get(&compare_url)
+        .send()
+        .await?
+        .json()
+        .await?;
+    let migrations: Vec<&str> = rescanned["diffs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|d| d["kind"] == "datatable_migration")
+        .map(|d| d["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        migrations,
+        vec!["dt/20260101000001_renamed_again"],
+        "a re-scan replaces the candidate set, so the pre-rename path is gone: {rescanned}"
+    );
+
+    // An arbitrary pair is only comparable to someone who administers both sides:
+    // otherwise admin of one workspace would be enough to learn how much of another
+    // differs from it. test-user-2 is a plain member of test-workspace.
+    sqlx::query!(
+        "INSERT INTO usr (workspace_id, email, username, is_admin, role)
+         VALUES ('other-workspace', 'test2@windmill.dev', 'test-user-2', true, 'Admin')"
+    )
+    .execute(&db)
+    .await?;
+    let non_admin = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN_2".to_string(),
+    );
+    let refused = non_admin.client().get(&compare_url).send().await?;
+    assert!(
+        refused.status().is_client_error(),
+        "comparing an arbitrary pair without admin on both sides must be refused: {}",
+        refused.status()
+    );
+    let refused_scan = non_admin
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/seed_full_diff/other-workspace"
+        ))
+        .send()
+        .await?;
+    assert!(
+        refused_scan.status().is_client_error(),
+        "seeding a scan without admin on both sides must be refused: {}",
+        refused_scan.status()
+    );
+
+    // The lineage pair has a continuous tally whose direction a one-way scan would
+    // overwrite, so scanning it is refused.
+    let fork = client
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/create_fork"
+        ))
+        .json(&json!({"id": "wm-fork-test-workspace", "name": "Test Fork", "color": "#0000ff"}))
+        .send()
+        .await?;
+    assert!(fork.status().is_success(), "fork creation should succeed");
+    let lineage_scan = client
+        .client()
+        .post(&format!(
+            "{base_url}/w/wm-fork-test-workspace/workspaces/seed_full_diff/test-workspace"
+        ))
+        .send()
+        .await?;
+    assert!(
+        lineage_scan.status().is_client_error(),
+        "scanning a lineage pair must be refused: {}",
+        lineage_scan.status()
+    );
+
+    Ok(())
+}

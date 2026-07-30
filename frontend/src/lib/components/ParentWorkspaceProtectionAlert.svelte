@@ -68,7 +68,9 @@
 </script>
 
 {#if !$userStore?.operator && activeDeployRulesets.length > 0}
-	<Alert type="info" title="Parent workspace protection active" class="my-2">
+	<!-- Named for the deploy destination, not the lineage: the merge UI also points
+	     this at a target outside the fork lineage. -->
+	<Alert type="info" title="Target workspace protection active" class="my-2">
 		<div class="flex flex-col gap-2">
 			<p>
 				The workspace {parentWorkspaceId} has a protection rule{activeDeployRulesets.length > 1
