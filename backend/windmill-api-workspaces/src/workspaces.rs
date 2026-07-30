@@ -7598,15 +7598,13 @@ async fn archive_workspace(
 
     if let Some(prod) = dev_lock_parent {
         windmill_common::workspaces::invalidate_protection_rules_cache(&prod);
-    }
-
-    // Archiving clears `is_dev_workspace` (the dev-pairing teardown above), which is one of the
-    // inputs tag resolution walks: a workspace that stopped being a dev stops keeping its own id,
-    // and every fork beneath it resolves through it. The flag is cleared for any workspace, so
-    // sweep unconditionally rather than guess which archives mattered.
-    windmill_queue::tags::invalidate_fork_parent_cache(&w_id);
-    for id in windmill_common::workspaces::list_fork_descendants(&db, &w_id).await? {
-        windmill_queue::tags::invalidate_fork_parent_cache(&id);
+        // The teardown above cleared `is_dev_workspace`, which is what let this workspace keep its
+        // own id for tag routing; it and every fork resolving through it now land on an ancestor.
+        // Only a dev workspace reaches here, so archiving anything else needs no sweep.
+        windmill_queue::tags::invalidate_fork_parent_cache(&w_id);
+        for id in windmill_common::workspaces::list_fork_descendants(&db, &w_id).await? {
+            windmill_queue::tags::invalidate_fork_parent_cache(&id);
+        }
     }
 
     Ok(format!(
