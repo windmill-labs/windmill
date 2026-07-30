@@ -142,9 +142,11 @@ pub(crate) async fn change_workspace_id(
                     }
                     changed |= ap.webhook_id.is_some()
                         || ap.webhook_secret.is_some()
+                        || ap.webhook_url.is_some()
                         || ap.webhook_error.is_some();
                     ap.webhook_id = None;
                     ap.webhook_secret = None;
+                    ap.webhook_url = None;
                     ap.webhook_error = None;
                 }
             }
