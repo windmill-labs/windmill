@@ -844,9 +844,6 @@ pub async fn resolve_opt_job_authed(
 /// below strips the prefix and returns that name verbatim. From a request it
 /// would let any member mint a token that speaks as a named user.
 ///
-/// One shape: `ephemeral-script-end-user-`, whose arm below strips the prefix and
-/// returns the rest verbatim, so the label names a PERSON.
-///
 /// Every other arm yields a value that is prefixed or fixed and so cannot be a
 /// username — and `webhook-` / `http-` / `email-` / `ws-` are minted through the
 /// public API by the trigger panels on purpose, with `token_label_idor.rs`

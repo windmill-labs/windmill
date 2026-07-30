@@ -197,6 +197,7 @@ pub(crate) async fn handle_dbt_job(
             {
                 tracing::warn!("pruning dbt run graph snapshots: {e:#}");
             }
+            prune_package_cache().await;
         });
     }
     let prepared = prepare_project(
@@ -1308,6 +1309,12 @@ async fn install_packages(
             conn,
         )
         .await?;
+        // Beside the tree, never inside it: the restore copies this directory
+        // into the project, and a marker in `dbt_packages/` would ride along.
+        // The sweep reclaims by age, and a tree's own mtime is when it was
+        // published — so without this a project unchanged for months is evicted
+        // from under the jobs still using it.
+        tokio::fs::write(last_used_marker(&cached), b"").await.ok();
         append_logs(
             job_id,
             w_id,
@@ -1329,6 +1336,9 @@ async fn install_packages(
     .await?;
     if target.exists() {
         publish_to_cache(&target, &cached, ctx, job_id, w_id, conn).await;
+        // Dated on publication too, so a tree that is used once and never again
+        // ages from when it arrived rather than never.
+        tokio::fs::write(last_used_marker(&cached), b"").await.ok();
     }
     Ok(())
 }
@@ -3380,6 +3390,68 @@ async fn save_run_state(
     }
     prune_old_generations(&dir, &generation).await;
     Ok(())
+}
+
+/// A cache hit's timestamp, kept as a SIBLING of the tree it dates so the restore
+/// (which copies the tree into the project) cannot carry it into
+/// `dbt_packages/`.
+fn last_used_marker(cached: &Path) -> PathBuf {
+    let name = cached.file_name().unwrap_or_default().to_string_lossy();
+    cached.with_file_name(format!("{name}.last_used"))
+}
+
+/// How long a package tree is kept after its last use. `dbt deps` can reach the
+/// network, so evicting one still in rotation costs a fetch; this bound is for
+/// the trees no project will ask for again.
+const PACKAGES_RETENTION_DAYS: u64 = 14;
+
+/// How long a staging directory may sit before it is certainly abandoned. It
+/// belongs to one job and is removed when that job finishes, so one this old is
+/// from a worker that died mid-publish and nothing will look at it again.
+const PACKAGES_STAGING_MAX_AGE_HOURS: u64 = 24;
+
+/// Reclaim package trees no project has used lately, and staging directories a
+/// killed worker left behind.
+///
+/// The cache key covers the whole project digest, because a `local:` dependency's
+/// content appears in no manifest — so every edit of a project that declares
+/// packages publishes a new tree. Without this, a worker that lives through a
+/// hundred deploys holds a hundred dependency trees until an operator clears the
+/// entire cache by hand, and the disk it fills fails every job on that worker,
+/// not just dbt's.
+async fn prune_package_cache() {
+    let root = PathBuf::from(&*DBT_CACHE_DIR).join("packages");
+    let Ok(mut entries) = tokio::fs::read_dir(&root).await else {
+        return;
+    };
+    let now = std::time::SystemTime::now();
+    while let Ok(Some(e)) = entries.next_entry().await {
+        let name = e.file_name().to_string_lossy().to_string();
+        if name.ends_with(".last_used") {
+            // Outlives the tree it dated only if that tree is already gone.
+            if !root.join(name.trim_end_matches(".last_used")).exists() {
+                tokio::fs::remove_file(e.path()).await.ok();
+            }
+            continue;
+        }
+        let max_age = if name.contains(".staging-") {
+            std::time::Duration::from_secs(PACKAGES_STAGING_MAX_AGE_HOURS * 60 * 60)
+        } else {
+            std::time::Duration::from_secs(PACKAGES_RETENTION_DAYS * 24 * 60 * 60)
+        };
+        let last = tokio::fs::metadata(last_used_marker(&e.path()))
+            .await
+            .or(e.metadata().await)
+            .ok()
+            .and_then(|m| m.modified().ok());
+        if last
+            .and_then(|t| now.duration_since(t).ok())
+            .is_some_and(|age| age > max_age)
+        {
+            tokio::fs::remove_dir_all(e.path()).await.ok();
+            tokio::fs::remove_file(last_used_marker(&e.path())).await.ok();
+        }
+    }
 }
 
 /// Names the generation directory a retry reads. Replaced by rename, so it is
