@@ -207,8 +207,11 @@
 	// The viewer's own email (from the embed-token response), used to key the
 	// stored "do not ask again" per person on this shared browser origin.
 	let viewerEmail = $state('')
-	// One-shot: see `mintWithConsent`.
-	let restartedForModeChange = false
+	// See `mintWithConsent`: every render-mode change restarts initialization, but
+	// a bounded number of times so an app being redeployed continuously can't spin
+	// the viewer.
+	let modeChangeRestarts = 0
+	const MAX_MODE_CHANGE_RESTARTS = 3
 
 	// WIN-2006: publisher opted this app into sandbox isolation (alpha). When false
 	// (the default) the app runs same-origin with the viewer's full session — the
@@ -311,13 +314,19 @@
 			// app, the iframe's embed token for sandboxed low-code. Rendering from the
 			// first response's mode would either bypass newly enabled isolation or
 			// hand the opaque viewer nothing. Start over instead of trying to route a
-			// fresh token into stale mode state; `restartedForModeChange` keeps an app
-			// being redeployed repeatedly from bouncing us in a loop.
+			// fresh token into stale mode state. Bounded so an app redeployed on every
+			// fetch can't bounce the viewer forever.
 			const modeChanged =
 				(resp.raw_app ?? false) !== wasRaw || (resp.sandbox ?? false) !== wasSandboxed
-			if (modeChanged && !restartedForModeChange) {
-				restartedForModeChange = true
-				await initEmbedder()
+			if (modeChanged) {
+				if (modeChangeRestarts < MAX_MODE_CHANGE_RESTARTS) {
+					modeChangeRestarts++
+					await initEmbedder()
+					return false
+				}
+				// Out of restarts: render nothing rather than route a token meant for
+				// another mode (a low-code embed token into `sdkToken`, say).
+				status = 'notExists'
 				return false
 			}
 			sandboxed = resp.sandbox ?? false
