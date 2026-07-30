@@ -496,6 +496,20 @@ pub async fn get_job_perms<'a, E: sqlx::PgExecutor<'a>>(
     .await
 }
 
+/// A job token is refreshed once its remaining lifetime drops below this. It must exceed the
+/// 60s `jsonwebtoken` exp leeway, otherwise a token that still validates now could expire
+/// mid-orchestration after being judged fresh.
+pub const JOB_TOKEN_REFRESH_MARGIN_SECS: i64 = 120;
+
+/// Seconds until an internal job JWT expires, or `None` when `token` is not a decodable job
+/// JWT (e.g. the empty test token). The signature is intentionally not verified: the value only
+/// gates whether to refresh the token, never whose identity to assume.
+pub fn job_token_remaining_lifetime_secs(token: &str) -> Option<i64> {
+    let raw = token.strip_prefix("jwt_")?;
+    let claims: JWTAuthClaims = jwt::decode_without_verify(raw).ok()?;
+    Some(claims.exp as i64 - Utc::now().timestamp())
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn create_token_for_owner(
     db: &DB,
@@ -679,6 +693,52 @@ pub mod aws {
 #[cfg(test)]
 mod tests {
     use super::is_user_token;
+    use super::{job_token_remaining_lifetime_secs, JWTAuthClaims, JOB_TOKEN_REFRESH_MARGIN_SECS};
+
+    // The refresh margin only prevents a mid-orchestration expiry if it stays above the JWT leeway.
+    #[test]
+    fn refresh_margin_exceeds_jwt_leeway() {
+        assert!(JOB_TOKEN_REFRESH_MARGIN_SECS > 60);
+    }
+
+    fn job_jwt(exp_offset_secs: i64) -> String {
+        let claims = JWTAuthClaims {
+            email: String::new(),
+            username: String::new(),
+            is_admin: false,
+            is_operator: false,
+            groups: vec![],
+            folders: vec![],
+            label: None,
+            workspace_id: None,
+            workspace_ids: None,
+            exp: (chrono::Utc::now().timestamp() + exp_offset_secs) as usize,
+            job_id: None,
+            scopes: None,
+            audit_span: None,
+        };
+        // Signature is irrelevant — the gate decodes without verifying — so any key works.
+        let token = jsonwebtoken::encode(
+            &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256),
+            &claims,
+            &jsonwebtoken::EncodingKey::from_secret(b"test"),
+        )
+        .unwrap();
+        format!("jwt_{token}")
+    }
+
+    #[test]
+    fn remaining_lifetime_reflects_exp_and_flags_near_expiry() {
+        // A token minted for less than the margin reads as needing a refresh...
+        let short = job_token_remaining_lifetime_secs(&job_jwt(30)).unwrap();
+        assert!(short < JOB_TOKEN_REFRESH_MARGIN_SECS);
+        // ...a long-lived one does not...
+        let long = job_token_remaining_lifetime_secs(&job_jwt(10_000)).unwrap();
+        assert!(long >= JOB_TOKEN_REFRESH_MARGIN_SECS);
+        // ...and a non-JWT token (e.g. the empty test-run token) yields no lifetime.
+        assert!(job_token_remaining_lifetime_secs("not-a-jwt").is_none());
+        assert!(job_token_remaining_lifetime_secs("").is_none());
+    }
 
     #[test]
     fn user_tokens_are_editable() {
