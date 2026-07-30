@@ -3,6 +3,8 @@
 const fs = require("fs");
 const path = require("path");
 
+// Keep in sync with CLI_EXCLUDED_FIELDS in system_prompts/utils.py, which derives the
+// schemas shipped as agent guidance from the same specs.
 const CLI_EXCLUDED_FIELDS = new Set([
   "workspace_id",
   "path",

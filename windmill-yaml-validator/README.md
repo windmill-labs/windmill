@@ -177,6 +177,7 @@ The build process:
 ### Testing
 
 ```bash
+npm install   # cli/ installs this package with --omit=dev, so jest may be absent
 npm test
 ```
 

@@ -6,7 +6,7 @@
     "wmill": "src/main.ts"
   },
   "scripts": {
-    "preinstall": "npm --prefix ../windmill-yaml-validator install --no-audit --no-fund --loglevel=error && npm --prefix ../windmill-yaml-validator run gen",
+    "preinstall": "node ./prepare-yaml-validator.mjs",
     "dev": "bun run src/main.ts",
     "build": "./build.sh",
     "test": "bun test test/",

@@ -29,3 +29,7 @@ sed -i -e "/^version =/s/= .*/= \"$VERSION\"/" ${root_dirpath}/backend/parsers/w
 sed -i -zE "s/(name = \"windmill[^\"]*\"\nversion = )\"[^\"]*\"/\\1\"$VERSION\"/g" ${root_dirpath}/backend/parsers/windmill-parser-wasm/Cargo.lock
 
 cd ${root_dirpath}/frontend && npm i --package-lock-only --ignore-scripts
+
+# The CLI installs this package on every `bun install`, which would otherwise rewrite the
+# lockfile's version and leave a dirty tree.
+cd ${root_dirpath}/windmill-yaml-validator && npm i --package-lock-only --ignore-scripts
