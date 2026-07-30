@@ -1,0 +1,71 @@
+/**
+ * `buildTracker` decides whose top hash `wmill-lock.yaml` refreshes. A dbt
+ * project is mostly files that are not Windmill script extensions — the project
+ * file, `packages.yml`, schema YAML, seed CSVs — and its folder is spelled
+ * `__dbt\` on Windows, so both the extension gate and a raw-path search for
+ * `__dbt/` left the descriptor untracked and its hash stale.
+ */
+import { expect, test, describe, beforeEach, afterEach } from "bun:test";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import * as os from "node:os";
+import { buildTracker } from "../src/commands/sync/sync.ts";
+
+describe("buildTracker with a dbt project", () => {
+  let dir: string;
+  let cwd: string;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "wmill-dbt-tracker-"));
+    cwd = process.cwd();
+    process.chdir(dir);
+    fs.mkdirSync(path.join(dir, "f/analytics/analytics__dbt/models"), {
+      recursive: true,
+    });
+    fs.mkdirSync(path.join(dir, "f/analytics/analytics__dbt/seeds"), {
+      recursive: true,
+    });
+    // The descriptor sits BESIDE the project folder, and `findContentFile`
+    // resolves the metadata path to it by extension.
+    fs.writeFileSync(path.join(dir, "f/analytics/analytics.script.yaml"), "{}");
+    fs.writeFileSync(
+      path.join(dir, "f/analytics/analytics.dbt.yaml"),
+      "profile: {}\n",
+    );
+  });
+
+  afterEach(() => {
+    process.chdir(cwd);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  const tracked = async (p: string) =>
+    (await buildTracker([{ name: "edited", path: p, before: "", after: "" }]))
+      .scripts;
+
+  test("a model edit selects the descriptor", async () => {
+    expect(
+      await tracked("f/analytics/analytics__dbt/models/stg_orders.sql"),
+    ).toEqual(["f/analytics/analytics.dbt.yaml"]);
+  });
+
+  test("so do the files that are not script extensions", async () => {
+    for (const p of [
+      "f/analytics/analytics__dbt/dbt_project.yml",
+      "f/analytics/analytics__dbt/packages.yml",
+      "f/analytics/analytics__dbt/models/_models.yml",
+      "f/analytics/analytics__dbt/seeds/country_codes.csv",
+    ]) {
+      expect(await tracked(p)).toEqual(
+        ["f/analytics/analytics.dbt.yaml"],
+        `${p} left the descriptor untracked`,
+      );
+    }
+  });
+
+  test("and a Windows-separated path", async () => {
+    expect(
+      await tracked("f\\analytics\\analytics__dbt\\models\\stg_orders.sql"),
+    ).toEqual(["f/analytics/analytics.dbt.yaml"]);
+  });
+});

@@ -2823,10 +2823,57 @@ interface ChangeTracker {
   rawApps: string[];
 }
 
+/// The script a module file belongs to, added to the tracker so its top hash is
+/// refreshed. Derived with `getScriptBasePathFromModulePath`, which normalizes
+/// separators: searching the raw path for `__dbt/` found nothing on Windows,
+/// where the folder is spelled `__dbt\`, so every model edit there was skipped.
+async function addModuleParentToChanged(p: string, tracker: ChangeTracker) {
+  if (isModuleEntryPoint(p)) {
+    // Entry point (e.g. __mod/script.ts) IS the parent script content file.
+    if (!tracker.scripts.includes(p)) {
+      tracker.scripts.push(p);
+    }
+    return;
+  }
+  const scriptBasePath = getScriptBasePathFromModulePath(p);
+  if (scriptBasePath === undefined) {
+    return;
+  }
+  const push = async (candidate: string): Promise<boolean> => {
+    try {
+      const contentPath = await findContentFile(candidate);
+      if (contentPath && !tracker.scripts.includes(contentPath)) {
+        tracker.scripts.push(contentPath);
+      }
+      return contentPath != undefined;
+    } catch {
+      return false;
+    }
+  };
+  // A dbt project's descriptor sits beside its folder, never inside it.
+  if (isDbtModulePath(p)) {
+    await push(scriptBasePath + ".script.yaml");
+    return;
+  }
+  // Folder layout first (`__mod/script.{ext}`), then flat.
+  if (!(await push(scriptBasePath + getModuleFolderSuffix() + "/script.yaml"))) {
+    await push(scriptBasePath + ".script.yaml");
+  }
+}
+
 async function addToChangedIfNotExists(p: string, tracker: ChangeTracker) {
   // Datatable migration .sql files are not scripts; they're synced via the
   // dedicated datatable_migration handler in the push loop.
   if (isDatatableMigrationPath(p)) {
+    return;
+  }
+  // Module files first, and whatever their extension: a dbt project authors
+  // `dbt_project.yml`, `packages.yml`, schema YAML and seed CSVs, none of which
+  // are Windmill script extensions — gated behind that test they never reached
+  // the tracker, so the top hash in `wmill-lock.yaml` (which covers the modules)
+  // stayed stale for exactly the files a dbt project is mostly made of.
+  if (isScriptModulePath(p)) {
+    await addModuleParentToChanged(p, tracker);
     return;
   }
   const isScript =
@@ -2849,59 +2896,6 @@ async function addToChangedIfNotExists(p: string, tracker: ChangeTracker) {
       if (!tracker.rawApps.includes(folder)) {
         tracker.rawApps.push(folder);
       }
-    } else if (isScriptModulePath(p)) {
-      if (isModuleEntryPoint(p)) {
-        // Entry point (e.g. __mod/script.ts) IS the parent script content file
-        if (!tracker.scripts.includes(p)) {
-          tracker.scripts.push(p);
-        }
-      } else {
-        // Module file changed — find the parent script content file. A dbt
-        // project uses its own suffix, so both are tried.
-        const moduleSuffix =
-          (isDbtModulePath(p)
-            ? getModuleFolderSuffix("dbt")
-            : getModuleFolderSuffix()) + "/";
-        const idx = p.indexOf(moduleSuffix);
-        if (idx !== -1) {
-          const scriptBasePath = p.substring(0, idx);
-          // A dbt project's descriptor sits beside its folder, never inside it.
-          if (isDbtModulePath(p)) {
-            try {
-              const contentPath = await findContentFile(
-                scriptBasePath + ".script.yaml",
-              );
-              if (contentPath && !tracker.scripts.includes(contentPath)) {
-                tracker.scripts.push(contentPath);
-              }
-            } catch {
-              // ignore — descriptor not found
-            }
-          } else {
-            // Try folder layout first: __mod/script.{ext}
-            try {
-              const contentPath = await findContentFile(
-                scriptBasePath + getModuleFolderSuffix() + "/script.yaml",
-              );
-              if (contentPath && !tracker.scripts.includes(contentPath)) {
-                tracker.scripts.push(contentPath);
-              }
-            } catch {
-              // Fall back to flat layout: scriptBasePath.script.yaml
-              try {
-                const contentPath = await findContentFile(
-                  scriptBasePath + ".script.yaml",
-                );
-                if (contentPath && !tracker.scripts.includes(contentPath)) {
-                  tracker.scripts.push(contentPath);
-                }
-              } catch {
-                // ignore — content file not found
-              }
-            }
-          }
-        }
-      }
     } else {
       if (!tracker.scripts.includes(p)) {
         tracker.scripts.push(p);
@@ -2919,7 +2913,7 @@ async function addToChangedIfNotExists(p: string, tracker: ChangeTracker) {
   }
 }
 
-async function buildTracker(changes: Change[]) {
+export async function buildTracker(changes: Change[]) {
   const tracker: ChangeTracker = {
     scripts: [],
     flows: [],
