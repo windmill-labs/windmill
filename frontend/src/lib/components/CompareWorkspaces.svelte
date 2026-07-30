@@ -644,9 +644,14 @@
 	)
 
 	async function selectAll() {
-		selectedItems = bulkSelectableDiffs
+		const bulk = bulkSelectableDiffs
 			.map((d) => getItemKey(d))
 			.filter((k) => !(deploymentStatus[k]?.status == 'deployed'))
+		// Adds to the selection rather than replacing it, so a removal row the user
+		// opted into individually survives — the group checkbox, which only toggles
+		// its own rows, already behaves that way.
+		const keptOptIns = selectedItems.filter((k) => !bulk.includes(k))
+		selectedItems = [...bulk, ...keptOptIns]
 	}
 
 	function deselectAll() {

@@ -7178,6 +7178,9 @@ async fn attach_dev_workspace(
     // The pair may have been compared as an arbitrary target before it was linked. Those rows were
     // seeded one-way (everything `ahead`, direction guessed), which the tally must not inherit as
     // its own history — drop them and the scan marker so the lineage diff starts from the tally.
+    // Under the pair lock, so a scan already in flight either loses its rows to the delete below
+    // or sees the new lineage link on its re-check and refuses.
+    lock_workspace_pair(&mut tx, &prod_w_id, &dev_w_id).await?;
     sqlx::query!(
         "DELETE FROM workspace_diff_full_scan WHERE (source_workspace_id = $1 AND fork_workspace_id = $2)
             OR (source_workspace_id = $2 AND fork_workspace_id = $1)",
@@ -9558,6 +9561,43 @@ async fn list_all_item_keys(db: &DB, workspace_id: &str) -> Result<Vec<(String, 
     Ok(keys)
 }
 
+/// Whether the two workspaces are directly linked by the fork lineage, in either
+/// direction — the only relationship the deploy tally maintains.
+async fn is_lineage_pair<'e>(
+    executor: impl sqlx::PgExecutor<'e>,
+    a: &str,
+    b: &str,
+) -> Result<bool> {
+    Ok(sqlx::query_scalar!(
+        "SELECT EXISTS(
+            SELECT 1 FROM workspace
+            WHERE (id = $1 AND parent_workspace_id = $2) OR (id = $2 AND parent_workspace_id = $1)
+        )",
+        a,
+        b,
+    )
+    .fetch_one(executor)
+    .await?
+    .unwrap_or(false))
+}
+
+/// Serialize the operations that rewrite a workspace pair's `workspace_diff` rows:
+/// a full scan, and the attach that turns the pair into a lineage pair and clears
+/// those rows. Without a common lock a scan can seed one-way candidates *after* an
+/// attach has cleaned them up, leaving the tally reading rows that guessed a
+/// direction. Order-independent, so both directions of a pair take the same lock.
+async fn lock_workspace_pair(tx: &mut Transaction<'_, Postgres>, a: &str, b: &str) -> Result<()> {
+    let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+    sqlx::query!(
+        "SELECT pg_advisory_xact_lock(hashtext('workspace_diff_pair:' || $1 || '/' || $2))",
+        lo,
+        hi,
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
 #[derive(Serialize)]
 pub struct FullDiffScan {
     /// Candidate items the scan will compare — the union of both workspaces'
@@ -9617,18 +9657,8 @@ async fn seed_full_diff_scan(
     // The lineage pair has its own tally, whose `ahead`/`behind` counters say which
     // side a change came from. Seeding one-way candidates over it would overwrite
     // that direction with a guess, so leave the lineage comparison to the tally.
-    let lineage_pair = sqlx::query_scalar!(
-        "SELECT EXISTS(
-            SELECT 1 FROM workspace
-            WHERE (id = $1 AND parent_workspace_id = $2) OR (id = $2 AND parent_workspace_id = $1)
-        )",
-        w_id,
-        target_workspace_id,
-    )
-    .fetch_one(&db)
-    .await?
-    .unwrap_or(false);
-    if lineage_pair {
+    // Checked again under the pair lock below, since the answer can change under us.
+    if is_lineage_pair(&db, &w_id, &target_workspace_id).await? {
         return Err(Error::BadRequest(format!(
             "{w_id} and {target_workspace_id} are already linked by the fork lineage — their diff is tracked continuously and needs no full scan"
         )));
@@ -9675,18 +9705,16 @@ async fn seed_full_diff_scan(
     let paths: Vec<String> = candidates.iter().map(|(_, p)| p.clone()).collect();
 
     let mut tx = db.begin().await?;
-    // Serialize scans of this pair. Two of them would otherwise interleave into a
-    // union rather than a replacement: under READ COMMITTED the second one's DELETE
-    // resumes on a snapshot predating the first one's inserts, so it removes nothing,
-    // and any key only the first enumerated survives — exactly the duplicate the
-    // replacement is here to prevent.
-    sqlx::query!(
-        "SELECT pg_advisory_xact_lock(hashtext('workspace_diff_full_scan:' || $1 || '/' || $2))",
-        target_workspace_id,
-        w_id,
-    )
-    .execute(&mut *tx)
-    .await?;
+    lock_workspace_pair(&mut tx, &w_id, &target_workspace_id).await?;
+    // Re-checked under the lock: the pair may have been linked since the check above,
+    // and `attach_dev_workspace` clears the arbitrary rows as it links. Seeding after
+    // that cleanup would leave one-way `ahead` rows on a pair the compare now treats
+    // as lineage, listing the target's own items as default-selected deletions.
+    if is_lineage_pair(&mut *tx, &w_id, &target_workspace_id).await? {
+        return Err(Error::BadRequest(format!(
+            "{w_id} and {target_workspace_id} were linked by the fork lineage while the scan ran — their diff is tracked continuously and needs no full scan"
+        )));
+    }
     // The scan replaces this pair's candidate set rather than adding to it. Merging
     // would keep a key the new scan no longer produces, and the comparison
     // re-evaluates every row of a non-lineage pair, so a renamed migration or an
@@ -9701,16 +9729,10 @@ async fn seed_full_diff_scan(
     )
     .execute(&mut *tx)
     .await?;
-    // The DELETE is what gives the replace semantics; `ON CONFLICT` only covers two
-    // scans of the same pair racing: under READ COMMITTED the second one's DELETE
-    // resumes on a snapshot predating the first one's inserts, deletes nothing, and
-    // would then collide on the primary key.
     sqlx::query!(
         "INSERT INTO workspace_diff (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes)
         SELECT $1, $2, path, kind, 1, 0, NULL
-        FROM unnest($3::varchar[], $4::varchar[]) AS t(kind, path)
-        ON CONFLICT (source_workspace_id, fork_workspace_id, path, kind)
-        DO UPDATE SET ahead = 1, behind = 0, has_changes = NULL",
+        FROM unnest($3::varchar[], $4::varchar[]) AS t(kind, path)",
         target_workspace_id,
         w_id,
         &kinds,
