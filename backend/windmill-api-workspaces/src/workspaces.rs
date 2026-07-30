@@ -7240,7 +7240,10 @@ async fn attach_dev_workspace(
     // per-workspace job tags route to the prod family immediately rather than after the TTL. Tag
     // resolution walks ancestors, so its own forks resolve through it and must be dropped too.
     windmill_queue::tags::invalidate_fork_parent_cache(&dev_w_id);
-    for id in windmill_common::workspaces::list_fork_descendants(&db, &dev_w_id).await? {
+    for id in windmill_common::workspaces::list_fork_descendants(&db, &dev_w_id)
+        .await
+        .unwrap_or_default()
+    {
         windmill_queue::tags::invalidate_fork_parent_cache(&id);
     }
     if let Err(e) = windmill_queue::tags::notify_fork_lineage_change(&db, &dev_w_id).await {
@@ -7608,7 +7611,10 @@ async fn archive_workspace(
         // own id for tag routing; it and every fork resolving through it now land on an ancestor.
         // Only a dev workspace reaches here, so archiving anything else needs no sweep.
         windmill_queue::tags::invalidate_fork_parent_cache(&w_id);
-        for id in windmill_common::workspaces::list_fork_descendants(&db, &w_id).await? {
+        for id in windmill_common::workspaces::list_fork_descendants(&db, &w_id)
+            .await
+            .unwrap_or_default()
+        {
             windmill_queue::tags::invalidate_fork_parent_cache(&id);
         }
         if let Err(e) = windmill_queue::tags::notify_fork_lineage_change(&db, &w_id).await {

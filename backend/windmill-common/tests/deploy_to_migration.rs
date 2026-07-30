@@ -63,6 +63,9 @@ async fn deploy_to_folds_into_lineage(db: Pool<Postgres>) {
         ("wm-fork-cyc", false), // existing fork of cycroot; cycroot -> it would close a loop
         ("gone", true),         // archived source: its link must still be recorded
         ("seeded", false),      // existing fork whose deploy_to is just the seeded parent
+        ("otherprod", false),
+        ("ownersrc", false), // root that already owns a dev workspace
+        ("ownerdev", false),
     ] {
         insert_ws(&db, id, deleted).await;
     }
@@ -83,6 +86,9 @@ async fn deploy_to_folds_into_lineage(db: Pool<Postgres>) {
         ("wm-fork-cyc", None),
         ("gone", Some("prod")),
         ("seeded", Some("prod")),
+        ("otherprod", None),
+        ("ownersrc", Some("otherprod")),
+        ("ownerdev", None),
     ] {
         set_deploy_to(&db, id, target).await;
     }
@@ -96,6 +102,13 @@ async fn deploy_to_folds_into_lineage(db: Pool<Postgres>) {
             .await
             .expect("seed lineage");
     }
+    sqlx::query(
+        "UPDATE workspace SET parent_workspace_id = 'ownersrc', is_dev_workspace = true \
+         WHERE id = 'ownerdev'",
+    )
+    .execute(&db)
+    .await
+    .expect("seed existing dev pairing");
 
     db.execute(UP).await.expect("run unification migration");
 
@@ -140,6 +153,9 @@ async fn deploy_to_folds_into_lineage(db: Pool<Postgres>) {
             ("cycroot".to_string(), "wm-fork-cyc".to_string()),
             // An archived source still had a real link; it must not vanish with the column.
             ("gone".to_string(), "prod".to_string()),
+            // Converting this would leave its dev workspace nested under a fork, which
+            // attach_dev_workspace refuses to create.
+            ("ownersrc".to_string(), "otherprod".to_string()),
             ("selfref".to_string(), "selfref".to_string()),
             ("stale".to_string(), "prod".to_string()),
         ]
@@ -147,6 +163,12 @@ async fn deploy_to_folds_into_lineage(db: Pool<Postgres>) {
     assert_eq!(lineage(&db, "selfref").await, (None, false));
     // cycroot keeps its own fork and gains no parent of its own.
     assert_eq!(lineage(&db, "cycroot").await, (None, false));
+    // The source keeps its own dev workspace and gains no parent of its own.
+    assert_eq!(lineage(&db, "ownersrc").await, (None, false));
+    assert_eq!(
+        lineage(&db, "ownerdev").await,
+        (Some("ownersrc".to_string()), true)
+    );
     // A fork whose deploy_to merely repeated its parent loses nothing, so it is not reported.
     assert_eq!(
         lineage(&db, "seeded").await,
@@ -197,4 +219,58 @@ async fn clean_conversion_leaves_no_leftovers_table(db: Pool<Postgres>) {
     assert_eq!(table_exists, None, "empty leftovers table must not survive");
 
     db.execute(DOWN).await.expect("roll back without the table");
+}
+
+/// Executes the rewritten `list_ws_specific_versions`. plpgsql defers everything past a raw parse
+/// to the first call, so replaying the migration only proves the body parses — this calls it.
+///
+/// Asserts the traversal a prod/dev pair needs: each finds the other, while a plain fork under the
+/// same prod stays out of the prod's result even though it holds the same path.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn ws_specific_versions_pairs_prod_and_dev_without_plain_forks(db: Pool<Postgres>) {
+    for id in ["lwp", "lwd", "lwf"] {
+        insert_ws(&db, id, false).await;
+        // The caller is a superadmin in the base fixture, so no per-workspace usr row is needed:
+        // the function synthesises an admin identity and the RLS probe runs unrestricted.
+        sqlx::query(
+            "INSERT INTO resource (workspace_id, path, value, resource_type) \
+             VALUES ($1, 'u/admin/shared', '{}'::jsonb, 'postgresql')",
+        )
+        .bind(id)
+        .execute(&db)
+        .await
+        .expect("seed resource");
+    }
+    sqlx::query(
+        "UPDATE workspace SET parent_workspace_id = 'lwp', is_dev_workspace = true WHERE id = 'lwd'",
+    )
+    .execute(&db)
+    .await
+    .expect("attach dev");
+    sqlx::query("UPDATE workspace SET parent_workspace_id = 'lwp' WHERE id = 'lwf'")
+        .execute(&db)
+        .await
+        .expect("attach fork");
+
+    let versions = |seed: &'static str| {
+        let db = db.clone();
+        async move {
+            let mut rows: Vec<String> = sqlx::query_scalar(
+                "SELECT ws FROM list_ws_specific_versions($1, 'test@windmill.dev', 'resource', 'u/admin/shared')",
+            )
+            .bind(seed)
+            .fetch_all(&db)
+            .await
+            .expect("call list_ws_specific_versions");
+            rows.sort();
+            rows
+        }
+    };
+
+    // A prod reaches its dev workspace but not its throwaway forks.
+    assert_eq!(versions("lwp").await, vec!["lwd", "lwp"]);
+    // The dev workspace reaches back up to prod.
+    assert_eq!(versions("lwd").await, vec!["lwd", "lwp"]);
+    // A plain fork still sees its ancestors, and the dev workspace hanging off them.
+    assert_eq!(versions("lwf").await, vec!["lwd", "lwf", "lwp"]);
 }

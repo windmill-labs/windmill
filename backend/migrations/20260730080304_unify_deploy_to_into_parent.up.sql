@@ -42,7 +42,12 @@ BEGIN
         WHERE ws.deploy_to IS NOT NULL
           AND ws.deploy_to <> ws.workspace_id
           AND NOT src.deleted AND NOT tgt.deleted
-          AND src.parent_workspace_id IS NULL;
+          AND src.parent_workspace_id IS NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM workspace d
+              WHERE d.parent_workspace_id = ws.workspace_id
+                AND d.is_dev_workspace AND NOT d.deleted
+          );
 
     -- Cycle detection has to run over the lineage as it would exist AFTER conversion, not over the
     -- `deploy_to` graph alone: a root whose target is one of its own existing forks would close a
@@ -80,6 +85,11 @@ BEGIN
                    WHEN tgt.deleted THEN 'target workspace is archived'
                    WHEN src.parent_workspace_id IS NOT NULL
                        THEN 'already a fork, pointing somewhere other than its parent'
+                   WHEN EXISTS (
+                       SELECT 1 FROM workspace d
+                       WHERE d.parent_workspace_id = ws.workspace_id
+                         AND d.is_dev_workspace AND NOT d.deleted
+                   ) THEN 'source owns a dev workspace; linking it would nest that dev under a fork'
                    WHEN ci.cyclic THEN 'linking it would form a cycle in the workspace lineage'
                    WHEN ci.chain_depth > 20 THEN 'chain exceeds the lineage depth limit'
                END AS reason
@@ -166,11 +176,8 @@ END $$;
 -- Resolve workspace-specific resources/variables over the fork lineage instead of the `deploy_to`
 -- graph. Only the traversal changes; the per-workspace RLS fan-out below is unchanged.
 --
--- The walk goes up through ancestors, and down only to a dev workspace. Descending into plain
--- forks would make a root fan out over its entire live fork subtree, and every member costs an
--- identity lookup plus an RLS switch and probe. A dev workspace is the paired editable environment
--- rather than a throwaway copy, so a prod still sees it; there is at most one per parent and
--- attach rejects nested dev chains, which keeps the member set near the fork depth limit.
+-- Walks up through ancestors and down only to a dev workspace: descending into plain forks would
+-- fan a root out over its whole live fork subtree, and each member costs an RLS switch and probe.
 CREATE OR REPLACE FUNCTION list_ws_specific_versions(
     seed_workspace TEXT,
     user_email TEXT,

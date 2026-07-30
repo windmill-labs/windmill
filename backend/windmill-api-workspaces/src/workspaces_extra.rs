@@ -1204,8 +1204,13 @@ pub(crate) async fn delete_workspace(
             windmill_queue::tags::invalidate_fork_parent_cache(&id);
         }
     }
-    if let Err(e) = windmill_queue::tags::notify_fork_lineage_change(&db, &w_id).await {
-        tracing::warn!("failed to broadcast fork lineage change: {e:#}");
+    // Only a deletion that orphans descendants changes what anyone else resolves to. Deleting a
+    // leaf — which is what ephemeral fork churn does constantly — leaves every other lineage
+    // intact, and broadcasting would make every replica drop its whole tag cache for nothing.
+    if !orphaned_children.is_empty() {
+        if let Err(e) = windmill_queue::tags::notify_fork_lineage_change(&db, &w_id).await {
+            tracing::warn!("failed to broadcast fork lineage change: {e:#}");
+        }
     }
 
     Ok(format!("Deleted workspace {}", &w_id))
