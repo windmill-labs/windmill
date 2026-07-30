@@ -193,6 +193,10 @@
 	})
 	$effect(() => {
 		clearInterval(timer)
+		// Read synchronously so navigating between two RUNNING jobs re-arms this:
+		// everything below is read inside timer callbacks, so `running` alone would
+		// leave the second run polling on the first one's cycle — already spent.
+		void graphKey
 		// Only while in flight, and no faster than dbt finishes a model: this is a
 		// poll against the same rows the pipeline page reads, not a subscription.
 		if (running) {
