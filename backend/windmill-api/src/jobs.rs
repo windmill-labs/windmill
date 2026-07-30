@@ -953,9 +953,32 @@ async fn get_dbt_resumable_for_script(
     else {
         return Ok(Json(None));
     };
-    Ok(Json(
-        resumable_run(&db, &w_id, path, &permissioned_as).await?,
-    ))
+    let Some(job_id) = resumable_run(&db, &w_id, path, &permissioned_as).await? else {
+        return Ok(Json(None));
+    };
+    // Only a run this caller may READ. Everyone running an `on_behalf_of` script
+    // shares one principal, so the saved failure can be a run of the owner's that
+    // this caller cannot open — and answering with its id would be this endpoint
+    // handing over what to resume, when resuming republishes that run's
+    // arguments. Whoever can read the run keeps the prefill, which is the case
+    // the form exists for.
+    let Some(created_by) = sqlx::query_scalar!(
+        "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
+        job_id,
+        &w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    else {
+        return Ok(Json(None));
+    };
+    if require_job_read_access(&db, &user_db, &authed, &w_id, &job_id, &created_by, None)
+        .await
+        .is_err()
+    {
+        return Ok(Json(None));
+    }
+    Ok(Json(Some(job_id)))
 }
 
 /// The identity a run of this script submitted by this caller would execute as,

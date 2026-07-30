@@ -23025,11 +23025,12 @@ paths:
     get:
       summary: Which run a dbt retry of this script would resume for the caller
       description: >
-        A `retry` requires `dbt_retry_job`, and the run form has no job
-        id to hand. Returns the one the caller's own retry would land on — the
-        saved failure for the principal the run would execute as, which is the
-        script's author for an `on_behalf_of` script and the caller otherwise — or
-        null when there is nothing to resume.
+        A `retry` requires `dbt_retry_job`, and the run form has no job id to
+        hand. Returns the one the caller's own retry would land on — the saved
+        failure for the principal the run would execute as, which is the script's
+        author for an `on_behalf_of` script and the caller otherwise — and only
+        when that run is one the caller may read. Null when there is nothing to
+        resume, or nothing this caller may be told about.
       operationId: getDbtResumableForScript
       tags:
         - job
