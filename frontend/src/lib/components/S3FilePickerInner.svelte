@@ -182,7 +182,7 @@
 
 	const maxKeys = 1000
 	/** Entries fetched per folder level before a "Load more" row appears. */
-	const pageSize = 100
+	const pageSize = 500
 
 	let count = $state(0)
 	let displayedCount = $state(0)
