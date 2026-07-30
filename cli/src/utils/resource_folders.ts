@@ -545,28 +545,47 @@ export const MAX_MODULE_BYTES = 5 * 1024 * 1024;
  * file one drops and another keeps is a change no push can ever resolve.
  */
 export function isBundledModuleFile(fullPath: string): boolean {
+  return moduleFileExclusion(fullPath) === undefined;
+}
+
+/**
+ * WHY the bundle does not carry a file, when it does not.
+ *
+ * The two reasons are not interchangeable. `binary` is dbt's own leftovers and
+ * stray archives: nothing to say, so sync hides them. `oversized` is a file the
+ * project authored and dbt WOULD read — a large seed CSV — so it has to stay
+ * visible in the diff, or the push that reports the actionable size error never
+ * runs and the remote project is silently left incomplete.
+ */
+export function moduleFileExclusion(
+  fullPath: string,
+): "binary" | "oversized" | undefined {
   // Size from `stat` and only the first 8 KB read: a project may sit next to a
   // multi-gigabyte parquet seed or a stray archive, and reading one whole just
-  // to reject it would stall the sync or exhaust the CLI.
+  // to classify it would stall the sync or exhaust the CLI.
+  let size: number;
   let fd: number;
   try {
-    if (fs.statSync(fullPath).size > MAX_MODULE_BYTES) return false;
+    size = fs.statSync(fullPath).size;
     fd = fs.openSync(fullPath, "r");
   } catch {
     // Unreadable is not the same as excluded. A pull asks this about files that
     // do not exist locally yet, and answering "not carried" there would make
     // sync ignore the whole incoming project and write nothing.
-    return true;
+    return undefined;
   }
+  let binary: boolean;
   try {
     const head = Buffer.alloc(8000);
     const read = fs.readSync(fd, head, 0, 8000, 0);
-    return !head.subarray(0, read).includes(0);
+    binary = head.subarray(0, read).includes(0);
   } catch {
-    return true;
+    return undefined;
   } finally {
     fs.closeSync(fd);
   }
+  if (binary) return "binary";
+  return size > MAX_MODULE_BYTES ? "oversized" : undefined;
 }
 
 /** Whether a path is inside a dbt project's module folder specifically: those
@@ -674,8 +693,10 @@ export function isDbtGeneratedPath(p: string): boolean {
     return true;
   }
   // Not generated, but not carried either: the bundle drops it, so the diff
-  // must not keep offering it as a pending change.
-  return !isBundledModuleFile(p);
+  // must not keep offering it as a pending change. An OVERSIZED one is the
+  // exception — see `moduleFileExclusion`: hiding it here is what would make an
+  // edit to a large seed report no change at all.
+  return moduleFileExclusion(p) === "binary";
 }
 
 /**

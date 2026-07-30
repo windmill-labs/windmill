@@ -42,6 +42,7 @@ import {
   isUnderGeneratedDir,
   isDbtModulePath,
   isBundledModuleFile,
+  moduleFileExclusion,
   MAX_MODULE_BYTES,
 } from "../src/utils/resource_folders.ts";
 import { removeWorkerPrefix } from "../src/commands/worker-groups/worker-groups.ts";
@@ -795,6 +796,20 @@ describe("isBundledModuleFile", () => {
   test("drops a file over the per-file limit", () => {
     expect(isBundledModuleFile(write("huge.csv", "x".repeat(MAX_MODULE_BYTES + 1)))).toBe(
       false,
+    );
+  });
+
+  // The two reasons a file is not carried are not interchangeable: sync hides
+  // dbt's binary leftovers, but an oversized seed the project authored has to
+  // stay in the diff, or the push that reports the size error never runs and the
+  // remote project is left incomplete without saying so.
+  test("says WHY a file is not carried", () => {
+    expect(moduleFileExclusion(write("a.sql", "select 1\n"))).toBe(undefined);
+    expect(moduleFileExclusion(write("x.png", Buffer.from([0x89, 0x50, 0x00, 0x1a])))).toBe(
+      "binary",
+    );
+    expect(moduleFileExclusion(write("seed.csv", "x".repeat(MAX_MODULE_BYTES + 1)))).toBe(
+      "oversized",
     );
   });
 

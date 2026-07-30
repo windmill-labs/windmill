@@ -73,7 +73,7 @@ import {
   getModuleFolderSuffix,
   dbtGeneratedDirs,
   isUnderGeneratedDir,
-  isBundledModuleFile,
+  moduleFileExclusion,
   MAX_MODULE_BYTES,
   isModuleEntryPoint,
   getScriptBasePathFromModulePath,
@@ -751,33 +751,14 @@ export async function readModulesFromDisk(
           // Asked BEFORE reading: the predicate only stats the file and reads
           // its first 8 KB, so a multi-gigabyte seed next to the project costs
           // that rather than being loaded whole just to be rejected.
-          if (!isBundledModuleFile(fullPath)) {
+          const exclusion = moduleFileExclusion(fullPath);
+          if (exclusion !== undefined) {
             // Over the limit but readable as text — a large seed CSV is the
             // realistic case — is refused rather than skipped: dbt WOULD have
             // read it, so shipping the project without it deploys something that
             // compiles here and fails at run time with a missing relation.
-            // Bounded exactly like `isBundledModuleFile`: the file is over the
-            // limit by definition here, so reading it whole to classify it is
-            // what that path exists to avoid — a multi-gigabyte seed would be
-            // loaded just to be refused.
-            let size = 0;
-            let oversizedText = false;
-            try {
-              size = fs.statSync(fullPath).size;
-              if (size > MAX_MODULE_BYTES) {
-                const fd = fs.openSync(fullPath, "r");
-                try {
-                  const head = Buffer.alloc(8000);
-                  const read = fs.readSync(fd, head, 0, 8000, 0);
-                  oversizedText = !head.subarray(0, read).includes(0);
-                } finally {
-                  fs.closeSync(fd);
-                }
-              }
-            } catch {
-              oversizedText = false;
-            }
-            if (oversizedText) {
+            if (exclusion === "oversized") {
+              const size = fs.statSync(fullPath).size;
               throw new Error(
                 `${relPath} is ${Math.ceil(size / 1024 / 1024)} MB, over the ` +
                   `${MAX_MODULE_BYTES / 1024 / 1024} MB per-file limit for a dbt project file. ` +
