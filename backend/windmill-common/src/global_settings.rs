@@ -408,6 +408,8 @@ mod tests {
             "https://hooks.example.com/",
             "https://hooks.example.com:abc",
             "https://x/a b",
+            "https://hooks.example.com?",
+            "https://hooks.example.com#",
         ];
         for v in accept {
             assert!(validate_webhook_base_url(v).is_ok(), "'{v}' should be accepted");

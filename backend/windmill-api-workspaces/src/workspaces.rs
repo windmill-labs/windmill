@@ -3518,8 +3518,13 @@ async fn edit_git_sync_config(
         // status) that the redacted GET response omits — otherwise a whole-config
         // save from the UI would drop the webhook secret (breaking delivery) or
         // clobber what the poller/webhook layer wrote.
+        //
+        // `FOR UPDATE` because this is a read-modify-write of the whole `git_sync`
+        // blob: the webhook reconciler writes hook fields into it with a targeted
+        // update, and without the row lock one landing between this read and the
+        // write below would be reverted, leaving its hook live but untracked.
         let existing: Option<WorkspaceGitSyncSettings> = sqlx::query_scalar!(
-            "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+            "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1 FOR UPDATE",
             &w_id
         )
         .fetch_optional(&mut *tx)
@@ -3739,9 +3744,12 @@ async fn edit_git_sync_repository(
 
     let mut tx = db.begin().await?;
 
-    // First, get the current git sync settings
+    // First, get the current git sync settings. `FOR UPDATE` because this
+    // read-modify-writes the whole `git_sync` blob: the webhook reconciler writes
+    // hook fields into it with a targeted update, and one landing between this read
+    // and the write below would be reverted, leaving its hook live but untracked.
     let current_settings = sqlx::query!(
-        "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+        "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1 FOR UPDATE",
         &w_id
     )
     .fetch_optional(&mut *tx)
@@ -3916,9 +3924,12 @@ async fn delete_git_sync_repository(
 
     let mut tx = db.begin().await?;
 
-    // First, get the current git sync settings
+    // First, get the current git sync settings. `FOR UPDATE` because this
+    // read-modify-writes the whole `git_sync` blob: the webhook reconciler writes
+    // hook fields into it with a targeted update, and one landing between this read
+    // and the write below would be reverted, leaving its hook live but untracked.
     let current_settings = sqlx::query!(
-        "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+        "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1 FOR UPDATE",
         &w_id
     )
     .fetch_optional(&mut *tx)

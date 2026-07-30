@@ -148,8 +148,11 @@ export function isValidWebhookBaseUrl(value: string | undefined): boolean {
 	return (
 		(url.protocol === 'http:' || url.protocol === 'https:') &&
 		url.host !== '' &&
-		url.search === '' &&
-		url.hash === '' &&
+		// Tested on the raw string, not `url.search`/`url.hash`: those are `''` for a
+		// bare `?` or `#`, while Rust reports an empty-but-present query/fragment and
+		// rejects it. A literal delimiter is never valid here either way.
+		!trimmed.includes('?') &&
+		!trimmed.includes('#') &&
 		// `new URL` silently percent-encodes a space in the path, where the server
 		// rejects it outright.
 		!/\s/.test(trimmed) &&
