@@ -242,9 +242,14 @@
 		}
 	}
 
-	/** A level shows only when every folder above it is expanded. */
+	/**
+	 * A level shows only when every folder above it is expanded. The browsing root is
+	 * spelled `rootPath` by `folderState` but `undefined` by an entry's `parentPath`
+	 * (there is no parent entry), so both spellings must resolve here — otherwise the
+	 * root's own "Load more" row is filtered out and the top level is stuck on one page.
+	 */
 	function isLevelVisible(prefix: string | undefined): boolean {
-		if (prefix === rootParentPath) return true
+		if (prefix === rootParentPath || prefix === rootPath) return true
 		if (prefix === undefined) return false
 		const info = allFilesByKey[prefix]
 		if (info === undefined || info.collapsed) return false
@@ -306,6 +311,20 @@
 		} finally {
 			refreshDisplayed()
 		}
+	}
+
+	/** Surface listing failures instead of leaving a folder looking empty. */
+	function reportFolderError(prefix: string, e: unknown) {
+		console.error('Error listing folder', prefix, e)
+		sendUserToast(`Could not list ${prefix || 'the bucket root'}`, true)
+	}
+
+	function expandFolder(prefix: string) {
+		loadFolderPage(prefix).catch((e) => reportFolderError(prefix, e))
+	}
+
+	function loadMore(prefix: string) {
+		loadFolderPage(prefix, true).catch((e) => reportFolderError(prefix, e))
 	}
 
 	/**
@@ -532,12 +551,18 @@
 		sendUserToast(`${fileKey} deleted from S3 bucket`)
 		selectedFileKey = { s3: '', storage }
 		if (lazyMode) {
-			// Only the level the file lived in changed; refetch that one and keep the
-			// rest of the expanded tree as it is.
+			// Only the level the file lived in changed; refetch it from its first page
+			// and keep the rest of the expanded tree. Its already-fetched entries have
+			// to go with the cursor, or the reset cursor would hand out a "Load more"
+			// for pages that are still displayed.
 			const parent = parentPathOf(fileKey) ?? rootPath
-			delete allFilesByKey[fileKey]
+			for (const key of Object.keys(allFilesByKey)) {
+				if (allFilesByKey[key].parentPath === (parent === '' ? undefined : parent)) {
+					delete allFilesByKey[key]
+				}
+			}
 			delete folderState[parent]
-			await loadFolderPage(parent)
+			await loadFolderPage(parent).catch((e) => reportFolderError(parent, e))
 			return
 		}
 		const currentPage = page
@@ -687,7 +712,7 @@
 				}
 				if (!item.collapsed && !folderState[item_key]?.loaded) {
 					// Children are unknown until this level is fetched.
-					loadFolderPage(item_key)
+					expandFolder(item_key)
 				} else {
 					refreshDisplayed()
 				}
@@ -844,15 +869,19 @@
 									)}
 								>
 									{#if is_load_more}
+										<!-- Indented like the siblings it belongs to, so it must discount
+										the browsing root the same way entry rows do. -->
+										{@const loadMoreNesting =
+											nestingLevelOf(load_more_prefix + 'x') - 2 * rootPathNestingLevel}
 										<div
 											class="flex flex-row h-full items-center"
-											style={`margin-left: ${(2 + nestingLevelOf(load_more_prefix + 'x')) * 0.25}rem;`}
+											style={`margin-left: ${(2 + loadMoreNesting) * 0.25}rem;`}
 										>
 											<Button
 												variant="subtle"
 												size="xs2"
 												disabled={folderState[load_more_prefix]?.loading}
-												on:click={() => loadFolderPage(load_more_prefix, true)}
+												on:click={() => loadMore(load_more_prefix)}
 											>
 												{#if folderState[load_more_prefix]?.loading}
 													<Loader2 size={12} class="animate-spin mr-1" />
