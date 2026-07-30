@@ -24320,6 +24320,8 @@ components:
                 type: string
                 enum: [fork, deferred]
                 description: Fork workspaces only — 'fork' when this ducklake asset was materialized in the fork itself, 'deferred' when reads fall back to the parent workspace's current table via a defer view. Omitted otherwise.
+              dbt:
+                $ref: "#/components/schemas/DbtAssetProvenance"
         runnables:
           type: array
           items:
@@ -24347,6 +24349,13 @@ components:
                       description: verbatim parameter list
                     is_table:
                       type: boolean
+              dbt:
+                type: object
+                description: Set on a `dbt` script, which owns a whole project rather than a single output. Omitted otherwise.
+                required: [model_count]
+                properties:
+                  model_count:
+                    type: integer
         edges:
           type: array
           items:
@@ -24461,6 +24470,88 @@ components:
                 $ref: "#/components/schemas/AssetKind"
               asset_path:
                 type: string
+        dbt_edges:
+          type: array
+          description: >-
+            `ref()` lineage BETWEEN two dbt models, in the terms the canvas draws
+            — the relations, not dbt's node ids. Without it every model hangs off
+            the one dbt runnable and the project reads as a flat fan-out.
+            Omitted when empty.
+          items:
+            type: object
+            required: [from_asset_path, to_asset_path]
+            properties:
+              from_asset_path:
+                type: string
+              to_asset_path:
+                type: string
+        dbt_snapshot_job:
+          type: string
+          format: uuid
+          description: >-
+            The job whose own snapshot the dbt half was resolved from, when one
+            was asked for and found. A run page polls the graph while its job
+            runs, because a dynamic descriptor's snapshot is written mid-run, and
+            this is what tells it to stop. Omitted when the answer came from the
+            version's deployed graph.
+    DbtAssetProvenance:
+      type: object
+      description: >-
+        What dbt says about the model, snapshot, seed or source that produces (or,
+        for a source, is read at) this relation. A dbt project is one runnable
+        node with many model assets, so per-model metadata belongs here rather
+        than on the script.
+      required: [unique_id, resource_type]
+      properties:
+        unique_id:
+          type: string
+          description: dbt's own node id, e.g. `model.jaffle_shop.customers`.
+        resource_type:
+          type: string
+          enum: [model, snapshot, seed, source]
+        materialized:
+          type: string
+          description: dbt's own word (`table`, `view`, `incremental`, `snapshot`).
+        materialize_strategy:
+          type: string
+          description: The Windmill write strategy it maps to, absent for `view` and `ephemeral`, which have none.
+        tags:
+          type: array
+          items:
+            type: string
+        description:
+          type: string
+        data_tests:
+          type: array
+          items:
+            type: object
+            required: [kind]
+            properties:
+              kind:
+                type: string
+                description: One of the four generic tests, or a package test's namespaced name (`dbt_utils.accepted_range`).
+              column:
+                type: string
+              args:
+                type: object
+                additionalProperties: true
+              severity:
+                type: string
+                description: Lowercased. dbt's severity decides whether a failure fails the run.
+        columns:
+          type: object
+          additionalProperties: true
+          description: Declared column metadata (name -> description). NOT column lineage — `manifest.json` carries none.
+        freshness:
+          type: object
+          additionalProperties: true
+          description: A source's declared freshness policy, for the staleness chip.
+        raw_code:
+          type: string
+          description: The model's SQL as written, at the deploy this graph belongs to. Omitted when the caller cannot read the script.
+        original_file_path:
+          type: string
+          description: Its path inside the dbt project, e.g. `models/staging/stg_orders.sql`.
     # NOTE: Not so many generators and validators support this format:
     # $ref: "../../openflow.openapi.yaml#/components/schemas"
     # This is why it is better to inline each of schemas for better compat
