@@ -387,12 +387,21 @@ impl OpenAIQueryBuilder {
         // Build tools array using typed structs
         let mut tools: Vec<ResponsesApiTool> = Vec::new();
 
-        // Add websearch tool if enabled
+        // Azure serves this API without the hosted tools OpenAI runs alongside it, and
+        // rejects the request rather than ignoring one it does not know. Dropping it
+        // keeps the step on this endpoint instead of trading its reasoning support for a
+        // search the resource was never going to run.
         if args.has_websearch {
-            tools.push(ResponsesApiTool::BuiltIn(ResponsesApiBuiltInTool {
-                r#type: "web_search".to_string(),
-                quality: None,
-            }));
+            if self.provider_kind.is_azure(args.base_url) {
+                tracing::warn!(
+                    "Web search is not available on Azure endpoints, running without it"
+                );
+            } else {
+                tools.push(ResponsesApiTool::BuiltIn(ResponsesApiBuiltInTool {
+                    r#type: "web_search".to_string(),
+                    quality: None,
+                }));
+            }
         }
 
         // Convert ToolDef to ResponsesApiFunctionTool (flat structure for Responses API)
@@ -632,6 +641,7 @@ mod tests {
             messages,
             tools: None,
             model: "gpt-5",
+            base_url: "https://api.openai.com/v1",
             temperature: None,
             reasoning_effort: None,
             max_tokens: None,
@@ -647,6 +657,48 @@ mod tests {
             .build_request(&args, &client(), "test-workspace")
             .await
             .unwrap()
+    }
+
+    /// Azure rejects the request over a hosted tool it does not serve, so asking for
+    /// web search there would cost the step this endpoint entirely.
+    #[tokio::test]
+    async fn asks_for_web_search_only_where_it_is_served() {
+        async fn tools_of(provider: AIProvider, base_url: &str) -> serde_json::Value {
+            let messages = vec![message("user", "what happened today?")];
+            let args = BuildRequestArgs {
+                messages: &messages,
+                tools: None,
+                model: "gpt-5",
+                base_url,
+                temperature: None,
+                reasoning_effort: None,
+                max_tokens: None,
+                output_schema: None,
+                output_type: &OutputType::Text,
+                system_prompt: None,
+                user_message: "hello",
+                attachments: None,
+                has_websearch: true,
+            };
+            let body = OpenAIQueryBuilder::new(provider)
+                .build_request(&args, &client(), "test-workspace")
+                .await
+                .unwrap();
+            serde_json::from_str::<serde_json::Value>(&body).unwrap()["tools"].clone()
+        }
+
+        assert_eq!(
+            tools_of(AIProvider::OpenAI, "https://api.openai.com/v1").await,
+            serde_json::json!([{ "type": "web_search" }])
+        );
+        assert_eq!(
+            tools_of(
+                AIProvider::AzureOpenAI,
+                "https://example.openai.azure.com/openai"
+            )
+            .await,
+            serde_json::json!([])
+        );
     }
 
     /// The worker prepends the system prompt as a system message *and* passes it as

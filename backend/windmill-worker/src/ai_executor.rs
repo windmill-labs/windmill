@@ -24,8 +24,8 @@ use windmill_ai::{
     ai_providers::AIProvider,
     image_handler::upload_image_to_s3,
     providers::{
-        create_chat_completions_query_builder, create_query_builder, is_chat_completions_only,
-        remember_chat_completions_only,
+        create_chat_completions_query_builder, create_query_builder, identifies_unserved_route,
+        is_chat_completions_only, remember_chat_completions_only,
     },
     proxy::{
         common_outbound_headers, needs_unavailable_oauth_exchange, retain_effective_credentials,
@@ -1149,6 +1149,7 @@ pub async fn run_agent(
                 messages: &messages,
                 tools: tool_defs.as_deref(),
                 model: args.provider.get_model(),
+                base_url,
                 temperature: args.temperature,
                 reasoning_effort: args.provider.get_reasoning_effort(),
                 max_tokens: args.max_completion_tokens,
@@ -1210,6 +1211,10 @@ pub async fn run_agent(
             // `stream_options`, which not every OpenAI-compatible provider accepts, and
             // the route itself, when an Azure resource is outside the Responses API's
             // model/region matrix. Each is retried once with that part dropped.
+            // Set when this send re-routed, so the endpoint that answered is the one
+            // remembered: a rejection the fallback did not resolve says nothing about
+            // which routes the deployment serves.
+            let mut rerouted_by_a_route_rejection = false;
             let resp = loop {
                 let request_body = if include_usage {
                     query_builder
@@ -1233,7 +1238,12 @@ pub async fn run_agent(
                     .map_err(|e| Error::internal_err(format!("Failed to call API: {}", e)))?;
 
                 match resp.error_for_status_ref() {
-                    Ok(_) => break resp,
+                    Ok(_) => {
+                        if rerouted_by_a_route_rejection {
+                            remember_chat_completions_only(base_url, args.provider.get_model());
+                        }
+                        break resp;
+                    }
                     Err(e) => {
                         let status = resp.status();
                         let text = resp
@@ -1268,7 +1278,8 @@ pub async fn run_agent(
                                 "Endpoint rejected the request ({}), falling back to chat/completions",
                                 status
                             );
-                            remember_chat_completions_only(base_url, args.provider.get_model());
+                            rerouted_by_a_route_rejection =
+                                identifies_unserved_route(status.as_u16(), &text);
                             query_builder = create_chat_completions_query_builder(&credentials);
                             include_usage = true;
                         } else {
