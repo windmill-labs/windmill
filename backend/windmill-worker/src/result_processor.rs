@@ -689,8 +689,43 @@ pub async fn handle_receive_completed_job(
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> Option<Arc<MiniPulledJob>> {
-    let token = jc.token.clone();
+    // WIN-2263: a flow step's ephemeral JWT (`jc.token`) is minted at step pull time with a
+    // lifetime of `SCRIPT_TOKEN_EXPIRY` (900s on cloud). It is reused here to build the client
+    // that drives post-completion flow orchestration — including the next step's input-transform
+    // isolated-eval, which fetches prior steps' results (`[...results.x]`). When the finished step
+    // ran longer than the token's lifetime (minus the 60s JWT leeway), that reused token is already
+    // expired and the result fetch is rejected as anonymous. Mint a fresh token for flow-step
+    // completions so the orchestration client's lifetime is independent of how long the step ran.
     let workspace = jc.job.workspace_id.clone();
+    let token = if jc.job.is_flow_step() {
+        match windmill_common::auth::create_token_for_owner(
+            db,
+            &jc.job.workspace_id,
+            &jc.job.permissioned_as,
+            "ephemeral-script",
+            *windmill_common::worker::SCRIPT_TOKEN_EXPIRY,
+            &jc.job.permissioned_as_email,
+            &jc.job.id,
+            None,
+            Some(format!(
+                "job-span-{}",
+                jc.job.flow_innermost_root_job.unwrap_or(jc.job.id)
+            )),
+        )
+        .await
+        {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::warn!(
+                    "WIN-2263: could not mint fresh flow-orchestration token for job {}, reusing step token: {e:#}",
+                    jc.job.id
+                );
+                jc.token.clone()
+            }
+        }
+    } else {
+        jc.token.clone()
+    };
     let client = AuthedClient::new(base_internal_url.to_string(), workspace, token, None);
     let job = jc.job.clone();
     let mem_peak = jc.mem_peak.clone();
