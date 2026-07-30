@@ -1926,6 +1926,35 @@ async fn test_full_diff_scan_against_arbitrary_workspace(db: Pool<Postgres>) -> 
     .execute(&db)
     .await?;
 
+    // The same app path, a normal app here and a raw app there: one logical item that
+    // keys as two kinds, which the scan must collapse onto this workspace's kind.
+    for (ws, raw) in [("test-workspace", false), ("other-workspace", true)] {
+        let app_id = sqlx::query_scalar!(
+            "INSERT INTO app (workspace_id, path, summary, policy, versions)
+             VALUES ($1, 'f/shared/converted', 'Converted', '{}'::jsonb, ARRAY[]::bigint[])
+             RETURNING id",
+            ws,
+        )
+        .fetch_one(&db)
+        .await?;
+        let version = sqlx::query_scalar!(
+            "INSERT INTO app_version (app_id, value, created_by, created_at, raw_app)
+             VALUES ($1, $2, 'test@windmill.dev', NOW(), $3) RETURNING id",
+            app_id,
+            json!({"grid": []}),
+            raw,
+        )
+        .fetch_one(&db)
+        .await?;
+        sqlx::query!(
+            "UPDATE app SET versions = ARRAY[$2::bigint] WHERE id = $1",
+            app_id,
+            version,
+        )
+        .execute(&db)
+        .await?;
+    }
+
     // The same migration under a different name on each side: one logical item, two
     // candidate paths, which the scan must collapse.
     sqlx::query!(
@@ -1981,21 +2010,22 @@ async fn test_full_diff_scan_against_arbitrary_workspace(db: Pool<Postgres>) -> 
         !after["full_scan_at"].is_null(),
         "a scanned pair must report when it was scanned: {after}"
     );
-    let mut paths: Vec<&str> = after["diffs"]
+    let mut keys: Vec<(&str, &str)> = after["diffs"]
         .as_array()
         .unwrap()
         .iter()
-        .map(|d| d["path"].as_str().unwrap())
+        .map(|d| (d["kind"].as_str().unwrap(), d["path"].as_str().unwrap()))
         .collect();
-    paths.sort();
+    keys.sort();
     assert_eq!(
-        paths,
+        keys,
         vec![
-            "dt/20260101000001_renamed_here",
-            "f/shared/differs",
-            "f/shared/only_here"
+            ("app", "f/shared/converted"),
+            ("datatable_migration", "dt/20260101000001_renamed_here"),
+            ("script", "f/shared/differs"),
+            ("script", "f/shared/only_here"),
         ],
-        "the scan keeps only what differs, drops the identical script, and collapses the renamed migration to this workspace's path: {after}"
+        "the scan keeps only what differs, drops the identical script, and collapses the renamed migration and the app/raw-app conversion onto this workspace's key: {after}"
     );
     for diff in after["diffs"].as_array().unwrap() {
         assert_eq!(

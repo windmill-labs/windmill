@@ -9635,11 +9635,13 @@ async fn seed_full_diff_scan(
     let mut candidates = list_all_item_keys(&db, &w_id).await?;
     let target_items = list_all_item_keys(&db, &target_workspace_id).await?;
 
+    // Two kinds identify an item by less than their `(kind, path)` key, so the same
+    // logical item can key differently on each side. Their comparison matches on the
+    // weaker identity, so seeding both keys would list — and deploy — one item twice.
+    // Both collapse onto this workspace's key, the one a deploy writes.
+    //
     // A data table migration keeps its identity across a rename, so the same
-    // `(datatable, timestamp)` can carry a different name on each side — one logical
-    // item under two paths. The comparison matches on `(datatable, timestamp)`, so
-    // seeding both would list and deploy it twice. Keep this workspace's path: it is
-    // the version a deploy writes.
+    // `(datatable, timestamp)` can carry a different name, hence a different path.
     let own_migrations: HashSet<(String, i64)> = candidates
         .iter()
         .filter(|(kind, _)| kind == "datatable_migration")
@@ -9647,10 +9649,22 @@ async fn seed_full_diff_scan(
             crate::datatable_migrations::parse_datatable_migration_diff_path(path)
         })
         .collect();
+    // An app and a raw app share the `app` table and one path per workspace —
+    // converting one into the other keeps the path and changes only the kind.
+    let own_app_paths: HashSet<String> = candidates
+        .iter()
+        .filter(|(kind, _)| kind == "app" || kind == "raw_app")
+        .map(|(_, path)| path.clone())
+        .collect();
     candidates.extend(target_items.into_iter().filter(|(kind, path)| {
-        kind != "datatable_migration"
-            || !crate::datatable_migrations::parse_datatable_migration_diff_path(path)
-                .is_some_and(|key| own_migrations.contains(&key))
+        match kind.as_str() {
+            "datatable_migration" => {
+                !crate::datatable_migrations::parse_datatable_migration_diff_path(path)
+                    .is_some_and(|key| own_migrations.contains(&key))
+            }
+            "app" | "raw_app" => !own_app_paths.contains(path),
+            _ => true,
+        }
     }));
     candidates.sort();
     candidates.dedup();
@@ -10137,9 +10151,13 @@ async fn compare_two_apps(
     fork_workspace_id: &str,
     path: &str,
 ) -> Result<ItemComparison> {
+    // `raw_app` is compared alongside the content: converting an app into a raw app
+    // (or back) keeps the path and can keep every other field, and the merge UI links
+    // to a different editor and deploys down a different path for each, so a
+    // conversion is a change even when nothing else moved.
     // Get app with its latest version data from source workspace
     let source_app = sqlx::query!(
-        "SELECT app.summary, app.policy, app_version.value
+        "SELECT app.summary, app.policy, app_version.value, app_version.raw_app
          FROM app
          JOIN app_version
          ON app_version.id = app.versions[array_upper(app.versions, 1)]
@@ -10151,7 +10169,7 @@ async fn compare_two_apps(
     .await?;
 
     let target_app = sqlx::query!(
-        "SELECT app.summary, app.policy, app_version.value
+        "SELECT app.summary, app.policy, app_version.value, app_version.raw_app
          FROM app
          JOIN app_version
          ON app_version.id = app.versions[array_upper(app.versions, 1)]
@@ -10169,6 +10187,7 @@ async fn compare_two_apps(
         if source.summary != target.summary
             || source.policy != target.policy
             || source.value != target.value
+            || source.raw_app != target.raw_app
         {
             has_changes = true;
         }

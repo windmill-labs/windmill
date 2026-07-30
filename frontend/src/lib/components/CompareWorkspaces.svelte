@@ -84,6 +84,9 @@
 		fullScanAt?: string
 		scanning?: boolean
 		onScan?: () => void
+		/** Re-run the comparison without re-seeding — the only way out of a transient
+		 * failure, which otherwise hides both the scan and recompute actions. */
+		onRetry?: () => void
 		onSelectTarget?: (target: string) => void
 		comparison: WorkspaceComparison | undefined
 		/** Set when the comparison request failed (e.g. not an admin of the target). */
@@ -126,6 +129,7 @@
 		fullScanAt,
 		scanning = false,
 		onScan,
+		onRetry,
 		onSelectTarget,
 		comparison,
 		comparisonError,
@@ -1094,14 +1098,27 @@
 		<Alert title="Could not compare with {parentWorkspaceId}" type="error" class="my-2 w-full">
 			{comparisonError}
 		</Alert>
-		{#if onSelectTarget}
-			<CompareTargetPicker
-				{currentWorkspaceId}
-				targetWorkspaceId={parentWorkspaceId}
-				parentWorkspaceId={lineageParentId}
-				onSelected={onSelectTarget}
-			/>
-		{/if}
+		<div class="flex flex-wrap gap-2 items-center">
+			{#if onRetry}
+				<Button
+					variant="default"
+					unifiedSize="xs"
+					startIcon={{ icon: RefreshCw }}
+					disabled={scanning}
+					onClick={() => onRetry?.()}
+				>
+					Retry
+				</Button>
+			{/if}
+			{#if onSelectTarget}
+				<CompareTargetPicker
+					{currentWorkspaceId}
+					targetWorkspaceId={parentWorkspaceId}
+					parentWorkspaceId={lineageParentId}
+					onSelected={onSelectTarget}
+				/>
+			{/if}
+		</div>
 	</div>
 {:else if comparison}
 	{@const selectedConflicts = conflictingDiffs.filter((e) =>

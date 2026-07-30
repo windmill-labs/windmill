@@ -255,7 +255,17 @@
 			})
 			invalidateWorkspaceComparison(compareTargetId)
 			await checkForChanges()
-			sendUserToast(`Compared ${res.candidates} items with ${compareTargetId}`)
+			// The seed succeeded but the comparison that reads it may not have. Saying
+			// "compared" then would be a lie, and the seeded candidates are still there
+			// for the retry the card offers.
+			if (comparisonError) {
+				sendUserToast(
+					`Seeded ${res.candidates} items but the comparison failed: ${comparisonError}`,
+					true
+				)
+			} else {
+				sendUserToast(`Compared ${res.candidates} items with ${compareTargetId}`)
+			}
 		} catch (e: any) {
 			sendUserToast(`Failed to compute the diff: ${e?.body ?? e}`, true)
 		} finally {
@@ -426,6 +436,7 @@
 				fullScanAt={comparison?.full_scan_at}
 				{scanning}
 				onScan={computeFullScan}
+				onRetry={checkForChanges}
 				onSelectTarget={selectTarget}
 				{comparison}
 				{comparisonError}
