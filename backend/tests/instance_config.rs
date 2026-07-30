@@ -17,7 +17,7 @@ use std::collections::BTreeMap;
 use sqlx::{Pool, Postgres};
 use windmill_common::instance_config::{
     apply_configs_diff, apply_settings_diff, diff_global_settings, diff_worker_configs, ApplyMode,
-    ConfigsDiff, InstanceConfig, SettingsDiff,
+    ConfigsDiff, InstanceConfig, SettingsDiff, WebhookSweep,
 };
 
 // ========================================================================
@@ -1429,5 +1429,45 @@ async fn test_no_alert_in_config_table_after_migration(db: Pool<Postgres>) {
         rows.is_empty(),
         "No alert entries should remain in config table after migration, found: {:?}",
         rows.iter().map(|(n,)| n.as_str()).collect::<Vec<_>>()
+    );
+}
+
+/// The declarative writers bypass the HTTP pre-write hook entirely, so this path owns
+/// validating `github_app_webhook_base_url` itself. A rejected value must not be
+/// half-applied: nothing at all may be written, or an unreachable receiver would be
+/// persisted and only surface much later as a repository falling back to polling.
+#[sqlx::test(fixtures("base"))]
+async fn declarative_sync_rejects_an_unusable_webhook_base_url(db: Pool<Postgres>) {
+    clear_settings_and_configs(&db).await;
+    let before = count_global_settings(&db).await;
+
+    let mut desired = BTreeMap::new();
+    desired.insert("base_url".to_string(), serde_json::json!("https://wm.example.com"));
+    desired.insert(
+        "github_app_webhook_base_url".to_string(),
+        serde_json::json!("httpss://hooks.example.com"),
+    );
+
+    let err = windmill_common::instance_config::sync_global_settings_declarative(
+        &db,
+        &BTreeMap::new(),
+        &desired,
+        WebhookSweep::Await,
+    )
+    .await
+    .expect_err("an invalid webhook base url must fail the sync");
+    assert!(
+        err.to_string().contains("github_app_webhook_base_url"),
+        "the error should name the offending setting, got: {err}"
+    );
+
+    assert_eq!(
+        count_global_settings(&db).await,
+        before,
+        "validation must run before anything is applied"
+    );
+    assert!(
+        get_global_setting(&db, "base_url").await.is_none(),
+        "the other settings in the same apply must not have been written either"
     );
 }

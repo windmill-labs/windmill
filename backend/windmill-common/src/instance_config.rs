@@ -1302,6 +1302,7 @@ pub async fn sync_global_settings_declarative(
     db: &sqlx::Pool<sqlx::Postgres>,
     current: &BTreeMap<String, serde_json::Value>,
     desired: &BTreeMap<String, serde_json::Value>,
+    sweep: WebhookSweep,
 ) -> anyhow::Result<()> {
     let webhook_key = crate::global_settings::GITHUB_APP_WEBHOOK_BASE_URL_SETTING;
     if let Some(s) = desired
@@ -1314,25 +1315,44 @@ pub async fn sync_global_settings_declarative(
     }
 
     let diff = diff_global_settings(current, desired, ApplyMode::Replace);
-    // Keyed on the setting being declared at all, not on the diff: these callers are
-    // reconcilers that re-apply the same config repeatedly, and that repetition is
-    // what retries a repository whose last hook move failed (it keeps its old hook
-    // id, so it stays a candidate). Gating on the diff would make the first failure
-    // permanent until someone re-saved that workspace by hand. Repositories already
-    // on the current receiver are compared locally, so a converged instance makes no
-    // GitHub calls.
-    let reconcile_webhooks =
-        desired.contains_key(webhook_key) || diff.deletes.iter().any(|k| k == webhook_key);
     apply_settings_diff(db, &diff).await?;
 
+    // Swept unconditionally, not gated on the setting appearing in `desired` or in
+    // the diff. These callers re-apply the same config repeatedly, and that
+    // repetition is the only thing that retries a repository whose last hook move
+    // failed. Any gate makes the first failure permanent until someone re-saves that
+    // workspace by hand — including the clear-by-omission case, where a later run has
+    // the key in neither `desired` nor `current` and so would never retry the move
+    // back to `base_url`. A converged instance makes no GitHub calls.
     #[cfg(all(feature = "enterprise", feature = "private"))]
-    if reconcile_webhooks {
-        crate::git_sync_ee::reconcile_all_repo_webhooks(db).await;
+    match sweep {
+        WebhookSweep::Await => crate::git_sync_ee::reconcile_all_repo_webhooks(db).await,
+        // Long-running reconcilers must not block their tick on GitHub: a sweep
+        // slower than the interval would delay every other setting they manage, and
+        // the missed ticks would then fire back-to-back. The next tick retries
+        // whatever is still stale, and the sweep is single-flight.
+        WebhookSweep::Detach => {
+            let db = db.clone();
+            tokio::spawn(async move {
+                crate::git_sync_ee::reconcile_all_repo_webhooks(&db).await;
+            });
+        }
     }
     #[cfg(not(all(feature = "enterprise", feature = "private")))]
-    let _ = reconcile_webhooks;
+    let _ = sweep;
 
     Ok(())
+}
+
+/// Whether the caller can block on the webhook sweep.
+#[derive(Clone, Copy, Debug)]
+pub enum WebhookSweep {
+    /// One-shot callers (the `sync-config` CLI) that exit right after and would kill
+    /// a detached task before it finished.
+    Await,
+    /// Long-running reconcilers (the Kubernetes operator) whose tick must stay
+    /// responsive regardless of GitHub latency.
+    Detach,
 }
 
 /// Apply a settings diff to the global_settings table.
@@ -1515,7 +1535,8 @@ impl InstanceConfig {
                 .await?;
         let current_settings: BTreeMap<String, serde_json::Value> = rows.into_iter().collect();
 
-        sync_global_settings_declarative(db, &current_settings, &desired_settings).await?;
+        sync_global_settings_declarative(db, &current_settings, &desired_settings, WebhookSweep::Await)
+            .await?;
 
         // Worker configs
         let desired_configs: BTreeMap<String, serde_json::Value> = self

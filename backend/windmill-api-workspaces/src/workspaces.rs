@@ -7189,10 +7189,13 @@ async fn attach_dev_workspace(
     // live — they'd keep pulling/pushing against its pre-attach tracked
     // branch. Mirror the fork-creation copy: keep sync repos only, strip the
     // parent-only fields, and delete any managed webhook after commit.
+    // `FOR UPDATE` like the other `git_sync` read-modify-writes: the hook ids
+    // collected here are deleted after commit, so a reconcile writing a new id in the
+    // gap would leave that hook live with nothing tracking it.
     #[allow(unused_mut)]
     let mut stripped_webhooks: Vec<(String, i64)> = Vec::new();
     if let Some(git_sync) = sqlx::query_scalar!(
-        "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+        "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1 FOR UPDATE",
         &dev_w_id
     )
     .fetch_optional(&mut *tx)

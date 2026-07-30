@@ -785,9 +785,12 @@ pub async fn set_global_setting_internal(
 
     // Every write of this key re-points the git-sync webhooks already registered
     // with GitHub, deliberately without first checking that the value moved: a
-    // repository whose previous move failed keeps its old hook id, so re-saving the
-    // same value is how an admin retries it. The sweep is cheap when there is
-    // nothing to do — repositories already on the current receiver are compared
+    // repository whose previous move failed keeps its old hook id, so re-applying the
+    // setting is what retries it. Note the instance-settings page only PUTs keys
+    // whose value it sees as changed, so that retry comes from a direct per-key PUT,
+    // the bulk instance-config endpoint, `sync-config`, or an operator tick — not
+    // from pressing Save with the field untouched. The sweep is cheap when there is
+    // nothing to do: repositories already on the current receiver are compared
     // locally and make no GitHub calls.
     #[cfg(all(feature = "enterprise", feature = "private"))]
     let reconcile_webhooks = key == GITHUB_APP_WEBHOOK_BASE_URL_SETTING;
