@@ -3354,16 +3354,18 @@ async fn save_run_state(
     let mut durable_err = None;
     if let Connection::Sql(db) = conn {
         {
-            // Only while a script still lives at this path. A rename or a delete
-            // moves or clears these rows, and a job that was already running
-            // finishes after: writing then would leave a failure resumable at a
-            // path the script left, or recreate one under a deleted script for
-            // whatever is next created there to inherit.
+            // Only while a LIVE version stays at this path — the same test
+            // `clear_dbt_run_state_if_path_retired` retires it by, since a rename
+            // leaves the old path archived rather than deleted. A rename or a
+            // delete moves or clears these rows and a job already running finishes
+            // after: writing then would strand a failure at a path the script
+            // left, or recreate one for whatever is next created there to inherit.
             durable_err = sqlx::query!(
                 "INSERT INTO dbt_run_state (workspace_id, script_path, permissioned_as, identity, args, run_results, job_id, retryable, updated_at)
                  SELECT $1::varchar, $2::varchar, $7::varchar, $3::text, $4::jsonb, $5::text, $6::uuid, $8::boolean, now()
                   WHERE EXISTS (SELECT 1 FROM script
-                                 WHERE workspace_id = $1 AND path = $2 AND NOT deleted)
+                                 WHERE workspace_id = $1 AND path = $2
+                                   AND deleted = false AND archived = false)
                  ON CONFLICT (workspace_id, script_path, permissioned_as) DO UPDATE SET
                    identity = EXCLUDED.identity, args = EXCLUDED.args,
                    run_results = EXCLUDED.run_results, job_id = EXCLUDED.job_id,
