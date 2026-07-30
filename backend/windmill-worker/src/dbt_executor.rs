@@ -199,14 +199,6 @@ pub(crate) async fn handle_dbt_job(
             }
         });
     }
-    // Not inside the branch above: this is a walk of the worker's own disk and
-    // needs no database, while an agent worker — which has none — installs
-    // packages like any other. Retention that depends on the connection is not
-    // retention, the same reason the graph sweep runs from every dbt job.
-    tokio::spawn(async {
-        prune_package_cache().await;
-        prune_stale_state_dirs().await;
-    });
     let prepared = prepare_project(
         &descriptor,
         inner_content,
@@ -1305,23 +1297,16 @@ async fn install_packages(
     let target = p
         .project_dir
         .join(packages_install_path(&p.project_dir).await);
-    // KNOWN LIMITATION, deliberately not addressed here: a project with no
-    // checked-in `package-lock.yml` asked dbt to resolve its ranges and mutable
-    // git revisions, and dbt would re-resolve on every run — a hit skips `dbt
-    // deps` entirely, so the first resolution is pinned until something in the
-    // key changes (any project edit does). Expiring a hit needs a PUBLICATION
-    // timestamp, which the last-use marker is not, and a publish that can replace
-    // a populated directory, which `rename` is not; both are new machinery rather
-    // than a condition here.
+    // Two limitations of this cache, both deliberate. Nothing evicts a tree: the
+    // key covers the whole project digest, so every edit of a project that
+    // declares packages publishes another, and an operator's `cache_clear` is
+    // what reclaims them, as it is for every other language. And a project with
+    // no checked-in `package-lock.yml` asked dbt to RESOLVE its ranges and
+    // mutable git revisions, which a hit skips — so the first resolution stands
+    // until something in the key changes. Expiring a hit needs a publication
+    // timestamp and a publish that can replace a populated tree, which is its
+    // own change rather than a condition here.
     if cached.exists() {
-        // BEFORE the copy, not after. The tree this matters for is the one at the
-        // retention edge, where the first use in a fortnight is also when the
-        // sweep would take it: marked afterwards, the source looks stale for the
-        // length of the copy and a concurrent job's sweep can remove it
-        // mid-restore. Beside the tree, never inside it — the copy takes this
-        // directory into the project, and a marker in `dbt_packages/` would ride
-        // along.
-        tokio::fs::write(last_used_marker(&cached), b"").await.ok();
         let restored = copy_dir_watched(
             &cached,
             &target,
@@ -1366,9 +1351,6 @@ async fn install_packages(
     .await?;
     if target.exists() {
         publish_to_cache(&target, &cached, ctx, job_id, w_id, conn).await;
-        // Dated on publication too, so a tree that is used once and never again
-        // ages from when it arrived rather than never.
-        tokio::fs::write(last_used_marker(&cached), b"").await.ok();
     }
     Ok(())
 }
@@ -3423,105 +3405,6 @@ async fn save_run_state(
     }
     prune_old_generations(&dir, &generation).await;
     Ok(())
-}
-
-/// How long a state directory nobody has written to is kept. The generations
-/// inside one are bounded by `GENERATION_KEEP`, but the DIRECTORIES are per
-/// (script, principal) and only that script's own runs sweep them — so a script
-/// that stops running, or a principal who stops running it, leaves its last
-/// generations (a `manifest.json` each) behind for good.
-const STATE_DIR_RETENTION_DAYS: u64 = 30;
-
-/// Reclaim the retry state of scripts and principals that have stopped running.
-///
-/// Keyed by a digest of (workspace, path, principal), so this cannot tell which
-/// script a directory belongs to and reclaims by age alone — the same shape the
-/// package sweep uses, and for the same reason: retention that runs only for the
-/// script being run is not retention for the ones that are not.
-async fn prune_stale_state_dirs() {
-    let root = PathBuf::from(&*DBT_CACHE_DIR).join("state");
-    let Ok(mut entries) = tokio::fs::read_dir(&root).await else {
-        return;
-    };
-    let now = std::time::SystemTime::now();
-    let max_age = std::time::Duration::from_secs(STATE_DIR_RETENTION_DAYS * 24 * 60 * 60);
-    while let Ok(Some(e)) = entries.next_entry().await {
-        // The POINTER's mtime: a save rewrites it, while the directory's own moves
-        // whenever a generation is added or pruned inside it.
-        let last = match tokio::fs::metadata(e.path().join(CURRENT_GENERATION)).await {
-            Ok(m) => m.modified().ok(),
-            Err(_) => e.metadata().await.ok().and_then(|m| m.modified().ok()),
-        };
-        if last
-            .and_then(|t| now.duration_since(t).ok())
-            .is_some_and(|age| age > max_age)
-        {
-            tokio::fs::remove_dir_all(e.path()).await.ok();
-        }
-    }
-}
-
-/// A cache hit's timestamp, kept as a SIBLING of the tree it dates so the restore
-/// (which copies the tree into the project) cannot carry it into
-/// `dbt_packages/`.
-fn last_used_marker(cached: &Path) -> PathBuf {
-    let name = cached.file_name().unwrap_or_default().to_string_lossy();
-    cached.with_file_name(format!("{name}.last_used"))
-}
-
-/// How long a package tree is kept after its last use. `dbt deps` can reach the
-/// network, so evicting one still in rotation costs a fetch; this bound is for
-/// the trees no project will ask for again.
-const PACKAGES_RETENTION_DAYS: u64 = 14;
-
-/// How long a staging directory may sit before it is certainly abandoned. It
-/// belongs to one job and is removed when that job finishes, so one this old is
-/// from a worker that died mid-publish and nothing will look at it again.
-const PACKAGES_STAGING_MAX_AGE_HOURS: u64 = 24;
-
-/// Reclaim package trees no project has used lately, and staging directories a
-/// killed worker left behind.
-///
-/// The cache key covers the whole project digest, because a `local:` dependency's
-/// content appears in no manifest — so every edit of a project that declares
-/// packages publishes a new tree. Without this, a worker that lives through a
-/// hundred deploys holds a hundred dependency trees until an operator clears the
-/// entire cache by hand, and the disk it fills fails every job on that worker,
-/// not just dbt's.
-async fn prune_package_cache() {
-    let root = PathBuf::from(&*DBT_CACHE_DIR).join("packages");
-    let Ok(mut entries) = tokio::fs::read_dir(&root).await else {
-        return;
-    };
-    let now = std::time::SystemTime::now();
-    while let Ok(Some(e)) = entries.next_entry().await {
-        let name = e.file_name().to_string_lossy().to_string();
-        if name.ends_with(".last_used") {
-            // Outlives the tree it dated only if that tree is already gone.
-            if !root.join(name.trim_end_matches(".last_used")).exists() {
-                tokio::fs::remove_file(e.path()).await.ok();
-            }
-            continue;
-        }
-        let max_age = if name.contains(".staging-") {
-            std::time::Duration::from_secs(PACKAGES_STAGING_MAX_AGE_HOURS * 60 * 60)
-        } else {
-            std::time::Duration::from_secs(PACKAGES_RETENTION_DAYS * 24 * 60 * 60)
-        };
-        let last = match tokio::fs::metadata(last_used_marker(&e.path())).await {
-            Ok(m) => m.modified().ok(),
-            // No marker: a tree published and never restored, or a staging
-            // directory, so its own mtime is when it last mattered.
-            Err(_) => e.metadata().await.ok().and_then(|m| m.modified().ok()),
-        };
-        if last
-            .and_then(|t| now.duration_since(t).ok())
-            .is_some_and(|age| age > max_age)
-        {
-            tokio::fs::remove_dir_all(e.path()).await.ok();
-            tokio::fs::remove_file(last_used_marker(&e.path())).await.ok();
-        }
-    }
 }
 
 /// Names the generation directory a retry reads. Replaced by rename, so it is
