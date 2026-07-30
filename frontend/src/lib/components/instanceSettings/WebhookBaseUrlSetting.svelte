@@ -1,7 +1,7 @@
 <script lang="ts">
 	import TextInput from '../text_input/TextInput.svelte'
 	import { SettingService } from '$lib/gen'
-	import { isValidWebhookBaseUrl } from '../instanceSettings'
+	import { isValidWebhookBaseUrl, instanceSettingsSaved } from '../instanceSettings'
 	import Alert from '../common/alert/Alert.svelte'
 	import { resource } from 'runed'
 	import type { Writable } from 'svelte/store'
@@ -25,8 +25,11 @@
 	 * with no GitHub App connected yet, so this is empty; when it isn't, these are the
 	 * workspaces whose git sync settings have to be re-saved to move their hook.
 	 */
+	// Keyed on the save signal, not on the form value: the list is derived from the
+	// *saved* setting, so it has to refresh when a save lands — which is exactly the
+	// moment an admin needs to see which workspaces still hold the old receiver.
 	const staleRepos = resource(
-		() => null,
+		() => $instanceSettingsSaved,
 		async () => {
 			try {
 				return (await SettingService.githubAppStaleWebhooks()) as StaleRepo[]

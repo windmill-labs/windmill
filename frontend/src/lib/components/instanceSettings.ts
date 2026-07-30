@@ -1,5 +1,14 @@
 import type { ButtonType } from './common/button/model'
 import { z } from 'zod'
+import { writable } from 'svelte/store'
+
+/**
+ * Bumped after instance settings are successfully saved. Settings whose display
+ * depends on server-side state derived from a saved value (rather than on the value
+ * in the form) subscribe to this to refetch — the form values change on every
+ * keystroke, so they are not a usable signal for that.
+ */
+export const instanceSettingsSaved = writable(0)
 
 // Languages that support HTTP request tracing via OTEL proxy
 export const OTEL_TRACING_PROXY_LANGUAGES = [
@@ -137,8 +146,13 @@ export const scimSamlSetting: Setting[] = [
  * server trims and runs `Url::parse`, so this does the same. The webhook path is
  * appended to this value verbatim, hence no query, fragment or trailing slash.
  */
-export function isValidWebhookBaseUrl(value: string | undefined): boolean {
-	if (value == undefined || value.trim() === '') return true
+export function isValidWebhookBaseUrl(value: unknown): boolean {
+	if (value == undefined) return true
+	// `Setting.isValid` receives `any`, and YAML mode can put any JSON type here — a
+	// non-string must read as invalid rather than throw while the form computes which
+	// categories are in error.
+	if (typeof value !== 'string') return false
+	if (value.trim() === '') return true
 	const trimmed = value.trim()
 	let url: URL
 	try {

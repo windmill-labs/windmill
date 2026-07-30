@@ -41,6 +41,11 @@ describe('isValidWebhookBaseUrl', () => {
 		expect(isValidWebhookBaseUrl(value)).toBe(false)
 	})
 
+	it.each([true, 42, {}, [], null] as unknown[])('rejects the non-string %j without throwing', (value) => {
+		// `Setting.isValid` is typed `any` and YAML mode can supply any JSON shape.
+		expect(isValidWebhookBaseUrl(value as never)).toBe(value === null)
+	})
+
 	it('treats unset and blank as valid, since the setting is optional', () => {
 		expect(isValidWebhookBaseUrl(undefined)).toBe(true)
 		expect(isValidWebhookBaseUrl('')).toBe(true)

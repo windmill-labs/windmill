@@ -1276,14 +1276,12 @@ pub fn diff_worker_configs(
     ConfigsDiff { upserts, deletes }
 }
 
-/// Declaratively replace the global settings, applying the `github_app_webhook_base_url`
-/// write rules: reject a value the API would reject, and re-point any webhook already
-/// registered with GitHub that is not on the configured receiver. The re-point runs on
-/// every apply, not only when the value changed — see the sweep call below for why.
+/// Declaratively replace the global settings, rejecting a `github_app_webhook_base_url`
+/// the API would reject.
 ///
 /// Every declarative writer (the `sync-config` CLI, the Kubernetes operator's
 /// ConfigMap sync) MUST go through this rather than calling
-/// [`apply_settings_diff`] directly, or those two effects are silently skipped.
+/// [`apply_settings_diff`] directly, or that validation is silently skipped.
 /// Note this is *not* the full equivalent of the HTTP layer's pre-write hook —
 /// that also enforces rules for `automate_username_creation`,
 /// `critical_alert_mute_ui` and `app_workspaced_route`, which the declarative
@@ -1294,10 +1292,9 @@ pub fn diff_worker_configs(
 /// registered to move; an instance that changes it later finds the affected
 /// workspaces listed in instance settings and re-saves them.
 ///
-/// AUTHORIZATION: replaces instance-wide settings and mutates remote webhooks in
-/// every workspace, taking no authed context, so callers MUST have established
-/// superadmin or equivalent system authority (the CLI and the operator both run
-/// with direct instance credentials).
+/// AUTHORIZATION: replaces instance-wide settings and takes no authed context, so
+/// callers MUST have established superadmin or equivalent system authority (the CLI
+/// and the operator both run with direct instance credentials).
 pub async fn sync_global_settings_declarative(
     db: &sqlx::Pool<sqlx::Postgres>,
     current: &BTreeMap<String, serde_json::Value>,
