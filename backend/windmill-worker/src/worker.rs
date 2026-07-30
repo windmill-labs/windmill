@@ -152,6 +152,7 @@ use crate::{
     worker_flow::handle_flow,
     worker_lockfiles::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
+        tally_unfinished_dependency_deploy,
     },
     worker_utils::{insert_ping, queue_vacuum, update_worker_ping_full},
 };
@@ -3958,6 +3959,9 @@ pub async fn handle_queued_job(
         } else {
             None
         };
+        // Set by the dependency handlers once they reach `handle_deployment_metadata`,
+        // so the fallback tally below never counts the same deploy twice.
+        let mut deployment_tallied = false;
         // Box::pin all async branches to prevent large match enum on stack
         let result = match job.kind {
             JobKind::Dependencies => match conn {
@@ -3975,6 +3979,7 @@ pub async fn handle_queued_job(
                         &client.token,
                         occupancy_metrics,
                         raw_workspace_dependencies_o,
+                        &mut deployment_tallied,
                     ))
                     .await
                 }
@@ -3999,6 +4004,7 @@ pub async fn handle_queued_job(
                         &client.token,
                         occupancy_metrics,
                         raw_workspace_dependencies_o,
+                        &mut deployment_tallied,
                     ))
                     .await
                 }
@@ -4021,6 +4027,7 @@ pub async fn handle_queued_job(
                     &client.token,
                     occupancy_metrics,
                     raw_workspace_dependencies_o,
+                    &mut deployment_tallied,
                 ))
                 .await
                 .map(|()| serde_json::from_str("{}").unwrap()),
@@ -4106,6 +4113,20 @@ pub async fn handle_queued_job(
                 r
             }
         };
+
+        // A lock generation that failed or was cancelled still leaves the deployed
+        // version live in the workspace, so its fork/parent change must be tallied.
+        // `AlreadyCompleted` is not such a failure — another worker owns the job.
+        if job.kind.is_dependency()
+            && (result
+                .as_ref()
+                .is_err_and(|err| !matches!(err, &Error::AlreadyCompleted(_)))
+                || canceled_by.is_some())
+        {
+            if let Connection::Sql(db) = conn {
+                tally_unfinished_dependency_deploy(db, job.as_ref(), &mut deployment_tallied).await;
+            }
+        }
 
         let cjob = MiniCompletedJob::from(job.to_owned());
         drop(job);
