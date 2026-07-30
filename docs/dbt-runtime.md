@@ -41,7 +41,7 @@ the dominant way dbt is orchestrated today.
 | 16 | Progress | Live, from the JSON event stream |
 | 17 | Test failures | Honor dbt's own `severity` |
 | 18 | Retry | Automatic node-level retry in-job, plus `dbt retry` as a run argument. See below |
-| 19 | Caching | Worker-local global cache, keyed by the project digest |
+| 19 | Caching | Worker-local global cache, keyed by the project digest and the resolution the deploy pinned |
 | 20 | Images | Full images only |
 | 21 | Licensing | CE except the `mssql` / `oracle` adapters. See below |
 | 22 | Naming | Match Cosmos field names; importer deferred |
@@ -639,6 +639,9 @@ struct DbtDependencyLocks {
     manifest_digest: String,
     engine: String,
     engine_version: String,
+    adapter_version: Option<String>,
+    package_lock_digest: Option<String>,
+    profile_relation_root: Option<String>,
 }
 ```
 
@@ -656,6 +659,36 @@ pure function of script content. dbt's needs the bundle on disk and a dbt
 invocation, so it cannot run inline: it runs as a deploy-time job, persists the manifest, and
 `parse_assets_for_lang` reads the persisted result. **Prototype this first**, it
 is the assumption most likely to reshape the phasing.
+
+### Dependencies resolve at deploy, and are pinned for every run
+
+A project declaring `packages.yml` ranges or a mutable git revision asks dbt to
+*resolve* them, and dbt re-resolves on every `dbt deps`. Windmill resolves once, at
+deploy, and pins the result — the same contract every other language's lockfile
+gets here.
+
+The deploy runs `dbt deps` for real (no expected resolution exists yet, so no cache
+is consulted) and records the digest of the `package-lock.yml` it produced into
+`DbtDependencyLocks`. That digest then keys the worker-local package cache, and joins
+the run identity that gates `dbt retry`. A run restores the tree under that key; a
+worker that resolves anything else is refused rather than run, because accepting it
+would let one resolution's `run_results.json` decide what a retry rebuilds.
+
+Consequences worth knowing before choosing whether to commit a lockfile:
+
+- **To pick up a newer version of a ranged dependency, deploy again.** A deploy of
+  byte-identical content is accepted and creates a new version, so nothing has to be
+  edited to force re-resolution.
+- **Committing `package-lock.yml` makes deploys cache-hit**, since the checked-in
+  file is itself the expected resolution. Without one, every deploy of that project
+  pays a real `dbt deps`. This is dbt's own recommendation for the same reason.
+- A project whose committed lock disagrees with the resolution recorded for the
+  deployed version is refused, naming the redeploy as the fix.
+
+Nothing evicts these worker-local caches — package trees, engine installs and retry
+state alike. An operator's `cache_clear` reclaims them, exactly as it does for every
+other language. Engine installs dominate the space by two orders of magnitude
+(~270–290 MB each, bounded by engine version), not the dependency trees.
 
 ## Run path
 
@@ -766,7 +799,7 @@ a SQL-AST pass of our own, so `columnLineageGraph.ts` is not wired up for dbt.
 | model `tags` | node badge | `tag` |
 | source freshness | `freshness` | `last_success_at` chip |
 | `run_results.json` | materialization records | `record_materialization` |
-| `dbt_packages/` | worker-local cache | keyed by `packages.yml` and the project digest |
+| `dbt_packages/` | worker-local cache | keyed by `packages.yml`, the project digest and the `package-lock.yml` the deploy resolved |
 
 ## Phases
 

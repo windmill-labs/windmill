@@ -1281,6 +1281,12 @@ fn package_cache_key(base: &str, lock_digest: &str) -> String {
 
 /// Resolve or restore `dbt_packages/`, proving the tree matches the dependency
 /// resolution recorded when this script version was deployed.
+///
+/// dbt re-resolves ranges and mutable git revisions on every `dbt deps`; the deploy
+/// is the only place that happens here, so runs of one version cannot disagree about
+/// what they installed. A project that wants a newer version deploys again — nothing
+/// expires a tree by age, which would re-resolve mid-run and then be refused below
+/// for differing from the pin.
 async fn install_packages(
     p: &PreparedProject,
     require_pinned_resolution: bool,
