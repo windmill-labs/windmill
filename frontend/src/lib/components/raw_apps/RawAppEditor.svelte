@@ -1327,8 +1327,8 @@
 			console.warn('Could not mint a preview SDK token', e)
 			if (key !== previewSdkKey) return
 			previewSdkEnvJs = ''
-			// Deliberately keep the key: clearing it would re-trigger the effect and
-			// spin on a failing mint. Editing the scopes retries.
+			// The key stays set, so a failed mint is not retried until the scopes or
+			// workspace actually change — which is the only thing this effect reacts to.
 		}
 	}
 

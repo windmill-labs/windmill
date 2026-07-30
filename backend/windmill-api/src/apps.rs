@@ -1358,12 +1358,11 @@ async fn mint_raw_app_sdk_token(
 /// decides its whole API surface (its policy-approved runnables still run either
 /// way, through the bridge).
 ///
-/// The CALLER MUST establish that `opt_authed` may have this app's credential
-/// before calling: this mints on their behalf unconditionally and does no check of
-/// its own. The three viewer endpoints — `get_app_embed_token`,
-/// `get_app_embed_token_for_path` and the EE custom-path variant — verify read
-/// access; `mint_preview_sdk_token` (the editor) instead requires
-/// `apps:write:<path>`, since there the author is granting to themselves.
+/// The CALLER MUST verify that `opt_authed` may view `app_path` before calling:
+/// this mints on their behalf unconditionally and does no visibility check of its
+/// own. All three call sites — `get_app_embed_token`,
+/// `get_app_embed_token_for_path` and the EE custom-path variant — access-check
+/// first.
 pub async fn build_embed_token_response(
     db: &DB,
     w_id: &str,
