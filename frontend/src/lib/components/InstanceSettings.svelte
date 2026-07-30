@@ -626,6 +626,7 @@
 			const v = $values[s.key]
 			initialValues[s.key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
 		}
+		instanceSettingsSaved.update((n) => n + 1)
 		if (categorySettings.some((s) => s.key === 'base_url')) {
 			baseUrlIsFallback = false
 		}

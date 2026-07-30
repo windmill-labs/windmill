@@ -3642,9 +3642,9 @@ async fn edit_git_sync_config(
     #[cfg(all(feature = "enterprise", feature = "private"))]
     if let Some((mut settings, removed_webhooks)) = post_commit {
         for repo in settings.repositories.iter_mut() {
-            // `sync_repo_webhook` writes back the webhook fields it changes itself,
-            // under the repository's lock — persisting them out here would reopen
-            // the window a concurrent reconcile can interleave into.
+            // `sync_repo_webhook` writes back the webhook fields it changes itself:
+            // the remote hook and the record of it have to move together, so
+            // persisting them out here would let one land without the other.
             if let Err(e) = windmill_common::git_sync_ee::sync_repo_webhook(&db, &w_id, repo).await
             {
                 tracing::warn!("git auto-pull: webhook sync error: {}", e);
@@ -3870,9 +3870,9 @@ async fn edit_git_sync_repository(
     .await?;
     tx.commit().await?;
 
-    // Post-commit: create/remove the webhook to match the saved config. The
-    // resulting hook id/secret/url are written back by `sync_repo_webhook` under the
-    // repository's lock. Best-effort — a failure leaves polling on.
+    // Post-commit: create/remove the webhook to match the saved config. The resulting
+    // hook id/secret/url are written back by `sync_repo_webhook` itself. Best-effort —
+    // a failure leaves polling on.
     #[cfg(all(feature = "enterprise", feature = "private"))]
     if let Some(repo) = git_sync_settings
         .repositories
