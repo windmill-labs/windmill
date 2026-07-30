@@ -3,6 +3,7 @@
 		File as FileIcon,
 		FolderClosed,
 		FolderOpen,
+		ChevronDown,
 		RotateCw,
 		Loader2,
 		Download,
@@ -873,21 +874,31 @@
 										the browsing root the same way entry rows do. -->
 										{@const loadMoreNesting =
 											nestingLevelOf(load_more_prefix + 'x') - 2 * rootPathNestingLevel}
+										{@const loadingMore = folderState[load_more_prefix]?.loading === true}
+										<!-- svelte-ignore a11y_click_events_have_key_events -->
+										<!-- svelte-ignore a11y_no_static_element_interactions -->
 										<div
-											class="flex flex-row h-full items-center"
-											style={`margin-left: ${(2 + loadMoreNesting) * 0.25}rem;`}
+											onclick={() => !loadingMore && loadMore(load_more_prefix)}
+											class={twMerge(
+												'flex flex-row h-full text-xs items-center justify-start text-secondary',
+												loadingMore ? 'cursor-default' : 'cursor-pointer'
+											)}
 										>
-											<Button
-												variant="subtle"
-												size="xs2"
-												disabled={folderState[load_more_prefix]?.loading}
-												on:click={() => loadMore(load_more_prefix)}
+											<div
+												class="flex flex-row w-full gap-2 h-full items-center"
+												style={`margin-left: ${(2 + loadMoreNesting) * 0.25}rem;`}
 											>
-												{#if folderState[load_more_prefix]?.loading}
-													<Loader2 size={12} class="animate-spin mr-1" />
-												{/if}
-												Load more
-											</Button>
+												<!-- Occupies the same slot as the sibling rows' file/folder icon so
+												the labels line up, and holds its width when the spinner swaps in. -->
+												<div class="w-4 shrink-0 flex items-center justify-center">
+													{#if loadingMore}
+														<Loader2 size={16} class="animate-spin" />
+													{:else}
+														<ChevronDown size={16} />
+													{/if}
+												</div>
+												<div class="truncate text-ellipsis w-56">Load more</div>
+											</div>
 										</div>
 									{:else if file_info}
 										{@const nestingLevel = file_info.nestingLevel - 2 * rootPathNestingLevel}
