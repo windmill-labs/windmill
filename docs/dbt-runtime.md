@@ -688,6 +688,12 @@ Consequences worth knowing before choosing whether to commit a lockfile:
   digest the lookup is keyed on before `dbt deps` has run. A project without one, or
   whose committed lock is not what dbt resolves, pays a real `dbt deps` per deploy.
   This is dbt's own recommendation for the same reason.
+- **The refusal is per worker, not per script.** `dbt deps` writes its lock into the
+  job directory, so a project with a range and no committed lock reproduces its
+  resolution only from a cache hit. Once upstream publishes a new version, that
+  script keeps running on every worker already holding its tree and fails on the
+  first cold one — same commit, same arguments, different outcome by worker. A
+  redeploy re-pins and clears it; committing the lock avoids it entirely.
 
 Nothing evicts these worker-local caches — package trees, engine installs and retry
 state alike. An operator's `cache_clear` reclaims them, exactly as it does for every
@@ -758,6 +764,17 @@ provides observability.
    For an `on_behalf_of` script that means every caller shares one saved run,
    since they all execute as the owner — deliberately, since the state describes
    the script's last run under the owner's identity rather than any one caller's.
+
+   **Where that equivalence comes from, and the one place it does not hold.** For
+   a script under `f/`, `see_folder_extra_perms_user` makes a job readable to
+   everyone with read on the folder, which is also what grants execution — so a
+   caller who can retry can already open the run and read its arguments, and the
+   retry adds nothing. A script under `u/<owner>/` shared through `extra_perms` is
+   the exception: no folder policy applies, `see_own_path` matches the owner
+   alone, and an `on_behalf_of` run is `permissioned_as` the owner — so a grantee
+   cannot read that run, nor even their own, while a retry would hand them its
+   arguments. Sharing an `on_behalf_of` dbt script through a folder rather than a
+   user path keeps the two capabilities equal.
 
    That equivalence holds only while the run is READABLE, so the one run that
    breaks it saves nothing: a job pushed `invisible_to_owner` is hidden from the
