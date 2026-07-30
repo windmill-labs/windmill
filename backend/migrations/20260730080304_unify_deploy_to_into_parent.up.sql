@@ -25,6 +25,12 @@ CREATE TABLE workspace_deploy_to_unmigrated (
 COMMENT ON TABLE workspace_deploy_to_unmigrated IS
     'Legacy workspace_settings.deploy_to links that could not be expressed as fork lineage when the column was dropped. Written once by migration 20260730080304; never written by the application. Dropped again by that migration when every link converted, so it only exists where something was preserved.';
 
+-- Tables created after the one-time GRANT ALL in 20250205131523 need explicit grants: ALTER
+-- DEFAULT PRIVILEGES only covers objects created by the role that set them. Without these the
+-- operator this table exists for cannot read it through the application's role.
+GRANT ALL ON workspace_deploy_to_unmigrated TO windmill_user;
+GRANT ALL ON workspace_deploy_to_unmigrated TO windmill_admin;
+
 DO $$
 DECLARE
     leftover RECORD;
