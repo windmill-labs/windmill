@@ -1289,11 +1289,10 @@ pub fn diff_worker_configs(
 /// `critical_alert_mute_ui` and `app_workspaced_route`, which the declarative
 /// paths have never applied. A new rule added there does not appear here for free.
 ///
-/// The caller picks how the webhook sweep runs via [`WebhookSweep`]: `Await` means
-/// the hooks are settled by the time this returns, `Detach` means only the settings
-/// write is, with the sweep converging shortly after. Repositories already on the
-/// current receiver are filtered out before any of it, so a converged instance costs
-/// one query and no GitHub calls either way.
+/// Registered webhooks are deliberately not re-pointed here. The receiver is set at
+/// instance setup, before any GitHub App is connected, so there is normally nothing
+/// registered to move; an instance that changes it later finds the affected
+/// workspaces listed in instance settings and re-saves them.
 ///
 /// AUTHORIZATION: replaces instance-wide settings and mutates remote webhooks in
 /// every workspace, taking no authed context, so callers MUST have established
@@ -1303,7 +1302,6 @@ pub async fn sync_global_settings_declarative(
     db: &sqlx::Pool<sqlx::Postgres>,
     current: &BTreeMap<String, serde_json::Value>,
     desired: &BTreeMap<String, serde_json::Value>,
-    sweep: WebhookSweep,
 ) -> anyhow::Result<()> {
     let webhook_key = crate::global_settings::GITHUB_APP_WEBHOOK_BASE_URL_SETTING;
     // Non-string shapes are rejected rather than ignored: `as_str()` alone would let a
@@ -1314,63 +1312,25 @@ pub async fn sync_global_settings_declarative(
         Some(serde_json::Value::String(s)) if s.trim().is_empty() => {}
         Some(serde_json::Value::String(s)) => crate::global_settings::validate_webhook_base_url(s)
             .map_err(|e| anyhow::anyhow!("{webhook_key}: {e}"))?,
+        // Names the JSON kind rather than printing it: this is the last message on
+        // this path that could report submitted content, and an object or array could
+        // carry a secret into `sync-config` output and operator logs.
         Some(other) => {
-            return Err(anyhow::anyhow!(
-                "{webhook_key} must be a URL string, got {other}"
-            ))
+            let kind = match other {
+                serde_json::Value::Bool(_) => "a boolean",
+                serde_json::Value::Number(_) => "a number",
+                serde_json::Value::Array(_) => "an array",
+                serde_json::Value::Object(_) => "an object",
+                _ => "a non-string value",
+            };
+            return Err(anyhow::anyhow!("{webhook_key} must be a URL string, got {kind}"));
         }
     }
 
     let diff = diff_global_settings(current, desired, ApplyMode::Replace);
     apply_settings_diff(db, &diff).await?;
 
-    // Swept unconditionally, not gated on the setting appearing in `desired` or in
-    // the diff. These callers re-apply the same config repeatedly, and that
-    // repetition is the only thing that retries a repository whose last hook move
-    // failed. Any gate makes the first failure permanent until someone re-saves that
-    // workspace by hand — including the clear-by-omission case, where a later run has
-    // the key in neither `desired` nor `current` and so would never retry the move
-    // back to `base_url`.
-    reconcile_repo_webhooks(db, sweep).await;
-
     Ok(())
-}
-
-/// Whether the caller can block while the git-sync webhooks are re-pointed.
-#[derive(Clone, Copy, Debug)]
-pub enum WebhookSweep {
-    /// One-shot callers (the `sync-config` CLI) that exit right after and would kill
-    /// a detached task before it finished.
-    Await,
-    /// Callers that must stay responsive regardless of GitHub latency: HTTP handlers,
-    /// and long-running reconcilers whose tick would otherwise delay everything else
-    /// it manages.
-    Detach,
-}
-
-/// Reconcile every git-sync webhook that is not already on the configured receiver:
-/// re-point the ones pointing elsewhere, and retry the ones whose last attempt
-/// failed — which may mean registering a hook that never got created.
-///
-/// The only place that decides await-vs-detach, so the trade-off is stated once.
-/// Either way the request is never dropped: sweeps are serialized, and one arriving
-/// while another runs is coalesced into a single follow-up sweep that re-reads the
-/// settings — so the newest receiver always wins.
-///
-/// A no-op on non-EE builds.
-///
-/// AUTHORIZATION: mutates remote webhooks across *every* workspace and takes no
-/// authed context, so callers MUST have established superadmin or equivalent system
-/// authority (the HTTP callers sit behind `require_super_admin`; the CLI and operator
-/// run with direct instance credentials).
-pub async fn reconcile_repo_webhooks(db: &sqlx::Pool<sqlx::Postgres>, sweep: WebhookSweep) {
-    #[cfg(all(feature = "enterprise", feature = "private"))]
-    match sweep {
-        WebhookSweep::Await => crate::git_sync_ee::reconcile_all_repo_webhooks(db).await,
-        WebhookSweep::Detach => crate::git_sync_ee::queue_reconcile_all_repo_webhooks(db),
-    }
-    #[cfg(not(all(feature = "enterprise", feature = "private")))]
-    let _ = (db, sweep);
 }
 
 /// Apply a settings diff to the global_settings table.
@@ -1553,8 +1513,7 @@ impl InstanceConfig {
                 .await?;
         let current_settings: BTreeMap<String, serde_json::Value> = rows.into_iter().collect();
 
-        sync_global_settings_declarative(db, &current_settings, &desired_settings, WebhookSweep::Await)
-            .await?;
+        sync_global_settings_declarative(db, &current_settings, &desired_settings).await?;
 
         // Worker configs
         let desired_configs: BTreeMap<String, serde_json::Value> = self

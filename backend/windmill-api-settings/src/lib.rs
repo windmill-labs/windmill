@@ -116,6 +116,10 @@ pub fn global_service() -> Router {
         )
         .route("/list_global", get(list_global_settings))
         .route(
+            "/github_app_stale_webhooks",
+            get(github_app_stale_webhooks),
+        )
+        .route(
             "/instance_config",
             get(get_instance_config).put(set_instance_config),
         )
@@ -783,17 +787,6 @@ pub async fn set_global_setting_internal(
         value
     };
 
-    // Every write of this key re-points the git-sync webhooks already registered
-    // with GitHub, deliberately without first checking that the value moved: a
-    // repository whose previous move failed keeps its old hook id, so re-applying the
-    // setting is what retries it. Note the instance-settings page only PUTs keys
-    // whose value it sees as changed, so that retry comes from a direct per-key PUT,
-    // the bulk instance-config endpoint, `sync-config`, or an operator tick — not
-    // from pressing Save with the field untouched. The sweep is cheap when there is
-    // nothing to do: repositories already on the current receiver are compared
-    // locally and make no GitHub calls.
-    #[cfg(all(feature = "enterprise", feature = "private"))]
-    let reconcile_webhooks = key == GITHUB_APP_WEBHOOK_BASE_URL_SETTING;
 
     // EE gate for workspace-fairness settings. Workspace fairness only matters
     // on multi-tenant clusters; it is licensed as an Enterprise feature so the
@@ -859,10 +852,6 @@ pub async fn set_global_setting_internal(
         bump_instance_ai_config_revision();
     }
 
-    #[cfg(all(feature = "enterprise", feature = "private"))]
-    if reconcile_webhooks {
-        instance_config::reconcile_repo_webhooks(db, instance_config::WebhookSweep::Detach).await;
-    }
 
     Ok(())
 }
@@ -1176,16 +1165,6 @@ async fn set_instance_config(
             .upserts
             .iter()
             .any(|(key, _)| key == AI_CONFIG_SETTING);
-        // Same reason as in `set_global_setting_internal`, including the retry
-        // semantics: keyed on the key being *submitted* rather than on the diff, so
-        // re-applying an unchanged config re-attempts a repository whose previous
-        // move failed.
-        #[cfg(all(feature = "enterprise", feature = "private"))]
-        let reconcile_webhooks = desired_map.contains_key(GITHUB_APP_WEBHOOK_BASE_URL_SETTING)
-            || settings_diff
-                .deletes
-                .iter()
-                .any(|key| key == GITHUB_APP_WEBHOOK_BASE_URL_SETTING);
 
         // Mirror the per-key EE gate in `set_global_setting_internal`. Without
         // this, the bulk endpoint would let a non-EE superadmin persist
@@ -1220,11 +1199,6 @@ async fn set_instance_config(
             bump_instance_ai_config_revision();
         }
 
-        #[cfg(all(feature = "enterprise", feature = "private"))]
-        if reconcile_webhooks {
-            instance_config::reconcile_repo_webhooks(&db, instance_config::WebhookSweep::Detach)
-                .await;
-        }
     }
 
     if !desired.worker_configs.is_empty() {
@@ -1291,6 +1265,25 @@ pub async fn get_global_setting(
 struct GlobalSetting {
     name: String,
     value: serde_json::Value,
+}
+
+/// Repositories whose registered webhook still points at a receiver the instance no
+/// longer uses — what an admin has to re-save after changing the webhook base URL.
+/// Read-only; changing the setting never moves a live hook on its own.
+async fn github_app_stale_webhooks(
+    Extension(_db): Extension<DB>,
+    authed: ApiAuthed,
+) -> JsonResult<serde_json::Value> {
+    require_super_admin(&_db, &authed.email).await?;
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    {
+        let stale = windmill_common::git_sync_ee::stale_webhook_repos(&_db).await?;
+        return Ok(Json(serde_json::to_value(stale).map_err(|e| {
+            error::Error::internal_err(format!("Failed to serialize stale webhooks: {e}"))
+        })?));
+    }
+    #[cfg(not(all(feature = "enterprise", feature = "private")))]
+    Ok(Json(serde_json::json!([])))
 }
 
 #[cfg(feature = "enterprise")]

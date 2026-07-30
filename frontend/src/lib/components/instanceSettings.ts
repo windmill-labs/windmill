@@ -52,6 +52,7 @@ export interface Setting {
 		| 'otel_tracing_proxy'
 		| 'secret_backend'
 		| 'github_enterprise_app'
+		| 'webhook_base_url'
 		| 'ws_connectivity'
 		| 'retention_overrides'
 	storage: SettingStorage
@@ -988,7 +989,7 @@ export const settings: Record<string, Setting[]> = {
 			description:
 				'Base url GitHub delivers git sync webhooks to, without trailing slash. Leave empty to use the instance base url. Set it when GitHub cannot reach the base url and a separate ingress fronts this instance for inbound webhooks.',
 			key: 'github_app_webhook_base_url',
-			fieldType: 'text',
+			fieldType: 'webhook_base_url',
 			placeholder: 'https://windmill-webhooks.company.com',
 			storage: 'setting',
 			ee_only: '',

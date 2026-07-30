@@ -2233,6 +2233,32 @@ paths:
                 items:
                   $ref: "#/components/schemas/GlobalSetting"
 
+  /settings/github_app_stale_webhooks:
+    get:
+      summary: list git-sync repositories whose webhook still points at a previous receiver
+      operationId: githubAppStaleWebhooks
+      tags:
+        - setting
+      responses:
+        "200":
+          description: repositories needing their git sync settings re-saved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    workspace_id:
+                      type: string
+                    git_repo_resource_path:
+                      type: string
+                    registered_url:
+                      type: string
+                  required:
+                    - workspace_id
+                    - git_repo_resource_path
+
   /settings/instance_config:
     get:
       summary: get full instance config (global settings + worker configs)

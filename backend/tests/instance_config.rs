@@ -17,7 +17,7 @@ use std::collections::BTreeMap;
 use sqlx::{Pool, Postgres};
 use windmill_common::instance_config::{
     apply_configs_diff, apply_settings_diff, diff_global_settings, diff_worker_configs, ApplyMode,
-    ConfigsDiff, InstanceConfig, SettingsDiff, WebhookSweep,
+    ConfigsDiff, InstanceConfig, SettingsDiff,
 };
 
 // ========================================================================
@@ -1452,7 +1452,6 @@ async fn declarative_sync_rejects_an_unusable_webhook_base_url(db: Pool<Postgres
         &db,
         &BTreeMap::new(),
         &desired,
-        WebhookSweep::Await,
     )
     .await
     .expect_err("an invalid webhook base url must fail the sync");
@@ -1472,7 +1471,6 @@ async fn declarative_sync_rejects_an_unusable_webhook_base_url(db: Pool<Postgres
         &db,
         &BTreeMap::new(),
         &wrong_type,
-        WebhookSweep::Await,
     )
     .await
     .expect_err("a non-string webhook base url must fail the sync");
