@@ -835,6 +835,9 @@ pub async fn run_agent(
 
     // Create the query builder for the provider
     let mut query_builder = create_query_builder(&credentials, args.provider.get_model());
+    // Both outlive the iteration that discovers them: a request shape or a route the
+    // endpoint rejected once stays rejected for the whole step.
+    let mut include_usage = true;
 
     // Initialize messages
     let mut messages =
@@ -1195,12 +1198,10 @@ pub async fn run_agent(
                     req.body(body)
                 };
 
-            // Two request shapes can be rejected by the endpoint rather than by the
-            // model: `stream_options`, which not every OpenAI-compatible provider
-            // accepts, and the route itself, when an Azure resource is outside the
-            // Responses API's model/region matrix. Each is retried once, and whatever
-            // answers is kept for the rest of the step.
-            let mut include_usage = true;
+            // An endpoint can reject the request shape rather than the model:
+            // `stream_options`, which not every OpenAI-compatible provider accepts, and
+            // the route itself, when an Azure resource is outside the Responses API's
+            // model/region matrix. Each is retried once with that part dropped.
             let resp = loop {
                 let request_body = if include_usage {
                     query_builder
