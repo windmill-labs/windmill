@@ -1456,9 +1456,42 @@ impl InstanceConfig {
                 .await?;
         let current_settings: BTreeMap<String, serde_json::Value> = rows.into_iter().collect();
 
+        // The HTTP settings endpoints validate per-key before writing; this path
+        // writes straight through, so it has to apply the same rule or a value
+        // GitHub can never deliver to would be persisted silently.
+        if let Some(v) =
+            desired_settings.get(crate::global_settings::GITHUB_APP_WEBHOOK_BASE_URL_SETTING)
+        {
+            if let Some(s) = v.as_str().filter(|s| !s.trim().is_empty()) {
+                crate::global_settings::validate_webhook_base_url(s).map_err(|e| {
+                    anyhow::anyhow!(
+                        "{}: {e}",
+                        crate::global_settings::GITHUB_APP_WEBHOOK_BASE_URL_SETTING
+                    )
+                })?;
+            }
+        }
+
         let settings_diff =
             diff_global_settings(&current_settings, &desired_settings, ApplyMode::Replace);
+        let webhook_base_url_changed = settings_diff
+            .upserts
+            .contains_key(crate::global_settings::GITHUB_APP_WEBHOOK_BASE_URL_SETTING)
+            || settings_diff
+                .deletes
+                .iter()
+                .any(|k| k == crate::global_settings::GITHUB_APP_WEBHOOK_BASE_URL_SETTING);
         apply_settings_diff(db, &settings_diff).await?;
+
+        // Awaited, not detached: `sync-config` is a one-shot CLI that exits right
+        // after this, so a spawned sweep would be killed before it re-pointed
+        // anything. Hooks already on the new receiver make no GitHub calls.
+        #[cfg(all(feature = "enterprise", feature = "private"))]
+        if webhook_base_url_changed {
+            crate::git_sync_ee::reconcile_all_repo_webhooks(db).await;
+        }
+        #[cfg(not(all(feature = "enterprise", feature = "private")))]
+        let _ = webhook_base_url_changed;
 
         // Worker configs
         let desired_configs: BTreeMap<String, serde_json::Value> = self

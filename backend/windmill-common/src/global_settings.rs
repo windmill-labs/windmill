@@ -136,6 +136,12 @@ pub fn validate_webhook_base_url(value: &str) -> Result<(), String> {
     if value.chars().any(char::is_whitespace) {
         return Err(format!("must not contain whitespace: {}", value));
     }
+    // Matches the sibling `base_url` / `hub_base_url` convention. The receiver
+    // builder trims it anyway, so this is about keeping the stored value canonical
+    // rather than about reachability.
+    if value.ends_with('/') {
+        return Err(format!("must not end with a trailing slash: {}", value));
+    }
     Ok(())
 }
 pub const INSTANCE_EVENTS_WEBHOOK_SETTING: &str = "instance_events_webhook";
@@ -401,6 +407,7 @@ mod tests {
             "https://hooks.example.com?token=x",
             "https://hooks.example.com#frag",
             "https://hooks example.com",
+            "https://hooks.example.com/",
         ] {
             assert!(
                 validate_webhook_base_url(bad).is_err(),
