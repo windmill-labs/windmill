@@ -15,10 +15,11 @@ UPDATE workspace_settings ws
 
 -- The up migration keeps this table only when it preserved something, so restore from it
 -- conditionally. plpgsql plans a branch's statements only when it runs, so the references below
--- are safe when the table was dropped.
+-- are safe when the table was dropped. The probe is unqualified so it resolves through
+-- `search_path`, which a `PG_SCHEMA` install points at its own schema rather than `public`.
 DO $$
 BEGIN
-    IF to_regclass('public.workspace_deploy_to_unmigrated') IS NOT NULL THEN
+    IF to_regclass('workspace_deploy_to_unmigrated') IS NOT NULL THEN
         UPDATE workspace_settings ws
            SET deploy_to = u.deploy_to
           FROM workspace_deploy_to_unmigrated u

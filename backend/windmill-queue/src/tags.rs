@@ -24,12 +24,40 @@ lazy_static::lazy_static! {
         quick_cache::sync::Cache::new(500);
 }
 
+/// Channel on which a lineage change is broadcast to every server and worker process.
+pub const FORK_LINEAGE_CHANGE_CHANNEL: &str = "notify_fork_lineage_change";
+
 /// Drop the cached tag workspace for a workspace. Call after mutating `parent_workspace_id` or
 /// `is_dev_workspace` (attaching/detaching a dev workspace) so job tags resolve against the new
 /// lineage immediately instead of after the cache TTL. Resolution walks ancestors, so a workspace's
-/// descendants must be invalidated too.
+/// descendants must be invalidated too. This only reaches the calling process; pair it with
+/// [`notify_fork_lineage_change`] so replicas do not keep serving the old answer.
 pub fn invalidate_fork_parent_cache(workspace_id: &str) {
     FORK_PARENT_CACHE.remove(workspace_id);
+}
+
+/// Drop every cached tag workspace. Used by the lineage-change listener: resolution depends on a
+/// whole ancestor chain, so a mutation invalidates an unbounded set of descendants and clearing all
+/// of it costs one lookup per active workspace on the next push. Lineage changes are rare admin
+/// actions, so that is cheaper than broadcasting an id per affected workspace and safer than
+/// trying to enumerate them.
+pub fn clear_fork_parent_cache() {
+    FORK_PARENT_CACHE.clear();
+}
+
+/// Broadcast a lineage change so every process drops its cached tag workspaces. Called after the
+/// mutation commits, alongside the local invalidation: a lost event only means replicas wait out
+/// the cache TTL, which is what they did before the broadcast existed.
+pub async fn notify_fork_lineage_change<'e>(
+    executor: impl sqlx::Executor<'e, Database = Postgres>,
+    workspace_id: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO notify_event (channel, payload) VALUES ($1, $2)")
+        .bind(FORK_LINEAGE_CHANGE_CHANNEL)
+        .bind(workspace_id)
+        .execute(executor)
+        .await?;
+    Ok(())
 }
 
 /// The workspace id embedded in a job's tags, for both the default `{lang}-{ws}` tags and explicit

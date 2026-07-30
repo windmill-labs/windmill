@@ -190,7 +190,7 @@ async fn clean_conversion_leaves_no_leftovers_table(db: Pool<Postgres>) {
         (Some("cprod".to_string()), true)
     );
     let table_exists: Option<String> =
-        sqlx::query_scalar("SELECT to_regclass('public.workspace_deploy_to_unmigrated')::text")
+        sqlx::query_scalar("SELECT to_regclass('workspace_deploy_to_unmigrated')::text")
             .fetch_one(&db)
             .await
             .expect("probe leftovers table");

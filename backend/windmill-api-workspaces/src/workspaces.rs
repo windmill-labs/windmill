@@ -7243,6 +7243,9 @@ async fn attach_dev_workspace(
     for id in windmill_common::workspaces::list_fork_descendants(&db, &dev_w_id).await? {
         windmill_queue::tags::invalidate_fork_parent_cache(&id);
     }
+    if let Err(e) = windmill_queue::tags::notify_fork_lineage_change(&db, &dev_w_id).await {
+        tracing::warn!("failed to broadcast fork lineage change: {e:#}");
+    }
     // Best-effort: the hooks captured before the strip above are unreachable now
     // (their auto_pull is gone), so remove them from GitHub.
     #[cfg(all(feature = "enterprise", feature = "private"))]
@@ -7358,6 +7361,9 @@ async fn detach_dev_workspace(
         // Tag resolution walks ancestors, so a descendant's cached tag workspace resolved through
         // the workspace whose dev flag just changed.
         windmill_queue::tags::invalidate_fork_parent_cache(&id);
+    }
+    if let Err(e) = windmill_queue::tags::notify_fork_lineage_change(&db, &dev_w_id).await {
+        tracing::warn!("failed to broadcast fork lineage change: {e:#}");
     }
     #[cfg(feature = "cloud")]
     {
@@ -7604,6 +7610,9 @@ async fn archive_workspace(
         windmill_queue::tags::invalidate_fork_parent_cache(&w_id);
         for id in windmill_common::workspaces::list_fork_descendants(&db, &w_id).await? {
             windmill_queue::tags::invalidate_fork_parent_cache(&id);
+        }
+        if let Err(e) = windmill_queue::tags::notify_fork_lineage_change(&db, &w_id).await {
+            tracing::warn!("failed to broadcast fork lineage change: {e:#}");
         }
     }
 

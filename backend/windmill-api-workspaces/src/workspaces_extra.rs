@@ -824,6 +824,11 @@ pub(crate) async fn change_workspace_id(
         #[cfg(feature = "cloud")]
         windmill_common::workspaces::invalidate_billing_workspace_cache(child);
     }
+    if !reparented_children.is_empty() {
+        if let Err(e) = windmill_queue::tags::notify_fork_lineage_change(&db, &rw.new_id).await {
+            tracing::warn!("failed to broadcast fork lineage change: {e:#}");
+        }
+    }
 
     // Archive old workspace: disable schedules, cancel remaining jobs, set deleted=true
     // Note: schedules were already moved to new workspace, so this will find 0 schedules
@@ -1198,6 +1203,9 @@ pub(crate) async fn delete_workspace(
             windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(&id);
             windmill_queue::tags::invalidate_fork_parent_cache(&id);
         }
+    }
+    if let Err(e) = windmill_queue::tags::notify_fork_lineage_change(&db, &w_id).await {
+        tracing::warn!("failed to broadcast fork lineage change: {e:#}");
     }
 
     Ok(format!("Deleted workspace {}", &w_id))

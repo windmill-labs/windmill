@@ -164,8 +164,12 @@ BEGIN
 END $$;
 
 -- Resolve workspace-specific resources/variables over the fork lineage instead of the `deploy_to`
--- graph. Only the traversal changes; the per-workspace RLS fan-out below is unchanged. This also
--- closes a gap where forks were never considered related at all.
+-- graph. Only the traversal changes; the per-workspace RLS fan-out below is unchanged.
+--
+-- The walk goes UP only: a fork sees itself and its ancestors, a root sees only itself. Walking
+-- down as well would make a root fan out over its entire live fork subtree, and every member costs
+-- an identity lookup plus an RLS switch and probe. Ancestors are bounded by the fork depth limit,
+-- so the member set stays small no matter how many forks a workspace has.
 CREATE OR REPLACE FUNCTION list_ws_specific_versions(
     seed_workspace TEXT,
     user_email TEXT,
@@ -196,14 +200,10 @@ BEGIN
             WITH RECURSIVE related_workspaces(ws_id, depth) AS (
                 SELECT seed_workspace::VARCHAR, 0
               UNION
-                SELECT CASE
-                         WHEN w.id = r.ws_id THEN w.parent_workspace_id
-                         ELSE w.id
-                       END, r.depth + 1
-                FROM workspace w, related_workspaces r
-                WHERE r.depth < 32
-                  AND ((w.id = r.ws_id AND w.parent_workspace_id IS NOT NULL)
-                       OR w.parent_workspace_id = r.ws_id)
+                SELECT w.parent_workspace_id, r.depth + 1
+                FROM workspace w
+                JOIN related_workspaces r ON w.id = r.ws_id
+                WHERE r.depth < 32 AND w.parent_workspace_id IS NOT NULL
             )
             SELECT DISTINCT r.ws_id
             FROM related_workspaces r
