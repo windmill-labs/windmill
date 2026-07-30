@@ -1,0 +1,47 @@
+import { describe, it, expect } from 'vitest'
+import { isValidWebhookBaseUrl } from './instanceSettings'
+
+/**
+ * Kept in lockstep with `webhook_base_url_matches_the_ui_validator` in
+ * backend/windmill-common/src/global_settings.rs — the same table, so a value the
+ * field accepts can never 400 on save and vice versa. The two have drifted twice
+ * already (an invalid port, then a bare `?`/`#`), which is why both sides pin it.
+ */
+const ACCEPTED = [
+	'https://hooks.example.com',
+	'http://hooks.example.com:8080',
+	'https://example.com/windmill',
+	' https://hooks.example.com ',
+	'https://[::1]:8000'
+]
+
+const REJECTED = [
+	'httpss://hooks.example.com',
+	'hooks.example.com',
+	'ftp://hooks.example.com',
+	'https://',
+	'https://hooks.example.com?token=x',
+	'https://hooks.example.com#frag',
+	'https://hooks example.com',
+	'https://hooks.example.com/',
+	'https://hooks.example.com:abc',
+	'https://x/a b',
+	'https://hooks.example.com?',
+	'https://hooks.example.com#'
+]
+
+describe('isValidWebhookBaseUrl', () => {
+	it.each(ACCEPTED)('accepts %j', (value) => {
+		expect(isValidWebhookBaseUrl(value)).toBe(true)
+	})
+
+	it.each(REJECTED)('rejects %j', (value) => {
+		expect(isValidWebhookBaseUrl(value)).toBe(false)
+	})
+
+	it('treats unset and blank as valid, since the setting is optional', () => {
+		expect(isValidWebhookBaseUrl(undefined)).toBe(true)
+		expect(isValidWebhookBaseUrl('')).toBe(true)
+		expect(isValidWebhookBaseUrl('   ')).toBe(true)
+	})
+})

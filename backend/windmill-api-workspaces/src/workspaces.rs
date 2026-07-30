@@ -3598,10 +3598,13 @@ async fn edit_git_sync_config(
         }
     } else {
         // Clearing the whole config removes every repo — delete all their webhooks.
+        // `FOR UPDATE` for the same reason as the save branch: the hook ids collected
+        // here are used to delete after commit, so a reconcile writing a new id in
+        // the gap would leave that hook live with nothing tracking it.
         #[cfg(all(feature = "enterprise", feature = "private"))]
         {
             let existing: Option<WorkspaceGitSyncSettings> = sqlx::query_scalar!(
-                "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+                "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1 FOR UPDATE",
                 &w_id
             )
             .fetch_optional(&mut *tx)
