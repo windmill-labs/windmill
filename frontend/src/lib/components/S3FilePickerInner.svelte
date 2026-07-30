@@ -18,6 +18,8 @@
 		type DeleteS3FileData,
 		type DeleteS3FileResponse,
 		type ListStoredFilesData,
+		type ListStoredFilesPagedData,
+		type ListStoredFilesPagedResponse,
 		type ListStoredFilesResponse,
 		type LoadFileMetadataData,
 		type LoadFileMetadataResponse,
@@ -86,7 +88,16 @@
 		>
 		allowDelete?: boolean
 		replaceUnauthorizedWarning?: Snippet
+		/**
+		 * Expand one folder level at a time instead of listing every key up front.
+		 * Callers that override `listStoredFilesRequest` with a listing that has no
+		 * paged counterpart (e.g. git repo files) must turn this off.
+		 */
+		lazyFolders?: boolean
 		listStoredFilesRequest?: (d: ListStoredFilesData) => CancelablePromise<ListStoredFilesResponse>
+		listStoredFilesPagedRequest?: (
+			d: ListStoredFilesPagedData
+		) => CancelablePromise<ListStoredFilesPagedResponse>
 		loadFilePreviewRequest?: (d: LoadFilePreviewData) => CancelablePromise<LoadFilePreviewResponse>
 		loadFileMetadataRequest?: (
 			d: LoadFileMetadataData
@@ -115,7 +126,9 @@
 		allFilesByKey = $bindable({}),
 		allowDelete = false,
 		replaceUnauthorizedWarning,
+		lazyFolders = true,
 		listStoredFilesRequest = HelpersService.listStoredFiles,
+		listStoredFilesPagedRequest = HelpersService.listStoredFilesPaged,
 		loadFilePreviewRequest = HelpersService.loadFilePreview,
 		loadFileMetadataRequest = HelpersService.loadFileMetadata,
 		deleteS3FileRequest = HelpersService.deleteS3File,
@@ -167,6 +180,8 @@
 	let page = $state(0)
 
 	const maxKeys = 1000
+	/** Entries fetched per folder level before a "Load more" row appears. */
+	const pageSize = 100
 
 	let count = $state(0)
 	let displayedCount = $state(0)
@@ -187,14 +202,159 @@
 		}
 	}
 
+	/**
+	 * Marks the synthetic "Load more" row belonging to a folder. Appended to the
+	 * folder's own prefix so the plain lexicographic sort that orders the tree also
+	 * places the row last among that folder's children.
+	 */
+	const LOAD_MORE_SUFFIX = '￿'
+
+	type FolderState = { nextPageToken?: string; loading: boolean; loaded: boolean }
+	let folderState: Record<string, FolderState> = $state({})
+
+	/** Per-level listing only makes sense while browsing; searching stays flat. */
+	let lazyMode = $derived(lazyFolders && filter.trim() === '')
+
+	function nestingLevelOf(key: string): number {
+		const slashes = (key.match(/\//g) ?? []).length
+		return (key.endsWith('/') ? slashes - 1 : slashes) * 2
+	}
+
+	function parentPathOf(key: string): string | undefined {
+		const body = key.endsWith('/') ? key.slice(0, -1) : key
+		const idx = body.lastIndexOf('/')
+		return idx === -1 ? undefined : body.slice(0, idx + 1)
+	}
+
+	/** The parentPath value carried by entries sitting at the browsing root. */
+	let rootParentPath = $derived(rootPath === '' ? undefined : rootPath)
+
+	function addEntry(key: string, type: 'folder' | 'leaf', displayName: string) {
+		if (allFilesByKey[key] !== undefined) return
+		allFilesByKey[key] = {
+			type,
+			full_key: key,
+			display_name: displayName,
+			collapsed: true,
+			parentPath: parentPathOf(key),
+			nestingLevel: nestingLevelOf(key),
+			count: 0
+		}
+	}
+
+	/** A level shows only when every folder above it is expanded. */
+	function isLevelVisible(prefix: string | undefined): boolean {
+		if (prefix === rootParentPath) return true
+		if (prefix === undefined) return false
+		const info = allFilesByKey[prefix]
+		if (info === undefined || info.collapsed) return false
+		return isLevelVisible(info.parentPath)
+	}
+
+	function refreshDisplayed() {
+		const visible: string[] = []
+		for (const key in allFilesByKey) {
+			if (!key.startsWith(rootPath)) continue
+			if (isLevelVisible(allFilesByKey[key].parentPath)) visible.push(key)
+		}
+		for (const prefix in folderState) {
+			if (folderState[prefix].nextPageToken && isLevelVisible(prefix)) {
+				visible.push(prefix + LOAD_MORE_SUFFIX)
+			}
+		}
+		// Full keys sort into depth-first order because a child always starts with
+		// its parent's delimiter-terminated prefix.
+		displayedFileKeys = visible.sort()
+		displayedCount = visible.filter((k) => !k.endsWith(LOAD_MORE_SUFFIX)).length
+	}
+
+	async function loadFolderPage(prefix: string, append: boolean = false) {
+		const current = folderState[prefix] ?? { loading: false, loaded: false }
+		if (current.loading) return
+		if (append && current.nextPageToken === undefined) return
+		folderState[prefix] = { ...current, loading: true }
+		try {
+			const page = await listStoredFilesPagedRequest({
+				workspace: ws!,
+				prefix,
+				maxKeys: pageSize,
+				pageToken: append ? current.nextPageToken : undefined,
+				storage,
+				s3ResourcePath
+			})
+			if (page.restricted_access) {
+				fileListUnavailable = true
+				folderState[prefix] = { loading: false, loaded: true }
+				return
+			}
+			fileListUnavailable = false
+			for (const folder of page.folders ?? []) {
+				addEntry(folder.prefix, 'folder', folder.name)
+			}
+			for (const file of page.files ?? []) {
+				if (regexFilter && !regexFilter.test(file.key)) continue
+				addEntry(file.key, 'leaf', file.name)
+			}
+			folderState[prefix] = {
+				loading: false,
+				loaded: true,
+				nextPageToken: page.next_page_token
+			}
+		} catch (e) {
+			folderState[prefix] = { ...current, loading: false }
+			throw e
+		} finally {
+			refreshDisplayed()
+		}
+	}
+
+	/**
+	 * Reveal a key by loading each folder above it in turn — with per-level listing
+	 * an ancestor's children are not known until that level is fetched.
+	 */
+	async function expandToKey(key: string) {
+		if (!key.startsWith(rootPath)) return
+		const rest = key.slice(rootPath.length).split('/')
+		let prefix = rootPath
+		for (let i = 0; i < rest.length - 1; i++) {
+			prefix += rest[i] + '/'
+			if (!folderState[prefix]?.loaded) {
+				await loadFolderPage(prefix)
+			}
+			const info = allFilesByKey[prefix]
+			if (info !== undefined) info.collapsed = false
+		}
+		refreshDisplayed()
+	}
+
 	let lastKeyFolders: string[] = $state([])
+
 	async function loadFiles() {
+		if (lazyMode) {
+			fileListLoading = true
+			try {
+				await loadFolderPage(rootPath)
+				if (selectedFileKey !== undefined && !emptyString(selectedFileKey.s3)) {
+					await expandToKey(selectedFileKey.s3)
+				}
+			} finally {
+				fileListLoading = false
+				fileInfoLoading = false
+			}
+			return
+		}
+		await loadFlatFiles()
+	}
+
+	async function loadFlatFiles() {
 		fileListLoading = true
 		let availableFiles = await listStoredFilesRequest({
 			workspace: ws!,
 			maxKeys: maxKeys, // fixed pages of 1000 files for now
 			marker: page == 0 ? undefined : listMarkers[page - 1],
-			prefix: rootPath ?? (filter.trim() != '' ? filter : undefined),
+			// `rootPath` defaults to '' rather than undefined, so it cannot be tested
+			// with `??` here — doing so swallowed the filter and sent an empty prefix.
+			prefix: rootPath !== '' ? rootPath : filter.trim() !== '' ? filter : undefined,
 			storage: storage,
 			s3ResourcePath
 		})
@@ -371,6 +531,15 @@
 		}
 		sendUserToast(`${fileKey} deleted from S3 bucket`)
 		selectedFileKey = { s3: '', storage }
+		if (lazyMode) {
+			// Only the level the file lived in changed; refetch that one and keep the
+			// rest of the expanded tree as it is.
+			const parent = parentPathOf(fileKey) ?? rootPath
+			delete allFilesByKey[fileKey]
+			delete folderState[parent]
+			await loadFolderPage(parent)
+			return
+		}
 		const currentPage = page
 		await clearAndLoadFiles()
 		for (let i = 0; i < currentPage; i++) {
@@ -402,6 +571,7 @@
 	async function clearAndLoadFiles({ keepFilter }: { keepFilter?: boolean } = {}) {
 		displayedFileKeys = []
 		allFilesByKey = {}
+		folderState = {}
 		count = 0
 		displayedCount = 0
 		page = 0
@@ -506,6 +676,27 @@
 	function selectItem(index: number, toggleCollapsed: boolean = true) {
 		let item_key = displayedFileKeys[index]
 		let item = allFilesByKey[item_key]
+		if (item === undefined) return
+		if (lazyMode) {
+			if (item.type === 'folder') {
+				if (folderOnly) {
+					selectedFileKey = { s3: item_key, storage }
+				}
+				if (toggleCollapsed) {
+					item.collapsed = !item.collapsed
+				}
+				if (!item.collapsed && !folderState[item_key]?.loaded) {
+					// Children are unknown until this level is fetched.
+					loadFolderPage(item_key)
+				} else {
+					refreshDisplayed()
+				}
+			} else {
+				selectedFileKey = { s3: item_key, storage }
+				loadFileMetadataPlusPreviewAsync(selectedFileKey.s3)
+			}
+			return
+		}
 		if (item.type === 'folder') {
 			if (folderOnly) {
 				selectedFileKey = {
@@ -638,7 +829,12 @@
 							{#snippet header()}{/snippet}
 							{#snippet footer()}{/snippet}
 							{#snippet item({ index, style })}
-								{@const file_info = allFilesByKey[displayedFileKeys[index]]}
+								<!-- VirtualList can render an index past the array while the list is
+								shrinking, so this must tolerate a missing key. -->
+								{@const item_key = displayedFileKeys[index] ?? ''}
+								{@const is_load_more = item_key.endsWith(LOAD_MORE_SUFFIX)}
+								{@const load_more_prefix = is_load_more ? item_key.slice(0, -1) : ''}
+								{@const file_info = allFilesByKey[item_key]}
 
 								<div
 									{style}
@@ -647,7 +843,24 @@
 										index === displayedFileKeys.length - 1 && 'border-b-0'
 									)}
 								>
-									{#if file_info}
+									{#if is_load_more}
+										<div
+											class="flex flex-row h-full items-center"
+											style={`margin-left: ${(2 + nestingLevelOf(load_more_prefix + 'x')) * 0.25}rem;`}
+										>
+											<Button
+												variant="subtle"
+												size="xs2"
+												disabled={folderState[load_more_prefix]?.loading}
+												on:click={() => loadFolderPage(load_more_prefix, true)}
+											>
+												{#if folderState[load_more_prefix]?.loading}
+													<Loader2 size={12} class="animate-spin mr-1" />
+												{/if}
+												Load more
+											</Button>
+										</div>
+									{:else if file_info}
 										{@const nestingLevel = file_info.nestingLevel - 2 * rootPathNestingLevel}
 										<!-- svelte-ignore a11y_click_events_have_key_events -->
 										<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -665,14 +878,19 @@
 												style={`margin-left: ${(2 + nestingLevel) * 0.25}rem;`}
 											>
 												{#if file_info.type === 'folder'}
-													{#if file_info.collapsed}<FolderClosed size={16} />{:else}<FolderOpen
+													{#if folderState[file_info.full_key]?.loading}
+														<Loader2 size={16} class="animate-spin" />
+													{:else if file_info.collapsed}<FolderClosed size={16} />{:else}<FolderOpen
 															size={16}
 														/>{/if}
 													<div class="truncate text-ellipsis w-56">
-														{file_info.display_name} ({file_info.count}{count % 1000 === 0 &&
-														lastKeyFolders[file_info.nestingLevel / 2] === file_info.display_name
-															? '+'
-															: ''} item{file_info.count === 1 ? '' : 's'})
+														{file_info.display_name}
+														{#if !lazyMode}
+															({file_info.count}{count % 1000 === 0 &&
+															lastKeyFolders[file_info.nestingLevel / 2] === file_info.display_name
+																? '+'
+																: ''} item{file_info.count === 1 ? '' : 's'})
+														{/if}
 													</div>
 												{:else}
 													<FileIcon size={16} />
@@ -694,6 +912,10 @@
 							<div class="flex text-secondary mt-1 text-xs justify-center items-center w-full">
 								<Loader2 size={12} class="animate-spin mr-1" /> Loading content
 							</div>
+						{:else if lazyMode}
+							<!-- Per-level listing: totals below the tree would be a count of what
+							happens to be expanded, and each folder carries its own Load more row. -->
+							<div>{displayedCount} item{displayedCount === 1 ? '' : 's'} shown</div>
 						{:else}
 							<div>
 								{displayedCount}{count % maxKeys === 0 ? '+' : ''}
