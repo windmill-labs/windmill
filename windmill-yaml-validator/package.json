@@ -29,7 +29,6 @@
   ],
   "dependencies": {
     "@stoplight/yaml": "^4.3.0",
-    "ajv": "^8.17.1",
-    "js-yaml": "^3.14.1"
+    "ajv": "^8.17.1"
   }
 }

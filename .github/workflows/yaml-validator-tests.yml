@@ -5,6 +5,7 @@ name: YAML validator tests
 
 on:
   push:
+    branches: [main]
     paths:
       - "windmill-yaml-validator/**"
       - "openflow.openapi.yaml"

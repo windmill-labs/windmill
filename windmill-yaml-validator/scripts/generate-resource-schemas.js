@@ -25,8 +25,9 @@ const CLI_EXCLUDED_FIELDS = new Set([
   "extra_perms",
   "email",
   "mode",
-  // `wmill sync pull` replaces it with the `has_permissioned_as` marker, so it is
-  // never present in a synced file even though the API requires it.
+  // The API requires it, but `wmill sync pull` replaces it with the `has_permissioned_as`
+  // marker under `syncBehavior: v1`, so it cannot be required of a synced file. Files from
+  // older workspaces still carry it and stay valid — nothing here sets additionalProperties.
   "permissioned_as",
 ]);
 

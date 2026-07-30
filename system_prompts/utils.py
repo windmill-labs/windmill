@@ -72,7 +72,8 @@ CLI_COMMANDS_DIR = CLI_DIR / "src" / "commands"
 # Fields stripped by CLI/sync format (to_string_without_metadata equivalent)
 # These are server-managed fields that don't appear in YAML/JSON files pulled via CLI
 # Keep in sync with CLI_EXCLUDED_FIELDS in
-# windmill-yaml-validator/scripts/generate-resource-schemas.js, which drives `wmill lint`.
+# windmill-yaml-validator/scripts/generate-resource-schemas.js, which drives `wmill lint`
+# and carries the rationale for each entry.
 CLI_EXCLUDED_FIELDS = [
     'workspace_id', 'path', 'name', 'versions', 'id',
     'created_at', 'updated_at', 'created_by', 'updated_by',

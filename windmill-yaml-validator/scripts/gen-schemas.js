@@ -7,7 +7,8 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const yaml = require("js-yaml");
+// The package's own runtime YAML parser, so generating schemas needs no extra dependency.
+const { parse: parseYaml } = require("@stoplight/yaml");
 
 const { generateSchemas } = require("./generate-resource-schemas.js");
 
@@ -56,10 +57,10 @@ function main() {
     const openflowOutputPath = path.join(outputDir, "openflow.json");
     const backendOutputPath = path.join(tmpDir, "backend-openapi.json");
 
-    const openflowSchema = yaml.load(
+    const openflowSchema = parseYaml(
       fs.readFileSync(path.join(repoDir, "openflow.openapi.yaml"), "utf8")
     );
-    const backendSchema = yaml.load(
+    const backendSchema = parseYaml(
       fs.readFileSync(
         path.join(repoDir, "backend", "windmill-api", "openapi.yaml"),
         "utf8"

@@ -5,6 +5,7 @@
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 
 const validatorDir = path.join(
@@ -24,8 +25,14 @@ function npm(args) {
   }
 }
 
-const require = createRequire(path.join(validatorDir, "package.json"));
-const hasDeps = ["js-yaml", "ajv", "@stoplight/yaml"].every((pkg) => {
+// Read the names off the manifest: these resolve only from the validator's own
+// node_modules, so a dependency added later must not be able to slip past this probe.
+const manifestPath = path.join(validatorDir, "package.json");
+const require = createRequire(manifestPath);
+const deps = Object.keys(
+  JSON.parse(readFileSync(manifestPath, "utf8")).dependencies ?? {}
+);
+const hasDeps = deps.every((pkg) => {
   try {
     require.resolve(pkg);
     return true;
