@@ -698,14 +698,10 @@ pub async fn handle_receive_completed_job(
         && windmill_common::auth::job_token_remaining_lifetime_secs(&jc.token)
             .is_some_and(|r| r < windmill_common::auth::JOB_TOKEN_REFRESH_MARGIN_SECS)
     {
-        // Mirror `create_token`'s label so run-on-behalf-of flows keep their end-user override.
-        let label = if jc.job.permissioned_as != format!("u/{}", jc.job.created_by)
-            && jc.job.permissioned_as != jc.job.created_by
-        {
-            format!("ephemeral-script-end-user-{}", jc.job.created_by)
-        } else {
-            "ephemeral-script".to_string()
-        };
+        let label = windmill_common::auth::ephemeral_script_token_label(
+            &jc.job.permissioned_as,
+            &jc.job.created_by,
+        );
         match windmill_common::auth::get_job_perms(db, &jc.job.id, &jc.job.workspace_id).await {
             Ok(Some(perms)) => windmill_common::auth::create_token_for_owner(
                 db,
@@ -730,9 +726,18 @@ pub async fn handle_receive_completed_job(
                 );
                 jc.token.clone()
             }),
-            // No perms row (e.g. a zombie replay after the queue row was reaped) or a DB error:
-            // keep the step token rather than minting an identity from untrusted payload fields.
-            _ => jc.token.clone(),
+            // No perms row (e.g. a zombie replay after the queue row was reaped): keep the step
+            // token rather than minting an identity from untrusted payload fields.
+            Ok(None) => jc.token.clone(),
+            // A transient DB error must not silently reuse the near-expired token without a trace,
+            // or the very failure this guards against recurs invisibly.
+            Err(e) => {
+                tracing::warn!(
+                    "could not load job_perms to refresh flow-orchestration token for job {}, reusing step token: {e:#}",
+                    jc.job.id
+                );
+                jc.token.clone()
+            }
         }
     } else {
         jc.token.clone()

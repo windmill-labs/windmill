@@ -510,6 +510,17 @@ pub fn job_token_remaining_lifetime_secs(token: &str) -> Option<i64> {
     Some(claims.exp as i64 - Utc::now().timestamp())
 }
 
+/// Label for an ephemeral job token. For a job run on behalf of an end user (its
+/// `permissioned_as` differs from its `created_by`) it encodes that end user so
+/// `username_override_from_label` can recover them; otherwise it is the plain script label.
+pub fn ephemeral_script_token_label(permissioned_as: &str, created_by: &str) -> String {
+    if permissioned_as != format!("u/{created_by}") && permissioned_as != created_by {
+        format!("ephemeral-script-end-user-{created_by}")
+    } else {
+        "ephemeral-script".to_string()
+    }
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn create_token_for_owner(
     db: &DB,
@@ -693,7 +704,28 @@ pub mod aws {
 #[cfg(test)]
 mod tests {
     use super::is_user_token;
-    use super::{job_token_remaining_lifetime_secs, JWTAuthClaims, JOB_TOKEN_REFRESH_MARGIN_SECS};
+    use super::{
+        ephemeral_script_token_label, job_token_remaining_lifetime_secs, JWTAuthClaims,
+        JOB_TOKEN_REFRESH_MARGIN_SECS,
+    };
+
+    #[test]
+    fn ephemeral_label_encodes_end_user_only_for_on_behalf_of() {
+        // Job run as its own owner -> plain label (both `u/x` and bare `x` forms).
+        assert_eq!(
+            ephemeral_script_token_label("u/alice", "alice"),
+            "ephemeral-script"
+        );
+        assert_eq!(
+            ephemeral_script_token_label("alice", "alice"),
+            "ephemeral-script"
+        );
+        // Run on behalf of another user -> label carries the end user.
+        assert_eq!(
+            ephemeral_script_token_label("g/admins", "alice"),
+            "ephemeral-script-end-user-alice"
+        );
+    }
 
     // The refresh margin only prevents a mid-orchestration expiry if it stays above the JWT leeway.
     #[test]
