@@ -430,7 +430,10 @@
 	}
 
 	let runImmediatelyLoading = $state(false)
-	async function runImmediately(argsOverride?: ScriptArgs) {
+	// An override may be a function, because the arguments it merges into are not
+	// known until they are here: a `WINDMILL_TOO_BIG` payload is a placeholder
+	// until fetched, and merging over that one drops what the fetch was for.
+	async function runImmediately(argsOverride?: ScriptArgs | ((args: ScriptArgs) => ScriptArgs)) {
 		runImmediatelyLoading = true
 		try {
 			let args = job?.args as ScriptArgs
@@ -440,7 +443,10 @@
 					id: job?.id!
 				})) as ScriptArgs
 			}
-			args = { ...args, ...(argsOverride ?? {}) }
+			args =
+				typeof argsOverride === 'function'
+					? argsOverride(args ?? {})
+					: { ...args, ...(argsOverride ?? {}) }
 
 			const commonArgs = {
 				workspace: $workspaceStore!,
@@ -518,11 +524,14 @@
 		// what a `$args[command.vars.tenant]` tag or concurrency key interpolates
 		// from at enqueue. The worker ignores them for a retry — it rebuilds with
 		// the arguments the failed run had — but the queue has already read them.
-		const block = ((job?.args as Record<string, any> | undefined)?.['command'] ?? {}) as Record<
-			string,
-			any
-		>
-		await runImmediately({ command: { ...block, label: 'retry', dbt_retry_job: job?.id } })
+		await runImmediately((args) => ({
+			...args,
+			command: {
+				...((args?.['command'] as Record<string, any> | undefined) ?? {}),
+				label: 'retry',
+				dbt_retry_job: job?.id
+			}
+		}))
 	}
 
 	let showEditButton = $derived(!isRuleActive('DisableDirectDeployment'))
