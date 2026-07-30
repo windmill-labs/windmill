@@ -1291,7 +1291,9 @@
 	// Every payload states the env outright, including the tokenless one: the
 	// preview shell reuses a single window across builds, so merely omitting the
 	// prologue would leave a previously minted token in place for later bundles.
-	const NO_SDK_ENV_JS = 'window.process = { env: {} };\n'
+	// Removing the property rather than blanking it keeps the preview identical to
+	// a deployed app with no scopes, where `window.process` is simply absent.
+	const NO_SDK_ENV_JS = 'try { delete window.process } catch (_) {}\n'
 	let previewSdkEnvJs = $state(NO_SDK_ENV_JS)
 	// Identifies the request whose answer is still wanted. Toggling scopes starts a
 	// new mint while an older one is in flight, and an out-of-order answer would
