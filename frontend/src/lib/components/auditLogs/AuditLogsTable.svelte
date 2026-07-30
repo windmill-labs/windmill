@@ -207,7 +207,7 @@
 										<div class="flex flex-row gap-2 items-center">
 											<!-- end_user can be an arbitrarily long token label; truncate it rather
 											than let it push the username out of the cell. -->
-											<div class="flex flex-row min-w-0 max-w-60">
+											<div class="flex flex-row min-w-0 max-w-60 overflow-hidden">
 												<span class="whitespace-nowrap shrink-0">{logOrDate.log.username}</span>
 												{#if logOrDate.log.parameters && 'end_user' in logOrDate.log.parameters}
 													<span

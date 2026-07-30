@@ -4497,9 +4497,9 @@ async fn build_args(
         if arg_str.starts_with("\"$ctx:") {
             let prop = arg_str.trim_start_matches("\"$ctx:").trim_end_matches("\"");
             let value = match prop {
-                "username" => authed.as_ref().map(|a| {
-                    serde_json::to_value(a.username_override.as_ref().unwrap_or(&a.username))
-                }),
+                "username" => authed
+                    .as_ref()
+                    .map(|a| serde_json::to_value(a.display_username())),
                 "email" => authed.as_ref().map(|a| serde_json::to_value(&a.email)),
                 "workspace" => Some(serde_json::to_value(&w_id)),
                 "groups" => authed.as_ref().map(|a| serde_json::to_value(&a.groups)),

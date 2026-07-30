@@ -1214,16 +1214,16 @@ mod tests {
     #[test]
     fn generic_token_label_credits_the_token_owner() {
         let owner_of = |label: &str| ApiAuthed {
-            username: "huangm".into(),
+            username: "alice".into(),
             username_override: auth::username_override_from_label(Some(label.to_string())),
             ..Default::default()
         };
 
         // Arbitrary user-chosen labels, and the auto-generated MCP OAuth one.
-        assert_eq!(owner_of("my-personal-token").display_username(), "huangm");
+        assert_eq!(owner_of("my-personal-token").display_username(), "alice");
         assert_eq!(
             owner_of("mcp-oauth-mcp-client-9f3a1c").display_username(),
-            "huangm"
+            "alice"
         );
 
         // Trigger tokens name the entity that fired the request, so they keep the slot.
