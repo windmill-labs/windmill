@@ -75,30 +75,6 @@ lazy_static::lazy_static! {
 
 const CHAT_COMPLETIONS_ONLY_TTL: Duration = Duration::from_secs(3600);
 
-/// Whether a rejection means the route is absent for this deployment, rather than
-/// something about the request the step happened to build (a tool schema, a hosted tool
-/// the subscription blocks, the conversation itself), which a deployment that does serve
-/// the route rejects just as well. A 400 has to name the deployment to qualify, so a
-/// complaint about one part of the request is not read as a verdict on the endpoint.
-///
-/// Only a rejection that passes this may be remembered for later steps. Being wrong the
-/// other way is cheap: the route is still retried per step, it is just learned again.
-pub fn identifies_unserved_route(status: u16, body: &str, model: &str) -> bool {
-    if status == 404 {
-        return true;
-    }
-    let body = body.to_ascii_lowercase();
-    body.contains(&model.to_ascii_lowercase())
-        && [
-            "unsupported",
-            "not supported",
-            "does not exist",
-            "not found",
-        ]
-        .iter()
-        .any(|marker| body.contains(marker))
-}
-
 /// Whether this deployment is known not to serve the endpoint its provider prefers.
 pub fn is_chat_completions_only(base_url: &str, model: &str) -> bool {
     CHAT_COMPLETIONS_ONLY
@@ -128,39 +104,6 @@ mod chat_completions_only_tests {
         assert!(!is_chat_completions_only(
             "https://other.openai.azure.com/openai",
             "legacy-deployment"
-        ));
-    }
-
-    /// What a deployment is remembered for must be the route, not the request the step
-    /// happened to build: a schema or a hosted tool an endpoint rejects would otherwise
-    /// send every later step on that deployment to the endpoint this routing avoids.
-    #[test]
-    fn only_a_route_rejection_may_be_remembered() {
-        let model = "gpt-35-turbo";
-
-        assert!(identifies_unserved_route(404, "Resource not found", model));
-        assert!(identifies_unserved_route(
-            400,
-            r#"{"error":{"message":"The model gpt-35-turbo is unsupported for this operation"}}"#,
-            model
-        ));
-
-        assert!(!identifies_unserved_route(
-            400,
-            r#"{"error":{"message":"Invalid schema for function 'run_script': 'additionalProperties' is required"}}"#,
-            model
-        ));
-        assert!(!identifies_unserved_route(
-            400,
-            r#"{"error":{"code":"content_filter","message":"The response was filtered"}}"#,
-            model
-        ));
-        // Azure blocks the hosted web-search tool per subscription; the route it was
-        // asked for is served.
-        assert!(!identifies_unserved_route(
-            400,
-            r#"{"error":{"message":"The tool web_search is not supported for this subscription"}}"#,
-            model
         ));
     }
 }

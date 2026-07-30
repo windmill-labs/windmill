@@ -24,8 +24,8 @@ use windmill_ai::{
     ai_providers::AIProvider,
     image_handler::upload_image_to_s3,
     providers::{
-        create_chat_completions_query_builder, create_query_builder, identifies_unserved_route,
-        is_chat_completions_only, remember_chat_completions_only,
+        create_chat_completions_query_builder, create_query_builder, is_chat_completions_only,
+        remember_chat_completions_only,
     },
     proxy::{
         common_outbound_headers, needs_unavailable_oauth_exchange, retain_effective_credentials,
@@ -1277,11 +1277,11 @@ pub async fn run_agent(
                                 "Endpoint rejected the request ({}), falling back to chat/completions",
                                 status
                             );
-                            rerouted_by_a_route_rejection = identifies_unserved_route(
-                                status.as_u16(),
-                                &text,
-                                args.provider.get_model(),
-                            );
+                            // Only a 404 says the route is absent. A 400 is ambiguous —
+                            // a deployment that does serve the route rejects tool
+                            // schemas, blocked hosted tools and filtered content the
+                            // same way — so it re-routes this step and nothing more.
+                            rerouted_by_a_route_rejection = status.as_u16() == 404;
                             query_builder = create_chat_completions_query_builder(&credentials);
                             include_usage = true;
                         } else {
