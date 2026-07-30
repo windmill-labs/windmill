@@ -55,7 +55,8 @@
 		'variable',
 		'ducklake',
 		'datatable',
-		'volume'
+		'volume',
+		'table'
 	])
 
 	// FilterSearchbar setup

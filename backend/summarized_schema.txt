@@ -74,7 +74,7 @@ dbt_node: workspace_id(char), script_path(char), script_hash(bigint), job_id(uui
   FK: (workspace_id) -> workspace(id), (workspace_id, script_hash) -> script(workspace_id, hash)
 dbt_run_progress: workspace_id(char), job_id(uuid), asset_kind(asset_kind), asset_path(char), status(materialization_status), row_count(bigint), error(text), updated_at(ts)
   FK: (workspace_id) -> workspace(id)
-dbt_run_state: workspace_id(char), script_path(char), permissioned_as(char), identity(text), args(jsonb), run_results(text), job_id(uuid), updated_at(ts)
+dbt_run_state: workspace_id(char), script_path(char), permissioned_as(char), identity(text), args(jsonb), run_results(text), job_id(uuid), retryable(bool), updated_at(ts)
   FK: (workspace_id) -> workspace(id)
 debounce_key: key(char), job_id(uuid), previous_job_id(uuid), first_started_at(ts), debounced_times(int)
 debounce_stale_data: job_id(uuid), to_relock(text[])
