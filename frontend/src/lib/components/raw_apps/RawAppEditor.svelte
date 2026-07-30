@@ -7,7 +7,7 @@
 	import RawAppYamlEditor, { type RawAppYamlUpdate } from './RawAppYamlEditor.svelte'
 	import type Drawer from '../common/drawer/Drawer.svelte'
 	import Alert from '../common/alert/Alert.svelte'
-	import { type Policy, WorkspaceService } from '$lib/gen'
+	import { AppService, type Policy, WorkspaceService } from '$lib/gen'
 	import DiffDrawer from '../DiffDrawer.svelte'
 	import { deepEqual } from 'fast-equals'
 
@@ -1282,9 +1282,54 @@
 		externalPreviewWindow.postMessage(msg, window.location.origin)
 	}
 
+	// Frontend SDK in the preview: `app-preview.html` evaluates the js we post, so
+	// prefixing the env is what a bundled `windmill-client` needs — it reads
+	// `window.process.env` at module load. Without it the SDK keeps its build-time
+	// default base (`http://localhost:8000`) and calls leave for the wrong host.
+	// The token is scoped to the policy being edited so the preview hits the same
+	// 403s the deployed app would.
+	let previewSdkEnvJs = $state('')
+	let previewSdkTokenFor: string | undefined = undefined
+
+	$effect(() => {
+		const scopes = policy?.frontend_sdk_scopes ?? []
+		const key = scopes.join(',')
+		if (key === previewSdkTokenFor) return
+		previewSdkTokenFor = key
+		if (scopes.length === 0 || !opWorkspace) {
+			previewSdkEnvJs = ''
+			return
+		}
+		mintPreviewSdkToken(scopes)
+	})
+
+	async function mintPreviewSdkToken(scopes: string[]) {
+		try {
+			const token = await AppService.mintPreviewSdkToken({
+				workspace: opWorkspace!,
+				requestBody: { path, scopes }
+			})
+			previewSdkEnvJs = `window.process = { env: ${JSON.stringify({
+				WM_TOKEN: token,
+				BASE_URL: window.location.origin,
+				WM_WORKSPACE: opWorkspace
+			}).replace(/</g, '\\u003c')} };\n`
+			// Re-feed so an already-rendered preview picks the env up.
+			if (lastBuild) feedPreviewIframe(lastBuild)
+			syncExternalPreview()
+		} catch (e) {
+			console.warn('Could not mint a preview SDK token', e)
+			previewSdkEnvJs = ''
+		}
+	}
+
 	function syncExternalPreview() {
 		if (lastBuild) {
-			postToExternalPreview({ type: 'preview', css: lastBuild.css, js: lastBuild.js })
+			postToExternalPreview({
+				type: 'preview',
+				css: lastBuild.css,
+				js: previewSdkEnvJs + lastBuild.js
+			})
 		}
 	}
 
@@ -1295,7 +1340,7 @@
 		runtimeError = undefined
 		emptyRender = false
 		previewIframe?.contentWindow?.postMessage(
-			{ type: 'preview', css: build.css, js: build.js },
+			{ type: 'preview', css: build.css, js: previewSdkEnvJs + build.js },
 			'*'
 		)
 	}

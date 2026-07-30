@@ -99,6 +99,7 @@ pub fn workspaced_service(raw_app_body_limit: usize) -> Router {
         .route("/list_search", get(list_search_apps))
         .route("/get/p/{*path}", get(get_app))
         .route("/embed_token/p/{*path}", get(get_app_embed_token_for_path))
+        .route("/preview_sdk_token", post(mint_preview_sdk_token))
         .route("/get/lite/{*path}", get(get_app_lite))
         .route("/secret_of/{*path}", get(get_secret_id))
         .route(
@@ -1398,6 +1399,43 @@ pub async fn build_embed_token_response(
         sdk_scopes,
         viewer_email,
     })
+}
+
+#[derive(Deserialize)]
+pub struct PreviewSdkTokenRequest {
+    /// The app being edited. May not exist yet (a draft), so this is only used for
+    /// the write-scope check and the token label.
+    pub path: String,
+    /// Scopes from the policy currently being edited, so the preview behaves like
+    /// the deployed app instead of the last-deployed policy.
+    pub scopes: Vec<String>,
+}
+
+/// Mint a frontend SDK token for the raw-app editor's own preview.
+///
+/// The author grants this to themselves: it is minted from their session, capped
+/// by their own scopes (`ensure_scopes_within_caller`) and by
+/// `FRONTEND_SDK_ALLOWED_SCOPES`, and narrowed by the same `raw_app_sdk` sentinel
+/// as the viewer path — so it conveys nothing they could not already mint with
+/// `users/tokens/create`. Taking the scopes from the request (rather than the
+/// deployed policy) is what lets the preview match an app whose scopes are not
+/// deployed yet; `execute_component` accepts client-supplied policy for editor
+/// previews on the same reasoning.
+async fn mint_preview_sdk_token(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<PreviewSdkTokenRequest>,
+) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot preview raw apps".to_string(),
+        ));
+    }
+    check_scopes(&authed, || format!("apps:write:{}", req.path))?;
+    let (token, _expiration) =
+        mint_raw_app_sdk_token(&db, &w_id, &req.path, &authed, &req.scopes).await?;
+    Ok(token)
 }
 
 /// Query for the embed-token endpoints.
