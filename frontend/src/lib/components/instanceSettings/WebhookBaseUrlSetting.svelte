@@ -1,7 +1,7 @@
 <script lang="ts">
 	import TextInput from '../text_input/TextInput.svelte'
 	import { SettingService } from '$lib/gen'
-	import { isValidWebhookBaseUrl, instanceSettingsSaved } from '../instanceSettings'
+	import { instanceSettingsSaved } from '../instanceSettings'
 	import Alert from '../common/alert/Alert.svelte'
 	import { resource } from 'runed'
 	import type { Writable } from 'svelte/store'
@@ -52,13 +52,6 @@
 		}}
 		bind:value={$values['github_app_webhook_base_url']}
 	/>
-	{#if !isValidWebhookBaseUrl($values['github_app_webhook_base_url'])}
-		<span class="text-2xs text-red-600 dark:text-red-400">
-			Must be an http:// or https:// url with a host, no embedded username or password, no query
-			string or fragment, and no trailing slash.
-		</span>
-	{/if}
-
 	{#if stale.length > 0}
 		<div class="mt-2">
 			<Alert type="warning" title="Existing webhooks still use a previous url" size="xs">

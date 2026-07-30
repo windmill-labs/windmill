@@ -2255,6 +2255,7 @@ paths:
                       type: string
                     registered_url:
                       type: string
+                      nullable: true
                   required:
                     - workspace_id
                     - git_repo_resource_path
