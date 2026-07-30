@@ -924,7 +924,7 @@ async fn get_dbt_resumable(
     // job submitted by whoever is reading, so a run of Alice's that Bob may read
     // is not one Bob's retry could resume.
     let Some(permissioned_as) =
-        dbt_retry_principal(&db, &user_db, &authed, &w_id, &script_path).await?
+        dbt_retry_principal(&user_db, &authed, &w_id, &script_path).await?
     else {
         return Ok(Json(None));
     };
@@ -943,7 +943,7 @@ async fn get_dbt_resumable_for_script(
     Path((w_id, script_path)): Path<(String, StripPath)>,
 ) -> error::JsonResult<Option<Uuid>> {
     let path = script_path.to_path();
-    let Some(permissioned_as) = dbt_retry_principal(&db, &user_db, &authed, &w_id, path).await?
+    let Some(permissioned_as) = dbt_retry_principal(&user_db, &authed, &w_id, path).await?
     else {
         return Ok(Json(None));
     };
@@ -957,7 +957,6 @@ async fn get_dbt_resumable_for_script(
 /// `on_behalf_of` script and the caller otherwise, the same choice
 /// `run_script_by_path` makes. `None` when the caller cannot see the script.
 async fn dbt_retry_principal(
-    db: &DB,
     user_db: &UserDB,
     authed: &ApiAuthed,
     w_id: &str,
