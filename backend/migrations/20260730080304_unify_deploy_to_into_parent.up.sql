@@ -166,10 +166,11 @@ END $$;
 -- Resolve workspace-specific resources/variables over the fork lineage instead of the `deploy_to`
 -- graph. Only the traversal changes; the per-workspace RLS fan-out below is unchanged.
 --
--- The walk goes UP only: a fork sees itself and its ancestors, a root sees only itself. Walking
--- down as well would make a root fan out over its entire live fork subtree, and every member costs
--- an identity lookup plus an RLS switch and probe. Ancestors are bounded by the fork depth limit,
--- so the member set stays small no matter how many forks a workspace has.
+-- The walk goes up through ancestors, and down only to a dev workspace. Descending into plain
+-- forks would make a root fan out over its entire live fork subtree, and every member costs an
+-- identity lookup plus an RLS switch and probe. A dev workspace is the paired editable environment
+-- rather than a throwaway copy, so a prod still sees it; there is at most one per parent and
+-- attach rejects nested dev chains, which keeps the member set near the fork depth limit.
 CREATE OR REPLACE FUNCTION list_ws_specific_versions(
     seed_workspace TEXT,
     user_email TEXT,
@@ -197,13 +198,22 @@ BEGIN
 
     BEGIN
         FOR rel IN
-            WITH RECURSIVE related_workspaces(ws_id, depth) AS (
-                SELECT seed_workspace::VARCHAR, 0
-              UNION
-                SELECT w.parent_workspace_id, r.depth + 1
-                FROM workspace w
-                JOIN related_workspaces r ON w.id = r.ws_id
-                WHERE r.depth < 32 AND w.parent_workspace_id IS NOT NULL
+            WITH RECURSIVE related_workspaces(ws_id, depth, seen) AS (
+                SELECT seed_workspace::VARCHAR, 0, ARRAY[seed_workspace::VARCHAR]
+              UNION ALL
+                SELECT step.next_id, r.depth + 1, r.seen || step.next_id
+                FROM related_workspaces r
+                CROSS JOIN LATERAL (
+                    SELECT CASE WHEN w.id = r.ws_id THEN w.parent_workspace_id ELSE w.id END
+                               AS next_id
+                    FROM workspace w
+                    WHERE (w.id = r.ws_id AND w.parent_workspace_id IS NOT NULL)
+                       OR (w.parent_workspace_id = r.ws_id
+                           AND w.is_dev_workspace AND NOT w.deleted)
+                ) step
+                -- The edges run both ways, so without this the walk bounces parent<->dev until it
+                -- hits the depth cap on every call regardless of how few workspaces are related.
+                WHERE r.depth < 32 AND NOT (step.next_id = ANY(r.seen))
             )
             SELECT DISTINCT r.ws_id
             FROM related_workspaces r
