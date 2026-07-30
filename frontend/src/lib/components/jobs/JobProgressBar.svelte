@@ -36,9 +36,10 @@
 		} else {
 			error = undefined
 		}
-		// Anything that is success automatically gets 100% progress
-		if (job['success'] && scriptProgress)
-			((index = 1), (subLength = 0), (subIndex = 0), (scriptProgress = 100))
+		// Anything that is success automatically gets 100% progress. Not gated on
+		// `scriptProgress`: a job can complete without ever reporting progress, and the bar
+		// would then stay on `Running` forever.
+		if (job['success']) ((index = 1), (subLength = 0), (subIndex = 0), (scriptProgress = 100))
 	}
 
 	export function reset() {
