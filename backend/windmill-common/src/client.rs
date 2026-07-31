@@ -128,14 +128,14 @@ impl AuthedClient {
         }
     }
 
-    /// Record one settled dbt node, for a worker with no database.
+    /// Record a run's settled dbt nodes, for a worker with no database.
     ///
     /// Posted with the JOB's token, not the agent's: the route takes the job
     /// from the token, and the agent's own credential only authenticates
     /// against the agent surface.
     pub async fn record_dbt_run_progress(
         &self,
-        req: &crate::dbt_manifest::DbtRunProgressRequest,
+        req: &[crate::dbt_manifest::DbtRunProgressRequest],
     ) -> anyhow::Result<()> {
         let url = format!(
             "{}/api/w/{}/dbt/run_progress",

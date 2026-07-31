@@ -103,6 +103,13 @@ describe('statusRank', () => {
 	// The worker publishes `unknown` for a status it does not recognise and counts
 	// it in `totals.error`; ranking it as a pass drew a green check on a node the
 	// same result called an error.
+	// The worker counts `no_op` in totals.skipped — dbt built nothing for that
+	// node — so a green check would claim a run that never happened.
+	it('ranks a no-op with the skips, not with the passes', () => {
+		expect(statusRank('no-op', 'no_op')).toBe(statusRank('skipped', 'skipped'))
+		expect(statusRank('success', 'no_op')).toBe(2)
+	})
+
 	it('ranks an unknown outcome with the failures, not with the passes', () => {
 		expect(statusRank('some-future-dbt-status', 'unknown')).toBe(0)
 		expect(statusRank('success', 'unknown')).toBe(0)

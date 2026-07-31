@@ -80,9 +80,10 @@ function* lineStarts(s: string): Generator<number> {
 
 /** Ordering rank of a node's status: 0 failed, 1 warned, 2 skipped, 3 passed.
  *
- *  `unknown` ranks with failed, not with passed: the worker publishes it for a
- *  status it does not recognise and COUNTS it in `totals.error`, so falling
- *  through to 3 drew a green check on a node the same result called an error. */
+ *  Both `unknown` and `no_op` rank where the RESULT counts them, not where the
+ *  default would put them: the worker counts `unknown` in `totals.error` and
+ *  `no_op` in `totals.skipped`, so falling through to 3 drew a green check on a
+ *  node the same result called an error, and on one it never built. */
 export function statusRank(status: string, outcome?: DbtOutcome): number {
 	switch (outcome ?? classifyStatus(status)) {
 		case 'failed':
@@ -91,6 +92,7 @@ export function statusRank(status: string, outcome?: DbtOutcome): number {
 		case 'warned':
 			return 1
 		case 'skipped':
+		case 'no_op':
 			return 2
 		default:
 			return 3

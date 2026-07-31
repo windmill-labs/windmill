@@ -2409,6 +2409,9 @@ async fn reconcile_materializations(
     client: &AuthedClient,
 ) -> Reconciled {
     let mut out = Reconciled::default();
+    // One batch for an agent worker's per-model state; empty on a Sql worker,
+    // which writes each row directly.
+    let mut progress: Vec<windmill_common::dbt_manifest::DbtRunProgressRequest> = vec![];
     let Some(warehouse) = p.warehouse.as_deref() else {
         return out;
     };
@@ -2468,21 +2471,16 @@ async fn reconcile_materializations(
             Connection::Http(http) => {
                 // Progress too, not only the materialization: the live reporter
                 // needs a database and does not run here, so these settled
-                // outcomes are the only per-model state an agent's run page
-                // ever gets.
-                if let Err(e) = client
-                    .record_dbt_run_progress(
-                        &windmill_common::dbt_manifest::DbtRunProgressRequest {
-                            asset_path: path.clone(),
-                            status,
-                            row_count: r.rows_affected,
-                            error: error.map(|e| e.to_string()),
-                        },
-                    )
-                    .await
-                {
-                    tracing::warn!("recording dbt run progress for {path}: {e:#}");
-                }
+                // outcomes are the only per-model state an agent's run page ever
+                // gets. COLLECTED, not sent: one round trip per model would run
+                // after dbt has already finished, and a large project has
+                // hundreds. Posted once below.
+                progress.push(windmill_common::dbt_manifest::DbtRunProgressRequest {
+                    asset_path: path.clone(),
+                    status,
+                    row_count: r.rows_affected,
+                    error: error.map(|e| e.to_string()),
+                });
                 crate::agent_workers::record_materialization_from_agent_http(
                     http,
                     &job.workspace_id,
@@ -2504,6 +2502,12 @@ async fn reconcile_materializations(
         };
         if let Err(e) = recorded {
             tracing::warn!("recording the materialization of {path} failed: {e}");
+        }
+    }
+    if !progress.is_empty() {
+        if let Err(e) = client.record_dbt_run_progress(&progress).await {
+            // A display, not the run: the models are built either way.
+            tracing::warn!("recording dbt run progress for {} nodes: {e:#}", progress.len());
         }
     }
     out
@@ -2723,13 +2727,22 @@ async fn run_show(
     let Some(model) = arg_str(&inv.args, "model")? else {
         return Err(Error::BadRequest(
             "`show` previews one model's rows, so it needs `model` to name one — `stg_orders`, \
-             or any dbt selector that resolves to a single node"
+             or any dbt selector that resolves to a single MODEL (a seed, test or \
+             snapshot is not previewable)"
                 .to_string(),
         ));
     };
     let mut cmd = dbt_command(p, &["show"]);
     add_vars(&mut cmd, descriptor, inv)?;
-    cmd.args(["--select", model.trim()]);
+    // Intersected with `resource_type:model`, because `show` is only read-only
+    // for models: dbt dispatches a selected SEED through its seed runner and
+    // loads it, which would write a relation through a path that records no
+    // materialization and no graph. A comma is dbt's own intersection, the same
+    // one `package:` already uses here, so a seed simply selects nothing.
+    cmd.args([
+        "--select",
+        &format!("{},resource_type:model", model.trim()),
+    ]);
     let limit = show_limit(arg_i64(&inv.args, "limit")?);
     cmd.args(["--output", "json", "--limit", &limit.to_string()]);
     let stdout = run_capturing(

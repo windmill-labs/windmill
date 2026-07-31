@@ -4543,7 +4543,7 @@ paths:
 
   /w/{workspace}/dbt/run_progress:
     post:
-      summary: record one settled dbt node's state for the running job
+      summary: record the running job's settled dbt nodes
       description: >-
         Job-scoped: needs a job token, and the job is taken from the token rather
         than the body. For workers with no database access.
@@ -4557,19 +4557,21 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                asset_path:
-                  type: string
-                status:
-                  type: string
-                row_count:
-                  type: integer
-                error:
-                  type: string
-              required:
-                - asset_path
-                - status
+              type: array
+              items:
+                type: object
+                properties:
+                  asset_path:
+                    type: string
+                  status:
+                    type: string
+                  row_count:
+                    type: integer
+                  error:
+                    type: string
+                required:
+                  - asset_path
+                  - status
       responses:
         "200":
           description: recorded

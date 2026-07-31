@@ -113,7 +113,7 @@ async fn record_run_progress(
     OptJobAuthed { job_id, .. }: OptJobAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Json(req): Json<windmill_common::dbt_manifest::DbtRunProgressRequest>,
+    Json(rows): Json<Vec<windmill_common::dbt_manifest::DbtRunProgressRequest>>,
 ) -> Result<()> {
     let Some(job_id) = job_id else {
         return Err(Error::BadRequest(
@@ -138,16 +138,20 @@ async fn record_run_progress(
             "only a dbt job may record dbt run progress".to_string(),
         ));
     }
-    windmill_common::dbt_manifest::record_run_progress(
-        &db,
-        &w_id,
-        &job_id,
-        &req.asset_path,
-        req.status,
-        req.row_count,
-        req.error.as_deref(),
-    )
-    .await;
+    // A run's nodes arrive together; the writes are local to this server, so the
+    // loop that would have been a round trip each is a statement each.
+    for req in &rows {
+        windmill_common::dbt_manifest::record_run_progress(
+            &db,
+            &w_id,
+            &job_id,
+            &req.asset_path,
+            req.status,
+            req.row_count,
+            req.error.as_deref(),
+        )
+        .await;
+    }
     Ok(())
 }
 
@@ -162,13 +166,36 @@ async fn warehouse_exists(
     Extension(db): Extension<DB>,
     Path((w_id, name)): Path<(String, String)>,
 ) -> Result<()> {
-    // Same as above: no-auth mode carries no job, and this answers yes/no about
-    // a workspace setting rather than handing anything over.
-    if job_id.is_none() && !is_no_auth() {
-        return Err(Error::BadRequest(
-            "this route answers for a running job and needs a job token".to_string(),
-        ));
+    // A DBT job's token, like both siblings. No-auth mode carries no job at all,
+    // and there the whole instance is unauthenticated.
+    if !is_no_auth() {
+        let Some(job_id) = job_id else {
+            return Err(Error::BadRequest(
+                "this route answers for a running job and needs a job token".to_string(),
+            ));
+        };
+        let is_dbt = sqlx::query_scalar!(
+            "SELECT script_lang = 'dbt' FROM v2_job WHERE id = $1 AND workspace_id = $2",
+            job_id,
+            &w_id
+        )
+        .fetch_optional(&db)
+        .await?
+        .flatten()
+        .unwrap_or(false);
+        if !is_dbt {
+            return Err(Error::NotAuthorized(
+                "only a dbt job may ask about a dbt warehouse".to_string(),
+            ));
+        }
     }
     windmill_common::workspaces::validate_dbt_warehouse_name(&name)?;
-    windmill_common::workspaces::dbt_warehouse_exists(&db, &w_id, &name).await
+    // Mapped to a bare yes/no: the resolver's miss lists every warehouse the
+    // workspace configures, which is a useful hint to an admin editing settings
+    // and a needless disclosure to a job that only asked about one name.
+    windmill_common::workspaces::dbt_warehouse_exists(&db, &w_id, &name)
+        .await
+        .map_err(|_| {
+            Error::NotFound(format!("no dbt warehouse named `{name}` in this workspace"))
+        })
 }
