@@ -969,7 +969,11 @@
 							     previews its rows. -->
 							<div class="grow min-h-0 pt-6">
 								<h3 class="text-xs font-semibold text-emphasis mb-1">Models</h3>
-								<DbtRunGraph scriptPath={script.path} scriptHash={script.hash} />
+								<DbtRunGraph
+									scriptPath={script.path}
+									scriptHash={script.hash}
+									runArgs={args}
+								/>
 							</div>
 						{/if}
 

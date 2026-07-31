@@ -123,12 +123,25 @@
 	type AssetRow = { path: string; kind: string; usages: { path: string; kind: string; access_type?: string }[] }
 	function dbtProducerOf(asset: AssetRow): string | undefined {
 		if (asset.kind !== 'dbt') return undefined
-		return asset.usages.find((u) => u.kind === 'script' && u.access_type !== 'r')?.path
+		// A DEFINITE writer. A bare `dbt://…` literal in a native script is stored
+		// with no access type at all, so treating "not read" as "writes" would pick
+		// a Python consumer — and previewing would then RUN that script and its side
+		// effects instead of `dbt show`. Its being a dbt script is checked before
+		// anything is submitted.
+		return asset.usages.find(
+			(u) => u.kind === 'script' && (u.access_type === 'w' || u.access_type === 'rw')
+		)?.path
 	}
 	let previewDrawer: Drawer | undefined = $state()
 	let previewTitle = $state('')
 	let preview = $state<DbtPreview | undefined>(undefined)
 	let previewSeq = 0
+	// A warehouse row can hold JSON, an array or a struct; `String()` renders those
+	// as `[object Object]`, which says less than nothing about the data.
+	function cell(v: unknown): string {
+		if (v == undefined) return ''
+		return typeof v === 'object' ? JSON.stringify(v) : String(v)
+	}
 	async function previewTable(asset: AssetRow) {
 		const ws = $workspaceStore
 		const script = dbtProducerOf(asset)
@@ -145,6 +158,9 @@
 			// run at all, and this page has nowhere to ask for them. Say so instead
 			// of submitting a job that fails inside dbt.
 			const producer = await ScriptService.getScriptByPath({ workspace: ws, path: script })
+			if (producer.language !== 'dbt') {
+				return fail(`${script} writes this table but is not a dbt script, so there is no model to preview.`)
+			}
 			const needs = (((producer.schema as any)?.required ?? []) as string[]).filter(
 				(r) => r !== 'command'
 			)
@@ -157,7 +173,10 @@
 			// dbt selects by MODEL name; the asset path ends in the relation's name,
 			// which `alias`/`identifier` may have moved away from it. The graph
 			// carries the provenance, so ask it rather than guessing from the path.
-			const graph = await AssetService.getAssetsGraph({ workspace: ws, assetKinds: 'dbt' })
+			// Scoped to the producer's folder: resolving one model's id has no business
+			// pulling every dbt relation in the workspace.
+			const folder = script.startsWith('f/') ? script.split('/')[1] : undefined
+			const graph = await AssetService.getAssetsGraph({ workspace: ws, assetKinds: 'dbt', folder })
 			const uniqueId = graph.assets?.find(
 				(a: any) => a.kind === asset.kind && a.path === asset.path
 			)?.dbt?.unique_id
@@ -514,7 +533,7 @@
 							{#each preview.rows as row}
 								<tr>
 									{#each Object.keys(preview.rows[0]) as col}
-										<td class="px-2 py-1 border-b font-mono">{String(row[col] ?? '')}</td>
+										<td class="px-2 py-1 border-b font-mono">{cell(row[col])}</td>
 									{/each}
 								</tr>
 							{/each}
