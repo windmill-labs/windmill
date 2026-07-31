@@ -120,6 +120,10 @@ impl ScopeDefinition {
 
         match (self.action.as_str(), other.action.as_str()) {
             (a, b) if (a == "write" && b == "read") || (a == b) => {}
+            // Apps only: `write` can rewrite the app and its policy, so it also covers
+            // running its components. Not general — `jobs:write` must not grant
+            // `jobs:run`. The resource check below still confines it to the same app.
+            ("write", "run") if self.domain == "apps" => {}
             _ => return false,
         }
 
@@ -803,8 +807,10 @@ fn scope_grants_access(
     }
 
     // `apps_u/execute_component` and `apps_u/upload_s3_file` are Run actions, but
-    // `apps:write` is the strictly broader grant: it can rewrite the app and its
-    // policy, so denying it the app's own execution routes protects nothing.
+    // `apps:write` can rewrite the app and its policy, so it covers running its
+    // components too (mirrors the same rule in `ScopeDefinition::includes`). Like
+    // every domain here this layer is resource-blind; the two handlers path-check
+    // the app with `check_scopes(apps:run:<path>)`.
     if scope_domain == ScopeDomain::Apps
         && scope_action == ScopeAction::Write
         && required_action == ScopeAction::Run

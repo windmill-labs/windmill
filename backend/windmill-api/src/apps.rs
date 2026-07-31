@@ -2837,15 +2837,14 @@ async fn execute_component(
     Json(mut payload): Json<ExecuteApp>,
 ) -> Result<String> {
     let path = path.to_path();
-    // Authorize FIRST, before touching the payload: confine the app embed token (the
-    // only credential handed to untrusted app JS, carrying `apps:run:<own path>`) to
-    // the app it was minted for. The route layer can't path-check the apps domain, so
-    // enforce it here. Scoped to embed tokens only — other callers (anonymous, cookie,
-    // plain external JWT) keep their existing access; the run is still policy-gated.
+    // Authorize FIRST, before touching the payload: confine a scope-restricted caller
+    // to the app its scope names — the app embed token (the only credential handed to
+    // untrusted app JS, carrying `apps:run:<own path>`) and any `apps:run|write:<path>`
+    // token minted from the scope picker. The route layer is resource-blind, so the
+    // path check has to happen here. `check_scopes` is a no-op for unscoped callers
+    // (cookie sessions, plain user tokens); anonymous ones are policy-gated below.
     if let Some(authed) = opt_authed.as_ref() {
-        if windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref()) {
-            check_scopes(authed, || format!("apps:run:{}", path))?;
-        }
+        check_scopes(authed, || format!("apps:run:{}", path))?;
     }
     // Only honor temp_script_refs for the inline-script preview path:
     // preview/editor mode (force_viewer_static_fields set, == `is_preview`),
@@ -3372,14 +3371,13 @@ async fn upload_s3_file_from_app(
     Query(query): Query<UploadFileToS3Query>,
     request: axum::extract::Request,
 ) -> JsonResult<AppUploadFileResponse> {
-    // Confine an app embed token (untrusted app JS) to uploading for its OWN app.
-    // The route is reachable with `apps:run` (RUN_PATH_ACTIONS), so without this a
-    // token minted for app A could drive app B's upload policy. Mirrors
-    // execute_component / download_s3_file; other callers are unaffected.
+    // Confine a scope-restricted caller (an app embed token carrying untrusted app JS,
+    // or a picker-minted `apps:run|write:<path>` token) to uploading for its OWN app:
+    // the route is reachable with `apps:run` (RUN_PATH_ACTIONS) and the route layer is
+    // resource-blind, so without this a token scoped to app A could drive app B's
+    // upload policy. Mirrors execute_component; unscoped callers are unaffected.
     if let Some(authed) = opt_authed.as_ref() {
-        if windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref()) {
-            check_scopes(authed, || format!("apps:run:{}", path.to_path()))?;
-        }
+        check_scopes(authed, || format!("apps:run:{}", path.to_path()))?;
     }
     let policy = if let Some(file_key_regex) = query.force_viewer_file_key_regex {
         // `force_viewer_*` lets the caller supply a synthetic upload policy that
