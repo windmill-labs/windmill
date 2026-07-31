@@ -17,16 +17,21 @@
 	} = $props()
 	let mqttTriggerEditor: MqttTriggerEditorInner | undefined = $state(undefined)
 
-	async function openMqttTriggerEditor(isFlow: boolean, isDraft: boolean) {
-		if (isDraft) {
-			mqttTriggerEditor?.openNew(isFlow, path, defaultValues)
+	async function openMqttTriggerEditor(isFlow: boolean) {
+		if (selectedTrigger.isNew) {
+			await mqttTriggerEditor?.openNew(isFlow, (selectedTrigger.newTriggerSeed?.script_path ?? path), { ...defaultValues, path: selectedTrigger.path })
+			// The autosave inside `openNew` created the draft row, so this trigger is
+			// no longer new: re-selecting it must reload that row, not reset the form
+			// to defaults and overwrite what the user just configured.
+			selectedTrigger.isNew = false
+			selectedTrigger.newTriggerSeed = undefined
 		} else {
 			mqttTriggerEditor?.openEdit(selectedTrigger.path, isFlow, selectedTrigger.draftConfig)
 		}
 	}
 
 	onMount(() => {
-		mqttTriggerEditor && openMqttTriggerEditor(isFlow, selectedTrigger.isDraft ?? false)
+		mqttTriggerEditor && openMqttTriggerEditor(isFlow)
 	})
 
 	const cloudDisabled = $derived(isCloudHosted())

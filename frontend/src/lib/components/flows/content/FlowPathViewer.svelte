@@ -10,6 +10,7 @@
 	import { getContext, setContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import { writable } from 'svelte/store'
+	import { NO_TRIGGER_DRAFT_TARGET } from '$lib/components/triggers/utils'
 
 	interface Props {
 		path: string
@@ -32,7 +33,8 @@
 		triggersCount: triggersCount,
 		simplifiedPoll: writable(false),
 		showCaptureHint: writable(undefined),
-		triggersState: new Triggers()
+		triggersState: new Triggers(),
+		draftTarget: () => NO_TRIGGER_DRAFT_TARGET
 	})
 
 	async function loadFlow(path: string) {

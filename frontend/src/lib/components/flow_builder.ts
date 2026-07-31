@@ -1,7 +1,6 @@
 import type { Flow, OpenFlow } from '$lib/gen'
 import type { StateStore } from '$lib/utils'
 import type { FlowState } from './flows/flowState'
-import type { Trigger } from './triggers/utils'
 import type { DiffDrawerI } from './diff_drawer'
 import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
 import type { ScheduleTrigger } from './triggers'
@@ -27,7 +26,6 @@ export type FlowBuilderProps = {
 	/** flow_version the draft was forked from; when set, the deploy-time staleness
 	 *  check compares it (not the load-time head `version`) against the latest. */
 	draftBaseVersion?: number | undefined
-	draftTriggersFromUrl?: Trigger[] | undefined
 	selectedTriggerIndexFromUrl?: number | undefined
 	children?: import('svelte').Snippet
 	loadedFromHistoryFromUrl?: {

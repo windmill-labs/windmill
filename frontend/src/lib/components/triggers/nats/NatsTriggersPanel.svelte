@@ -17,16 +17,21 @@
 	} = $props()
 	let natsTriggerEditor: NatsTriggerEditorInner | undefined = $state(undefined)
 
-	async function openNatsTriggerEditor(isFlow: boolean, isDraft: boolean) {
-		if (isDraft) {
-			natsTriggerEditor?.openNew(isFlow, path, defaultValues)
+	async function openNatsTriggerEditor(isFlow: boolean) {
+		if (selectedTrigger.isNew) {
+			await natsTriggerEditor?.openNew(isFlow, (selectedTrigger.newTriggerSeed?.script_path ?? path), { ...defaultValues, path: selectedTrigger.path })
+			// The autosave inside `openNew` created the draft row, so this trigger is
+			// no longer new: re-selecting it must reload that row, not reset the form
+			// to defaults and overwrite what the user just configured.
+			selectedTrigger.isNew = false
+			selectedTrigger.newTriggerSeed = undefined
 		} else {
 			natsTriggerEditor?.openEdit(selectedTrigger.path, isFlow, selectedTrigger.draftConfig)
 		}
 	}
 
 	onMount(() => {
-		natsTriggerEditor && openNatsTriggerEditor(isFlow, selectedTrigger.isDraft ?? false)
+		natsTriggerEditor && openNatsTriggerEditor(isFlow)
 	})
 
 	const cloudDisabled = $derived(isCloudHosted())

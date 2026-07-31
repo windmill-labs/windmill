@@ -88,6 +88,7 @@
 	import { ModulesTestStates } from './modulesTest.svelte'
 	import type { GraphModuleState } from './graph'
 	import { setCopilotInfo } from '$lib/aiStore'
+	import { NO_TRIGGER_DRAFT_TARGET } from '$lib/components/triggers/utils'
 
 	let {
 		initial = undefined
@@ -679,7 +680,8 @@
 		triggersCount: triggersCount,
 		simplifiedPoll: writable(false),
 		showCaptureHint: writable(undefined),
-		triggersState: new Triggers()
+		triggersState: new Triggers(),
+		draftTarget: () => NO_TRIGGER_DRAFT_TARGET
 	})
 
 	let pathStore = writable('')

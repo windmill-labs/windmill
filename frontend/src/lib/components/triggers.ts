@@ -2,6 +2,7 @@ import type { CaptureTriggerKind, TriggersCount } from '$lib/gen'
 import { type Writable } from 'svelte/store'
 import { formatCron } from '$lib/utils'
 import { Triggers } from './triggers/triggers.svelte'
+import type { TriggerDraftTarget } from './triggers/utils'
 
 export type ScheduleTrigger = {
 	summary: string | undefined
@@ -17,11 +18,15 @@ export type TriggerContext = {
 	simplifiedPoll: Writable<boolean | undefined>
 	showCaptureHint: Writable<boolean | undefined>
 	triggersState: Triggers
+	/** Read at call time, not at mount: the runnable's path is editable until it
+	 * is deployed, and a trigger drafted after a rename must point at the new one. */
+	draftTarget: () => TriggerDraftTarget
 }
 
-export function setScheduledPollSchedule(
+export async function setScheduledPollSchedule(
 	triggersState: Triggers,
-	triggersCount: Writable<TriggersCount | undefined>
+	triggersCount: Writable<TriggersCount | undefined>,
+	target: TriggerDraftTarget
 ) {
 	const primarySchedule = triggersState.triggers.findIndex((t) => t.isPrimary)
 	if (primarySchedule !== -1) {
@@ -32,11 +37,10 @@ export function setScheduledPollSchedule(
 			summary: 'Check for new events every 5 minutes',
 			schedule: formatCron('0 */5 * * * *'),
 			timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-			args: {},
-			is_flow: true
+			args: {}
 		}
 
-		triggersState.addDraftTrigger(triggersCount, 'schedule', undefined, draftCfg)
+		await triggersState.addDraftTrigger(triggersCount, 'schedule', target, draftCfg)
 		triggersState.selectedTriggerIndex = triggersState.triggers.length - 1
 	}
 }

@@ -179,7 +179,10 @@
 			fixedScriptPath = fixedScriptPath_ ?? ''
 			script_path = fixedScriptPath
 			path = defaultValues?.path ?? ''
-			initialPath = ''
+			// Key the local autosave at the path this trigger will live at, so a
+			// never-deployed one is still drafted. Empty for an ad-hoc "New
+			// trigger" from a list page, which has nothing to key on until saved.
+			initialPath = path
 			dirtyPath = false
 
 			workspaced_local_part = defaultValues?.workspaced_local_part ?? false
@@ -192,6 +195,8 @@
 			selectedPermissionedAs = undefined
 			preservePermissionedAs = false
 			originalConfig = undefined
+			// Editor-created trigger: it is already listed, so write its draft now.
+			await draftSync.persistNew()
 		} finally {
 			clearTimeout(loader)
 			drawerLoading = false

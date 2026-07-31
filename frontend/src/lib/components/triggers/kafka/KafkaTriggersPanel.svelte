@@ -18,16 +18,21 @@
 	} = $props()
 	let kafkaTriggerEditor: KafkaTriggerEditorInner | undefined = $state(undefined)
 
-	async function openKafkaTriggerEditor(isFlow: boolean, isDraft: boolean) {
-		if (isDraft) {
-			kafkaTriggerEditor?.openNew(isFlow, path, defaultValues)
+	async function openKafkaTriggerEditor(isFlow: boolean) {
+		if (selectedTrigger.isNew) {
+			await kafkaTriggerEditor?.openNew(isFlow, (selectedTrigger.newTriggerSeed?.script_path ?? path), { ...defaultValues, path: selectedTrigger.path })
+			// The autosave inside `openNew` created the draft row, so this trigger is
+			// no longer new: re-selecting it must reload that row, not reset the form
+			// to defaults and overwrite what the user just configured.
+			selectedTrigger.isNew = false
+			selectedTrigger.newTriggerSeed = undefined
 		} else {
 			kafkaTriggerEditor?.openEdit(selectedTrigger.path, isFlow, defaultValues)
 		}
 	}
 
 	onMount(() => {
-		openKafkaTriggerEditor(isFlow, selectedTrigger.isDraft ?? false)
+		openKafkaTriggerEditor(isFlow)
 	})
 
 	const cloudDisabled = $derived(isCloudHosted())

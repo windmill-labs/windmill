@@ -17,16 +17,21 @@
 	} = $props()
 	let azureTriggerEditor: AzureTriggerEditorInner | undefined = $state(undefined)
 
-	async function openAzureTriggerEditor(isFlow: boolean, isDraft: boolean) {
-		if (isDraft) {
-			azureTriggerEditor?.openNew(isFlow, path, defaultValues)
+	async function openAzureTriggerEditor(isFlow: boolean) {
+		if (selectedTrigger.isNew) {
+			await azureTriggerEditor?.openNew(isFlow, (selectedTrigger.newTriggerSeed?.script_path ?? path), { ...defaultValues, path: selectedTrigger.path })
+			// The autosave inside `openNew` created the draft row, so this trigger is
+			// no longer new: re-selecting it must reload that row, not reset the form
+			// to defaults and overwrite what the user just configured.
+			selectedTrigger.isNew = false
+			selectedTrigger.newTriggerSeed = undefined
 		} else {
 			azureTriggerEditor?.openEdit(selectedTrigger.path, isFlow, defaultValues)
 		}
 	}
 
 	onMount(() => {
-		azureTriggerEditor && openAzureTriggerEditor(isFlow, selectedTrigger.isDraft ?? false)
+		azureTriggerEditor && openAzureTriggerEditor(isFlow)
 	})
 
 	const cloudDisabled = $derived(isCloudHosted())

@@ -26,7 +26,7 @@
 		getContext<FlowEditorContext>('FlowEditorContext')
 	const selectedId = $derived(selectionManager.getSelectedId())
 
-	const { triggersState, triggersCount } = getContext<TriggerContext>('TriggerContext')
+	const { triggersState, triggersCount, draftTarget } = getContext<TriggerContext>('TriggerContext')
 
 	let scriptKind: 'script' | 'trigger' | 'approval' = $state('script')
 	let scriptTemplate: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' = $state('script')
@@ -67,25 +67,9 @@
 				args: {},
 				schedule: formatCron('0 */15 * * *'),
 				timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-				enabled: true,
-				is_flow: true
+				enabled: true
 			}
-			triggersState.addDraftTrigger(triggersCount, 'schedule', undefined, primaryCfg)
-		} else if (triggersState.triggers[primaryIndex].draftConfig) {
-			//If there is a primary schedule draft update it
-			const newCfg = { ...triggersState.triggers[primaryIndex].draftConfig }
-			let updated = false
-			if (!newCfg.schedule) {
-				newCfg.schedule = formatCron('0 */15 * * *')
-				updated = true
-			}
-			if (!newCfg.enabled) {
-				newCfg.enabled = true
-				updated = true
-			}
-			if (updated) {
-				triggersState.triggers[primaryIndex].draftConfig = newCfg
-			}
+			triggersState.addDraftTrigger(triggersCount, 'schedule', draftTarget(), primaryCfg)
 		}
 
 		module.stop_after_if = {

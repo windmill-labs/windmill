@@ -17,16 +17,21 @@
 	} = $props()
 	let amqpTriggerEditor: AmqpTriggerEditorInner | undefined = $state(undefined)
 
-	async function openAmqpTriggerEditor(isFlow: boolean, isDraft: boolean) {
-		if (isDraft) {
-			amqpTriggerEditor?.openNew(isFlow, path, defaultValues)
+	async function openAmqpTriggerEditor(isFlow: boolean) {
+		if (selectedTrigger.isNew) {
+			await amqpTriggerEditor?.openNew(isFlow, (selectedTrigger.newTriggerSeed?.script_path ?? path), { ...defaultValues, path: selectedTrigger.path })
+			// The autosave inside `openNew` created the draft row, so this trigger is
+			// no longer new: re-selecting it must reload that row, not reset the form
+			// to defaults and overwrite what the user just configured.
+			selectedTrigger.isNew = false
+			selectedTrigger.newTriggerSeed = undefined
 		} else {
 			amqpTriggerEditor?.openEdit(selectedTrigger.path, isFlow, selectedTrigger.draftConfig)
 		}
 	}
 
 	onMount(() => {
-		amqpTriggerEditor && openAmqpTriggerEditor(isFlow, selectedTrigger.isDraft ?? false)
+		amqpTriggerEditor && openAmqpTriggerEditor(isFlow)
 	})
 
 	const cloudDisabled = $derived(isCloudHosted())

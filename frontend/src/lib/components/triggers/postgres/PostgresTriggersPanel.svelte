@@ -19,16 +19,21 @@
 
 	let postgresTriggerEditor: PostgresTriggerEditorInner | undefined = $state(undefined)
 
-	async function openPostgresTriggerEditor(isFlow: boolean, isDraft: boolean) {
-		if (isDraft) {
-			postgresTriggerEditor?.openNew(isFlow, path, defaultValues, newDraft)
+	async function openPostgresTriggerEditor(isFlow: boolean) {
+		if (selectedTrigger.isNew) {
+			await postgresTriggerEditor?.openNew(isFlow, (selectedTrigger.newTriggerSeed?.script_path ?? path), { ...defaultValues, path: selectedTrigger.path }, newDraft)
+			// The autosave inside `openNew` created the draft row, so this trigger is
+			// no longer new: re-selecting it must reload that row, not reset the form
+			// to defaults and overwrite what the user just configured.
+			selectedTrigger.isNew = false
+			selectedTrigger.newTriggerSeed = undefined
 		} else {
 			postgresTriggerEditor?.openEdit(selectedTrigger.path, isFlow, defaultValues)
 		}
 	}
 
 	onMount(() => {
-		postgresTriggerEditor && openPostgresTriggerEditor(isFlow, selectedTrigger.isDraft ?? false)
+		postgresTriggerEditor && openPostgresTriggerEditor(isFlow)
 	})
 
 	const cloudDisabled = $derived(isCloudHosted())

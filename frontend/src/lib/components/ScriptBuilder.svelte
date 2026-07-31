@@ -35,7 +35,6 @@
 		emptyString,
 		generateRandomString,
 		orderedJsonStringify,
-		readFieldsRecursively,
 		replaceFalseWithUndefined,
 		type Value
 	} from '$lib/utils'
@@ -97,7 +96,14 @@
 	import CaptureTable from './triggers/CaptureTable.svelte'
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 	import DeployButton from './DeployButton.svelte'
-	import { type Trigger, deployTriggers, handleSelectTriggerFromKind } from './triggers/utils'
+	import {
+		type Trigger,
+		deployTriggers,
+		handleSelectTriggerFromKind,
+		repointTriggerDrafts,
+		triggerHasPendingChanges
+	} from './triggers/utils'
+	import type { TriggerDraftTarget } from './triggers/utils'
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
 	import type { ScriptBuilderProps } from './script_builder'
@@ -153,8 +159,7 @@
 		return {
 			savedValue: savedScript,
 			modifiedValue: {
-				...script,
-				draft_triggers: structuredClone(triggersState.getDraftTriggersSnapshot())
+				...script
 			}
 		}
 	}
@@ -268,13 +273,21 @@
 		loadTriggers()
 	}
 
-	export function setDraftTriggers(triggers: Trigger[] | undefined) {
-		triggersState.setTriggers([
-			...(triggers ?? []),
-			...triggersState.triggers.filter((t) => !t.draftConfig)
-		])
-		loadTriggers()
-	}
+	// Trigger drafts carry the runnable's path in `script_path`. That path stays
+	// editable until the first deploy, so follow renames here rather than only at
+	// deploy time — a draft deployed on its own (triggers page, Review & Deploy)
+	// reads what is stored. Debounced: the path field rewrites on every keystroke.
+	let repointTimer: ReturnType<typeof setTimeout> | undefined
+	$effect(() => {
+		const target = triggerDraftTarget()
+		if (!target.runnablePath || !target.workspace) return
+		clearTimeout(repointTimer)
+		repointTimer = setTimeout(
+			() => void repointTriggerDrafts($state.snapshot(triggersState.triggers), target),
+			800
+		)
+		return () => clearTimeout(repointTimer)
+	})
 
 	onMount(() => {
 		if (functionExports) {
@@ -295,19 +308,20 @@
 		}
 	})
 
-	async function loadTriggers() {
-		if (!initialPath) {
-			return
+	export async function loadTriggers() {
+		// An undeployed script has no deployed triggers to count, but it can already
+		// have drafted ones — fetch against the path they were drafted at.
+		if (initialPath) {
+			$triggersCount = await ScriptService.getTriggersCountOfScript({
+				workspace: opWorkspace!,
+				path: initialPath
+			})
 		}
-		$triggersCount = await ScriptService.getTriggersCountOfScript({
-			workspace: opWorkspace!,
-			path: initialPath
-		})
 
 		await triggersState.fetchTriggers(
 			triggersCount,
 			opWorkspace,
-			initialPath,
+			initialPath || script.path,
 			false,
 			$primaryScheduleStore,
 			$userStore
@@ -318,18 +332,24 @@
 	const triggersState = $state(
 		new Triggers([
 			{ type: 'webhook', path: '', isDraft: false },
-			{ type: 'default_email', path: '', isDraft: false },
-			...(script.draft_triggers ?? [])
+			{ type: 'default_email', path: '', isDraft: false }
 		])
 	)
 
 	const captureOn = writable<boolean | undefined>(undefined)
 	const showCaptureHint = writable<boolean | undefined>(undefined)
+	const triggerDraftTarget = (): TriggerDraftTarget => ({
+		runnablePath: script.path,
+		isFlow: false,
+		workspace: opWorkspace
+	})
+
 	setContext<TriggerContext>('TriggerContext', {
 		triggersCount,
 		simplifiedPoll,
 		showCaptureHint: showCaptureHint,
-		triggersState
+		triggersState,
+		draftTarget: triggerDraftTarget
 	})
 
 	const enterpriseLangs = ['mssql', 'oracledb']
@@ -600,7 +620,7 @@
 	): Promise<void> {
 		if (!triggersToDeploy) {
 			// Check if there are draft triggers that need confirmation
-			const draftTriggers = triggersState.triggers.filter((trigger) => trigger.draftConfig)
+			const draftTriggers = triggersState.triggers.filter(triggerHasPendingChanges)
 			if (draftTriggers.length > 0) {
 				draftTriggersModalOpen = true
 				confirmDeploymentCallback = async (triggersToDeploy: Trigger[]) => {
@@ -700,20 +720,24 @@
 				})
 			}
 
-			if (triggersToDeploy) {
-				await deployTriggers(
+			// Triggers deploy after the script, never before: their `script_path`
+			// points at the path this deploy just created or renamed to.
+			if (triggersToDeploy?.length) {
+				const failed = await deployTriggers(
 					triggersToDeploy,
 					opWorkspace,
 					!!$userStore?.is_admin || !!$userStore?.is_super_admin,
 					usedTriggerKinds,
 					script.path,
-					true
+					false
 				)
+				for (const { trigger, error } of failed) {
+					sendUserToast(`Could not deploy ${trigger.type} trigger: ${error}`, true)
+				}
 			}
 
-			const { draft_triggers: _, ...newScript } = structuredClone($state.snapshot(script))
-			savedScript = structuredClone($state.snapshot(newScript))
-			setDraftTriggers([])
+			savedScript = structuredClone($state.snapshot(script))
+			await loadTriggers()
 
 			if (!disableHistoryChange) {
 				history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
@@ -781,8 +805,6 @@
 		}
 		await syncWithDeployed()
 
-		const currentDraftTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
-
 		const deployed = deployedValue ?? savedScript
 		// `script` comes from the full DB row (since #9351), so it carries `lock`/`extra_perms`
 		// while the deployed side is trimmed in `syncWithDeployed` — null them here to match
@@ -791,8 +813,7 @@
 		const current = {
 			...script,
 			lock: undefined,
-			extra_perms: undefined,
-			draft_triggers: currentDraftTriggers
+			extra_perms: undefined
 		}
 		if (current.assets && !current.assets.length) delete current.assets
 
@@ -942,7 +963,7 @@
 	function openTriggers(ev) {
 		metadataOpen = true
 		selectedTab = 'triggers'
-		handleSelectTriggerFromKind(triggersState, triggersCount, initialPath, ev.detail.kind)
+		handleSelectTriggerFromKind(triggersState, triggersCount, triggerDraftTarget(), ev.detail.kind)
 		captureOn.set(true)
 	}
 
@@ -997,7 +1018,9 @@
 		}
 	}
 	$effect(() => {
-		initialPath != '' && untrack(() => loadTriggers())
+		// Not gated on `initialPath`: an undeployed script can already have drafted
+		// triggers (loadTriggers falls back to the live path).
+		untrack(() => loadTriggers())
 	})
 	let langs = $derived(
 		processLangs(script.language, $defaultScripts?.order ?? Object.keys(defaultScriptLanguages))
@@ -1016,16 +1039,6 @@
 				searchParams.delete(x)
 			}
 		})
-	})
-
-	// Mirror the draft triggers (held in a separate `triggersState` $state)
-	// back into `script.draft_triggers` so the UserDraft autosave — which
-	// deep-tracks `script` — picks them up. Pre-PR ScriptBuilder ran its own
-	// localStorage autosave that explicitly snapshotted triggersState; the
-	// switch to a unified UserDraft handle dropped that bridge.
-	$effect(() => {
-		readFieldsRecursively(triggersState.triggers)
-		script.draft_triggers = triggersState.getDraftTriggersSnapshot()
 	})
 
 	loadWorkerTags()
@@ -1054,7 +1067,7 @@
 
 <DraftTriggersConfirmationModal
 	bind:open={draftTriggersModalOpen}
-	draftTriggers={triggersState.triggers.filter((t) => t.draftConfig)}
+	draftTriggers={triggersState.triggers.filter(triggerHasPendingChanges)}
 	on:canceled={() => {
 		draftTriggersModalOpen = false
 	}}

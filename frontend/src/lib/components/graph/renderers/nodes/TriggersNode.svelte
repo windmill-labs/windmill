@@ -32,20 +32,17 @@
 
 	const { selectionManager } = getGraphContext()
 
-	const { triggersCount, triggersState } = $state(getContext<TriggerContext>('TriggerContext'))
+	const { triggersCount, triggersState, draftTarget } = $state(
+		getContext<TriggerContext>('TriggerContext')
+	)
 
 	function getScheduleCfg(primary: Trigger | undefined, triggersCount: TriggersCount | undefined) {
-		return primary?.draftConfig
-			? {
-					enabled: primary?.draftConfig?.enabled,
-					schedule: primary?.draftConfig?.schedule
+		return primary?.lightConfig
+			? { enabled: primary.lightConfig.enabled, schedule: primary.lightConfig.schedule }
+			: {
+					enabled: !!triggersCount?.primary_schedule,
+					schedule: triggersCount?.primary_schedule?.schedule
 				}
-			: primary?.lightConfig
-				? { enabled: primary?.lightConfig?.enabled, schedule: primary?.lightConfig?.schedule }
-				: {
-						enabled: !!triggersCount?.primary_schedule,
-						schedule: triggersCount?.primary_schedule?.schedule
-					}
 	}
 
 	let colorClasses = $derived(
@@ -89,7 +86,7 @@
 					triggersState.selectedTriggerIndex = triggerIndex
 				}}
 				onAddDraftTrigger={async (type: TriggerType) => {
-					const newTrigger = triggersState.addDraftTrigger(triggersCount, type)
+					const newTrigger = await triggersState.addDraftTrigger(triggersCount, type, draftTarget())
 					data?.eventHandlers?.select('Trigger')
 					await tick()
 					triggersState.selectedTriggerIndex = newTrigger
@@ -123,7 +120,7 @@
 					<button
 						class="px-2 py-1 hover:bg-surface-inverse w-full hover:text-primary-inverse"
 						onclick={() => {
-							setScheduledPollSchedule(triggersState, triggersCount)
+							setScheduledPollSchedule(triggersState, triggersCount, draftTarget())
 						}}
 					>
 						Set primary schedule

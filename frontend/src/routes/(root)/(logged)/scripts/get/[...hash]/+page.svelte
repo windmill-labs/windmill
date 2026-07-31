@@ -95,6 +95,7 @@
 	import WacDiagram from '$lib/components/graph/WacDiagram.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import CiTestResults from '$lib/components/CiTestResults.svelte'
+	import { NO_TRIGGER_DRAFT_TARGET } from '$lib/components/triggers/utils'
 
 	let script: Script | undefined = $state()
 	let topHash: string | undefined = $state()
@@ -137,7 +138,8 @@
 		triggersCount,
 		simplifiedPoll: writable(false),
 		showCaptureHint: writable(undefined),
-		triggersState
+		triggersState,
+		draftTarget: () => NO_TRIGGER_DRAFT_TARGET
 	})
 
 	async function deleteScript(hash: string): Promise<void> {

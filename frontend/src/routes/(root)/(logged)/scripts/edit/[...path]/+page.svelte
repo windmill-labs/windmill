@@ -25,6 +25,7 @@
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { importScriptStore } from '$lib/components/scripts/scriptStore.svelte'
 	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
+	import { migrateLegacyDraftTriggers } from '$lib/legacyDraftTriggers'
 
 	type EditableScript = NewScript & { draft_triggers?: Trigger[] }
 
@@ -381,7 +382,19 @@
 
 		if (draftSync.draft) {
 			initialPath = draftSync.draft.path
-			scriptBuilder?.setDraftTriggers(draftSync.draft.draft_triggers)
+			// Drafts written before triggers had their own draft rows carry their
+			// trigger configs inline; promote them and drop the dead field.
+			if (draftSync.draft.draft_triggers && $workspaceStore) {
+				const migrated = await migrateLegacyDraftTriggers({
+					legacy: draftSync.draft.draft_triggers,
+					runnablePath: draftSync.draft.path,
+					isFlow: false,
+					workspace: $workspaceStore
+				})
+				const { draft_triggers: _legacy, ...rest } = draftSync.draft
+				draftSync.draft = rest
+				if (migrated) await scriptBuilder?.loadTriggers()
+			}
 			scriptBuilder?.setCode(draftSync.draft.content)
 		}
 		fullyLoaded = true

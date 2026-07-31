@@ -16,9 +16,14 @@
 		...restProps
 	} = $props()
 
-	async function openRouteEditor(isFlow: boolean, isDraft: boolean) {
-		if (isDraft) {
-			routeEditor?.openNew(isFlow, path, defaultValues)
+	async function openRouteEditor(isFlow: boolean) {
+		if (selectedTrigger.isNew) {
+			await routeEditor?.openNew(isFlow, (selectedTrigger.newTriggerSeed?.script_path ?? path), { ...defaultValues, path: selectedTrigger.path })
+			// The autosave inside `openNew` created the draft row, so this trigger is
+			// no longer new: re-selecting it must reload that row, not reset the form
+			// to defaults and overwrite what the user just configured.
+			selectedTrigger.isNew = false
+			selectedTrigger.newTriggerSeed = undefined
 		} else {
 			routeEditor?.openEdit(selectedTrigger.path, isFlow, defaultValues)
 		}
@@ -26,7 +31,7 @@
 
 	onMount(() => {
 		if (routeEditor) {
-			openRouteEditor(isFlow, selectedTrigger.isDraft ?? false)
+			openRouteEditor(isFlow)
 		}
 	})
 </script>

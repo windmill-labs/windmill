@@ -77,7 +77,7 @@
 
 	const selectedId = $derived(selectionManager.getSelectedId())
 
-	const { showCaptureHint, triggersState, triggersCount } =
+	const { showCaptureHint, triggersState, triggersCount, draftTarget } =
 		getContext<TriggerContext>('TriggerContext')
 
 	function checkDup(modules: FlowModule[]): string | undefined {
@@ -124,7 +124,7 @@
 		disabled={disabledFlowInputs}
 		on:openTriggers={(ev) => {
 			selectionManager.selectId('Trigger')
-			handleSelectTriggerFromKind(triggersState, triggersCount, savedFlow?.path, ev.detail.kind)
+			handleSelectTriggerFromKind(triggersState, triggersCount, draftTarget(), ev.detail.kind)
 			showCaptureHint.set(true)
 		}}
 		on:applyArgs

@@ -376,7 +376,7 @@
 				<div class="text-center text-xs font-semibold text-emphasis mt-2"> No schedules </div>
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
-					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, jobs, paused_until, labels, inherited_labels, draft_only, is_draft } (path)}
+					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, jobs, paused_until, labels, inherited_labels, draft_only, is_draft, draft_path } (path)}
 						{@const hasDraft =
 							getLocalDraftHint($workspaceStore, 'trigger_schedule', path) ?? is_draft}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
@@ -405,7 +405,9 @@
 										{summary || script_path}{hasDraft ? '*' : ''}
 									</div>
 									<div class="text-secondary text-xs truncate text-left">
-										schedule: {path}
+										<!-- A draft renamed away from its row key deploys to `draft_path`; `path`
+										     stays the key the editor and deploy address it by. -->
+										schedule: {draft_path ?? path}
 									</div>
 								</a>
 								{#if labels?.length}

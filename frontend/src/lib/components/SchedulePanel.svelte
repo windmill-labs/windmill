@@ -13,9 +13,14 @@
 		...restProps
 	} = $props()
 
-	function openScheduleEditor(isFlow: boolean, isDraft: boolean) {
-		if (isDraft) {
-			scheduleEditor?.openNew(isFlow, path, defaultValues)
+	async function openScheduleEditor(isFlow: boolean) {
+		if (selectedTrigger.isNew) {
+			await scheduleEditor?.openNew(isFlow, path, { ...defaultValues, path: selectedTrigger.path })
+			// The autosave inside `openNew` created the draft row, so this trigger is
+			// no longer new: re-selecting it must reload that row, not reset the form
+			// to defaults and overwrite what the user just configured.
+			selectedTrigger.isNew = false
+			selectedTrigger.newTriggerSeed = undefined
 		} else {
 			scheduleEditor?.openEdit(selectedTrigger.path, isFlow, defaultValues)
 		}
@@ -24,7 +29,7 @@
 	onMount(() => {
 		selectedTrigger?.type === 'schedule' &&
 			scheduleEditor &&
-			openScheduleEditor(isFlow, selectedTrigger.isDraft ?? false)
+			openScheduleEditor(isFlow)
 	})
 </script>
 

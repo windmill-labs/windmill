@@ -365,6 +365,8 @@
 			permissionedAs = undefined
 			selectedPermissionedAs = undefined
 			preservePermissionedAs = false
+			// Editor-created trigger: it is already listed, so write its draft now.
+			await draftSync.persistNew()
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -524,9 +526,12 @@
 		initialCronVersion = cronVersion
 		isLatestCron = cronVersion == 'v2'
 		enabled = cfg.enabled
-		schedule = cfg.schedule
+		// A draft is partial by nature — a half-configured trigger, or one written
+		// by the AI chat. Fall back to the same defaults `openNew` seeds rather
+		// than leaving `schedule` unset, which `formatCron` cannot parse.
+		schedule = cfg.schedule ?? '0 0 12 * *'
 		initialSchedule = schedule
-		timezone = cfg.timezone
+		timezone = cfg.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone
 		paused_until = cfg.paused_until
 		showPauseUntil = paused_until !== undefined
 		summary = cfg.summary ?? ''
