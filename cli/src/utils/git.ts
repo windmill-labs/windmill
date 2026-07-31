@@ -122,6 +122,22 @@ export function gitRecordedDatatableMigrationPaths(): RecordedMigrationPaths {
         "Fetch the full history (for actions/checkout, fetch-depth: 0)",
     };
   }
+  // A sparse checkout can record migrations in history while never materialising
+  // them in the working tree, so their absence there says nothing about whether the
+  // user deleted them. Over-protective for a sparse cone that does include
+  // migrations/, which the interactive prompt can still override.
+  const sparse = spawnSync("git", ["config", "--get", "core.sparseCheckout"], {
+    encoding: "utf8",
+    stdio: "pipe",
+  });
+  if ((sparse.stdout ?? "").trim() === "true") {
+    return {
+      kind: "unknown",
+      reason:
+        "this is a sparse checkout, so its working tree may not hold every tracked file",
+      remedy: "Include migrations/datatable in the sparse-checkout cone",
+    };
+  }
   const prefixOut = spawnSync("git", ["rev-parse", "--show-prefix"], {
     encoding: "utf8",
     stdio: "pipe",
