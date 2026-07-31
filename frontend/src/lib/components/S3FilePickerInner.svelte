@@ -488,9 +488,11 @@
 			workspace: ws!,
 			maxKeys: maxKeys, // fixed pages of 1000 files for now
 			marker: page == 0 ? undefined : listMarkers[page - 1],
-			// `rootPath` defaults to '' rather than undefined, so it cannot be tested
-			// with `??` here — doing so swallowed the filter and sent an empty prefix.
-			prefix: rootPath !== '' ? rootPath : filter.trim() !== '' ? filter : undefined,
+			// `prefix` is a folder path, evaluated per segment by the storage layer;
+			// what the user types is a search, matched anywhere in the key. Sending the
+			// query as a prefix meant anything but a whole folder name found nothing.
+			prefix: rootPath !== '' ? rootPath : undefined,
+			search: filter.trim() !== '' ? filter.trim() : undefined,
 			storage: storage,
 			s3ResourcePath
 		})
@@ -555,10 +557,16 @@
 		// happens to be an exact multiple of the page size, and each of those clicks
 		// runs off the end of `listMarkers`, sends no marker, and silently re-fetches
 		// the first page.
-		flatHasMore = availableFiles.windmill_large_files.length === maxKeys
+		// Searching returns an explicit cursor because it skips over keys that did not
+		// match, so the last *returned* key is not where the next page resumes.
+		const serverMarker = availableFiles.next_marker ?? undefined
+		flatHasMore =
+			serverMarker !== undefined ||
+			(filter.trim() === '' && availableFiles.windmill_large_files.length === maxKeys)
 		if (listMarkers.length == page) {
 			count += availableFiles.windmill_large_files.length
 			const nextMarker =
+				serverMarker ??
 				availableFiles.windmill_large_files?.[availableFiles.windmill_large_files.length - 1]?.s3
 			if (nextMarker) listMarkers.push(nextMarker)
 		}
@@ -989,7 +997,7 @@
 			<div class="min-w-[30%] border-r flex flex-col min-h-0">
 				{#if !rootPath}
 					<div class="w-full p-1 border-b">
-						<input type="text" placeholder="Folder prefix" bind:value={filter} class="text-xl" />
+						<input type="text" placeholder="Search files" bind:value={filter} class="text-xl" />
 					</div>
 				{/if}
 				{#if displayedFileKeys.length === 0}
@@ -1001,7 +1009,11 @@
 						</div>
 					{:else}
 						<div class="p-4 text-primary text-xs text-center italic">
-							No files in the workspace S3 bucket at that prefix
+							{#if filter.trim() !== ''}
+								No files matching "{filter.trim()}"
+							{:else}
+								No files in the workspace S3 bucket
+							{/if}
 						</div>
 					{/if}
 				{:else}

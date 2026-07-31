@@ -21456,6 +21456,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: search
+          in: query
+          description: Free-text search matching anywhere in the key, case-insensitively. Scans a bounded number of keys per request; resume with the returned next_marker.
+          schema:
+            type: string
         - name: storage
           in: query
           schema:
