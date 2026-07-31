@@ -300,6 +300,12 @@
 		checked={policy.sandbox == true}
 		on:change={(e) => {
 			policy.sandbox = e.detail || undefined
+			// Frontend API access exists only for a sandboxed app, so turning
+			// isolation off drops the declared scopes with it rather than leaving
+			// them set but inert.
+			if (!e.detail) {
+				policy.frontend_sdk_scopes = undefined
+			}
 			// A not-yet-deployed app has no row to PATCH — `setPublishState` (POST
 			// /apps/update) would 404. The flag rides along in the `policy` the first
 			// deploy sends (createApp), so here we only mutate it locally. Persist
@@ -330,7 +336,7 @@
 	{/if}
 </div>
 
-{#if rawApp}
+{#if rawApp && policy.sandbox == true}
 	<h2 class="text-xs font-semibold">Frontend API access</h2>
 	<div class="mb-6 mt-2">
 		<div class="text-xs text-secondary mb-3">
@@ -368,7 +374,7 @@
 		{#if newApp}
 			<div class="text-xs text-tertiary mt-1">Takes effect when you first deploy this app.</div>
 		{/if}
-		{#if policy.sandbox == true && policy.frontend_sdk_scopes?.length}
+		{#if policy.frontend_sdk_scopes?.length}
 			<div class="mt-2">
 				<Alert type="info" title="Redeploy to use the SDK from a sandboxed app" size="xs">
 					A sandboxed app calls the API cross-origin, which older <code>windmill-client</code> versions

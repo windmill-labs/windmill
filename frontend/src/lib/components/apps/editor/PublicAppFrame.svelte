@@ -283,9 +283,7 @@
 			sdkToken = undefined
 			if (sdkScopes && !sdkTokenless) {
 				if (!hasStoredSdkConsent(viewerEmail, workspaceId ?? '', appPath ?? '', sdkScopes)) {
-					// Ask before the app's code runs. For an unsandboxed app this is a
-					// decision point rather than a boundary — it runs with the viewer's
-					// session either way. For a sandboxed one the token is its only
+					// Ask before the app's code runs: the token is the bundle's only
 					// direct API access, so the answer decides that whole surface.
 					status = 'sdkPrompt'
 					return

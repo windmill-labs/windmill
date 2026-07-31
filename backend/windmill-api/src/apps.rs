@@ -1325,7 +1325,7 @@ async fn mint_raw_app_sdk_token(
 }
 
 /// Shared tail of the three embed-token endpoints: which credential the viewer
-/// gets. Sandboxed low-code gets the embed token; a raw app declaring
+/// gets. Sandboxed low-code gets the embed token; a sandboxed raw app declaring
 /// `frontend_sdk_scopes` gets the SDK token once `sdk_consent` is set — the
 /// viewer's answer, not a boundary; the boundary is the scope set.
 ///
@@ -1343,7 +1343,14 @@ pub async fn build_embed_token_response(
     // Only advertise scopes where a token could actually be minted, so the viewer
     // is never shown a permission prompt that can grant nothing: an anonymous
     // visitor has no identity to mint against.
-    let sdk_scopes = if raw_app && opt_authed.is_some() && !policy.frontend_sdk_scopes.is_empty() {
+    // Frontend SDK access is sandbox-only: an unsandboxed bundle already runs with
+    // the viewer's session, so a prompt there would suggest a boundary that isn't
+    // one. A policy still carrying scopes with isolation off is simply inert.
+    let sdk_scopes = if raw_app
+        && policy.sandbox
+        && opt_authed.is_some()
+        && !policy.frontend_sdk_scopes.is_empty()
+    {
         Some(policy.frontend_sdk_scopes.clone())
     } else {
         None
