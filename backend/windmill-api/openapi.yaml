@@ -21508,6 +21508,7 @@ paths:
                 required:
                   - folders
                   - files
+                  - restricted_access
 
   /w/{workspace}/job_helpers/load_file_metadata:
     get:

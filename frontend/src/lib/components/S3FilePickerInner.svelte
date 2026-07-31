@@ -291,12 +291,21 @@
 	 */
 	let inFlightFolderLoads: Record<string, Promise<void>> = {}
 
+	/**
+	 * Bumped whenever the listing is thrown away (storage switch, filter change,
+	 * reload). A request started before the bump belongs to the previous listing, so
+	 * its response must not repopulate the cleared state — otherwise switching
+	 * storage mid-load leaves the previous bucket's entries on screen.
+	 */
+	let listingGeneration = 0
+
 	async function loadFolderPage(prefix: string, append: boolean = false): Promise<void> {
+		const generation = listingGeneration
 		const pending = inFlightFolderLoads[prefix]
 		if (pending) {
 			await pending
-			// The load we joined already fetched this level's first page.
-			if (!append) return
+			// Only reuse the joined result if it belongs to the current listing.
+			if (generation === listingGeneration && !append) return
 		}
 		const run = loadFolderPageInner(prefix, append)
 		inFlightFolderLoads[prefix] = run.catch(() => {})
@@ -308,6 +317,7 @@
 	}
 
 	async function loadFolderPageInner(prefix: string, append: boolean) {
+		const generation = listingGeneration
 		const current = folderState[prefix] ?? { loading: false, loaded: false }
 		if (append && current.nextPageToken === undefined) return
 		folderState[prefix] = { ...current, loading: true }
@@ -320,9 +330,11 @@
 				storage,
 				s3ResourcePath
 			})
-			// Absent counts as restricted, matching `loadFlatFiles`: the field is
-			// optional in the schema, and the two paths must not disagree on which
-			// way an omitted value falls.
+			// The listing this belongs to has been thrown away; writing its entries
+			// back would resurrect the previous storage's contents.
+			if (generation !== listingGeneration) return
+			// Absent counts as restricted, matching `loadFlatFiles`: the two paths must
+			// not disagree on which way an omitted value falls.
 			if (
 				page.restricted_access === null ||
 				page.restricted_access === undefined ||
@@ -346,13 +358,15 @@
 				nextPageToken: page.next_page_token
 			}
 		} catch (e) {
-			folderState[prefix] = { ...current, loading: false }
+			if (generation === listingGeneration) {
+				folderState[prefix] = { ...current, loading: false }
+			}
 			throw e
 		} finally {
 			// A response that lands after the user typed a filter must not rebuild the
 			// list: flat mode owns `displayedFileKeys` then, and rebuilding it under
 			// the lazy visibility rules would prune most of the search results.
-			if (lazyMode) {
+			if (lazyMode && generation === listingGeneration) {
 				refreshDisplayed()
 			}
 		}
@@ -562,12 +576,23 @@
 			return
 		}
 		fileInfoLoading = true
-		let fileMetadataRaw = await loadFileMetadataRequest({
-			workspace: ws!,
-			fileKey: fileKey,
-			storage: storage,
-			s3ResourcePath
-		})
+		let fileMetadataRaw: LoadFileMetadataResponse
+		try {
+			fileMetadataRaw = await loadFileMetadataRequest({
+				workspace: ws!,
+				fileKey: fileKey,
+				storage: storage,
+				s3ResourcePath
+			})
+		} catch (e) {
+			// Every caller invokes this un-awaited, so a key that no longer exists would
+			// otherwise leave the preview pane on "Loading..." forever.
+			console.error('Error loading metadata for', fileKey, e)
+			fileMetadata = undefined
+			filePreview = undefined
+			fileInfoLoading = false
+			return
+		}
 
 		if (fileMetadataRaw !== undefined) {
 			fileMetadata = {
@@ -689,6 +714,9 @@
 	}
 
 	async function clearAndLoadFiles({ keepFilter }: { keepFilter?: boolean } = {}) {
+		// Anything already in flight belongs to the listing being discarded.
+		listingGeneration += 1
+		inFlightFolderLoads = {}
 		displayedFileKeys = []
 		allFilesByKey = {}
 		folderState = {}
