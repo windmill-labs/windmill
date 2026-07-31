@@ -8,6 +8,7 @@
  * (.flow, .app, .raw_app) or dunder-prefixed names (__flow, __app, __raw_app).
  */
 
+import { existsSync } from "node:fs";
 import * as log from "../core/log.ts";
 import { sep as SEP } from "node:path";
 import { yamlParseFile } from "./yaml.ts";
@@ -522,9 +523,15 @@ export function dbtDescriptorPath(scriptBasePath: string): string {
 
 /** Whether an error is a dbt descriptor that simply is not there. */
 export function isMissingDbtDescriptor(filePath: string, e: unknown): boolean {
-  return (
-    (e as { code?: string })?.code === "ENOENT" &&
-    isDbtDescriptorPath(filePath.replaceAll("\\", "/"))
+  if ((e as { code?: string })?.code !== "ENOENT") return false;
+  const norm = filePath.replaceAll("\\", "/");
+  if (!isDbtDescriptorPath(norm)) return false;
+  // And the PROJECT is there. Absent both, this is not a descriptor-less
+  // project but a path that does not exist — a typo, or a project someone
+  // deleted — and treating it as an empty descriptor pushes `modules:
+  // undefined` over a deployed bundle, dropping it while reporting success.
+  return existsSync(
+    norm.slice(0, -DBT_DESCRIPTOR_NAME.length) + "dbt_project.yml"
   );
 }
 

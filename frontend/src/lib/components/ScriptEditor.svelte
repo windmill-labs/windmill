@@ -358,6 +358,12 @@
 		editor?.setCode(editorCode)
 	}
 
+	// Whether the open file is tested as a runnable of its own. A `__mod` helper
+	// is; a dbt project's files are not — the run is always the project's, so the
+	// arguments shown, edited and logged must be the descriptor's, not an empty
+	// per-module set the request would ignore.
+	let onModuleArgs = $derived(activeModuleTab !== null && lang !== 'dbt')
+
 	// The selector a Test would build with, when the open file is a model. Macros,
 	// analyses and singular tests are `.sql` too and none is selectable by name,
 	// so those fall back to running the project.
@@ -904,7 +910,7 @@
 		// A dbt run is always the project's, whichever file is open: `dbt build`
 		// takes the whole bundle, and testing one model in isolation is not a
 		// thing dbt does.
-		const onModule = activeModuleTab !== null && lang !== 'dbt'
+		const onModule = onModuleArgs
 		const testCode = onModule ? editorCode : code
 		const testLang = onModule ? effectiveLang : lang
 		const rawTestArgs = onModule
@@ -2326,7 +2332,7 @@
 												<JsonInputs
 													on:select={(e) => {
 														if (e.detail) {
-															if (activeModuleTab !== null) {
+															if (onModuleArgs) {
 																testPanelArgs = e.detail
 															} else {
 																args = e.detail
@@ -2344,7 +2350,7 @@
 													bind:clientHeight={schemaHeight}
 												>
 													{#key argsRender}
-														{#if activeModuleTab !== null}
+														{#if onModuleArgs}
 															<SchemaForm
 																workspace={opWs}
 																helperScript={{
@@ -2458,7 +2464,7 @@
 		previewIsLoading={debugMode ? $debugState.running && !$debugState.stopped : testIsLoading}
 		{editor}
 		{diffEditor}
-		args={activeModuleTab !== null ? testPanelArgs : args}
+		args={onModuleArgs ? testPanelArgs : args}
 		{showCaptures}
 		customUi={customUi?.previewPanel}
 		showCustomResultPanel={showDebugPanel}
