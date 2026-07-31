@@ -690,7 +690,7 @@ pub(crate) async fn dbt_dep(
                 job_id,
                 w_id,
                 "\nNo asset-graph ingest: the descriptor declares no `profile.resource`, so \
-                 there is no warehouse identity to key `table://` assets on. Any previously \
+                 there is no warehouse identity to key `dbt://` assets on. Any previously \
                  ingested nodes for this script have been cleared.\n"
                     .to_string(),
                 &conn,
@@ -864,7 +864,7 @@ pub struct PreparedProject {
     /// an unlocked range or mutable Git revision has moved meanwhile.
     pub package_lock_digest: Option<String>,
     /// Windmill resource path of the warehouse, the `<resource_path>` component
-    /// of every `table://` asset this project produces. `None` when the project
+    /// of every `dbt://` asset this project produces. `None` when the project
     /// brings its own `profiles.yml` and declares no resource, in which case
     /// there is no stable warehouse identity to key assets on.
     pub resource_path: Option<String>,
@@ -872,7 +872,7 @@ pub struct PreparedProject {
     /// a project-owned `profiles.yml` as well as a rendered one.
     pub target: Option<String>,
     /// The profile target's database. Nodes that override it qualify their
-    /// `table://` schema segment so two databases cannot collapse onto one node.
+    /// `dbt://` schema segment so two databases cannot collapse onto one node.
     pub default_database: Option<String>,
     /// The profile target's schema, for the drift check against the lockfile.
     pub default_schema: Option<String>,
@@ -1538,7 +1538,7 @@ async fn write_profiles(
         ensure_adapter_licensed(adapter)?;
         // A resource beside the project's own file names the warehouse for asset
         // identity only. It is still READ, because reading is what authorizes it:
-        // otherwise a script editor could publish `table://<any resource>/...`
+        // otherwise a script editor could publish `dbt://<any resource>/...`
         // writes while connecting somewhere else entirely.
         if let Some(rp) = resource_path.as_deref() {
             client
@@ -2056,7 +2056,7 @@ async fn record_run_progress(
     let res = sqlx::query!(
         "INSERT INTO dbt_run_progress
            (workspace_id, job_id, asset_kind, asset_path, status, row_count, error, updated_at)
-         VALUES ($1, $2, 'table', $3, $4, $5, $6, now())
+         VALUES ($1, $2, 'dbt', $3, $4, $5, $6, now())
          ON CONFLICT (workspace_id, job_id, asset_kind, asset_path)
          DO UPDATE SET status = EXCLUDED.status, row_count = EXCLUDED.row_count,
                        error = EXCLUDED.error, updated_at = now()",
@@ -2289,7 +2289,7 @@ fn parse_node_event(
         default_database,
     );
     Some(RecordMaterializationRequest {
-        asset_kind: windmill_common::assets::AssetKind::Table,
+        asset_kind: windmill_common::assets::AssetKind::Dbt,
         asset_path: path,
         partition: windmill_common::materialization::UNPARTITIONED.to_string(),
         status,
@@ -2370,7 +2370,7 @@ async fn reconcile_materializations(
                 record_materialization(
                     db,
                     &job.workspace_id,
-                    windmill_common::assets::AssetKind::Table,
+                    windmill_common::assets::AssetKind::Dbt,
                     &path,
                     windmill_common::materialization::UNPARTITIONED,
                     status,
@@ -2386,7 +2386,7 @@ async fn reconcile_materializations(
                 http,
                 &job.workspace_id,
                 &RecordMaterializationRequest {
-                    asset_kind: windmill_common::assets::AssetKind::Table,
+                    asset_kind: windmill_common::assets::AssetKind::Dbt,
                     asset_path: path.clone(),
                     partition: windmill_common::materialization::UNPARTITIONED.to_string(),
                     status,
@@ -2510,7 +2510,7 @@ async fn terminalize_running_relations(
     }
 }
 
-/// `"db"."schema"."name"` from dbt into the `table://` path of the relation,
+/// `"db"."schema"."name"` from dbt into the `dbt://` path of the relation,
 /// through the same derivation the manifest ingest and the live events use.
 fn asset_path_of_relation(
     relation_name: Option<&str>,
@@ -2614,9 +2614,20 @@ async fn run_show(
     w_id: &str,
     conn: &Connection,
 ) -> error::Result<Box<RawValue>> {
+    // ONE node, named by the run. Not `add_selection`: the descriptor's selectors
+    // narrow a BUILD, and applying them here would preview whatever they happen
+    // to resolve to first. dbt's own failure for an empty selection carries no
+    // message at all, so the refusal has to be this one.
+    let Some(model) = arg_str(&inv.args, "model")? else {
+        return Err(Error::BadRequest(
+            "`show` previews one model's rows, so it needs `model` to name one — `stg_orders`, \
+             or any dbt selector that resolves to a single node"
+                .to_string(),
+        ));
+    };
     let mut cmd = dbt_command(p, &["show"]);
     add_vars(&mut cmd, descriptor, inv)?;
-    add_selection(&mut cmd, descriptor, inv)?;
+    cmd.args(["--select", model.trim()]);
     let limit = show_limit(arg_i64(&inv.args, "limit")?);
     cmd.args(["--output", "json", "--limit", &limit.to_string()]);
     let stdout = run_capturing(
@@ -2836,7 +2847,7 @@ enum GraphPublisher {
 /// Replace this script's graph, unless a newer version of it has been deployed.
 ///
 /// Write one ingest: the sidecar rows and the `asset` usages the manifest
-/// implies. No subscriptions — a `table://` one could never fire.
+/// implies. No subscriptions — a `dbt://` one could never fire.
 ///
 /// Returns whether this job was still the one entitled to the path-keyed half —
 /// false once a newer version has superseded it, or once the version is gone.
@@ -2927,13 +2938,13 @@ async fn persist_ingest(
         &ingested.assets,
     )
     .await?;
-    // A `table://` subscription can never fire, so none are derived from the
+    // A `dbt://` subscription can never fire, so none are derived from the
     // manifest. The delete stays to clear what earlier versions wrote, which would
     // otherwise keep drawing cascade arrows that wake nothing.
     sqlx::query!(
         "DELETE FROM script_trigger
           WHERE workspace_id = $1 AND runnable_kind = 'script' AND runnable_path = $2
-            AND trigger_kind = 'asset' AND trigger_ref LIKE 'table://%'",
+            AND trigger_kind = 'asset' AND trigger_ref LIKE 'dbt://%'",
         w_id,
         script_path,
     )
@@ -4623,7 +4634,7 @@ mod tests {
         assert!(envars.starts_with("envar: \"LD_PRELOAD="), "{envars}");
     }
 
-    // THREE sites derive a `table://` key: the manifest ingest, the live events and
+    // THREE sites derive a `dbt://` key: the manifest ingest, the live events and
     // the end-of-run settlement. One deriving it differently records progress
     // against a path no node has — the run still succeeds and the graph never
     // moves. Nothing else catches that.

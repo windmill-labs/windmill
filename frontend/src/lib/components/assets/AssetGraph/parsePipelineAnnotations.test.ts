@@ -234,22 +234,22 @@ describe('parseDurationSecs', () => {
 	})
 })
 
-describe('table:// canonicalization', () => {
+describe('dbt:// canonicalization', () => {
 	const readPath = (line: string) => parsePipelineAnnotations(line).triggerAssets?.[0]?.path
 
 	it('folds every spelling of a relation onto one key', () => {
 		const canonical = 'u/me/wh/analytics/orders'
-		expect(readPath('// on table://u/me/wh/Analytics/Orders')).toBe(canonical)
-		expect(readPath('// on table://u/me/wh/"Analytics"/"Orders"')).toBe(canonical)
-		expect(readPath('// on table://u/me/wh/`analytics`/`orders`')).toBe(canonical)
-		expect(readPath('// on table://u/me/wh/[Analytics]/[Orders]')).toBe(canonical)
+		expect(readPath('// on dbt://u/me/wh/Analytics/Orders')).toBe(canonical)
+		expect(readPath('// on dbt://u/me/wh/"Analytics"/"Orders"')).toBe(canonical)
+		expect(readPath('// on dbt://u/me/wh/`analytics`/`orders`')).toBe(canonical)
+		expect(readPath('// on dbt://u/me/wh/[Analytics]/[Orders]')).toBe(canonical)
 	})
 
 	it('unquotes each half of a qualified database.schema segment', () => {
 		// Only an unquoted period separates the two halves — the backend
 		// ingest keys the same relation as `archive.sales/orders`, so
 		// stripping just the outer quote pair would split the node in two.
-		expect(readPath('// on table://u/me/wh/"Archive"."Sales"/"Orders"')).toBe(
+		expect(readPath('// on dbt://u/me/wh/"Archive"."Sales"/"Orders"')).toBe(
 			'u/me/wh/archive.sales/orders'
 		)
 	})
@@ -260,20 +260,20 @@ describe('table:// canonicalization', () => {
 	// nodes for one table. The decoded spelling has to land there too: this
 	// function also sees names that have already been through `split_relation`.
 	it('decodes a doubled delimiter, and leaves a lone one alone', () => {
-		expect(readPath('// on table://u/me/wh/"sales""east"/"orders"')).toBe(
+		expect(readPath('// on dbt://u/me/wh/"sales""east"/"orders"')).toBe(
 			'u/me/wh/sales"east/orders'
 		)
-		expect(readPath('// on table://u/me/wh/analytics/"order""s"')).toBe(
+		expect(readPath('// on dbt://u/me/wh/analytics/"order""s"')).toBe(
 			'u/me/wh/analytics/order"s'
 		)
-		expect(readPath('// on table://u/me/wh/`da``ta`/`orders`')).toBe('u/me/wh/da`ta/orders')
-		expect(readPath('// on table://u/me/wh/[my]]schema]/[orders]')).toBe(
+		expect(readPath('// on dbt://u/me/wh/`da``ta`/`orders`')).toBe('u/me/wh/da`ta/orders')
+		expect(readPath('// on dbt://u/me/wh/[my]]schema]/[orders]')).toBe(
 			'u/me/wh/my]schema/orders'
 		)
 		// Already decoded: a lone delimiter is part of the name, not an opening
 		// quote, so both spellings agree.
-		expect(readPath('// on table://u/me/wh/sales"east/orders')).toBe(
-			readPath('// on table://u/me/wh/"sales""east"/"orders"')
+		expect(readPath('// on dbt://u/me/wh/sales"east/orders')).toBe(
+			readPath('// on dbt://u/me/wh/"sales""east"/"orders"')
 		)
 	})
 
@@ -282,12 +282,12 @@ describe('table:// canonicalization', () => {
 	// `sÉlection` at deploy — two nodes for one table, which is the split this
 	// canonicalization exists to prevent. Every warehouse accepts such names.
 	it('folds case the way the deploy does, ASCII only', () => {
-		expect(readPath('// on table://u/me/wh/Sélection/Orders')).toBe('u/me/wh/sélection/orders')
-		expect(readPath('// on table://u/me/wh/ОТЧЁТ/Orders')).toBe('u/me/wh/ОТЧЁТ/orders')
+		expect(readPath('// on dbt://u/me/wh/Sélection/Orders')).toBe('u/me/wh/sélection/orders')
+		expect(readPath('// on dbt://u/me/wh/ОТЧЁТ/Orders')).toBe('u/me/wh/ОТЧЁТ/orders')
 	})
 
 	it('leaves the resource path alone', () => {
-		expect(readPath('// on table://u/Me/WH/analytics/orders')).toBe(
+		expect(readPath('// on dbt://u/Me/WH/analytics/orders')).toBe(
 			'u/Me/WH/analytics/orders'
 		)
 	})

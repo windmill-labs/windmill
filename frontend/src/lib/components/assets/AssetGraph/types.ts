@@ -16,7 +16,7 @@ export interface AssetGraphAssetNode {
 	// the `_current` node; lets the canvas mark it as a derived "current view"
 	// rather than an unrelated table. Lockstep with Rust `GraphAssetNode`.
 	derived_from?: string
-	// Set on a `table://` asset a dbt project produces (or, for a source,
+	// Set on a `dbt://` asset a dbt project produces (or, for a source,
 	// consumes). A dbt script is ONE runnable node with many model assets, so
 	// per-model metadata hangs off the asset, not off the script. Lockstep with
 	// Rust `GraphAssetNode.dbt`.

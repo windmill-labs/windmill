@@ -248,7 +248,7 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
     // A dbt run records the relations it builds, so it looks like a producer
     // here — but dbt does not trigger downstream runs. Its own DAG is dbt's to
     // order; the only thing a cascade would add is waking Windmill scripts that
-    // read a mart, and nothing outside dbt can declare a `table://` write, so
+    // read a mart, and nothing outside dbt can declare a `dbt://` write, so
     // that edge exists in one direction only. Cascading from a project whose
     // per-run selection can build any subset of itself needs a per-run write set
     // to be correct, which is a design worth doing deliberately rather than

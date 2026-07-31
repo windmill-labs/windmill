@@ -387,6 +387,34 @@
 			.catch(() => {})
 	})
 
+	// Arrived from a failed dbt run's `Run again`, which prefills the arguments it
+	// ran with — a whole-project rebuild. Resuming that run instead is usually
+	// what the reader wants and there is nothing on this form that says so, hence
+	// the offer. Confirmed against the run rather than trusted from the URL: only
+	// the latest failure of a script is resumable, and by the time the form opens
+	// another run may hold it.
+	let dbtRetryFrom: string | undefined = $state(undefined)
+	$effect(() => {
+		const ws = $workspaceStore
+		const from = page.url.searchParams.get('dbt_retry_from') ?? undefined
+		dbtRetryFrom = undefined
+		if (!ws || !from || script?.language !== 'dbt') return
+		JobService.getDbtResumable({ workspace: ws, id: from })
+			.then((held) => {
+				if ($workspaceStore === ws && held === from) dbtRetryFrom = from
+			})
+			.catch(() => {})
+	})
+
+	function useDbtRetry() {
+		const from = dbtRetryFrom
+		if (!from) return
+		args = { ...(args ?? {}), command: { label: 'retry', dbt_retry_job: from } }
+		if (jsonView) {
+			runForm?.setCode(JSON.stringify(args, null, '\t'))
+		}
+	}
+
 	let moveDrawer: MoveDrawer | undefined = $state()
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
 	let persistentScriptDrawer: PersistentScriptDrawer | undefined = $state()
@@ -881,6 +909,25 @@
 											}}
 										/>
 									{/if}
+								</div>
+							{/if}
+
+							<!-- Landed here from a failed dbt run's `Run again`, which prefills a
+							     whole-project rebuild. Resuming that run is one click, and the
+							     form alone never says it is possible. -->
+							{#if dbtRetryFrom && (args?.['command'] as any)?.label !== 'retry'}
+								<div class="mb-2">
+									<Alert type="info" size="xs" title="This rebuilds the whole project">
+										<div class="flex flex-row gap-2 items-center flex-wrap">
+											<span>
+												The run you came from failed part-way. `dbt retry` rebuilds only its
+												failed and skipped nodes, with the arguments it ran with.
+											</span>
+											<Button size="xs" variant="border" color="light" on:click={useDbtRetry}>
+												Retry that run instead
+											</Button>
+										</div>
+									</Alert>
 								</div>
 							{/if}
 

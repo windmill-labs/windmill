@@ -1040,14 +1040,14 @@ describe('dbtAssociations', () => {
 		{
 			runnable_kind: 'script',
 			runnable_path: 'f/a/dbtproj',
-			asset_kind: 'table',
+			asset_kind: 'dbt',
 			asset_path: 'wh/s/model_a',
 			access_type: 'w'
 		},
 		{
 			runnable_kind: 'script',
 			runnable_path: 'f/a/dbtproj',
-			asset_kind: 'table',
+			asset_kind: 'dbt',
 			asset_path: 'wh/s/src_a',
 			access_type: 'r'
 		},
@@ -1055,7 +1055,7 @@ describe('dbtAssociations', () => {
 		{
 			runnable_kind: 'script',
 			runnable_path: 'f/a/consumer',
-			asset_kind: 'table',
+			asset_kind: 'dbt',
 			asset_path: 'wh/s/model_a',
 			access_type: 'r'
 		}
@@ -1064,15 +1064,15 @@ describe('dbtAssociations', () => {
 	it('points every declared relation back at its project', () => {
 		const { ownerByAsset } = dbtAssociations(runnables, edges)
 		// A source is declared by the project too, so its badge finds it.
-		expect(ownerByAsset.get('asset:table:wh/s/src_a')).toBe('script:f/a/dbtproj')
-		expect(ownerByAsset.get('asset:table:wh/s/model_a')).toBe('script:f/a/dbtproj')
+		expect(ownerByAsset.get('asset:dbt:wh/s/src_a')).toBe('script:f/a/dbtproj')
+		expect(ownerByAsset.get('asset:dbt:wh/s/model_a')).toBe('script:f/a/dbtproj')
 	})
 
 	it('counts only what the project materializes as its transforms', () => {
 		const { writesByOwner } = dbtAssociations(runnables, edges)
 		// Hovering the project highlights the models it builds, not its inputs.
 		expect([...(writesByOwner.get('script:f/a/dbtproj') ?? [])]).toEqual([
-			'asset:table:wh/s/model_a'
+			'asset:dbt:wh/s/model_a'
 		])
 	})
 
@@ -1090,14 +1090,14 @@ describe('dbtAssociations with a producer and a consumer of one relation', () =>
 	const write = {
 		runnable_kind: 'script',
 		runnable_path: 'f/a/producer',
-		asset_kind: 'table',
+		asset_kind: 'dbt',
 		asset_path: 'wh/s/shared',
 		access_type: 'w'
 	}
 	const read = {
 		runnable_kind: 'script',
 		runnable_path: 'f/a/reader',
-		asset_kind: 'table',
+		asset_kind: 'dbt',
 		asset_path: 'wh/s/shared',
 		access_type: 'r'
 	}
@@ -1109,13 +1109,13 @@ describe('dbtAssociations with a producer and a consumer of one relation', () =>
 			[read, write]
 		]) {
 			const { ownerByAsset } = dbtAssociations(runnables, edges)
-			expect(ownerByAsset.get('asset:table:wh/s/shared')).toBe('script:f/a/producer')
+			expect(ownerByAsset.get('asset:dbt:wh/s/shared')).toBe('script:f/a/producer')
 		}
 	})
 
 	it('falls back to a reader when nothing here produces the relation', () => {
 		const { ownerByAsset } = dbtAssociations(runnables, [read])
-		expect(ownerByAsset.get('asset:table:wh/s/shared')).toBe('script:f/a/reader')
+		expect(ownerByAsset.get('asset:dbt:wh/s/shared')).toBe('script:f/a/reader')
 	})
 })
 
@@ -1130,7 +1130,7 @@ describe('dbtAssociations with two writers of one relation', () => {
 	const writeBy = (p: string) => ({
 		runnable_kind: 'script',
 		runnable_path: p,
-		asset_kind: 'table',
+		asset_kind: 'dbt',
 		asset_path: 'wh/s/shared',
 		access_type: 'w'
 	})
@@ -1138,8 +1138,8 @@ describe('dbtAssociations with two writers of one relation', () => {
 	it('picks the same producer whatever order the edges arrive in', () => {
 		const a = writeBy('f/a/upstream')
 		const b = writeBy('f/a/downstream')
-		const first = dbtAssociations(runnables, [a, b]).ownerByAsset.get('asset:table:wh/s/shared')
-		const second = dbtAssociations(runnables, [b, a]).ownerByAsset.get('asset:table:wh/s/shared')
+		const first = dbtAssociations(runnables, [a, b]).ownerByAsset.get('asset:dbt:wh/s/shared')
+		const second = dbtAssociations(runnables, [b, a]).ownerByAsset.get('asset:dbt:wh/s/shared')
 		expect(first).toBe(second)
 		expect(first).toBe('script:f/a/downstream')
 	})
@@ -1149,9 +1149,9 @@ describe('dbtAssociations with two writers of one relation', () => {
 			writeBy('f/a/upstream'),
 			writeBy('f/a/downstream')
 		])
-		expect(writesByOwner.get('script:f/a/upstream')).toEqual(new Set(['asset:table:wh/s/shared']))
+		expect(writesByOwner.get('script:f/a/upstream')).toEqual(new Set(['asset:dbt:wh/s/shared']))
 		expect(writesByOwner.get('script:f/a/downstream')).toEqual(
-			new Set(['asset:table:wh/s/shared'])
+			new Set(['asset:dbt:wh/s/shared'])
 		)
 	})
 })

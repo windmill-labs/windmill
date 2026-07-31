@@ -8,7 +8,7 @@
 //! Two things this module is deliberate about:
 //!
 //! * **Asset identity is the physical relation.** A model becomes
-//!   `table://<resource_path>/<schema>/<name>`, never `dbt://…`. Keying on the
+//!   `dbt://<resource_path>/<schema>/<name>`, never `dbt://…`. Keying on the
 //!   producing tool would mean a native script reading the same warehouse table
 //!   forms no edge, and the two sit on the graph as unrelated islands. A dbt
 //!   run does not trigger those readers (decision 11, "No cascade from dbt");
@@ -395,7 +395,7 @@ fn single_unique_key(v: Option<&serde_json::Value>) -> Option<String> {
     }
 }
 
-/// `table://` path of the relation a node resolves to, or `None` when it has
+/// `dbt://` path of the relation a node resolves to, or `None` when it has
 /// none. Assembles the parts; `table_asset_path` owns the spelling.
 fn asset_path_for(
     node: &ManifestNode,
@@ -426,7 +426,7 @@ fn asset_path_for(
     ))
 }
 
-/// The one derivation of a `table://` path from a relation's parts.
+/// The one derivation of a `dbt://` path from a relation's parts.
 ///
 /// Three call sites need it and they MUST agree: the manifest ingest (which
 /// creates the graph node), the live progress events, and the end-of-run
@@ -610,7 +610,7 @@ pub fn ingest_manifest(
             "source" => AssetUsageAccessType::R,
             _ => continue,
         };
-        let key = (AssetKind::Table, path);
+        let key = (AssetKind::Dbt, path);
         let merged = match (assets.get(&key), access) {
             (Some(AssetUsageAccessType::R), AssetUsageAccessType::W)
             | (Some(AssetUsageAccessType::W), AssetUsageAccessType::R) => AssetUsageAccessType::RW,
@@ -1154,7 +1154,7 @@ mod tests {
         );
     }
 
-    // The whole reason for `table://`: a model's key is the physical relation,
+    // The whole reason for `dbt://`: a model's key is the physical relation,
     // so a native script reading the same table lands on the same node.
     // Identifiers are canonicalized, and the database appears only when a model
     // overrode the target's.
@@ -1205,7 +1205,7 @@ mod tests {
             .assets
             .iter()
             .map(|a| {
-                assert_eq!(a.kind, AssetKind::Table);
+                assert_eq!(a.kind, AssetKind::Dbt);
                 (a.path.clone(), a.access_type)
             })
             .collect();

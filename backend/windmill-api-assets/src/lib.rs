@@ -636,7 +636,7 @@ struct GraphAssetNode {
     // `AssetGraphAssetNode.derived_from`.
     #[serde(skip_serializing_if = "Option::is_none")]
     derived_from: Option<String>,
-    // Set on a `table://` asset produced (or, for a source, consumed) by a dbt
+    // Set on a `dbt://` asset produced (or, for a source, consumed) by a dbt
     // script: which dbt node it is and what dbt says about it. A dbt project is
     // one runnable node with many model assets, so per-model metadata belongs
     // here rather than on the script (docs/dbt-runtime.md, decision 15).
@@ -1207,7 +1207,7 @@ pub async fn asset_graph_for(
     .await?;
 
     // dbt provenance. A dbt script is one runnable node whose models are many
-    // `table://` asset nodes (decision 15), so the per-model metadata has to
+    // `dbt://` asset nodes (decision 15), so the per-model metadata has to
     // hang off the assets, not off the script. It describes the RELATION, not a
     // producer: several dbt scripts (different selections of one project) can
     // materialize the same model, and the producer edges already name them.
@@ -1273,7 +1273,7 @@ pub async fn asset_graph_for(
                 -- pinned version's nodes are the scope.
                 AND ($3::bigint IS NOT NULL OR n.asset_path IN (
                   SELECT path FROM asset
-                   WHERE workspace_id = $1 AND kind = 'table'
+                   WHERE workspace_id = $1 AND kind = 'dbt'
                      AND ($2::text IS NULL OR usage_path LIKE $2)))
            )
            SELECT n.script_path AS "script_path!", n.unique_id AS "unique_id!",
@@ -1390,7 +1390,7 @@ pub async fn asset_graph_for(
               -- the answer.
               AND ($3::bigint IS NOT NULL OR EXISTS (
                 SELECT 1 FROM asset a
-                 WHERE a.workspace_id = $1 AND a.kind = 'table'
+                 WHERE a.workspace_id = $1 AND a.kind = 'dbt'
                    AND a.path = c.asset_path
                    AND ($2::text IS NULL OR a.usage_path LIKE $2)))"#,
         &w_id,
@@ -1479,7 +1479,7 @@ pub async fn asset_graph_for(
     let dbt_writes: std::collections::HashSet<(&str, &str)> = rows
         .iter()
         .filter(|r| {
-            r.asset_kind == AssetKind::Table
+            r.asset_kind == AssetKind::Dbt
                 && matches!(r.access_type.as_deref(), Some("w") | Some("rw"))
         })
         .map(|r| (r.usage_path.as_str(), r.asset_path.as_str()))
@@ -1613,7 +1613,7 @@ pub async fn asset_graph_for(
     if dbt_script_hash.is_some() {
         for r in &dbt_rows {
             if let Some(p) = r.asset_path.as_deref() {
-                asset_set.insert((AssetKind::Table, p.to_string()));
+                asset_set.insert((AssetKind::Dbt, p.to_string()));
             }
         }
     }
@@ -1976,7 +1976,7 @@ pub async fn asset_graph_for(
                 })
                 .flatten(),
             derived_from: scd2_current_base.get(&(kind, path.clone())).cloned(),
-            dbt: (kind == AssetKind::Table)
+            dbt: (kind == AssetKind::Dbt)
                 .then(|| dbt_by_asset_path.get(&path).cloned())
                 .flatten(),
             kind,

@@ -33,7 +33,7 @@ the dominant way dbt is orchestrated today.
 | 8 | Credentials | Both `profiles.yml` passthrough and resource mapping |
 | 9 | Adapter mappings | postgres, redshift, mysql, snowflake, bigquery, databricks; others via the project's own `profiles.yml` |
 | 10 | Private repo auth | Not applicable: the project is synced, not fetched |
-| 11 | Asset kind | `table://<resource>/<schema>/<name>`, not `dbt://`. See below |
+| 11 | Asset kind | `dbt://<resource>/<schema>/<name>` — keyed on the relation, not on dbt's node id. See below |
 | 12 | Graph refresh | Deploy-time, re-ingested per run only when the descriptor is dynamic. See below |
 | 13 | Manifest storage | Sidecar table for nodes/edges. Full manifest **not** stored — see below |
 | 14 | Metadata depth | Tests, strategy, tags, freshness, column descriptions. Column **lineage** is not in the manifest — see below |
@@ -99,7 +99,7 @@ exercised by the e2e suite, so the flip is a config change, not a port.
 ## Decision 21: mirror the native warehouse boundary, do not invent one
 
 Everything structural is CE: the executor, both bundled engines, the manifest
-ingest, the `table://` asset graph, live progress, the editor. The only gate is
+ingest, the `dbt://` asset graph, live progress, the editor. The only gate is
 on two adapters, and it is not a dbt-specific policy — it is the same boundary
 the native script languages already draw. Since `bigquery` and `snowflake`
 became CE, the only warehouse `ScriptLang`s still behind a license are `mssql`
@@ -130,29 +130,35 @@ variant, so reading it alone passes on a CE build. The check is
 `cfg!(feature = "enterprise") && LICENSE_KEY_VALID`, which rejects both a CE
 build and an enterprise build whose key did not verify.
 
-## Decision 11: `table://`, not `dbt://`
+## Decision 11: `dbt://`, keyed on the relation and not on the dbt node
 
-`dbt://` is the intuitive choice and it quietly destroys the reason to build the
-graph at all.
+`dbt://<resource_path>/<schema>/<name>`, one `AssetKind`, resolved from the
+profile's target so two scripts pointing at the same warehouse agree on identity.
 
-Asset identity has to be the **physical relation**, not the tool that produced it.
-If a dbt mart registers as `dbt://analytics/orders_daily` while a native DuckDB
-script reads `table://snowflake_prod/analytics/orders_daily`, those are unrelated
-URIs, no edge forms, and dbt becomes an island in the graph. That is the
-BashOperator outcome with extra steps. Keying on the relation is what lets a
-native script reading a mart share a node with the dbt model that builds it, so
-the lineage is one graph rather than two.
+The SCHEME names the producer, because dbt is the only thing that creates one of
+these: no other language derives warehouse relations, `// materialize` takes
+DuckLake targets only, and a dbt run does not dispatch. Calling the kind
+something generic promised a parity with native Snowflake and BigQuery scripts
+that does not exist.
+
+The PATH is the physical relation, and that is the load-bearing half. dbt-core
+has no cross-project `ref()`: two projects meet when one materializes a mart and
+the next declares it a `source`. Their dbt identities differ there —
+`model.a_pkg.orders` against `source.b_pkg.analytics.orders` — while the relation
+does not, so keying on `unique_id` would make every project an island and turn
+the handoff into two unconnected nodes. `unique_id` also embeds the package name
+from `dbt_project.yml`, which two unrelated projects may both call `analytics`,
+collapsing two different tables onto one node. The relation cannot collide that
+way. It is also what a DuckDB, Python, TS or Ansible script can name in a
+`// on dbt://…` annotation to join the lineage — those four are the languages
+with a body-asset parser; the native SQL ones cannot declare assets at all.
 
 A dbt run does **not** trigger those readers. See "no cascade from dbt" below.
 
-So: `table://<resource_path>/<schema>/<name>`, one new `AssetKind`, resolved from
-the profile's target so two scripts pointing at the same warehouse agree on
-identity.
-
-`dbt://` stays available as a namespace for dbt nodes that have **no** physical
-relation and therefore cannot collide with anything: ephemeral models (inlined
-CTEs, never written), exposures, and sources not separately modelled. Use it only
-there, and only if those nodes prove worth rendering. Nothing uses it today.
+An ephemeral model (an inlined CTE, never written), an exposure, or a source that
+is not separately modelled has no physical relation and therefore no place in
+this namespace. If those ever prove worth rendering they need a key of their own
+— `unique_id` suits them, precisely because nothing else can refer to them.
 
 Two traps, both of which quietly defeat the point if handled wrong.
 
@@ -408,13 +414,13 @@ one, but that membership carries an editor whose premise is that you author the
 transforms in it — and a dbt project is authored in a local `dbt run` / `dbt
 test` loop, with Windmill as the runner and the viewer. Enrolling it put a dbt
 project inside the pipeline editor and blurred which of the two a folder holds.
-Its models are `table://` assets in the shared graph regardless: that is what
+Its models are `dbt://` assets in the shared graph regardless: that is what
 puts a native script reading one of them on the same node, and it is independent
 of pipeline membership.
 
 dbt already orders its own DAG, so a cascade would only ever add one thing:
 waking a Windmill script that reads a mart. That edge is real but narrow, and
-only half of it exists — nothing outside dbt can declare a `table://` write
+only half of it exists — nothing outside dbt can declare a `dbt://` write
 (`// materialize` accepts DuckLake targets only), so the reverse direction, an
 ingestion script waking a dbt project, cannot be expressed at all.
 
@@ -425,10 +431,10 @@ needs a per-job record of what was built, which the per-relation state table
 cannot supply (it keeps one row per relation, stamped with the last writer).
 
 So dbt materializes and reports, and `asset_dispatch` returns early for
-`ScriptLang::Dbt`. A `# on table://<mart>` subscription is refused outright at
+`ScriptLang::Dbt`. A `# on dbt://<mart>` subscription is refused outright at
 deploy rather than accepted and left dormant — an edge drawn on the canvas that
 can never fire is worse than an error saying so. A plain read
-(`# table://<mart>`) still renders the reader beside the model, which is what
+(`# dbt://<mart>`) still renders the reader beside the model, which is what
 makes the lineage one graph. Wiring the trigger up later means deciding what a
 selective run should notify — that decision is the work, not the plumbing.
 
@@ -723,11 +729,13 @@ so it carries exactly the overrides that command takes:
 ```jsonc
 {"command": {"label": "build", "select": [], "exclude": [], "vars": {}, "full_refresh": false}}
 {"command": {"label": "retry", "dbt_retry_job": "019fb410-8ea9-…"}}
-{"command": {"label": "show",  "select": ["stg_orders"], "exclude": [], "vars": {}, "limit": 100}}
+{"command": {"label": "show",  "model": "stg_orders", "vars": {}, "limit": 100}}
 ```
 
 The union is the point: `dbt_retry_job` is required where it means something and
-absent everywhere else, `full_refresh` cannot reach a command that ignores it, and
+absent everywhere else, `show` takes the ONE model it previews rather than the
+`select`/`exclude` pair that narrows a build, `full_refresh` cannot reach a
+command that ignores it, and
 the run form renders a toggle over the variants rather than a list of fields that
 quietly do nothing. The worker spreads the block over the run's arguments to read
 them — `label` becomes `dbt_command` — which is why a `{{ placeholder }}` may not
@@ -870,7 +878,7 @@ a SQL-AST pass of our own, so `columnLineageGraph.ts` is not wired up for dbt.
 
 | dbt | Windmill | Mechanism |
 |---|---|---|
-| model relation | `table://` asset | new `AssetKind` |
+| model relation | `dbt://` asset | new `AssetKind` |
 | `ref()` graph | lineage edges | `replace_static_asset_usage` |
 | `materialized: table` | `materialize_strategy: replace` | `AssetGraphRunnableNode` |
 | `materialized: incremental` | `append` or `merge` (by `unique_key`) | same |
@@ -893,7 +901,7 @@ parse, bundle materialisation, `profiles.yml` render, `dbt build`, log
 passthrough, structured result, retry.
 
 **Phase 2: graph.** `DbtDependencyLocks` and the deploy arm. Migration via
-`cargo sqlx migrate add -r dbt_runtime`. New `table://` `AssetKind` with
+`cargo sqlx migrate add -r dbt_runtime`. New `dbt://` `AssetKind` with
 its `canonical_prefix`. Manifest ingest. Deploy-time ingest plus the per-run
 re-ingest for dynamic descriptors. Extend `AssetGraphRunnableNode`/`AssetGraphAssetNode` in
 `frontend/src/lib/components/assets/AssetGraph/types.ts` with dbt provenance and
@@ -924,7 +932,7 @@ Against a real dbt project (jaffle_shop shape) and the local Postgres:
    script reading one of the marts gets an edge to it.
 6. **Shared node**: a native script that READS a mart renders as a reader of the
    same node the dbt model writes — one node, not two islands. Declared with a
-   plain read (`# table://<mart>`), never `# on`: a `table://` subscription is
+   plain read (`# dbt://<mart>`), never `# on`: a `dbt://` subscription is
    refused at deploy, because nothing but dbt writes a warehouse relation and a
    dbt run does not dispatch (see "no cascade from dbt").
 7. **Selection**: descriptor `select`/`exclude`, and a run-arg override, each

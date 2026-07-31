@@ -24,7 +24,7 @@ describe('copilot flow module validation - asset kind', () => {
 		expect(flowModulesSchema.safeParse([rawScriptModuleWithAssetKind('s3object')]).success).toBe(
 			true
 		)
-		expect(flowModulesSchema.safeParse([rawScriptModuleWithAssetKind('table')]).success).toBe(true)
+		expect(flowModulesSchema.safeParse([rawScriptModuleWithAssetKind('dbt')]).success).toBe(true)
 	})
 
 	it('still rejects a kind the API does not define', () => {

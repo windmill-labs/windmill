@@ -32610,7 +32610,7 @@ components:
         - ducklake
         - datatable
         - volume
-        - table
+        - dbt
     AssetProgress:
       type: object
       required: [asset_kind, asset_path, status]

@@ -728,7 +728,7 @@ components:
                   - ducklake
                   - datatable
                   - volume
-                  - table
+                  - dbt
               access_type:
                 type: string
                 nullable: true

@@ -318,7 +318,7 @@ fn port_of(resource: &Value, default: i64) -> error::Result<i64> {
 }
 
 /// The rendered `profiles.yml` body plus the `(schema, database)` the target
-/// resolves to. The caller needs those two to spell the `table://` asset paths
+/// resolves to. The caller needs those two to spell the `dbt://` asset paths
 /// of models that do not override them.
 #[derive(Debug)]
 pub struct RenderedProfile {
@@ -402,7 +402,7 @@ pub fn render_profile(
             }
             schema = match adapter {
                 // Already emitted as the database key; reported back so the
-                // caller can spell `table://` paths with it.
+                // caller can spell `dbt://` paths with it.
                 DbtAdapter::Mysql => Some(dbname.clone()),
                 _ => schema
                     .or_else(|| s(resource, "schema"))

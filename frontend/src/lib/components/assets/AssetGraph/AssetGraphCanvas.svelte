@@ -704,8 +704,8 @@
 		// fan-out from the script and loses the project's actual shape.
 		const assetNodeIds = new Set(g.assets.map((a) => `asset:${a.kind}:${a.path}`))
 		for (const de of g.dbt_edges ?? []) {
-			const from = `asset:table:${de.from_asset_path}`
-			const to = `asset:table:${de.to_asset_path}`
+			const from = `asset:dbt:${de.from_asset_path}`
+			const to = `asset:dbt:${de.to_asset_path}`
 			if (!assetNodeIds.has(from) || !assetNodeIds.has(to)) continue
 			edges.push({ id: `dbtref:${from}->${to}`, source: from, target: to, kind: 'dbt-ref' })
 		}

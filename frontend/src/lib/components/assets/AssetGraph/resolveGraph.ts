@@ -84,14 +84,14 @@ const AUTO_TRIGGER_KINDS: ReadonlySet<AssetKind> = new Set(['ducklake', 's3objec
 
 /** Whether a subscription on this kind can ever fire once deployed.
  *
- * A `table://` one cannot: dbt is the only producer of a warehouse relation and
- * a dbt run does not dispatch, so the deploy refuses `// on table://…` outright
+ * A `dbt://` one cannot: dbt is the only producer of a warehouse relation and
+ * a dbt run does not dispatch, so the deploy refuses `// on dbt://…` outright
  * (`scripts.rs`). The editor must not draw an arrow the deploy will reject —
  * applied to the EXPLICIT overlays; auto-derivation is already scoped by
  * `AUTO_TRIGGER_KINDS`. Parsing is left alone so the Rust-parity test still
  * compares like for like. */
 function canTrigger(kind: AssetKind): boolean {
-	return kind !== 'table'
+	return kind !== 'dbt'
 }
 
 /** `kind:path` refs of a script's `// materialize` write target(s) (base +

@@ -7,8 +7,8 @@ import type { AssetGraphResponse } from './types'
 function graph(): AssetGraphResponse {
 	return {
 		assets: [
-			{ kind: 'table', path: 'u/a/wh/s/stg_orders', dbt: { unique_id: 'model.p.stg_orders' } },
-			{ kind: 'table', path: 'u/a/wh/s/fct_orders', dbt: { unique_id: 'model.p.fct_orders' } },
+			{ kind: 'dbt', path: 'u/a/wh/s/stg_orders', dbt: { unique_id: 'model.p.stg_orders' } },
+			{ kind: 'dbt', path: 'u/a/wh/s/fct_orders', dbt: { unique_id: 'model.p.fct_orders' } },
 			{ kind: 's3object', path: 'out.csv' }
 		] as AssetGraphResponse['assets'],
 		runnables: [
@@ -19,21 +19,21 @@ function graph(): AssetGraphResponse {
 			{
 				runnable_path: 'f/x/dbtproj',
 				runnable_kind: 'script',
-				asset_kind: 'table',
+				asset_kind: 'dbt',
 				asset_path: 'u/a/wh/s/stg_orders',
 				access_type: 'w'
 			},
 			{
 				runnable_path: 'f/x/dbtproj',
 				runnable_kind: 'script',
-				asset_kind: 'table',
+				asset_kind: 'dbt',
 				asset_path: 'u/a/wh/s/fct_orders',
 				access_type: 'w'
 			},
 			{
 				runnable_path: 'f/x/report',
 				runnable_kind: 'script',
-				asset_kind: 'table',
+				asset_kind: 'dbt',
 				asset_path: 'u/a/wh/s/fct_orders',
 				access_type: 'r'
 			}
@@ -41,7 +41,7 @@ function graph(): AssetGraphResponse {
 		triggers: [
 			{
 				trigger_kind: 'asset',
-				asset_kind: 'table',
+				asset_kind: 'dbt',
 				asset_path: 'u/a/wh/s/fct_orders',
 				runnable_kind: 'script',
 				runnable_path: 'f/x/report'

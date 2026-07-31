@@ -1353,7 +1353,7 @@ const DBT_INIT_CODE = `# dbt-core-1x (default) | dbt-core-2x | fusion
 engine: dbt-core-1x
 profile:
   # Warehouse resource rendered into profiles.yml. Its PATH is also the warehouse's
-  # identity in the asset graph: every model becomes table://<resource>/<schema>/<name>,
+  # identity in the asset graph: every model becomes dbt://<resource>/<schema>/<name>,
   # which is what gives this project its lineage, and lets a native script reading
   # one of those tables share the node. A dbt run does not trigger such a script.
   resource: $res:u/user/my_warehouse

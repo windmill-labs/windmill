@@ -249,6 +249,7 @@ pub const RESERVED_ARG_NAMES: &[&str] = &[
     "full_refresh",
     "dbt_command",
     "dbt_retry_job",
+    "model",
     "limit",
 ];
 
@@ -306,8 +307,13 @@ fn vars_arg() -> Arg {
     }
 }
 
-/// What each command takes, in form order. The lists overlap where the commands
-/// genuinely do: a `show` narrows the project the same way a `build` does.
+/// What each command takes, in form order.
+///
+/// `show` is absent on purpose: it previews ONE model's rows, which is a thing
+/// to do to a table you are looking at rather than a job to fill a form in for.
+/// The run page's graph and the assets list offer it where the tables are; the
+/// worker still accepts `{label: show, model, limit}` from a flow, the CLI or the
+/// API (`DBT_COMMANDS`, docs/dbt-runtime.md).
 fn command_variants(d: &DbtDescriptor) -> Vec<(&'static str, Vec<Arg>)> {
     let selection = || {
         vec![
@@ -347,21 +353,6 @@ fn command_variants(d: &DbtDescriptor) -> Vec<(&'static str, Vec<Arg>)> {
                 oidx: None,
                 otyp_inferred: false,
             }],
-        ),
-        (
-            "show",
-            selection()
-                .into_iter()
-                .chain([Arg {
-                    name: "limit".to_string(),
-                    otyp: None,
-                    typ: Typ::Int,
-                    has_default: true,
-                    default: Some(serde_json::json!(DBT_SHOW_DEFAULT_LIMIT)),
-                    oidx: None,
-                    otyp_inferred: false,
-                }])
-                .collect(),
         ),
     ]
 }
@@ -490,9 +481,7 @@ pub fn dbt_arg_schema(inner_content: &str) -> anyhow::Result<serde_json::Value> 
                     "description".to_string(),
                     serde_json::json!(
                         "`build` runs the project. `retry` resumes a failed run, rebuilding only \
-                         its failed and skipped nodes with the arguments it ran with. `show` \
-                         previews one selected model's rows without building; a selection naming \
-                         several returns the first."
+                         its failed and skipped nodes with the arguments it ran with."
                     ),
                 );
             }
@@ -547,7 +536,11 @@ fn property_of(arg: &Arg) -> serde_json::Value {
                  exist makes this run store its own graph rather than the deployed one.",
             ),
             "full_refresh" => Some("Rebuild incremental models from scratch instead of appending."),
-            "limit" => Some("Rows a `show` returns."),
+            "model" => Some(
+                "The model to preview, by name — `stg_orders`, or `my_package.stg_orders` when \
+                 two packages share a name. Any dbt selector resolving to ONE node works.",
+            ),
+            "limit" => Some("Rows the preview returns."),
             // A placeholder the descriptor interpolates: its meaning is the
             // project's, so there is nothing generic to say about it.
             _ => None,
@@ -697,12 +690,14 @@ full_refresh: true
         // hidden: a retry names the run it resumes.
         assert_eq!(retry["required"], serde_json::json!(["dbt_retry_job"]));
 
-        let (show, show_args) = of("show");
-        assert_eq!(show_args, ["exclude", "limit", "select", "vars"]);
-        // The worker clamps `limit` as an integer; the schema has to say so, or
-        // the run form offers a free-text box for a number.
-        assert_eq!(show["properties"]["limit"]["type"], "integer");
-        assert_eq!(show["properties"]["limit"]["default"], 100);
+        // `show` is NOT a form variant: previewing one model's rows is something
+        // you do to a table you are looking at, and the graph and the assets list
+        // are where that lives. The worker still accepts it programmatically.
+        assert!(
+            !variants.iter().any(|v| v["title"] == "show"),
+            "show must not be offered in the run form: {schema}"
+        );
+        assert!(DBT_COMMANDS.contains(&"show"), "but the worker still takes it");
 
         // Every `{{ placeholder }}` the descriptor interpolates is an argument a
         // run must supply. The command block is not one: it defaults to the

@@ -7,7 +7,7 @@
 -- (`<resource_path>/<schema>/<name>`), never the producing tool, so a dbt mart
 -- and a native script reading the same table resolve to one node and the
 -- lineage is one graph across the boundary (docs/dbt-runtime.md, decision 11).
-ALTER TYPE ASSET_KIND ADD VALUE IF NOT EXISTS 'table';
+ALTER TYPE ASSET_KIND ADD VALUE IF NOT EXISTS 'dbt';
 
 -- Parsed dbt manifest, one row per dbt node. The full manifest.json is not
 -- stored -- only the fields the asset graph renders.

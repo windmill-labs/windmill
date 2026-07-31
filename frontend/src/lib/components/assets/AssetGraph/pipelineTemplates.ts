@@ -219,7 +219,7 @@ const ASSET_URI_PREFIX: Record<AssetKind, string> = {
 	ducklake: 'ducklake://',
 	datatable: 'datatable://',
 	volume: 'volume://',
-	table: 'table://'
+	dbt: 'dbt://'
 }
 
 export function assetUri(asset: { kind: AssetKind; path: string }): string {

@@ -1502,7 +1502,7 @@ async fn create_script_internal<'c>(
     // dbt is deliberately not a pipeline member: that membership carries an
     // editor whose premise is that the transforms are authored in it, and a dbt
     // project is authored in a local `dbt run` loop. Its models reach the shared
-    // graph as `table://` assets either way (docs/dbt-runtime.md).
+    // graph as `dbt://` assets either way (docs/dbt-runtime.md).
     let in_pipeline = pipeline_annotations.in_pipeline && ns.language != ScriptLang::Dbt;
     // `// trigger all` → AND join barrier (else OR, the default).
     let pipeline_join_all = !pipeline_annotations.join_mode.is_any();
@@ -2134,11 +2134,11 @@ async fn create_script_internal<'c>(
         let Some((trigger_kind, trigger_ref)) = trigger_spec_to_row(spec) else {
             continue;
         };
-        // A `table://` subscription can never fire: dbt is the only producer of a
+        // A `dbt://` subscription can never fire: dbt is the only producer of a
         // warehouse relation (`// materialize` takes DuckLake targets only) and a
         // dbt run does not dispatch. Refusing beats persisting a row that draws a
         // cascade arrow on the canvas and then never wakes anything.
-        if trigger_ref.starts_with("table://") {
+        if trigger_ref.starts_with("dbt://") {
             return Err(Error::BadRequest(format!(
                 "`{trigger_ref}` cannot be subscribed to: a dbt run does not trigger downstream \
                  runs, and nothing else writes a warehouse relation. Declare the read without \

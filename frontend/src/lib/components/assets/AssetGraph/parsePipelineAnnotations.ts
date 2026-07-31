@@ -19,10 +19,10 @@ const ASSET_PREFIXES: Array<[string, AssetKind]> = [
 	['ducklake://', 'ducklake'],
 	['datatable://', 'datatable'],
 	['volume://', 'volume'],
-	['table://', 'table']
+	['dbt://', 'dbt']
 ]
 
-/** Canonical spelling of a `table://` path — mirror of
+/** Canonical spelling of a `dbt://` path — mirror of
  *  `canonicalize_table_asset_path` in the Rust parser, which is the single
  *  place a relation becomes a graph key. The live editor must agree with it
  *  exactly, or an annotation looks connected while typing and lands on a
@@ -353,12 +353,12 @@ function parseAssetSyntax(s: string): PipelineTriggerAsset | undefined {
 	for (const [prefix, kind] of ASSET_PREFIXES) {
 		if (s.startsWith(prefix)) {
 			const suffix = s.slice(prefix.length)
-			// `table://` is canonicalized, every other kind's suffix is kept
+			// `dbt://` is canonicalized, every other kind's suffix is kept
 			// verbatim — mirroring the Rust `parse_asset_syntax`. For S3 the path
 			// encodes the storage: `s3:///key` yields `/key` (default storage,
 			// leading slash significant) while `s3://secondary/key` yields
 			// `secondary/key` — two different objects.
-			return { kind, path: kind === 'table' ? canonicalizeTablePath(suffix) : suffix }
+			return { kind, path: kind === 'dbt' ? canonicalizeTablePath(suffix) : suffix }
 		}
 	}
 	return undefined

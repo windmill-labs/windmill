@@ -22,7 +22,7 @@
 	<BoxesIcon {size} class={className} />
 {:else if assetKind == 'volume'}
 	<HardDriveIcon {size} class={className} />
-{:else if assetKind == 'table'}
+{:else if assetKind == 'dbt'}
 	<Table2 {size} class={className} />
 {:else}
 	<Pyramid {size} class={className} />

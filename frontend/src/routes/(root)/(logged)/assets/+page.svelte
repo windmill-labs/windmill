@@ -26,7 +26,10 @@
 	import AssetsUsageDrawer from '$lib/components/assets/AssetsUsageDrawer.svelte'
 	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'
 	import { Tooltip } from '$lib/components/meltComponents'
-	import { AlertTriangle, Loader2, SettingsIcon, StarIcon } from 'lucide-svelte'
+	import { AlertTriangle, Loader2, SettingsIcon, StarIcon, TableProperties } from 'lucide-svelte'
+	import { previewDbtRows, type DbtPreview } from '$lib/components/dbt/previewRows'
+	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
+	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import { StaleWhileLoading, useInfiniteQuery, useScrollToBottom } from '$lib/svelte5Utils.svelte'
 	import { resource, watch, type ResourceReturn } from 'runed'
 	import RefreshButton from '$lib/components/common/button/RefreshButton.svelte'
@@ -56,7 +59,7 @@
 		'ducklake',
 		'datatable',
 		'volume',
-		'table'
+		'dbt'
 	])
 
 	// FilterSearchbar setup
@@ -111,6 +114,38 @@
 
 	let s3FilePicker: S3FilePicker | undefined = $state()
 	let assetsUsageDropdown: AssetsUsageDrawer | undefined = $state()
+
+	// A `dbt://` asset's rows, previewed through the dbt project that writes it.
+	// The producer is the asset's own WRITE usage — a table nobody writes has no
+	// project to ask, and no `ref()` to resolve the relation with.
+	type AssetRow = { path: string; kind: string; usages: { path: string; kind: string; access_type?: string }[] }
+	function dbtProducerOf(asset: AssetRow): string | undefined {
+		if (asset.kind !== 'dbt') return undefined
+		return asset.usages.find((u) => u.kind === 'script' && u.access_type !== 'r')?.path
+	}
+	let previewDrawer: Drawer | undefined = $state()
+	let previewTitle = $state('')
+	let preview = $state<DbtPreview | undefined>(undefined)
+	let previewSeq = 0
+	async function previewTable(asset: AssetRow) {
+		const ws = $workspaceStore
+		const script = dbtProducerOf(asset)
+		if (!ws || !script) return
+		// The model is the relation's own name: `<resource>/<schema>/<name>`.
+		const model = asset.path.split('/').pop() ?? asset.path
+		previewTitle = model
+		preview = { pending: true }
+		previewDrawer?.openDrawer()
+		const seq = ++previewSeq
+		const res = await previewDbtRows({
+			workspace: ws,
+			scriptPath: script,
+			model,
+			stillWanted: () => seq === previewSeq
+		})
+		if (seq === previewSeq && res) preview = res
+	}
+
 
 	let allS3Storages = resource(
 		() => $workspaceStore,
@@ -387,6 +422,17 @@
 						{#if assetCanBeExplored(asset, asset.metadata) && !$userStore?.operator}
 							<ExploreAssetButton {asset} {s3FilePicker} _resourceMetadata={asset.metadata} />
 						{/if}
+						{#if dbtProducerOf(asset) && !$userStore?.operator}
+							<Button
+								size="xs2"
+								color="light"
+								variant="border"
+								startIcon={{ icon: TableProperties }}
+								on:click={() => previewTable(asset)}
+							>
+								Preview
+							</Button>
+						{/if}
 						{#if asset.kind === 'resource' && asset.metadata === undefined}
 							<Tooltip class={'w-24 flex items-center justify-center'}>
 								<AlertTriangle size={20} class="text-orange-600 dark:text-orange-500" />
@@ -411,3 +457,40 @@
 		</tbody>
 	</DataTable>
 {/snippet}
+
+<Drawer bind:this={previewDrawer} size="800px">
+	<DrawerContent title={`Rows of ${previewTitle}`} on:close={() => previewDrawer?.closeDrawer()}>
+		{#if preview && 'pending' in preview}
+			<div class="flex items-center gap-2 text-xs text-secondary">
+				<Loader2 size={14} class="animate-spin" /> Previewing the first rows…
+			</div>
+		{:else if preview && 'error' in preview}
+			<div class="text-xs text-red-600 dark:text-red-400">{preview.error}</div>
+		{:else if preview && 'rows' in preview}
+			{#if preview.rows.length === 0}
+				<div class="text-xs text-secondary">No rows.</div>
+			{:else}
+				<div class="overflow-auto">
+					<table class="text-xs w-full">
+						<thead>
+							<tr>
+								{#each Object.keys(preview.rows[0]) as col}
+									<th class="text-left px-2 py-1 font-semibold border-b">{col}</th>
+								{/each}
+							</tr>
+						</thead>
+						<tbody>
+							{#each preview.rows as row}
+								<tr>
+									{#each Object.keys(preview.rows[0]) as col}
+										<td class="px-2 py-1 border-b font-mono">{String(row[col] ?? '')}</td>
+									{/each}
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
+		{/if}
+	</DrawerContent>
+</Drawer>

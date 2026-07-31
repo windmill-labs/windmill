@@ -190,7 +190,7 @@
 		ducklake: 'ducklake://',
 		datatable: 'datatable://',
 		volume: 'volume://',
-		table: 'table://'
+		dbt: 'dbt://'
 	}
 
 	// Path-input split for the insert menu: a read-only `f/<folder>/` chip

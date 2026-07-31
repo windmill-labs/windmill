@@ -16,6 +16,7 @@
 	import { ClipboardCopy, Code2, RefreshCw, TableProperties } from 'lucide-svelte'
 	import { copyToClipboard } from '$lib/utils'
 	import { isWindmillTooBigObject } from '$lib/components/job_args'
+	import { previewDbtRows } from './previewRows'
 	import { workspaceStore } from '$lib/stores'
 	import { appendViewToken } from '$lib/viewToken'
 	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
@@ -87,7 +88,7 @@
 		const seq = ++graphSeq
 		const current = () => gen === runGen && seq === graphSeq
 		try {
-			const params = new URLSearchParams({ asset_kinds: 'table' })
+			const params = new URLSearchParams({ asset_kinds: 'dbt' })
 			if (folder) params.set('folder', folder)
 			if (scriptHash != undefined) params.set('dbt_script_hash', String(scriptHash))
 			// Through the JOB when there is one: `/assets/graph` answers the
@@ -508,88 +509,44 @@
 		const cached = previews[key]
 		if (cached != undefined && !('error' in cached)) return
 		const gen = runGen
-		const startedAt = Date.now()
 		previews = { ...previews, [key]: { pending: true } }
-		try {
-			// The run's own arguments, so a required `{{ }}` var resolves and an
-			// overridden one points at the relation on screen. The result's copy
-			// wins: a `dbt retry` job's own arguments name the run it resumed,
-			// while what it ran with is the restored ones published here.
-			//
-			// Fetched when they were too big to inline: while the run is still going
-			// there is no result to fall back on, so the placeholder would submit a
-			// preview with none of the descriptor's required vars.
-			let submitted: Record<string, unknown> = runArgs ?? {}
-			if (jobId && isWindmillTooBigObject(submitted)) {
-				try {
-					submitted = ((await JobService.getJobArgs({ workspace: ws, id: jobId })) ??
-						{}) as Record<string, unknown>
-				} catch {
-					// Leave the placeholder: the preview may still resolve, and its own
-					// failure says more than refusing to try.
-				}
-				if (gen !== runGen || destroyed) return
+		// The run's own arguments, so a required `{{ }}` var resolves and an
+		// overridden one points at the relation on screen. The result's copy wins:
+		// a `dbt retry` job's own arguments name the run it resumed, while what it
+		// ran with is the restored ones published here.
+		//
+		// Fetched when they were too big to inline: while the run is still going
+		// there is no result to fall back on, so the placeholder would submit a
+		// preview with none of the descriptor's required vars.
+		let submitted: Record<string, unknown> = runArgs ?? {}
+		if (jobId && isWindmillTooBigObject(submitted)) {
+			try {
+				submitted = ((await JobService.getJobArgs({ workspace: ws, id: jobId })) ?? {}) as Record<
+					string,
+					unknown
+				>
+			} catch {
+				// Leave the placeholder: the preview may still resolve, and its own
+				// failure says more than refusing to try.
 			}
-			const ran = { ...submitted, ...(run?.invocation_args ?? {}) } as Record<string, any>
-			const requestBody = {
-				...ran,
-				command: {
-					label: 'show',
-					// Only `vars` carries over from the run's command block: the rest
-					// either name this preview's own node or belong to a command
-					// `show` is not.
-					vars: ran.command?.vars ?? {},
-					// Scoped to the node's package, not the bare name: a package can
-					// ship a model whose name the project also uses, and `dbt show`
-					// takes one node.
-					select: [nodeSelector(key)],
-					// Cleared, not inherited: previewing a model the run excluded would
-					// reach dbt as `--select m --exclude m` and come back as a parse
-					// failure, which reads as a broken preview rather than a selection.
-					exclude: [],
-					limit: 25
-				}
-			}
-			// By HASH whenever the graph is pinned: the SQL on screen is that
-			// version's, and running the deployed one would show today's rows
-			// under it — or fail outright for a model since removed.
-			const id = scriptHash
-				? await JobService.runScriptByHash({
-						workspace: ws,
-						hash: String(scriptHash),
-						requestBody
-					})
-				: await JobService.runScriptByPath({ workspace: ws, path: scriptPath, requestBody })
-			// Polled rather than awaited: a preview is a job, and its engine may
-			// need provisioning on a cold worker. Stopped as soon as the page moves
-			// on, or navigating between runs leaves a request per second running for
-			// a minute and a half per preview started.
-			for (let i = 0; i < 90; i++) {
-				await new Promise((r) => setTimeout(r, 1000))
-				if (gen !== runGen || destroyed) return
-				const done = await JobService.getCompletedJobResultMaybe({ workspace: ws, id })
-				if (!done.completed) continue
-				const res = done.result as { node?: string; show?: Record<string, unknown>[] } | undefined
-				const next: Preview =
-					done.success && res?.show
-						? { rows: res.show, tookMs: Date.now() - startedAt, node: res.node }
-						: { error: 'The preview job failed — open it from Runs for the detail.' }
-				if (gen !== runGen) return
-				previews = { ...previews, [key]: next }
-				return
-			}
-			if (gen !== runGen) return
-			previews = {
-				...previews,
-				[key]: { error: 'The preview is still running; open it from Runs.' }
-			}
-		} catch (e) {
-			if (gen !== runGen) return
-			previews = {
-				...previews,
-				[key]: { error: e instanceof Error ? e.message : String(e) }
-			}
+			if (gen !== runGen || destroyed) return
 		}
+		const ran = { ...submitted, ...(run?.invocation_args ?? {}) } as Record<string, any>
+		const { command: _cmd, ...placeholders } = ran
+		const next = await previewDbtRows({
+			workspace: ws,
+			scriptPath,
+			// By HASH whenever the graph is pinned, so the rows are that version's.
+			scriptHash,
+			// Scoped to the node's package, not the bare name: a package can ship a
+			// model whose name the project also uses.
+			model: nodeSelector(key),
+			vars: ran.command?.vars ?? {},
+			args: placeholders,
+			stillWanted: () => gen === runGen && !destroyed
+		})
+		if (!next || gen !== runGen) return
+		previews = { ...previews, [key]: next }
 	}
 
 	// Selected a relation this run built, but its stored provenance belongs to
