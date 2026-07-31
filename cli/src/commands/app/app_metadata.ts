@@ -187,7 +187,20 @@ export async function generateAppLocksInternal(
   );
   const appFile = (await yamlParseFile(appFilePath)) as AppFile;
 
-  const appValue = rawApp ? (appFile as RawAppFile).runnables : (appFile as NormalAppFile).value;
+  // Raw-app runnables live in their own files under backend/; raw_app.yaml only
+  // carries them in the legacy layout. Resolve them here, before any workspace
+  // dependency filtering, otherwise the deps of a file-based raw app are
+  // filtered against an empty runnables map and silently dropped.
+  const runnablesFolder = path.join(appFolder, APP_BACKEND_FOLDER);
+  let rawAppRunnables: Record<string, any> = {};
+  if (rawApp) {
+    rawAppRunnables = await loadRunnablesFromBackend(runnablesFolder);
+    if (Object.keys(rawAppRunnables).length === 0) {
+      rawAppRunnables = (appFile as RawAppFile).runnables ?? {};
+    }
+  }
+
+  const appValue = rawApp ? rawAppRunnables : (appFile as NormalAppFile).value;
   const folderNormalized = appFolder.replaceAll(SEP, "/");
 
   let filteredDeps: Record<string, string> = {};
@@ -199,15 +212,7 @@ export async function generateAppLocksInternal(
       const hashes = await generateAppHash({}, appFolder, rawApp, opts.defaultTs);
       const isDirectlyStale = await isAppDirectlyStale(appFolder, hashes, conf);
 
-      // For raw apps in new format, runnables are in separate files under backend/
-      let treeAppValue = structuredClone(appValue);
-      if (rawApp) {
-        const runnablesPath = path.join(appFolder, APP_BACKEND_FOLDER);
-        const runnablesFromFiles = await loadRunnablesFromBackend(runnablesPath);
-        if (Object.keys(runnablesFromFiles).length > 0) {
-          treeAppValue = runnablesFromFiles;
-        }
-      }
+      const treeAppValue = structuredClone(appValue);
 
       // First pass: add inline scripts as separate nodes, then add app node importing them
       const inlineScriptPaths: string[] = [];
@@ -303,23 +308,13 @@ export async function generateAppLocksInternal(
       }
 
       if (rawApp) {
-        const runnablesPath = path.join(appFolder, APP_BACKEND_FOLDER);
-
-        // Load runnables from separate files (new format) or fall back to raw_app.yaml (old format)
-        const rawAppFile = appFile as RawAppFile;
-        let runnables = await loadRunnablesFromBackend(runnablesPath);
-        if (Object.keys(runnables).length === 0 && rawAppFile.runnables) {
-          // Fall back to old format
-          runnables = rawAppFile.runnables;
-        }
-
         // Replace inline scripts for changed runnables
-        replaceInlineScripts(runnables, runnablesPath + SEP, false);
+        replaceInlineScripts(rawAppRunnables, runnablesFolder + SEP, false);
 
         // Update the app runnables with new locks (writes to separate files)
         updatedScripts = await updateRawAppRunnables(
           workspace,
-          runnables,
+          rawAppRunnables,
           remote_path,
           appFolder,
           filteredDeps,
