@@ -728,11 +728,9 @@ pub fn has_raw_app_sdk_sentinel(scopes: Option<&[String]>) -> bool {
     scopes.is_some_and(|s| s.iter().any(|x| x == RAW_APP_SDK_SENTINEL))
 }
 
-/// Endpoints that run code the caller supplies, or names by job id — the latter
-/// re-run code a named job already holds (`workflow_as_code` copies its
-/// `raw_code`, `restart/f` its `raw_flow`), with no ownership check. Their jobs
-/// get an unscoped credential as the viewer, so reaching any of them would make a
-/// captured SDK token a full account takeover.
+/// Endpoints that run code the caller supplies or names by job id (the latter
+/// with no ownership check). Their jobs get an unscoped credential as the viewer,
+/// so reaching one would make a captured SDK token a full account takeover.
 fn is_request_supplied_code_route(suffix: &str) -> bool {
     // Prefixes, so the `_async` variants are covered too.
     const CODE_ROUTES: [&str; 10] = [

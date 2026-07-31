@@ -102,7 +102,6 @@ pub fn workspaced_service(raw_app_body_limit: usize) -> Router {
         .route("/list_search", get(list_search_apps))
         .route("/get/p/{*path}", get(get_app))
         .route("/embed_token/p/{*path}", get(get_app_embed_token_for_path))
-        .route("/preview_sdk_token", post(mint_preview_sdk_token))
         .route("/get/lite/{*path}", get(get_app_lite))
         .route("/secret_of/{*path}", get(get_secret_id))
         .route(
@@ -1281,9 +1280,8 @@ fn validate_frontend_sdk_scopes(policy: &Policy) -> Result<()> {
 
 /// Mint the viewer-identity token a raw app's bundle uses for `windmill-client`.
 ///
-/// The CALLER MUST establish that `authed` may hold this app's credential: the
-/// viewer endpoints verify read access, `mint_preview_sdk_token` requires
-/// `apps:write:<path>`.
+/// The CALLER MUST establish that `authed` may hold this app's credential; the
+/// viewer endpoints verify read access first.
 async fn mint_raw_app_sdk_token(
     db: &DB,
     w_id: &str,
@@ -1328,9 +1326,8 @@ async fn mint_raw_app_sdk_token(
 
 /// Shared tail of the three embed-token endpoints: which credential the viewer
 /// gets. Sandboxed low-code gets the embed token; a raw app declaring
-/// `frontend_sdk_scopes` gets the SDK token once `sdk_consent` is set.
-/// `sdk_consent` is the viewer's answer, not a boundary — the boundary is the
-/// scope set, capped by the viewer's own permissions.
+/// `frontend_sdk_scopes` gets the SDK token once `sdk_consent` is set — the
+/// viewer's answer, not a boundary; the boundary is the scope set.
 ///
 /// The CALLER MUST verify that `opt_authed` may view `app_path`.
 pub async fn build_embed_token_response(
@@ -1380,39 +1377,6 @@ pub async fn build_embed_token_response(
         sdk_scopes,
         viewer_email,
     })
-}
-
-#[derive(Deserialize)]
-pub struct PreviewSdkTokenRequest {
-    /// The app being edited. May not exist yet (a draft), so this is only used for
-    /// the write-scope check and the token label.
-    pub path: String,
-    /// Scopes from the policy currently being edited, so the preview behaves like
-    /// the deployed app instead of the last-deployed policy.
-    pub scopes: Vec<String>,
-}
-
-/// Mint an SDK token for the raw-app editor's own preview. The author grants it
-/// to themselves — minted from their session and capped the same way, so it
-/// conveys nothing `users/tokens/create` wouldn't. Scopes come from the request
-/// so the preview matches an app whose scopes aren't deployed yet, as
-/// `execute_component` already does for editor previews.
-async fn mint_preview_sdk_token(
-    authed: ApiAuthed,
-    OptJobAuthed { job_id, .. }: OptJobAuthed,
-    Extension(db): Extension<DB>,
-    Path(w_id): Path<String>,
-    Json(req): Json<PreviewSdkTokenRequest>,
-) -> Result<String> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot preview raw apps".to_string(),
-        ));
-    }
-    check_scopes(&authed, || format!("apps:write:{}", req.path))?;
-    let (token, _expiration) =
-        mint_raw_app_sdk_token(&db, &w_id, &req.path, &authed, &req.scopes, job_id).await?;
-    Ok(token)
 }
 
 /// Query for the embed-token endpoints.

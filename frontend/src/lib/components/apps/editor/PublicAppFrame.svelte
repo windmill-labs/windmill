@@ -383,11 +383,9 @@
 		}
 	}
 
-	/** Declined: render the app anyway, with no credential for its frontend code
-	 * (its SDK calls then fail unauthorized). Never stored, so the next visit asks
-	 * again. Re-init rather than rendering straight away: the app may have been
-	 * redeployed while the prompt was open, and rendering from the pre-prompt mode
-	 * could put a now-sandboxed bundle on the same-origin path. */
+	/** Declined: render credential-less, never stored. Re-init first — a redeploy
+	 * during the prompt can have enabled sandboxing, and the pre-prompt mode would
+	 * put that bundle on the same-origin path. */
 	function onSdkConsentDecline() {
 		sdkToken = undefined
 		sdkTokenless = true
