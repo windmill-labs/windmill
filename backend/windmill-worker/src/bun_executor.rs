@@ -2973,6 +2973,7 @@ pub async fn handle_wac_v2_output(
                         None,
                         None,
                         None,
+                        None,
                         Some(job.id),                  // parent_job
                         job.root_job.or(Some(job.id)), // root_job
                         job.flow_innermost_root_job,

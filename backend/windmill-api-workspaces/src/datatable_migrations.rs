@@ -164,6 +164,7 @@ async fn run_datatable_migration_job(
         &authed.email,
         username_to_permissioned_as(&authed.username),
         authed.token_prefix.as_deref(),
+        authed.username_override.as_deref(),
         None,
         None,
         None,

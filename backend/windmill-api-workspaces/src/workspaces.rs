@@ -9747,6 +9747,7 @@ async fn load_workspace_authed(
             scopes: base_authed.scopes.clone(),
             username_override: base_authed.username_override.clone(),
             username_override_is_token_label: base_authed.username_override_is_token_label,
+            is_session_token: base_authed.is_session_token,
             token_prefix: base_authed.token_prefix.clone(),
             read_only: base_authed.read_only,
         });
@@ -9777,6 +9778,7 @@ async fn load_workspace_authed(
         scopes: base_authed.scopes.clone(),
         username_override: base_authed.username_override.clone(),
         username_override_is_token_label: base_authed.username_override_is_token_label,
+        is_session_token: base_authed.is_session_token,
         token_prefix: base_authed.token_prefix.clone(),
         read_only: base_authed.read_only,
     })
