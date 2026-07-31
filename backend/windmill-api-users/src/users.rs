@@ -2004,6 +2004,22 @@ async fn change_user_email(
     .execute(&mut *tx)
     .await?;
 
+    sqlx::query!(
+        "UPDATE script SET on_behalf_of_permissioned_as = $1 WHERE on_behalf_of_permissioned_as = $2",
+        &new_email,
+        &old_email
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE flow SET on_behalf_of_permissioned_as = $1 WHERE on_behalf_of_permissioned_as = $2",
+        &new_email,
+        &old_email
+    )
+    .execute(&mut *tx)
+    .await?;
+
     // A folder's default rules are an ordered array, first match wins, so the rewrite has to
     // preserve their order. A rule left on the old address makes `ensure_permissioned_as_exists`
     // reject the creation of every runnable the rule matches.

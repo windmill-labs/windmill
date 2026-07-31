@@ -751,6 +751,7 @@ async fn is_noop_deploy_against_parent(
         codebase,
         has_preprocessor,
         on_behalf_of_email,
+        on_behalf_of_permissioned_as,
         // caller-intent flag (permission preservation), not script state
         preserve_on_behalf_of: _,
         assets,
@@ -815,7 +816,9 @@ async fn is_noop_deploy_against_parent(
     {
         return Ok(false);
     }
-    if on_behalf_of_email != &parent.on_behalf_of_email {
+    if on_behalf_of_email != &parent.on_behalf_of_email
+        || on_behalf_of_permissioned_as != &parent.on_behalf_of_permissioned_as
+    {
         return Ok(false);
     }
     if !schema_opt_eq(schema.as_ref(), parent.schema.as_ref()) {
@@ -978,13 +981,12 @@ async fn create_script_internal<'c>(
         .await?
         .unwrap_or(false);
         if !path_already_exists {
-            if let Some(default_email) =
-                windmill_common::folders::resolve_folder_default_on_behalf_of_email(
-                    &db, &w_id, &ns.path,
-                )
-                .await?
+            if let Some((default_email, default_permissioned_as)) =
+                windmill_common::folders::resolve_folder_default_on_behalf_of(&db, &w_id, &ns.path)
+                    .await?
             {
                 ns.on_behalf_of_email = Some(default_email);
+                ns.on_behalf_of_permissioned_as = Some(default_permissioned_as);
                 ns.preserve_on_behalf_of = Some(true);
             }
         }
@@ -1542,13 +1544,21 @@ async fn create_script_internal<'c>(
         )
     };
 
+    let (resolved_on_behalf_of_email, resolved_on_behalf_of_permissioned_as) =
+        windmill_common::resolve_on_behalf_of(
+            ns.on_behalf_of_email.as_deref(),
+            ns.on_behalf_of_permissioned_as.as_deref(),
+            ns.preserve_on_behalf_of.unwrap_or(false),
+            &authed,
+        );
+
     sqlx::query!(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, \
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
          envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
          dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-         delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle, modules, labels) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40)",
+         delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle, modules, labels, on_behalf_of_permissioned_as) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41)",
         &w_id,
         &hash.0,
         ns.path,
@@ -1580,11 +1590,7 @@ async fn create_script_internal<'c>(
         auto_kind.as_deref(),
         codebase,
         has_preprocessor.filter(|x: &bool| *x),
-        windmill_common::resolve_on_behalf_of_email(
-            ns.on_behalf_of_email.as_deref(),
-            ns.preserve_on_behalf_of.unwrap_or(false),
-            &authed,
-        ),
+        resolved_on_behalf_of_email,
         validate_schema,
         effective_assets
             .as_ref()
@@ -1594,7 +1600,8 @@ async fn create_script_internal<'c>(
         ns.cache_ignore_s3_path,
         runnable_settings_handle,
         ns.modules.as_ref().and_then(|m| serde_json::to_value(m).ok()),
-        ns.labels.as_deref() as Option<&[String]>
+        ns.labels.as_deref() as Option<&[String]>,
+        resolved_on_behalf_of_permissioned_as,
     )
     .execute(&mut *tx)
     .await?;

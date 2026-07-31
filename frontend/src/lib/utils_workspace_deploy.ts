@@ -167,7 +167,18 @@ function legacyTriggerKind(kind: TriggerDeployKind) {
 	return map[kind]
 }
 
-function makeProvider(): DeployProvider {
+/**
+ * `onBehalfOfPermissionedAs` is the authorization half of the identity the caller
+ * picked; `deployItem` only knows how to override the email half. The two must
+ * name the same user, so it is stamped onto the script/flow request body here —
+ * otherwise the spread of the source item would leave the source's
+ * permissioned_as next to the picked user's email.
+ */
+function makeProvider(onBehalfOfPermissionedAs?: string): DeployProvider {
+	const withPermissionedAs = <T extends Record<string, any>>(requestBody: T): T =>
+		onBehalfOfPermissionedAs === undefined
+			? requestBody
+			: { ...requestBody, on_behalf_of_permissioned_as: onBehalfOfPermissionedAs }
 	return {
 		existsFlowByPath: (p) => FlowService.existsFlowByPath(p),
 		existsScriptByPath: (p) => ScriptService.existsScriptByPath(p),
@@ -177,11 +188,12 @@ function makeProvider(): DeployProvider {
 		existsResourceType: (p) => ResourceService.existsResourceType(p),
 		existsFolder: (p) => FolderService.existsFolder(p),
 		getFlowByPath: (p) => FlowService.getFlowByPath(p),
-		createFlow: (p) => FlowService.createFlow(p),
-		updateFlow: (p) => FlowService.updateFlow(p),
+		createFlow: (p) => FlowService.createFlow({ ...p, requestBody: withPermissionedAs(p.requestBody) }),
+		updateFlow: (p) => FlowService.updateFlow({ ...p, requestBody: withPermissionedAs(p.requestBody) }),
 		archiveFlowByPath: (p) => FlowService.archiveFlowByPath(p),
 		getScriptByPath: (p) => ScriptService.getScriptByPath(p),
-		createScript: (p) => ScriptService.createScript(p),
+		createScript: (p) =>
+			ScriptService.createScript({ ...p, requestBody: withPermissionedAs(p.requestBody) }),
 		archiveScriptByPath: (p) => ScriptService.archiveScriptByPath(p),
 		getAppByPath: (p) => AppService.getAppByPath(p),
 		createApp: (p) => AppService.createApp(p),
@@ -267,6 +279,12 @@ export interface DeployItemParams {
 	 * If undefined, the deploying user's identity is used.
 	 */
 	onBehalfOf?: string
+	/**
+	 * Authorization half of `onBehalfOf` for flows/scripts (u/username or g/group).
+	 * Must name the same identity as `onBehalfOf`. Only set when the user picked a
+	 * specific user; leave undefined to carry the source item's own value through.
+	 */
+	onBehalfOfPermissionedAs?: string
 }
 
 /**
@@ -275,7 +293,15 @@ export interface DeployItemParams {
  * which carries its sub-kind in `additionalInformation`.
  */
 export async function deployItem(params: DeployItemParams): Promise<DeployResult> {
-	const { kind, path, workspaceFrom, workspaceTo, additionalInformation, onBehalfOf } = params
+	const {
+		kind,
+		path,
+		workspaceFrom,
+		workspaceTo,
+		additionalInformation,
+		onBehalfOf,
+		onBehalfOfPermissionedAs
+	} = params
 
 	if (kind === 'trigger') {
 		// Legacy path: `DeployWorkspace.svelte` doesn't know the per-kind trigger
@@ -314,7 +340,7 @@ export async function deployItem(params: DeployItemParams): Promise<DeployResult
 	}
 
 	return sharedDeployItem(
-		makeProvider(),
+		makeProvider(onBehalfOfPermissionedAs),
 		kind as DeployKind,
 		path,
 		workspaceFrom,

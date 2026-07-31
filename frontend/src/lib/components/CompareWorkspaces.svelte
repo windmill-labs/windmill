@@ -606,6 +606,16 @@
 		return undefined
 	}
 
+	/**
+	 * Authorization half of the on_behalf_of pair for flows/scripts. Only a custom
+	 * pick needs it — 'target' carries the source item's own value through the deploy.
+	 */
+	function getOnBehalfOfPermissionedAsForDeploy(itemKey: string, kind: Kind): string | undefined {
+		if (kind === 'trigger' || isTriggerOrScheduleKind(kind)) return undefined
+		if (onBehalfOfChoice[itemKey] !== 'custom') return undefined
+		return customOnBehalfOf[itemKey]?.permissionedAs
+	}
+
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)
 	let isFlow = $state(true)
 
@@ -698,7 +708,8 @@
 				path,
 				workspaceFrom,
 				workspaceTo: workspaceToDeployTo,
-				onBehalfOf: getOnBehalfOfForDeploy(statusKey, kind)
+				onBehalfOf: getOnBehalfOfForDeploy(statusKey, kind),
+				onBehalfOfPermissionedAs: getOnBehalfOfPermissionedAsForDeploy(statusKey, kind)
 			})
 		}
 

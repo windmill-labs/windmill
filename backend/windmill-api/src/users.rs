@@ -462,11 +462,22 @@ async fn update_username_in_workpsace<'c>(
     .execute(&mut **tx)
     .await?;
 
+    // The stored on-behalf-of identity is a `u/{username}`, so a rename would leave it
+    // pointing at a user that no longer exists and every run would fail authentication.
+    sqlx::query!(
+        "UPDATE script SET on_behalf_of_permissioned_as = ('u/' || $1) WHERE on_behalf_of_permissioned_as = ('u/' || $2) AND workspace_id = $3",
+        new_username,
+        old_username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
     // ---- flows ----
     sqlx::query!(
         r#"INSERT INTO flow
-            (workspace_id, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at)
-        SELECT workspace_id, REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1'), summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at
+            (workspace_id, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, on_behalf_of_permissioned_as, concurrency_key, versions, value, schema, edited_by, edited_at)
+        SELECT workspace_id, REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1'), summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, on_behalf_of_permissioned_as, concurrency_key, versions, value, schema, edited_by, edited_at
             FROM flow
             WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         new_username,
@@ -536,6 +547,15 @@ async fn update_username_in_workpsace<'c>(
 
     sqlx::query!(
         "UPDATE flow SET extra_perms = extra_perms - ('u/' || $2) || jsonb_build_object(('u/' || $1), extra_perms->('u/' || $2)) WHERE extra_perms ? ('u/' || $2) AND workspace_id = $3",
+        new_username,
+        old_username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE flow SET on_behalf_of_permissioned_as = ('u/' || $1) WHERE on_behalf_of_permissioned_as = ('u/' || $2) AND workspace_id = $3",
         new_username,
         old_username,
         w_id

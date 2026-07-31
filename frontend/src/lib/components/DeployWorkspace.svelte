@@ -106,6 +106,18 @@
 		return undefined
 	}
 
+	/**
+	 * Authorization half of the on_behalf_of pair for flows/scripts. Only a custom
+	 * pick needs it — 'target' carries the source item's own value through the deploy.
+	 */
+	function getOnBehalfOfPermissionedAsForDeploy(
+		statusPath: string,
+		kind: Kind
+	): string | undefined {
+		if (kind === 'trigger' || onBehalfOfChoice[statusPath] !== 'custom') return undefined
+		return customOnBehalfOf[statusPath]?.permissionedAs
+	}
+
 	async function reload(path: string) {
 		try {
 			if (!$superadmin) {
@@ -324,7 +336,8 @@
 			workspaceFrom: $workspaceStore!,
 			workspaceTo: workspaceToDeployTo!,
 			additionalInformation,
-			onBehalfOf: getOnBehalfOfForDeploy(statusPath, kind)
+			onBehalfOf: getOnBehalfOfForDeploy(statusPath, kind),
+			onBehalfOfPermissionedAs: getOnBehalfOfPermissionedAsForDeploy(statusPath, kind)
 		})
 
 		if (result.success) {

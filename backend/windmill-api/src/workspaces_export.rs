@@ -371,6 +371,7 @@ where
                     "edited_at",
                     "edited_by",
                     "permissioned_as",
+                    "on_behalf_of_permissioned_as",
                     "archived",
                     "error",
                     "last_server_ping",
@@ -825,7 +826,7 @@ pub(crate) async fn tarball_workspace(
 
     {
         let flows = sqlx::query_as::<_, Flow>(
-             "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow.labels, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
+             "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow.on_behalf_of_permissioned_as, flow.labels, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
              FROM flow
              LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
              WHERE flow.workspace_id = $1 AND flow.archived = false",

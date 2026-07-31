@@ -482,6 +482,7 @@ export async function deployDraft(
 				ws_error_handler_muted: d.ws_error_handler_muted,
 				visible_to_runner_only: d.visible_to_runner_only,
 				on_behalf_of_email: d.on_behalf_of_email,
+				on_behalf_of_permissioned_as: d.on_behalf_of_permissioned_as,
 				labels: d.labels,
 				deployment_message: deploymentMessage
 			}

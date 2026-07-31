@@ -327,6 +327,7 @@ pub const SCRIPT_COLUMNS: &str = concat!(
     "dedicated_worker, ws_error_handler_muted, priority, cache_ttl, cache_ignore_s3_path, ",
     "timeout, delete_after_use, delete_after_secs, restart_unless_cancelled, ",
     "visible_to_runner_only, auto_kind, codebase, has_preprocessor, on_behalf_of_email, ",
+    "on_behalf_of_permissioned_as, ",
     "assets, modules, labels, concurrency_key, concurrent_limit, ",
     "concurrency_time_window_s, debounce_key, debounce_delay_s, runnable_settings_handle",
 );
@@ -384,6 +385,8 @@ pub struct Script<SR> {
     pub has_preprocessor: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_behalf_of_email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub on_behalf_of_permissioned_as: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(json(nullable))]
     pub assets: Option<Vec<AssetWithAltAccessType>>,
@@ -554,6 +557,10 @@ pub struct NewScript {
     pub codebase: Option<String>,
     pub has_preprocessor: Option<bool>,
     pub on_behalf_of_email: Option<String>,
+    /// Authorization identity to run as, paired with `on_behalf_of_email`. Both
+    /// move together under the same `preserve_on_behalf_of` gate and must always
+    /// name the same user or group; `None` leaves the run-time fallback in place.
+    pub on_behalf_of_permissioned_as: Option<String>,
     pub preserve_on_behalf_of: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub assets: Option<Vec<AssetWithAltAccessType>>,
@@ -606,6 +613,7 @@ impl Hash for NewScript {
         self.codebase.hash(state);
         self.has_preprocessor.hash(state);
         self.on_behalf_of_email.hash(state);
+        self.on_behalf_of_permissioned_as.hash(state);
         self.preserve_on_behalf_of.hash(state);
         self.assets.hash(state);
         self.labels.hash(state);

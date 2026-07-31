@@ -222,8 +222,10 @@
 	let isDeployer = $derived($userStore?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
 	let canPreserve = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin || isDeployer)
 	let originalOnBehalfOfEmail = $derived(savedScript?.on_behalf_of_email)
+	let originalOnBehalfOfPermissionedAs = $derived(savedScript?.on_behalf_of_permissioned_as)
 	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
 	let customOnBehalfOfEmail: string = $state('')
+	let myPermissionedAs = $derived($userStore?.username ? `u/${$userStore.username}` : undefined)
 
 	let metadataOpen = $state(
 		!untrack(() => neverShowMeta) &&
@@ -673,6 +675,7 @@
 					has_preprocessor: script.has_preprocessor,
 					deployment_message: deploymentMsg || undefined,
 					on_behalf_of_email: script.on_behalf_of_email,
+					on_behalf_of_permissioned_as: script.on_behalf_of_permissioned_as,
 					preserve_on_behalf_of: preserveOnBehalfOf || undefined,
 					assets: script.assets,
 					modules: script.modules,
@@ -1781,10 +1784,12 @@
 													on:change={() => {
 														if (script.on_behalf_of_email) {
 															script.on_behalf_of_email = undefined
+															script.on_behalf_of_permissioned_as = undefined
 															preserveOnBehalfOf = false
 															onBehalfOfChoice = undefined
 														} else {
 															script.on_behalf_of_email = $userStore?.email
+															script.on_behalf_of_permissioned_as = myPermissionedAs
 														}
 													}}
 													options={{
@@ -1800,14 +1805,21 @@
 															onBehalfOfChoice = choice
 															if (choice === 'me') {
 																script.on_behalf_of_email = $userStore?.email
+																script.on_behalf_of_permissioned_as = myPermissionedAs
 																customOnBehalfOfEmail = ''
 																preserveOnBehalfOf = false
 															} else if (choice === 'target') {
+																// Keep the saved pair verbatim. A script deployed before the
+																// permissioned_as was recorded stays on the legacy fallback until
+																// the user re-picks the user explicitly.
 																script.on_behalf_of_email = originalOnBehalfOfEmail
+																script.on_behalf_of_permissioned_as =
+																	originalOnBehalfOfPermissionedAs
 																customOnBehalfOfEmail = ''
 																preserveOnBehalfOf = true
 															} else if (choice === 'custom' && details) {
 																script.on_behalf_of_email = details.email
+																script.on_behalf_of_permissioned_as = details.permissionedAs
 																customOnBehalfOfEmail = details.email
 																preserveOnBehalfOf = true
 															}

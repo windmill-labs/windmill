@@ -25444,6 +25444,9 @@ components:
           type: boolean
         on_behalf_of_email:
           type: string
+        on_behalf_of_permissioned_as:
+          type: string
+          description: "Authorization identity the runnable runs as (u/{username} or g/{group}). Always names the same user or group as on_behalf_of_email; when unset the identity falls back to the last deployer."
         modules:
           type: object
           nullable: true
@@ -25565,9 +25568,12 @@ components:
           type: boolean
         on_behalf_of_email:
           type: string
+        on_behalf_of_permissioned_as:
+          type: string
+          description: "Authorization identity the runnable runs as (u/{username} or g/{group}). Always names the same user or group as on_behalf_of_email; when unset the identity falls back to the last deployer."
         preserve_on_behalf_of:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email / on_behalf_of_permissioned_as pair instead of overwriting it with the caller's own identity."
         assets:
           type: array
           items:
@@ -30721,6 +30727,9 @@ components:
           type: boolean
         on_behalf_of_email:
           type: string
+        on_behalf_of_permissioned_as:
+          type: string
+          description: "Authorization identity the runnable runs as (u/{username} or g/{group}). Always names the same user or group as on_behalf_of_email; when unset the identity falls back to the last deployer."
         labels:
           type: array
           items:
@@ -30762,9 +30771,12 @@ components:
               type: boolean
             on_behalf_of_email:
               type: string
+            on_behalf_of_permissioned_as:
+              type: string
+              description: "Authorization identity the runnable runs as (u/{username} or g/{group}). Always names the same user or group as on_behalf_of_email; when unset the identity falls back to the last deployer."
             preserve_on_behalf_of:
               type: boolean
-              description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email value instead of overwriting it."
+              description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email / on_behalf_of_permissioned_as pair instead of overwriting it with the caller's own identity."
             labels:
               type: array
               items:
@@ -30795,9 +30807,12 @@ components:
               type: boolean
             on_behalf_of_email:
               type: string
+            on_behalf_of_permissioned_as:
+              type: string
+              description: "Authorization identity the runnable runs as (u/{username} or g/{group}). Always names the same user or group as on_behalf_of_email; when unset the identity falls back to the last deployer."
             preserve_on_behalf_of:
               type: boolean
-              description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email value instead of overwriting it."
+              description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email / on_behalf_of_permissioned_as pair instead of overwriting it with the caller's own identity."
             labels:
               type: array
               items:

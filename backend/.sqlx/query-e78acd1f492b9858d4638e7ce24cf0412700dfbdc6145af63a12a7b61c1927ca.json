@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE script SET on_behalf_of_email = $1, on_behalf_of_permissioned_as = $4 WHERE on_behalf_of_email = $2 AND workspace_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e78acd1f492b9858d4638e7ce24cf0412700dfbdc6145af63a12a7b61c1927ca"
+}

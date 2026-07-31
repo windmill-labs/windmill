@@ -171,11 +171,15 @@
 	// For preserve_on_behalf_of feature
 	let preserveOnBehalfOf = writable(false)
 	let savedOnBehalfOfEmail = writable<string | undefined>(savedFlow?.on_behalf_of_email)
+	let savedOnBehalfOfPermissionedAs = writable<string | undefined>(
+		savedFlow?.on_behalf_of_permissioned_as
+	)
 
 	// Keep savedOnBehalfOfEmail in sync when savedFlow is loaded asynchronously
 	$effect(() => {
 		if (savedFlow?.on_behalf_of_email !== undefined) {
 			savedOnBehalfOfEmail.set(savedFlow.on_behalf_of_email)
+			savedOnBehalfOfPermissionedAs.set(savedFlow.on_behalf_of_permissioned_as)
 		}
 	})
 
@@ -461,6 +465,7 @@
 						dedicated_worker: flow.dedicated_worker,
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
+						on_behalf_of_permissioned_as: flow.on_behalf_of_permissioned_as,
 						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
 						deployment_message: deploymentMsg || undefined,
 						labels: (flow as any).labels
@@ -509,6 +514,7 @@
 						ws_error_handler_muted: flow.ws_error_handler_muted,
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
+						on_behalf_of_permissioned_as: flow.on_behalf_of_permissioned_as,
 						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
 						deployment_message: deploymentMsg || undefined,
 						labels: (flow as any).labels
@@ -754,6 +760,7 @@
 		outputPickerOpenFns,
 		preserveOnBehalfOf,
 		savedOnBehalfOfEmail,
+		savedOnBehalfOfPermissionedAs,
 		opWorkspace: () => opWorkspace
 	})
 

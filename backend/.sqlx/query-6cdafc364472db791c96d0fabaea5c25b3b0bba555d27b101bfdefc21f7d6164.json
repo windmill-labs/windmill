@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT path, on_behalf_of_email, on_behalf_of_permissioned_as, created_by FROM script WHERE hash = ANY($1) AND workspace_id = 'test-workspace' ORDER BY path",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "on_behalf_of_email",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "on_behalf_of_permissioned_as",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_by",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "6cdafc364472db791c96d0fabaea5c25b3b0bba555d27b101bfdefc21f7d6164"
+}

@@ -6967,6 +6967,11 @@ pub async fn run_wait_result_script_by_hash(
 
     let hash = script_hash.0;
     let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
+    let script_info = get_script_info_for_hash(Some(userdb_authed), &db, &w_id, hash)
+        .await?
+        .prefetch_cached(&db)
+        .await?;
+    let on_behalf_of = script_info.on_behalf_of();
     let ScriptHashInfo {
         path,
         tag,
@@ -6979,16 +6984,11 @@ pub async fn run_wait_result_script_by_hash(
         delete_after_secs,
         timeout,
         has_preprocessor,
-        on_behalf_of_email,
-        created_by,
         labels,
         runnable_settings:
             ScriptRunnableSettingsInline { concurrency_settings, debouncing_settings },
         ..
-    } = get_script_info_for_hash(Some(userdb_authed), &db, &w_id, hash)
-        .await?
-        .prefetch_cached(&db)
-        .await?;
+    } = script_info;
 
     if let Some(run_query_cache_ttl) = run_query.cache_ttl {
         cache_ttl = Some(run_query_cache_ttl);
@@ -6999,11 +6999,10 @@ pub async fn run_wait_result_script_by_hash(
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
 
-    let (email, permissioned_as, push_authed, tx) = if let Some(email) = on_behalf_of_email.as_ref()
-    {
+    let (email, permissioned_as, push_authed, tx) = if let Some(obo) = on_behalf_of.as_ref() {
         (
-            email,
-            username_to_permissioned_as(created_by.as_str()),
+            &obo.email,
+            obo.permissioned_as.clone(),
             None,
             PushIsolationLevel::IsolatedRoot(db.clone()),
         )
@@ -8872,6 +8871,11 @@ pub async fn run_job_by_hash_inner(
 
     let hash = script_hash.0;
     let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
+    let script_info = get_script_info_for_hash(Some(userdb_authed), &db, &w_id, hash)
+        .await?
+        .prefetch_cached(&db)
+        .await?;
+    let on_behalf_of = script_info.on_behalf_of();
     let ScriptHashInfo {
         path,
         tag,
@@ -8884,16 +8888,11 @@ pub async fn run_job_by_hash_inner(
         priority,
         timeout,
         has_preprocessor,
-        on_behalf_of_email,
-        created_by,
         delete_after_use,
         delete_after_secs,
         labels,
         ..
-    } = get_script_info_for_hash(Some(userdb_authed), &db, &w_id, hash)
-        .await?
-        .prefetch_cached(&db)
-        .await?;
+    } = script_info;
 
     check_scopes(&authed, || format!("jobs:run:scripts:{path}"))?;
     if let Some(run_query_cache_ttl) = run_query.cache_ttl {
@@ -8905,11 +8904,10 @@ pub async fn run_job_by_hash_inner(
 
     check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
 
-    let (email, permissioned_as, push_authed, tx) = if let Some(email) = on_behalf_of_email.as_ref()
-    {
+    let (email, permissioned_as, push_authed, tx) = if let Some(obo) = on_behalf_of.as_ref() {
         (
-            email,
-            username_to_permissioned_as(created_by.as_str()),
+            &obo.email,
+            obo.permissioned_as.clone(),
             None,
             PushIsolationLevel::IsolatedRoot(db.clone()),
         )

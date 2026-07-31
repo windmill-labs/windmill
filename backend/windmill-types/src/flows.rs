@@ -42,6 +42,8 @@ pub struct Flow {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_behalf_of_email: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub on_behalf_of_permissioned_as: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
     /// Labels inherited from the parent folder, computed at read time. Not stored on the flow row.
     #[sqlx(default)]
@@ -127,6 +129,10 @@ pub struct NewFlow {
     pub deployment_message: Option<String>,
     pub visible_to_runner_only: Option<bool>,
     pub on_behalf_of_email: Option<String>,
+    /// Authorization identity to run as, paired with `on_behalf_of_email`. Both
+    /// move together under the same `preserve_on_behalf_of` gate and must always
+    /// name the same user or group; `None` leaves the run-time fallback in place.
+    pub on_behalf_of_permissioned_as: Option<String>,
     pub preserve_on_behalf_of: Option<bool>,
     pub ws_error_handler_muted: Option<bool>,
     #[serde(default)]
@@ -164,6 +170,7 @@ pub struct EditFlow {
     pub deployment_message: Option<String>,
     pub visible_to_runner_only: Option<bool>,
     pub on_behalf_of_email: Option<String>,
+    pub on_behalf_of_permissioned_as: Option<String>,
     pub preserve_on_behalf_of: Option<bool>,
     pub ws_error_handler_muted: Option<bool>,
     #[serde(default)]
@@ -188,6 +195,7 @@ impl EditFlow {
             deployment_message: self.deployment_message,
             visible_to_runner_only: self.visible_to_runner_only,
             on_behalf_of_email: self.on_behalf_of_email,
+            on_behalf_of_permissioned_as: self.on_behalf_of_permissioned_as,
             preserve_on_behalf_of: self.preserve_on_behalf_of,
             ws_error_handler_muted: self.ws_error_handler_muted,
             labels: self.labels,

@@ -544,10 +544,16 @@ export async function handleFile(
 
     const hasOnBehalfOf = (typed as any)?.has_on_behalf_of ?? !!typed?.on_behalf_of_email;
     delete (typed as any)?.has_on_behalf_of;
+    // The authorization half of the identity is never exported to the repo (the
+    // workspace tarball strips it); it only ever travels back from the remote row.
+    delete (typed as any)?.on_behalf_of_permissioned_as;
 
     if (permissionedAsContext?.userIsAdminOrDeployer && hasOnBehalfOf) {
       if (remote && remote.on_behalf_of_email) {
         requestBodyCommon.on_behalf_of_email = remote.on_behalf_of_email;
+        (requestBodyCommon as any).on_behalf_of_permissioned_as = (
+          remote as any
+        ).on_behalf_of_permissioned_as;
         (requestBodyCommon as any).preserve_on_behalf_of = true;
         log.info(`Preserving ${remote.on_behalf_of_email} as on_behalf_of for script ${remotePath}`);
       }
@@ -1859,6 +1865,10 @@ async function setPermissionedAs(
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
+  const { lookupUsernameByEmail } = await import("../../core/permissioned_as.ts");
+  const cache = new Map<string, { username: string; email: string }>();
+  const username = await lookupUsernameByEmail(workspace.workspaceId, email, cache);
+
   const remote = await wmill.getScriptByPath({
     workspace: workspace.workspaceId,
     path: scriptPath,
@@ -1872,12 +1882,17 @@ async function setPermissionedAs(
       lock: Array.isArray(remote.lock) ? remote.lock.join("\n") : remote.lock ?? undefined,
       parent_hash: remote.hash,
       on_behalf_of_email: email,
+      on_behalf_of_permissioned_as: `u/${username}`,
       preserve_on_behalf_of: true,
       // Preserve any user draft at this path (see backend skip_draft_deletion).
       skip_draft_deletion: true,
     },
   });
-  log.info(colors.green(`Updated permissioned_as for script ${scriptPath} to ${email}`));
+  log.info(
+    colors.green(
+      `Updated permissioned_as for script ${scriptPath} to ${email} (username: ${username})`
+    )
+  );
 }
 
 const command = new Command()

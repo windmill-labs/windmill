@@ -475,7 +475,7 @@ async fn test_folder_default_permissioned_as(db: Pool<Postgres>) -> anyhow::Resu
         resp.text().await?
     );
     let flow = sqlx::query!(
-        "SELECT on_behalf_of_email FROM flow WHERE path = $1 AND workspace_id = $2",
+        "SELECT on_behalf_of_email, on_behalf_of_permissioned_as FROM flow WHERE path = $1 AND workspace_id = $2",
         "f/prodfolder/jobs/flow_admin_match",
         "test-workspace"
     )
@@ -485,6 +485,13 @@ async fn test_folder_default_permissioned_as(db: Pool<Postgres>) -> anyhow::Resu
         flow.on_behalf_of_email.as_deref(),
         Some("group-wm_deployers@windmill.dev"),
         "flow should resolve folder default to group email"
+    );
+    // The group email is synthetic and resolves back to nobody, so the group can
+    // only survive as the stored permissioned_as.
+    assert_eq!(
+        flow.on_behalf_of_permissioned_as.as_deref(),
+        Some("g/wm_deployers"),
+        "flow should run as the group the folder rule names"
     );
 
     // 5b. Admin, reports/* rule (email directly as permissioned_as)

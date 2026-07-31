@@ -232,11 +232,19 @@ export async function pushFlow(
 
   const hasOnBehalfOf = (localFlow as any).has_on_behalf_of ?? !!localFlow.on_behalf_of_email;
   delete (localFlow as any).has_on_behalf_of;
+  // The authorization half of the identity is never exported to the repo (the
+  // workspace tarball strips it); it only ever travels back from the remote row.
+  delete (localFlow as any).on_behalf_of_permissioned_as;
 
-  const preserveFields: { on_behalf_of_email?: string; preserve_on_behalf_of?: boolean } = {};
+  const preserveFields: {
+    on_behalf_of_email?: string;
+    on_behalf_of_permissioned_as?: string;
+    preserve_on_behalf_of?: boolean;
+  } = {};
   if (permissionedAsContext?.userIsAdminOrDeployer && hasOnBehalfOf) {
     if (flow && flow.on_behalf_of_email) {
       preserveFields.on_behalf_of_email = flow.on_behalf_of_email;
+      preserveFields.on_behalf_of_permissioned_as = (flow as any).on_behalf_of_permissioned_as;
       preserveFields.preserve_on_behalf_of = true;
       log.info(`Preserving ${flow.on_behalf_of_email} as on_behalf_of for flow ${remotePath}`);
     }
@@ -1206,6 +1214,10 @@ const command = new Command()
   .action((async (opts: any, flowPath: string, email: string) => {
     const workspace = await resolveWorkspace(opts);
     await requireLogin(opts);
+    const { lookupUsernameByEmail } = await import("../../core/permissioned_as.ts");
+    const cache = new Map<string, { username: string; email: string }>();
+    const username = await lookupUsernameByEmail(workspace.workspaceId, email, cache);
+
     const remote = await wmill.getFlowByPath({
       workspace: workspace.workspaceId,
       path: flowPath,
@@ -1218,12 +1230,17 @@ const command = new Command()
         ...remote,
         path: flowPath,
         on_behalf_of_email: email,
+        on_behalf_of_permissioned_as: `u/${username}`,
         preserve_on_behalf_of: true,
         // Preserve any user draft at this path (see backend skip_draft_deletion).
         skip_draft_deletion: true,
       } as any,
     });
-    log.info(colors.green(`Updated permissioned_as for flow ${flowPath} to ${email}`));
+    log.info(
+      colors.green(
+        `Updated permissioned_as for flow ${flowPath} to ${email} (username: ${username})`
+      )
+    );
   }) as any);
 
 export default command;
