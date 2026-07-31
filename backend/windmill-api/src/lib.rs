@@ -329,6 +329,7 @@ async fn inject_agent_authed(
                 scopes: None,
                 username_override: None,
                 username_override_is_token_label: false,
+                is_session_token: false,
                 token_prefix: None,
                 read_only: false,
             },

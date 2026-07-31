@@ -1527,7 +1527,7 @@ macro_rules! get_job_query {
                 END
             ELSE '{{\"reason\": \"WINDMILL_TOO_BIG\"}}'::jsonb END as args, flow_status, workflow_as_code_status, \
             {logs} as logs, {code} as raw_code, canceled_by is not null as canceled, canceled_by, canceled_reason, kind as job_kind, \
-            CASE WHEN trigger_kind = 'schedule'::job_trigger_kind THEN trigger END AS schedule_path, permissioned_as, \
+            CASE WHEN trigger_kind = 'schedule'::job_trigger_kind THEN trigger END AS schedule_path, v2_job.trigger_kind, permissioned_as, \
             {flow} as raw_flow, flow_step_id IS NOT NULL AS is_flow_step, script_lang as language, \
             {lock} as raw_lock, permissioned_as_email as email, visible_to_owner, memory_peak as mem_peak, v2_job.tag, v2_job.priority, preprocessed, worker,\
             {additional_fields} \
@@ -6208,7 +6208,7 @@ pub async fn restart_flow(
         Some(&authed.clone().into()),
         false,
         None,
-        None,
+        authed.trigger_or_fallback(None),
         run_query.suspended_mode,
     )
     .await?;
@@ -6790,7 +6790,7 @@ pub async fn run_wait_result_job_by_path_get(
         push_authed.as_ref(),
         false,
         None,
-        None,
+        authed.trigger_or_fallback(None),
         run_query.suspended_mode,
     )
     .await?;
@@ -6935,7 +6935,7 @@ pub async fn run_wait_result_script_by_path_internal(
         push_authed.as_ref(),
         false,
         None,
-        None,
+        authed.trigger_or_fallback(None),
         run_query.suspended_mode,
     )
     .await?;
@@ -7061,7 +7061,7 @@ pub async fn run_wait_result_script_by_hash(
         push_authed.as_ref(),
         false,
         None,
-        None,
+        authed.trigger_or_fallback(None),
         run_query.suspended_mode,
     )
     .await?;
@@ -7543,7 +7543,7 @@ async fn run_preview_script(
         Some(&authed.clone().into()),
         false,
         None,
-        None,
+        authed.trigger_or_fallback(None),
         None,
     )
     .await?;
@@ -7909,7 +7909,7 @@ async fn run_bundle_preview_script(
                 Some(&authed.clone().into()),
                 false,
                 None,
-                None,
+                authed.trigger_or_fallback(None),
                 None,
             )
             .await?;
@@ -8559,7 +8559,7 @@ async fn run_preview_flow_job(
         Some(&authed.clone().into()),
         false,
         None,
-        None,
+        authed.trigger_or_fallback(None),
         None,
     )
     .await?;
@@ -8826,7 +8826,7 @@ async fn run_dynamic_select(
         Some(&authed.clone().into()),
         false,
         None,
-        None,
+        authed.trigger_or_fallback(None),
         None,
     )
     .await?;
@@ -8974,7 +8974,7 @@ pub async fn run_job_by_hash_inner(
         push_authed.as_ref(),
         false,
         None,
-        trigger,
+        authed.trigger_or_fallback(trigger),
         run_query.suspended_mode,
     )
     .await?;
@@ -10952,6 +10952,7 @@ mod approval_view_gate_tests {
             scopes: None,
             username_override: None,
             username_override_is_token_label: false,
+            is_session_token: false,
             token_prefix: None,
             read_only: false,
         }
