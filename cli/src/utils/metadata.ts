@@ -22,6 +22,7 @@ import { inferContentTypeFromFilePath } from "./script_common.ts";
 import { dbtGeneratedDirs, isUnderGeneratedDir, isBundledModuleFile, getModuleFolderSuffix, isModuleEntryPoint, scriptPathToRemotePath } from "./resource_folders.ts";
 import { findCodebase, yamlOptions } from "../commands/sync/sync.ts";
 import { generateHash, readInlinePathSync, getHeaders, readTextFile, readTextFileSync } from "./utils.ts";
+import { isDbtDescriptorPath } from "./resource_folders.ts";
 import { detectAuthGatewayChallenge } from "./http_guards.ts";
 
 import { SyncCodebase } from "./codebase.ts";
@@ -225,8 +226,12 @@ export async function generateScriptMetadataInternal(
     undefined,
   );
 
-  // read script content
-  const scriptContent = await readTextFile(scriptPath);
+  // read script content — a dbt project's descriptor is optional, and absent
+  // means an empty descriptor rather than a script that cannot be pushed.
+  const scriptContent = await readTextFile(scriptPath).catch((e) => {
+    if (isDbtDescriptorPath(scriptPath.replaceAll("\\", "/"))) return "";
+    throw e;
+  });
   const metadataContent = await readTextFile(metadataWithType.path);
 
   const filteredRawWorkspaceDependencies = filterWorkspaceDependencies(

@@ -486,7 +486,7 @@ export async function handleFile(
     } catch {
       log.debug(`Script ${remotePath} does not exist on remote`);
     }
-    const content = await readTextFile(path);
+    const content = await readScriptContent(path);
 
     if (opts?.skipScriptsMetadata) {
       // if (codebase) {
