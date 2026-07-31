@@ -194,7 +194,7 @@ export async function generateAppLocksInternal(
   const runnablesFolder = path.join(appFolder, APP_BACKEND_FOLDER);
   let rawAppRunnables: Record<string, any> = {};
   if (rawApp) {
-    rawAppRunnables = await loadRunnablesFromBackend(runnablesFolder);
+    rawAppRunnables = await loadRunnablesFromBackend(runnablesFolder, opts.defaultTs);
     if (Object.keys(rawAppRunnables).length === 0) {
       rawAppRunnables = (appFile as RawAppFile).runnables ?? {};
     }
