@@ -68,7 +68,8 @@ pub struct ApiAuthed {
     /// `label-*` string. Only `username_override_from_label` sets it.
     pub username_override_is_token_label: bool,
     /// Whether the request authenticated with the session token minted at browser login.
-    /// Only `fallback_trigger_metadata` reads it — it is provenance, never authorization.
+    /// Only `fallback_trigger_metadata` reads it — see `is_session_label` for why it
+    /// attributes rather than proves, and must not gate authority.
     pub is_session_token: bool,
     pub token_prefix: Option<String>,
     pub read_only: bool,
@@ -108,11 +109,11 @@ impl ApiAuthed {
     }
 
     /// The `trigger_kind` a run started through a `/jobs/run*` route is stamped with when no
-    /// trigger built metadata of its own. It says how the run was started, so it is derived
-    /// from the token that authenticated the request and never from the request itself:
-    /// `trigger_kind` is authority-bearing (`app` is what marks a file as app-produced).
-    /// Everything that is not a browser session — webhooks, the CLI, the SDKs — is `webhook`,
-    /// matching the `wm_trigger.kind` the preprocessor already reports for these routes.
+    /// trigger built metadata of its own. It is derived from the token that authenticated the
+    /// request and never from the request itself, because the column is authority-bearing for
+    /// other kinds (`app` is what marks a file as app-produced). Everything that is not a
+    /// browser session — webhooks, the CLI, the SDKs — is `webhook`, matching the
+    /// `wm_trigger.kind` the preprocessor already reports for these routes.
     ///
     /// Stamps nothing at all until every worker can decode `ui`: the pull query decodes
     /// `trigger_kind` into the Rust enum, so a worker that predates the variant drops every
@@ -1316,9 +1317,9 @@ mod tests {
         );
     }
 
-    /// `trigger_kind` says how a run was started, so a member must not be able to make their
-    /// own runs look like they came from the UI. Only the label `create_session_token` mints
-    /// — which `is_server_minted_label` keeps unmintable — may map to `ui`.
+    /// Only the label `create_session_token` mints may map to `ui`. Every other label — every
+    /// shape a member can pass to `create_token` — is `webhook`, so a token cannot carry a
+    /// kind of its owner's choosing just by being labelled like one.
     #[tokio::test]
     async fn only_the_browser_session_label_maps_to_ui() {
         // `MIN_VERSION` is unset here, which `met()` treats as satisfied, so the fallback is

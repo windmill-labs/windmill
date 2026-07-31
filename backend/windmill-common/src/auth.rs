@@ -60,8 +60,8 @@ pub fn is_server_minted_label(label: &str) -> bool {
 }
 
 /// Whether `label` is the one minted for a browser session at login. [`is_server_minted_label`]
-/// reserves it from member minting, so it is a trustworthy signal that a request came from the
-/// UI rather than from a webhook, the CLI or an SDK.
+/// stops a member minting it directly, but `/users/refresh_token` hands one to any authenticated
+/// caller, so this attributes a request to the UI without proving it: never gate authority on it.
 pub fn is_session_label(label: Option<&str>) -> bool {
     label == Some("session")
 }

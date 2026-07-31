@@ -58,6 +58,8 @@ pub enum JobTriggerKind {
     // A run started from the browser: the `/jobs/run*` request carried the session
     // token minted at login. Like `Webhook`, it is derived from the token label
     // server-side and is only a fallback — a trigger that builds its own metadata wins.
+    // Unlike `App` this is attribution, not authority: a member can have a session token
+    // minted for a script (`/users/refresh_token`), so nothing may be gated on it.
     Ui,
 }
 
