@@ -41,7 +41,7 @@ use windmill_common::audit::AuditAuthor;
 use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
-use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
+use windmill_common::jobs::{JobTriggerKind, TriggerKindLabel, EMAIL_ERROR_HANDLER_USER_EMAIL};
 use windmill_common::min_version::{
     MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
 };
@@ -2998,7 +2998,7 @@ pub struct MiniPulledJob {
     pub preprocessed: Option<bool>,
     pub script_entrypoint_override: Option<String>,
     pub trigger: Option<String>,
-    pub trigger_kind: Option<JobTriggerKind>,
+    pub trigger_kind: Option<TriggerKindLabel>,
     pub visible_to_owner: bool,
     pub permissioned_as_end_user_email: Option<String>,
     pub runnable_settings_handle: Option<i64>,
@@ -3074,7 +3074,7 @@ pub struct MiniCompletedJob {
     pub script_lang: Option<ScriptLang>,
     pub permissioned_as_email: String,
     pub flow_step_id: Option<String>,
-    pub trigger_kind: Option<JobTriggerKind>,
+    pub trigger_kind: Option<TriggerKindLabel>,
     pub trigger: Option<String>,
     pub priority: Option<i16>,
     pub concurrent_limit: Option<i32>,
@@ -3101,7 +3101,7 @@ impl From<QueuedJobV2> for MiniCompletedJob {
             script_lang: job.script_lang,
             permissioned_as_email: job.permissioned_as_email,
             flow_step_id: job.flow_step_id,
-            trigger_kind: job.trigger_kind,
+            trigger_kind: job.trigger_kind.map(Into::into),
             trigger: job.trigger,
             priority: job.priority,
             concurrent_limit: job.concurrent_limit,
@@ -3190,12 +3190,12 @@ impl MiniCompletedJob {
 }
 
 fn schedule_path(
-    trigger_kind: &Option<JobTriggerKind>,
+    trigger_kind: &Option<TriggerKindLabel>,
     trigger: &Option<String>,
 ) -> Option<String> {
     if trigger_kind
         .as_ref()
-        .is_some_and(|t| matches!(t, JobTriggerKind::Schedule))
+        .is_some_and(|t| t.is(JobTriggerKind::Schedule))
     {
         trigger.clone()
     } else {
@@ -3273,11 +3273,10 @@ impl MiniPulledJob {
             preprocessed: job.preprocessed.clone(),
             script_entrypoint_override: job.script_entrypoint_override.clone(),
             trigger: job.schedule_path.clone(),
-            trigger_kind: if job.schedule_path.is_some() {
-                Some(JobTriggerKind::Schedule)
-            } else {
-                None
-            },
+            trigger_kind: job
+                .schedule_path
+                .is_some()
+                .then(|| JobTriggerKind::Schedule.into()),
             visible_to_owner: job.visible_to_owner.clone(),
             permissioned_as_end_user_email: None,
         }
@@ -3487,7 +3486,7 @@ pub async fn get_mini_pulled_job<'c>(
         preprocessed,
         script_entrypoint_override,
         trigger,
-        trigger_kind as \"trigger_kind: JobTriggerKind\",
+        trigger_kind as \"trigger_kind: TriggerKindLabel\",
         visible_to_owner,
         NULL as permissioned_as_end_user_email
         FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id WHERE v2_job_queue.id = $1",
@@ -3514,7 +3513,7 @@ pub struct QueuedJobV2 {
     pub script_lang: Option<ScriptLang>,
     pub permissioned_as_email: String,
     pub flow_step_id: Option<String>,
-    pub trigger_kind: Option<JobTriggerKind>,
+    pub trigger_kind: Option<TriggerKindLabel>,
     pub trigger: Option<String>,
     pub priority: Option<i16>,
     pub concurrent_limit: Option<i32>,
@@ -3556,7 +3555,7 @@ pub async fn get_queued_job_v2<'c>(
                 script_lang as "script_lang: ScriptLang",
                 permissioned_as_email,
                 flow_step_id,
-                trigger_kind as "trigger_kind: JobTriggerKind",
+                trigger_kind as "trigger_kind: TriggerKindLabel",
                 trigger,
                 q.priority,
                 concurrent_limit,
@@ -5056,7 +5055,7 @@ pub fn get_mini_completed_job<'a, 'e, A: sqlx::Acquire<'e, Database = Postgres> 
             MiniCompletedJob,
             "SELECT
             j.id, j.workspace_id, j.runnable_id AS \"runnable_id: ScriptHash\", q.scheduled_for, q.started_at, j.parent_job, j.flow_innermost_root_job, j.runnable_path, j.kind as \"kind!: JobKind\", j.permissioned_as,
-            j.created_by, j.script_lang AS \"script_lang: ScriptLang\", j.permissioned_as_email, j.flow_step_id, j.trigger_kind AS \"trigger_kind: JobTriggerKind\", j.trigger, j.priority, j.concurrent_limit, j.tag, j.cache_ttl, q.cache_ignore_s3_path, q.runnable_settings_handle
+            j.created_by, j.script_lang AS \"script_lang: ScriptLang\", j.permissioned_as_email, j.flow_step_id, j.trigger_kind AS \"trigger_kind: TriggerKindLabel\", j.trigger, j.priority, j.concurrent_limit, j.tag, j.cache_ttl, q.cache_ignore_s3_path, q.runnable_settings_handle
             FROM v2_job j LEFT JOIN v2_job_queue q ON j.id = q.id
             WHERE j.id = $1 AND j.workspace_id = $2",
             id,

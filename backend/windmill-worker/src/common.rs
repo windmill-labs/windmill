@@ -528,7 +528,7 @@ pub async fn get_reserved_variables(
     };
 
     let tested_runnable = match (&job.trigger_kind, &job.trigger) {
-        (Some(windmill_common::jobs::JobTriggerKind::CiTest), Some(t)) => Some(t.clone()),
+        (Some(k), Some(t)) if k.is(windmill_common::jobs::JobTriggerKind::CiTest) => Some(t.clone()),
         _ => None,
     };
 

@@ -24,7 +24,6 @@ use windmill_common::{
     db::{Authable, Authed, AuthedRef},
     error::{self, Error, Result},
     jobs::JobTriggerKind,
-    min_version::MIN_VERSION_SUPPORTS_UI_TRIGGER_KIND,
     triggers::TriggerMetadata,
     users::username_to_permissioned_as,
     DB,
@@ -68,8 +67,8 @@ pub struct ApiAuthed {
     /// `label-*` string. Only `username_override_from_label` sets it.
     pub username_override_is_token_label: bool,
     /// Whether the request authenticated with the session token minted at browser login.
-    /// Only `fallback_trigger_metadata` reads it — see `is_session_label` for why it
-    /// attributes rather than proves, and must not gate authority.
+    /// Only `trigger_or_fallback` reads it — see `is_session_label` for why it attributes
+    /// rather than proves, and must not gate authority.
     pub is_session_token: bool,
     pub token_prefix: Option<String>,
     pub read_only: bool,
@@ -109,33 +108,22 @@ impl ApiAuthed {
     }
 
     /// The `trigger_kind` a run started through a `/jobs/run*` route is stamped with: a trigger
-    /// that built its own metadata always wins, and everything else is attributed from the token
-    /// that authenticated the request — never from the request itself, because the column is
-    /// authority-bearing for other kinds (`app` is what marks a file as app-produced). Anything
-    /// but a browser session — webhooks, the CLI, the SDKs — is `webhook`, matching the
-    /// `wm_trigger.kind` the preprocessor already reports for these routes.
+    /// that built its own metadata always wins, and a run driven by any other token — webhooks,
+    /// the CLI, the SDKs — is `webhook`, matching the `wm_trigger.kind` the preprocessor already
+    /// reports for these routes. Derived from the token, never from the request, because the
+    /// column is authority-bearing for other kinds (`app` marks a file as app-produced).
     ///
-    /// The fallback stamps nothing until every worker can decode `ui`: the pull query decodes
-    /// `trigger_kind` into the Rust enum, so a worker that predates the variant drops every job
-    /// carrying it. Writing `webhook` in the meantime would be worse — wrong, and permanent.
-    pub async fn trigger_or_fallback(
-        &self,
-        trigger: Option<TriggerMetadata>,
-    ) -> Option<TriggerMetadata> {
+    /// A browser session is left unstamped rather than marked [`JobTriggerKind::Ui`]: that label
+    /// is one a worker built before this release cannot decode, and it would strand the jobs
+    /// carrying it. `webhook` has always been decodable, so it is safe to write today.
+    pub fn trigger_or_fallback(&self, trigger: Option<TriggerMetadata>) -> Option<TriggerMetadata> {
         if trigger.is_some() {
             return trigger;
         }
-        if !MIN_VERSION_SUPPORTS_UI_TRIGGER_KIND.met().await {
+        if self.is_session_token {
             return None;
         }
-        Some(TriggerMetadata::new(
-            None,
-            if self.is_session_token {
-                JobTriggerKind::Ui
-            } else {
-                JobTriggerKind::Webhook
-            },
-        ))
+        Some(TriggerMetadata::new(None, JobTriggerKind::Webhook))
     }
 }
 
@@ -1322,26 +1310,21 @@ mod tests {
         );
     }
 
-    /// Only the label `create_session_token` mints may map to `ui`. Every other label — every
-    /// shape a member can pass to `create_token` — is `webhook`, so a token cannot carry a
-    /// kind of its owner's choosing just by being labelled like one.
-    #[tokio::test]
-    async fn only_the_browser_session_label_maps_to_ui() {
-        // `MIN_VERSION` is unset here, which `met()` treats as satisfied, so the fallback is
-        // always produced and the assertions see the kind rather than the version gate.
-        async fn kind_of(label: Option<&str>) -> String {
+    /// A browser session is the one shape left unstamped, so the Runs page can say "a token
+    /// started this" without claiming the converse. Every other label — every shape a member
+    /// can pass to `create_token` — is `webhook`.
+    #[test]
+    fn only_a_browser_session_is_left_unstamped() {
+        let kind_of = |label: Option<&str>| {
             ApiAuthed {
                 is_session_token: windmill_common::auth::is_session_label(label),
                 ..Default::default()
             }
             .trigger_or_fallback(None)
-            .await
-            .unwrap()
-            .trigger_kind
-            .to_string()
-        }
+            .map(|t| t.trigger_kind.to_string())
+        };
 
-        assert_eq!(kind_of(Some("session")).await, "ui");
+        assert_eq!(kind_of(Some("session")), None);
 
         for label in [
             Some("my-personal-token"),
@@ -1354,21 +1337,19 @@ mod tests {
             // A label-less token: the job WM_TOKEN, and any token created without one.
             None,
         ] {
-            assert_eq!(kind_of(label).await, "webhook", "label {label:?}");
+            assert_eq!(kind_of(label).as_deref(), Some("webhook"), "label {label:?}");
         }
     }
 
     /// A trigger that built its own metadata must survive the fallback, or a scheduled or
-    /// routed run started under a browser session would be re-attributed to the UI.
-    #[tokio::test]
-    async fn a_real_trigger_wins_over_the_token_fallback() {
-        let session = ApiAuthed { is_session_token: true, ..Default::default() };
-        let schedule = TriggerMetadata::new(
-            Some("u/alice/nightly".to_string()),
-            JobTriggerKind::Schedule,
-        );
+    /// routed run started under a personal token would be re-attributed to a webhook.
+    #[test]
+    fn a_real_trigger_wins_over_the_token_fallback() {
+        let authed = ApiAuthed::default();
+        let schedule =
+            TriggerMetadata::new(Some("u/alice/nightly".to_string()), JobTriggerKind::Schedule);
 
-        let kept = session.trigger_or_fallback(Some(schedule)).await.unwrap();
+        let kept = authed.trigger_or_fallback(Some(schedule)).unwrap();
         assert_eq!(kept.trigger_kind.to_string(), "schedule");
         assert_eq!(kept.trigger_path.as_deref(), Some("u/alice/nightly"));
     }

@@ -101,8 +101,9 @@ export const jobTriggerKinds: JobTriggerKind[] = [
 	'github',
 	'asset',
 	'freshness',
-	'app',
-	'ui'
+	'app'
+	// `ui` is deliberately absent: the backend does not stamp it yet, so offering it here
+	// would be a filter that can only ever return nothing.
 ]
 
 export type Trigger = {
@@ -140,10 +141,10 @@ export const triggerIconMap = {
 	nextcloud: NextcloudIcon,
 	google: GoogleIcon,
 	github: GithubIcon,
-	// Job-attribution-only kinds (no trigger CRUD page): the pipeline asset
-	// cascade, the freshness watchdog, app-component runs, and runs started from
-	// the browser. Needed so the Runs filter and job detail render these trigger
-	// kinds instead of a blank label / no icon.
+	// Job-attribution-only kinds (no trigger CRUD page): the pipeline asset cascade,
+	// the freshness watchdog and app-component runs. Needed so the Runs filter and job
+	// detail render these trigger kinds instead of a blank label / no icon. `ui` is
+	// mapped ahead of the backend stamping it, so the day it does nothing renders blank.
 	asset: Zap,
 	freshness: Timer,
 	app: LayoutDashboard,
