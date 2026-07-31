@@ -4636,6 +4636,7 @@ export async function push(
                   noninteractive: (opts.yes ?? false) || !process.stdin.isTTY,
                   skipReencrypt: opts.skipReencryptOnKeyChange,
                 },
+                opts.defaultTs,
               );
 
               if (stateTarget) {
@@ -4762,6 +4763,7 @@ export async function push(
                   noninteractive: (opts.yes ?? false) || !process.stdin.isTTY,
                   skipReencrypt: opts.skipReencryptOnKeyChange,
                 },
+                opts.defaultTs,
               );
 
               if (stateTarget) {
@@ -4957,6 +4959,11 @@ export async function push(
                         opts.plainSecrets ?? false,
                         alreadySynced,
                         opts.message,
+                        undefined,
+                        undefined,
+                        undefined,
+                        undefined,
+                        opts.defaultTs,
                       );
                     } else {
                       // The entire raw app folder was deleted locally,

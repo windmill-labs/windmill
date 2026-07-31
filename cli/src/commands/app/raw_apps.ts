@@ -1,6 +1,6 @@
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
-import { getDefaultTs } from "../../core/conf.ts";
+import { mergeConfigWithConfigFile } from "../../core/conf.ts";
 import { colors } from "@cliffy/ansi/colors";
 import * as log from "../../core/log.ts";
 import { sep as SEP } from "node:path";
@@ -144,14 +144,13 @@ function getRunnableIdFromCodeFile(fileName: string): string | undefined {
  * Returns an empty object if the backend folder doesn't exist.
  *
  * @param backendPath - Path to the backend folder
- * @param defaultTs - TypeScript runtime a bare `.ts` denotes; resolved from
- *   wmill.yaml when omitted, so readers agree with what the assigner wrote
+ * @param defaultTs - TypeScript runtime a bare `.ts` denotes. Must match what
+ *   newRawAppPathAssigner used to write the file, or the round-trip relabels it.
  */
 export async function loadRunnablesFromBackend(
   backendPath: string,
-  defaultTs?: "bun" | "deno",
+  defaultTs: "bun" | "deno" = "bun",
 ): Promise<Record<string, any>> {
-  const ts = defaultTs ?? (await getDefaultTs());
   const runnables: Record<string, any> = {};
 
   try {
@@ -191,7 +190,7 @@ export async function loadRunnablesFromBackend(
         );
 
         if (contentFile) {
-          const language = getLanguageFromExtension(contentFile.ext, ts);
+          const language = getLanguageFromExtension(contentFile.ext, defaultTs);
           const lock = await readSiblingLock(backendPath, runnableId, allFiles);
 
           // Reconstruct inlineScript object
@@ -243,7 +242,7 @@ export async function loadRunnablesFromBackend(
       );
 
       if (contentFile) {
-        const language = getLanguageFromExtension(contentFile.ext, ts);
+        const language = getLanguageFromExtension(contentFile.ext, defaultTs);
         const lock = await readSiblingLock(backendPath, runnableId, allFiles);
 
         // Create inline runnable with default empty fields
@@ -347,6 +346,7 @@ export async function pushRawApp(
   remotePath: string,
   localPath: string,
   message?: string,
+  defaultTs: "bun" | "deno" = "bun",
 ): Promise<void> {
   if (alreadySynced.includes(localPath)) {
     return;
@@ -380,7 +380,10 @@ export async function pushRawApp(
   // Load runnables from separate YAML files in the backend folder
   // Falls back to reading from raw_app.yaml if no separate files exist (backward compat)
   const backendPath = path.join(localPath, APP_BACKEND_FOLDER);
-  const runnablesFromBackend = await loadRunnablesFromBackend(backendPath);
+  const runnablesFromBackend = await loadRunnablesFromBackend(
+    backendPath,
+    defaultTs,
+  );
 
   let runnables: Record<string, any>;
   if (Object.keys(runnablesFromBackend).length > 0) {
@@ -542,7 +545,14 @@ async function pushRawAppCommand(
   }
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
+  const merged = await mergeConfigWithConfigFile(opts);
 
-  await pushRawApp(workspace.workspaceId, remotePath, filePath);
+  await pushRawApp(
+    workspace.workspaceId,
+    remotePath,
+    filePath,
+    undefined,
+    merged.defaultTs,
+  );
   log.info(colors.bold.underline.green("Raw app pushed"));
 }

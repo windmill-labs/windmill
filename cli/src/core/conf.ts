@@ -196,40 +196,6 @@ export function getWmillYamlPath(): string | null {
   return findWmillYaml();
 }
 
-/**
- * The workspace's TypeScript runtime for extensionless `.ts`, per wmill.yaml.
- *
- * `getLanguageExtension` writes a bare `.ts` only when the script's language
- * equals `defaultTs` (a bun script in a deno workspace becomes `.bun.ts`), so
- * anything reading a bare `.ts` back must resolve it the same way or the
- * round-trip silently relabels the script.
- *
- * Memoized per cwd: resolving the config walks up to wmill.yaml through
- * `isGitRepository`/`getGitRepoRoot`, which shell out to git, and callers here
- * are per-runnable-folder. Keying on cwd rather than a single slot keeps this
- * correct across the chdir that `findWmillYaml` itself can perform.
- */
-const defaultTsByCwd = new Map<string, "bun" | "deno">();
-
-export async function getDefaultTs(): Promise<"bun" | "deno"> {
-  const cwd = process.cwd();
-  const cached = defaultTsByCwd.get(cwd);
-  if (cached) {
-    return cached;
-  }
-  let resolved: "bun" | "deno" = "bun";
-  try {
-    const conf = await readConfigFile({ warnIfMissing: false });
-    if (conf?.defaultTs === "deno") {
-      resolved = "deno";
-    }
-  } catch {
-    // no readable wmill.yaml — bun is the documented default
-  }
-  defaultTsByCwd.set(cwd, resolved);
-  return resolved;
-}
-
 let legacyConfigWarned = false;
 
 export async function readConfigFile(opts?: { warnIfMissing?: boolean }): Promise<SyncOptions> {
