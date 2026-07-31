@@ -108,18 +108,23 @@ impl ApiAuthed {
         self.username_override_is_token_label = false;
     }
 
-    /// The `trigger_kind` a run started through a `/jobs/run*` route is stamped with when no
-    /// trigger built metadata of its own. It is derived from the token that authenticated the
-    /// request and never from the request itself, because the column is authority-bearing for
-    /// other kinds (`app` is what marks a file as app-produced). Everything that is not a
-    /// browser session — webhooks, the CLI, the SDKs — is `webhook`, matching the
+    /// The `trigger_kind` a run started through a `/jobs/run*` route is stamped with: a trigger
+    /// that built its own metadata always wins, and everything else is attributed from the token
+    /// that authenticated the request — never from the request itself, because the column is
+    /// authority-bearing for other kinds (`app` is what marks a file as app-produced). Anything
+    /// but a browser session — webhooks, the CLI, the SDKs — is `webhook`, matching the
     /// `wm_trigger.kind` the preprocessor already reports for these routes.
     ///
-    /// Stamps nothing at all until every worker can decode `ui`: the pull query decodes
-    /// `trigger_kind` into the Rust enum, so a worker that predates the variant drops every
-    /// job carrying it. Falling back to `webhook` in the meantime is worse than leaving it
-    /// NULL — it would write the wrong provenance permanently.
-    pub async fn fallback_trigger_metadata(&self) -> Option<TriggerMetadata> {
+    /// The fallback stamps nothing until every worker can decode `ui`: the pull query decodes
+    /// `trigger_kind` into the Rust enum, so a worker that predates the variant drops every job
+    /// carrying it. Writing `webhook` in the meantime would be worse — wrong, and permanent.
+    pub async fn trigger_or_fallback(
+        &self,
+        trigger: Option<TriggerMetadata>,
+    ) -> Option<TriggerMetadata> {
+        if trigger.is_some() {
+            return trigger;
+        }
         if !MIN_VERSION_SUPPORTS_UI_TRIGGER_KIND.met().await {
             return None;
         }
@@ -1329,7 +1334,7 @@ mod tests {
                 is_session_token: windmill_common::auth::is_session_label(label),
                 ..Default::default()
             }
-            .fallback_trigger_metadata()
+            .trigger_or_fallback(None)
             .await
             .unwrap()
             .trigger_kind
@@ -1351,6 +1356,21 @@ mod tests {
         ] {
             assert_eq!(kind_of(label).await, "webhook", "label {label:?}");
         }
+    }
+
+    /// A trigger that built its own metadata must survive the fallback, or a scheduled or
+    /// routed run started under a browser session would be re-attributed to the UI.
+    #[tokio::test]
+    async fn a_real_trigger_wins_over_the_token_fallback() {
+        let session = ApiAuthed { is_session_token: true, ..Default::default() };
+        let schedule = TriggerMetadata::new(
+            Some("u/alice/nightly".to_string()),
+            JobTriggerKind::Schedule,
+        );
+
+        let kept = session.trigger_or_fallback(Some(schedule)).await.unwrap();
+        assert_eq!(kept.trigger_kind.to_string(), "schedule");
+        assert_eq!(kept.trigger_path.as_deref(), Some("u/alice/nightly"));
     }
 
     // Regression tests for the Preview path traversal: a Preview's path skips the
