@@ -3047,9 +3047,13 @@ async function pushParentScriptForModule(
         log.info(`Archiving script ${remote}`);
         await wmill
           .archiveScriptByPath({ workspace: workspace.workspaceId, path: remote })
-          .catch((e) => {
-            // Already gone remotely is the state we wanted.
-            log.debug(`Could not archive ${remote}: ${e}`);
+          .catch((e: any) => {
+            // Only "already gone" is the state we wanted. An auth, network or
+            // server failure must fail the push: swallowing it reports success
+            // while the project stays deployed, which is the thing this branch
+            // exists to prevent.
+            if (e?.status !== 404) throw e;
+            log.debug(`${remote} was already gone remotely`);
           });
       }
       return;

@@ -41,8 +41,28 @@ fn manifest(names: &[&str]) -> IngestedManifest {
                 ..Default::default()
             })
             .collect(),
+        // Chained, so the edge insert actually runs: `ref()` lineage is in every
+        // real project, and a fixture with no edges leaves that statement
+        // unexecuted by every test in this file.
+        edges: names
+            .windows(2)
+            .map(|w| (format!("model.p.{}", w[0]), format!("model.p.{}", w[1])))
+            .collect(),
         ..Default::default()
     }
+}
+
+/// Edges for one version, so a test can assert the batched insert ran at all.
+async fn edges_for(db: &Pool<Postgres>, hash: i64) -> i64 {
+    sqlx::query_scalar!(
+        "SELECT count(*) FROM dbt_edge WHERE workspace_id = $1 AND script_hash = $2",
+        WS,
+        hash
+    )
+    .fetch_one(db)
+    .await
+    .unwrap()
+    .unwrap_or(0)
 }
 
 async fn nodes_for(db: &Pool<Postgres>, hash: i64, job: uuid::Uuid) -> i64 {
@@ -207,6 +227,11 @@ async fn clearing_one_version_leaves_the_others(db: Pool<Postgres>) {
         "the other version survives"
     );
     assert_eq!(markers(&db, 2).await, 1);
+    // The lineage is stored and cleared with its nodes. Asserted here because
+    // this is where two versions coexist: it pins the batched edge insert
+    // against a real database as well as the version scoping.
+    assert_eq!(edges_for(&db, 1).await, 0, "the cleared version's edges go");
+    assert_eq!(edges_for(&db, 2).await, 1, "the other version keeps its own");
 }
 
 /// The path-wide clear is for the routes that retire the whole path, and it has

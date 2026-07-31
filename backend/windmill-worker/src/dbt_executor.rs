@@ -1522,9 +1522,10 @@ async fn write_profiles(
         // Read from the project's own file even when the descriptor declares a type:
         // the file is what dbt connects with. Licensing is why it cannot be a hint —
         // the Rust engines carry every adapter, so a descriptor claiming `postgres`
-        // over a `sqlserver` target would pass the CE check and connect anyway. The
-        // A templated `type` is refused outright rather than taken from the
-        // descriptor: the claim cannot be checked against what dbt will render.
+        // over a `sqlserver` target would pass the CE check and connect anyway. A
+        // templated `type` is refused outright rather than taken from the
+        // descriptor, for the same reason: the claim cannot be checked against
+        // what dbt will render.
         let target = adapter_from_profiles_yml(
             &path,
             &project_profile_name(project_dir).await,

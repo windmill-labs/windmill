@@ -38,6 +38,9 @@ async fn get_warehouse(
     // there is no credential boundary left to protect.
     let Some(job_id) = job_id else {
         if is_no_auth() {
+            // Validated here too, so all three paths agree on what a name may be
+            // rather than one of them accepting whatever the URL carried.
+            windmill_common::workspaces::validate_dbt_warehouse_name(&name)?;
             let (resource_path, target) = dbt_warehouse_resource(&db, &w_id, &name).await?;
             let value = windmill_store::resources::get_resource_value_interpolated_internal(
                 &windmill_common::db::DbWithOptAuthed::<ApiAuthed>::from_authed(
