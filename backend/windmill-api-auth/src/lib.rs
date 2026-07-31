@@ -1262,6 +1262,10 @@ mod tests {
 
         // Minted by the editor through the public handler, so it names no principal either.
         assert_eq!(owner_of("Ephemeral lsp token").display_username(), "alice");
+
+        // The SMTP trigger sets its `email-*` identity server-side rather than through a
+        // label, so a token carrying that prefix is just a user token.
+        assert_eq!(owner_of("email-f/team/inbox").display_username(), "alice");
         assert_eq!(
             owner_of("ephemeral-script-end-user-enduser42").display_username(),
             "enduser42"

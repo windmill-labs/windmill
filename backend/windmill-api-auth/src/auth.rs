@@ -852,16 +852,15 @@ pub async fn resolve_opt_job_authed(
 /// unconstrained, so it may itself look like any of these shapes.
 ///
 /// Only namespaces `create_token` rejects (`is_server_minted_label`) are trusted to name the
-/// entity acting, so the label can only have come from a server-side mint. `email-*` is the
-/// exception: the SMTP trigger mints it, the worker keys email-trigger handling off that exact
-/// prefix, and the trigger panel mints it client-side, so it cannot be reserved. Grounding
-/// that one — and tokens minted before the guard existed — in issuance rather than shape needs
-/// the token row to record who minted it.
+/// entity acting, so the label can only have come from a server-side mint. Tokens minted
+/// before that guard existed are the remaining hole; closing it needs the token row to record
+/// who minted it rather than inferring it from the label.
+///
+/// Note that a trigger whose identity is set server-side — the SMTP one builds an `email-*`
+/// override directly — does not rely on this at all, so its prefix must not be trusted here.
 pub(crate) fn username_override_from_label(label: Option<String>) -> (Option<String>, bool) {
     match label {
-        Some(label) if label.starts_with("ephemeral-webhook-") || label.starts_with("email-") => {
-            (Some(label), false)
-        }
+        Some(label) if label.starts_with("ephemeral-webhook-") => (Some(label), false),
         Some(label) if label.starts_with("ephemeral-script-end-user-") => (
             Some(
                 label
@@ -878,6 +877,7 @@ pub(crate) fn username_override_from_label(label: Option<String>) -> (Option<Str
         Some(label)
             if label.starts_with("webhook-")
                 || label.starts_with("http-")
+                || label.starts_with("email-")
                 || label.starts_with("ws-") =>
         {
             (Some(label), true)
