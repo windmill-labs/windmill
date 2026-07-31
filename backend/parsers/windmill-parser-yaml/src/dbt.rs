@@ -75,8 +75,8 @@ pub struct DbtProfile {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub warehouse: Option<String>,
 
-    /// dbt target name. Also the `<resource_path>` component's companion when
-    /// resolving asset identity.
+    /// dbt target name. It selects which output of the profile runs; the
+    /// `<warehouse>` component of asset identity comes from `warehouse` above.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
     /// Path (relative to `project`) of the project's own `profiles.yml`, used

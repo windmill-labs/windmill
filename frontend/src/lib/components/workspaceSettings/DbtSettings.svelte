@@ -22,7 +22,11 @@
 	export function convertDbtSettingsToBackend(
 		settings: DbtSettingsType
 	): Record<string, { resource_path: string; target?: string }> {
-		const out: Record<string, { resource_path: string; target?: string }> = {}
+		// Null-prototype: the backend accepts any alphanumeric name, `constructor`
+		// and `toString` among them, and on a plain object those are inherited —
+		// `in` would call them duplicates, and assigning `__proto__` would set the
+		// prototype instead of a key.
+		const out: Record<string, { resource_path: string; target?: string }> = Object.create(null)
 		for (const w of settings.warehouses) {
 			const name = w.name?.trim()
 			if (!name) throw 'A warehouse needs a name'
