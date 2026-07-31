@@ -435,14 +435,25 @@ fn asset_path_for(
         .as_deref()
         .or(node.alias.as_deref())
         .unwrap_or(&node.name);
-    Some(table_asset_path(
+    // `asset.path` is VARCHAR(255) and every other kind's path is bounded by a
+    // Windmill path; this one is bounded by the warehouse's identifiers, which
+    // Snowflake alone allows 255 characters of. A node whose key would not fit
+    // keeps its manifest row and simply gets no asset, because the alternative
+    // is Postgres rejecting the insert and taking the whole graph down with it.
+    let path = table_asset_path(
         warehouse,
         node.database.as_deref(),
         schema,
         name,
         default_database,
-    ))
+    );
+    (path.len() <= MAX_ASSET_PATH_LEN).then_some(path)
 }
+
+/// `asset.path`'s column width. A `dbt://` key is the only asset path assembled
+/// from warehouse identifiers rather than from a Windmill path, so it is the
+/// only one that can outgrow the column.
+pub const MAX_ASSET_PATH_LEN: usize = 255;
 
 /// The one derivation of a `dbt://` path from a relation's parts.
 ///

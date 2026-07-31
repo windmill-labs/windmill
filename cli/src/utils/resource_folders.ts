@@ -505,7 +505,7 @@ export function isFlowFolderMetadataFile(p: string): boolean {
 const MODULE_SUFFIX = "__mod";
 /** dbt scripts carry a whole dbt project, not helper code. The folder says so,
  *  and it is what a dbt developer points `--project-dir` at. */
-const DBT_MODULE_SUFFIX = "__dbt";
+export const DBT_MODULE_SUFFIX = "__dbt";
 const MODULE_SUFFIXES = [MODULE_SUFFIX, DBT_MODULE_SUFFIX];
 
 /** A dbt project's descriptor, inside the project it configures and OPTIONAL:

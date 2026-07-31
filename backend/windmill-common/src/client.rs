@@ -115,6 +115,19 @@ impl AuthedClient {
         }
     }
 
+    /// Whether the workspace configures this dbt warehouse. Resolves nothing.
+    pub async fn dbt_warehouse_exists(&self, name: &str) -> anyhow::Result<()> {
+        let url = format!(
+            "{}/api/w/{}/dbt/warehouse_exists/{}",
+            self.base_internal_url, self.workspace, name
+        );
+        let response = self.get(&url, vec![]).await?;
+        match response.status().as_u16() {
+            200u16 => Ok(()),
+            _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
+        }
+    }
+
     /// Record one settled dbt node, for a worker with no database.
     ///
     /// Posted with the JOB's token, not the agent's: the route takes the job

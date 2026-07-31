@@ -1017,7 +1017,7 @@ pub(crate) async fn prepare_project(
     };
 
     let (profiles_dir, warehouse, adapter, default_database, default_schema, profile_digest) =
-        write_profiles(descriptor, &project_dir, job_dir, client, w_id, conn).await?;
+        write_profiles(descriptor, &project_dir, job_dir, client).await?;
     // The lockfile's version, when it pinned one for this same engine — a
     // descriptor edited to another engine invalidates the pin.
     let pinned_version = locks
@@ -1471,16 +1471,14 @@ async fn strip_git_remote(dir: &Path) -> std::io::Result<()> {
 }
 
 /// Write `profiles.yml`, either rendered from a Windmill resource or taken from
-/// the project itself. Both paths are supported (decision 8): the resource path
-/// is the ergonomic one, the project's own file is what makes an existing repo
-/// run unchanged.
+/// the project itself. Both paths are supported (decision 8): the workspace
+/// warehouse is the ergonomic one, the project's own file is what makes an
+/// existing repo run unchanged.
 async fn write_profiles(
     descriptor: &DbtDescriptor,
     project_dir: &Path,
     job_dir: &str,
     client: &AuthedClient,
-    w_id: &str,
-    conn: &Connection,
 ) -> error::Result<(
     PathBuf,
     Option<String>,
@@ -1560,25 +1558,16 @@ async fn write_profiles(
         let identity = match descriptor.profile.warehouse.as_deref() {
             Some(named) => {
                 windmill_common::workspaces::validate_dbt_warehouse_name(named)?;
-                match conn {
-                    Connection::Sql(db) => {
-                        windmill_common::workspaces::dbt_warehouse_exists(db, w_id, named).await?
-                    }
-                    // Checked on an agent too, through the route that resolves
-                    // one. Accepting a name here that a database-backed worker
-                    // refuses would let the same project publish its graph under
-                    // a warehouse that does not exist, depending only on which
-                    // worker picked the job up.
-                    Connection::Http(_) => {
-                        client.get_dbt_warehouse::<serde_json::Value>(named).await.map_err(|e| {
-                            Error::BadRequest(format!(
-                                "`profile.warehouse: {named}` is where this project's assets \
-                                 belong, so it must name a warehouse this workspace configures: \
-                                 {e}"
-                            ))
-                        })?;
-                    }
-                }
+                // Only that it EXISTS: this project connects through its own
+                // file, so the connection behind the name is never opened and
+                // pulling it here would decrypt a credential for a string
+                // comparison.
+                client.dbt_warehouse_exists(named).await.map_err(|e| {
+                    Error::BadRequest(format!(
+                        "`profile.warehouse: {named}` is where this project's assets belong, so \
+                         it must name a warehouse this workspace configures: {e}"
+                    ))
+                })?;
                 Some(named.to_string())
             }
             None => None,
@@ -1593,7 +1582,7 @@ async fn write_profiles(
         ));
     }
 
-    let resolved = resolve_warehouse(warehouse, client, w_id, conn).await?;
+    let resolved = resolve_warehouse(warehouse, client).await?;
     let workspace_target = resolved.target;
     let value = resolved.value;
     let adapter = declared
@@ -1655,23 +1644,17 @@ async fn write_profiles(
 async fn resolve_warehouse(
     warehouse: &str,
     client: &AuthedClient,
-    w_id: &str,
-    conn: &Connection,
 ) -> error::Result<windmill_common::workspaces::DbtWarehouseConnection> {
     // The descriptor supplies this name, so it is checked HERE too, not only
-    // where settings are written: an agent worker sends it as a URL path
-    // segment, and `../../resources/get_value/...` would resolve to another
-    // route entirely.
+    // where settings are written: it reaches the route as a URL path segment,
+    // and `../../resources/get_value/...` would resolve to another route.
     windmill_common::workspaces::validate_dbt_warehouse_name(warehouse)?;
-    match conn {
-        Connection::Sql(db) => {
-            windmill_common::workspaces::dbt_warehouse_connection(db, w_id, warehouse).await
-        }
-        // An agent worker reaches settings only through the API.
-        Connection::Http(_) => client.get_dbt_warehouse(warehouse).await.map_err(|e| {
-            Error::BadRequest(format!("resolving the dbt warehouse `{warehouse}`: {e}"))
-        }),
-    }
+    // Through the API even when this worker holds the database, because the
+    // route is where a resource is interpolated against the job — `$WM_TOKEN`
+    // and its kin resolve there and nowhere the worker can reach.
+    client.get_dbt_warehouse(warehouse).await.map_err(|e| {
+        Error::BadRequest(format!("resolving the dbt warehouse `{warehouse}`: {e}"))
+    })
 }
 
 /// Identifies the connection a rendered profile describes, for run identity.

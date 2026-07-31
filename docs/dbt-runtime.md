@@ -174,7 +174,8 @@ one rule is applied in exactly one place — `parse_asset_syntax`, the single
 point where an asset URI becomes a graph key: strip the quote characters
 (`"`, backtick, `[`/`]`) from the schema and name, then ASCII-lowercase them,
 matching the case-insensitive identifier comparison the DuckDB paths already
-use. The resource-path prefix is a Windmill path and stays case-sensitive.
+use. The warehouse-name prefix is spelled as the workspace configures it and
+stays case-sensitive.
 
 **Warehouse identity is the workspace warehouse's name**, exactly as
 `ducklake://main.orders` keys on the workspace lake's name — never the host,

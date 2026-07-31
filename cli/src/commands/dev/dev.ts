@@ -20,7 +20,8 @@ import {
   SyncOptions,
   mergeConfigWithConfigFile,
 } from "../../core/conf.ts";
-import { exts, removeExtensionToPath } from "../script/script.ts";
+import { exts, hasScriptExt, removeExtensionToPath } from "../script/script.ts";
+import { DBT_MODULE_SUFFIX } from "../../utils/resource_folders.ts";
 import { inferContentTypeFromFilePath } from "../../utils/script_common.ts";
 import { OpenFlow } from "../../../gen/types.gen.ts";
 import { FlowFile } from "../flow/flow.ts";
@@ -134,6 +135,19 @@ async function listWorkspacePaths(): Promise<WmPathItem[]> {
         }
         if (APP_SUFFIXES.some((s) => entry.name.endsWith(s))) {
           items.push({ path: stripFolderSuffix(childRel, APP_SUFFIXES), kind: "raw_app" });
+          continue;
+        }
+        // A dbt script IS the project directory: its descriptor is optional, so
+        // there may be no file here to recognize it by. Not descended into
+        // either — the project's own `.sql` models would otherwise each be
+        // listed as a script of their own.
+        if (entry.name.endsWith(DBT_MODULE_SUFFIX)) {
+          const base = childRel.slice(0, -DBT_MODULE_SUFFIX.length);
+          items.push({
+            path: base,
+            kind: "script",
+            _metaPath: childAbs.slice(0, -DBT_MODULE_SUFFIX.length) + ".script.yaml",
+          });
           continue;
         }
         await walk(childAbs, childRel);
@@ -282,12 +296,11 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
 
   const flowMetadataFile = getMetadataFileName("flow", "yaml");
   async function loadPaths(pathsToLoad: string[]) {
-    const paths = pathsToLoad.filter((p) =>
-      exts.some(
-        (ext) => p.endsWith(ext)
-          || p.endsWith(".flow/" + flowMetadataFile)
-          || p.endsWith("__flow/" + flowMetadataFile)
-      )
+    const paths = pathsToLoad.filter(
+      (p) =>
+        hasScriptExt(p) ||
+        p.endsWith(".flow/" + flowMetadataFile) ||
+        p.endsWith("__flow/" + flowMetadataFile)
     );
     if (paths.length == 0) {
       return;

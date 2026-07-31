@@ -56,7 +56,7 @@ capture: workspace_id(char), path(char), created_at(ts), created_by(char), main_
   FK: (workspace_id) -> workspace(id)
 capture_config: workspace_id(char), path(char), is_flow(bool), trigger_kind(trigger_kind), trigger_config(jsonb), owner(char), email(char), server_id(char), last_client_ping(ts), last_server_ping(ts), error(text)
   FK: (workspace_id) -> workspace(id)
-cloud_workspace_settings: workspace_id(char), threshold_alert_amount(int), last_alert_sent(ts), last_warning_sent(ts), is_past_due(bool), max_tolerated_executions(int)
+cloud_workspace_settings: workspace_id(char), threshold_alert_amount(int), last_alert_sent(ts), last_warning_sent(ts), is_past_due(bool), max_tolerated_executions(int), dbt_warehouses(jsonb)
   FK: (workspace_id) -> workspace(id)
 concurrency_counter: concurrency_id(char), job_uuids(jsonb)
 concurrency_key: key(char), ended_at(ts), job_id(uuid)

@@ -776,8 +776,9 @@ pub const ASSET_KINDS: &[(&str, AssetKind)] = &[
 /// The rule: strip the quote characters the warehouses use (`"`, backtick,
 /// `[`/`]`) from the schema and name, then ASCII-lowercase them. This matches
 /// the case-insensitive identifier comparison the DuckDB paths already use
-/// (`schema_contracts::CapturedSchema::find`). The resource-path prefix is a
-/// Windmill path, which is case-sensitive, and is left untouched.
+/// (`schema_contracts::CapturedSchema::find`). The warehouse-name prefix is
+/// spelled as the workspace configures it, which is case-sensitive, and is left
+/// untouched.
 ///
 /// Consequence to accept: a relation deliberately created under a quoted
 /// mixed-case identifier collides with its lowercase spelling. That is rarer
@@ -1853,15 +1854,21 @@ mod pipeline_annotation_tests {
     }
 
     #[test]
-    fn table_canonicalization_leaves_the_resource_path_case_alone() {
-        // The resource-path prefix is a Windmill path and case-sensitive;
-        // only the two identifier segments are folded.
+    fn table_canonicalization_leaves_the_warehouse_name_case_alone() {
+        // The warehouse-name prefix is spelled as the workspace configures it
+        // and is case-sensitive; only the two identifier segments are folded.
         assert_eq!(
-            parse_asset_syntax("dbt://u/RF/MyWarehouse/Sales/Orders", false),
+            parse_asset_syntax("dbt://MyWarehouse/Sales/Orders", false),
             Some((
                 AssetKind::Dbt,
-                Cow::Owned("u/RF/MyWarehouse/sales/orders".into())
+                Cow::Owned("MyWarehouse/sales/orders".into())
             ))
+        );
+        // A database-qualified schema keeps its own case rules: the whole
+        // segment folds, dot included.
+        assert_eq!(
+            parse_asset_syntax("dbt://main/PROD.Sales/Orders", false),
+            Some((AssetKind::Dbt, Cow::Owned("main/prod.sales/orders".into())))
         );
         // Too few segments to be a relation: left alone rather than reshaped
         // into something that looks well-formed.

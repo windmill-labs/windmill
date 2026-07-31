@@ -6,20 +6,23 @@ use axum::{
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
-    workspaces::{dbt_warehouse_connection, DbtWarehouseConnection},
+    workspaces::{dbt_warehouse_resource, DbtWarehouseConnection},
     DB,
 };
 
-use crate::db::OptJobAuthed;
+use crate::db::{ApiAuthed, OptJobAuthed};
+use windmill_api_auth::Tokened;
 
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/warehouse/{name}", get(get_warehouse))
+        .route("/warehouse_exists/{name}", get(warehouse_exists))
         .route("/run_progress", post(record_run_progress))
 }
 
 async fn get_warehouse(
-    OptJobAuthed { job_id, .. }: OptJobAuthed,
+    OptJobAuthed { job_id, authed }: OptJobAuthed,
+    Tokened { token }: Tokened,
     Extension(db): Extension<DB>,
     Extension(_user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,
@@ -50,7 +53,27 @@ async fn get_warehouse(
         ));
     }
     windmill_common::workspaces::validate_dbt_warehouse_name(&name)?;
-    Ok(Json(dbt_warehouse_connection(&db, &w_id, &name).await?))
+    let (resource_path, target) = dbt_warehouse_resource(&db, &w_id, &name).await?;
+    // Interpolated AGAINST THE JOB, so a warehouse whose resource carries
+    // `$WM_TOKEN` or another `$WM_*` renders what the job would see rather than
+    // the literal placeholder. Unchecked (no `user_db`) because dbt warehouses
+    // are unpermissioned by design; uncached because a job-context value must
+    // not be served to the next job.
+    let value = windmill_store::resources::get_resource_value_interpolated_internal(
+        &windmill_common::db::DbWithOptAuthed::<ApiAuthed>::from_authed(&authed, db.clone(), None),
+        &w_id,
+        &resource_path,
+        Some(job_id),
+        Some(&token),
+        false,
+    )
+    .await?
+    .ok_or_else(|| {
+        Error::NotFound(format!(
+            "the dbt warehouse `{name}` points at `{resource_path}`, which does not exist"
+        ))
+    })?;
+    Ok(Json(DbtWarehouseConnection { value, target }))
 }
 
 /// A settled node's state, for a worker that cannot write the database.
@@ -79,4 +102,24 @@ async fn record_run_progress(
     )
     .await;
     Ok(())
+}
+
+/// Whether the workspace configures this warehouse. NOTHING is resolved.
+///
+/// A project that brings its own `profiles.yml` names a warehouse to say where
+/// its assets belong and never opens it, so the answer it needs is a yes/no —
+/// decrypting a connection for that would hand out a credential the run has no
+/// use for.
+async fn warehouse_exists(
+    OptJobAuthed { job_id, .. }: OptJobAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, name)): Path<(String, String)>,
+) -> Result<()> {
+    if job_id.is_none() {
+        return Err(Error::BadRequest(
+            "this route answers for a running job and needs a job token".to_string(),
+        ));
+    }
+    windmill_common::workspaces::validate_dbt_warehouse_name(&name)?;
+    windmill_common::workspaces::dbt_warehouse_exists(&db, &w_id, &name).await
 }

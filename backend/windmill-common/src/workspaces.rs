@@ -2558,10 +2558,11 @@ pub struct DbtWarehouseConnection {
 ///
 /// NO AUTHORIZATION: reads workspace settings for whatever `w_id` it is given.
 /// Callers MUST already be scoped to that workspace — a running job, or a route
-/// that checked its token. What it returns is a POINTER, never credentials, like
-/// `large_file_storage`: the resource keeps its own ACL, so the pointer alone
-/// grants nothing and the caller still has to read the resource as itself. A descriptor cannot name a resource at all, which
-/// is what makes the workspace the only place a warehouse is configured — and
+/// that checked its token. What it returns is a POINTER; resolving it is a
+/// separate step, and dbt warehouses are unpermissioned there (Decision 24), so
+/// the pointer is not the last line of defence. A descriptor cannot name a
+/// resource at all, which is what makes the workspace the only place a
+/// warehouse is configured — and
 /// what lets asset identity key on the NAME (`dbt://main/analytics/orders`),
 /// one spelling every project on that warehouse shares.
 pub async fn dbt_warehouse_resource(

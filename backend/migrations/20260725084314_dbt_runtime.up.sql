@@ -2,21 +2,21 @@
 -- the retry state a `dbt retry` resumes from, and a run's live per-model
 -- progress.
 
--- Physical-relation asset kind, shared by dbt models and any other runtime that
--- writes a warehouse table. Identity is the relation itself
--- (`<resource_path>/<schema>/<name>`), never the producing tool, so a dbt mart
--- and a native script reading the same table resolve to one node and the
--- lineage is one graph across the boundary (docs/dbt-runtime.md, decision 11).
+-- Physical-relation asset kind. Identity is the relation itself
+-- (`<warehouse>/<schema>/<name>`, the warehouse named as the workspace
+-- configures it), never the producing tool, so a dbt mart and a native script
+-- reading the same table resolve to one node and the lineage is one graph
+-- across the boundary (docs/dbt-runtime.md, decision 11).
 ALTER TYPE ASSET_KIND ADD VALUE IF NOT EXISTS 'dbt';
 
 -- Warehouses configured once for the workspace, so a dbt project needs no
--- connection knowledge to run: the descriptor names one (or nothing, for the
--- default) and the value here points at the RESOURCE that holds the credentials,
--- exactly as `large_file_storage` does for buckets. Keeping the credentials in a
--- resource is what lets asset identity keep keying on a resource path.
+-- connection knowledge to run: the descriptor names one by NAME (or nothing, for
+-- `main`) and the value here points at the RESOURCE that holds the credentials,
+-- exactly as `large_file_storage` does for buckets. A flat map keyed by name,
+-- which is also what asset identity keys on.
 --
---   {"resource_path": "$res:u/admin/wh", "target": "prod",
---    "secondary": {"eu": {"resource_path": "$res:u/admin/wh_eu"}}}
+--   {"main": {"resource_path": "$res:u/admin/wh", "target": "prod"},
+--    "eu":   {"resource_path": "$res:u/admin/wh_eu"}}
 ALTER TABLE workspace_settings ADD COLUMN IF NOT EXISTS dbt_warehouses JSONB;
 
 -- Parsed dbt manifest, one row per dbt node. The full manifest.json is not
