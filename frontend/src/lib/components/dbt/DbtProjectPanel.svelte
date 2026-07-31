@@ -43,6 +43,9 @@
 		if (path.endsWith('.sql')) return 'postgresql'
 		if (path.endsWith('.yml') || path.endsWith('.yaml')) return 'ansible'
 		if (path.endsWith('.py')) return 'python3'
+		// `.md` (a doc block) and `.csv` (a seed) have no grammar of their own
+		// here; `bash` leaves prose alone, where the default would colour it as
+		// TypeScript.
 		return 'bash'
 	}
 </script>

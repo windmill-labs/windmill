@@ -2022,7 +2022,11 @@ export async function elementsToMap(
   // pull, forever. Both sides are given the empty descriptor the absence means,
   // so a descriptor-less project reaches a clean sync state.
   for (const key of Object.keys(map)) {
-    if (!key.endsWith("__dbt/dbt_project.yml")) continue;
+    // Normalized first: the local map's keys are built with `path.join`, so on
+    // Windows this reads `__dbt\\dbt_project.yml` and an unnormalized match
+    // would synthesize nothing — leaving exactly the perpetual push/pull diff
+    // above unguarded, on that platform only.
+    if (!key.replaceAll("\\", "/").endsWith("__dbt/dbt_project.yml")) continue;
     const descriptor =
       key.slice(0, -"dbt_project.yml".length) + DBT_DESCRIPTOR_NAME;
     if (!(descriptor in map)) map[descriptor] = "";

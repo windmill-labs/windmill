@@ -803,58 +803,68 @@ pub async fn replace_dbt_manifest(
     .execute(&mut **tx)
     .await?;
 
-    for n in &ingested.nodes {
-        sqlx::query!(
-            "INSERT INTO dbt_node (workspace_id, script_path, script_hash, job_id, unique_id, resource_type, name,
-                 asset_path, materialized, materialize_strategy, unique_key, tags, description,
-                 test_kind, test_column, test_args, severity, attached_node, columns, freshness,
-                 raw_code, original_file_path)
-             VALUES ($1, $2, $3, $22, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-                     $18, $19, $20, $21)",
-            workspace_id,
-            script_path,
-            script_hash,
-            n.unique_id,
-            n.resource_type,
-            n.name,
-            n.asset_path,
-            n.materialized,
-            n.materialize_strategy,
-            n.unique_key,
-            &n.tags,
-            n.description,
-            n.test_kind,
-            n.test_column,
-            n.test_args,
-            n.severity,
-            n.attached_node,
-            n.columns,
-            n.freshness,
-            n.raw_code,
-            n.original_file_path,
-            job_id,
-        )
-        .execute(&mut **tx)
-        .await?;
+    // Batched: a manifest carries a row per model, test, seed and snapshot, and
+    // one awaited statement each made publication scale with database latency
+    // while holding this transaction. Chunked because Postgres binds at most
+    // 65535 parameters per statement.
+    for chunk in ingested.nodes.chunks(NODE_INSERT_CHUNK) {
+        let mut q = sqlx::QueryBuilder::new(
+            "INSERT INTO dbt_node (workspace_id, script_path, script_hash, job_id, unique_id, \
+             resource_type, name, asset_path, materialized, materialize_strategy, unique_key, \
+             tags, description, test_kind, test_column, test_args, severity, attached_node, \
+             columns, freshness, raw_code, original_file_path) ",
+        );
+        q.push_values(chunk, |mut b, n| {
+            b.push_bind(workspace_id)
+                .push_bind(script_path)
+                .push_bind(script_hash)
+                .push_bind(job_id)
+                .push_bind(&n.unique_id)
+                .push_bind(&n.resource_type)
+                .push_bind(&n.name)
+                .push_bind(&n.asset_path)
+                .push_bind(&n.materialized)
+                .push_bind(&n.materialize_strategy)
+                .push_bind(&n.unique_key)
+                .push_bind(&n.tags)
+                .push_bind(&n.description)
+                .push_bind(&n.test_kind)
+                .push_bind(&n.test_column)
+                .push_bind(&n.test_args)
+                .push_bind(&n.severity)
+                .push_bind(&n.attached_node)
+                .push_bind(&n.columns)
+                .push_bind(&n.freshness)
+                .push_bind(&n.raw_code)
+                .push_bind(&n.original_file_path);
+        });
+        q.build().execute(&mut **tx).await?;
     }
 
-    for (parent, child) in &ingested.edges {
-        sqlx::query!(
-            "INSERT INTO dbt_edge (workspace_id, script_path, script_hash, job_id,
-                 parent_unique_id, child_unique_id)
-             VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING",
-            workspace_id,
-            script_path,
-            script_hash,
-            job_id,
-            parent,
-            child
-        )
-        .execute(&mut **tx)
-        .await?;
+    for chunk in ingested.edges.chunks(EDGE_INSERT_CHUNK) {
+        let mut q = sqlx::QueryBuilder::new(
+            "INSERT INTO dbt_edge (workspace_id, script_path, script_hash, job_id, \
+             parent_unique_id, child_unique_id) ",
+        );
+        q.push_values(chunk, |mut b, (parent, child)| {
+            b.push_bind(workspace_id)
+                .push_bind(script_path)
+                .push_bind(script_hash)
+                .push_bind(job_id)
+                .push_bind(parent)
+                .push_bind(child);
+        });
+        q.push(" ON CONFLICT DO NOTHING");
+        q.build().execute(&mut **tx).await?;
     }
     Ok(())
 }
+
+/// Rows per statement, chosen so 22 columns stay under Postgres's 65535-bind
+/// ceiling with room to spare.
+const NODE_INSERT_CHUNK: usize = 2000;
+/// Six columns, so the same ceiling allows far more.
+const EDGE_INSERT_CHUNK: usize = 8000;
 
 /// Clear one VERSION's graph, the unit the archive and delete routes act on:
 /// both target a single `hash`, and the other versions of the path stay live

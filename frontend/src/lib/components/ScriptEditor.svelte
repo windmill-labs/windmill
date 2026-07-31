@@ -456,7 +456,10 @@
 
 	// A dbt project's files are dbt's own, not Windmill modules: models and tests
 	// are `.sql`, schemas and the project file `.yml`, seeds `.csv`, docs `.md`.
-	const DBT_MODULE_EXTENSIONS = ['.sql', '.yml', '.yaml', '.csv', '.md']
+	// `.py` because dbt Python models are first-class on Snowflake, BigQuery and
+	// Databricks, and the CLI already bundles one; refusing to CREATE one here
+	// was the only place that restriction existed.
+	const DBT_MODULE_EXTENSIONS = ['.sql', '.py', '.yml', '.yaml', '.csv', '.md']
 	let allowedModuleExtensions = $derived(
 		lang === 'dbt'
 			? DBT_MODULE_EXTENSIONS
