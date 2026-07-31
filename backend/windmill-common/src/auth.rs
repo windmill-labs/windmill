@@ -266,6 +266,7 @@ pub struct JobPerms {
     pub is_operator: bool,
     pub groups: Vec<String>,
     pub folders: Vec<serde_json::Value>,
+    pub end_user_email: Option<String>,
 }
 
 impl From<JobPerms> for Authed {
@@ -487,7 +488,7 @@ pub async fn get_job_perms<'a, E: sqlx::PgExecutor<'a>>(
 ) -> sqlx::Result<Option<JobPerms>> {
     sqlx::query_as!(
         JobPerms,
-        "SELECT email, username, is_admin, is_operator, groups, folders FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
+        "SELECT email, username, is_admin, is_operator, groups, folders, end_user_email FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
         job_id,
         w_id
     )
