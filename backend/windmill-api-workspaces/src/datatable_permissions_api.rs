@@ -119,6 +119,26 @@ pub(crate) async fn check_shared_database_forbid(
     database: &DataTableDatabase,
     self_perms_enabled: bool,
 ) -> Result<()> {
+    // A DuckLake catalog on the same instance database always connects as the
+    // shared role, which protection revokes — enabling would silently break
+    // every attach to that catalog.
+    if self_perms_enabled
+        && database.resource_type
+            == windmill_common::workspaces::DataTableCatalogResourceType::Instance
+        && windmill_common::datatable_permissions::instance_database_used_by_ducklake(
+            db,
+            &database.resource_path,
+        )
+        .await?
+    {
+        return Err(Error::BadRequest(format!(
+            "A DuckLake catalog is configured on instance database '{}'. DuckLake connects as \
+             the shared instance role, which fine-grained permissions revoke on protected \
+             databases, so the two cannot share one database. Move the data table (or the \
+             lake) to its own database first.",
+            database.resource_path
+        )));
+    }
     let resource_type = match database.resource_type {
         windmill_common::workspaces::DataTableCatalogResourceType::Instance => "instance",
         windmill_common::workspaces::DataTableCatalogResourceType::Postgresql => "postgresql",

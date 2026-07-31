@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT EXISTS(\n            SELECT 1\n            FROM workspace_settings ws\n            CROSS JOIN LATERAL jsonb_each(\n                CASE WHEN jsonb_typeof(ws.ducklake->'ducklakes') = 'object'\n                    THEN ws.ducklake->'ducklakes'\n                    ELSE '{}'::jsonb END\n            ) AS dl(key, value)\n            WHERE value->'catalog'->>'resource_type' = 'instance'\n              AND value->'catalog'->>'resource_path' = $1\n        ) AS \"e!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "e!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "673f2a8dccad6bfc4439adaf20013054aac4d94d60827e36cb81a484d2daadd7"
+}

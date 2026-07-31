@@ -3139,14 +3139,36 @@ async fn edit_datatable_config(
             }
         }
         // An external target must be able to create the enforcement roles.
-        // Instance targets are skipped: their roles are managed by the main
-        // pool user, and the instance database may legitimately not be set up
-        // yet when the config is saved.
         if self_enabled && dt.database.resource_type == DataTableCatalogResourceType::Postgresql {
             if let Err(e) =
                 crate::datatable_permissions_api::check_owner_can_create_roles(&db, &w_id, dt).await
             {
                 if self_defaulted {
+                    default_disabled.push(name.clone());
+                } else {
+                    return Err(e);
+                }
+            }
+        }
+        // An instance target must get its dedicated owner role NOW: saving the
+        // config as protected while the shared role still holds CONNECT would
+        // advertise an enforcement that isn't there — and with the default
+        // empty grants nothing would ever reach the lazy provisioning path to
+        // repair it. If the database isn't ready (not set up yet), fall back to
+        // disabled rather than claim protection.
+        if self_enabled && dt.database.resource_type == DataTableCatalogResourceType::Instance {
+            if let Err(e) = windmill_common::datatable_permissions::provision_instance_owner_role(
+                &db,
+                &w_id,
+                &dt.database.resource_path,
+            )
+            .await
+            {
+                if self_defaulted {
+                    tracing::info!(
+                        "not enabling data table permissions by default on {}: {e:#}",
+                        dt.database.resource_path
+                    );
                     default_disabled.push(name.clone());
                 } else {
                     return Err(e);
@@ -4755,6 +4777,16 @@ async fn set_encryption_key(
 
     let mut tx = db.begin().await?;
 
+    // Before touching the key row: a resolver that already holds
+    // WORKSPACE_ROLES_LOCK reads the workspace key on a SEPARATE pool
+    // connection, so updating the row first and then waiting for that lock
+    // deadlocks in a way Postgres cannot see (the wait crosses connections).
+    // Taking the lock first makes the two operations strictly ordered.
+    sqlx::query(windmill_common::datatable_permissions::WORKSPACE_ROLES_LOCK)
+        .bind(&w_id)
+        .execute(&mut *tx)
+        .await?;
+
     sqlx::query!(
         "UPDATE workspace_key SET key = $1 WHERE workspace_id = $2",
         request.new_key.clone(),
@@ -4819,10 +4851,6 @@ async fn set_encryption_key(
         // workspace lock keeps role creation from inserting old-key
         // ciphertext after this scan; the per-role locks keep an in-flight
         // teardown/sweep from acting across the key switch. Held to commit.
-        sqlx::query(windmill_common::datatable_permissions::WORKSPACE_ROLES_LOCK)
-            .bind(&w_id)
-            .execute(&mut *tx)
-            .await?;
         let dt_roles = sqlx::query!(
             "SELECT role_name, password, owner_creds FROM datatable_ephemeral_role WHERE workspace_id = $1",
             w_id

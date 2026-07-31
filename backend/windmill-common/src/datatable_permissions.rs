@@ -447,6 +447,26 @@ async fn connect_instance_db_as_superuser(db: &DB, dbname: &str) -> Result<tokio
     connect_target(&pg, db).await
 }
 
+/// Instance enforcement leans on PG16's `CREATEROLE` restriction (a role may
+/// only alter roles it created). Before 16, any role holding `CREATEROLE`
+/// could reset the dedicated owner's password, so protection would be
+/// advisory only — refuse rather than claim an enforcement that does not hold.
+pub async fn ensure_instance_enforcement_supported(db: &DB) -> Result<()> {
+    let version: i32 = sqlx::query_scalar("SELECT current_setting('server_version_num')::int")
+        .fetch_one(db)
+        .await
+        .map_err(|e| Error::internal_err(format!("reading Postgres version: {e:#}")))?;
+    if version < 160000 {
+        return Err(Error::BadRequest(format!(
+            "Fine-grained permissions on instance data tables require PostgreSQL 16 or later \
+             (this cluster reports {version}). On older versions a role with CREATEROLE can \
+             take over the database's owner role, so the grants could not be enforced. Use an \
+             external PostgreSQL data table instead, or upgrade the cluster."
+        )));
+    }
+    Ok(())
+}
+
 /// Make sure a protected instance database has its dedicated owner role: a
 /// `LOGIN` role that owns the database's objects, can create the ephemeral
 /// roles, and is never handed to non-admin SQL. `custom_instance_user` loses
@@ -455,6 +475,7 @@ async fn connect_instance_db_as_superuser(db: &DB, dbname: &str) -> Result<tokio
 /// Idempotent, and re-asserts the revoke on every call (superadmin re-running
 /// the instance-database setup re-grants it).
 pub async fn provision_instance_owner_role(db: &DB, w_id: &str, dbname: &str) -> Result<()> {
+    ensure_instance_enforcement_supported(db).await?;
     let role = instance_owner_role_name(dbname);
     let mut tx = db.begin().await?;
     sqlx::query(OWNER_ROLE_LOCK)
@@ -670,10 +691,77 @@ pub async fn deprovision_instance_owner_role(db: &DB, dbname: &str) -> Result<()
 
 /// Best-effort [`deprovision_instance_owner_role`] for the paths where a
 /// failure must not block the operation (config saves, database re-points).
+///
+/// Re-reads the live config first: these run after their transaction commits,
+/// so a concurrent enable may already have re-provisioned this database. A
+/// blind deprovision would then hand a still-protected database back to the
+/// shared role.
 pub async fn deprovision_instance_owner_role_best_effort(db: &DB, dbname: &str) {
+    match instance_database_still_protected(db, dbname).await {
+        Ok(true) => {
+            tracing::info!(
+                "skipping deprovision of {dbname}: a data table with permissions enabled still \
+                 points at it"
+            );
+            return;
+        }
+        Ok(false) => {}
+        Err(e) => {
+            tracing::warn!("checking protection state of {dbname} before deprovision: {e:#}");
+            return;
+        }
+    }
     if let Err(e) = deprovision_instance_owner_role(db, dbname).await {
         tracing::warn!("deprovisioning owner role of instance database {dbname}: {e:#}");
     }
+}
+
+/// Whether any workspace still has a permissions-enabled data table pointing
+/// at this instance database.
+async fn instance_database_still_protected(db: &DB, dbname: &str) -> Result<bool> {
+    Ok(sqlx::query_scalar!(
+        r#"
+        SELECT EXISTS(
+            SELECT 1
+            FROM workspace_settings ws
+            CROSS JOIN LATERAL jsonb_each(
+                CASE WHEN jsonb_typeof(ws.datatable->'datatables') = 'object'
+                    THEN ws.datatable->'datatables'
+                    ELSE '{}'::jsonb END
+            ) AS dt(key, value)
+            WHERE dt.value->'database'->>'resource_type' = 'instance'
+              AND dt.value->'database'->>'resource_path' = $1
+              AND COALESCE((dt.value->'permissions'->>'enabled')::boolean, false)
+        ) AS "e!"
+        "#,
+        dbname
+    )
+    .fetch_one(db)
+    .await?)
+}
+
+/// Whether a DuckLake catalog is configured on this instance database. Such a
+/// catalog always connects as the shared role, which protection revokes — so
+/// the two cannot coexist on one database.
+pub async fn instance_database_used_by_ducklake(db: &DB, dbname: &str) -> Result<bool> {
+    Ok(sqlx::query_scalar!(
+        r#"
+        SELECT EXISTS(
+            SELECT 1
+            FROM workspace_settings ws
+            CROSS JOIN LATERAL jsonb_each(
+                CASE WHEN jsonb_typeof(ws.ducklake->'ducklakes') = 'object'
+                    THEN ws.ducklake->'ducklakes'
+                    ELSE '{}'::jsonb END
+            ) AS dl(key, value)
+            WHERE value->'catalog'->>'resource_type' = 'instance'
+              AND value->'catalog'->>'resource_path' = $1
+        ) AS "e!"
+        "#,
+        dbname
+    )
+    .fetch_one(db)
+    .await?)
 }
 
 // ---------------------------------------------------------------------------
@@ -1392,6 +1480,33 @@ pub async fn teardown_snapshot_roles_best_effort(db: &DB, w_id: &str, snapshot: 
     }
 }
 
+/// Revoke one caller's ephemeral role on a data table, if it still exists.
+/// Best-effort: a failure leaves the bookkeeping row in place, so the expiry
+/// sweep retries; the caller is denied either way.
+pub(crate) async fn revoke_caller_role(
+    db: &DB,
+    w_id: &str,
+    datatable: &str,
+    permissioned_as: &str,
+) {
+    let role = ephemeral_role_name(w_id, permissioned_as, datatable);
+    let exists = sqlx::query_scalar!(
+        "SELECT 1 FROM datatable_ephemeral_role WHERE role_name = $1",
+        &role
+    )
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten()
+    .is_some();
+    if !exists {
+        return;
+    }
+    if let Err(e) = teardown_role(db, w_id, datatable, &role, None).await {
+        tracing::warn!("revoking datatable ephemeral role {role} after losing its grants: {e:#}");
+    }
+}
+
 /// Strict teardown of every role of a workspace, for workspace deletion: the
 /// bookkeeping rows (and the workspace key their targets are encrypted with)
 /// are about to cascade away, so every role must be revoked NOW — dropped, or
@@ -1644,6 +1759,11 @@ pub async fn get_datatable_resource_from_db_checked(
     let (matched, memberships) =
         compute_effective_grants(db, w_id, permissioned_as, grants).await?;
     if matched.is_empty() {
+        // Losing the last grant (group/folder membership change, edited
+        // statements) must revoke the role NOW, not at expiry: the caller may
+        // have set its password from their own SQL, so a role left LOGIN-capable
+        // is a live direct connection long after Windmill says "denied".
+        revoke_caller_role(db, w_id, name, permissioned_as).await;
         return Err(Error::PermissionDenied(format!(
             "You have no permissions on data table '{name}'. Ask a workspace admin to grant \
              you access in the data table's permission settings."
