@@ -284,9 +284,31 @@
 		displayedCount = visible.filter((k) => !k.endsWith(LOAD_MORE_SUFFIX)).length
 	}
 
-	async function loadFolderPage(prefix: string, append: boolean = false) {
+	/**
+	 * In-flight request per level. Callers that await `loadFolderPage` need the data
+	 * to be there when it resolves; returning early on a concurrent load would hand
+	 * them a resolved promise and no entries.
+	 */
+	let inFlightFolderLoads: Record<string, Promise<void>> = {}
+
+	async function loadFolderPage(prefix: string, append: boolean = false): Promise<void> {
+		const pending = inFlightFolderLoads[prefix]
+		if (pending) {
+			await pending
+			// The load we joined already fetched this level's first page.
+			if (!append) return
+		}
+		const run = loadFolderPageInner(prefix, append)
+		inFlightFolderLoads[prefix] = run.catch(() => {})
+		try {
+			await run
+		} finally {
+			delete inFlightFolderLoads[prefix]
+		}
+	}
+
+	async function loadFolderPageInner(prefix: string, append: boolean) {
 		const current = folderState[prefix] ?? { loading: false, loaded: false }
-		if (current.loading) return
 		if (append && current.nextPageToken === undefined) return
 		folderState[prefix] = { ...current, loading: true }
 		try {
@@ -298,7 +320,14 @@
 				storage,
 				s3ResourcePath
 			})
-			if (page.restricted_access) {
+			// Absent counts as restricted, matching `loadFlatFiles`: the field is
+			// optional in the schema, and the two paths must not disagree on which
+			// way an omitted value falls.
+			if (
+				page.restricted_access === null ||
+				page.restricted_access === undefined ||
+				page.restricted_access === true
+			) {
 				fileListUnavailable = true
 				folderState[prefix] = { loading: false, loaded: true }
 				return
@@ -320,7 +349,12 @@
 			folderState[prefix] = { ...current, loading: false }
 			throw e
 		} finally {
-			refreshDisplayed()
+			// A response that lands after the user typed a filter must not rebuild the
+			// list: flat mode owns `displayedFileKeys` then, and rebuilding it under
+			// the lazy visibility rules would prune most of the search results.
+			if (lazyMode) {
+				refreshDisplayed()
+			}
 		}
 	}
 
@@ -339,6 +373,31 @@
 	}
 
 	/**
+	 * Bound on the pages fetched while hunting for one entry, so a preselected key
+	 * that no longer exists cannot walk an entire bucket.
+	 */
+	const MAX_PAGES_WHILE_REVEALING = 20
+
+	/**
+	 * Page through `parent` until `child` shows up. A single page is not enough: the
+	 * target can sort past the first page of its own folder, and giving up there
+	 * leaves the selection looking absent.
+	 */
+	async function revealChild(parent: string, child: string) {
+		for (let fetched = 0; fetched < MAX_PAGES_WHILE_REVEALING; fetched++) {
+			if (allFilesByKey[child] !== undefined) return
+			const state = folderState[parent]
+			if (state === undefined || !state.loaded) {
+				await loadFolderPage(parent)
+			} else if (state.nextPageToken !== undefined) {
+				await loadFolderPage(parent, true)
+			} else {
+				return
+			}
+		}
+	}
+
+	/**
 	 * Reveal a key by loading each folder above it in turn — with per-level listing
 	 * an ancestor's children are not known until that level is fetched.
 	 */
@@ -347,12 +406,16 @@
 		const rest = key.slice(rootPath.length).split('/')
 		let prefix = rootPath
 		for (let i = 0; i < rest.length - 1; i++) {
-			prefix += rest[i] + '/'
-			if (!folderState[prefix]?.loaded) {
-				await loadFolderPage(prefix)
-			}
+			const child = prefix + rest[i] + '/'
+			await revealChild(prefix, child)
+			prefix = child
 			const info = allFilesByKey[prefix]
-			if (info !== undefined) info.collapsed = false
+			// The folder is genuinely absent; deeper levels cannot exist either.
+			if (info === undefined) break
+			info.collapsed = false
+		}
+		if (allFilesByKey[key] === undefined) {
+			await revealChild(prefix, key)
 		}
 		refreshDisplayed()
 	}
@@ -367,6 +430,11 @@
 				if (selectedFileKey !== undefined && !emptyString(selectedFileKey.s3)) {
 					await expandToKey(selectedFileKey.s3)
 				}
+			} catch (e) {
+				// `reloadContent` is called un-awaited from `open()`, so without this a
+				// failing root listing surfaces as an unhandled rejection and an empty
+				// tree indistinguishable from an empty bucket.
+				reportFolderError(rootPath, e)
 			} finally {
 				fileListLoading = false
 				fileInfoLoading = false
@@ -706,9 +774,18 @@
 		}
 		await clearAndLoadFiles()
 		if (selectedFileKey !== undefined) {
-			if (allFilesByKey[selectedFileKey.s3] === undefined) {
+			const entry = allFilesByKey[selectedFileKey.s3]
+			if (entry !== undefined) {
+				if (entry.type !== 'folder') {
+					loadFileMetadataPlusPreviewAsync(selectedFileKey.s3)
+				}
+			} else if (!lazyMode) {
+				// Flat mode has listed everything it is going to, so a missing key really
+				// is missing. Per-level listing has not: only the levels on the way to
+				// the key were fetched, and `selectedFileKey` is bound out to the caller
+				// — blanking it there would silently clear the configured object.
 				selectedFileKey = { s3: '', storage }
-			} else if (allFilesByKey[selectedFileKey.s3].type !== 'folder') {
+			} else {
 				loadFileMetadataPlusPreviewAsync(selectedFileKey.s3)
 			}
 		}
