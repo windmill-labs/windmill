@@ -27,8 +27,8 @@ const ASSET_PREFIXES: Array<[string, AssetKind]> = [
  *  place a relation becomes a graph key. The live editor must agree with it
  *  exactly, or an annotation looks connected while typing and lands on a
  *  different node at deploy. Strips the warehouses' quote characters from the
- *  schema and name and folds their case; the resource-path prefix is a
- *  Windmill path and stays as written. */
+ *  schema and name and folds their case; the warehouse-name prefix is spelled
+ *  as the workspace configures it and stays as written. */
 function canonicalizeTablePath(path: string): string {
 	const parts = path.split('/')
 	if (parts.length < 3) return path

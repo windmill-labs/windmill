@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS dbt_node (
   resource_type    TEXT NOT NULL,
   name             TEXT NOT NULL,
   -- The physical relation this node produces, spelled as the matching `asset`
-  -- row's path (`<resource_path>/<schema>/<name>`). NULL for nodes with no
+  -- row's path (`<warehouse>/<schema>/<name>`). NULL for nodes with no
   -- relation: ephemeral models, tests.
   asset_path       TEXT,
   materialized     TEXT,

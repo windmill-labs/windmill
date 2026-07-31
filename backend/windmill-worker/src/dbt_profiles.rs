@@ -181,8 +181,8 @@ impl DbtAdapter {
 
     /// Which dbt driver a resource needs, from the fields it carries — a
     /// fallback for when the descriptor omits `profile.type`. It picks the
-    /// adapter only; asset identity is always the resource path, never anything
-    /// read here.
+    /// adapter only; asset identity is always the workspace warehouse's name,
+    /// never anything read here.
     ///
     /// Deliberately conservative about the host/port shapes. Windmill's
     /// `ms_sql_server` and `oracledb` resources carry the same `host` +

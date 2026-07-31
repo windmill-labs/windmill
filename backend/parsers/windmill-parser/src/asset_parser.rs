@@ -30,8 +30,9 @@ pub enum AssetKind {
     DataTable,
     Volume,
     /// A warehouse relation a dbt project builds or reads,
-    /// `dbt://<resource_path>/<schema>/<name>`. The scheme names the producer,
-    /// the path stays the relation — see `windmill_types::AssetKind::Dbt`.
+    /// `dbt://<warehouse>/<schema>/<name>`, the warehouse named as the
+    /// workspace configures it. The scheme names the producer, the path stays
+    /// the relation — see `windmill_types::AssetKind::Dbt`.
     Dbt,
 }
 
@@ -760,7 +761,7 @@ pub const ASSET_KINDS: &[(&str, AssetKind)] = &[
     ("dbt://", AssetKind::Dbt),
 ];
 
-/// Canonical spelling of a `dbt://` path, `<resource_path>/<schema>/<name>`.
+/// Canonical spelling of a `dbt://` path, `<warehouse>/<schema>/<name>`.
 ///
 /// The whole point of keying warehouse relations on the relation rather than on
 /// the producing tool is that a dbt mart and a native script reading the same
@@ -1741,20 +1742,20 @@ mod pipeline_annotation_tests {
     fn table_paths_from_every_spelling_canonicalize_to_one_key() {
         let canonical = Some((
             AssetKind::Dbt,
-            Cow::Owned("f/prod/wh/analytics/orders".into()),
+            Cow::Owned("main/analytics/orders".into()),
         ));
         for spelling in [
             // Hand-written annotation.
-            "dbt://f/prod/wh/analytics/orders",
+            "dbt://main/analytics/orders",
             // dbt manifest `relation_name`, quoted (database segment already
-            // dropped by the ingest, which keys on the resource path instead).
-            "dbt://f/prod/wh/\"analytics\"/\"orders\"",
+            // dropped by the ingest, which keys on the warehouse name instead).
+            "dbt://main/\"analytics\"/\"orders\"",
             // Snowflake folds unquoted identifiers up, Postgres folds down.
-            "dbt://f/prod/wh/ANALYTICS/ORDERS",
-            "dbt://f/prod/wh/Analytics/Orders",
+            "dbt://main/ANALYTICS/ORDERS",
+            "dbt://main/Analytics/Orders",
             // BigQuery / Databricks backticks, SQL Server brackets.
-            "dbt://f/prod/wh/`analytics`/`orders`",
-            "dbt://f/prod/wh/[Analytics]/[Orders]",
+            "dbt://main/`analytics`/`orders`",
+            "dbt://main/[Analytics]/[Orders]",
         ] {
             assert_eq!(
                 parse_asset_syntax(spelling, false),
@@ -1772,13 +1773,13 @@ mod pipeline_annotation_tests {
     fn qualified_schema_segments_unquote_each_half() {
         let canonical = Some((
             AssetKind::Dbt,
-            Cow::Owned("f/prod/wh/archive.sales/orders".into()),
+            Cow::Owned("main/archive.sales/orders".into()),
         ));
         for spelling in [
-            "dbt://f/prod/wh/archive.sales/orders",
-            "dbt://f/prod/wh/\"Archive\".\"Sales\"/\"Orders\"",
-            "dbt://f/prod/wh/`Archive`.`Sales`/`Orders`",
-            "dbt://f/prod/wh/[Archive].[Sales]/[Orders]",
+            "dbt://main/archive.sales/orders",
+            "dbt://main/\"Archive\".\"Sales\"/\"Orders\"",
+            "dbt://main/`Archive`.`Sales`/`Orders`",
+            "dbt://main/[Archive].[Sales]/[Orders]",
         ] {
             assert_eq!(
                 parse_asset_syntax(spelling, false),
@@ -1789,10 +1790,10 @@ mod pipeline_annotation_tests {
         // A period INSIDE one quoted identifier is part of the name, not a
         // database qualifier.
         assert_eq!(
-            parse_asset_syntax("dbt://f/prod/wh/\"sales.v2\"/orders", false),
+            parse_asset_syntax("dbt://main/\"sales.v2\"/orders", false),
             Some((
                 AssetKind::Dbt,
-                Cow::Owned("f/prod/wh/sales.v2/orders".into())
+                Cow::Owned("main/sales.v2/orders".into())
             ))
         );
     }
@@ -1805,25 +1806,25 @@ mod pipeline_annotation_tests {
     fn a_doubled_delimiter_canonicalizes_like_the_relation_it_names() {
         for (spelling, expected) in [
             (
-                "dbt://f/prod/wh/\"sales\"\"east\"/\"orders\"",
-                "f/prod/wh/sales\"east/orders",
+                "dbt://main/\"sales\"\"east\"/\"orders\"",
+                "main/sales\"east/orders",
             ),
             (
-                "dbt://f/prod/wh/analytics/\"order\"\"s\"",
-                "f/prod/wh/analytics/order\"s",
+                "dbt://main/analytics/\"order\"\"s\"",
+                "main/analytics/order\"s",
             ),
             (
-                "dbt://f/prod/wh/`da``ta`/`orders`",
-                "f/prod/wh/da`ta/orders",
+                "dbt://main/`da``ta`/`orders`",
+                "main/da`ta/orders",
             ),
             (
-                "dbt://f/prod/wh/[my]]schema]/[orders]",
-                "f/prod/wh/my]schema/orders",
+                "dbt://main/[my]]schema]/[orders]",
+                "main/my]schema/orders",
             ),
             // And in one half of a database-qualified segment.
             (
-                "dbt://f/prod/wh/\"arch\"\"ive\".\"sales\"/orders",
-                "f/prod/wh/arch\"ive.sales/orders",
+                "dbt://main/\"arch\"\"ive\".\"sales\"/orders",
+                "main/arch\"ive.sales/orders",
             ),
         ] {
             assert_eq!(
@@ -1838,11 +1839,11 @@ mod pipeline_annotation_tests {
         // apart. A lone delimiter treated as opening a quote would be dropped —
         // `sa"les` filed as `sales` — and the two derivations would split.
         for (decoded, spelled) in [
-            ("dbt://f/prod/wh/sa\"les/orders", "dbt://f/prod/wh/\"sa\"\"les\"/orders"),
-            ("dbt://f/prod/wh/analytics/order\"s", "dbt://f/prod/wh/analytics/\"order\"\"s\""),
+            ("dbt://main/sa\"les/orders", "dbt://main/\"sa\"\"les\"/orders"),
+            ("dbt://main/analytics/order\"s", "dbt://main/analytics/\"order\"\"s\""),
             (
-                "dbt://f/prod/wh/arch\"ive.sales/orders",
-                "dbt://f/prod/wh/\"arch\"\"ive\".\"sales\"/orders",
+                "dbt://main/arch\"ive.sales/orders",
+                "dbt://main/\"arch\"\"ive\".\"sales\"/orders",
             ),
         ] {
             assert_eq!(
