@@ -292,6 +292,15 @@
 	let inFlightFolderLoads: Record<string, Promise<void>> = {}
 
 	/**
+	 * Bumped when a single level is invalidated on its own (a delete refetches it from
+	 * page one). Requests are keyed by prefix alone, so without this a pending "Load
+	 * more" for that level would be joined by the refetch, which would then return
+	 * believing page one had been fetched — leaving the level showing only its later
+	 * pages until a full reload.
+	 */
+	let folderEpoch: Record<string, number> = {}
+
+	/**
 	 * Bumped whenever the listing is thrown away (storage switch, filter change,
 	 * reload). A request started before the bump belongs to the previous listing, so
 	 * its response must not repopulate the cleared state — otherwise switching
@@ -301,11 +310,18 @@
 
 	async function loadFolderPage(prefix: string, append: boolean = false): Promise<void> {
 		const generation = listingGeneration
+		const epoch = folderEpoch[prefix] ?? 0
 		const pending = inFlightFolderLoads[prefix]
 		if (pending) {
 			await pending
-			// Only reuse the joined result if it belongs to the current listing.
-			if (generation === listingGeneration && !append) return
+			// Only reuse the joined result if it belongs to the same listing *and* the
+			// same epoch of this level.
+			if (
+				generation === listingGeneration &&
+				epoch === (folderEpoch[prefix] ?? 0) &&
+				!append
+			)
+				return
 		}
 		const run = loadFolderPageInner(prefix, append)
 		inFlightFolderLoads[prefix] = run.catch(() => {})
@@ -685,6 +701,9 @@
 				}
 			}
 			delete folderState[parent]
+			// Invalidate this level so a pending "Load more" for it is not joined below.
+			folderEpoch[parent] = (folderEpoch[parent] ?? 0) + 1
+			delete inFlightFolderLoads[parent]
 			await loadFolderPage(parent).catch((e) => reportFolderError(parent, e))
 			return
 		}
@@ -720,6 +739,7 @@
 		// Anything already in flight belongs to the listing being discarded.
 		listingGeneration += 1
 		inFlightFolderLoads = {}
+		folderEpoch = {}
 		displayedFileKeys = []
 		allFilesByKey = {}
 		folderState = {}
