@@ -14,12 +14,14 @@ import { Confirm } from "@cliffy/prompt/confirm";
 export const MIGRATIONS_DIR = path.join("migrations", "datatable");
 
 /**
- * Whether this checkout tracks data table migrations at all.
+ * Whether this checkout currently holds any data table migration files.
  *
  * `wmill sync push` reads a locally absent `.up.sql` as "delete this migration"
- * (see `pushMigrationFromDisk`). A clone that predates migrations being synced has
- * no `migrations/datatable/` at all, so every server-side migration would read as
- * a deletion; the directory's absence is what tells the two cases apart.
+ * (see `pushMigrationFromDisk`). When this is false that reading is ambiguous —
+ * a clone that predates migrations being synced and one where the last migration
+ * was just deleted look identical, since git keeps no empty directory — so the
+ * push confirms those deletions explicitly instead of assuming either. When it is
+ * true, a missing file is unambiguously a deletion.
  */
 export function checkoutTracksDatatableMigrations(): boolean {
   return fs.existsSync(path.join(process.cwd(), MIGRATIONS_DIR));

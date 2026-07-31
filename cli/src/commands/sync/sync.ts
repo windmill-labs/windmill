@@ -4175,6 +4175,36 @@ export async function push(
   await fetchRemoteVersion(workspace);
 
   // Shared UI (the ui/ folder) is pushed out-of-band via pushSharedUi on apply
+  const ambiguousMigrationDeletions = untrackedDatatableMigrationDeletions(
+    changes,
+    checkoutTracksDatatableMigrations(),
+  );
+  const keepAmbiguousMigrationsOnRemote = () => {
+    log.info(
+      colors.yellow(
+        `Keeping ${ambiguousMigrationDeletions.length} data table migration(s) on the remote: no ${MIGRATIONS_DIR}/ directory in this checkout. ` +
+          `Run 'wmill sync pull' to track them in git, or delete them from the workspace.`,
+      ),
+    );
+    const kept = changes.filter(
+      (c) => !ambiguousMigrationDeletions.includes(c),
+    );
+    changes.length = 0;
+    changes.push(...kept);
+  };
+  // An unattended run never resolves this ambiguity destructively, and a dry-run
+  // preview has to show what a push would really do — settle both before the
+  // change list is printed or serialized. A TTY push asks instead, after the
+  // user has seen the list.
+  let ambiguousMigrationsResolved = false;
+  if (
+    ambiguousMigrationDeletions.length > 0 &&
+    (opts.dryRun || opts.yes || !process.stdin.isTTY)
+  ) {
+    keepAmbiguousMigrationsOnRemote();
+    ambiguousMigrationsResolved = true;
+  }
+
   // and is excluded from the file diff (isNotWmillFile), so surface its diff in
   // the dry-run preview. Without this the "Pull from repo" preview reads "no
   // changes" even when the apply will overwrite the shared-UI store. Folded in
@@ -4395,32 +4425,15 @@ export async function push(
       return;
     }
 
-    const ambiguousMigrationDeletions = untrackedDatatableMigrationDeletions(
-      changes,
-      checkoutTracksDatatableMigrations(),
-    );
-    if (ambiguousMigrationDeletions.length > 0) {
-      const deleteThem =
-        !opts.yes &&
-        !!process.stdin.isTTY &&
-        (await Confirm.prompt({
-          message:
-            `This checkout has no ${MIGRATIONS_DIR}/ directory, so it may simply never have synced migrations. ` +
-            `Delete ${ambiguousMigrationDeletions.length} migration definition(s) from the workspace anyway?`,
-          default: false,
-        }));
+    if (ambiguousMigrationDeletions.length > 0 && !ambiguousMigrationsResolved) {
+      const deleteThem = await Confirm.prompt({
+        message:
+          `This checkout has no ${MIGRATIONS_DIR}/ directory, so it may simply never have synced migrations. ` +
+          `Delete ${ambiguousMigrationDeletions.length} migration definition(s) from the workspace anyway?`,
+        default: false,
+      });
       if (!deleteThem) {
-        log.info(
-          colors.yellow(
-            `Keeping ${ambiguousMigrationDeletions.length} data table migration(s) on the remote: no ${MIGRATIONS_DIR}/ directory in this checkout. ` +
-              `Run 'wmill sync pull' to track them in git, or delete them from the workspace.`,
-          ),
-        );
-        const kept = changes.filter(
-          (c) => !ambiguousMigrationDeletions.includes(c),
-        );
-        changes.length = 0;
-        changes.push(...kept);
+        keepAmbiguousMigrationsOnRemote();
       }
     }
 
