@@ -1084,7 +1084,11 @@
 															size={16}
 														/>{/if}
 													<div class="truncate text-ellipsis w-56">
-														{file_info.display_name}
+														<!-- An object-store key may contain an empty segment, so `a//` is a real
+														folder whose name is ''. Label it rather than rendering a blank row. -->
+														{#if file_info.display_name === ''}
+															<span class="italic text-secondary">(empty name)</span>
+														{:else}{file_info.display_name}{/if}
 														{#if !lazyMode}
 															({file_info.count}{count % 1000 === 0 &&
 															lastKeyFolders[file_info.nestingLevel / 2] === file_info.display_name
