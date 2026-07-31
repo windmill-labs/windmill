@@ -25107,6 +25107,7 @@ components:
         - settings
         - key
         - workspacedependencies
+        - datatablemigration
 
     AIProviderModel:
       type: object

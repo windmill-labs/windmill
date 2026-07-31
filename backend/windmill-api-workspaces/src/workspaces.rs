@@ -2947,13 +2947,19 @@ async fn edit_datatable_config(
 
     // Validate every persisted data table name and rename segment before
     // touching anything, since they become directory segments in migration
-    // storage/export keys (`migrations/datatable/<name>/...`).
+    // storage/export keys (`migrations/datatable/<name>/...`). Names being
+    // introduced take the stricter git-sync-safe charset; already-persisted ones
+    // keep the historical rule so an old name can still be saved and renamed.
     for name in new_config.settings.datatables.keys() {
-        crate::datatable_migrations::validate_datatable_path_segment(name)?;
+        if old_datatables.contains_key(name) {
+            crate::datatable_migrations::validate_datatable_path_segment(name)?;
+        } else {
+            crate::datatable_migrations::validate_new_datatable_name(name)?;
+        }
     }
     for r in &new_config.renames {
         crate::datatable_migrations::validate_datatable_path_segment(&r.from)?;
-        crate::datatable_migrations::validate_datatable_path_segment(&r.to)?;
+        crate::datatable_migrations::validate_new_datatable_name(&r.to)?;
     }
 
     // Map new name -> old name so a renamed data table inherits the previous
@@ -3020,16 +3026,25 @@ async fn edit_datatable_config(
     .execute(&mut *tx)
     .await?;
 
-    crate::datatable_migrations::cascade_datatable_migration_renames_and_deletes(
-        &db,
-        &mut tx,
-        &w_id,
-        &new_config.renames,
-        &new_config.deleted_datatables,
-    )
-    .await?;
+    let cascaded_migration_paths =
+        crate::datatable_migrations::cascade_datatable_migration_renames_and_deletes(
+            &db,
+            &mut tx,
+            &w_id,
+            &new_config.renames,
+            &new_config.deleted_datatables,
+        )
+        .await?;
 
     tx.commit().await?;
+
+    crate::datatable_migrations::record_datatable_cascade_deployments(
+        &authed,
+        &db,
+        &w_id,
+        cascaded_migration_paths,
+    )
+    .await?;
 
     Ok(format!("Edit datatable config for workspace {}", &w_id))
 }
