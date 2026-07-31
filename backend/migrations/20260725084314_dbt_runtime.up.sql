@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS dbt_node (
   -- Composite because `script`'s key is (workspace_id, hash). A version's graph
   -- dies with the version and nothing has to sweep it.
   CONSTRAINT dbt_node_script_fkey FOREIGN KEY (workspace_id, script_hash)
-    REFERENCES script (workspace_id, hash) ON DELETE CASCADE
+    REFERENCES script (workspace_id, hash) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- `ref()` / `source()` lineage, straight from the manifest's parent_map.
@@ -91,7 +91,7 @@ CREATE TABLE IF NOT EXISTS dbt_edge (
   ingested_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (workspace_id, script_path, script_hash, job_id, parent_unique_id, child_unique_id),
   CONSTRAINT dbt_edge_script_fkey FOREIGN KEY (workspace_id, script_hash)
-    REFERENCES script (workspace_id, hash) ON DELETE CASCADE
+    REFERENCES script (workspace_id, hash) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- One row per stored graph, so a snapshot's EXISTENCE does not depend on it
@@ -126,7 +126,7 @@ CREATE TABLE IF NOT EXISTS dbt_graph_snapshot (
   -- read as a snapshot that has none, and its digest still answers the
   -- suppression check.
   CONSTRAINT dbt_graph_snapshot_script_fkey FOREIGN KEY (workspace_id, script_hash)
-    REFERENCES script (workspace_id, hash) ON DELETE CASCADE
+    REFERENCES script (workspace_id, hash) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- What a `dbt retry` resumes from. Keyed by path, not by version: there is one
