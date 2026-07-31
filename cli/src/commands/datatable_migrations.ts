@@ -11,7 +11,19 @@ import { Confirm } from "@cliffy/prompt/confirm";
 // They are synced as ordinary workspace files (see the workspace tarball export
 // and the `datatable_migration` handling in sync.ts); this module only holds the
 // `wmill datatable migrate` command helpers and the per-file push primitive.
-const MIGRATIONS_DIR = path.join("migrations", "datatable");
+export const MIGRATIONS_DIR = path.join("migrations", "datatable");
+
+/**
+ * Whether this checkout tracks data table migrations at all.
+ *
+ * `wmill sync push` reads a locally absent `.up.sql` as "delete this migration"
+ * (see `pushMigrationFromDisk`). A clone that predates migrations being synced has
+ * no `migrations/datatable/` at all, so every server-side migration would read as
+ * a deletion; the directory's absence is what tells the two cases apart.
+ */
+export function checkoutTracksDatatableMigrations(): boolean {
+  return fs.existsSync(path.join(process.cwd(), MIGRATIONS_DIR));
+}
 
 // Migration names map directly onto file names and the DB `name` column.
 const MIGRATION_NAME_RE = /^[a-zA-Z0-9_-]+$/;

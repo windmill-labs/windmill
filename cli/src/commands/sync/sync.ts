@@ -33,6 +33,8 @@ import {
   pushMigrationFromDisk,
   offerToRunNewMigrations,
   validateLocalMigrations,
+  checkoutTracksDatatableMigrations,
+  MIGRATIONS_DIR,
 } from "../datatable_migrations.ts";
 
 import {
@@ -2649,6 +2651,27 @@ export async function ignoreF(wmillconf: {
   };
 }
 
+/**
+ * Drop `deleted` changes for data table migrations when the checkout never
+ * tracked them.
+ *
+ * The push direction reads a locally absent `.up.sql` as an instruction to delete
+ * the migration server-side. Migrations bypass the repo's path filters (they live
+ * outside `f/`/`u/`), so a clone made before they were synced sees every one of
+ * them as remote-only — and would wipe a workspace's migration definitions on its
+ * first push. No `migrations/datatable/` directory means "never pulled these",
+ * not "delete them"; once it exists, real deletions flow through untouched.
+ */
+export function dropUntrackedDatatableMigrationDeletions<
+  T extends { name: string; path: string },
+>(changes: T[], checkoutTracksMigrations: boolean): { kept: T[]; dropped: number } {
+  if (checkoutTracksMigrations) return { kept: changes, dropped: 0 };
+  const kept = changes.filter(
+    (c) => !(c.name === "deleted" && isDatatableMigrationPath(c.path)),
+  );
+  return { kept, dropped: changes.length - kept.length };
+}
+
 interface ChangeTracker {
   scripts: string[];
   flows: string[];
@@ -3905,6 +3928,20 @@ export async function push(
       kind: item.kind,
       wsSpecific: true,
     });
+  }
+
+  const untrackedMigrations = dropUntrackedDatatableMigrationDeletions(
+    changes,
+    checkoutTracksDatatableMigrations(),
+  );
+  if (untrackedMigrations.dropped > 0) {
+    log.info(
+      colors.yellow(
+        `Skipping ${untrackedMigrations.dropped} data table migration deletion(s): this checkout has no ${MIGRATIONS_DIR}/ directory, so it has never tracked them. Run 'wmill sync pull' first to manage them from git.`,
+      ),
+    );
+    changes.length = 0;
+    changes.push(...untrackedMigrations.kept);
   }
 
   const rawWorkspaceDependencies = await getRawWorkspaceDependencies(true);

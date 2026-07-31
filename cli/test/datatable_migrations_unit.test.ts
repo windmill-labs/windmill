@@ -15,6 +15,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { parseDatatableMigrationPath } from "../src/types.ts";
 import { validateLocalMigrations } from "../src/commands/datatable_migrations.ts";
+import { dropUntrackedDatatableMigrationDeletions } from "../src/commands/sync/sync.ts";
 
 describe("parseDatatableMigrationPath", () => {
   test("parses up and down files of the new layout", () => {
@@ -118,5 +119,38 @@ describe("validateLocalMigrations", () => {
 
   test("returns no errors when the migrations folder is absent", () => {
     expect(validateLocalMigrations()).toEqual([]);
+  });
+});
+
+// =============================================================================
+// dropUntrackedDatatableMigrationDeletions — the push-side safety net.
+//
+// Migrations bypass the repo's path filters, so a clone made before they were
+// synced sees every server-side migration as remote-only. `pushMigrationFromDisk`
+// reads a missing `.up.sql` as "delete it", which would wipe a workspace's
+// migration definitions on that clone's first push.
+// =============================================================================
+
+describe("dropUntrackedDatatableMigrationDeletions", () => {
+  const changes = [
+    { name: "deleted", path: "migrations/datatable/mydb/20260101000000_a.up.sql" },
+    { name: "deleted", path: "migrations/datatable/mydb/20260101000000_a.down.sql" },
+    { name: "deleted", path: "f/foo/bar.script.yaml" },
+    { name: "added", path: "migrations/datatable/mydb/20260102000000_b.up.sql" },
+  ];
+
+  test("drops migration deletions when the checkout never tracked them", () => {
+    const { kept, dropped } = dropUntrackedDatatableMigrationDeletions(changes, false);
+    expect(dropped).toBe(2);
+    expect(kept.map((c) => c.path)).toEqual([
+      "f/foo/bar.script.yaml",
+      "migrations/datatable/mydb/20260102000000_b.up.sql",
+    ]);
+  });
+
+  test("keeps every change once the checkout tracks migrations", () => {
+    const { kept, dropped } = dropUntrackedDatatableMigrationDeletions(changes, true);
+    expect(dropped).toBe(0);
+    expect(kept).toBe(changes);
   });
 });
