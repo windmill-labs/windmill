@@ -49,6 +49,9 @@ import {
   loadNonDottedPathsSetting,
 } from "../../utils/resource_folders.ts";
 
+// Resolved once per `wmill app dev` run from wmill.yaml; a bare `.ts` under
+// backend/ denotes this runtime, so readers must agree with the path assigner.
+let defaultTs: "bun" | "deno" = "bun";
 const DEFAULT_PORT = 4000;
 const DEFAULT_HOST = "localhost";
 
@@ -406,6 +409,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
       : originalCwd;
     const relAppFolder = path.relative(workspaceRoot, targetDir) || ".";
     const mergedOpts = await mergeConfigWithConfigFile(opts);
+    defaultTs = mergedOpts.defaultTs ?? "bun";
     const codebases = await listSyncCodebases(mergedOpts);
     const { buildPreviewTempScriptRefs } = await import(
       "../generate-metadata/generate-metadata.ts"
@@ -491,7 +495,10 @@ async function dev(opts: DevOptions, appFolder?: string) {
   // change to trigger the watcher).
   const inferredSchemas: Record<string, any> = {};
   try {
-    Object.assign(inferredSchemas, await inferAllInlineSchemas(process.cwd()));
+    Object.assign(
+      inferredSchemas,
+      await inferAllInlineSchemas(process.cwd(), defaultTs),
+    );
   } catch (err: any) {
     log.warn(
       colors.yellow(
@@ -508,6 +515,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
   try {
     const initialRunnables = await loadRunnablesFromBackend(
       path.join(process.cwd(), APP_BACKEND_FOLDER),
+      defaultTs,
     );
     Object.assign(
       pathRunnableSchemas,
@@ -675,6 +683,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
           const result = await inferRunnableSchemaFromFile(
             process.cwd(),
             relativeToRunnables,
+            defaultTs,
           );
           if (result) {
             // Store inferred schema in memory
@@ -1437,7 +1446,7 @@ async function genRunnablesTs(
   const backendPath = path.join(localPath, APP_BACKEND_FOLDER);
 
   // Load runnables from separate files (new format) or fall back to raw_app.yaml (old format)
-  let runnables = await loadRunnablesFromBackend(backendPath);
+  let runnables = await loadRunnablesFromBackend(backendPath, defaultTs);
 
   if (Object.keys(runnables).length === 0) {
     // Fall back to old format
@@ -1581,7 +1590,7 @@ async function loadRunnables(): Promise<Record<string, Runnable>> {
     const backendPath = path.join(localPath, APP_BACKEND_FOLDER);
 
     // Load runnables from separate files (new format) or fall back to raw_app.yaml (old format)
-    let runnables = await loadRunnablesFromBackend(backendPath);
+    let runnables = await loadRunnablesFromBackend(backendPath, defaultTs);
 
     if (Object.keys(runnables).length === 0) {
       // Fall back to old format
