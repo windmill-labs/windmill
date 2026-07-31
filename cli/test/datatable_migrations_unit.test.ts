@@ -126,32 +126,49 @@ describe("validateLocalMigrations", () => {
 // untrackedDatatableMigrationDeletions — the push-side safety net.
 //
 // Migrations bypass the repo's path filters, so a clone made before they were
-// synced sees every server-side migration as remote-only. `pushMigrationFromDisk`
-// reads a missing `.up.sql` as "delete it", which would wipe a workspace's
-// migration definitions on that clone's first push. An absent
-// `migrations/datatable/` cannot distinguish that clone from one where the last
-// migration was just deleted, so those deletions are surfaced for an explicit
-// confirmation rather than applied.
+// synced sees every server-side migration as remote-only, and
+// `pushMigrationFromDisk` reads a missing `.up.sql` as "delete it". What the repo
+// has ever committed under migrations/datatable/ is the durable answer to "did we
+// track this?" — the working tree is not, because creating a migration locally
+// makes the directory appear without anything having been tracked.
 // =============================================================================
 
 describe("untrackedDatatableMigrationDeletions", () => {
+  const A_UP = "migrations/datatable/mydb/20260101000000_a.up.sql";
+  const A_DOWN = "migrations/datatable/mydb/20260101000000_a.down.sql";
   const changes = [
-    { name: "deleted", path: "migrations/datatable/mydb/20260101000000_a.up.sql" },
-    { name: "deleted", path: "migrations/datatable/mydb/20260101000000_a.down.sql" },
+    { name: "deleted", path: A_UP },
+    { name: "deleted", path: A_DOWN },
     { name: "deleted", path: "f/foo/bar.script.yaml" },
     { name: "added", path: "migrations/datatable/mydb/20260102000000_b.up.sql" },
   ];
 
-  test("flags migration deletions when the checkout has no migrations directory", () => {
+  test("trusts a deletion the repository has committed before", () => {
     expect(
-      untrackedDatatableMigrationDeletions(changes, false).map((c) => c.path),
-    ).toEqual([
-      "migrations/datatable/mydb/20260101000000_a.up.sql",
-      "migrations/datatable/mydb/20260101000000_a.down.sql",
-    ]);
+      untrackedDatatableMigrationDeletions(changes, new Set([A_UP, A_DOWN])),
+    ).toEqual([]);
   });
 
-  test("flags nothing once the checkout tracks migrations", () => {
-    expect(untrackedDatatableMigrationDeletions(changes, true)).toEqual([]);
+  test("flags migrations this repository has never recorded", () => {
+    expect(
+      untrackedDatatableMigrationDeletions(changes, new Set()).map((c) => c.path),
+    ).toEqual([A_UP, A_DOWN]);
+  });
+
+  test("a locally created migration does not vouch for unrelated ones", () => {
+    // `wmill datatable migrate new` makes migrations/datatable/ exist without the
+    // checkout having tracked anything, so only the recorded paths count.
+    const recorded = new Set([
+      "migrations/datatable/mydb/20260102000000_b.up.sql",
+    ]);
+    expect(
+      untrackedDatatableMigrationDeletions(changes, recorded).map((c) => c.path),
+    ).toEqual([A_UP, A_DOWN]);
+  });
+
+  test("trusts nothing when there is no git history to consult", () => {
+    expect(
+      untrackedDatatableMigrationDeletions(changes, null).map((c) => c.path),
+    ).toEqual([A_UP, A_DOWN]);
   });
 });

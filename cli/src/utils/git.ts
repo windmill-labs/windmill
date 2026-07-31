@@ -75,6 +75,37 @@ export function getWorkspaceIdForWorkspaceForkFromBranchName(branchName: string)
 
   return `${WM_FORK_PREFIX}-${branchName.slice(start)}`
 }
+/**
+ * Every `migrations/datatable/**` path this repository has ever recorded, across all
+ * branches, or `null` when there is no usable git history.
+ *
+ * This is the durable answer to "did this checkout ever track that migration?", which
+ * the working tree alone cannot give: an absent `migrations/datatable/` is equally a
+ * clone that never pulled migrations and one where the last was deleted, and creating a
+ * migration locally (`wmill datatable migrate new`) makes the directory appear without
+ * the checkout having tracked anything. Git history distinguishes all three — a path
+ * that was committed and later removed is still recorded here, so a real deletion stays
+ * a deletion, while a migration this repo has never seen does not.
+ */
+export function gitRecordedDatatableMigrationPaths(): Set<string> | null {
+  if (!isGitRepository()) return null;
+  const r = spawnSync(
+    "git",
+    ["log", "--all", "--format=", "--name-only", "--", "migrations/datatable"],
+    { encoding: "utf8", stdio: "pipe", maxBuffer: 64 * 1024 * 1024 },
+  );
+  if ((r.status ?? 1) !== 0) {
+    log.debug(`Could not read git history for migrations: ${r.stderr ?? ""}`);
+    return null;
+  }
+  return new Set(
+    (r.stdout ?? "")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0),
+  );
+}
+
 export function isGitRepository(): boolean {
   try {
     execSync("git rev-parse --git-dir", {

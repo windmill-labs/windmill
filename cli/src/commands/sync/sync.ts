@@ -33,8 +33,6 @@ import {
   pushMigrationFromDisk,
   offerToRunNewMigrations,
   validateLocalMigrations,
-  checkoutTracksDatatableMigrations,
-  MIGRATIONS_DIR,
 } from "../datatable_migrations.ts";
 
 import {
@@ -88,6 +86,7 @@ import {
   gitSyncDeployPush,
   deriveGitSyncDeployIncludes,
   isForkWorkspace,
+  gitRecordedDatatableMigrationPaths,
   type GitSyncDeployItem,
 } from "../../utils/git.ts";
 import { Workspace } from "../workspace/workspace.ts";
@@ -2673,18 +2672,21 @@ export function countDatatableMigrationRecords(
  * Migrations bypass the repo's path filters (they live outside `f/`/`u/`), so a clone
  * made before they were synced sees every server-side migration as remote-only — and
  * `pushMigrationFromDisk` reads a locally absent `.up.sql` as an instruction to delete
- * it. An absent `migrations/datatable/` directory is ambiguous: it is what both a clone
- * that never pulled migrations and one where the last migration was just deleted look
- * like, because git keeps no empty directory. Deleting is the destructive reading, so
- * the caller confirms it explicitly and never performs it unattended. Once the
- * directory exists, deletions are unambiguous and this returns nothing.
+ * it. `recordedPaths` is what this repository has ever committed under
+ * `migrations/datatable/` (see `gitRecordedDatatableMigrationPaths`): a path in it was
+ * genuinely tracked, so its absence now is a real deletion; a path missing from it is
+ * one this checkout has never had, and deleting it is a guess. `null` means there is no
+ * git history to consult, so nothing is trusted. The caller confirms whatever comes
+ * back explicitly and never deletes it unattended.
  */
 export function untrackedDatatableMigrationDeletions<
   T extends { name: string; path: string },
->(changes: T[], checkoutTracksMigrations: boolean): T[] {
-  if (checkoutTracksMigrations) return [];
+>(changes: T[], recordedPaths: Set<string> | null): T[] {
   return changes.filter(
-    (c) => c.name === "deleted" && isDatatableMigrationPath(c.path),
+    (c) =>
+      c.name === "deleted" &&
+      isDatatableMigrationPath(c.path) &&
+      !recordedPaths?.has(c.path),
   );
 }
 
@@ -4190,14 +4192,18 @@ export async function push(
 
   await fetchRemoteVersion(workspace);
 
-  const ambiguousMigrationDeletions = untrackedDatatableMigrationDeletions(
-    changes,
-    checkoutTracksDatatableMigrations(),
-  );
+  const ambiguousMigrationDeletions = changes.some(
+    (c) => c.name === "deleted" && isDatatableMigrationPath(c.path),
+  )
+    ? untrackedDatatableMigrationDeletions(
+        changes,
+        gitRecordedDatatableMigrationPaths(),
+      )
+    : [];
   const keepAmbiguousMigrationsOnRemote = () => {
     log.info(
       colors.yellow(
-        `Keeping ${countDatatableMigrationRecords(ambiguousMigrationDeletions)} data table migration(s) on the remote: no ${MIGRATIONS_DIR}/ directory in this checkout. ` +
+        `Keeping ${countDatatableMigrationRecords(ambiguousMigrationDeletions)} data table migration(s) on the remote: this repository has never tracked them. ` +
           `Run 'wmill sync pull' to track them in git, or delete them from the workspace.`,
       ),
     );
@@ -4444,8 +4450,8 @@ export async function push(
     if (ambiguousMigrationDeletions.length > 0 && !ambiguousMigrationsResolved) {
       const deleteThem = await Confirm.prompt({
         message:
-          `This checkout has no ${MIGRATIONS_DIR}/ directory, so it may simply never have synced migrations. ` +
-          `Delete ${countDatatableMigrationRecords(ambiguousMigrationDeletions)} migration definition(s) from the workspace anyway?`,
+          `This repository has no git history for ${countDatatableMigrationRecords(ambiguousMigrationDeletions)} migration definition(s), so it may simply never have synced them. ` +
+          `Delete them from the workspace anyway?`,
         default: false,
       });
       if (!deleteThem) {
