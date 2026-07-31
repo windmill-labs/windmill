@@ -4432,6 +4432,7 @@ async fn push_next_flow_job(
                 "job-span-{}",
                 flow_job.flow_innermost_root_job.unwrap_or(flow_job.id)
             )),
+            None,
             scheduled_for_o,
             flow_job.schedule_path(),
             Some(flow_job.id),

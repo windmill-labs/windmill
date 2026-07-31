@@ -486,6 +486,7 @@ pub async fn push_init_job<'c>(
         None,
         None,
         None,
+        None,
         false,
         true,
         None,
@@ -539,6 +540,7 @@ pub async fn push_periodic_bash_job<'c>(
         "worker@windmill.dev",
         SUPERADMIN_SECRET_EMAIL.to_string(),
         Some("worker_periodic_script_job"),
+        None,
         None,
         None,
         None,
@@ -1694,6 +1696,7 @@ async fn restart_job_if_perpetual_inner(
             &queued_job.permissioned_as_email,
             queued_job.permissioned_as.clone(),
             Some(&format!("add.completed.job{}", queued_job.id)),
+            None,
             scheduled_for,
             queued_job.schedule_path(),
             None,
@@ -1996,6 +1999,7 @@ pub async fn maybe_enqueue_native_script_retry(
         &job.permissioned_as_email,
         job.permissioned_as.clone(),
         Some(&format!("retry.{}", job.id)),
+        None,
         Some(scheduled_for),
         None,
         Some(root),
@@ -2839,6 +2843,7 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         Some(&format!("error.handler.{job_id}")),
         None,
         None,
+        None,
         Some(job_id),
         None,
         Some(job_id),
@@ -2925,6 +2930,7 @@ pub async fn push_success_handler<'a, 'c, T: Serialize + Send + Sync>(
         email,
         permissioned_as,
         Some(&format!("success.handler.{job_id}")),
+        None,
         None,
         None,
         Some(job_id), // parent_job
@@ -5281,6 +5287,7 @@ pub async fn push<'c, 'd>(
     email: &str,
     permissioned_as: String,
     token_prefix: Option<&str>,
+    audit_end_user: Option<&str>,
     scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
     schedule_path: Option<String>,
     parent_job: Option<Uuid>,
@@ -5311,6 +5318,7 @@ pub async fn push<'c, 'd>(
         email,
         permissioned_as,
         token_prefix,
+        audit_end_user,
         scheduled_for_o,
         schedule_path,
         parent_job,
@@ -5345,6 +5353,10 @@ async fn push_inner<'c, 'd>(
     mut email: &str,
     mut permissioned_as: String,
     token_prefix: Option<&str>,
+    // The entity the caller acted for, for the audit trail only. The API sources it from
+    // `ApiAuthed::username_override`; a token label reaches audit through here alone, since
+    // `user` is the token owner.
+    audit_end_user: Option<&str>,
     #[allow(unused_mut)] mut scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
     schedule_path: Option<String>, //should be removed in favor of the trigger param below
     parent_job: Option<Uuid>,
@@ -6846,20 +6858,20 @@ async fn push_inner<'c, 'd>(
             JobKind::UnassignedSinglestepFlow => "jobs.run.unassigned_singlestepflow",
         };
 
-        let audit_author = if format!("u/{user}") != permissioned_as && user != permissioned_as {
-            AuditAuthor {
-                email: email.to_string(),
-                username: windmill_common::auth::permissioned_as_to_username(&permissioned_as),
-                username_override: Some(user.to_string()),
-                token_prefix: token_prefix.map(|s| s.to_string()),
-            }
-        } else {
-            AuditAuthor {
-                email: email.to_string(),
-                username: user.to_string(),
-                username_override: None,
-                token_prefix: token_prefix.map(|s| s.to_string()),
-            }
+        let runs_on_behalf = format!("u/{user}") != permissioned_as && user != permissioned_as;
+        let audit_author = AuditAuthor {
+            email: email.to_string(),
+            username: if runs_on_behalf {
+                windmill_common::auth::permissioned_as_to_username(&permissioned_as)
+            } else {
+                user.to_string()
+            },
+            // A caller-supplied end user wins: `user` only stands in for one when the job runs
+            // as another identity, and every caller that knows a real one passes it.
+            username_override: audit_end_user
+                .map(|s| s.to_string())
+                .or_else(|| runs_on_behalf.then(|| user.to_string())),
+            token_prefix: token_prefix.map(|s| s.to_string()),
         };
 
         if let Some(ref stringified_args) = stringified_args {

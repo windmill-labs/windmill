@@ -2055,6 +2055,7 @@ async fn create_app_internal<'a>(
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
         authed.token_prefix.as_deref(),
+        authed.username_override.as_deref(),
         None,
         None,
         None,
@@ -2681,6 +2682,7 @@ async fn update_app_internal<'a>(
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
         authed.token_prefix.as_deref(),
+        authed.username_override.as_deref(),
         None,
         None,
         None,
@@ -3214,6 +3216,9 @@ async fn execute_component(
             .and_then(|a| a.token_prefix)
             .or_else(|| tokened.token.map(|t| t[0..TOKEN_PREFIX_LEN].to_string()))
             .as_deref(),
+        // The caller already is the end user of the app identity `permissioned_as`, so `push`
+        // derives it from `username`; an explicit one here would displace them.
+        None,
         None,
         None,
         None,
