@@ -919,19 +919,38 @@ fn validate_migration_name(name: &str) -> Result<()> {
 
 /// The data table name becomes a directory segment in the sync export
 /// (`migrations/datatable/<datatable>/...`); reject anything that could escape it.
-/// Glob metacharacters are rejected too: git sync feeds that segment back as a
-/// minimatch pattern and a `git add` pathspec, where they would match no file and
-/// silently drop the migration from the repo.
 pub(crate) fn validate_datatable_path_segment(datatable: &str) -> Result<()> {
-    const GLOB_CHARS: [char; 6] = ['*', '?', '[', ']', '{', '}'];
     if datatable.is_empty()
         || datatable.contains('/')
         || datatable.contains('\\')
         || datatable.contains("..")
-        || datatable.contains(GLOB_CHARS)
     {
         return Err(Error::BadRequest(format!(
-            "Invalid data table name '{datatable}': must not contain '/', '\\', '..' or any of *?[]{{}}"
+            "Invalid data table name '{datatable}': must not contain '/', '\\' or '..'"
+        )));
+    }
+    Ok(())
+}
+
+/// A data table's name is a path segment of every migration it owns, and git sync
+/// carries that path through three matchers that all speak the same restricted
+/// charset: `transform_regexp` expands a repo's `**` filter to `[a-zA-Z0-9_\-./]*`,
+/// the CLI reuses the path as a minimatch pattern, and the deploy stages it as a
+/// `git add` pathspec. A name outside the charset matches nothing in all three, so
+/// its migrations would silently never reach the repo.
+///
+/// Only names being introduced are held to this — an existing data table keeps
+/// saving (and can be renamed to a syncable name) instead of locking its workspace
+/// out of the settings form.
+pub(crate) fn validate_new_datatable_name(datatable: &str) -> Result<()> {
+    validate_datatable_path_segment(datatable)?;
+    if !datatable
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+    {
+        return Err(Error::BadRequest(format!(
+            "Invalid data table name '{datatable}': use only letters, digits, '_', '-' and '.' \
+             so its SQL migrations can be synced to a git repository"
         )));
     }
     Ok(())
@@ -1724,6 +1743,28 @@ mod tests {
                 validate_datatable_path_segment(bad).is_err(),
                 "{bad} should be rejected"
             );
+        }
+    }
+
+    // A new name must survive the git-sync path matchers; an existing one is only
+    // held to the escape rule, so a workspace carrying a legacy name can still save
+    // its settings and rename its way out.
+    #[test]
+    fn validate_new_datatable_name_requires_a_sync_safe_charset() {
+        for ok in ["mydt", "my-dt", "my_dt.v2", "main"] {
+            assert!(validate_new_datatable_name(ok).is_ok(), "{ok} should be ok");
+        }
+        for bad in ["a b", "a*b", "a[b]", "a{b}", "a?b", "café", "a/b", ""] {
+            assert!(
+                validate_new_datatable_name(bad).is_err(),
+                "{bad} should be rejected"
+            );
+            if bad != "a/b" && !bad.is_empty() {
+                assert!(
+                    validate_datatable_path_segment(bad).is_ok(),
+                    "{bad} should still be storable once persisted"
+                );
+            }
         }
     }
 

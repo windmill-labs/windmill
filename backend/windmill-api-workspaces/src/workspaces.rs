@@ -2947,13 +2947,19 @@ async fn edit_datatable_config(
 
     // Validate every persisted data table name and rename segment before
     // touching anything, since they become directory segments in migration
-    // storage/export keys (`migrations/datatable/<name>/...`).
+    // storage/export keys (`migrations/datatable/<name>/...`). Names being
+    // introduced take the stricter git-sync-safe charset; already-persisted ones
+    // keep the historical rule so an old name can still be saved and renamed.
     for name in new_config.settings.datatables.keys() {
-        crate::datatable_migrations::validate_datatable_path_segment(name)?;
+        if old_datatables.contains_key(name) {
+            crate::datatable_migrations::validate_datatable_path_segment(name)?;
+        } else {
+            crate::datatable_migrations::validate_new_datatable_name(name)?;
+        }
     }
     for r in &new_config.renames {
         crate::datatable_migrations::validate_datatable_path_segment(&r.from)?;
-        crate::datatable_migrations::validate_datatable_path_segment(&r.to)?;
+        crate::datatable_migrations::validate_new_datatable_name(&r.to)?;
     }
 
     // Map new name -> old name so a renamed data table inherits the previous
