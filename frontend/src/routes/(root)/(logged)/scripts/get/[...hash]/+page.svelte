@@ -808,11 +808,20 @@
 				<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showEditButtons = v)} />
 			</div>
 			{#if script}
-				<div class={twMerge('flex flex-col', isWac ? 'h-full divide-y' : '')}>
+				{@const showsDbtGraph = script.language === 'dbt' && !!script.path}
+				<div
+					class={twMerge(
+						'flex flex-col',
+						isWac || showsDbtGraph ? 'h-full divide-y' : ''
+					)}
+				>
 					<div
 						class={twMerge(
 							'p-8 w-full max-w-3xl overflow-y-auto mx-auto flex flex-col relative',
-							isWac ? 'max-h-1/2' : ''
+							isWac ? 'max-h-1/2' : '',
+							// The graph takes the rest of the pane, as a flow's does, so the form
+							// scrolls within its half instead of pushing the models off-screen.
+							showsDbtGraph ? 'shrink-0 max-h-1/2' : ''
 						)}
 					>
 						{#if script?.path}
@@ -961,22 +970,6 @@
 							/>
 						</div>
 
-						{#if script?.language === 'dbt' && script?.path}
-							<!-- Under the run form, where a flow shows its graph: a dbt script's
-							     `content` is a descriptor, so what it BUILDS is the thing to see.
-							     Pinned to the version on screen and given no job, so this is the
-							     project as THIS deploy declared it; a node opens its SQL and
-							     previews its rows. -->
-							<div class="grow min-h-0 pt-6">
-								<h3 class="text-xs font-semibold text-emphasis mb-1">Models</h3>
-								<DbtRunGraph
-									scriptPath={script.path}
-									scriptHash={script.hash}
-									runArgs={args}
-								/>
-							</div>
-						{/if}
-
 						<div class="pt-4 flex flex-row gap-1 w-full justify-end items-center">
 							{#if !isHubScript}
 								<span class="text-2xs text-secondary">
@@ -1003,7 +996,19 @@
 							</div>
 						</div>
 					</div>
-					{#if isWac && script.content}
+					{#if showsDbtGraph}
+						<!-- The bottom of the pane, the way a flow's graph takes it: a dbt
+						     script's `content` is a descriptor, so what it BUILDS is the thing
+						     to look at. Pinned to the version on screen and given no job, so
+						     this is the project as THIS deploy declared it; a node opens its
+						     SQL and previews its rows with whatever the form above holds. -->
+						<div class="grow min-h-0 flex flex-col">
+							<h3 class="shrink-0 text-xs font-semibold text-emphasis px-3 pt-2">Models</h3>
+							<div class="grow min-h-0">
+								<DbtRunGraph scriptPath={script.path} scriptHash={script.hash} runArgs={args} />
+							</div>
+						</div>
+					{:else if isWac && script.content}
 						<div class="grow min-h-0" style="min-height: 400px;">
 							<WacDiagram code={script.content} language={script.language ?? ''} />
 						</div>

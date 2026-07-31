@@ -626,7 +626,12 @@
 						<span class="font-mono truncate max-w-56">{selectedRelation}</span>
 					</Button>
 				{/if}
-				<span class="ml-auto shrink-0 opacity-70">read-only · edit locally</span>
+				<!-- The copy taken at deploy, so editing it here would change nothing the
+				     next run reads. The file itself is a module of the script — editable
+				     in the script editor, or in the project and pushed. -->
+				<span class="ml-auto shrink-0 opacity-70" title={selectedDbt.original_file_path}>
+					read-only · edit in the script
+				</span>
 			</div>
 			<div class="flex-1 min-h-0 overflow-auto">
 				{#if showRows && preview}
