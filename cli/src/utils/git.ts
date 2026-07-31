@@ -76,13 +76,15 @@ export function getWorkspaceIdForWorkspaceForkFromBranchName(branchName: string)
   return `${WM_FORK_PREFIX}-${branchName.slice(start)}`
 }
 /**
- * What this repository's own history says about `migrations/datatable/**`.
+ * Whether this checkout can vouch for what it once held under `migrations/datatable/**`.
  *
- * `known` lists every such path recorded on the current branch (paths stay listed
- * after the commit that removed them, so a real deletion is still recognisable).
- * `unknown` means the history cannot be consulted at all — no repository, a shallow
- * clone whose truncated history would misreport paths as never-seen, or a failing
- * git — and the caller must trust nothing rather than read absence as evidence.
+ * `known` lists every such path recorded on the current branch (paths stay listed after
+ * the commit that removed them, so a real deletion is still recognisable). `unknown`
+ * means a file's absence from the working tree proves nothing, either because the
+ * history can't be read — no repository, a shallow clone's truncated history, an
+ * unresolvable root, a failing git — or because the working tree deliberately doesn't
+ * mirror it, as in a sparse checkout. Both shapes carry the same obligation on the
+ * caller: trust nothing, rather than read absence as evidence.
  */
 export type RecordedMigrationPaths =
   | { kind: "known"; paths: Set<string> }
