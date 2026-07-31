@@ -334,6 +334,10 @@
 
 	async function loadFolderPageInner(prefix: string, append: boolean) {
 		const generation = listingGeneration
+		const epoch = folderEpoch[prefix] ?? 0
+		/** Whether this response still belongs to the listing and level that asked for it. */
+		const stillCurrent = () =>
+			generation === listingGeneration && epoch === (folderEpoch[prefix] ?? 0)
 		const current = folderState[prefix] ?? { loading: false, loaded: false }
 		if (append && current.nextPageToken === undefined) return
 		folderState[prefix] = { ...current, loading: true }
@@ -346,9 +350,10 @@
 				storage,
 				s3ResourcePath
 			})
-			// The listing this belongs to has been thrown away; writing its entries
-			// back would resurrect the previous storage's contents.
-			if (generation !== listingGeneration) return
+			// This listing, or just this level, has been thrown away since the request
+			// went out. Writing the entries back would resurrect the previous storage's
+			// contents, or reinstate a file that was just deleted.
+			if (!stillCurrent()) return
 			// Absent counts as restricted, matching `loadFlatFiles`: the two paths must
 			// not disagree on which way an omitted value falls.
 			if (
@@ -377,7 +382,7 @@
 				nextPageToken: page.next_page_token ?? undefined
 			}
 		} catch (e) {
-			if (generation === listingGeneration) {
+			if (stillCurrent()) {
 				folderState[prefix] = { ...current, loading: false }
 			}
 			throw e
@@ -385,7 +390,7 @@
 			// A response that lands after the user typed a filter must not rebuild the
 			// list: flat mode owns `displayedFileKeys` then, and rebuilding it under
 			// the lazy visibility rules would prune most of the search results.
-			if (lazyMode && generation === listingGeneration) {
+			if (lazyMode && stillCurrent()) {
 				refreshDisplayed()
 			}
 		}
