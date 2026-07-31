@@ -3375,7 +3375,15 @@ impl PulledJob {
                 Some(is_operator),
                 Some(groups),
                 Some(folders),
-            ) => Some(JobPerms { email, username, is_admin, is_operator, groups, folders }),
+            ) => Some(JobPerms {
+                email,
+                username,
+                is_admin,
+                is_operator,
+                groups,
+                folders,
+                end_user_email: self.job.permissioned_as_end_user_email.clone(),
+            }),
             _ => None,
         };
 
