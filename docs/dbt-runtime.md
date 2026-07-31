@@ -30,10 +30,10 @@ the dominant way dbt is orchestrated today.
 | 5 | Project storage | The project is the script's module bundle; nothing is cloned. See "Where the dbt project lives" |
 | 6 | Multiple run configs | Per-run `select` on one script; N scripts means N projects |
 | 7 | Run-time `select` | Descriptor default plus run-arg override |
-| 8 | Credentials | Both `profiles.yml` passthrough and resource mapping |
+| 8 | Credentials | Workspace warehouses, plus `profiles.yml` passthrough. A descriptor never names a resource. See below |
 | 9 | Adapter mappings | postgres, redshift, mysql, snowflake, bigquery, databricks; others via the project's own `profiles.yml` |
 | 10 | Private repo auth | Not applicable: the project is synced, not fetched |
-| 11 | Asset kind | `dbt://<resource>/<schema>/<name>` — keyed on the relation, not on dbt's node id. See below |
+| 11 | Asset kind | `dbt://<warehouse>/<schema>/<name>` — keyed on the relation, not on dbt's node id. See below |
 | 12 | Graph refresh | Deploy-time, re-ingested per run only when the descriptor is dynamic. See below |
 | 13 | Manifest storage | Sidecar table for nodes/edges. Full manifest **not** stored — see below |
 | 14 | Metadata depth | Tests, strategy, tags, freshness, column descriptions. Column **lineage** is not in the manifest — see below |
@@ -45,6 +45,8 @@ the dominant way dbt is orchestrated today.
 | 20 | Images | Full images only |
 | 21 | Licensing | CE except the `mssql` / `oracle` adapters. See below |
 | 22 | Naming | Match Cosmos field names; importer deferred |
+| 23 | Descriptor | `wm_dbt.yaml` inside the project, OPTIONAL. See below |
+| 24 | Warehouse | Configured on the workspace by name, `main` by default. See below |
 
 ## Decision 1: engine toggle, and why the shipped default is not Fusion yet
 
@@ -132,8 +134,9 @@ build and an enterprise build whose key did not verify.
 
 ## Decision 11: `dbt://`, keyed on the relation and not on the dbt node
 
-`dbt://<resource_path>/<schema>/<name>`, one `AssetKind`, resolved from the
-profile's target so two scripts pointing at the same warehouse agree on identity.
+`dbt://<warehouse>/<schema>/<name>`, one `AssetKind`, where `<warehouse>` is the
+workspace warehouse's NAME, so two scripts running against the same warehouse
+agree on identity.
 
 The SCHEME names the producer, because dbt is the only thing that creates one of
 these: no other language derives warehouse relations, `// materialize` takes
@@ -173,9 +176,12 @@ point where an asset URI becomes a graph key: strip the quote characters
 matching the case-insensitive identifier comparison the DuckDB paths already
 use. The resource-path prefix is a Windmill path and stays case-sensitive.
 
-**Warehouse identity is the Windmill resource path**, exactly as `datatable://`
-and `ducklake://` do it — never the host, account or database. The resource names
-the default database too, so it stays out of the key; a model that *overrides*
+**Warehouse identity is the workspace warehouse's name**, exactly as
+`ducklake://main.orders` keys on the workspace lake's name — never the host,
+account or database. A descriptor cannot name a resource at all (Decision 24), so
+there is exactly one spelling per warehouse and the ambiguity a per-project
+resource would create does not arise. The warehouse names the default database
+too, so it stays out of the key; a model that *overrides*
 its database (Snowflake `database`, BigQuery `project`) is genuinely elsewhere and
 qualifies its schema segment as `<database>.<schema>`, so two same-named relations
 in different databases cannot collapse onto one node. When the default database is
@@ -188,9 +194,66 @@ one function, because a site that derives it differently records progress agains
 a path no node has — the run still succeeds and the graph simply never moves. The same
 warehouse is reachable under several hostnames, and credential material has no
 business in an asset key. Accepted limitation, worth knowing before it is
-filed as a bug: **two Windmill resources pointing at the same physical
+filed as a bug: **two workspace warehouses pointing at the same physical
 warehouse do not unify**, so assets under one will not share edges with assets
-under the other. Point both scripts at one resource to link them.
+under the other. Point both projects at one warehouse to link them.
+
+## Decision 24: the warehouse is a workspace setting, named, and the only one
+
+A descriptor names a warehouse by NAME (`profile.warehouse`, `main` when it names
+none) and cannot name a resource. Admins configure the warehouses under Settings
+→ dbt, where each entry points at a resource, exactly as `large_file_storage`
+points at the object-storage resource and a DuckLake names its catalog.
+
+Three things follow, and they are the reason for the rule rather than
+consequences to work around.
+
+**A dbt project carries no connection.** The same project runs locally against a
+developer's own `~/.dbt/profiles.yml` and on Windmill against the workspace
+warehouse, with no Windmill-specific file in between and nothing to strip before
+committing it to a repository. This is what makes Decision 23 possible at all: if
+a project had to name its own resource, the descriptor could never be optional.
+
+**Asset identity has exactly one spelling.** Keying on a name is only sound
+because a name is all there is. Had both `profile.resource` and
+`profile.warehouse` existed, one physical warehouse would be reachable under two
+spellings and two projects on it would silently fail to share nodes — the exact
+failure Decision 11 exists to prevent.
+
+**The blast radius is bounded by construction.** Since a script cannot name an
+arbitrary resource, "which warehouses may a dbt script reach" is answered
+entirely by workspace settings, which only an admin writes. The connection itself
+is still read with the job's own token, so a run against a warehouse the runner
+may not read fails rather than silently escalating. That is the deliberate
+difference from `s3://`, which reads the workspace bucket unchecked: a warehouse
+is a write path into shared tables, and being named in workspace settings is not
+the same as being granted to everyone.
+
+A project that brings its own `profiles.yml` still connects with it, and then
+names a warehouse only to say where its assets belong. It gets no identity by
+default, because defaulting to `main` would key a self-hosted profile's tables
+onto a workspace warehouse it never connected to.
+
+An agent worker cannot read the database, so it resolves the name through a
+job-scoped API route that returns the POINTER only.
+
+## Decision 23: the descriptor is optional, and lives inside the project
+
+`<script>__dbt/wm_dbt.yaml`. An unmodified dbt project — one `cp -r` away from a
+developer's working copy, or a repository cloned as-is — is already a complete
+Windmill script: it runs the whole project against the workspace's default
+warehouse. The descriptor appears only when the project wants something
+Windmill-specific: run arguments, a named warehouse, an engine pin, a test
+policy.
+
+It lives INSIDE the project rather than beside it so that an author writes
+nothing outside the directory dbt itself reads. A dbt developer's working copy
+and a Windmill bundle are then the same directory, which is the whole bargain of
+Decision 5.
+
+Absent means an empty descriptor, never a missing script — the CLI synthesizes
+it, `dbt_project.yml` is what identifies the project, and the export omits an
+empty one so that a project which never named a descriptor never grows one.
 
 ## Decision 12: the graph refreshes with the deploy
 
