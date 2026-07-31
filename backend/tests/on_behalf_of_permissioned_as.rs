@@ -30,6 +30,7 @@ async fn create_script(
         "language": "deno",
         "on_behalf_of_email": "original@windmill.dev",
         "preserve_on_behalf_of": true,
+        "auto_parent": true,
     });
     if let Some(permissioned_as) = on_behalf_of_permissioned_as {
         body["on_behalf_of_permissioned_as"] = json!(permissioned_as);
@@ -141,6 +142,19 @@ async fn test_on_behalf_of_permissioned_as_drives_job_identity(
         ),
         "without a recorded permissioned_as the job keeps running as the deployer"
     );
+
+    // A client that preserves but predates the field sends the email alone. Inheriting
+    // the recorded identity is what stops a routine redeploy from silently handing the
+    // script back to whoever deployed it.
+    let redeployed_hash = create_script(&base, "u/test-user/obo_recorded", None).await?;
+    assert_ne!(redeployed_hash, recorded, "the redeploy must be a new version");
+    let redeployed = sqlx::query_scalar!(
+        "SELECT on_behalf_of_permissioned_as FROM script \
+         WHERE path = 'u/test-user/obo_recorded' AND workspace_id = 'test-workspace' AND NOT archived"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(redeployed.as_deref(), Some("u/original-user"));
 
     Ok(())
 }

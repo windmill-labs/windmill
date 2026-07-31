@@ -202,9 +202,15 @@ pub fn check_on_behalf_of_preservation(
 /// access, while the email decides its instance-superadmin flag and instance groups.
 /// A `None` permissioned_as alongside a `Some` email is legitimate and means "not
 /// recorded" — run time then derives it from `created_by` / `edited_by`.
+///
+/// `previous_permissioned_as` is the identity currently recorded on the runnable being
+/// replaced. A caller that preserves without naming one — anything written before the
+/// field existed — inherits it rather than dropping it, so a routine redeploy cannot
+/// silently hand a runnable back to whoever deploys it.
 pub fn resolve_on_behalf_of<'a>(
     on_behalf_of_email: Option<&'a str>,
     on_behalf_of_permissioned_as: Option<&'a str>,
+    previous_permissioned_as: Option<&'a str>,
     preserve: bool,
     authed: &'a impl db::Authable,
 ) -> (Option<&'a str>, Option<String>) {
@@ -213,7 +219,9 @@ pub fn resolve_on_behalf_of<'a>(
     } else if preserve && can_preserve_on_behalf_of(authed) {
         (
             on_behalf_of_email,
-            on_behalf_of_permissioned_as.map(str::to_string),
+            on_behalf_of_permissioned_as
+                .or(previous_permissioned_as)
+                .map(str::to_string),
         )
     } else {
         (

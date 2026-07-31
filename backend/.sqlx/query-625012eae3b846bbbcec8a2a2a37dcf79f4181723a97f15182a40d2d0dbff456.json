@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT on_behalf_of_permissioned_as FROM script WHERE path = 'u/test-user/obo_recorded' AND workspace_id = 'test-workspace' AND NOT archived",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "on_behalf_of_permissioned_as",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "625012eae3b846bbbcec8a2a2a37dcf79f4181723a97f15182a40d2d0dbff456"
+}

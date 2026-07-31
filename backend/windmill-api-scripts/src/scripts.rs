@@ -1029,6 +1029,7 @@ async fn create_script_internal<'c>(
         p_hashes: Vec<i64>,
         perms: serde_json::Value,
         p_path: String,
+        p_on_behalf_of_permissioned_as: Option<String>,
     }
     // When auto_parent is set, resolve parent_hash to the current head for this path
     // within the transaction. The advisory lock above ensures the second concurrent
@@ -1127,6 +1128,7 @@ async fn create_script_internal<'c>(
                     p_hashes: ph,
                     perms: ps.extra_perms,
                     p_path: ps.path,
+                    p_on_behalf_of_permissioned_as: ps.on_behalf_of_permissioned_as,
                 })),
             };
             sqlx::query!(
@@ -1548,6 +1550,9 @@ async fn create_script_internal<'c>(
         windmill_common::resolve_on_behalf_of(
             ns.on_behalf_of_email.as_deref(),
             ns.on_behalf_of_permissioned_as.as_deref(),
+            parent_hashes_and_perms
+                .as_ref()
+                .and_then(|p| p.p_on_behalf_of_permissioned_as.as_deref()),
             ns.preserve_on_behalf_of.unwrap_or(false),
             &authed,
         );
