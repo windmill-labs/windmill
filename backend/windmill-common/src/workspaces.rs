@@ -2479,6 +2479,37 @@ mod tests {
     }
 }
 
+/// The connection a dbt warehouse points at, resolved with NO permission check.
+///
+/// Deliberate, and the whole point of configuring warehouses on the workspace:
+/// anyone who may run a dbt script reaches them, exactly as `s3://` reaches the
+/// workspace bucket without the caller being granted the storage resource. What
+/// is reachable stays bounded because only an admin writes the setting and a
+/// descriptor cannot name a resource, only one of those names. Never echo the
+/// result to a user.
+pub async fn dbt_warehouse_connection(
+    db: &DB,
+    w_id: &str,
+    warehouse: &str,
+) -> Result<DbtWarehouseConnection> {
+    let (resource_path, target) = dbt_warehouse_resource(db, w_id, warehouse).await?;
+    let raw = sqlx::query_scalar!(
+        "SELECT value FROM resource WHERE workspace_id = $1 AND path = $2",
+        w_id,
+        &resource_path
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten()
+    .ok_or_else(|| {
+        Error::NotFound(format!(
+            "the dbt warehouse `{warehouse}` points at `{resource_path}`, which does not exist"
+        ))
+    })?;
+    let value = transform_json_value_unchecked(&raw, w_id, db).await?;
+    Ok(DbtWarehouseConnection { value, target })
+}
+
 /// A warehouse name is a URL path segment for a worker with no database, so a
 /// name that could re-cut the path (or the query) is refused — at every place a
 /// name enters, not only where one is written, since a descriptor names one too.
@@ -2495,12 +2526,16 @@ pub fn validate_dbt_warehouse_name(name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Where a dbt warehouse name points. A POINTER only — the worker reads the
-/// resource itself with its own job token, which is what authorizes the
-/// connection.
+/// A dbt warehouse's resolved connection: the value a `profiles.yml` is rendered
+/// from, and the target the workspace names for it.
+///
+/// Carries CREDENTIALS. dbt is unpermissioned by design (docs/dbt-runtime.md,
+/// Decision 24), so this is served to a running job rather than gated on the
+/// runner's access to the resource — but it must never reach a route a user can
+/// browse.
 #[derive(serde::Serialize, serde::Deserialize)]
-pub struct DbtWarehouseRef {
-    pub resource_path: String,
+pub struct DbtWarehouseConnection {
+    pub value: serde_json::Value,
     /// Omitted rather than null when absent, so the wire shape matches the
     /// schema generated clients validate against.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2528,9 +2563,7 @@ pub async fn dbt_warehouse_resource(
         w_id
     )
     .fetch_optional(db)
-    .await
-    .ok()
-    .flatten()
+    .await?
     .flatten()
     .unwrap_or(serde_json::Value::Null);
     let entry = cfg.get(warehouse).cloned().ok_or_else(|| {

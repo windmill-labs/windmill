@@ -744,11 +744,14 @@ pub(crate) async fn change_workspace_id(
     .await?;
 
     // The dbt graph tables key on (workspace_id, script_hash) and follow the
-    // script update by cascade. These two key on the job instead, so they need
-    // moving here or a run's retry state is left behind under the old id.
-    info!("Updating dbt run state tables");
+    // script update by cascade. These two key on the JOB, so they follow the
+    // jobs that moved — only queued ones do — the way `job_perms` just did.
+    // Moving them wholesale would strand a completed run's retry state in a
+    // workspace its job is not in, which reads as "no resumable run".
+    info!("Updating dbt run state tables for migrated jobs");
     sqlx::query!(
-        "UPDATE dbt_run_state SET workspace_id = $1 WHERE workspace_id = $2",
+        "UPDATE dbt_run_state SET workspace_id = $1
+         WHERE workspace_id = $2 AND job_id IN (SELECT id FROM v2_job WHERE workspace_id = $1)",
         &rw.new_id,
         &old_id
     )
@@ -756,7 +759,8 @@ pub(crate) async fn change_workspace_id(
     .await?;
 
     sqlx::query!(
-        "UPDATE dbt_run_progress SET workspace_id = $1 WHERE workspace_id = $2",
+        "UPDATE dbt_run_progress SET workspace_id = $1
+         WHERE workspace_id = $2 AND job_id IN (SELECT id FROM v2_job WHERE workspace_id = $1)",
         &rw.new_id,
         &old_id
     )

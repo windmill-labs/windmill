@@ -4543,10 +4543,11 @@ paths:
 
   /w/{workspace}/dbt/warehouse/{name}:
     get:
-      summary: resolve a dbt warehouse name to the resource it points at
+      summary: resolve a dbt warehouse to the connection it names
       description: >-
-        Job-scoped: needs a job token. Returns a pointer only — the caller reads
-        the resource with its own token, which is what authorizes the connection.
+        Job-scoped: needs a job token, because the response carries the
+        warehouse's credentials. dbt is unpermissioned by design, so a running
+        job reaches any warehouse the workspace configures.
       operationId: getDbtWarehouse
       tags:
         - dbt
@@ -4559,11 +4560,11 @@ paths:
             type: string
       responses:
         "200":
-          description: the warehouse it points at
+          description: the connection the warehouse names
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DbtWarehouseRef"
+                $ref: "#/components/schemas/DbtWarehouseConnection"
 
   /w/{workspace}/workspaces/list_ducklakes:
     get:
@@ -31514,15 +31515,15 @@ components:
         required:
           - resource_path
 
-    DbtWarehouseRef:
+    DbtWarehouseConnection:
       type: object
       properties:
-        resource_path:
-          type: string
+        value:
+          description: the resolved resource, rendered into profiles.yml
         target:
           type: string
       required:
-        - resource_path
+        - value
 
     LargeFileStorage:
       type: object

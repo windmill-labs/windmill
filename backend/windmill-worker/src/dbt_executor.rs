@@ -1561,25 +1561,12 @@ async fn write_profiles(
         // `main` would key a self-hosted profile's assets onto the workspace
         // warehouse it never connected to.
         //
-        // The name is still resolved and its resource still READ, because
-        // reading is what authorizes the claim: this project connects through
-        // its own file, so nothing else would stop it from publishing
-        // `dbt://<any warehouse>/...` writes over tables it never touched.
+        // The name is still resolved, because a name that matches no configured
+        // warehouse is not identity, it is a typo that would strand this
+        // project's models on a node nothing else reaches.
         let identity = match descriptor.profile.warehouse.as_deref() {
             Some(named) => {
-                let (resource_path, _) =
-                    resolve_warehouse(named, client, w_id, conn).await?;
-                client
-                    .get_resource_value_interpolated::<serde_json::Value>(
-                        &resource_path,
-                        Some(job_id.to_string()),
-                    )
-                    .await
-                    .map_err(|e| {
-                        Error::BadRequest(format!(
-                            "`profile.warehouse: {named}` is what this project's assets are keyed                              on, so its resource must be readable even when                              `profile.profiles_yml` provides the connection: {e}"
-                        ))
-                    })?;
+                resolve_warehouse(named, client, w_id, conn).await?;
                 Some(named.to_string())
             }
             None => None,
@@ -1587,16 +1574,14 @@ async fn write_profiles(
         return Ok((dir, identity, adapter, None, None, profile_digest));
     }
 
-    let (resource_path, workspace_target) = resolve_warehouse(warehouse, client, w_id, conn).await?;
-    let value: serde_json::Value = client
-        .get_resource_value_interpolated(&resource_path, Some(job_id.to_string()))
-        .await
-        .map_err(|e| Error::BadRequest(format!("could not read the resource the `{warehouse}` warehouse points at: {e}")))?;
+    let resolved = resolve_warehouse(warehouse, client, w_id, conn).await?;
+    let workspace_target = resolved.target;
+    let value = resolved.value;
     let adapter = declared
         .or_else(|| DbtAdapter::infer_from_resource(&value))
         .ok_or_else(|| {
             Error::BadRequest(format!(
-                "could not tell which dbt adapter resource `{resource_path}` needs; \
+                "could not tell which dbt adapter the `{warehouse}` warehouse needs; \
                  set `profile.type` in the descriptor"
             ))
         })?;
@@ -1653,7 +1638,7 @@ async fn resolve_warehouse(
     client: &AuthedClient,
     w_id: &str,
     conn: &Connection,
-) -> error::Result<(String, Option<String>)> {
+) -> error::Result<windmill_common::workspaces::DbtWarehouseConnection> {
     // The descriptor supplies this name, so it is checked HERE too, not only
     // where settings are written: an agent worker sends it as a URL path
     // segment, and `../../resources/get_value/...` would resolve to another
@@ -1661,18 +1646,12 @@ async fn resolve_warehouse(
     windmill_common::workspaces::validate_dbt_warehouse_name(warehouse)?;
     match conn {
         Connection::Sql(db) => {
-            windmill_common::workspaces::dbt_warehouse_resource(db, w_id, warehouse).await
+            windmill_common::workspaces::dbt_warehouse_connection(db, w_id, warehouse).await
         }
         // An agent worker reaches settings only through the API.
-        Connection::Http(_) => {
-            let r: windmill_common::workspaces::DbtWarehouseRef = client
-                .get_dbt_warehouse(warehouse)
-                .await
-                .map_err(|e| {
-                    Error::BadRequest(format!("resolving the dbt warehouse `{warehouse}`: {e}"))
-                })?;
-            Ok((r.resource_path, r.target))
-        }
+        Connection::Http(_) => client.get_dbt_warehouse(warehouse).await.map_err(|e| {
+            Error::BadRequest(format!("resolving the dbt warehouse `{warehouse}`: {e}"))
+        }),
     }
 }
 

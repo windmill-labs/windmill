@@ -2,7 +2,7 @@ use axum::{extract::Path, routing::get, Extension, Json, Router};
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
-    workspaces::{dbt_warehouse_resource, DbtWarehouseRef},
+    workspaces::{dbt_warehouse_connection, DbtWarehouseConnection},
     DB,
 };
 
@@ -17,9 +17,10 @@ async fn get_warehouse(
     Extension(db): Extension<DB>,
     Extension(_user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,
-) -> Result<Json<DbtWarehouseRef>> {
-    // Job-scoped: a workspace's warehouse names are a running job's business,
-    // not a browsable list.
+) -> Result<Json<DbtWarehouseConnection>> {
+    // Job-scoped, and the reason it must stay that way: the response carries the
+    // warehouse's credentials, which a running job already holds in its rendered
+    // `profiles.yml`. A browsable route would hand them to anyone.
     if job_id.is_none() {
         return Err(Error::BadRequest(
             "this route resolves a dbt warehouse for a running job and needs a job token"
@@ -27,6 +28,5 @@ async fn get_warehouse(
         ));
     }
     windmill_common::workspaces::validate_dbt_warehouse_name(&name)?;
-    let (resource_path, target) = dbt_warehouse_resource(&db, &w_id, &name).await?;
-    Ok(Json(DbtWarehouseRef { resource_path, target }))
+    Ok(Json(dbt_warehouse_connection(&db, &w_id, &name).await?))
 }

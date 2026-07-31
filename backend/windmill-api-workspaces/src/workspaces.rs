@@ -1745,6 +1745,31 @@ async fn edit_webhook(
     Ok(format!("Edit webhook for workspace {}", &w_id))
 }
 
+/// A warehouse's resource, checked at the one place a warehouse is written.
+///
+/// Same grammar as any Windmill resource path, with the `$res:` prefix optional
+/// because the storage configs are inconsistent about it. Traversal and control
+/// characters are refused here rather than at the far end: an unusable path
+/// stored now surfaces as every dbt run in the workspace failing later, with
+/// nothing pointing back at the settings page that accepted it.
+fn validate_dbt_resource_path(name: &str, path: &str) -> Result<()> {
+    let bare = path.strip_prefix("$res:").unwrap_or(path);
+    let parts: Vec<&str> = bare.split('/').collect();
+    let ok = (bare.starts_with("f/") || bare.starts_with("u/"))
+        && parts.len() >= 3
+        && parts.iter().all(|p| !p.is_empty() && *p != "." && *p != "..")
+        && !bare
+            .chars()
+            .any(|c| c.is_control() || "?#%\\ ".contains(c));
+    if !ok {
+        return Err(Error::BadRequest(format!(
+            "the dbt warehouse `{name}` names `{path}`, which is not a resource path \
+             (`f/<folder>/<name>` or `u/<user>/<name>`, optionally prefixed with `$res:`)"
+        )));
+    }
+    Ok(())
+}
+
 #[derive(serde::Deserialize, serde::Serialize)]
 struct DbtWarehouseConfig {
     resource_path: String,
@@ -1776,11 +1801,7 @@ async fn edit_dbt_warehouses(
     if let Some(map) = new_config.as_ref() {
         for (name, cfg) in map.iter() {
             windmill_common::workspaces::validate_dbt_warehouse_name(name)?;
-            if cfg.resource_path.trim().is_empty() {
-                return Err(Error::BadRequest(format!(
-                    "the dbt warehouse `{name}` names no resource"
-                )));
-            }
+            validate_dbt_resource_path(name, &cfg.resource_path)?;
         }
     }
     let new_config = new_config

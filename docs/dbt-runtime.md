@@ -220,22 +220,33 @@ because a name is all there is. Had both `profile.resource` and
 spellings and two projects on it would silently fail to share nodes — the exact
 failure Decision 11 exists to prevent.
 
-**The blast radius is bounded by construction.** Since a script cannot name an
-arbitrary resource, "which warehouses may a dbt script reach" is answered
-entirely by workspace settings, which only an admin writes. The connection itself
-is still read with the job's own token, so a run against a warehouse the runner
-may not read fails rather than silently escalating. That is the deliberate
-difference from `s3://`, which reads the workspace bucket unchecked: a warehouse
-is a write path into shared tables, and being named in workspace settings is not
-the same as being granted to everyone.
+**dbt is unpermissioned, and the blast radius is bounded by construction
+instead.** The warehouse resource is read with NO permission check on the runner,
+exactly as `s3://` reaches the workspace bucket without the caller being granted
+the storage resource: configuring a warehouse is what makes it available, and
+anyone who may run a dbt script may build with it and read its models. What is
+reachable stays bounded because only an admin writes the setting and a descriptor
+cannot name a resource, only one of the names an admin configured.
+
+Per-relation rules were considered and rejected. `s3://` can enforce a path glob
+because Windmill mediates every object operation through its proxy; dbt has no
+such chokepoint — Windmill renders `profiles.yml` and dbt opens its own
+connection. A rule could only be a pre-run check against the manifest, and a
+`pre-hook`, a macro or `dbt run-operation` issues arbitrary SQL on the same
+connection, so it would stop the ordinary case while implying a guarantee it
+cannot keep.
 
 A project that brings its own `profiles.yml` still connects with it, and then
-names a warehouse only to say where its assets belong. It gets no identity by
-default, because defaulting to `main` would key a self-hosted profile's tables
-onto a workspace warehouse it never connected to.
+names a warehouse only to say where its assets belong. The name must still match
+a configured warehouse — a typo is not identity, it strands the project's models
+on a node nothing else reaches — but it grants nothing, since nothing here is
+granted. It gets no identity by default, because defaulting to `main` would key a
+self-hosted profile's tables onto a workspace warehouse it never connected to.
 
 An agent worker cannot read the database, so it resolves the name through a
-job-scoped API route that returns the POINTER only.
+job-scoped API route. That route returns the resolved connection, which is why it
+requires a job token: a running job already holds those credentials in its
+rendered `profiles.yml`, and a browsable route would hand them to anyone.
 
 ## Decision 23: the descriptor is optional, and lives inside the project
 
