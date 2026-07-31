@@ -120,6 +120,10 @@ impl ScopeDefinition {
 
         match (self.action.as_str(), other.action.as_str()) {
             (a, b) if (a == "write" && b == "read") || (a == b) => {}
+            // Apps only: `write` can rewrite the app and its policy, so it also covers
+            // running its components. Not general — `jobs:write` must not grant
+            // `jobs:run`. The resource check below still confines it to the same app.
+            ("write", "run") if self.domain == "apps" => {}
             _ => return false,
         }
 
@@ -849,6 +853,15 @@ fn scope_grants_access(
             && route_path.is_some_and(resource_metadata_route_allowed));
     }
 
+    // Apps `write` covers `run` (see `ScopeDefinition::includes`). Like every domain
+    // here this layer is resource-blind; the Run handlers path-check the app.
+    if scope_domain == ScopeDomain::Apps
+        && scope_action == ScopeAction::Write
+        && required_action == ScopeAction::Run
+    {
+        return Ok(true);
+    }
+
     if !scope_action.includes(&required_action)
         && !(scope_domain == ScopeDomain::Jobs
             && required_action == ScopeAction::Read
@@ -1061,6 +1074,29 @@ mod tests {
         // Conversely a scripts token does not reach the data_metrics route.
         let sc = vec!["scripts:read".to_string()];
         assert!(check_route_access(&sc, "/api/w/test/data_metrics/list", "GET").is_err());
+    }
+
+    /// `apps_u/execute_component` (and the S3 upload the same components drive) is a
+    /// Run action, so a scoped token needs `apps:run`. `apps:write` must keep reaching
+    /// it too: it can rewrite the app and its policy, so withholding execution from it
+    /// protects nothing while breaking every app-scoped token.
+    #[test]
+    fn apps_run_routes_accept_run_and_write_scopes() {
+        let execute = "/api/w/test/apps_u/execute_component/u/admin/app";
+        for scope in ["apps:run", "apps:write"] {
+            assert!(
+                check_route_access(&[scope.to_string()], execute, "POST").is_ok(),
+                "{scope} must reach execute_component"
+            );
+        }
+        assert!(check_route_access(&["apps:read".to_string()], execute, "POST").is_err());
+        // The write-satisfies-run allowance is confined to the apps domain.
+        assert!(check_route_access(
+            &["jobs:write".to_string()],
+            "/api/w/test/jobs/run/p/u/admin/script",
+            "POST"
+        )
+        .is_err());
     }
 
     #[test]
