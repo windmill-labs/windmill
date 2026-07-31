@@ -1631,6 +1631,7 @@ async fn write_profiles(
         &rendered.yaml,
         &dir,
         rendered.root_certificate_pem.as_deref(),
+        &client.token,
     );
     Ok((
         dir,
@@ -1662,16 +1663,29 @@ async fn resolve_warehouse(
 
 /// Identifies the connection a rendered profile describes, for run identity.
 ///
-/// The per-job profiles dir is spelled out in the YAML when a private CA is
-/// configured (`sslrootcert`) and differs on every attempt, so hashing the
-/// rendered text as-is would make a retry reject its own predecessor. The
-/// certificate is part of the connection, so it is hashed in place of its path.
-fn profile_identity_digest(yaml: &str, profiles_dir: &Path, root_cert_pem: Option<&str>) -> String {
-    digest(&format!(
-        "{}\n{}",
-        yaml.replace(profiles_dir.to_str().unwrap_or_default(), "$PROFILES_DIR"),
-        root_cert_pem.unwrap_or_default(),
-    ))
+/// Two things in the rendered text belong to the ATTEMPT rather than the
+/// connection, and hashing either as-is makes a retry reject its own
+/// predecessor — it compares identities and finds a different one every time:
+///
+/// * the per-job profiles dir, spelled out when a private CA is configured
+///   (`sslrootcert`). The certificate is part of the connection, so it is
+///   hashed in place of its path.
+/// * the job's own token, where the warehouse resource interpolates `$WM_TOKEN`
+///   (a warehouse reached through an OIDC or on-behalf flow does). Every
+///   attempt is a new job with a new token.
+fn profile_identity_digest(
+    yaml: &str,
+    profiles_dir: &Path,
+    root_cert_pem: Option<&str>,
+    job_token: &str,
+) -> String {
+    let normalized = yaml.replace(profiles_dir.to_str().unwrap_or_default(), "$PROFILES_DIR");
+    let normalized = if job_token.is_empty() {
+        normalized
+    } else {
+        normalized.replace(job_token, "$WM_TOKEN")
+    };
+    digest(&format!("{}\n{}", normalized, root_cert_pem.unwrap_or_default()))
 }
 
 async fn adapter_from_profiles_yml(
@@ -4681,11 +4695,13 @@ mod tests {
             &yaml("/tmp/windmill/w/job-1/profiles", "wh.internal"),
             Path::new("/tmp/windmill/w/job-1/profiles"),
             Some("PEM"),
+            "",
         );
         let retry = profile_identity_digest(
             &yaml("/tmp/windmill/w/job-2/profiles", "wh.internal"),
             Path::new("/tmp/windmill/w/job-2/profiles"),
             Some("PEM"),
+            "",
         );
         assert_eq!(first, retry);
 
@@ -4693,14 +4709,35 @@ mod tests {
             &yaml("/tmp/windmill/w/job-2/profiles", "other.internal"),
             Path::new("/tmp/windmill/w/job-2/profiles"),
             Some("PEM"),
+            "",
         );
         let recerted = profile_identity_digest(
             &yaml("/tmp/windmill/w/job-2/profiles", "wh.internal"),
             Path::new("/tmp/windmill/w/job-2/profiles"),
             Some("OTHER PEM"),
+            "",
         );
         assert_ne!(first, repointed);
         assert_ne!(first, recerted);
+    }
+
+    // The warehouse's resource may interpolate `$WM_TOKEN`, so the rendered
+    // profile carries the ATTEMPT's token. A retry is a new job with a new one,
+    // and without normalizing it the saved run is never recognized as its own.
+    #[test]
+    fn profile_identity_ignores_the_attempts_token() {
+        let yaml = |tok: &str| format!("host: \"wh\"\npassword: \"{tok}\"\n");
+        let dir = Path::new("/tmp/windmill/w/job-1/profiles");
+        assert_eq!(
+            profile_identity_digest(&yaml("tok-first"), dir, None, "tok-first"),
+            profile_identity_digest(&yaml("tok-retry"), dir, None, "tok-retry")
+        );
+        // A password that is NOT the job's token is the connection, and changing
+        // it must still read as a different warehouse.
+        assert_ne!(
+            profile_identity_digest(&yaml("static-a"), dir, None, "tok-first"),
+            profile_identity_digest(&yaml("static-b"), dir, None, "tok-retry")
+        );
     }
 
     // The jail profile is protobuf text format, and the project path and the
