@@ -735,6 +735,11 @@ pub async fn run_flow<'c>(
         )
     };
 
+    let trigger = match trigger {
+        Some(trigger) => Some(trigger),
+        None => authed.fallback_trigger_metadata().await,
+    };
+
     let (uuid, mut tx) = push(
         &db,
         tx,
@@ -769,7 +774,7 @@ pub async fn run_flow<'c>(
         push_authed.as_ref(),
         false,
         None,
-        trigger.or_else(|| authed.fallback_trigger_metadata()),
+        trigger,
         run_query.suspended_mode,
     )
     .await?;
@@ -956,6 +961,11 @@ pub async fn push_script_job_by_path_into_queue<'c>(
         )
     };
 
+    let trigger = match trigger {
+        Some(trigger) => Some(trigger),
+        None => authed.fallback_trigger_metadata().await,
+    };
+
     let (uuid, tx) = push(
         &db,
         tx,
@@ -988,7 +998,7 @@ pub async fn push_script_job_by_path_into_queue<'c>(
         push_authed.as_ref(),
         false,
         None,
-        trigger.or_else(|| authed.fallback_trigger_metadata()),
+        trigger,
         run_query.suspended_mode,
     )
     .await?;

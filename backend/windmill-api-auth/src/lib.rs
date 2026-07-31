@@ -24,6 +24,7 @@ use windmill_common::{
     db::{Authable, Authed, AuthedRef},
     error::{self, Error, Result},
     jobs::JobTriggerKind,
+    min_version::MIN_VERSION_SUPPORTS_UI_TRIGGER_KIND,
     triggers::TriggerMetadata,
     users::username_to_permissioned_as,
     DB,
@@ -112,7 +113,15 @@ impl ApiAuthed {
     /// `trigger_kind` is authority-bearing (`app` is what marks a file as app-produced).
     /// Everything that is not a browser session — webhooks, the CLI, the SDKs — is `webhook`,
     /// matching the `wm_trigger.kind` the preprocessor already reports for these routes.
-    pub fn fallback_trigger_metadata(&self) -> Option<TriggerMetadata> {
+    ///
+    /// Stamps nothing at all until every worker can decode `ui`: the pull query decodes
+    /// `trigger_kind` into the Rust enum, so a worker that predates the variant drops every
+    /// job carrying it. Falling back to `webhook` in the meantime is worse than leaving it
+    /// NULL — it would write the wrong provenance permanently.
+    pub async fn fallback_trigger_metadata(&self) -> Option<TriggerMetadata> {
+        if !MIN_VERSION_SUPPORTS_UI_TRIGGER_KIND.met().await {
+            return None;
+        }
         Some(TriggerMetadata::new(
             None,
             if self.is_session_token {
@@ -1310,45 +1319,37 @@ mod tests {
     /// `trigger_kind` says how a run was started, so a member must not be able to make their
     /// own runs look like they came from the UI. Only the label `create_session_token` mints
     /// — which `is_server_minted_label` keeps unmintable — may map to `ui`.
-    #[test]
-    fn only_the_browser_session_label_maps_to_ui() {
-        let kind_of = |label: &str| {
+    #[tokio::test]
+    async fn only_the_browser_session_label_maps_to_ui() {
+        // `MIN_VERSION` is unset here, which `met()` treats as satisfied, so the fallback is
+        // always produced and the assertions see the kind rather than the version gate.
+        async fn kind_of(label: Option<&str>) -> String {
             ApiAuthed {
-                is_session_token: windmill_common::auth::is_session_label(Some(label)),
+                is_session_token: windmill_common::auth::is_session_label(label),
                 ..Default::default()
             }
             .fallback_trigger_metadata()
+            .await
             .unwrap()
             .trigger_kind
             .to_string()
-        };
-
-        assert_eq!(kind_of("session"), "ui");
-
-        for label in [
-            "my-personal-token",
-            "webhook-f/svc/my_script",
-            "Ephemeral lsp token",
-            "ephemeral-script",
-            "ephemeral-webhook-google-abc12",
-            "mcp-oauth-mcp-client-9f3a1c",
-            "",
-        ] {
-            assert_eq!(kind_of(label), "webhook", "label {label:?}");
         }
 
-        // A label-less token (the job WM_TOKEN, and any token created without one).
-        assert_eq!(
-            ApiAuthed {
-                is_session_token: windmill_common::auth::is_session_label(None),
-                ..Default::default()
-            }
-            .fallback_trigger_metadata()
-            .unwrap()
-            .trigger_kind
-            .to_string(),
-            "webhook"
-        );
+        assert_eq!(kind_of(Some("session")).await, "ui");
+
+        for label in [
+            Some("my-personal-token"),
+            Some("webhook-f/svc/my_script"),
+            Some("Ephemeral lsp token"),
+            Some("ephemeral-script"),
+            Some("ephemeral-webhook-google-abc12"),
+            Some("mcp-oauth-mcp-client-9f3a1c"),
+            Some(""),
+            // A label-less token: the job WM_TOKEN, and any token created without one.
+            None,
+        ] {
+            assert_eq!(kind_of(label).await, "webhook", "label {label:?}");
+        }
     }
 
     // Regression tests for the Preview path traversal: a Preview's path skips the
