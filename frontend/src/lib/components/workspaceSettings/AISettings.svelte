@@ -387,7 +387,7 @@
 	{/if}
 	{#if showWorkspaceOverrideEditor}
 		<SettingCard label="AI Providers">
-			<div class="flex flex-col gap-4 p-4 rounded-md border bg-surface-tertiary">
+			<div class="flex flex-col gap-4">
 				{#each Object.entries(AI_PROVIDERS) as [provider, details] (provider)}
 					<div class="flex flex-col">
 						<div class="flex flex-row gap-2">

@@ -267,6 +267,8 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ws_base_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub github_app_webhook_base_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub email_domain: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hub_base_url: Option<String>,
@@ -1274,6 +1276,60 @@ pub fn diff_worker_configs(
     ConfigsDiff { upserts, deletes }
 }
 
+/// Declaratively replace the global settings, rejecting a `github_app_webhook_base_url`
+/// the API would reject.
+///
+/// Every declarative writer (the `sync-config` CLI, the Kubernetes operator's
+/// ConfigMap sync) MUST go through this rather than calling
+/// [`apply_settings_diff`] directly, or that validation is silently skipped.
+/// Note this is *not* the full equivalent of the HTTP layer's pre-write hook —
+/// that also enforces rules for `automate_username_creation`,
+/// `critical_alert_mute_ui` and `app_workspaced_route`, which the declarative
+/// paths have never applied. A new rule added there does not appear here for free.
+///
+/// Registered webhooks are deliberately not re-pointed here. The receiver is set at
+/// instance setup, before any GitHub App is connected, so there is normally nothing
+/// registered to move; an instance that changes it later finds the affected
+/// workspaces listed in instance settings and re-saves them.
+///
+/// AUTHORIZATION: replaces instance-wide settings and takes no authed context, so
+/// callers MUST have established superadmin or equivalent system authority (the CLI
+/// and the operator both run with direct instance credentials).
+pub async fn sync_global_settings_declarative(
+    db: &sqlx::Pool<sqlx::Postgres>,
+    current: &BTreeMap<String, serde_json::Value>,
+    desired: &BTreeMap<String, serde_json::Value>,
+) -> anyhow::Result<()> {
+    let webhook_key = crate::global_settings::GITHUB_APP_WEBHOOK_BASE_URL_SETTING;
+    // Non-string shapes are rejected rather than ignored: `as_str()` alone would let a
+    // bool/number/object through as if the key were absent, and the diff below would
+    // then persist it — where the HTTP path answers "must be a URL string".
+    match desired.get(webhook_key) {
+        None | Some(serde_json::Value::Null) => {}
+        Some(serde_json::Value::String(s)) if s.trim().is_empty() => {}
+        Some(serde_json::Value::String(s)) => crate::global_settings::validate_webhook_base_url(s)
+            .map_err(|e| anyhow::anyhow!("{webhook_key}: {e}"))?,
+        // Names the JSON kind rather than printing it: this is the last message on
+        // this path that could report submitted content, and an object or array could
+        // carry a secret into `sync-config` output and operator logs.
+        Some(other) => {
+            let kind = match other {
+                serde_json::Value::Bool(_) => "a boolean",
+                serde_json::Value::Number(_) => "a number",
+                serde_json::Value::Array(_) => "an array",
+                serde_json::Value::Object(_) => "an object",
+                _ => "a non-string value",
+            };
+            return Err(anyhow::anyhow!("{webhook_key} must be a URL string, got {kind}"));
+        }
+    }
+
+    let diff = diff_global_settings(current, desired, ApplyMode::Replace);
+    apply_settings_diff(db, &diff).await?;
+
+    Ok(())
+}
+
 /// Apply a settings diff to the global_settings table.
 pub async fn apply_settings_diff(
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -1454,9 +1510,7 @@ impl InstanceConfig {
                 .await?;
         let current_settings: BTreeMap<String, serde_json::Value> = rows.into_iter().collect();
 
-        let settings_diff =
-            diff_global_settings(&current_settings, &desired_settings, ApplyMode::Replace);
-        apply_settings_diff(db, &settings_diff).await?;
+        sync_global_settings_declarative(db, &current_settings, &desired_settings).await?;
 
         // Worker configs
         let desired_configs: BTreeMap<String, serde_json::Value> = self

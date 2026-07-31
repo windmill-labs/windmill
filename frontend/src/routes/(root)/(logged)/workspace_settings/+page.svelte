@@ -41,7 +41,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { clone, emptyString, encodeState, hasUnsavedChanges } from '$lib/utils'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
-	import { Slack } from 'lucide-svelte'
+	import { Slack, Target } from 'lucide-svelte'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
@@ -294,7 +294,7 @@
 
 	// Derived state for checking unsaved changes in deployment settings
 	let hasDeploySettingsChanges = $derived.by(() => {
-		if (tab !== 'deploy_to') return false
+		if (tab !== 'dev_workspace') return false
 		const changes = getDeploySettingsInitialAndModifiedValues()
 		if (!changes.savedValue || !changes.modifiedValue) return false
 		return hasUnsavedChanges(changes.savedValue, changes.modifiedValue)
@@ -340,8 +340,8 @@
 	})
 	const currentWorkspace = $derived($userWorkspaces.find((w) => w.id === $workspaceStore))
 
-	// The Deployment UI tab configures what may be promoted into the parent, so it only means
-	// something for a fork. A root workspace deploys nowhere.
+	// The deploy filters configure what may be promoted into the parent, so they only mean
+	// something for a fork. A root workspace deploys nowhere by lineage.
 	const showDeployToTab = $derived(Boolean(currentWorkspace?.parent_workspace_id))
 	const canAdmin = $derived(($userStore?.is_admin ?? false) || Boolean($superadmin))
 	// The creator of a fork gets the fork members screen even when they are not an admin of it:
@@ -394,10 +394,9 @@
 		if (selectedTab === 'success_handler') {
 			return 'error_handler'
 		}
-		// A root workspace deploys nowhere, so this tab has no parent to render and its filters
-		// could never apply. The nav item is hidden, but the URL is still reachable directly.
-		if (selectedTab === 'deploy_to' && !showDeployToTab) {
-			return 'general'
+		// The Deployment UI tab was folded into Dev workspace; keep its links working.
+		if (selectedTab === 'deploy_to') {
+			return 'dev_workspace'
 		}
 		return selectedTab || 'users'
 	})
@@ -1080,7 +1079,7 @@
 				return getVolumeStorageInitialAndModifiedValues()
 			case 'ducklake':
 				return getDucklakeSettingsInitialAndModifiedValues()
-			case 'deploy_to':
+			case 'dev_workspace':
 				return getDeploySettingsInitialAndModifiedValues()
 			case 'webhook':
 				return getWebhookSettingsInitialAndModifiedValues()
@@ -1126,7 +1125,7 @@
 			case 'ducklake':
 				discardDucklakeSettingsChanges()
 				break
-			case 'deploy_to':
+			case 'dev_workspace':
 				discardDeploySettingsChanges()
 				break
 			case 'webhook':
@@ -1150,14 +1149,6 @@
 				break
 		}
 	}
-
-	// The Dev workspace tab is only meaningful on a root workspace (to pair/manage a dev) or on a
-	// dev workspace itself (to see its prod / detach). Hide it for ordinary forks — pairing isn't
-	// available there and the backend would reject it.
-	const showDevWorkspaceTab = $derived(
-		!currentWorkspace?.parent_workspace_id || (currentWorkspace?.is_dev_workspace ?? false)
-	)
-
 
 	// Navigation groups for sidebar
 	const adminNavigationGroups = $derived([
@@ -1200,28 +1191,13 @@
 					aiDescription: 'Git sync workspace settings',
 					isEE: true
 				},
-				...(showDeployToTab
-					? [
-							{
-								id: 'deploy_to',
-								label: 'Deployment UI',
-								aiId: 'workspace-settings-deploy-to',
-								aiDescription: 'Deployment UI workspace settings',
-								isEE: true
-							}
-						]
-					: []),
-				...(showDevWorkspaceTab
-					? [
-							{
-								id: 'dev_workspace',
-								label: 'Dev workspace',
-								aiId: 'workspace-settings-dev-workspace',
-								aiDescription:
-									'Pair this workspace with a dev workspace (same code, different environment)'
-							}
-						]
-					: []),
+				{
+					id: 'dev_workspace',
+					label: 'Dev workspace',
+					aiId: 'workspace-settings-dev-workspace',
+					aiDescription:
+						'Pair this workspace with a dev workspace (same code, different environment), and choose which items its deploy UI may promote'
+				},
 				{
 					id: 'rulesets',
 					label: 'Rulesets',
@@ -1403,37 +1379,55 @@
 							{:else}
 								<ForkMemberSettings />
 							{/if}
-						{:else if tab == 'deploy_to'}
-							<SettingsPageHeader
-								title="Deploying into {currentWorkspace?.parent_workspace_id}"
-								description="This workspace deploys into its parent. Choose which items the deploy UI may promote."
-								link="https://www.windmill.dev/docs/core_concepts/staging_prod"
-							/>
-							{#if $enterpriseLicense}
-								<DeployToSetting
-									bind:deployUiSettings
-									hasUnsavedChanges={hasDeploySettingsChanges}
-									parentWorkspaceId={currentWorkspace?.parent_workspace_id ?? undefined}
-									isDevWorkspace={currentWorkspace?.is_dev_workspace ?? false}
-									onSave={() => {
-										initialDeployUiSettings = clone(deployUiSettings)
-									}}
-									onDiscard={discardDeploySettingsChanges}
-								/>
-							{:else}
-								<div class="my-2"
-									><Alert type="warning" title="Enterprise license required"
-										>Deploy to staging/prod from the web UI is only available with an enterprise
-										license</Alert
-									></div
-								>
-							{/if}
 						{:else if tab == 'dev_workspace'}
 							<SettingsPageHeader
 								title="Dev workspace"
 								description="Pair this workspace with a dev workspace: the same code with a different environment. Edits are made in the dev workspace and promoted to prod."
+								link="https://www.windmill.dev/docs/core_concepts/staging_prod"
 							/>
 							<DevWorkspaceSetting />
+							{#if showDeployToTab}
+								<!-- The deploy filters only bite on a workspace that deploys into a
+								     parent; a root workspace promotes nowhere by lineage. -->
+								{#if $enterpriseLicense}
+									<DeployToSetting
+										bind:deployUiSettings
+										hasUnsavedChanges={hasDeploySettingsChanges}
+										parentWorkspaceId={currentWorkspace?.parent_workspace_id ?? undefined}
+										isDevWorkspace={currentWorkspace?.is_dev_workspace ?? false}
+										onSave={() => {
+											initialDeployUiSettings = clone(deployUiSettings)
+										}}
+										onDiscard={discardDeploySettingsChanges}
+									/>
+								{:else}
+									<div class="my-2"
+										><Alert type="warning" title="Enterprise license required"
+											>Deploy to staging/prod from the web UI is only available with an enterprise
+											license</Alert
+										></div
+									>
+								{/if}
+							{/if}
+						<!-- Last, and below the lineage target above: the escape hatch for a
+						     destination the lineage cannot express. -->
+						<div class="flex flex-col gap-2 max-w-2xl mt-8 pt-6 border-t">
+							<span class="text-xs font-semibold text-emphasis">Deploy into another workspace</span>
+							<p class="text-sm text-secondary">
+								Promotion normally follows the lineage, from this workspace into its parent. For a
+								one-off migration you can instead point the merge UI at any workspace you administer;
+								it computes a full diff over both workspaces and deploys the items you pick, one way.
+							</p>
+							<div>
+								<Button
+									variant="default"
+									startIcon={{ icon: Target }}
+									onclick={() => goto(`${base}/forks/compare?mode=fork`)}
+								>
+									Merge into another workspace
+								</Button>
+							</div>
+						</div>
 						{:else if tab == 'rulesets'}
 							<SettingsPageHeader
 								title="Workspace Protection Rulesets"

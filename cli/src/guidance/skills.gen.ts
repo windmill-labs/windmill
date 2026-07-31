@@ -7765,9 +7765,6 @@ properties:
   script_path:
     type: string
     description: Path to the script or flow to execute when triggered
-  permissioned_as:
-    type: string
-    description: The user or group this trigger runs as (permissioned_as)
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
@@ -7869,7 +7866,6 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
-- permissioned_as
 - is_flow
 - amqp_resource_path
 - queue_name
@@ -7879,9 +7875,6 @@ properties:
   script_path:
     type: string
     description: Path to the script or flow to execute when triggered
-  permissioned_as:
-    type: string
-    description: The user or group this trigger runs as (permissioned_as)
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
@@ -7972,7 +7965,6 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
-- permissioned_as
 - is_flow
 - azure_resource_path
 - azure_mode
@@ -7984,9 +7976,6 @@ properties:
   script_path:
     type: string
     description: Path to the script or flow to execute when triggered
-  permissioned_as:
-    type: string
-    description: The user or group this trigger runs as (permissioned_as)
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
@@ -8060,7 +8049,6 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
-- permissioned_as
 - is_flow
 - local_part
 `,
@@ -8069,9 +8057,6 @@ properties:
   script_path:
     type: string
     description: Path to the script or flow to execute when triggered
-  permissioned_as:
-    type: string
-    description: The user or group this trigger runs as (permissioned_as)
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
@@ -8177,7 +8162,6 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
-- permissioned_as
 - is_flow
 - gcp_resource_path
 - topic_id
@@ -8190,9 +8174,6 @@ properties:
   script_path:
     type: string
     description: Path to the script or flow to execute when triggered
-  permissioned_as:
-    type: string
-    description: The user or group this trigger runs as (permissioned_as)
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
@@ -8328,7 +8309,6 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
-- permissioned_as
 - is_flow
 - route_path
 - request_type
@@ -8344,9 +8324,6 @@ properties:
   script_path:
     type: string
     description: Path to the script or flow to execute when triggered
-  permissioned_as:
-    type: string
-    description: The user or group this trigger runs as (permissioned_as)
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
@@ -8455,7 +8432,6 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
-- permissioned_as
 - is_flow
 - kafka_resource_path
 - group_id
@@ -8467,9 +8443,6 @@ properties:
   script_path:
     type: string
     description: Path to the script or flow to execute when triggered
-  permissioned_as:
-    type: string
-    description: The user or group this trigger runs as (permissioned_as)
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
@@ -8571,7 +8544,6 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
-- permissioned_as
 - is_flow
 - subscribe_topics
 - mqtt_resource_path
@@ -8581,9 +8553,6 @@ properties:
   script_path:
     type: string
     description: Path to the script or flow to execute when triggered
-  permissioned_as:
-    type: string
-    description: The user or group this trigger runs as (permissioned_as)
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
@@ -8671,7 +8640,6 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
-- permissioned_as
 - is_flow
 - nats_resource_path
 - use_jetstream
@@ -8682,9 +8650,6 @@ properties:
   script_path:
     type: string
     description: Path to the script or flow to execute when triggered
-  permissioned_as:
-    type: string
-    description: The user or group this trigger runs as (permissioned_as)
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
@@ -8765,7 +8730,6 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
-- permissioned_as
 - is_flow
 - postgres_resource_path
 - replication_slot_name
@@ -8792,9 +8756,6 @@ properties:
   args:
     type: object
     description: The arguments to pass to the script or flow
-  permissioned_as:
-    type: string
-    description: The user or group this schedule runs as (e.g., 'u/admin' or 'g/mygroup')
   on_failure:
     type: string
     description: Path to a script or flow to run when the scheduled job fails
@@ -8924,16 +8885,12 @@ required:
 - timezone
 - is_flow
 - enabled
-- permissioned_as
 `,
   "sqs_trigger": `type: object
 properties:
   script_path:
     type: string
     description: Path to the script or flow to execute when triggered
-  permissioned_as:
-    type: string
-    description: The user or group this trigger runs as (permissioned_as)
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
@@ -9020,7 +8977,6 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
-- permissioned_as
 - is_flow
 - queue_url
 - aws_resource_path
@@ -9031,9 +8987,6 @@ properties:
   script_path:
     type: string
     description: Path to the script or flow to execute when triggered
-  permissioned_as:
-    type: string
-    description: The user or group this trigger runs as (permissioned_as)
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
@@ -9156,7 +9109,6 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
-- permissioned_as
 - is_flow
 - url
 - filters
