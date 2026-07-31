@@ -743,6 +743,26 @@ pub(crate) async fn change_workspace_id(
     .execute(&mut *tx)
     .await?;
 
+    // The dbt graph tables key on (workspace_id, script_hash) and follow the
+    // script update by cascade. These two key on the job instead, so they need
+    // moving here or a run's retry state is left behind under the old id.
+    info!("Updating dbt run state tables");
+    sqlx::query!(
+        "UPDATE dbt_run_state SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE dbt_run_progress SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
     info!("Updating token table");
     sqlx::query!(
         "UPDATE token SET workspace_id = $1 WHERE workspace_id = $2",
