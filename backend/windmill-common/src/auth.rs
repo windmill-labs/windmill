@@ -43,6 +43,22 @@ pub fn is_user_token(label: Option<&str>) -> bool {
     }
 }
 
+/// Whether `label` belongs to a namespace only the server mints, and which therefore must be
+/// rejected by `create_token`. Narrower than [`is_user_token`], which also drives label
+/// editability and expiry notifications and can afford to reserve more: `Ephemeral lsp token`
+/// and `debugger-token` are minted by the editor and the debugger through that same handler,
+/// so reserving them would break those features.
+///
+/// `username_override_from_label` trusts a label to name the entity acting only if it is in
+/// here, so anything added must be unmintable by a member.
+pub fn is_server_minted_label(label: &str) -> bool {
+    label.starts_with("ephemeral-webhook-")
+        || label.starts_with("ephemeral-script-end-user-")
+        || label == "ephemeral-script"
+        || label == "session"
+        || label.starts_with("mcp-oauth-")
+}
+
 /// Hash a raw token using SHA-256 (hex-encoded, 64 chars).
 /// Used to store and look up tokens without keeping plaintext in the DB.
 pub fn hash_token(token: &str) -> String {

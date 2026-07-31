@@ -37,6 +37,11 @@ pub use auth::{
 
 // ------------ ApiAuthed & OptJobAuthed types ------------
 
+/// Prefix `username_override_from_label` puts on the label of a generic user token. The
+/// override keeps this form even though `display_username` skips it: `require_job_read_access`
+/// matches it against `created_by` to let a token re-read the jobs it launched.
+pub const GENERIC_TOKEN_LABEL_PREFIX: &str = "label-";
+
 #[derive(Default, Clone, Debug)]
 pub struct OptJobAuthed {
     pub job_id: Option<uuid::Uuid>,
@@ -54,6 +59,11 @@ pub struct ApiAuthed {
     pub folders: Vec<(String, bool, bool)>,
     pub scopes: Option<Vec<String>>,
     pub username_override: Option<String>,
+    /// Whether `username_override` is a generic user-token label rather than a name that
+    /// identifies the requester. It cannot be recovered from the value: the ephemeral
+    /// end-user override passes a `created_by` through verbatim, and that may itself be a
+    /// `label-*` string. Only `username_override_from_label` sets it.
+    pub username_override_is_token_label: bool,
     pub token_prefix: Option<String>,
     pub read_only: bool,
 }
@@ -72,8 +82,23 @@ impl ApiAuthed {
         }
     }
 
+    /// The name a run triggered by this principal is credited to (`v2_job.created_by`, and
+    /// the audit `end_user`). A trigger-token override names the entity that fired the
+    /// request and wins; a generic token label does not, so the token owner is credited and
+    /// stays traceable even when `permissioned_as` is an on-behalf-of identity.
     pub fn display_username(&self) -> &str {
-        self.username_override.as_ref().unwrap_or(&self.username)
+        match self.username_override.as_deref() {
+            Some(o) if !self.username_override_is_token_label => o,
+            _ => &self.username,
+        }
+    }
+
+    /// Set an override that names the entity acting, e.g. a trigger. Assigning
+    /// `username_override` on its own would keep the provenance flag of whatever this authed
+    /// was built from, and a stale `true` makes `display_username` ignore the new value.
+    pub fn set_acting_username_override(&mut self, username_override: Option<String>) {
+        self.username_override = username_override;
+        self.username_override_is_token_label = false;
     }
 }
 
@@ -103,6 +128,7 @@ impl From<Authed> for ApiAuthed {
             folders: value.folders,
             scopes: value.scopes,
             username_override: None,
+            username_override_is_token_label: false,
             token_prefix: value.token_prefix,
             read_only: false,
         }
@@ -852,6 +878,7 @@ pub async fn fetch_api_authed_from_permissioned_as(
                 folders: authed.folders,
                 scopes: authed.scopes,
                 username_override: None,
+                username_override_is_token_label: false,
                 token_prefix: authed.token_prefix,
                 read_only: false,
             };
@@ -869,7 +896,8 @@ pub async fn fetch_api_authed_from_permissioned_as(
         }
     };
 
-    api_authed.username_override = username_override;
+    // Callers pass a trigger or app identity here, never a token label.
+    api_authed.set_acting_username_override(username_override);
     Ok(api_authed)
 }
 
@@ -1192,6 +1220,64 @@ mod tests {
             scopes: scopes.map(|v| v.into_iter().map(String::from).collect()),
             ..Default::default()
         }
+    }
+
+    /// `display_username` is what `push` credits a run to, so a token label standing in for
+    /// it erases the caller from `created_by` and from the audit trail — irrecoverably when
+    /// `permissioned_as` is an on-behalf-of identity that also takes the `username` slot.
+    #[test]
+    fn generic_token_label_credits_the_token_owner() {
+        let owner_of = |label: &str| {
+            let (username_override, username_override_is_token_label) =
+                auth::username_override_from_label(Some(label.to_string()));
+            ApiAuthed {
+                username: "alice".into(),
+                username_override,
+                username_override_is_token_label,
+                ..Default::default()
+            }
+        };
+
+        // Arbitrary user-chosen labels, and the auto-generated MCP OAuth one.
+        assert_eq!(owner_of("my-personal-token").display_username(), "alice");
+        assert_eq!(
+            owner_of("mcp-oauth-mcp-client-9f3a1c").display_username(),
+            "alice"
+        );
+
+        // A trigger-*shaped* label is just as user-settable as any other, so it is credited
+        // the same way. Its value is still kept as the override, for `require_job_read_access`.
+        let webhookish = owner_of("webhook-f/svc/my_script");
+        assert_eq!(webhookish.display_username(), "alice");
+        assert_eq!(
+            webhookish.username_override.as_deref(),
+            Some("webhook-f/svc/my_script")
+        );
+
+        // Only labels `create_token` refuses to mint name the entity that fired the request.
+        assert_eq!(
+            owner_of("ephemeral-webhook-google-abc12").display_username(),
+            "ephemeral-webhook-google-abc12"
+        );
+
+        // Minted by the editor through the public handler, so it names no principal either.
+        assert_eq!(owner_of("Ephemeral lsp token").display_username(), "alice");
+
+        // The SMTP trigger sets its `email-*` identity server-side rather than through a
+        // label, so a token carrying that prefix is just a user token.
+        assert_eq!(owner_of("email-f/team/inbox").display_username(), "alice");
+        assert_eq!(
+            owner_of("ephemeral-script-end-user-enduser42").display_username(),
+            "enduser42"
+        );
+
+        // The end-user token forwards a `created_by` verbatim, and `created_by` is not
+        // constrained to a username — a job launched before the owner was credited still
+        // carries `label-*`. That is an end user, not this token's label, so it stands.
+        assert_eq!(
+            owner_of("ephemeral-script-end-user-label-alice").display_username(),
+            "label-alice"
+        );
     }
 
     // Regression tests for the Preview path traversal: a Preview's path skips the

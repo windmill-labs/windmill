@@ -50,6 +50,7 @@ fn test_authed() -> ApiAuthed {
         folders: vec![],
         scopes: None,
         username_override: None,
+        username_override_is_token_label: false,
         token_prefix: None,
         read_only: false,
     }
