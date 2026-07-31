@@ -67,9 +67,14 @@ impl DbtEngine {
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(deny_unknown_fields)]
 pub struct DbtProfile {
-    /// `$res:<path>` of the warehouse resource to render into `profiles.yml`.
+    /// A warehouse configured on the workspace, by name; omitted takes the
+    /// default one. This is the ONLY way a project names a warehouse — there is
+    /// no per-descriptor resource — so a dbt project carries no connection at
+    /// all, the same bargain `s3://` and `ducklake://` make with workspace
+    /// storage, and asset identity has exactly one spelling to key on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub resource: Option<String>,
+    pub warehouse: Option<String>,
+
     /// dbt target name. Also the `<resource_path>` component's companion when
     /// resolving asset identity.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -273,6 +278,11 @@ pub fn parse_dbt_descriptor(inner_content: &str) -> anyhow::Result<DbtDescriptor
 /// variant IS the command, so a run cannot carry an override the command
 /// ignores: `retry` rebuilds the failed run's nodes with the arguments that run
 /// had, and `full_refresh` means nothing to a `show`.
+/// The workspace warehouse a descriptor gets when it names none — spelled like
+/// the default lake (`ducklake://main.orders`), so one workspace concept reads
+/// the same across kinds.
+pub const DBT_DEFAULT_WAREHOUSE: &str = "main";
+
 pub const DBT_COMMAND_ARG: &str = "command";
 
 /// The variant discriminator, which is the key Windmill's run form tags a
@@ -597,7 +607,7 @@ mod tests {
     const DESCRIPTOR: &str = r#"
 engine: dbt-core-2x
 profile:
-  resource: $res:f/prod/snowflake
+  warehouse: main
   target: prod
 select: ["tag:nightly+"]
 test_behavior: after_all
@@ -614,11 +624,11 @@ full_refresh: true
     // fall back to the profile's own default.
     #[test]
     fn an_unknown_descriptor_field_is_refused() {
-        let err = parse_dbt_descriptor("profile:\n  resource: $res:u/rf/wh\nselcet: [a]\n")
+        let err = parse_dbt_descriptor("profile:\n  warehouse: main\nselcet: [a]\n")
             .unwrap_err()
             .to_string();
         assert!(err.contains("selcet"), "{err}");
-        let err = parse_dbt_descriptor("profile:\n  resource: $res:u/rf/wh\n  targt: prod\n")
+        let err = parse_dbt_descriptor("profile:\n  warehouse: main\n  targt: prod\n")
             .unwrap_err()
             .to_string();
         assert!(err.contains("targt"), "{err}");
@@ -632,13 +642,13 @@ full_refresh: true
     fn a_placeholder_may_not_take_a_run_argument_name() {
         for name in RESERVED_ARG_NAMES {
             let d =
-                format!("profile:\n  resource: $res:u/rf/wh\nvars:\n  v: \"{{{{ {name} }}}}\"\n");
+                format!("profile:\n  warehouse: main\nvars:\n  v: \"{{{{ {name} }}}}\"\n");
             let err = parse_dbt_descriptor(&d).unwrap_err().to_string();
             assert!(err.contains(name), "{name}: {err}");
         }
         // A name of its own is fine.
         assert!(parse_dbt_descriptor(
-            "profile:\n  resource: $res:u/rf/wh\nvars:\n  v: \"{{ day }}\"\n"
+            "profile:\n  warehouse: main\nvars:\n  v: \"{{ day }}\"\n"
         )
         .is_ok());
     }

@@ -9,6 +9,16 @@
 -- lineage is one graph across the boundary (docs/dbt-runtime.md, decision 11).
 ALTER TYPE ASSET_KIND ADD VALUE IF NOT EXISTS 'dbt';
 
+-- Warehouses configured once for the workspace, so a dbt project needs no
+-- connection knowledge to run: the descriptor names one (or nothing, for the
+-- default) and the value here points at the RESOURCE that holds the credentials,
+-- exactly as `large_file_storage` does for buckets. Keeping the credentials in a
+-- resource is what lets asset identity keep keying on a resource path.
+--
+--   {"resource_path": "$res:u/admin/wh", "target": "prod",
+--    "secondary": {"eu": {"resource_path": "$res:u/admin/wh_eu"}}}
+ALTER TABLE workspace_settings ADD COLUMN IF NOT EXISTS dbt_warehouses JSONB;
+
 -- Parsed dbt manifest, one row per dbt node. The full manifest.json is not
 -- stored -- only the fields the asset graph renders.
 --

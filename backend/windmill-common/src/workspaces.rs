@@ -2478,3 +2478,44 @@ mod tests {
         assert!(msg.contains("tab=windmill_data_tables"), "{msg}");
     }
 }
+
+/// The resource a dbt project runs against when its descriptor names no
+/// `profile.resource`: the workspace's default warehouse, or the one it names by
+/// `profile.warehouse`.
+///
+/// The setting holds a POINTER to a resource, never credentials — like
+/// `large_file_storage` — so the resource keeps its own ACL, asset identity
+/// keeps keying on a resource path, and a project that names the resource
+/// explicitly lands on the same graph nodes as one that takes the default.
+///
+/// The trade this makes is deliberate and belongs in the docs: whoever may run a
+/// dbt script may then reach the workspace warehouse without being granted the
+/// resource, exactly as `s3://` reaches the workspace bucket.
+pub async fn dbt_warehouse_resource(
+    db: &DB,
+    w_id: &str,
+    warehouse: Option<&str>,
+) -> Option<(String, Option<String>)> {
+    let cfg = sqlx::query_scalar!(
+        "SELECT dbt_warehouses FROM workspace_settings WHERE workspace_id = $1",
+        w_id
+    )
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten()
+    .flatten()?;
+    // A flat map keyed by NAME, `main` being the one a descriptor gets when it
+    // names none — the shape `ducklake://main.orders` already reads as, and one
+    // fewer special case than a primary/secondary split.
+    let entry = cfg.get(warehouse.filter(|w| !w.is_empty()).unwrap_or("main"))?.clone();
+    let path = entry.get("resource_path")?.as_str()?;
+    // Stored with or without the prefix, like the storage configs; the caller
+    // resolves a bare path.
+    let path = path.strip_prefix("$res:").unwrap_or(path).to_string();
+    let target = entry
+        .get("target")
+        .and_then(|t| t.as_str())
+        .map(|t| t.to_string());
+    Some((path, target))
+}

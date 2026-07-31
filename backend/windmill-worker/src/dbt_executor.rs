@@ -25,6 +25,7 @@ use windmill_common::materialization::{
 use windmill_common::worker::{to_raw_value, write_file, Connection};
 use windmill_parser_yaml::{
     parse_dbt_descriptor, DbtDescriptor, DbtTestBehavior, DBT_COMMANDS, DBT_COMMAND_ARG,
+    DBT_DEFAULT_WAREHOUSE,
     DBT_COMMAND_LABEL,
 };
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
@@ -1016,7 +1017,7 @@ pub(crate) async fn prepare_project(
     };
 
     let (profiles_dir, resource_path, adapter, default_database, default_schema, profile_digest) =
-        write_profiles(descriptor, &project_dir, job_dir, client, job_id).await?;
+        write_profiles(descriptor, &project_dir, job_dir, client, job_id, w_id, conn).await?;
     // The lockfile's version, when it pinned one for this same engine — a
     // descriptor edited to another engine invalidates the pin.
     let pinned_version = locks
@@ -1479,6 +1480,8 @@ async fn write_profiles(
     job_dir: &str,
     client: &AuthedClient,
     job_id: &Uuid,
+    w_id: &str,
+    conn: &Connection,
 ) -> error::Result<(
     PathBuf,
     Option<String>,
@@ -1487,11 +1490,37 @@ async fn write_profiles(
     Option<String>,
     String,
 )> {
-    let resource_path = descriptor
+    // The descriptor's own resource wins — a project that pins its warehouse means
+    // it. Otherwise the workspace's, named or default, so a project can carry no
+    // connection at all. Both end as a resource path, which is what renders the
+    // profile AND what asset identity keys on, so the two spellings share nodes.
+    // The workspace's warehouse, always: a descriptor names one by NAME or takes
+    // `main`, and there is no per-project resource. One spelling is what lets
+    // asset identity key on the warehouse the way `ducklake://main.orders` does.
+    let mut workspace_target = None;
+    let warehouse = descriptor
         .profile
-        .resource
+        .warehouse
         .as_deref()
-        .map(|r| r.trim_start_matches("$res:").to_string());
+        .unwrap_or(DBT_DEFAULT_WAREHOUSE)
+        .to_string();
+    let resource_path = match conn {
+        Connection::Sql(db) => {
+            let resolved =
+                windmill_common::workspaces::dbt_warehouse_resource(db, w_id, Some(&warehouse))
+                    .await;
+            match resolved {
+                Some((path, target)) => {
+                    workspace_target = target;
+                    Some(path)
+                }
+                None => None,
+            }
+        }
+        // An agent worker reaches settings only through the API; the job-scoped
+        // resolution endpoint is what answers there.
+        Connection::Http(_) => None,
+    };
 
     let declared = descriptor
         .profile
@@ -1562,7 +1591,8 @@ async fn write_profiles(
 
     let resource_path = resource_path.ok_or_else(|| {
         Error::BadRequest(
-            "the descriptor must set either `profile.resource` or `profile.profiles_yml`"
+            "no warehouse to run against: configure one for this workspace (Settings → dbt), \
+             or set `profile.resource` / `profile.profiles_yml` in the descriptor"
                 .to_string(),
         )
     })?;
@@ -1580,7 +1610,14 @@ async fn write_profiles(
         })?;
     ensure_adapter_licensed(adapter)?;
     let profile_name = project_profile_name(project_dir).await;
-    let target = descriptor.profile.target.as_deref().unwrap_or("default");
+    // The workspace's warehouse may name the target too, so a project that carries
+    // no connection still gets `{{ target }}` right.
+    let target = descriptor
+        .profile
+        .target
+        .as_deref()
+        .or(workspace_target.as_deref())
+        .unwrap_or("default");
     let dir = PathBuf::from(job_dir).join("dbt_profiles");
     tokio::fs::create_dir_all(&dir)
         .await

@@ -13,6 +13,7 @@ pub mod dbt;
 pub use dbt::{
     dbt_arg_schema, default_command as default_dbt_command, parse_dbt_descriptor, parse_dbt_sig,
     DbtDescriptor, DbtEngine, DbtTestBehavior, DBT_COMMANDS, DBT_COMMAND_ARG, DBT_COMMAND_LABEL,
+    DBT_DEFAULT_WAREHOUSE,
 };
 
 pub fn parse_ansible_sig(inner_content: &str) -> anyhow::Result<MainArgSignature> {

@@ -123,6 +123,10 @@ pub fn workspaced_service() -> Router {
             "/edit_large_file_storage_config",
             post(edit_large_file_storage_config),
         )
+        .route(
+            "/edit_dbt_warehouses",
+            post(edit_dbt_warehouses),
+        )
         .route("/edit_ducklake_config", post(edit_ducklake_config))
         .route("/list_ducklakes", get(list_ducklakes))
         .route("/list_datatables", get(list_datatables))
@@ -278,6 +282,8 @@ pub struct WorkspaceSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_config: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Pointers to the resources dbt scripts run against by default.
+    pub dbt_warehouses: Option<serde_json::Value>,
     pub large_file_storage: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ducklake: Option<serde_json::Value>,
@@ -909,6 +915,7 @@ async fn get_settings(
             plan,
             webhook,
             ai_config,
+            dbt_warehouses,
             large_file_storage,
             datatable,
             ducklake,
@@ -1736,6 +1743,42 @@ async fn edit_webhook(
     .await?;
 
     Ok(format!("Edit webhook for workspace {}", &w_id))
+}
+
+/// The workspace's dbt warehouses: a default and any named ones, each a POINTER
+/// to a resource rather than credentials — like `large_file_storage`. A dbt
+/// project can then carry no connection at all, and the resource keeps its own
+/// ACL. Admin-only, because it decides what every dbt script in the workspace
+/// reaches by default.
+async fn edit_dbt_warehouses(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    Json(new_config): Json<serde_json::Value>,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+    let mut tx = db.begin().await?;
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.edit_dbt_warehouses",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        Some([("dbt_warehouses", format!("{new_config:?}").as_str())].into()),
+    )
+    .await?;
+    let value = if new_config.is_null() { None } else { Some(new_config) };
+    sqlx::query!(
+        "UPDATE workspace_settings SET dbt_warehouses = $1 WHERE workspace_id = $2",
+        value,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok("Updated the workspace's dbt warehouses".to_string())
 }
 
 async fn edit_large_file_storage_config(
