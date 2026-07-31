@@ -765,3 +765,4 @@ full_refresh: true
         assert_eq!(day.typ, Typ::Unknown);
     }
 }
+

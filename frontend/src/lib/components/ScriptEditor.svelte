@@ -381,7 +381,7 @@
 	let dbtTab = $state<'descriptor' | 'project'>('descriptor')
 	let mainFileName = $derived(
 		isDbt
-			? (path?.split('/').pop() ?? 'script') + '.dbt.yaml'
+			? 'wm_dbt.yaml'
 			: 'script.' + langToExt(scriptLangToEditorLang(lang))
 	)
 

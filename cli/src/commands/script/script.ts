@@ -80,6 +80,8 @@ import {
   getScriptBasePathFromModulePath,
   scriptPathToRemotePath,
   isRawAppPath,
+  DBT_DESCRIPTOR_NAME,
+  isDbtDescriptorPath,
 } from "../../utils/resource_folders.ts";
 
 export interface ScriptFile {
@@ -179,7 +181,7 @@ async function push(opts: PushOptions, filePath: string) {
 
   // Warn about metadata state before pushing
   try {
-    const content = await readTextFile(filePath);
+    const content = await readScriptContent(filePath);
     const remotePath = removeExtensionToPath(filePath).replaceAll(SEP, "/");
     const contentHash = await computePushMetadataHash(filePath, content);
     const conf = await readLockfile();
@@ -712,7 +714,12 @@ export async function readModulesFromDisk(
 
   // In folder layout mode, skip the entry point files (script.*, script.yaml, etc.)
   const isEntryPointFile = (name: string, isTopLevel: boolean) => {
-    if (!folderLayout || !isTopLevel) return false;
+    if (!isTopLevel) return false;
+    // A dbt project's descriptor is the script's CONTENT, so it must not also
+    // ride along as a module: the push would send the same text twice and dbt
+    // would find a stray file at its project root.
+    if (verbatim) return name === DBT_DESCRIPTOR_NAME;
+    if (!folderLayout) return false;
     return (
       name.startsWith("script.") ||
       name === "script.lock" ||
@@ -955,6 +962,19 @@ async function createScript(
  */
 export class UnresolvableScriptContentFileError extends Error {}
 
+/**
+ * A script's content, tolerating the one content file that may not exist: a dbt
+ * project's descriptor is optional, and absent means an empty descriptor.
+ */
+async function readScriptContent(filePath: string): Promise<string> {
+  try {
+    return await readTextFile(filePath);
+  } catch (e) {
+    if (isDbtDescriptorPath(filePath.replaceAll(SEP, "/"))) return "";
+    throw e;
+  }
+}
+
 export async function findContentFile(filePath: string) {
   // Folder layout: __mod/script.yaml -> __mod/script.ts
   const isModuleFolderMeta = isModuleEntryMetadata(filePath);
@@ -997,6 +1017,17 @@ export async function findContentFile(filePath: string) {
     );
   }
   if (validCandidates.length < 1) {
+    // A dbt project's descriptor is optional, so the project folder itself is
+    // what says a script is there. Resolving to the absent descriptor keeps one
+    // content path for every caller; reading it yields an empty descriptor.
+    const dbtCandidate = toCandidate("__dbt/" + DBT_DESCRIPTOR_NAME);
+    const dbtProject = dbtCandidate.replace(
+      new RegExp(DBT_DESCRIPTOR_NAME + "$"),
+      "dbt_project.yml",
+    );
+    if (await stat(dbtProject).then(() => true).catch(() => false)) {
+      return dbtCandidate;
+    }
     throw new UnresolvableScriptContentFileError(
       `No script file found next to ${filePath} — a script cannot be deployed from its metadata alone. ` +
         `Add the matching script file (e.g. ${toCandidate(".ts")} or ${toCandidate(
@@ -1066,7 +1097,9 @@ export function filePathExtensionFromContentType(
   } else if (language === "rlang") {
     return ".r";
   } else if (language === "dbt") {
-    return ".dbt.yaml";
+    // Not an extension but a path suffix: a dbt script's content file lives
+    // inside the project folder, so `<base> + this` is where it belongs.
+    return "__dbt/" + DBT_DESCRIPTOR_NAME;
     // for related places search: ADD_NEW_LANG
   } else {
     throw new Error("Invalid language: " + language);
@@ -1099,7 +1132,9 @@ export const exts = [
   ".java",
   ".rb",
   ".r",
-  ".dbt.yaml",
+  // Not an extension: a dbt script's content file is its descriptor, inside
+  // the project folder. `<base>.script.yaml` -> `<base>__dbt/wm_dbt.yaml`.
+  "__dbt/" + DBT_DESCRIPTOR_NAME,
   // for related places search: ADD_NEW_LANG
 ];
 
@@ -1651,7 +1686,7 @@ async function preview(
 
   const codebases = await listSyncCodebases(opts);
   const language = inferContentTypeFromFilePath(filePath, opts?.defaultTs);
-  const content = await readTextFile(filePath);
+  const content = await readScriptContent(filePath);
   const input = opts.data ? await resolve(opts.data) : {};
 
   // Read modules from the bundle folder if present. Same suffix and same

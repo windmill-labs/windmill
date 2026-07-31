@@ -25,11 +25,15 @@ describe("buildTracker with a dbt project", () => {
     fs.mkdirSync(path.join(dir, "f/analytics/analytics__dbt/seeds"), {
       recursive: true,
     });
-    // The descriptor sits BESIDE the project folder, and `findContentFile`
-    // resolves the metadata path to it by extension.
+    // The descriptor sits INSIDE the project folder, and `findContentFile`
+    // resolves the metadata path to it.
     fs.writeFileSync(path.join(dir, "f/analytics/analytics.script.yaml"), "{}");
     fs.writeFileSync(
-      path.join(dir, "f/analytics/analytics.dbt.yaml"),
+      path.join(dir, "f/analytics/analytics__dbt/dbt_project.yml"),
+      "name: analytics\n",
+    );
+    fs.writeFileSync(
+      path.join(dir, "f/analytics/analytics__dbt/wm_dbt.yaml"),
       "profile: {}\n",
     );
   });
@@ -46,7 +50,7 @@ describe("buildTracker with a dbt project", () => {
   test("a model edit selects the descriptor", async () => {
     expect(
       await tracked("f/analytics/analytics__dbt/models/stg_orders.sql"),
-    ).toEqual(["f/analytics/analytics.dbt.yaml"]);
+    ).toEqual(["f/analytics/analytics__dbt/wm_dbt.yaml"]);
   });
 
   test("so do the files that are not script extensions", async () => {
@@ -57,7 +61,7 @@ describe("buildTracker with a dbt project", () => {
       "f/analytics/analytics__dbt/seeds/country_codes.csv",
     ]) {
       expect(await tracked(p)).toEqual(
-        ["f/analytics/analytics.dbt.yaml"],
+        ["f/analytics/analytics__dbt/wm_dbt.yaml"],
         `${p} left the descriptor untracked`,
       );
     }
@@ -83,12 +87,12 @@ describe("buildTracker with a dbt project", () => {
   test("and a Windows-separated path", async () => {
     expect(
       await tracked("f\\analytics\\analytics__dbt\\models\\stg_orders.sql"),
-    ).toEqual(["f/analytics/analytics.dbt.yaml"]);
+    ).toEqual(["f/analytics/analytics__dbt/wm_dbt.yaml"]);
   });
 
-  // A dbt descriptor is the script's CONTENT and is `.dbt.yaml` in both metadata
-  // formats. `--json` drops every other `.yaml` as the metadata twin it does not
-  // read — dropping this one too leaves a workspace whose dbt scripts have
+  // A dbt descriptor is the script's CONTENT and is a `.yaml` inside the
+  // project folder. `--json` drops every metadata `.yaml` as the twin it does
+  // not read — dropping this one too leaves a workspace whose dbt scripts have
   // metadata, a lock and a project bundle, but nothing to run.
   test("--json keeps the descriptor while dropping metadata yaml", async () => {
     const file = (path: string) => ({
@@ -101,7 +105,7 @@ describe("buildTracker with a dbt project", () => {
       path: "",
       isDirectory: true,
       getChildren: async function* () {
-        yield file("f/analytics/analytics.dbt.yaml");
+        yield file("f/analytics/analytics__dbt/wm_dbt.yaml");
         yield file("f/analytics/analytics.script.yaml");
         yield file("f/analytics/analytics.script.json");
       },
@@ -109,8 +113,8 @@ describe("buildTracker with a dbt project", () => {
     };
     const map = await elementsToMap(root as any, () => false, true, {});
     expect(Object.keys(map).sort()).toEqual([
-      "f/analytics/analytics.dbt.yaml",
       "f/analytics/analytics.script.json",
+      "f/analytics/analytics__dbt/wm_dbt.yaml",
     ]);
   });
 });

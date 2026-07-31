@@ -163,6 +163,8 @@ import {
   isModuleEntryPoint,
   getScriptBasePathFromModulePath,
   hasWrongFormatSuffix,
+  DBT_MODULE_SUFFIX,
+  DBT_DESCRIPTOR_NAME,
 } from "../../utils/resource_folders.ts";
 
 let branchDeprecationWarned = false;
@@ -513,6 +515,21 @@ async function addCodebaseDigestIfRelevant(
   return content;
 }
 
+/**
+ * Whether a script's modules ARE a dbt project.
+ *
+ * Keyed on `dbt_project.yml` rather than on the descriptor: the descriptor is
+ * optional, so its absence says nothing, while a dbt project without
+ * `dbt_project.yml` is one dbt itself refuses to run.
+ */
+function isDbtModules(modules: unknown): boolean {
+  return (
+    typeof modules === "object" &&
+    modules !== null &&
+    "dbt_project.yml" in (modules as Record<string, unknown>)
+  );
+}
+
 export async function FSFSElement(
   p: string,
   codebases: SyncCodebase[],
@@ -536,6 +553,25 @@ export async function FSFSElement(
               e.isDirectory(),
               codebases,
             );
+          }
+          // An unmodified dbt project is already a complete script, so the
+          // descriptor is optional — but a script still needs a content file to
+          // be discovered by. Absent on disk, it is an empty descriptor, which
+          // is exactly what the remote holds for a project that never named
+          // one, so the diff stays quiet.
+          if (
+            localP.replaceAll(SEP, "/").endsWith(DBT_MODULE_SUFFIX) &&
+            !entries.some((e) => e.name === DBT_DESCRIPTOR_NAME)
+          ) {
+            const virtualP = path.join(localP, DBT_DESCRIPTOR_NAME);
+            yield {
+              isDirectory: false,
+              path: virtualP.substring(p.length + 1),
+              async *getChildren() {},
+              async getContentText(): Promise<string> {
+                return "";
+              },
+            };
           }
         } catch (e) {
           log.warn(`Error reading dir: ${localP}, ${e}`);
@@ -963,7 +999,7 @@ function ZipFSElement(
               // holds nothing but the project, which is what `--project-dir`
               // expects and what makes the import a plain copy. The export
               // carries no `language`, so the content file's extension says so.
-              if (!(base + ".dbt.yaml" in zip.files)) {
+              if (!isDbtModules(parsed.modules)) {
                 _moduleScriptPaths.add(base);
               }
             }
@@ -1394,9 +1430,7 @@ function ZipFSElement(
             // Zip keys are `/`-separated while `p` carries the OS separator, so
             // on Windows the unnormalized lookup misses and the project is laid
             // out as `__mod` — the one layout dbt cannot be run from.
-            const isDbtScript =
-              removeSuffix(p.replaceAll(SEP, "/"), ".script.json") + ".dbt.yaml" in
-              zip.files;
+            const isDbtScript = isDbtModules(parsed["modules"]);
             if (
               parsed["lock"] &&
               parsed["lock"] != "" &&
@@ -1524,8 +1558,7 @@ function ZipFSElement(
       // Windmill's goes inside it: the metadata stays beside the folder and the
       // folder is what `--project-dir` points at. Normalized like the resource
       // lookup above: zip keys are `/`-separated and `p` is not on Windows.
-      const isDbt =
-        removeSuffix(p.replaceAll(SEP, "/"), ".script.json") + ".dbt.yaml" in zip.files;
+      const isDbt = isDbtModules(scriptModules);
 
       // Compute base path and module folder
       const metaExt = useYaml ? ".yaml" : ".json";
@@ -1813,11 +1846,10 @@ export async function elementsToMap(
       !isWorkspaceDependencies(path)
     ) {
       // The metadata format decides which of the two metadata twins is read,
-      // and drops the other. A dbt descriptor is not metadata: `<name>.dbt.yaml`
-      // is the script's CONTENT and exists in both modes, so dropping it here
-      // leaves a `--json` workspace whose scripts have metadata, a lock and a
-      // whole project bundle but no descriptor to run.
-      if (json && path.endsWith(".yaml") && !path.endsWith(".dbt.yaml")) continue;
+      // and drops the other. A dbt descriptor is not metadata and is not
+      // reached here: it lives inside the project folder, so the module branch
+      // above already took it, in both modes.
+      if (json && path.endsWith(".yaml")) continue;
       if (!json && path.endsWith(".json")) continue;
 
       if (

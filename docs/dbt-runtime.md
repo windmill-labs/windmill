@@ -499,8 +499,8 @@ is exactly what dbt expects, with the extensions dbt expects:
 
 ```
 f/analytics/
-├── analytics.dbt.yaml              the descriptor (the script's content)
 └── analytics__dbt/                 the module bundle: the project, unmodified
+    ├── wm_dbt.yaml                 the descriptor (the script's content) — OPTIONAL
     ├── dbt_project.yml
     ├── packages.yml
     ├── models/staging/stg_orders.sql
@@ -516,6 +516,13 @@ Import is therefore a copy, never a transformation:
 cp -r my-dbt-project/. f/analytics/analytics__dbt/
 wmill sync push
 ```
+
+The descriptor is optional, and nothing above it is authored: an unmodified dbt
+project is already a complete Windmill script, running the whole project against
+the workspace's default warehouse. `wm_dbt.yaml` appears only when the project
+needs something Windmill-specific — run arguments, a named warehouse, an engine
+pin — and it lives inside the project so that a dbt developer's working copy and
+a Windmill bundle are the same directory.
 
 Locally, dbt runs against the bundle with `--project-dir analytics__dbt` (or a
 `cd`), which is what a monorepo holding several dbt projects already does, and

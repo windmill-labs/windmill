@@ -505,8 +505,27 @@ export function isFlowFolderMetadataFile(p: string): boolean {
 const MODULE_SUFFIX = "__mod";
 /** dbt scripts carry a whole dbt project, not helper code. The folder says so,
  *  and it is what a dbt developer points `--project-dir` at. */
-const DBT_MODULE_SUFFIX = "__dbt";
+export const DBT_MODULE_SUFFIX = "__dbt";
 const MODULE_SUFFIXES = [MODULE_SUFFIX, DBT_MODULE_SUFFIX];
+
+/** A dbt project's descriptor, inside the project it configures and OPTIONAL:
+ *  an unmodified dbt project is already a complete Windmill script, and this
+ *  file only appears when one needs something Windmill-specific (run arguments,
+ *  a named warehouse, an engine pin). Its absence is an empty descriptor, never
+ *  a missing script. */
+export const DBT_DESCRIPTOR_NAME = "wm_dbt.yaml";
+
+/** Where a dbt script's descriptor lives, given its base path. */
+export function dbtDescriptorPath(scriptBasePath: string): string {
+  return scriptBasePath + DBT_MODULE_SUFFIX + "/" + DBT_DESCRIPTOR_NAME;
+}
+
+/** Whether a path is a dbt descriptor, i.e. a dbt script's content file. */
+export function isDbtDescriptorPath(p: string): boolean {
+  const norm = normalizeSep(p);
+  const base = getScriptBasePathFromModulePath(norm);
+  return base !== undefined && norm === dbtDescriptorPath(base);
+}
 
 /**
  * Module folder suffix for a script: `__dbt` for a dbt project, `__mod`
@@ -756,6 +775,12 @@ export function isModuleEntryPoint(p: string): boolean {
   // verbatim — and call its `script.ts` this script's entry point.
   const base = getScriptBasePathFromModulePath(norm);
   if (base === undefined) return false;
+  // A dbt project's entry point is its descriptor, which sits INSIDE the
+  // project so that an author writes nothing outside the directory dbt itself
+  // reads.
+  if (norm.startsWith(base + DBT_MODULE_SUFFIX + "/")) {
+    return norm === dbtDescriptorPath(base);
+  }
   const suffix = MODULE_SUFFIX + "/";
   if (!norm.startsWith(base + suffix)) return false;
   const rest = norm.slice(base.length + suffix.length);

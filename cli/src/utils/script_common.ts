@@ -1,3 +1,4 @@
+import { isDbtDescriptorPath } from "./resource_folders.ts";
 export type ScriptLanguage =
   | "python3"
   | "deno"
@@ -79,7 +80,7 @@ export function inferContentTypeFromFilePath(
     return "bigquery";
   } else if (contentPath.endsWith(".odb.sql")) {
     return "oracledb";
-  } else if (contentPath.endsWith(".duckdb.sql")) {
+  } else if (contentPath.endsWith(".duckdb.sql, and a dbt project folder `<name>__dbt/`")) {
     return "duckdb";
   } else if (contentPath.endsWith(".sf.sql")) {
     return "snowflake";
@@ -107,7 +108,7 @@ export function inferContentTypeFromFilePath(
     return "java";
   } else if (contentPath.endsWith(".rb")) {
     return "ruby";
-  } else if (contentPath.endsWith(".dbt.yaml")) {
+  } else if (isDbtDescriptorPath(contentPath)) {
     return "dbt";
   } else if (contentPath.endsWith(".r")) {
     return "rlang";
@@ -122,7 +123,7 @@ export function inferContentTypeFromFilePath(
     throw new Error(
       `Cannot infer script language from extension '${ext}' (file ${contentPath}).` +
         hint +
-        "\nSupported extensions: .ts (bun/deno), .py, .go, .sh, .ps1, .php, .rs, .cs, .nu, .java, .rb, .r, .gql, .playbook.yml, .dbt.yaml, .pg.sql, .my.sql, .bq.sql, .sf.sql, .ms.sql, .odb.sql, .duckdb.sql"
+        "\nSupported extensions: .ts (bun/deno), .py, .go, .sh, .ps1, .php, .rs, .cs, .nu, .java, .rb, .r, .gql, .playbook.yml, .pg.sql, .my.sql, .bq.sql, .sf.sql, .ms.sql, .odb.sql, .duckdb.sql, and a dbt project folder `<name>__dbt/`"
     );
   }
 }
