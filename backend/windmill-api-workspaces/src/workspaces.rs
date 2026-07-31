@@ -1763,6 +1763,22 @@ async fn edit_dbt_warehouses(
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
     let new_config = new_config.dbt_warehouses;
+    // A name reaches an agent worker as a URL path segment, so anything that
+    // could re-cut the path (or the query) is refused at the only place a name
+    // is written, rather than becoming a 404 nobody can explain.
+    if let Some(map) = new_config.as_ref().and_then(|v| v.as_object()) {
+        for name in map.keys() {
+            if name.is_empty()
+                || !name
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+            {
+                return Err(Error::BadRequest(format!(
+                    "`{name}` is not a usable warehouse name: use letters, digits, `_` and `-`"
+                )));
+            }
+        }
+    }
     let mut tx = db.begin().await?;
     audit_log(
         &mut *tx,

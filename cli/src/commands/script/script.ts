@@ -342,7 +342,7 @@ export async function handleFile(
     // standalone scripts — pushed via pushRawApp, not here.
     !isRawAppPath(path) &&
     (!isScriptModulePath(path) || moduleEntryPoint) &&
-    exts.some((exts) => path.endsWith(exts))
+    hasScriptExt(path)
   ) {
     if (alreadySynced.includes(path)) {
       return true;
@@ -1138,9 +1138,22 @@ export const exts = [
   // for related places search: ADD_NEW_LANG
 ];
 
+/**
+ * Whether a path is a script's content file.
+ *
+ * Separators are normalized first: one "extension" is the path suffix
+ * `__dbt/wm_dbt.yaml`, which on Windows is spelled `__dbt\wm_dbt.yaml` and
+ * would match nothing — silently skipping every dbt project on that platform.
+ */
+export function hasScriptExt(p: string): boolean {
+  const norm = p.replaceAll("\\", "/");
+  return exts.some((ext) => norm.endsWith(ext));
+}
+
 export function removeExtensionToPath(path: string): string {
+  const norm = path.replaceAll("\\", "/");
   for (const ext of exts) {
-    if (path.endsWith(ext)) {
+    if (norm.endsWith(ext)) {
       return path.substring(0, path.length - ext.length);
     }
   }
@@ -1554,7 +1567,7 @@ export async function generateMetadata(
       await FSFSElement(process.cwd(), codebases, false),
       (p, isD) => {
         return (
-          (!isD && !exts.some((ext) => p.endsWith(ext))) ||
+          (!isD && !hasScriptExt(p)) ||
           ignore(p, isD) ||
           isFlowPath(p) ||
           isAppPath(p) ||

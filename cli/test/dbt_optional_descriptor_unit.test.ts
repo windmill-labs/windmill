@@ -8,7 +8,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { FSFSElement, elementsToMap } from "../src/commands/sync/sync.ts";
-import { findContentFile } from "../src/commands/script/script.ts";
+import {
+  findContentFile,
+  hasScriptExt,
+  removeExtensionToPath,
+} from "../src/commands/script/script.ts";
 
 describe("a dbt project without a descriptor", () => {
   let dir: string;
@@ -53,5 +57,14 @@ describe("a dbt project without a descriptor", () => {
     } finally {
       process.chdir(cwd);
     }
+  });
+
+  // The descriptor is the one "extension" that contains a separator, so on
+  // Windows it is spelled `__dbt\wm_dbt.yaml` and a forward-slash suffix test
+  // matches nothing — every dbt project skipped, with no error.
+  test("is recognized when the path is spelled with backslashes", () => {
+    const win = "f\\analytics\\analytics__dbt\\wm_dbt.yaml";
+    expect(hasScriptExt(win)).toBe(true);
+    expect(removeExtensionToPath(win)).toBe("f\\analytics\\analytics");
   });
 });

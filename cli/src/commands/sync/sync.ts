@@ -57,6 +57,7 @@ import {
   UnresolvableScriptContentFileError,
   removeExtensionToPath,
   filePathExtensionFromContentType,
+  hasScriptExt,
 } from "../script/script.ts";
 
 import { handleFile } from "../script/script.ts";
@@ -1054,7 +1055,7 @@ function ZipFSElement(
     let finalPath = transformPath();
 
     // Redirect content files for scripts with modules into __mod/ folder
-    if (kind == "other" && exts.some((ext) => p.endsWith(ext))) {
+    if (kind == "other" && hasScriptExt(p)) {
       const normalizedP = p.replace(/^\.[\\/]/, "");
       const moduleScripts = await getModuleScriptPaths();
       for (const basePath of moduleScripts) {
@@ -2943,7 +2944,7 @@ async function addToChangedIfNotExists(p: string, tracker: ChangeTracker) {
     return;
   }
   const isScript =
-    exts.some((e) => p.endsWith(e)) &&
+    hasScriptExt(p) &&
     !isFileResource(p) &&
     !isFilesetResource(p);
   if (isScript) {
@@ -3465,7 +3466,7 @@ export async function pull(
             // ignore
           }
         }
-        if (exts.some((e) => change.path.endsWith(e))) {
+        if (hasScriptExt(change.path)) {
           log.info(
             `Editing script content of ${targetPath}${
               targetPath !== change.path

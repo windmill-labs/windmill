@@ -1499,10 +1499,6 @@ async fn write_profiles(
     Option<String>,
     String,
 )> {
-    // The descriptor's own resource wins — a project that pins its warehouse means
-    // it. Otherwise the workspace's, named or default, so a project can carry no
-    // connection at all. Both end as a resource path, which is what renders the
-    // profile AND what asset identity keys on, so the two spellings share nodes.
     // The workspace's warehouse, always: a descriptor names one by NAME or takes
     // `main`, and cannot name a resource at all. The NAME is what asset identity
     // keys on, so every project on one warehouse shares its nodes while the
@@ -1564,23 +1560,34 @@ async fn write_profiles(
         // Identity only when the descriptor NAMES a warehouse: defaulting to
         // `main` would key a self-hosted profile's assets onto the workspace
         // warehouse it never connected to.
-        let identity = descriptor.profile.warehouse.clone();
+        //
+        // The name is still resolved and its resource still READ, because
+        // reading is what authorizes the claim: this project connects through
+        // its own file, so nothing else would stop it from publishing
+        // `dbt://<any warehouse>/...` writes over tables it never touched.
+        let identity = match descriptor.profile.warehouse.as_deref() {
+            Some(named) => {
+                let (resource_path, _) =
+                    resolve_warehouse(named, client, w_id, conn).await?;
+                client
+                    .get_resource_value_interpolated::<serde_json::Value>(
+                        &resource_path,
+                        Some(job_id.to_string()),
+                    )
+                    .await
+                    .map_err(|e| {
+                        Error::BadRequest(format!(
+                            "`profile.warehouse: {named}` is what this project's assets are keyed                              on, so its resource must be readable even when                              `profile.profiles_yml` provides the connection: {e}"
+                        ))
+                    })?;
+                Some(named.to_string())
+            }
+            None => None,
+        };
         return Ok((dir, identity, adapter, None, None, profile_digest));
     }
 
-    let (resource_path, workspace_target) = match conn {
-        Connection::Sql(db) => {
-            windmill_common::workspaces::dbt_warehouse_resource(db, w_id, warehouse).await?
-        }
-        // An agent worker reaches settings only through the API.
-        Connection::Http(_) => {
-            let r: windmill_common::workspaces::DbtWarehouseRef =
-                client.get_dbt_warehouse(warehouse).await.map_err(|e| {
-                    Error::BadRequest(format!("resolving the dbt warehouse `{warehouse}`: {e}"))
-                })?;
-            (r.resource_path, r.target)
-        }
-    };
+    let (resource_path, workspace_target) = resolve_warehouse(warehouse, client, w_id, conn).await?;
     let value: serde_json::Value = client
         .get_resource_value_interpolated(&resource_path, Some(job_id.to_string()))
         .await
@@ -1637,6 +1644,31 @@ async fn write_profiles(
         rendered.schema,
         profile_digest,
     ))
+}
+
+/// Where a workspace warehouse name points: its resource path and, if the
+/// workspace names one, its target.
+async fn resolve_warehouse(
+    warehouse: &str,
+    client: &AuthedClient,
+    w_id: &str,
+    conn: &Connection,
+) -> error::Result<(String, Option<String>)> {
+    match conn {
+        Connection::Sql(db) => {
+            windmill_common::workspaces::dbt_warehouse_resource(db, w_id, warehouse).await
+        }
+        // An agent worker reaches settings only through the API.
+        Connection::Http(_) => {
+            let r: windmill_common::workspaces::DbtWarehouseRef = client
+                .get_dbt_warehouse(warehouse)
+                .await
+                .map_err(|e| {
+                    Error::BadRequest(format!("resolving the dbt warehouse `{warehouse}`: {e}"))
+                })?;
+            Ok((r.resource_path, r.target))
+        }
+    }
 }
 
 /// Identifies the connection a rendered profile describes, for run identity.

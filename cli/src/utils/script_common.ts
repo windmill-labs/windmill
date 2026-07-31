@@ -80,7 +80,7 @@ export function inferContentTypeFromFilePath(
     return "bigquery";
   } else if (contentPath.endsWith(".odb.sql")) {
     return "oracledb";
-  } else if (contentPath.endsWith(".duckdb.sql, and a dbt project folder `<name>__dbt/`")) {
+  } else if (contentPath.endsWith(".duckdb.sql")) {
     return "duckdb";
   } else if (contentPath.endsWith(".sf.sql")) {
     return "snowflake";

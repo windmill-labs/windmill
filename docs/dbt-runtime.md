@@ -647,14 +647,15 @@ and Cosmos's vocabulary so the mental model ports without translation:
 ```yaml
 engine: dbt-core-1x               # or dbt-core-2x | fusion
 profile:
-  resource: $res:f/prod/snowflake # rendered into profiles.yml
+  warehouse: main                 # a warehouse configured on the workspace, by
+                                  # name; omitted takes `main`
   target: prod
   # schema: marts                 # target schema; REQUIRED for BigQuery, whose
                                   # resource is a service-account JSON with no
                                   # dataset in it
-  # profiles_yml: profiles.yml    # alternative: keep your own file, but then
-                                  # there is no resource path to key assets on,
-                                  # so the project gets no graph (see below)
+  # profiles_yml: profiles.yml    # alternative: keep your own file; it then
+                                  # names a warehouse only to say where its
+                                  # assets belong (see below)
 select: ["tag:nightly+"]
 exclude: []
 test_behavior: build              # build | after_all | none
