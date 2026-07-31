@@ -21499,9 +21499,12 @@ paths:
             type: string
         - name: max_keys
           in: query
-          description: Maximum number of folders and files combined (default 100, max 1000)
+          description: Maximum number of folders and files combined
           schema:
             type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
         - name: page_token
           in: query
           description: Opaque token from a previous response, to continue listing the same folder

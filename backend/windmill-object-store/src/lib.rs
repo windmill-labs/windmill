@@ -369,6 +369,17 @@ pub fn s3_resource_has_static_credentials(s3_resource: &S3Resource) -> bool {
 /// `build_s3_client`. Callers that sign their own requests must go through this
 /// rather than resolving the default chain themselves: the cache is what keeps a
 /// burst of requests from hitting the instance metadata service once each.
+///
+/// These are the **instance's own** credentials, not any caller's, and they are
+/// returned in the clear. A caller therefore MUST:
+/// - authorize the request target itself — reaching this function implies no
+///   permission check, and the credentials typically outrank the requesting user;
+/// - use them only to sign a request it has already authorized, never surface them
+///   in a response, log, or error message, and never hand them to a caller-supplied
+///   endpoint.
+///
+/// Prefer `build_s3_client`, which confines them to the object-store client; reach
+/// for this only where a request must be signed by hand.
 #[cfg(feature = "parquet")]
 pub async fn ambient_aws_credentials(
     region: &str,
