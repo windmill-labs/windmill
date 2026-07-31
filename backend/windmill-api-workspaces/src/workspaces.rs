@@ -3020,16 +3020,25 @@ async fn edit_datatable_config(
     .execute(&mut *tx)
     .await?;
 
-    crate::datatable_migrations::cascade_datatable_migration_renames_and_deletes(
-        &db,
-        &mut tx,
-        &w_id,
-        &new_config.renames,
-        &new_config.deleted_datatables,
-    )
-    .await?;
+    let cascaded_migration_paths =
+        crate::datatable_migrations::cascade_datatable_migration_renames_and_deletes(
+            &db,
+            &mut tx,
+            &w_id,
+            &new_config.renames,
+            &new_config.deleted_datatables,
+        )
+        .await?;
 
     tx.commit().await?;
+
+    crate::datatable_migrations::record_datatable_cascade_deployments(
+        &authed,
+        &db,
+        &w_id,
+        cascaded_migration_paths,
+    )
+    .await?;
 
     Ok(format!("Edit datatable config for workspace {}", &w_id))
 }

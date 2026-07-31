@@ -37,7 +37,9 @@ use windmill_common::users::username_to_permissioned_as;
 use windmill_common::worker::to_raw_value;
 use windmill_common::workspaces::get_datatable_resource_from_db_unchecked;
 use windmill_common::{PgDatabase, DB};
-use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
+use windmill_git_sync::{
+    handle_deployment_metadata, handle_deployment_metadata_batch, DeployedObject,
+};
 use windmill_queue::{push, PushArgs, PushIsolationLevel};
 
 pub(crate) fn routes() -> Router {
@@ -917,14 +919,19 @@ fn validate_migration_name(name: &str) -> Result<()> {
 
 /// The data table name becomes a directory segment in the sync export
 /// (`migrations/datatable/<datatable>/...`); reject anything that could escape it.
+/// Glob metacharacters are rejected too: git sync feeds that segment back as a
+/// minimatch pattern and a `git add` pathspec, where they would match no file and
+/// silently drop the migration from the repo.
 pub(crate) fn validate_datatable_path_segment(datatable: &str) -> Result<()> {
+    const GLOB_CHARS: [char; 6] = ['*', '?', '[', ']', '{', '}'];
     if datatable.is_empty()
         || datatable.contains('/')
         || datatable.contains('\\')
         || datatable.contains("..")
+        || datatable.contains(GLOB_CHARS)
     {
         return Err(Error::BadRequest(format!(
-            "Invalid data table name '{datatable}': must not contain '/', '\\' or '..'"
+            "Invalid data table name '{datatable}': must not contain '/', '\\', '..' or any of *?[]{{}}"
         )));
     }
     Ok(())
@@ -1537,21 +1544,33 @@ async fn remote_rename_datatable_migrations(
 /// temporarily unreachable data-table database is logged rather than failing the
 /// whole config edit. If one is missed, the next run re-applies its migrations
 /// against the existing schema.
+///
+/// Returns every migration path the cascade moved or removed, so the caller can
+/// deploy them once `tx` commits — otherwise a linked git repo keeps the files of
+/// a deleted or pre-rename data table forever.
 pub(crate) async fn cascade_datatable_migration_renames_and_deletes(
     db: &DB,
     tx: &mut Transaction<'_, Postgres>,
     w_id: &str,
     renames: &[DatatableRename],
     deleted_datatables: &[String],
-) -> Result<()> {
+) -> Result<Vec<String>> {
+    let mut changed_paths: Vec<String> = vec![];
+
     if !deleted_datatables.is_empty() {
-        sqlx::query!(
-            "DELETE FROM datatable_migrations WHERE workspace_id = $1 AND datatable = ANY($2::text[])",
+        let deleted = sqlx::query!(
+            "DELETE FROM datatable_migrations WHERE workspace_id = $1 AND datatable = ANY($2::text[]) \
+             RETURNING datatable, timestamp, name",
             w_id,
             deleted_datatables
         )
-        .execute(&mut **tx)
+        .fetch_all(&mut **tx)
         .await?;
+        changed_paths.extend(
+            deleted
+                .into_iter()
+                .map(|m| format!("{}/{}_{}", m.datatable, m.timestamp, m.name)),
+        );
     }
 
     for (i, r) in renames.iter().enumerate() {
@@ -1567,14 +1586,21 @@ pub(crate) async fn cascade_datatable_migration_renames_and_deletes(
     }
     for (i, r) in renames.iter().enumerate() {
         let tmp = format!("__wm_rename_tmp/{i}");
-        sqlx::query!(
-            "UPDATE datatable_migrations SET datatable = $3 WHERE workspace_id = $1 AND datatable = $2",
+        let moved = sqlx::query!(
+            "UPDATE datatable_migrations SET datatable = $3 WHERE workspace_id = $1 AND datatable = $2 \
+             RETURNING timestamp, name",
             w_id,
             &tmp,
             &r.to
         )
-        .execute(&mut **tx)
+        .fetch_all(&mut **tx)
         .await?;
+        for m in moved {
+            // Both ends: the old path so its files are dropped from the repo, the
+            // new one so they reappear under the renamed data table.
+            changed_paths.push(format!("{}/{}_{}", r.from, m.timestamp, m.name));
+            changed_paths.push(format!("{}/{}_{}", r.to, m.timestamp, m.name));
+        }
     }
 
     for name in deleted_datatables {
@@ -1603,7 +1629,34 @@ pub(crate) async fn cascade_datatable_migration_renames_and_deletes(
         }
     }
 
-    Ok(())
+    Ok(changed_paths)
+}
+
+/// Deploy the migration paths a data table rename/delete moved or removed, so a
+/// linked git repo drops the stale files and picks up the renamed ones. Call
+/// after the config transaction commits — the deploy reads the workspace export.
+pub(crate) async fn record_datatable_cascade_deployments(
+    authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
+    changed_paths: Vec<String>,
+) -> Result<()> {
+    if changed_paths.is_empty() {
+        return Ok(());
+    }
+    let objs = changed_paths
+        .into_iter()
+        .map(|path| DeployedObject::DatatableMigration { path })
+        .collect();
+    handle_deployment_metadata_batch(
+        &authed.email,
+        &authed.username,
+        db,
+        w_id,
+        objs,
+        Some("Data table migrations updated by a data table rename or deletion".to_string()),
+    )
+    .await
 }
 
 /// Copy a workspace's migration definitions to another workspace, so a fork
@@ -1731,8 +1784,9 @@ mod tests {
     }
 
     // The cascade keeps each data table's migrations attached to its name when a
-    // data table is renamed, drops them when it is deleted, and survives a swap
-    // (A->B, B->A) at a shared timestamp without a primary-key collision.
+    // data table is renamed, drops them when it is deleted, survives a swap
+    // (A->B, B->A) at a shared timestamp without a primary-key collision, and
+    // reports both ends of every move so git sync drops the stale files.
     #[sqlx::test(migrations = "../migrations")]
     async fn cascade_renames_and_deletes_datatable_migrations(pool: DB) {
         let w_id = format!("dtmig{}", uuid::Uuid::new_v4().simple());
@@ -1749,7 +1803,7 @@ mod tests {
         seed_migration(&pool, &w_id, "sb", 5000, "sb_mig").await;
 
         let mut tx = pool.begin().await.unwrap();
-        cascade_datatable_migration_renames_and_deletes(
+        let mut changed = cascade_datatable_migration_renames_and_deletes(
             &pool,
             &mut tx,
             &w_id,
@@ -1770,6 +1824,20 @@ mod tests {
                 ("a2".to_string(), "a_mig".to_string()),
                 ("sa".to_string(), "sb_mig".to_string()),
                 ("sb".to_string(), "sa_mig".to_string()),
+            ]
+        );
+
+        changed.sort();
+        assert_eq!(
+            changed,
+            vec![
+                "a/1_a_mig".to_string(),
+                "a2/1_a_mig".to_string(),
+                "d/1_d_mig".to_string(),
+                "sa/5000_sa_mig".to_string(),
+                "sa/5000_sb_mig".to_string(),
+                "sb/5000_sa_mig".to_string(),
+                "sb/5000_sb_mig".to_string(),
             ]
         );
     }
