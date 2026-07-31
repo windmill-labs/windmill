@@ -1745,19 +1745,24 @@ async fn edit_webhook(
     Ok(format!("Edit webhook for workspace {}", &w_id))
 }
 
-/// The workspace's dbt warehouses: a default and any named ones, each a POINTER
-/// to a resource rather than credentials — like `large_file_storage`. A dbt
-/// project can then carry no connection at all, and the resource keeps its own
-/// ACL. Admin-only, because it decides what every dbt script in the workspace
-/// reaches by default.
+#[derive(serde::Deserialize)]
+struct EditDbtWarehouses {
+    dbt_warehouses: Option<serde_json::Value>,
+}
+
+/// The workspace's dbt warehouses, by name, each a POINTER to a resource rather
+/// than credentials — like `large_file_storage`. A dbt project can then carry no
+/// connection at all, and the resource keeps its own ACL. Admin-only, because it
+/// decides what every dbt script in the workspace reaches.
 async fn edit_dbt_warehouses(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     ApiAuthed { is_admin, username, .. }: ApiAuthed,
-    Json(new_config): Json<serde_json::Value>,
+    Json(new_config): Json<EditDbtWarehouses>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
+    let new_config = new_config.dbt_warehouses;
     let mut tx = db.begin().await?;
     audit_log(
         &mut *tx,
@@ -1769,7 +1774,7 @@ async fn edit_dbt_warehouses(
         Some([("dbt_warehouses", format!("{new_config:?}").as_str())].into()),
     )
     .await?;
-    let value = if new_config.is_null() { None } else { Some(new_config) };
+    let value = new_config.filter(|v| !v.is_null());
     sqlx::query!(
         "UPDATE workspace_settings SET dbt_warehouses = $1 WHERE workspace_id = $2",
         value,

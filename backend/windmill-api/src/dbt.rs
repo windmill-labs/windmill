@@ -9,7 +9,7 @@ use windmill_common::{
 use crate::db::OptJobAuthed;
 
 pub fn workspaced_service() -> Router {
-    Router::new().route("/warehouse/:name", get(get_warehouse))
+    Router::new().route("/warehouse/{name}", get(get_warehouse))
 }
 
 async fn get_warehouse(
