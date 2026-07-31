@@ -838,7 +838,7 @@ fn raw_app_wrapper_html(secret: &str) -> String {
     // env must exist before the bundle script is injected below. BASE_URL comes
     // from the embedder — location.origin is "null" on this opaque origin.
     if (d.sdk && d.sdk.token) {
-      window.process = { env: { WM_TOKEN: d.sdk.token, BASE_URL: d.sdk.baseUrl, WM_WORKSPACE: d.sdk.workspace } };
+      window.process = { env: { WM_RAW_APP: 'true', WM_TOKEN: d.sdk.token, BASE_URL: d.sdk.baseUrl, WM_WORKSPACE: d.sdk.workspace } };
     }
     if (d.initialHash && d.initialHash !== '#' && !window.location.hash) {
       try { history.replaceState(null, '', d.initialHash); } catch (_) {}

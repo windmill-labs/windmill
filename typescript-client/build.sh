@@ -23,15 +23,16 @@ const baseUrl = getEnv("BASE_INTERNAL_URL") ?? getEnv("BASE_URL") ?? "http://loc
 const baseUrlApi = (baseUrl ?? '') + "/api";
 
 EOF
-# A browser bundle that never calls setClient (a raw app, which gets its token
-# from window.process.env) must not send credentials — the API answers
-# `Access-Control-Allow-Origin: *`, so a credentialed cross-origin request fails.
+# Windmill's raw app wrapper sets WM_RAW_APP: such a bundle may call the API
+# cross-origin (sandboxed apps run on an opaque origin), and the API answers
+# `Access-Control-Allow-Origin: *`, which a credentialed request can never pair
+# with. Every other consumer keeps credentials on.
 if [[ "$OSTYPE" == "darwin"* ]]; then
-  sed -i '' 's/WITH_CREDENTIALS: false/WITH_CREDENTIALS: typeof window === "undefined"/g' src/core/OpenAPI.ts
+  sed -i '' 's/WITH_CREDENTIALS: false/WITH_CREDENTIALS: !getEnv("WM_RAW_APP")/g' src/core/OpenAPI.ts
   sed -i '' 's/TOKEN: undefined/TOKEN: getEnv("WM_TOKEN")/g' src/core/OpenAPI.ts
   sed -i '' "s/BASE: '\/api'/BASE: baseUrlApi/g" src/core/OpenAPI.ts
 else
-  sed -i 's/WITH_CREDENTIALS: false/WITH_CREDENTIALS: typeof window === "undefined"/g' src/core/OpenAPI.ts
+  sed -i 's/WITH_CREDENTIALS: false/WITH_CREDENTIALS: !getEnv("WM_RAW_APP")/g' src/core/OpenAPI.ts
   sed -i 's/TOKEN: undefined/TOKEN: getEnv("WM_TOKEN")/g' src/core/OpenAPI.ts
   sed -i "s/BASE: '\/api'/BASE: baseUrlApi/g" src/core/OpenAPI.ts
 fi

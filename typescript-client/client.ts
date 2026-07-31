@@ -69,10 +69,10 @@ export function setClient(token?: string, baseUrl?: string) {
   if (token === undefined) {
     token = getEnv("WM_TOKEN") ?? "no_token";
   }
-  // Off in browsers: the API answers `Access-Control-Allow-Origin: *`, which a
-  // credentialed request can never pair with. Cookies still ride same-origin
-  // requests by fetch's own default.
-  OpenAPI.WITH_CREDENTIALS = typeof window === "undefined";
+  // Windmill's raw app wrapper sets WM_RAW_APP. A sandboxed one calls the API
+  // from an opaque origin, and the API answers `Access-Control-Allow-Origin: *`,
+  // which a credentialed request can never pair with.
+  OpenAPI.WITH_CREDENTIALS = !getEnv("WM_RAW_APP");
   OpenAPI.TOKEN = token;
   OpenAPI.BASE = baseUrl + "/api";
 }

@@ -1289,6 +1289,7 @@
 	// not the policy's. Preview therefore never mirrors a viewer's 403s.
 	const previewSdkEnvJs = $derived(
 		`window.process = { env: ${JSON.stringify({
+			WM_RAW_APP: 'true',
 			BASE_URL: window.location.origin,
 			WM_WORKSPACE: opWorkspace ?? ''
 		}).replace(/</g, '\\u003c')} };\n`
