@@ -285,8 +285,9 @@ export interface DeployItemParams {
 	onBehalfOf?: string
 	/**
 	 * Authorization half of `onBehalfOf` for flows/scripts (u/username or g/group).
-	 * Must name the same identity as `onBehalfOf`. Only set when the user picked a
-	 * specific user; leave undefined to carry the source item's own value through.
+	 * Must name the same identity as `onBehalfOf`. Set it only when the user picked a
+	 * specific user; undefined clears the key, leaving the backend to derive the target
+	 * workspace's own principal from `onBehalfOf`.
 	 */
 	onBehalfOfPermissionedAs?: string
 }
