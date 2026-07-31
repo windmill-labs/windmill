@@ -4086,8 +4086,8 @@ fn app_s3_file_query(s3: String, storage: Option<String>, sig: AppS3Sig) -> AppS
     }
 }
 
-/// Shared entry for every app-scoped (`apps_u/*`) S3 display op: scope-confine an
-/// app embed token, resolve the on-behalf identity per `execution_mode`, then run
+/// Shared entry for every app-scoped (`apps_u/*`) S3 display op: confine a scoped
+/// caller to this app, resolve the on-behalf identity per `execution_mode`, then run
 /// the provenance gate (`check_if_allowed_to_access_s3_file_from_app`) once before
 /// dispatching to the S3 helpers.
 #[cfg(feature = "parquet")]
