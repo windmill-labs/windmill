@@ -126,16 +126,19 @@ export function gitRecordedDatatableMigrationPaths(): RecordedMigrationPaths {
   // them in the working tree, so their absence there says nothing about whether the
   // user deleted them. Over-protective for a sparse cone that does include
   // migrations/, which the interactive prompt can still override.
-  const sparse = spawnSync("git", ["config", "--get", "core.sparseCheckout"], {
-    encoding: "utf8",
-    stdio: "pipe",
-  });
+  // `--type=bool` normalises git's booleans (1, yes, on, …) to true/false; a raw
+  // `--get` would let `core.sparseCheckout = 1` walk straight past this.
+  const sparse = spawnSync(
+    "git",
+    ["config", "--type=bool", "--get", "core.sparseCheckout"],
+    { encoding: "utf8", stdio: "pipe" },
+  );
   if ((sparse.stdout ?? "").trim() === "true") {
     return {
       kind: "unknown",
       reason:
         "this is a sparse checkout, so its working tree may not hold every tracked file",
-      remedy: "Include migrations/datatable in the sparse-checkout cone",
+      remedy: "Run the push from a full (non-sparse) checkout",
     };
   }
   const prefixOut = spawnSync("git", ["rev-parse", "--show-prefix"], {
