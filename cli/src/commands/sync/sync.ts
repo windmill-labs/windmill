@@ -3466,14 +3466,19 @@ export async function pull(
       // reach, so both copies are removed if present and their being missing —
       // a project pulled for the first time — is the goal, not an error. The
       // `.wmill` copy goes too, or the same change is reported on every pull.
+      //
+      // `force` covers the missing file and NOTHING else: a permission or
+      // read-only-filesystem failure has to surface, or the pull reports
+      // success while the old descriptor — its warehouse, its command, its
+      // arguments — is still what runs locally.
       if (
         isDbtDescriptorPath(change.path) &&
         ((change.name === "added" && change.content === "") ||
           (change.name === "edited" && change.after === ""))
       ) {
-        await rm(target, { force: true }).catch(() => {});
+        await rm(target, { force: true });
         if (opts.stateful) {
-          await rm(stateTarget, { force: true }).catch(() => {});
+          await rm(stateTarget, { force: true });
         }
         continue;
       }
@@ -3577,11 +3582,12 @@ export async function pull(
         log.info(`Deleting ${changeTypeLabel(change.path)}${change.path}`);
         // `force` on both: the goal is that neither copy exists, and a file
         // already absent — a dbt project's optional descriptor is never written
-        // — is that goal, not an error. The state copy is removed either way,
-        // or the same deletion is replayed on every sync.
-        await rm(target, { force: true }).catch(() => {});
+        // — is that goal, not an error. Anything else (permissions, a read-only
+        // mount) surfaces rather than leaving a file the sync believes is gone.
+        // The state copy goes too, or the same deletion replays on every sync.
+        await rm(target, { force: true });
         if (opts.stateful) {
-          await rm(stateTarget, { force: true }).catch(() => {});
+          await rm(stateTarget, { force: true });
         }
       }
     }

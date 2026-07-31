@@ -15,7 +15,11 @@
 		modules: Record<string, { content?: string }>,
 		filePath: string
 	): string | undefined {
-		if (!filePath.endsWith('.sql')) return undefined
+		// `.py` as well as `.sql`: a dbt Python model is a model, and leaving it
+		// out would run the whole project to check one file — the larger
+		// warehouse bill this narrowing exists to avoid.
+		const ext = ['.sql', '.py'].find((e) => filePath.endsWith(e))
+		if (!ext) return undefined
 		let project: any
 		try {
 			project = YAML.parse(modules['dbt_project.yml']?.content ?? '')
@@ -27,7 +31,7 @@
 			? project['model-paths']
 			: ['models']
 		if (!modelPaths.some((d) => filePath === d || filePath.startsWith(d + '/'))) return undefined
-		const name = filePath.split('/').pop()!.slice(0, -'.sql'.length)
+		const name = filePath.split('/').pop()!.slice(0, -ext.length)
 		return `${name},package:${project.name}`
 	}
 

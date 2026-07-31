@@ -365,7 +365,10 @@
 		const open = activeModuleTab
 		if (lang !== 'dbt' || !open) return undefined
 		const selector = dbtModelSelector(modules ?? {}, open)
-		return selector ? { selector, name: open.split('/').pop()!.slice(0, -'.sql'.length) } : undefined
+		// The label drops whichever extension the selector matched, so a Python
+		// model reads `Build my_model` rather than `Build my_model.py`.
+		const name = open.split('/').pop()!.replace(/\.(sql|py)$/, '')
+		return selector ? { selector, name } : undefined
 	})
 
 	let effectiveLang = $derived(
