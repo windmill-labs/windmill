@@ -226,7 +226,8 @@ pub async fn resolve_on_behalf_of(
     }
     let permissioned_as = match on_behalf_of_permissioned_as {
         Some(permissioned_as) => {
-            let named = users::get_email_from_permissioned_as(permissioned_as, w_id, db).await?;
+            let named =
+                users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db).await?;
             if named != email {
                 return Err(Error::BadRequest(format!(
                     "on_behalf_of_permissioned_as '{permissioned_as}' resolves to '{named}', not \

@@ -1809,9 +1809,8 @@
 																customOnBehalfOfEmail = ''
 																preserveOnBehalfOf = false
 															} else if (choice === 'target') {
-																// Keep the saved pair verbatim. A script deployed before the
-																// permissioned_as was recorded stays on the legacy fallback until
-																// the user re-picks the user explicitly.
+																// Keep the saved pair. A script that has no recorded principal yet
+																// sends the email alone and the backend derives one from it.
 																script.on_behalf_of_email = originalOnBehalfOfEmail
 																script.on_behalf_of_permissioned_as =
 																	originalOnBehalfOfPermissionedAs

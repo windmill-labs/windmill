@@ -169,10 +169,12 @@ function legacyTriggerKind(kind: TriggerDeployKind) {
 
 /**
  * `deployItem` overrides only the email half of the identity, while the body it builds
- * spreads the *source* item — which carries the source workspace's permissioned_as. Left
- * alone that pairs one workspace's principal with the other's email, so the key is always
- * overwritten here: with the picked user's principal for a custom choice, and cleared
- * otherwise so the backend derives it from the email it is given.
+ * spreads the *source* item — which carries the source workspace's permissioned_as, valid
+ * nowhere else since usernames are per-workspace. The key is therefore always overwritten:
+ * with the picked user's principal for a custom choice, and cleared otherwise so the
+ * backend derives the target's own from the email it is given. The shared `deployItem`
+ * clears it too, but this app consumes the published package, so the clear has to exist
+ * on both sides until that version ships.
  */
 function makeProvider(onBehalfOfPermissionedAs?: string): DeployProvider {
 	const withPermissionedAs = <T extends Record<string, any>>(requestBody: T): T => ({

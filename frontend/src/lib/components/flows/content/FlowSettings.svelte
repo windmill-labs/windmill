@@ -486,9 +486,8 @@
 									customOnBehalfOfEmail = ''
 									$preserveOnBehalfOf = false
 								} else if (choice === 'target') {
-									// Keep the saved pair verbatim. A flow deployed before the
-									// permissioned_as was recorded stays on the legacy fallback until
-									// the user re-picks the user explicitly.
+									// Keep the saved pair. A flow that has no recorded principal yet
+									// sends the email alone and the backend derives one from it.
 									flowStore.val.on_behalf_of_email = $savedOnBehalfOfEmail
 									flowStore.val.on_behalf_of_permissioned_as = $savedOnBehalfOfPermissionedAs
 									customOnBehalfOfEmail = ''

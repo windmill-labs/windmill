@@ -460,6 +460,10 @@ export async function deployItem(
             ...flow,
             preserve_on_behalf_of: preserveOnBehalfOf,
             on_behalf_of_email: onBehalfOf,
+            // Usernames are per-workspace, so the source's principal names nobody in
+            // the target (or names a different person). Clearing it lets the backend
+            // derive the target's own principal from the email above.
+            on_behalf_of_permissioned_as: undefined,
           },
         });
       } else {
@@ -469,6 +473,10 @@ export async function deployItem(
             ...flow,
             preserve_on_behalf_of: preserveOnBehalfOf,
             on_behalf_of_email: onBehalfOf,
+            // Usernames are per-workspace, so the source's principal names nobody in
+            // the target (or names a different person). Clearing it lets the backend
+            // derive the target's own principal from the email above.
+            on_behalf_of_permissioned_as: undefined,
           },
         });
       }
@@ -493,6 +501,8 @@ export async function deployItem(
           parent_hash: parentHash,
           preserve_on_behalf_of: preserveOnBehalfOf,
           on_behalf_of_email: onBehalfOf,
+          // See the flow branch: a source-workspace principal is never valid here.
+          on_behalf_of_permissioned_as: undefined,
         },
       });
     } else if (kind === "app" || kind === "raw_app") {
