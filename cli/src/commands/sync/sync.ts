@@ -165,6 +165,7 @@ import {
   getScriptBasePathFromModulePath,
   hasWrongFormatSuffix,
   DBT_DESCRIPTOR_NAME,
+  isDbtDescriptorPath,
 } from "../../utils/resource_folders.ts";
 
 let branchDeprecationWarned = false;
@@ -3403,6 +3404,18 @@ export async function pull(
 
     log.info(colors.gray(`Applying changes to files ...`));
     for await (const change of changes) {
+      // An empty dbt descriptor is not a file. The remote spells "this project
+      // named no descriptor" as empty content, and writing that would put a
+      // Windmill file inside a project that has none — on a fresh pull, and
+      // again every time a descriptor is removed remotely.
+      if (
+        isDbtDescriptorPath(change.path) &&
+        ((change.name === "added" && change.content === "") ||
+          (change.name === "edited" && change.after === ""))
+      ) {
+        await rm(change.path).catch(() => {});
+        continue;
+      }
       // Determine if this file should be written to a workspace-specific path
       let targetPath = change.path;
       if (specificItems && isSpecificItem(change.path, specificItems)) {

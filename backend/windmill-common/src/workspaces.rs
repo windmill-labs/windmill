@@ -2501,6 +2501,9 @@ pub fn validate_dbt_warehouse_name(name: &str) -> Result<()> {
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct DbtWarehouseRef {
     pub resource_path: String,
+    /// Omitted rather than null when absent, so the wire shape matches the
+    /// schema generated clients validate against.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
 }
 

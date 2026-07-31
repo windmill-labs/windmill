@@ -5593,6 +5593,7 @@ async fn update_workspace_settings(
             ai_config = source_ws.ai_config,
             large_file_storage = source_ws.large_file_storage,
             ducklake = source_ws.ducklake,
+            dbt_warehouses = source_ws.dbt_warehouses,
             datatable = source_ws.datatable,
             git_app_installations = source_ws.git_app_installations
         FROM workspace_settings source_ws
