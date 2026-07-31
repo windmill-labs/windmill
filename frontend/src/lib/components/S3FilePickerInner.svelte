@@ -259,7 +259,12 @@
 		return isLevelVisible(info.parentPath)
 	}
 
-	function refreshDisplayed() {
+	/**
+	 * Every key whose ancestors are all expanded, in depth-first order — full keys
+	 * sort that way because a child always starts with its parent's
+	 * delimiter-terminated prefix.
+	 */
+	function computeVisibleKeys(): string[] {
 		const visible: string[] = []
 		for (const key in allFilesByKey) {
 			if (!key.startsWith(rootPath)) continue
@@ -270,9 +275,12 @@
 				visible.push(prefix + LOAD_MORE_SUFFIX)
 			}
 		}
-		// Full keys sort into depth-first order because a child always starts with
-		// its parent's delimiter-terminated prefix.
-		displayedFileKeys = visible.sort()
+		return visible.sort()
+	}
+
+	function refreshDisplayed() {
+		const visible = computeVisibleKeys()
+		displayedFileKeys = visible
 		displayedCount = visible.filter((k) => !k.endsWith(LOAD_MORE_SUFFIX)).length
 	}
 
@@ -470,7 +478,12 @@
 				}
 			}
 		}
-		displayedFileKeys = [...new Set(displayedFileKeys)].sort()
+		// The loop above only lists entries at the browsing root, so a later page's
+		// keys land in `allFilesByKey` without ever being displayed — the folder they
+		// belong to is already expanded and nothing re-scans it. Recomputing from the
+		// expansion state picks them up without needing a collapse/expand round trip.
+		// `displayedCount` is left alone: in this mode it counts files loaded, not rows shown.
+		displayedFileKeys = computeVisibleKeys()
 		fileListLoading = false
 		fileInfoLoading = false
 	}
