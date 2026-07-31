@@ -1527,6 +1527,7 @@ async fn write_profiles(
             &path,
             &project_profile_name(project_dir).await,
             descriptor.profile.target.as_deref(),
+            declared,
         )
         .await?;
         let actual = target.adapter;
@@ -1675,6 +1676,9 @@ async fn adapter_from_profiles_yml(
     path: &Path,
     profile_name: &str,
     target: Option<&str>,
+    // The descriptor's `profile.type`, used only where the file states no
+    // literal adapter of its own.
+    declared: Option<DbtAdapter>,
 ) -> error::Result<ProfileTarget> {
     let content = tokio::fs::read_to_string(path)
         .await
@@ -1706,20 +1710,50 @@ async fn adapter_from_profiles_yml(
                 path.display()
             ))
         })?;
-    let out = outputs.get(target).ok_or_else(|| {
-        Error::BadRequest(format!(
-            "{} has no `{target}` target under `{profile_name}`",
-            path.display()
-        ))
-    })?;
-    let t = out.get("type").and_then(|t| t.as_str()).ok_or_else(|| {
-        Error::BadRequest(format!(
-            "{} has no `{target}` target with a `type` under `{profile_name}`",
-            path.display()
-        ))
-    })?;
-    let adapter = DbtAdapter::from_resource_type(t)
-        .ok_or_else(|| Error::BadRequest(format!("unsupported dbt adapter `{t}`")))?;
+    // dbt renders the profile through Jinja before reading it; Windmill does not,
+    // so a templated `target:` — `{{ env_var('DBT_TARGET', 'prod') }}`, which is
+    // how a repo carries one profile across environments — is a name no output
+    // has. Where the profile defines exactly one output there is nothing to
+    // choose and it is taken; otherwise the descriptor has to say which.
+    let templated_target = target.contains("{{");
+    let out = if templated_target {
+        let only = outputs
+            .as_mapping()
+            .filter(|m| m.len() == 1)
+            .and_then(|m| m.values().next());
+        only.ok_or_else(|| {
+            Error::BadRequest(format!(
+                "{} selects its target with a template (`{target}`), which dbt renders and \
+                 Windmill does not, and defines several outputs. Set `profile.target` in the \
+                 descriptor to say which one this script runs",
+                path.display()
+            ))
+        })?
+    } else {
+        outputs.get(target).ok_or_else(|| {
+            Error::BadRequest(format!(
+                "{} has no `{target}` target under `{profile_name}`",
+                path.display()
+            ))
+        })?
+    };
+    let declared_type = out
+        .get("type")
+        .and_then(|t| t.as_str())
+        .filter(|t| !t.contains("{{"));
+    // Same for the adapter: templated, only the descriptor can name it. It is
+    // the one thing a licence check cannot be wrong about.
+    let adapter = match declared_type {
+        Some(t) => DbtAdapter::from_resource_type(t)
+            .ok_or_else(|| Error::BadRequest(format!("unsupported dbt adapter `{t}`")))?,
+        None => declared.ok_or_else(|| {
+            Error::BadRequest(format!(
+                "{} does not state its adapter as a literal `type` (templated, or absent), so \
+                 set `profile.type` in the descriptor",
+                path.display()
+            ))
+        })?,
+    };
     // The target's own database and schema, read with the same keys the renderer
     // writes. A project that owns its profile then spells its `dbt://` paths
     // identically to one on a workspace warehouse, which is what lets the two
@@ -1737,6 +1771,7 @@ async fn adapter_from_profiles_yml(
 /// What a project-owned `profiles.yml` target says, for the two things Windmill
 /// needs from a file it did not write: which adapter to provision, and how to
 /// spell the relations it will produce.
+#[derive(Debug)]
 struct ProfileTarget {
     adapter: DbtAdapter,
     database: Option<String>,
@@ -4814,7 +4849,7 @@ mod tests {
              \x20     database: prod\n      schema: analytics\n",
         )
         .unwrap();
-        let t = adapter_from_profiles_yml(&path, "jaffle", None)
+        let t = adapter_from_profiles_yml(&path, "jaffle", None, None)
             .await
             .unwrap();
         assert_eq!(t.adapter, DbtAdapter::Snowflake);
@@ -4833,6 +4868,45 @@ mod tests {
         );
     }
 
+    // dbt renders `profiles.yml` through Jinja; Windmill reads it raw. A repo that
+    // carries one profile across environments selects its target with `env_var`,
+    // and refusing that would refuse the unmodified-project path this exists for.
+    #[tokio::test]
+    async fn a_templated_target_takes_the_only_output() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("profiles.yml");
+        std::fs::write(
+            &path,
+            "jaffle:\n  target: \"{{ env_var('DBT_TARGET', 'prod') }}\"\n  outputs:\n\
+             \x20   prod:\n      type: snowflake\n      database: prod\n      schema: analytics\n",
+        )
+        .unwrap();
+        let t = adapter_from_profiles_yml(&path, "jaffle", None, None)
+            .await
+            .unwrap();
+        assert_eq!(t.adapter, DbtAdapter::Snowflake);
+        assert_eq!(t.database.as_deref(), Some("prod"));
+    }
+
+    // With several outputs the template names none of them, so the descriptor
+    // has to choose rather than Windmill guessing which environment to run.
+    #[tokio::test]
+    async fn a_templated_target_with_several_outputs_asks_for_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("profiles.yml");
+        std::fs::write(
+            &path,
+            "jaffle:\n  target: \"{{ env_var('DBT_TARGET') }}\"\n  outputs:\n\
+             \x20   prod:\n      type: snowflake\n    dev:\n      type: snowflake\n",
+        )
+        .unwrap();
+        let e = adapter_from_profiles_yml(&path, "jaffle", None, None)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("profile.target"), "{e}");
+    }
+
     // A target that leaves its database to dbt's own defaults says nothing, and
     // guessing one would collapse relations that are genuinely apart.
     #[tokio::test]
@@ -4845,7 +4919,7 @@ mod tests {
              \x20     dbname: \"{{ env_var('DB') }}\"\n",
         )
         .unwrap();
-        let t = adapter_from_profiles_yml(&path, "jaffle", None)
+        let t = adapter_from_profiles_yml(&path, "jaffle", None, None)
             .await
             .unwrap();
         assert_eq!(t.database, None);

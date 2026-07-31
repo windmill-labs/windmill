@@ -22,7 +22,7 @@ import { inferContentTypeFromFilePath } from "./script_common.ts";
 import { dbtGeneratedDirs, isUnderGeneratedDir, isBundledModuleFile, getModuleFolderSuffix, isModuleEntryPoint, scriptPathToRemotePath } from "./resource_folders.ts";
 import { findCodebase, yamlOptions } from "../commands/sync/sync.ts";
 import { generateHash, readInlinePathSync, getHeaders, readTextFile, readTextFileSync } from "./utils.ts";
-import { isMissingDbtDescriptor } from "./resource_folders.ts";
+import { DBT_DESCRIPTOR_NAME, isMissingDbtDescriptor } from "./resource_folders.ts";
 import { detectAuthGatewayChallenge } from "./http_guards.ts";
 
 import { SyncCodebase } from "./codebase.ts";
@@ -219,6 +219,13 @@ export async function generateScriptMetadataInternal(
 
   const language = inferContentTypeFromFilePath(scriptPath, opts.defaultTs);
 
+  // Whether the metadata and lock live INSIDE that folder. They do for a `__mod`
+  // bundle, whose folder is Windmill's. A dbt project's folder is dbt's, taken
+  // verbatim, so its companions stay beside it — writing them in would leave
+  // stray `script.yaml`/`script.lock` files in the deployed project and leave
+  // the metadata sync actually reads untouched.
+  const metadataInFolder = isFolderLayout && language !== "dbt";
+
   // For folder layout, parseMetadataFile is called with remotePath which
   // will find __mod/script.yaml via the folder layout fallback
   const metadataWithType = await parseMetadataFile(
@@ -356,7 +363,7 @@ export async function generateScriptMetadataInternal(
 
     if (!hasCodebase) {
       const tempScriptRefs = tree?.getTempScriptRefs(remotePath);
-      const lockPathOverride = isFolderLayout
+      const lockPathOverride = metadataInFolder
         ? path.dirname(scriptPath) + "/script.lock"
         : undefined;
       await updateScriptLock(
@@ -399,7 +406,7 @@ export async function generateScriptMetadataInternal(
       );
     }
   } else {
-    if (isFolderLayout) {
+    if (metadataInFolder) {
       metadataParsedContent.lock =
         "!inline " + remotePath.replaceAll(SEP, "/") + getModuleFolderSuffix() + "/script.lock";
     } else {
@@ -411,7 +418,7 @@ export async function generateScriptMetadataInternal(
   // Write metadata back to the correct path
   let metaPath: string;
   let newMetadataContent: string;
-  if (isFolderLayout) {
+  if (metadataInFolder) {
     if (metadataWithType.isJson) {
       metaPath = path.dirname(scriptPath) + "/script.json";
       newMetadataContent = JSON.stringify(metadataParsedContent);
@@ -1414,7 +1421,10 @@ async function computeModuleHashes(
       } else if (
         entry.isFile() &&
         (verbatim || !entry.name.endsWith(".lock")) &&
-        !(isFolderLayout && isTopLevel && entry.name.startsWith("script."))
+        !(isFolderLayout && isTopLevel && entry.name.startsWith("script.")) &&
+        // The descriptor is the script's CONTENT, hashed as such: counting it
+        // here too would make one edit look like two changes.
+        !(verbatim && isTopLevel && entry.name === DBT_DESCRIPTOR_NAME)
       ) {
         if (!verbatim) {
           try {

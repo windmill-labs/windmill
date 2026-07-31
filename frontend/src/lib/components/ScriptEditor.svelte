@@ -19,7 +19,10 @@
 	import { isWorkflowAsCode } from '$lib/components/graph/wacToFlow'
 	import WacDiagram from '$lib/components/graph/WacDiagram.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import DbtProjectPanel, { dbtFileLang } from '$lib/components/dbt/DbtProjectPanel.svelte'
+	import DbtProjectPanel, {
+		dbtFileLang,
+		dbtModelSelector
+	} from '$lib/components/dbt/DbtProjectPanel.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 	import PowerShellCommonParams from './PowerShellCommonParams.svelte'
 	import LogPanel from './scriptEditor/LogPanel.svelte'
@@ -358,10 +361,14 @@
 	// The model a Test would build, when one is open. Named on the button, because
 	// a run that silently narrowed to the open file would be the kind of surprise
 	// that costs a warehouse bill to discover.
-	let dbtSelectedModel = $derived.by(() => {
+	// The selector a Test would build with, when the open file is a model. Macros,
+	// analyses and singular tests are `.sql` too and none is selectable by name,
+	// so those fall back to running the project.
+	let dbtSelected = $derived.by(() => {
 		const open = activeModuleTab
-		if (lang !== 'dbt' || !open || !open.endsWith('.sql')) return undefined
-		return open.split('/').pop()!.slice(0, -'.sql'.length)
+		if (lang !== 'dbt' || !open) return undefined
+		const selector = dbtModelSelector(modules ?? {}, open)
+		return selector ? { selector, name: open.split('/').pop()!.slice(0, -'.sql'.length) } : undefined
 	})
 
 	let effectiveLang = $derived(
@@ -895,11 +902,11 @@
 		// is dbt's own inner loop, and running the whole project to check one file
 		// is the thing a dbt developer never does. Its tests come along, because
 		// `build` interleaves them.
-		if (dbtSelectedModel) {
+		if (dbtSelected) {
 			testArgs.command = {
 				...((testArgs.command as object) ?? {}),
 				label: 'build',
-				select: [dbtSelectedModel]
+				select: [dbtSelected.selector]
 			}
 		}
 		if (showPsCommonParams) {
@@ -2401,7 +2408,7 @@
 		startIcon={{ icon: Play, classes: 'animate-none' }}
 		shortCut={{ Icon: CornerDownLeft }}
 	>
-		{dbtSelectedModel ? `Build ${dbtSelectedModel}` : 'Test'}
+		{dbtSelected ? `Build ${dbtSelected.name}` : 'Test'}
 	</Button>
 {/snippet}
 

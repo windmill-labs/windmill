@@ -20,7 +20,13 @@ import {
   SyncOptions,
   mergeConfigWithConfigFile,
 } from "../../core/conf.ts";
-import { exts, hasScriptExt, removeExtensionToPath } from "../script/script.ts";
+import {
+  exts,
+  hasScriptExt,
+  readModulesFromDisk,
+  removeExtensionToPath,
+} from "../script/script.ts";
+import type { ScriptModule } from "../../../gen/types.gen.ts";
 import { DBT_DESCRIPTOR_NAME, DBT_MODULE_SUFFIX } from "../../utils/resource_folders.ts";
 import { inferContentTypeFromFilePath } from "../../utils/script_common.ts";
 import { OpenFlow } from "../../../gen/types.gen.ts";
@@ -393,6 +399,10 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
     tag?: string;
     lock?: string;
     temp_script_refs?: Record<string, string>;
+    /** The bundle the dev page forwards to a preview run. A dbt project cannot
+     *  run without it: the worker looks for `dbt_project.yml` in the bundle and
+     *  refuses the job when it is not there. */
+    modules?: Record<string, ScriptModule>;
   };
 
   type LastEditFlow = {
@@ -481,6 +491,18 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
           tag: typed?.tag,
           lock: typed?.lock,
           temp_script_refs: tempScriptRefs,
+          // Read VERBATIM for dbt, the way push does: the project's `.sql` and
+          // `.yml` files are dbt's, and inferring a language for each would
+          // drop the ones that are not Windmill scripts.
+          modules:
+            lang === "dbt"
+              ? await readModulesFromDisk(
+                  wmPath + DBT_MODULE_SUFFIX,
+                  opts.defaultTs,
+                  true,
+                  true
+                )
+              : undefined,
         };
         currentLastEdit = edit;
         return edit;

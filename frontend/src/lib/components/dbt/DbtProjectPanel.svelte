@@ -1,6 +1,36 @@
 <script module lang="ts">
 	import type { Preview } from '$lib/gen'
 
+	import YAML from 'yaml'
+
+	/** What `dbt build --select` should be given for an open file, or `undefined`
+	 *  when the file is not a model.
+	 *
+	 *  Only files under the project's `model-paths` are models; a project also
+	 *  holds macros, analyses and singular tests, all `.sql`, none of them
+	 *  selectable by name. The selector is package-qualified because a bare leaf
+	 *  name also matches a dependency package's model of the same name.
+	 */
+	export function dbtModelSelector(
+		modules: Record<string, { content?: string }>,
+		filePath: string
+	): string | undefined {
+		if (!filePath.endsWith('.sql')) return undefined
+		let project: any
+		try {
+			project = YAML.parse(modules['dbt_project.yml']?.content ?? '')
+		} catch {
+			return undefined
+		}
+		if (!project?.name) return undefined
+		const modelPaths: string[] = Array.isArray(project['model-paths'])
+			? project['model-paths']
+			: ['models']
+		if (!modelPaths.some((d) => filePath === d || filePath.startsWith(d + '/'))) return undefined
+		const name = filePath.split('/').pop()!.slice(0, -'.sql'.length)
+		return `${name},package:${project.name}`
+	}
+
 	/** The editor language for one project file, by extension.
 	 *
 	 *  A dbt project is heterogeneous where a `__mod` bundle is not: models are

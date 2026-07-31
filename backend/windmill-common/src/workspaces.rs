@@ -2490,36 +2490,6 @@ pub async fn dbt_warehouse_exists(db: &DB, w_id: &str, warehouse: &str) -> Resul
         .map(|_| ())
 }
 
-/// The connection a dbt warehouse points at, resolved with NO permission check.
-///
-/// Deliberate, and the whole point of configuring warehouses on the workspace:
-/// anyone who may run a dbt script reaches them, exactly as `s3://` reaches the
-/// workspace bucket without the caller being granted the storage resource. What
-/// is reachable stays bounded because only an admin writes the setting and a
-/// descriptor cannot name a resource, only one of those names. Never echo the
-/// result to a user.
-pub async fn dbt_warehouse_connection(
-    db: &DB,
-    w_id: &str,
-    warehouse: &str,
-) -> Result<DbtWarehouseConnection> {
-    let (resource_path, target) = dbt_warehouse_resource(db, w_id, warehouse).await?;
-    let raw = sqlx::query_scalar!(
-        "SELECT value FROM resource WHERE workspace_id = $1 AND path = $2",
-        w_id,
-        &resource_path
-    )
-    .fetch_optional(db)
-    .await?
-    .flatten()
-    .ok_or_else(|| {
-        Error::NotFound(format!(
-            "the dbt warehouse `{warehouse}` points at `{resource_path}`, which does not exist"
-        ))
-    })?;
-    let value = transform_json_value_unchecked(&raw, w_id, db).await?;
-    Ok(DbtWarehouseConnection { value, target })
-}
 
 /// A warehouse name is a URL path segment for a worker with no database, so a
 /// name that could re-cut the path (or the query) is refused — at every place a
