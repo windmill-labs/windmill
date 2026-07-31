@@ -1017,16 +1017,7 @@ pub(crate) async fn prepare_project(
     };
 
     let (profiles_dir, warehouse, adapter, default_database, default_schema, profile_digest) =
-        write_profiles(
-            descriptor,
-            &project_dir,
-            job_dir,
-            client,
-            job_id,
-            w_id,
-            conn,
-        )
-        .await?;
+        write_profiles(descriptor, &project_dir, job_dir, client, w_id, conn).await?;
     // The lockfile's version, when it pinned one for this same engine — a
     // descriptor edited to another engine invalidates the pin.
     let pinned_version = locks
@@ -1488,7 +1479,6 @@ async fn write_profiles(
     project_dir: &Path,
     job_dir: &str,
     client: &AuthedClient,
-    job_id: &Uuid,
     w_id: &str,
     conn: &Connection,
 ) -> error::Result<(
