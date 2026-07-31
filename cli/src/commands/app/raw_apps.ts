@@ -1,5 +1,6 @@
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
+import { getDefaultTs } from "../../core/conf.ts";
 import { colors } from "@cliffy/ansi/colors";
 import * as log from "../../core/log.ts";
 import { sep as SEP } from "node:path";
@@ -143,12 +144,14 @@ function getRunnableIdFromCodeFile(fileName: string): string | undefined {
  * Returns an empty object if the backend folder doesn't exist.
  *
  * @param backendPath - Path to the backend folder
- * @param defaultTs - Default TypeScript runtime ("bun" or "deno")
+ * @param defaultTs - TypeScript runtime a bare `.ts` denotes; resolved from
+ *   wmill.yaml when omitted, so readers agree with what the assigner wrote
  */
 export async function loadRunnablesFromBackend(
   backendPath: string,
-  defaultTs: "bun" | "deno" = "bun",
+  defaultTs?: "bun" | "deno",
 ): Promise<Record<string, any>> {
+  const ts = defaultTs ?? (await getDefaultTs());
   const runnables: Record<string, any> = {};
 
   try {
@@ -188,7 +191,7 @@ export async function loadRunnablesFromBackend(
         );
 
         if (contentFile) {
-          const language = getLanguageFromExtension(contentFile.ext, defaultTs);
+          const language = getLanguageFromExtension(contentFile.ext, ts);
           const lock = await readSiblingLock(backendPath, runnableId, allFiles);
 
           // Reconstruct inlineScript object
@@ -240,7 +243,7 @@ export async function loadRunnablesFromBackend(
       );
 
       if (contentFile) {
-        const language = getLanguageFromExtension(contentFile.ext, defaultTs);
+        const language = getLanguageFromExtension(contentFile.ext, ts);
         const lock = await readSiblingLock(backendPath, runnableId, allFiles);
 
         // Create inline runnable with default empty fields

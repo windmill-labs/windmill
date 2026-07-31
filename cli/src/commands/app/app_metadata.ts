@@ -41,7 +41,7 @@ import {
   newRawAppPathAssigner,
   SupportedLanguage,
 } from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
-import { mergeConfigWithConfigFile, SyncOptions } from "../../core/conf.ts";
+import { getDefaultTs, mergeConfigWithConfigFile, SyncOptions } from "../../core/conf.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { getNonDottedPaths } from "../../utils/resource_folders.ts";
@@ -471,10 +471,11 @@ async function updateRawAppRunnables(
   remotePath: string,
   appFolder: string,
   rawDeps?: Record<string, string>,
-  defaultTs: "bun" | "deno" = "bun",
+  defaultTs?: "bun" | "deno",
   noStaleMessage?: boolean,
   tempScriptRefs?: Record<string, string>
 ): Promise<string[]> {
+  const ts = defaultTs ?? (await getDefaultTs());
   const updatedRunnables: string[] = [];
   const runnablesFolder = path.join(appFolder, APP_BACKEND_FOLDER);
 
@@ -485,7 +486,7 @@ async function updateRawAppRunnables(
     // Folder may already exist
   }
 
-  const pathAssigner = newRawAppPathAssigner(defaultTs);
+  const pathAssigner = newRawAppPathAssigner(ts);
 
   for (const [runnableId, runnable] of Object.entries(runnables)) {
     // Only process inline scripts (runnableByName/inline with inlineScript)
@@ -845,7 +846,7 @@ export interface InferredSchemaResult {
 export async function inferRunnableSchemaFromFile(
   appFolder: string,
   runnableFilePath: string,
-  defaultTs: "bun" | "deno" = "bun",
+  defaultTs?: "bun" | "deno",
 ): Promise<InferredSchemaResult | undefined> {
   // Extract runnable ID from file path (e.g., "myRunnable.ts" -> "myRunnable",
   // "fetch_data.bun.ts" -> "fetch_data")
@@ -916,7 +917,7 @@ export async function inferRunnableSchemaFromFile(
     runnable?.type === "inline" ||
     runnable?.type === "runnableByName"
   ) {
-    language = getLanguageFromExtension(ext, defaultTs);
+    language = getLanguageFromExtension(ext, defaultTs ?? (await getDefaultTs()));
   } else {
     // Path-based runnable or unknown type - schema lives at the script/flow path
     return undefined;
@@ -981,8 +982,9 @@ export async function inferRunnableSchemaFromFile(
  */
 export async function inferAllInlineSchemas(
   appFolder: string,
-  defaultTs: "bun" | "deno" = "bun",
+  defaultTs?: "bun" | "deno",
 ): Promise<Record<string, any>> {
+  const ts = defaultTs ?? (await getDefaultTs());
   const schemas: Record<string, any> = {};
   const backendPath = path.join(appFolder, APP_BACKEND_FOLDER);
 
@@ -1002,7 +1004,7 @@ export async function inferAllInlineSchemas(
     const result = await inferRunnableSchemaFromFile(
       appFolder,
       fileName,
-      defaultTs,
+      ts,
     );
     if (result) {
       schemas[result.runnableId] = result.schema;
