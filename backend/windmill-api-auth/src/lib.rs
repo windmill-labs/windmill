@@ -82,10 +82,11 @@ impl ApiAuthed {
         }
     }
 
-    /// The name a run triggered by this principal is credited to (`v2_job.created_by`, and
-    /// the audit `end_user`). A trigger-token override names the entity that fired the
-    /// request and wins; a generic token label does not, so the token owner is credited and
-    /// stays traceable even when `permissioned_as` is an on-behalf-of identity.
+    /// The name a run triggered by this principal is credited to (`v2_job.created_by`). A
+    /// trigger-token override names the entity that fired the request and wins; a generic
+    /// token label does not, so the token owner is credited and stays traceable even when
+    /// `permissioned_as` is an on-behalf-of identity. The audit `end_user` is the override
+    /// itself, label included, so the two diverge for a labeled token.
     pub fn display_username(&self) -> &str {
         match self.username_override.as_deref() {
             Some(o) if !self.username_override_is_token_label => o,
