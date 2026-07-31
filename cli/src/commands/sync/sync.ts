@@ -2652,18 +2652,6 @@ export async function ignoreF(wmillconf: {
 }
 
 /**
- * The `deleted` changes for data table migrations that a push cannot safely trust.
- *
- * Migrations bypass the repo's path filters (they live outside `f/`/`u/`), so a clone
- * made before they were synced sees every server-side migration as remote-only — and
- * `pushMigrationFromDisk` reads a locally absent `.up.sql` as an instruction to delete
- * it. An absent `migrations/datatable/` directory is ambiguous: it is what both a clone
- * that never pulled migrations and one where the last migration was just deleted look
- * like, because git keeps no empty directory. Deleting is the destructive reading, so
- * the caller confirms it explicitly and never performs it unattended. Once the
- * directory exists, deletions are unambiguous and this returns nothing.
- */
-/**
  * How many migration *records* a set of changed files covers. One migration is two
  * files (`.up.sql` + optional `.down.sql`) for a single `(datatable, timestamp)`,
  * so counting paths would overstate what a prompt is about to delete.
@@ -2679,6 +2667,18 @@ export function countDatatableMigrationRecords(
   return records.size;
 }
 
+/**
+ * The `deleted` changes for data table migrations that a push cannot safely trust.
+ *
+ * Migrations bypass the repo's path filters (they live outside `f/`/`u/`), so a clone
+ * made before they were synced sees every server-side migration as remote-only — and
+ * `pushMigrationFromDisk` reads a locally absent `.up.sql` as an instruction to delete
+ * it. An absent `migrations/datatable/` directory is ambiguous: it is what both a clone
+ * that never pulled migrations and one where the last migration was just deleted look
+ * like, because git keeps no empty directory. Deleting is the destructive reading, so
+ * the caller confirms it explicitly and never performs it unattended. Once the
+ * directory exists, deletions are unambiguous and this returns nothing.
+ */
 export function untrackedDatatableMigrationDeletions<
   T extends { name: string; path: string },
 >(changes: T[], checkoutTracksMigrations: boolean): T[] {
