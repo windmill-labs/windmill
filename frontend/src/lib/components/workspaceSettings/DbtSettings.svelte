@@ -107,13 +107,21 @@
 		{#each dbtSettings.warehouses as warehouse, i (i)}
 			<Row>
 				<Cell first>
-					<TextInput bind:value={warehouse.name} placeholder={DEFAULT_WAREHOUSE} class="min-w-32" />
+					<TextInput
+							bind:value={warehouse.name}
+							inputProps={{ placeholder: DEFAULT_WAREHOUSE }}
+							class="min-w-32"
+						/>
 				</Cell>
 				<Cell>
 					<ResourcePicker class="min-w-48" bind:value={warehouse.resource_path} />
 				</Cell>
 				<Cell>
-					<TextInput bind:value={warehouse.target} placeholder="default" class="min-w-24" />
+					<TextInput
+							bind:value={warehouse.target}
+							inputProps={{ placeholder: 'default' }}
+							class="min-w-24"
+						/>
 				</Cell>
 				<Cell last>
 					<Button
