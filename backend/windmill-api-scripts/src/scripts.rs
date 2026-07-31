@@ -816,8 +816,16 @@ async fn is_noop_deploy_against_parent(
     {
         return Ok(false);
     }
-    if on_behalf_of_email != &parent.on_behalf_of_email
-        || on_behalf_of_permissioned_as != &parent.on_behalf_of_permissioned_as
+    if on_behalf_of_email != &parent.on_behalf_of_email {
+        return Ok(false);
+    }
+    // An omitted permissioned_as is inherited from the parent, so it leaves the script
+    // unchanged — only a value that is both supplied and different is a real edit.
+    // Treating absence as a difference would re-version on every push from a client
+    // that does not carry the field (it is never written to the repo).
+    if on_behalf_of_permissioned_as
+        .as_ref()
+        .is_some_and(|pa| Some(pa) != parent.on_behalf_of_permissioned_as.as_ref())
     {
         return Ok(false);
     }
