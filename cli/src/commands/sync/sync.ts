@@ -4207,9 +4207,9 @@ export async function push(
       colors.yellow(
         `Keeping ${countDatatableMigrationRecords(ambiguousMigrationDeletions)} data table migration(s) on the remote: ` +
           (recordedMigrationPaths.kind === "known"
-            ? `this branch has never tracked them.`
-            : `${recordedMigrationPaths.reason}, so whether it ever tracked them cannot be established.`) +
-          ` Run 'wmill sync pull' to track them in git, or delete them from the workspace.`,
+            ? `this branch has never tracked them. Run 'wmill sync pull' to track them in git, or delete them from the workspace.`
+            : `${recordedMigrationPaths.reason}, so whether it ever tracked them cannot be established. ` +
+              `Fetch the full history (for actions/checkout, fetch-depth: 0) so a real deletion can be told apart, or delete them from the workspace.`),
       ),
     );
     const kept = changes.filter(
