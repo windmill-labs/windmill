@@ -3688,6 +3688,8 @@ paths:
                     $ref: "#/components/schemas/LargeFileStorage"
                   ducklake:
                     $ref: "#/components/schemas/DucklakeSettings"
+                  dbt_warehouses:
+                    $ref: "#/components/schemas/DbtWarehouses"
                   datatable:
                     $ref: "#/components/schemas/DataTableSettings"
                   git_sync:
@@ -4513,6 +4515,55 @@ paths:
           content:
             application/json:
               schema: {}
+
+  /w/{workspace}/workspaces/edit_dbt_warehouses:
+    post:
+      summary: edit the workspace's dbt warehouses
+      operationId: editDbtWarehouses
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: dbt warehouses, by name
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dbt_warehouses:
+                  $ref: "#/components/schemas/DbtWarehouses"
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema: {}
+
+  /w/{workspace}/dbt/warehouse/{name}:
+    get:
+      summary: resolve a dbt warehouse name to the resource it points at
+      description: >-
+        Job-scoped: needs a job token. Returns a pointer only — the caller reads
+        the resource with its own token, which is what authorizes the connection.
+      operationId: getDbtWarehouse
+      tags:
+        - dbt
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: the warehouse it points at
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DbtWarehouseRef"
 
   /w/{workspace}/workspaces/list_ducklakes:
     get:
@@ -31446,6 +31497,32 @@ components:
           type: string
       required:
         - region_name
+
+    DbtWarehouses:
+      type: object
+      description: >-
+        Warehouses a dbt project may run against, by name. `main` is the one a
+        project gets when its descriptor names none. Each entry points at a
+        resource; it never holds credentials.
+      additionalProperties:
+        type: object
+        properties:
+          resource_path:
+            type: string
+          target:
+            type: string
+        required:
+          - resource_path
+
+    DbtWarehouseRef:
+      type: object
+      properties:
+        resource_path:
+          type: string
+        target:
+          type: string
+      required:
+        - resource_path
 
     LargeFileStorage:
       type: object
