@@ -98,14 +98,13 @@ const indexCss = `.myclass {
 }`
 
 export const react19Template = {
-	'/index.tsx': reactIndex,
-	'/App.tsx': appTsx,
-	'/index.css': indexCss,
-	'/package.json': `{
+  '/index.tsx': reactIndex,
+  '/App.tsx': appTsx,
+  '/index.css': indexCss,
+  '/package.json': `{
     "dependencies": {
         "react": "19.0.0",
-        "react-dom": "19.0.0",
-        "windmill-client": "^1"
+        "react-dom": "19.0.0"
     },
     "devDependencies": {
         "@types/react-dom": "^19.0.0",
@@ -115,14 +114,13 @@ export const react19Template = {
 }
 
 export const react18Template = {
-	'/index.tsx': reactIndex,
-	'/App.tsx': appTsx,
-	'/index.css': indexCss,
-	'/package.json': `{
+  '/index.tsx': reactIndex,
+  '/App.tsx': appTsx,
+  '/index.css': indexCss,
+  '/package.json': `{
     "dependencies": {
         "react": "18.3.1",
-        "react-dom": "18.3.1",
-        "windmill-client": "^1"
+        "react-dom": "18.3.1"
     },
     "devDependencies": {
         "@types/react-dom": "^19.0.0",
@@ -132,35 +130,33 @@ export const react18Template = {
 }
 
 export const svelte5Template = {
-	'/index.ts': indexSvelte,
-	'/App.svelte': appSvelte,
-	'/index.css': indexCss,
-	'/package.json': `{
+  '/index.ts': indexSvelte,
+  '/App.svelte': appSvelte,
+  '/index.css': indexCss,
+  '/package.json': `{
     "dependencies": {
-        "svelte": "^5.56.8",
-        "windmill-client": "^1"
+        "svelte": "^5.56.8"
     }
 }`
 }
 
 export const vueTemplate = {
-	'/index.ts': indexVue,
-	'/App.vue': appVue,
-	'/index.css': indexCss,
-	'/package.json': `{
+  '/index.ts': indexVue,
+  '/App.vue': appVue,
+  '/index.css': indexCss,
+  '/package.json': `{
     "dependencies": {
         "core-js": "3.26.1",
-        "vue": "3.5.13",
-        "windmill-client": "^1"
+        "vue": "3.5.13"
     }
 }`
 }
 
 export const FRAMEWORK_TEMPLATES = {
-	react19: react19Template,
-	react18: react18Template,
-	svelte5: svelte5Template,
-	vue: vueTemplate
+  react19: react19Template,
+  react18: react18Template,
+  svelte5: svelte5Template,
+  vue: vueTemplate
 }
 
 export type FrameworkKey = keyof typeof FRAMEWORK_TEMPLATES
@@ -170,27 +166,27 @@ export const STARTER_RUNNABLE_KEY = 'a'
 // Matches the starter runnable that the apps_raw/add page seeds, so the
 // React/Svelte demo button (`backend.a({ x: 42 })`) works on first render.
 export const STARTER_RUNNABLE = {
-	name: 'a',
-	fields: {},
-	type: 'inline',
-	inlineScript: {
-		content:
-			'// import * as wmill from "windmill-client"\n\nexport async function main(x: string) {\n  return x\n}\n',
-		language: 'bun',
-		schema: {
-			$schema: 'https://json-schema.org/draft/2020-12/schema',
-			properties: {
-				x: {
-					default: null,
-					description: '',
-					originalType: 'string',
-					type: 'string'
-				}
-			},
-			required: ['x'],
-			type: 'object'
-		}
-	}
+  name: 'a',
+  fields: {},
+  type: 'inline',
+  inlineScript: {
+    content:
+      '// import * as wmill from "windmill-client"\n\nexport async function main(x: string) {\n  return x\n}\n',
+    language: 'bun',
+    schema: {
+      $schema: 'https://json-schema.org/draft/2020-12/schema',
+      properties: {
+        x: {
+          default: null,
+          description: '',
+          originalType: 'string',
+          type: 'string'
+        }
+      },
+      required: ['x'],
+      type: 'object'
+    }
+  }
 }
 
 export const appVueRouter = `
