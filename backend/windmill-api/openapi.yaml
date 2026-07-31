@@ -14833,7 +14833,7 @@ paths:
                         - ducklake
                         - datatable
                         - volume
-                        - table
+                        - dbt
                     asset_path:
                       type: string
                     outcome:
@@ -14924,7 +14924,7 @@ paths:
                         - ducklake
                         - datatable
                         - volume
-                        - table
+                        - dbt
                     asset_path:
                       type: string
                     created_at:

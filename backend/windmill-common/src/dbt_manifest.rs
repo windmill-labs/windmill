@@ -435,21 +435,13 @@ fn asset_path_for(
         .as_deref()
         .or(node.alias.as_deref())
         .unwrap_or(&node.name);
-    // `asset.path` is VARCHAR(255) and every other kind's path is bounded by a
-    // Windmill path; this one is bounded by the warehouse's identifiers, which
-    // Snowflake alone allows 255 characters of. A node whose key would not fit
-    // keeps its manifest row and simply gets no asset, because the alternative
-    // is Postgres rejecting the insert and taking the whole graph down with it.
-    let path = table_asset_path(
+    table_asset_path(
         warehouse,
         node.database.as_deref(),
         schema,
         name,
         default_database,
-    );
-    // CHARACTERS, which is what `VARCHAR(255)` counts — a warehouse identifier
-    // may be multibyte, and measuring bytes would drop a path that fits.
-    (path.chars().count() <= MAX_ASSET_PATH_LEN).then_some(path)
+    )
 }
 
 /// `asset.path`'s column width. A `dbt://` key is the only asset path assembled
@@ -479,14 +471,21 @@ pub fn table_asset_path(
     schema: &str,
     name: &str,
     default_database: Option<&str>,
-) -> String {
+) -> Option<String> {
     let qualified = match database.map(str::trim).filter(|d| !d.is_empty()) {
         Some(db) if !default_database.is_some_and(|d| d.eq_ignore_ascii_case(db)) => {
             format!("{db}.{schema}")
         }
         _ => schema.to_string(),
     };
-    canonicalize_table_asset_path(&format!("{warehouse}/{qualified}/{name}"))
+    let path = canonicalize_table_asset_path(&format!("{warehouse}/{qualified}/{name}"));
+    // The bound lives HERE because all three derivations must agree, and it is
+    // the column's: `asset.path` is VARCHAR(255), counted in CHARACTERS, and a
+    // `dbt://` key is the only asset path assembled from warehouse identifiers
+    // rather than from a Windmill path. Over it, the relation keeps its manifest
+    // row and gets no asset — the alternative is Postgres rejecting the insert
+    // and taking the graph down, or one swallowed `value too long` per node.
+    (path.chars().count() <= MAX_ASSET_PATH_LEN).then_some(path)
 }
 
 /// Parse a `manifest.json` into rows, edges and asset usages.
@@ -1570,6 +1569,11 @@ mod tests {
 }
 
 /// Record one model's state for THIS RUN.
+///
+/// NO AUTHORIZATION: writes whatever `w_id`/`job_id` it is given. Callers MUST
+/// already have established that the job is theirs — the API route takes the id
+/// from the token rather than the body for exactly this reason — and MUST pass a
+/// job that belongs to that workspace.
 ///
 /// Alongside `record_materialization`, never instead of it: that table holds the
 /// current state of a relation, one row, and its `job_id` is only the last

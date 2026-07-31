@@ -5278,6 +5278,12 @@ async fn clone_workspace_data(
     // Clone scripts with new hashes
     clone_scripts(tx, source_workspace_id, target_workspace_id).await?;
 
+    // Clone the dbt graph sidecars. After `clone_scripts`, which keeps each
+    // script's hash: these key on it, and a static descriptor never re-ingests,
+    // so a fork without them shows dbt scripts with no models until someone
+    // redeploys.
+    clone_dbt_graph(tx, source_workspace_id, target_workspace_id).await?;
+
     // Clone CI test references
     clone_ci_test_references(tx, source_workspace_id, target_workspace_id).await?;
     clone_macro_registry(tx, source_workspace_id, target_workspace_id).await?;
@@ -5905,6 +5911,56 @@ async fn clone_scripts(
     .execute(&mut **tx)
     .await?;
 
+    Ok(())
+}
+
+/// The parsed dbt graph a deployed script carries: its models, their SQL and
+/// tests, and the `ref()` lineage between them.
+///
+/// Keyed on (workspace_id, script_path, script_hash), and the fork keeps every
+/// script's hash, so each row moves across as itself.
+async fn clone_dbt_graph(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO dbt_node (workspace_id, script_path, script_hash, job_id, unique_id,
+            resource_type, name, asset_path, materialized, materialize_strategy, unique_key,
+            tags, description, test_kind, test_column, test_args, severity, attached_node,
+            columns, freshness, raw_code, original_file_path, ingested_at)
+         SELECT $2, script_path, script_hash, job_id, unique_id,
+            resource_type, name, asset_path, materialized, materialize_strategy, unique_key,
+            tags, description, test_kind, test_column, test_args, severity, attached_node,
+            columns, freshness, raw_code, original_file_path, ingested_at
+         FROM dbt_node WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id
+    )
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO dbt_edge (workspace_id, script_path, script_hash, job_id,
+            parent_unique_id, child_unique_id, ingested_at)
+         SELECT $2, script_path, script_hash, job_id, parent_unique_id, child_unique_id,
+            ingested_at
+         FROM dbt_edge WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id
+    )
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO dbt_graph_snapshot (workspace_id, script_path, script_hash, job_id,
+            digest, relation_root_at_last_ingest, ingested_at)
+         SELECT $2, script_path, script_hash, job_id, digest, relation_root_at_last_ingest,
+            ingested_at
+         FROM dbt_graph_snapshot WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id
+    )
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }
 

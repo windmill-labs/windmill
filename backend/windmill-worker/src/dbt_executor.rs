@@ -1522,7 +1522,9 @@ async fn write_profiles(
         // Read from the project's own file even when the descriptor declares a type:
         // the file is what dbt connects with. Licensing is why it cannot be a hint —
         // the Rust engines carry every adapter, so a descriptor claiming `postgres`
-        // over a `sqlserver` target would pass the CE check and connect anyway.
+        // over a `sqlserver` target would pass the CE check and connect anyway. The
+        // one case where the file cannot answer is a templated `type`, and there
+        // the descriptor may name only an unlicensed adapter.
         let target = adapter_from_profiles_yml(
             &path,
             &project_profile_name(project_dir).await,
@@ -1741,18 +1743,32 @@ async fn adapter_from_profiles_yml(
         .get("type")
         .and_then(|t| t.as_str())
         .filter(|t| !t.contains("{{"));
-    // Same for the adapter: templated, only the descriptor can name it. It is
-    // the one thing a licence check cannot be wrong about.
     let adapter = match declared_type {
         Some(t) => DbtAdapter::from_resource_type(t)
             .ok_or_else(|| Error::BadRequest(format!("unsupported dbt adapter `{t}`")))?,
-        None => declared.ok_or_else(|| {
-            Error::BadRequest(format!(
-                "{} does not state its adapter as a literal `type` (templated, or absent), so \
-                 set `profile.type` in the descriptor",
-                path.display()
-            ))
-        })?,
+        // Templated: only the descriptor can name it, and taking its word is
+        // what the caller's licence rule forbids — a project could claim
+        // `postgres` over a `sqlserver` target and pass the CE check. So the
+        // descriptor may name a CE adapter here, never a licensed one: those
+        // stay decided by a `type` this code can actually read.
+        None => {
+            let named = declared.ok_or_else(|| {
+                Error::BadRequest(format!(
+                    "{} does not state its adapter as a literal `type` (templated, or absent), \
+                     so set `profile.type` in the descriptor",
+                    path.display()
+                ))
+            })?;
+            if named.requires_enterprise() {
+                return Err(Error::BadRequest(format!(
+                    "{} templates its `type`, so Windmill cannot confirm the adapter, and \
+                     `profile.type: {}` is licensed. Spell the type literally in the target",
+                    path.display(),
+                    named.name()
+                )));
+            }
+            named
+        }
     };
     // The target's own database and schema, read with the same keys the renderer
     // writes. A project that owns its profile then spells its `dbt://` paths
@@ -2342,13 +2358,16 @@ fn parse_node_event(
         | DbtNodeOutcome::NoOp
         | DbtNodeOutcome::Unknown => return None,
     };
+    // `None` when the derived key would not fit `asset.path`; the node keeps its
+    // manifest row and this run records no materialization for it, rather than
+    // one swallowed `value too long` per node per run.
     let path = windmill_common::dbt_manifest::table_asset_path(
         warehouse,
         database,
         schema,
         alias,
         default_database,
-    );
+    )?;
     Some(RecordMaterializationRequest {
         asset_kind: windmill_common::assets::AssetKind::Dbt,
         asset_path: path,
@@ -2604,13 +2623,13 @@ fn asset_path_of_relation(
         [schema, name] => (None, schema.as_str(), name.as_str()),
         _ => return None,
     };
-    Some(windmill_common::dbt_manifest::table_asset_path(
+    windmill_common::dbt_manifest::table_asset_path(
         warehouse,
         database,
         schema,
         name,
         default_database,
-    ))
+    )
 }
 
 /// Split `"db"."schema"."name"` on the separators BETWEEN identifiers only.
@@ -4863,8 +4882,9 @@ mod tests {
                 "analytics",
                 "orders",
                 t.database.as_deref(),
-            ),
-            "main/analytics/orders"
+            )
+            .as_deref(),
+            Some("main/analytics/orders")
         );
     }
 

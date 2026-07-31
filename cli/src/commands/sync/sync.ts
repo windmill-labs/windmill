@@ -8,6 +8,7 @@ import {
   copyFile,
   mkdir,
 } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
@@ -3022,6 +3023,22 @@ async function pushParentScriptForModule(
     try {
       contentPath = await findContentFile(scriptBasePath + ".script.yaml");
     } catch {
+      // No project left while its metadata remains: whether the whole `__dbt/`
+      // directory went or only its `dbt_project.yml` — the file that MAKES it a
+      // project, and without which the script cannot be looked up or run —
+      // returning quietly here reports a successful push that changed nothing
+      // on the remote. Ambiguous enough to refuse rather than guess: archiving
+      // a deployed project because a file is missing is not recoverable.
+      const hasMetadata =
+        existsSync(scriptBasePath + ".script.yaml") ||
+        existsSync(scriptBasePath + ".script.json");
+      if (!existsSync(moduleFolderPath + "/dbt_project.yml") && hasMetadata) {
+        throw new Error(
+          `${moduleFolderPath} has no dbt_project.yml but ${scriptBasePath}.script.yaml ` +
+            `remains, so there is no dbt project left to push. Delete the metadata too to ` +
+            `archive the script, or restore the project.`
+        );
+      }
       log.debug(`Could not find parent script for dbt module: ${modulePath}`);
       return;
     }
