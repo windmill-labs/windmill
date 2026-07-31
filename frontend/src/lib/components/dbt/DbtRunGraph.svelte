@@ -321,7 +321,7 @@
 			// of the dbt DAG, so it is the one edge set worth keeping whole.
 			dbt_edges: (raw.dbt_edges ?? []).filter(
 				(e) =>
-					assetIds.has(`table:${e.from_asset_path}`) && assetIds.has(`table:${e.to_asset_path}`)
+					assetIds.has(`dbt:${e.from_asset_path}`) && assetIds.has(`dbt:${e.to_asset_path}`)
 			)
 		} as AssetGraphResponse
 	})
@@ -354,7 +354,7 @@
 			...scoped,
 			assets,
 			dbt_edges: (scoped.dbt_edges ?? []).filter(
-				(e) => ids.has(`table:${e.from_asset_path}`) && ids.has(`table:${e.to_asset_path}`)
+				(e) => ids.has(`dbt:${e.from_asset_path}`) && ids.has(`dbt:${e.to_asset_path}`)
 			)
 		} as AssetGraphResponse
 	})
