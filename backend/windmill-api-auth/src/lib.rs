@@ -414,6 +414,9 @@ fn scope_contains(caller: &ScopeDefinition, requested: &ScopeDefinition) -> bool
     // write subsumes read; otherwise the action must match exactly.
     match (caller.action.as_str(), requested.action.as_str()) {
         (c, r) if c == r || (c == "write" && r == "read") => {}
+        // Apps only: `write` covers `run` (see `ScopeDefinition::includes`), so an
+        // app-editor token can mint the narrower run-only credential.
+        ("write", "run") if caller.domain == "apps" => {}
         _ => return false,
     }
 
@@ -1484,6 +1487,25 @@ mod tests {
             opt_scopes(Some(vec!["users:read", "if_jobs:filter_tags:default"])).as_deref()
         )
         .is_ok());
+        // Apps `write` covers `run`, so an app-editor token can mint the run-only
+        // credential for the same app — but only within its own resource subtree,
+        // and the equivalence stays Apps-only.
+        let app_editor = authed_with_scopes(Some(vec!["apps:write:u/me/a", "jobs:write"]));
+        assert!(ensure_scopes_within_caller(
+            &app_editor,
+            opt_scopes(Some(vec!["apps:run:u/me/a"])).as_deref()
+        )
+        .is_ok());
+        assert!(ensure_scopes_within_caller(
+            &app_editor,
+            opt_scopes(Some(vec!["apps:run:u/me/b"])).as_deref()
+        )
+        .is_err());
+        assert!(ensure_scopes_within_caller(
+            &app_editor,
+            opt_scopes(Some(vec!["jobs:run"])).as_deref()
+        )
+        .is_err());
     }
 
     #[test]

@@ -3984,6 +3984,19 @@ struct AppS3FileQueryWithForceViewerAllowedS3Keys {
     pub force_viewer_allowed_s3_keys: Option<String>,
 }
 
+/// Confine a scoped caller to THIS app's S3 files, or it could read another app's
+/// through that app's on-behalf policy. Either grant reads them: `apps:read:<path>`
+/// (app embed tokens) or `apps:run:<path>` (a run-scoped token fetching back what its
+/// own runs produced). Unscoped/anonymous callers fall through to the provenance gate.
+#[cfg(feature = "parquet")]
+fn check_app_s3_read_scope(opt_authed: &Option<ApiAuthed>, path: &str) -> Result<()> {
+    let Some(authed) = opt_authed.as_ref() else {
+        return Ok(());
+    };
+    check_scopes(authed, || format!("apps:run:{}", path))
+        .or_else(|_| check_scopes(authed, || format!("apps:read:{}", path)))
+}
+
 #[cfg(feature = "parquet")]
 async fn download_s3_file_from_app(
     OptAuthed(opt_authed): OptAuthed,
@@ -3995,15 +4008,7 @@ async fn download_s3_file_from_app(
 
     let path = path.to_path();
 
-    // Authorize the app path first, or a scoped caller could read another app's S3
-    // files through that app's on-behalf policy. Either grant reads THIS app's files:
-    // `apps:read:<path>` (app embed tokens) or `apps:run:<path>` (a run-scoped token
-    // fetching back what its own runs produced). Unscoped/anonymous callers pass
-    // through to the provenance gate in `check_if_allowed_...`.
-    if let Some(authed) = opt_authed.as_ref() {
-        check_scopes(authed, || format!("apps:run:{}", path))
-            .or_else(|_| check_scopes(authed, || format!("apps:read:{}", path)))?;
-    }
+    check_app_s3_read_scope(&opt_authed, path)?;
 
     let force_viewer_allowed_s3_keys = if let Some(force_viewer_allowed_s3_keys) =
         query.force_viewer_allowed_s3_keys.clone()
@@ -4093,9 +4098,7 @@ async fn app_s3_on_behalf_and_provenance(
     opt_authed: &Option<ApiAuthed>,
     file_query: &AppS3FileQuery,
 ) -> Result<crate::db::OptJobAuthed> {
-    if let Some(authed) = opt_authed.as_ref() {
-        check_scopes(authed, || format!("apps:read:{}", path))?;
-    }
+    check_app_s3_read_scope(opt_authed, path)?;
     let (on_behalf_authed, policy) =
         get_on_behalf_authed_from_app(db, path, w_id, opt_authed, None).await?;
     let read_authed = match check_if_allowed_to_access_s3_file_from_app(
