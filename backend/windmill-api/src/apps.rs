@@ -2837,12 +2837,10 @@ async fn execute_component(
     Json(mut payload): Json<ExecuteApp>,
 ) -> Result<String> {
     let path = path.to_path();
-    // Authorize FIRST, before touching the payload: confine a scope-restricted caller
-    // to the app its scope names — the app embed token (the only credential handed to
-    // untrusted app JS, carrying `apps:run:<own path>`) and any `apps:run|write:<path>`
-    // token minted from the scope picker. The route layer is resource-blind, so the
-    // path check has to happen here. `check_scopes` is a no-op for unscoped callers
-    // (cookie sessions, plain user tokens); anonymous ones are policy-gated below.
+    // Authorize before touching the payload: the route layer is resource-blind, so a
+    // path-scoped caller (app embed token, or a picker-minted `apps:run|write:<path>`)
+    // is confined to its own app only here. No-op for unscoped callers; anonymous ones
+    // are policy-gated below.
     if let Some(authed) = opt_authed.as_ref() {
         check_scopes(authed, || format!("apps:run:{}", path))?;
     }
@@ -3371,11 +3369,8 @@ async fn upload_s3_file_from_app(
     Query(query): Query<UploadFileToS3Query>,
     request: axum::extract::Request,
 ) -> JsonResult<AppUploadFileResponse> {
-    // Confine a scope-restricted caller (an app embed token carrying untrusted app JS,
-    // or a picker-minted `apps:run|write:<path>` token) to uploading for its OWN app:
-    // the route is reachable with `apps:run` (RUN_PATH_ACTIONS) and the route layer is
-    // resource-blind, so without this a token scoped to app A could drive app B's
-    // upload policy. Mirrors execute_component; unscoped callers are unaffected.
+    // Same path confinement as `execute_component`: without it a token scoped to app A
+    // could drive app B's upload policy.
     if let Some(authed) = opt_authed.as_ref() {
         check_scopes(authed, || format!("apps:run:{}", path.to_path()))?;
     }
@@ -4000,13 +3995,14 @@ async fn download_s3_file_from_app(
 
     let path = path.to_path();
 
-    // Authorize the app path first: a scoped caller (notably an app embed token,
-    // which carries `apps:read:<own path>`) may only download files for the app it
-    // was minted for — otherwise it could read another app's S3 files via that app's
-    // on-behalf policy. Unscoped sessions / anonymous callers pass through (the
-    // latter still gated by the policy allowlist in `check_if_allowed_...`).
+    // Authorize the app path first, or a scoped caller could read another app's S3
+    // files through that app's on-behalf policy. Either grant reads THIS app's files:
+    // `apps:read:<path>` (app embed tokens) or `apps:run:<path>` (a run-scoped token
+    // fetching back what its own runs produced). Unscoped/anonymous callers pass
+    // through to the provenance gate in `check_if_allowed_...`.
     if let Some(authed) = opt_authed.as_ref() {
-        check_scopes(authed, || format!("apps:read:{}", path))?;
+        check_scopes(authed, || format!("apps:run:{}", path))
+            .or_else(|_| check_scopes(authed, || format!("apps:read:{}", path)))?;
     }
 
     let force_viewer_allowed_s3_keys = if let Some(force_viewer_allowed_s3_keys) =

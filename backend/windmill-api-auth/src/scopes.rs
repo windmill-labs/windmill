@@ -806,11 +806,8 @@ fn scope_grants_access(
             && route_path.is_some_and(resource_metadata_route_allowed));
     }
 
-    // `apps_u/execute_component` and `apps_u/upload_s3_file` are Run actions, but
-    // `apps:write` can rewrite the app and its policy, so it covers running its
-    // components too (mirrors the same rule in `ScopeDefinition::includes`). Like
-    // every domain here this layer is resource-blind; the two handlers path-check
-    // the app with `check_scopes(apps:run:<path>)`.
+    // Apps `write` covers `run` (see `ScopeDefinition::includes`). Like every domain
+    // here this layer is resource-blind; the Run handlers path-check the app.
     if scope_domain == ScopeDomain::Apps
         && scope_action == ScopeAction::Write
         && required_action == ScopeAction::Run

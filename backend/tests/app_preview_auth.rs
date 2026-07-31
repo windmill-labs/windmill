@@ -347,11 +347,9 @@ async fn test_app_preview_authorization(db: Pool<Postgres>) -> anyhow::Result<()
     );
 
     // 12. Path confinement: the scope picker mints `apps:run:<path>` /
-    //     `apps:write:<path>`, but the route layer only matches domain + action, so
-    //     the handler must enforce the path. A token scoped to `vapp` must not be able
-    //     to execute another app's components — the path qualifier used to be honored
-    //     for app embed tokens only, so this reached the target app's policy and ran
-    //     under its on-behalf identity.
+    //     `apps:write:<path>`, but the route layer matches domain + action only, so the
+    //     handler is the only place the path is enforced. A token scoped to `vapp` must
+    //     not execute another app's components — those run under that app's identity.
     for token in ["APPS_RUN_VAPP_TOKEN", "APPS_WRITE_VAPP_TOKEN"] {
         let resp = authed(client().post(format!("{base}/u/test-user/private")), token)
             .json(&json!({ "args": {}, "component": "comp", "path": "script/u/test-user/private" }))
