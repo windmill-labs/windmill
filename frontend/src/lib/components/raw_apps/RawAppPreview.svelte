@@ -4,13 +4,12 @@
 	import type { Runnable } from './rawAppPolicy'
 	import { getContext, onMount, untrack } from 'svelte'
 	import { unsandboxedRawAppHtml } from './utils'
-	import { randomUUID } from '$lib/utils/uuid'
+	import { randomSecret } from '$lib/utils/uuid'
 
-	// Per-mount value proving a `windmill:ready` came from the document we loaded.
-	// Not cryptographically strong: the transferred port in `respondCtx` is what
-	// actually binds the reply to that document; this only distinguishes it from
-	// one navigated in afterwards, which cannot read our URL.
-	const handshakeNonce = randomUUID()
+	// Per-mount secret proving a `windmill:ready` came from the document we loaded.
+	// It is the only thing authenticating that document — a port proves nothing,
+	// since any sender can transfer one — so it must not be guessable.
+	const handshakeNonce = randomSecret()
 
 	interface Props {
 		workspace: string
@@ -165,10 +164,10 @@
 		} catch (_) {}
 	}
 
-	/** The credential goes only to the document we loaded. Replying on the port it
-	 * transferred is what enforces that — posting to `contentWindow` would land in
-	 * whatever document is active by then. The nonce is a second check on who
-	 * asked; it lives in our URL, which a document navigated in can't read. */
+	/** The nonce authenticates the asker: it lives in our URL, which a document
+	 * navigated into the frame can't read. Replying on the port that document
+	 * transferred then keeps the answer from landing in whatever document is
+	 * active by the time we reply. Both are needed. */
 	function respondCtx(nonceEcho?: string, port?: MessagePort) {
 		// No port means the sender is not a wrapper we served — every one of ours
 		// transfers one. Answering anyway would hand the viewer's identity to it.
