@@ -72,7 +72,7 @@ describe('draftBaseIsStale', () => {
 
 // Without preserve_on_behalf_of the backend rewrites on_behalf_of_email to the
 // deploying user, so deploying a draft silently re-points the runnable's
-// identity. Apps carried the flag while scripts and flows did not.
+// identity.
 
 describe('deployDraft preserves on_behalf_of', () => {
 	beforeEach(() => vi.clearAllMocks())
