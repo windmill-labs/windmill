@@ -15,7 +15,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { parseDatatableMigrationPath } from "../src/types.ts";
 import { validateLocalMigrations } from "../src/commands/datatable_migrations.ts";
-import { dropUntrackedDatatableMigrationDeletions } from "../src/commands/sync/sync.ts";
+import { untrackedDatatableMigrationDeletions } from "../src/commands/sync/sync.ts";
 
 describe("parseDatatableMigrationPath", () => {
   test("parses up and down files of the new layout", () => {
@@ -123,15 +123,18 @@ describe("validateLocalMigrations", () => {
 });
 
 // =============================================================================
-// dropUntrackedDatatableMigrationDeletions — the push-side safety net.
+// untrackedDatatableMigrationDeletions — the push-side safety net.
 //
 // Migrations bypass the repo's path filters, so a clone made before they were
 // synced sees every server-side migration as remote-only. `pushMigrationFromDisk`
 // reads a missing `.up.sql` as "delete it", which would wipe a workspace's
-// migration definitions on that clone's first push.
+// migration definitions on that clone's first push. An absent
+// `migrations/datatable/` cannot distinguish that clone from one where the last
+// migration was just deleted, so those deletions are surfaced for an explicit
+// confirmation rather than applied.
 // =============================================================================
 
-describe("dropUntrackedDatatableMigrationDeletions", () => {
+describe("untrackedDatatableMigrationDeletions", () => {
   const changes = [
     { name: "deleted", path: "migrations/datatable/mydb/20260101000000_a.up.sql" },
     { name: "deleted", path: "migrations/datatable/mydb/20260101000000_a.down.sql" },
@@ -139,18 +142,16 @@ describe("dropUntrackedDatatableMigrationDeletions", () => {
     { name: "added", path: "migrations/datatable/mydb/20260102000000_b.up.sql" },
   ];
 
-  test("drops migration deletions when the checkout never tracked them", () => {
-    const { kept, dropped } = dropUntrackedDatatableMigrationDeletions(changes, false);
-    expect(dropped).toBe(2);
-    expect(kept.map((c) => c.path)).toEqual([
-      "f/foo/bar.script.yaml",
-      "migrations/datatable/mydb/20260102000000_b.up.sql",
+  test("flags migration deletions when the checkout has no migrations directory", () => {
+    expect(
+      untrackedDatatableMigrationDeletions(changes, false).map((c) => c.path),
+    ).toEqual([
+      "migrations/datatable/mydb/20260101000000_a.up.sql",
+      "migrations/datatable/mydb/20260101000000_a.down.sql",
     ]);
   });
 
-  test("keeps every change once the checkout tracks migrations", () => {
-    const { kept, dropped } = dropUntrackedDatatableMigrationDeletions(changes, true);
-    expect(dropped).toBe(0);
-    expect(kept).toBe(changes);
+  test("flags nothing once the checkout tracks migrations", () => {
+    expect(untrackedDatatableMigrationDeletions(changes, true)).toEqual([]);
   });
 });
