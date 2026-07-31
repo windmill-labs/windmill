@@ -1103,9 +1103,10 @@ async fn require_job_read_access(
     // identity, i.e. its `permissioned_as_email` (the token owner's email, never set from
     // the label) equals `authed.email`. This still admits every legitimate same-owner
     // re-read (trigger tokens reading their own webhook/http/email jobs, the
-    // ephemeral-script-end-user worker token, generic labeled tokens) while denying
-    // cross-principal collisions. The DB hit only happens when an override is present and
-    // matches, so the common session/token path stays query-free.
+    // ephemeral-script-end-user worker token, and jobs whose stored `created_by` is a
+    // `label-*` override) while denying cross-principal collisions. The DB hit only happens
+    // when an override is present and matches, so the common session/token path stays
+    // query-free.
     if authed
         .username_override
         .as_deref()
@@ -9257,6 +9258,7 @@ pub fn start_job_update_sse_stream(
         // Send initial update immediately
         let mut running = running;
         let mut mem_peak = 0;
+        let mut get_progress_m: bool = false;
 
         match get_job_update_data(
             &opt_authed,
@@ -9266,7 +9268,7 @@ pub fn start_job_update_sse_stream(
             &job_id,
             log_offset,
             stream_offset,
-            false,
+            get_progress.unwrap_or(false),
             running,
             true,
             true,
@@ -9282,6 +9284,9 @@ pub fn start_job_update_sse_stream(
         .await
         {
             Ok(mut update) => {
+                if update.progress.is_some() {
+                    get_progress_m = true;
+                }
                 last_update_hash = Some(update.hash_str());
                 let completion_sent = update.completed.unwrap_or(false);
                 if running.is_some() && update.running.is_some_and(|x| x) {
@@ -9327,7 +9332,6 @@ pub fn start_job_update_sse_stream(
             }
         }
 
-        let mut get_progress_m: bool = false;
         // Poll for updates every 1 second
         let mut i = 0;
         let start = Instant::now();
@@ -9417,6 +9421,26 @@ pub fn start_job_update_sse_stream(
                             get_progress_m = true;
                         } else {
                             last_progress_check = Instant::now();
+                        }
+                    }
+
+                    // A job that finishes in between two throttled progress checks would
+                    // otherwise report no progress at all, leaving the caller unable to tell
+                    // at which progress it ended.
+                    if get_progress.unwrap_or(false)
+                        && update.progress.is_none()
+                        && update.completed.unwrap_or(false)
+                    {
+                        match sqlx::query_scalar!(
+                            "SELECT (scalar_int)::int FROM job_stats WHERE job_id = $1 AND workspace_id = $2 AND metric_id = 'progress_perc'",
+                            job_id, &w_id)
+                            .fetch_optional(&db)
+                            .await
+                        {
+                            Ok(progress) => update.progress = progress.flatten(),
+                            Err(e) => tracing::warn!(
+                                "Failed to get final progress for job {job_id}: {e:#}"
+                            ),
                         }
                     }
 
@@ -10915,6 +10939,7 @@ mod approval_view_gate_tests {
             folders: vec![],
             scopes: None,
             username_override: None,
+            username_override_is_token_label: false,
             token_prefix: None,
             read_only: false,
         }

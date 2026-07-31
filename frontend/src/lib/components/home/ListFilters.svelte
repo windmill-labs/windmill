@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Folder, User } from 'lucide-svelte'
 	import { Badge } from '../common'
-	import { APP_TO_ICON_COMPONENT } from '../icons'
+	import { appIconComponent } from '../icons'
 	import { onDestroy, onMount } from 'svelte'
 
 	interface Props {
@@ -51,10 +51,6 @@
 	function loadFilterFromUrl() {
 		let queryValue = new URL(window.location.href).searchParams.get(queryName) ?? undefined
 		selectedFilter = queryValue
-	}
-
-	function getIconComponent(name: string) {
-		return APP_TO_ICON_COMPONENT[name] || APP_TO_ICON_COMPONENT[name.split('_')[0]]
 	}
 
 	export async function setQuery(url: URL, key: string, value: string | undefined): Promise<void> {
@@ -110,7 +106,7 @@
 				>
 					<span style="height: 12px" class="-mt-0.5">
 						{#if resourceType}
-							{@const SvelteComponent = getIconComponent(filter)}
+							{@const SvelteComponent = appIconComponent(filter)}
 							<SvelteComponent height="14px" width="14px" />
 						{:else if filter.startsWith('u/')}
 							<User class="mr-0.5" size={14} />

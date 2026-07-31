@@ -547,6 +547,11 @@ const result: wmill.S3Object = await wmill.writeS3File(
 
 Import: import * as wmill from 'windmill-client'
 
+To know who is running the script, read the contextual variables rather than calling the API:
+\`process.env.WM_END_USER_EMAIL || process.env.WM_EMAIL\`. WM_END_USER_EMAIL is the app viewer when
+the run was triggered from an app and empty otherwise (both variables are always defined), WM_EMAIL
+is the user the job is permissioned as. WM_USERNAME is the matching username.
+
 workerHasInternalServer(): boolean
 
 /**
@@ -576,11 +581,6 @@ async getResource(path?: string, undefinedIfEmpty?: boolean): Promise<any>
  * @returns root job id
  */
 async getRootJobId(jobId?: string): Promise<string>
-
-/**
- * @deprecated Use runScriptByPath or runScriptByHash instead
- */
-async runScript(path: string | null = null, hash_: string | null = null, args: Record<string, any> | null = null, verbose: boolean = false, tag: string | null = null): Promise<any>
 
 /**
  * Run a script synchronously by its path and wait for the result
@@ -647,11 +647,6 @@ async getResult(jobId: string): Promise<any>
 async getResultMaybe(jobId: string): Promise<any>
 
 /**
- * @deprecated Use runScriptByPathAsync or runScriptByHashAsync instead
- */
-async runScriptAsync(path: string | null, hash_: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null, tag: string | null = null): Promise<string>
-
-/**
  * Run a script asynchronously by its path
  * @param path - Script path in Windmill
  * @param args - Arguments to pass to the script
@@ -706,13 +701,6 @@ async setResource(value: any, path?: string, initializeToTypeIfNotExist?: string
 /**
  * Set the state
  * @param state state to set
- * @deprecated use setState instead
- */
-async setInternalState(state: any): Promise<void>
-
-/**
- * Set the state
- * @param state state to set
  * @param path Optional state resource path override. Defaults to \`getStatePath()\`.
  */
 async setState(state: any, path?: string): Promise<void>
@@ -744,12 +732,6 @@ async setFlowUserState(key: string, value: any, errorIfNotPossible?: boolean): P
  * @param path path of the variable
  */
 async getFlowUserState(key: string, errorIfNotPossible?: boolean): Promise<any>
-
-/**
- * Get the internal state
- * @deprecated use getState instead
- */
-async getInternalState(): Promise<any>
 
 /**
  * Get the state shared across executions
@@ -887,15 +869,6 @@ async getResumeUrls(approver?: string, flowLevel?: boolean): Promise<{
 }>
 
 /**
- * @deprecated use getResumeUrls instead
- */
-getResumeEndpoints(approver?: string): Promise<{
-  approvalPage: string;
-  resume: string;
-  cancel: string;
-}>
-
-/**
  * Get an OIDC jwt token for auth to external services (e.g: Vault, AWS) (ee only)
  * @param audience audience of the token
  * @param expiresIn Optional number of seconds until the token expires
@@ -916,15 +889,6 @@ base64ToUint8Array(data: string): Uint8Array
  * @returns Base64-encoded string
  */
 uint8ArrayToBase64(arrayBuffer: Uint8Array): string
-
-/**
- * Get email from workspace username
- * This method is particularly useful for apps that require the email address of the viewer.
- * Indeed, in the viewer context, WM_USERNAME is set to the username of the viewer but WM_EMAIL is set to the email of the creator of the app.
- * @param username
- * @returns email address
- */
-async usernameToEmail(username: string): Promise<string>
 
 /**
  * Sends an interactive approval request via Slack, allowing optional customization of the message, approver, and form fields.
@@ -1347,6 +1311,11 @@ const result: wmill.S3Object = await wmill.writeS3File(
 
 Import: import * as wmill from 'windmill-client'
 
+To know who is running the script, read the contextual variables rather than calling the API:
+\`process.env.WM_END_USER_EMAIL || process.env.WM_EMAIL\`. WM_END_USER_EMAIL is the app viewer when
+the run was triggered from an app and empty otherwise (both variables are always defined), WM_EMAIL
+is the user the job is permissioned as. WM_USERNAME is the matching username.
+
 workerHasInternalServer(): boolean
 
 /**
@@ -1376,11 +1345,6 @@ async getResource(path?: string, undefinedIfEmpty?: boolean): Promise<any>
  * @returns root job id
  */
 async getRootJobId(jobId?: string): Promise<string>
-
-/**
- * @deprecated Use runScriptByPath or runScriptByHash instead
- */
-async runScript(path: string | null = null, hash_: string | null = null, args: Record<string, any> | null = null, verbose: boolean = false, tag: string | null = null): Promise<any>
 
 /**
  * Run a script synchronously by its path and wait for the result
@@ -1447,11 +1411,6 @@ async getResult(jobId: string): Promise<any>
 async getResultMaybe(jobId: string): Promise<any>
 
 /**
- * @deprecated Use runScriptByPathAsync or runScriptByHashAsync instead
- */
-async runScriptAsync(path: string | null, hash_: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null, tag: string | null = null): Promise<string>
-
-/**
  * Run a script asynchronously by its path
  * @param path - Script path in Windmill
  * @param args - Arguments to pass to the script
@@ -1506,13 +1465,6 @@ async setResource(value: any, path?: string, initializeToTypeIfNotExist?: string
 /**
  * Set the state
  * @param state state to set
- * @deprecated use setState instead
- */
-async setInternalState(state: any): Promise<void>
-
-/**
- * Set the state
- * @param state state to set
  * @param path Optional state resource path override. Defaults to \`getStatePath()\`.
  */
 async setState(state: any, path?: string): Promise<void>
@@ -1544,12 +1496,6 @@ async setFlowUserState(key: string, value: any, errorIfNotPossible?: boolean): P
  * @param path path of the variable
  */
 async getFlowUserState(key: string, errorIfNotPossible?: boolean): Promise<any>
-
-/**
- * Get the internal state
- * @deprecated use getState instead
- */
-async getInternalState(): Promise<any>
 
 /**
  * Get the state shared across executions
@@ -1687,15 +1633,6 @@ async getResumeUrls(approver?: string, flowLevel?: boolean): Promise<{
 }>
 
 /**
- * @deprecated use getResumeUrls instead
- */
-getResumeEndpoints(approver?: string): Promise<{
-  approvalPage: string;
-  resume: string;
-  cancel: string;
-}>
-
-/**
  * Get an OIDC jwt token for auth to external services (e.g: Vault, AWS) (ee only)
  * @param audience audience of the token
  * @param expiresIn Optional number of seconds until the token expires
@@ -1716,15 +1653,6 @@ base64ToUint8Array(data: string): Uint8Array
  * @returns Base64-encoded string
  */
 uint8ArrayToBase64(arrayBuffer: Uint8Array): string
-
-/**
- * Get email from workspace username
- * This method is particularly useful for apps that require the email address of the viewer.
- * Indeed, in the viewer context, WM_USERNAME is set to the username of the viewer but WM_EMAIL is set to the email of the creator of the app.
- * @param username
- * @returns email address
- */
-async usernameToEmail(username: string): Promise<string>
 
 /**
  * Sends an interactive approval request via Slack, allowing optional customization of the message, approver, and form fields.
@@ -2241,6 +2169,11 @@ const result: wmill.S3Object = await wmill.writeS3File(
 
 Import: import * as wmill from 'windmill-client'
 
+To know who is running the script, read the contextual variables rather than calling the API:
+\`process.env.WM_END_USER_EMAIL || process.env.WM_EMAIL\`. WM_END_USER_EMAIL is the app viewer when
+the run was triggered from an app and empty otherwise (both variables are always defined), WM_EMAIL
+is the user the job is permissioned as. WM_USERNAME is the matching username.
+
 workerHasInternalServer(): boolean
 
 /**
@@ -2270,11 +2203,6 @@ async getResource(path?: string, undefinedIfEmpty?: boolean): Promise<any>
  * @returns root job id
  */
 async getRootJobId(jobId?: string): Promise<string>
-
-/**
- * @deprecated Use runScriptByPath or runScriptByHash instead
- */
-async runScript(path: string | null = null, hash_: string | null = null, args: Record<string, any> | null = null, verbose: boolean = false, tag: string | null = null): Promise<any>
 
 /**
  * Run a script synchronously by its path and wait for the result
@@ -2341,11 +2269,6 @@ async getResult(jobId: string): Promise<any>
 async getResultMaybe(jobId: string): Promise<any>
 
 /**
- * @deprecated Use runScriptByPathAsync or runScriptByHashAsync instead
- */
-async runScriptAsync(path: string | null, hash_: string | null, args: Record<string, any> | null, scheduledInSeconds: number | null = null, tag: string | null = null): Promise<string>
-
-/**
  * Run a script asynchronously by its path
  * @param path - Script path in Windmill
  * @param args - Arguments to pass to the script
@@ -2400,13 +2323,6 @@ async setResource(value: any, path?: string, initializeToTypeIfNotExist?: string
 /**
  * Set the state
  * @param state state to set
- * @deprecated use setState instead
- */
-async setInternalState(state: any): Promise<void>
-
-/**
- * Set the state
- * @param state state to set
  * @param path Optional state resource path override. Defaults to \`getStatePath()\`.
  */
 async setState(state: any, path?: string): Promise<void>
@@ -2438,12 +2354,6 @@ async setFlowUserState(key: string, value: any, errorIfNotPossible?: boolean): P
  * @param path path of the variable
  */
 async getFlowUserState(key: string, errorIfNotPossible?: boolean): Promise<any>
-
-/**
- * Get the internal state
- * @deprecated use getState instead
- */
-async getInternalState(): Promise<any>
 
 /**
  * Get the state shared across executions
@@ -2581,15 +2491,6 @@ async getResumeUrls(approver?: string, flowLevel?: boolean): Promise<{
 }>
 
 /**
- * @deprecated use getResumeUrls instead
- */
-getResumeEndpoints(approver?: string): Promise<{
-  approvalPage: string;
-  resume: string;
-  cancel: string;
-}>
-
-/**
  * Get an OIDC jwt token for auth to external services (e.g: Vault, AWS) (ee only)
  * @param audience audience of the token
  * @param expiresIn Optional number of seconds until the token expires
@@ -2610,15 +2511,6 @@ base64ToUint8Array(data: string): Uint8Array
  * @returns Base64-encoded string
  */
 uint8ArrayToBase64(arrayBuffer: Uint8Array): string
-
-/**
- * Get email from workspace username
- * This method is particularly useful for apps that require the email address of the viewer.
- * Indeed, in the viewer context, WM_USERNAME is set to the username of the viewer but WM_EMAIL is set to the email of the creator of the app.
- * @param username
- * @returns email address
- */
-async usernameToEmail(username: string): Promise<string>
 
 /**
  * Sends an interactive approval request via Slack, allowing optional customization of the message, approver, and form fields.
@@ -3965,6 +3857,11 @@ result: S3Object = wmill.write_s3_file(
 
 Import: import wmill
 
+To know who is running the script, read the contextual variables rather than calling the API:
+\`os.environ.get("WM_END_USER_EMAIL") or os.environ.get("WM_EMAIL")\`. WM_END_USER_EMAIL is the app
+viewer when the run was triggered from an app and empty otherwise (both variables are always
+defined), WM_EMAIL is the user the job is permissioned as. WM_USERNAME is the matching username.
+
 def worker_has_internal_server() -> bool
 
 def get_mocked_api() -> Optional[dict]
@@ -4006,11 +3903,6 @@ def post(endpoint, raise_for_status = True, **kwargs) -> httpx.Response
 #     New authentication token string
 def create_token(duration = dt.timedelta(days=1)) -> str
 
-# Create a script job and return its job id.
-# 
-# .. deprecated:: Use run_script_by_path_async or run_script_by_hash_async instead.
-def run_script_async(path: str = None, hash_: str = None, args: dict = None, scheduled_in_secs: int = None, tag: str = None) -> str
-
 # Create a script job by path and return its job id.
 def run_script_by_path_async(path: str, args: dict = None, scheduled_in_secs: int = None, tag: str = None) -> str
 
@@ -4019,11 +3911,6 @@ def run_script_by_hash_async(hash_: str, args: dict = None, scheduled_in_secs: i
 
 # Create a flow job and return its job id.
 def run_flow_async(path: str, args: dict = None, scheduled_in_secs: int = None, do_not_track_in_parent: bool = True, tag: str = None) -> str
-
-# Run script synchronously and return its result.
-# 
-# .. deprecated:: Use run_script_by_path or run_script_by_hash instead.
-def run_script(path: str = None, hash_: str = None, args: dict = None, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False, tag: str = None) -> Any
 
 # Run script by path synchronously and return its result.
 def run_script_by_path(path: str, args: dict = None, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False, tag: str = None) -> Any
@@ -4411,11 +4298,6 @@ def get_approval_urls(step_key: str = 'approval', approver: str = None) -> dict
 # - The function checks for required environment variables (\`WM_FLOW_JOB_ID\`, \`WM_FLOW_STEP_ID\`) to ensure it is run in the appropriate context.
 def request_interactive_slack_approval(slack_resource_path: str, channel_id: str, message: str = None, approver: str = None, default_args_json: dict = None, dynamic_enums_json: dict = None) -> None
 
-# Get email from workspace username
-# This method is particularly useful for apps that require the email address of the viewer.
-# Indeed, in the viewer context WM_USERNAME is set to the username of the viewer but WM_EMAIL is set to the email of the creator of the app.
-def username_to_email(username: str) -> str
-
 # Send a message to a Microsoft Teams conversation with conversation_id, where success is used to style the message
 def send_teams_message(conversation_id: str, text: str, success: bool = True, card_block: dict = None)
 
@@ -4448,6 +4330,18 @@ def deprecate(in_favor_of: str)
 def get_workspace() -> str
 
 def get_version() -> str
+
+# Create a script job and return its job ID.
+# 
+# Args:
+#     hash_or_path: Script hash or path (determined by presence of '/')
+#     args: Script arguments
+#     scheduled_in_secs: Delay before execution in seconds
+#     tag: Override the worker tag the job runs on
+# 
+# Returns:
+#     Job ID string
+def run_script_async(hash_or_path: str, args: Dict[str, Any] = None, scheduled_in_secs: int = None, tag: str = None) -> str
 
 # Run a script synchronously by hash and return its result.
 # 
@@ -7765,9 +7659,6 @@ properties:
   script_path:
     type: string
     description: Path to the script or flow to execute when triggered
-  permissioned_as:
-    type: string
-    description: The user or group this trigger runs as (permissioned_as)
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
@@ -7869,7 +7760,6 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
-- permissioned_as
 - is_flow
 - amqp_resource_path
 - queue_name
@@ -7879,9 +7769,6 @@ properties:
   script_path:
     type: string
     description: Path to the script or flow to execute when triggered
-  permissioned_as:
-    type: string
-    description: The user or group this trigger runs as (permissioned_as)
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
@@ -7972,7 +7859,6 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
-- permissioned_as
 - is_flow
 - azure_resource_path
 - azure_mode
@@ -7984,9 +7870,6 @@ properties:
   script_path:
     type: string
     description: Path to the script or flow to execute when triggered
-  permissioned_as:
-    type: string
-    description: The user or group this trigger runs as (permissioned_as)
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
@@ -8060,7 +7943,6 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
-- permissioned_as
 - is_flow
 - local_part
 `,
@@ -8069,9 +7951,6 @@ properties:
   script_path:
     type: string
     description: Path to the script or flow to execute when triggered
-  permissioned_as:
-    type: string
-    description: The user or group this trigger runs as (permissioned_as)
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
@@ -8177,7 +8056,6 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
-- permissioned_as
 - is_flow
 - gcp_resource_path
 - topic_id
@@ -8190,9 +8068,6 @@ properties:
   script_path:
     type: string
     description: Path to the script or flow to execute when triggered
-  permissioned_as:
-    type: string
-    description: The user or group this trigger runs as (permissioned_as)
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
@@ -8328,7 +8203,6 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
-- permissioned_as
 - is_flow
 - route_path
 - request_type
@@ -8344,9 +8218,6 @@ properties:
   script_path:
     type: string
     description: Path to the script or flow to execute when triggered
-  permissioned_as:
-    type: string
-    description: The user or group this trigger runs as (permissioned_as)
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
@@ -8455,7 +8326,6 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
-- permissioned_as
 - is_flow
 - kafka_resource_path
 - group_id
@@ -8467,9 +8337,6 @@ properties:
   script_path:
     type: string
     description: Path to the script or flow to execute when triggered
-  permissioned_as:
-    type: string
-    description: The user or group this trigger runs as (permissioned_as)
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
@@ -8571,7 +8438,6 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
-- permissioned_as
 - is_flow
 - subscribe_topics
 - mqtt_resource_path
@@ -8581,9 +8447,6 @@ properties:
   script_path:
     type: string
     description: Path to the script or flow to execute when triggered
-  permissioned_as:
-    type: string
-    description: The user or group this trigger runs as (permissioned_as)
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
@@ -8671,7 +8534,6 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
-- permissioned_as
 - is_flow
 - nats_resource_path
 - use_jetstream
@@ -8682,9 +8544,6 @@ properties:
   script_path:
     type: string
     description: Path to the script or flow to execute when triggered
-  permissioned_as:
-    type: string
-    description: The user or group this trigger runs as (permissioned_as)
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
@@ -8765,7 +8624,6 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
-- permissioned_as
 - is_flow
 - postgres_resource_path
 - replication_slot_name
@@ -8792,9 +8650,6 @@ properties:
   args:
     type: object
     description: The arguments to pass to the script or flow
-  permissioned_as:
-    type: string
-    description: The user or group this schedule runs as (e.g., 'u/admin' or 'g/mygroup')
   on_failure:
     type: string
     description: Path to a script or flow to run when the scheduled job fails
@@ -8924,16 +8779,12 @@ required:
 - timezone
 - is_flow
 - enabled
-- permissioned_as
 `,
   "sqs_trigger": `type: object
 properties:
   script_path:
     type: string
     description: Path to the script or flow to execute when triggered
-  permissioned_as:
-    type: string
-    description: The user or group this trigger runs as (permissioned_as)
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
@@ -9020,7 +8871,6 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
-- permissioned_as
 - is_flow
 - queue_url
 - aws_resource_path
@@ -9031,9 +8881,6 @@ properties:
   script_path:
     type: string
     description: Path to the script or flow to execute when triggered
-  permissioned_as:
-    type: string
-    description: The user or group this trigger runs as (permissioned_as)
   is_flow:
     type: boolean
     description: True if script_path points to a flow, false if it points to a script
@@ -9156,7 +9003,6 @@ properties:
     description: Retry configuration for failed module executions
 required:
 - script_path
-- permissioned_as
 - is_flow
 - url
 - filters

@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT deploy_to FROM workspace_settings WHERE workspace_id = $1",
+  "query": "SELECT name FROM resource_type WHERE workspace_id = $1",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "deploy_to",
+        "name": "name",
         "type_info": "Varchar"
       }
     ],
@@ -15,8 +15,8 @@
       ]
     },
     "nullable": [
-      true
+      false
     ]
   },
-  "hash": "f2f42aded6f1a400c84e2575abb551dfcd9260714eef333a85b1e5d7d5c9f67e"
+  "hash": "d6e209f9fc9af2a29702ddc4529b8596daba82911d9354ba53371b509c314732"
 }

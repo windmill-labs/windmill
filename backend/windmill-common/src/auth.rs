@@ -43,6 +43,22 @@ pub fn is_user_token(label: Option<&str>) -> bool {
     }
 }
 
+/// Whether `label` belongs to a namespace only the server mints, and which therefore must be
+/// rejected by `create_token`. Narrower than [`is_user_token`], which also drives label
+/// editability and expiry notifications and can afford to reserve more: `Ephemeral lsp token`
+/// and `debugger-token` are minted by the editor and the debugger through that same handler,
+/// so reserving them would break those features.
+///
+/// `username_override_from_label` trusts a label to name the entity acting only if it is in
+/// here, so anything added must be unmintable by a member.
+pub fn is_server_minted_label(label: &str) -> bool {
+    label.starts_with("ephemeral-webhook-")
+        || label.starts_with("ephemeral-script-end-user-")
+        || label == "ephemeral-script"
+        || label == "session"
+        || label.starts_with("mcp-oauth-")
+}
+
 /// Hash a raw token using SHA-256 (hex-encoded, 64 chars).
 /// Used to store and look up tokens without keeping plaintext in the DB.
 pub fn hash_token(token: &str) -> String {
@@ -266,6 +282,7 @@ pub struct JobPerms {
     pub is_operator: bool,
     pub groups: Vec<String>,
     pub folders: Vec<serde_json::Value>,
+    pub end_user_email: Option<String>,
 }
 
 impl From<JobPerms> for Authed {
@@ -487,13 +504,38 @@ pub async fn get_job_perms<'a, E: sqlx::PgExecutor<'a>>(
 ) -> sqlx::Result<Option<JobPerms>> {
     sqlx::query_as!(
         JobPerms,
-        "SELECT email, username, is_admin, is_operator, groups, folders FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
+        "SELECT email, username, is_admin, is_operator, groups, folders, end_user_email FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
         job_id,
         w_id
     )
     .fetch_optional(db)
     .warn_after_seconds(3)
     .await
+}
+
+/// A job token is refreshed once its remaining lifetime drops below this. It must exceed the
+/// 60s `jsonwebtoken` exp leeway, otherwise a token that still validates now could expire
+/// mid-orchestration after being judged fresh.
+pub const JOB_TOKEN_REFRESH_MARGIN_SECS: i64 = 120;
+
+/// Seconds until an internal job JWT expires, or `None` when `token` is not a decodable job
+/// JWT (e.g. the empty test token). The signature is intentionally not verified: the value only
+/// gates whether to refresh the token, never whose identity to assume.
+pub fn job_token_remaining_lifetime_secs(token: &str) -> Option<i64> {
+    let raw = token.strip_prefix("jwt_")?;
+    let claims: JWTAuthClaims = jwt::decode_without_verify(raw).ok()?;
+    Some(claims.exp as i64 - Utc::now().timestamp())
+}
+
+/// Label for an ephemeral job token. For a job run on behalf of an end user (its
+/// `permissioned_as` differs from its `created_by`) it encodes that end user so
+/// `username_override_from_label` can recover them; otherwise it is the plain script label.
+pub fn ephemeral_script_token_label(permissioned_as: &str, created_by: &str) -> String {
+    if permissioned_as != format!("u/{created_by}") && permissioned_as != created_by {
+        format!("ephemeral-script-end-user-{created_by}")
+    } else {
+        "ephemeral-script".to_string()
+    }
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -679,6 +721,46 @@ pub mod aws {
 #[cfg(test)]
 mod tests {
     use super::is_user_token;
+    use super::{job_token_remaining_lifetime_secs, JWTAuthClaims, JOB_TOKEN_REFRESH_MARGIN_SECS};
+
+    fn job_jwt(exp_offset_secs: i64) -> String {
+        let claims = JWTAuthClaims {
+            email: String::new(),
+            username: String::new(),
+            is_admin: false,
+            is_operator: false,
+            groups: vec![],
+            folders: vec![],
+            label: None,
+            workspace_id: None,
+            workspace_ids: None,
+            exp: (chrono::Utc::now().timestamp() + exp_offset_secs) as usize,
+            job_id: None,
+            scopes: None,
+            audit_span: None,
+        };
+        // Signature is irrelevant — the gate decodes without verifying — so any key works.
+        let token = jsonwebtoken::encode(
+            &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256),
+            &claims,
+            &jsonwebtoken::EncodingKey::from_secret(b"test"),
+        )
+        .unwrap();
+        format!("jwt_{token}")
+    }
+
+    #[test]
+    fn remaining_lifetime_reflects_exp_and_flags_near_expiry() {
+        // A token minted for less than the margin reads as needing a refresh...
+        let short = job_token_remaining_lifetime_secs(&job_jwt(30)).unwrap();
+        assert!(short < JOB_TOKEN_REFRESH_MARGIN_SECS);
+        // ...a long-lived one does not...
+        let long = job_token_remaining_lifetime_secs(&job_jwt(10_000)).unwrap();
+        assert!(long >= JOB_TOKEN_REFRESH_MARGIN_SECS);
+        // ...and a non-JWT token (e.g. the empty test-run token) yields no lifetime.
+        assert!(job_token_remaining_lifetime_secs("not-a-jwt").is_none());
+        assert!(job_token_remaining_lifetime_secs("").is_none());
+    }
 
     #[test]
     fn user_tokens_are_editable() {

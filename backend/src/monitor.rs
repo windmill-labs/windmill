@@ -46,7 +46,7 @@ use windmill_common::otel_oss::{
 use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     apps::APP_WORKSPACED_ROUTE,
-    auth::create_token_for_owner,
+    auth::{create_token_for_owner, ephemeral_script_token_label},
     ee_oss::CriticalErrorChannel,
     email_oss::send_email_if_possible,
     error,
@@ -4662,13 +4662,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
             continue;
         }
         if let Some(job) = job.unwrap() {
-            let label = if job.permissioned_as != format!("u/{}", job.created_by)
-                && job.permissioned_as != job.created_by
-            {
-                format!("ephemeral-script-end-user-{}", job.created_by)
-            } else {
-                "ephemeral-script".to_string()
-            };
+            let label = ephemeral_script_token_label(&job.permissioned_as, &job.created_by);
             let token = create_token_for_owner(
                 &db,
                 &job.workspace_id,

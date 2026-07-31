@@ -174,6 +174,21 @@ function redactString(s: string): string {
   return s.slice(0, 5) + "*".repeat(s.length - 5);
 }
 
+export interface PushObjOptions {
+  /** Optional commit/update message */
+  message?: string;
+  /** The original local file path (used for branch-specific resource file resolution) */
+  originalLocalPath?: string;
+  /** Identity to attribute the push to, for the types that carry one */
+  permissionedAsContext?: PermissionedAsContext;
+  /** Whether the item is workspace-specific */
+  wsSpecific?: boolean;
+  /** encryption_key push: non-interactive flag and explicit re-encryption choice */
+  keyPushOpts?: PushWorkspaceKeyOptions;
+  /** TypeScript runtime a bare `.ts` denotes, for raw-app runnables */
+  defaultTs?: "bun" | "deno";
+}
+
 /**
  * Pushes an object to the workspace server based on its type
  * @param workspace - The workspace ID to push to
@@ -182,9 +197,7 @@ function redactString(s: string): string {
  * @param newObj - The new object state to push
  * @param plainSecrets - Whether to store secrets in plain text
  * @param alreadySynced - Array to track already synced items
- * @param message - Optional commit/update message
- * @param originalLocalPath - The original local file path (used for branch-specific resource file resolution)
- * @param keyPushOpts - Options for the encryption_key push: non-interactive flag and explicit re-encryption choice
+ * @param opts - Per-type extras; see PushObjOptions
  */
 export async function pushObj(
   workspace: string,
@@ -193,12 +206,16 @@ export async function pushObj(
   newObj: any,
   plainSecrets: boolean,
   alreadySynced: string[],
-  message?: string,
-  originalLocalPath?: string,
-  permissionedAsContext?: PermissionedAsContext,
-  wsSpecific?: boolean,
-  keyPushOpts?: PushWorkspaceKeyOptions,
+  opts: PushObjOptions = {},
 ) {
+  const {
+    message,
+    originalLocalPath,
+    permissionedAsContext,
+    wsSpecific,
+    keyPushOpts,
+    defaultTs,
+  } = opts;
   const typeEnding = getTypeStrFromPath(p);
 
   if (typeEnding === "app") {
@@ -212,7 +229,7 @@ export async function pushObj(
     if (!rawAppName) {
       throw new Error(`Could not extract raw app name from path: ${p}`);
     }
-    await pushRawApp(workspace, rawAppName, buildFolderPath(rawAppName, "raw_app"), message);
+    await pushRawApp(workspace, rawAppName, buildFolderPath(rawAppName, "raw_app"), message, defaultTs);
   } else if (typeEnding === "folder") {
     await pushFolder(workspace, p, befObj, newObj);
   } else if (typeEnding === "variable") {

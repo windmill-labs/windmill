@@ -2233,6 +2233,33 @@ paths:
                 items:
                   $ref: "#/components/schemas/GlobalSetting"
 
+  /settings/github_app_stale_webhooks:
+    get:
+      summary: list git-sync repositories whose webhook still points at a previous receiver
+      operationId: githubAppStaleWebhooks
+      tags:
+        - setting
+      responses:
+        "200":
+          description: repositories needing their git sync settings re-saved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    workspace_id:
+                      type: string
+                    git_repo_resource_path:
+                      type: string
+                    registered_url:
+                      type: string
+                      nullable: true
+                  required:
+                    - workspace_id
+                    - git_repo_resource_path
+
   /settings/instance_config:
     get:
       summary: get full instance config (global settings + worker configs)
@@ -3446,6 +3473,39 @@ paths:
               schema:
                 $ref: "#/components/schemas/WorkspaceComparison"
 
+  /w/{workspace}/workspaces/seed_full_diff/{target_workspace_id}:
+    post:
+      operationId: seedFullDiffScan
+      summary: Seed the diff candidate set against an arbitrary workspace
+      description: Enumerates every item of both workspaces as an undecided diff candidate so `compareWorkspaces` can compare a pair the fork lineage does not track. Requires being an admin of both workspaces, and is rejected for a pair already linked by the lineage (whose diff is tallied continuously). The comparison itself is what compares the candidates, and is the expensive step.
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: target_workspace_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The ID of the workspace to compare with
+      responses:
+        "200":
+          description: Scan seeded
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - candidates
+                  - scanned_at
+                properties:
+                  candidates:
+                    type: integer
+                    description: Number of candidate items the comparison will evaluate
+                  scanned_at:
+                    type: string
+                    format: date-time
+
   /w/{workspace}/workspaces/reset_diff_tally/{fork_workspace_id}:
     post:
       operationId: resetDiffTally
@@ -3618,8 +3678,6 @@ paths:
                     type: string
                   webhook:
                     type: string
-                  deploy_to:
-                    type: string
                   ai_config:
                     $ref: "#/components/schemas/AIConfig"
                   error_handler:
@@ -3655,7 +3713,7 @@ paths:
 
   /w/{workspace}/workspaces/get_deploy_to:
     get:
-      summary: get deploy to
+      summary: get the workspace this one deploys into (its fork parent)
       operationId: getDeployTo
       tags:
         - workspace
@@ -4213,32 +4271,6 @@ paths:
                 properties:
                   job_uuid:
                     type: string
-
-  /w/{workspace}/workspaces/edit_deploy_to:
-    post:
-      summary: edit deploy to
-      operationId: editDeployTo
-      tags:
-        - workspace
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                deploy_to:
-                  type: string
-
-      responses:
-        "200":
-          description: status
-          content:
-            text/plain:
-              schema:
-                type: string
 
   /w/{workspace}/workspaces/edit_auto_invite:
     post:
@@ -31728,6 +31760,8 @@ components:
           format: int64
         webhook_secret:
           type: string
+        webhook_url:
+          type: string
         webhook_error:
           type: string
         last_synced_sha:
@@ -32105,6 +32139,10 @@ components:
         hidden_behind:
           $ref: "#/components/schemas/HiddenItemsSummary"
           description: Behind items excluded from `diffs` because they are not visible to the caller
+        full_scan_at:
+          type: string
+          format: date-time
+          description: For a pair outside the fork lineage, when its candidate set was last seeded by an explicit full scan. Absent when the pair has never been scanned (an empty `diffs` then says nothing about whether the workspaces agree) or when the pair is a lineage pair, which the tally keeps current.
 
     HiddenItemsSummary:
       type: object

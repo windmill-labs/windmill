@@ -27,6 +27,10 @@
 		items: DeployableItem[]
 		selectedItems: string[]
 		selectablePredicate?: (item: DeployableItem) => boolean
+		/** Selectable on its own row, but never swept in by a bulk action (the group
+		 * checkbox here, "Select all" in the caller). For a row whose deploy does
+		 * something the user must choose deliberately. */
+		bulkExcluded?: (item: DeployableItem) => boolean
 		/** For a non-deployed item that isn't selectable, return a reason string to
 		 * render a disabled checkbox + hover tooltip (instead of greying the row);
 		 * return undefined to keep the default greyed-out, no-checkbox treatment. */
@@ -61,6 +65,7 @@
 		items,
 		selectedItems,
 		selectablePredicate = () => true,
+		bulkExcluded = () => false,
 		selectBlockedReason,
 		deploymentStatus,
 		allSelected = false,
@@ -120,10 +125,13 @@
 	let showGroupHeaders = $derived(groups.some((g) => g.groupKind !== 'other'))
 
 	// Mirrors the per-row checkbox condition: already-deployed rows keep their
-	// selection frozen, so they don't count toward the group's tri-state.
+	// selection frozen, so they don't count toward the group's tri-state. Bulk-excluded
+	// rows are left out too — the group checkbox is a bulk action, so it must neither
+	// select them nor let them hold its tri-state short of full.
 	function groupSelectable(group: DeployGroup): DeployableItem[] {
 		return group.items.filter(
-			(i) => selectablePredicate(i) && deploymentStatus[i.key]?.status !== 'deployed'
+			(i) =>
+				selectablePredicate(i) && !bulkExcluded(i) && deploymentStatus[i.key]?.status !== 'deployed'
 		)
 	}
 
