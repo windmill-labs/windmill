@@ -3013,32 +3013,30 @@ async function pushParentScriptForModule(
   const moduleFolderPath =
     scriptBasePath + getModuleFolderSuffix(isDbt ? "dbt" : undefined);
 
-  // A dbt project's descriptor sits beside its folder, never inside it: the
-  // folder is the project, and dbt owns every name in it.
+  // A dbt project's descriptor sits INSIDE its folder (`__dbt/wm_dbt.yaml`) and
+  // is optional, so the project itself is what identifies the script.
   if (isDbt) {
-    // Only the LOOKUP is tolerated: a module with no descriptor beside it is a
+    // Only the LOOKUP is tolerated: a module under no script's project is a
     // stray file, not an error. Deploying it is not — swallowing that would let
     // a module-only push report success while the remote project is unchanged.
+    // BEFORE the lookup, because the lookup succeeds whenever a descriptor is
+    // there: `dbt_project.yml` is what makes the bundle a project, and pushing
+    // without it replaces a healthy deployment with one whose dependency job
+    // fails for having no project at all.
+    const hasMetadata =
+      existsSync(scriptBasePath + ".script.yaml") ||
+      existsSync(scriptBasePath + ".script.json");
+    if (!existsSync(moduleFolderPath + "/dbt_project.yml") && hasMetadata) {
+      throw new Error(
+        `${moduleFolderPath} has no dbt_project.yml but ${scriptBasePath}.script.yaml ` +
+          `remains, so there is no dbt project left to push. Delete the metadata too to ` +
+          `archive the script, or restore the project.`
+      );
+    }
     let contentPath: string | undefined;
     try {
       contentPath = await findContentFile(scriptBasePath + ".script.yaml");
     } catch {
-      // No project left while its metadata remains: whether the whole `__dbt/`
-      // directory went or only its `dbt_project.yml` — the file that MAKES it a
-      // project, and without which the script cannot be looked up or run —
-      // returning quietly here reports a successful push that changed nothing
-      // on the remote. Ambiguous enough to refuse rather than guess: archiving
-      // a deployed project because a file is missing is not recoverable.
-      const hasMetadata =
-        existsSync(scriptBasePath + ".script.yaml") ||
-        existsSync(scriptBasePath + ".script.json");
-      if (!existsSync(moduleFolderPath + "/dbt_project.yml") && hasMetadata) {
-        throw new Error(
-          `${moduleFolderPath} has no dbt_project.yml but ${scriptBasePath}.script.yaml ` +
-            `remains, so there is no dbt project left to push. Delete the metadata too to ` +
-            `archive the script, or restore the project.`
-        );
-      }
       log.debug(`Could not find parent script for dbt module: ${modulePath}`);
       return;
     }

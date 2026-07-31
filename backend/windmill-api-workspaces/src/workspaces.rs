@@ -5919,6 +5919,11 @@ async fn clone_scripts(
 ///
 /// Keyed on (workspace_id, script_path, script_hash), and the fork keeps every
 /// script's hash, so each row moves across as itself.
+///
+/// The DEPLOYED graph only (`job_id` all-zero). A per-run snapshot is keyed to a
+/// job in the source workspace, which nothing in the fork can ask for, so
+/// copying them adds another workspace's run history — `raw_code` and all — to
+/// every fork transaction to be reclaimed later by the age sweep.
 async fn clone_dbt_graph(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
@@ -5933,7 +5938,8 @@ async fn clone_dbt_graph(
             resource_type, name, asset_path, materialized, materialize_strategy, unique_key,
             tags, description, test_kind, test_column, test_args, severity, attached_node,
             columns, freshness, raw_code, original_file_path, ingested_at
-         FROM dbt_node WHERE workspace_id = $1",
+         FROM dbt_node
+         WHERE workspace_id = $1 AND job_id = '00000000-0000-0000-0000-000000000000'",
         source_workspace_id,
         target_workspace_id
     )
@@ -5944,7 +5950,8 @@ async fn clone_dbt_graph(
             parent_unique_id, child_unique_id, ingested_at)
          SELECT $2, script_path, script_hash, job_id, parent_unique_id, child_unique_id,
             ingested_at
-         FROM dbt_edge WHERE workspace_id = $1",
+         FROM dbt_edge
+         WHERE workspace_id = $1 AND job_id = '00000000-0000-0000-0000-000000000000'",
         source_workspace_id,
         target_workspace_id
     )
@@ -5955,7 +5962,8 @@ async fn clone_dbt_graph(
             digest, relation_root_at_last_ingest, ingested_at)
          SELECT $2, script_path, script_hash, job_id, digest, relation_root_at_last_ingest,
             ingested_at
-         FROM dbt_graph_snapshot WHERE workspace_id = $1",
+         FROM dbt_graph_snapshot
+         WHERE workspace_id = $1 AND job_id = '00000000-0000-0000-0000-000000000000'",
         source_workspace_id,
         target_workspace_id
     )

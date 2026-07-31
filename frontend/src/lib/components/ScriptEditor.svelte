@@ -358,9 +358,6 @@
 		editor?.setCode(editorCode)
 	}
 
-	// The model a Test would build, when one is open. Named on the button, because
-	// a run that silently narrowed to the open file would be the kind of surprise
-	// that costs a warehouse bill to discover.
 	// The selector a Test would build with, when the open file is a model. Macros,
 	// analyses and singular tests are `.sql` too and none is selectable by name,
 	// so those fall back to running the project.
@@ -2408,6 +2405,8 @@
 		startIcon={{ icon: Play, classes: 'animate-none' }}
 		shortCut={{ Icon: CornerDownLeft }}
 	>
+		<!-- Named, because a run that silently narrowed to whichever file happens to
+		     be open is the kind of surprise a warehouse bill discovers. -->
 		{dbtSelected ? `Build ${dbtSelected.name}` : 'Test'}
 	</Button>
 {/snippet}

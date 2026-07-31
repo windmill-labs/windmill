@@ -154,9 +154,6 @@
 			if (seq === previewSeq) preview = { error }
 		}
 		try {
-			// A project whose descriptor interpolates `{{ }}` needs those values to
-			// run at all, and this page has nowhere to ask for them. Say so instead
-			// of submitting a job that fails inside dbt.
 			// A relation outlives the script that wrote it: deleting a dbt script
 			// leaves its `usages` behind, and the raw 404 that follows says nothing
 			// about which script or why.
@@ -173,6 +170,9 @@
 			if (producer.language !== 'dbt') {
 				return fail(`${script} writes this table but is not a dbt script, so there is no model to preview.`)
 			}
+			// A project whose descriptor interpolates `{{ }}` needs those values to
+			// run at all, and this page has nowhere to ask for them. Say so instead
+			// of submitting a job that fails inside dbt.
 			const needs = (((producer.schema as any)?.required ?? []) as string[]).filter(
 				(r) => r !== 'command'
 			)
@@ -209,6 +209,11 @@
 			const res = await previewDbtRows({
 				workspace: ws,
 				scriptPath: script,
+				// The SAME version the selector came from: a deploy between the
+				// provenance lookup and this submission would otherwise run a newer
+				// project with the older one's model id, previewing a renamed
+				// relation or failing outright for one since removed.
+				scriptHash: producer.hash,
 				model: nodeSelector(uniqueId),
 				stillWanted: () => seq === previewSeq
 			})

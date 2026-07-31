@@ -312,20 +312,30 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
     // Treating the file as a script of its own would drop the edit — a bare
     // `.sql` has no language to infer, and a `.yml` or `.csv` is filtered out
     // below — leaving the browser previewing the snapshot taken at startup.
+    const rest: string[] = [];
+    const dbtProjects = new Set<string>();
     for (const raw of pathsToLoad) {
       const rel = (await realpath(raw).catch(() => raw))
         .replace(base + SEP, "")
         .replaceAll("\\", "/");
-      if (!isDbtModulePath(rel)) continue;
-      const wmPath = getScriptBasePathFromModulePath(rel);
-      if (!wmPath) continue;
+      const wmPath = isDbtModulePath(rel)
+        ? getScriptBasePathFromModulePath(rel)
+        : undefined;
+      // Every project in the batch, and each only once: a save-all or a
+      // `git checkout` touches many files at once, and returning on the first
+      // would drop both the other projects and whatever else changed with them.
+      if (wmPath) dbtProjects.add(wmPath);
+      else rest.push(raw);
+    }
+    for (const wmPath of dbtProjects) {
       const edit = await loadWmPath(wmPath);
       if (edit) {
         log.info("Updated " + wmPath + " (dbt project)");
         broadcastChanges(edit);
       }
-      return;
     }
+    if (rest.length === 0) return;
+    pathsToLoad = rest;
     const paths = pathsToLoad.filter(
       (p) =>
         hasScriptExt(p) ||

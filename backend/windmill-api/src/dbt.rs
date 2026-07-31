@@ -11,7 +11,7 @@ use windmill_common::{
 };
 
 use crate::db::{ApiAuthed, OptJobAuthed};
-use windmill_api_auth::Tokened;
+use windmill_api_auth::{is_no_auth, Tokened};
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -32,7 +32,33 @@ async fn get_warehouse(
     // in its rendered `profiles.yml`, so serving them changes nothing for it —
     // but every script job's token carries a job id too, and any other language
     // asking for them would be reading a credential it was never given.
+    // In no-auth mode every request is the synthetic superadmin and carries no
+    // job, so the scoping below has nothing to check. Refusing there would make
+    // dbt unusable on an instance that has deliberately turned auth off, and
+    // there is no credential boundary left to protect.
     let Some(job_id) = job_id else {
+        if is_no_auth() {
+            let (resource_path, target) = dbt_warehouse_resource(&db, &w_id, &name).await?;
+            let value = windmill_store::resources::get_resource_value_interpolated_internal(
+                &windmill_common::db::DbWithOptAuthed::<ApiAuthed>::from_authed(
+                    &authed,
+                    db.clone(),
+                    None,
+                ),
+                &w_id,
+                &resource_path,
+                None,
+                Some(&token),
+                false,
+            )
+            .await?
+            .ok_or_else(|| {
+                Error::NotFound(format!(
+                    "the dbt warehouse `{name}` points at `{resource_path}`, which does not exist"
+                ))
+            })?;
+            return Ok(Json(DbtWarehouseConnection { value, target }));
+        }
         return Err(Error::BadRequest(
             "this route resolves a dbt warehouse for a running job and needs a job token"
                 .to_string(),
@@ -115,7 +141,9 @@ async fn warehouse_exists(
     Extension(db): Extension<DB>,
     Path((w_id, name)): Path<(String, String)>,
 ) -> Result<()> {
-    if job_id.is_none() {
+    // Same as above: no-auth mode carries no job, and this answers yes/no about
+    // a workspace setting rather than handing anything over.
+    if job_id.is_none() && !is_no_auth() {
         return Err(Error::BadRequest(
             "this route answers for a running job and needs a job token".to_string(),
         ));
