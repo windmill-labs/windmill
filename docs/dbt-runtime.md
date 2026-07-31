@@ -246,7 +246,12 @@ self-hosted profile's tables onto a workspace warehouse it never connected to.
 An agent worker cannot read the database, so it resolves the name through a
 job-scoped API route. That route returns the resolved connection, which is why it
 requires a job token: a running job already holds those credentials in its
-rendered `profiles.yml`, and a browsable route would hand them to anyone.
+rendered `profiles.yml`, and a browsable route would hand them to anyone. The
+same worker posts its per-model outcomes to a second job-scoped route, since the
+live reporter tails a log straight into the database and cannot run there. An
+agent's run page therefore fills in when the run ends rather than during it.
+Both routes are posted with the JOB's token: an agent's own credential
+authenticates only against the agent surface.
 
 ## Decision 23: the descriptor is optional, and lives inside the project
 
