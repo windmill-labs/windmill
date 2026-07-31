@@ -186,6 +186,15 @@ function redactString(s: string): string {
  * @param originalLocalPath - The original local file path (used for branch-specific resource file resolution)
  * @param keyPushOpts - Options for the encryption_key push: non-interactive flag and explicit re-encryption choice
  */
+export interface PushObjOptions {
+  message?: string;
+  originalLocalPath?: string;
+  permissionedAsContext?: PermissionedAsContext;
+  wsSpecific?: boolean;
+  keyPushOpts?: PushWorkspaceKeyOptions;
+  defaultTs?: "bun" | "deno";
+}
+
 export async function pushObj(
   workspace: string,
   p: string,
@@ -193,13 +202,16 @@ export async function pushObj(
   newObj: any,
   plainSecrets: boolean,
   alreadySynced: string[],
-  message?: string,
-  originalLocalPath?: string,
-  permissionedAsContext?: PermissionedAsContext,
-  wsSpecific?: boolean,
-  keyPushOpts?: PushWorkspaceKeyOptions,
-  defaultTs?: "bun" | "deno",
+  opts: PushObjOptions = {},
 ) {
+  const {
+    message,
+    originalLocalPath,
+    permissionedAsContext,
+    wsSpecific,
+    keyPushOpts,
+    defaultTs,
+  } = opts;
   const typeEnding = getTypeStrFromPath(p);
 
   if (typeEnding === "app") {

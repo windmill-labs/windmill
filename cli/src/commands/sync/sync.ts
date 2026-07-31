@@ -4628,15 +4628,18 @@ export async function push(
                 newObj,
                 opts.plainSecrets ?? false,
                 alreadySynced,
-                opts.message,
-                originalWorkspaceSpecificPath,
-                permissionedAsContext,
-                isWsSpecific ? true : undefined,
                 {
-                  noninteractive: (opts.yes ?? false) || !process.stdin.isTTY,
-                  skipReencrypt: opts.skipReencryptOnKeyChange,
+                  message: opts.message,
+                  originalLocalPath: originalWorkspaceSpecificPath,
+                  permissionedAsContext,
+                  wsSpecific: isWsSpecific ? true : undefined,
+                  keyPushOpts: {
+                    noninteractive:
+                      (opts.yes ?? false) || !process.stdin.isTTY,
+                    skipReencrypt: opts.skipReencryptOnKeyChange,
+                  },
+                  defaultTs: opts.defaultTs,
                 },
-                opts.defaultTs,
               );
 
               if (stateTarget) {
@@ -4755,15 +4758,18 @@ export async function push(
                 obj,
                 opts.plainSecrets ?? false,
                 [],
-                opts.message,
-                localFilePath, // Pass the actual local file path
-                permissionedAsContext,
-                isAddedWsSpecific ? true : undefined,
                 {
-                  noninteractive: (opts.yes ?? false) || !process.stdin.isTTY,
-                  skipReencrypt: opts.skipReencryptOnKeyChange,
+                  message: opts.message,
+                  originalLocalPath: localFilePath,
+                  permissionedAsContext,
+                  wsSpecific: isAddedWsSpecific ? true : undefined,
+                  keyPushOpts: {
+                    noninteractive:
+                      (opts.yes ?? false) || !process.stdin.isTTY,
+                    skipReencrypt: opts.skipReencryptOnKeyChange,
+                  },
+                  defaultTs: opts.defaultTs,
                 },
-                opts.defaultTs,
               );
 
               if (stateTarget) {
@@ -4873,7 +4879,7 @@ export async function push(
                         undefined,
                         opts.plainSecrets ?? false,
                         alreadySynced,
-                        opts.message,
+                        { message: opts.message },
                       );
                     } else {
                       // Flow folder doesn't exist locally — delete on server
@@ -4915,7 +4921,7 @@ export async function push(
                         undefined,
                         opts.plainSecrets ?? false,
                         alreadySynced,
-                        opts.message,
+                        { message: opts.message },
                       );
                     } else {
                       // App folder doesn't exist locally — delete on server
@@ -4958,12 +4964,7 @@ export async function push(
                         undefined,
                         opts.plainSecrets ?? false,
                         alreadySynced,
-                        opts.message,
-                        undefined,
-                        undefined,
-                        undefined,
-                        undefined,
-                        opts.defaultTs,
+                        { message: opts.message, defaultTs: opts.defaultTs },
                       );
                     } else {
                       // The entire raw app folder was deleted locally,
