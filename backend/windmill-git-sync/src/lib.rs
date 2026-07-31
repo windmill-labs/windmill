@@ -162,9 +162,9 @@ impl DeployedObject {
         }
     }
 
-    /// The repo-relative path git sync works on: what the include/exclude path
-    /// filters are matched against, what the sync item carries, and therefore
-    /// what the CLI turns into `--extra-includes` globs and `git add` pathspecs.
+    /// The repo-relative path git sync syncs on: what the sync item carries, and
+    /// therefore what the CLI turns into `--extra-includes` globs and `git add`
+    /// pathspecs.
     ///
     /// It only differs from [`Self::get_path`] for data table migrations, whose
     /// object path (`<datatable>/<version>_<name>`, the `workspace_diff` key) is
@@ -180,6 +180,9 @@ impl DeployedObject {
         }
     }
 
+    /// Whether the object skips the repo's include/exclude path filters. True for
+    /// every kind that lives outside the `f/`/`u/` path namespaces those filters
+    /// are written against — the object-type filter is what governs them instead.
     pub fn get_ignore_regex_filter(&self) -> bool {
         match self {
             Self::User { .. }
@@ -187,7 +190,8 @@ impl DeployedObject {
             | Self::ResourceType { .. }
             | Self::Settings { .. }
             | Self::Key { .. }
-            | Self::WorkspaceDependencies { .. } => true,
+            | Self::WorkspaceDependencies { .. }
+            | Self::DatatableMigration { .. } => true,
             _ => false,
         }
     }
@@ -377,6 +381,17 @@ mod tests {
     fn test_ignore_regex_filter_workspace_dependencies() {
         let obj = DeployedObject::WorkspaceDependencies {
             path: "workspace-dependencies/python".to_string(),
+        };
+        assert!(obj.get_ignore_regex_filter());
+    }
+
+    #[test]
+    fn test_ignore_regex_filter_datatable_migration() {
+        // `migrations/datatable/**` is outside the `f/`/`u/` namespaces the path
+        // filters are written against; the `datatablemigration` include type is
+        // what governs these.
+        let obj = DeployedObject::DatatableMigration {
+            path: "mydb/20260101000000_add_users".to_string(),
         };
         assert!(obj.get_ignore_regex_filter());
     }

@@ -1749,6 +1749,8 @@ export async function elementsToMap(
         fileType === "workspace_dependencies"
       )
         continue;
+      if (skips.skipDatatableMigrations && fileType === "datatable_migration")
+        continue;
     } catch {
       // If getTypeStrFromPath can't determine the type, continue processing the file
     }
@@ -1851,6 +1853,7 @@ export interface Skips {
   skipApps?: boolean | undefined;
   skipFolders?: boolean | undefined;
   skipWorkspaceDependencies?: boolean | undefined;
+  skipDatatableMigrations?: boolean | undefined;
   skipScriptsMetadata?: boolean | undefined;
   includeSchedules?: boolean | undefined;
   includeTriggers?: boolean | undefined;
@@ -2560,6 +2563,7 @@ export async function ignoreF(wmillconf: {
   extraIncludes?: string[];
   skipResourceTypes?: boolean;
   skipWorkspaceDependencies?: boolean;
+  skipDatatableMigrations?: boolean;
   json?: boolean;
   includeUsers?: boolean;
   includeGroups?: boolean;
@@ -2623,6 +2627,14 @@ export async function ignoreF(wmillconf: {
           fileType === "workspace_dependencies"
         ) {
           return false; // Don't ignore workspace dependencies (they are always included unless explicitly skipped)
+        }
+        // `migrations/datatable/**` is outside the u/f/g namespaces the path
+        // filters are written against, so the skip flag is its only control.
+        if (
+          !wmillconf.skipDatatableMigrations &&
+          fileType === "datatable_migration"
+        ) {
+          return false;
         }
       } catch {
         // If getTypeStrFromPath can't determine the type, fall through to normal logic
@@ -3003,6 +3015,7 @@ export async function pull(
     opts.includeSettings,
     opts.includeKey,
     opts.skipWorkspaceDependencies,
+    opts.skipDatatableMigrations,
     opts.defaultTs,
   );
 
@@ -3844,6 +3857,7 @@ export async function push(
       opts.includeSettings,
       opts.includeKey,
       opts.skipWorkspaceDependencies,
+      opts.skipDatatableMigrations,
       opts.defaultTs,
     ))!,
     !opts.json,
