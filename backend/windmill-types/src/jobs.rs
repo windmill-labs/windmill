@@ -55,6 +55,10 @@ pub enum JobTriggerKind {
     // direct `/jobs/run` cannot set it, so it distinguishes files an app actually
     // produced from files a viewer forged by running a declared runnable directly.
     App,
+    // A run started from the browser: the `/jobs/run*` request carried the session
+    // token minted at login. Like `Webhook`, it is derived from the token label
+    // server-side and is only a fallback — a trigger that builds its own metadata wins.
+    Ui,
 }
 
 impl std::fmt::Display for JobTriggerKind {
@@ -80,6 +84,7 @@ impl std::fmt::Display for JobTriggerKind {
             JobTriggerKind::Asset => "asset",
             JobTriggerKind::Freshness => "freshness",
             JobTriggerKind::App => "app",
+            JobTriggerKind::Ui => "ui",
         };
         write!(f, "{}", kind)
     }
@@ -252,6 +257,12 @@ pub struct QueuedJob {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub is_retry: Option<bool>,
+    // How the run was started. NULL on every job pushed before the API began stamping it, and
+    // on the paths that still don't, so the run page treats it as "unknown" rather than
+    // "manual". `#[sqlx(default)]` lets the queries that don't select it omit the column.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub trigger_kind: Option<JobTriggerKind>,
 }
 
 impl QueuedJob {
@@ -328,6 +339,7 @@ impl Default for QueuedJob {
             runnable_settings_handle: None,
             labels: None,
             is_retry: None,
+            trigger_kind: None,
         }
     }
 }
@@ -415,6 +427,12 @@ pub struct CompletedJob {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub resolved_automatically: Option<bool>,
+    // How the run was started. NULL on every job pushed before the API began stamping it, and
+    // on the paths that still don't, so the run page treats it as "unknown" rather than
+    // "manual". `#[sqlx(default)]` lets the queries that don't select it omit the column.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub trigger_kind: Option<JobTriggerKind>,
 }
 
 impl CompletedJob {

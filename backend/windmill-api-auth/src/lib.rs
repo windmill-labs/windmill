@@ -23,6 +23,8 @@ use windmill_common::{
     },
     db::{Authable, Authed, AuthedRef},
     error::{self, Error, Result},
+    jobs::JobTriggerKind,
+    triggers::TriggerMetadata,
     users::username_to_permissioned_as,
     DB,
 };
@@ -64,6 +66,9 @@ pub struct ApiAuthed {
     /// end-user override passes a `created_by` through verbatim, and that may itself be a
     /// `label-*` string. Only `username_override_from_label` sets it.
     pub username_override_is_token_label: bool,
+    /// Whether the request authenticated with the session token minted at browser login.
+    /// Only `fallback_trigger_metadata` reads it — it is provenance, never authorization.
+    pub is_session_token: bool,
     pub token_prefix: Option<String>,
     pub read_only: bool,
 }
@@ -100,6 +105,23 @@ impl ApiAuthed {
         self.username_override = username_override;
         self.username_override_is_token_label = false;
     }
+
+    /// The `trigger_kind` a run started through a `/jobs/run*` route is stamped with when no
+    /// trigger built metadata of its own. It says how the run was started, so it is derived
+    /// from the token that authenticated the request and never from the request itself:
+    /// `trigger_kind` is authority-bearing (`app` is what marks a file as app-produced).
+    /// Everything that is not a browser session — webhooks, the CLI, the SDKs — is `webhook`,
+    /// matching the `wm_trigger.kind` the preprocessor already reports for these routes.
+    pub fn fallback_trigger_metadata(&self) -> Option<TriggerMetadata> {
+        Some(TriggerMetadata::new(
+            None,
+            if self.is_session_token {
+                JobTriggerKind::Ui
+            } else {
+                JobTriggerKind::Webhook
+            },
+        ))
+    }
 }
 
 impl From<ApiAuthed> for Authed {
@@ -129,6 +151,7 @@ impl From<Authed> for ApiAuthed {
             scopes: value.scopes,
             username_override: None,
             username_override_is_token_label: false,
+            is_session_token: false,
             token_prefix: value.token_prefix,
             read_only: false,
         }
@@ -882,6 +905,7 @@ pub async fn fetch_api_authed_from_permissioned_as(
                 scopes: authed.scopes,
                 username_override: None,
                 username_override_is_token_label: false,
+                is_session_token: false,
                 token_prefix: authed.token_prefix,
                 read_only: false,
             };
@@ -1280,6 +1304,50 @@ mod tests {
         assert_eq!(
             owner_of("ephemeral-script-end-user-label-alice").display_username(),
             "label-alice"
+        );
+    }
+
+    /// `trigger_kind` says how a run was started, so a member must not be able to make their
+    /// own runs look like they came from the UI. Only the label `create_session_token` mints
+    /// — which `is_server_minted_label` keeps unmintable — may map to `ui`.
+    #[test]
+    fn only_the_browser_session_label_maps_to_ui() {
+        let kind_of = |label: &str| {
+            ApiAuthed {
+                is_session_token: windmill_common::auth::is_session_label(Some(label)),
+                ..Default::default()
+            }
+            .fallback_trigger_metadata()
+            .unwrap()
+            .trigger_kind
+            .to_string()
+        };
+
+        assert_eq!(kind_of("session"), "ui");
+
+        for label in [
+            "my-personal-token",
+            "webhook-f/svc/my_script",
+            "Ephemeral lsp token",
+            "ephemeral-script",
+            "ephemeral-webhook-google-abc12",
+            "mcp-oauth-mcp-client-9f3a1c",
+            "",
+        ] {
+            assert_eq!(kind_of(label), "webhook", "label {label:?}");
+        }
+
+        // A label-less token (the job WM_TOKEN, and any token created without one).
+        assert_eq!(
+            ApiAuthed {
+                is_session_token: windmill_common::auth::is_session_label(None),
+                ..Default::default()
+            }
+            .fallback_trigger_metadata()
+            .unwrap()
+            .trigger_kind
+            .to_string(),
+            "webhook"
         );
     }
 

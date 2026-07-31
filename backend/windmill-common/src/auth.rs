@@ -59,6 +59,13 @@ pub fn is_server_minted_label(label: &str) -> bool {
         || label.starts_with("mcp-oauth-")
 }
 
+/// Whether `label` is the one minted for a browser session at login. [`is_server_minted_label`]
+/// reserves it from member minting, so it is a trustworthy signal that a request came from the
+/// UI rather than from a webhook, the CLI or an SDK.
+pub fn is_session_label(label: Option<&str>) -> bool {
+    label == Some("session")
+}
+
 /// Hash a raw token using SHA-256 (hex-encoded, 64 chars).
 /// Used to store and look up tokens without keeping plaintext in the DB.
 pub fn hash_token(token: &str) -> String {

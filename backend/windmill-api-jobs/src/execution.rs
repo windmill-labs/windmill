@@ -769,7 +769,7 @@ pub async fn run_flow<'c>(
         push_authed.as_ref(),
         false,
         None,
-        trigger,
+        trigger.or_else(|| authed.fallback_trigger_metadata()),
         run_query.suspended_mode,
     )
     .await?;
@@ -988,7 +988,7 @@ pub async fn push_script_job_by_path_into_queue<'c>(
         push_authed.as_ref(),
         false,
         None,
-        trigger,
+        trigger.or_else(|| authed.fallback_trigger_metadata()),
         run_query.suspended_mode,
     )
     .await?;
