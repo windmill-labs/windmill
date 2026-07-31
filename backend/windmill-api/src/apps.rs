@@ -3216,8 +3216,8 @@ async fn execute_component(
             .and_then(|a| a.token_prefix)
             .or_else(|| tokened.token.map(|t| t[0..TOKEN_PREFIX_LEN].to_string()))
             .as_deref(),
-        // An app run is attributed to whoever used the app, and `push` derives that from
-        // `username` here; passing the caller's token label instead would displace them.
+        // The caller of an app run is whoever used the app, which `push` already derives from
+        // `username` here — the app identity took `permissioned_as`.
         None,
         None,
         None,

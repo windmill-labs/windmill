@@ -5287,10 +5287,10 @@ pub async fn push<'c, 'd>(
     email: &str,
     permissioned_as: String,
     token_prefix: Option<&str>,
-    // The entity the caller acted for, for the audit trail only — distinct from the
-    // `end_user_email` below, which the job itself reads. The API sources it from
-    // `ApiAuthed::username_override`; a token label reaches audit through here alone, since
-    // `user` is the token owner. Callers with no such entity pass None.
+    // Identifies the caller in the audit trail — distinct from the `end_user_email` below,
+    // which the job itself reads. The API sources it from `ApiAuthed::username_override`;
+    // a token label reaches audit through here alone, since `user` is the token owner.
+    // Callers that know no caller beyond `user` pass None.
     audit_end_user: Option<&str>,
     scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
     schedule_path: Option<String>,
@@ -6867,10 +6867,9 @@ async fn push_inner<'c, 'd>(
             } else {
                 user.to_string()
             },
-            // An explicitly passed end user wins over the one derived from `user`: it is the
-            // value every other handler records for the same principal, which is what makes
-            // audit search by it complete. This is the only slot for one, so when it displaces
-            // an on-behalf `user`, that caller stays traceable through `span` and `created_by`.
+            // `username` is the identity the job runs as; `end_user` identifies the caller
+            // behind it, as it does for an app run. An explicitly passed one therefore wins
+            // over `user`, which only stands in for a caller when the job runs as someone else.
             username_override: audit_end_user
                 .map(|s| s.to_string())
                 .or_else(|| runs_on_behalf.then(|| user.to_string())),
