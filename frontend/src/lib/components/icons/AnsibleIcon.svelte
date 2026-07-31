@@ -1,18 +1,21 @@
 <script lang="ts">
 	interface Props {
-		height?: string;
-		width?: string;
+		height?: string
+		width?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
+<!-- The mark is a near-black disc knocked out with a white "A", so it needs inverting
+	rather than currentColor: recolouring the disc alone would leave white on light grey. -->
 <svg
 	{height}
 	preserveAspectRatio="xMidYMid"
 	viewBox="0 0 256 256"
 	{width}
 	xmlns="http://www.w3.org/2000/svg"
+	class="dark:invert"
 >
 	<g fill="#1a1918" transform="translate(0 281.86)">
 		<path

@@ -3397,13 +3397,10 @@ impl PulledJob {
 pub async fn create_token(db: &DB, job: &MiniPulledJob, perms: Option<JobPerms>) -> String {
     // skipping test runs
     if job.workspace_id != "" {
-        let label = if job.permissioned_as != format!("u/{}", job.created_by)
-            && job.permissioned_as != job.created_by
-        {
-            format!("ephemeral-script-end-user-{}", job.created_by)
-        } else {
-            "ephemeral-script".to_string()
-        };
+        let label = windmill_common::auth::ephemeral_script_token_label(
+            &job.permissioned_as,
+            &job.created_by,
+        );
         windmill_common::auth::create_token_for_owner(
             db,
             &job.workspace_id,
@@ -6420,7 +6417,17 @@ async fn push_inner<'c, 'd>(
             tag = None;
         }
 
-        let interpolated_tag = tag.map(|x| interpolate_args(x, &args, workspace_id));
+        // `$workspace` must resolve the same way the default tags below do, or an explicit tag and
+        // a default tag from the same workspace address two different worker pools. Resolving costs
+        // a lookup, so pay it only for tags that actually interpolate `$workspace`.
+        let interpolated_tag = match tag {
+            None => None,
+            Some(x) if x.contains("$workspace") => {
+                let tag_ws = crate::tags::tag_workspace_id(&workspace_id, db).await;
+                Some(interpolate_args(x, &args, &tag_ws))
+            }
+            Some(x) => Some(interpolate_args(x, &args, workspace_id)),
+        };
         let effective_ws = per_workspace_tag(&workspace_id, db).await;
 
         let default = || {

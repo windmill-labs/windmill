@@ -13,7 +13,7 @@ echo "Generating OpenFlow JSON and Zod schemas..."
 
 if [ ! -f "${source_file}" ]; then
     echo "Error: Source file not found: ${source_file}"
-    echo "Please run windmill-yaml-validator/gen_openflow_schema.sh first"
+    echo "Please run 'npm run gen' in windmill-yaml-validator first"
     exit 1
 fi
 

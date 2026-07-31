@@ -11,9 +11,12 @@
 		FileJson,
 		FlaskConical,
 		GitFork,
+		ChevronDown,
 		Loader2,
+		RefreshCw,
 		UserPlus
 	} from 'lucide-svelte'
+	import { untrack } from 'svelte'
 	import type { CiTestResult } from '$lib/gen'
 	import { Alert, Badge } from './common'
 	import {
@@ -59,14 +62,37 @@
 	import { userStore } from '$lib/stores'
 	import { base } from '$lib/base'
 	import CompareModeToggle, { type CompareMode } from './CompareModeToggle.svelte'
+	import CompareTargetPicker from './CompareTargetPicker.svelte'
+	import { displayDate } from '$lib/utils'
 	import { editUrlFor } from './sessions/forkEditUrl'
 	import { diffInMask } from './sessions/modifiedItemsMask'
 	import DatatableSchemaDiff from './DatatableSchemaDiff.svelte'
 
 	interface Props {
 		currentWorkspaceId: string
+		/** The workspace being merged into. Normally the lineage parent; with
+		 * `isArbitraryTarget` it is any workspace the user administers. */
 		parentWorkspaceId: string
+		/** The lineage parent, when this workspace has one. Only used to offer the
+		 * way back from an arbitrary target. */
+		lineageParentId?: string
+		/** The target is outside the fork lineage: nothing tallies the pair, so the
+		 * comparison is one-way (current → target) and rests on an explicit full
+		 * scan rather than on the continuous tally. */
+		isArbitraryTarget?: boolean
+		/** When the arbitrary pair's candidate set was last enumerated. Undefined
+		 * means never — an empty comparison then says nothing about the two
+		 * workspaces and the deploy list must not be shown as authoritative. */
+		fullScanAt?: string
+		scanning?: boolean
+		onScan?: () => void
+		/** Re-run the comparison without re-seeding — the only way out of a transient
+		 * failure, which otherwise hides both the scan and recompute actions. */
+		onRetry?: () => void
+		onSelectTarget?: (target: string) => void
 		comparison: WorkspaceComparison | undefined
+		/** Set when the comparison request failed (e.g. not an admin of the target). */
+		comparisonError?: string
 		/** Initial merge direction; lets the page restore the chosen direction when
 		 * switching back from draft mode (deploy_to → true, update → false). */
 		initialMergeIntoParent?: boolean
@@ -100,7 +126,15 @@
 	let {
 		currentWorkspaceId,
 		parentWorkspaceId,
+		lineageParentId,
+		isArbitraryTarget = false,
+		fullScanAt,
+		scanning = false,
+		onScan,
+		onRetry,
+		onSelectTarget,
 		comparison,
+		comparisonError,
 		initialMergeIntoParent = true,
 		deployCount = 0,
 		updateCount = 0,
@@ -357,7 +391,14 @@
 	let currentWorkspaceInfo = $derived($userWorkspaces.find((w) => w.id == currentWorkspaceId))
 	let parentWorkspaceInfo = $derived($userWorkspaces.find((w) => w.id == parentWorkspaceId))
 
-	let mergeIntoParent = $state(initialMergeIntoParent)
+	// An arbitrary target is one-way: the pair has no tally, so nothing distinguishes
+	// a change made here from one made there, and the "update current" direction
+	// would list every difference as an incoming change.
+	let mergeIntoParent = $state(isArbitraryTarget || initialMergeIntoParent)
+	// An arbitrary pair with no scan yet has an empty comparison for want of a
+	// candidate set, not because the workspaces agree — say so instead of letting
+	// the empty deploy list read as "up to date".
+	let awaitingScan = $derived(isArbitraryTarget && !fullScanAt)
 	let deploying = $state(false)
 	let hasAutoSelected = $state(false)
 	let canDeployToParent = $state(true)
@@ -396,11 +437,13 @@
 	// greyed, non-actionable rows.
 	let nothingToAct = $derived(selectableDiffs.length === 0)
 	let emptyDeployMessage = $derived(
-		(comparison?.diffs.length ?? 0) === 0
-			? 'No changes between this fork and its parent.'
-			: mergeIntoParent
-				? `Nothing to deploy — ${parentWorkspaceId} already has every change from this fork.`
-				: `Nothing to update — this fork is up to date with ${parentWorkspaceId}.`
+		awaitingScan
+			? `No diff computed yet between this workspace and ${parentWorkspaceId}.`
+			: (comparison?.diffs.length ?? 0) === 0
+				? `No changes between this workspace and ${parentWorkspaceId}.`
+				: mergeIntoParent
+					? `Nothing to deploy — ${parentWorkspaceId} already has every change from this workspace.`
+					: `Nothing to update — this fork is up to date with ${parentWorkspaceId}.`
 	)
 
 	let conflictingDiffs = $derived(
@@ -587,15 +630,32 @@
 
 	// All *diff* items selected. Trigger items are opt-in and don't count
 	// toward "all selected" — see item merge below in deployableItems.
+	// Deploying a row the current workspace lacks deletes it in the target. Against
+	// the parent that is a real deletion to propagate and is selected like anything
+	// else; against an arbitrary target the two workspaces were simply never in sync,
+	// so it takes an explicit act on that row. No bulk action may sweep one in.
+	function removesInTarget(diff: WorkspaceItemDiff): boolean {
+		return isArbitraryTarget && diff.exists_in_fork === false
+	}
+	let bulkSelectableDiffs = $derived(selectableDiffs.filter((d) => !removesInTarget(d)))
+
 	let allSelected = $derived(
-		selectableDiffs.length > 0 &&
-			selectableDiffs.every((d) => selectedItems.includes(getItemKey(d)))
+		bulkSelectableDiffs.length > 0 &&
+			bulkSelectableDiffs.every((d) => selectedItems.includes(getItemKey(d)))
 	)
 
 	async function selectAll() {
-		selectedItems = selectableDiffs
+		const bulk = bulkSelectableDiffs
 			.map((d) => getItemKey(d))
 			.filter((k) => !(deploymentStatus[k]?.status == 'deployed'))
+		// Adds to the selection rather than replacing it, so a removal row the user
+		// opted into individually survives — the group checkbox, which only toggles
+		// its own rows, already behaves that way. Restricted to rows still in the
+		// list: a key pruned by a recompute would otherwise be counted by the deploy
+		// button and then reported as undeployable.
+		const listed = new Set(selectableDiffs.map((d) => getItemKey(d)))
+		const keptOptIns = selectedItems.filter((k) => !bulk.includes(k) && listed.has(k))
+		selectedItems = [...bulk, ...keptOptIns]
 	}
 
 	function deselectAll() {
@@ -723,7 +783,9 @@
 
 		// If every selected item deployed cleanly and the direction was
 		// merge-into-parent, resolve any open deployment request for this fork.
-		if (!anyFailed && mergeIntoParent) {
+		// A deploy to an arbitrary target says nothing about a request that tracks
+		// the lineage parent, so it must not close one.
+		if (!anyFailed && mergeIntoParent && !isArbitraryTarget) {
 			try {
 				const open = await WorkspaceService.getOpenDeploymentRequest({
 					workspace: currentWorkspaceId
@@ -822,7 +884,9 @@
 			selectedItems = []
 			return
 		}
-		const filtered = selectableDiffs.filter((d) => !isTriggerOrScheduleKind(d.kind) && !hasDraft(d))
+		const filtered = bulkSelectableDiffs.filter(
+			(d) => !isTriggerOrScheduleKind(d.kind) && !hasDraft(d)
+		)
 		const conflictSafe = mergeIntoParent
 			? filtered
 			: filtered.filter((d) => !(d.ahead > 0 && d.behind > 0))
@@ -899,6 +963,27 @@
 			selectDefault()
 			hasAutoSelected = true
 		}
+	})
+
+	// A row can change meaning between two comparisons: an item selected while it
+	// merely differed, then deleted here, comes back as "deploying this removes it
+	// there". A tick that predates the flip never chose that, so it is revoked —
+	// but only for a row that just flipped. Clearing every destructive row instead
+	// would also revoke a deliberate opt-in on any refresh, and refreshes happen
+	// without a recompute (`onChanged` fires from the per-row workspace-specific
+	// button), silently dropping the one choice this view asks the user to make.
+	let removalKeys = new Set<string>()
+	$effect(() => {
+		const diffs = comparison?.diffs
+		if (!diffs) return
+		untrack(() => {
+			const current = new Set(diffs.filter(removesInTarget).map((d) => getItemKey(d)))
+			const flipped = [...current].filter((k) => !removalKeys.has(k))
+			removalKeys = current
+			if (flipped.some((k) => selectedItems.includes(k))) {
+				selectedItems = selectedItems.filter((k) => !flipped.includes(k))
+			}
+		})
 	})
 
 	// Reset override when selection or direction changes
@@ -1039,7 +1124,37 @@
 	</Alert>
 {/if}
 
-{#if comparison}
+{#if comparisonError && !comparison}
+	<!-- Nothing to compare, so the merge card can't render — but the picker has to
+	     stay reachable: a target the caller can't compare is chosen from the picker
+	     itself, and without a way back the page would be a dead end. -->
+	<div class="flex flex-col gap-3 items-start">
+		<Alert title="Could not compare with {parentWorkspaceId}" type="error" class="my-2 w-full">
+			{comparisonError}
+		</Alert>
+		<div class="flex flex-wrap gap-2 items-center">
+			{#if onRetry}
+				<Button
+					variant="default"
+					unifiedSize="xs"
+					startIcon={{ icon: RefreshCw }}
+					disabled={scanning}
+					onClick={() => onRetry?.()}
+				>
+					Retry
+				</Button>
+			{/if}
+			{#if onSelectTarget}
+				<CompareTargetPicker
+					{currentWorkspaceId}
+					targetWorkspaceId={parentWorkspaceId}
+					parentWorkspaceId={lineageParentId}
+					onSelected={onSelectTarget}
+				/>
+			{/if}
+		</div>
+	</div>
+{:else if comparison}
 	{@const selectedConflicts = conflictingDiffs.filter((e) =>
 		selectedItems.includes(getItemKey(e))
 	).length}
@@ -1050,6 +1165,7 @@
 				{selectedItems}
 				{deploymentStatus}
 				{allSelected}
+				bulkExcluded={(item) => removesInTarget(item.diff as WorkspaceItemDiff)}
 				onToggleItem={(item) => toggleKey(item.key)}
 				onSelectAll={selectAll}
 				onDeselectAll={deselectAll}
@@ -1062,6 +1178,7 @@
 								<CompareModeToggle
 									selected={mergeIntoParent ? 'deploy_to' : 'update'}
 									isFork={true}
+									oneWay={isArbitraryTarget}
 									{parentWorkspaceId}
 									{deployCount}
 									{updateCount}
@@ -1086,22 +1203,53 @@
 											{/if}
 										</Badge>
 										<ArrowRight size={16} />
-										<Badge
-											color="transparent"
-											class="font-semibold"
-											title={!mergeIntoParent
-												? currentWorkspaceInfo.name
-												: parentWorkspaceInfo.name}
-										>
-											<span class="text-secondary">into:</span>
-											{#if !mergeIntoParent}
-												<GitFork size={14} />
-												<span class="text-emphasis">{currentWorkspaceInfo.id}</span>
-											{:else}
-												<Building size={14} />
-												<span class="text-emphasis">{parentWorkspaceInfo.id}</span>
-											{/if}
-										</Badge>
+										<!-- The destination doubles as the way to change it: retargeting is
+										     rare enough not to earn a control of its own, and the badge already
+										     names the thing being picked. Only in the deploy direction — the
+										     "into" of an update is this workspace, which isn't a choice. -->
+										{#if mergeIntoParent && onSelectTarget}
+											<CompareTargetPicker
+												{currentWorkspaceId}
+												targetWorkspaceId={parentWorkspaceId}
+												parentWorkspaceId={lineageParentId}
+												disabled={deploying || scanning}
+												onSelected={onSelectTarget}
+											>
+												{#snippet triggerContent()}
+													<!-- The same Badge as the `merge:` side, so the pair reads as one
+													     statement; `clickable` is the only difference, and the chevron
+													     says the destination is the part that can change. -->
+													<Badge
+														color="transparent"
+														clickable
+														class="font-semibold"
+														title="Deploying into {parentWorkspaceInfo.name} — click to compare against another workspace"
+													>
+														<span class="text-secondary">into:</span>
+														<Building size={14} />
+														<span class="text-emphasis">{parentWorkspaceInfo.id}</span>
+														<ChevronDown size={12} class="text-tertiary" />
+													</Badge>
+												{/snippet}
+											</CompareTargetPicker>
+										{:else}
+											<Badge
+												color="transparent"
+												class="font-semibold"
+												title={!mergeIntoParent
+													? currentWorkspaceInfo.name
+													: parentWorkspaceInfo.name}
+											>
+												<span class="text-secondary">into:</span>
+												{#if !mergeIntoParent}
+													<GitFork size={14} />
+													<span class="text-emphasis">{currentWorkspaceInfo.id}</span>
+												{:else}
+													<Building size={14} />
+													<span class="text-emphasis">{parentWorkspaceInfo.id}</span>
+												{/if}
+											</Badge>
+										{/if}
 									</div>
 								{/if}
 								<div class="flex items-center gap-2 text-sm">
@@ -1117,6 +1265,26 @@
 									{/if}
 								</div>
 							</div>
+							<!-- Retargeting lives on the destination badge above. Only the scan
+							     freshness an arbitrary target depends on is surfaced here; the
+							     lineage comparison has a continuous tally and needs neither. -->
+							{#if isArbitraryTarget && fullScanAt}
+								<div class="flex flex-wrap gap-2 items-center">
+									<span class="text-2xs text-tertiary">
+										Diff computed {displayDate(fullScanAt)}
+									</span>
+									<Button
+										variant="subtle"
+										unifiedSize="xs"
+										startIcon={{ icon: RefreshCw }}
+										disabled={deploying || scanning}
+										title="Re-enumerate every item on both sides. Needed to pick up anything created or changed since the last scan."
+										onClick={() => onScan?.()}
+									>
+										{scanning ? 'Computing…' : 'Recompute'}
+									</Button>
+								</div>
+							{/if}
 						</div>
 					</div>
 				{/snippet}
@@ -1168,6 +1336,59 @@
 				{/if}
 
 				{#snippet alerts()}
+					{#if comparisonError}
+						<!-- A refresh failed over a comparison that did load: the list below is
+						     still on screen, so flag it as possibly out of date. This branch also
+						     covers a comparison that failed right after a scan, where it shadows
+						     the scan prompt below — hence Retry, which is the only action left
+						     (the candidates are already seeded; only the comparison must re-run). -->
+						<Alert
+							title="Could not refresh the comparison with {parentWorkspaceId}"
+							type="error"
+							class="my-2"
+						>
+							<div class="flex flex-col gap-2 items-start">
+								<span>{comparisonError}</span>
+								{#if onRetry}
+									<Button
+										variant="default"
+										unifiedSize="xs"
+										startIcon={{ icon: RefreshCw }}
+										disabled={scanning}
+										onClick={() => onRetry?.()}
+									>
+										Retry
+									</Button>
+								{/if}
+							</div>
+						</Alert>
+					{:else if awaitingScan}
+						<Alert title="Compare with {parentWorkspaceId}" type="info" class="my-2">
+							<div class="flex flex-col gap-2 items-start">
+								<span>
+									{parentWorkspaceId} is not in this workspace's lineage, so their differences aren't
+									tracked as you deploy. Computing the diff compares every item on both sides — it can
+									take a while on large workspaces, and the result is kept for later visits.
+								</span>
+								<Button
+									variant="accent"
+									unifiedSize="xs"
+									disabled={scanning}
+									startIcon={{ icon: scanning ? Loader2 : DiffIcon }}
+									onClick={() => onScan?.()}
+								>
+									{scanning ? 'Computing diff…' : 'Compute diff'}
+								</Button>
+							</div>
+						</Alert>
+					{/if}
+					{#if isArbitraryTarget && !awaitingScan}
+						<Alert title="One-way deploy outside the lineage" type="warning" size="xs" class="my-2">
+							Items are compared as of the last scan, and can only be sent from this workspace into
+							{parentWorkspaceId}. Anything created or changed on either side since is missing from
+							the list until you recompute.
+						</Alert>
+					{/if}
 					{#if draftCount > 0}
 						<Alert title="Undeployed drafts" type="warning" size="xs" class="my-2">
 							<div class="flex items-center gap-2 flex-wrap">
@@ -1341,8 +1562,16 @@
 						>
 					{/if}
 					{#if !diff.exists_in_fork && diff.exists_in_source && diff.ahead > 0}
-						<Badge title="This item was deleted in '{currentWorkspaceId}'" color="red" size="xs"
-							>Deleted</Badge
+						<!-- Same row, two readings: against the parent the fork deleted the
+						     item, while against an arbitrary target it may simply never have
+						     existed here. Deploying removes it there either way — say that
+						     rather than asserting a deletion that may not have happened. -->
+						<Badge
+							title={isArbitraryTarget
+								? `This item exists only in '${parentWorkspaceId}' — deploying it removes it there`
+								: `This item was deleted in '${currentWorkspaceId}'`}
+							color="red"
+							size="xs">{isArbitraryTarget ? 'Removes in target' : 'Deleted'}</Badge
 						>
 					{/if}
 					{#if diff.exists_in_fork && !diff.exists_in_source && diff.behind > 0}
@@ -1437,7 +1666,7 @@
 								     can see. The hidden items are surfaced by the non-blocking banner above,
 								     not by removing the action. -->
 								<div class="flex items-center gap-2">
-									{#if mergeIntoParent && !hasOpenDeploymentRequest && !deploymentRequestPanel?.isDialogOpen()}
+									{#if mergeIntoParent && !isArbitraryTarget && !hasOpenDeploymentRequest && !deploymentRequestPanel?.isDialogOpen()}
 										<Button
 											variant="default"
 											startIcon={{ icon: UserPlus }}
@@ -1496,19 +1725,28 @@
 				{/snippet}
 			</WorkspaceDeployLayout>
 
-			<DeploymentRequestPanel
-				bind:this={deploymentRequestPanel}
-				forkWorkspaceId={currentWorkspaceId}
-				{parentWorkspaceId}
-				currentUsername={$userStore?.username ?? ''}
-				isAdmin={$userStore?.is_admin ?? false}
-				onStateChange={(open) => {
-					hasOpenDeploymentRequest = open
-				}}
-			/>
+			<!-- A deployment request is anchored on the fork's lineage: it tracks
+			     changes headed for the parent. It has no meaning against an arbitrary
+			     target, whose diff isn't tracked at all. -->
+			{#if !isArbitraryTarget}
+				<DeploymentRequestPanel
+					bind:this={deploymentRequestPanel}
+					forkWorkspaceId={currentWorkspaceId}
+					{parentWorkspaceId}
+					currentUsername={$userStore?.username ?? ''}
+					isAdmin={$userStore?.is_admin ?? false}
+					onStateChange={(open) => {
+						hasOpenDeploymentRequest = open
+					}}
+				/>
+			{/if}
 		</div>
 
-		<DatatableSchemaDiff {currentWorkspaceId} {parentWorkspaceId} />
+		<!-- Scoped to datatables cloned on fork: their `forked_from` baseline is the
+		     parent's schema, so diffing them against anything else is meaningless. -->
+		{#if !isArbitraryTarget}
+			<DatatableSchemaDiff {currentWorkspaceId} {parentWorkspaceId} />
+		{/if}
 
 		{#if pinnedItems.length > 0}
 			<div class="bg-surface-tertiary p-4 rounded-md border flex flex-col gap-2">

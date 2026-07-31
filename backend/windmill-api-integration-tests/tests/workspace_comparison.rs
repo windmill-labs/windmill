@@ -1207,20 +1207,17 @@ async fn test_compare_workspaces_rename_visibility_ee_e2e(
 }
 
 /// Regression test for #10401. The fork -> parent ("ahead") side of the tally
-/// used to key off `workspace_settings.deploy_to`, while the parent -> fork
-/// ("behind") side keys off `workspace.parent_workspace_id`. A fork whose
-/// `deploy_to` was never set or was later cleared therefore recorded no ahead
-/// change at all, and since nothing ever re-scans `workspace_diff`, every change
-/// made in it stayed permanently absent from its "Deploy to <parent>" list.
-///
-/// The lineage is now authoritative and `deploy_to` is only the fallback for a
-/// pairing with no lineage, so both states below must tally against the parent.
+/// used to key off `workspace_settings.deploy_to` while the parent -> fork
+/// ("behind") side keyed off `workspace.parent_workspace_id`, so a fork whose
+/// `deploy_to` disagreed recorded no ahead change at all and its edits stayed
+/// permanently absent from "Deploy to <parent>". Both sides now read the
+/// lineage, which is the only key left.
 ///
 /// Gated on `private` for the same reason as the rename test above: the OSS
 /// `handle_deployment_metadata` is a no-op, so no rows would ever be written.
 #[cfg(feature = "private")]
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_fork_tally_ahead_without_deploy_to(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_fork_tally_ahead_against_parent(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
 
     let server = ApiServer::start(db.clone()).await?;
@@ -1241,8 +1238,8 @@ async fn test_fork_tally_ahead_without_deploy_to(db: Pool<Postgres>) -> anyhow::
             "{base_url}/w/test-workspace/workspaces/create_fork"
         ))
         .json(&json!({
-            "id": "wm-fork-no-deploy-to",
-            "name": "No deploy_to Fork",
+            "id": "wm-fork-tally",
+            "name": "Tally Fork",
         }))
         .send()
         .await?;
@@ -1257,7 +1254,7 @@ async fn test_fork_tally_ahead_without_deploy_to(db: Pool<Postgres>) -> anyhow::
     let deploy = async |path: &str| -> anyhow::Result<()> {
         let resp = admin
             .client()
-            .post(&format!("{base_url}/w/wm-fork-no-deploy-to/scripts/create"))
+            .post(&format!("{base_url}/w/wm-fork-tally/scripts/create"))
             .json(&json!({
                 "path": path,
                 "summary": "",
@@ -1288,7 +1285,7 @@ async fn test_fork_tally_ahead_without_deploy_to(db: Pool<Postgres>) -> anyhow::
             Ok(sqlx::query_scalar!(
                 "SELECT ahead FROM workspace_diff
                  WHERE source_workspace_id = 'test-workspace'
-                   AND fork_workspace_id = 'wm-fork-no-deploy-to'
+                   AND fork_workspace_id = 'wm-fork-tally'
                    AND kind = 'script'
                    AND path = $1",
                 path
@@ -1311,29 +1308,11 @@ async fn test_fork_tally_ahead_without_deploy_to(db: Pool<Postgres>) -> anyhow::
         Ok(ahead)
     };
 
-    // ------ A fork's default state: the settings clone sets `deploy_to` to the
-    // parent, so both candidate keys name it. The change must be counted once.
-    deploy("u/admin/with_deploy_to").await?;
+    deploy("u/admin/tallied").await?;
     assert_eq!(
-        ahead_for("u/admin/with_deploy_to").await?,
+        ahead_for("u/admin/tallied").await?,
         Some(1),
-        "deploy_to and parent_workspace_id name the same workspace here — the change must be counted once, not twice"
-    );
-
-    // ------ The reported state (#10401): a fork still linked to its parent but
-    // with no `deploy_to`. An admin can produce this from workspace settings at
-    // any time, and older forks never had it set.
-    sqlx::query!(
-        "UPDATE workspace_settings SET deploy_to = NULL WHERE workspace_id = 'wm-fork-no-deploy-to'"
-    )
-    .execute(&db)
-    .await?;
-
-    deploy("u/admin/without_deploy_to").await?;
-    assert_eq!(
-        ahead_for("u/admin/without_deploy_to").await?,
-        Some(1),
-        "a fork with no deploy_to must still record its change against its parent"
+        "a fork's change must record once against its parent"
     );
 
     Ok(())
@@ -1368,8 +1347,7 @@ async fn test_compare_workspaces_fork_only_folder_visibility(
     .execute(&db)
     .await?;
 
-    // Create fork via the API so cloning + workspace_settings.deploy_to wiring
-    // matches what production sees.
+    // Create fork via the API so the cloning and lineage wiring matches what production sees.
     let client_admin = windmill_api_client::create_client(
         &format!("http://localhost:{port}"),
         "SECRET_TOKEN".to_string(),
@@ -1898,6 +1876,255 @@ async fn test_compare_workspaces_fork_admin_source_hidden_ahead(
         comparison["all_ahead_items_visible"].as_bool(),
         Some(true),
         "superadmin must see all ahead items: {comparison}"
+    );
+
+    Ok(())
+}
+
+/// The merge UI can target a workspace outside the fork lineage. Nothing tallies
+/// such a pair, so its comparison rests on an explicit full scan: before one, an
+/// empty `diffs` must be distinguishable from "the two workspaces agree", and the
+/// scan itself must seed only what actually differs, one way (WIN-2266).
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_full_diff_scan_against_arbitrary_workspace(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let client = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+    let base_url = format!("http://localhost:{port}/api");
+
+    // A second root workspace, unrelated to test-workspace by lineage.
+    sqlx::query!(
+        "INSERT INTO workspace (id, name, owner) VALUES ('other-workspace', 'other-workspace', 'test-user')"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO usr (workspace_id, email, username, is_admin, role)
+         VALUES ('other-workspace', 'test@windmill.dev', 'test-user', true, 'Admin')"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!("INSERT INTO workspace_settings (workspace_id) VALUES ('other-workspace')")
+        .execute(&db)
+        .await?;
+
+    // One script identical on both sides, one that differs, one that exists only here.
+    sqlx::query!(
+        "INSERT INTO script (workspace_id, path, hash, content, summary, description, language, created_by, created_at, archived, schema_validation, ws_error_handler_muted, deleted)
+         VALUES
+         ('test-workspace', 'f/shared/same', 1, 'def main(): pass', 'Same', '', 'python3', 'test@windmill.dev', NOW(), false, false, false, false),
+         ('test-workspace', 'f/shared/differs', 2, 'def main(): return 1', 'Differs', '', 'python3', 'test@windmill.dev', NOW(), false, false, false, false),
+         ('test-workspace', 'f/shared/only_here', 3, 'def main(): return 2', 'Only here', '', 'python3', 'test@windmill.dev', NOW(), false, false, false, false),
+         ('other-workspace', 'f/shared/same', 4, 'def main(): pass', 'Same', '', 'python3', 'test@windmill.dev', NOW(), false, false, false, false),
+         ('other-workspace', 'f/shared/differs', 5, 'def main(): return 99', 'Differs', '', 'python3', 'test@windmill.dev', NOW(), false, false, false, false)"
+    )
+    .execute(&db)
+    .await?;
+
+    // The same app path, a normal app here and a raw app there: one logical item that
+    // keys as two kinds, which the scan must collapse onto this workspace's kind.
+    for (ws, raw) in [("test-workspace", false), ("other-workspace", true)] {
+        let app_id = sqlx::query_scalar!(
+            "INSERT INTO app (workspace_id, path, summary, policy, versions)
+             VALUES ($1, 'f/shared/converted', 'Converted', '{}'::jsonb, ARRAY[]::bigint[])
+             RETURNING id",
+            ws,
+        )
+        .fetch_one(&db)
+        .await?;
+        let version = sqlx::query_scalar!(
+            "INSERT INTO app_version (app_id, value, created_by, created_at, raw_app)
+             VALUES ($1, $2, 'test@windmill.dev', NOW(), $3) RETURNING id",
+            app_id,
+            json!({"grid": []}),
+            raw,
+        )
+        .fetch_one(&db)
+        .await?;
+        sqlx::query!(
+            "UPDATE app SET versions = ARRAY[$2::bigint] WHERE id = $1",
+            app_id,
+            version,
+        )
+        .execute(&db)
+        .await?;
+    }
+
+    // The same migration under a different name on each side: one logical item, two
+    // candidate paths, which the scan must collapse.
+    sqlx::query!(
+        "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up)
+         VALUES
+         ('test-workspace', 'dt', 20260101000001, 'renamed_here', 'ALTER TABLE t ADD COLUMN a int'),
+         ('other-workspace', 'dt', 20260101000001, 'named_there', 'ALTER TABLE t ADD COLUMN a int')"
+    )
+    .execute(&db)
+    .await?;
+
+    let compare_url = format!("{base_url}/w/other-workspace/workspaces/compare/test-workspace");
+
+    // Before any scan: no candidate set, so no diffs — and `full_scan_at` says so.
+    let before: serde_json::Value = client
+        .client()
+        .get(&compare_url)
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(
+        before["diffs"].as_array().map(|d| d.len()),
+        Some(0),
+        "an unscanned arbitrary pair has no diffs: {before}"
+    );
+    assert!(
+        before["full_scan_at"].is_null(),
+        "an unscanned arbitrary pair must report no scan: {before}"
+    );
+
+    let scan = client
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/seed_full_diff/other-workspace"
+        ))
+        .send()
+        .await?;
+    assert!(
+        scan.status().is_success(),
+        "seeding the scan should succeed: {}",
+        scan.status()
+    );
+
+    let after: serde_json::Value = client
+        .client()
+        .get(&compare_url)
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert!(
+        !after["full_scan_at"].is_null(),
+        "a scanned pair must report when it was scanned: {after}"
+    );
+    let mut keys: Vec<(&str, &str)> = after["diffs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| (d["kind"].as_str().unwrap(), d["path"].as_str().unwrap()))
+        .collect();
+    keys.sort();
+    assert_eq!(
+        keys,
+        vec![
+            ("app", "f/shared/converted"),
+            ("datatable_migration", "dt/20260101000001_renamed_here"),
+            ("script", "f/shared/differs"),
+            ("script", "f/shared/only_here"),
+        ],
+        "the scan keeps only what differs, drops the identical script, and collapses the renamed migration and the app/raw-app conversion onto this workspace's key: {after}"
+    );
+    for diff in after["diffs"].as_array().unwrap() {
+        assert_eq!(
+            (diff["ahead"].as_i64(), diff["behind"].as_i64()),
+            (Some(1), Some(0)),
+            "an arbitrary pair is compared one way only: {diff}"
+        );
+    }
+
+    // Renaming the migration moves its candidate path. A re-scan must replace the
+    // candidate set, not add to it: the previous path still resolves to the same
+    // `(datatable, timestamp)`, so keeping it would list one migration twice.
+    sqlx::query!(
+        "UPDATE datatable_migrations SET name = 'renamed_again'
+         WHERE workspace_id = 'test-workspace' AND datatable = 'dt'"
+    )
+    .execute(&db)
+    .await?;
+    client
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/seed_full_diff/other-workspace"
+        ))
+        .send()
+        .await?;
+    let rescanned: serde_json::Value = client
+        .client()
+        .get(&compare_url)
+        .send()
+        .await?
+        .json()
+        .await?;
+    let migrations: Vec<&str> = rescanned["diffs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|d| d["kind"] == "datatable_migration")
+        .map(|d| d["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        migrations,
+        vec!["dt/20260101000001_renamed_again"],
+        "a re-scan replaces the candidate set, so the pre-rename path is gone: {rescanned}"
+    );
+
+    // An arbitrary pair is only comparable to someone who administers both sides:
+    // otherwise admin of one workspace would be enough to learn how much of another
+    // differs from it. test-user-2 is a plain member of test-workspace.
+    sqlx::query!(
+        "INSERT INTO usr (workspace_id, email, username, is_admin, role)
+         VALUES ('other-workspace', 'test2@windmill.dev', 'test-user-2', true, 'Admin')"
+    )
+    .execute(&db)
+    .await?;
+    let non_admin = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN_2".to_string(),
+    );
+    let refused = non_admin.client().get(&compare_url).send().await?;
+    assert!(
+        refused.status().is_client_error(),
+        "comparing an arbitrary pair without admin on both sides must be refused: {}",
+        refused.status()
+    );
+    let refused_scan = non_admin
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/seed_full_diff/other-workspace"
+        ))
+        .send()
+        .await?;
+    assert!(
+        refused_scan.status().is_client_error(),
+        "seeding a scan without admin on both sides must be refused: {}",
+        refused_scan.status()
+    );
+
+    // The lineage pair has a continuous tally whose direction a one-way scan would
+    // overwrite, so scanning it is refused.
+    let fork = client
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/create_fork"
+        ))
+        .json(&json!({"id": "wm-fork-test-workspace", "name": "Test Fork", "color": "#0000ff"}))
+        .send()
+        .await?;
+    assert!(fork.status().is_success(), "fork creation should succeed");
+    let lineage_scan = client
+        .client()
+        .post(&format!(
+            "{base_url}/w/wm-fork-test-workspace/workspaces/seed_full_diff/test-workspace"
+        ))
+        .send()
+        .await?;
+    assert!(
+        lineage_scan.status().is_client_error(),
+        "scanning a lineage pair must be refused: {}",
+        lineage_scan.status()
     );
 
     Ok(())

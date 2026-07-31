@@ -31,7 +31,6 @@ export const WORKSPACE_SETTINGS_TABS = [
 	'premium',
 	'general',
 	'webhook',
-	'deploy_to',
 	'dev_workspace',
 	'error_handler',
 	'success_handler',
