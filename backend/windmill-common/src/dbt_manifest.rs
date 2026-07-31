@@ -26,20 +26,26 @@
 //!
 //! # Mutator contract
 //!
-//! `replace_dbt_manifest`, `clear_dbt_manifest` and
-//! `clear_dbt_manifest_version` take the workspace and the script to act
-//! on as plain arguments and enforce nothing: **the caller must already have
-//! verified write access to that script**, exactly like the sibling
-//! `assets::replace_static_asset_usage` each is called next to. A user-scoped
+//! Every `pub` mutator in this module — the manifest ones
+//! (`replace_dbt_manifest`, `clear_dbt_manifest`, `clear_dbt_manifest_version`),
+//! the snapshot sweep, and the retry-state ones (`move_dbt_run_state`,
+//! `clear_dbt_run_state`, `clear_dbt_run_state_if_path_retired`) — takes the
+//! workspace and the script to act on as plain arguments and enforces nothing:
+//! **the caller must already have verified write access to that script**,
+//! exactly like the sibling `assets::replace_static_asset_usage` each is called
+//! next to. The retry-state ones destroy a resumable failure and move saved
+//! invocation arguments between paths, so an unauthorized caller there hands one
+//! principal's arguments to another. A user-scoped
 //! transaction is not enforcement here — `dbt_node` and `dbt_edge` carry no RLS
 //! policy and grant `windmill_user` full access, deliberately, because the
 //! writer is the dependency job rather than a request.
 //!
 //! Every caller today satisfies it through the route that owns the script:
-//! `windmill-api-scripts::scripts` clears from the create, archive and delete
-//! handlers, each behind a `scripts:write:<path>` scope check plus that route's
-//! own owner or admin requirement; the worker replaces from the dependency job
-//! of the very script being deployed. A new call site that cannot name where it
+//! `windmill-api-scripts::scripts` clears and moves from the create, archive,
+//! rename and delete handlers, each behind a `scripts:write:<path>` scope check
+//! plus that route's own owner or admin requirement; the worker replaces from
+//! the dependency job of the very script being deployed, and saves retry state
+//! for the script it just ran. A new call site that cannot name where it
 //! authorized is a bug.
 
 use std::collections::{BTreeMap, HashMap};

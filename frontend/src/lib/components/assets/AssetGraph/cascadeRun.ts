@@ -23,7 +23,7 @@ export const CASCADE_JOB_TIMEOUT_MS = 30 * 60 * 1000
 // Data-asset kinds a pipeline graph resolves — the `asset_kinds` filter for the
 // `/assets/graph` fetch. Shared so the pipeline editor and deploy-to-hub request
 // the same nodes/edges (and can't silently diverge when a kind is added).
-export const DATA_ASSET_KINDS = ['s3object', 'ducklake', 'datatable', 'volume', 'table']
+export const DATA_ASSET_KINDS = ['s3object', 'ducklake', 'datatable', 'volume', 'dbt']
 
 export type LocalScriptContent = {
 	content: string

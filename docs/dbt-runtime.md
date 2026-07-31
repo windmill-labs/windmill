@@ -433,9 +433,16 @@ cannot supply (it keeps one row per relation, stamped with the last writer).
 So dbt materializes and reports, and `asset_dispatch` returns early for
 `ScriptLang::Dbt`. A `# on dbt://<mart>` subscription is refused outright at
 deploy rather than accepted and left dormant — an edge drawn on the canvas that
-can never fire is worse than an error saying so. A plain read
-(`# dbt://<mart>`) still renders the reader beside the model, which is what
-makes the lineage one graph. Wiring the trigger up later means deciding what a
+can never fire is worse than an error saying so.
+
+A plain READ still renders the consumer beside the model, which is what makes
+the lineage one graph — but it is written in the script's own code, not in a
+comment: the body parsers resolve an asset URI from a string literal
+(`parse_asset_syntax`), so `"dbt://<resource>/<schema>/<name>"` appearing in a
+Python, TS/Bun/Deno, DuckDB or Ansible script is the read. Those four are the
+languages with a body-asset parser; the native warehouse ones (snowflake,
+bigquery, postgresql, mysql, mssql) declare no assets at all today, so a mart
+they consume joins the graph only once that inference exists. Wiring the trigger up later means deciding what a
 selective run should notify — that decision is the work, not the plumbing.
 
 ## Live per-model progress, and why only dbt-core 1.x has it

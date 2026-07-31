@@ -991,13 +991,28 @@ pub async fn asset_graph_for(
     // that authorizes this endpoint.
     let dbt_source_scope = build_scope_path_predicate(authed, "scripts", "read");
 
-    let kind_filter: Option<Vec<AssetKind>> = q.asset_kinds.as_ref().map(|s| {
-        s.split(',')
-            .filter_map(|k| {
-                serde_json::from_value::<AssetKind>(Value::String(k.trim().into())).ok()
-            })
-            .collect()
-    });
+    // REFUSED, not dropped: a caller that asks for a kind this server does not
+    // know has asked for something, and answering with the other kinds returns a
+    // graph missing exactly what they came for — silently. That is how a rename
+    // of one kind emptied three callers' graphs with nothing logged.
+    let kind_filter: Option<Vec<AssetKind>> = q
+        .asset_kinds
+        .as_ref()
+        .map(|s| {
+            s.split(',')
+                .map(|k| {
+                    serde_json::from_value::<AssetKind>(Value::String(k.trim().into())).map_err(
+                        |_| {
+                            windmill_common::error::Error::BadRequest(format!(
+                                "`{}` is not an asset kind",
+                                k.trim()
+                            ))
+                        },
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .transpose()?;
     let kind_filter_ref = kind_filter.as_deref();
 
     let folder_filter = q.folder.as_deref().map(|f| format!("f/{}/%", f));

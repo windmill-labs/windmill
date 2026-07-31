@@ -7,6 +7,7 @@
 	import Head from '$lib/components/table/Head.svelte'
 	import {
 		AssetService,
+		ScriptService,
 		SettingService,
 		WorkspaceService,
 		type AssetKind,
@@ -28,6 +29,7 @@
 	import { Tooltip } from '$lib/components/meltComponents'
 	import { AlertTriangle, Loader2, SettingsIcon, StarIcon, TableProperties } from 'lucide-svelte'
 	import { previewDbtRows, type DbtPreview } from '$lib/components/dbt/previewRows'
+	import { nodeSelector } from '$lib/components/dbt/parseDbtRun'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import { StaleWhileLoading, useInfiniteQuery, useScrollToBottom } from '$lib/svelte5Utils.svelte'
@@ -131,19 +133,48 @@
 		const ws = $workspaceStore
 		const script = dbtProducerOf(asset)
 		if (!ws || !script) return
-		// The model is the relation's own name: `<resource>/<schema>/<name>`.
-		const model = asset.path.split('/').pop() ?? asset.path
-		previewTitle = model
+		previewTitle = asset.path.split('/').pop() ?? asset.path
 		preview = { pending: true }
 		previewDrawer?.openDrawer()
 		const seq = ++previewSeq
-		const res = await previewDbtRows({
-			workspace: ws,
-			scriptPath: script,
-			model,
-			stillWanted: () => seq === previewSeq
-		})
-		if (seq === previewSeq && res) preview = res
+		const fail = (error: string) => {
+			if (seq === previewSeq) preview = { error }
+		}
+		try {
+			// A project whose descriptor interpolates `{{ }}` needs those values to
+			// run at all, and this page has nowhere to ask for them. Say so instead
+			// of submitting a job that fails inside dbt.
+			const producer = await ScriptService.getScriptByPath({ workspace: ws, path: script })
+			const needs = (((producer.schema as any)?.required ?? []) as string[]).filter(
+				(r) => r !== 'command'
+			)
+			if (needs.length > 0) {
+				return fail(
+					`${script} takes run arguments (${needs.join(', ')}), so previewing it needs the ` +
+						`run form — open the script and run \`show\` there.`
+				)
+			}
+			// dbt selects by MODEL name; the asset path ends in the relation's name,
+			// which `alias`/`identifier` may have moved away from it. The graph
+			// carries the provenance, so ask it rather than guessing from the path.
+			const graph = await AssetService.getAssetsGraph({ workspace: ws, assetKinds: 'dbt' })
+			const uniqueId = graph.assets?.find(
+				(a: any) => a.kind === asset.kind && a.path === asset.path
+			)?.dbt?.unique_id
+			if (!uniqueId) {
+				return fail('No dbt model is recorded as building this table, so there is nothing to run.')
+			}
+			if (seq !== previewSeq) return
+			const res = await previewDbtRows({
+				workspace: ws,
+				scriptPath: script,
+				model: nodeSelector(uniqueId),
+				stillWanted: () => seq === previewSeq
+			})
+			if (seq === previewSeq && res) preview = res
+		} catch (e) {
+			fail(e instanceof Error ? e.message : String(e))
+		}
 	}
 
 

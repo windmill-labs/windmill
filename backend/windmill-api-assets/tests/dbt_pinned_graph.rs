@@ -80,7 +80,7 @@ async fn seed(db: &Pool<Postgres>, job: uuid::Uuid) {
 }
 
 fn query() -> GraphQuery {
-    GraphQuery { asset_kinds: Some("table".to_string()), folder: None, dbt_script_hash: None }
+    GraphQuery { asset_kinds: Some("dbt".to_string()), folder: None, dbt_script_hash: None }
 }
 
 /// Pinned to a run they are entitled to, the outsider gets the model — and not
