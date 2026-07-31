@@ -278,9 +278,10 @@ pub struct WorkspaceSettings {
     pub webhook: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_config: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     /// Pointers to the resources dbt scripts run against by default.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub dbt_warehouses: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub large_file_storage: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ducklake: Option<serde_json::Value>,

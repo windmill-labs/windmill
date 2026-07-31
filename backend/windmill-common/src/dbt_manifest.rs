@@ -447,7 +447,9 @@ fn asset_path_for(
         name,
         default_database,
     );
-    (path.len() <= MAX_ASSET_PATH_LEN).then_some(path)
+    // CHARACTERS, which is what `VARCHAR(255)` counts — a warehouse identifier
+    // may be multibyte, and measuring bytes would drop a path that fits.
+    (path.chars().count() <= MAX_ASSET_PATH_LEN).then_some(path)
 }
 
 /// `asset.path`'s column width. A `dbt://` key is the only asset path assembled

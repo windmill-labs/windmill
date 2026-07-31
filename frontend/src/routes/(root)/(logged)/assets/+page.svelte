@@ -185,44 +185,24 @@
 			// dbt selects by MODEL name; the asset path ends in the relation's name,
 			// which `alias`/`identifier` may have moved away from it. The graph
 			// carries the provenance, so ask it rather than guessing from the path.
-			// Scoped to the producer's folder: resolving one model's id has no business
-			// pulling every dbt relation in the workspace.
-			const folder = script.startsWith('f/') ? script.split('/')[1] : undefined
-			const graph = await AssetService.getAssetsGraph({ workspace: ws, assetKinds: 'dbt', folder })
+			//
+			// Pinned to THIS script's version, which is what makes the answer the
+			// right one: provenance keeps a single winner per relation workspace-wide,
+			// so where two projects write one table the unpinned graph may name the
+			// other project's model — and running this script with that selector
+			// previews a model it does not have.
+			const graph = await AssetService.getAssetsGraph({
+				workspace: ws,
+				assetKinds: 'dbt',
+				dbtScriptHash: String(producer.hash)
+			})
 			const uniqueId = graph.assets?.find(
 				(a: any) => a.kind === asset.kind && a.path === asset.path
 			)?.dbt?.unique_id
 			if (!uniqueId) {
-				return fail('No dbt model is recorded as building this table, so there is nothing to run.')
-			}
-			// Provenance keeps ONE winner per relation workspace-wide, and two projects
-			// may write the same table — so the winner need not be the writer found
-			// above. Running that writer with the other's package-qualified selector
-			// previews a model it does not have.
-			const pkg = uniqueId.split('.')[1]
-			// From the EDGES, which is where the graph records who writes what. A
-			// graph node carries the relation and its dbt provenance but no
-			// `usages` — that field belongs to the assets LIST — so asking a node
-			// for its producer throws before a preview is ever submitted.
-			const writes = new Set(
-				(graph.edges ?? [])
-					.filter(
-						(e) =>
-							e.runnable_path === script &&
-							e.runnable_kind === 'script' &&
-							(e.access_type === 'w' || e.access_type === 'rw')
-					)
-					.map((e) => e.asset_path)
-			)
-			const producerPkgs = new Set(
-				(graph.assets ?? [])
-					.filter((a) => a.dbt?.unique_id && writes.has(a.path))
-					.map((a) => a.dbt!.unique_id.split('.')[1])
-			)
-			if (producerPkgs.size > 0 && !producerPkgs.has(pkg)) {
 				return fail(
-					`Another dbt project also writes this table, and its model is the one on record — ` +
-						`open that project to preview it.`
+					`${script} writes this table but its deployed version builds no model for it, ` +
+						`so there is nothing to preview.`
 				)
 			}
 			if (seq !== previewSeq) return
