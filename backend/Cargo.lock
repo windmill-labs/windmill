@@ -14927,6 +14927,7 @@ dependencies = [
  "windmill-common",
  "windmill-dep-map",
  "windmill-git-sync",
+ "windmill-native-triggers",
  "windmill-queue",
 ]
 
@@ -15110,6 +15111,7 @@ dependencies = [
  "windmill-common",
  "windmill-dep-map",
  "windmill-git-sync",
+ "windmill-native-triggers",
  "windmill-object-store",
  "windmill-parser",
  "windmill-parser-py",

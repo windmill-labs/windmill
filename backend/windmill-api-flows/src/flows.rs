@@ -50,6 +50,7 @@ use windmill_common::{
     flows::{EditFlow, Flow, FlowWithStarred, ListFlowQuery, ListableFlow, NewFlow},
     jobs::JobPayload,
     schedule::Schedule,
+    triggers::MovedNativeTrigger,
     utils::{http_get_from_hub, not_found_if_none, paginate, Pagination, RunnableKind, StripPath},
 };
 use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
@@ -1003,6 +1004,35 @@ async fn update_flow_history(
     Ok(())
 }
 
+/// Re-point the webhooks of the native triggers a rename carried onto the new path.
+///
+/// Runs after the deploy transaction commits — repointing a webhook is not undoable — and off the
+/// request, because it waits on a third-party service that may be slow or gone, and a deploy that
+/// already committed must not look like it failed. The rename itself marked these rows
+/// `REREGISTRATION_PENDING`, so nothing is lost silently if this never finishes.
+fn reregister_moved_native_triggers(
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    moved: Vec<MovedNativeTrigger>,
+) {
+    if moved.is_empty() {
+        return;
+    }
+    #[cfg(feature = "native_trigger")]
+    {
+        let (db, authed, w_id) = (db.clone(), authed.clone(), w_id.to_string());
+        tokio::spawn(async move {
+            windmill_native_triggers::rename::reregister_triggers_after_rename(
+                &db, &authed, &w_id, &moved,
+            )
+            .await;
+        });
+    }
+    #[cfg(not(feature = "native_trigger"))]
+    let _ = (db, authed, w_id, moved);
+}
+
 async fn update_flow(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -1022,6 +1052,13 @@ async fn update_flow(
     // A `<= 0` flow timeout is "unset", not a 0-second limit (see create_flow).
     nf.timeout = windmill_common::runnable_settings::none_if_non_positive(nf.timeout);
     check_scopes(&authed, || format!("flows:write:{}", flow_path))?;
+    // A rename writes the destination as much as the source, so a path-scoped token needs both.
+    // Checking only the source would let it move a flow onto a path it has no say over — and
+    // everything that follows the rename, native triggers included, is then acting on a path this
+    // caller was never authorized for. `create_script` already scopes against its destination.
+    if nf.path != flow_path {
+        check_scopes(&authed, || format!("flows:write:{}", nf.path))?;
+    }
 
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
@@ -1238,8 +1275,9 @@ async fn update_flow(
         }
     }
 
+    let mut moved_native_triggers = Vec::new();
     if is_new_path {
-        windmill_common::triggers::update_triggers_script_path(
+        moved_native_triggers = windmill_common::triggers::update_triggers_script_path(
             &mut tx, &nf.path, &flow_path, &w_id, true,
         )
         .await
@@ -1411,6 +1449,8 @@ async fn update_flow(
     }
 
     new_tx.commit().await?;
+
+    reregister_moved_native_triggers(&db, &authed, &w_id, moved_native_triggers);
 
     // Trigger CI tests for items that reference this flow
     {

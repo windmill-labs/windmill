@@ -344,24 +344,26 @@ async fn delete_triggers_for_service(db: &DB, workspace_id: &str, service_name: 
     }
     // For Google: skip remote cleanup (watch channels expire naturally)
 
-    // Bulk delete all triggers
-    if let Err(e) = sqlx::query!(
-        "DELETE FROM native_trigger WHERE workspace_id = $1 AND service_name = $2",
+    // Revoke the tokens the deleted rows actually named, not the ones listed above: a
+    // re-registration running concurrently mints a replacement, and leaving that alive would let a
+    // disconnected integration keep starting jobs.
+    let deleted_token_hashes = sqlx::query_scalar!(
+        "DELETE FROM native_trigger WHERE workspace_id = $1 AND service_name = $2 RETURNING webhook_token_hash",
         workspace_id,
         service_name as ServiceName
     )
-    .execute(db)
+    .fetch_all(db)
     .await
-    {
+    .unwrap_or_else(|e| {
         tracing::error!("Failed to delete native triggers for service {service_name:?} in workspace {workspace_id}: {e}");
-    }
+        Vec::new()
+    });
 
-    // Delete all associated webhook tokens
-    for trigger in &triggers {
-        if let Err(e) = delete_token_by_hash(db, &trigger.webhook_token_hash).await {
+    for webhook_token_hash in &deleted_token_hashes {
+        if let Err(e) = delete_token_by_hash(db, webhook_token_hash).await {
             tracing::error!(
                 "Failed to delete webhook token with hash {}: {e}",
-                trigger.webhook_token_hash
+                webhook_token_hash
             );
         }
     }
