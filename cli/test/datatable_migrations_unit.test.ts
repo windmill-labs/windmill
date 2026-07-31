@@ -173,7 +173,8 @@ describe("untrackedDatatableMigrationDeletions", () => {
     expect(
       untrackedDatatableMigrationDeletions(changes, {
         kind: "unknown",
-        reason: "shallow clone, so its history is truncated",
+        reason: "this is a shallow clone, so its history is truncated",
+        remedy: "Fetch the full history (for actions/checkout, fetch-depth: 0)",
       }).map((c) => c.path),
     ).toEqual([A_UP, A_DOWN]);
   });

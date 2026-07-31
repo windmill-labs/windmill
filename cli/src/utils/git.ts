@@ -86,7 +86,7 @@ export function getWorkspaceIdForWorkspaceForkFromBranchName(branchName: string)
  */
 export type RecordedMigrationPaths =
   | { kind: "known"; paths: Set<string> }
-  | { kind: "unknown"; reason: string };
+  | { kind: "unknown"; reason: string; remedy: string };
 
 /**
  * Resolve [`RecordedMigrationPaths`] for the checkout at the current directory.
@@ -104,7 +104,11 @@ export type RecordedMigrationPaths =
  */
 export function gitRecordedDatatableMigrationPaths(): RecordedMigrationPaths {
   if (!isGitRepository()) {
-    return { kind: "unknown", reason: "not a git repository" };
+    return {
+      kind: "unknown",
+      reason: "this directory is not a git repository",
+      remedy: "Run the push from a git checkout of the synced repository",
+    };
   }
   const shallow = spawnSync("git", ["rev-parse", "--is-shallow-repository"], {
     encoding: "utf8",
@@ -113,7 +117,9 @@ export function gitRecordedDatatableMigrationPaths(): RecordedMigrationPaths {
   if ((shallow.stdout ?? "").trim() === "true") {
     return {
       kind: "unknown",
-      reason: "shallow clone, so its history is truncated",
+      reason: "this is a shallow clone, so its history is truncated",
+      remedy:
+        "Fetch the full history (for actions/checkout, fetch-depth: 0)",
     };
   }
   const prefixOut = spawnSync("git", ["rev-parse", "--show-prefix"], {
@@ -121,7 +127,11 @@ export function gitRecordedDatatableMigrationPaths(): RecordedMigrationPaths {
     stdio: "pipe",
   });
   if ((prefixOut.status ?? 1) !== 0) {
-    return { kind: "unknown", reason: "could not resolve the repository root" };
+    return {
+      kind: "unknown",
+      reason: "the repository root could not be resolved",
+      remedy: "Check that git runs correctly in this directory",
+    };
   }
   const prefix = (prefixOut.stdout ?? "").trim();
 
@@ -132,7 +142,11 @@ export function gitRecordedDatatableMigrationPaths(): RecordedMigrationPaths {
   );
   if ((r.status ?? 1) !== 0) {
     log.debug(`Could not read git history for migrations: ${r.stderr ?? ""}`);
-    return { kind: "unknown", reason: "its history could not be read" };
+    return {
+      kind: "unknown",
+      reason: "its history could not be read",
+      remedy: "Check that git runs correctly in this directory",
+    };
   }
   const paths = new Set<string>();
   for (const line of (r.stdout ?? "").split("\n")) {

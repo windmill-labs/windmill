@@ -4209,7 +4209,7 @@ export async function push(
           (recordedMigrationPaths.kind === "known"
             ? `this branch has never tracked them. Run 'wmill sync pull' to track them in git, or delete them from the workspace.`
             : `${recordedMigrationPaths.reason}, so whether it ever tracked them cannot be established. ` +
-              `Fetch the full history (for actions/checkout, fetch-depth: 0) so a real deletion can be told apart, or delete them from the workspace.`),
+              `${recordedMigrationPaths.remedy} so a real deletion can be told apart, or delete them from the workspace.`),
       ),
     );
     const kept = changes.filter(
