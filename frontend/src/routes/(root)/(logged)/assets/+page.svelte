@@ -157,7 +157,19 @@
 			// A project whose descriptor interpolates `{{ }}` needs those values to
 			// run at all, and this page has nowhere to ask for them. Say so instead
 			// of submitting a job that fails inside dbt.
-			const producer = await ScriptService.getScriptByPath({ workspace: ws, path: script })
+			// A relation outlives the script that wrote it: deleting a dbt script
+			// leaves its `usages` behind, and the raw 404 that follows says nothing
+			// about which script or why.
+			const producer = await ScriptService.getScriptByPath({
+				workspace: ws,
+				path: script
+			}).catch(() => undefined)
+			if (!producer) {
+				return fail(
+					`${script} is recorded as writing this table but no longer exists, so there is ` +
+						`nothing to preview it with.`
+				)
+			}
 			if (producer.language !== 'dbt') {
 				return fail(`${script} writes this table but is not a dbt script, so there is no model to preview.`)
 			}
