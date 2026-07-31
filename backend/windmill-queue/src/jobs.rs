@@ -6863,7 +6863,7 @@ async fn push_inner<'c, 'd>(
         // `user` is the end user of `permissioned_as` when the job runs as someone else, and
         // `audit_end_user` takes the one `end_user` slot ahead of it. Record it here so it stays
         // searchable: `username` holds the run-as identity in that case, not the caller.
-        if audit_end_user.is_some() && runs_on_behalf {
+        if runs_on_behalf && audit_end_user.is_some_and(|e| e != user) {
             hm.insert("created_by", user);
         }
         let audit_author = AuditAuthor {
