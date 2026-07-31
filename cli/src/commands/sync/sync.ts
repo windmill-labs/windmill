@@ -88,6 +88,7 @@ import {
   isForkWorkspace,
   gitRecordedDatatableMigrationPaths,
   type GitSyncDeployItem,
+  type RecordedMigrationPaths,
 } from "../../utils/git.ts";
 import { Workspace } from "../workspace/workspace.ts";
 import { removePathPrefix } from "../../types.ts";
@@ -2672,21 +2673,21 @@ export function countDatatableMigrationRecords(
  * Migrations bypass the repo's path filters (they live outside `f/`/`u/`), so a clone
  * made before they were synced sees every server-side migration as remote-only — and
  * `pushMigrationFromDisk` reads a locally absent `.up.sql` as an instruction to delete
- * it. `recordedPaths` is what this repository has ever committed under
- * `migrations/datatable/` (see `gitRecordedDatatableMigrationPaths`): a path in it was
- * genuinely tracked, so its absence now is a real deletion; a path missing from it is
- * one this checkout has never had, and deleting it is a guess. `null` means there is no
- * git history to consult, so nothing is trusted. The caller confirms whatever comes
- * back explicitly and never deletes it unattended.
+ * it. `recorded` is what this repository's own history says (see
+ * `gitRecordedDatatableMigrationPaths`): a recorded path was genuinely tracked, so its
+ * absence now is a real deletion; a path missing from a `known` set is one this branch
+ * has never had, and deleting it is a guess. `unknown` history is not evidence of
+ * anything, so nothing is trusted. The caller confirms whatever comes back explicitly
+ * and never deletes it unattended.
  */
 export function untrackedDatatableMigrationDeletions<
   T extends { name: string; path: string },
->(changes: T[], recordedPaths: Set<string> | null): T[] {
+>(changes: T[], recorded: RecordedMigrationPaths): T[] {
   return changes.filter(
     (c) =>
       c.name === "deleted" &&
       isDatatableMigrationPath(c.path) &&
-      !recordedPaths?.has(c.path),
+      !(recorded.kind === "known" && recorded.paths.has(c.path)),
   );
 }
 
@@ -4192,19 +4193,23 @@ export async function push(
 
   await fetchRemoteVersion(workspace);
 
-  const ambiguousMigrationDeletions = changes.some(
+  const recordedMigrationPaths: RecordedMigrationPaths = changes.some(
     (c) => c.name === "deleted" && isDatatableMigrationPath(c.path),
   )
-    ? untrackedDatatableMigrationDeletions(
-        changes,
-        gitRecordedDatatableMigrationPaths(),
-      )
-    : [];
+    ? gitRecordedDatatableMigrationPaths()
+    : { kind: "known", paths: new Set() };
+  const ambiguousMigrationDeletions = untrackedDatatableMigrationDeletions(
+    changes,
+    recordedMigrationPaths,
+  );
   const keepAmbiguousMigrationsOnRemote = () => {
     log.info(
       colors.yellow(
-        `Keeping ${countDatatableMigrationRecords(ambiguousMigrationDeletions)} data table migration(s) on the remote: this repository has never tracked them. ` +
-          `Run 'wmill sync pull' to track them in git, or delete them from the workspace.`,
+        `Keeping ${countDatatableMigrationRecords(ambiguousMigrationDeletions)} data table migration(s) on the remote: ` +
+          (recordedMigrationPaths.kind === "known"
+            ? `this branch has never tracked them.`
+            : `${recordedMigrationPaths.reason}, so whether it ever tracked them cannot be established.`) +
+          ` Run 'wmill sync pull' to track them in git, or delete them from the workspace.`,
       ),
     );
     const kept = changes.filter(
@@ -4450,7 +4455,7 @@ export async function push(
     if (ambiguousMigrationDeletions.length > 0 && !ambiguousMigrationsResolved) {
       const deleteThem = await Confirm.prompt({
         message:
-          `This repository has no git history for ${countDatatableMigrationRecords(ambiguousMigrationDeletions)} migration definition(s), so it may simply never have synced them. ` +
+          `Nothing in this repository's history accounts for ${countDatatableMigrationRecords(ambiguousMigrationDeletions)} migration definition(s), so it may simply never have synced them. ` +
           `Delete them from the workspace anyway?`,
         default: false,
       });

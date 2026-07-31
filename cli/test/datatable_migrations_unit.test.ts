@@ -145,30 +145,36 @@ describe("untrackedDatatableMigrationDeletions", () => {
 
   test("trusts a deletion the repository has committed before", () => {
     expect(
-      untrackedDatatableMigrationDeletions(changes, new Set([A_UP, A_DOWN])),
+      untrackedDatatableMigrationDeletions(changes, { kind: "known", paths: new Set([A_UP, A_DOWN]) }),
     ).toEqual([]);
   });
 
   test("flags migrations this repository has never recorded", () => {
     expect(
-      untrackedDatatableMigrationDeletions(changes, new Set()).map((c) => c.path),
+      untrackedDatatableMigrationDeletions(changes, { kind: "known", paths: new Set() }).map((c) => c.path),
     ).toEqual([A_UP, A_DOWN]);
   });
 
   test("a locally created migration does not vouch for unrelated ones", () => {
     // `wmill datatable migrate new` makes migrations/datatable/ exist without the
     // checkout having tracked anything, so only the recorded paths count.
-    const recorded = new Set([
-      "migrations/datatable/mydb/20260102000000_b.up.sql",
-    ]);
+    const recorded = {
+      kind: "known" as const,
+      paths: new Set(["migrations/datatable/mydb/20260102000000_b.up.sql"]),
+    };
     expect(
       untrackedDatatableMigrationDeletions(changes, recorded).map((c) => c.path),
     ).toEqual([A_UP, A_DOWN]);
   });
 
-  test("trusts nothing when there is no git history to consult", () => {
+  test("trusts nothing when the history cannot be consulted", () => {
+    // A shallow clone or a non-repository can't prove a path was never tracked,
+    // so absence is not read as permission to delete.
     expect(
-      untrackedDatatableMigrationDeletions(changes, null).map((c) => c.path),
+      untrackedDatatableMigrationDeletions(changes, {
+        kind: "unknown",
+        reason: "shallow clone, so its history is truncated",
+      }).map((c) => c.path),
     ).toEqual([A_UP, A_DOWN]);
   });
 });

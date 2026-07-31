@@ -76,34 +76,76 @@ export function getWorkspaceIdForWorkspaceForkFromBranchName(branchName: string)
   return `${WM_FORK_PREFIX}-${branchName.slice(start)}`
 }
 /**
- * Every `migrations/datatable/**` path this repository has ever recorded, across all
- * branches, or `null` when there is no usable git history.
+ * What this repository's own history says about `migrations/datatable/**`.
+ *
+ * `known` lists every such path recorded on the current branch (paths stay listed
+ * after the commit that removed them, so a real deletion is still recognisable).
+ * `unknown` means the history cannot be consulted at all — no repository, a shallow
+ * clone whose truncated history would misreport paths as never-seen, or a failing
+ * git — and the caller must trust nothing rather than read absence as evidence.
+ */
+export type RecordedMigrationPaths =
+  | { kind: "known"; paths: Set<string> }
+  | { kind: "unknown"; reason: string };
+
+/**
+ * Resolve [`RecordedMigrationPaths`] for the checkout at the current directory.
  *
  * This is the durable answer to "did this checkout ever track that migration?", which
- * the working tree alone cannot give: an absent `migrations/datatable/` is equally a
- * clone that never pulled migrations and one where the last was deleted, and creating a
+ * the working tree cannot give: an absent `migrations/datatable/` is equally a clone
+ * that never pulled migrations and one where the last was deleted, and creating a
  * migration locally (`wmill datatable migrate new`) makes the directory appear without
- * the checkout having tracked anything. Git history distinguishes all three — a path
- * that was committed and later removed is still recorded here, so a real deletion stays
- * a deletion, while a migration this repo has never seen does not.
+ * anything having been tracked.
+ *
+ * Scoped to `HEAD`, not `--all`: a migration that only ever existed on some other
+ * branch is not evidence that *this* branch ever tracked it, and using it as such would
+ * authorize deleting it. Output paths are repo-root-relative, so the `--show-prefix` of
+ * the working directory is stripped to match the cwd-relative paths a sync diff uses.
  */
-export function gitRecordedDatatableMigrationPaths(): Set<string> | null {
-  if (!isGitRepository()) return null;
+export function gitRecordedDatatableMigrationPaths(): RecordedMigrationPaths {
+  if (!isGitRepository()) {
+    return { kind: "unknown", reason: "not a git repository" };
+  }
+  const shallow = spawnSync("git", ["rev-parse", "--is-shallow-repository"], {
+    encoding: "utf8",
+    stdio: "pipe",
+  });
+  if ((shallow.stdout ?? "").trim() === "true") {
+    return {
+      kind: "unknown",
+      reason: "shallow clone, so its history is truncated",
+    };
+  }
+  const prefixOut = spawnSync("git", ["rev-parse", "--show-prefix"], {
+    encoding: "utf8",
+    stdio: "pipe",
+  });
+  if ((prefixOut.status ?? 1) !== 0) {
+    return { kind: "unknown", reason: "could not resolve the repository root" };
+  }
+  const prefix = (prefixOut.stdout ?? "").trim();
+
   const r = spawnSync(
     "git",
-    ["log", "--all", "--format=", "--name-only", "--", "migrations/datatable"],
+    ["log", "HEAD", "--format=", "--name-only", "--", "migrations/datatable"],
     { encoding: "utf8", stdio: "pipe", maxBuffer: 64 * 1024 * 1024 },
   );
   if ((r.status ?? 1) !== 0) {
     log.debug(`Could not read git history for migrations: ${r.stderr ?? ""}`);
-    return null;
+    return { kind: "unknown", reason: "its history could not be read" };
   }
-  return new Set(
-    (r.stdout ?? "")
-      .split("\n")
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0),
-  );
+  const paths = new Set<string>();
+  for (const line of (r.stdout ?? "").split("\n")) {
+    const p = line.trim();
+    if (p.length === 0) continue;
+    if (prefix.length > 0) {
+      if (!p.startsWith(prefix)) continue;
+      paths.add(p.slice(prefix.length));
+    } else {
+      paths.add(p);
+    }
+  }
+  return { kind: "known", paths };
 }
 
 export function isGitRepository(): boolean {
