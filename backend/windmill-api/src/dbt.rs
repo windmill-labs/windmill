@@ -120,6 +120,24 @@ async fn record_run_progress(
             "this route records a running job's dbt progress and needs a job token".to_string(),
         ));
     };
+    // A DBT job's, like its sibling above. Writing nothing secret, but a row
+    // keyed to another language's job is a run-page entry for a run that has no
+    // models, and the two routes disagreeing on who may call them is how one of
+    // them ends up wrong later.
+    let is_dbt = sqlx::query_scalar!(
+        "SELECT script_lang = 'dbt' FROM v2_job WHERE id = $1 AND workspace_id = $2",
+        job_id,
+        &w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .flatten()
+    .unwrap_or(false);
+    if !is_dbt {
+        return Err(Error::NotAuthorized(
+            "only a dbt job may record dbt run progress".to_string(),
+        ));
+    }
     windmill_common::dbt_manifest::record_run_progress(
         &db,
         &w_id,

@@ -523,13 +523,19 @@ async function addCodebaseDigestIfRelevant(
  * Keyed on `dbt_project.yml` rather than on the descriptor: the descriptor is
  * optional, so its absence says nothing, while a dbt project without
  * `dbt_project.yml` is one dbt itself refuses to run.
+ *
+ * Its LANGUAGE decides, not its name. A dbt bundle is read verbatim and every
+ * file in it is stored as `dbt`; an ordinary modular script that happens to
+ * vendor a dbt project stores that same file as whatever its extension infers,
+ * and calling it dbt would lay the bundle out as `__dbt` and drop it on the
+ * next push.
  */
 function isDbtModules(modules: unknown): boolean {
-  return (
-    typeof modules === "object" &&
-    modules !== null &&
-    "dbt_project.yml" in (modules as Record<string, unknown>)
-  );
+  if (typeof modules !== "object" || modules === null) return false;
+  const marker = (modules as Record<string, { language?: string }>)[
+    "dbt_project.yml"
+  ];
+  return marker?.language === "dbt";
 }
 
 export async function FSFSElement(
@@ -978,10 +984,8 @@ function ZipFSElement(
             if (parsed.modules && Object.keys(parsed.modules).length > 0) {
               const base = filename.slice(0, -".script.json".length);
               // A dbt script's modules ARE its dbt project, so it keeps the flat
-              // layout: the descriptor sits beside the folder and the folder
-              // holds nothing but the project, which is what `--project-dir`
-              // expects and what makes the import a plain copy. The export
-              // carries no `language`, so the content file's extension says so.
+              // layout: only the project goes in the folder, which is what
+              // `--project-dir` expects and what makes the import a plain copy.
               if (!isDbtModules(parsed.modules)) {
                 _moduleScriptPaths.add(base);
               }
@@ -1408,11 +1412,9 @@ function ZipFSElement(
             }
             const hasModules =
               parsed["modules"] && Object.keys(parsed["modules"]).length > 0;
-            // A dbt script's module folder holds its dbt project and nothing
-            // else, so its lock stays beside the folder like a plain script's.
-            // Zip keys are `/`-separated while `p` carries the OS separator, so
-            // on Windows the unnormalized lookup misses and the project is laid
-            // out as `__mod` — the one layout dbt cannot be run from.
+            // A dbt script's module folder holds its dbt project and dbt's own
+            // files, so its lock stays outside like a plain script's — only the
+            // descriptor lives in there.
             const isDbtScript = isDbtModules(parsed["modules"]);
             if (
               parsed["lock"] &&
@@ -1537,10 +1539,9 @@ function ZipFSElement(
       const scriptModules: Record<string, ScriptModule> | undefined =
         parsed["modules"];
       const hasModules = scriptModules && Object.keys(scriptModules).length > 0;
-      // A dbt script's module folder is its dbt project, so nothing of
-      // Windmill's goes inside it: the metadata stays beside the folder and the
-      // folder is what `--project-dir` points at. Normalized like the resource
-      // lookup above: zip keys are `/`-separated and `p` is not on Windows.
+      // A dbt script's module folder is its dbt project, so the metadata and
+      // lock stay beside it — the descriptor is the one Windmill file that goes
+      // in, because it is the script's content.
       const isDbt = isDbtModules(scriptModules);
 
       // Compute base path and module folder
@@ -2916,7 +2917,7 @@ async function addModuleParentToChanged(p: string, tracker: ChangeTracker) {
       return false;
     }
   };
-  // A dbt project's descriptor sits beside its folder, never inside it.
+  // A dbt script's metadata sits beside its folder; the descriptor is inside.
   if (isDbtModulePath(p)) {
     await push(scriptBasePath + ".script.yaml");
     return;
