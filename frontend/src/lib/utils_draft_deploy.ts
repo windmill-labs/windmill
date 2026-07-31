@@ -460,9 +460,8 @@ export async function deployDraft(
 					path: scriptPath,
 					parent_hash: r.hash,
 					deployment_message: deploymentMessage,
-					// The draft carries no on-behalf-of selector, so the value comes straight
-					// from the deployed script. Preserve it (the backend resets it to the
-					// deploying user without this flag, gated by can_preserve_on_behalf_of).
+					// Deploy the draft's on-behalf-of as-is; the backend resets it to the
+					// deploying user without this flag, gated by can_preserve_on_behalf_of.
 					preserve_on_behalf_of: rest.on_behalf_of_email ? true : undefined
 				}
 			})
