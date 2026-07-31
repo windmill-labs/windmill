@@ -5,6 +5,11 @@
  * workspace dependency filtering must resolve those files, otherwise the
  * default `dependencies/package.json` is dropped and locks are regenerated
  * against unpinned versions.
+ *
+ * Exercised through the legacy (tree-less) path: tree mode sources its deps
+ * from `getMismatchedWorkspaceDeps()`, which is only populated by an
+ * `uploadScripts` round-trip, so it cannot run offline. Both paths filter the
+ * same `appValue`, so resolving it correctly is what this pins.
  */
 
 import { expect, test } from "bun:test";
@@ -49,7 +54,6 @@ test("raw app: default workspace deps are picked up from backend runnables", asy
       "utf-8",
     );
 
-    // Record the app's hashes while no workspace dependencies exist.
     await generateAppLocksInternal(
       APP_FOLDER,
       true,
