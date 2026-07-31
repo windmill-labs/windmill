@@ -251,9 +251,13 @@ nothing outside the directory dbt itself reads. A dbt developer's working copy
 and a Windmill bundle are then the same directory, which is the whole bargain of
 Decision 5.
 
-Absent means an empty descriptor, never a missing script — the CLI synthesizes
-it, `dbt_project.yml` is what identifies the project, and the export omits an
-empty one so that a project which never named a descriptor never grows one.
+Absent means an empty descriptor, never a missing script. `dbt_project.yml` is
+what identifies a project — the descriptor cannot, being optional — and three
+rules keep "absent" from reading as a change: the export omits an empty
+descriptor, the sync map gives BOTH sides the empty descriptor an absence means
+(so neither reads as an addition), and a pull deletes rather than writes one.
+Without all three a descriptor-less project either diffs forever or grows the
+very file this decision exists to avoid.
 
 ## Decision 12: the graph refreshes with the deploy
 
