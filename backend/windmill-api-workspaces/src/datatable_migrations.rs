@@ -935,7 +935,8 @@ pub(crate) fn validate_datatable_path_segment(datatable: &str) -> Result<()> {
 /// A data table's name is a path segment of every migration it owns, and git sync
 /// carries that path through three matchers that all speak the same restricted
 /// charset: `transform_regexp` expands a repo's `**` filter to `[a-zA-Z0-9_\-./]*`,
-/// the CLI reuses the path as a minimatch pattern, and the deploy stages it as a
+/// the CLI reuses the path as a minimatch pattern (where a leading `.` also needs
+/// `dot: true`, which the CLI does not set), and the deploy stages it as a
 /// `git add` pathspec. A name outside the charset matches nothing in all three, so
 /// its migrations would silently never reach the repo.
 ///
@@ -944,13 +945,19 @@ pub(crate) fn validate_datatable_path_segment(datatable: &str) -> Result<()> {
 /// out of the settings form.
 pub(crate) fn validate_new_datatable_name(datatable: &str) -> Result<()> {
     validate_datatable_path_segment(datatable)?;
-    if !datatable
+    let starts_alphanumeric = datatable
         .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+        .next()
+        .is_some_and(|c| c.is_ascii_alphanumeric());
+    if !starts_alphanumeric
+        || !datatable
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
     {
         return Err(Error::BadRequest(format!(
-            "Invalid data table name '{datatable}': use only letters, digits, '_', '-' and '.' \
-             so its SQL migrations can be synced to a git repository"
+            "Invalid data table name '{datatable}': start with a letter or digit and use only \
+             letters, digits, '_', '-' and '.' so its SQL migrations can be synced to a git \
+             repository"
         )));
     }
     Ok(())
@@ -968,6 +975,15 @@ async fn record_datatable_migration_deployment(
     timestamp: i64,
     name: &str,
 ) -> Result<()> {
+    // A data table predating `validate_new_datatable_name` can carry a name no
+    // repo filter can match; say so once per change instead of letting the deploy
+    // vanish inside the path filter.
+    if validate_new_datatable_name(datatable).is_err() {
+        tracing::warn!(
+            "Data table '{datatable}' has a name git sync cannot match, so its SQL migrations \
+             will not reach a linked repository. Rename it to letters, digits, '_', '-' and '.'."
+        );
+    }
     handle_deployment_metadata(
         &authed.email,
         &authed.username,
@@ -1754,7 +1770,9 @@ mod tests {
         for ok in ["mydt", "my-dt", "my_dt.v2", "main"] {
             assert!(validate_new_datatable_name(ok).is_ok(), "{ok} should be ok");
         }
-        for bad in ["a b", "a*b", "a[b]", "a{b}", "a?b", "café", "a/b", ""] {
+        for bad in [
+            "a b", "a*b", "a[b]", "a{b}", "a?b", "café", ".staging", "-dt", "a/b", "",
+        ] {
             assert!(
                 validate_new_datatable_name(bad).is_err(),
                 "{bad} should be rejected"
