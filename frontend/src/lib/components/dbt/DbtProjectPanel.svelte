@@ -153,7 +153,10 @@
 					<FileText size={11} class="shrink-0 opacity-60" />
 					<span class="truncate font-mono">{node.name}</span>
 				</button>
-				{#if onDelete}
+				<!-- `dbt_project.yml` is what makes the bundle a project: without it the
+				     worker refuses the version outright, so one click here would deploy a
+				     script that cannot run. -->
+				{#if onDelete && node.path !== 'dbt_project.yml'}
 					<button
 						class="shrink-0 px-1 opacity-0 group-hover:opacity-100 text-secondary hover:text-red-500"
 						title="Delete {node.path}"

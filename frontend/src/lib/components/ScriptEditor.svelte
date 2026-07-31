@@ -520,6 +520,12 @@
 
 	function validateModulePath(path: string): string {
 		if (!path.trim()) return ''
+		// The descriptor is the script's CONTENT, not a module. A module at that
+		// same path would be a second, independent value for one file: the export
+		// writes the content there, and the bundle would emit over it.
+		if (lang === 'dbt' && path.trim() === 'wm_dbt.yaml') {
+			return `wm_dbt.yaml is the descriptor, edited from the tree — it cannot also be a file`
+		}
 		const moduleLang = inferModuleLang(path)
 		if (!moduleLang) {
 			const exts = allowedModuleExtensions.join(', ')
@@ -569,6 +575,12 @@
 
 	function validateRenameModulePath(newPath: string, oldPath: string): string {
 		if (!newPath.trim()) return ''
+		// The descriptor is the script's CONTENT, not a module. A module at that
+		// same path would be a second, independent value for one file: the export
+		// writes the content there, and the bundle would emit over it.
+		if (lang === 'dbt' && newPath.trim() === 'wm_dbt.yaml') {
+			return `wm_dbt.yaml is the descriptor, edited from the tree — it cannot also be a file`
+		}
 		const moduleLang = inferModuleLang(newPath)
 		if (!moduleLang) {
 			const exts = allowedModuleExtensions.join(', ')
