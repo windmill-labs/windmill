@@ -167,9 +167,18 @@ async function push(opts: PushOptions, filePath: string) {
     return;
   }
 
-  const fstat = await stat(filePath);
-  if (!fstat.isFile()) {
-    throw new Error("file path must refer to a file.");
+  // A dbt project's descriptor is optional, so the one content path a
+  // descriptor-less project has is deliberately not on disk. The project beside
+  // it is what says the script is real.
+  const absentDescriptor = await stat(filePath).then(
+    () => false,
+    (e) => isMissingDbtDescriptor(filePath, e)
+  );
+  if (!absentDescriptor) {
+    const fstat = await stat(filePath);
+    if (!fstat.isFile()) {
+      throw new Error("file path must refer to a file.");
+    }
   }
 
   if (filePath.endsWith(".script.json") || filePath.endsWith(".script.yaml")) {
@@ -1691,9 +1700,17 @@ async function preview(
     return;
   }
 
-  const fstat = await stat(filePath);
-  if (!fstat.isFile()) {
-    throw new Error("file path must refer to a file.");
+  // Same as push: a descriptor-less dbt project's content path is deliberately
+  // absent, and the project beside it is what says the script is real.
+  const absentDescriptor = await stat(filePath).then(
+    () => false,
+    (e) => isMissingDbtDescriptor(filePath, e)
+  );
+  if (!absentDescriptor) {
+    const fstat = await stat(filePath);
+    if (!fstat.isFile()) {
+      throw new Error("file path must refer to a file.");
+    }
   }
 
   if (filePath.endsWith(".script.json") || filePath.endsWith(".script.yaml")) {

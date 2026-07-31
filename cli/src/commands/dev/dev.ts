@@ -27,7 +27,12 @@ import {
   removeExtensionToPath,
 } from "../script/script.ts";
 import type { ScriptModule } from "../../../gen/types.gen.ts";
-import { DBT_DESCRIPTOR_NAME, DBT_MODULE_SUFFIX } from "../../utils/resource_folders.ts";
+import {
+  DBT_DESCRIPTOR_NAME,
+  DBT_MODULE_SUFFIX,
+  getScriptBasePathFromModulePath,
+  isDbtModulePath,
+} from "../../utils/resource_folders.ts";
 import { inferContentTypeFromFilePath } from "../../utils/script_common.ts";
 import { OpenFlow } from "../../../gen/types.gen.ts";
 import { FlowFile } from "../flow/flow.ts";
@@ -302,6 +307,25 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
 
   const flowMetadataFile = getMetadataFileName("flow", "yaml");
   async function loadPaths(pathsToLoad: string[]) {
+    // A change ANYWHERE inside a dbt project is a change to that script: the
+    // bundle is the project, so the whole thing is re-read and rebroadcast.
+    // Treating the file as a script of its own would drop the edit — a bare
+    // `.sql` has no language to infer, and a `.yml` or `.csv` is filtered out
+    // below — leaving the browser previewing the snapshot taken at startup.
+    for (const raw of pathsToLoad) {
+      const rel = (await realpath(raw).catch(() => raw))
+        .replace(base + SEP, "")
+        .replaceAll("\\", "/");
+      if (!isDbtModulePath(rel)) continue;
+      const wmPath = getScriptBasePathFromModulePath(rel);
+      if (!wmPath) continue;
+      const edit = await loadWmPath(wmPath);
+      if (edit) {
+        log.info("Updated " + wmPath + " (dbt project)");
+        broadcastChanges(edit);
+      }
+      return;
+    }
     const paths = pathsToLoad.filter(
       (p) =>
         hasScriptExt(p) ||
