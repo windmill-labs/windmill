@@ -2663,6 +2663,22 @@ export async function ignoreF(wmillconf: {
  * the caller confirms it explicitly and never performs it unattended. Once the
  * directory exists, deletions are unambiguous and this returns nothing.
  */
+/**
+ * How many migration *records* a set of changed files covers. One migration is two
+ * files (`.up.sql` + optional `.down.sql`) for a single `(datatable, timestamp)`,
+ * so counting paths would overstate what a prompt is about to delete.
+ */
+export function countDatatableMigrationRecords(
+  changes: { path: string }[],
+): number {
+  const records = new Set<string>();
+  for (const c of changes) {
+    const parsed = parseDatatableMigrationPath(c.path);
+    if (parsed) records.add(`${parsed.datatable}\0${parsed.timestamp}`);
+  }
+  return records.size;
+}
+
 export function untrackedDatatableMigrationDeletions<
   T extends { name: string; path: string },
 >(changes: T[], checkoutTracksMigrations: boolean): T[] {
@@ -4174,7 +4190,6 @@ export async function push(
 
   await fetchRemoteVersion(workspace);
 
-  // Shared UI (the ui/ folder) is pushed out-of-band via pushSharedUi on apply
   const ambiguousMigrationDeletions = untrackedDatatableMigrationDeletions(
     changes,
     checkoutTracksDatatableMigrations(),
@@ -4182,7 +4197,7 @@ export async function push(
   const keepAmbiguousMigrationsOnRemote = () => {
     log.info(
       colors.yellow(
-        `Keeping ${ambiguousMigrationDeletions.length} data table migration(s) on the remote: no ${MIGRATIONS_DIR}/ directory in this checkout. ` +
+        `Keeping ${countDatatableMigrationRecords(ambiguousMigrationDeletions)} data table migration(s) on the remote: no ${MIGRATIONS_DIR}/ directory in this checkout. ` +
           `Run 'wmill sync pull' to track them in git, or delete them from the workspace.`,
       ),
     );
@@ -4205,6 +4220,7 @@ export async function push(
     ambiguousMigrationsResolved = true;
   }
 
+  // Shared UI (the ui/ folder) is pushed out-of-band via pushSharedUi on apply
   // and is excluded from the file diff (isNotWmillFile), so surface its diff in
   // the dry-run preview. Without this the "Pull from repo" preview reads "no
   // changes" even when the apply will overwrite the shared-UI store. Folded in
@@ -4429,7 +4445,7 @@ export async function push(
       const deleteThem = await Confirm.prompt({
         message:
           `This checkout has no ${MIGRATIONS_DIR}/ directory, so it may simply never have synced migrations. ` +
-          `Delete ${ambiguousMigrationDeletions.length} migration definition(s) from the workspace anyway?`,
+          `Delete ${countDatatableMigrationRecords(ambiguousMigrationDeletions)} migration definition(s) from the workspace anyway?`,
         default: false,
       });
       if (!deleteThem) {
