@@ -1745,9 +1745,19 @@ async fn edit_webhook(
     Ok(format!("Edit webhook for workspace {}", &w_id))
 }
 
+#[derive(serde::Deserialize, serde::Serialize)]
+struct DbtWarehouseConfig {
+    resource_path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    target: Option<String>,
+}
+
 #[derive(serde::Deserialize)]
 struct EditDbtWarehouses {
-    dbt_warehouses: Option<serde_json::Value>,
+    /// Typed rather than free JSON: a shape the resolver cannot read (a list, a
+    /// number where a config belongs) would be accepted here and then fail every
+    /// dbt run in the workspace, far from the request that caused it.
+    dbt_warehouses: Option<std::collections::HashMap<String, DbtWarehouseConfig>>,
 }
 
 /// The workspace's dbt warehouses, by name, each a POINTER to a resource rather
@@ -1763,22 +1773,20 @@ async fn edit_dbt_warehouses(
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
     let new_config = new_config.dbt_warehouses;
-    // A name reaches an agent worker as a URL path segment, so anything that
-    // could re-cut the path (or the query) is refused at the only place a name
-    // is written, rather than becoming a 404 nobody can explain.
-    if let Some(map) = new_config.as_ref().and_then(|v| v.as_object()) {
-        for name in map.keys() {
-            if name.is_empty()
-                || !name
-                    .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-            {
+    if let Some(map) = new_config.as_ref() {
+        for (name, cfg) in map.iter() {
+            windmill_common::workspaces::validate_dbt_warehouse_name(name)?;
+            if cfg.resource_path.trim().is_empty() {
                 return Err(Error::BadRequest(format!(
-                    "`{name}` is not a usable warehouse name: use letters, digits, `_` and `-`"
+                    "the dbt warehouse `{name}` names no resource"
                 )));
             }
         }
     }
+    let new_config = new_config
+        .map(|m| serde_json::to_value(m))
+        .transpose()
+        .map_err(|e| Error::internal_err(format!("serializing the dbt warehouses: {e}")))?;
     let mut tx = db.begin().await?;
     audit_log(
         &mut *tx,

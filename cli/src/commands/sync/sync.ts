@@ -164,7 +164,6 @@ import {
   isModuleEntryPoint,
   getScriptBasePathFromModulePath,
   hasWrongFormatSuffix,
-  DBT_MODULE_SUFFIX,
   DBT_DESCRIPTOR_NAME,
 } from "../../utils/resource_folders.ts";
 
@@ -554,25 +553,6 @@ export async function FSFSElement(
               e.isDirectory(),
               codebases,
             );
-          }
-          // An unmodified dbt project is already a complete script, so the
-          // descriptor is optional — but a script still needs a content file to
-          // be discovered by. Absent on disk, it is an empty descriptor, which
-          // is exactly what the remote holds for a project that never named
-          // one, so the diff stays quiet.
-          if (
-            localP.replaceAll(SEP, "/").endsWith(DBT_MODULE_SUFFIX) &&
-            !entries.some((e) => e.name === DBT_DESCRIPTOR_NAME)
-          ) {
-            const virtualP = path.join(localP, DBT_DESCRIPTOR_NAME);
-            yield {
-              isDirectory: false,
-              path: virtualP.substring(p.length + 1),
-              async *getChildren() {},
-              async getContentText(): Promise<string> {
-                return "";
-              },
-            };
           }
         } catch (e) {
           log.warn(`Error reading dir: ${localP}, ${e}`);
@@ -2031,6 +2011,19 @@ export async function elementsToMap(
     throw new Error(
       `Found ${wrongFormatPaths.length} directory(ies) using ${foundFormat} format, but wmill.yaml expects ${expectedFormat}:\n${pathList}\n${configHint}`,
     );
+  }
+
+  // A dbt project's descriptor is optional, and the two sides spell "absent"
+  // differently: nothing on disk, and nothing in the export (which omits an
+  // empty one so a project that never named a descriptor never grows one).
+  // Left alone that reads as an addition on every push and a deletion on every
+  // pull, forever. Both sides are given the empty descriptor the absence means,
+  // so a descriptor-less project reaches a clean sync state.
+  for (const key of Object.keys(map)) {
+    if (!key.endsWith("__dbt/dbt_project.yml")) continue;
+    const descriptor =
+      key.slice(0, -"dbt_project.yml".length) + DBT_DESCRIPTOR_NAME;
+    if (!(descriptor in map)) map[descriptor] = "";
   }
 
   return map;

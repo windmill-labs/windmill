@@ -1654,6 +1654,11 @@ async fn resolve_warehouse(
     w_id: &str,
     conn: &Connection,
 ) -> error::Result<(String, Option<String>)> {
+    // The descriptor supplies this name, so it is checked HERE too, not only
+    // where settings are written: an agent worker sends it as a URL path
+    // segment, and `../../resources/get_value/...` would resolve to another
+    // route entirely.
+    windmill_common::workspaces::validate_dbt_warehouse_name(warehouse)?;
     match conn {
         Connection::Sql(db) => {
             windmill_common::workspaces::dbt_warehouse_resource(db, w_id, warehouse).await

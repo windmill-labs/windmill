@@ -2479,6 +2479,22 @@ mod tests {
     }
 }
 
+/// A warehouse name is a URL path segment for a worker with no database, so a
+/// name that could re-cut the path (or the query) is refused — at every place a
+/// name enters, not only where one is written, since a descriptor names one too.
+pub fn validate_dbt_warehouse_name(name: &str) -> Result<()> {
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(Error::BadRequest(format!(
+            "`{name}` is not a usable dbt warehouse name: use letters, digits, `_` and `-`"
+        )));
+    }
+    Ok(())
+}
+
 /// Where a dbt warehouse name points. A POINTER only — the worker reads the
 /// resource itself with its own job token, which is what authorizes the
 /// connection.
@@ -2491,9 +2507,11 @@ pub struct DbtWarehouseRef {
 /// The warehouse a dbt project runs against, by name — `main` when the
 /// descriptor names none.
 ///
-/// The setting holds a POINTER to a resource, never credentials, like
-/// `large_file_storage`: the resource keeps its own ACL, so naming a warehouse
-/// grants nothing on its own. A descriptor cannot name a resource at all, which
+/// NO AUTHORIZATION: reads workspace settings for whatever `w_id` it is given.
+/// Callers MUST already be scoped to that workspace — a running job, or a route
+/// that checked its token. What it returns is a POINTER, never credentials, like
+/// `large_file_storage`: the resource keeps its own ACL, so the pointer alone
+/// grants nothing and the caller still has to read the resource as itself. A descriptor cannot name a resource at all, which
 /// is what makes the workspace the only place a warehouse is configured — and
 /// what lets asset identity key on the NAME (`dbt://main/analytics/orders`),
 /// one spelling every project on that warehouse shares.

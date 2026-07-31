@@ -26,6 +26,7 @@ async fn get_warehouse(
                 .to_string(),
         ));
     }
+    windmill_common::workspaces::validate_dbt_warehouse_name(&name)?;
     let (resource_path, target) = dbt_warehouse_resource(&db, &w_id, &name).await?;
     Ok(Json(DbtWarehouseRef { resource_path, target }))
 }

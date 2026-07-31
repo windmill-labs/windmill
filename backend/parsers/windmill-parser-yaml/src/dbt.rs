@@ -274,15 +274,15 @@ pub fn parse_dbt_descriptor(inner_content: &str) -> anyhow::Result<DbtDescriptor
     Ok(d)
 }
 
-/// The single argument holding the command and the overrides it takes. Its
-/// variant IS the command, so a run cannot carry an override the command
-/// ignores: `retry` rebuilds the failed run's nodes with the arguments that run
-/// had, and `full_refresh` means nothing to a `show`.
 /// The workspace warehouse a descriptor gets when it names none — spelled like
 /// the default lake (`ducklake://main.orders`), so one workspace concept reads
 /// the same across kinds.
 pub const DBT_DEFAULT_WAREHOUSE: &str = "main";
 
+/// The single argument holding the command and the overrides it takes. Its
+/// variant IS the command, so a run cannot carry an override the command
+/// ignores: `retry` rebuilds the failed run's nodes with the arguments that run
+/// had, and `full_refresh` means nothing to a `show`.
 pub const DBT_COMMAND_ARG: &str = "command";
 
 /// The variant discriminator, which is the key Windmill's run form tags a

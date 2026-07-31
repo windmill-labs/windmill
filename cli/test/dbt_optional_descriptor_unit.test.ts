@@ -67,4 +67,39 @@ describe("a dbt project without a descriptor", () => {
     expect(hasScriptExt(win)).toBe(true);
     expect(removeExtensionToPath(win)).toBe("f\\analytics\\analytics");
   });
+
+  // The two sides spell "absent" differently — nothing on disk, nothing in the
+  // export — so without one normalization a descriptor-less project reads as an
+  // addition on every push and a deletion on every pull, forever.
+  test("compares equal to a remote that carries no descriptor either", async () => {
+    const remote = {
+      path: "",
+      isDirectory: true,
+      getChildren: async function* () {
+        for (const p of [
+          "f/analytics/analytics__dbt/dbt_project.yml",
+          "f/analytics/analytics__dbt/models/stg_orders.sql",
+          "f/analytics/analytics.script.yaml",
+        ]) {
+          yield {
+            path: p,
+            isDirectory: false,
+            getChildren: async function* () {},
+            getContentText: async () => "x",
+          };
+        }
+      },
+      getContentText: async () => "",
+    };
+    const local = await elementsToMap(
+      await FSFSElement(dir, [], true),
+      () => false,
+      false,
+      {},
+    );
+    const remoteMap = await elementsToMap(remote as any, () => false, false, {});
+    const key = "f/analytics/analytics__dbt/wm_dbt.yaml";
+    expect(local[key]).toBe("");
+    expect(remoteMap[key]).toBe("");
+  });
 });
