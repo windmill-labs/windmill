@@ -3404,18 +3404,7 @@ export async function pull(
 
     log.info(colors.gray(`Applying changes to files ...`));
     for await (const rawChange of changes) {
-      // An empty dbt descriptor is not a file: the remote spells "this project
-      // named no descriptor" as empty content, and writing that would put a
-      // Windmill file inside a project that has none. Rewritten as the deletion
-      // it means rather than handled here, so it goes through the same target
-      // resolution and `.wmill` snapshot update as any other removal — short
-      // -circuiting left the stale state behind and the change recurred.
-      const change: Change =
-        isDbtDescriptorPath(rawChange.path) &&
-        ((rawChange.name === "added" && rawChange.content === "") ||
-          (rawChange.name === "edited" && rawChange.after === ""))
-          ? { name: "deleted", path: rawChange.path }
-          : rawChange;
+      const change: Change = rawChange;
       // Determine if this file should be written to a workspace-specific path
       let targetPath = change.path;
       if (specificItems && isSpecificItem(change.path, specificItems)) {
@@ -3431,6 +3420,23 @@ export async function pull(
 
       const target = path.join(process.cwd(), targetPath);
       const stateTarget = path.join(process.cwd(), ".wmill", targetPath);
+      // An empty dbt descriptor is not a file: the remote spells "this project
+      // named no descriptor" as empty content, and writing that would put a
+      // Windmill file inside a project that has none. ABSENCE is the state to
+      // reach, so both copies are removed if present and their being missing —
+      // a project pulled for the first time — is the goal, not an error. The
+      // `.wmill` copy goes too, or the same change is reported on every pull.
+      if (
+        isDbtDescriptorPath(change.path) &&
+        ((change.name === "added" && change.content === "") ||
+          (change.name === "edited" && change.after === ""))
+      ) {
+        await rm(target, { force: true }).catch(() => {});
+        if (opts.stateful) {
+          await rm(stateTarget, { force: true }).catch(() => {});
+        }
+        continue;
+      }
       if (change.name === "edited") {
         if (opts.stateful) {
           try {

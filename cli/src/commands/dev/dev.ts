@@ -21,7 +21,7 @@ import {
   mergeConfigWithConfigFile,
 } from "../../core/conf.ts";
 import { exts, hasScriptExt, removeExtensionToPath } from "../script/script.ts";
-import { DBT_MODULE_SUFFIX } from "../../utils/resource_folders.ts";
+import { DBT_DESCRIPTOR_NAME, DBT_MODULE_SUFFIX } from "../../utils/resource_folders.ts";
 import { inferContentTypeFromFilePath } from "../../utils/script_common.ts";
 import { OpenFlow } from "../../../gen/types.gen.ts";
 import { FlowFile } from "../flow/flow.ts";
@@ -109,7 +109,7 @@ function findFlowFolderPrefix(cpath: string): string | undefined {
   return undefined;
 }
 
-async function listWorkspacePaths(): Promise<WmPathItem[]> {
+export async function listWorkspacePaths(): Promise<WmPathItem[]> {
   // Walk first, capturing each item's metadata file path. Then read summaries in
   // parallel — one tree pass plus N file reads is faster than a serialized walk.
   const items: (WmPathItem & { _metaPath?: string })[] = [];
@@ -454,8 +454,23 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
     for (const ext of exts) {
       const filePath = wmPath + ext;
       try {
-        await access(filePath);
-        const content = await readTextFile(filePath);
+        // A dbt project's descriptor is optional, so what says "this is a dbt
+        // script" is the project beside it. Requiring the descriptor to exist
+        // would list such a project in the picker and then refuse to load it.
+        const isAbsentDbtDescriptor =
+          ext === "__dbt/" + DBT_DESCRIPTOR_NAME &&
+          !(await access(filePath).then(
+            () => true,
+            () => false
+          )) &&
+          (await access(wmPath + DBT_MODULE_SUFFIX + "/dbt_project.yml").then(
+            () => true,
+            () => false
+          ));
+        if (!isAbsentDbtDescriptor) {
+          await access(filePath);
+        }
+        const content = isAbsentDbtDescriptor ? "" : await readTextFile(filePath);
         const lang = inferContentTypeFromFilePath(filePath, opts.defaultTs);
         const typed = (await parseMetadataFile(removeExtensionToPath(filePath), undefined))?.payload;
         const edit: LastEditScript = {

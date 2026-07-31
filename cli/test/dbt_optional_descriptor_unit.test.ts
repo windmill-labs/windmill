@@ -8,6 +8,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { FSFSElement, elementsToMap } from "../src/commands/sync/sync.ts";
+import { listWorkspacePaths } from "../src/commands/dev/dev.ts";
 import {
   findContentFile,
   hasScriptExt,
@@ -103,3 +104,32 @@ describe("a dbt project without a descriptor", () => {
     expect(remoteMap[key]).toBe("");
   });
 });
+
+// `wmill dev` walks basenames, and a dbt script is a DIRECTORY whose descriptor
+// may not exist — so it is recognized by the project folder or not at all. The
+// walk must also stop there: the project's own `.sql` models match the script
+// extensions and would each be listed as a script of their own.
+describe("dev-mode discovery of a dbt project", () => {
+	let dir: string
+	let cwd: string
+
+	beforeEach(() => {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wmill-dbt-dev-'))
+		fs.mkdirSync(path.join(dir, 'f/analytics/analytics__dbt/models'), { recursive: true })
+		fs.writeFileSync(path.join(dir, 'f/analytics/analytics__dbt/dbt_project.yml'), 'name: a\n')
+		fs.writeFileSync(path.join(dir, 'f/analytics/analytics__dbt/models/stg.sql'), 'select 1')
+		cwd = process.cwd()
+		process.chdir(dir)
+	})
+
+	afterEach(() => {
+		process.chdir(cwd)
+		fs.rmSync(dir, { recursive: true, force: true })
+	})
+
+	test('lists the project itself and nothing inside it', async () => {
+		const items = await listWorkspacePaths()
+		const paths = items.map((i) => i.path).sort()
+		expect(paths).toEqual(['f/analytics/analytics'])
+	})
+})
