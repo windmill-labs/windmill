@@ -962,6 +962,14 @@ async function createScript(
  */
 export class UnresolvableScriptContentFileError extends Error {}
 
+/** Whether an error is a dbt descriptor that simply is not there. */
+export function isMissingDbtDescriptor(filePath: string, e: unknown): boolean {
+  return (
+    (e as { code?: string })?.code === "ENOENT" &&
+    isDbtDescriptorPath(filePath.replaceAll("\\", "/"))
+  );
+}
+
 /**
  * A script's content, tolerating the one content file that may not exist: a dbt
  * project's descriptor is optional, and absent means an empty descriptor.
@@ -970,7 +978,10 @@ async function readScriptContent(filePath: string): Promise<string> {
   try {
     return await readTextFile(filePath);
   } catch (e) {
-    if (isDbtDescriptorPath(filePath.replaceAll(SEP, "/"))) return "";
+    // ONLY a missing file is an empty descriptor. A permission or I/O error on a
+    // descriptor that does exist would otherwise deploy the defaults — the
+    // `main` warehouse and the whole project — in place of what the file says.
+    if (isMissingDbtDescriptor(filePath, e)) return "";
     throw e;
   }
 }

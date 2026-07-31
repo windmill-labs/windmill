@@ -3403,19 +3403,19 @@ export async function pull(
     const conflicts = [];
 
     log.info(colors.gray(`Applying changes to files ...`));
-    for await (const change of changes) {
-      // An empty dbt descriptor is not a file. The remote spells "this project
+    for await (const rawChange of changes) {
+      // An empty dbt descriptor is not a file: the remote spells "this project
       // named no descriptor" as empty content, and writing that would put a
-      // Windmill file inside a project that has none — on a fresh pull, and
-      // again every time a descriptor is removed remotely.
-      if (
-        isDbtDescriptorPath(change.path) &&
-        ((change.name === "added" && change.content === "") ||
-          (change.name === "edited" && change.after === ""))
-      ) {
-        await rm(change.path).catch(() => {});
-        continue;
-      }
+      // Windmill file inside a project that has none. Rewritten as the deletion
+      // it means rather than handled here, so it goes through the same target
+      // resolution and `.wmill` snapshot update as any other removal — short
+      // -circuiting left the stale state behind and the change recurred.
+      const change: Change =
+        isDbtDescriptorPath(rawChange.path) &&
+        ((rawChange.name === "added" && rawChange.content === "") ||
+          (rawChange.name === "edited" && rawChange.after === ""))
+          ? { name: "deleted", path: rawChange.path }
+          : rawChange;
       // Determine if this file should be written to a workspace-specific path
       let targetPath = change.path;
       if (specificItems && isSpecificItem(change.path, specificItems)) {
