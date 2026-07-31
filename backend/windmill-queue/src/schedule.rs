@@ -561,6 +561,7 @@ pub async fn push_scheduled_job<'c>(
         &email,
         permissioned_as,
         Some(&schedule.path),
+        None,
         Some(next),
         Some(schedule.path.clone()),
         None,

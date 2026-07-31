@@ -23,6 +23,8 @@ use windmill_common::{
     },
     db::{Authable, Authed, AuthedRef},
     error::{self, Error, Result},
+    jobs::JobTriggerKind,
+    triggers::TriggerMetadata,
     users::username_to_permissioned_as,
     DB,
 };
@@ -64,6 +66,10 @@ pub struct ApiAuthed {
     /// end-user override passes a `created_by` through verbatim, and that may itself be a
     /// `label-*` string. Only `username_override_from_label` sets it.
     pub username_override_is_token_label: bool,
+    /// Whether the request authenticated with the session token minted at browser login.
+    /// Only `trigger_or_fallback` reads it — see `is_session_label` for why it attributes
+    /// rather than proves, and must not gate authority.
+    pub is_session_token: bool,
     pub token_prefix: Option<String>,
     pub read_only: bool,
 }
@@ -82,10 +88,11 @@ impl ApiAuthed {
         }
     }
 
-    /// The name a run triggered by this principal is credited to (`v2_job.created_by`, and
-    /// the audit `end_user`). A trigger-token override names the entity that fired the
-    /// request and wins; a generic token label does not, so the token owner is credited and
-    /// stays traceable even when `permissioned_as` is an on-behalf-of identity.
+    /// The name a run triggered by this principal is credited to (`v2_job.created_by`). A
+    /// trigger-token override names the entity that fired the request and wins; a generic
+    /// token label does not, so the token owner is credited and stays traceable even when
+    /// `permissioned_as` is an on-behalf-of identity. The audit `end_user` is the override
+    /// itself, label included, so the two diverge for a labeled token.
     pub fn display_username(&self) -> &str {
         match self.username_override.as_deref() {
             Some(o) if !self.username_override_is_token_label => o,
@@ -99,6 +106,25 @@ impl ApiAuthed {
     pub fn set_acting_username_override(&mut self, username_override: Option<String>) {
         self.username_override = username_override;
         self.username_override_is_token_label = false;
+    }
+
+    /// The `trigger_kind` a run started through a `/jobs/run*` route is stamped with: a trigger
+    /// that built its own metadata always wins, and a run driven by any other token — webhooks,
+    /// the CLI, the SDKs — is `webhook`, matching the `wm_trigger.kind` the preprocessor already
+    /// reports for these routes. Derived from the token, never from the request, because the
+    /// column is authority-bearing for other kinds (`app` marks a file as app-produced).
+    ///
+    /// A browser session is left unstamped rather than marked [`JobTriggerKind::Ui`]: that label
+    /// is one a worker built before this release cannot decode, and it would strand the jobs
+    /// carrying it. `webhook` has always been decodable, so it is safe to write today.
+    pub fn trigger_or_fallback(&self, trigger: Option<TriggerMetadata>) -> Option<TriggerMetadata> {
+        if trigger.is_some() {
+            return trigger;
+        }
+        if self.is_session_token {
+            return None;
+        }
+        Some(TriggerMetadata::new(None, JobTriggerKind::Webhook))
     }
 }
 
@@ -129,6 +155,7 @@ impl From<Authed> for ApiAuthed {
             scopes: value.scopes,
             username_override: None,
             username_override_is_token_label: false,
+            is_session_token: false,
             token_prefix: value.token_prefix,
             read_only: false,
         }
@@ -882,6 +909,7 @@ pub async fn fetch_api_authed_from_permissioned_as(
                 scopes: authed.scopes,
                 username_override: None,
                 username_override_is_token_label: false,
+                is_session_token: false,
                 token_prefix: authed.token_prefix,
                 read_only: false,
             };
@@ -1281,6 +1309,50 @@ mod tests {
             owner_of("ephemeral-script-end-user-label-alice").display_username(),
             "label-alice"
         );
+    }
+
+    /// A browser session is the one shape left unstamped, so the Runs page can say "a token
+    /// started this" without claiming the converse. Every other label — every shape a member
+    /// can pass to `create_token` — is `webhook`.
+    #[test]
+    fn only_a_browser_session_is_left_unstamped() {
+        let kind_of = |label: Option<&str>| {
+            ApiAuthed {
+                is_session_token: windmill_common::auth::is_session_label(label),
+                ..Default::default()
+            }
+            .trigger_or_fallback(None)
+            .map(|t| t.trigger_kind.to_string())
+        };
+
+        assert_eq!(kind_of(Some("session")), None);
+
+        for label in [
+            Some("my-personal-token"),
+            Some("webhook-f/svc/my_script"),
+            Some("Ephemeral lsp token"),
+            Some("ephemeral-script"),
+            Some("ephemeral-webhook-google-abc12"),
+            Some("mcp-oauth-mcp-client-9f3a1c"),
+            Some(""),
+            // A label-less token: the job WM_TOKEN, and any token created without one.
+            None,
+        ] {
+            assert_eq!(kind_of(label).as_deref(), Some("webhook"), "label {label:?}");
+        }
+    }
+
+    /// A trigger that built its own metadata must survive the fallback, or a scheduled or
+    /// routed run started under a personal token would be re-attributed to a webhook.
+    #[test]
+    fn a_real_trigger_wins_over_the_token_fallback() {
+        let authed = ApiAuthed::default();
+        let schedule =
+            TriggerMetadata::new(Some("u/alice/nightly".to_string()), JobTriggerKind::Schedule);
+
+        let kept = authed.trigger_or_fallback(Some(schedule)).unwrap();
+        assert_eq!(kept.trigger_kind.to_string(), "schedule");
+        assert_eq!(kept.trigger_path.as_deref(), Some("u/alice/nightly"));
     }
 
     // Regression tests for the Preview path traversal: a Preview's path skips the

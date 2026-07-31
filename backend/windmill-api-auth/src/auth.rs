@@ -26,7 +26,8 @@ use windmill_common::DB;
 
 use windmill_common::{
     auth::{
-        get_folders_for_user, get_groups_for_user, hash_token, safe_token_prefix, JWTAuthClaims,
+        get_folders_for_user, get_groups_for_user, hash_token, is_session_label, safe_token_prefix,
+        JWTAuthClaims,
     },
     error::{Error, JsonResult},
     jwt,
@@ -196,6 +197,7 @@ impl AuthCache {
                             tracing::error!("JWT auth error: workspace_id mismatch");
                             return None;
                         }
+                        let is_session_token = is_session_label(claims.label.as_deref());
                         let (username_override, username_override_is_token_label) =
                             username_override_from_label(claims.label);
 
@@ -213,6 +215,7 @@ impl AuthCache {
                             scopes: claims.scopes,
                             username_override,
                             username_override_is_token_label,
+                            is_session_token,
                             token_prefix: claims.audit_span,
                             read_only: false,
                         };
@@ -267,6 +270,7 @@ impl AuthCache {
                             (Some(owner), Some(email), super_admin, _, label, read_only)
                                 if w_id.is_some() =>
                             {
+                                let is_session_token = is_session_label(label.as_deref());
                                 let (username_override, username_override_is_token_label) =
                                     username_override_from_label(label);
                                 if let Some((prefix, name)) = owner.split_once('/') {
@@ -312,6 +316,7 @@ impl AuthCache {
                                                 scopes: None,
                                                 username_override,
                                                 username_override_is_token_label,
+                                                is_session_token,
                                                 token_prefix: Some(safe_token_prefix(token)),
                                                 read_only,
                                             })
@@ -363,6 +368,7 @@ impl AuthCache {
                                                 scopes: None,
                                                 username_override,
                                                 username_override_is_token_label,
+                                                is_session_token,
                                                 token_prefix: Some(safe_token_prefix(token)),
                                                 read_only,
                                             })
@@ -391,6 +397,7 @@ impl AuthCache {
                                 }
                             }
                             (_, Some(email), super_admin, scopes, label, read_only) => {
+                                let is_session_token = is_session_label(label.as_deref());
                                 let (username_override, username_override_is_token_label) =
                                     username_override_from_label(label);
                                 if w_id.is_some() {
@@ -436,6 +443,7 @@ impl AuthCache {
                                                 scopes,
                                                 username_override,
                                                 username_override_is_token_label,
+                                                is_session_token,
                                                 token_prefix: Some(safe_token_prefix(token)),
                                                 read_only,
                                             })
@@ -458,6 +466,7 @@ impl AuthCache {
                                                     scopes,
                                                     username_override,
                                                     username_override_is_token_label,
+                                                    is_session_token,
                                                     token_prefix: Some(safe_token_prefix(token)),
                                                     read_only,
                                                 }),
@@ -482,6 +491,7 @@ impl AuthCache {
                                         scopes,
                                         username_override,
                                         username_override_is_token_label,
+                                        is_session_token,
                                         token_prefix: Some(safe_token_prefix(token)),
                                         read_only,
                                     })
@@ -518,6 +528,7 @@ impl AuthCache {
                         scopes: None,
                         username_override: None,
                         username_override_is_token_label: false,
+                        is_session_token: false,
                         token_prefix: Some(safe_token_prefix(token)),
                         read_only: false,
                     };
@@ -726,6 +737,7 @@ fn no_auth_admin_authed() -> ApiAuthed {
         scopes: None,
         username_override: None,
         username_override_is_token_label: false,
+        is_session_token: false,
         token_prefix: None,
         read_only: false,
     }

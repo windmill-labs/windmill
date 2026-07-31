@@ -25791,6 +25791,8 @@ components:
           type: boolean
         is_retry:
           type: boolean
+        trigger_kind:
+          $ref: "#/components/schemas/JobTriggerKind"
         worker:
           type: string
       required:
@@ -25932,6 +25934,8 @@ components:
             true when a succeeding retry resolved this rather than a person. Explicit rather
             than inferred from an absent resolved_by, which is also absent for a manual
             resolution outside enterprise
+        trigger_kind:
+          $ref: "#/components/schemas/JobTriggerKind"
         worker:
           type: string
       required:
@@ -27789,6 +27793,7 @@ components:
         - asset
         - freshness
         - app
+        - ui
 
     TriggerMode:
       description: job trigger mode
