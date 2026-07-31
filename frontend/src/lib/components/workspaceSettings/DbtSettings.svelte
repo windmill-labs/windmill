@@ -37,7 +37,7 @@
 <script lang="ts">
 	import { Plus, Trash } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
-	import TextInput from '$lib/components/common/textInput/TextInput.svelte'
+	import TextInput from '../text_input/TextInput.svelte'
 	import ResourcePicker from '../ResourcePicker.svelte'
 	import DataTable from '../table/DataTable.svelte'
 	import Head from '../table/Head.svelte'
