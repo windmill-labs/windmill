@@ -69,11 +69,10 @@ export function setClient(token?: string, baseUrl?: string) {
   if (token === undefined) {
     token = getEnv("WM_TOKEN") ?? "no_token";
   }
-  // Credentials must be off whenever a bearer is sent: the API answers
-  // `Access-Control-Allow-Origin: *`, so a credentialed cross-origin request is
-  // rejected before the token is read. Credentials mode only — `"no_token"` is
-  // still sent as a bearer, so this does not enable cookie auth.
-  OpenAPI.WITH_CREDENTIALS = token === "no_token";
+  // Off in browsers: the API answers `Access-Control-Allow-Origin: *`, which a
+  // credentialed request can never pair with. Cookies still ride same-origin
+  // requests by fetch's own default.
+  OpenAPI.WITH_CREDENTIALS = typeof window === "undefined";
   OpenAPI.TOKEN = token;
   OpenAPI.BASE = baseUrl + "/api";
 }
