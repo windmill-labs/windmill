@@ -1557,3 +1557,51 @@ mod tests {
         assert_eq!(back.assets[0].path, ingested.assets[0].path);
     }
 }
+
+/// One run's per-model state, for the run page.
+///
+/// Shared with the API because an agent worker has no database and posts its
+/// settled outcomes to a route that calls this same function — two spellings of
+/// the row would drift.
+pub async fn record_run_progress(
+    db: &crate::DB,
+    w_id: &str,
+    job_id: &uuid::Uuid,
+    asset_path: &str,
+    status: crate::materialization::MaterializationStatus,
+    row_count: Option<i64>,
+    error: Option<&str>,
+) {
+    let res = sqlx::query!(
+        "INSERT INTO dbt_run_progress
+           (workspace_id, job_id, asset_kind, asset_path, status, row_count, error, updated_at)
+         VALUES ($1, $2, 'dbt', $3, $4, $5, $6, now())
+         ON CONFLICT (workspace_id, job_id, asset_kind, asset_path)
+         DO UPDATE SET status = EXCLUDED.status, row_count = EXCLUDED.row_count,
+                       error = EXCLUDED.error, updated_at = now()",
+        w_id,
+        job_id,
+        asset_path,
+        status as crate::materialization::MaterializationStatus,
+        row_count,
+        error,
+    )
+    .execute(db)
+    .await;
+    if let Err(e) = res {
+        // Progress is a display, not the run: a failure here must not fail a
+        // build that is otherwise fine.
+        tracing::warn!("recording dbt run progress for {asset_path}: {e:#}");
+    }
+}
+
+/// One settled node, posted by a worker that has no database.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct DbtRunProgressRequest {
+    pub asset_path: String,
+    pub status: crate::materialization::MaterializationStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub row_count: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}

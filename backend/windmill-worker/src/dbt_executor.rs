@@ -497,7 +497,7 @@ pub(crate) async fn handle_dbt_job(
     {
         tracing::warn!("dbt: could not save retry state for job {}: {e:#}", job.id);
     }
-    let reconciled = reconcile_materializations(&prepared, &results, job, conn).await;
+    let reconciled = reconcile_materializations(&prepared, &results, job, conn, client).await;
     terminalize_running_relations(job, &reconciled, conn).await;
 
     let result = build_result(&prepared, &command, results, &inv);
@@ -2082,37 +2082,6 @@ async fn run_dbt(
 /// current state of a relation, one row, and its `job_id` is only the last
 /// writer — two runs of a project building the same models overwrite each
 /// other's. The run page needs what THIS job did, so it gets its own rows.
-async fn record_run_progress(
-    db: &sqlx::Pool<sqlx::Postgres>,
-    w_id: &str,
-    job_id: &Uuid,
-    asset_path: &str,
-    status: MaterializationStatus,
-    row_count: Option<i64>,
-    error: Option<&str>,
-) {
-    let res = sqlx::query!(
-        "INSERT INTO dbt_run_progress
-           (workspace_id, job_id, asset_kind, asset_path, status, row_count, error, updated_at)
-         VALUES ($1, $2, 'dbt', $3, $4, $5, $6, now())
-         ON CONFLICT (workspace_id, job_id, asset_kind, asset_path)
-         DO UPDATE SET status = EXCLUDED.status, row_count = EXCLUDED.row_count,
-                       error = EXCLUDED.error, updated_at = now()",
-        w_id,
-        job_id,
-        asset_path,
-        status as MaterializationStatus,
-        row_count,
-        error,
-    )
-    .execute(db)
-    .await;
-    if let Err(e) = res {
-        // Progress is a display, not the run: a failure here must not fail a
-        // build that is otherwise fine.
-        tracing::warn!("recording dbt run progress for {asset_path}: {e:#}");
-    }
-}
 
 /// How long a run's progress rows outlive it.
 ///
@@ -2149,9 +2118,10 @@ fn spawn_progress_reporter(
     log_file: PathBuf,
 ) -> Option<tokio::task::JoinHandle<()>> {
     let Connection::Sql(db) = conn else {
-        // Agent workers reach the DB only through the API. Their per-model state
-        // is settled from run_results.json at the end of the run instead — at
-        // the end rather than live, but recorded.
+        // Agent workers reach the DB only through the API, and tailing a log to
+        // POST every event would spend a request per node. Their per-model state
+        // is settled from `run_results.json` when the run ends instead: recorded
+        // in full, but arriving at the end rather than live.
         return None;
     };
     if !p.engine.engine.emits_node_events() {
@@ -2207,7 +2177,7 @@ fn spawn_progress_reporter(
                 else {
                     continue;
                 };
-                record_run_progress(
+                windmill_common::dbt_manifest::record_run_progress(
                     &db,
                     &w_id,
                     &job_id,
@@ -2362,6 +2332,7 @@ async fn reconcile_materializations(
     results: &[DbtNodeResult],
     job: &MiniPulledJob,
     conn: &Connection,
+    client: &AuthedClient,
 ) -> Reconciled {
     let mut out = Reconciled::default();
     let Some(warehouse) = p.warehouse.as_deref() else {
@@ -2395,7 +2366,7 @@ async fn reconcile_materializations(
         // status or row count.
         let recorded = match conn {
             Connection::Sql(db) => {
-                record_run_progress(
+                windmill_common::dbt_manifest::record_run_progress(
                     db,
                     &job.workspace_id,
                     &job.id,
@@ -2420,23 +2391,40 @@ async fn reconcile_materializations(
                 .await
                 .map_err(|e| e.to_string())
             }
-            Connection::Http(http) => crate::agent_workers::record_materialization_from_agent_http(
-                http,
-                &job.workspace_id,
-                &RecordMaterializationRequest {
-                    asset_kind: windmill_common::assets::AssetKind::Dbt,
-                    asset_path: path.clone(),
-                    partition: windmill_common::materialization::UNPARTITIONED.to_string(),
-                    status,
-                    snapshot_id: None,
-                    row_count: r.rows_affected,
-                    job_id: Some(job.id),
-                    error: error.map(|e| e.to_string()),
-                    schema: None,
-                },
-            )
-            .await
-            .map_err(|e| e.to_string()),
+            Connection::Http(http) => {
+                // Progress too, not only the materialization: the live reporter
+                // needs a database and does not run here, so these settled
+                // outcomes are the only per-model state an agent's run page
+                // ever gets.
+                if let Err(e) = client
+                    .record_dbt_run_progress(&windmill_common::dbt_manifest::DbtRunProgressRequest {
+                        asset_path: path.clone(),
+                        status,
+                        row_count: r.rows_affected,
+                        error: error.map(|e| e.to_string()),
+                    })
+                    .await
+                {
+                    tracing::warn!("recording dbt run progress for {path}: {e:#}");
+                }
+                crate::agent_workers::record_materialization_from_agent_http(
+                    http,
+                    &job.workspace_id,
+                    &RecordMaterializationRequest {
+                        asset_kind: windmill_common::assets::AssetKind::Dbt,
+                        asset_path: path.clone(),
+                        partition: windmill_common::materialization::UNPARTITIONED.to_string(),
+                        status,
+                        snapshot_id: None,
+                        row_count: r.rows_affected,
+                        job_id: Some(job.id),
+                        error: error.map(|e| e.to_string()),
+                        schema: None,
+                    },
+                )
+                .await
+                .map_err(|e| e.to_string())
+            }
         };
         if let Err(e) = recorded {
             tracing::warn!("recording the materialization of {path} failed: {e}");

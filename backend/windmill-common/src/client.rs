@@ -115,6 +115,37 @@ impl AuthedClient {
         }
     }
 
+    /// Record one settled dbt node, for a worker with no database.
+    ///
+    /// Posted with the JOB's token, not the agent's: the route takes the job
+    /// from the token, and the agent's own credential only authenticates
+    /// against the agent surface.
+    pub async fn record_dbt_run_progress(
+        &self,
+        req: &crate::dbt_manifest::DbtRunProgressRequest,
+    ) -> anyhow::Result<()> {
+        let url = format!(
+            "{}/api/w/{}/dbt/run_progress",
+            self.base_internal_url, self.workspace
+        );
+        let response = self
+            .force_client
+            .as_ref()
+            .unwrap_or(&HTTP_CLIENT)
+            .post(&url)
+            .header(
+                reqwest::header::AUTHORIZATION,
+                reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.token))?,
+            )
+            .json(req)
+            .send()
+            .await?;
+        match response.status().as_u16() {
+            200u16 => Ok(()),
+            _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
+        }
+    }
+
     /// Where a dbt warehouse name points, for a worker with no database.
     pub async fn get_dbt_warehouse<T: DeserializeOwned>(&self, name: &str) -> anyhow::Result<T> {
         let url = format!(

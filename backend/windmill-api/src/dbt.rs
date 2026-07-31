@@ -1,4 +1,4 @@
-use axum::{extract::Path, routing::get, Extension, Json, Router};
+use axum::{extract::Path, routing::{get, post}, Extension, Json, Router};
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
@@ -9,7 +9,9 @@ use windmill_common::{
 use crate::db::OptJobAuthed;
 
 pub fn workspaced_service() -> Router {
-    Router::new().route("/warehouse/{name}", get(get_warehouse))
+    Router::new()
+        .route("/warehouse/{name}", get(get_warehouse))
+        .route("/run_progress", post(record_run_progress))
 }
 
 async fn get_warehouse(
@@ -29,4 +31,32 @@ async fn get_warehouse(
     }
     windmill_common::workspaces::validate_dbt_warehouse_name(&name)?;
     Ok(Json(dbt_warehouse_connection(&db, &w_id, &name).await?))
+}
+
+/// A settled node's state, for a worker that cannot write the database.
+///
+/// The job is taken from the TOKEN, never the body: a job may report its own
+/// progress and no one else's.
+async fn record_run_progress(
+    OptJobAuthed { job_id, .. }: OptJobAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<windmill_common::dbt_manifest::DbtRunProgressRequest>,
+) -> Result<()> {
+    let Some(job_id) = job_id else {
+        return Err(Error::BadRequest(
+            "this route records a running job's dbt progress and needs a job token".to_string(),
+        ));
+    };
+    windmill_common::dbt_manifest::record_run_progress(
+        &db,
+        &w_id,
+        &job_id,
+        &req.asset_path,
+        req.status,
+        req.row_count,
+        req.error.as_deref(),
+    )
+    .await;
+    Ok(())
 }
