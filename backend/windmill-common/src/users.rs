@@ -81,6 +81,43 @@ pub async fn resolve_username_to_email<'c>(
     .flatten())
 }
 
+/// Inverse of [`get_email_from_permissioned_as`]: the principal an on-behalf-of email
+/// names in this workspace, for callers that supply the email alone.
+///
+/// `None` when the email names nobody here — an address outside the workspace, or a
+/// group that no longer exists. Callers then leave the identity unrecorded rather than
+/// storing a principal that cannot authenticate.
+pub async fn permissioned_as_from_email<'c>(
+    workspace_id: &str,
+    email: &str,
+    db: impl sqlx::PgExecutor<'c>,
+) -> crate::error::Result<Option<String>> {
+    // Groups have no address of their own; `get_email_from_permissioned_as` mints this
+    // synthetic one, so it is the only form that can be read back as a group.
+    if let Some(group) = email
+        .strip_prefix(USERNAME_GROUP_PREFIX)
+        .and_then(|rest| rest.strip_suffix("@windmill.dev"))
+    {
+        let exists = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM group_ WHERE workspace_id = $1 AND name = $2)",
+            workspace_id,
+            group
+        )
+        .fetch_one(db)
+        .await?
+        .unwrap_or(false);
+        return Ok(exists.then(|| format!("{}{}", PERMISSIONED_AS_GROUP_PREFIX, group)));
+    }
+    Ok(sqlx::query_scalar!(
+        "SELECT username FROM usr WHERE workspace_id = $1 AND email = $2",
+        workspace_id,
+        email
+    )
+    .fetch_optional(db)
+    .await?
+    .map(|username| username_to_permissioned_as(&username)))
+}
+
 /// Get email from permissioned_as string.
 /// - "u/{username}" → resolve via [`resolve_username_to_email`] (cached)
 /// - "g/{group}" → "group-{group}@windmill.dev"

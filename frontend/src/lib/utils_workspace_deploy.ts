@@ -168,17 +168,17 @@ function legacyTriggerKind(kind: TriggerDeployKind) {
 }
 
 /**
- * `onBehalfOfPermissionedAs` is the authorization half of the identity the caller
- * picked; `deployItem` only knows how to override the email half. The two must
- * name the same user, so it is stamped onto the script/flow request body here —
- * otherwise the spread of the source item would leave the source's
- * permissioned_as next to the picked user's email.
+ * `deployItem` overrides only the email half of the identity, while the body it builds
+ * spreads the *source* item — which carries the source workspace's permissioned_as. Left
+ * alone that pairs one workspace's principal with the other's email, so the key is always
+ * overwritten here: with the picked user's principal for a custom choice, and cleared
+ * otherwise so the backend derives it from the email it is given.
  */
 function makeProvider(onBehalfOfPermissionedAs?: string): DeployProvider {
-	const withPermissionedAs = <T extends Record<string, any>>(requestBody: T): T =>
-		onBehalfOfPermissionedAs === undefined
-			? requestBody
-			: { ...requestBody, on_behalf_of_permissioned_as: onBehalfOfPermissionedAs }
+	const withPermissionedAs = <T extends Record<string, any>>(requestBody: T): T => ({
+		...requestBody,
+		on_behalf_of_permissioned_as: onBehalfOfPermissionedAs
+	})
 	return {
 		existsFlowByPath: (p) => FlowService.existsFlowByPath(p),
 		existsScriptByPath: (p) => ScriptService.existsScriptByPath(p),
@@ -188,8 +188,10 @@ function makeProvider(onBehalfOfPermissionedAs?: string): DeployProvider {
 		existsResourceType: (p) => ResourceService.existsResourceType(p),
 		existsFolder: (p) => FolderService.existsFolder(p),
 		getFlowByPath: (p) => FlowService.getFlowByPath(p),
-		createFlow: (p) => FlowService.createFlow({ ...p, requestBody: withPermissionedAs(p.requestBody) }),
-		updateFlow: (p) => FlowService.updateFlow({ ...p, requestBody: withPermissionedAs(p.requestBody) }),
+		createFlow: (p) =>
+			FlowService.createFlow({ ...p, requestBody: withPermissionedAs(p.requestBody) }),
+		updateFlow: (p) =>
+			FlowService.updateFlow({ ...p, requestBody: withPermissionedAs(p.requestBody) }),
 		archiveFlowByPath: (p) => FlowService.archiveFlowByPath(p),
 		getScriptByPath: (p) => ScriptService.getScriptByPath(p),
 		createScript: (p) =>

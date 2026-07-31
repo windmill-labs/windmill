@@ -601,10 +601,12 @@ async fn create_flow(
         windmill_common::resolve_on_behalf_of(
             nf.on_behalf_of_email.as_deref(),
             nf.on_behalf_of_permissioned_as.as_deref(),
-            None,
             nf.preserve_on_behalf_of.unwrap_or(false),
             &authed,
-        );
+            &w_id,
+            &db,
+        )
+        .await?;
     sqlx::query!(
         r#"INSERT INTO flow (
         workspace_id, path, summary, description,
@@ -1049,26 +1051,27 @@ async fn update_flow(
     check_schedule_conflict(&mut tx, &w_id, flow_path).await?;
 
     let schema = nf.schema.map(|x| x.0);
-    let old = sqlx::query!(
-        "SELECT dependency_job, on_behalf_of_permissioned_as FROM flow WHERE path = $1 AND workspace_id = $2",
+    let old_dep_job = sqlx::query_scalar!(
+        "SELECT dependency_job FROM flow WHERE path = $1 AND workspace_id = $2",
         flow_path,
         w_id
     )
     .fetch_optional(&mut *tx)
     .await?;
 
-    let old = not_found_if_none(old, "Flow", flow_path)?;
-    let old_dep_job = old.dependency_job;
+    let old_dep_job = not_found_if_none(old_dep_job, "Flow", flow_path)?;
     let is_new_path = nf.path != flow_path;
     let schema_str = schema.and_then(|x| serde_json::to_string(&x).ok());
     let (resolved_on_behalf_of_email, resolved_on_behalf_of_permissioned_as) =
         windmill_common::resolve_on_behalf_of(
             nf.on_behalf_of_email.as_deref(),
             nf.on_behalf_of_permissioned_as.as_deref(),
-            old.on_behalf_of_permissioned_as.as_deref(),
             nf.preserve_on_behalf_of.unwrap_or(false),
             &authed,
-        );
+            &w_id,
+            &db,
+        )
+        .await?;
 
     sqlx::query!(
         "

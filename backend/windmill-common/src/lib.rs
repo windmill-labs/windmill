@@ -197,38 +197,47 @@ pub fn check_on_behalf_of_preservation(
 /// - If `preserve` is true and the user is admin or in the deployers group, the given pair is kept
 /// - Otherwise both halves are replaced by the authenticated user's own identity
 ///
-/// The two halves must always name the same user or group, so they are resolved
-/// together and never independently: the permissioned_as decides what the job may
-/// access, while the email decides its instance-superadmin flag and instance groups.
-/// A `None` permissioned_as alongside a `Some` email is legitimate and means "not
-/// recorded" — run time then derives it from `created_by` / `edited_by`.
+/// The two halves must always name the same user or group: the permissioned_as decides
+/// what the job may access, while the email decides its instance-superadmin flag and its
+/// instance groups, so a mismatched pair would run as a composite of two accounts. A pair
+/// that disagrees is rejected, and a caller that names only the email — anything written
+/// before the permissioned_as existed — has it derived from that email rather than
+/// dropped, so a routine redeploy cannot silently hand a runnable to whoever deploys it.
 ///
-/// `previous_permissioned_as` is the identity currently recorded on the runnable being
-/// replaced. A caller that preserves without naming one — anything written before the
-/// field existed — inherits it rather than dropping it, so a routine redeploy cannot
-/// silently hand a runnable back to whoever deploys it.
-pub fn resolve_on_behalf_of<'a>(
-    on_behalf_of_email: Option<&'a str>,
-    on_behalf_of_permissioned_as: Option<&'a str>,
-    previous_permissioned_as: Option<&'a str>,
+/// The permissioned_as stays `None` when the email names nobody in this workspace, which
+/// leaves the run-time fallback (`created_by` / `edited_by`) in place instead of recording
+/// a principal that cannot authenticate.
+pub async fn resolve_on_behalf_of(
+    on_behalf_of_email: Option<&str>,
+    on_behalf_of_permissioned_as: Option<&str>,
     preserve: bool,
-    authed: &'a impl db::Authable,
-) -> (Option<&'a str>, Option<String>) {
-    if on_behalf_of_email.is_none() {
-        (None, None)
-    } else if preserve && can_preserve_on_behalf_of(authed) {
-        (
-            on_behalf_of_email,
-            on_behalf_of_permissioned_as
-                .or(previous_permissioned_as)
-                .map(str::to_string),
-        )
-    } else {
-        (
-            Some(authed.email()),
+    authed: &impl db::Authable,
+    w_id: &str,
+    db: &sqlx::Pool<Postgres>,
+) -> error::Result<(Option<String>, Option<String>)> {
+    let Some(email) = on_behalf_of_email else {
+        return Ok((None, None));
+    };
+    if !(preserve && can_preserve_on_behalf_of(authed)) {
+        return Ok((
+            Some(authed.email().to_string()),
             Some(users::username_to_permissioned_as(authed.username())),
-        )
+        ));
     }
+    let permissioned_as = match on_behalf_of_permissioned_as {
+        Some(permissioned_as) => {
+            let named = users::get_email_from_permissioned_as(permissioned_as, w_id, db).await?;
+            if named != email {
+                return Err(Error::BadRequest(format!(
+                    "on_behalf_of_permissioned_as '{permissioned_as}' resolves to '{named}', not \
+                     to on_behalf_of_email '{email}'. Both must name the same user or group."
+                )));
+            }
+            Some(permissioned_as.to_string())
+        }
+        None => users::permissioned_as_from_email(w_id, email, db).await?,
+    };
+    Ok((Some(email.to_string()), permissioned_as))
 }
 
 #[macro_export]

@@ -107,8 +107,9 @@
 	}
 
 	/**
-	 * Authorization half of the on_behalf_of pair for flows/scripts. Only a custom
-	 * pick needs it — 'target' carries the source item's own value through the deploy.
+	 * Authorization half of the on_behalf_of pair for flows/scripts. Only a custom pick
+	 * names one; for every other choice the backend derives it from the email, so
+	 * returning undefined clears the source item's value rather than keeping it.
 	 */
 	function getOnBehalfOfPermissionedAsForDeploy(
 		statusPath: string,

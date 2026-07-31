@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE script SET on_behalf_of_permissioned_as = NULL WHERE path = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "49154045856c290ad23a312ee3950c699cf87d545a8a6f37d5b8818f263847f1"
+}
