@@ -1523,13 +1523,12 @@ async fn write_profiles(
         // the file is what dbt connects with. Licensing is why it cannot be a hint —
         // the Rust engines carry every adapter, so a descriptor claiming `postgres`
         // over a `sqlserver` target would pass the CE check and connect anyway. The
-        // one case where the file cannot answer is a templated `type`, and there
-        // the descriptor may name only an unlicensed adapter.
+        // A templated `type` is refused outright rather than taken from the
+        // descriptor: the claim cannot be checked against what dbt will render.
         let target = adapter_from_profiles_yml(
             &path,
             &project_profile_name(project_dir).await,
             descriptor.profile.target.as_deref(),
-            declared,
         )
         .await?;
         let actual = target.adapter;
@@ -1692,9 +1691,6 @@ async fn adapter_from_profiles_yml(
     path: &Path,
     profile_name: &str,
     target: Option<&str>,
-    // The descriptor's `profile.type`, used only where the file states no
-    // literal adapter of its own.
-    declared: Option<DbtAdapter>,
 ) -> error::Result<ProfileTarget> {
     let content = tokio::fs::read_to_string(path)
         .await
@@ -1760,28 +1756,19 @@ async fn adapter_from_profiles_yml(
     let adapter = match declared_type {
         Some(t) => DbtAdapter::from_resource_type(t)
             .ok_or_else(|| Error::BadRequest(format!("unsupported dbt adapter `{t}`")))?,
-        // Templated: only the descriptor can name it, and taking its word is
-        // what the caller's licence rule forbids — a project could claim
-        // `postgres` over a `sqlserver` target and pass the CE check. So the
-        // descriptor may name a CE adapter here, never a licensed one: those
-        // stay decided by a `type` this code can actually read.
+        // REFUSED, not guessed. dbt renders the template and Windmill does not,
+        // so the descriptor's word is the only thing left — and it is worth
+        // nothing here: `profile.type: postgres` over a target resolving to
+        // `sqlserver` would pass the CE check while dbt runs the licensed
+        // adapter it bundles. A `target` may be templated (it only picks an
+        // output); the `type` inside that output may not.
         None => {
-            let named = declared.ok_or_else(|| {
-                Error::BadRequest(format!(
-                    "{} does not state its adapter as a literal `type` (templated, or absent), \
-                     so set `profile.type` in the descriptor",
-                    path.display()
-                ))
-            })?;
-            if named.requires_enterprise() {
-                return Err(Error::BadRequest(format!(
-                    "{} templates its `type`, so Windmill cannot confirm the adapter, and \
-                     `profile.type: {}` is licensed. Spell the type literally in the target",
-                    path.display(),
-                    named.name()
-                )));
-            }
-            named
+            return Err(Error::BadRequest(format!(
+                "{} does not state its adapter as a literal `type` — templated, or absent. \
+                 Windmill cannot resolve it, and the adapter decides both the engine and the \
+                 licence, so spell it literally in the target",
+                path.display()
+            )))
         }
     };
     // The target's own database and schema, read with the same keys the renderer
@@ -4905,7 +4892,7 @@ mod tests {
              \x20     database: prod\n      schema: analytics\n",
         )
         .unwrap();
-        let t = adapter_from_profiles_yml(&path, "jaffle", None, None)
+        let t = adapter_from_profiles_yml(&path, "jaffle", None)
             .await
             .unwrap();
         assert_eq!(t.adapter, DbtAdapter::Snowflake);
@@ -4938,7 +4925,7 @@ mod tests {
              \x20   prod:\n      type: snowflake\n      database: prod\n      schema: analytics\n",
         )
         .unwrap();
-        let t = adapter_from_profiles_yml(&path, "jaffle", None, None)
+        let t = adapter_from_profiles_yml(&path, "jaffle", None)
             .await
             .unwrap();
         assert_eq!(t.adapter, DbtAdapter::Snowflake);
@@ -4957,7 +4944,7 @@ mod tests {
              \x20   prod:\n      type: snowflake\n    dev:\n      type: snowflake\n",
         )
         .unwrap();
-        let e = adapter_from_profiles_yml(&path, "jaffle", None, None)
+        let e = adapter_from_profiles_yml(&path, "jaffle", None)
             .await
             .unwrap_err()
             .to_string();
@@ -4976,7 +4963,7 @@ mod tests {
              \x20     dbname: \"{{ env_var('DB') }}\"\n",
         )
         .unwrap();
-        let t = adapter_from_profiles_yml(&path, "jaffle", None, None)
+        let t = adapter_from_profiles_yml(&path, "jaffle", None)
             .await
             .unwrap();
         assert_eq!(t.database, None);

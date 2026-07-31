@@ -3026,12 +3026,29 @@ async function pushParentScriptForModule(
     const hasMetadata =
       existsSync(scriptBasePath + ".script.yaml") ||
       existsSync(scriptBasePath + ".script.json");
-    if (!existsSync(moduleFolderPath + "/dbt_project.yml") && hasMetadata) {
-      throw new Error(
-        `${moduleFolderPath} has no dbt_project.yml but ${scriptBasePath}.script.yaml ` +
-          `remains, so there is no dbt project left to push. Delete the metadata too to ` +
-          `archive the script, or restore the project.`
-      );
+    if (!existsSync(moduleFolderPath + "/dbt_project.yml")) {
+      if (hasMetadata) {
+        throw new Error(
+          `${moduleFolderPath} has no dbt_project.yml but ${scriptBasePath}.script.yaml ` +
+            `remains, so there is no dbt project left to push. Delete the metadata too to ` +
+            `archive the script, or restore the project.`
+        );
+      }
+      // Nothing local claims this script any more — neither project nor
+      // metadata — so it is archived like any other locally deleted item. The
+      // deletions arrive one file at a time, hence `alreadySynced`.
+      const remote = scriptBasePath.replaceAll(SEP, "/");
+      if (!alreadySynced.includes(remote)) {
+        alreadySynced.push(remote);
+        log.info(`Archiving script ${remote}`);
+        await wmill
+          .archiveScriptByPath({ workspace: workspace.workspaceId, path: remote })
+          .catch((e) => {
+            // Already gone remotely is the state we wanted.
+            log.debug(`Could not archive ${remote}: ${e}`);
+          });
+      }
+      return;
     }
     let contentPath: string | undefined;
     try {
@@ -3549,16 +3566,14 @@ export async function pull(
           await copyFile(target, stateTarget);
         }
       } else if (change.name === "deleted") {
-        try {
-          log.info(`Deleting ${changeTypeLabel(change.path)}${change.path}`);
-          await rm(target);
-          if (opts.stateful) {
-            await rm(stateTarget);
-          }
-        } catch {
-          if (opts.stateful) {
-            await rm(stateTarget);
-          }
+        log.info(`Deleting ${changeTypeLabel(change.path)}${change.path}`);
+        // `force` on both: the goal is that neither copy exists, and a file
+        // already absent — a dbt project's optional descriptor is never written
+        // — is that goal, not an error. The state copy is removed either way,
+        // or the same deletion is replayed on every sync.
+        await rm(target, { force: true }).catch(() => {});
+        if (opts.stateful) {
+          await rm(stateTarget, { force: true }).catch(() => {});
         }
       }
     }
