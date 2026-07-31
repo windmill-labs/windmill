@@ -304,10 +304,11 @@ pub struct QueuedJob {
     pub is_retry: Option<bool>,
     // How the run was started. NULL on every job pushed before the API began stamping it, and
     // on the paths that still don't, so the run page treats it as "unknown" rather than
-    // "manual". `#[sqlx(default)]` lets the queries that don't select it omit the column.
+    // "manual". `#[sqlx(default)]` lets the queries that don't select it omit the column, and
+    // the label type keeps a kind added after this binary was built readable instead of fatal.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
-    pub trigger_kind: Option<JobTriggerKind>,
+    pub trigger_kind: Option<TriggerKindLabel>,
 }
 
 impl QueuedJob {
@@ -474,10 +475,11 @@ pub struct CompletedJob {
     pub resolved_automatically: Option<bool>,
     // How the run was started. NULL on every job pushed before the API began stamping it, and
     // on the paths that still don't, so the run page treats it as "unknown" rather than
-    // "manual". `#[sqlx(default)]` lets the queries that don't select it omit the column.
+    // "manual". `#[sqlx(default)]` lets the queries that don't select it omit the column, and
+    // the label type keeps a kind added after this binary was built readable instead of fatal.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
-    pub trigger_kind: Option<JobTriggerKind>,
+    pub trigger_kind: Option<TriggerKindLabel>,
 }
 
 impl CompletedJob {
