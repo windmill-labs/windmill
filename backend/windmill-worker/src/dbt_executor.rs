@@ -25,8 +25,7 @@ use windmill_common::materialization::{
 use windmill_common::worker::{to_raw_value, write_file, Connection};
 use windmill_parser_yaml::{
     parse_dbt_descriptor, DbtDescriptor, DbtTestBehavior, DBT_COMMANDS, DBT_COMMAND_ARG,
-    DBT_DEFAULT_WAREHOUSE,
-    DBT_COMMAND_LABEL,
+    DBT_COMMAND_LABEL, DBT_DEFAULT_WAREHOUSE,
 };
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
@@ -631,10 +630,10 @@ pub(crate) async fn dbt_dep(
         Some(hash) => GraphPublisher::Version(hash),
         None => GraphPublisher::Unversioned,
     };
-    let superseded = if let Some(resource_path) = prepared.resource_path.as_deref() {
+    let superseded = if let Some(warehouse) = prepared.warehouse.as_deref() {
         let ingested = windmill_common::dbt_manifest::ingest_manifest(
             &manifest,
-            resource_path,
+            warehouse,
             prepared.default_database.as_deref(),
             selected.as_ref(),
         );
@@ -690,9 +689,10 @@ pub(crate) async fn dbt_dep(
             append_logs(
                 job_id,
                 w_id,
-                "\nNo asset-graph ingest: the descriptor declares no `profile.resource`, so \
-                 there is no warehouse identity to key `dbt://` assets on. Any previously \
-                 ingested nodes for this script have been cleared.\n"
+                "\nNo asset-graph ingest: the descriptor names no `profile.warehouse` beside \
+                 its own `profile.profiles_yml`, so there is no warehouse identity to key \
+                 `dbt://` assets on. Any previously ingested nodes for this script have been \
+                 cleared.\n"
                     .to_string(),
                 &conn,
             )
@@ -864,11 +864,11 @@ pub struct PreparedProject {
     /// to one worker; this makes a cache miss on another worker fail closed if
     /// an unlocked range or mutable Git revision has moved meanwhile.
     pub package_lock_digest: Option<String>,
-    /// Windmill resource path of the warehouse, the `<resource_path>` component
-    /// of every `dbt://` asset this project produces. `None` when the project
-    /// brings its own `profiles.yml` and declares no resource, in which case
-    /// there is no stable warehouse identity to key assets on.
-    pub resource_path: Option<String>,
+    /// The workspace warehouse's NAME, the `<warehouse>` component of every
+    /// `dbt://` asset this project produces. `None` when the project brings its
+    /// own `profiles.yml` and names no warehouse, in which case there is no
+    /// stable warehouse identity to key assets on.
+    pub warehouse: Option<String>,
     /// The descriptor's `profile.target`, passed as `--target` so it applies to
     /// a project-owned `profiles.yml` as well as a rendered one.
     pub target: Option<String>,
@@ -1016,8 +1016,17 @@ pub(crate) async fn prepare_project(
         ..Default::default()
     };
 
-    let (profiles_dir, resource_path, adapter, default_database, default_schema, profile_digest) =
-        write_profiles(descriptor, &project_dir, job_dir, client, job_id, w_id, conn).await?;
+    let (profiles_dir, warehouse, adapter, default_database, default_schema, profile_digest) =
+        write_profiles(
+            descriptor,
+            &project_dir,
+            job_dir,
+            client,
+            job_id,
+            w_id,
+            conn,
+        )
+        .await?;
     // The lockfile's version, when it pinned one for this same engine — a
     // descriptor edited to another engine invalidates the pin.
     let pinned_version = locks
@@ -1149,7 +1158,7 @@ pub(crate) async fn prepare_project(
         profiles_dir,
         engine,
         graph_refresh,
-        resource_path,
+        warehouse,
         target: descriptor.profile.target.clone(),
         descriptor_content: descriptor_content.to_string(),
         descriptor_env,
@@ -1495,32 +1504,14 @@ async fn write_profiles(
     // connection at all. Both end as a resource path, which is what renders the
     // profile AND what asset identity keys on, so the two spellings share nodes.
     // The workspace's warehouse, always: a descriptor names one by NAME or takes
-    // `main`, and there is no per-project resource. One spelling is what lets
-    // asset identity key on the warehouse the way `ducklake://main.orders` does.
-    let mut workspace_target = None;
+    // `main`, and cannot name a resource at all. The NAME is what asset identity
+    // keys on, so every project on one warehouse shares its nodes while the
+    // credential stays a workspace setting only an admin writes.
     let warehouse = descriptor
         .profile
         .warehouse
         .as_deref()
-        .unwrap_or(DBT_DEFAULT_WAREHOUSE)
-        .to_string();
-    let resource_path = match conn {
-        Connection::Sql(db) => {
-            let resolved =
-                windmill_common::workspaces::dbt_warehouse_resource(db, w_id, Some(&warehouse))
-                    .await;
-            match resolved {
-                Some((path, target)) => {
-                    workspace_target = target;
-                    Some(path)
-                }
-                None => None,
-            }
-        }
-        // An agent worker reaches settings only through the API; the job-scoped
-        // resolution endpoint is what answers there.
-        Connection::Http(_) => None,
-    };
+        .unwrap_or(DBT_DEFAULT_WAREHOUSE);
 
     let declared = descriptor
         .profile
@@ -1565,41 +1556,35 @@ async fn write_profiles(
         }
         let adapter = actual;
         ensure_adapter_licensed(adapter)?;
-        // A resource beside the project's own file names the warehouse for asset
-        // identity only. It is still READ, because reading is what authorizes it:
-        // otherwise a script editor could publish `dbt://<any resource>/...`
-        // writes while connecting somewhere else entirely.
-        if let Some(rp) = resource_path.as_deref() {
-            client
-                .get_resource_value_interpolated::<serde_json::Value>(rp, Some(job_id.to_string()))
-                .await
-                .map_err(|e| {
-                    Error::BadRequest(format!(
-                        "`profile.resource` names the warehouse this project's assets are keyed \
-                         on, so it must be readable even when `profile.profiles_yml` provides \
-                         the connection: {e}"
-                    ))
-                })?;
-        }
         // The project owns its profile, so Windmill knows neither its database
-        // nor its schema. `table_asset_path` then qualifies every relation that
+        // nor its schema. `asset_path_for` then qualifies every relation that
         // names a database, because assuming two share one is what would
         // collapse distinct relations onto a single node.
         let profile_digest = digest(&tokio::fs::read_to_string(&path).await.unwrap_or_default());
-        return Ok((dir, resource_path, adapter, None, None, profile_digest));
+        // Identity only when the descriptor NAMES a warehouse: defaulting to
+        // `main` would key a self-hosted profile's assets onto the workspace
+        // warehouse it never connected to.
+        let identity = descriptor.profile.warehouse.clone();
+        return Ok((dir, identity, adapter, None, None, profile_digest));
     }
 
-    let resource_path = resource_path.ok_or_else(|| {
-        Error::BadRequest(
-            "no warehouse to run against: configure one for this workspace (Settings → dbt), \
-             or set `profile.resource` / `profile.profiles_yml` in the descriptor"
-                .to_string(),
-        )
-    })?;
+    let (resource_path, workspace_target) = match conn {
+        Connection::Sql(db) => {
+            windmill_common::workspaces::dbt_warehouse_resource(db, w_id, warehouse).await?
+        }
+        // An agent worker reaches settings only through the API.
+        Connection::Http(_) => {
+            let r: windmill_common::workspaces::DbtWarehouseRef =
+                client.get_dbt_warehouse(warehouse).await.map_err(|e| {
+                    Error::BadRequest(format!("resolving the dbt warehouse `{warehouse}`: {e}"))
+                })?;
+            (r.resource_path, r.target)
+        }
+    };
     let value: serde_json::Value = client
         .get_resource_value_interpolated(&resource_path, Some(job_id.to_string()))
         .await
-        .map_err(|e| Error::BadRequest(format!("could not read the profile resource: {e}")))?;
+        .map_err(|e| Error::BadRequest(format!("could not read the resource the `{warehouse}` warehouse points at: {e}")))?;
     let adapter = declared
         .or_else(|| DbtAdapter::infer_from_resource(&value))
         .ok_or_else(|| {
@@ -1646,7 +1631,7 @@ async fn write_profiles(
     );
     Ok((
         dir,
-        Some(resource_path),
+        Some(warehouse.to_string()),
         adapter,
         rendered.database,
         rendered.schema,
@@ -2159,7 +2144,7 @@ fn spawn_progress_reporter(
         return None;
     }
     let (db, w_id, job_id) = (db.clone(), job.workspace_id.clone(), job.id);
-    let resource_path = p.resource_path.clone()?;
+    let warehouse = p.warehouse.clone()?;
     let default_database = p.default_database.clone();
     Some(tokio::spawn(async move {
         use tokio::io::{AsyncReadExt, AsyncSeekExt};
@@ -2202,7 +2187,7 @@ fn spawn_progress_reporter(
             offset += buf.len() as u64;
             let chunk = tail.push(&String::from_utf8_lossy(&buf));
             for line in chunk.lines() {
-                let Some(ev) = parse_node_event(line, &resource_path, default_database.as_deref())
+                let Some(ev) = parse_node_event(line, &warehouse, default_database.as_deref())
                 else {
                     continue;
                 };
@@ -2285,7 +2270,7 @@ impl LogTail {
 /// for nodes with no physical relation (tests, ephemeral models).
 fn parse_node_event(
     line: &str,
-    resource_path: &str,
+    warehouse: &str,
     default_database: Option<&str>,
 ) -> Option<RecordMaterializationRequest> {
     let line = line.trim();
@@ -2319,7 +2304,7 @@ fn parse_node_event(
         | DbtNodeOutcome::Unknown => return None,
     };
     let path = windmill_common::dbt_manifest::table_asset_path(
-        resource_path,
+        warehouse,
         database,
         schema,
         alias,
@@ -2363,13 +2348,13 @@ async fn reconcile_materializations(
     conn: &Connection,
 ) -> Reconciled {
     let mut out = Reconciled::default();
-    let Some(resource_path) = p.resource_path.as_deref() else {
+    let Some(warehouse) = p.warehouse.as_deref() else {
         return out;
     };
     for r in results {
         let Some(path) = asset_path_of_relation(
             r.relation_name.as_deref(),
-            resource_path,
+            warehouse,
             p.default_database.as_deref(),
         ) else {
             continue;
@@ -2551,7 +2536,7 @@ async fn terminalize_running_relations(
 /// through the same derivation the manifest ingest and the live events use.
 fn asset_path_of_relation(
     relation_name: Option<&str>,
-    resource_path: &str,
+    warehouse: &str,
     default_database: Option<&str>,
 ) -> Option<String> {
     let parts = split_relation(relation_name?);
@@ -2561,7 +2546,7 @@ fn asset_path_of_relation(
         _ => return None,
     };
     Some(windmill_common::dbt_manifest::table_asset_path(
-        resource_path,
+        warehouse,
         database,
         schema,
         name,
@@ -2795,7 +2780,7 @@ async fn ingest_from_run(
     conn: &Connection,
 ) -> error::Result<()> {
     // No warehouse identity means there is no graph that could go stale.
-    let Some(resource_path) = p.resource_path.as_deref() else {
+    let Some(warehouse) = p.warehouse.as_deref() else {
         return Ok(());
     };
     let Some(script_path) = job.runnable_path.as_deref() else {
@@ -2808,7 +2793,7 @@ async fn ingest_from_run(
         resolve_selection(p, descriptor, inv, ctx, &job.id, &job.workspace_id, conn).await?;
     let ingested = windmill_common::dbt_manifest::ingest_manifest(
         &manifest,
-        resource_path,
+        warehouse,
         p.default_database.as_deref(),
         selected.as_ref(),
     );
@@ -5051,7 +5036,10 @@ mod tests {
         // ... through its end, after which the next events come through.
         let resumed = tail.push(&format!("tail-of-the-huge-line\n{}\n", event("ok")));
         assert_eq!(resumed, format!("{}\n", event("ok")));
-        assert_eq!(tail.push(&format!("{}\n", event("next"))), format!("{}\n", event("next")));
+        assert_eq!(
+            tail.push(&format!("{}\n", event("next"))),
+            format!("{}\n", event("next"))
+        );
     }
 
     /// A command block that names nothing must not read as "no command given":

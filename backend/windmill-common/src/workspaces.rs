@@ -2479,23 +2479,29 @@ mod tests {
     }
 }
 
-/// The resource a dbt project runs against when its descriptor names no
-/// `profile.resource`: the workspace's default warehouse, or the one it names by
-/// `profile.warehouse`.
+/// Where a dbt warehouse name points. A POINTER only — the worker reads the
+/// resource itself with its own job token, which is what authorizes the
+/// connection.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct DbtWarehouseRef {
+    pub resource_path: String,
+    pub target: Option<String>,
+}
+
+/// The warehouse a dbt project runs against, by name — `main` when the
+/// descriptor names none.
 ///
-/// The setting holds a POINTER to a resource, never credentials — like
-/// `large_file_storage` — so the resource keeps its own ACL, asset identity
-/// keeps keying on a resource path, and a project that names the resource
-/// explicitly lands on the same graph nodes as one that takes the default.
-///
-/// The trade this makes is deliberate and belongs in the docs: whoever may run a
-/// dbt script may then reach the workspace warehouse without being granted the
-/// resource, exactly as `s3://` reaches the workspace bucket.
+/// The setting holds a POINTER to a resource, never credentials, like
+/// `large_file_storage`: the resource keeps its own ACL, so naming a warehouse
+/// grants nothing on its own. A descriptor cannot name a resource at all, which
+/// is what makes the workspace the only place a warehouse is configured — and
+/// what lets asset identity key on the NAME (`dbt://main/analytics/orders`),
+/// one spelling every project on that warehouse shares.
 pub async fn dbt_warehouse_resource(
     db: &DB,
     w_id: &str,
-    warehouse: Option<&str>,
-) -> Option<(String, Option<String>)> {
+    warehouse: &str,
+) -> Result<(String, Option<String>)> {
     let cfg = sqlx::query_scalar!(
         "SELECT dbt_warehouses FROM workspace_settings WHERE workspace_id = $1",
         w_id
@@ -2504,12 +2510,34 @@ pub async fn dbt_warehouse_resource(
     .await
     .ok()
     .flatten()
-    .flatten()?;
-    // A flat map keyed by NAME, `main` being the one a descriptor gets when it
-    // names none — the shape `ducklake://main.orders` already reads as, and one
-    // fewer special case than a primary/secondary split.
-    let entry = cfg.get(warehouse.filter(|w| !w.is_empty()).unwrap_or("main"))?.clone();
-    let path = entry.get("resource_path")?.as_str()?;
+    .flatten()
+    .unwrap_or(serde_json::Value::Null);
+    let entry = cfg.get(warehouse).cloned().ok_or_else(|| {
+        let configured = cfg
+            .as_object()
+            .map(|o| o.keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
+        Error::NotFound(if configured.is_empty() {
+            format!(
+                "no dbt warehouse is configured for this workspace — an admin adds one under \
+                 Settings → dbt, and a project reaches it by name (`{warehouse}` here)"
+            )
+        } else {
+            format!(
+                "dbt warehouse `{warehouse}` is not configured for this workspace (configured: \
+                 {})",
+                configured.join(", ")
+            )
+        })
+    })?;
+    let path = entry
+        .get("resource_path")
+        .and_then(|p| p.as_str())
+        .ok_or_else(|| {
+            Error::internal_err(format!(
+                "dbt warehouse `{warehouse}` names no resource_path"
+            ))
+        })?;
     // Stored with or without the prefix, like the storage configs; the caller
     // resolves a bare path.
     let path = path.strip_prefix("$res:").unwrap_or(path).to_string();
@@ -2517,5 +2545,5 @@ pub async fn dbt_warehouse_resource(
         .get("target")
         .and_then(|t| t.as_str())
         .map(|t| t.to_string());
-    Some((path, target))
+    Ok((path, target))
 }

@@ -13,10 +13,14 @@ use super::search::{
     DocsFullPage, DocsIndexEntry,
 };
 
-const LLMS_FULL_GZ: &[u8] =
-    include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/docs_snapshot/llms-full.txt.gz"));
-const LLMS_INDEX_GZ: &[u8] =
-    include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/docs_snapshot/llms.txt.gz"));
+const LLMS_FULL_GZ: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/docs_snapshot/llms-full.txt.gz"
+));
+const LLMS_INDEX_GZ: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/docs_snapshot/llms.txt.gz"
+));
 
 pub struct DocsCorpus {
     /// Every docs page, keyed by its `Source:` URL (from llms-full.txt).
@@ -31,7 +35,9 @@ impl DocsCorpus {
     /// stripped).
     pub fn find_page(&self, path: &str) -> Option<&DocsFullPage> {
         let key = canonical_search_url(&canonical_docs_page_url(path));
-        self.pages.iter().find(|p| canonical_search_url(&p.url) == key)
+        self.pages
+            .iter()
+            .find(|p| canonical_search_url(&p.url) == key)
     }
 }
 
@@ -66,8 +72,16 @@ mod tests {
     #[test]
     fn embedded_corpus_parses_to_non_empty() {
         let corpus = corpus();
-        assert!(corpus.pages.len() > 50, "expected many pages, got {}", corpus.pages.len());
-        assert!(corpus.index.len() > 50, "expected many index entries, got {}", corpus.index.len());
+        assert!(
+            corpus.pages.len() > 50,
+            "expected many pages, got {}",
+            corpus.pages.len()
+        );
+        assert!(
+            corpus.index.len() > 50,
+            "expected many index entries, got {}",
+            corpus.index.len()
+        );
         assert!(corpus
             .pages
             .iter()
@@ -79,7 +93,8 @@ mod tests {
         let corpus = corpus();
         // A page that is expected to exist in the published docs.
         let by_path = corpus.find_page("/docs/core_concepts/worker_groups");
-        let by_url = corpus.find_page("https://www.windmill.dev/docs/core_concepts/worker_groups.md");
+        let by_url =
+            corpus.find_page("https://www.windmill.dev/docs/core_concepts/worker_groups.md");
         assert!(by_path.is_some());
         assert_eq!(by_path.map(|p| &p.url), by_url.map(|p| &p.url));
     }

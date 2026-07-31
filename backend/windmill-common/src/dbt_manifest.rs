@@ -8,7 +8,7 @@
 //! Two things this module is deliberate about:
 //!
 //! * **Asset identity is the physical relation.** A model becomes
-//!   `dbt://<resource_path>/<schema>/<name>`: the scheme names dbt, which is the
+//!   `dbt://<warehouse>/<schema>/<name>`: the scheme names dbt, which is the
 //!   only thing that creates one, but the PATH is the relation and never dbt's
 //!   own `unique_id`. Two projects meet at a handoff — one materializes a mart,
 //!   the next declares it a `source` — where `model.a.orders` and
@@ -176,9 +176,17 @@ fn graph_digest(ingested: &IngestedManifest, relation_root: &str) -> String {
     // parts let one part's tail read as the next part's head.
     h.update(relation_root.as_bytes());
     h.update(b"\0");
-    h.update(serde_json::to_string(&ingested.nodes).unwrap_or_default().as_bytes());
+    h.update(
+        serde_json::to_string(&ingested.nodes)
+            .unwrap_or_default()
+            .as_bytes(),
+    );
     h.update(b"\0");
-    h.update(serde_json::to_string(&ingested.edges).unwrap_or_default().as_bytes());
+    h.update(
+        serde_json::to_string(&ingested.edges)
+            .unwrap_or_default()
+            .as_bytes(),
+    );
     format!("{:x}", h.finalize())
 }
 
@@ -409,7 +417,7 @@ fn single_unique_key(v: Option<&serde_json::Value>) -> Option<String> {
 /// none. Assembles the parts; `table_asset_path` owns the spelling.
 fn asset_path_for(
     node: &ManifestNode,
-    resource_path: &str,
+    warehouse: &str,
     default_database: Option<&str>,
 ) -> Option<String> {
     node.relation_name.as_ref()?;
@@ -428,7 +436,7 @@ fn asset_path_for(
         .or(node.alias.as_deref())
         .unwrap_or(&node.name);
     Some(table_asset_path(
-        resource_path,
+        warehouse,
         node.database.as_deref(),
         schema,
         name,
@@ -452,7 +460,7 @@ fn asset_path_for(
 /// never saw a database — every relation that names one qualifies, because
 /// assuming they all share a database is what would collapse them.
 pub fn table_asset_path(
-    resource_path: &str,
+    warehouse: &str,
     database: Option<&str>,
     schema: &str,
     name: &str,
@@ -464,13 +472,13 @@ pub fn table_asset_path(
         }
         _ => schema.to_string(),
     };
-    canonicalize_table_asset_path(&format!("{resource_path}/{qualified}/{name}"))
+    canonicalize_table_asset_path(&format!("{warehouse}/{qualified}/{name}"))
 }
 
 /// Parse a `manifest.json` into rows, edges and asset usages.
 ///
-/// `resource_path` is the Windmill path of the warehouse resource the profile
-/// target points at, e.g. `f/prod/snowflake`.
+/// `warehouse` is the workspace warehouse's NAME, which the profile
+/// target points at, e.g. `main`.
 /// `selected` is the node set the descriptor's `select`/`exclude` resolves to,
 /// as reported by dbt itself (`dbt ls`). `None` means the whole project. It
 /// scopes what this script is recorded as owning: a script that builds only
@@ -480,7 +488,7 @@ pub fn table_asset_path(
 /// decision 6), and this is what makes them compose.
 pub fn ingest_manifest(
     manifest: &Manifest,
-    resource_path: &str,
+    warehouse: &str,
     // The profile target's database. Nodes in it use the plain three-segment
     // spelling; a node that overrode it qualifies its schema segment.
     default_database: Option<&str>,
@@ -550,7 +558,7 @@ pub fn ingest_manifest(
         if !keep {
             continue;
         }
-        let asset_path = asset_path_for(node, resource_path, default_database);
+        let asset_path = asset_path_for(node, warehouse, default_database);
         let materialized = node
             .config
             .materialized
@@ -747,13 +755,23 @@ pub async fn replace_dbt_manifest(
     sqlx::query!(
         "DELETE FROM dbt_node WHERE workspace_id = $1 AND script_path = $2
            AND script_hash = $3 AND job_id = $4",
-        workspace_id, script_path, script_hash, job_id
-    ).execute(&mut **tx).await?;
+        workspace_id,
+        script_path,
+        script_hash,
+        job_id
+    )
+    .execute(&mut **tx)
+    .await?;
     sqlx::query!(
         "DELETE FROM dbt_edge WHERE workspace_id = $1 AND script_path = $2
            AND script_hash = $3 AND job_id = $4",
-        workspace_id, script_path, script_hash, job_id
-    ).execute(&mut **tx).await?;
+        workspace_id,
+        script_path,
+        script_hash,
+        job_id
+    )
+    .execute(&mut **tx)
+    .await?;
     // The marker, before the rows: a graph with no nodes at all is a legitimate
     // answer for a dynamic run that disabled every model, and the reader must be
     // able to tell it from a run that stored nothing.
@@ -763,8 +781,14 @@ pub async fn replace_dbt_manifest(
          VALUES ($1, $2, $3, $4, $5, now())
          ON CONFLICT (workspace_id, script_path, script_hash, job_id)
          DO UPDATE SET digest = EXCLUDED.digest, ingested_at = now()",
-        workspace_id, script_path, script_hash, job_id, digest
-    ).execute(&mut **tx).await?;
+        workspace_id,
+        script_path,
+        script_hash,
+        job_id,
+        digest
+    )
+    .execute(&mut **tx)
+    .await?;
 
     for n in &ingested.nodes {
         sqlx::query!(
@@ -1086,7 +1110,7 @@ mod tests {
 
     fn ingested() -> IngestedManifest {
         let m: Manifest = serde_json::from_str(MANIFEST).unwrap();
-        ingest_manifest(&m, "f/prod/wh", Some("wh"), None)
+        ingest_manifest(&m, "main", Some("wh"), None)
     }
 
     fn node<'a>(i: &'a IngestedManifest, id: &str) -> &'a IngestedNode {
@@ -1160,7 +1184,7 @@ mod tests {
             node(&i, "source.jaffle_shop.jaffle_raw.raw_orders")
                 .asset_path
                 .as_deref(),
-            Some("f/prod/wh/jaffle_raw/raw_orders")
+            Some("main/jaffle_raw/raw_orders")
         );
     }
 
@@ -1169,13 +1193,13 @@ mod tests {
     // Identifiers are canonicalized, and the database appears only when a model
     // overrode the target's.
     #[test]
-    fn models_become_table_assets_keyed_on_the_resource_path() {
+    fn models_become_table_assets_keyed_on_the_warehouse() {
         let i = ingested();
         assert_eq!(
             node(&i, "model.jaffle_shop.customers")
                 .asset_path
                 .as_deref(),
-            Some("f/prod/wh/jaffle_dbt/customers")
+            Some("main/jaffle_dbt/customers")
         );
         // `order_events` overrode its database. Dropping that would collapse it
         // onto a same-named relation in the target's own database, merging their
@@ -1184,7 +1208,7 @@ mod tests {
             node(&i, "model.jaffle_shop.order_events")
                 .asset_path
                 .as_deref(),
-            Some("f/prod/wh/archive.jaffle_dbt/order_events")
+            Some("main/archive.jaffle_dbt/order_events")
         );
         // `config.schema` on the snapshot is the custom SUFFIX (`snapshots`);
         // the relation actually lives in the resolved `jaffle_dbt_snapshots`.
@@ -1193,7 +1217,7 @@ mod tests {
             node(&i, "snapshot.jaffle_shop.customers_snapshot")
                 .asset_path
                 .as_deref(),
-            Some("f/prod/wh/jaffle_dbt_snapshots/customers_snapshot")
+            Some("main/jaffle_dbt_snapshots/customers_snapshot")
         );
         // No physical relation, no asset — `dbt://` stays reserved and unused.
         assert_eq!(
@@ -1223,31 +1247,31 @@ mod tests {
             got,
             vec![
                 (
-                    "f/prod/wh/archive.jaffle_dbt/order_events".into(),
+                    "main/archive.jaffle_dbt/order_events".into(),
                     Some(AssetUsageAccessType::W)
                 ),
                 (
-                    "f/prod/wh/jaffle_dbt/composite_key".into(),
+                    "main/jaffle_dbt/composite_key".into(),
                     Some(AssetUsageAccessType::W)
                 ),
                 (
-                    "f/prod/wh/jaffle_dbt/customers".into(),
+                    "main/jaffle_dbt/customers".into(),
                     Some(AssetUsageAccessType::W)
                 ),
                 (
-                    "f/prod/wh/jaffle_dbt/orders_daily".into(),
+                    "main/jaffle_dbt/orders_daily".into(),
                     Some(AssetUsageAccessType::W)
                 ),
                 (
-                    "f/prod/wh/jaffle_dbt/stg_customers".into(),
+                    "main/jaffle_dbt/stg_customers".into(),
                     Some(AssetUsageAccessType::W)
                 ),
                 (
-                    "f/prod/wh/jaffle_dbt_snapshots/customers_snapshot".into(),
+                    "main/jaffle_dbt_snapshots/customers_snapshot".into(),
                     Some(AssetUsageAccessType::W)
                 ),
                 (
-                    "f/prod/wh/jaffle_raw/raw_orders".into(),
+                    "main/jaffle_raw/raw_orders".into(),
                     Some(AssetUsageAccessType::R)
                 ),
             ]
@@ -1265,7 +1289,7 @@ mod tests {
         let sel: std::collections::HashSet<String> = ["model.jaffle_shop.customers".to_string()]
             .into_iter()
             .collect();
-        let i = ingest_manifest(&m, "f/prod/wh", Some("wh"), Some(&sel));
+        let i = ingest_manifest(&m, "main", Some("wh"), Some(&sel));
         let owned: Vec<&str> = i
             .assets
             .iter()
@@ -1273,7 +1297,7 @@ mod tests {
             .map(|a| a.path.as_str())
             .collect();
         // The parent is NOT claimed as a write: the other script builds it.
-        assert_eq!(owned, vec!["f/prod/wh/jaffle_dbt/customers"]);
+        assert_eq!(owned, vec!["main/jaffle_dbt/customers"]);
         let reads: Vec<&str> = i
             .assets
             .iter()
@@ -1281,7 +1305,7 @@ mod tests {
             .map(|a| a.path.as_str())
             .collect();
         assert!(
-            reads.contains(&"f/prod/wh/jaffle_dbt/orders_daily"),
+            reads.contains(&"main/jaffle_dbt/orders_daily"),
             "the unselected parent is an input, got {reads:?}"
         );
         assert!(
@@ -1302,14 +1326,14 @@ mod tests {
         let sel: std::collections::HashSet<String> = ["model.jaffle_shop.orders_daily".to_string()]
             .into_iter()
             .collect();
-        let i = ingest_manifest(&m, "f/prod/wh", Some("wh"), Some(&sel));
+        let i = ingest_manifest(&m, "main", Some("wh"), Some(&sel));
         let owned: Vec<&str> = i
             .assets
             .iter()
             .filter(|a| a.access_type == Some(AssetUsageAccessType::W))
             .map(|a| a.path.as_str())
             .collect();
-        assert_eq!(owned, vec!["f/prod/wh/jaffle_dbt/orders_daily"]);
+        assert_eq!(owned, vec!["main/jaffle_dbt/orders_daily"]);
         // The source the selected model reads is kept — that is how the graph
         // knows the input. A source only unselected models read is NOT, or the
         // script would subscribe to tables it never touches.
@@ -1319,7 +1343,7 @@ mod tests {
             .filter(|a| a.access_type == Some(AssetUsageAccessType::R))
             .map(|a| a.path.as_str())
             .collect();
-        assert_eq!(reads, vec!["f/prod/wh/jaffle_raw/raw_orders"]);
+        assert_eq!(reads, vec!["main/jaffle_raw/raw_orders"]);
         // Edges to nodes this script does not own are dropped with them.
         assert_eq!(
             i.edges,
@@ -1361,7 +1385,7 @@ mod tests {
             "schema": "jaffle_raw", "relation_name": "\"wh\".\"jaffle_raw\".\"unused\""
         });
         let m: Manifest = serde_json::from_value(v).unwrap();
-        let i = ingest_manifest(&m, "f/prod/wh", Some("wh"), None);
+        let i = ingest_manifest(&m, "main", Some("wh"), None);
         let reads: Vec<&str> = i
             .assets
             .iter()
@@ -1369,11 +1393,11 @@ mod tests {
             .map(|a| a.path.as_str())
             .collect();
         assert!(
-            !reads.contains(&"f/prod/wh/jaffle_raw/unused"),
+            !reads.contains(&"main/jaffle_raw/unused"),
             "unused source registered as a read: {reads:?}"
         );
         assert!(
-            reads.contains(&"f/prod/wh/jaffle_raw/raw_orders"),
+            reads.contains(&"main/jaffle_raw/raw_orders"),
             "{reads:?}"
         );
     }
@@ -1388,7 +1412,7 @@ mod tests {
         let sel: std::collections::HashSet<String> = ["model.jaffle_shop.customers".to_string()]
             .into_iter()
             .collect();
-        let i = ingest_manifest(&m, "f/prod/wh", Some("wh"), Some(&sel));
+        let i = ingest_manifest(&m, "main", Some("wh"), Some(&sel));
         let by_access = |t: AssetUsageAccessType| -> Vec<&str> {
             i.assets
                 .iter()
@@ -1398,11 +1422,11 @@ mod tests {
         };
         assert_eq!(
             by_access(AssetUsageAccessType::W),
-            vec!["f/prod/wh/jaffle_dbt/customers"]
+            vec!["main/jaffle_dbt/customers"]
         );
         assert_eq!(
             by_access(AssetUsageAccessType::R),
-            vec!["f/prod/wh/jaffle_dbt/orders_daily"]
+            vec!["main/jaffle_dbt/orders_daily"]
         );
 
         // Selecting a model also selects its tests, and the `relationships`
@@ -1415,7 +1439,7 @@ mod tests {
         ]
         .into_iter()
         .collect();
-        let i = ingest_manifest(&m, "f/prod/wh", Some("wh"), Some(&staging));
+        let i = ingest_manifest(&m, "main", Some("wh"), Some(&staging));
         assert!(
             !i.assets.iter().any(|a| a.path.ends_with("/orders_daily")),
             "a test's dependency must not become a read: {:?}",
@@ -1444,14 +1468,14 @@ mod tests {
         .unwrap();
         let sel: std::collections::HashSet<String> =
             ["model.p.mart".to_string()].into_iter().collect();
-        let i = ingest_manifest(&m, "f/prod/wh", Some("wh"), Some(&sel));
+        let i = ingest_manifest(&m, "main", Some("wh"), Some(&sel));
         let reads: Vec<&str> = i
             .assets
             .iter()
             .filter(|a| a.access_type == Some(AssetUsageAccessType::R))
             .map(|a| a.path.as_str())
             .collect();
-        assert_eq!(reads, vec!["f/prod/wh/s/base"]);
+        assert_eq!(reads, vec!["main/s/base"]);
     }
 
     // `A -> ephemeral -> B` must still read as `A -> B`: the ephemeral node has
@@ -1472,7 +1496,7 @@ mod tests {
               "parent_map":{"model.p.e":["model.p.a"],"model.p.b":["model.p.e"]}}"#,
         )
         .unwrap();
-        let i = ingest_manifest(&m, "f/prod/wh", Some("wh"), None);
+        let i = ingest_manifest(&m, "main", Some("wh"), None);
         assert_eq!(
             i.edges,
             vec![("model.p.a".to_string(), "model.p.b".to_string())]
@@ -1522,7 +1546,7 @@ mod tests {
                "parent_map":{"model.p.customers":[]}}"#,
         )
         .unwrap();
-        let ingested = ingest_manifest(&manifest, "f/prod/wh", Some("wh"), None);
+        let ingested = ingest_manifest(&manifest, "main", Some("wh"), None);
         assert!(!ingested.assets.is_empty(), "fixture must produce an asset");
 
         let wire = serde_json::to_value(&ingested).unwrap();

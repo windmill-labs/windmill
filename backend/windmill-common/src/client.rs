@@ -115,6 +115,15 @@ impl AuthedClient {
         }
     }
 
+    /// Where a dbt warehouse name points, for a worker with no database.
+    pub async fn get_dbt_warehouse<T: DeserializeOwned>(&self, name: &str) -> anyhow::Result<T> {
+        let url = format!(
+            "{}/api/w/{}/dbt/warehouse/{}",
+            self.base_internal_url, self.workspace, name
+        );
+        make_basic_get_request(self, &url, None, Some("decoding the dbt warehouse ref")).await
+    }
+
     pub async fn get_completed_job_result<T: DeserializeOwned>(
         &self,
         path: &str,

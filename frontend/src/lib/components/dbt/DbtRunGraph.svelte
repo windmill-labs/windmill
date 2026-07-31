@@ -320,8 +320,7 @@
 			// `ref()` lineage between two of this project's own models is the shape
 			// of the dbt DAG, so it is the one edge set worth keeping whole.
 			dbt_edges: (raw.dbt_edges ?? []).filter(
-				(e) =>
-					assetIds.has(`dbt:${e.from_asset_path}`) && assetIds.has(`dbt:${e.to_asset_path}`)
+				(e) => assetIds.has(`dbt:${e.from_asset_path}`) && assetIds.has(`dbt:${e.to_asset_path}`)
 			)
 		} as AssetGraphResponse
 	})
@@ -728,7 +727,7 @@
 		{:else}
 			This dbt script has no models in the asset graph. A project that brings its own
 			<span class="font-mono">profiles.yml</span> without naming a
-			<span class="font-mono">profile.resource</span> has no warehouse identity to key them on.
+			<span class="font-mono">profile.warehouse</span> has no warehouse identity to key them on.
 		{/if}
 	</div>
 {:else}

@@ -923,8 +923,7 @@ async fn get_dbt_resumable(
     // The CALLER's principal, not the one this run executed as: a retry is a new
     // job submitted by whoever is reading, so a run of Alice's that Bob may read
     // is not one Bob's retry could resume.
-    let Some(permissioned_as) =
-        dbt_retry_principal(&user_db, &authed, &w_id, &script_path).await?
+    let Some(permissioned_as) = dbt_retry_principal(&user_db, &authed, &w_id, &script_path).await?
     else {
         return Ok(Json(None));
     };
@@ -949,8 +948,7 @@ async fn get_dbt_resumable_for_script(
         return Ok(Json(None));
     }
     let path = script_path.to_path();
-    let Some(permissioned_as) = dbt_retry_principal(&user_db, &authed, &w_id, path).await?
-    else {
+    let Some(permissioned_as) = dbt_retry_principal(&user_db, &authed, &w_id, path).await? else {
         return Ok(Json(None));
     };
     let Some(job_id) = resumable_run(&db, &w_id, path, &permissioned_as).await? else {
