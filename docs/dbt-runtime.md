@@ -184,9 +184,12 @@ resource would create does not arise. The warehouse names the default database
 too, so it stays out of the key; a model that *overrides*
 its database (Snowflake `database`, BigQuery `project`) is genuinely elsewhere and
 qualifies its schema segment as `<database>.<schema>`, so two same-named relations
-in different databases cannot collapse onto one node. When the default database is
-unknown — the project brought its own `profiles.yml` — every relation qualifies,
-because assuming they share one database is exactly what would collapse them.
+in different databases cannot collapse onto one node. A project that brings its own
+`profiles.yml` reports its target's database from that file, read with the same
+keys the renderer writes, so it spells a relation exactly as a workspace-warehouse
+project does and the two meet on one node. Only where the target leaves its
+database implicit does every relation qualify, because assuming they share one
+database is exactly what would collapse them.
 
 Three call sites derive this key: the manifest ingest that creates the node, and
 the live-progress and end-of-run paths that record status against it. They share
@@ -242,6 +245,12 @@ a configured warehouse — a typo is not identity, it strands the project's mode
 on a node nothing else reaches — but it grants nothing, since nothing here is
 granted. It gets no identity by default, because defaulting to `main` would key a
 self-hosted profile's tables onto a workspace warehouse it never connected to.
+
+That label is worth having only because such a project spells its relations the
+same way: Windmill reads the target's database out of the project's own file
+(Decision 11), so a mart it builds and a workspace-warehouse project's `source`
+on the same relation land on ONE node. Without that the label would name a
+namespace and still share nothing, which is the failure it exists to prevent.
 
 An agent worker cannot read the database, so it resolves the name through a
 job-scoped API route. That route returns the resolved connection, which is why it

@@ -2479,6 +2479,15 @@ mod tests {
     }
 }
 
+/// Whether a workspace configures this warehouse, without resolving it.
+///
+/// For the one caller that needs the NAME and nothing else: a project bringing
+/// its own `profiles.yml` names a warehouse to say where its assets belong, and
+/// decrypting a connection it will never open to answer that would be waste.
+pub async fn dbt_warehouse_exists(db: &DB, w_id: &str, warehouse: &str) -> Result<()> {
+    dbt_warehouse_resource(db, w_id, warehouse).await.map(|_| ())
+}
+
 /// The connection a dbt warehouse points at, resolved with NO permission check.
 ///
 /// Deliberate, and the whole point of configuring warehouses on the workspace:

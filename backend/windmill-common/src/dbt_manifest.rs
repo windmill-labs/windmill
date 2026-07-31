@@ -455,10 +455,11 @@ fn asset_path_for(
 /// The resource names the warehouse and its default database, so a relation in
 /// that database uses the plain three-segment spelling. One that overrode its
 /// database is genuinely elsewhere and qualifies its schema segment as
-/// `<database>.<schema>`, so two same-named relations cannot collapse. When the
-/// default is unknown — the project brought its own `profiles.yml`, so Windmill
-/// never saw a database — every relation that names one qualifies, because
-/// assuming they all share a database is what would collapse them.
+/// `<database>.<schema>`, so two same-named relations cannot collapse. A project
+/// that owns its `profiles.yml` reports its target's database the same way, so
+/// both kinds of project spell one relation identically; only where a target
+/// leaves its database implicit does every relation qualify, because assuming
+/// they all share a database is what would collapse them.
 pub fn table_asset_path(
     warehouse: &str,
     database: Option<&str>,

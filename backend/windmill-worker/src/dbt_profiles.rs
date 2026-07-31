@@ -231,6 +231,23 @@ impl DbtAdapter {
     }
 
     /// dbt spells the database differently per adapter.
+    /// The keys a target block spells its database and schema with, mirroring
+    /// what `render_profile` emits below.
+    ///
+    /// Read back when the PROJECT owns its `profiles.yml`. Windmill did not
+    /// write that file, but it still needs the target's database to spell
+    /// `dbt://` paths the way a rendered profile does: without it every relation
+    /// qualifies as `<db>.<schema>` while a workspace-warehouse project spells
+    /// the same table plainly, and the two never share a node.
+    pub fn target_identity_keys(&self) -> (&'static str, &'static str) {
+        match self {
+            DbtAdapter::Snowflake => ("database", "schema"),
+            DbtAdapter::Bigquery => ("project", "dataset"),
+            DbtAdapter::Databricks => ("catalog", "schema"),
+            _ => (self.database_key(), "schema"),
+        }
+    }
+
     fn database_key(&self) -> &'static str {
         self.spec().database_key
     }

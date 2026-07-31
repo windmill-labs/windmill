@@ -1535,12 +1535,13 @@ async fn write_profiles(
         // the file is what dbt connects with. Licensing is why it cannot be a hint —
         // the Rust engines carry every adapter, so a descriptor claiming `postgres`
         // over a `sqlserver` target would pass the CE check and connect anyway.
-        let actual = adapter_from_profiles_yml(
+        let target = adapter_from_profiles_yml(
             &path,
             &project_profile_name(project_dir).await,
             descriptor.profile.target.as_deref(),
         )
         .await?;
+        let actual = target.adapter;
         if let Some(declared) = declared.filter(|d| *d != actual) {
             return Err(Error::BadRequest(format!(
                 "`profile.type: {}` disagrees with `{}`, whose target uses `{}`. dbt connects \
@@ -1552,10 +1553,12 @@ async fn write_profiles(
         }
         let adapter = actual;
         ensure_adapter_licensed(adapter)?;
-        // The project owns its profile, so Windmill knows neither its database
-        // nor its schema. `asset_path_for` then qualifies every relation that
-        // names a database, because assuming two share one is what would
-        // collapse distinct relations onto a single node.
+        // The target's own database and schema, read from the file dbt connects
+        // with. A relation that sits in them is then spelled plainly, exactly as
+        // a workspace-warehouse project spells it, and one that overrides them
+        // qualifies. Where the file leaves them implicit they stay `None` and
+        // every relation qualifies, since assuming two share a database is what
+        // would collapse distinct relations onto a single node.
         let profile_digest = digest(&tokio::fs::read_to_string(&path).await.unwrap_or_default());
         // Identity only when the descriptor NAMES a warehouse: defaulting to
         // `main` would key a self-hosted profile's assets onto the workspace
@@ -1566,12 +1569,28 @@ async fn write_profiles(
         // project's models on a node nothing else reaches.
         let identity = match descriptor.profile.warehouse.as_deref() {
             Some(named) => {
-                resolve_warehouse(named, client, w_id, conn).await?;
+                windmill_common::workspaces::validate_dbt_warehouse_name(named)?;
+                match conn {
+                    Connection::Sql(db) => {
+                        windmill_common::workspaces::dbt_warehouse_exists(db, w_id, named).await?
+                    }
+                    // No settings access without a database; the run is not
+                    // connecting through it either way, so a name that turns out
+                    // to be a typo costs a graph, not a run.
+                    Connection::Http(_) => {}
+                }
                 Some(named.to_string())
             }
             None => None,
         };
-        return Ok((dir, identity, adapter, None, None, profile_digest));
+        return Ok((
+            dir,
+            identity,
+            adapter,
+            target.database,
+            target.schema,
+            profile_digest,
+        ));
     }
 
     let resolved = resolve_warehouse(warehouse, client, w_id, conn).await?;
@@ -1673,7 +1692,7 @@ async fn adapter_from_profiles_yml(
     path: &Path,
     profile_name: &str,
     target: Option<&str>,
-) -> error::Result<DbtAdapter> {
+) -> error::Result<ProfileTarget> {
     let content = tokio::fs::read_to_string(path)
         .await
         .map_err(|e| Error::BadRequest(format!("could not read {}: {e}", path.display())))?;
@@ -1704,18 +1723,41 @@ async fn adapter_from_profiles_yml(
                 path.display()
             ))
         })?;
-    let t = outputs
-        .get(target)
-        .and_then(|o| o.get("type"))
-        .and_then(|t| t.as_str())
-        .ok_or_else(|| {
-            Error::BadRequest(format!(
-                "{} has no `{target}` target with a `type` under `{profile_name}`",
-                path.display()
-            ))
-        })?;
-    DbtAdapter::from_resource_type(t)
-        .ok_or_else(|| Error::BadRequest(format!("unsupported dbt adapter `{t}`")))
+    let out = outputs.get(target).ok_or_else(|| {
+        Error::BadRequest(format!(
+            "{} has no `{target}` target under `{profile_name}`",
+            path.display()
+        ))
+    })?;
+    let t = out.get("type").and_then(|t| t.as_str()).ok_or_else(|| {
+        Error::BadRequest(format!(
+            "{} has no `{target}` target with a `type` under `{profile_name}`",
+            path.display()
+        ))
+    })?;
+    let adapter = DbtAdapter::from_resource_type(t)
+        .ok_or_else(|| Error::BadRequest(format!("unsupported dbt adapter `{t}`")))?;
+    // The target's own database and schema, read with the same keys the renderer
+    // writes. A project that owns its profile then spells its `dbt://` paths
+    // identically to one on a workspace warehouse, which is what lets the two
+    // meet on the same node when they are on the same relation.
+    let (database_key, schema_key) = adapter.target_identity_keys();
+    let read = |k: &str| {
+        out.get(k)
+            .and_then(|v| v.as_str())
+            .map(|v| v.to_string())
+            .filter(|v| !v.is_empty() && !v.contains("{{"))
+    };
+    Ok(ProfileTarget { adapter, database: read(database_key), schema: read(schema_key) })
+}
+
+/// What a project-owned `profiles.yml` target says, for the two things Windmill
+/// needs from a file it did not write: which adapter to provision, and how to
+/// spell the relations it will produce.
+struct ProfileTarget {
+    adapter: DbtAdapter,
+    database: Option<String>,
+    schema: Option<String>,
 }
 
 /// dbt takes the profile to use from `dbt_project.yml`, so a rendered
@@ -4778,6 +4820,53 @@ mod tests {
         // separators keep `ab|c` from digesting the same as `a|bc`.
         let renamed = m(&[("models/b.sql", "select 1"), ("dbt_project.yml", "name: p")]);
         assert_ne!(project_digest(Some(&a)), project_digest(Some(&renamed)));
+    }
+
+    // A project that owns its `profiles.yml` has to spell its relations the way
+    // a workspace-warehouse project does, or the same physical table becomes two
+    // nodes — `main/analytics/orders` for one and `main/prod.analytics/orders`
+    // for the other — and the lineage they exist to share never connects.
+    #[tokio::test]
+    async fn a_project_owned_profile_reports_its_target_database() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("profiles.yml");
+        std::fs::write(
+            &path,
+            "jaffle:\n  target: prod\n  outputs:\n    prod:\n      type: snowflake\n\
+             \x20     database: prod\n      schema: analytics\n",
+        )
+        .unwrap();
+        let t = adapter_from_profiles_yml(&path, "jaffle", None).await.unwrap();
+        assert_eq!(t.adapter, DbtAdapter::Snowflake);
+        assert_eq!(t.database.as_deref(), Some("prod"));
+        assert_eq!(t.schema.as_deref(), Some("analytics"));
+        // Spelled plainly, exactly as a rendered profile on the same relation.
+        assert_eq!(
+            windmill_common::dbt_manifest::table_asset_path(
+                "main",
+                Some("prod"),
+                "analytics",
+                "orders",
+                t.database.as_deref(),
+            ),
+            "main/analytics/orders"
+        );
+    }
+
+    // A target that leaves its database to dbt's own defaults says nothing, and
+    // guessing one would collapse relations that are genuinely apart.
+    #[tokio::test]
+    async fn an_implicit_database_stays_unknown() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("profiles.yml");
+        std::fs::write(
+            &path,
+            "jaffle:\n  target: dev\n  outputs:\n    dev:\n      type: postgres\n\
+             \x20     dbname: \"{{ env_var('DB') }}\"\n",
+        )
+        .unwrap();
+        let t = adapter_from_profiles_yml(&path, "jaffle", None).await.unwrap();
+        assert_eq!(t.database, None);
     }
 
     #[tokio::test]
