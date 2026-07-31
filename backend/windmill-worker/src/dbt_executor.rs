@@ -2439,12 +2439,14 @@ async fn reconcile_materializations(
                 // outcomes are the only per-model state an agent's run page
                 // ever gets.
                 if let Err(e) = client
-                    .record_dbt_run_progress(&windmill_common::dbt_manifest::DbtRunProgressRequest {
-                        asset_path: path.clone(),
-                        status,
-                        row_count: r.rows_affected,
-                        error: error.map(|e| e.to_string()),
-                    })
+                    .record_dbt_run_progress(
+                        &windmill_common::dbt_manifest::DbtRunProgressRequest {
+                            asset_path: path.clone(),
+                            status,
+                            row_count: r.rows_affected,
+                            error: error.map(|e| e.to_string()),
+                        },
+                    )
                     .await
                 {
                     tracing::warn!("recording dbt run progress for {path}: {e:#}");
@@ -4836,7 +4838,9 @@ mod tests {
              \x20     database: prod\n      schema: analytics\n",
         )
         .unwrap();
-        let t = adapter_from_profiles_yml(&path, "jaffle", None).await.unwrap();
+        let t = adapter_from_profiles_yml(&path, "jaffle", None)
+            .await
+            .unwrap();
         assert_eq!(t.adapter, DbtAdapter::Snowflake);
         assert_eq!(t.database.as_deref(), Some("prod"));
         assert_eq!(t.schema.as_deref(), Some("analytics"));
@@ -4865,7 +4869,9 @@ mod tests {
              \x20     dbname: \"{{ env_var('DB') }}\"\n",
         )
         .unwrap();
-        let t = adapter_from_profiles_yml(&path, "jaffle", None).await.unwrap();
+        let t = adapter_from_profiles_yml(&path, "jaffle", None)
+            .await
+            .unwrap();
         assert_eq!(t.database, None);
     }
 

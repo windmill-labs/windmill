@@ -1397,10 +1397,7 @@ mod tests {
             !reads.contains(&"main/jaffle_raw/unused"),
             "unused source registered as a read: {reads:?}"
         );
-        assert!(
-            reads.contains(&"main/jaffle_raw/raw_orders"),
-            "{reads:?}"
-        );
+        assert!(reads.contains(&"main/jaffle_raw/raw_orders"), "{reads:?}");
     }
 
     // Splitting a project across scripts only composes if the downstream one

@@ -123,10 +123,7 @@ pub fn workspaced_service() -> Router {
             "/edit_large_file_storage_config",
             post(edit_large_file_storage_config),
         )
-        .route(
-            "/edit_dbt_warehouses",
-            post(edit_dbt_warehouses),
-        )
+        .route("/edit_dbt_warehouses", post(edit_dbt_warehouses))
         .route("/edit_ducklake_config", post(edit_ducklake_config))
         .route("/list_ducklakes", get(list_ducklakes))
         .route("/list_datatables", get(list_datatables))
@@ -1757,10 +1754,10 @@ fn validate_dbt_resource_path(name: &str, path: &str) -> Result<()> {
     let parts: Vec<&str> = bare.split('/').collect();
     let ok = (bare.starts_with("f/") || bare.starts_with("u/"))
         && parts.len() >= 3
-        && parts.iter().all(|p| !p.is_empty() && *p != "." && *p != "..")
-        && !bare
-            .chars()
-            .any(|c| c.is_control() || "?#%\\ ".contains(c));
+        && parts
+            .iter()
+            .all(|p| !p.is_empty() && *p != "." && *p != "..")
+        && !bare.chars().any(|c| c.is_control() || "?#%\\ ".contains(c));
     if !ok {
         return Err(Error::BadRequest(format!(
             "the dbt warehouse `{name}` names `{path}`, which is not a resource path \

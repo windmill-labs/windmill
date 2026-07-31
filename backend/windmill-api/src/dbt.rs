@@ -1,4 +1,8 @@
-use axum::{extract::Path, routing::{get, post}, Extension, Json, Router};
+use axum::{
+    extract::Path,
+    routing::{get, post},
+    Extension, Json, Router,
+};
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
