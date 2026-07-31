@@ -100,6 +100,14 @@ describe('statusRank', () => {
 		expect(statusRank('PARTIAL SUCCESS')).toBe(0)
 	})
 
+	// The worker publishes `unknown` for a status it does not recognise and counts
+	// it in `totals.error`; ranking it as a pass drew a green check on a node the
+	// same result called an error.
+	it('ranks an unknown outcome with the failures, not with the passes', () => {
+		expect(statusRank('some-future-dbt-status', 'unknown')).toBe(0)
+		expect(statusRank('success', 'unknown')).toBe(0)
+	})
+
 	it('orders failed before warned before skipped before passed', () => {
 		expect(
 			['success', 'skipped', 'warn', 'error'].sort((a, b) => statusRank(a) - statusRank(b))

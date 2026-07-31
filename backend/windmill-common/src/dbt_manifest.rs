@@ -8,11 +8,15 @@
 //! Two things this module is deliberate about:
 //!
 //! * **Asset identity is the physical relation.** A model becomes
-//!   `dbt://<resource_path>/<schema>/<name>`, never `dbt://…`. Keying on the
-//!   producing tool would mean a native script reading the same warehouse table
-//!   forms no edge, and the two sit on the graph as unrelated islands. A dbt
-//!   run does not trigger those readers (decision 11, "No cascade from dbt");
-//!   sharing the node is what makes the lineage one graph.
+//!   `dbt://<resource_path>/<schema>/<name>`: the scheme names dbt, which is the
+//!   only thing that creates one, but the PATH is the relation and never dbt's
+//!   own `unique_id`. Two projects meet at a handoff — one materializes a mart,
+//!   the next declares it a `source` — where `model.a.orders` and
+//!   `source.b.analytics.orders` differ but the relation does not, so keying on
+//!   the node id would leave each project an island; a native script reading the
+//!   same table would form no edge either. A dbt run does not trigger those
+//!   readers (decision 11, "No cascade from dbt"); sharing the node is what makes
+//!   the lineage one graph.
 //! * **The warehouse is identified by the Windmill resource path**, matching
 //!   `datatable://` and `ducklake://`. Connection details (host, account) are
 //!   never part of the key: the same warehouse is reachable under several

@@ -481,12 +481,18 @@
 	// running when the selection moves — the result lands in the cache and is
 	// there when the reader comes back.
 	let previews = $state<Record<string, Preview>>({})
-	let preview = $derived(selectedDbt ? previews[selectedDbt.unique_id] : undefined)
+	// Read under the same key `runPreview` writes: the model AND the arguments it
+	// ran with, so an edited var shows its own rows rather than the last ones.
+	let preview = $derived(
+		selectedDbt ? previews[`${selectedDbt.unique_id}|${JSON.stringify(runArgs ?? {})}`] : undefined
+	)
 	let previewing = $derived(preview != undefined && 'pending' in preview)
 	// Which model's rows are on display. Keyed by id rather than a boolean so
 	// moving the selection goes back to SQL without anything having to reset it.
 	let rowsFor = $state<string | undefined>(undefined)
-	let showRows = $derived(selectedDbt != undefined && rowsFor === selectedDbt.unique_id)
+	let showRows = $derived(
+		selectedDbt != undefined && rowsFor?.startsWith(`${selectedDbt.unique_id}|`) === true
+	)
 
 	// A column can hold an array or a JSON object, whose default stringification
 	// is `[object Object]` — which tells the reader nothing about the value.
@@ -499,7 +505,11 @@
 		const ws = $workspaceStore
 		const dbt = selectedDbt
 		if (!ws || !dbt) return
-		const key = dbt.unique_id
+		// Keyed on the ARGUMENTS too, not the model alone: on the script page the
+		// form above feeds this, so a var edited between two clicks previews a
+		// different query — and a cache that ignored it would return the old rows
+		// as though nothing had changed.
+		const key = `${dbt.unique_id}|${JSON.stringify(runArgs ?? {})}`
 		// Displaying the rows and running the job are separate: coming back from
 		// the SQL to a result already in hand must not spend another worker slot.
 		rowsFor = key

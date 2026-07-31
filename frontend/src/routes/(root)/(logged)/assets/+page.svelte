@@ -183,6 +183,22 @@
 			if (!uniqueId) {
 				return fail('No dbt model is recorded as building this table, so there is nothing to run.')
 			}
+			// Provenance keeps ONE winner per relation workspace-wide, and two projects
+			// may write the same table — so the winner need not be the writer found
+			// above. Running that writer with the other's package-qualified selector
+			// previews a model it does not have.
+			const pkg = uniqueId.split('.')[1]
+			const producerPkgs = new Set(
+				(graph.assets ?? [])
+					.filter((a: any) => a.dbt?.unique_id && dbtProducerOf(a as AssetRow) === script)
+					.map((a: any) => a.dbt.unique_id.split('.')[1])
+			)
+			if (producerPkgs.size > 0 && !producerPkgs.has(pkg)) {
+				return fail(
+					`Another dbt project also writes this table, and its model is the one on record — ` +
+						`open that project to preview it.`
+				)
+			}
 			if (seq !== previewSeq) return
 			const res = await previewDbtRows({
 				workspace: ws,
