@@ -355,7 +355,10 @@
 			folderState[prefix] = {
 				loading: false,
 				loaded: true,
-				nextPageToken: page.next_page_token
+				// An exhausted level serializes as JSON `null`, which is not `undefined`
+				// — leaving it as-is makes "no more pages" look like another page and
+				// sends the level round again with no token.
+				nextPageToken: page.next_page_token ?? undefined
 			}
 		} catch (e) {
 			if (generation === listingGeneration) {
