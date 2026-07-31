@@ -40,6 +40,7 @@
 	} from '$lib/components/common'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
+	import DbtRunGraph from '$lib/components/dbt/DbtRunGraph.svelte'
 	import { goto } from '$lib/navigation'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 
@@ -959,6 +960,18 @@
 								{jsonView}
 							/>
 						</div>
+
+						{#if script?.language === 'dbt' && script?.path}
+							<!-- Under the run form, where a flow shows its graph: a dbt script's
+							     `content` is a descriptor, so what it BUILDS is the thing to see.
+							     Pinned to the version on screen and given no job, so this is the
+							     project as THIS deploy declared it; a node opens its SQL and
+							     previews its rows. -->
+							<div class="grow min-h-0 pt-6">
+								<h3 class="text-xs font-semibold text-emphasis mb-1">Models</h3>
+								<DbtRunGraph scriptPath={script.path} scriptHash={script.hash} />
+							</div>
+						{/if}
 
 						<div class="pt-4 flex flex-row gap-1 w-full justify-end items-center">
 							{#if !isHubScript}
