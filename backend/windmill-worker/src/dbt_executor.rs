@@ -1564,10 +1564,20 @@ async fn write_profiles(
                     Connection::Sql(db) => {
                         windmill_common::workspaces::dbt_warehouse_exists(db, w_id, named).await?
                     }
-                    // No settings access without a database; the run is not
-                    // connecting through it either way, so a name that turns out
-                    // to be a typo costs a graph, not a run.
-                    Connection::Http(_) => {}
+                    // Checked on an agent too, through the route that resolves
+                    // one. Accepting a name here that a database-backed worker
+                    // refuses would let the same project publish its graph under
+                    // a warehouse that does not exist, depending only on which
+                    // worker picked the job up.
+                    Connection::Http(_) => {
+                        client.get_dbt_warehouse::<serde_json::Value>(named).await.map_err(|e| {
+                            Error::BadRequest(format!(
+                                "`profile.warehouse: {named}` is where this project's assets \
+                                 belong, so it must name a warehouse this workspace configures: \
+                                 {e}"
+                            ))
+                        })?;
+                    }
                 }
                 Some(named.to_string())
             }
@@ -2107,13 +2117,6 @@ async fn run_dbt(
     }
     res.map(|_| ())
 }
-
-/// Record one model's state for THIS RUN.
-///
-/// Alongside `record_materialization`, never instead of it: that table holds the
-/// current state of a relation, one row, and its `job_id` is only the last
-/// writer — two runs of a project building the same models overwrite each
-/// other's. The run page needs what THIS job did, so it gets its own rows.
 
 /// How long a run's progress rows outlive it.
 ///

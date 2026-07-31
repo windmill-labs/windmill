@@ -17,11 +17,11 @@
 //!   same table would form no edge either. A dbt run does not trigger those
 //!   readers (decision 11, "No cascade from dbt"); sharing the node is what makes
 //!   the lineage one graph.
-//! * **The warehouse is identified by the Windmill resource path**, matching
-//!   `datatable://` and `ducklake://`. Connection details (host, account) are
-//!   never part of the key: the same warehouse is reachable under several
+//! * **The warehouse is identified by its workspace NAME**, matching the way
+//!   `ducklake://main.orders` names a lake. Connection details (host, account)
+//!   are never part of the key: the same warehouse is reachable under several
 //!   hostnames, and credential material has no business in an asset key. The
-//!   resource names the default database too, so relations in it need no
+//!   warehouse names the default database too, so relations in it need no
 //!   qualification; one that OVERRODE its database qualifies its schema segment
 //!   (`table_asset_path`), since two same-named relations in different databases
 //!   are not the same table. The accepted consequence is documented in
@@ -1220,7 +1220,7 @@ mod tests {
                 .as_deref(),
             Some("main/jaffle_dbt_snapshots/customers_snapshot")
         );
-        // No physical relation, no asset — `dbt://` stays reserved and unused.
+        // No physical relation, no asset: nothing to key a `dbt://` path on.
         assert_eq!(
             node(&i, "model.jaffle_shop.ephemeral_helper").asset_path,
             None
@@ -1556,7 +1556,12 @@ mod tests {
     }
 }
 
-/// One run's per-model state, for the run page.
+/// Record one model's state for THIS RUN.
+///
+/// Alongside `record_materialization`, never instead of it: that table holds the
+/// current state of a relation, one row, and its `job_id` is only the last
+/// writer — two runs of a project building the same models overwrite each
+/// other's. The run page needs what THIS job did, so it gets its own rows.
 ///
 /// Shared with the API because an agent worker has no database and posts its
 /// settled outcomes to a route that calls this same function — two spellings of

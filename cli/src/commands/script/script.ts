@@ -82,6 +82,7 @@ import {
   isRawAppPath,
   DBT_DESCRIPTOR_NAME,
   isDbtDescriptorPath,
+  isMissingDbtDescriptor,
 } from "../../utils/resource_folders.ts";
 
 export interface ScriptFile {
@@ -962,13 +963,6 @@ async function createScript(
  */
 export class UnresolvableScriptContentFileError extends Error {}
 
-/** Whether an error is a dbt descriptor that simply is not there. */
-export function isMissingDbtDescriptor(filePath: string, e: unknown): boolean {
-  return (
-    (e as { code?: string })?.code === "ENOENT" &&
-    isDbtDescriptorPath(filePath.replaceAll("\\", "/"))
-  );
-}
 
 /**
  * A script's content, tolerating the one content file that may not exist: a dbt

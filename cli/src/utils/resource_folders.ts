@@ -520,6 +520,14 @@ export function dbtDescriptorPath(scriptBasePath: string): string {
   return scriptBasePath + DBT_MODULE_SUFFIX + "/" + DBT_DESCRIPTOR_NAME;
 }
 
+/** Whether an error is a dbt descriptor that simply is not there. */
+export function isMissingDbtDescriptor(filePath: string, e: unknown): boolean {
+  return (
+    (e as { code?: string })?.code === "ENOENT" &&
+    isDbtDescriptorPath(filePath.replaceAll("\\", "/"))
+  );
+}
+
 /** Whether a path is a dbt descriptor, i.e. a dbt script's content file. */
 export function isDbtDescriptorPath(p: string): boolean {
   const norm = normalizeSep(p);

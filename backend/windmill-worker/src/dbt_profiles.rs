@@ -231,6 +231,10 @@ impl DbtAdapter {
     }
 
     /// dbt spells the database differently per adapter.
+    fn database_key(&self) -> &'static str {
+        self.spec().database_key
+    }
+
     /// The keys a target block spells its database and schema with, mirroring
     /// what `render_profile` emits below.
     ///
@@ -246,10 +250,6 @@ impl DbtAdapter {
             DbtAdapter::Databricks => ("catalog", "schema"),
             _ => (self.database_key(), "schema"),
         }
-    }
-
-    fn database_key(&self) -> &'static str {
-        self.spec().database_key
     }
 
     /// Whether this adapter needs an enterprise license.

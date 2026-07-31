@@ -548,8 +548,10 @@
 			// By HASH whenever the graph is pinned, so the rows are that version's.
 			scriptHash,
 			// Scoped to the node's package, not the bare name: a package can ship a
-			// model whose name the project also uses.
-			model: nodeSelector(key),
+			// model whose name the project also uses. Derived from the node's id
+			// and NEVER from `key`, which carries the run arguments that make the
+			// cache entry distinct and would reach dbt as part of the selector.
+			model: nodeSelector(dbt.unique_id),
 			vars: ran.command?.vars ?? {},
 			args: placeholders,
 			stillWanted: () => gen === runGen && !destroyed

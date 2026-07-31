@@ -40,10 +40,7 @@ fn heading_start_index_points_at_the_heading_line() {
 #[test]
 fn handles_tilde_fences() {
     let content = "# Title\n\n~~~\n# not a heading\n~~~\n\n## Real\n";
-    let titles: Vec<String> = parse_docs_headings(content)
-        .iter()
-        .map(|h| h.title.clone())
-        .collect();
+    let titles: Vec<String> = parse_docs_headings(content).iter().map(|h| h.title.clone()).collect();
     assert_eq!(titles, vec!["Title", "Real"]);
 }
 
@@ -117,46 +114,22 @@ fn render_page_missing_section_returns_outline_note() {
 
 #[test]
 fn normalize_docs_url_cases() {
-    assert_eq!(
-        normalize_docs_url("/docs/core_concepts/jobs"),
-        "https://www.windmill.dev/docs/core_concepts/jobs.md"
-    );
-    assert_eq!(
-        normalize_docs_url("docs/core_concepts/jobs"),
-        "https://www.windmill.dev/docs/core_concepts/jobs.md"
-    );
+    assert_eq!(normalize_docs_url("/docs/core_concepts/jobs"), "https://www.windmill.dev/docs/core_concepts/jobs.md");
+    assert_eq!(normalize_docs_url("docs/core_concepts/jobs"), "https://www.windmill.dev/docs/core_concepts/jobs.md");
     assert_eq!(
         normalize_docs_url("https://www.windmill.dev/docs/core_concepts/jobs#result?foo=bar"),
         "https://www.windmill.dev/docs/core_concepts/jobs.md"
     );
-    assert_eq!(
-        normalize_docs_url("/docs/core_concepts/jobs.md"),
-        "https://www.windmill.dev/docs/core_concepts/jobs.md"
-    );
-    assert_eq!(
-        normalize_docs_url("/docs/core_concepts/jobs/"),
-        "https://www.windmill.dev/docs/core_concepts/jobs.md"
-    );
-    assert_eq!(
-        normalize_docs_url("/docs/flows/13_flow_branches"),
-        "https://www.windmill.dev/docs/flows/flow_branches.md"
-    );
-    assert_eq!(
-        normalize_docs_url("/docs/flows/13_flow_branches.mdx"),
-        "https://www.windmill.dev/docs/flows/flow_branches.md"
-    );
+    assert_eq!(normalize_docs_url("/docs/core_concepts/jobs.md"), "https://www.windmill.dev/docs/core_concepts/jobs.md");
+    assert_eq!(normalize_docs_url("/docs/core_concepts/jobs/"), "https://www.windmill.dev/docs/core_concepts/jobs.md");
+    assert_eq!(normalize_docs_url("/docs/flows/13_flow_branches"), "https://www.windmill.dev/docs/flows/flow_branches.md");
+    assert_eq!(normalize_docs_url("/docs/flows/13_flow_branches.mdx"), "https://www.windmill.dev/docs/flows/flow_branches.md");
 }
 
 #[test]
 fn canonical_docs_page_url_cases() {
-    assert_eq!(
-        canonical_docs_page_url("/docs/flows/flow_editor"),
-        "https://www.windmill.dev/docs/flows/flow_editor"
-    );
-    assert_eq!(
-        canonical_docs_page_url("/docs/flows/14_retries.md"),
-        "https://www.windmill.dev/docs/flows/retries"
-    );
+    assert_eq!(canonical_docs_page_url("/docs/flows/flow_editor"), "https://www.windmill.dev/docs/flows/flow_editor");
+    assert_eq!(canonical_docs_page_url("/docs/flows/14_retries.md"), "https://www.windmill.dev/docs/flows/retries");
 }
 
 #[test]
@@ -178,10 +151,7 @@ fn sanitize_markdown_links_cases() {
     let external = "![diagram](./assets/flow_example.png) and [site](https://example.com/page.md)";
     assert_eq!(sanitize_docs_markdown_links(external, page), external);
     // bare anchor untouched
-    assert_eq!(
-        sanitize_docs_markdown_links("[top](#introduction)", page),
-        "[top](#introduction)"
-    );
+    assert_eq!(sanitize_docs_markdown_links("[top](#introduction)", page), "[top](#introduction)");
     // ../ cross-directory links untouched
     let parent = "[handling](../core_concepts/8_error_handling.mdx)";
     assert_eq!(sanitize_docs_markdown_links(parent, page), parent);
@@ -205,10 +175,7 @@ fn parse_full_text_splits_pages_and_drops_preamble() {
         vec!["Browser automation", "Worker groups", "Scheduling"]
     );
     // The next page's "## Worker groups" lead-in must not leak into this body.
-    let browser = pages
-        .iter()
-        .find(|p| p.url.ends_with("/browser_automation"))
-        .unwrap();
+    let browser = pages.iter().find(|p| p.url.ends_with("/browser_automation")).unwrap();
     assert!(!browser.body.contains("Worker groups"));
     assert!(!browser.body.contains("---"));
 }
@@ -265,10 +232,7 @@ fn merge_dedupes_index_against_body_by_canonical_url() {
     let merged = merge_docs_search_results(body, index, SEARCH_MAX_PAGES);
     assert_eq!(
         merged.iter().map(|r| r.url.clone()).collect::<Vec<_>>(),
-        vec![
-            "https://www.windmill.dev/docs/a",
-            "https://www.windmill.dev/docs/b.md"
-        ]
+        vec!["https://www.windmill.dev/docs/a", "https://www.windmill.dev/docs/b.md"]
     );
 }
 

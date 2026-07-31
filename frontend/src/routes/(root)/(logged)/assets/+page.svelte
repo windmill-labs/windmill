@@ -188,10 +188,24 @@
 			// above. Running that writer with the other's package-qualified selector
 			// previews a model it does not have.
 			const pkg = uniqueId.split('.')[1]
+			// From the EDGES, which is where the graph records who writes what. A
+			// graph node carries the relation and its dbt provenance but no
+			// `usages` — that field belongs to the assets LIST — so asking a node
+			// for its producer throws before a preview is ever submitted.
+			const writes = new Set(
+				(graph.edges ?? [])
+					.filter(
+						(e) =>
+							e.runnable_path === script &&
+							e.runnable_kind === 'script' &&
+							(e.access_type === 'w' || e.access_type === 'rw')
+					)
+					.map((e) => e.asset_path)
+			)
 			const producerPkgs = new Set(
 				(graph.assets ?? [])
-					.filter((a: any) => a.dbt?.unique_id && dbtProducerOf(a as AssetRow) === script)
-					.map((a: any) => a.dbt.unique_id.split('.')[1])
+					.filter((a) => a.dbt?.unique_id && writes.has(a.path))
+					.map((a) => a.dbt!.unique_id.split('.')[1])
 			)
 			if (producerPkgs.size > 0 && !producerPkgs.has(pkg)) {
 				return fail(

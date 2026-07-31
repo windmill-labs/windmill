@@ -930,8 +930,8 @@
 									<Alert type="info" size="xs" title="This rebuilds the whole project">
 										<div class="flex flex-row gap-2 items-center flex-wrap">
 											<span>
-												The run you came from failed part-way. `dbt retry` rebuilds only its
-												failed and skipped nodes, with the arguments it ran with.
+												The run you came from failed part-way. <span class="font-mono">dbt retry</span>
+												rebuilds only its failed and skipped nodes, with the arguments it ran with.
 											</span>
 											<Button size="xs" variant="border" color="light" on:click={useDbtRetry}>
 												Retry that run instead

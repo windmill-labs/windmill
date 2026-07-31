@@ -24,13 +24,29 @@ async fn get_warehouse(
     Extension(_user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,
 ) -> Result<Json<DbtWarehouseConnection>> {
-    // Job-scoped, and the reason it must stay that way: the response carries the
-    // warehouse's credentials, which a running job already holds in its rendered
-    // `profiles.yml`. A browsable route would hand them to anyone.
-    if job_id.is_none() {
+    // Scoped to a running DBT job, and the reason it must stay that way: the
+    // response carries the warehouse's credentials. A dbt job already holds them
+    // in its rendered `profiles.yml`, so serving them changes nothing for it —
+    // but every script job's token carries a job id too, and any other language
+    // asking for them would be reading a credential it was never given.
+    let Some(job_id) = job_id else {
         return Err(Error::BadRequest(
             "this route resolves a dbt warehouse for a running job and needs a job token"
                 .to_string(),
+        ));
+    };
+    let is_dbt = sqlx::query_scalar!(
+        "SELECT script_lang = 'dbt' FROM v2_job WHERE id = $1 AND workspace_id = $2",
+        job_id,
+        &w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .flatten()
+    .unwrap_or(false);
+    if !is_dbt {
+        return Err(Error::NotAuthorized(
+            "only a dbt job may resolve a dbt warehouse".to_string(),
         ));
     }
     windmill_common::workspaces::validate_dbt_warehouse_name(&name)?;

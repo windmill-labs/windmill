@@ -364,11 +364,7 @@ struct Scored {
 
 /// Prefer pages that cover every query term; sort by score desc then input order;
 /// take the top `max_pages`.
-fn finalize_pool(
-    mut scored: Vec<Scored>,
-    term_count: usize,
-    max_pages: usize,
-) -> Vec<DocsSearchResult> {
+fn finalize_pool(mut scored: Vec<Scored>, term_count: usize, max_pages: usize) -> Vec<DocsSearchResult> {
     let has_full = scored.iter().any(|s| s.distinct_terms == term_count);
     if has_full {
         scored.retain(|s| s.distinct_terms == term_count);
@@ -380,11 +376,7 @@ fn finalize_pool(
 /// Ranks docs pages for a keyword query. Score is `distinctTermsMatched`
 /// (dominant) then total occurrences. Each result carries up to
 /// `SEARCH_MAX_SNIPPETS_PER_PAGE` of its most term-dense lines.
-pub fn search_docs_pages(
-    pages: &[DocsFullPage],
-    query: &str,
-    max_pages: usize,
-) -> Vec<DocsSearchResult> {
+pub fn search_docs_pages(pages: &[DocsFullPage], query: &str, max_pages: usize) -> Vec<DocsSearchResult> {
     let terms = tokenize_query(query);
     if terms.is_empty() {
         return Vec::new();
@@ -428,11 +420,7 @@ pub fn search_docs_pages(
 /// Ranks index entries by matching query terms against each entry's title and
 /// description (title matches weigh more). The description becomes the result's
 /// single snippet. Recovers "named feature" discovery that full-text grep misses.
-pub fn search_docs_index(
-    entries: &[DocsIndexEntry],
-    query: &str,
-    max_pages: usize,
-) -> Vec<DocsSearchResult> {
+pub fn search_docs_index(entries: &[DocsIndexEntry], query: &str, max_pages: usize) -> Vec<DocsSearchResult> {
     let terms = tokenize_query(query);
     if terms.is_empty() {
         return Vec::new();
@@ -473,12 +461,7 @@ pub fn search_docs_index(
 
 /// Picks the most term-dense lines of a page body as snippets, in document order,
 /// deduped, each trimmed to `max_chars` around the first matched term.
-fn select_snippets(
-    body: &str,
-    terms: &[String],
-    max_snippets: usize,
-    max_chars: usize,
-) -> Vec<String> {
+fn select_snippets(body: &str, terms: &[String], max_snippets: usize, max_chars: usize) -> Vec<String> {
     struct LineHit {
         text: String,
         distinct: usize,
@@ -570,10 +553,8 @@ pub fn merge_docs_search_results(
     index_results: Vec<DocsSearchResult>,
     max_pages: usize,
 ) -> Vec<DocsSearchResult> {
-    let mut seen: HashSet<String> = body_results
-        .iter()
-        .map(|r| canonical_search_url(&r.url))
-        .collect();
+    let mut seen: HashSet<String> =
+        body_results.iter().map(|r| canonical_search_url(&r.url)).collect();
     let mut merged = body_results;
     for entry in index_results {
         let key = canonical_search_url(&entry.url);
@@ -641,14 +622,7 @@ pub fn normalize_docs_url(input: &str) -> String {
     }
 
     // Drop any query string or hash fragment.
-    value = value
-        .split('#')
-        .next()
-        .unwrap()
-        .split('?')
-        .next()
-        .unwrap()
-        .to_string();
+    value = value.split('#').next().unwrap().split('?').next().unwrap().to_string();
 
     if !value.starts_with('/') {
         value = format!("/{}", value);
@@ -717,10 +691,7 @@ pub fn sanitize_docs_markdown_links(content: &str, page_url: &str) -> String {
             }
             let pathname = strip_docs_path_prefixes(resolved.path());
             let pathname = strip_md_or_mdx(&pathname);
-            let hash = resolved
-                .fragment()
-                .map(|f| format!("#{}", f))
-                .unwrap_or_default();
+            let hash = resolved.fragment().map(|f| format!("#{}", f)).unwrap_or_default();
             format!("]({}{}{}{})", DOCS_ORIGIN, pathname, hash, title)
         })
         .into_owned()

@@ -22,7 +22,7 @@ import { inferContentTypeFromFilePath } from "./script_common.ts";
 import { dbtGeneratedDirs, isUnderGeneratedDir, isBundledModuleFile, getModuleFolderSuffix, isModuleEntryPoint, scriptPathToRemotePath } from "./resource_folders.ts";
 import { findCodebase, yamlOptions } from "../commands/sync/sync.ts";
 import { generateHash, readInlinePathSync, getHeaders, readTextFile, readTextFileSync } from "./utils.ts";
-import { isMissingDbtDescriptor } from "../commands/script/script.ts";
+import { isMissingDbtDescriptor } from "./resource_folders.ts";
 import { detectAuthGatewayChallenge } from "./http_guards.ts";
 
 import { SyncCodebase } from "./codebase.ts";

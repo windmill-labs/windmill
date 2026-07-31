@@ -90,8 +90,10 @@
 	<span class="font-mono">{DEFAULT_WAREHOUSE}</span> when it names none, so a project carries no
 	connection of its own. The name is also what its tables are keyed on in the asset graph (<span
 		class="font-mono">dbt://{DEFAULT_WAREHOUSE}/schema/table</span
-	>), so two projects on one warehouse share their nodes. Each entry points at a resource, which
-	keeps its own permissions.
+	>), so two projects on one warehouse share their nodes. Each entry points at a resource, and
+	configuring one here is what makes it available: anyone who may run a dbt script builds with it
+	and reads its models, without being granted the resource, the same bargain workspace object
+	storage makes.
 </Description>
 
 <DataTable>

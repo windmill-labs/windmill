@@ -15,7 +15,8 @@ pub enum AssetKind {
     DataTable,
     Volume,
     /// A warehouse relation a dbt project builds or reads,
-    /// `dbt://<resource_path>/<schema>/<name>`.
+    /// `dbt://<warehouse>/<schema>/<name>`, where `<warehouse>` is the name the
+    /// workspace configures it under.
     ///
     /// The SCHEME names the producer — dbt is the only thing that creates one —
     /// while the PATH stays the physical relation, because that is what two

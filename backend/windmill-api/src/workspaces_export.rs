@@ -736,7 +736,9 @@ pub(crate) async fn tarball_workspace(
                 ScriptLang::Java => "java",
                 ScriptLang::Ruby => "rb",
                 ScriptLang::Rlang => "r",
-                ScriptLang::Dbt => "dbt.yaml",
+                // A dbt script's content path is not `<path>.<ext>` — it is the
+                // descriptor inside the project folder, built below.
+                ScriptLang::Dbt => "",
                 // for related places search: ADD_NEW_LANG
             };
             if script.language == ScriptLang::Dbt {

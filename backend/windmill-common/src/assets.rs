@@ -175,7 +175,7 @@ fn is_write_access(access: Option<AssetUsageAccessType>) -> bool {
 /// producers). Resource / datatable / volume reads stay explicit-`// on`:
 /// a config/lookup read cascading is more often surprising than wanted.
 fn is_auto_trigger_kind(kind: AssetKind) -> bool {
-    // `Table` is deliberately NOT here. dbt is the only thing that can produce a
+    // `Dbt` is deliberately NOT here. dbt is the only thing that can produce a
     // warehouse relation (`// materialize` takes DuckLake targets only) and a dbt
     // run does not dispatch, so a derived `dbt://` edge could never fire — it
     // would draw a cascade arrow into a script nothing can wake.
