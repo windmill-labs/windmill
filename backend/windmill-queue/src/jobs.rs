@@ -6860,6 +6860,12 @@ async fn push_inner<'c, 'd>(
         };
 
         let runs_on_behalf = format!("u/{user}") != permissioned_as && user != permissioned_as;
+        // `user` is the end user of `permissioned_as` when the job runs as someone else, and
+        // `audit_end_user` takes the one `end_user` slot ahead of it. Record it here so it stays
+        // searchable: `username` holds the run-as identity in that case, not the caller.
+        if audit_end_user.is_some() && runs_on_behalf {
+            hm.insert("created_by", user);
+        }
         let audit_author = AuditAuthor {
             email: email.to_string(),
             username: if runs_on_behalf {
