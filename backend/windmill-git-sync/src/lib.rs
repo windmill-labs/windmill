@@ -162,6 +162,24 @@ impl DeployedObject {
         }
     }
 
+    /// The repo-relative path git sync works on: what the include/exclude path
+    /// filters are matched against, what the sync item carries, and therefore
+    /// what the CLI turns into `--extra-includes` globs and `git add` pathspecs.
+    ///
+    /// It only differs from [`Self::get_path`] for data table migrations, whose
+    /// object path (`<datatable>/<version>_<name>`, the `workspace_diff` key) is
+    /// relative to the `migrations/datatable/` prefix the workspace export writes
+    /// them under. Without the prefix the CLI derives globs that match no file,
+    /// so nothing gets staged and the push silently commits nothing.
+    pub fn get_git_sync_path(&self) -> String {
+        match self {
+            DeployedObject::DatatableMigration { path } => {
+                format!("migrations/datatable/{path}")
+            }
+            _ => self.get_path(),
+        }
+    }
+
     pub fn get_ignore_regex_filter(&self) -> bool {
         match self {
             Self::User { .. }
@@ -295,6 +313,32 @@ mod tests {
             path: "workspace-dependencies/python".to_string(),
         };
         assert_eq!(obj.get_path(), "workspace-dependencies/python");
+    }
+
+    // --- DeployedObject::get_git_sync_path tests ---
+
+    #[test]
+    fn test_get_git_sync_path_datatable_migration_is_repo_relative() {
+        let obj = DeployedObject::DatatableMigration {
+            path: "mydb/20260101000000_add_users".to_string(),
+        };
+        // The object path keys `workspace_diff`; the git-sync path must carry the
+        // export's prefix or the CLI stages nothing.
+        assert_eq!(obj.get_path(), "mydb/20260101000000_add_users");
+        assert_eq!(
+            obj.get_git_sync_path(),
+            "migrations/datatable/mydb/20260101000000_add_users"
+        );
+    }
+
+    #[test]
+    fn test_get_git_sync_path_defaults_to_object_path() {
+        let obj = DeployedObject::Script {
+            hash: ScriptHash(123),
+            path: "f/folder/script".to_string(),
+            parent_path: None,
+        };
+        assert_eq!(obj.get_git_sync_path(), obj.get_path());
     }
 
     // --- DeployedObject::get_ignore_regex_filter tests ---

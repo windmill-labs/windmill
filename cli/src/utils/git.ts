@@ -319,6 +319,10 @@ export function gitSyncIncludePattern(
       return `${path}.azure_trigger.*`;
     case "emailtrigger":
       return `${path}.email_trigger.*`;
+    case "datatable_migration":
+      // One migration is two files under `migrations/datatable/<dt>/`; the
+      // backend already sends the repo-relative base path.
+      return `${path}.up.sql,${path}.down.sql`;
     default:
       // Scripts: `${path}.*` matches the dotted layout
       // (`${path}.script.yaml` etc.), `${path}__mod/**` matches the folder

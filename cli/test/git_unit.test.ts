@@ -357,6 +357,17 @@ describe("gitSyncIncludePattern", () => {
       "f/t.amqp_trigger.*"
     );
   });
+  test("datatable migration expands to its two repo-relative .sql files", () => {
+    expect(
+      gitSyncIncludePattern(
+        "datatable_migration",
+        "migrations/datatable/mydb/20260101000000_add_users"
+      )
+    ).toBe(
+      "migrations/datatable/mydb/20260101000000_add_users.up.sql," +
+        "migrations/datatable/mydb/20260101000000_add_users.down.sql"
+    );
+  });
 });
 
 describe("deriveGitSyncDeployIncludes", () => {
