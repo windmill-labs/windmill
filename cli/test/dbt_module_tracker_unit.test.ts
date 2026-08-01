@@ -130,7 +130,12 @@ describe("buildTracker with a dbt project", () => {
     fs.writeFileSync(path.join(project, "models/stg.sql"), "select 1");
 
     const modules = await readModulesFromDisk(project, undefined, false, true);
-    expect(Object.keys(modules ?? {})).toEqual(["dbt_project.yml", "models/stg.sql"]);
+    // Sorted: the bundle is a set of paths, and the walk follows `readdirSync`,
+    // whose order is the filesystem's.
+    expect(Object.keys(modules ?? {}).sort()).toEqual([
+      "dbt_project.yml",
+      "models/stg.sql",
+    ]);
 
     // The predicate the sync's ignore filter asks, so the file is not offered
     // as an item of its own either.
