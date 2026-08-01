@@ -11908,6 +11908,43 @@ paths:
                   - $ref: "#/components/schemas/AppWithLastVersion"
                   - $ref: "#/components/schemas/UserDraftOverlay"
 
+  /w/{workspace}/apps/preview_sdk_token:
+    post:
+      summary: mint a frontend SDK token for the raw app editor's preview
+      operationId: mintPreviewSdkToken
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                  description: App being edited; may not be deployed yet.
+                scopes:
+                  type: array
+                  items:
+                    type: string
+                  description: >
+                    Scopes from the policy being edited. Capped by the curated
+                    allowlist and by the caller's own scopes, and minted as the
+                    caller, so it grants nothing they could not mint themselves.
+              required:
+                - path
+                - scopes
+      responses:
+        "200":
+          description: the token
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/apps/embed_token/p/{path}:
     get:
       summary: get app embed token by path

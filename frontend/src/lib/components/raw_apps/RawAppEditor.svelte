@@ -7,7 +7,7 @@
 	import RawAppYamlEditor, { type RawAppYamlUpdate } from './RawAppYamlEditor.svelte'
 	import type Drawer from '../common/drawer/Drawer.svelte'
 	import Alert from '../common/alert/Alert.svelte'
-	import { type Policy, WorkspaceService } from '$lib/gen'
+	import { AppService, type Policy, WorkspaceService } from '$lib/gen'
 	import DiffDrawer from '../DiffDrawer.svelte'
 	import { deepEqual } from 'fast-equals'
 
@@ -1284,26 +1284,67 @@
 
 	// `app-preview.html` evaluates the js we post, so prefixing the env is what a
 	// bundled `windmill-client` needs — it reads `window.process.env` at module
-	// load. No token: the preview is same-origin, so the client falls back to the
-	// editing user's session cookie and the SDK runs with their own permissions,
-	// not the policy's. Preview therefore never mirrors a viewer's 403s.
-	const previewSdkEnvJs = $derived(
-		`window.process = { env: ${JSON.stringify({
-			WM_RAW_APP: 'true',
-			BASE_URL: window.location.origin,
-			WM_WORKSPACE: opWorkspace ?? ''
-		}).replace(/</g, '\\u003c')} };\n`
-	)
+	// load. Gated and scoped exactly like a deployed app — sandbox off or no
+	// scopes means no env at all — so preview hits the same 403s, and the same
+	// misconfiguration, as the deployed bundle.
 
-	// The preview shell reuses one window across builds, so a workspace switch has
-	// to be pushed into the running preview rather than waiting for a rebuild.
+	// Stated on every payload, tokenless included: the preview shell reuses one
+	// window across builds, so omitting it would leave an old token in place.
+	// Deleting rather than blanking matches a deployed app with no scopes.
+	const NO_SDK_ENV_JS = 'try { delete window.process } catch (_) {}\n'
+	let previewSdkEnvJs = $state(NO_SDK_ENV_JS)
+	// Identifies the request whose answer is still wanted. Toggling scopes starts a
+	// new mint while an older one is in flight, and an out-of-order answer would
+	// otherwise hand the preview the wrong scope set — or restore a token after all
+	// scopes were removed.
+	let previewSdkKey: string | undefined = undefined
+
+	/** Assign the prologue and re-feed, so a running preview stops using a
+	 * credential the policy no longer grants. */
+	function setPreviewSdkEnv(js: string) {
+		previewSdkEnvJs = js
+		if (lastBuild) feedPreviewIframe(lastBuild)
+		syncExternalPreview()
+	}
+
 	$effect(() => {
-		previewSdkEnvJs
-		untrack(() => {
-			if (lastBuild) feedPreviewIframe(lastBuild)
-			syncExternalPreview()
-		})
+		// Frontend SDK access is sandbox-only, so isolation off gets no credential
+		// here either, however the policy's scope list reads.
+		const scopes = policy?.sandbox === true ? (policy?.frontend_sdk_scopes ?? []) : []
+		const ws = opWorkspace
+		const key = `${ws ?? ''}|${scopes.join(',')}`
+		if (key === previewSdkKey) return
+		previewSdkKey = key
+		if (scopes.length === 0 || !ws) {
+			setPreviewSdkEnv(NO_SDK_ENV_JS)
+			return
+		}
+		mintPreviewSdkToken(scopes, ws, key)
 	})
+
+	async function mintPreviewSdkToken(scopes: string[], ws: string, key: string) {
+		try {
+			const token = await AppService.mintPreviewSdkToken({
+				workspace: ws,
+				requestBody: { path, scopes }
+			})
+			if (key !== previewSdkKey) return
+			setPreviewSdkEnv(
+				`window.process = { env: ${JSON.stringify({
+					WM_RAW_APP: 'true',
+					WM_TOKEN: token,
+					BASE_URL: window.location.origin,
+					WM_WORKSPACE: ws
+				}).replace(/</g, '\\u003c')} };\n`
+			)
+		} catch (e) {
+			console.warn('Could not mint a preview SDK token', e)
+			if (key !== previewSdkKey) return
+			setPreviewSdkEnv(NO_SDK_ENV_JS)
+			// The key stays set, so a failed mint is not retried until the scopes or
+			// workspace actually change — which is the only thing this effect reacts to.
+		}
+	}
 
 	function syncExternalPreview() {
 		if (lastBuild) {
@@ -1321,8 +1362,8 @@
 	function feedPreviewIframe(build: { css: string; js: string }) {
 		runtimeError = undefined
 		emptyRender = false
-		// Same-origin app-preview.html — address it to our origin rather than '*',
-		// as the detached preview already does.
+		// Same-origin app-preview.html, and the payload now carries a token — address
+		// it to our origin rather than '*', as the detached preview already does.
 		previewIframe?.contentWindow?.postMessage(
 			{ type: 'preview', css: build.css, js: previewSdkEnvJs + build.js },
 			window.location.origin
