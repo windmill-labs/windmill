@@ -17,8 +17,7 @@ const RETRIES = 2
 
 // Links whose target page is written but not yet deployed on windmill.dev: the app
 // link is already the final slug, so a 404 is expected until the docs side ships.
-// Every entry is still fetched — one that starts resolving is reported so the entry
-// gets dropped, because a stale entry silently hides a genuinely dead link.
+// The value is why the entry exists, for whoever has to judge whether it still should.
 const PENDING_DEPLOY = new Map([
 	[
 		'https://www.windmill.dev/docs/getting_started/scripts_quickstart/dbt',
@@ -123,29 +122,39 @@ async function worker() {
 await Promise.all(Array.from({ length: CONCURRENCY }, worker))
 
 const pending = results.filter((r) => PENDING_DEPLOY.has(r.url))
-if (pending.length) {
-	console.log(`\n⏳ ${pending.length} link(s) waiting on a docs deploy:`)
-	for (const p of pending.sort((a, b) => a.url.localeCompare(b.url))) {
-		const state = p.ok ? 'LIVE — remove from PENDING_DEPLOY' : `not live yet (${p.status})`
-		console.log(`   ${p.url}\n     ${PENDING_DEPLOY.get(p.url)} — ${state}`)
-	}
-}
-for (const url of PENDING_DEPLOY.keys()) {
-	if (!urls.has(url)) {
-		console.log(`\n⏳ ${url} is in PENDING_DEPLOY but no longer referenced — remove the entry.`)
+const waiting = pending.filter((p) => !p.ok)
+if (waiting.length) {
+	console.log(`\n⏳ ${waiting.length} link(s) waiting on a docs deploy:`)
+	for (const p of waiting.sort((a, b) => a.url.localeCompare(b.url))) {
+		console.log(`   ${p.url}\n     ${PENDING_DEPLOY.get(p.url)} — not live yet (${p.status})`)
 	}
 }
 
+// An entry that outlived its reason exempts a URL from the check forever, so a stale
+// one has to fail the job: a line in a green log is not read at release time.
+const stale = [
+	...pending.filter((p) => p.ok).map((p) => [p.url, 'the page is live']),
+	...[...PENDING_DEPLOY.keys()].filter((u) => !urls.has(u)).map((u) => [u, 'nothing references it'])
+]
+
 const failures = results.filter((r) => !r.ok && !PENDING_DEPLOY.has(r.url))
-if (failures.length === 0) {
+if (failures.length === 0 && stale.length === 0) {
 	console.log(`\n✅ No broken docs links (${allUrls.length} checked).`)
 	process.exit(0)
 }
 
-console.log(`\n❌ ${failures.length} broken docs link(s):`)
-for (const f of failures.sort((a, b) => a.url.localeCompare(b.url))) {
-	console.log(`\n  ${f.url}`)
-	console.log(`    status: ${f.error ? `error (${f.error})` : f.status}`)
-	for (const file of urls.get(f.url)) console.log(`    ↳ ${file}`)
+if (failures.length) {
+	console.log(`\n❌ ${failures.length} broken docs link(s):`)
+	for (const f of failures.sort((a, b) => a.url.localeCompare(b.url))) {
+		console.log(`\n  ${f.url}`)
+		console.log(`    status: ${f.error ? `error (${f.error})` : f.status}`)
+		for (const file of urls.get(f.url)) console.log(`    ↳ ${file}`)
+	}
+}
+if (stale.length) {
+	console.log(`\n❌ ${stale.length} PENDING_DEPLOY entr(ies) to delete from this script:`)
+	for (const [url, why] of stale.sort((a, b) => a[0].localeCompare(b[0]))) {
+		console.log(`\n  ${url}\n    ${why}`)
+	}
 }
 process.exit(1)
