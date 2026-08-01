@@ -1,8 +1,7 @@
 -- Add down migration script here
--- Restores the column and re-derives it from the principal. Rows whose principal names a
--- group get that group's synthetic address, which is what the column held before.
-ALTER TABLE script ADD COLUMN IF NOT EXISTS on_behalf_of_email TEXT;
-ALTER TABLE flow ADD COLUMN IF NOT EXISTS on_behalf_of_email TEXT;
+-- The column was never dropped, so this only re-derives it from the principal for the rows the
+-- up migration backfilled. One naming a group gets that group's synthetic address, which is what
+-- the column held before.
 
 CREATE FUNCTION pg_temp.email_from_permissioned_as(w_id VARCHAR, permissioned_as VARCHAR)
 RETURNS VARCHAR AS $$

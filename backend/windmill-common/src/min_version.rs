@@ -3,6 +3,8 @@ use semver::Version;
 
 // ============ Feature Definitions ============
 
+pub const MIN_VERSION_SUPPORTS_ON_BEHALF_OF_PRINCIPAL: VC =
+    vc(1, 776, 0, "On-behalf-of principal");
 pub const MIN_VERSION_SUPPORTS_NODE_DEBOUNCING: VC = vc(1, 658, 0, "Flow node debouncing");
 pub const MIN_VERSION_SUPPORTS_TOKEN_HASH: VC = vc(1, 659, 0, "Token hash storage");
 pub const MIN_VERSION_SUPPORTS_SYNC_JOBS_DEBOUNCING: VC = vc(1, 602, 0, "Sync jobs debouncing");
@@ -88,6 +90,16 @@ impl VersionConstraint {
             return true;
         }
         &self.available_since <= &**min
+    }
+
+    /// [`met`](Self::met) for a compatibility write rather than a feature switch.
+    ///
+    /// `met` assumes the best when no worker has reported a version yet, which is what you want
+    /// before turning something on. Dropping a write that an old worker still reads is the
+    /// opposite risk, so an unknown fleet counts as old.
+    pub fn met_conservatively(&self) -> bool {
+        let min = MIN_VERSION.load();
+        **min != Version::new(0, 0, 0) && self.available_since <= **min
     }
 
     pub async fn assert(&self) -> error::Result<()> {

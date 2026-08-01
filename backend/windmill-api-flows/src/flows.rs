@@ -609,6 +609,10 @@ async fn create_flow(
             &db,
         )
         .await?;
+    // Written beside the principal only while a worker that still reads it may be live.
+    let legacy_on_behalf_of_email =
+        windmill_common::legacy_on_behalf_of_email(resolved_on_behalf_of.as_deref(), &w_id, &db)
+            .await?;
     sqlx::query!(
         r#"INSERT INTO flow (
         workspace_id, path, summary, description,
@@ -616,14 +620,14 @@ async fn create_flow(
         dedicated_worker, visible_to_runner_only,
         ws_error_handler_muted,
         value, schema, edited_by, edited_at, labels,
-        on_behalf_of
+        on_behalf_of, on_behalf_of_email
     ) VALUES (
         $1, $2, $3, $4,
         NULL, '', $5,
         $6, $7,
         $8,
         $9, $10::text::json, $11, now(), $12,
-        $13
+        $13, $14
     )"#,
         w_id,
         nf.path,
@@ -638,6 +642,7 @@ async fn create_flow(
         &authed.username,
         nf.labels.as_deref() as Option<&[String]>,
         resolved_on_behalf_of,
+        legacy_on_behalf_of_email,
     )
     .execute(&mut *tx)
     .await?;
@@ -1128,6 +1133,10 @@ async fn update_flow(
             &db,
         )
         .await?;
+    // Written beside the principal only while a worker that still reads it may be live.
+    let legacy_on_behalf_of_email =
+        windmill_common::legacy_on_behalf_of_email(resolved_on_behalf_of.as_deref(), &w_id, &db)
+            .await?;
 
     sqlx::query!(
         "
@@ -1148,7 +1157,8 @@ async fn update_flow(
             edited_by = $10,
             edited_at = now(),
             labels = COALESCE($13, labels),
-            on_behalf_of = $14
+            on_behalf_of = $14,
+            on_behalf_of_email = $15
         WHERE
             path = $11 AND workspace_id = $12",
         if is_new_path { flow_path } else { &nf.path },
@@ -1165,6 +1175,7 @@ async fn update_flow(
         w_id,
         nf.labels.as_deref() as Option<&[String]>,
         resolved_on_behalf_of,
+        legacy_on_behalf_of_email,
     )
     .execute(&mut *tx)
     .await

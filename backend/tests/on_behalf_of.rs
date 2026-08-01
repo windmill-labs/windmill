@@ -101,6 +101,18 @@ async fn test_on_behalf_of_drives_job_identity(
         Some("u/original-user")
     );
 
+    // Workers predating this release read only the address, and they are expected to lag the
+    // server, so a deploy keeps filling it in until every live worker is new.
+    assert_eq!(
+        sqlx::query_scalar!(
+            "SELECT on_behalf_of_email FROM script WHERE path = 'u/test-user/obo_recorded' AND workspace_id = 'test-workspace'"
+        )
+        .fetch_one(&db)
+        .await?
+        .as_deref(),
+        Some("original@windmill.dev"),
+    );
+
     // A client that predates the field names only the email; deriving the principal from
     // it is what stops a routine redeploy from handing the script to whoever deploys it.
     let derived = create_script(&base, "u/test-user/obo_derived", None).await?;

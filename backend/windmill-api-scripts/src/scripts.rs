@@ -1042,6 +1042,10 @@ async fn create_script_internal<'c>(
         &db,
     )
     .await?;
+    // Written beside the principal only while a worker that still reads it may be live.
+    let legacy_on_behalf_of_email =
+        windmill_common::legacy_on_behalf_of_email(resolved_on_behalf_of.as_deref(), &w_id, &db)
+            .await?;
     if sqlx::query_scalar!(
         "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",
         hash.0,
@@ -1614,8 +1618,8 @@ async fn create_script_internal<'c>(
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
          envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
          dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-         delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, codebase, has_preprocessor, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle, modules, labels, on_behalf_of) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40)",
+         delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, codebase, has_preprocessor, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle, modules, labels, on_behalf_of, on_behalf_of_email) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41)",
         &w_id,
         &hash.0,
         ns.path,
@@ -1658,6 +1662,7 @@ async fn create_script_internal<'c>(
         ns.modules.as_ref().and_then(|m| serde_json::to_value(m).ok()),
         ns.labels.as_deref() as Option<&[String]>,
         resolved_on_behalf_of,
+        legacy_on_behalf_of_email,
     )
     .execute(&mut *tx)
     .await?;

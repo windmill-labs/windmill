@@ -1630,6 +1630,28 @@ impl<SR> ScriptHashInfo<SR> {
     }
 }
 
+/// The address to store beside the principal, or `None` once no worker needs it.
+///
+/// A worker predating [`MIN_VERSION_SUPPORTS_ON_BEHALF_OF_PRINCIPAL`] reads `on_behalf_of_email`
+/// and nothing else, so a deploy has to keep filling it while one may still be live — otherwise
+/// a runnable deployed mid-upgrade runs as its deployer there. Once every worker is new the
+/// column is dead weight and a later release drops it.
+pub async fn legacy_on_behalf_of_email(
+    permissioned_as: Option<&str>,
+    w_id: &str,
+    db: &DB,
+) -> error::Result<Option<String>> {
+    let Some(permissioned_as) = permissioned_as else {
+        return Ok(None);
+    };
+    if min_version::MIN_VERSION_SUPPORTS_ON_BEHALF_OF_PRINCIPAL.met_conservatively() {
+        return Ok(None);
+    }
+    Ok(Some(
+        users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db).await?,
+    ))
+}
+
 /// Shared by [`ScriptHashInfo::on_behalf_of`] and [`FlowVersionInfo::on_behalf_of`].
 ///
 /// Reads identity data through the non-RLS pool and enforces nothing itself: it answers who a

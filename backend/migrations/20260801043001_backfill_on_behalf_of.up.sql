@@ -1,8 +1,13 @@
 -- Add up migration script here
--- The permissioned_as becomes the only stored identity; the email is derived from it at
+-- The permissioned_as becomes the identity this release reads; the email is derived from it at
 -- read time, as triggers have always done. Backfilling it also retires the fallback to
 -- created_by / edited_by, so a runnable deployed before the column existed starts running
 -- as the user its on_behalf_of_email always named rather than as whoever last deployed it.
+--
+-- `on_behalf_of_email` stays for now: a worker predating this release resolves a script or flow
+-- through `get_script_info_for_hash` / `get_latest_hash_for_path`, which select that column, and
+-- workers are expected to lag the server. Deploys keep writing it until every live worker is new
+-- (MIN_VERSION_SUPPORTS_ON_BEHALF_OF_PRINCIPAL); a later release stops writing it and drops it.
 
 -- Mirrors `users::permissioned_as_from_email`: a real account wins over the synthetic group
 -- namespace, which is not reserved and may be a user's own address.
@@ -50,5 +55,3 @@ UPDATE draft SET value = to_json(jsonb_set(
    AND value->>'on_behalf_of' IS NULL
    AND length(pg_temp.permissioned_as_from_email(workspace_id, value->>'on_behalf_of_email')) <= 55;
 
-ALTER TABLE script DROP COLUMN IF EXISTS on_behalf_of_email;
-ALTER TABLE flow DROP COLUMN IF EXISTS on_behalf_of_email;

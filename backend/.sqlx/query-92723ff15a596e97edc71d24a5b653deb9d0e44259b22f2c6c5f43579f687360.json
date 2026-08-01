@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO script (\n            workspace_id, hash, path, parent_hashes, summary, description, content,\n            created_by, created_at, archived, schema, deleted, is_template,\n            extra_perms, lock, lock_error_logs, language, kind, tag,\n            envs, concurrent_limit, concurrency_time_window_s, cache_ttl,\n            dedicated_worker, ws_error_handler_muted, priority, timeout,\n            delete_after_use, delete_after_secs, restart_unless_cancelled, concurrency_key,\n            visible_to_runner_only, auto_kind, codebase, has_preprocessor,\n            on_behalf_of, on_behalf_of_email, assets, modules\n        )\n        SELECT\n            $1, hash, path, parent_hashes, summary, description, content,\n            created_by, created_at, archived, schema, deleted, is_template,\n            extra_perms, lock, lock_error_logs, language, kind, tag,\n            envs, concurrent_limit, concurrency_time_window_s, cache_ttl,\n            dedicated_worker, ws_error_handler_muted, priority, timeout,\n            delete_after_use, delete_after_secs, restart_unless_cancelled, concurrency_key,\n            visible_to_runner_only, auto_kind, codebase, has_preprocessor,\n            -- Same three forms and the same prefix-first rule as permissioned_as_exists,\n            -- superadmin fallback included: one acting outside their workspaces has no usr\n            -- row but still authenticates.\n            CASE WHEN on_behalf_of LIKE 'u/%' THEN\n                    (SELECT on_behalf_of WHERE EXISTS (\n                        SELECT 1 FROM usr u WHERE u.workspace_id = $1::varchar\n                          AND u.username = substring(on_behalf_of from 3)\n                        UNION ALL\n                        SELECT 1 FROM password p WHERE p.super_admin\n                          AND (p.username = substring(on_behalf_of from 3)\n                               OR p.email = substring(on_behalf_of from 3))))\n                 WHEN on_behalf_of LIKE 'g/%' THEN\n                    (SELECT on_behalf_of WHERE EXISTS (\n                        SELECT 1 FROM group_ g WHERE g.workspace_id = $1::varchar\n                          AND g.name = substring(on_behalf_of from 3)))\n                 ELSE\n                    (SELECT on_behalf_of WHERE EXISTS (\n                        SELECT 1 FROM usr u WHERE u.workspace_id = $1::varchar\n                          AND u.username = on_behalf_of\n                        UNION ALL\n                        SELECT 1 FROM password p WHERE p.email = on_behalf_of\n                          AND p.super_admin))\n            END, on_behalf_of_email, assets, modules\n        FROM script\n        WHERE workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "92723ff15a596e97edc71d24a5b653deb9d0e44259b22f2c6c5f43579f687360"
+}
