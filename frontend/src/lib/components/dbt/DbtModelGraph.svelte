@@ -65,6 +65,9 @@
 	let refreshJob = $state<string | undefined>(undefined)
 	let refreshing = $state(false)
 	let refreshError = $state<{ message: string; job?: string } | undefined>(undefined)
+	/** A parse still running well past the point one normally takes, so its job is
+	 *  reachable while it waits. Not an error — it may still land. */
+	let refreshPending = $state<string | undefined>(undefined)
 
 	let raw = $state<AssetGraphResponse | undefined>(undefined)
 	let loading = $state(true)
@@ -138,6 +141,7 @@
 		if (refreshing || !workspace) return
 		refreshing = true
 		refreshError = undefined
+		refreshPending = undefined
 		let id: string | undefined
 		try {
 			id = await JobService.runScriptPreview({
@@ -164,24 +168,45 @@
 			// Polled until the JOB ends, with no window of its own: a cold worker
 			// provisions an engine and runs `dbt deps` before dbt starts, which
 			// outlasts any bound worth hard-coding, and giving up early strands a
-			// parse that then succeeds where nothing can pin to it. The job carries
-			// its own timeout, so this terminates with it.
+			// parse that then succeeds where nothing can pin to it.
+			//
+			// A job's own timeout only starts once a worker takes it, so this does
+			// NOT terminate on its own for one nothing serves — `tag` is forwarded
+			// precisely so a project can name a worker pool, and a pool with no
+			// worker leaves it queued. Hence the notice below rather than a bound:
+			// waiting stays correct, and the job stays reachable while it waits.
 			//
 			// Backed off, because most of that wait is not the parse; and tolerant
 			// of a failed poll, because one lost request must not abandon a job
-			// that is still running.
+			// that is still running — but only of a few in a row, since an expired
+			// session answers the same way forever.
 			let delay = 1000
+			let failures = 0
+			const slowAt = Date.now() + 60_000
 			while (!destroyed) {
 				await new Promise((r) => setTimeout(r, delay))
 				if (destroyed) return
 				let done: Awaited<ReturnType<typeof JobService.getCompletedJobResultMaybe>>
 				try {
 					done = await JobService.getCompletedJobResultMaybe({ workspace, id })
-				} catch {
+					failures = 0
+				} catch (e) {
+					if (++failures >= 10) {
+						refreshError = {
+							message: `Lost track of the parse: ${e instanceof Error ? e.message : String(e)}`,
+							job: id
+						}
+						return
+					}
 					delay = Math.min(delay * 1.5, 5000)
 					continue
 				}
 				if (!done.completed) {
+					// Non-terminal, and the only thing that puts the job on screen
+					// while it runs: the header shows a disabled spinner and nothing
+					// else, so a parse that never starts would otherwise leave no link,
+					// no reason and nothing to do but reload — which discards the pin.
+					if (Date.now() > slowAt) refreshPending = id
 					delay = Math.min(delay * 1.5, 5000)
 					continue
 				}
@@ -199,6 +224,7 @@
 			refreshError = { message: e instanceof Error ? e.message : String(e), job: id }
 		} finally {
 			refreshing = false
+			refreshPending = undefined
 		}
 	}
 
@@ -315,6 +341,19 @@
 			</Button>
 		</div>
 	</div>
+
+	{#if refreshPending}
+		<div class="shrink-0 px-2 py-1.5 border-b text-2xs text-secondary">
+			Still parsing. A cold worker provisions the dbt engine before it starts; a project
+			pinned to a worker tag nothing serves waits here indefinitely.
+			<a
+				class="text-blue-500 hover:underline"
+				href="{base}/run/{refreshPending}?workspace={workspace}"
+				target="_blank"
+				rel="noreferrer">Open the parse job</a
+			>
+		</div>
+	{/if}
 
 	{#if refreshError}
 		<div class="shrink-0 px-2 py-1.5 border-b text-2xs text-secondary">
