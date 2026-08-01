@@ -417,14 +417,10 @@
 		let timeoutModel: number | undefined = undefined
 		let changeChainStart: number | undefined = undefined
 		editor.onDidChangeModelContent(() => {
-			// Leading fire on the first change of a burst so `code` is current within
-			// the same tick. A paste is a single change, and consumers that gate a
-			// control on `code` (an "Apply changes" button disabled until it differs
-			// from a snapshot) would otherwise swallow a click made before the
-			// trailing update lands — the click hits a still-disabled button and the
-			// paste appears to do nothing. Continuous typing stays trailing-only,
-			// capped at MAX_CHANGE_TIMEOUT from the leading fire so `code` can never
-			// be held stale indefinitely.
+			// Leading fire on the first change of a burst: a paste is a single change,
+			// and consumers gate controls on `code` (FlowYamlEditor disables "Apply
+			// changes" until it differs from a snapshot), so a trailing-only sync
+			// swallows clicks landing before it fires.
 			const now = Date.now()
 			if (changeChainStart === undefined) {
 				updateCode()
