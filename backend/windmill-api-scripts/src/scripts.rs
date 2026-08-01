@@ -3447,9 +3447,13 @@ async fn delete_script_by_hash(
 
     check_scopes(&authed, || format!("scripts:write:{}", &script.path))?;
 
-    clear_static_asset_usage_by_script_hash(&mut *tx, &w_id, hash).await?;
+    // Graph before assets, the order both publishers take them in — the reverse
+    // deadlocks against a job that clears its own graph and then rewrites the
+    // path's `asset` rows. A clear is needed at all because this route only
+    // soft-deletes the `script` row, so nothing cascades.
     windmill_common::dbt_manifest::clear_dbt_manifest_version(&mut tx, &w_id, &script.path, hash.0)
         .await?;
+    clear_static_asset_usage_by_script_hash(&mut *tx, &w_id, hash).await?;
     windmill_common::dbt_manifest::clear_dbt_run_state_if_path_retired(
         &mut tx,
         &w_id,
@@ -3540,12 +3544,6 @@ async fn delete_script_by_path(
     .fetch_all(&mut *tx)
     .await?;
 
-    // Before the DELETE: both are keyed on the path with no script foreign key,
-    // so anything left behind here would attach itself to whatever is created
-    // at this path next.
-    windmill_common::dbt_manifest::clear_dbt_manifest(&mut tx, &w_id, path).await?;
-    windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, path).await?;
-
     let script = sqlx::query_scalar!(
         "DELETE FROM script WHERE path = $1 AND workspace_id = $2 RETURNING path",
         path,
@@ -3554,6 +3552,15 @@ async fn delete_script_by_path(
     .fetch_one(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("deleting script by path {w_id}: {e:#}")))?;
+
+    // After the DELETE, never before: every dbt writer locks the `script` row
+    // first, so taking a sidecar ahead of it deadlocks one of the pair. The
+    // VERSIONED graph needs no clear at all, cascading off `script`; the retry
+    // state does, being keyed by path alone and so inherited by whatever is
+    // created here next, and so do the editor's own graphs, whose NULL
+    // `script_hash` satisfies that foreign key without riding its cascade.
+    windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, path).await?;
+    windmill_common::dbt_manifest::clear_dbt_editor_graphs(&mut tx, &w_id, path).await?;
 
     if !trash_scripts.is_empty() {
         let mut trash_data = serde_json::json!({"scripts": trash_scripts});
@@ -3709,12 +3716,6 @@ async fn delete_scripts_bulk(
         }
     }
 
-    // Same reason as the single-path delete: neither has a foreign key.
-    for p in &request.paths {
-        windmill_common::dbt_manifest::clear_dbt_manifest(&mut tx, &w_id, p).await?;
-        windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, p).await?;
-    }
-
     let mut deleted_paths = sqlx::query_scalar!(
         "DELETE FROM script WHERE workspace_id = $1 AND path = ANY($2) RETURNING path",
         w_id,
@@ -3723,6 +3724,13 @@ async fn delete_scripts_bulk(
     .fetch_all(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("deleting scripts in bulk {w_id}: {e:#}")))?;
+
+    // Same reason as the single-path delete, over every requested path rather
+    // than the deleted ones: a path that had no script left can still hold state.
+    for p in &request.paths {
+        windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, p).await?;
+        windmill_common::dbt_manifest::clear_dbt_editor_graphs(&mut tx, &w_id, p).await?;
+    }
 
     // remove duplicates from deleted_paths
     deleted_paths.sort();

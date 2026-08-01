@@ -35,6 +35,7 @@
 		dbtFileLang,
 		dbtModelSelector,
 		dbtModuleLang,
+		dbtModulePath,
 		dbtPathError
 	} from './projectFiles'
 	import { CornerDownLeft, Github, Play, Plus } from 'lucide-svelte'
@@ -228,12 +229,14 @@
 	let addOpen = $state(false)
 
 	function createFile() {
-		const p = newFile.trim()
-		const err = dbtPathError(p, modules ?? undefined)
-		if (err || !p) {
-			newFileError = err
+		// Keyed by the CANONICAL path, so `./models/x.sql` and `models/x.sql`
+		// cannot become two keys for one file in the bundle the worker writes.
+		const resolved = dbtModulePath(newFile, modules ?? undefined)
+		if ('error' in resolved) {
+			newFileError = resolved.error
 			return
 		}
+		const p = resolved.path
 		modules = {
 			...(modules ?? {}),
 			[p]: { content: dbtDefaultContent(p), language: dbtModuleLang(p)! }

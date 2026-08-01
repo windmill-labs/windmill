@@ -31,7 +31,8 @@
 //! # Mutator contract
 //!
 //! Every `pub` mutator in this module — the manifest ones
-//! (`replace_dbt_manifest`, `clear_dbt_manifest`, `clear_dbt_manifest_version`),
+//! (`replace_dbt_manifest`, `clear_dbt_manifest_version`,
+//! `clear_dbt_editor_graphs`),
 //! the snapshot sweep, and the retry-state ones (`move_dbt_run_state`,
 //! `clear_dbt_run_state`, `clear_dbt_run_state_if_path_retired`) — takes the
 //! workspace and the script to act on as plain arguments and enforces nothing:
@@ -1035,10 +1036,16 @@ const NODE_INSERT_CHUNK: usize = 2000;
 /// Six columns, so the same ceiling allows far more.
 const EDGE_INSERT_CHUNK: usize = 8000;
 
-/// Clear one VERSION's graph, the unit the archive and delete routes act on:
-/// both target a single `hash`, and the other versions of the path stay live
-/// and keep needing their own models, SQL and lineage. The path-wide sibling
-/// below is for the case where a path stops being a dbt script at all.
+/// Clear one VERSION's graph: the delete-by-hash route, which only soft-deletes
+/// its `script` row and so fires no cascade, and the ingest that finds no
+/// warehouse identity left to key assets on. Both target a single `hash`, and the
+/// other versions of the path stay live and keep needing their own models, SQL
+/// and lineage.
+///
+/// There is no path-wide sibling. The routes that remove the `script` rows
+/// outright let the tables' `ON DELETE CASCADE` take the graph, which is also
+/// what keeps them from locking it ahead of the script row and deadlocking with
+/// a concurrent publication.
 ///
 /// See the mutator contract above: this authorizes nothing.
 pub async fn clear_dbt_manifest_version(
@@ -1079,41 +1086,35 @@ pub async fn clear_dbt_manifest_version(
     Ok(())
 }
 
-/// Drop every version of one path's graph, for the routes that retire the whole
-/// path — archive-by-path, delete-by-path and the bulk delete.
+/// Drop the EDITOR graphs of one path, for the routes that delete the script
+/// outright.
 ///
-/// NOT for a rename, nor for a path whose newest version stops being dbt:
-/// every graph query joins on `(path, hash)` through a `language = 'dbt'` CTE,
-/// so an old version's rows cannot attach to whatever lives at that path next,
-/// and its own finished runs still render from them.
+/// The versioned rows need no such call: they cascade off `script`, which is
+/// what keeps a delete from locking the graph ahead of the script row. A
+/// version-less row cannot ride that cascade — its `script_hash` is NULL, which
+/// satisfies the composite foreign key without referencing anything — so
+/// retiring the path is the one thing that has to reach them by hand.
+///
+/// Call it AFTER the `script` delete, like the retry state beside it: every dbt
+/// writer takes the script row first, so a sidecar taken ahead of it deadlocks
+/// one of the pair.
 ///
 /// See the mutator contract above: this authorizes nothing.
-pub async fn clear_dbt_manifest(
+pub async fn clear_dbt_editor_graphs(
     tx: &mut Transaction<'_, Postgres>,
     workspace_id: &str,
     script_path: &str,
 ) -> Result<()> {
-    sqlx::query!(
-        "DELETE FROM dbt_node WHERE workspace_id = $1 AND script_path = $2",
-        workspace_id,
-        script_path
-    )
-    .execute(&mut **tx)
-    .await?;
-    sqlx::query!(
-        "DELETE FROM dbt_edge WHERE workspace_id = $1 AND script_path = $2",
-        workspace_id,
-        script_path
-    )
-    .execute(&mut **tx)
-    .await?;
-    sqlx::query!(
-        "DELETE FROM dbt_graph_snapshot WHERE workspace_id = $1 AND script_path = $2",
-        workspace_id,
-        script_path
-    )
-    .execute(&mut **tx)
-    .await?;
+    for table in ["dbt_node", "dbt_edge", "dbt_graph_snapshot"] {
+        sqlx::query(&format!(
+            "DELETE FROM {table}
+              WHERE workspace_id = $1 AND script_path = $2 AND script_hash IS NULL"
+        ))
+        .bind(workspace_id)
+        .bind(script_path)
+        .execute(&mut **tx)
+        .await?;
+    }
     Ok(())
 }
 

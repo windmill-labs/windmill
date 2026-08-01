@@ -7,9 +7,9 @@
 
 use sqlx::{Pool, Postgres};
 use windmill_common::dbt_manifest::{
-    clear_dbt_manifest, clear_dbt_manifest_version, prune_dbt_run_graphs, replace_dbt_editor_graph,
-    replace_dbt_manifest, IngestedManifest, IngestedNode, DBT_EDITOR_GRAPHS_KEPT, DEPLOYED_GRAPH,
-    DEPLOYED_GRAPH_VERSIONS_KEPT,
+    clear_dbt_editor_graphs, clear_dbt_manifest_version, prune_dbt_run_graphs,
+    replace_dbt_editor_graph, replace_dbt_manifest, IngestedManifest, IngestedNode,
+    DBT_EDITOR_GRAPHS_KEPT, DEPLOYED_GRAPH, DEPLOYED_GRAPH_VERSIONS_KEPT,
 };
 
 const WS: &str = "test-workspace";
@@ -238,26 +238,44 @@ async fn clearing_one_version_leaves_the_others(db: Pool<Postgres>) {
     assert_eq!(edges_for(&db, 2).await, 1, "the other version keeps its own");
 }
 
-/// The path-wide clear is for the routes that retire the whole path, and it has
-/// to take the markers too — a marker standing for rows that are gone is read
-/// as a snapshot, and its digest still answers the suppression check.
+/// The routes that hard-delete a path clear no graph rows: they delete the
+/// `script` rows and let `ON DELETE CASCADE` take the sidecars, since taking
+/// those first would lock them ahead of the script row and deadlock a concurrent
+/// publication. So the cascade has to reach every sidecar, snapshots and markers
+/// included.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn clearing_the_path_takes_markers_with_it(db: Pool<Postgres>) {
+async fn deleting_the_script_cascades_to_every_sidecar(db: Pool<Postgres>) {
     deploy_script(&db, 1).await;
     deploy_script(&db, 2).await;
+    let job = uuid::Uuid::from_u128(7);
     let mut tx = db.begin().await.unwrap();
-    replace_dbt_manifest(&mut tx, WS, PATH, 1, None, &manifest(&["a"]), "root")
+    replace_dbt_manifest(&mut tx, WS, PATH, 1, None, &manifest(&["a", "b"]), "root")
         .await
         .unwrap();
-    replace_dbt_manifest(&mut tx, WS, PATH, 2, None, &manifest(&["b"]), "root")
+    replace_dbt_manifest(&mut tx, WS, PATH, 1, Some(job), &manifest(&["a"]), "root")
         .await
         .unwrap();
-    clear_dbt_manifest(&mut tx, WS, PATH).await.unwrap();
+    replace_dbt_manifest(&mut tx, WS, PATH, 2, None, &manifest(&["b", "c"]), "root")
+        .await
+        .unwrap();
     tx.commit().await.unwrap();
+    assert_eq!(markers_for_path(&db).await, 3, "two versions and one run");
 
-    assert_eq!(markers(&db, 1).await, 0);
-    assert_eq!(markers(&db, 2).await, 0);
+    sqlx::query!(
+        "DELETE FROM script WHERE workspace_id = $1 AND path = $2",
+        WS,
+        PATH
+    )
+    .execute(&db)
+    .await
+    .unwrap();
+
     assert_eq!(nodes_for(&db, 1, DEPLOYED_GRAPH).await, 0);
+    assert_eq!(nodes_for(&db, 1, job).await, 0, "a run's snapshot goes too");
+    assert_eq!(nodes_for(&db, 2, DEPLOYED_GRAPH).await, 0);
+    assert_eq!(edges_for(&db, 1).await, 0);
+    assert_eq!(edges_for(&db, 2).await, 0);
+    assert_eq!(markers_for_path(&db).await, 0);
 }
 
 /// The sweep ages out run snapshots and never a version's own graph, which is
@@ -444,8 +462,12 @@ async fn only_the_newest_editor_parses_are_kept(db: Pool<Postgres>) {
 }
 
 /// Archiving or deleting ONE version must not take an editor's graph with it —
-/// that graph describes a buffer, not a version — while retiring the whole path
-/// must, since nothing can reach it afterwards.
+/// that graph describes a buffer, not a version.
+///
+/// Retiring the whole PATH must, and cannot rely on the cascade the versioned
+/// rows ride: a version-less row leaves `script_hash` NULL, which satisfies the
+/// composite foreign key without referencing anything, so deleting the script
+/// takes the version's graph and leaves the editor's behind.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn a_version_clear_spares_editor_graphs_and_a_path_clear_does_not(db: Pool<Postgres>) {
     deploy_script(&db, 1).await;
@@ -465,7 +487,7 @@ async fn a_version_clear_spares_editor_graphs_and_a_path_clear_does_not(db: Pool
     assert_eq!(editor_nodes(&db, job).await, 1, "the buffer's graph survives");
 
     let mut tx = db.begin().await.unwrap();
-    clear_dbt_manifest(&mut tx, WS, PATH).await.unwrap();
+    clear_dbt_editor_graphs(&mut tx, WS, PATH).await.unwrap();
     tx.commit().await.unwrap();
 
     assert_eq!(editor_nodes(&db, job).await, 0, "retiring the path takes it");

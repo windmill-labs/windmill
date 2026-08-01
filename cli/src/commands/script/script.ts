@@ -363,13 +363,27 @@ export async function handleFile(
     alreadySynced.push(path);
     const remotePath = scriptPathToRemotePath(path);
 
-    // Before anything is written: this path may also be a dbt project's, and
-    // pushing here would deploy this file over it.
-    const collidingProject = await collidingDbtProject(
-      removeExtensionToPath(path)
-    );
-    if (collidingProject) {
-      throw dbtPathCollisionError(collidingProject, path);
+    // Before anything is written: `<base>.py` and `<base>__dbt/` deploy to ONE
+    // remote path, so whichever is pushed last replaces the other's script.
+    // Refused from either side — the descriptor is exempt only from finding its
+    // OWN project (it is that project's content file, so its base resolves to
+    // the same `dbt_project.yml`), never from an ordinary sibling.
+    // A folder-layout script is `<base>__mod/script.ts`, so stripping its
+    // extension yields `<base>__mod/script`, not the base both layouts deploy
+    // to. Wrong base, and the probe below looks in a directory that cannot
+    // exist — which is how a `__mod` script and a dbt project at one path were
+    // both pushed, each replacing the other.
+    const base = isScriptModulePath(path)
+      ? getScriptBasePathFromModulePath(path) ?? removeExtensionToPath(path)
+      : removeExtensionToPath(path);
+    const isDescriptor = isDbtDescriptorPath(path);
+    const other = isDescriptor
+      ? await collidingOrdinaryScript(base)
+      : await collidingDbtProject(base);
+    if (other) {
+      throw isDescriptor
+        ? dbtPathCollisionError(path, other)
+        : dbtPathCollisionError(other, path);
     }
 
     const language = inferContentTypeFromFilePath(path, opts?.defaultTs);
@@ -1019,6 +1033,34 @@ export async function collidingDbtProject(
   return (await stat(project).then(() => true).catch(() => false))
     ? project
     : undefined;
+}
+
+/**
+ * The ordinary script file sharing a base with a dbt project, if there is one —
+ * the same collision as [`collidingDbtProject`], seen from the dbt side.
+ *
+ * Needed because a descriptor may be pushed DIRECTLY (`wmill script push
+ * <base>__dbt/wm_dbt.yaml`), which never passes through the metadata resolution
+ * that would otherwise catch it.
+ */
+export async function collidingOrdinaryScript(
+  basePath: string
+): Promise<string | undefined> {
+  for (const ext of exts) {
+    if (ext === "__dbt/" + DBT_DESCRIPTOR_NAME) continue;
+    // Both layouts, because both deploy to `basePath`: the flat file, and the
+    // folder layout's entry point.
+    for (const candidate of [
+      basePath + ext,
+      `${basePath}${getModuleFolderSuffix()}/script${ext}`,
+    ]) {
+      const isFile = await stat(candidate)
+        .then((s) => s.isFile())
+        .catch(() => false);
+      if (isFile) return candidate;
+    }
+  }
+  return undefined;
 }
 
 export function dbtPathCollisionError(

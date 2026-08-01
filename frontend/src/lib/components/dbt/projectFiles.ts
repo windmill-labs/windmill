@@ -9,6 +9,7 @@
  * name.
  */
 import type { Preview, ScriptModule } from '$lib/gen'
+import { canonicalModulePath, findModulePathClash } from '../scriptModulePath'
 import YAML from 'yaml'
 
 /** The descriptor. It is the script's CONTENT, not a module: a module at the
@@ -46,21 +47,39 @@ export function dbtModuleLang(filePath: string): ScriptModule['language'] | unde
 		: undefined
 }
 
+/** The canonical key a typed path becomes, or the reason it cannot be one.
+ *
+ *  Canonicalised before the reserved-name and duplicate checks, not after: the
+ *  worker resolves `.` and `//` away when it materialises the bundle, so
+ *  `./dbt_project.yml` and `dbt_project.yml` are two keys for one file on disk
+ *  and either check is trivially walked past by the redundant spelling. */
+export function dbtModulePath(
+	path: string,
+	modules: Record<string, ScriptModule> | undefined
+): { path: string } | { error: string } {
+	const canonical = canonicalModulePath(path)
+	if ('error' in canonical) return canonical
+	if (canonical.path === DBT_DESCRIPTOR) {
+		return {
+			error: `${DBT_DESCRIPTOR} is the descriptor, edited from the tree — it cannot also be a file`
+		}
+	}
+	if (!dbtModuleLang(canonical.path)) {
+		return { error: `File must end with one of: ${DBT_MODULE_EXTENSIONS.join(', ')}` }
+	}
+	const clash = findModulePathClash(modules, canonical.path)
+	if (clash) return { error: `${clash} already exists` }
+	return canonical
+}
+
 /** Why this path cannot be a file, or `undefined` when it can. */
 export function dbtPathError(
 	path: string,
 	modules: Record<string, ScriptModule> | undefined
 ): string | undefined {
-	const trimmed = path.trim()
-	if (!trimmed) return undefined
-	if (trimmed === DBT_DESCRIPTOR) {
-		return `${DBT_DESCRIPTOR} is the descriptor, edited from the tree — it cannot also be a file`
-	}
-	if (!dbtModuleLang(trimmed)) {
-		return `File must end with one of: ${DBT_MODULE_EXTENSIONS.join(', ')}`
-	}
-	if (modules?.[trimmed]) return `${trimmed} already exists`
-	return undefined
+	if (!path.trim()) return undefined
+	const resolved = dbtModulePath(path, modules)
+	return 'error' in resolved ? resolved.error : undefined
 }
 
 /** A new file's starting content. A model compiles on its own, so it is runnable

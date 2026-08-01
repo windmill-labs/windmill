@@ -543,6 +543,15 @@ rows carry a composite foreign key to `script (workspace_id, hash)` with
 `ON DELETE CASCADE`, so a version's graph dies with the version and nothing has
 to sweep it.
 
+The routes that hard-delete a script rely on exactly that and clear no graph
+rows of their own. Clearing them first would lock the sidecars ahead of the
+`script` rows, the reverse of the order a publication takes — `script` row
+`FOR UPDATE`, then the sidecars — and Postgres would abort one of the two for
+deadlock. The consequence is that every sidecar has to be reachable by cascade:
+`dbt_node`, `dbt_edge` and `dbt_graph_snapshot` are, while `dbt_run_state` (keyed
+by path, no script key) is cleared explicitly and `dbt_run_progress` (keyed by
+job, no key to either) is reclaimed only by its age sweep.
+
 Two consequences worth knowing:
 
 * **Concurrent deploys no longer race for the graph.** Two versions write
