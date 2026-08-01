@@ -1964,6 +1964,11 @@ async fn change_user_email(
     .execute(&mut *tx)
     .await?;
 
+    // GROUP GUARD, repeated on every email-keyed rewrite below: a group's synthetic address
+    // `group-{name}@windmill.dev` may also be a real user's, and a runnable configured for
+    // the group keeps it when that user moves. A group is `g/` *without* an `@` — an
+    // email-shaped username is stored verbatim and `/` is legal in a local part. The
+    // `IS NULL` arm keeps rows that predate the column from being skipped on a `NULL`.
     sqlx::query!(
         "UPDATE script SET on_behalf_of_email = $1 WHERE on_behalf_of_email = $2 AND (on_behalf_of_permissioned_as IS NULL OR NOT (on_behalf_of_permissioned_as LIKE 'g/%' AND on_behalf_of_permissioned_as NOT LIKE '%@%'))",
         &new_email,
@@ -2020,17 +2025,8 @@ async fn change_user_email(
     .execute(&mut *tx)
     .await?;
 
-    // A script/flow draft carries the same pair inside its value, and deploying one sends
-    // it verbatim — a half-rewritten pair is rejected as naming two different people.
-    //
-    // The group guard on every email-keyed rewrite in this function: a group's synthetic
-    // address is `group-{name}@windmill.dev`, which a real user may also hold. A runnable
-    // configured for the *group* legitimately carries that address next to `g/{name}`, and
-    // it does not change when that user's email does. "Is a group" is `g/` **without** an
-    // `@`, because an email-shaped username is stored verbatim and `/` is legal in a local
-    // part, so `g/alice@example.com` is a user rather than a group. The `IS NULL` arm is
-    // load-bearing: without it the predicate is `NULL` on a runnable that predates the
-    // column and the row is silently skipped.
+    // A draft carries the pair in its value and deploying one sends it verbatim, so a
+    // half-rewritten pair is rejected as naming two different people.
     sqlx::query!(
         r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of_email'], to_jsonb($1::text))) WHERE typ IN ('script', 'flow') AND value->>'on_behalf_of_email' = $2 AND (value->>'on_behalf_of_permissioned_as' IS NULL OR NOT (value->>'on_behalf_of_permissioned_as' LIKE 'g/%' AND value->>'on_behalf_of_permissioned_as' NOT LIKE '%@%'))"#,
         &new_email,

@@ -891,14 +891,10 @@ async fn offboard_user_from_workspace<'c>(
     .execute(&mut **tx)
     .await?;
 
-    // Drafts hold the same pair in their value and are not confined to the offboarded
-    // user's paths, so a draft on a shared path would keep running as them.
-    //
-    // The group guard, here and on the two columns above (and matched by the preview, which
-    // must list exactly what will be reassigned): a runnable configured for a group carries
-    // that group's synthetic `group-{name}@windmill.dev` address, which a departing user may
-    // also hold as their own. It runs as the group, not as them. "Is a group" is `g/`
-    // **without** an `@` — see the matching guard in `change_user_email`.
+    // Drafts hold the pair in their value and are not confined to the offboarded user's
+    // paths, so a draft on a shared path would keep running as them. The group guard here
+    // and on the columns above (mirrored by the preview, which must list exactly what gets
+    // reassigned) is the one documented in `change_user_email`.
     sqlx::query!(
         r#"UPDATE draft SET value = to_json(jsonb_set(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of_email'], to_jsonb($1::text)), ARRAY['on_behalf_of_permissioned_as'], to_jsonb($4::text))) WHERE typ IN ('script', 'flow') AND value->>'on_behalf_of_email' = $2 AND workspace_id = $3 AND (value->>'on_behalf_of_permissioned_as' IS NULL OR NOT (value->>'on_behalf_of_permissioned_as' LIKE 'g/%' AND value->>'on_behalf_of_permissioned_as' NOT LIKE '%@%'))"#,
         new_on_behalf_of_user_email,
