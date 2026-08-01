@@ -282,12 +282,26 @@ async fn derive_policy_on_behalf_of_email(
     else {
         return Ok(());
     };
+    if derive_on_behalf_of_email_in_place(db, w_id, &mut obj, round_trips).await? {
+        policy.0 = to_raw_value(&obj);
+    }
+    Ok(())
+}
+
+/// Same derivation on an already-parsed policy. Reports whether it rewrote the address, so
+/// callers holding the raw form only pay to re-serialize when there was a principal to derive.
+async fn derive_on_behalf_of_email_in_place(
+    db: &DB,
+    w_id: &str,
+    obj: &mut serde_json::Map<String, serde_json::Value>,
+    round_trips: bool,
+) -> Result<bool> {
     let Some(permissioned_as) = obj
         .get("on_behalf_of")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
     else {
-        return Ok(());
+        return Ok(false);
     };
     let email = if round_trips {
         windmill_common::users::get_email_from_permissioned_as_uncached(&permissioned_as, w_id, db)
@@ -296,7 +310,25 @@ async fn derive_policy_on_behalf_of_email(
         windmill_common::users::get_email_from_permissioned_as(&permissioned_as, w_id, db).await?
     };
     obj.insert("on_behalf_of_email".to_string(), json!(email));
-    policy.0 = to_raw_value(&obj);
+    Ok(true)
+}
+
+/// A draft carries its own copy of the policy and is deployed from it verbatim, so it needs the
+/// same derivation as the deployed one. A pair that drifted while the address was still stored
+/// independently would otherwise survive here — the backfill only fills in a missing principal —
+/// and deploying the draft unchanged would be rejected as a contradicting identity.
+async fn derive_draft_policy_on_behalf_of_email(
+    db: &DB,
+    w_id: &str,
+    draft: Option<&mut serde_json::Value>,
+) -> Result<()> {
+    let Some(policy) = draft
+        .and_then(|d| d.get_mut("policy"))
+        .and_then(|p| p.as_object_mut())
+    else {
+        return Ok(());
+    };
+    derive_on_behalf_of_email_in_place(db, w_id, policy, true).await?;
     Ok(())
 }
 
@@ -1012,7 +1044,7 @@ async fn get_app(
         None if query.raw_app.unwrap_or(false) => UserDraftItemKind::RawApp,
         None => UserDraftItemKind::App,
     };
-    let overlay = overlay_or_draft_only(
+    let mut overlay = overlay_or_draft_only(
         &db,
         &w_id,
         &authed.email,
@@ -1023,6 +1055,7 @@ async fn get_app(
         || windmill_common::error::Error::NotFound(format!("App not found at path {path}")),
     )
     .await?;
+    derive_draft_policy_on_behalf_of_email(&db, &w_id, overlay.draft.as_mut()).await?;
     Ok(Json(overlay))
 }
 
