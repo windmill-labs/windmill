@@ -676,7 +676,10 @@ export function isDbtModulePath(p: string): boolean {
  *  `dbt_packages/` is a vendored copy the worker restores from its own cache. */
 const DBT_GENERATED_DIRS = ["target", "dbt_packages", "logs", ".git", ".venv", "__pycache__"];
 
-const dbtGeneratedDirsCache = new Map<string, Set<string>>();
+const dbtGeneratedDirsCache = new Map<
+  string,
+  { stamp: string; dirs: Set<string> }
+>();
 
 /** `{{ env_var('NAME') }}` / `{{ env_var("NAME", "default") }}`. */
 const DBT_ENV_VAR_CALL =
@@ -717,8 +720,20 @@ export function isLocalSecretFile(name: string): boolean {
  * folder: this is called once per file of a sync.
  */
 export function dbtGeneratedDirs(moduleFolderPath: string): Set<string> {
+  const projectFile = path.join(moduleFolderPath, "dbt_project.yml");
+  // Cached against the project file's identity, not merely its folder: `wmill
+  // dev` is a long-running process, so a `target-path` edited mid-session would
+  // otherwise keep excluding the old directory and start bundling the new one
+  // as project source. One entry per folder, replaced when the file changes.
+  let stamp = "";
+  try {
+    const st = fs.statSync(projectFile);
+    stamp = `${st.mtimeMs}:${st.size}`;
+  } catch {
+    // No project file yet: the defaults apply, and "absent" is its own stamp.
+  }
   const cached = dbtGeneratedDirsCache.get(moduleFolderPath);
-  if (cached) return cached;
+  if (cached && cached.stamp === stamp) return cached.dirs;
   const dirs = new Set<string>(DBT_GENERATED_DIRS);
   const add = (raw: string) => {
     const v = normalizeSep(renderDbtEnvVars(raw).trim().replace(/^["']|["']$/g, ""))
@@ -729,10 +744,7 @@ export function dbtGeneratedDirs(moduleFolderPath: string): Set<string> {
     if (v && !v.startsWith("/") && !v.split("/").includes("..")) dirs.add(v);
   };
   try {
-    const projectYml = fs.readFileSync(
-      path.join(moduleFolderPath, "dbt_project.yml"),
-      "utf-8",
-    );
+    const projectYml = fs.readFileSync(projectFile, "utf-8");
     for (const m of projectYml.matchAll(
       /^\s*(?:target-path|packages-install-path)\s*:\s*([^\n#]+)/gm,
     )) {
@@ -759,7 +771,7 @@ export function dbtGeneratedDirs(moduleFolderPath: string): Set<string> {
     // No dbt_project.yml yet (a descriptor pushed before its project): the
     // defaults still apply.
   }
-  dbtGeneratedDirsCache.set(moduleFolderPath, dirs);
+  dbtGeneratedDirsCache.set(moduleFolderPath, { stamp, dirs });
   return dirs;
 }
 

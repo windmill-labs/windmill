@@ -109,6 +109,14 @@ async fn get_warehouse(
 ///
 /// The job is taken from the TOKEN, never the body: a job may report its own
 /// progress and no one else's.
+///
+/// NO no-auth branch, unlike its two siblings: they need only the warehouse
+/// NAME, which the URL carries, while this needs the job — and the job lives in
+/// the token's JWT claims, which the no-auth path never decodes. So on a
+/// no-auth instance an agent worker's per-model rows do not appear. The run is
+/// unaffected: the worker treats a failed post as a display problem and builds
+/// the models regardless. Taking the job from the body instead would hand any
+/// caller another job's run page.
 async fn record_run_progress(
     OptJobAuthed { job_id, .. }: OptJobAuthed,
     Extension(db): Extension<DB>,
@@ -195,7 +203,5 @@ async fn warehouse_exists(
     // and a needless disclosure to a job that only asked about one name.
     windmill_common::workspaces::dbt_warehouse_exists(&db, &w_id, &name)
         .await
-        .map_err(|_| {
-            Error::NotFound(format!("no dbt warehouse named `{name}` in this workspace"))
-        })
+        .map_err(|_| Error::NotFound(format!("no dbt warehouse named `{name}` in this workspace")))
 }
