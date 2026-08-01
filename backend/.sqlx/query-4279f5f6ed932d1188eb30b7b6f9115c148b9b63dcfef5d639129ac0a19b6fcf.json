@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE draft SET value = to_json(jsonb_set(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of_email'], to_jsonb($1::text)), ARRAY['on_behalf_of_permissioned_as'], to_jsonb($4::text))) WHERE typ IN ('script', 'flow') AND value->>'on_behalf_of_email' = $2 AND workspace_id = $3 AND (value->>'on_behalf_of_permissioned_as' IS NULL OR NOT (value->>'on_behalf_of_permissioned_as' LIKE 'g/%' AND value->>'on_behalf_of_permissioned_as' NOT LIKE '%@%'))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4279f5f6ed932d1188eb30b7b6f9115c148b9b63dcfef5d639129ac0a19b6fcf"
+}

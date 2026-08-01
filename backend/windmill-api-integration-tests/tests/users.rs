@@ -704,15 +704,24 @@ async fn test_change_user_email_leaves_group_identities(db: Pool<Postgres>) -> a
     .execute(&db)
     .await?;
 
-    // Same email on both: one runnable is configured for the group, the other for the user.
-    for (path, permissioned_as) in [("u/test-user/g", "g/ops"), ("u/test-user/u", "u/test-user-2")] {
+    // Same email on all three: one runnable is configured for the group, one for the user,
+    // and one predates the principal column entirely. Only the group one must be left alone —
+    // a guard that also skipped the legacy row would strand its address.
+    for (i, (path, permissioned_as)) in [
+        ("u/test-user/g", Some("g/ops")),
+        ("u/test-user/u", Some("u/test-user-2")),
+        ("u/test-user/legacy", None),
+    ]
+    .into_iter()
+    .enumerate()
+    {
         sqlx::query!(
             "INSERT INTO draft(workspace_id, path, typ, value)
              VALUES ('test-workspace', $1, 'script',
                      json_build_object('on_behalf_of_email', 'group-ops@windmill.dev',
                                        'on_behalf_of_permissioned_as', $2::text))",
             path,
-            permissioned_as
+            permissioned_as as Option<&str>
         )
         .execute(&db)
         .await?;
@@ -720,8 +729,8 @@ async fn test_change_user_email_leaves_group_identities(db: Pool<Postgres>) -> a
             "INSERT INTO script(workspace_id, hash, path, summary, description, content, created_by, language, on_behalf_of_email, on_behalf_of_permissioned_as)
              VALUES ('test-workspace', $3, $1, '', '', '', 'test-user', 'deno', 'group-ops@windmill.dev', $2::text)",
             path,
-            permissioned_as,
-            if permissioned_as == "g/ops" { 1i64 } else { 2i64 }
+            permissioned_as as Option<&str>,
+            i as i64
         )
         .execute(&db)
         .await?;
@@ -744,9 +753,10 @@ async fn test_change_user_email_leaves_group_identities(db: Pool<Postgres>) -> a
             .collect::<Vec<_>>(),
         vec![
             ("u/test-user/g", Some("group-ops@windmill.dev")),
+            ("u/test-user/legacy", Some("renamed@windmill.dev")),
             ("u/test-user/u", Some("renamed@windmill.dev")),
         ],
-        "the group-owned script keeps the group's address; the user-owned one moves"
+        "only the group-owned script keeps the group's address"
     );
 
     let drafts = sqlx::query!(
@@ -761,6 +771,7 @@ async fn test_change_user_email_leaves_group_identities(db: Pool<Postgres>) -> a
             .collect::<Vec<_>>(),
         vec![
             ("u/test-user/g", Some("group-ops@windmill.dev")),
+            ("u/test-user/legacy", Some("renamed@windmill.dev")),
             ("u/test-user/u", Some("renamed@windmill.dev")),
         ],
         "same split for drafts"

@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT path FROM flow WHERE on_behalf_of_email = $1 AND (on_behalf_of_permissioned_as IS NULL OR NOT (on_behalf_of_permissioned_as LIKE 'g/%' AND on_behalf_of_permissioned_as NOT LIKE '%@%')) AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "8f4f6c8f11f6889fdee127eed867620feb838b51bf73a849b3530c3f4fa3408f"
+}
