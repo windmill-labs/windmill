@@ -2020,6 +2020,24 @@ async fn change_user_email(
     .execute(&mut *tx)
     .await?;
 
+    // A script/flow draft carries the same pair inside its value, and deploying one sends
+    // it verbatim — a half-rewritten pair is rejected as naming two different people.
+    sqlx::query!(
+        r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of_email'], to_jsonb($1::text))) WHERE typ IN ('script', 'flow') AND value->>'on_behalf_of_email' = $2"#,
+        &new_email,
+        &old_email
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of_permissioned_as'], to_jsonb($1::text))) WHERE typ IN ('script', 'flow') AND value->>'on_behalf_of_permissioned_as' = $2"#,
+        &new_email,
+        &old_email
+    )
+    .execute(&mut *tx)
+    .await?;
+
     // A folder's default rules are an ordered array, first match wins, so the rewrite has to
     // preserve their order. A rule left on the old address makes `ensure_permissioned_as_exists`
     // reject the creation of every runnable the rule matches.

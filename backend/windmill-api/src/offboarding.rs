@@ -891,6 +891,18 @@ async fn offboard_user_from_workspace<'c>(
     .execute(&mut **tx)
     .await?;
 
+    // Drafts hold the same pair in their value and are not confined to the offboarded
+    // user's paths, so a draft on a shared path would keep running as them.
+    sqlx::query!(
+        r#"UPDATE draft SET value = to_json(jsonb_set(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of_email'], to_jsonb($1::text)), ARRAY['on_behalf_of_permissioned_as'], to_jsonb($4::text))) WHERE typ IN ('script', 'flow') AND value->>'on_behalf_of_email' = $2 AND workspace_id = $3"#,
+        new_on_behalf_of_user_email,
+        email,
+        w_id,
+        new_permissioned_as
+    )
+    .execute(&mut **tx)
+    .await?;
+
     // ---- apps ----
     let apps_reassigned = sqlx::query_scalar!(
         r#"WITH updated AS (

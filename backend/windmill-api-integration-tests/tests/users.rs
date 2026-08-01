@@ -553,6 +553,16 @@ async fn test_change_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
     .execute(&db)
     .await?;
 
+    // A draft carries the identity pair in its value; deploying one sends it verbatim, so a
+    // half-rewritten pair is rejected as naming two different people.
+    sqlx::query!(
+        "INSERT INTO draft(workspace_id, path, typ, value)
+         VALUES ('test-workspace', 'u/test-user-2/d', 'script',
+                 '{\"on_behalf_of_email\": \"test2@windmill.dev\", \"on_behalf_of_permissioned_as\": \"u/test-user-2\"}'::json)"
+    )
+    .execute(&db)
+    .await?;
+
     let resp = change_email("test2@windmill.dev", "renamed@windmill.dev")
         .await
         .unwrap();
@@ -586,6 +596,17 @@ async fn test_change_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
     .fetch_one(&db)
     .await?;
     assert_eq!(permissioned_as, "renamed@windmill.dev");
+
+    let draft = sqlx::query_scalar!(
+        "SELECT value::text FROM draft WHERE path = 'u/test-user-2/d' AND workspace_id = 'test-workspace'"
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or_default();
+    assert!(
+        !draft.contains("test2@windmill.dev") && draft.contains("renamed@windmill.dev"),
+        "draft should carry only the new address: {draft}"
+    );
 
     let policy = sqlx::query_scalar!(
         "SELECT policy::text FROM app WHERE path = 'u/test-user-2/app' AND workspace_id = 'test-workspace'"
