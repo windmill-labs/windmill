@@ -50,6 +50,7 @@
 
 	import SavedInputsV2 from '$lib/components/SavedInputsV2.svelte'
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
+	import OnBehalfOfBadge from '$lib/components/details/OnBehalfOfBadge.svelte'
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
 	import {
 		Activity,
@@ -792,6 +793,11 @@
 						></Badge
 					>
 				{/if}
+				<OnBehalfOfBadge
+					onBehalfOf={script?.on_behalf_of}
+					onBehalfOfEmail={script?.on_behalf_of_email}
+					kind="script"
+				/>
 				{#if script?.priority != undefined}
 					<div class="hidden md:block">
 						<Badge color="blue" variant="outlined" size="xs">
@@ -821,12 +827,7 @@
 			</div>
 			{#if script}
 				{@const showsDbtGraph = script.language === 'dbt' && !!script.path}
-				<div
-					class={twMerge(
-						'flex flex-col',
-						isWac || showsDbtGraph ? 'h-full divide-y' : ''
-					)}
-				>
+				<div class={twMerge('flex flex-col', isWac || showsDbtGraph ? 'h-full divide-y' : '')}>
 					<div
 						class={twMerge(
 							'p-8 w-full max-w-3xl overflow-y-auto mx-auto flex flex-col relative',
@@ -942,7 +943,9 @@
 									<Alert type="info" size="xs" title="This rebuilds the whole project">
 										<div class="flex flex-row gap-2 items-center flex-wrap">
 											<span>
-												The run you came from failed part-way. <span class="font-mono">dbt retry</span>
+												The run you came from failed part-way. <span class="font-mono"
+													>dbt retry</span
+												>
 												rebuilds only its failed and skipped nodes, with the arguments it ran with.
 											</span>
 											<Button size="xs" variant="border" color="light" on:click={useDbtRetry}>
