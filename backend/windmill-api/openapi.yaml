@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.775.2
+  version: 1.776.0
   title: Windmill API
 
   contact:
@@ -25805,6 +25805,9 @@ components:
           type: boolean
         on_behalf_of_email:
           type: string
+        on_behalf_of:
+          type: string
+          description: "Authorization identity the runnable runs as: u/{username}, g/{group}, or a bare email when the username is itself email-shaped. The only stored half of the identity; on_behalf_of_email is derived from it."
         modules:
           type: object
           nullable: true
@@ -25926,9 +25929,12 @@ components:
           type: boolean
         on_behalf_of_email:
           type: string
+        on_behalf_of:
+          type: string
+          description: "Authorization identity to run as: u/{username}, g/{group}, or a bare email when the username is itself email-shaped. Supply this or on_behalf_of_email; when only the address is given it is resolved to the account it names, and an address naming nobody is rejected. A pair that disagrees is rejected."
         preserve_on_behalf_of:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email / on_behalf_of pair instead of overwriting it with the caller's own identity."
         assets:
           type: array
           items:
@@ -31088,6 +31094,9 @@ components:
           type: boolean
         on_behalf_of_email:
           type: string
+        on_behalf_of:
+          type: string
+          description: "Authorization identity the runnable runs as: u/{username}, g/{group}, or a bare email when the username is itself email-shaped. The only stored half of the identity; on_behalf_of_email is derived from it."
         labels:
           type: array
           items:
@@ -31129,9 +31138,12 @@ components:
               type: boolean
             on_behalf_of_email:
               type: string
+            on_behalf_of:
+              type: string
+              description: "Authorization identity to run as: u/{username}, g/{group}, or a bare email when the username is itself email-shaped. Supply this or on_behalf_of_email; when only the address is given it is resolved to the account it names, and an address naming nobody is rejected. A pair that disagrees is rejected."
             preserve_on_behalf_of:
               type: boolean
-              description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email value instead of overwriting it."
+              description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email / on_behalf_of pair instead of overwriting it with the caller's own identity."
             labels:
               type: array
               items:
@@ -31162,9 +31174,12 @@ components:
               type: boolean
             on_behalf_of_email:
               type: string
+            on_behalf_of:
+              type: string
+              description: "Authorization identity to run as: u/{username}, g/{group}, or a bare email when the username is itself email-shaped. Supply this or on_behalf_of_email; when only the address is given it is resolved to the account it names, and an address naming nobody is rejected. A pair that disagrees is rejected."
             preserve_on_behalf_of:
               type: boolean
-              description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email value instead of overwriting it."
+              description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email / on_behalf_of pair instead of overwriting it with the caller's own identity."
             labels:
               type: array
               items:

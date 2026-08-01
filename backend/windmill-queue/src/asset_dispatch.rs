@@ -766,6 +766,9 @@ async fn push_subscriber(
     .await?
     .prefetch_cached(db)
     .await?;
+    let on_behalf_of = script
+        .on_behalf_of(&producer.workspace_id, db)
+        .await?;
     let hash = ScriptHash(script.hash);
     let tag = script.tag;
     let concurrency_settings = script.runnable_settings.concurrency_settings;
@@ -824,15 +827,17 @@ async fn push_subscriber(
     // producer's. Subscriptions are workspace-wide, so attributing the run
     // to the producer would let anyone who can deploy a `// on` script
     // execute code with the permissions of whoever happens to write the
-    // asset (e.g. an admin's scheduled job). `on_behalf_of_email` (an
-    // explicit service-account opt-in at deploy) takes precedence for the
-    // email; otherwise the deployer's email is resolved from their
-    // username.
-    let permissioned_as = username_to_permissioned_as(&script.created_by);
-    let email = match script.on_behalf_of_email {
-        Some(obo) => obo,
+    // asset (e.g. an admin's scheduled job). An on-behalf-of identity (an
+    // explicit service-account opt-in at deploy) takes precedence; otherwise
+    // the deployer's email is resolved from their username.
+    let (email, permissioned_as) = match on_behalf_of {
+        Some(obo) => (obo.email, obo.permissioned_as),
         None => {
-            get_email_from_permissioned_as(&permissioned_as, &producer.workspace_id, db).await?
+            let permissioned_as = username_to_permissioned_as(&script.created_by);
+            let email =
+                get_email_from_permissioned_as(&permissioned_as, &producer.workspace_id, db)
+                    .await?;
+            (email, permissioned_as)
         }
     };
 

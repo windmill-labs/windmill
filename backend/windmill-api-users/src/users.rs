@@ -49,7 +49,8 @@ use windmill_common::oauth2::InstanceEvent;
 use windmill_common::users::truncate_token;
 use windmill_common::users::COOKIE_NAME;
 use windmill_common::users::{
-    SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SYNC_EMAIL, VALID_EMAIL,
+    username_to_permissioned_as, PERMISSIONED_AS_MAX_LEN, SUPERADMIN_NOTIFICATION_EMAIL,
+    SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SYNC_EMAIL, VALID_EMAIL,
 };
 use windmill_common::utils::paginate;
 use windmill_common::worker::CLOUD_HOSTED;
@@ -1785,6 +1786,44 @@ async fn change_user_email(
         }
     }
 
+    // An account named by its address carries that address into every principal column, and
+    // `v2_job.permissioned_as` is narrower than all of them: the move would leave runnables that
+    // look configured but cannot enqueue. Same limit the deploy path applies.
+    let old_principal_probe = username_to_permissioned_as(&old_email);
+    if username_to_permissioned_as(&new_email).chars().count() > PERMISSIONED_AS_MAX_LEN {
+        let names_a_runnable = sqlx::query_scalar!(
+            "SELECT EXISTS(
+                SELECT 1 FROM script WHERE on_behalf_of = $1
+                UNION ALL SELECT 1 FROM flow WHERE on_behalf_of = $1
+                UNION ALL SELECT 1 FROM app WHERE policy->>'on_behalf_of' = $1
+                UNION ALL SELECT 1 FROM schedule WHERE permissioned_as = $1
+                UNION ALL SELECT 1 FROM http_trigger WHERE permissioned_as = $1
+                UNION ALL SELECT 1 FROM websocket_trigger WHERE permissioned_as = $1
+                UNION ALL SELECT 1 FROM postgres_trigger WHERE permissioned_as = $1
+                UNION ALL SELECT 1 FROM mqtt_trigger WHERE permissioned_as = $1
+                UNION ALL SELECT 1 FROM kafka_trigger WHERE permissioned_as = $1
+                UNION ALL SELECT 1 FROM nats_trigger WHERE permissioned_as = $1
+                UNION ALL SELECT 1 FROM sqs_trigger WHERE permissioned_as = $1
+                UNION ALL SELECT 1 FROM gcp_trigger WHERE permissioned_as = $1
+                UNION ALL SELECT 1 FROM email_trigger WHERE permissioned_as = $1
+                UNION ALL SELECT 1 FROM amqp_trigger WHERE permissioned_as = $1
+                UNION ALL SELECT 1 FROM azure_trigger WHERE permissioned_as = $1
+                UNION ALL SELECT 1 FROM folder
+                    WHERE default_permissioned_as @> jsonb_build_array(
+                        jsonb_build_object('permissioned_as', $1::text)))",
+            &old_principal_probe
+        )
+        .fetch_one(&mut *tx)
+        .await?
+        .unwrap_or(false);
+        if names_a_runnable {
+            return Err(Error::BadRequest(format!(
+                "{new_email} is longer than the {PERMISSIONED_AS_MAX_LEN} characters a job can \
+                 carry, and runnables or triggers run on behalf of this account by its address"
+            )));
+        }
+    }
+
     // A pending_user row only reserves a username for an address that has no account yet, which
     // stops being true here. The moved account keeps its own username.
     sqlx::query!("DELETE FROM pending_user WHERE email = $1", &new_email)
@@ -1956,42 +1995,89 @@ async fn change_user_email(
     .execute(&mut *tx)
     .await?;
 
+    // Apps store an address next to their principal, and the synthetic
+    // `group-{name}@windmill.dev` may be a real user's, so a group-owned app has to keep its
+    // address when a colliding user moves: an app running in Anonymous or Publisher mode takes
+    // its permissions from that pair rather than from the caller, and a half-rewritten pair
+    // names two accounts. Drafts below carry the same pair and need the same guard.
     sqlx::query!(
-        "UPDATE script SET on_behalf_of_email = $1 WHERE on_behalf_of_email = $2",
+        "UPDATE app SET policy = jsonb_set(policy, ARRAY['on_behalf_of_email'], to_jsonb($1::text)) WHERE policy->>'on_behalf_of_email' = $2 AND (policy->>'on_behalf_of' IS NULL OR policy->>'on_behalf_of' NOT LIKE 'g/%')",
         &new_email,
         &old_email
     )
     .execute(&mut *tx)
     .await?;
 
-    sqlx::query!(
-        "UPDATE flow SET on_behalf_of_email = $1 WHERE on_behalf_of_email = $2",
-        &new_email,
-        &old_email
-    )
-    .execute(&mut *tx)
-    .await?;
+    // ---- permissioned_as naming the account by its address ----
+    // `usr.username` is constrained to `[\w-]+`, so a workspace member is always named
+    // `u/{username}` and their principals survive an address change untouched. The address form
+    // belongs to an account acting without a `usr` row — a superadmin outside their workspaces,
+    // named by `password.username` or, failing that, by the address itself. Those are the rows
+    // that go stale here, and `username_to_permissioned_as` is what encodes both ends of the
+    // move (an address containing a `/` is prefixed, since readers split on the first one).
+    let old_principal = username_to_permissioned_as(&old_email);
+    let new_principal = username_to_permissioned_as(&new_email);
 
-    // Apps carry the same identity inside their policy JSONB. An app running in Anonymous or
-    // Publisher mode takes its permissions from there rather than from the caller, so a stale
-    // address silently costs it its superadmin flag and its instance groups.
-    sqlx::query!(
-        "UPDATE app SET policy = jsonb_set(policy, ARRAY['on_behalf_of_email'], to_jsonb($1::text)) WHERE policy->>'on_behalf_of_email' = $2",
-        &new_email,
-        &old_email
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    // ---- permissioned_as holding a raw email ----
-    // `username_to_permissioned_as` returns its input verbatim when it contains '@', and the
-    // migration that introduced these columns back-filled them the same way, so a user whose
-    // username is their email is stored as the bare address instead of `u/{username}`. Those rows
-    // are the ones that go stale here; `u/{username}` rows are safe because the username is kept.
     sqlx::query!(
         "UPDATE app SET policy = jsonb_set(policy, ARRAY['on_behalf_of'], to_jsonb($1::text)) WHERE policy->>'on_behalf_of' = $2",
+        &new_principal,
+        &old_principal
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE script SET on_behalf_of = $1 WHERE on_behalf_of = $2",
+        &new_principal,
+        &old_principal
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    // The address these two keep beside the principal is what a worker predating
+    // MIN_VERSION_SUPPORTS_ON_BEHALF_OF_PRINCIPAL reads, so it follows the account for as long
+    // as one may be live. Group-owned rows are held back for the reason given above the app
+    // sweep: their address is the group's, which a colliding user does not take with them.
+    sqlx::query!(
+        "UPDATE script SET on_behalf_of_email = $1 WHERE on_behalf_of_email = $2 AND (on_behalf_of IS NULL OR on_behalf_of NOT LIKE 'g/%')",
         &new_email,
         &old_email
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE flow SET on_behalf_of = $1 WHERE on_behalf_of = $2",
+        &new_principal,
+        &old_principal
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE flow SET on_behalf_of_email = $1 WHERE on_behalf_of_email = $2 AND (on_behalf_of IS NULL OR on_behalf_of NOT LIKE 'g/%')",
+        &new_email,
+        &old_email
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    // Script/flow rows store only the principal, but drafts carry an address beside it and
+    // `deployDraft` sends both — left stale it contradicts the principal, which resolves to the
+    // new address, and the deploy is rejected. Group-owned drafts are held back for the reason
+    // given above the app sweep.
+    sqlx::query!(
+        r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of_email'], to_jsonb($1::text))) WHERE typ IN ('script', 'flow') AND value->>'on_behalf_of_email' = $2 AND (value->>'on_behalf_of' IS NULL OR value->>'on_behalf_of' NOT LIKE 'g/%')"#,
+        &new_email,
+        &old_email
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of'], to_jsonb($1::text))) WHERE typ IN ('script', 'flow') AND value->>'on_behalf_of' = $2"#,
+        &new_principal,
+        &old_principal
     )
     .execute(&mut *tx)
     .await?;
@@ -2008,104 +2094,104 @@ async fn change_user_email(
                 ORDER BY ord)
             FROM jsonb_array_elements(default_permissioned_as) WITH ORDINALITY AS t(rule, ord))
         WHERE default_permissioned_as @> jsonb_build_array(jsonb_build_object('permissioned_as', $2::text))"#,
-        &new_email,
-        &old_email
+        &new_principal,
+        &old_principal
     )
     .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
         "UPDATE schedule SET permissioned_as = $1 WHERE permissioned_as = $2",
-        &new_email,
-        &old_email
+        &new_principal,
+        &old_principal
     )
     .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
         "UPDATE http_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
-        &new_email,
-        &old_email
+        &new_principal,
+        &old_principal
     )
     .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
         "UPDATE websocket_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
-        &new_email,
-        &old_email
+        &new_principal,
+        &old_principal
     )
     .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
         "UPDATE postgres_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
-        &new_email,
-        &old_email
+        &new_principal,
+        &old_principal
     )
     .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
         "UPDATE mqtt_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
-        &new_email,
-        &old_email
+        &new_principal,
+        &old_principal
     )
     .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
         "UPDATE kafka_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
-        &new_email,
-        &old_email
+        &new_principal,
+        &old_principal
     )
     .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
         "UPDATE nats_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
-        &new_email,
-        &old_email
+        &new_principal,
+        &old_principal
     )
     .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
         "UPDATE sqs_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
-        &new_email,
-        &old_email
+        &new_principal,
+        &old_principal
     )
     .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
         "UPDATE gcp_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
-        &new_email,
-        &old_email
+        &new_principal,
+        &old_principal
     )
     .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
         "UPDATE email_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
-        &new_email,
-        &old_email
+        &new_principal,
+        &old_principal
     )
     .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
         "UPDATE amqp_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
-        &new_email,
-        &old_email
+        &new_principal,
+        &old_principal
     )
     .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
         "UPDATE azure_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
-        &new_email,
-        &old_email
+        &new_principal,
+        &old_principal
     )
     .execute(&mut *tx)
     .await?;
@@ -2123,8 +2209,8 @@ async fn change_user_email(
 
     sqlx::query!(
         "UPDATE v2_job SET permissioned_as = $1 WHERE permissioned_as = $2 AND id IN (SELECT id FROM v2_job_queue)",
-        &new_email,
-        &old_email
+        &new_principal,
+        &old_principal
     )
     .execute(&mut *tx)
     .await?;
@@ -2173,7 +2259,23 @@ async fn change_user_email(
     )
     .await?;
 
+    // Read back inside the transaction: the address is derived at dispatch through a cache
+    // that nothing else evicts, so without this a job pushed in the next 60s would resolve
+    // the old address and with it the wrong superadmin flag and instance groups.
+    let memberships = sqlx::query_scalar!(
+        "SELECT workspace_id FROM usr WHERE email = $1",
+        &new_email
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
     tx.commit().await?;
+
+    if let Some(username) = username.as_deref() {
+        for w_id in &memberships {
+            windmill_common::users::invalidate_email_cache(w_id, username);
+        }
+    }
 
     Ok(format!(
         "changed email of user {old_email} to {new_email}{}",

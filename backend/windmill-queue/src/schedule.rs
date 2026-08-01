@@ -22,6 +22,7 @@ use windmill_common::get_latest_flow_version_id_for_path;
 use windmill_common::jobs::check_tag_available_for_workspace_internal;
 use windmill_common::jobs::JobPayload;
 use windmill_common::jobs::JobTriggerKind;
+use windmill_common::jobs::OnBehalfOf;
 use windmill_common::runnable_settings::ConcurrencySettings;
 use windmill_common::runnable_settings::DebouncingSettings;
 use windmill_common::schedule::schedule_to_user;
@@ -34,19 +35,18 @@ use windmill_common::DB;
 use windmill_common::{
     error::{self, Result},
     schedule::Schedule,
-    users::username_to_permissioned_as,
     utils::{now_from_db, ScheduleType, StripPath},
 };
 
 /// Helper to fetch metadata for a schedule's script or flow
 async fn get_schedule_metadata<'c>(
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
+    db: &DB,
     schedule: &Schedule,
 ) -> Result<(
     Option<String>,     // tag
     Option<i32>,        // timeout
-    Option<String>,     // on_behalf_of_email
-    String,             // created_by
+    Option<OnBehalfOf>, // identity the runnable is deployed to run as
     Option<ScriptHash>, // hash (for scripts)
     Option<i64>,        // flow_version (for flows)
     Option<Retry>,      // retry
@@ -66,20 +66,18 @@ async fn get_schedule_metadata<'c>(
         )
         .await?;
 
-        let FlowVersionInfo { tag, on_behalf_of_email, edited_by, .. } =
-            get_flow_version_info_from_version(
-                &mut **tx,
-                version,
-                &schedule.workspace_id,
-                &schedule.script_path,
-            )
-            .await?;
+        let flow_info = get_flow_version_info_from_version(
+            &mut **tx,
+            version,
+            &schedule.workspace_id,
+            &schedule.script_path,
+        )
+        .await?;
 
         Ok((
-            tag,
+            flow_info.tag.clone(),
             None,
-            on_behalf_of_email,
-            edited_by,
+            flow_info.on_behalf_of(&schedule.workspace_id, db).await?,
             None,
             Some(version),
             parsed_retry,
@@ -99,27 +97,19 @@ async fn get_schedule_metadata<'c>(
             _dedicated_worker,
             _priority,
             timeout,
-            on_behalf_of_email,
-            created_by,
+            on_behalf_of,
             _runnable_settings_handle,
             _labels,
         ) = windmill_common::get_latest_hash_for_path(
             &mut **tx,
+            db,
             &schedule.workspace_id,
             &schedule.script_path,
             false,
         )
         .await?;
 
-        Ok((
-            tag,
-            timeout,
-            on_behalf_of_email,
-            created_by,
-            Some(hash),
-            None,
-            parsed_retry,
-        ))
+        Ok((tag, timeout, on_behalf_of, Some(hash), None, parsed_retry))
     }
 }
 
@@ -246,7 +236,7 @@ pub async fn push_scheduled_job<'c>(
 
     // If schedule handler is defined, wrap the scheduled job in a synthetic flow
     // with the handler as the first step (with stop_after_if to skip if handler returns false)
-    let (payload, tag, timeout, on_behalf_of_email, created_by) = if let Some(maintenance_payload) =
+    let (payload, tag, timeout, on_behalf_of) = if let Some(maintenance_payload) =
         maintenance_payload
     {
         maintenance_payload
@@ -266,8 +256,8 @@ pub async fn push_scheduled_job<'c>(
         );
 
         // Get metadata from the scheduled script/flow for tag, timeout, etc.
-        let (tag, timeout, on_behalf_of_email, created_by, hash, flow_version, retry) =
-            get_schedule_metadata(&mut tx, schedule).await?;
+        let (tag, timeout, on_behalf_of, hash, flow_version, retry) =
+            get_schedule_metadata(&mut tx, db, schedule).await?;
 
         (
             JobPayload::SingleStepFlow {
@@ -300,8 +290,7 @@ pub async fn push_scheduled_job<'c>(
                 tag
             },
             timeout,
-            on_behalf_of_email,
-            created_by,
+            on_behalf_of,
         )
     } else if schedule.is_flow {
         let version = get_latest_flow_version_id_for_path(
@@ -314,15 +303,7 @@ pub async fn push_scheduled_job<'c>(
         .warn_after_seconds_with_sql(1, "get_latest_flow_version_id_for_path".to_string())
         .await?;
 
-        let FlowVersionInfo {
-            version,
-            tag,
-            dedicated_worker,
-            on_behalf_of_email,
-            edited_by,
-            labels,
-            ..
-        } = get_flow_version_info_from_version(
+        let flow_info = get_flow_version_info_from_version(
             &mut *tx,
             version,
             &schedule.workspace_id,
@@ -330,6 +311,8 @@ pub async fn push_scheduled_job<'c>(
         )
         .warn_after_seconds_with_sql(1, "get_flow_version_info_from_version".to_string())
         .await?;
+        let on_behalf_of = flow_info.on_behalf_of(&schedule.workspace_id, db).await?;
+        let FlowVersionInfo { version, tag, dedicated_worker, labels, .. } = flow_info;
 
         (
             JobPayload::Flow {
@@ -341,8 +324,7 @@ pub async fn push_scheduled_job<'c>(
             },
             tag,
             None,
-            on_behalf_of_email,
-            edited_by,
+            on_behalf_of,
         )
     } else {
         let (
@@ -359,12 +341,12 @@ pub async fn push_scheduled_job<'c>(
             dedicated_worker,
             priority,
             timeout,
-            on_behalf_of_email,
-            created_by,
+            on_behalf_of,
             runnable_settings_handle,
             labels,
         ) = windmill_common::get_latest_hash_for_path(
             &mut *tx,
+            db,
             &schedule.workspace_id,
             &schedule.script_path,
             false,
@@ -434,8 +416,7 @@ pub async fn push_scheduled_job<'c>(
                     tag
                 },
                 timeout,
-                on_behalf_of_email,
-                created_by,
+                on_behalf_of.clone(),
             )
         } else {
             (
@@ -463,8 +444,7 @@ pub async fn push_scheduled_job<'c>(
                     tag
                 },
                 timeout,
-                on_behalf_of_email,
-                created_by,
+                on_behalf_of,
             )
         }
     };
@@ -485,8 +465,8 @@ pub async fn push_scheduled_job<'c>(
         );
     };
 
-    let (email, permissioned_as, push_authed, revert_to_windmill_user) = if let Some(email) =
-        on_behalf_of_email.as_ref()
+    let (email, permissioned_as, push_authed, revert_to_windmill_user) = if let Some(obo) =
+        on_behalf_of.as_ref()
     {
         let is_windmill_user =
             sqlx::query_scalar!("SELECT CURRENT_USER = 'windmill_user' as \"is_windmill_user!\"")
@@ -500,8 +480,8 @@ pub async fn push_scheduled_job<'c>(
                 .await?;
         }
         (
-            email.clone(),
-            username_to_permissioned_as(&created_by),
+            obo.email.clone(),
+            obo.permissioned_as.clone(),
             None,
             is_windmill_user,
         )

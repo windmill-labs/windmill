@@ -47,6 +47,7 @@
 		customUi,
 		preserveOnBehalfOf,
 		savedOnBehalfOfEmail,
+		savedOnBehalfOfPermissionedAs,
 		opWorkspace
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -55,6 +56,7 @@
 	let canPreserve = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin || isDeployer)
 	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
 	let customOnBehalfOfEmail: string = $state('')
+	let myPermissionedAs = $derived($userStore?.username ? `u/${$userStore.username}` : undefined)
 
 	function asSchema(x: any) {
 		return x as Schema
@@ -457,10 +459,12 @@
 						on:change={() => {
 							if (flowStore.val.on_behalf_of_email) {
 								flowStore.val.on_behalf_of_email = undefined
+								flowStore.val.on_behalf_of = undefined
 								$preserveOnBehalfOf = false
 								onBehalfOfChoice = undefined
 							} else {
 								flowStore.val.on_behalf_of_email = $userStore?.email
+								flowStore.val.on_behalf_of = myPermissionedAs
 							}
 						}}
 						options={{
@@ -478,14 +482,19 @@
 								onBehalfOfChoice = choice
 								if (choice === 'me') {
 									flowStore.val.on_behalf_of_email = $userStore?.email
+									flowStore.val.on_behalf_of = myPermissionedAs
 									customOnBehalfOfEmail = ''
 									$preserveOnBehalfOf = false
 								} else if (choice === 'target') {
+									// Keep the saved pair. A flow that has no recorded principal yet
+									// sends the email alone and the backend derives one from it.
 									flowStore.val.on_behalf_of_email = $savedOnBehalfOfEmail
+									flowStore.val.on_behalf_of = $savedOnBehalfOfPermissionedAs
 									customOnBehalfOfEmail = ''
 									$preserveOnBehalfOf = true
 								} else if (choice === 'custom' && details) {
 									flowStore.val.on_behalf_of_email = details.email
+									flowStore.val.on_behalf_of = details.permissionedAs
 									customOnBehalfOfEmail = details.email
 									$preserveOnBehalfOf = true
 								}

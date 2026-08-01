@@ -5905,6 +5905,11 @@ async fn clone_variables(
     Ok(())
 }
 
+/// A principal is workspace-scoped — `usr` is keyed by `(workspace_id, username)` — and a
+/// clone lands in a workspace with its own membership, so it is kept only when it still
+/// resolves there (the fork copies usernames and groups verbatim, and an instance superadmin
+/// resolves anywhere). Dropping one that names nobody is the only safe alternative: it could
+/// not authenticate, and the runnable falls back to running as its caller.
 async fn clone_scripts(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
@@ -5920,7 +5925,7 @@ async fn clone_scripts(
             dedicated_worker, ws_error_handler_muted, priority, timeout,
             delete_after_use, delete_after_secs, restart_unless_cancelled, concurrency_key,
             visible_to_runner_only, auto_kind, codebase, has_preprocessor,
-            on_behalf_of_email, assets, modules
+            on_behalf_of, on_behalf_of_email, assets, modules
         )
         SELECT
             $1, hash, path, parent_hashes, summary, description, content,
@@ -5930,7 +5935,29 @@ async fn clone_scripts(
             dedicated_worker, ws_error_handler_muted, priority, timeout,
             delete_after_use, delete_after_secs, restart_unless_cancelled, concurrency_key,
             visible_to_runner_only, auto_kind, codebase, has_preprocessor,
-            on_behalf_of_email, assets, modules
+            -- Same three forms and the same prefix-first rule as permissioned_as_exists,
+            -- superadmin fallback included: one acting outside their workspaces has no usr
+            -- row but still authenticates.
+            CASE WHEN on_behalf_of LIKE 'u/%' THEN
+                    (SELECT on_behalf_of WHERE EXISTS (
+                        SELECT 1 FROM usr u WHERE u.workspace_id = $1::varchar
+                          AND u.username = substring(on_behalf_of from 3)
+                        UNION ALL
+                        SELECT 1 FROM password p WHERE p.super_admin
+                          AND (p.username = substring(on_behalf_of from 3)
+                               OR p.email = substring(on_behalf_of from 3))))
+                 WHEN on_behalf_of LIKE 'g/%' THEN
+                    (SELECT on_behalf_of WHERE EXISTS (
+                        SELECT 1 FROM group_ g WHERE g.workspace_id = $1::varchar
+                          AND g.name = substring(on_behalf_of from 3)))
+                 ELSE
+                    (SELECT on_behalf_of WHERE EXISTS (
+                        SELECT 1 FROM usr u WHERE u.workspace_id = $1::varchar
+                          AND u.username = on_behalf_of
+                        UNION ALL
+                        SELECT 1 FROM password p WHERE p.email = on_behalf_of
+                          AND p.super_admin))
+            END, on_behalf_of_email, assets, modules
         FROM script
         WHERE workspace_id = $2"#,
         target_workspace_id,
@@ -5938,6 +5965,8 @@ async fn clone_scripts(
     )
     .execute(&mut **tx)
     .await?;
+
+    clear_orphaned_compat_address(tx, "script", "hash", source_workspace_id, target_workspace_id).await?;
 
     Ok(())
 }
@@ -6099,6 +6128,36 @@ async fn clone_asset_usages_and_triggers(
     Ok(())
 }
 
+/// The address is only meaningful next to the principal it was derived from: where the clone
+/// dropped one that names nobody in the target, an old worker reading the address alone would
+/// still run the row as the account left behind.
+///
+/// Only where *the clone* dropped it. A source row that already had no principal is one a server
+/// predating this release wrote, address alone; that address is all there is to recover it from,
+/// and the migration that drops the column re-derives from it.
+async fn clear_orphaned_compat_address(
+    tx: &mut Transaction<'_, Postgres>,
+    table: &str,
+    key: &str,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    // SAFETY: `table` and `key` are literals from the two call sites, never user input.
+    sqlx::query(&format!(
+        "UPDATE {table} t SET on_behalf_of_email = NULL
+         WHERE t.workspace_id = $1 AND t.on_behalf_of IS NULL AND t.on_behalf_of_email IS NOT NULL
+           AND EXISTS (SELECT 1 FROM {table} s
+                        WHERE s.workspace_id = $2 AND s.{key} = t.{key}
+                          AND s.on_behalf_of IS NOT NULL)"
+    ))
+    .bind(target_workspace_id)
+    .bind(source_workspace_id)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// Carries over the recorded principal under the rule spelled out on [`clone_scripts`].
 async fn clone_flows(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
@@ -6110,12 +6169,33 @@ async fn clone_flows(
             workspace_id, path, summary, description, value, edited_by, edited_at,
             archived, schema, extra_perms, dependency_job, tag,
             ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only,
-            concurrency_key, versions, on_behalf_of_email, lock_error_logs
+            concurrency_key, versions, on_behalf_of, on_behalf_of_email, lock_error_logs
         )
         SELECT $2, path, summary, description, value, edited_by, edited_at,
                archived, schema, extra_perms, NULL, tag,
                ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only,
-               concurrency_key, ARRAY[]::bigint[], on_behalf_of_email, lock_error_logs
+               concurrency_key, ARRAY[]::bigint[],
+               -- Same predicate as clone_scripts.
+               CASE WHEN on_behalf_of LIKE 'u/%' THEN
+                       (SELECT on_behalf_of WHERE EXISTS (
+                           SELECT 1 FROM usr u WHERE u.workspace_id = $2::varchar
+                             AND u.username = substring(on_behalf_of from 3)
+                           UNION ALL
+                           SELECT 1 FROM password p WHERE p.super_admin
+                             AND (p.username = substring(on_behalf_of from 3)
+                                  OR p.email = substring(on_behalf_of from 3))))
+                    WHEN on_behalf_of LIKE 'g/%' THEN
+                       (SELECT on_behalf_of WHERE EXISTS (
+                           SELECT 1 FROM group_ g WHERE g.workspace_id = $2::varchar
+                             AND g.name = substring(on_behalf_of from 3)))
+                    ELSE
+                       (SELECT on_behalf_of WHERE EXISTS (
+                           SELECT 1 FROM usr u WHERE u.workspace_id = $2::varchar
+                             AND u.username = on_behalf_of
+                           UNION ALL
+                           SELECT 1 FROM password p WHERE p.email = on_behalf_of
+                             AND p.super_admin))
+               END, on_behalf_of_email, lock_error_logs
         FROM flow
         WHERE workspace_id = $1",
         source_workspace_id,
@@ -6123,6 +6203,8 @@ async fn clone_flows(
     )
     .execute(&mut **tx)
     .await?;
+
+    clear_orphaned_compat_address(tx, "flow", "path", source_workspace_id, target_workspace_id).await?;
 
     // Then clone flow versions
     let flow_versions = sqlx::query!(
@@ -6475,9 +6557,17 @@ async fn clone_drafts(
     target_workspace_id: &str,
     authed_email: &str,
 ) -> Result<()> {
+    // A script/flow draft carries the principal in its value, and deploying it in the clone
+    // would send a pair naming somebody who is not a member there. Stripped rather than
+    // filtered like `clone_scripts`: the address the draft still carries re-derives the
+    // clone's own principal at deploy time, which is the more accurate answer of the two.
     sqlx::query!(
         "INSERT INTO draft (workspace_id, path, typ, value, created_at, email)
-         SELECT $2, path, typ, value, created_at, email
+         SELECT $2, path, typ,
+                CASE WHEN typ IN ('script', 'flow')
+                     THEN to_json(to_jsonb(value) - 'on_behalf_of')
+                     ELSE value END,
+                created_at, email
          FROM draft
          WHERE workspace_id = $1 AND (email = $3 OR email IS NULL)",
         source_workspace_id,

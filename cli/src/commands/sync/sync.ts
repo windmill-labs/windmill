@@ -3400,6 +3400,7 @@ export async function pull(
     opts.skipWorkspaceDependencies,
     opts.skipDatatableMigrations,
     opts.defaultTs,
+    opts.syncBehavior,
   );
 
   const remote = ZipFSElement(
@@ -4276,6 +4277,7 @@ export async function push(
       opts.skipWorkspaceDependencies,
       opts.skipDatatableMigrations,
       opts.defaultTs,
+      opts.syncBehavior,
     ))!,
     !opts.json,
     opts.defaultTs ?? "bun",
