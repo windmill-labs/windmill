@@ -96,13 +96,12 @@ test("deployItem: never sends the source workspace's on_behalf_of", async () => 
   ]);
   for (const [name, body] of captured) {
     expect(body.preserve_on_behalf_of).toBe(true);
-    // An app carries its identity inside the policy; the others carry it at the top level.
+    // Both surfaces spell it `on_behalf_of`; only its nesting differs — an app carries the
+    // identity inside its policy, the others at the top level.
     const identity = name === "createApp" ? body.policy : body;
-    // Both surfaces spell it the same; only its nesting differs.
-    const principalKey = "on_behalf_of";
     // The email is still overridden with the caller's choice...
     expect(identity.on_behalf_of_email).toBe("alice@corp");
     // ...while the principal is dropped, so the backend derives the target's own.
-    expect(principalKey in JSON.parse(JSON.stringify(identity))).toBe(false);
+    expect("on_behalf_of" in JSON.parse(JSON.stringify(identity))).toBe(false);
   }
 });

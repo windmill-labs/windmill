@@ -1947,7 +1947,6 @@ async fn create_app_internal<'a>(
             &db,
         )
         .await?;
-        preserved_on_behalf_of = audited_on_behalf_of(&app.policy, &authed, w_id, &db).await?;
     } else {
         let folder_default = if windmill_common::can_preserve_on_behalf_of(&authed) {
             windmill_common::folders::resolve_folder_default_permissioned_as(&db, w_id, &app.path)
@@ -1959,6 +1958,9 @@ async fn create_app_internal<'a>(
             Some(folder_default.unwrap_or_else(|| username_to_permissioned_as(&authed.username)));
     }
     app.policy.on_behalf_of_email = stored_on_behalf_of_email(&app.policy, w_id, &db).await?;
+    if should_preserve {
+        preserved_on_behalf_of = audited_on_behalf_of(&app.policy, &authed);
+    }
 
     let mut tx = user_db.clone().begin(&authed).await?;
     let path = app.path.clone();
@@ -2491,11 +2493,13 @@ async fn update_app_internal<'a>(
                 &db,
             )
             .await?;
-            preserved_on_behalf_of = audited_on_behalf_of(npolicy, &authed, w_id, &db).await?;
         } else {
             npolicy.on_behalf_of = Some(username_to_permissioned_as(&authed.username));
         }
         npolicy.on_behalf_of_email = stored_on_behalf_of_email(npolicy, w_id, &db).await?;
+        if should_preserve {
+            preserved_on_behalf_of = audited_on_behalf_of(npolicy, &authed);
+        }
     }
 
     let mut tx = user_db.clone().begin(&authed).await?;
@@ -4447,18 +4451,16 @@ async fn stored_on_behalf_of_email(
 /// The address to record in the `apps.on_behalf_of` audit entry: the one the app will run as,
 /// when it is not the deployer's own. `None` when they match — a deployer handing an app their
 /// own identity is not an on-behalf-of deploy.
-async fn audited_on_behalf_of(
-    policy: &Policy,
-    authed: &ApiAuthed,
-    w_id: &str,
-    db: &DB,
-) -> Result<Option<String>> {
-    let Some(permissioned_as) = policy.on_behalf_of.as_deref() else {
-        return Ok(None);
-    };
-    let email =
-        windmill_common::users::get_email_from_permissioned_as(permissioned_as, w_id, db).await?;
-    Ok((email != authed.email).then_some(email))
+///
+/// Reads the address `stored_on_behalf_of_email` just resolved rather than looking it up again:
+/// that one is uncached, and a second cached read could write a since-changed address into a
+/// durable audit row.
+fn audited_on_behalf_of(policy: &Policy, authed: &ApiAuthed) -> Option<String> {
+    policy
+        .on_behalf_of_email
+        .as_deref()
+        .filter(|email| *email != authed.email)
+        .map(str::to_string)
 }
 
 async fn get_on_behalf_of(policy: &Policy, w_id: &str, db: &DB) -> Result<(String, String)> {
