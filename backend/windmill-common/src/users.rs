@@ -28,10 +28,11 @@ pub const PERMISSIONED_AS_GROUP_PREFIX: &str = "g/";
 /// Prefix for group-based usernames: "group-"
 pub const USERNAME_GROUP_PREFIX: &str = "group-";
 
-/// An email-shaped username is its own principal, which is how a superadmin acting outside
-/// their workspaces is named. It is decided before the group convention — an address is never
-/// a group's username — and one containing `/` is prefixed, since readers split on the first
-/// `/` and would otherwise take `g/alice@example.com` for a group.
+/// An email-shaped username is its own principal, which is how a superadmin acting without a
+/// `usr` row is named (`usr.username` is constrained to `[\w-]+`, so a member never is). It is
+/// decided before the group convention — an address is never a group's username — and one
+/// containing `/` is prefixed, since readers split on the first `/` and would otherwise take
+/// `g/alice@example.com` for a group.
 pub fn username_to_permissioned_as(user: &str) -> String {
     if user.contains('@') {
         return if user.contains('/') {
@@ -125,10 +126,10 @@ pub async fn permissioned_as_exists(
         .await?
         .unwrap_or(false));
     }
-    // The bare form is the account whose *username* is that address, not anyone who merely
-    // holds it: `u/{username}` is the canonical principal for everybody else, and the bare
-    // branch of `fetch_authed_from_permissioned_as` grants neither their groups nor their
-    // folders. Anything unprefixed that is not an address at all is malformed.
+    // The bare form names an account acting without a `usr` row, not anyone who merely holds
+    // that address: `u/{username}` is the canonical principal for a member, and the bare branch
+    // of `fetch_authed_from_permissioned_as` grants neither their groups nor their folders.
+    // Anything unprefixed that is not an address at all is malformed.
     if !permissioned_as.contains('@') {
         return Ok(false);
     }

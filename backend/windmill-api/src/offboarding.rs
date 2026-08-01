@@ -123,20 +123,6 @@ struct WorkspaceReassignment {
     new_on_behalf_of_user: Option<String>,
 }
 
-/// Every principal that can name this user's runnables.
-///
-/// Normally just the canonical form, but a user whose username is itself an address is stored
-/// bare, and `change_user_email` moves those bare principals onto the new address while the
-/// username stays on the old one, so both forms can be live at once.
-fn departing_principals(username: &str, email: &str) -> Vec<String> {
-    let canonical = windmill_common::users::username_to_permissioned_as(username);
-    if username.contains('@') && canonical != email {
-        vec![canonical, email.to_string()]
-    } else {
-        vec![canonical]
-    }
-}
-
 // ---- Preview helpers ----
 
 async fn get_offboard_preview(
@@ -147,8 +133,10 @@ async fn get_offboard_preview(
 ) -> Result<OffboardPreview> {
     let user_prefix = format!("u/{}/%", username);
     let user_owner = format!("u/{}", username);
-    // Same set the mutation reassigns, so preview and execution cannot disagree.
-    let departing = departing_principals(username, email);
+    // Same form the mutation reassigns, so preview and execution cannot disagree. `usr.username`
+    // is constrained to `[\w-]+`, so a member is always named `u/{username}` — the address form a
+    // principal can also take names an account with no `usr` row, which is nobody offboardable.
+    let departing = windmill_common::users::username_to_permissioned_as(username);
 
     // ---- Owned objects (under u/{username}/) ----
     let scripts = sqlx::query_scalar!(
@@ -244,12 +232,12 @@ async fn get_offboard_preview(
 
     // ---- Operator references (not under user's path) ----
     let obo_scripts = sqlx::query_scalar!(
-        "SELECT path FROM script WHERE on_behalf_of_permissioned_as = ANY($1) AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived AND NOT deleted",
+        "SELECT path FROM script WHERE on_behalf_of_permissioned_as = $1 AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived AND NOT deleted",
         &departing, &user_prefix, w_id
     ).fetch_all(db).await?;
 
     let obo_flows = sqlx::query_scalar!(
-        "SELECT path FROM flow WHERE on_behalf_of_permissioned_as = ANY($1) AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived",
+        "SELECT path FROM flow WHERE on_behalf_of_permissioned_as = $1 AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived",
         &departing, &user_prefix, w_id
     ).fetch_all(db).await?;
 
@@ -423,7 +411,6 @@ pub(crate) async fn offboard_workspace_user(
         &db,
         &w_id,
         &username,
-        &email,
         &req.reassign_to,
         &new_permissioned_as,
     )
@@ -579,7 +566,6 @@ pub(crate) async fn offboard_global_user(
                 &db,
                 &ws.workspace_id,
                 &ws.username,
-                &email,
                 &reassignment.reassign_to,
                 perm_as,
             )
@@ -814,12 +800,11 @@ async fn offboard_user_from_workspace<'c>(
     db: &DB,
     w_id: &str,
     username: &str,
-    email: &str,
     reassign_to: &str,
     new_permissioned_as: &str,
 ) -> Result<OffboardSummary> {
     let new_prefix = reassign_to.to_string();
-    let departing = departing_principals(username, email);
+    let departing = windmill_common::users::username_to_permissioned_as(username);
 
     // The app policy still stores an address beside its principal, so the replacement's is
     // resolved here. resolve_new_permissioned_as already validated the user exists.
@@ -856,7 +841,7 @@ async fn offboard_user_from_workspace<'c>(
     .unwrap_or(0);
 
     sqlx::query!(
-        "UPDATE script SET on_behalf_of_permissioned_as = $1 WHERE on_behalf_of_permissioned_as = ANY($2) AND workspace_id = $3",
+        "UPDATE script SET on_behalf_of_permissioned_as = $1 WHERE on_behalf_of_permissioned_as = $2 AND workspace_id = $3",
         new_permissioned_as,
         &departing,
         w_id
@@ -896,7 +881,7 @@ async fn offboard_user_from_workspace<'c>(
     .await?;
 
     sqlx::query!(
-        "UPDATE flow SET on_behalf_of_permissioned_as = $1 WHERE on_behalf_of_permissioned_as = ANY($2) AND workspace_id = $3",
+        "UPDATE flow SET on_behalf_of_permissioned_as = $1 WHERE on_behalf_of_permissioned_as = $2 AND workspace_id = $3",
         new_permissioned_as,
         &departing,
         w_id
@@ -908,7 +893,7 @@ async fn offboard_user_from_workspace<'c>(
     // paths, so a draft on a shared path would keep running as them. Both are rewritten:
     // `deployDraft` sends the pair, and one naming two people is rejected.
     sqlx::query!(
-        r#"UPDATE draft SET value = to_json(jsonb_set(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of_permissioned_as'], to_jsonb($1::text)), ARRAY['on_behalf_of_email'], to_jsonb($4::text))) WHERE typ IN ('script', 'flow') AND value->>'on_behalf_of_permissioned_as' = ANY($2) AND workspace_id = $3"#,
+        r#"UPDATE draft SET value = to_json(jsonb_set(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of_permissioned_as'], to_jsonb($1::text)), ARRAY['on_behalf_of_email'], to_jsonb($4::text))) WHERE typ IN ('script', 'flow') AND value->>'on_behalf_of_permissioned_as' = $2 AND workspace_id = $3"#,
         new_permissioned_as,
         &departing,
         w_id,

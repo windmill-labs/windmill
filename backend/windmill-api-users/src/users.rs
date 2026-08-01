@@ -1979,12 +1979,15 @@ async fn change_user_email(
     .await?;
 
     // ---- permissioned_as naming the account by its address ----
-    // A user whose username is their own address is stored as that address rather than as
-    // `u/{username}` (`u/`-prefixed when it contains a `/` a reader would split on), and the
-    // migration that introduced these columns back-filled them the same way. Those rows are the
-    // ones that go stale here; `u/{username}` rows are safe because the username is kept.
+    // `usr.username` is constrained to `[\w-]+`, so a workspace member is always named
+    // `u/{username}` and their principals survive an address change untouched. The address form
+    // belongs to an account acting without a `usr` row — a superadmin outside their workspaces,
+    // named by `password.username` or, failing that, by the address itself. Those are the rows
+    // that go stale here, and `username_to_permissioned_as` is what encodes both ends of the
+    // move (an address containing a `/` is prefixed, since readers split on the first one).
     let old_principal = username_to_permissioned_as(&old_email);
     let new_principal = username_to_permissioned_as(&new_email);
+
     sqlx::query!(
         "UPDATE app SET policy = jsonb_set(policy, ARRAY['on_behalf_of'], to_jsonb($1::text)) WHERE policy->>'on_behalf_of' = $2",
         &new_principal,
