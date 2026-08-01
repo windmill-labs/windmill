@@ -27,7 +27,6 @@ mod schedule_push {
             is_flow: false,
             args: None,
             extra_perms: serde_json::json!({}),
-            email: "test@windmill.dev".to_string(),
             permissioned_as: "u/test-user".to_string(),
             error: None,
             on_failure: None,
@@ -81,7 +80,7 @@ mod schedule_push {
             permissioned_as: username_to_permissioned_as(&schedule.edited_by),
             created_by: schedule.edited_by.clone(),
             script_lang: None,
-            permissioned_as_email: schedule.email.clone(),
+            permissioned_as_email: "test@windmill.dev".to_string(),
             flow_step_id: None,
             trigger_kind: Some(JobTriggerKind::Schedule.into()),
             trigger: Some(schedule.path.clone()),
@@ -1549,15 +1548,14 @@ mod schedule_push {
         });
         sqlx::query(
             "INSERT INTO schedule (workspace_id, path, schedule, timezone, edited_by, script_path,
-                is_flow, enabled, email, permissioned_as, cron_version)
-             VALUES ($1, $2, $3, 'UTC', $4, $5, false, true, $6, $7, 'v2')",
+                is_flow, enabled, permissioned_as, cron_version)
+             VALUES ($1, $2, $3, 'UTC', $4, $5, false, true, $6, 'v2')",
         )
         .bind(&schedule.workspace_id)
         .bind(&schedule.path)
         .bind(&schedule.schedule)
         .bind(&schedule.edited_by)
         .bind(&schedule.script_path)
-        .bind(&schedule.email)
         .bind(&schedule.permissioned_as)
         .execute(&db)
         .await?;

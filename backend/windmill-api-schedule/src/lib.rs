@@ -37,7 +37,7 @@ use windmill_common::{
     worker::to_raw_value,
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
-use windmill_queue::schedule::push_scheduled_job;
+use windmill_queue::schedule::{push_scheduled_job, with_derived_email};
 
 /// Resolves the permissioned_as value for a schedule.
 /// When preserving, uses the provided permissioned_as value directly.
@@ -300,8 +300,10 @@ async fn create_schedule(
         &w_id,
     )
     .await?;
-    // email is still written for backwards compat with old workers that don't know about permissioned_as
-    let resolved_email = windmill_common::users::get_email_from_permissioned_as(
+    // Uncached: unlike a read, this value is persisted, so a stale cached address would stay
+    // wrong in the row instead of for the minute the cache lives — and `change_user_email`
+    // sweeps the column, which a cached write would immediately undo.
+    let legacy_email = windmill_common::users::get_email_from_permissioned_as_uncached(
         &resolved_permissioned_as,
         &w_id,
         &db,
@@ -313,7 +315,7 @@ async fn create_schedule(
         r#"
         INSERT INTO schedule (
             workspace_id, path, schedule, timezone, edited_by, script_path,
-            is_flow, args, enabled, email, permissioned_as,
+            is_flow, args, enabled, permissioned_as, email,
             on_failure, on_failure_times, on_failure_exact, on_failure_extra_args,
             on_recovery, on_recovery_times, on_recovery_extra_args,
             on_success, on_success_extra_args,
@@ -340,7 +342,6 @@ async fn create_schedule(
             is_flow,
             args AS "args: _",
             extra_perms,
-            email,
             permissioned_as,
             error,
             on_failure,
@@ -384,8 +385,8 @@ async fn create_schedule(
         } else {
             ns.enabled.unwrap_or(true)
         },
-        resolved_email,
         resolved_permissioned_as,
+        legacy_email,
         ns.on_failure,
         ns.on_failure_times,
         ns.on_failure_exact,
@@ -505,20 +506,15 @@ async fn edit_schedule(
         &authed,
     );
 
-    // email is still written for backwards compat with old workers that don't know about permissioned_as.
-    // When permissioned_as is preserved to a different user, derive email from it.
-    let resolved_email = if resolved_permissioned_as
-        != windmill_common::users::username_to_permissioned_as(&authed.username)
-    {
-        windmill_common::users::get_email_from_permissioned_as(
-            &resolved_permissioned_as,
-            &w_id,
-            &db,
-        )
-        .await?
-    } else {
-        authed.email.clone()
-    };
+    // Uncached: unlike a read, this value is persisted, so a stale cached address would stay
+    // wrong in the row instead of for the minute the cache lives — and `change_user_email`
+    // sweeps the column, which a cached write would immediately undo.
+    let legacy_email = windmill_common::users::get_email_from_permissioned_as_uncached(
+        &resolved_permissioned_as,
+        &w_id,
+        &db,
+    )
+    .await?;
 
     let schedule = sqlx::query_as!(
         Schedule,
@@ -547,9 +543,9 @@ async fn edit_schedule(
             cron_version            = COALESCE($21, cron_version),
             description             = $22,
             dynamic_skip            = $23,
-            email                   = $24,
-            edited_by               = $25,
-            permissioned_as         = $26,
+            edited_by               = $24,
+            permissioned_as         = $25,
+            email                   = $26,
             labels                  = COALESCE($27, labels)
         WHERE path = $19 AND workspace_id = $20
         RETURNING
@@ -564,7 +560,6 @@ async fn edit_schedule(
             is_flow,
             args AS "args: _",
             extra_perms,
-            email,
             permissioned_as,
             error,
             on_failure,
@@ -614,9 +609,9 @@ async fn edit_schedule(
         es.cron_version,
         es.description,
         es.dynamic_skip,
-        resolved_email,
         resolved_edited_by,
         resolved_permissioned_as,
+        legacy_email,
         es.labels.as_deref() as Option<&[String]>
     )
     .fetch_one(&mut *tx)
@@ -992,6 +987,10 @@ async fn get_schedule(
 
     let schedule_o = windmill_queue::schedule::get_schedule_opt(&mut *tx, &w_id, path).await?;
     tx.commit().await?;
+    let schedule_o = match schedule_o {
+        Some(schedule) => Some(with_derived_email(&db, &w_id, schedule).await?),
+        None => None,
+    };
     let overlay = overlay_or_draft_only(
         &db,
         &w_id,
@@ -1080,14 +1079,15 @@ pub async fn set_enabled(
             }
         }
     }
-    // email is still written for backwards compat with old workers that don't know about permissioned_as
+    // Only `enabled` moves. The stored address belongs to the schedule's identity, which
+    // toggling does not change, so stamping the toggling user's here would leave it naming a
+    // different account than the principal beside it.
     let schedule_o = sqlx::query_as!(
         Schedule,
         r#"
         UPDATE schedule SET
-            enabled = $1,
-            email = $2
-        WHERE path = $3 AND workspace_id = $4
+            enabled = $1
+        WHERE path = $2 AND workspace_id = $3
         RETURNING
             workspace_id,
             path,
@@ -1100,7 +1100,6 @@ pub async fn set_enabled(
             is_flow,
             args AS "args: _",
             extra_perms,
-            email,
             permissioned_as,
             error,
             on_failure,
@@ -1124,7 +1123,6 @@ pub async fn set_enabled(
             labels
         "#,
         payload.enabled,
-        authed.email,
         path,
         w_id
     )
