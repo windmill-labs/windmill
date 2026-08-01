@@ -223,6 +223,37 @@ async fn test_on_behalf_of_permissioned_as_drives_job_identity(
     .await?;
     assert_eq!(resp.status(), 400, "a mismatched pair must be rejected");
 
+    // The identity a no-op push is compared against is the stored principal, so a push that
+    // names it by address alone still has to read as unchanged — otherwise every idempotent
+    // CLI push of a configured script would cut a version and a phantom git-sync commit.
+    async fn push_noop_guarded(base: &str, body: serde_json::Value) -> anyhow::Result<String> {
+        let resp = authed(
+            client().post(format!("{base}/scripts/create?skip_if_noop=true")),
+            "SECRET_TOKEN",
+        )
+        .json(&body)
+        .send()
+        .await?;
+        let status = resp.status();
+        let hash = resp.text().await?;
+        assert_eq!(status, 201, "creating: {hash}");
+        Ok(hash.trim().trim_matches('"').to_string())
+    }
+    // The no-op check compares every field, so the body has to carry the values a deploy
+    // fills in by itself, or it would be rejected before reaching the identity comparison.
+    let noop_body = |permissioned_as| {
+        let mut body = script_body("u/test-user/obo_noop", permissioned_as);
+        body["ws_error_handler_muted"] = json!(false);
+        body["assets"] = json!([]);
+        body
+    };
+    let first = push_noop_guarded(&base, noop_body(Some("u/original-user"))).await?;
+    let again = push_noop_guarded(&base, noop_body(None)).await?;
+    assert_eq!(
+        first, again,
+        "an identical push naming the same identity by address must not cut a new version"
+    );
+
     // Flows resolve the same way, but through their own UPDATE — which must not drop the
     // principal when the body names only the email.
     let flow = json!({

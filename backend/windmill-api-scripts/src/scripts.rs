@@ -743,6 +743,7 @@ impl HandleDeploymentMetadata {
 async fn is_noop_deploy_against_parent(
     ns: &NewScript,
     parent: &Script<ScriptRunnableSettingsHandle>,
+    resolved_on_behalf_of: Option<&str>,
     db: &DB,
 ) -> Result<bool> {
     if parent.archived || parent.deleted {
@@ -785,8 +786,10 @@ async fn is_noop_deploy_against_parent(
         auto_kind: _,
         codebase,
         has_preprocessor,
-        on_behalf_of_email,
-        on_behalf_of_permissioned_as,
+        // both halves are folded into `resolved_on_behalf_of` before the comparison below,
+        // which is the identity that would actually be stored
+        on_behalf_of_email: _,
+        on_behalf_of_permissioned_as: _,
         // caller-intent flag (permission preservation), not script state
         preserve_on_behalf_of: _,
         assets,
@@ -851,17 +854,7 @@ async fn is_noop_deploy_against_parent(
     {
         return Ok(false);
     }
-    if on_behalf_of_email != &parent.on_behalf_of_email {
-        return Ok(false);
-    }
-    // An omitted permissioned_as is derived from the email, which names the same
-    // principal the parent already records — so only a value that is both supplied and
-    // different is a real edit. Treating absence as a difference would re-version on
-    // every push from a client that does not carry the field (it never reaches the repo).
-    if on_behalf_of_permissioned_as
-        .as_ref()
-        .is_some_and(|pa| Some(pa) != parent.on_behalf_of_permissioned_as.as_ref())
-    {
+    if resolved_on_behalf_of != parent.on_behalf_of_permissioned_as.as_deref() {
         return Ok(false);
     }
     if !schema_opt_eq(schema.as_ref(), parent.schema.as_ref()) {
@@ -1036,6 +1029,19 @@ async fn create_script_internal<'c>(
             }
         }
     }
+    let authed_principal = windmill_common::users::username_to_permissioned_as(&authed.username);
+    // Resolved here rather than at the INSERT so the no-op check below compares the identity
+    // that would actually be stored: the parent row holds only the principal, while a
+    // preserving push may name that same principal by address alone.
+    let resolved_on_behalf_of_permissioned_as = windmill_common::resolve_on_behalf_of(
+        ns.on_behalf_of_email.as_deref(),
+        ns.on_behalf_of_permissioned_as.as_deref(),
+        ns.preserve_on_behalf_of.unwrap_or(false),
+        &authed,
+        &w_id,
+        &db,
+    )
+    .await?;
     if sqlx::query_scalar!(
         "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",
         hash.0,
@@ -1136,7 +1142,15 @@ async fn create_script_internal<'c>(
             // sync / promotion callbacks — the whole point is that idempotent
             // CLI pushes must not produce phantom commits on the downstream
             // git repository.
-            if skip_if_noop && is_noop_deploy_against_parent(&ns, &ps, &db).await? {
+            if skip_if_noop
+                && is_noop_deploy_against_parent(
+                    &ns,
+                    &ps,
+                    resolved_on_behalf_of_permissioned_as.as_deref(),
+                    &db,
+                )
+                .await?
+            {
                 tracing::info!(
                     workspace_id = %w_id,
                     path = %ns.path,
@@ -1595,17 +1609,6 @@ async fn create_script_internal<'c>(
         )
     };
 
-    let resolved_on_behalf_of_permissioned_as =
-        windmill_common::resolve_on_behalf_of(
-            ns.on_behalf_of_email.as_deref(),
-            ns.on_behalf_of_permissioned_as.as_deref(),
-            ns.preserve_on_behalf_of.unwrap_or(false),
-            &authed,
-            &w_id,
-            &db,
-        )
-        .await?;
-
     sqlx::query!(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, \
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
@@ -1987,10 +1990,10 @@ async fn create_script_internal<'c>(
         )
         .await?;
         if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
-            ns.on_behalf_of_email.as_deref(),
+            resolved_on_behalf_of_permissioned_as.as_deref(),
             ns.preserve_on_behalf_of.unwrap_or(false),
             &authed,
-            &authed.email,
+            &authed_principal,
         ) {
             audit_log(
                 &mut *tx,
@@ -2035,10 +2038,10 @@ async fn create_script_internal<'c>(
         )
         .await?;
         if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
-            ns.on_behalf_of_email.as_deref(),
+            resolved_on_behalf_of_permissioned_as.as_deref(),
             ns.preserve_on_behalf_of.unwrap_or(false),
             &authed,
-            &authed.email,
+            &authed_principal,
         ) {
             audit_log(
                 &mut *tx,

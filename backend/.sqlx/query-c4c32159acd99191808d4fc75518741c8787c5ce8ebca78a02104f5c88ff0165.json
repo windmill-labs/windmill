@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS(\n                SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2\n                UNION ALL\n                SELECT 1 FROM password WHERE email = $2 AND super_admin\n                UNION ALL\n                SELECT 1 FROM usr WHERE workspace_id = $1 AND username = $2\n            )",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "c4c32159acd99191808d4fc75518741c8787c5ce8ebca78a02104f5c88ff0165"
+}

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT path FROM script WHERE on_behalf_of_permissioned_as = $1 AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived AND NOT deleted",
+  "query": "SELECT path FROM script WHERE on_behalf_of_permissioned_as = ANY($1) AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived AND NOT deleted",
   "describe": {
     "columns": [
       {
@@ -11,7 +11,7 @@
     ],
     "parameters": {
       "Left": [
-        "Text",
+        "TextArray",
         "Text",
         "Text"
       ]
@@ -20,5 +20,5 @@
       false
     ]
   },
-  "hash": "05ac8d927270d30db5e9049291b5063fa676c7c119fadfb35bad8f698f3edbe1"
+  "hash": "d6eeec2e053fb929c22e2357be23a97f8b5497fee47c0217a04e652edf1130fd"
 }

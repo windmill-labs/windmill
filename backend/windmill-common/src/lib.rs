@@ -1590,6 +1590,10 @@ impl<SR> ScriptHashInfo<SR> {
 }
 
 /// Shared by [`ScriptHashInfo::on_behalf_of`] and [`FlowVersionInfo::on_behalf_of`].
+///
+/// Reads identity data through the non-RLS pool and enforces nothing itself: it answers who a
+/// row already says it runs as. Callers must have authorized `w_id` — and the row they read it
+/// from — before dispatching a job with what it returns.
 pub async fn on_behalf_of_from_permissioned_as(
     permissioned_as: Option<&str>,
     w_id: &str,

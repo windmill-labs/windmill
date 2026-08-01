@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT path FROM flow WHERE on_behalf_of_permissioned_as = $1 AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived",
+  "query": "SELECT path FROM flow WHERE on_behalf_of_permissioned_as = ANY($1) AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived",
   "describe": {
     "columns": [
       {
@@ -11,7 +11,7 @@
     ],
     "parameters": {
       "Left": [
-        "Text",
+        "TextArray",
         "Text",
         "Text"
       ]
@@ -20,5 +20,5 @@
       false
     ]
   },
-  "hash": "68fe8718ff4b64ae8c73695e48d572c8e26ac09373ef7e5b8077c6b0d7adbac4"
+  "hash": "1dd3fdb40928fcd9f835a9ea0358f0ceb046a2e0c4267d313d6ca679e96d9421"
 }

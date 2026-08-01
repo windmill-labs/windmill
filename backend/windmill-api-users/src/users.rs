@@ -2007,6 +2007,16 @@ async fn change_user_email(
     .execute(&mut *tx)
     .await?;
 
+    // Script/flow rows no longer store an address, but drafts still carry one beside the
+    // principal and `deployDraft` sends both — left stale it contradicts the principal, which
+    // now resolves to the new address, and the deploy is rejected.
+    sqlx::query!(
+        r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of_email'], to_jsonb($1::text))) WHERE typ IN ('script', 'flow') AND value->>'on_behalf_of_email' = $2"#,
+        &new_email,
+        &old_email
+    )
+    .execute(&mut *tx)
+    .await?;
 
     sqlx::query!(
         r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of_permissioned_as'], to_jsonb($1::text))) WHERE typ IN ('script', 'flow') AND value->>'on_behalf_of_permissioned_as' = $2"#,

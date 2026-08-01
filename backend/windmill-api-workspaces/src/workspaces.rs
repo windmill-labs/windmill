@@ -5795,10 +5795,10 @@ async fn clone_variables(
 }
 
 /// A principal is workspace-scoped — `usr` is keyed by `(workspace_id, username)` — and a
-/// clone lands in a workspace with its own membership, so the source's is dropped rather
-/// than copied into a workspace where it may name nobody. The runnable falls back to its
-/// `created_by` until the target redeploys it, which is what it did before the principal
-/// was recorded at all.
+/// clone lands in a workspace with its own membership, so it is kept only when it still
+/// names somebody there (the fork copies usernames and groups verbatim, so a member's
+/// principal survives). Dropping one that names nobody is the only safe alternative: it
+/// could not authenticate, and the runnable falls back to running as its caller.
 async fn clone_scripts(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
@@ -5824,7 +5824,21 @@ async fn clone_scripts(
             dedicated_worker, ws_error_handler_muted, priority, timeout,
             delete_after_use, delete_after_secs, restart_unless_cancelled, concurrency_key,
             visible_to_runner_only, auto_kind, codebase, has_preprocessor,
-            NULL, assets, modules
+            -- Same three forms as permissioned_as_exists, '@' first: an email-shaped
+            -- username is stored bare, so it is a user and not a group.
+            CASE WHEN on_behalf_of_permissioned_as LIKE '%@%' THEN
+                    (SELECT on_behalf_of_permissioned_as WHERE EXISTS (
+                        SELECT 1 FROM usr u WHERE u.workspace_id = $1::varchar
+                          AND (u.username = on_behalf_of_permissioned_as OR u.email = on_behalf_of_permissioned_as)))
+                 WHEN on_behalf_of_permissioned_as LIKE 'u/%' THEN
+                    (SELECT on_behalf_of_permissioned_as WHERE EXISTS (
+                        SELECT 1 FROM usr u WHERE u.workspace_id = $1::varchar
+                          AND u.username = substring(on_behalf_of_permissioned_as from 3)))
+                 WHEN on_behalf_of_permissioned_as LIKE 'g/%' THEN
+                    (SELECT on_behalf_of_permissioned_as WHERE EXISTS (
+                        SELECT 1 FROM group_ g WHERE g.workspace_id = $1::varchar
+                          AND g.name = substring(on_behalf_of_permissioned_as from 3)))
+            END, assets, modules
         FROM script
         WHERE workspace_id = $2"#,
         target_workspace_id,
@@ -5935,7 +5949,7 @@ async fn clone_asset_usages_and_triggers(
     Ok(())
 }
 
-/// Drops the recorded principal for the reason spelled out on [`clone_scripts`].
+/// Carries over the recorded principal under the rule spelled out on [`clone_scripts`].
 async fn clone_flows(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
@@ -5952,7 +5966,19 @@ async fn clone_flows(
         SELECT $2, path, summary, description, value, edited_by, edited_at,
                archived, schema, extra_perms, NULL, tag,
                ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only,
-               concurrency_key, ARRAY[]::bigint[], NULL, lock_error_logs
+               concurrency_key, ARRAY[]::bigint[], CASE WHEN on_behalf_of_permissioned_as LIKE '%@%' THEN
+                    (SELECT on_behalf_of_permissioned_as WHERE EXISTS (
+                        SELECT 1 FROM usr u WHERE u.workspace_id = $2::varchar
+                          AND (u.username = on_behalf_of_permissioned_as OR u.email = on_behalf_of_permissioned_as)))
+                 WHEN on_behalf_of_permissioned_as LIKE 'u/%' THEN
+                    (SELECT on_behalf_of_permissioned_as WHERE EXISTS (
+                        SELECT 1 FROM usr u WHERE u.workspace_id = $2::varchar
+                          AND u.username = substring(on_behalf_of_permissioned_as from 3)))
+                 WHEN on_behalf_of_permissioned_as LIKE 'g/%' THEN
+                    (SELECT on_behalf_of_permissioned_as WHERE EXISTS (
+                        SELECT 1 FROM group_ g WHERE g.workspace_id = $2::varchar
+                          AND g.name = substring(on_behalf_of_permissioned_as from 3)))
+            END, lock_error_logs
         FROM flow
         WHERE workspace_id = $1",
         source_workspace_id,

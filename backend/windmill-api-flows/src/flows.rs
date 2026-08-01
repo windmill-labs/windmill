@@ -693,10 +693,10 @@ async fn create_flow(
     )
     .await?;
     if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
-        nf.on_behalf_of_email.as_deref(),
+        resolved_on_behalf_of_permissioned_as.as_deref(),
         nf.preserve_on_behalf_of.unwrap_or(false),
         &authed,
-        &authed.email,
+        &windmill_common::users::username_to_permissioned_as(&authed.username),
     ) {
         audit_log(
             &mut *tx,
@@ -1352,10 +1352,10 @@ async fn update_flow(
     )
     .await?;
     if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
-        nf.on_behalf_of_email.as_deref(),
+        resolved_on_behalf_of_permissioned_as.as_deref(),
         nf.preserve_on_behalf_of.unwrap_or(false),
         &authed,
-        &authed.email,
+        &windmill_common::users::username_to_permissioned_as(&authed.username),
     ) {
         audit_log(
             &mut *tx,

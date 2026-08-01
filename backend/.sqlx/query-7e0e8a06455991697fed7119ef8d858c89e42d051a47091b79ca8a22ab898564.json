@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE script SET on_behalf_of_permissioned_as = $1 WHERE on_behalf_of_permissioned_as = ANY($2) AND workspace_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "TextArray",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7e0e8a06455991697fed7119ef8d858c89e42d051a47091b79ca8a22ab898564"
+}
