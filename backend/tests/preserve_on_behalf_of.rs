@@ -1523,16 +1523,20 @@ async fn test_app_draft_derivation_does_not_disclose_non_member_email(
             "policy": {
                 "execution_mode": "anonymous",
                 "triggerables": {},
-                "on_behalf_of": "u/superadmin-external"
+                "on_behalf_of": "u/superadmin-external",
+                "on_behalf_of_email": "stale@windmill.dev"
             }
         })
     )
     .execute(&db)
     .await?;
 
-    for url in [
-        format!("{base}/drafts/get_own/raw_app/{path}"),
-        format!("{base}/apps/get/p/{path}?get_draft=true&raw_app=true"),
+    for (url, at) in [
+        (format!("{base}/drafts/get_own/raw_app/{path}"), "value"),
+        (
+            format!("{base}/apps/get/p/{path}?get_draft=true&raw_app=true"),
+            "draft",
+        ),
     ] {
         let resp = authed(client().get(&url), "SECRET_TOKEN_2").send().await?;
         assert_eq!(resp.status(), 200, "Should read own draft at {url}");
@@ -1540,6 +1544,13 @@ async fn test_app_draft_derivation_does_not_disclose_non_member_email(
         assert!(
             !body.contains("superadmin-external@windmill.dev"),
             "Draft derivation must not disclose a non-member superadmin's address via {url}: {body}"
+        );
+        // Dropped, not left stale: the principal is one the deploy path accepts, so a stale
+        // address beside it would reject the draft forever.
+        let policy = &serde_json::from_str::<serde_json::Value>(&body)?[at]["policy"];
+        assert!(
+            policy.get("on_behalf_of_email").is_none(),
+            "Unresolvable principal should leave no address behind via {url}: {policy}"
         );
     }
 

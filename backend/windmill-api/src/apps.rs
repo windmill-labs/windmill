@@ -292,8 +292,12 @@ async fn derive_policy_on_behalf_of_email(
 /// no `resolve_on_behalf_of` pass, so its principal is caller-controlled: anyone who can save a
 /// draft under their own `u/` path chooses it. `u/` is therefore resolved against workspace
 /// membership alone, never `resolve_username_to_email`'s instance `password` fallback, which
-/// would turn a guessed username into a non-member superadmin's address. A principal that names
-/// no member is left alone rather than answered.
+/// would turn a guessed username into a non-member superadmin's address.
+///
+/// A principal naming no member has its address key dropped rather than answered or left as it
+/// was: an external superadmin is a principal the deploy path accepts, so leaving a stale
+/// address beside it would keep 400ing a draft that is otherwise fine, while dropping it lets
+/// `resolve_on_behalf_of` derive from the principal alone. Nothing is disclosed either way.
 ///
 /// `g/` and the bare-address form skip the lookup: the first is synthetic and the second is
 /// already the address, so neither tells the caller anything their draft did not.
@@ -321,7 +325,7 @@ async fn derive_draft_on_behalf_of_email_in_place(
             .await?;
             match member {
                 Some(email) => email,
-                None => return Ok(false),
+                None => return Ok(obj.remove("on_behalf_of_email").is_some()),
             }
         }
         None => {
