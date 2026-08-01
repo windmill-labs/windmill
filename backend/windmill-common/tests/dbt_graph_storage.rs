@@ -7,8 +7,8 @@
 
 use sqlx::{Pool, Postgres};
 use windmill_common::dbt_manifest::{
-    clear_dbt_manifest, clear_dbt_manifest_version, prune_dbt_run_graphs, replace_dbt_manifest,
-    IngestedManifest, IngestedNode, DEPLOYED_GRAPH, DEPLOYED_GRAPH_VERSIONS_KEPT,
+    clear_dbt_manifest_version, prune_dbt_run_graphs, replace_dbt_manifest, IngestedManifest,
+    IngestedNode, DEPLOYED_GRAPH, DEPLOYED_GRAPH_VERSIONS_KEPT,
 };
 
 const WS: &str = "test-workspace";
@@ -234,26 +234,46 @@ async fn clearing_one_version_leaves_the_others(db: Pool<Postgres>) {
     assert_eq!(edges_for(&db, 2).await, 1, "the other version keeps its own");
 }
 
-/// The path-wide clear is for the routes that retire the whole path, and it has
-/// to take the markers too — a marker standing for rows that are gone is read
-/// as a snapshot, and its digest still answers the suppression check.
+/// The routes that hard-delete a path clear no graph rows of their own: they
+/// delete the `script` rows and let `ON DELETE CASCADE` take the sidecars, since
+/// taking those first would lock them ahead of the script row — the reverse of a
+/// concurrent publication's order, which Postgres breaks by aborting one of the
+/// two. So the cascade has to reach every sidecar, markers included: a marker
+/// standing for rows that are gone is read as a snapshot, and its digest still
+/// answers the suppression check.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn clearing_the_path_takes_markers_with_it(db: Pool<Postgres>) {
+async fn deleting_the_script_cascades_to_every_sidecar(db: Pool<Postgres>) {
     deploy_script(&db, 1).await;
     deploy_script(&db, 2).await;
+    let job = uuid::Uuid::from_u128(7);
     let mut tx = db.begin().await.unwrap();
-    replace_dbt_manifest(&mut tx, WS, PATH, 1, None, &manifest(&["a"]), "root")
+    replace_dbt_manifest(&mut tx, WS, PATH, 1, None, &manifest(&["a", "b"]), "root")
         .await
         .unwrap();
-    replace_dbt_manifest(&mut tx, WS, PATH, 2, None, &manifest(&["b"]), "root")
+    replace_dbt_manifest(&mut tx, WS, PATH, 1, Some(job), &manifest(&["a"]), "root")
         .await
         .unwrap();
-    clear_dbt_manifest(&mut tx, WS, PATH).await.unwrap();
+    replace_dbt_manifest(&mut tx, WS, PATH, 2, None, &manifest(&["b", "c"]), "root")
+        .await
+        .unwrap();
     tx.commit().await.unwrap();
+    assert_eq!(markers_for_path(&db).await, 3, "two versions and one run");
 
-    assert_eq!(markers(&db, 1).await, 0);
-    assert_eq!(markers(&db, 2).await, 0);
+    sqlx::query!(
+        "DELETE FROM script WHERE workspace_id = $1 AND path = $2",
+        WS,
+        PATH
+    )
+    .execute(&db)
+    .await
+    .unwrap();
+
     assert_eq!(nodes_for(&db, 1, DEPLOYED_GRAPH).await, 0);
+    assert_eq!(nodes_for(&db, 1, job).await, 0, "a run's snapshot goes too");
+    assert_eq!(nodes_for(&db, 2, DEPLOYED_GRAPH).await, 0);
+    assert_eq!(edges_for(&db, 1).await, 0);
+    assert_eq!(edges_for(&db, 2).await, 0);
+    assert_eq!(markers_for_path(&db).await, 0);
 }
 
 /// The sweep ages out run snapshots and never a version's own graph, which is

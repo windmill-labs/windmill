@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "DELETE FROM dbt_graph_snapshot WHERE workspace_id = $1 AND script_path = $2",
+  "query": "DELETE FROM script WHERE workspace_id = $1 AND path = $2",
   "describe": {
     "columns": [],
     "parameters": {
@@ -11,5 +11,5 @@
     },
     "nullable": []
   },
-  "hash": "11d979216951a85835c15e02c756249fa16fd913dc1a2c7babc329cc2d636342"
+  "hash": "3ec280ad74cf63dc3cebb312c620e7a5c2a3b75051618fc3c9635b4cd8d48e25"
 }

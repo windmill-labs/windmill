@@ -3447,9 +3447,14 @@ async fn delete_script_by_hash(
 
     check_scopes(&authed, || format!("scripts:write:{}", &script.path))?;
 
-    clear_static_asset_usage_by_script_hash(&mut *tx, &w_id, hash).await?;
+    // Graph before assets, the order every publisher takes them in: a job that
+    // gave up its warehouse identity clears this version's graph and then
+    // rewrites the path's `asset` rows, so taking the two the other way round
+    // here has Postgres abort one of the pair for deadlock. This delete only
+    // soft-deletes the `script` row, so nothing cascades and the clear stays.
     windmill_common::dbt_manifest::clear_dbt_manifest_version(&mut tx, &w_id, &script.path, hash.0)
         .await?;
+    clear_static_asset_usage_by_script_hash(&mut *tx, &w_id, hash).await?;
     windmill_common::dbt_manifest::clear_dbt_run_state_if_path_retired(
         &mut tx,
         &w_id,
@@ -3540,10 +3545,12 @@ async fn delete_script_by_path(
     .fetch_all(&mut *tx)
     .await?;
 
-    // Before the DELETE: both are keyed on the path with no script foreign key,
-    // so anything left behind here would attach itself to whatever is created
-    // at this path next.
-    windmill_common::dbt_manifest::clear_dbt_manifest(&mut tx, &w_id, path).await?;
+    // The retry state is keyed on the path with no script foreign key, so left
+    // behind it would attach itself to whatever is created at this path next.
+    // The graph sidecars are NOT cleared: they cascade off `script`, and taking
+    // them first would lock them ahead of the script rows — the reverse of a
+    // graph publication's order (script row `FOR UPDATE`, then the sidecars),
+    // which Postgres breaks by aborting one of the two.
     windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, path).await?;
 
     let script = sqlx::query_scalar!(
@@ -3709,9 +3716,9 @@ async fn delete_scripts_bulk(
         }
     }
 
-    // Same reason as the single-path delete: neither has a foreign key.
+    // Same reason as the single-path delete, graph sidecars left to the cascade
+    // included.
     for p in &request.paths {
-        windmill_common::dbt_manifest::clear_dbt_manifest(&mut tx, &w_id, p).await?;
         windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, p).await?;
     }
 
