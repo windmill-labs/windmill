@@ -993,7 +993,7 @@ async fn dbt_retry_principal(
     // whoever can see the script.
     let mut tx = user_db.clone().begin(authed).await?;
     let script = sqlx::query!(
-        "SELECT created_by, on_behalf_of_email FROM script
+        "SELECT on_behalf_of FROM script
           WHERE path = $1 AND workspace_id = $2 AND archived = false AND deleted = false
           ORDER BY created_at DESC LIMIT 1",
         path,
@@ -1002,12 +1002,11 @@ async fn dbt_retry_principal(
     .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
+    // Same rule the push applies, so this keys on what the run was actually stamped with: the
+    // recorded identity, or the caller when the script has none.
     Ok(script.map(|s| {
-        if s.on_behalf_of_email.is_some() {
-            username_to_permissioned_as(&s.created_by)
-        } else {
-            username_to_permissioned_as(&authed.username)
-        }
+        s.on_behalf_of
+            .unwrap_or_else(|| username_to_permissioned_as(&authed.username))
     }))
 }
 

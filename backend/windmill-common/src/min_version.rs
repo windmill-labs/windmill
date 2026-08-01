@@ -3,12 +3,11 @@ use semver::Version;
 
 // ============ Feature Definitions ============
 
-// Names the release that stops reading `script`/`flow`.`on_behalf_of_email`, and is deliberately
-// a minor above the one this landed in: too high only keeps the compatibility write going an
-// extra release, while too low stops it while a worker that still reads that column is live,
-// which runs those runnables as their deployer with no error anywhere.
+// The release that stops reading `script`/`flow`.`on_behalf_of_email`. It must name the release
+// this actually ships in: set below it, the compatibility write stops while a worker that still
+// reads that column is live, and those runnables run as their deployer with no error anywhere.
 pub const MIN_VERSION_SUPPORTS_ON_BEHALF_OF_PRINCIPAL: VC =
-    vc(1, 777, 0, "On-behalf-of principal");
+    vc(1, 776, 0, "On-behalf-of principal");
 pub const MIN_VERSION_SUPPORTS_NODE_DEBOUNCING: VC = vc(1, 658, 0, "Flow node debouncing");
 pub const MIN_VERSION_SUPPORTS_TOKEN_HASH: VC = vc(1, 659, 0, "Token hash storage");
 pub const MIN_VERSION_SUPPORTS_SYNC_JOBS_DEBOUNCING: VC = vc(1, 602, 0, "Sync jobs debouncing");

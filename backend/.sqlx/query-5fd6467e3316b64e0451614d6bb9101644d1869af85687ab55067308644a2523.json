@@ -12,7 +12,7 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Varchar"
+        "Text"
       ]
     },
     "nullable": [
