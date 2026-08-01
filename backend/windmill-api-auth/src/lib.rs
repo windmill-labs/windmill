@@ -1338,7 +1338,11 @@ mod tests {
             // A label-less token: the job WM_TOKEN, and any token created without one.
             None,
         ] {
-            assert_eq!(kind_of(label).as_deref(), Some("webhook"), "label {label:?}");
+            assert_eq!(
+                kind_of(label).as_deref(),
+                Some("webhook"),
+                "label {label:?}"
+            );
         }
     }
 
@@ -1347,8 +1351,10 @@ mod tests {
     #[test]
     fn a_real_trigger_wins_over_the_token_fallback() {
         let authed = ApiAuthed::default();
-        let schedule =
-            TriggerMetadata::new(Some("u/alice/nightly".to_string()), JobTriggerKind::Schedule);
+        let schedule = TriggerMetadata::new(
+            Some("u/alice/nightly".to_string()),
+            JobTriggerKind::Schedule,
+        );
 
         let kept = authed.trigger_or_fallback(Some(schedule)).unwrap();
         assert_eq!(kept.trigger_kind.to_string(), "schedule");

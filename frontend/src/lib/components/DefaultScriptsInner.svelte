@@ -3,17 +3,20 @@
 	import { defaultScripts, workspaceStore } from '$lib/stores'
 	import { flip } from 'svelte/animate'
 	import Toggle from './Toggle.svelte'
-	import { defaultScriptLanguages } from '$lib/scripts'
+	import { dbtLanguageOffered, defaultScriptLanguages } from '$lib/scripts'
 	import Alert from './common/alert/Alert.svelte'
 
 	interface Props {
-		small?: boolean;
+		small?: boolean
 	}
 
-	let { small = false }: Props = $props();
+	let { small = false }: Props = $props()
 
 	function computeLangs(defaultScripts: WorkspaceDefaultScripts | undefined): Script['language'][] {
-		const allLangs = Object.keys(defaultScriptLanguages) as Script['language'][]
+		// Ordering a language the picker does not offer would have no effect.
+		const allLangs = (Object.keys(defaultScriptLanguages) as Script['language'][]).filter(
+			(l) => l !== 'dbt' || dbtLanguageOffered()
+		)
 		if (!defaultScripts || defaultScripts.order == undefined) return allLangs
 		return defaultScripts.order
 			?.concat(allLangs.filter((l) => !defaultScripts.order?.includes(l)))

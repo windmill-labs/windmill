@@ -66,7 +66,7 @@ use windmill_common::error::{self, Result};
 use windmill_common::get_latest_deployed_hash_for_path;
 use windmill_common::jobs::{JobKind, JobPayload, JobTriggerKind};
 use windmill_common::partition::PARTITION_ARG;
-use windmill_common::scripts::ScriptHash;
+use windmill_common::scripts::{ScriptHash, ScriptLang};
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::users::{get_email_from_permissioned_as, username_to_permissioned_as};
 use windmill_common::worker::to_raw_value;
@@ -245,6 +245,18 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
     if job.parent_job.is_some() && !is_native_retry_attempt(db, job).await? {
         return Ok(DispatchResult::default());
     }
+    // A dbt run records the relations it builds, so it looks like a producer
+    // here — but dbt does not trigger downstream runs. Its own DAG is dbt's to
+    // order; the only thing a cascade would add is waking Windmill scripts that
+    // read a mart, and nothing outside dbt can declare a `dbt://` write, so
+    // that edge exists in one direction only. Cascading from a project whose
+    // per-run selection can build any subset of itself needs a per-run write set
+    // to be correct, which is a design worth doing deliberately rather than
+    // inferring. Until then dbt materializes and reports; it does not dispatch.
+    if job.script_lang == Some(ScriptLang::Dbt) {
+        return Ok(DispatchResult::default());
+    }
+
     let runnable_path = match job.runnable_path.as_deref() {
         Some(p) if !p.is_empty() => p,
         _ => return Ok(DispatchResult::default()),
@@ -262,6 +274,7 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
     let Some(writes) = producers.get(runnable_path).cloned() else {
         return Ok(DispatchResult::default());
     };
+
 
     let args = fetch_args(db, &job.workspace_id, job.id).await?;
     if read_skip_arg(args.as_ref()) {

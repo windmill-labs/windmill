@@ -2805,6 +2805,20 @@ async fn impersonate(
             "impersonate_username is required".to_string(),
         ));
     }
+    // This route writes its own row rather than going through the `create_token`
+    // handler, so it repeats that handler's guard: impersonation names its
+    // subject in `impersonate_email`, and a server-minted label — which
+    // `username_override_from_label` trusts to name the entity acting — would
+    // attribute this token's jobs to a third identity.
+    if new_token
+        .label
+        .as_deref()
+        .is_some_and(windmill_common::auth::is_server_minted_label)
+    {
+        return Err(Error::BadRequest(
+            "label collides with a reserved system-token namespace".to_string(),
+        ));
+    }
 
     let impersonated = new_token.impersonate_email.unwrap();
 

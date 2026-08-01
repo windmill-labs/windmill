@@ -6227,6 +6227,7 @@ dependencies = [
  "jsonwebtoken",
  "lazy_static",
  "magic-crypt",
+ "memchr",
  "native-tls",
  "once_cell",
  "pep440_rs",
@@ -6266,6 +6267,7 @@ dependencies = [
  "windmill-macros",
  "windmill-parser",
  "windmill-parser-sql",
+ "windmill-parser-sql-asset",
  "windmill-parser-ts",
  "windmill-types",
 ]
@@ -6573,8 +6575,11 @@ name = "windmill-parser-yaml"
 version = "1.775.2"
 dependencies = [
  "anyhow",
+ "lazy_static",
+ "regex",
  "serde",
  "serde_json",
+ "serde_yml",
  "windmill-parser",
  "yaml-rust",
 ]

@@ -454,6 +454,8 @@
 					language: 'bun'
 				}
 			}
+		} else if (script.language === 'dbt') {
+			seedDbtProject()
 		}
 		const restarter = scheduleRestartSync(userDraftPath, { waitForContent: true })
 		initContent(script.language, script.kind, template).finally(() => restarter.markContentReady())
@@ -971,6 +973,34 @@
 
 	function handleDeployTrigger(_trigger: Trigger) {}
 
+	// A dbt script's modules ARE its dbt project, and the runtime refuses one
+	// without a `dbt_project.yml`. Seeded from BOTH entry points — the empty-script
+	// bootstrap and the language picker — because reaching dbt by switching an
+	// existing draft otherwise produces a script that cannot deploy or run.
+	// Existing modules are left alone: switching away and back must not discard a
+	// project the user has already grown.
+	function seedDbtProject() {
+		// Keyed on the project file rather than on "has any modules at all": a
+		// draft that grew modules under another language carries none of what dbt
+		// needs, and the worker refuses a bundle with no `dbt_project.yml` — so
+		// that draft reached dbt in a state it could neither deploy nor run.
+		if (script.modules?.['dbt_project.yml']) return
+		script.modules = {
+			'dbt_project.yml': {
+				content:
+					'name: my_dbt_project\nversion: "1.0"\nprofile: my_dbt_project\nmodels:\n  my_dbt_project:\n    +materialized: view\n',
+				language: 'dbt'
+			},
+			'models/example.sql': {
+				content: 'select 1 as id\n',
+				language: 'dbt'
+			},
+			// Last, so anything already written wins: the previous language's
+			// helper files are inert to dbt and are the user's to remove.
+			...(script.modules ?? {})
+		}
+	}
+
 	function onScriptLanguageTrigger(lang: 'docker' | 'bunnative' | ScriptLang) {
 		if (lang == 'docker') {
 			template = 'docker'
@@ -983,6 +1013,9 @@
 		//
 		initContent(language, script.kind, template)
 		script.language = language
+		if (language === 'dbt') {
+			seedDbtProject()
+		}
 	}
 
 	function onSummaryChange(value: string) {

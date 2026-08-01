@@ -71,10 +71,19 @@ import {
   isScriptModulePath,
   buildModuleFolderPath,
   getModuleFolderSuffix,
+  dbtGeneratedDirs,
+  isUnderGeneratedDir,
+  isLocalSecretFile,
+  moduleFileExclusion,
+  oversizedModuleFileError,
+  MAX_MODULE_BYTES,
   isModuleEntryPoint,
   getScriptBasePathFromModulePath,
   scriptPathToRemotePath,
   isRawAppPath,
+  DBT_DESCRIPTOR_NAME,
+  isDbtDescriptorPath,
+  isMissingDbtDescriptor,
 } from "../../utils/resource_folders.ts";
 
 export interface ScriptFile {
@@ -159,9 +168,18 @@ async function push(opts: PushOptions, filePath: string) {
     return;
   }
 
-  const fstat = await stat(filePath);
-  if (!fstat.isFile()) {
-    throw new Error("file path must refer to a file.");
+  // A dbt project's descriptor is optional, so the one content path a
+  // descriptor-less project has is deliberately not on disk. The project beside
+  // it is what says the script is real.
+  const absentDescriptor = await stat(filePath).then(
+    () => false,
+    (e) => isMissingDbtDescriptor(filePath, e)
+  );
+  if (!absentDescriptor) {
+    const fstat = await stat(filePath);
+    if (!fstat.isFile()) {
+      throw new Error("file path must refer to a file.");
+    }
   }
 
   if (filePath.endsWith(".script.json") || filePath.endsWith(".script.yaml")) {
@@ -174,7 +192,7 @@ async function push(opts: PushOptions, filePath: string) {
 
   // Warn about metadata state before pushing
   try {
-    const content = await readTextFile(filePath);
+    const content = await readScriptContent(filePath);
     const remotePath = removeExtensionToPath(filePath).replaceAll(SEP, "/");
     const contentHash = await computePushMetadataHash(filePath, content);
     const conf = await readLockfile();
@@ -272,7 +290,7 @@ const MODULE_ENTRY_META_RE = /([\\/])script\.(yaml|json|lock)$/;
  * `__mod/`, so this only narrows it to the metadata extensions: a `script.yaml`
  * nested deeper in the module tree is a module file, not the script's metadata.
  */
-function isModuleEntryMetadata(p: string): boolean {
+export function isModuleEntryMetadata(p: string): boolean {
   return isModuleEntryPoint(p) && MODULE_ENTRY_META_RE.test(p);
 }
 
@@ -335,7 +353,7 @@ export async function handleFile(
     // standalone scripts — pushed via pushRawApp, not here.
     !isRawAppPath(path) &&
     (!isScriptModulePath(path) || moduleEntryPoint) &&
-    exts.some((exts) => path.endsWith(exts))
+    hasScriptExt(path)
   ) {
     if (alreadySynced.includes(path)) {
       return true;
@@ -344,6 +362,15 @@ export async function handleFile(
 
     alreadySynced.push(path);
     const remotePath = scriptPathToRemotePath(path);
+
+    // Before anything is written: this path may also be a dbt project's, and
+    // pushing here would deploy this file over it.
+    const collidingProject = await collidingDbtProject(
+      removeExtensionToPath(path)
+    );
+    if (collidingProject) {
+      throw dbtPathCollisionError(collidingProject, path);
+    }
 
     const language = inferContentTypeFromFilePath(path, opts?.defaultTs);
 
@@ -479,7 +506,7 @@ export async function handleFile(
     } catch {
       log.debug(`Script ${remotePath} does not exist on remote`);
     }
-    const content = await readTextFile(path);
+    const content = await readScriptContent(path);
 
     if (opts?.skipScriptsMetadata) {
       // if (codebase) {
@@ -499,8 +526,14 @@ export async function handleFile(
     const scriptBasePath = moduleEntryPoint
       ? getScriptBasePathFromModulePath(path)!
       : path.substring(0, path.indexOf("."));
-    const moduleFolderPath = scriptBasePath + getModuleFolderSuffix();
-    const modules = await readModulesFromDisk(moduleFolderPath, opts?.defaultTs, moduleEntryPoint);
+    const isDbt = language === "dbt";
+    const moduleFolderPath = scriptBasePath + getModuleFolderSuffix(language);
+    const modules = await readModulesFromDisk(
+      moduleFolderPath,
+      opts?.defaultTs,
+      moduleEntryPoint,
+      isDbt,
+    );
 
     // A concurrent_limit of <= 0 means "concurrency disabled", not "zero slots" (which
     // would brick the runnable at the queue's concurrency gate). Emit it as omitted rather
@@ -518,7 +551,11 @@ export async function handleFile(
       path: remotePath.replaceAll(SEP, "/"),
       summary: typed?.summary ?? "",
       kind: typed?.kind,
-      lock: typed?.lock,
+      // A dbt lock pins a resolved commit and engine versions that only a
+      // dependency job can determine, and that job is also what publishes the
+      // script's manifest graph. Sending one suppresses that job, so the push
+      // would deploy a stale lock AND leave the graph unpublished.
+      lock: language === "dbt" ? undefined : typed?.lock,
       schema: typed?.schema,
       tag: typed?.tag,
       ws_error_handler_muted: typed?.ws_error_handler_muted,
@@ -679,6 +716,11 @@ export async function readModulesFromDisk(
   moduleFolderPath: string,
   defaultTs: "bun" | "deno" | undefined,
   folderLayout: boolean = false,
+  // A dbt project rides in its module folder as-is: `.sql` models (which the
+  // language inference below rejects as an ambiguous dialect), `.yml` schemas
+  // and `.csv` seeds are all part of the project and none is a Windmill script.
+  // Verbatim, or dbt receives a project missing exactly the files it needs.
+  verbatim: boolean = false,
 ): Promise<Record<string, ScriptModule> | undefined> {
   if (!fs.existsSync(moduleFolderPath) || !fs.statSync(moduleFolderPath).isDirectory()) {
     return undefined;
@@ -686,9 +728,18 @@ export async function readModulesFromDisk(
 
   const modules: Record<string, ScriptModule> = {};
 
+  const skipDirs = verbatim
+    ? dbtGeneratedDirs(moduleFolderPath)
+    : new Set<string>();
+
   // In folder layout mode, skip the entry point files (script.*, script.yaml, etc.)
   const isEntryPointFile = (name: string, isTopLevel: boolean) => {
-    if (!folderLayout || !isTopLevel) return false;
+    if (!isTopLevel) return false;
+    // A dbt project's descriptor is the script's CONTENT, so it must not also
+    // ride along as a module: the push would send the same text twice and dbt
+    // would find a stray file at its project root.
+    if (verbatim) return name === DBT_DESCRIPTOR_NAME;
+    if (!folderLayout) return false;
     return (
       name.startsWith("script.") ||
       name === "script.lock" ||
@@ -705,10 +756,63 @@ export async function readModulesFromDisk(
       const isTopLevel = relPrefix === "";
 
       if (entry.isDirectory()) {
+        // A configured `target-path` may be nested (`build/target`), so the
+        // comparison is on the project-relative path, not the entry name.
+        if (skipDirs.size > 0 && isUnderGeneratedDir(relPath, skipDirs)) continue;
         readDir(fullPath, relPath);
-      } else if (entry.isFile() && !entry.name.endsWith(".lock") && !isEntryPointFile(entry.name, isTopLevel)) {
-        // Skip lock files — they're handled as the `lock` field on ScriptModule
-        if (exts.some((ext) => entry.name.endsWith(ext))) {
+        // `.lock` is the script's own lockfile in a `__mod` bundle (the `lock`
+        // field on ScriptModule) — but a dbt project's files are its author's,
+        // and one may legitimately be named `uv.lock`. Dropping it would break
+        // the unmodified-project round trip this bundle exists to keep.
+      } else if (
+        entry.isFile() &&
+        (verbatim || !entry.name.endsWith(".lock")) &&
+        !isEntryPointFile(entry.name, isTopLevel)
+      ) {
+        if (verbatim) {
+          // Secrets stay on the machine that holds them. Skipped before the
+          // read, and loudly: a `.env` swept into the bundle is a credential
+          // stored in every version of the script and handed back on pull.
+          if (isLocalSecretFile(entry.name)) {
+            log.warn(
+              `Skipping ${relPath}: a local secrets file is not part of the dbt project — ` +
+                `dbt reads its values from the environment, so set them in the script's ` +
+                `environment variables or the descriptor's \`env\``,
+            );
+            continue;
+          }
+          // A dbt project's authored files are text. A binary one -- an image
+          // under `docs/`, a `.DS_Store`, a parquet seed -- would be read as
+          // mojibake and, if it carries a NUL, rejected by Postgres with an
+          // opaque `unsupported Unicode escape sequence`, which the push then
+          // reports as success. Skip it, loudly: dbt does not read it either.
+          //
+          // Asked BEFORE reading: the predicate only stats the file and reads
+          // its first 8 KB, so a multi-gigabyte seed next to the project costs
+          // that rather than being loaded whole just to be rejected.
+          const exclusion = moduleFileExclusion(fullPath);
+          if (exclusion !== undefined) {
+            // Over the limit but readable as text — a large seed CSV is the
+            // realistic case — is refused rather than skipped: dbt WOULD have
+            // read it, so shipping the project without it deploys something that
+            // compiles here and fails at run time with a missing relation.
+            if (exclusion === "oversized") {
+              throw oversizedModuleFileError(relPath, fs.statSync(fullPath).size);
+            }
+            log.warn(
+              `Skipping ${relPath}: not a text file, so it is not part of the dbt project the ` +
+                `bundle carries — dbt does not read it either`,
+            );
+            continue;
+          }
+          // `language` is a required field of the API type and is not used for
+          // these: the worker writes them to their relative path and dbt reads
+          // the tree.
+          modules[relPath] = {
+            content: fs.readFileSync(fullPath).toString("utf-8"),
+            language: "dbt" as ScriptModule["language"],
+          };
+        } else if (exts.some((ext) => entry.name.endsWith(ext))) {
           const content = readTextFileSync(fullPath);
           const language = inferContentTypeFromFilePath(entry.name, defaultTs);
 
@@ -889,6 +993,62 @@ async function createScript(
  */
 export class UnresolvableScriptContentFileError extends Error {}
 
+/**
+ * A path claimed by both a dbt project and an ordinary script.
+ *
+ * Its own class because the module push tolerates "no parent found" and must
+ * NOT tolerate this: swallowed, the command reports success while deploying
+ * nothing.
+ */
+export class DbtPathCollisionError extends UnresolvableScriptContentFileError {}
+
+/**
+ * The dbt project a path would collide with, if there is one.
+ *
+ * `<base>.py` and `<base>__dbt/` deploy to the SAME remote path, so whichever
+ * is pushed last wins and replaces the other's script. The descriptor is
+ * optional, so `dbt_project.yml` — not the descriptor — is what says a project
+ * is there. Asked on BOTH push paths: an ordinary file goes straight to
+ * `handleFile`, a model reaches its parent through `findContentFile`, and a
+ * guard on one of them leaves the other silently overwriting.
+ */
+export async function collidingDbtProject(
+  basePath: string
+): Promise<string | undefined> {
+  const project = basePath + "__dbt/dbt_project.yml";
+  return (await stat(project).then(() => true).catch(() => false))
+    ? project
+    : undefined;
+}
+
+export function dbtPathCollisionError(
+  project: string,
+  other: string
+): DbtPathCollisionError {
+  return new DbtPathCollisionError(
+    `${project} and ${other} deploy to the same path, so pushing either one ` +
+      `replaces the other's script. Keep one: move the dbt project to a path ` +
+      `of its own, or remove ${other}.`
+  );
+}
+
+
+/**
+ * A script's content, tolerating the one content file that may not exist: a dbt
+ * project's descriptor is optional, and absent means an empty descriptor.
+ */
+async function readScriptContent(filePath: string): Promise<string> {
+  try {
+    return await readTextFile(filePath);
+  } catch (e) {
+    // ONLY a missing file is an empty descriptor. A permission or I/O error on a
+    // descriptor that does exist would otherwise deploy the defaults — the
+    // `main` warehouse and the whole project — in place of what the file says.
+    if (isMissingDbtDescriptor(filePath, e)) return "";
+    throw e;
+  }
+}
+
 export async function findContentFile(filePath: string) {
   // Folder layout: __mod/script.yaml -> __mod/script.ts
   const isModuleFolderMeta = isModuleEntryMetadata(filePath);
@@ -924,6 +1084,20 @@ export async function findContentFile(filePath: string) {
   )
     .filter((x) => x.file)
     .map((x) => x.path);
+  // A dbt project's descriptor is OPTIONAL, so `dbt_project.yml` is what says a
+  // dbt script lives at this path — the descriptor is often absent from the
+  // candidates above while the project is perfectly real. Asked BEFORE the
+  // counts below: a project beside an ordinary script is not "one candidate",
+  // it is two scripts claiming one remote path, and returning the ordinary one
+  // deploys it OVER the dbt script on the next push of any model.
+  const dbtCandidate = toCandidate("__dbt/" + DBT_DESCRIPTOR_NAME);
+  const dbtProject = await collidingDbtProject(
+    dbtCandidate.slice(0, -("__dbt/" + DBT_DESCRIPTOR_NAME).length),
+  );
+  const nonDbtCandidates = validCandidates.filter((c) => c !== dbtCandidate);
+  if (dbtProject && nonDbtCandidates.length > 0) {
+    throw dbtPathCollisionError(dbtProject, nonDbtCandidates.join(", "));
+  }
   if (validCandidates.length > 1) {
     throw new UnresolvableScriptContentFileError(
       `Multiple script files found next to ${filePath}: ${validCandidates.join(", ")} — ` +
@@ -931,6 +1105,11 @@ export async function findContentFile(filePath: string) {
     );
   }
   if (validCandidates.length < 1) {
+    // Resolving to the absent descriptor keeps one content path for every
+    // caller; reading it yields an empty descriptor.
+    if (dbtProject) {
+      return dbtCandidate;
+    }
     throw new UnresolvableScriptContentFileError(
       `No script file found next to ${filePath} — a script cannot be deployed from its metadata alone. ` +
         `Add the matching script file (e.g. ${toCandidate(".ts")} or ${toCandidate(
@@ -999,6 +1178,10 @@ export function filePathExtensionFromContentType(
     return ".rb";
   } else if (language === "rlang") {
     return ".r";
+  } else if (language === "dbt") {
+    // Not an extension but a path suffix: a dbt script's content file lives
+    // inside the project folder, so `<base> + this` is where it belongs.
+    return "__dbt/" + DBT_DESCRIPTOR_NAME;
     // for related places search: ADD_NEW_LANG
   } else {
     throw new Error("Invalid language: " + language);
@@ -1031,12 +1214,28 @@ export const exts = [
   ".java",
   ".rb",
   ".r",
+  // Not an extension: a dbt script's content file is its descriptor, inside
+  // the project folder. `<base>.script.yaml` -> `<base>__dbt/wm_dbt.yaml`.
+  "__dbt/" + DBT_DESCRIPTOR_NAME,
   // for related places search: ADD_NEW_LANG
 ];
 
+/**
+ * Whether a path is a script's content file.
+ *
+ * Separators are normalized first: one "extension" is the path suffix
+ * `__dbt/wm_dbt.yaml`, which on Windows is spelled `__dbt\wm_dbt.yaml` and
+ * would match nothing — silently skipping every dbt project on that platform.
+ */
+export function hasScriptExt(p: string): boolean {
+  const norm = p.replaceAll("\\", "/");
+  return exts.some((ext) => norm.endsWith(ext));
+}
+
 export function removeExtensionToPath(path: string): string {
+  const norm = path.replaceAll("\\", "/");
   for (const ext of exts) {
-    if (path.endsWith(ext)) {
+    if (norm.endsWith(ext)) {
       return path.substring(0, path.length - ext.length);
     }
   }
@@ -1450,7 +1649,7 @@ export async function generateMetadata(
       await FSFSElement(process.cwd(), codebases, false),
       (p, isD) => {
         return (
-          (!isD && !exts.some((ext) => p.endsWith(ext))) ||
+          (!isD && !hasScriptExt(p)) ||
           ignore(p, isD) ||
           isFlowPath(p) ||
           isAppPath(p) ||
@@ -1569,9 +1768,17 @@ async function preview(
     return;
   }
 
-  const fstat = await stat(filePath);
-  if (!fstat.isFile()) {
-    throw new Error("file path must refer to a file.");
+  // Same as push: a descriptor-less dbt project's content path is deliberately
+  // absent, and the project beside it is what says the script is real.
+  const absentDescriptor = await stat(filePath).then(
+    () => false,
+    (e) => isMissingDbtDescriptor(filePath, e)
+  );
+  if (!absentDescriptor) {
+    const fstat = await stat(filePath);
+    if (!fstat.isFile()) {
+      throw new Error("file path must refer to a file.");
+    }
   }
 
   if (filePath.endsWith(".script.json") || filePath.endsWith(".script.yaml")) {
@@ -1582,15 +1789,23 @@ async function preview(
 
   const codebases = await listSyncCodebases(opts);
   const language = inferContentTypeFromFilePath(filePath, opts?.defaultTs);
-  const content = await readTextFile(filePath);
+  const content = await readScriptContent(filePath);
   const input = opts.data ? await resolve(opts.data) : {};
 
-  // Read modules from __mod/ folder if present
+  // Read modules from the bundle folder if present. Same suffix and same
+  // verbatim read as deploy: a dbt project lives in `__dbt/`, and parsing its
+  // files as scripts would drop the `dbt_project.yml` the executor looks for.
   const isFolderLayout = isModuleEntryPoint(filePath);
+  const isDbt = language === "dbt";
   const moduleFolderPath = isFolderLayout
     ? path.dirname(filePath)
-    : filePath.substring(0, filePath.indexOf(".")) + getModuleFolderSuffix();
-  const modules = await readModulesFromDisk(moduleFolderPath, opts?.defaultTs, isFolderLayout);
+    : filePath.substring(0, filePath.indexOf(".")) + getModuleFolderSuffix(language);
+  const modules = await readModulesFromDisk(
+    moduleFolderPath,
+    opts?.defaultTs,
+    isFolderLayout,
+    isDbt
+  );
 
   // Check if this is a codebase script
   const codebase =

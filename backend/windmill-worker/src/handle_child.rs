@@ -694,6 +694,68 @@ pub(crate) async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
     }
 }
 
+/// The job state a command run outside the main script needs to stay
+/// cancellable. `dbt deps` can hang on an unreachable package endpoint and
+/// `dbt parse`/`ls` on a warehouse handshake, so running them detached would
+/// hold a worker slot past a cancel or a timeout.
+pub struct JobCtx<'a> {
+    pub mem_peak: &'a mut i32,
+    pub canceled_by: &'a mut Option<CanceledBy>,
+    pub occupancy_metrics: &'a mut OccupancyMetrics,
+    pub worker_name: &'a str,
+    pub deadline: JobDeadline,
+}
+
+impl JobCtx<'_> {
+    /// What is left of the job's wall clock, for the phase about to start.
+    pub fn timeout(&self) -> Option<i32> {
+        self.deadline.remaining_secs()
+    }
+}
+
+/// One wall clock for a job that runs several subprocesses in sequence.
+///
+/// Both `handle_child` and `run_future_with_polling_update_job_poller` resolve
+/// the timeout they are handed into a fresh duration, so handing each phase the
+/// job's full timeout lets a job with N phases run for N times it. Resolved
+/// once at the start, then spent down.
+#[derive(Clone, Copy)]
+pub struct JobDeadline(Option<Instant>);
+
+impl JobDeadline {
+    pub async fn start(
+        conn: &Connection,
+        w_id: &str,
+        job_id: Uuid,
+        custom_timeout: Option<i32>,
+    ) -> Self {
+        let (d, _, _) = resolve_job_timeout(conn, w_id, job_id, custom_timeout).await;
+        Self(Some(Instant::now() + d))
+    }
+
+    /// Whether the job's wall clock is already spent.
+    ///
+    /// Distinct from `remaining_secs`, which deliberately never reports zero:
+    /// an expired budget still has to hand the next phase a positive timeout so
+    /// the poller fires. A caller deciding whether to START more work needs the
+    /// honest answer.
+    pub fn is_expired(&self) -> bool {
+        self.0.is_some_and(|d| d <= Instant::now())
+    }
+
+    pub fn remaining_secs(&self) -> Option<i32> {
+        let deadline = self.0?;
+        // A non-positive timeout reads as "unset" downstream, so an expired
+        // budget must still ask for a positive one and let the poller fire.
+        Some(
+            deadline
+                .saturating_duration_since(Instant::now())
+                .as_secs()
+                .clamp(1, i32::MAX as u64) as i32,
+        )
+    }
+}
+
 pub async fn run_future_with_polling_update_job_poller<Fut, T, S>(
     job_id: Uuid,
     timeout: Option<i32>,
@@ -1027,5 +1089,21 @@ pub fn process_status(
         return Err(error::Error::ExecutionErr(String::from(
             "process terminated by signal",
         )));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A non-positive timeout means "unset" to `resolve_job_timeout`, so an
+    // exhausted budget that reported 0 would hand the next phase no deadline at
+    // all — the opposite of what running out of time should do.
+    #[test]
+    fn an_exhausted_budget_still_asks_for_a_positive_timeout() {
+        let spent = JobDeadline(Some(Instant::now() - Duration::from_secs(30)));
+        assert_eq!(spent.remaining_secs(), Some(1));
+        let left = JobDeadline(Some(Instant::now() + Duration::from_secs(120)));
+        assert!(matches!(left.remaining_secs(), Some(s) if (118..=120).contains(&s)));
     }
 }

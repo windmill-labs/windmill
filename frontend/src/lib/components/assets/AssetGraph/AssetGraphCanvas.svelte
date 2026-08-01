@@ -18,10 +18,15 @@
 	import PanToNode from './PanToNode.svelte'
 	import InitialFitView from './InitialFitView.svelte'
 	import { layoutAssetGraph } from './assetGraphLayout'
-	import { computeMutedReadKeys } from './resolveGraph'
+	import { computeMutedReadKeys, dbtAssociations } from './resolveGraph'
 	import { buildDownstreamMap } from './graphTraversal'
 	import { buildLineageDownstreamMap } from './boundedCascade'
-	import type { AssetGraphResponse, AssetGraphSelection, NativeTriggerKind } from './types'
+	import type {
+		AssetGraphResponse,
+		AssetGraphSelection,
+		AssetRunState,
+		NativeTriggerKind
+	} from './types'
 	import type { RunnableRunState } from './activeRunnables.svelte'
 	import type { AssetKind } from '$lib/gen'
 	import { NODE } from '$lib/components/graph/util'
@@ -179,6 +184,11 @@
 		 * When a node's nonce changes, it flashes a fading green background — its
 		 * producer just recomputed it. Driven by the replay player frame-by-frame. */
 		recomputedAssetIds?: ReadonlyMap<string, number>
+		/** What a run is currently doing to each relation, keyed `asset:<kind>:<path>`
+		 *  like every other per-asset map here.
+		 *  Distinct from `recomputedAssetIds`, which is a one-shot pulse: this is
+		 *  the state a node holds until the run moves it. */
+		assetRunStatus?: ReadonlyMap<string, AssetRunState>
 		/** Let the wheel zoom the canvas (and swallow the page scroll while doing
 		 * so). Default true for the full-height editor/player. Set false when the
 		 * canvas is embedded inline inside a scrollable container, so a wheel
@@ -215,6 +225,7 @@
 		viewportFitKey = '',
 		highlightActiveRun = false,
 		recomputedAssetIds,
+		assetRunStatus,
 		scrollZoom = true
 	}: Props = $props()
 
@@ -244,6 +255,7 @@
 			| 'data-test'
 			| 'macro'
 			| 'test-dependency'
+			| 'dbt-ref'
 		unsaved?: boolean
 		// Muted read edge: a ducklake/s3 input read every run whose (default)
 		// auto cascade trigger is suppressed by `// mute` / `// mute all`.
@@ -286,6 +298,26 @@
 		// draw each as its own node hanging off the asset it validates (deduped
 		// by node id across producers).
 		const addedTestNodes = new Set<string>()
+
+		// A dbt script owns every relation its project materializes. Drawing that
+		// as one edge per model buries the lineage that matters — `ref()` between
+		// models, and native consumers — under a fan-out that grows with the
+		// project, so the association is carried by the model's badge and its
+		// hover/click highlight instead. Only the DRAWING is dropped: the
+		// producer rows still drive cascade dispatch and "who produced this".
+		const dbtRunnableIds = new Set(
+			g.runnables.filter((r) => r.dbt).map((r) => `${r.usage_kind}:${r.path}`)
+		)
+		// Association only — the canvas deliberately draws no edge for it.
+		const { ownerByAsset: dbtOwnerByAsset, writesByOwner: dbtWritesByOwner } = dbtAssociations(
+			g.runnables,
+			g.edges
+		)
+		// Per-relation dbt description, to tell a project's own declared source
+		// from a relation another script materializes.
+		const dbtAssetProvenance = new Map(
+			g.assets.filter((a) => a.dbt).map((a) => [`asset:${a.kind}:${a.path}`, a.dbt!])
+		)
 
 		const hasAddNode = onAddPipelineScript != null
 		if (hasAddNode) {
@@ -395,6 +427,7 @@
 					path: a.path,
 					fork_materialization: a.fork_materialization,
 					derived_from: a.derived_from,
+					dbt: a.dbt,
 					onAddScript: onAddScriptForAsset,
 					pathPrefix,
 					defaultPathSuffix,
@@ -404,7 +437,32 @@
 					producerFailed,
 					// Bumped by the replay player when this asset's producer just
 					// recomputed it — the node flashes green and fades.
-					recomputePulse: recomputedAssetIds?.get(assetId)
+					recomputePulse: recomputedAssetIds?.get(assetId),
+					// What the run in view is doing to this relation right now.
+					runStatus: assetRunStatus?.get(assetId)?.status,
+					runRowCount: assetRunStatus?.get(assetId)?.rowCount,
+					// The dbt project that materializes this relation, related by
+					// badge rather than by an edge — so only when that node is on
+					// this graph. The run page and the pipeline page both hide it,
+					// and passing handlers anyway makes the chip advertise a click
+					// that resolves to nothing.
+					...(dbtOwnerByAsset.has(assetId)
+						? {
+								onDbtHover: (on: boolean) => (dbtHoverId = on ? assetId : undefined),
+								onDbtSelect: () => {
+									// `runnable:<kind>:<path>` — the id shape `build` uses.
+									const owner = model.dbtOwnerByAsset.get(assetId)
+									const [kind, ...rest] = owner?.split(':') ?? []
+									if (kind && rest.length) {
+										onselect?.({
+											kind: 'runnable',
+											runnable_kind: kind as 'script' | 'flow',
+											path: rest.join(':')
+										})
+									}
+								}
+							}
+						: {})
 				}
 			})
 		}
@@ -475,6 +533,8 @@
 					tag: r.tag,
 					retry: r.retry,
 					macros: r.macros,
+					dbt: r.dbt,
+					onDbtHover: (on: boolean) => (dbtHoverId = on ? rid : undefined),
 					unsaved: r.unsaved ?? false,
 					// Same dispatch the asset node uses, only routed when the
 					// runnable is a script (the page handler short-circuits
@@ -522,10 +582,28 @@
 		// (`// mute` / `// mute all` opted the default auto trigger out). Gated
 		// on pipeline scripts inside the helper (non-pipeline reads never derive).
 		const mutedReadKeys = computeMutedReadKeys(g.edges, g.triggers, g.runnables)
+		// A dbt script owns every relation of its project. Drawing that as one
+		// edge per model buries the lineage that matters (`ref()` between models,
+		// and native consumers) under a fan-out that grows with the project — so
+		// the association is carried by the node badge and its hover/click
+		// highlight instead. Only the DRAWING is dropped: the producer rows still
+		// drive cascade dispatch and "who produced this".
 		for (const e of g.edges) {
 			const runnableId = `${e.runnable_kind}:${e.runnable_path}`
 			const assetId = `asset:${e.asset_kind}:${e.asset_path}`
 			const access = e.access_type ?? 'r'
+			// A dbt project's own relations are related by badge, not by edges: its
+			// writes are the fan-out, and its declared sources already reach its
+			// models through the `ref()` edges, so both would be noise.
+			//
+			// A read of a relation ANOTHER script builds is different — that is how
+			// two selections of one project compose (decision 6), it carries the
+			// cascade, and no `ref()` edge survives the split to stand in for it.
+			// Kept, or the two halves render as disconnected islands.
+			if (dbtRunnableIds.has(runnableId)) {
+				const isOwnSource = dbtAssetProvenance.get(assetId)?.resource_type === 'source'
+				if (access === 'w' || access === 'rw' || isOwnSource) continue
+			}
 			if (access === 'w' || access === 'rw') {
 				// Data tests assert on the `// materialize` target, which is always
 				// a ducklake asset (v1 enforces this), so only the ducklake
@@ -619,6 +697,17 @@
 				target: testedId,
 				kind: 'test-dependency'
 			})
+		}
+
+		// dbt `ref()` lineage: model → model inside one project. The dbt script
+		// writes every one of them, so without these the canvas shows a flat
+		// fan-out from the script and loses the project's actual shape.
+		const assetNodeIds = new Set(g.assets.map((a) => `asset:${a.kind}:${a.path}`))
+		for (const de of g.dbt_edges ?? []) {
+			const from = `asset:dbt:${de.from_asset_path}`
+			const to = `asset:dbt:${de.to_asset_path}`
+			if (!assetNodeIds.has(from) || !assetNodeIds.has(to)) continue
+			edges.push({ id: `dbtref:${from}->${to}`, source: from, target: to, kind: 'dbt-ref' })
 		}
 
 		// Non-asset triggers (schedule + native) are rendered as source nodes
@@ -787,10 +876,23 @@
 			}
 		}
 
-		return { nodes, edges }
+		return { nodes, edges, dbtOwnerByAsset, dbtWritesByOwner }
 	}
 
 	let model = $derived(build(graph))
+
+	// dbt association, surfaced by emphasis instead of edges. Hovering a model's
+	// dbt badge lights up the project node that materializes it; hovering the
+	// project node lights up every model it owns. Clicking the badge selects the
+	// project node, so the association survives the pointer leaving.
+	let dbtHoverId = $state<string | undefined>(undefined)
+	let dbtEmphasisIds = $derived.by(() => {
+		if (!dbtHoverId) return new Set<string>()
+		const owned = model.dbtWritesByOwner.get(dbtHoverId)
+		if (owned) return new Set<string>([dbtHoverId, ...owned])
+		const owner = model.dbtOwnerByAsset.get(dbtHoverId)
+		return owner ? new Set<string>([dbtHoverId, owner]) : new Set<string>()
+	})
 
 	let selectedId = $derived.by(() => {
 		if (!selection) return undefined
@@ -895,12 +997,13 @@
 				else if (boundPick.bounded.has(n.id)) boundClass = 'wm-bound-in'
 				else if (!boundPick.eligible.has(n.id)) boundClass = 'wm-bound-dim'
 			}
+			const dbtClass = dbtEmphasisIds.has(n.id) ? 'wm-dbt-linked' : undefined
 			return {
 				id: n.id,
 				type: n.type,
 				position: { x: p.x + xCenter + xShift, y: p.y + 40 },
 				data: n.data,
-				class: boundClass ?? runClass ?? assetClass,
+				class: boundClass ?? dbtClass ?? runClass ?? assetClass,
 				selected: n.id === selectedId,
 				// All nodes non-draggable: the layout is sugiyama-computed,
 				// dragging would fight the reactive re-layout. Selection is
@@ -1063,6 +1166,21 @@
 						markerColor = 'rgb(217 119 6)'
 						label = 'test needs'
 						labelStyle = 'fill: rgb(217 119 6); font-size: 10px; font-weight: 600;'
+						break
+					case 'dbt-ref':
+						// model → model inside one dbt project. Orange, matching the
+						// dbt badges, and dashed because the edge is dbt's own lineage
+						// rather than a Windmill read/write the cascade acts on.
+						style = 'stroke: rgb(234 88 12); stroke-width: 1.25px;'
+						strokeDasharray = '4 3'
+						markerColor = 'rgb(234 88 12)'
+						label = 'ref'
+						labelStyle = 'fill: rgb(234 88 12); font-size: 10px; font-weight: 600;'
+						// Same rule the pipeline uses for a running script: the edges
+						// touching what is happening animate. Here the unit of work is
+						// the model, so the edges feeding the one dbt is building move,
+						// and the flow reads in DAG order as it advances.
+						animated = assetRunStatus?.get(e.target)?.status === 'running'
 						break
 					default:
 						style = ''
@@ -1254,6 +1372,11 @@
 	/* Activity-panel emphasis — soft, monochromatic, less prominent than the
 	   blue details selection above. Hover is a thin neutral ring (transient);
 	   pinning an expanded run is a soft-blue ring. */
+	/* A dbt project node and the models it materializes, related by badge
+	   rather than by edges — hovering either lights up the whole set. */
+	:global(.svelte-flow__node.wm-dbt-linked .drop-shadow-sm) {
+		@apply outline outline-2 outline-orange-400/80;
+	}
 	:global(.svelte-flow__node.wm-run-hover .drop-shadow-sm) {
 		@apply outline outline-1 outline-gray-400 dark:outline-gray-500;
 	}

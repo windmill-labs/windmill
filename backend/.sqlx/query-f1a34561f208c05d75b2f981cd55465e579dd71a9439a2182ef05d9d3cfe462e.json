@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            workspace_id,\n            slack_team_id,\n            teams_team_id,\n            teams_team_name,\n            teams_team_guid,\n            slack_name,\n            slack_command_script,\n            teams_command_script,\n            slack_email,\n            slack_oauth_client_id,\n            slack_oauth_client_secret,\n            customer_id,\n            plan,\n            webhook,\n            ai_config,\n            large_file_storage,\n            datatable,\n            ducklake,\n            git_sync,\n            deploy_ui,\n            default_app,\n            default_scripts,\n            mute_critical_alerts,\n            color,\n            operator_settings,\n            git_app_installations,\n            auto_invite,\n            error_handler,\n            success_handler,\n            public_app_execution_limit_per_minute,\n            error_handler_fallback_to_instance_alerts\n        FROM\n            workspace_settings\n        WHERE\n            workspace_id = $1\n        ",
+  "query": "\n        SELECT\n            workspace_id,\n            slack_team_id,\n            teams_team_id,\n            teams_team_name,\n            teams_team_guid,\n            slack_name,\n            slack_command_script,\n            teams_command_script,\n            slack_email,\n            slack_oauth_client_id,\n            slack_oauth_client_secret,\n            customer_id,\n            plan,\n            webhook,\n            ai_config,\n            dbt_warehouses,\n            large_file_storage,\n            datatable,\n            ducklake,\n            git_sync,\n            deploy_ui,\n            default_app,\n            default_scripts,\n            mute_critical_alerts,\n            color,\n            operator_settings,\n            git_app_installations,\n            auto_invite,\n            error_handler,\n            success_handler,\n            public_app_execution_limit_per_minute,\n            error_handler_fallback_to_instance_alerts\n        FROM\n            workspace_settings\n        WHERE\n            workspace_id = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -80,81 +80,86 @@
       },
       {
         "ordinal": 15,
-        "name": "large_file_storage",
+        "name": "dbt_warehouses",
         "type_info": "Jsonb"
       },
       {
         "ordinal": 16,
-        "name": "datatable",
+        "name": "large_file_storage",
         "type_info": "Jsonb"
       },
       {
         "ordinal": 17,
-        "name": "ducklake",
+        "name": "datatable",
         "type_info": "Jsonb"
       },
       {
         "ordinal": 18,
-        "name": "git_sync",
+        "name": "ducklake",
         "type_info": "Jsonb"
       },
       {
         "ordinal": 19,
-        "name": "deploy_ui",
+        "name": "git_sync",
         "type_info": "Jsonb"
       },
       {
         "ordinal": 20,
+        "name": "deploy_ui",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 21,
         "name": "default_app",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 21,
+        "ordinal": 22,
         "name": "default_scripts",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 22,
+        "ordinal": 23,
         "name": "mute_critical_alerts",
         "type_info": "Bool"
       },
       {
-        "ordinal": 23,
+        "ordinal": 24,
         "name": "color",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 24,
+        "ordinal": 25,
         "name": "operator_settings",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 25,
+        "ordinal": 26,
         "name": "git_app_installations",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 26,
+        "ordinal": 27,
         "name": "auto_invite",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 27,
+        "ordinal": 28,
         "name": "error_handler",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 28,
+        "ordinal": 29,
         "name": "success_handler",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 29,
+        "ordinal": 30,
         "name": "public_app_execution_limit_per_minute",
         "type_info": "Int4"
       },
       {
-        "ordinal": 30,
+        "ordinal": 31,
         "name": "error_handler_fallback_to_instance_alerts",
         "type_info": "Bool"
       }
@@ -190,6 +195,7 @@
       true,
       true,
       true,
+      true,
       false,
       true,
       true,
@@ -198,5 +204,5 @@
       false
     ]
   },
-  "hash": "88a6a86285fcfaa778e9716d5072f555dff175feb704c3d825d6100defe91bce"
+  "hash": "f1a34561f208c05d75b2f981cd55465e579dd71a9439a2182ef05d9d3cfe462e"
 }

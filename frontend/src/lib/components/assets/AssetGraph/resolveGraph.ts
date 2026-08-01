@@ -75,8 +75,24 @@ function persistedNativeKinds(base: AssetGraphResponse, path: string): Set<strin
 
 // Read-asset kinds that auto-derive a cascade trigger edge inside a
 // `// pipeline`. Mirror of the backend `is_auto_trigger_kind`
-// (windmill-common assets.rs) — ducklake tables and s3 objects only.
+// (windmill-common assets.rs): ducklake tables and s3 objects.
+//
+// `table` is excluded there and must stay excluded here: dbt is the only
+// producer of a warehouse relation and a dbt run does not dispatch, so an edge
+// derived from one draws a cascade arrow the deploy will never fire.
 const AUTO_TRIGGER_KINDS: ReadonlySet<AssetKind> = new Set(['ducklake', 's3object'])
+
+/** Whether a subscription on this kind can ever fire once deployed.
+ *
+ * A `dbt://` one cannot: dbt is the only producer of a warehouse relation and
+ * a dbt run does not dispatch, so the deploy refuses `// on dbt://…` outright
+ * (`scripts.rs`). The editor must not draw an arrow the deploy will reject —
+ * applied to the EXPLICIT overlays; auto-derivation is already scoped by
+ * `AUTO_TRIGGER_KINDS`. Parsing is left alone so the Rust-parity test still
+ * compares like for like. */
+function canTrigger(kind: AssetKind): boolean {
+	return kind !== 'dbt'
+}
 
 /** `kind:path` refs of a script's `// materialize` write target(s) (base +
  *  the scd2 `<dim>_current` companion), which the body `SELECT` doesn't express. */
@@ -365,7 +381,7 @@ function makeContext(input: ResolveGraphInput): ResolveContext {
 	const liveRefKeys = new Set<string>()
 	if (openIsSavedEdit) {
 		if (liveAnnotations.scriptPath === openPath) {
-			for (const a of liveAnnotations.annotations.triggerAssets)
+			for (const a of liveAnnotations.annotations.triggerAssets.filter((a) => canTrigger(a.kind)))
 				liveRefKeys.add(`${a.kind}:${a.path}`)
 			// The `// materialize <asset>` target is a declared *output*, but it
 			// lives in an annotation (not the SQL body), so neither triggerAssets
@@ -609,7 +625,7 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 		// stable when the user clicks off this draft. Live annotations
 		// (below) take over for the currently-open draft so keystroke
 		// edits still update in real time.
-		for (const a of parsed.triggerAssets) {
+		for (const a of parsed.triggerAssets.filter((a) => canTrigger(a.kind))) {
 			extraTriggers.push({
 				trigger_kind: 'asset',
 				asset_kind: a.kind,
@@ -688,7 +704,7 @@ function applyLiveBufferOverlay(acc: Accumulator, input: ResolveGraphInput, ctx:
 	for (let i = extraTriggers.length - 1; i >= 0; i--) {
 		if (extraTriggers[i].runnable_path === livePath) extraTriggers.splice(i, 1)
 	}
-	for (const a of liveAnnotations.annotations.triggerAssets) {
+	for (const a of liveAnnotations.annotations.triggerAssets.filter((a) => canTrigger(a.kind))) {
 		const key = `${a.kind}:${a.path}`
 		if (assetKeys.has(key)) continue
 		extraTriggers.push({
@@ -838,4 +854,61 @@ function overlayInferredLineage(acc: Accumulator, input: ResolveGraphInput) {
 	}
 	overlayLineage(inferredWritesByPath, 'w')
 	overlayLineage(inferredReadsByPath, 'r')
+}
+
+
+/** dbt project ↔ relation association, for a graph that does NOT draw it.
+ *
+ * A dbt script owns every relation of its project, so drawing one edge per
+ * model buries the lineage that matters — `ref()` between models, and native
+ * consumers — under a fan-out that grows with the project. The canvas suppresses
+ * those edges and conveys the association through the model's badge instead:
+ * `ownerByAsset` powers badge → project, `writesByOwner` powers project →
+ * the transforms it materializes (its sources are inputs, not transforms).
+ *
+ * Only the DRAWING is dropped. The producer rows these are derived from still
+ * answer "who produced this".
+ */
+export function dbtAssociations(
+	runnables: Array<{ usage_kind: string; path: string; dbt?: unknown }>,
+	edges: Array<{
+		runnable_kind: string
+		runnable_path: string
+		asset_kind: string
+		asset_path: string
+		access_type?: string | null
+	}>
+): { ownerByAsset: Map<string, string>; writesByOwner: Map<string, Set<string>> } {
+	const dbtRunnableIds = new Set(
+		runnables.filter((r) => r.dbt).map((r) => `${r.usage_kind}:${r.path}`)
+	)
+	const ownerByAsset = new Map<string, string>()
+	const writesByOwner = new Map<string, Set<string>>()
+	// Candidates per relation, kept apart so the choice does not depend on the
+	// order the edges arrive in. Two things decide it: a project that WRITES a
+	// relation outranks one that merely declares it as a SOURCE, and among
+	// several writers — which the backend permits, two selections of one project
+	// materializing the same model — the smallest id wins. Anything less makes
+	// the badge lead somewhere else between two loads of the same graph.
+	const writersByAsset = new Map<string, string[]>()
+	const readersByAsset = new Map<string, string[]>()
+	for (const e of edges) {
+		const runnableId = `${e.runnable_kind}:${e.runnable_path}`
+		if (!dbtRunnableIds.has(runnableId)) continue
+		const assetId = `asset:${e.asset_kind}:${e.asset_path}`
+		const writes = e.access_type === 'w' || e.access_type === 'rw'
+		const into = writes ? writersByAsset : readersByAsset
+		let candidates = into.get(assetId)
+		if (!candidates) into.set(assetId, (candidates = []))
+		candidates.push(runnableId)
+		if (writes) {
+			let set = writesByOwner.get(runnableId)
+			if (!set) writesByOwner.set(runnableId, (set = new Set()))
+			set.add(assetId)
+		}
+	}
+	for (const [assetId, candidates] of [...readersByAsset, ...writersByAsset]) {
+		ownerByAsset.set(assetId, [...candidates].sort()[0])
+	}
+	return { ownerByAsset, writesByOwner }
 }

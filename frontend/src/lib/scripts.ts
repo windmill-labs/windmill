@@ -3,7 +3,7 @@ import { base } from '$lib/base'
 import type { Schema, SupportedLanguage } from './common'
 import { FlowService, type Script, ScriptService, ScheduleService } from './gen'
 import { hubBaseUrlStore, workspaceStore } from './stores'
-import { getHubFlowIdFromPath } from './utils'
+import { getHubFlowIdFromPath, getLocalSetting } from './utils'
 
 export function scriptLangToEditorLang(
 	lang:
@@ -63,6 +63,10 @@ export function scriptLangToEditorLang(
 		return 'java'
 	} else if (lang == 'rlang') {
 		return 'r'
+	} else if (lang == 'dbt') {
+		// the script content is the YAML descriptor; the project's own files ride
+		// with it as its module bundle
+		return 'yaml'
 		// for related places search: ADD_NEW_LANG
 	} else if (lang == undefined) {
 		return 'typescript'
@@ -170,17 +174,63 @@ const scriptLanguagesArray: [SupportedLanguage | 'docker' | 'bunnative', string]
 	['java', 'Java'],
 	['duckdb', 'DuckDB'],
 	['ruby', 'Ruby'],
-	['rlang', 'R']
+	['rlang', 'R'],
+	['dbt', 'dbt']
 	// for related places search: ADD_NEW_LANG
 ]
+/**
+ * Languages a MODULE-LESS script cannot be written in.
+ *
+ * A dbt script IS its module bundle — `dbt_project.yml` and the models — and a
+ * flow step's or an app's inline script is a raw body with nowhere to carry
+ * one, so choosing it there produces a job that fails when the worker looks for
+ * the project. A flow reaches dbt the same way it reaches any other script: by
+ * path, to a deployed one.
+ */
+const LANGS_NEEDING_MODULES = ['dbt']
+
+/** `processLangs` for a surface whose scripts have no module bundle. */
+export function processInlineLangs(selected: string | undefined, langs: string[]): string[] {
+	return processLangs(selected, langs).filter((l) => !LANGS_NEEDING_MODULES.includes(l))
+}
+
+/**
+ * dbt is not offered as a language for a NEW script: a project bundle is a poor
+ * fit for the generic script editor, and it is moving to one of its own.
+ * Existing dbt scripts still open, run and deploy — `selected` keeps the entry
+ * so one of them still shows its own language in the picker.
+ *
+ * `localStorage.setItem('dbt_language', 'true')` offers it again.
+ */
+const DBT_LANGUAGE_SETTING = 'dbt_language'
+
+export function dbtLanguageOffered(selected?: string): boolean {
+	return selected === 'dbt' || getLocalSetting(DBT_LANGUAGE_SETTING) === 'true'
+}
+
 export function processLangs(selected: string | undefined, langs: string[]): string[] {
+	return processAllLangs(selected, langs).filter((l) => l !== 'dbt' || dbtLanguageOffered(selected))
+}
+
+function processAllLangs(selected: string | undefined, langs: string[]): string[] {
 	if (selected === 'nativets') {
 		return langs
 	} else {
 		let ls = langs.filter((lang) => lang !== 'nativets')
 
 		//those languages are newer and may not be in the saved list
-		let nl = ['bunnative', 'rust', 'ansible', 'csharp', 'nu', 'java', 'duckdb', 'ruby', 'rlang']
+		let nl = [
+			'bunnative',
+			'rust',
+			'ansible',
+			'csharp',
+			'nu',
+			'java',
+			'duckdb',
+			'ruby',
+			'rlang',
+			'dbt'
+		]
 		// for related places search: ADD_NEW_LANG
 		nl.forEach((lang) => {
 			if (!ls.includes(lang)) {

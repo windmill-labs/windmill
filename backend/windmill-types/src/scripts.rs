@@ -66,6 +66,7 @@ pub enum ScriptLang {
     Java,
     Ruby,
     Rlang,
+    Dbt,
     // for related places search: ADD_NEW_LANG
 }
 
@@ -96,6 +97,7 @@ impl ScriptLang {
             ScriptLang::Java => "java",
             ScriptLang::Ruby => "ruby",
             ScriptLang::Rlang => "rlang",
+            ScriptLang::Dbt => "dbt",
             // for related places search: ADD_NEW_LANG
         }
     }
@@ -134,7 +136,7 @@ impl ScriptLang {
         use ScriptLang::*;
         match self {
             Nativets | Bun | Bunnative | Deno | Go | Php | CSharp | Java => "//",
-            Python3 | Bash | Powershell | Graphql | Ansible | Nu | Ruby | Rlang => "#",
+            Python3 | Bash | Powershell | Graphql | Ansible | Nu | Ruby | Rlang | Dbt => "#",
             Postgresql | Mysql | Bigquery | Snowflake | Mssql | OracleDB | DuckDb => "--",
             Rust => "//!",
             // for related places search: ADD_NEW_LANG
@@ -170,6 +172,7 @@ impl FromStr for ScriptLang {
             "java" => ScriptLang::Java,
             "ruby" => ScriptLang::Ruby,
             "rlang" => ScriptLang::Rlang,
+            "dbt" => ScriptLang::Dbt,
             // for related places search: ADD_NEW_LANG
             language => return Err(anyhow::anyhow!("{} is currently not supported", language)),
         };
