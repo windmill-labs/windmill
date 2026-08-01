@@ -251,12 +251,16 @@
 	// no content. Fall back to whatever IS offered.
 	$effect(() => {
 		if (isDbt && selectedTab === 'ui') {
+			// The same chain the initialiser walks, minus `ui`: falling straight to
+			// `triggers` would offer a panel a custom UI disabled.
 			selectedTab =
 				customUi?.settingsPanel?.disableMetadata !== true
 					? 'metadata'
 					: customUi?.settingsPanel?.disableRuntime !== true
 						? 'runtime'
-						: 'triggers'
+						: customUi?.settingsPanel?.disableTriggers !== true
+							? 'triggers'
+							: 'metadata'
 		}
 	})
 	// The version whose stored graph the dbt editor draws until a refresh replaces
