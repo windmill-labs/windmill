@@ -25447,7 +25447,7 @@ components:
           type: string
         on_behalf_of_permissioned_as:
           type: string
-          description: "Authorization identity the runnable runs as (u/{username} or g/{group}). Always names the same user or group as on_behalf_of_email; when unset the identity falls back to the last deployer."
+          description: "Authorization identity the runnable runs as (u/{username} or g/{group}). Always names the same user or group as on_behalf_of_email. Absent on runnables deployed before it was recorded, which run as their last deployer instead."
         modules:
           type: object
           nullable: true
@@ -25571,7 +25571,7 @@ components:
           type: string
         on_behalf_of_permissioned_as:
           type: string
-          description: "Authorization identity the runnable runs as (u/{username} or g/{group}). Always names the same user or group as on_behalf_of_email; when unset the identity falls back to the last deployer."
+          description: "Authorization identity to run as (u/{username} or g/{group}). Must name the same user or group as on_behalf_of_email; a pair that disagrees is rejected. Omit it and it is derived from on_behalf_of_email."
         preserve_on_behalf_of:
           type: boolean
           description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email / on_behalf_of_permissioned_as pair instead of overwriting it with the caller's own identity."
@@ -30735,7 +30735,7 @@ components:
           type: string
         on_behalf_of_permissioned_as:
           type: string
-          description: "Authorization identity the runnable runs as (u/{username} or g/{group}). Always names the same user or group as on_behalf_of_email; when unset the identity falls back to the last deployer."
+          description: "Authorization identity the runnable runs as (u/{username} or g/{group}). Always names the same user or group as on_behalf_of_email. Absent on runnables deployed before it was recorded, which run as their last deployer instead."
         labels:
           type: array
           items:
@@ -30779,7 +30779,7 @@ components:
               type: string
             on_behalf_of_permissioned_as:
               type: string
-              description: "Authorization identity the runnable runs as (u/{username} or g/{group}). Always names the same user or group as on_behalf_of_email; when unset the identity falls back to the last deployer."
+              description: "Authorization identity to run as (u/{username} or g/{group}). Must name the same user or group as on_behalf_of_email; a pair that disagrees is rejected. Omit it and it is derived from on_behalf_of_email."
             preserve_on_behalf_of:
               type: boolean
               description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email / on_behalf_of_permissioned_as pair instead of overwriting it with the caller's own identity."
@@ -30815,7 +30815,7 @@ components:
               type: string
             on_behalf_of_permissioned_as:
               type: string
-              description: "Authorization identity the runnable runs as (u/{username} or g/{group}). Always names the same user or group as on_behalf_of_email; when unset the identity falls back to the last deployer."
+              description: "Authorization identity to run as (u/{username} or g/{group}). Must name the same user or group as on_behalf_of_email; a pair that disagrees is rejected. Omit it and it is derived from on_behalf_of_email."
             preserve_on_behalf_of:
               type: boolean
               description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email / on_behalf_of_permissioned_as pair instead of overwriting it with the caller's own identity."

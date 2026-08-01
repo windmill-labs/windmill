@@ -129,9 +129,9 @@ pub struct NewFlow {
     pub deployment_message: Option<String>,
     pub visible_to_runner_only: Option<bool>,
     pub on_behalf_of_email: Option<String>,
-    /// Authorization identity to run as, paired with `on_behalf_of_email`. Both
-    /// move together under the same `preserve_on_behalf_of` gate and must always
-    /// name the same user or group; `None` leaves the run-time fallback in place.
+    /// Authorization identity to run as, paired with `on_behalf_of_email`. Both move
+    /// together under the same `preserve_on_behalf_of` gate and must name the same user
+    /// or group; `None` has it derived from that email rather than left unset.
     pub on_behalf_of_permissioned_as: Option<String>,
     pub preserve_on_behalf_of: Option<bool>,
     pub ws_error_handler_muted: Option<bool>,
