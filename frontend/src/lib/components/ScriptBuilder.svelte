@@ -43,6 +43,7 @@
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 	import { notifyContractWarnings } from './assets/AssetGraph/schemaContracts'
 	import ScriptEditor from './ScriptEditor.svelte'
+	import { findModulePathClash } from './scriptModulePath'
 	import { Alert, Button, Drawer, SecondsInput, Tab, TabContent, Tabs } from './common'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 	import type { SupportedLanguage, Schema } from '$lib/common'
@@ -984,7 +985,10 @@
 		// draft that grew modules under another language carries none of what dbt
 		// needs, and the worker refuses a bundle with no `dbt_project.yml` — so
 		// that draft reached dbt in a state it could neither deploy nor run.
-		if (script.modules?.['dbt_project.yml']) return
+		// Matched on the canonical path: a bundle pushed with `./dbt_project.yml`
+		// already has the project file, and seeding a second spelling of it is the
+		// two-keys-one-file collision the editor's add-file checks refuse.
+		if (findModulePathClash(script.modules, 'dbt_project.yml')) return
 		script.modules = {
 			'dbt_project.yml': {
 				content:
