@@ -410,7 +410,19 @@
 	function useDbtRetry() {
 		const from = dbtRetryFrom
 		if (!from) return
-		args = { ...(args ?? {}), command: { label: 'retry', dbt_retry_job: from } }
+		// Merged, never replaced: a tag, concurrency key or debounce key may
+		// interpolate `command.vars`, and the QUEUE reads those at enqueue — long
+		// before the worker restores the failed run's own arguments. Dropping them
+		// here routes the retry by a different key than the run it resumes. Same
+		// as the run page's retry.
+		args = {
+			...(args ?? {}),
+			command: {
+				...((args?.['command'] as Record<string, any> | undefined) ?? {}),
+				label: 'retry',
+				dbt_retry_job: from
+			}
+		}
 		if (jsonView) {
 			runForm?.setCode(JSON.stringify(args, null, '\t'))
 		}

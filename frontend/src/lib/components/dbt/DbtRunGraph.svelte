@@ -599,7 +599,11 @@
 				{#if selectedDbt.materialized}
 					<span class="shrink-0 opacity-70">{selectedDbt.materialized}</span>
 				{/if}
-				{#if selectedDbt.resource_type !== 'source'}
+				<!-- `dbt show` is a SELECT against the node's own relation, and the
+				     worker intersects the selector with `resource_type:model`, so
+				     offering it on a seed or a snapshot only ever produces a failed
+				     job. Their SQL still shows: a snapshot has a body worth reading. -->
+				{#if selectedDbt.resource_type === 'model'}
 					{#if showRows && preview && !('error' in preview)}
 						<Button
 							unifiedSize="2xs"
