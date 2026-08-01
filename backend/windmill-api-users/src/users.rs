@@ -1957,14 +1957,6 @@ async fn change_user_email(
     .execute(&mut *tx)
     .await?;
 
-    sqlx::query!(
-        "UPDATE azure_trigger SET email = $1 WHERE email = $2",
-        &new_email,
-        &old_email
-    )
-    .execute(&mut *tx)
-    .await?;
-
     // Apps store an address next to their principal, and the synthetic
     // `group-{name}@windmill.dev` may be a real user's, so a group-owned app has to keep its
     // address when a colliding user moves: an app running in Anonymous or Publisher mode takes
@@ -2875,6 +2867,20 @@ async fn impersonate(
     if new_token.impersonate_email.is_none() {
         return Err(Error::BadRequest(
             "impersonate_username is required".to_string(),
+        ));
+    }
+    // This route writes its own row rather than going through the `create_token`
+    // handler, so it repeats that handler's guard: impersonation names its
+    // subject in `impersonate_email`, and a server-minted label — which
+    // `username_override_from_label` trusts to name the entity acting — would
+    // attribute this token's jobs to a third identity.
+    if new_token
+        .label
+        .as_deref()
+        .is_some_and(windmill_common::auth::is_server_minted_label)
+    {
+        return Err(Error::BadRequest(
+            "label collides with a reserved system-token namespace".to_string(),
         ));
     }
 

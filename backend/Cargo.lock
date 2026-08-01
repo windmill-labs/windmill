@@ -14789,7 +14789,9 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
+ "tokio",
  "tracing",
+ "uuid",
  "windmill-api-auth",
  "windmill-common",
  "windmill-parser-sql-asset",
@@ -15854,8 +15856,11 @@ name = "windmill-parser-yaml"
 version = "1.775.2"
 dependencies = [
  "anyhow",
+ "lazy_static",
+ "regex",
  "serde",
  "serde_json",
+ "serde_yml",
  "windmill-parser",
  "yaml-rust",
 ]
@@ -16434,6 +16439,7 @@ dependencies = [
  "rustls-pemfile 2.2.0",
  "serde",
  "serde_json",
+ "serde_yml",
  "sha2 0.10.9",
  "sqlx",
  "tar",

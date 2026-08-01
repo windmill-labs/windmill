@@ -808,7 +808,20 @@ async fn is_noop_deploy_against_parent(
     if content != &parent.content {
         return Ok(false);
     }
-    if normalize_optional_text(lock.as_deref()) != normalize_optional_text(parent.lock.as_deref()) {
+    // A dbt lock is DERIVED, never supplied: the request carries none — the CLI
+    // sends `lock: undefined` and this route discards any anyway — while a
+    // deployed parent carries what its dependency job wrote. Comparing them makes
+    // every unchanged push a new version, a fresh dependency job and the sync
+    // activity `skip_if_noop` exists to prevent. The parent must actually hold
+    // one, or a deploy whose dependency job failed could never be retried by
+    // pushing the same project again.
+    if matches!(language, ScriptLang::Dbt) {
+        if normalize_optional_text(parent.lock.as_deref()).is_empty() {
+            return Ok(false);
+        }
+    } else if normalize_optional_text(lock.as_deref())
+        != normalize_optional_text(parent.lock.as_deref())
+    {
         return Ok(false);
     }
     if summary != &parent.summary {
@@ -857,7 +870,22 @@ async fn is_noop_deploy_against_parent(
     if resolved_on_behalf_of != parent.on_behalf_of.as_deref() {
         return Ok(false);
     }
-    if !schema_opt_eq(schema.as_ref(), parent.schema.as_ref()) {
+    // Both of a dbt script's derived fields are compared as they WOULD BE STORED,
+    // not as they arrived: the schema comes from the descriptor and the clients
+    // cannot derive it (`windmill-parser-wasm` has no dbt arm), so they send the
+    // previous version's or none at all. Comparing what they sent makes every
+    // unchanged push differ.
+    let dbt_schema = matches!(language, ScriptLang::Dbt)
+        .then(|| windmill_parser_yaml::dbt_arg_schema(content).ok())
+        .flatten()
+        .and_then(|v| serde_json::value::to_raw_value(&v).ok())
+        .map(|v| Schema(sqlx::types::Json(v)));
+    let effective_schema = if matches!(language, ScriptLang::Dbt) {
+        dbt_schema.as_ref()
+    } else {
+        schema.as_ref()
+    };
+    if !schema_opt_eq(effective_schema, parent.schema.as_ref()) {
         return Ok(false);
     }
     if !json_serialize_eq(assets, &parent.assets) {
@@ -1214,6 +1242,25 @@ async fn create_script_internal<'c>(
         .as_ref()
         .map(|v| v.perms.clone())
         .unwrap_or(json!({}));
+    // A dbt lock names a manifest digest and engine versions that only a
+    // dependency job can determine, and that job is also what publishes the
+    // script's manifest graph. Honouring a supplied one would skip it, leaving
+    // the script with no graph — including on the UI paths that round-trip an
+    // existing lock, like rename and unarchive.
+    if matches!(ns.language, ScriptLang::Dbt) {
+        ns.lock = None;
+        // A codebase is a bundle of JS/TS sources; a dbt script's project is
+        // its modules. Accepting one takes the branch below that stands in for
+        // lock generation, which would suppress the very job that parses the
+        // project and publishes the graph.
+        if ns.codebase.is_some() {
+            return Err(Error::BadRequest(
+                "a dbt script has no codebase: its project is its modules, the \
+                 `<script>__dbt/` folder the CLI syncs"
+                    .to_string(),
+            ));
+        }
+    }
     let lock = if ns.codebase.is_some() {
         Some(String::new())
     } else if !(
@@ -1231,6 +1278,7 @@ async fn create_script_internal<'c>(
             || ns.language == ScriptLang::Ruby
             || ns.language == ScriptLang::Rlang
             || ns.language == ScriptLang::Powershell
+            || ns.language == ScriptLang::Dbt
         // for related places search: ADD_NEW_LANG
     ) {
         Some(String::new())
@@ -1266,6 +1314,23 @@ async fn create_script_internal<'c>(
     } else {
         ns.language.clone()
     };
+
+    // The dbt run form's arguments come from the descriptor, and only the
+    // server can read them: both the browser and the CLI infer schemas through
+    // `windmill-parser-wasm`, whose published package has no dbt arm, so they
+    // send whatever the previous version had (nothing, for a new script).
+    if matches!(lang, ScriptLang::Dbt) {
+        match windmill_parser_yaml::dbt_arg_schema(&ns.content) {
+            Ok(schema) => {
+                ns.schema = serde_json::value::to_raw_value(&schema)
+                    .ok()
+                    .map(|v| Schema(sqlx::types::Json(v)));
+            }
+            // A descriptor that does not parse fails later with a better
+            // message than a schema error would give.
+            Err(e) => tracing::warn!("could not derive the dbt schema for {}: {e:#}", ns.path),
+        }
+    }
 
     let validate_schema = should_validate_schema(&ns.content, &ns.language);
 
@@ -1505,7 +1570,11 @@ async fn create_script_internal<'c>(
         } else {
             None
         };
-    let in_pipeline = pipeline_annotations.in_pipeline;
+    // dbt is deliberately not a pipeline member: that membership carries an
+    // editor whose premise is that the transforms are authored in it, and a dbt
+    // project is authored in a local `dbt run` loop. Its models reach the shared
+    // graph as `dbt://` assets either way (docs/dbt-runtime.md).
+    let in_pipeline = pipeline_annotations.in_pipeline && ns.language != ScriptLang::Dbt;
     // `// trigger all` → AND join barrier (else OR, the default).
     let pipeline_join_all = !pipeline_annotations.join_mode.is_any();
     // Script-level `// debounce <dur>` default; a per-`// on debounce=`
@@ -2099,16 +2168,52 @@ async fn create_script_internal<'c>(
     // stale `// on` edges keep matching producers (and would trigger a script
     // later recreated at that path with no annotation, P1) and its producer
     // rows keep it lingering in the asset graph.
+    // The dbt GRAPH is deliberately not cleared when a path stops being a dbt
+    // script, nor on the rename below. It is keyed by version, and every graph
+    // query joins it on `(path, hash)` through a `language = 'dbt'` CTE — so an
+    // old version's rows can never attach to whatever lives at that path now,
+    // while its own finished runs still render from them. Clearing by path
+    // would empty those run pages for good.
+    if ns.language != ScriptLang::Dbt {
+        // The saved retry state does go: nothing regenerates it, it is keyed by
+        // path alone, and it carries one user's failed invocation and its
+        // arguments. No dbt version is live at this path any more to resume it.
+        windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, &ns.path).await?;
+    }
     if let Some(ref old) = p_path_opt {
         if old != &ns.path {
             clear_script_triggers(&mut *tx, &w_id, old, AssetUsageKind::Script).await?;
             clear_static_asset_usage(&mut *tx, &w_id, old, AssetUsageKind::Script).await?;
+            // The saved retry state travels rather than being cleared: nothing
+            // regenerates it, so dropping it would throw away a resumable
+            // failure for what is only a rename. Only while the destination is
+            // still dbt — a rename that also converts the language would
+            // otherwise reinstate at the new path the state the branch above
+            // just cleared, leaving one user's arguments and results under a
+            // path no dbt script occupies.
+            if ns.language == ScriptLang::Dbt {
+                windmill_common::dbt_manifest::move_dbt_run_state(&mut tx, &w_id, old, &ns.path)
+                    .await?;
+            } else {
+                windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, old).await?;
+            }
         }
     }
     for spec in &pipeline_triggers {
         let Some((trigger_kind, trigger_ref)) = trigger_spec_to_row(spec) else {
             continue;
         };
+        // A `dbt://` subscription can never fire: dbt is the only producer of a
+        // warehouse relation (`// materialize` takes DuckLake targets only) and a
+        // dbt run does not dispatch. Refusing beats persisting a row that draws a
+        // cascade arrow on the canvas and then never wakes anything.
+        if trigger_ref.starts_with("dbt://") {
+            return Err(Error::BadRequest(format!(
+                "`{trigger_ref}` cannot be subscribed to: a dbt run does not trigger downstream \
+                 runs, and nothing else writes a warehouse relation. Declare the read without \
+                 `on` to keep the lineage edge, or schedule this script."
+            )));
+        }
         // Effective debounce for this edge: per-`// on debounce=` wins,
         // else the script-level `// debounce` default. Debounce only
         // applies to asset-cascade edges; other trigger kinds get none.
@@ -3209,6 +3314,12 @@ async fn archive_script_by_path(
     .map_err(|e| Error::internal_err(format!("archiving script in {w_id}: {e:#}")))?;
 
     clear_static_asset_usage(&mut *tx, &w_id, path, AssetUsageKind::Script).await?;
+    // The graph stays: the pinned read resolves versions through a CTE that
+    // already skips archived rows, so it stops answering for current relations
+    // either way, while deleting it would empty the Models panel of every
+    // completed run of the project. Retry state does go — nothing may resume a
+    // script that is no longer live.
+    windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, path).await?;
     // Pipeline event hygiene: an archived script must not be triggered by
     // anything. Wipe declared `// on ...` edges (asset-event subscribers
     // look these up).
@@ -3291,6 +3402,14 @@ async fn archive_script_by_hash(
 
     check_scopes(&authed, || format!("scripts:write:{}", &script.path))?;
     clear_static_asset_usage_by_script_hash(&mut *tx, &w_id, hash).await?;
+    // The version's graph stays: its finished runs still render from it, and
+    // the live-version CTE already skips archived rows. Deletion clears it.
+    windmill_common::dbt_manifest::clear_dbt_run_state_if_path_retired(
+        &mut tx,
+        &w_id,
+        &script.path,
+    )
+    .await?;
     // Pipeline event hygiene: archived scripts must not be triggered by
     // anything. Wipe declared `// on ...` edges.
     clear_script_triggers(&mut *tx, &w_id, &script.path, AssetUsageKind::Script).await?;
@@ -3354,7 +3473,19 @@ async fn delete_script_by_hash(
 
     check_scopes(&authed, || format!("scripts:write:{}", &script.path))?;
 
+    // Graph before assets, the order both publishers take them in — the reverse
+    // deadlocks against a job that clears its own graph and then rewrites the
+    // path's `asset` rows. A clear is needed at all because this route only
+    // soft-deletes the `script` row, so nothing cascades.
+    windmill_common::dbt_manifest::clear_dbt_manifest_version(&mut tx, &w_id, &script.path, hash.0)
+        .await?;
     clear_static_asset_usage_by_script_hash(&mut *tx, &w_id, hash).await?;
+    windmill_common::dbt_manifest::clear_dbt_run_state_if_path_retired(
+        &mut tx,
+        &w_id,
+        &script.path,
+    )
+    .await?;
     // Pipeline event hygiene: a deleted script must not be triggered by
     // anything. Wipe declared `// on ...` edges. Idempotent — safe even if
     // the script was never a pipeline member.
@@ -3447,6 +3578,12 @@ async fn delete_script_by_path(
     .fetch_one(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("deleting script by path {w_id}: {e:#}")))?;
+
+    // After the DELETE, never before: every dbt writer locks the `script` row
+    // first, so taking a sidecar ahead of it deadlocks one of the pair. The graph
+    // needs no clear at all, cascading off `script`; the retry state does, being
+    // keyed by path alone and so inherited by whatever is created here next.
+    windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, path).await?;
 
     if !trash_scripts.is_empty() {
         let mut trash_data = serde_json::json!({"scripts": trash_scripts});
@@ -3610,6 +3747,12 @@ async fn delete_scripts_bulk(
     .fetch_all(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("deleting scripts in bulk {w_id}: {e:#}")))?;
+
+    // Same reason as the single-path delete, over every requested path rather
+    // than the deleted ones: a path that had no script left can still hold state.
+    for p in &request.paths {
+        windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, p).await?;
+    }
 
     // remove duplicates from deleted_paths
     deleted_paths.sort();

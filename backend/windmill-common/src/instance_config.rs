@@ -1320,7 +1320,9 @@ pub async fn sync_global_settings_declarative(
                 serde_json::Value::Object(_) => "an object",
                 _ => "a non-string value",
             };
-            return Err(anyhow::anyhow!("{webhook_key} must be a URL string, got {kind}"));
+            return Err(anyhow::anyhow!(
+                "{webhook_key} must be a URL string, got {kind}"
+            ));
         }
     }
 

@@ -123,6 +123,7 @@ pub fn workspaced_service() -> Router {
             "/edit_large_file_storage_config",
             post(edit_large_file_storage_config),
         )
+        .route("/edit_dbt_warehouses", post(edit_dbt_warehouses))
         .route("/edit_ducklake_config", post(edit_ducklake_config))
         .route("/list_ducklakes", get(list_ducklakes))
         .route("/list_datatables", get(list_datatables))
@@ -277,6 +278,9 @@ pub struct WorkspaceSettings {
     pub webhook: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_config: Option<serde_json::Value>,
+    /// Pointers to the resources dbt scripts run against by default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dbt_warehouses: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub large_file_storage: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -909,6 +913,7 @@ async fn get_settings(
             plan,
             webhook,
             ai_config,
+            dbt_warehouses,
             large_file_storage,
             datatable,
             ducklake,
@@ -1738,6 +1743,95 @@ async fn edit_webhook(
     Ok(format!("Edit webhook for workspace {}", &w_id))
 }
 
+/// A warehouse's resource, checked at the one place a warehouse is written.
+///
+/// Same grammar as any Windmill resource path, with the `$res:` prefix optional
+/// because the storage configs are inconsistent about it. Traversal and control
+/// characters are refused here rather than at the far end: an unusable path
+/// stored now surfaces as every dbt run in the workspace failing later, with
+/// nothing pointing back at the settings page that accepted it.
+fn validate_dbt_resource_path(name: &str, path: &str) -> Result<()> {
+    let bare = path.strip_prefix("$res:").unwrap_or(path);
+    let parts: Vec<&str> = bare.split('/').collect();
+    let ok = (bare.starts_with("f/") || bare.starts_with("u/"))
+        && parts.len() >= 3
+        && parts
+            .iter()
+            .all(|p| !p.is_empty() && *p != "." && *p != "..")
+        // `resource.path` is VARCHAR(255), so a longer path names a resource that
+        // cannot exist.
+        && bare.chars().count() <= 255
+        && !bare.chars().any(|c| c.is_control() || "?#%\\ ".contains(c));
+    if !ok {
+        return Err(Error::BadRequest(format!(
+            "the dbt warehouse `{name}` names `{path}`, which is not a resource path \
+             (`f/<folder>/<name>` or `u/<user>/<name>`, optionally prefixed with `$res:`)"
+        )));
+    }
+    Ok(())
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+struct DbtWarehouseConfig {
+    resource_path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    target: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct EditDbtWarehouses {
+    /// Typed rather than free JSON: a shape the resolver cannot read (a list, a
+    /// number where a config belongs) would be accepted here and then fail every
+    /// dbt run in the workspace, far from the request that caused it.
+    dbt_warehouses: Option<std::collections::HashMap<String, DbtWarehouseConfig>>,
+}
+
+/// The workspace's dbt warehouses, by name, each a POINTER to a resource rather
+/// than credentials — like `large_file_storage`. A dbt project can then carry no
+/// connection at all, and the resource keeps its own ACL. Admin-only, because it
+/// decides what every dbt script in the workspace reaches.
+async fn edit_dbt_warehouses(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    Json(new_config): Json<EditDbtWarehouses>,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+    let new_config = new_config.dbt_warehouses;
+    if let Some(map) = new_config.as_ref() {
+        for (name, cfg) in map.iter() {
+            windmill_common::workspaces::validate_dbt_warehouse_name(name)?;
+            validate_dbt_resource_path(name, &cfg.resource_path)?;
+        }
+    }
+    let new_config = new_config
+        .map(|m| serde_json::to_value(m))
+        .transpose()
+        .map_err(|e| Error::internal_err(format!("serializing the dbt warehouses: {e}")))?;
+    let mut tx = db.begin().await?;
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.edit_dbt_warehouses",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        Some([("dbt_warehouses", format!("{new_config:?}").as_str())].into()),
+    )
+    .await?;
+    let value = new_config.filter(|v| !v.is_null());
+    sqlx::query!(
+        "UPDATE workspace_settings SET dbt_warehouses = $1 WHERE workspace_id = $2",
+        value,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok("Updated the workspace's dbt warehouses".to_string())
+}
+
 async fn edit_large_file_storage_config(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -2413,6 +2507,16 @@ mod tests {
         assert!(!json_text_has_nul_escape(&nul_json(2)));
         // 0 backslashes: the bare token "u0000" — safe.
         assert!(!json_text_has_nul_escape(&nul_json(0)));
+    }
+
+    #[test]
+    fn dbt_resource_path_length_bound() {
+        let at_limit = format!("f/dbt/{}", "a".repeat(255 - "f/dbt/".len()));
+        assert_eq!(at_limit.chars().count(), 255);
+        assert!(validate_dbt_resource_path("main", &at_limit).is_ok());
+        // The `$res:` prefix is not stored, so it does not count against the column.
+        assert!(validate_dbt_resource_path("main", &format!("$res:{at_limit}")).is_ok());
+        assert!(validate_dbt_resource_path("main", &format!("{at_limit}a")).is_err());
     }
 
     #[test]
@@ -5202,6 +5306,12 @@ async fn clone_workspace_data(
     // Clone scripts with new hashes
     clone_scripts(tx, source_workspace_id, target_workspace_id).await?;
 
+    // Clone the dbt graph sidecars. After `clone_scripts`, which keeps each
+    // script's hash: these key on it, and a static descriptor never re-ingests,
+    // so a fork without them shows dbt scripts with no models until someone
+    // redeploys.
+    clone_dbt_graph(tx, source_workspace_id, target_workspace_id).await?;
+
     // Clone CI test references
     clone_ci_test_references(tx, source_workspace_id, target_workspace_id).await?;
     clone_macro_registry(tx, source_workspace_id, target_workspace_id).await?;
@@ -5470,14 +5580,14 @@ async fn clone_triggers_and_schedules(
         r#"INSERT INTO azure_trigger (
             azure_resource_path, azure_mode, scope_resource_id, topic_name,
             subscription_name, event_type_filters, push_auth_config, path, script_path,
-            is_flow, workspace_id, edited_by, email, edited_at, extra_perms, server_id,
+            is_flow, workspace_id, edited_by, edited_at, extra_perms, server_id,
             last_server_ping, error, mode, permissioned_as, error_handler_path,
             error_handler_args, retry, labels
         )
         SELECT
             azure_resource_path, azure_mode, scope_resource_id, topic_name,
             subscription_name, event_type_filters, push_auth_config, path, script_path,
-            is_flow, $1, edited_by, email, edited_at, extra_perms, NULL,
+            is_flow, $1, edited_by, edited_at, extra_perms, NULL,
             NULL, NULL, 'disabled'::TRIGGER_MODE, permissioned_as, error_handler_path,
             error_handler_args, retry, labels
         FROM azure_trigger WHERE workspace_id = $2"#,
@@ -5536,6 +5646,7 @@ async fn update_workspace_settings(
             ai_config = source_ws.ai_config,
             large_file_storage = source_ws.large_file_storage,
             ducklake = source_ws.ducklake,
+            dbt_warehouses = source_ws.dbt_warehouses,
             datatable = source_ws.datatable,
             git_app_installations = source_ws.git_app_installations
         FROM workspace_settings source_ws
@@ -5857,6 +5968,64 @@ async fn clone_scripts(
 
     clear_orphaned_compat_address(tx, "script", target_workspace_id).await?;
 
+    Ok(())
+}
+
+/// The parsed dbt graph a deployed script carries: its models, their SQL and
+/// tests, and the `ref()` lineage between them.
+///
+/// Keyed on (workspace_id, script_path, script_hash), and the fork keeps every
+/// script's hash, so each row moves across as itself.
+///
+/// The DEPLOYED graph only (`job_id` all-zero). A per-run snapshot is keyed to a
+/// job in the source workspace, which nothing in the fork can ask for, so
+/// copying them adds another workspace's run history — `raw_code` and all — to
+/// every fork transaction to be reclaimed later by the age sweep.
+async fn clone_dbt_graph(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO dbt_node (workspace_id, script_path, script_hash, job_id, unique_id,
+            resource_type, name, asset_path, materialized, materialize_strategy, unique_key,
+            tags, description, test_kind, test_column, test_args, severity, attached_node,
+            columns, freshness, raw_code, original_file_path, ingested_at)
+         SELECT $2, script_path, script_hash, job_id, unique_id,
+            resource_type, name, asset_path, materialized, materialize_strategy, unique_key,
+            tags, description, test_kind, test_column, test_args, severity, attached_node,
+            columns, freshness, raw_code, original_file_path, ingested_at
+         FROM dbt_node
+         WHERE workspace_id = $1 AND job_id = '00000000-0000-0000-0000-000000000000'",
+        source_workspace_id,
+        target_workspace_id
+    )
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO dbt_edge (workspace_id, script_path, script_hash, job_id,
+            parent_unique_id, child_unique_id, ingested_at)
+         SELECT $2, script_path, script_hash, job_id, parent_unique_id, child_unique_id,
+            ingested_at
+         FROM dbt_edge
+         WHERE workspace_id = $1 AND job_id = '00000000-0000-0000-0000-000000000000'",
+        source_workspace_id,
+        target_workspace_id
+    )
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO dbt_graph_snapshot (workspace_id, script_path, script_hash, job_id,
+            digest, relation_root_at_last_ingest, ingested_at)
+         SELECT $2, script_path, script_hash, job_id, digest, relation_root_at_last_ingest,
+            ingested_at
+         FROM dbt_graph_snapshot
+         WHERE workspace_id = $1 AND job_id = '00000000-0000-0000-0000-000000000000'",
+        source_workspace_id,
+        target_workspace_id
+    )
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }
 

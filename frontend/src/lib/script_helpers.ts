@@ -1345,6 +1345,43 @@ main <- function(
     return(toJSON(result, auto_unbox = TRUE))
 }
 `
+
+// A dbt script is a whole dbt project: the descriptor below is the script's
+// content, and the project's own files live in its module bundle (the
+// `<script>__dbt/` folder the CLI syncs). Field names track dbt's vocabulary.
+const DBT_INIT_CODE = `# dbt-core-1x (default) | dbt-core-2x | fusion
+engine: dbt-core-1x
+profile:
+  # A warehouse configured on this workspace (Settings -> dbt), by name. Omitted
+  # takes 'main'. The NAME is also the warehouse's identity in the asset graph:
+  # every model becomes dbt://<warehouse>/<schema>/<name>, which is what gives
+  # this project its lineage, and lets a native script reading one of those
+  # tables share the node. A dbt run does not trigger such a script.
+  # warehouse: main
+  # target: prod
+  # Alternatively, keep the project's own file. It runs unchanged, but names a
+  # warehouse only to say where its assets belong:
+  # profiles_yml: profiles.yml
+# Passed to dbt verbatim — this is dbt's selector grammar, not Windmill's
+select: []
+exclude: []
+# build (models and tests interleaved) | after_all | none
+test_behavior: build
+vars: {}
+threads: 4
+full_refresh: false
+# Rebuild the nodes a failed build left failed or skipped, in this same job,
+# before reporting failure. dbt confines a failure to its own subtree, so a
+# transient warehouse error costs those nodes rather than the whole project.
+# Not available on agent workers, whose wait could not observe a cancellation.
+# retry_failed_nodes:
+#   attempts: 2
+#   delay_seconds: 30
+# Extra env for the project's own {{ env_var() }} lookups. A $var: value is
+# resolved to that Windmill variable, so secrets stay out of this file.
+# env:
+#   DBT_PASSWORD: $var:u/user/my_warehouse_password
+`
 // for related places search: ADD_NEW_LANG
 export const INITIAL_CODE = {
 	bun: {
@@ -1442,6 +1479,9 @@ export const INITIAL_CODE = {
 	},
 	rlang: {
 		script: R_INIT_CODE
+	},
+	dbt: {
+		script: DBT_INIT_CODE
 	},
 	claudesandbox: {
 		script: CLAUDE_SANDBOX_INIT_CODE
@@ -1610,6 +1650,8 @@ export function initialCode(
 		return INITIAL_CODE.ruby.script
 	} else if (language == 'rlang') {
 		return INITIAL_CODE.rlang.script
+	} else if (language == 'dbt') {
+		return INITIAL_CODE.dbt.script
 		// for related places search: ADD_NEW_LANG
 	} else if (language == 'bun' || language == 'bunnative') {
 		if (subkind === 'claudesandbox') {

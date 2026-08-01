@@ -42,7 +42,8 @@ import initRustParser, { parse_rust } from 'windmill-parser-wasm-rust'
 import initYamlParser, {
 	parse_assets_ansible,
 	parse_ansible,
-	parse_ansible_delegate
+	parse_ansible_delegate,
+	parse_dbt
 } from 'windmill-parser-wasm-yaml'
 import initCSharpParser, { parse_csharp } from 'windmill-parser-wasm-csharp'
 import initNuParser, { parse_nu } from 'windmill-parser-wasm-nu'
@@ -521,6 +522,9 @@ export async function inferArgs(
 			} catch {
 				inferedSchema = parseRSignatureFallback(code)
 			}
+		} else if (language == 'dbt') {
+			await initWasmYaml()
+			inferedSchema = JSON.parse(parse_dbt(code))
 			// for related places search: ADD_NEW_LANG
 		} else {
 			return null

@@ -19,6 +19,11 @@
 	import { isWorkflowAsCode } from '$lib/components/graph/wacToFlow'
 	import WacDiagram from '$lib/components/graph/WacDiagram.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import DbtProjectPanel, {
+		dbtFileLang,
+		dbtModelSelector
+	} from '$lib/components/dbt/DbtProjectPanel.svelte'
+	import { canonicalModulePath, findModulePathClash } from './scriptModulePath'
 	import SchemaForm from './SchemaForm.svelte'
 	import PowerShellCommonParams from './PowerShellCommonParams.svelte'
 	import LogPanel from './scriptEditor/LogPanel.svelte'
@@ -354,9 +359,32 @@
 		editor?.setCode(editorCode)
 	}
 
+	// Whether the open file is tested as a runnable of its own. A `__mod` helper
+	// is; a dbt project's files are not — the run is always the project's, so the
+	// arguments shown, edited and logged must be the descriptor's, not an empty
+	// per-module set the request would ignore.
+	let onModuleArgs = $derived(activeModuleTab !== null && lang !== 'dbt')
+
+	// The selector a Test would build with, when the open file is a model. Macros,
+	// analyses and singular tests are `.sql` too and none is selectable by name,
+	// so those fall back to running the project.
+	let dbtSelected = $derived.by(() => {
+		const open = activeModuleTab
+		if (lang !== 'dbt' || !open) return undefined
+		const selector = dbtModelSelector(modules ?? {}, open)
+		// The label drops whichever extension the selector matched, so a Python
+		// model reads `Build my_model` rather than `Build my_model.py`.
+		const name = open.split('/').pop()!.replace(/\.(sql|py)$/, '')
+		return selector ? { selector, name } : undefined
+	})
+
 	let effectiveLang = $derived(
 		activeModuleTab && modules?.[activeModuleTab]
-			? (modules[activeModuleTab].language as Preview['language'])
+			? lang === 'dbt'
+				? // Every dbt module is stored as `dbt`; the extension is what says
+					// whether this file is SQL, YAML or a seed.
+					dbtFileLang(activeModuleTab)
+				: (modules[activeModuleTab].language as Preview['language'])
 			: lang
 	)
 
@@ -373,7 +401,15 @@
 		return isTsWac || isPyWac
 	})
 	let supportsModules = $derived((lang === 'bun' || lang === 'python3') && isWacV2)
-	let mainFileName = $derived('script.' + langToExt(scriptLangToEditorLang(lang)))
+	// A dbt script's content is the descriptor and its modules are the project.
+	// A tree rather than the module tab strip: a project has folders and dozens
+	// of files, which a strip cannot show.
+	let isDbt = $derived(lang === 'dbt')
+	let mainFileName = $derived(
+		isDbt
+			? 'wm_dbt.yaml'
+			: 'script.' + langToExt(scriptLangToEditorLang(lang))
+	)
 
 	let modulePathInput = $state('')
 	let showAddModulePopover = $state(false)
@@ -428,13 +464,28 @@
 		bunnative: ['.ts']
 	}
 
+	// A dbt project's files are dbt's own, not Windmill modules: models and tests
+	// are `.sql`, schemas and the project file `.yml`, seeds `.csv`, docs `.md`.
+	// `.py` because dbt Python models are first-class on Snowflake, BigQuery and
+	// Databricks, and the CLI already bundles one; refusing to CREATE one here
+	// was the only place that restriction existed.
+	const DBT_MODULE_EXTENSIONS = ['.sql', '.py', '.yml', '.yaml', '.csv', '.md']
 	let allowedModuleExtensions = $derived(
-		lang
-			? (LANG_MODULE_EXTENSIONS[lang] ?? Object.keys(ALL_MODULE_EXTENSIONS))
-			: Object.keys(ALL_MODULE_EXTENSIONS)
+		lang === 'dbt'
+			? DBT_MODULE_EXTENSIONS
+			: lang
+				? (LANG_MODULE_EXTENSIONS[lang] ?? Object.keys(ALL_MODULE_EXTENSIONS))
+				: Object.keys(ALL_MODULE_EXTENSIONS)
 	)
 
 	function inferModuleLang(filePath: string): ScriptModule['language'] | undefined {
+		// Every file of a dbt project is stored as `dbt`, whatever its extension:
+		// they are the project's, and dbt is what reads them.
+		if (lang === 'dbt') {
+			return DBT_MODULE_EXTENSIONS.some((e) => filePath.endsWith(e))
+				? ('dbt' as ScriptModule['language'])
+				: undefined
+		}
 		for (const [ext, moduleLang] of Object.entries(ALL_MODULE_EXTENSIONS)) {
 			if (filePath.endsWith(ext)) return moduleLang
 		}
@@ -442,6 +493,12 @@
 	}
 
 	function getModuleDefaultContent(filePath: string): string {
+		if (lang === 'dbt') {
+			// A model that compiles on its own, so a new file is runnable before it
+			// is edited; anything else starts empty rather than with a guess at
+			// which dbt schema it is.
+			return filePath.endsWith('.sql') ? `select 1 as id\n` : ''
+		}
 		if (filePath.endsWith('.py')) {
 			return `def hello() -> str:\n    return "world"\n`
 		} else if (filePath.endsWith('.ts')) {
@@ -474,27 +531,46 @@
 		return ''
 	}
 
+	/// The descriptor is the script's CONTENT, not a module. A module at that same
+	/// path would be a second, independent value for one file: the export writes
+	/// the content there, and the bundle would emit over it.
+	function reservedDbtPath(canonicalPath: string): string | undefined {
+		return lang === 'dbt' && canonicalPath === 'wm_dbt.yaml'
+			? `wm_dbt.yaml is the descriptor, edited from the tree — it cannot also be a file`
+			: undefined
+	}
+
 	function validateModulePath(path: string): string {
 		if (!path.trim()) return ''
-		const moduleLang = inferModuleLang(path)
+		const canonical = canonicalModulePath(path)
+		if ('error' in canonical) return canonical.error
+		const reserved = reservedDbtPath(canonical.path)
+		if (reserved) return reserved
+		const moduleLang = inferModuleLang(canonical.path)
 		if (!moduleLang) {
 			const exts = allowedModuleExtensions.join(', ')
 			return `File must end with a supported extension: ${exts}`
 		}
-		const matchedExt = allowedModuleExtensions.find((ext) => path.endsWith(ext))
+		const matchedExt = allowedModuleExtensions.find((ext) => canonical.path.endsWith(ext))
 		if (!matchedExt) {
 			const exts = allowedModuleExtensions.join(', ')
 			return `File must end with a supported extension for this language: ${exts}`
 		}
-		if (modules?.[path.trim()]) {
-			return `Module ${path.trim()} already exists`
+		const clash = findModulePathClash(modules, canonical.path)
+		if (clash) {
+			return `Module ${clash} already exists`
 		}
 		return ''
 	}
 
 	function addModule() {
-		const modulePath = modulePathInput.trim()
-		if (!modulePath) return
+		if (!modulePathInput.trim()) return
+		const canonical = canonicalModulePath(modulePathInput)
+		if ('error' in canonical) {
+			modulePathError = canonical.error
+			return
+		}
+		const modulePath = canonical.path
 		const error = validateModulePath(modulePath)
 		if (error) {
 			modulePathError = error
@@ -525,27 +601,43 @@
 
 	function validateRenameModulePath(newPath: string, oldPath: string): string {
 		if (!newPath.trim()) return ''
-		const moduleLang = inferModuleLang(newPath)
+		const canonical = canonicalModulePath(newPath)
+		if ('error' in canonical) return canonical.error
+		const reserved = reservedDbtPath(canonical.path)
+		if (reserved) return reserved
+		const moduleLang = inferModuleLang(canonical.path)
 		if (!moduleLang) {
 			const exts = allowedModuleExtensions.join(', ')
 			return `File must end with a supported extension: ${exts}`
 		}
-		const matchedExt = allowedModuleExtensions.find((ext) => newPath.endsWith(ext))
+		const matchedExt = allowedModuleExtensions.find((ext) => canonical.path.endsWith(ext))
 		if (!matchedExt) {
 			const exts = allowedModuleExtensions.join(', ')
 			return `File must end with a supported extension for this language: ${exts}`
 		}
-		if (newPath.trim() !== oldPath && modules?.[newPath.trim()]) {
-			return `Module ${newPath.trim()} already exists`
+		const clash = findModulePathClash(modules, canonical.path, oldPath)
+		if (clash) {
+			return `Module ${clash} already exists`
 		}
 		return ''
 	}
 
+	/// A spelling of the name the module already has. Nothing to do, so the button
+	/// that would submit it stays disabled rather than being a dead click.
+	function renameIsNoop(input: string, oldPath: string): boolean {
+		const canonical = canonicalModulePath(input)
+		return 'path' in canonical && canonical.path === oldPath
+	}
+
 	function renameModule(oldPath: string) {
-		const newPath = renameModuleInput.trim()
-		if (!newPath || newPath === oldPath) {
+		if (!renameModuleInput.trim()) return
+		const canonical = canonicalModulePath(renameModuleInput)
+		if ('error' in canonical) {
+			renameModuleError = canonical.error
 			return
 		}
+		const newPath = canonical.path
+		if (newPath === oldPath) return
 		const error = validateRenameModulePath(newPath, oldPath)
 		if (error) {
 			renameModuleError = error
@@ -838,16 +930,30 @@
 		// Flush module edits back to modules map before running preview
 		flushModuleContent()
 
-		const testCode = activeModuleTab !== null ? editorCode : code
-		const testLang = activeModuleTab !== null ? effectiveLang : lang
-		const rawTestArgs =
-			activeModuleTab !== null
-				? testPanelArgs
-				: selectedTab === 'preprocessor' || kind === 'preprocessor'
-					? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...(args ?? {}) }
-					: (args ?? {})
-		const testSchema = activeModuleTab !== null ? testPanelSchema : schema
+		// A dbt run is always the project's, whichever file is open: `dbt build`
+		// takes the whole bundle, and testing one model in isolation is not a
+		// thing dbt does.
+		const onModule = onModuleArgs
+		const testCode = onModule ? editorCode : code
+		const testLang = onModule ? effectiveLang : lang
+		const rawTestArgs = onModule
+			? testPanelArgs
+			: selectedTab === 'preprocessor' || kind === 'preprocessor'
+				? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...(args ?? {}) }
+				: (args ?? {})
+		const testSchema = onModule ? testPanelSchema : schema
 		const testArgs = await processSecretArgs(rawTestArgs, testSchema, opWs)
+		// Testing with a model open builds THAT model: `dbt build --select <model>`
+		// is dbt's own inner loop, and running the whole project to check one file
+		// is the thing a dbt developer never does. Its tests come along, because
+		// `build` interleaves them.
+		if (dbtSelected) {
+			testArgs.command = {
+				...((testArgs.command as object) ?? {}),
+				label: 'build',
+				select: [dbtSelected.selector]
+			}
+		}
 		if (showPsCommonParams) {
 			for (const [k, v] of Object.entries(psCommonParams)) {
 				if (v !== undefined && v !== false && v !== '') {
@@ -891,7 +997,10 @@
 				}
 			},
 			undefined,
-			activeModuleTab !== null ? undefined : modules,
+			// A `__mod` helper is tested alone, so its siblings are left out. A dbt
+			// project cannot be: the bundle IS the project, and without it the run
+			// finds no `dbt_project.yml` whichever file happens to be open.
+			onModule ? undefined : modules,
 			undefined,
 			timeout
 		)
@@ -1041,6 +1150,11 @@
 
 	async function inferModuleSchema() {
 		if (activeModuleTab === null) return
+		// A dbt project's files are not independently runnable: a model is SQL dbt
+		// compiles, not a script with arguments. Inferring some would put another
+		// language's parameters (a `.sql` model reads as Postgres) in the run form
+		// beside the descriptor's own.
+		if (lang === 'dbt') return
 		try {
 			await inferArgs(effectiveLang, editorCode, testPanelSchema)
 			injectPartitionArg(testPanelSchema, testPanelArgs, effectiveLang, editorCode)
@@ -2241,7 +2355,7 @@
 												<JsonInputs
 													on:select={(e) => {
 														if (e.detail) {
-															if (activeModuleTab !== null) {
+															if (onModuleArgs) {
 																testPanelArgs = e.detail
 															} else {
 																args = e.detail
@@ -2259,7 +2373,7 @@
 													bind:clientHeight={schemaHeight}
 												>
 													{#key argsRender}
-														{#if activeModuleTab !== null}
+														{#if onModuleArgs}
 															<SchemaForm
 																workspace={opWs}
 																helperScript={{
@@ -2339,7 +2453,9 @@
 		startIcon={{ icon: Play, classes: 'animate-none' }}
 		shortCut={{ Icon: CornerDownLeft }}
 	>
-		Test
+		<!-- Named, because a run that silently narrowed to whichever file happens to
+		     be open is the kind of surprise a warehouse bill discovers. -->
+		{dbtSelected ? `Build ${dbtSelected.name}` : 'Test'}
 	</Button>
 {/snippet}
 
@@ -2371,7 +2487,7 @@
 		previewIsLoading={debugMode ? $debugState.running && !$debugState.stopped : testIsLoading}
 		{editor}
 		{diffEditor}
-		args={activeModuleTab !== null ? testPanelArgs : args}
+		args={onModuleArgs ? testPanelArgs : args}
 		{showCaptures}
 		customUi={customUi?.previewPanel}
 		showCustomResultPanel={showDebugPanel}
@@ -2497,7 +2613,7 @@
 					close()
 				}}
 				disabled={!renameModuleInput.trim() ||
-					renameModuleInput.trim() === oldPath ||
+					renameIsNoop(renameModuleInput, oldPath) ||
 					!!renameModuleError}>Rename</Button
 			>
 		</div>
@@ -2505,7 +2621,34 @@
 {/snippet}
 
 {#snippet editorContent()}
-	<div class="h-full !overflow-visible bg-surface dark:bg-surface-secondary relative flex flex-col">
+	<div
+		class="h-full !overflow-visible bg-surface dark:bg-surface-secondary relative flex {isDbt
+			? 'flex-row'
+			: 'flex-col'}"
+	>
+		{#if isDbt}
+			<DbtProjectPanel
+				modules={modules ?? {}}
+				scriptPath={path ?? ''}
+				descriptorName={mainFileName}
+				selected={activeModuleTab}
+				onSelect={(p) => (p === null ? switchToMain() : switchToModule(p))}
+				onDelete={removeModule}
+			>
+				{#snippet addFile()}
+					<Popover bind:isOpen={showAddModulePopover} placement="bottom-end" contentClasses="p-3 w-72">
+						{#snippet trigger()}
+							<div class="p-0.5 rounded hover:bg-surface-hover" title="New file">
+								<Plus size={12} />
+							</div>
+						{/snippet}
+						{#snippet content({ close })}
+							{@render addModuleForm(close)}
+						{/snippet}
+					</Popover>
+				{/snippet}
+			</DbtProjectPanel>
+		{/if}
 		{#if supportsModules}
 			<div
 				class="flex items-center border-b border-tertiary/30 bg-surface-secondary px-1 gap-0.5 text-xs overflow-x-auto shrink-0"
@@ -2595,7 +2738,7 @@
 				</Popover>
 			</div>
 		{/if}
-		<div class="relative flex-1 min-h-0 !overflow-visible">
+		<div class="relative flex-1 min-h-0 min-w-0 !overflow-visible">
 			<div class="absolute bg-surface top-2 right-4 z-10 flex flex-row gap-2">
 				{#if assets?.length}
 					<AssetsDropdownButton {assets} />

@@ -13,6 +13,9 @@ Open-source platform for internal tools, workflows, API integrations, background
 
 - **Validation**: `docs/validation.md` — what checks to run based on what you changed
 - **Unreleased SDK changes**: `docs/wac-sdk-e2e.md` — exercising a client change on a real worker
+- **Agent workers**: `docs/agent-worker-e2e.md` — building and running one locally. An agent
+  reaches the DB only through the API, so `Connection::Http` paths are never taken by a plain
+  `cargo run`; a normal build cannot start one at all.
 - **Enterprise**: `docs/enterprise.md` — EE file conventions and PR workflow
 - **Backend patterns**: use the `rust-backend` skill when writing Rust code
 - **Frontend patterns**: use the `svelte-frontend` skill when writing Svelte code. Do NOT edit svelte files unless you have read that skill.
@@ -24,6 +27,11 @@ Open-source platform for internal tools, workflows, API integrations, background
 
 ## Dev Environment
 
+> **In a git worktree, the ports and database below are NOT the ones to use.** Each
+> worktree gets its own backend port, frontend port and Postgres database, so the
+> defaults in this section apply only to a plain single checkout. **Discover the real
+> values before running anything** — see "Per-worktree ports and database" below.
+
 - **Backend**: `cargo run` from `backend/` (API at http://localhost:8000)
 - **DuckDB local jobs**: before running DuckDB scripts locally, build the FFI shared library with `cd backend/windmill-duckdb-ffi-internal && ./build_dev.sh`. Re-run it after clean builds or when `backend/target/debug/libwindmill_duckdb_ffi_internal.*` is missing. The bundled DuckDB compile (~2min) is cached in a per-user dir shared across worktrees, so a fresh worktree reuses it and the build is near-instant.
 - **Data pipelines (DuckLake) from source**: a plain `cargo run` (even `--features quickjs`) advertises a `duckdb` worker tag but **cannot** execute DuckDB scripts and has **no** working S3 proxy (DuckLake writes 404). Build CE DuckLake with `cargo run --features quickjs,duckdb,parquet,private` (add `,python` for Python scripts, `,enterprise,license` for EE) **and** build the FFI (bullet above). See `backend/CLAUDE.md` → "Running data pipelines (DuckLake) from source" for the exact feature sets and the two feature-gate gotchas.
@@ -32,6 +40,37 @@ Open-source platform for internal tools, workflows, API integrations, background
 - **Login**: `admin@windmill.dev` / `changeme`
 - **Instance settings**: navigate to `/#superadmin-settings`
 - **Migrations**: use `cargo sqlx migrate add -r <name>` from `backend/` to create new migrations (never generate timestamps manually)
+
+### Per-worktree ports and database
+
+A worktree's `.env` / `.env.local` (repo root) and `backend/.env` hold its own
+`DATABASE_URL` and `PORT`; the database is typically `windmill_<branch_with_underscores>`
+(branch `dbt-runtime` → `windmill_dbt_runtime`). Read them, or discover from what is
+already running:
+
+```bash
+psql postgres://postgres:changeme@localhost:5432/postgres -tAc \
+  "select datname from pg_database where datname like 'windmill%'" | grep "$(git branch --show-current | tr - _)"
+# the port the frontend actually proxies to (REMOTE of this worktree's vite):
+for p in $(pgrep -f vite); do case "$(readlink /proc/$p/cwd)" in *"$(basename "$(git rev-parse --show-toplevel)")"*)
+  tr '\0' '\n' < /proc/$p/environ | grep -E '^REMOTE=|^PORT=';; esac; done
+```
+
+Getting these wrong is not a cheap mistake:
+
+- **`DATABASE_URL` pointed at another worktree's database silently destroys the sqlx
+  cache.** `cargo run` and `cargo sqlx prepare` both compile `sqlx::query!` against the
+  **live** database, so the wrong one fails with `relation "<your_new_table>" does not
+  exist` — and `prepare` deletes the whole `.sqlx/` directory *before* it fails, leaving
+  it gutted. Always `cp -r backend/.sqlx <tmp>/sqlx_backup` first (see the `update-sqlx`
+  skill).
+- **The frontend proxies to its own worktree's backend port, not 8000.** Starting a
+  backend on the wrong port leaves the UI up but every API call 502s, which reads like an
+  application bug rather than a misconfiguration.
+- **Kill backends by pid scoped to this worktree's cwd** (`readlink /proc/<pid>/cwd`),
+  never `pkill -f target/debug/windmill` — that kills every sibling worktree's backend.
+  Beware that a `pgrep -f "<pattern>"` in a shell whose own command line contains
+  `<pattern>` matches the shell itself.
 
 ## Verifying Frontend Changes
 
@@ -54,6 +93,25 @@ Typical flow:
 **Attach the screenshots to the PR.** For any change under `frontend/`, embed screenshots of the affected UI in the PR body — the `pr` skill requires this and carries the upload recipe.
 
 If you cannot exercise a UI change (no dev server, etc.), say so explicitly rather than claiming success.
+
+## Verifying Backend Changes
+
+`cargo check` and the unit tests do not exercise a worker code path. **If you changed how
+a job runs — an executor, `handle_child`, anything spawning or reading from a
+subprocess — run an actual job of that kind** and confirm it completed, then say so.
+Whole classes of defect compile and unit-test clean:
+
+- **Stack overflow from a large buffer in an async block.** An array declared across an
+  `.await` is baked into the future's state; once that future is boxed a few layers deep
+  by the job poller, two 16 KB arrays abort the worker *process* (`thread
+  'tokio-runtime-worker' has overflowed its stack`). Heap-allocate read buffers
+  (`vec![0u8; N]`, not `[0u8; N]`).
+- Deadlocks from draining only one of a child's pipes, missed cancellation or timeout
+  propagation, and anything depending on the real engine's output format.
+
+A crash like this takes down every job on that worker, not just yours, so check the
+backend log after the run rather than only the job's own status. If you cannot run one,
+say which path went unexercised instead of implying it was verified.
 
 ## Banned Patterns
 

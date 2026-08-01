@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO dbt_run_progress\n           (workspace_id, job_id, asset_kind, asset_path, status, row_count, error, updated_at)\n         VALUES ($1, $2, 'dbt', $3, $4, $5, $6, now())\n         ON CONFLICT (workspace_id, job_id, asset_kind, asset_path)\n         DO UPDATE SET status = EXCLUDED.status, row_count = EXCLUDED.row_count,\n                       error = EXCLUDED.error, updated_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Uuid",
+        "Varchar",
+        {
+          "Custom": {
+            "name": "materialization_status",
+            "kind": {
+              "Enum": [
+                "running",
+                "materialized",
+                "failed"
+              ]
+            }
+          }
+        },
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ec2ed5203effe26c9584b266c5ccbc2a399e3a0e126c9ba7d0558d37c16926fa"
+}
