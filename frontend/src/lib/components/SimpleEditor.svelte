@@ -59,6 +59,12 @@
 	// import { createConfiguredEditor } from 'vscode/monaco'
 	// import type { IStandaloneCodeEditor } from 'vscode/vscode/vs/editor/standalone/browser/standaloneCodeEditor'
 
+	/** Trailing debounce window (ms) on Monaco's onDidChangeModelContent. */
+	const CHANGE_TIMEOUT = 200
+	/** Hard ceiling (ms) on how long `updateCode` can be deferred while the user
+	 * types continuously, measured from the leading fire of the burst. */
+	const MAX_CHANGE_TIMEOUT = 1000
+
 	let divEl: HTMLDivElement | null = null
 	let editor = $state<meditor.IStandaloneCodeEditor | null>(null)
 	let model: meditor.ITextModel
@@ -409,11 +415,31 @@
 		}
 
 		let timeoutModel: number | undefined = undefined
-		editor.onDidChangeModelContent((event) => {
-			timeoutModel && clearTimeout(timeoutModel)
-			timeoutModel = setTimeout(() => {
+		let changeChainStart: number | undefined = undefined
+		editor.onDidChangeModelContent(() => {
+			// Leading fire on the first change of a burst so `code` is current within
+			// the same tick. A paste is a single change, and consumers that gate a
+			// control on `code` (an "Apply changes" button disabled until it differs
+			// from a snapshot) would otherwise swallow a click made before the
+			// trailing update lands — the click hits a still-disabled button and the
+			// paste appears to do nothing. Continuous typing stays trailing-only,
+			// capped at MAX_CHANGE_TIMEOUT from the leading fire so `code` can never
+			// be held stale indefinitely.
+			const now = Date.now()
+			if (changeChainStart === undefined) {
 				updateCode()
-			}, 200)
+				changeChainStart = now
+			}
+			timeoutModel && clearTimeout(timeoutModel)
+			const fireAt = Math.min(now + CHANGE_TIMEOUT, changeChainStart + MAX_CHANGE_TIMEOUT)
+			timeoutModel = setTimeout(
+				() => {
+					updateCode()
+					timeoutModel = undefined
+					changeChainStart = undefined
+				},
+				Math.max(0, fireAt - now)
+			)
 		})
 		editor.onDidChangeCursorPosition((event) => {
 			if (key) editorPositionMap[key] = event.position
