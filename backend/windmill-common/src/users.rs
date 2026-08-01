@@ -84,9 +84,14 @@ pub async fn resolve_username_to_email<'c>(
 /// Inverse of [`get_email_from_permissioned_as`]: the principal an on-behalf-of email
 /// names in this workspace, for callers that supply the email alone.
 ///
-/// `None` when the email names nobody here — an address outside the workspace, or a
-/// group that no longer exists. Callers then leave the identity unrecorded rather than
-/// storing a principal that cannot authenticate.
+/// Mirrors [`resolve_username_to_email`] branch for branch, including its fallback to
+/// `password` — a superadmin acting in a workspace they are not a member of has no `usr`
+/// row, and dropping them here would hand their runnables back to the deployer while
+/// keeping their superadmin email.
+///
+/// `None` when the email names nobody at all — an address outside the workspace that is
+/// not a superadmin's, or a group that no longer exists. Callers then leave the identity
+/// unrecorded rather than storing a principal that cannot authenticate.
 pub async fn permissioned_as_from_email<'c>(
     workspace_id: &str,
     email: &str,
@@ -109,12 +114,16 @@ pub async fn permissioned_as_from_email<'c>(
         return Ok(exists.then(|| format!("{}{}", PERMISSIONED_AS_GROUP_PREFIX, group)));
     }
     Ok(sqlx::query_scalar!(
-        "SELECT username FROM usr WHERE workspace_id = $1 AND email = $2",
+        "SELECT COALESCE(
+            (SELECT username FROM usr WHERE workspace_id = $1 AND email = $2),
+            (SELECT COALESCE(username, email) FROM password WHERE email = $2 AND super_admin = true)
+        )",
         workspace_id,
         email
     )
     .fetch_optional(db)
     .await?
+    .flatten()
     .map(|username| username_to_permissioned_as(&username)))
 }
 

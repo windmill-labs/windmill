@@ -153,6 +153,32 @@ async fn test_on_behalf_of_permissioned_as_drives_job_identity(
         "without a recorded permissioned_as the job keeps running as the deployer"
     );
 
+    // A superadmin acting outside their workspaces has no `usr` row. Dropping them on an
+    // email-only redeploy would keep their superadmin email next to the deployer's
+    // permissions — the hybrid identity this whole change exists to remove.
+    let resp = authed(
+        client().post(format!("{base}/scripts/create")),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({
+        "path": "u/test-user/obo_superadmin",
+        "summary": "",
+        "description": "",
+        "content": "export async function main() { return 42; }",
+        "language": "deno",
+        "on_behalf_of_email": "superadmin-external@windmill.dev",
+        "preserve_on_behalf_of": true,
+    }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 201, "creating: {}", resp.text().await?);
+    assert_eq!(
+        stored_permissioned_as(&db, "script", "u/test-user/obo_superadmin")
+            .await?
+            .as_deref(),
+        Some("u/superadmin-external")
+    );
+
     // A pair naming two different principals would run as a composite of both.
     let resp = authed(
         client().post(format!("{base}/scripts/create")),
