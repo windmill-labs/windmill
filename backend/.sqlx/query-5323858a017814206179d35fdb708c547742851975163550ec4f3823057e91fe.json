@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO schedule (\n                workspace_id, path, schedule, timezone, edited_by, script_path,\n                is_flow, enabled, email, permissioned_as, summary, tag, cron_version\n            ) VALUES ($1, $2, $3, 'Etc/UTC', $4, $2, false, true, $5, $6, $7, 'duckdb', 'v2')\n            ON CONFLICT (workspace_id, path) DO UPDATE SET\n                schedule = EXCLUDED.schedule,\n                timezone = EXCLUDED.timezone,\n                edited_by = EXCLUDED.edited_by,\n                edited_at = now(),\n                script_path = EXCLUDED.script_path,\n                is_flow = false,\n                enabled = true,\n                email = EXCLUDED.email,\n                permissioned_as = EXCLUDED.permissioned_as,\n                summary = EXCLUDED.summary,\n                tag = EXCLUDED.tag,\n                cron_version = EXCLUDED.cron_version,\n                error = NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5323858a017814206179d35fdb708c547742851975163550ec4f3823057e91fe"
+}
