@@ -1495,6 +1495,57 @@ async fn test_app_draft_policy_derives_on_behalf_of_email(db: Pool<Postgres>) ->
     Ok(())
 }
 
+/// A draft is stored unvalidated, so its principal is whatever its author typed. Resolving it
+/// through the instance-wide fallback would let any member turn a guessed username into a
+/// non-member superadmin's address.
+#[sqlx::test(fixtures("preserve_on_behalf_of"))]
+async fn test_app_draft_derivation_does_not_disclose_non_member_email(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+    let path = "u/test-user-2/leak_probe";
+
+    // test-user-2 is an ordinary member; superadmin-external has no `usr` row here.
+    sqlx::query!(
+        "INSERT INTO draft (workspace_id, email, path, typ, value)
+         VALUES ($1, $2, $3, 'raw_app', $4)",
+        "test-workspace",
+        "test2@windmill.dev",
+        path,
+        json!({
+            "path": path,
+            "summary": "Probe",
+            "value": { "type": "rawapp", "inline_script": null },
+            "policy": {
+                "execution_mode": "anonymous",
+                "triggerables": {},
+                "on_behalf_of": "u/superadmin-external"
+            }
+        })
+    )
+    .execute(&db)
+    .await?;
+
+    for url in [
+        format!("{base}/drafts/get_own/raw_app/{path}"),
+        format!("{base}/apps/get/p/{path}?get_draft=true&raw_app=true"),
+    ] {
+        let resp = authed(client().get(&url), "SECRET_TOKEN_2").send().await?;
+        assert_eq!(resp.status(), 200, "Should read own draft at {url}");
+        let body = resp.text().await?;
+        assert!(
+            !body.contains("superadmin-external@windmill.dev"),
+            "Draft derivation must not disclose a non-member superadmin's address via {url}: {body}"
+        );
+    }
+
+    Ok(())
+}
+
 /// Test schedule update preserves email/edited_by correctly
 #[sqlx::test(fixtures("preserve_on_behalf_of"))]
 async fn test_schedule_update_preserves_email(db: Pool<Postgres>) -> anyhow::Result<()> {
