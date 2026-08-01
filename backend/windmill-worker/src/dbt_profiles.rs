@@ -679,9 +679,11 @@ mod tests {
         .unwrap();
         // Absolute: dbt runs with the PROJECT as its cwd and hands this to the
         // driver unchanged, so a profiles-relative path would never be found.
+        let cert_path = std::path::Path::new("/tmp/p").join(ROOT_CERT_FILENAME);
         assert!(
             p.yaml.contains(&format!(
-                "      sslrootcert: \"/tmp/p/{ROOT_CERT_FILENAME}\"\n"
+                "      sslrootcert: {}\n",
+                yaml_scalar(&cert_path.to_string_lossy())
             )),
             "{}",
             p.yaml
