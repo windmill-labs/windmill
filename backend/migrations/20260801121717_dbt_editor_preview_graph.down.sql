@@ -5,6 +5,7 @@ DELETE FROM dbt_edge WHERE script_hash IS NULL;
 DELETE FROM dbt_graph_snapshot WHERE script_hash IS NULL;
 
 DROP INDEX IF EXISTS idx_dbt_graph_snapshot_editor_path;
+ALTER TABLE dbt_graph_snapshot DROP COLUMN IF EXISTS permissioned_as;
 
 DROP INDEX IF EXISTS dbt_node_editor_key;
 DROP INDEX IF EXISTS dbt_node_versioned_key;

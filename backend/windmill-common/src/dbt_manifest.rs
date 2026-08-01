@@ -928,11 +928,10 @@ async fn insert_graph_rows(
     Ok(())
 }
 
-/// How many buffer parses of one script keep their graph.
+/// How many buffer parses of one script, by one principal, keep their graph.
 ///
-/// The editor reads back only the refresh it just launched, so one would do;
-/// the slack is for two people editing the same project at once, whose refreshes
-/// would otherwise evict each other's graph mid-session.
+/// The editor reads back only the refresh it just launched, so one would do; the
+/// slack covers a session where several tabs or a retried job are in flight.
 pub const DBT_EDITOR_GRAPHS_KEPT: i64 = 5;
 
 /// Store the graph a `parse` of the EDITOR's buffer produced.
@@ -956,6 +955,11 @@ pub async fn replace_dbt_editor_graph(
     script_path: &str,
     // The preview job that parsed the buffer, which is this graph's whole key.
     job_id: uuid::Uuid,
+    // The identity that ran it, which is what the retention below is bounded
+    // per. A preview's PATH is chosen by a caller who needs only `jobs:run`, so
+    // a count per path alone would let one caller's parses evict the graphs of
+    // whoever is actually editing that script.
+    permissioned_as: &str,
     ingested: &IngestedManifest,
     relation_root: &str,
 ) -> Result<()> {
@@ -975,11 +979,12 @@ pub async fn replace_dbt_editor_graph(
     // that stored nothing.
     sqlx::query!(
         "INSERT INTO dbt_graph_snapshot
-           (workspace_id, script_path, script_hash, job_id, digest, ingested_at)
-         VALUES ($1, $2, NULL, $3, $4, now())",
+           (workspace_id, script_path, script_hash, job_id, permissioned_as, digest, ingested_at)
+         VALUES ($1, $2, NULL, $3, $4, $5, now())",
         workspace_id,
         script_path,
         job_id,
+        permissioned_as,
         graph_digest(ingested, relation_root),
     )
     .execute(&mut **tx)
@@ -988,17 +993,24 @@ pub async fn replace_dbt_editor_graph(
     // Bounded here rather than by a sweep: a refresh is a click, and the ones
     // before it are dead the moment this one lands. The rows go with their
     // marker, in this transaction, so no restart can strand either half.
+    //
+    // Per (path, PRINCIPAL): the path is the caller's to name, so a bound over
+    // it alone is a way to retire someone else's refreshes with nothing but
+    // `jobs:run`. Each identity reclaims only its own.
     let retired: Vec<uuid::Uuid> = sqlx::query_scalar!(
         "DELETE FROM dbt_graph_snapshot g
           WHERE g.workspace_id = $1 AND g.script_path = $2 AND g.script_hash IS NULL
+            AND g.permissioned_as IS NOT DISTINCT FROM $4
             AND g.job_id NOT IN (
               SELECT job_id FROM dbt_graph_snapshot
                WHERE workspace_id = $1 AND script_path = $2 AND script_hash IS NULL
+                 AND permissioned_as IS NOT DISTINCT FROM $4
                ORDER BY ingested_at DESC LIMIT $3)
         RETURNING g.job_id",
         workspace_id,
         script_path,
         DBT_EDITOR_GRAPHS_KEPT,
+        permissioned_as,
     )
     .fetch_all(&mut **tx)
     .await?;

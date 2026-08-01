@@ -2976,9 +2976,11 @@ pub struct DbtParseResult {
     /// The job to read this graph back through, with
     /// `GET /jobs/dbt_graph/{id}`. Its own, always — a version-less parse is
     /// reachable no other way, and a versioned one resolves to its snapshot or
-    /// falls back to the version's graph, which is what it agreed with. Absent
-    /// when nothing was stored at all: no warehouse identity to key relations
-    /// on, or a deleted script.
+    /// falls back to the version's graph, which is what it agreed with.
+    ///
+    /// Present once the write was ACCEPTED, which is the half a caller can act
+    /// on; absent when there was nothing to store (no warehouse identity to key
+    /// relations on) or nothing to store it against (a deleted script).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub graph_job: Option<Uuid>,
 }
@@ -3068,6 +3070,7 @@ async fn run_parse_only(
                     &job.workspace_id,
                     script_path,
                     job.id,
+                    &job.permissioned_as,
                     &ingested,
                     &p.relation_root(),
                 )

@@ -37,6 +37,11 @@
 		 *  one, and a parse uses whatever has been filled in — it tolerates the
 		 *  rest being absent, as the deploy's own parse does. */
 		args,
+		/** The script's worker tag and timeout. A parse is a real dbt invocation:
+		 *  a project reaching a private network parses only on the worker that can
+		 *  reach it, and a slow one must get the same budget a run would. */
+		tag,
+		timeout,
 		/** The deployed version, when there is one. Its graph is what the panel
 		 *  shows before anything has been parsed from the buffer. */
 		deployedHash,
@@ -49,6 +54,8 @@
 		descriptor: string
 		modules: Record<string, ScriptModule> | undefined
 		args: Record<string, unknown> | undefined
+		tag?: string
+		timeout?: number
 		deployedHash?: string | number
 		onOpenFile?: (path: string) => void
 	} = $props()
@@ -135,14 +142,23 @@
 		try {
 			id = await JobService.runScriptPreview({
 				workspace,
+				timeout,
 				requestBody: {
 					path: scriptPath,
 					content: descriptor,
 					language: 'dbt',
+					tag,
 					// The whole bundle, always: dbt resolves `ref()` project-wide and
 					// cannot parse one file of it.
 					modules,
-					args: { ...(args ?? {}), command: { label: 'parse' } }
+					// The form's `vars` come along, and only those: they steer
+					// `enabled`, schemas, aliases and materializations, so a parse
+					// without them reports a different project than the run would
+					// build. `select` and the rest belong to a command that builds.
+					args: {
+						...(args ?? {}),
+						command: { label: 'parse', vars: (args?.command as any)?.vars ?? {} }
+					}
 				}
 			})
 			// Polled rather than awaited: a parse is a job, and its engine may need
@@ -237,10 +253,9 @@
 				? `parsed from the editor at ${displayDate(at, false, false)}`
 				: 'parsed from the editor'
 		}
-		// A parse whose graph matched the deployed one stores no snapshot of its
-		// own and reads that one back — the same models, and worth saying so
-		// rather than claiming a parse that is not on screen.
-		if (refreshJob) return 'parsed from the editor — identical to the last deploy'
+		// A refresh landed but its graph is not what came back — the pin did not
+		// resolve to it. Saying which graph IS on screen beats guessing why.
+		if (refreshJob) return 'last parse could not be loaded — showing the deployed graph'
 		if (deployedHash != undefined) return 'as of last deploy'
 		return 'never parsed'
 	})

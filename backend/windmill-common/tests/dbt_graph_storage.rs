@@ -14,6 +14,9 @@ use windmill_common::dbt_manifest::{
 
 const WS: &str = "test-workspace";
 const PATH: &str = "f/test/proj";
+/// The principal an editor parse runs as. Retention is bounded per identity,
+/// so the tests have to name one.
+const ME: &str = "u/me";
 
 async fn deploy_script(db: &Pool<Postgres>, hash: i64) {
     sqlx::query!(
@@ -358,7 +361,7 @@ async fn an_editor_parse_is_keyed_to_its_job_and_no_version(db: Pool<Postgres>) 
     replace_dbt_manifest(&mut tx, WS, PATH, 1, None, &manifest(&["a"]), "root")
         .await
         .unwrap();
-    replace_dbt_editor_graph(&mut tx, WS, PATH, job, &manifest(&["a", "b"]), "root")
+    replace_dbt_editor_graph(&mut tx, WS, PATH, job, ME, &manifest(&["a", "b"]), "root")
         .await
         .unwrap();
     tx.commit().await.unwrap();
@@ -394,7 +397,7 @@ async fn an_editor_parse_matching_the_deploy_still_stores(db: Pool<Postgres>) {
     replace_dbt_manifest(&mut tx, WS, PATH, 1, None, &m, "root")
         .await
         .unwrap();
-    replace_dbt_editor_graph(&mut tx, WS, PATH, job, &m, "root")
+    replace_dbt_editor_graph(&mut tx, WS, PATH, job, ME, &m, "root")
         .await
         .unwrap();
     tx.commit().await.unwrap();
@@ -402,9 +405,9 @@ async fn an_editor_parse_matching_the_deploy_still_stores(db: Pool<Postgres>) {
     assert_eq!(editor_nodes(&db, job).await, 1);
 }
 
-/// Bounded per path as each refresh lands: the ones before it are dead the
-/// moment a newer parse arrives, and a click that stored a full model set
-/// forever would be the editor's own leak.
+/// Bounded per (path, principal) as each refresh lands: the ones before it are
+/// dead the moment a newer parse arrives, and a click that stored a full model
+/// set forever would be the editor's own leak.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn only_the_newest_editor_parses_are_kept(db: Pool<Postgres>) {
     let over = DBT_EDITOR_GRAPHS_KEPT + 2;
@@ -415,6 +418,7 @@ async fn only_the_newest_editor_parses_are_kept(db: Pool<Postgres>) {
             WS,
             PATH,
             uuid::Uuid::from_u128(i as u128),
+            ME,
             &manifest(&["a"]),
             "root",
         )
@@ -451,7 +455,7 @@ async fn a_version_clear_spares_editor_graphs_and_a_path_clear_does_not(db: Pool
     replace_dbt_manifest(&mut tx, WS, PATH, 1, None, &manifest(&["a"]), "root")
         .await
         .unwrap();
-    replace_dbt_editor_graph(&mut tx, WS, PATH, job, &manifest(&["a"]), "root")
+    replace_dbt_editor_graph(&mut tx, WS, PATH, job, ME, &manifest(&["a"]), "root")
         .await
         .unwrap();
     clear_dbt_manifest_version(&mut tx, WS, PATH, 1).await.unwrap();
@@ -465,6 +469,39 @@ async fn a_version_clear_spares_editor_graphs_and_a_path_clear_does_not(db: Pool
     tx.commit().await.unwrap();
 
     assert_eq!(editor_nodes(&db, job).await, 0, "retiring the path takes it");
+}
+
+/// A preview names its own PATH and needs only `jobs:run`, so a bound over the
+/// path alone is a way to retire the graphs of whoever is actually editing that
+/// script. Each identity reclaims only its own.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn one_principal_cannot_evict_another_s_editor_graphs(db: Pool<Postgres>) {
+    let mine = uuid::Uuid::from_u128(1);
+    let mut tx = db.begin().await.unwrap();
+    replace_dbt_editor_graph(&mut tx, WS, PATH, mine, ME, &manifest(&["a"]), "root")
+        .await
+        .unwrap();
+    // Someone else, parsing the same path far more often than the bound allows.
+    for i in 0..(DBT_EDITOR_GRAPHS_KEPT + 3) {
+        replace_dbt_editor_graph(
+            &mut tx,
+            WS,
+            PATH,
+            uuid::Uuid::from_u128(100 + i as u128),
+            "u/squatter",
+            &manifest(&["a"]),
+            "root",
+        )
+        .await
+        .unwrap();
+    }
+    tx.commit().await.unwrap();
+
+    assert_eq!(
+        editor_nodes(&db, mine).await,
+        1,
+        "another principal's parses must not retire this one's graph"
+    );
 }
 
 /// Nodes of one editor parse.

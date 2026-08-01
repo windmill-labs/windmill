@@ -125,17 +125,24 @@
 
 	/** The run form's arguments, which are the DESCRIPTOR's: the command block and
 	 *  one entry per `{{ placeholder }}` it interpolates. Derived from the
-	 *  descriptor whatever file is open, because that is what a run takes. */
+	 *  descriptor whatever file is open, because that is what a run takes.
+	 *
+	 *  `nlang` is honored rather than assumed to be dbt: the builder calls this on
+	 *  the editor that is still mounted when the language CHANGES, so the content
+	 *  here can already be the next language's template. */
 	export async function inferSchema(
 		content: string,
-		{ resetArgs = false }: { nlang?: SupportedLanguage; resetArgs?: boolean } = {}
+		{ nlang, resetArgs = false }: { nlang?: SupportedLanguage; resetArgs?: boolean } = {}
 	) {
+		// Before the parse, not after it: a reset means the arguments describe a
+		// script that no longer exists, and leaving them for a parse to clear
+		// hands dbt's command block to whatever editor mounts next when it fails.
+		if (resetArgs) args = {}
 		let nschema = schema ?? emptySchema()
 		try {
-			await inferArgs('dbt', content, nschema)
+			await inferArgs(nlang ?? 'dbt', content, nschema)
 			validDescriptor = true
 			descriptorError = undefined
-			if (resetArgs) args = {}
 			schema = nschema
 		} catch (e) {
 			validDescriptor = false
@@ -436,6 +443,8 @@
 							descriptor={code}
 							modules={modules ?? undefined}
 							{args}
+							{tag}
+							{timeout}
 							{deployedHash}
 							onOpenFile={open}
 						/>

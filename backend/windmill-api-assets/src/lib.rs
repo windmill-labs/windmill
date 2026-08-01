@@ -1292,11 +1292,15 @@ pub async fn asset_graph_for(
            ),
            scoped AS (
              SELECT n.script_path, n.unique_id FROM dbt_node n
-              -- `IS NOT DISTINCT FROM`, because a version-less row's hash is
-              -- NULL on both sides: `=` would never match one, and the equality
-              -- it stands in for is unchanged for every versioned row.
+              -- `=` still, with the NULL-to-NULL case spelled out and gated on
+              -- the pin: a version-less row's hash is NULL on both sides, which
+              -- `=` never matches, but `IS NOT DISTINCT FROM` would cost the
+              -- equality its index bound on the UNPINNED workspace graph — the
+              -- hot path. Unpinned, `$5` is NULL and the second arm folds away.
               JOIN live l ON l.path = n.script_path
-                         AND l.hash IS NOT DISTINCT FROM n.script_hash
+                         AND (n.script_hash = l.hash
+                              OR ($5::text IS NOT NULL AND l.hash IS NULL
+                                  AND n.script_hash IS NULL))
               JOIN chosen ch ON ch.job_id = n.job_id
               WHERE n.workspace_id = $1 AND n.asset_path IS NOT NULL
                 -- Unpinned, the scope is the relations in view: `asset` says
@@ -1343,7 +1347,9 @@ pub async fn asset_graph_for(
                   )) AS "script_visible!"
              FROM dbt_node n
              JOIN live l ON l.path = n.script_path
-                        AND l.hash IS NOT DISTINCT FROM n.script_hash
+                        AND (n.script_hash = l.hash
+                             OR ($5::text IS NOT NULL AND l.hash IS NULL
+                                 AND n.script_hash IS NULL))
              -- Every join onto `dbt_node` needs this, not just the scoping CTE:
              -- `job_id` is part of the key, so without it each model comes back
              -- once per retained snapshot plus once for the version's graph.
@@ -1405,7 +1411,9 @@ pub async fn asset_graph_for(
            SELECT p.asset_path AS "from_path!", c.asset_path AS "to_path!"
              FROM dbt_edge e
              JOIN live l ON l.path = e.script_path
-                        AND l.hash IS NOT DISTINCT FROM e.script_hash
+                        AND (e.script_hash = l.hash
+                             OR ($5::text IS NOT NULL AND l.hash IS NULL
+                                 AND e.script_hash IS NULL))
              JOIN chosen ch ON ch.job_id = e.job_id
              JOIN dbt_node p ON p.workspace_id = e.workspace_id
                             AND p.script_path = e.script_path
