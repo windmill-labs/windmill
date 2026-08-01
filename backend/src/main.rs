@@ -937,44 +937,52 @@ async fn windmill_main() -> anyhow::Result<()> {
         // Requires CAP_SYS_RESOURCE to lower it; if missing, we just warn.
         #[cfg(any(target_os = "linux"))]
         {
+            // Badness is (memory used, in permille of host RAM) + oom_score_adj, so the gap
+            // must exceed the worker's own footprint in permille to actually steer the kill.
+            // 100 covers a worker holding up to ~10% of host RAM.
+            const MIN_OOM_SCORE_GAP: i32 = 100;
+
             let job_adj = *windmill_common::worker::JOB_OOM_SCORE_ADJ;
             match std::fs::read_to_string("/proc/self/oom_score_adj") {
                 Ok(current) => {
                     let current = current.trim().to_string();
-                    let mut worker_adj = match current.parse::<i32>() {
-                        Ok(v) => v,
-                        Err(e) => {
-                            tracing::warn!("Could not parse oom_score_adj '{current}': {e}");
-                            0
-                        }
-                    };
-                    if worker_adj > 0 {
-                        match std::fs::write("/proc/self/oom_score_adj", "0") {
-                            Ok(_) => {
+                    match current.parse::<i32>() {
+                        Ok(mut worker_adj) => {
+                            if worker_adj > 0 {
+                                match std::fs::write("/proc/self/oom_score_adj", "0") {
+                                    Ok(_) => {
+                                        tracing::info!(
+                                            "Lowered worker oom_score_adj from {worker_adj} to 0"
+                                        );
+                                        worker_adj = 0;
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            "Could not lower worker oom_score_adj from {worker_adj} to 0: {e}. \
+                                            Add CAP_SYS_RESOURCE to the container to fix this"
+                                        );
+                                    }
+                                }
+                            }
+                            let gap = job_adj - worker_adj;
+                            if gap >= MIN_OOM_SCORE_GAP {
                                 tracing::info!(
-                                    "Lowered worker oom_score_adj from {worker_adj} to 0"
+                                    "Worker oom_score_adj={worker_adj}, jobs get {job_adj} (gap={gap})"
                                 );
-                                worker_adj = 0;
-                            }
-                            Err(e) => {
+                            } else {
                                 tracing::warn!(
-                                    "Could not lower worker oom_score_adj from {worker_adj} to 0: {e}. \
-                                    Add CAP_SYS_RESOURCE to the container to fix this"
+                                    "Worker oom_score_adj={worker_adj}, jobs get {job_adj} (gap={gap}): \
+                                    too small to reliably steer the OOM killer to the job. \
+                                    Raise JOB_OOM_SCORE_ADJ or lower the worker's own score"
                                 );
                             }
                         }
-                    }
-                    let gap = job_adj - worker_adj;
-                    if gap > 0 {
-                        tracing::info!(
-                            "Worker oom_score_adj={worker_adj}, jobs get {job_adj} (gap={gap})"
-                        );
-                    } else {
-                        tracing::warn!(
-                            "Worker oom_score_adj={worker_adj} but jobs get {job_adj} (gap={gap}): \
-                            the OOM killer has no reason to sacrifice a job over the worker. \
-                            Raise JOB_OOM_SCORE_ADJ above the worker's own score"
-                        );
+                        Err(e) => {
+                            tracing::warn!(
+                                "Could not parse worker oom_score_adj '{current}': {e}. \
+                                Cannot tell whether jobs (oom_score_adj={job_adj}) outrank the worker"
+                            );
+                        }
                     }
                 }
                 Err(e) => {

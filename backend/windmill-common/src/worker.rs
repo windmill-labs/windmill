@@ -267,12 +267,13 @@ lazy_static::lazy_static! {
 
     pub static ref LIMIT_WINDOWS_TO_1CU: bool = std::env::var("LIMIT_WINDOWS_TO_1CU").ok().is_some_and(|x| x == "1" || x == "true");
 
-    /// `oom_score_adj` applied to job subprocesses. Any value above the worker's own score keeps
-    /// the kernel OOM killer sacrificing the job rather than the worker; the default maximizes that
-    /// margin. Userspace OOM daemons (earlyoom, systemd-oomd, nohang) rank every process on the
-    /// host by the same score, so at 1000 a tiny job outranks multi-GB processes and gets killed
-    /// first. Lowering this keeps the kernel ordering while leaving those daemons free to pick the
-    /// actual memory hog.
+    /// `oom_score_adj` applied to job subprocesses. The kernel adds it to the process's memory
+    /// use expressed in permille of host RAM, so the job only reliably outranks the worker once
+    /// the gap between their two adjustments exceeds the worker's own footprint in permille; the
+    /// default maximizes that margin. Userspace OOM daemons (earlyoom, systemd-oomd, nohang) rank
+    /// every process on the host by the same score, so at 1000 a tiny job outranks multi-GB
+    /// processes and gets killed first. Lowering this trades margin over the worker for a fairer
+    /// ranking against everything else on the host.
     pub static ref JOB_OOM_SCORE_ADJ: i32 = parse_job_oom_score_adj(std::env::var("JOB_OOM_SCORE_ADJ").ok().as_deref());
 
     pub static ref CGROUP_V2_PATH_RE: Regex = Regex::new(r#"(?m)^0::(/.*)$"#).unwrap();
