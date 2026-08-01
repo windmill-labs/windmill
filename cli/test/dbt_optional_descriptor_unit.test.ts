@@ -69,6 +69,26 @@ describe("a dbt project without a descriptor", () => {
     expect(removeExtensionToPath(win)).toBe("f\\analytics\\analytics");
   });
 
+  // Both `<base>.py` and `<base>__dbt/` deploy to the SAME remote path, and the
+  // descriptor is optional — so the project is invisible to the candidate list
+  // while being perfectly real. Resolved to the ordinary file, a model edit
+  // deploys the Python script over the dbt one.
+  test("refuses to resolve when an ordinary script shares its path", async () => {
+    const cwd = process.cwd();
+    process.chdir(dir);
+    try {
+      fs.writeFileSync(path.join(dir, "f/analytics/analytics.py"), "def main(): ...");
+      const err = await findContentFile("f/analytics/analytics.script.yaml").then(
+        () => undefined,
+        (e) => e as Error,
+      );
+      expect(err?.message).toContain("f/analytics/analytics__dbt/dbt_project.yml");
+      expect(err?.message).toContain("f/analytics/analytics.py");
+    } finally {
+      process.chdir(cwd);
+    }
+  });
+
   // The two sides spell "absent" differently — nothing on disk, nothing in the
   // export — so without one normalization a descriptor-less project reads as an
   // addition on every push and a deletion on every pull, forever.

@@ -1036,6 +1036,29 @@ export async function findContentFile(filePath: string) {
   )
     .filter((x) => x.file)
     .map((x) => x.path);
+  // A dbt project's descriptor is OPTIONAL, so `dbt_project.yml` is what says a
+  // dbt script lives at this path — the descriptor is often absent from the
+  // candidates above while the project is perfectly real. Asked BEFORE the
+  // counts below: a project beside an ordinary script is not "one candidate",
+  // it is two scripts claiming one remote path, and returning the ordinary one
+  // deploys it OVER the dbt script on the next push of any model.
+  const dbtCandidate = toCandidate("__dbt/" + DBT_DESCRIPTOR_NAME);
+  const dbtProject = dbtCandidate.replace(
+    new RegExp(DBT_DESCRIPTOR_NAME + "$"),
+    "dbt_project.yml",
+  );
+  const hasDbtProject = await stat(dbtProject)
+    .then(() => true)
+    .catch(() => false);
+  const nonDbtCandidates = validCandidates.filter((c) => c !== dbtCandidate);
+  if (hasDbtProject && nonDbtCandidates.length > 0) {
+    throw new UnresolvableScriptContentFileError(
+      `${filePath} has both a dbt project (${dbtProject}) and ${nonDbtCandidates.join(
+        ", ",
+      )} beside it, and both deploy to the same path. Keep one: move the dbt ` +
+        `project to a path of its own, or remove ${nonDbtCandidates.join(", ")}.`,
+    );
+  }
   if (validCandidates.length > 1) {
     throw new UnresolvableScriptContentFileError(
       `Multiple script files found next to ${filePath}: ${validCandidates.join(", ")} — ` +
@@ -1043,15 +1066,9 @@ export async function findContentFile(filePath: string) {
     );
   }
   if (validCandidates.length < 1) {
-    // A dbt project's descriptor is optional, so the project folder itself is
-    // what says a script is there. Resolving to the absent descriptor keeps one
-    // content path for every caller; reading it yields an empty descriptor.
-    const dbtCandidate = toCandidate("__dbt/" + DBT_DESCRIPTOR_NAME);
-    const dbtProject = dbtCandidate.replace(
-      new RegExp(DBT_DESCRIPTOR_NAME + "$"),
-      "dbt_project.yml",
-    );
-    if (await stat(dbtProject).then(() => true).catch(() => false)) {
+    // Resolving to the absent descriptor keeps one content path for every
+    // caller; reading it yields an empty descriptor.
+    if (hasDbtProject) {
       return dbtCandidate;
     }
     throw new UnresolvableScriptContentFileError(
