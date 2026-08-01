@@ -118,7 +118,8 @@
 		modulesTestStates: new ModulesTestStates(),
 		outputPickerOpenFns: {},
 		preserveOnBehalfOf: writable(false),
-		savedOnBehalfOfEmail: writable<string | undefined>(undefined)
+		savedOnBehalfOfEmail: writable<string | undefined>(undefined),
+		savedOnBehalfOfPermissionedAs: writable<string | undefined>(undefined)
 	})
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),

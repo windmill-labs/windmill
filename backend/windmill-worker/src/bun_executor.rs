@@ -2512,11 +2512,10 @@ pub async fn handle_wac_v2_output(
     };
     use serde_json::Value;
     use windmill_common::get_latest_flow_version_info_for_path;
-    use windmill_common::jobs::{script_path_to_payload, JobKind, JobPayload, OnBehalfOf, RawCode};
+    use windmill_common::jobs::{script_path_to_payload, JobKind, JobPayload, RawCode};
     use windmill_common::runnable_settings::{
         ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings,
     };
-    use windmill_common::users::username_to_permissioned_as;
     use windmill_queue::{push, PushArgs, PushIsolationLevel};
 
     let output = parse_wac_output(&result)?;
@@ -2872,13 +2871,9 @@ pub async fn handle_wac_v2_output(
                                     version: flow_info.version,
                                     labels: flow_info.labels.clone(),
                                 };
-                                let on_behalf_of =
-                                    flow_info.on_behalf_of_email.map(|email| OnBehalfOf {
-                                        email,
-                                        permissioned_as: username_to_permissioned_as(
-                                            &flow_info.edited_by,
-                                        ),
-                                    });
+                                let on_behalf_of = flow_info
+                                    .on_behalf_of(&job.workspace_id, db)
+                                    .await?;
                                 let step_args: HashMap<String, Box<RawValue>> = step
                                     .args
                                     .iter()

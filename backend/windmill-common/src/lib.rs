@@ -193,24 +193,111 @@ pub fn check_on_behalf_of_preservation(
     None
 }
 
-/// Determines the on_behalf_of_email value to use when creating/updating a flow or script.
-/// - If `on_behalf_of_email` is None, returns None
-/// - If `preserve` is true and the user is admin or in the deployers group, returns the original value
-/// - Otherwise, returns the authenticated user's email
-pub fn resolve_on_behalf_of_email<'a>(
-    on_behalf_of_email: Option<&'a str>,
+/// Resolves the identity to store when creating/updating a flow or script.
+///
+/// The permissioned_as is the only stored identity — it decides what the job may access,
+/// and the address is derived from it at read time — so the two can never name different
+/// accounts. Callers may supply either: a bare email (every client written before the
+/// principal existed) is resolved to the principal it names, and an email that names
+/// nobody is rejected rather than recorded, since it could only produce a runnable that
+/// cannot authenticate.
+///
+/// Returns `None` when the runnable has no on-behalf-of identity, and the caller's own
+/// identity when they are not allowed to preserve someone else's.
+///
+/// Resolves through the non-RLS pool and authorizes nothing itself — `authed` decides only
+/// whether preservation is allowed, and its role flags are not re-checked against `w_id`.
+/// Callers must already be authorized for the workspace they pass.
+pub async fn resolve_on_behalf_of(
+    on_behalf_of_email: Option<&str>,
+    on_behalf_of: Option<&str>,
     preserve: bool,
-    authed: &'a impl db::Authable,
-) -> Option<&'a str> {
-    if on_behalf_of_email.is_some() {
-        if preserve && can_preserve_on_behalf_of(authed) {
-            on_behalf_of_email
-        } else {
-            Some(authed.email())
-        }
-    } else {
-        None
+    authed: &impl db::Authable,
+    w_id: &str,
+    db: &sqlx::Pool<Postgres>,
+) -> error::Result<Option<String>> {
+    if on_behalf_of_email.is_none() && on_behalf_of.is_none() {
+        return Ok(None);
     }
+    // Through the same width check as every other branch: the caller's own identity is
+    // address-shaped when they act without a `usr` row, and one too wide for a job row is no
+    // more enqueueable for naming themselves.
+    if !(preserve && can_preserve_on_behalf_of(authed)) {
+        return reject_unenqueueable(users::username_to_permissioned_as(authed.username()));
+    }
+    let permissioned_as = match on_behalf_of {
+        Some(permissioned_as) => {
+            // The principal wins, but a caller that also names a contradictory address has a
+            // bug worth surfacing: that is exactly how a workspace deploy once shipped one
+            // workspace's principal beside another's address.
+            if let Some(email) = on_behalf_of_email {
+                let named =
+                    users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db)
+                        .await?;
+                if named != email {
+                    return Err(Error::BadRequest(format!(
+                        "on_behalf_of '{permissioned_as}' resolves to '{named}', \
+                         not to on_behalf_of_email '{email}'. Both must name the same account."
+                    )));
+                }
+            }
+            // A bare address is canonical only for an account whose username is that address,
+            // or for a superadmin acting outside their workspaces. Sent for an ordinary member
+            // — which is what a folder rule naming an address produces — it is canonicalized to
+            // `u/{username}`: the bare branch of `fetch_authed_from_permissioned_as` grants
+            // neither their groups nor their folders, so storing it verbatim would run the job
+            // with less access than the account it names.
+            let canonical = if permissioned_as.starts_with(users::PERMISSIONED_AS_USER_PREFIX)
+                || permissioned_as.starts_with(users::PERMISSIONED_AS_GROUP_PREFIX)
+            {
+                None
+            } else {
+                users::permissioned_as_from_email(w_id, permissioned_as, db).await?
+            };
+            match canonical {
+                Some(canonical) => canonical,
+                None => {
+                    // Symmetric with the address branch below: an identity that names nobody
+                    // would only produce a runnable that cannot authenticate, and an unknown
+                    // prefix takes the least-privileged branch of
+                    // `fetch_authed_from_permissioned_as` rather than failing.
+                    if !users::permissioned_as_exists(w_id, permissioned_as, db).await? {
+                        return Err(Error::BadRequest(format!(
+                            "on_behalf_of '{permissioned_as}' names no user or \
+                             group in this workspace."
+                        )));
+                    }
+                    permissioned_as.to_string()
+                }
+            }
+        }
+        None => {
+            let email = on_behalf_of_email.unwrap_or_default();
+            users::permissioned_as_from_email(w_id, email, db)
+                .await?
+                .ok_or_else(|| {
+                    Error::BadRequest(format!(
+                        "on_behalf_of_email '{email}' names no user or group in this workspace, so \
+                         there is no identity to run as. Pass on_behalf_of, or use \
+                         the address of a workspace member."
+                    ))
+                })?
+        }
+    };
+    reject_unenqueueable(permissioned_as)
+}
+
+/// Every principal ends up on `v2_job.permissioned_as`, which is narrower than the columns it is
+/// stored in, so an identity that cannot be enqueued is refused at the deploy that records it
+/// rather than at the first run of a runnable that looks fine.
+fn reject_unenqueueable(permissioned_as: String) -> error::Result<Option<String>> {
+    if permissioned_as.chars().count() > users::PERMISSIONED_AS_MAX_LEN {
+        return Err(Error::BadRequest(format!(
+            "the identity '{permissioned_as}' is longer than the {} characters a job can carry",
+            users::PERMISSIONED_AS_MAX_LEN
+        )));
+    }
+    Ok(Some(permissioned_as))
 }
 
 #[macro_export]
@@ -1521,11 +1608,72 @@ pub struct ScriptHashInfo<SR> {
     pub delete_after_secs: Option<i32>,
     pub timeout: Option<i32>,
     pub has_preprocessor: Option<bool>,
-    pub on_behalf_of_email: Option<String>,
+    pub on_behalf_of: Option<String>,
     pub created_by: String,
     pub labels: Option<Vec<String>>,
     #[sqlx(flatten)]
     pub runnable_settings: SR,
+}
+
+impl<SR> ScriptHashInfo<SR> {
+    /// The identity this script runs as, or `None` when it runs as its caller. The address
+    /// is derived from the principal rather than stored, so the two cannot disagree.
+    ///
+    /// Reads through the non-RLS pool and authorizes nothing: callers must already be
+    /// authorized for `w_id` and for this script.
+    pub async fn on_behalf_of(
+        &self,
+        w_id: &str,
+        db: &DB,
+    ) -> error::Result<Option<jobs::OnBehalfOf>> {
+        on_behalf_of_from_permissioned_as(self.on_behalf_of.as_deref(), w_id, db).await
+    }
+}
+
+/// The address to store beside the principal, or `None` once no worker needs it.
+///
+/// A worker predating [`MIN_VERSION_SUPPORTS_ON_BEHALF_OF_PRINCIPAL`] reads `on_behalf_of_email`
+/// and nothing else, so a deploy has to keep filling it while one may still be live — otherwise
+/// a runnable deployed mid-upgrade runs as its deployer there. Once every worker is new the
+/// column is dead weight and a later release drops it.
+///
+/// Reads through the non-RLS pool and authorizes nothing: callers must already be authorized
+/// for `w_id`.
+pub async fn legacy_on_behalf_of_email(
+    permissioned_as: Option<&str>,
+    w_id: &str,
+    db: &DB,
+) -> error::Result<Option<String>> {
+    let Some(permissioned_as) = permissioned_as else {
+        return Ok(None);
+    };
+    if min_version::MIN_VERSION_SUPPORTS_ON_BEHALF_OF_PRINCIPAL.met_conservatively() {
+        return Ok(None);
+    }
+    Ok(Some(
+        users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db).await?,
+    ))
+}
+
+/// Shared by [`ScriptHashInfo::on_behalf_of`] and [`FlowVersionInfo::on_behalf_of`].
+///
+/// Reads identity data through the non-RLS pool and enforces nothing itself: it answers who a
+/// row already says it runs as. Callers must have authorized `w_id` — and the row they read it
+/// from — before dispatching a job with what it returns.
+pub async fn on_behalf_of_from_permissioned_as(
+    permissioned_as: Option<&str>,
+    w_id: &str,
+    db: &DB,
+) -> error::Result<Option<jobs::OnBehalfOf>> {
+    let Some(permissioned_as) = permissioned_as else {
+        return Ok(None);
+    };
+    // Uncached: the address is copied onto the job row, where it stays for the life of the run
+    // and decides the superadmin flag and the instance groups. Nothing evicts the cache across
+    // processes, so a cached read would keep minting jobs under an address the account no longer
+    // holds for up to a minute after it moves.
+    let email = users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db).await?;
+    Ok(Some(jobs::OnBehalfOf { email, permissioned_as: permissioned_as.to_string() }))
 }
 
 impl ScriptHashInfo<ScriptRunnableSettingsHandle> {
@@ -1552,7 +1700,7 @@ impl ScriptHashInfo<ScriptRunnableSettingsHandle> {
             delete_after_secs: self.delete_after_secs,
             timeout: self.timeout,
             has_preprocessor: self.has_preprocessor,
-            on_behalf_of_email: self.on_behalf_of_email,
+            on_behalf_of: self.on_behalf_of,
             created_by: self.created_by,
             labels: self.labels,
             runnable_settings: ScriptRunnableSettingsInline {
@@ -1771,7 +1919,7 @@ async fn get_script_info_for_hash_inner<'e, E: sqlx::PgExecutor<'e>>(
                 delete_after_secs,
                 timeout,
                 has_preprocessor,
-                on_behalf_of_email,
+                on_behalf_of,
                 created_by,
                 labels,
                 path
@@ -1791,10 +1939,24 @@ pub struct FlowVersionInfo {
     pub has_preprocessor: Option<bool>,
     pub has_failure_module: Option<bool>,
     pub chat_input_enabled: Option<bool>,
-    pub on_behalf_of_email: Option<String>,
+    pub on_behalf_of: Option<String>,
     pub edited_by: String,
     pub dedicated_worker: Option<bool>,
     pub labels: Option<Vec<String>>,
+}
+
+impl FlowVersionInfo {
+    /// The identity this flow runs as, or `None` when it runs as its caller.
+    ///
+    /// Same contract as [`ScriptHashInfo::on_behalf_of`]: callers must already be authorized
+    /// for `w_id` and for this flow.
+    pub async fn on_behalf_of(
+        &self,
+        w_id: &str,
+        db: &DB,
+    ) -> error::Result<Option<jobs::OnBehalfOf>> {
+        on_behalf_of_from_permissioned_as(self.on_behalf_of.as_deref(), w_id, db).await
+    }
 }
 
 struct CachedFlowPath(String);
@@ -1922,7 +2084,7 @@ pub fn get_flow_version_info_from_version<
                                     (flow_version.value->>'chat_input_enabled')::boolean as chat_input_enabled,
                                     flow.tag,
                                     flow.dedicated_worker,
-                                    flow.on_behalf_of_email,
+                                    flow.on_behalf_of,
                                     flow.edited_by,
                                     flow.labels
                                 FROM
@@ -2038,6 +2200,7 @@ async fn get_latest_flow_version_for_path<'e, E: sqlx::PgExecutor<'e>>(
 
 pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
     db: E,
+    db2: &DB,
     w_id: &str,
     script_path: &str,
     require_locked: bool,
@@ -2055,13 +2218,12 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
     Option<bool>,
     Option<i16>,
     Option<i32>,
-    Option<String>,
-    String,
+    Option<jobs::OnBehalfOf>,
     Option<i64>,
     Option<Vec<String>>,
 )> {
     let r_o = sqlx::query!(
-            "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, cache_ignore_s3_path, runnable_settings_handle, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of_email, created_by, labels FROM script
+            "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, cache_ignore_s3_path, runnable_settings_handle, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of, created_by, labels FROM script
              WHERE path = $1 AND workspace_id = $2 AND archived = false AND (lock IS NOT NULL OR $3 = false)
              ORDER BY created_at DESC LIMIT 1",
             script_path,
@@ -2072,6 +2234,9 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
         .await?;
 
     let script = utils::not_found_if_none(r_o, "script", script_path)?;
+
+    let on_behalf_of =
+        on_behalf_of_from_permissioned_as(script.on_behalf_of.as_deref(), w_id, db2).await?;
 
     Ok((
         scripts::ScriptHash(script.hash),
@@ -2087,8 +2252,7 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
         script.dedicated_worker,
         script.priority,
         script.timeout,
-        script.on_behalf_of_email,
-        script.created_by,
+        on_behalf_of,
         script.runnable_settings_handle,
         script.labels,
     ))

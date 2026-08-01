@@ -590,6 +590,7 @@ pub async fn handle_ai_agent_job(
                             } else {
                                 let hash = get_latest_hash_for_path(
                                     db,
+                                    db,
                                     &job.workspace_id,
                                     path.as_str(),
                                     true,

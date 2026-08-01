@@ -223,8 +223,10 @@
 	let isDeployer = $derived($userStore?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
 	let canPreserve = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin || isDeployer)
 	let originalOnBehalfOfEmail = $derived(savedScript?.on_behalf_of_email)
+	let originalOnBehalfOfPermissionedAs = $derived(savedScript?.on_behalf_of)
 	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
 	let customOnBehalfOfEmail: string = $state('')
+	let myPermissionedAs = $derived($userStore?.username ? `u/${$userStore.username}` : undefined)
 
 	let metadataOpen = $state(
 		!untrack(() => neverShowMeta) &&
@@ -676,6 +678,7 @@
 					has_preprocessor: script.has_preprocessor,
 					deployment_message: deploymentMsg || undefined,
 					on_behalf_of_email: script.on_behalf_of_email,
+					on_behalf_of: script.on_behalf_of,
 					preserve_on_behalf_of: preserveOnBehalfOf || undefined,
 					assets: script.assets,
 					modules: script.modules,
@@ -1818,10 +1821,12 @@
 													on:change={() => {
 														if (script.on_behalf_of_email) {
 															script.on_behalf_of_email = undefined
+															script.on_behalf_of = undefined
 															preserveOnBehalfOf = false
 															onBehalfOfChoice = undefined
 														} else {
 															script.on_behalf_of_email = $userStore?.email
+															script.on_behalf_of = myPermissionedAs
 														}
 													}}
 													options={{
@@ -1837,14 +1842,20 @@
 															onBehalfOfChoice = choice
 															if (choice === 'me') {
 																script.on_behalf_of_email = $userStore?.email
+																script.on_behalf_of = myPermissionedAs
 																customOnBehalfOfEmail = ''
 																preserveOnBehalfOf = false
 															} else if (choice === 'target') {
+																// Keep the saved pair. A script that has no recorded principal yet
+																// sends the email alone and the backend derives one from it.
 																script.on_behalf_of_email = originalOnBehalfOfEmail
+																script.on_behalf_of =
+																	originalOnBehalfOfPermissionedAs
 																customOnBehalfOfEmail = ''
 																preserveOnBehalfOf = true
 															} else if (choice === 'custom' && details) {
 																script.on_behalf_of_email = details.email
+																script.on_behalf_of = details.permissionedAs
 																customOnBehalfOfEmail = details.email
 																preserveOnBehalfOf = true
 															}

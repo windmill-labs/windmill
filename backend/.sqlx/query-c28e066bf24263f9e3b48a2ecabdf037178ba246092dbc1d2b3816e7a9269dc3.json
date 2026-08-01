@@ -17,7 +17,7 @@
                 "ducklake",
                 "datatable",
                 "volume",
-                "table"
+                "dbt"
               ]
             }
           }
@@ -89,7 +89,7 @@
                 "ducklake",
                 "datatable",
                 "volume",
-                "table"
+                "dbt"
               ]
             }
           }

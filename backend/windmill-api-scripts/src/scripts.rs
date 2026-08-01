@@ -743,6 +743,7 @@ impl HandleDeploymentMetadata {
 async fn is_noop_deploy_against_parent(
     ns: &NewScript,
     parent: &Script<ScriptRunnableSettingsHandle>,
+    resolved_on_behalf_of: Option<&str>,
     db: &DB,
 ) -> Result<bool> {
     if parent.archived || parent.deleted {
@@ -785,7 +786,10 @@ async fn is_noop_deploy_against_parent(
         auto_kind: _,
         codebase,
         has_preprocessor,
-        on_behalf_of_email,
+        // both halves are folded into `resolved_on_behalf_of` before the comparison below,
+        // which is the identity that would actually be stored
+        on_behalf_of_email: _,
+        on_behalf_of: _,
         // caller-intent flag (permission preservation), not script state
         preserve_on_behalf_of: _,
         assets,
@@ -863,7 +867,7 @@ async fn is_noop_deploy_against_parent(
     {
         return Ok(false);
     }
-    if on_behalf_of_email != &parent.on_behalf_of_email {
+    if resolved_on_behalf_of != parent.on_behalf_of.as_deref() {
         return Ok(false);
     }
     // Both of a dbt script's derived fields are compared as they WOULD BE STORED,
@@ -1029,7 +1033,8 @@ async fn create_script_internal<'c>(
 
     // Apply folder default_permissioned_as the first time a script is deployed
     // at this path. Check inside the transaction to avoid TOCTOU with concurrent deploys.
-    let explicit_preserve = ns.on_behalf_of_email.is_some()
+    let explicit_preserve = (ns.on_behalf_of_email.is_some()
+        || ns.on_behalf_of.is_some())
         && ns.preserve_on_behalf_of.unwrap_or(false)
         && windmill_common::can_preserve_on_behalf_of(&authed);
     if !explicit_preserve && windmill_common::can_preserve_on_behalf_of(&authed) {
@@ -1042,17 +1047,33 @@ async fn create_script_internal<'c>(
         .await?
         .unwrap_or(false);
         if !path_already_exists {
-            if let Some(default_email) =
-                windmill_common::folders::resolve_folder_default_on_behalf_of_email(
-                    &db, &w_id, &ns.path,
-                )
-                .await?
+            if let Some((default_email, default_permissioned_as)) =
+                windmill_common::folders::resolve_folder_default_on_behalf_of(&db, &w_id, &ns.path)
+                    .await?
             {
                 ns.on_behalf_of_email = Some(default_email);
+                ns.on_behalf_of = Some(default_permissioned_as);
                 ns.preserve_on_behalf_of = Some(true);
             }
         }
     }
+    let authed_principal = windmill_common::users::username_to_permissioned_as(&authed.username);
+    // Resolved here rather than at the INSERT so the no-op check below compares the identity
+    // that would actually be stored: the parent row holds only the principal, while a
+    // preserving push may name that same principal by address alone.
+    let resolved_on_behalf_of = windmill_common::resolve_on_behalf_of(
+        ns.on_behalf_of_email.as_deref(),
+        ns.on_behalf_of.as_deref(),
+        ns.preserve_on_behalf_of.unwrap_or(false),
+        &authed,
+        &w_id,
+        &db,
+    )
+    .await?;
+    // Written beside the principal only while a worker that still reads it may be live.
+    let legacy_on_behalf_of_email =
+        windmill_common::legacy_on_behalf_of_email(resolved_on_behalf_of.as_deref(), &w_id, &db)
+            .await?;
     if sqlx::query_scalar!(
         "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",
         hash.0,
@@ -1153,7 +1174,15 @@ async fn create_script_internal<'c>(
             // sync / promotion callbacks — the whole point is that idempotent
             // CLI pushes must not produce phantom commits on the downstream
             // git repository.
-            if skip_if_noop && is_noop_deploy_against_parent(&ns, &ps, &db).await? {
+            if skip_if_noop
+                && is_noop_deploy_against_parent(
+                    &ns,
+                    &ps,
+                    resolved_on_behalf_of.as_deref(),
+                    &db,
+                )
+                .await?
+            {
                 tracing::info!(
                     workspace_id = %w_id,
                     path = %ns.path,
@@ -1658,8 +1687,8 @@ async fn create_script_internal<'c>(
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
          envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
          dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-         delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle, modules, labels) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40)",
+         delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, codebase, has_preprocessor, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle, modules, labels, on_behalf_of, on_behalf_of_email) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41)",
         &w_id,
         &hash.0,
         ns.path,
@@ -1691,11 +1720,6 @@ async fn create_script_internal<'c>(
         auto_kind.as_deref(),
         codebase,
         has_preprocessor.filter(|x: &bool| *x),
-        windmill_common::resolve_on_behalf_of_email(
-            ns.on_behalf_of_email.as_deref(),
-            ns.preserve_on_behalf_of.unwrap_or(false),
-            &authed,
-        ),
         validate_schema,
         effective_assets
             .as_ref()
@@ -1705,7 +1729,9 @@ async fn create_script_internal<'c>(
         ns.cache_ignore_s3_path,
         runnable_settings_handle,
         ns.modules.as_ref().and_then(|m| serde_json::to_value(m).ok()),
-        ns.labels.as_deref() as Option<&[String]>
+        ns.labels.as_deref() as Option<&[String]>,
+        resolved_on_behalf_of,
+        legacy_on_behalf_of_email,
     )
     .execute(&mut *tx)
     .await?;
@@ -2038,10 +2064,10 @@ async fn create_script_internal<'c>(
         )
         .await?;
         if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
-            ns.on_behalf_of_email.as_deref(),
+            resolved_on_behalf_of.as_deref(),
             ns.preserve_on_behalf_of.unwrap_or(false),
             &authed,
-            &authed.email,
+            &authed_principal,
         ) {
             audit_log(
                 &mut *tx,
@@ -2086,10 +2112,10 @@ async fn create_script_internal<'c>(
         )
         .await?;
         if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
-            ns.on_behalf_of_email.as_deref(),
+            resolved_on_behalf_of.as_deref(),
             ns.preserve_on_behalf_of.unwrap_or(false),
             &authed,
-            &authed.email,
+            &authed_principal,
         ) {
             audit_log(
                 &mut *tx,
