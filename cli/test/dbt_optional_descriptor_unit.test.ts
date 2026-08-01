@@ -10,10 +10,13 @@ import * as os from "node:os";
 import { FSFSElement, elementsToMap } from "../src/commands/sync/sync.ts";
 import { listWorkspacePaths } from "../src/commands/dev/dev.ts";
 import {
+  DbtPathCollisionError,
   findContentFile,
+  handleFile,
   hasScriptExt,
   removeExtensionToPath,
 } from "../src/commands/script/script.ts";
+import { pushParentScriptForModule } from "../src/commands/sync/sync.ts";
 
 /** The local map's keys are the walk's own — `path.join`, so `__dbt\\` on
  *  Windows — while a remote's are the API's. The synthesized descriptor follows
@@ -94,6 +97,49 @@ describe("a dbt project without a descriptor", () => {
       );
       expect(err?.message).toContain("f/analytics/analytics__dbt/dbt_project.yml");
       expect(err?.message).toContain("f/analytics/analytics.py");
+    } finally {
+      process.chdir(cwd);
+    }
+  });
+
+  // The guard has to sit on the push paths themselves, not only on the
+  // metadata->content resolution: an ordinary file goes straight to
+  // `handleFile`, and a module edit reaches its parent through a call whose
+  // errors were swallowed — so each path could still overwrite the other's
+  // script while reporting success.
+  test("both push paths refuse the collision", async () => {
+    const cwd = process.cwd();
+    process.chdir(dir);
+    try {
+      fs.writeFileSync(path.join(dir, "f/analytics/analytics.py"), "def main(): ...");
+      const ordinary = await handleFile(
+        "f/analytics/analytics.py",
+        { workspaceId: "w", remote: "http://localhost", name: "w", token: "t" } as any,
+        [],
+        undefined,
+        undefined,
+        {},
+        [],
+      ).then(
+        () => undefined,
+        (e) => e as Error,
+      );
+      expect(ordinary).toBeInstanceOf(DbtPathCollisionError);
+      expect(ordinary?.message).toContain("f/analytics/analytics.py");
+
+      const model = await pushParentScriptForModule(
+        "f/analytics/analytics__dbt/models/stg_orders.sql",
+        { workspaceId: "w", remote: "http://localhost", name: "w", token: "t" } as any,
+        [],
+        undefined,
+        undefined,
+        {},
+        [],
+      ).then(
+        () => undefined,
+        (e) => e as Error,
+      );
+      expect(model).toBeInstanceOf(DbtPathCollisionError);
     } finally {
       process.chdir(cwd);
     }

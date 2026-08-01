@@ -217,6 +217,35 @@ pub const RUN_GRAPH_RETENTION_DAYS: i32 = 30;
 
 /// Drop the run snapshots older than the retention window, across the instance.
 ///
+/// How long a run's progress rows outlive it.
+///
+/// They exist for the run page, which reads them live and — for a run that left
+/// no `run_results.json`, cancelled or killed — afterwards. Bounded by age and
+/// swept by the writes themselves, so no background job has to know this table.
+const RUN_PROGRESS_RETENTION_DAYS: i32 = 30;
+
+/// Drop progress rows older than the retention above.
+///
+/// Called from EVERY writer, like `prune_dbt_run_graphs`: these rows carry no
+/// job foreign key on purpose, so nothing else reclaims them, and a writer that
+/// skips this is a configuration with no sweep at all — an agent-only workspace
+/// writes them exclusively through the API.
+///
+/// See the mutator contract above: this authorizes nothing.
+pub async fn prune_run_progress(db: &crate::DB, w_id: &str) {
+    let res = sqlx::query!(
+        "DELETE FROM dbt_run_progress
+          WHERE workspace_id = $1 AND updated_at < now() - make_interval(days => $2)",
+        w_id,
+        RUN_PROGRESS_RETENTION_DAYS,
+    )
+    .execute(db)
+    .await;
+    if let Err(e) = res {
+        tracing::warn!("pruning dbt run progress: {e:#}");
+    }
+}
+
 /// Called by everything that writes them — a run, a deploy, and the endpoint an
 /// agent worker publishes through — so this table needs no background sweep, the
 /// same shape `dbt_run_progress` uses. A writer that does not call it is a

@@ -61,7 +61,7 @@ import {
   hasScriptExt,
 } from "../script/script.ts";
 
-import { handleFile } from "../script/script.ts";
+import { DbtPathCollisionError, handleFile } from "../script/script.ts";
 import {
   deepEqual,
   fetchRemoteVersion,
@@ -3053,7 +3053,7 @@ export async function buildTracker(changes: Change[]) {
  * When a module file changes, find and push the parent script.
  * The parent script's handleFile will read the __mod/ folder and include all modules.
  */
-async function pushParentScriptForModule(
+export async function pushParentScriptForModule(
   modulePath: string,
   workspace: Workspace,
   alreadySynced: string[],
@@ -3116,7 +3116,12 @@ async function pushParentScriptForModule(
     let contentPath: string | undefined;
     try {
       contentPath = await findContentFile(scriptBasePath + ".script.yaml");
-    } catch {
+    } catch (e) {
+      // A path claimed by two scripts is not a parent that cannot be found:
+      // swallowed here, `wmill sync push` reports success on a model edit that
+      // deployed nothing, and the collision stays invisible until the ordinary
+      // script overwrites the project.
+      if (e instanceof DbtPathCollisionError) throw e;
       log.debug(`Could not find parent script for dbt module: ${modulePath}`);
       return;
     }

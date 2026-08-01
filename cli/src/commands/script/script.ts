@@ -363,6 +363,15 @@ export async function handleFile(
     alreadySynced.push(path);
     const remotePath = scriptPathToRemotePath(path);
 
+    // Before anything is written: this path may also be a dbt project's, and
+    // pushing here would deploy this file over it.
+    const collidingProject = await collidingDbtProject(
+      removeExtensionToPath(path)
+    );
+    if (collidingProject) {
+      throw dbtPathCollisionError(collidingProject, path);
+    }
+
     const language = inferContentTypeFromFilePath(path, opts?.defaultTs);
 
     const codebase =
@@ -984,6 +993,45 @@ async function createScript(
  */
 export class UnresolvableScriptContentFileError extends Error {}
 
+/**
+ * A path claimed by both a dbt project and an ordinary script.
+ *
+ * Its own class because the module push tolerates "no parent found" and must
+ * NOT tolerate this: swallowed, the command reports success while deploying
+ * nothing.
+ */
+export class DbtPathCollisionError extends UnresolvableScriptContentFileError {}
+
+/**
+ * The dbt project a path would collide with, if there is one.
+ *
+ * `<base>.py` and `<base>__dbt/` deploy to the SAME remote path, so whichever
+ * is pushed last wins and replaces the other's script. The descriptor is
+ * optional, so `dbt_project.yml` — not the descriptor — is what says a project
+ * is there. Asked on BOTH push paths: an ordinary file goes straight to
+ * `handleFile`, a model reaches its parent through `findContentFile`, and a
+ * guard on one of them leaves the other silently overwriting.
+ */
+export async function collidingDbtProject(
+  basePath: string
+): Promise<string | undefined> {
+  const project = basePath + "__dbt/dbt_project.yml";
+  return (await stat(project).then(() => true).catch(() => false))
+    ? project
+    : undefined;
+}
+
+export function dbtPathCollisionError(
+  project: string,
+  other: string
+): DbtPathCollisionError {
+  return new DbtPathCollisionError(
+    `${project} and ${other} deploy to the same path, so pushing either one ` +
+      `replaces the other's script. Keep one: move the dbt project to a path ` +
+      `of its own, or remove ${other}.`
+  );
+}
+
 
 /**
  * A script's content, tolerating the one content file that may not exist: a dbt
@@ -1043,21 +1091,12 @@ export async function findContentFile(filePath: string) {
   // it is two scripts claiming one remote path, and returning the ordinary one
   // deploys it OVER the dbt script on the next push of any model.
   const dbtCandidate = toCandidate("__dbt/" + DBT_DESCRIPTOR_NAME);
-  const dbtProject = dbtCandidate.replace(
-    new RegExp(DBT_DESCRIPTOR_NAME + "$"),
-    "dbt_project.yml",
+  const dbtProject = await collidingDbtProject(
+    dbtCandidate.slice(0, -("__dbt/" + DBT_DESCRIPTOR_NAME).length),
   );
-  const hasDbtProject = await stat(dbtProject)
-    .then(() => true)
-    .catch(() => false);
   const nonDbtCandidates = validCandidates.filter((c) => c !== dbtCandidate);
-  if (hasDbtProject && nonDbtCandidates.length > 0) {
-    throw new UnresolvableScriptContentFileError(
-      `${filePath} has both a dbt project (${dbtProject}) and ${nonDbtCandidates.join(
-        ", ",
-      )} beside it, and both deploy to the same path. Keep one: move the dbt ` +
-        `project to a path of its own, or remove ${nonDbtCandidates.join(", ")}.`,
-    );
+  if (dbtProject && nonDbtCandidates.length > 0) {
+    throw dbtPathCollisionError(dbtProject, nonDbtCandidates.join(", "));
   }
   if (validCandidates.length > 1) {
     throw new UnresolvableScriptContentFileError(
@@ -1068,7 +1107,7 @@ export async function findContentFile(filePath: string) {
   if (validCandidates.length < 1) {
     // Resolving to the absent descriptor keeps one content path for every
     // caller; reading it yields an empty descriptor.
-    if (hasDbtProject) {
+    if (dbtProject) {
       return dbtCandidate;
     }
     throw new UnresolvableScriptContentFileError(

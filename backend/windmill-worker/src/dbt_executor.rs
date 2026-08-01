@@ -204,7 +204,7 @@ pub(crate) async fn handle_dbt_job(
         let (pool, prune_w_id) = (pool.clone(), job.workspace_id.clone());
         let prune_path = job.runnable_path.clone().unwrap_or_default();
         tokio::spawn(async move {
-            prune_run_progress(&pool, &prune_w_id).await;
+            windmill_common::dbt_manifest::prune_run_progress(&pool, &prune_w_id).await;
             if let Err(e) =
                 windmill_common::dbt_manifest::prune_dbt_run_graphs(&pool, &prune_path, &prune_w_id)
                     .await
@@ -2211,27 +2211,6 @@ async fn run_dbt(
         h.abort();
     }
     res.map(|_| ())
-}
-
-/// How long a run's progress rows outlive it.
-///
-/// They exist for the run page, which reads them live and — for a run that left
-/// no `run_results.json`, cancelled or killed — afterwards. Bounded by age and
-/// pruned by the runs themselves so no background sweep has to know this table.
-const RUN_PROGRESS_RETENTION_DAYS: i32 = 30;
-
-async fn prune_run_progress(db: &sqlx::Pool<sqlx::Postgres>, w_id: &str) {
-    let res = sqlx::query!(
-        "DELETE FROM dbt_run_progress
-          WHERE workspace_id = $1 AND updated_at < now() - make_interval(days => $2)",
-        w_id,
-        RUN_PROGRESS_RETENTION_DAYS,
-    )
-    .execute(db)
-    .await;
-    if let Err(e) = res {
-        tracing::warn!("pruning dbt run progress: {e:#}");
-    }
 }
 
 /// Tail dbt's JSON event file and record each node's status as it finishes, so

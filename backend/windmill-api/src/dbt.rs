@@ -146,6 +146,10 @@ async fn record_run_progress(
             "only a dbt job may record dbt run progress".to_string(),
         ));
     }
+    // The agent's own sweep: these rows have no job foreign key, and the
+    // worker-side prune runs only where the pool is reachable, so an
+    // agent-only workspace would accumulate one row per model forever.
+    windmill_common::dbt_manifest::prune_run_progress(&db, &w_id).await;
     // A run's nodes arrive together; the writes are local to this server, so the
     // loop that would have been a round trip each is a statement each.
     for req in &rows {
