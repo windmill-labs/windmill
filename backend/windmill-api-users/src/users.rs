@@ -1978,7 +1978,8 @@ async fn change_user_email(
     .execute(&mut *tx)
     .await?;
 
-    // ---- runnables run on behalf of the user ----
+    // Still read by workers on the previous version (the schedule error handler passes it
+    // through), so it stays correct across a rolling deploy.
     sqlx::query!(
         "UPDATE schedule SET email = $1 WHERE email = $2",
         &new_email,

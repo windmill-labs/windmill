@@ -8,6 +8,36 @@ use semver::Version;
 // reads that column is live, and those runnables run as their deployer with no error anywhere.
 pub const MIN_VERSION_SUPPORTS_ON_BEHALF_OF_PRINCIPAL: VC =
     vc(1, 776, 0, "On-behalf-of principal");
+
+/// Names the release that stops reading `schedule.email`. Errs a minor high for the same reason
+/// as the constant above: the column is still written for the workers below this version whose
+/// `get_schedule_opt` selects it, inside the same transaction as the job completion — a missing
+/// column would roll that completion back and leave the occurrence to be re-executed.
+///
+/// Nothing gates on this at runtime; it exists so `vc()`'s compile-time assert fires once
+/// `MIN_KEEP_ALIVE_VERSION` passes it. When this constraint stops compiling, no supported worker
+/// reads the column — but the removal still takes two releases, because the last readers are
+/// this codebase's own and a rolling deploy runs both versions at once.
+///
+/// Release A, code only, column untouched:
+///
+/// 1. `workspaces_export.rs`'s schedule `SELECT`, which still names `email` and hydrates
+///    `ScheduleWithEmail` — the only reader left, and the only one that would fail at runtime
+///    rather than at compile time. It emits the derived address instead, like `get_schedule`.
+/// 2. the writes in `windmill-api-schedule` (`create_schedule`, `edit_schedule`) and the clone
+///    in `workspaces.rs`, plus the EE ducklake-maintenance upsert.
+/// 3. the `UPDATE schedule SET email` sweep in `change_user_email`.
+///
+/// Release B, once every replica runs A:
+///
+/// 4. `ALTER TABLE schedule DROP COLUMN email`. `ScheduleWithEmail::email` stays — it is a
+///    `required` field of the `Schedule` response schema, and by then every path fills it by
+///    deriving, so only its source changes.
+///
+/// Dropping the column in release A would break the replicas still on this one, which is the
+/// same rolling-deploy hazard that made the column worth keeping in the first place.
+pub const MIN_VERSION_DERIVES_SCHEDULE_EMAIL: VC =
+    vc(1, 777, 0, "Schedule email derived from permissioned_as");
 pub const MIN_VERSION_SUPPORTS_NODE_DEBOUNCING: VC = vc(1, 658, 0, "Flow node debouncing");
 pub const MIN_VERSION_SUPPORTS_TOKEN_HASH: VC = vc(1, 659, 0, "Token hash storage");
 pub const MIN_VERSION_SUPPORTS_SYNC_JOBS_DEBOUNCING: VC = vc(1, 602, 0, "Sync jobs debouncing");

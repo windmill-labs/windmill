@@ -2442,6 +2442,20 @@ async fn test_schedule_group_permissioned_as(db: Pool<Postgres>) -> anyhow::Resu
         "edited_by should be the deploying user, not the group"
     );
 
+    // A group has no address of its own, so the synthetic one can only come from deriving it.
+    let resp = authed(
+        client().get(format!("{base}/schedules/get/u/test-user/schedule_group_perm")),
+        "SECRET_TOKEN",
+    )
+    .send()
+    .await?;
+    let returned: serde_json::Value = resp.json().await?;
+    assert_eq!(
+        returned["email"].as_str(),
+        Some("group-all@windmill.dev"),
+        "the schedule response derives the address from the principal"
+    );
+
     Ok(())
 }
 

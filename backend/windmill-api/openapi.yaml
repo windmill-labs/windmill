@@ -27894,7 +27894,7 @@ components:
           description: Additional permissions for this schedule
         email:
           type: string
-          description: Email of the user who owns this schedule, used for permissioned_as
+          description: Address of `permissioned_as`. Derived from it when this endpoint answers, and written through from it on save, so the two always name the same account.
         permissioned_as:
           type: string
           description: The user or group this schedule runs as (e.g., 'u/admin' or 'g/mygroup')
