@@ -20,8 +20,6 @@
 	import SchemaForm from '../SchemaForm.svelte'
 	import LogPanel from '../scriptEditor/LogPanel.svelte'
 	import JobLoader from '../JobLoader.svelte'
-	import Tabs from '../common/tabs/Tabs.svelte'
-	import Tab from '../common/tabs/Tab.svelte'
 	import { Button } from '../common'
 	import WindmillIcon from '../icons/WindmillIcon.svelte'
 	import Popover from '../meltComponents/Popover.svelte'
@@ -180,7 +178,6 @@
 	let testJob: any = $state(undefined)
 	let testIsLoading = $state(false)
 	let logPanel: LogPanel | undefined = $state(undefined)
-	let rightTab = $state<'models' | 'run'>('models')
 
 	// The options are the generic editor's, so the two stay interchangeable to the
 	// builder. Neither applies here: a dbt run dispatches nothing to cascade, and
@@ -216,9 +213,6 @@
 			timeout
 		)
 		if (job) onTestJob?.({ jobId: job })
-		// A build's output is the point of running it, and the log panel lives
-		// under the other tab.
-		rightTab = 'run'
 		logPanel?.setFocusToLogs()
 		return job
 	}
@@ -436,17 +430,11 @@
 			</div>
 		</Pane>
 		<Pane size={38} minSize={20}>
-			<div class="flex flex-col h-full">
-				<Tabs bind:selected={rightTab}>
-					<Tab value="models" label="Models" />
-					<Tab value="run" label="Run" />
-				</Tabs>
-				<!-- Both panes stay MOUNTED and are hidden rather than swapped: each
-				     holds state a tab switch has no business ending. The graph holds
-				     the parse it is pinned to, and a refresh in flight — unmounting
-				     it drops the pin back to the deployed graph and abandons a job
-				     that costs a worker slot. The log panel holds a running build. -->
-				<div class="flex-1 min-h-0" class:hidden={rightTab !== 'models'}>
+			<!-- One pane, not two tabs. A build's models are what you want to watch
+			     while it runs, and a tab makes seeing the graph and the run a choice
+			     between them; the graph colours from the build instead. -->
+			<Splitpanes horizontal class="h-full">
+				<Pane size={55} minSize={20}>
 					<DbtModelGraph
 						workspace={opWs}
 						scriptPath={path ?? ''}
@@ -456,19 +444,22 @@
 						{tag}
 						{timeout}
 						{deployedHash}
+						testJobId={testJob?.id}
+						testRunning={testIsLoading}
+						testResult={testJob?.result}
 						onOpenFile={open}
 					/>
-				</div>
-				<div class="flex-1 min-h-0" class:hidden={rightTab !== 'run'}>
+				</Pane>
+				<Pane size={45} minSize={15}>
 					<Splitpanes horizontal class="h-full">
-						<Pane size={40} minSize={15}>
+						<Pane size={38} minSize={12}>
 							<div class="p-2 overflow-auto h-full">
 								{#if schema}
 									<SchemaForm {schema} bind:args noVariablePicker={false} showSchemaExplorer />
 								{/if}
 							</div>
 						</Pane>
-						<Pane size={60} minSize={20} class="relative">
+						<Pane size={62} minSize={20} class="relative">
 							<LogPanel
 								bind:this={logPanel}
 								workspace={opWs}
@@ -482,8 +473,8 @@
 							/>
 						</Pane>
 					</Splitpanes>
-				</div>
-			</div>
+				</Pane>
+			</Splitpanes>
 		</Pane>
 	</Splitpanes>
 </SplitPanesWrapper>

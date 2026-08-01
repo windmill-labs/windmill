@@ -23,6 +23,7 @@
 		AssetGraphResponse
 	} from '$lib/components/assets/AssetGraph/types'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
+	import { useDbtRunStatus } from './runStatus.svelte'
 
 	let {
 		workspace,
@@ -45,6 +46,13 @@
 		/** The deployed version, when there is one. Its graph is what the panel
 		 *  shows before anything has been parsed from the buffer. */
 		deployedHash,
+		/** The build the editor is running, so the models it touches colour while
+		 *  it walks the DAG — the reason this is one pane and not a tab beside the
+		 *  run. `dbt-core-1x` reports per node live; the other engines settle every
+		 *  relation from the result at the end. */
+		testJobId,
+		testRunning = false,
+		testResult,
 		/** Opens one of the project's files in the editor, so the graph is the
 		 *  project's own navigation. */
 		onOpenFile
@@ -57,6 +65,9 @@
 		tag?: string
 		timeout?: number
 		deployedHash?: string | number
+		testJobId?: string
+		testRunning?: boolean
+		testResult?: unknown
 		onOpenFile?: (path: string) => void
 	} = $props()
 
@@ -279,6 +290,42 @@
 		} as AssetGraphResponse
 	})
 
+	// The build the editor is running, drawn onto the same graph. One pane rather
+	// than a tab beside it: watching the models light up IS what you want while a
+	// build runs, and a tab makes that a choice between the two.
+	// Deliberately NOT `$state`: the effect below increments it, and `+= 1` reads
+	// it — a reactive read there would make the effect depend on its own write and
+	// loop. It exists only to invalidate responses issued for an older job.
+	let runGen = 0
+	const runStatus = useDbtRunStatus({
+		workspace: () => workspace,
+		jobId: () => testJobId,
+		running: () => testRunning,
+		result: () => testResult,
+		graph: () => graph,
+		generation: () => runGen,
+		destroyed: () => destroyed
+	})
+	// A new job's colours are not the previous one's, and a finished run settles
+	// itself from its own result.
+	$effect(() => {
+		void testJobId
+		runGen += 1
+		runStatus.reset()
+	})
+	$effect(() => {
+		if (!testRunning || !testJobId) return
+		void runStatus.load()
+		const t = setInterval(() => void runStatus.load(), 2000)
+		return () => clearInterval(t)
+	})
+	// Once, on the way out: the last events can land after the run ends, and a
+	// run that produced no result at all is coloured from these alone.
+	$effect(() => {
+		if (testRunning || !testJobId) return
+		void runStatus.load()
+	})
+
 	let modelCount = $derived(
 		graph?.assets.filter((a) => a.dbt && a.dbt.resource_type !== 'source').length ?? 0
 	)
@@ -403,6 +450,7 @@
 			<AssetGraphCanvas
 				{graph}
 				{selection}
+				assetRunStatus={runStatus.status}
 				onselect={(s) => (selection = s)}
 				showMinimap={false}
 				scrollZoom={false}

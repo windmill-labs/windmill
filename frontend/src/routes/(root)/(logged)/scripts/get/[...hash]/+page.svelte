@@ -1014,11 +1014,8 @@
 						     to look at. Pinned to the version on screen and given no job, so
 						     this is the project as THIS deploy declared it; a node opens its
 						     SQL and previews its rows with whatever the form above holds. -->
-						<div class="grow min-h-0 flex flex-col">
-							<h3 class="shrink-0 text-xs font-semibold text-emphasis px-3 pt-2">Models</h3>
-							<div class="grow min-h-0">
-								<DbtRunGraph scriptPath={script.path} scriptHash={script.hash} runArgs={args} />
-							</div>
+						<div class="grow min-h-0">
+							<DbtRunGraph scriptPath={script.path} scriptHash={script.hash} runArgs={args} fill />
 						</div>
 					{:else if isWac && script.content}
 						<div class="grow min-h-0" style="min-height: 400px;">
