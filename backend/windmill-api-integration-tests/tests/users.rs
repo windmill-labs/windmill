@@ -563,22 +563,6 @@ async fn test_change_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
     .execute(&db)
     .await?;
 
-    // A group's synthetic address can also be a real user's. A runnable configured for the
-    // group carries it next to `g/{name}` and runs as the group, so the user's email change
-    // must not touch it — rewriting one half would leave a pair naming two different people.
-    sqlx::query!(
-        "UPDATE usr SET email = 'group-ops@windmill.dev' WHERE workspace_id = 'test-workspace' AND username = 'test-user'"
-    )
-    .execute(&db)
-    .await?;
-    sqlx::query!(
-        "INSERT INTO draft(workspace_id, path, typ, value)
-         VALUES ('test-workspace', 'u/test-user-2/g', 'script',
-                 '{\"on_behalf_of_email\": \"group-ops@windmill.dev\", \"on_behalf_of_permissioned_as\": \"g/ops\"}'::json)"
-    )
-    .execute(&db)
-    .await?;
-
     let resp = change_email("test2@windmill.dev", "renamed@windmill.dev")
         .await
         .unwrap();
@@ -622,17 +606,6 @@ async fn test_change_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert!(
         !draft.contains("test2@windmill.dev") && draft.contains("renamed@windmill.dev"),
         "draft should carry only the new address: {draft}"
-    );
-
-    let group_draft = sqlx::query_scalar!(
-        "SELECT value::text FROM draft WHERE path = 'u/test-user-2/g' AND workspace_id = 'test-workspace'"
-    )
-    .fetch_one(&db)
-    .await?
-    .unwrap_or_default();
-    assert!(
-        group_draft.contains("group-ops@windmill.dev") && group_draft.contains("g/ops"),
-        "a group-configured draft must survive a colliding user's email change: {group_draft}"
     );
 
     let policy = sqlx::query_scalar!(
@@ -705,6 +678,93 @@ async fn test_change_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
         .await
         .unwrap();
     assert_eq!(resp.status(), 401);
+
+    Ok(())
+}
+
+/// A group's synthetic address (`group-{name}@windmill.dev`) can also be a real user's, and a
+/// runnable configured for the *group* carries that address next to `g/{name}`. Moving the
+/// colliding user's account must leave it alone: rewriting one half of the pair would leave it
+/// naming two different people, which the deploy path rejects.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_change_user_email_leaves_group_identities(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let global_base = format!("http://localhost:{}/api/users", server.addr.port());
+
+    sqlx::query!("UPDATE password SET email = 'group-ops@windmill.dev' WHERE email = 'test2@windmill.dev'")
+        .execute(&db)
+        .await?;
+    sqlx::query!("UPDATE usr SET email = 'group-ops@windmill.dev' WHERE email = 'test2@windmill.dev'")
+        .execute(&db)
+        .await?;
+    sqlx::query!(
+        "INSERT INTO group_(workspace_id, name, summary, extra_perms) VALUES ('test-workspace', 'ops', '', '{}')"
+    )
+    .execute(&db)
+    .await?;
+
+    // Same email on both: one runnable is configured for the group, the other for the user.
+    for (path, permissioned_as) in [("u/test-user/g", "g/ops"), ("u/test-user/u", "u/test-user-2")] {
+        sqlx::query!(
+            "INSERT INTO draft(workspace_id, path, typ, value)
+             VALUES ('test-workspace', $1, 'script',
+                     json_build_object('on_behalf_of_email', 'group-ops@windmill.dev',
+                                       'on_behalf_of_permissioned_as', $2::text))",
+            path,
+            permissioned_as
+        )
+        .execute(&db)
+        .await?;
+        sqlx::query!(
+            "INSERT INTO script(workspace_id, hash, path, summary, description, content, created_by, language, on_behalf_of_email, on_behalf_of_permissioned_as)
+             VALUES ('test-workspace', $3, $1, '', '', '', 'test-user', 'deno', 'group-ops@windmill.dev', $2::text)",
+            path,
+            permissioned_as,
+            if permissioned_as == "g/ops" { 1i64 } else { 2i64 }
+        )
+        .execute(&db)
+        .await?;
+    }
+
+    let resp = authed(client().post(format!("{global_base}/change_email/group-ops@windmill.dev")))
+        .json(&json!({ "new_email": "renamed@windmill.dev" }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "change_email: {}", resp.text().await?);
+
+    let rows = sqlx::query!(
+        "SELECT path, on_behalf_of_email FROM script WHERE workspace_id = 'test-workspace' ORDER BY path"
+    )
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        rows.iter()
+            .map(|r| (r.path.as_str(), r.on_behalf_of_email.as_deref()))
+            .collect::<Vec<_>>(),
+        vec![
+            ("u/test-user/g", Some("group-ops@windmill.dev")),
+            ("u/test-user/u", Some("renamed@windmill.dev")),
+        ],
+        "the group-owned script keeps the group's address; the user-owned one moves"
+    );
+
+    let drafts = sqlx::query!(
+        "SELECT path, value->>'on_behalf_of_email' AS email FROM draft WHERE workspace_id = 'test-workspace' ORDER BY path"
+    )
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        drafts
+            .iter()
+            .map(|r| (r.path.as_str(), r.email.as_deref()))
+            .collect::<Vec<_>>(),
+        vec![
+            ("u/test-user/g", Some("group-ops@windmill.dev")),
+            ("u/test-user/u", Some("renamed@windmill.dev")),
+        ],
+        "same split for drafts"
+    );
 
     Ok(())
 }

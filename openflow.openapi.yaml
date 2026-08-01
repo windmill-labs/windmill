@@ -40,7 +40,7 @@ components:
           description: Identifies the user the flow runs on behalf of. Their instance-superadmin status and instance groups apply to the run.
         on_behalf_of_permissioned_as:
           type: string
-          description: The flow runs with the permissions of this user or group (u/{username} or g/{group}). Always names the same identity as on_behalf_of_email; omit it when writing and it is derived from that email. A flow deployed before this field existed has none and runs with the permissions of its last deployer.
+          description: 'The flow runs with the permissions of this identity: u/{username}, g/{group}, or a bare email when the username is itself email-shaped. Always names the same identity as on_behalf_of_email; omit it when writing and it is derived from that email. A flow deployed before this field existed has none and runs with the permissions of its last deployer.'
       required:
         - summary
         - value

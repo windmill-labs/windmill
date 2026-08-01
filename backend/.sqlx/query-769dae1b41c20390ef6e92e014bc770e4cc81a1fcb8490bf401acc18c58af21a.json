@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO draft(workspace_id, path, typ, value)\n             VALUES ('test-workspace', $1, 'script',\n                     json_build_object('on_behalf_of_email', 'group-ops@windmill.dev',\n                                       'on_behalf_of_permissioned_as', $2::text))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "769dae1b41c20390ef6e92e014bc770e4cc81a1fcb8490bf401acc18c58af21a"
+}

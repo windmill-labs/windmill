@@ -228,12 +228,12 @@ async fn get_offboard_preview(
 
     // ---- Operator references (not under user's path) ----
     let obo_scripts = sqlx::query_scalar!(
-        "SELECT path FROM script WHERE on_behalf_of_email = $1 AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived AND NOT deleted",
+        "SELECT path FROM script WHERE on_behalf_of_email = $1 AND NOT (on_behalf_of_permissioned_as LIKE 'g/%' AND on_behalf_of_permissioned_as NOT LIKE '%@%') AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived AND NOT deleted",
         email, &user_prefix, w_id
     ).fetch_all(db).await?;
 
     let obo_flows = sqlx::query_scalar!(
-        "SELECT path FROM flow WHERE on_behalf_of_email = $1 AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived",
+        "SELECT path FROM flow WHERE on_behalf_of_email = $1 AND NOT (on_behalf_of_permissioned_as LIKE 'g/%' AND on_behalf_of_permissioned_as NOT LIKE '%@%') AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived",
         email, &user_prefix, w_id
     ).fetch_all(db).await?;
 
@@ -840,7 +840,7 @@ async fn offboard_user_from_workspace<'c>(
 
     sqlx::query!(
         "UPDATE script SET on_behalf_of_email = $1, on_behalf_of_permissioned_as = $4 \
-         WHERE on_behalf_of_email = $2 AND workspace_id = $3 AND (on_behalf_of_permissioned_as IS NULL OR on_behalf_of_permissioned_as NOT LIKE 'g/%')",
+         WHERE on_behalf_of_email = $2 AND workspace_id = $3 AND NOT (on_behalf_of_permissioned_as LIKE 'g/%' AND on_behalf_of_permissioned_as NOT LIKE '%@%')",
         new_on_behalf_of_user_email,
         email,
         w_id,
@@ -882,7 +882,7 @@ async fn offboard_user_from_workspace<'c>(
 
     sqlx::query!(
         "UPDATE flow SET on_behalf_of_email = $1, on_behalf_of_permissioned_as = $4 \
-         WHERE on_behalf_of_email = $2 AND workspace_id = $3 AND (on_behalf_of_permissioned_as IS NULL OR on_behalf_of_permissioned_as NOT LIKE 'g/%')",
+         WHERE on_behalf_of_email = $2 AND workspace_id = $3 AND NOT (on_behalf_of_permissioned_as LIKE 'g/%' AND on_behalf_of_permissioned_as NOT LIKE '%@%')",
         new_on_behalf_of_user_email,
         email,
         w_id,
@@ -894,12 +894,13 @@ async fn offboard_user_from_workspace<'c>(
     // Drafts hold the same pair in their value and are not confined to the offboarded
     // user's paths, so a draft on a shared path would keep running as them.
     //
-    // The `g/` guard, here and on the two columns above: a runnable configured for a group
-    // carries that group's synthetic `group-{name}@windmill.dev` address, which a departing
-    // user may also hold as their own. It runs as the group, not as them, so offboarding
-    // must leave it alone rather than silently reassign it to their replacement.
+    // The group guard, here and on the two columns above (and matched by the preview, which
+    // must list exactly what will be reassigned): a runnable configured for a group carries
+    // that group's synthetic `group-{name}@windmill.dev` address, which a departing user may
+    // also hold as their own. It runs as the group, not as them. "Is a group" is `g/`
+    // **without** an `@` — see the matching guard in `change_user_email`.
     sqlx::query!(
-        r#"UPDATE draft SET value = to_json(jsonb_set(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of_email'], to_jsonb($1::text)), ARRAY['on_behalf_of_permissioned_as'], to_jsonb($4::text))) WHERE typ IN ('script', 'flow') AND value->>'on_behalf_of_email' = $2 AND workspace_id = $3 AND (value->>'on_behalf_of_permissioned_as' IS NULL OR value->>'on_behalf_of_permissioned_as' NOT LIKE 'g/%')"#,
+        r#"UPDATE draft SET value = to_json(jsonb_set(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of_email'], to_jsonb($1::text)), ARRAY['on_behalf_of_permissioned_as'], to_jsonb($4::text))) WHERE typ IN ('script', 'flow') AND value->>'on_behalf_of_email' = $2 AND workspace_id = $3 AND NOT (value->>'on_behalf_of_permissioned_as' LIKE 'g/%' AND value->>'on_behalf_of_permissioned_as' NOT LIKE '%@%')"#,
         new_on_behalf_of_user_email,
         email,
         w_id,
