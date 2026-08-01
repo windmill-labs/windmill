@@ -61,9 +61,8 @@
 
 	/** Trailing debounce window (ms) on Monaco's onDidChangeModelContent. */
 	const CHANGE_TIMEOUT = 200
-	/** Hard ceiling (ms) on how long `updateCode` can be deferred while the user
-	 * types continuously, measured from the leading fire of the burst. */
-	const MAX_CHANGE_TIMEOUT = 1000
+
+	let changeTimeoutId: number | undefined = undefined
 
 	let divEl: HTMLDivElement | null = null
 	let editor = $state<meditor.IStandaloneCodeEditor | null>(null)
@@ -104,7 +103,8 @@
 		readOnly = false,
 		minHeight = 1000,
 		renderLineHighlight = 'none',
-		suggestion
+		suggestion,
+		leadingChangeSync = false
 	}: {
 		lang: string
 		code?: string
@@ -136,6 +136,11 @@
 		minHeight?: number
 		renderLineHighlight?: 'all' | 'line' | 'gutter' | 'none'
 		suggestion?: string
+		/** Materialize `code` on the first change of a burst instead of only after
+		 * the trailing debounce. Set it when a control's enabled state derives from
+		 * `code`; leave it off where each extra sync costs work downstream (an app
+		 * code input feeding an autoRefresh runnable re-runs a job per sync). */
+		leadingChangeSync?: boolean
 	} = $props()
 
 	let yPadding = MONACO_Y_PADDING
@@ -162,8 +167,18 @@
 			code = ncode
 		}
 		editor?.setValue(ncode)
+		// setValue emits a change event of its own; drop the burst it opens so an edit
+		// made right after an authoritative overwrite still counts as a leading change.
+		cancelPendingChanges()
 		if (formatCode) {
 			format()
+		}
+	}
+
+	function cancelPendingChanges(): void {
+		if (changeTimeoutId !== undefined) {
+			clearTimeout(changeTimeoutId)
+			changeTimeoutId = undefined
 		}
 	}
 
@@ -414,28 +429,21 @@
 			pasteListenerCleanup = () => pasteTarget?.removeEventListener('keydown', onPasteKeydown, true)
 		}
 
-		let timeoutModel: number | undefined = undefined
-		let changeChainStart: number | undefined = undefined
 		editor.onDidChangeModelContent(() => {
-			// Leading fire on the first change of a burst: a paste is a single change,
-			// and consumers gate controls on `code` (FlowYamlEditor disables "Apply
-			// changes" until it differs from a snapshot), so a trailing-only sync
-			// swallows clicks landing before it fires.
-			const now = Date.now()
-			if (changeChainStart === undefined) {
+			// A paste is a single change, so under a trailing-only sync `code` stays
+			// stale for CHANGE_TIMEOUT after it: a consumer gating a control on `code`
+			// (FlowYamlEditor disables "Apply changes" until it differs from a snapshot)
+			// then swallows a click made in that window. Schedule before firing so a
+			// re-entrant change from a consumer does not count as leading too.
+			const leading = leadingChangeSync && changeTimeoutId === undefined
+			cancelPendingChanges()
+			changeTimeoutId = setTimeout(() => {
+				changeTimeoutId = undefined
 				updateCode()
-				changeChainStart = now
+			}, CHANGE_TIMEOUT)
+			if (leading) {
+				updateCode()
 			}
-			timeoutModel && clearTimeout(timeoutModel)
-			const fireAt = Math.min(now + CHANGE_TIMEOUT, changeChainStart + MAX_CHANGE_TIMEOUT)
-			timeoutModel = setTimeout(
-				() => {
-					updateCode()
-					timeoutModel = undefined
-					changeChainStart = undefined
-				},
-				Math.max(0, fireAt - now)
-			)
 		})
 		editor.onDidChangeCursorPosition((event) => {
 			if (key) editorPositionMap[key] = event.position
@@ -643,6 +651,7 @@
 	onDestroy(() => {
 		try {
 			valueAfterDispose = getCode()
+			cancelPendingChanges()
 			pasteListenerCleanup?.()
 			vimDisposable?.dispose()
 			model && model.dispose()

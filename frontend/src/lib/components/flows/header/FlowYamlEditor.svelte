@@ -104,6 +104,7 @@
 						minHeight={editorHeight}
 						bind:code
 						lang="yaml"
+						leadingChangeSync
 					/>
 				</div>
 			{/await}
