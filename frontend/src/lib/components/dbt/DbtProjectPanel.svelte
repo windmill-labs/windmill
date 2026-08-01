@@ -7,7 +7,7 @@
 	import type { ScriptModule } from '$lib/gen'
 	import type { Snippet } from 'svelte'
 	import { ChevronDown, ChevronRight, FileText, Trash2 } from 'lucide-svelte'
-	import { DBT_PROJECT_FILE } from './projectFiles'
+	import { dbtProjectFileKey } from './projectFiles'
 
 	let {
 		modules,
@@ -66,6 +66,9 @@
 	}
 
 	let tree = $derived(buildTree(Object.keys(modules)))
+	// The key the bundle actually holds it under, which a project imported with a
+	// redundant spelling states differently from the canonical name.
+	let projectFileKey = $derived(dbtProjectFileKey(modules))
 	let fileCount = $derived(Object.keys(modules).length)
 	let collapsed = $state<Record<string, boolean>>({})
 </script>
@@ -108,7 +111,7 @@
 				<!-- `dbt_project.yml` is what makes the bundle a project: without it the
 				     worker refuses the version outright, so one click here would deploy a
 				     script that cannot run. -->
-				{#if onDelete && node.path !== DBT_PROJECT_FILE}
+				{#if onDelete && node.path !== projectFileKey}
 					<button
 						class="shrink-0 px-1 opacity-0 group-hover:opacity-100 text-secondary hover:text-red-500"
 						title="Delete {node.path}"

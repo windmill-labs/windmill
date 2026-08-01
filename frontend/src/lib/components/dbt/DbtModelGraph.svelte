@@ -161,13 +161,30 @@
 					}
 				}
 			})
-			// Polled rather than awaited: a parse is a job, and its engine may need
-			// provisioning on a cold worker.
-			for (let i = 0; i < 120; i++) {
-				await new Promise((r) => setTimeout(r, 1000))
+			// Polled until the JOB ends, with no window of its own: a cold worker
+			// provisions an engine and runs `dbt deps` before dbt starts, which
+			// outlasts any bound worth hard-coding, and giving up early strands a
+			// parse that then succeeds where nothing can pin to it. The job carries
+			// its own timeout, so this terminates with it.
+			//
+			// Backed off, because most of that wait is not the parse; and tolerant
+			// of a failed poll, because one lost request must not abandon a job
+			// that is still running.
+			let delay = 1000
+			while (!destroyed) {
+				await new Promise((r) => setTimeout(r, delay))
 				if (destroyed) return
-				const done = await JobService.getCompletedJobResultMaybe({ workspace, id })
-				if (!done.completed) continue
+				let done: Awaited<ReturnType<typeof JobService.getCompletedJobResultMaybe>>
+				try {
+					done = await JobService.getCompletedJobResultMaybe({ workspace, id })
+				} catch {
+					delay = Math.min(delay * 1.5, 5000)
+					continue
+				}
+				if (!done.completed) {
+					delay = Math.min(delay * 1.5, 5000)
+					continue
+				}
 				if (!done.success) {
 					// A parse renders `profiles.yml` before it runs, so a project whose
 					// warehouse does not resolve fails here exactly as a run would. The
@@ -178,7 +195,6 @@
 				refreshJob = id
 				return
 			}
-			refreshError = { message: 'The parse is still running.', job: id }
 		} catch (e) {
 			refreshError = { message: e instanceof Error ? e.message : String(e), job: id }
 		} finally {

@@ -21,6 +21,19 @@ export const DBT_DESCRIPTOR = 'wm_dbt.yaml'
  *  it is the one file the tree will not let you delete. */
 export const DBT_PROJECT_FILE = 'dbt_project.yml'
 
+/** The key a bundle actually holds `dbt_project.yml` under.
+ *
+ *  Not the constant: nothing on the push path rewrites existing keys, so a
+ *  project imported with `./dbt_project.yml` in it holds that spelling, and an
+ *  exact lookup would neither find the project nor protect it from deletion —
+ *  while every write path canonicalises. Resolved the same way the duplicate
+ *  check resolves a clash. */
+export function dbtProjectFileKey(
+	modules: Record<string, unknown> | null | undefined
+): string | undefined {
+	return findModulePathClash(modules, DBT_PROJECT_FILE)
+}
+
 /**
  * Extensions a dbt project's own files take. `.py` because dbt Python models are
  * first-class on Snowflake, BigQuery and Databricks.
@@ -107,9 +120,10 @@ export function dbtModelSelector(
 	// this narrowing exists to avoid.
 	const ext = ['.sql', '.py'].find((e) => filePath.endsWith(e))
 	if (!ext) return undefined
+	const projectKey = dbtProjectFileKey(modules)
 	let project: any
 	try {
-		project = YAML.parse(modules[DBT_PROJECT_FILE]?.content ?? '')
+		project = YAML.parse((projectKey ? modules[projectKey] : undefined)?.content ?? '')
 	} catch {
 		return undefined
 	}

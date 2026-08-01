@@ -513,14 +513,28 @@ Three consequences of the version being absent:
   so a versioned row still cascades with its version and a version-less one is
   outside its reach. A partial arbiter also has to be named, so the marker's
   `ON CONFLICT` repeats `WHERE script_hash IS NOT NULL`.
+* **Being outside that cascade, they need clearing by hand.** A route that
+  deletes the `script` rows outright reclaims the versioned graph through
+  `ON DELETE CASCADE` and deliberately locks nothing ahead of the script row;
+  a version-less row references nothing, so it would survive its own script.
+  The delete-by-path and bulk-delete routes therefore call
+  `clear_dbt_editor_graphs` — AFTER the delete, beside the retry state, since
+  every dbt writer takes the script row first and a sidecar taken ahead of it
+  deadlocks one of the pair. Archiving clears neither: it leaves the `script`
+  row, and both graphs still answer for finished runs.
 * **No digest suppression.** A run's snapshot that matches the version's stores
   nothing and reads the version's back; an editor parse always stores, because
   the editor pins to its own job and a suppressed write leaves it nothing to pin
   to — and its provenance label would then claim a parse that is not on screen.
-* **Bounded per path, not by age**: the newest `DBT_EDITOR_GRAPHS_KEPT` parses of
-  one script keep their graph, dropped as each refresh lands, since the ones
-  before it are dead the moment a newer parse arrives. The instance-wide age
-  sweep every dbt run performs still catches a path refreshed once and left.
+* **Bounded per (path, PRINCIPAL), not by age**: the newest
+  `DBT_EDITOR_GRAPHS_KEPT` parses of one script by one identity keep their
+  graph, dropped as each refresh lands, since the ones before it are dead the
+  moment a newer parse arrives. The principal is load-bearing rather than
+  incidental — a preview's PATH is chosen by a caller who needs only `jobs:run`,
+  so a count bounded per path alone is a way to retire the graphs of whoever is
+  actually editing that script. `permissioned_as` is the execution principal the
+  queue derived, which is why `dbt_run_state` keys on it too. The instance-wide
+  age sweep every dbt run performs still catches one refreshed once and left.
 
 A `parse` of a job that DOES name a deployed version — the scriptable form, from
 a flow or the CLI — writes an ordinary per-run snapshot of that version instead,
