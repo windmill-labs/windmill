@@ -29,16 +29,21 @@ pub const PERMISSIONED_AS_GROUP_PREFIX: &str = "g/";
 pub const USERNAME_GROUP_PREFIX: &str = "group-";
 
 /// An email-shaped username is its own principal, which is how a superadmin acting outside
-/// their workspaces is named. One containing `/` is prefixed instead: readers split on the
-/// first `/`, so `g/alice@example.com` left bare would come back as a group.
+/// their workspaces is named. It is decided before the group convention — an address is never
+/// a group's username — and one containing `/` is prefixed, since readers split on the first
+/// `/` and would otherwise take `g/alice@example.com` for a group.
 pub fn username_to_permissioned_as(user: &str) -> String {
-    if user.contains('@') && !user.contains('/') {
-        user.to_string()
-    } else if let Some(group) = user.strip_prefix(USERNAME_GROUP_PREFIX) {
-        format!("{}{}", PERMISSIONED_AS_GROUP_PREFIX, group)
-    } else {
-        format!("{}{}", PERMISSIONED_AS_USER_PREFIX, user)
+    if user.contains('@') {
+        return if user.contains('/') {
+            format!("{}{}", PERMISSIONED_AS_USER_PREFIX, user)
+        } else {
+            user.to_string()
+        };
     }
+    if let Some(group) = user.strip_prefix(USERNAME_GROUP_PREFIX) {
+        return format!("{}{}", PERMISSIONED_AS_GROUP_PREFIX, group);
+    }
+    format!("{}{}", PERMISSIONED_AS_USER_PREFIX, user)
 }
 
 /// Borrowed key for zero-allocation cache lookups via `Equivalent<(String, String)>`.
@@ -320,6 +325,15 @@ mod tests {
         assert_eq!(
             username_to_permissioned_as("g/alice@example.com"),
             "u/g/alice@example.com"
+        );
+        // The `group-` convention is for usernames, and an address is never one.
+        assert_eq!(
+            username_to_permissioned_as("group-ops/alice@example.com"),
+            "u/group-ops/alice@example.com"
+        );
+        assert_eq!(
+            username_to_permissioned_as("group-ops@example.com"),
+            "group-ops@example.com"
         );
         assert_eq!(username_to_permissioned_as("group-all"), "g/all");
         assert_eq!(username_to_permissioned_as("group-my-team"), "g/my-team");
