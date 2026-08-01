@@ -1456,6 +1456,23 @@ async fn test_app_draft_policy_derives_on_behalf_of_email(db: Pool<Postgres>) ->
         "Draft policy address should be derived from its principal, not the stored one"
     );
 
+    // The AI chat deploys the draft it reads straight from the draft table instead.
+    let resp = authed(
+        client().get(format!("{base}/drafts/get_own/app/{path}")),
+        "SECRET_TOKEN",
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "Should get own draft");
+    let own: serde_json::Value = resp.json().await?;
+    assert_eq!(
+        own["value"]["policy"]
+            .get("on_behalf_of_email")
+            .and_then(|v| v.as_str()),
+        Some("original@windmill.dev"),
+        "Draft read straight from the draft table should derive its address too"
+    );
+
     // Deploy the draft exactly as the editor received it.
     let resp = authed(
         client().post(format!("{base}/apps/update/{path}")),
