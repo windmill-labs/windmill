@@ -1957,14 +1957,6 @@ async fn change_user_email(
     .await?;
 
     sqlx::query!(
-        "UPDATE azure_trigger SET email = $1 WHERE email = $2",
-        &new_email,
-        &old_email
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query!(
         "UPDATE script SET on_behalf_of_email = $1 WHERE on_behalf_of_email = $2",
         &new_email,
         &old_email
