@@ -941,34 +941,39 @@ async fn windmill_main() -> anyhow::Result<()> {
             match std::fs::read_to_string("/proc/self/oom_score_adj") {
                 Ok(current) => {
                     let current = current.trim().to_string();
-                    let current_val = match current.parse::<i32>() {
+                    let mut worker_adj = match current.parse::<i32>() {
                         Ok(v) => v,
                         Err(e) => {
                             tracing::warn!("Could not parse oom_score_adj '{current}': {e}");
                             0
                         }
                     };
-                    if current_val > 0 {
+                    if worker_adj > 0 {
                         match std::fs::write("/proc/self/oom_score_adj", "0") {
                             Ok(_) => {
                                 tracing::info!(
-                                    "Lowered worker oom_score_adj from {current} to 0 \
-                                    (jobs get {job_adj}, gap={job_adj})"
+                                    "Lowered worker oom_score_adj from {worker_adj} to 0"
                                 );
+                                worker_adj = 0;
                             }
                             Err(e) => {
                                 tracing::warn!(
-                                    "Could not lower worker oom_score_adj from {current} to 0: {e}. \
-                                    Gap to jobs is only {} — OOM killer may target the worker instead. \
-                                    Add CAP_SYS_RESOURCE to the container to fix this",
-                                    job_adj - current_val
+                                    "Could not lower worker oom_score_adj from {worker_adj} to 0: {e}. \
+                                    Add CAP_SYS_RESOURCE to the container to fix this"
                                 );
                             }
                         }
-                    } else {
+                    }
+                    let gap = job_adj - worker_adj;
+                    if gap > 0 {
                         tracing::info!(
-                            "Worker oom_score_adj={current} (jobs get {job_adj}, gap={})",
-                            job_adj - current_val
+                            "Worker oom_score_adj={worker_adj}, jobs get {job_adj} (gap={gap})"
+                        );
+                    } else {
+                        tracing::warn!(
+                            "Worker oom_score_adj={worker_adj} but jobs get {job_adj} (gap={gap}): \
+                            the OOM killer has no reason to sacrifice a job over the worker. \
+                            Raise JOB_OOM_SCORE_ADJ above the worker's own score"
                         );
                     }
                 }
