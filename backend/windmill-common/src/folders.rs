@@ -78,7 +78,10 @@ pub async fn resolve_folder_default_on_behalf_of(
     else {
         return Ok(None);
     };
-    let email = crate::users::get_email_from_permissioned_as(&permissioned_as, w_id, db).await?;
+    // Uncached: this pair is written straight onto the runnable, where a stale address would
+    // contradict the principal it is stored beside.
+    let email =
+        crate::users::get_email_from_permissioned_as_uncached(&permissioned_as, w_id, db).await?;
     Ok(Some((email, permissioned_as)))
 }
 
