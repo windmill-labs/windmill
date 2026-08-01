@@ -188,6 +188,38 @@ describe("a dbt project without a descriptor", () => {
     }
   });
 
+  // The exemption above is only for the project's OWN marker. A descriptor
+  // pushed DIRECTLY never passes through the metadata resolution that catches
+  // the collision, so without this it would deploy over the ordinary script
+  // sitting at the same remote path.
+  test("but a descriptor still refuses an ordinary script at its path", async () => {
+    const cwd = process.cwd();
+    process.chdir(dir);
+    try {
+      fs.writeFileSync(
+        path.join(dir, "f/analytics/analytics__dbt/wm_dbt.yaml"),
+        "profile: {}\n",
+      );
+      fs.writeFileSync(path.join(dir, "f/analytics/analytics.py"), "def main(): ...");
+      const err = await handleFile(
+        "f/analytics/analytics__dbt/wm_dbt.yaml",
+        { workspaceId: "w", remote: "http://127.0.0.1:1", name: "w", token: "t" } as any,
+        [],
+        undefined,
+        undefined,
+        {},
+        [],
+      ).then(
+        () => undefined,
+        (e) => e as Error,
+      );
+      expect(err).toBeInstanceOf(DbtPathCollisionError);
+      expect(err?.message).toContain("f/analytics/analytics.py");
+    } finally {
+      process.chdir(cwd);
+    }
+  });
+
   // The two sides spell "absent" differently — nothing on disk, nothing in the
   // export — so without one normalization a descriptor-less project reads as an
   // addition on every push and a deletion on every pull, forever.

@@ -363,19 +363,20 @@ export async function handleFile(
     alreadySynced.push(path);
     const remotePath = scriptPathToRemotePath(path);
 
-    // Before anything is written: this path may also be a dbt project's, and
-    // pushing here would deploy this file over it.
-    //
-    // The descriptor is exempt because it IS that project's content file — its
-    // base resolves to the same `<base>__dbt/dbt_project.yml`, so the project
-    // would be found colliding with itself and every dbt push would fail.
-    if (!isDbtDescriptorPath(path)) {
-      const collidingProject = await collidingDbtProject(
-        removeExtensionToPath(path)
-      );
-      if (collidingProject) {
-        throw dbtPathCollisionError(collidingProject, path);
-      }
+    // Before anything is written: `<base>.py` and `<base>__dbt/` deploy to ONE
+    // remote path, so whichever is pushed last replaces the other's script.
+    // Refused from either side — the descriptor is exempt only from finding its
+    // OWN project (it is that project's content file, so its base resolves to
+    // the same `dbt_project.yml`), never from an ordinary sibling.
+    const base = removeExtensionToPath(path);
+    const isDescriptor = isDbtDescriptorPath(path);
+    const other = isDescriptor
+      ? await collidingOrdinaryScript(base)
+      : await collidingDbtProject(base);
+    if (other) {
+      throw isDescriptor
+        ? dbtPathCollisionError(path, other)
+        : dbtPathCollisionError(other, path);
     }
 
     const language = inferContentTypeFromFilePath(path, opts?.defaultTs);
@@ -1025,6 +1026,28 @@ export async function collidingDbtProject(
   return (await stat(project).then(() => true).catch(() => false))
     ? project
     : undefined;
+}
+
+/**
+ * The ordinary script file sharing a base with a dbt project, if there is one —
+ * the same collision as [`collidingDbtProject`], seen from the dbt side.
+ *
+ * Needed because a descriptor may be pushed DIRECTLY (`wmill script push
+ * <base>__dbt/wm_dbt.yaml`), which never passes through the metadata resolution
+ * that would otherwise catch it.
+ */
+export async function collidingOrdinaryScript(
+  basePath: string
+): Promise<string | undefined> {
+  for (const ext of exts) {
+    if (ext === "__dbt/" + DBT_DESCRIPTOR_NAME) continue;
+    const candidate = basePath + ext;
+    const isFile = await stat(candidate)
+      .then((s) => s.isFile())
+      .catch(() => false);
+    if (isFile) return candidate;
+  }
+  return undefined;
 }
 
 export function dbtPathCollisionError(
