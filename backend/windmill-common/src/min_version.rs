@@ -21,9 +21,9 @@ pub const MIN_VERSION_SUPPORTS_ON_BEHALF_OF_PRINCIPAL: VC =
 ///
 /// Release A, code only, column untouched:
 ///
-/// 1. `workspaces_export.rs`'s schedule `SELECT`, which still names `email` and hydrates
-///    `ScheduleWithEmail` — the only reader left, and the only one that would fail at runtime
-///    rather than at compile time. It emits the derived address instead, like `get_schedule`.
+/// 1. `workspaces_export.rs`'s schedule `SELECT` — the only reader left, and the only one that
+///    would fail at runtime rather than at compile time, since its column list is dynamic SQL.
+///    Drop `email` from that list and derive the address, as `get_schedule` does.
 /// 2. the writes in `windmill-api-schedule` (`create_schedule`, `edit_schedule`) and the clone
 ///    in `workspaces.rs`, plus the EE ducklake-maintenance upsert.
 /// 3. the `UPDATE schedule SET email` sweep in `change_user_email`.
