@@ -34,7 +34,7 @@ the dominant way dbt is orchestrated today.
 | 9 | Adapter mappings | postgres, redshift, mysql, snowflake, bigquery, databricks; others via the project's own `profiles.yml` |
 | 10 | Private repo auth | Not applicable: the project is synced, not fetched |
 | 11 | Asset kind | `dbt://<warehouse>/<schema>/<name>` — keyed on the relation, not on dbt's node id. See below |
-| 12 | Graph refresh | Deploy-time, re-ingested per run only when the descriptor is dynamic. See below |
+| 12 | Graph refresh | Deploy-time, re-ingested per run only when the descriptor is dynamic, plus an explicit `parse` of the editor's buffer. See below |
 | 13 | Manifest storage | Sidecar table for nodes/edges. Full manifest **not** stored — see below |
 | 14 | Metadata depth | Tests, strategy, tags, freshness, column descriptions. Column **lineage** is not in the manifest — see below |
 | 15 | Node rendering | Asset nodes per model plus one runnable node for the script |
@@ -489,6 +489,55 @@ deliberately not hung off the progress reporter, which exists only for engines
 that emit node events: retention that stops working because an instance chose
 Fusion is not retention. A version's own graph lives as long as the version.
 
+### The third provenance: a parse of the editor's buffer
+
+The dbt editor draws a graph of the project **as it is in the editor**, refreshed
+on demand by a `dbt_command: "parse"` job over the buffer — the deploy's own
+deps → parse → ingest path, with no build. That graph is neither of the two
+above: the buffer differs from what is deployed, which is the point of
+refreshing it, and a project being written may have no deployed version at all.
+
+So it is keyed to its own PREVIEW JOB with **no version** — `script_hash IS
+NULL` — and readable only back through that job id
+(`GET /jobs/dbt_graph/{id}`), never through the path. That is what keeps the
+property `GraphPublisher::Unversioned` exists for: a parse publishes no
+path-keyed `asset` usages and no relation root, so a principal who needs only
+`jobs:run` still cannot restate what a deployed project's graph says.
+
+Three consequences of the version being absent:
+
+* **`script_hash` is nullable**, so the primary keys of `dbt_node`, `dbt_edge`
+  and `dbt_graph_snapshot` became two partial unique indexes each — versioned
+  rows keyed by their version, editor rows by their job alone. The composite
+  foreign key to `script` is unchanged: `MATCH SIMPLE` is satisfied by a NULL,
+  so a versioned row still cascades with its version and a version-less one is
+  outside its reach. A partial arbiter also has to be named, so the marker's
+  `ON CONFLICT` repeats `WHERE script_hash IS NOT NULL`.
+* **No digest suppression.** A run's snapshot that matches the version's stores
+  nothing and reads the version's back; an editor parse always stores, because
+  the editor pins to its own job and a suppressed write leaves it nothing to pin
+  to — and its provenance label would then claim a parse that is not on screen.
+* **Bounded per path, not by age**: the newest `DBT_EDITOR_GRAPHS_KEPT` parses of
+  one script keep their graph, dropped as each refresh lands, since the ones
+  before it are dead the moment a newer parse arrives. The instance-wide age
+  sweep every dbt run performs still catches a path refreshed once and left.
+
+A `parse` of a job that DOES name a deployed version — the scriptable form, from
+a flow or the CLI — writes an ordinary per-run snapshot of that version instead,
+suppressed when it agrees with the deploy. Either way it publishes no ownership:
+a parse answers for the arguments it was given, so it can no more stand as what
+the script owns than an overriding run can.
+
+Which graph is on screen is stated rather than left to be inferred — "parsed
+from the editor at 14:32" against "as of last deploy" — from
+`dbt_graph_ingested_at` on the graph response. The two are drawn identically, so
+without the label the ambiguity the explicit refresh removes would just move
+into the editor.
+
+A parse renders `profiles.yml` before dbt runs, so it needs a resolvable
+warehouse and a misconfigured project fails a refresh the way it would fail a
+run. That is useful early feedback, and the empty state says so.
+
 Per DEPLOY, not per run: ten thousand runs of one version share one graph. The
 rows carry a composite foreign key to `script (workspace_id, hash)` with
 `ON DELETE CASCADE`, so a version's graph dies with the version and nothing has
@@ -654,10 +703,11 @@ atomically; rollback is redeploying a previous version. The lockfile keeps the
 resolved engine and adapter versions and the manifest digest.
 
 **Windmill holds the files, so the graph can show them.** A model's compiled SQL
-is readable from its node in the asset graph. Editing stays local: dbt
-development is a CLI-and-editor loop (`dbt run --select`, `dbt test`, a local
-warehouse), and a browser textarea over one file of a project is a worse version
-of it. Windmill is the runner and the viewer.
+is readable from its node in the asset graph. A dbt project has its own editor —
+the file tree, the descriptor, the run arguments and the model graph, which is
+the artifact's actual shape — but it is not where a dbt project is developed:
+that is a CLI loop against a local warehouse (`dbt run --select`, `dbt test`).
+Windmill is the runner, the viewer and the place a project is corrected.
 
 **Two scripts against one project means two copies.** Splitting a project across
 scripts, so an upstream selection and a downstream one compose, assumed a shared
@@ -864,7 +914,14 @@ so it carries exactly the overrides that command takes:
 {"command": {"label": "build", "select": [], "exclude": [], "vars": {}, "full_refresh": false}}
 {"command": {"label": "retry", "dbt_retry_job": "019fb410-8ea9-…"}}
 {"command": {"label": "show",  "model": "stg_orders", "vars": {}, "limit": 100}}
+{"command": {"label": "parse", "vars": {}}}
 ```
+
+`show` and `parse` are accepted by the worker but are not run-form variants:
+each is a thing to do to the project in front of you rather than a job to fill a
+form in for, and the graph, the assets list and the dbt editor are where they
+live. Both stay reachable from a flow, the CLI and the API, which is what makes
+the editor's refresh scriptable and testable rather than a UI-only affordance.
 
 The union is the point: `dbt_retry_job` is required where it means something and
 absent everywhere else, `show` takes the ONE model it previews rather than the

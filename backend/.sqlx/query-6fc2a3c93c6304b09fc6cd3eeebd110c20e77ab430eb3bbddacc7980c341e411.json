@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM dbt_graph_snapshot g\n          WHERE g.workspace_id = $1 AND g.script_path = $2 AND g.script_hash IS NULL\n            AND g.job_id NOT IN (\n              SELECT job_id FROM dbt_graph_snapshot\n               WHERE workspace_id = $1 AND script_path = $2 AND script_hash IS NULL\n               ORDER BY ingested_at DESC LIMIT $3)\n        RETURNING g.job_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "job_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6fc2a3c93c6304b09fc6cd3eeebd110c20e77ab430eb3bbddacc7980c341e411"
+}

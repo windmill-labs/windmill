@@ -228,6 +228,10 @@ export interface AssetGraphResponse {
 	 *  asked for and found. A run page polls the graph until this is its own
 	 *  job, which is how it knows a dynamic descriptor's ingest has landed. */
 	dbt_snapshot_job?: string
+	/** When the dbt half on screen was parsed, for a graph pinned to a job.
+	 *  What the dbt editor labels its provenance with — a buffer refresh and the
+	 *  deployed version's graph are drawn identically. */
+	dbt_graph_ingested_at?: string
 }
 
 // `ref()` lineage BETWEEN two dbt models, in the terms the canvas draws

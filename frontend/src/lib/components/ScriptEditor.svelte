@@ -19,10 +19,6 @@
 	import { isWorkflowAsCode } from '$lib/components/graph/wacToFlow'
 	import WacDiagram from '$lib/components/graph/WacDiagram.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import DbtProjectPanel, {
-		dbtFileLang,
-		dbtModelSelector
-	} from '$lib/components/dbt/DbtProjectPanel.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 	import PowerShellCommonParams from './PowerShellCommonParams.svelte'
 	import LogPanel from './scriptEditor/LogPanel.svelte'
@@ -359,31 +355,12 @@
 	}
 
 	// Whether the open file is tested as a runnable of its own. A `__mod` helper
-	// is; a dbt project's files are not — the run is always the project's, so the
-	// arguments shown, edited and logged must be the descriptor's, not an empty
-	// per-module set the request would ignore.
-	let onModuleArgs = $derived(activeModuleTab !== null && lang !== 'dbt')
-
-	// The selector a Test would build with, when the open file is a model. Macros,
-	// analyses and singular tests are `.sql` too and none is selectable by name,
-	// so those fall back to running the project.
-	let dbtSelected = $derived.by(() => {
-		const open = activeModuleTab
-		if (lang !== 'dbt' || !open) return undefined
-		const selector = dbtModelSelector(modules ?? {}, open)
-		// The label drops whichever extension the selector matched, so a Python
-		// model reads `Build my_model` rather than `Build my_model.py`.
-		const name = open.split('/').pop()!.replace(/\.(sql|py)$/, '')
-		return selector ? { selector, name } : undefined
-	})
+	// is.
+	let onModuleArgs = $derived(activeModuleTab !== null)
 
 	let effectiveLang = $derived(
 		activeModuleTab && modules?.[activeModuleTab]
-			? lang === 'dbt'
-				? // Every dbt module is stored as `dbt`; the extension is what says
-					// whether this file is SQL, YAML or a seed.
-					dbtFileLang(activeModuleTab)
-				: (modules[activeModuleTab].language as Preview['language'])
+			? (modules[activeModuleTab].language as Preview['language'])
 			: lang
 	)
 
@@ -400,15 +377,7 @@
 		return isTsWac || isPyWac
 	})
 	let supportsModules = $derived((lang === 'bun' || lang === 'python3') && isWacV2)
-	// A dbt script's content is the descriptor and its modules are the project.
-	// A tree rather than the module tab strip: a project has folders and dozens
-	// of files, which a strip cannot show.
-	let isDbt = $derived(lang === 'dbt')
-	let mainFileName = $derived(
-		isDbt
-			? 'wm_dbt.yaml'
-			: 'script.' + langToExt(scriptLangToEditorLang(lang))
-	)
+	let mainFileName = $derived('script.' + langToExt(scriptLangToEditorLang(lang)))
 
 	let modulePathInput = $state('')
 	let showAddModulePopover = $state(false)
@@ -463,28 +432,13 @@
 		bunnative: ['.ts']
 	}
 
-	// A dbt project's files are dbt's own, not Windmill modules: models and tests
-	// are `.sql`, schemas and the project file `.yml`, seeds `.csv`, docs `.md`.
-	// `.py` because dbt Python models are first-class on Snowflake, BigQuery and
-	// Databricks, and the CLI already bundles one; refusing to CREATE one here
-	// was the only place that restriction existed.
-	const DBT_MODULE_EXTENSIONS = ['.sql', '.py', '.yml', '.yaml', '.csv', '.md']
 	let allowedModuleExtensions = $derived(
-		lang === 'dbt'
-			? DBT_MODULE_EXTENSIONS
-			: lang
-				? (LANG_MODULE_EXTENSIONS[lang] ?? Object.keys(ALL_MODULE_EXTENSIONS))
-				: Object.keys(ALL_MODULE_EXTENSIONS)
+		lang
+			? (LANG_MODULE_EXTENSIONS[lang] ?? Object.keys(ALL_MODULE_EXTENSIONS))
+			: Object.keys(ALL_MODULE_EXTENSIONS)
 	)
 
 	function inferModuleLang(filePath: string): ScriptModule['language'] | undefined {
-		// Every file of a dbt project is stored as `dbt`, whatever its extension:
-		// they are the project's, and dbt is what reads them.
-		if (lang === 'dbt') {
-			return DBT_MODULE_EXTENSIONS.some((e) => filePath.endsWith(e))
-				? ('dbt' as ScriptModule['language'])
-				: undefined
-		}
 		for (const [ext, moduleLang] of Object.entries(ALL_MODULE_EXTENSIONS)) {
 			if (filePath.endsWith(ext)) return moduleLang
 		}
@@ -492,12 +446,6 @@
 	}
 
 	function getModuleDefaultContent(filePath: string): string {
-		if (lang === 'dbt') {
-			// A model that compiles on its own, so a new file is runnable before it
-			// is edited; anything else starts empty rather than with a guess at
-			// which dbt schema it is.
-			return filePath.endsWith('.sql') ? `select 1 as id\n` : ''
-		}
 		if (filePath.endsWith('.py')) {
 			return `def hello() -> str:\n    return "world"\n`
 		} else if (filePath.endsWith('.ts')) {
@@ -530,19 +478,8 @@
 		return ''
 	}
 
-	/// The descriptor is the script's CONTENT, not a module. A module at that same
-	/// path would be a second, independent value for one file: the export writes
-	/// the content there, and the bundle would emit over it.
-	function reservedDbtPath(path: string): string | undefined {
-		return lang === 'dbt' && path.trim() === 'wm_dbt.yaml'
-			? `wm_dbt.yaml is the descriptor, edited from the tree — it cannot also be a file`
-			: undefined
-	}
-
 	function validateModulePath(path: string): string {
 		if (!path.trim()) return ''
-		const reserved = reservedDbtPath(path)
-		if (reserved) return reserved
 		const moduleLang = inferModuleLang(path)
 		if (!moduleLang) {
 			const exts = allowedModuleExtensions.join(', ')
@@ -592,8 +529,6 @@
 
 	function validateRenameModulePath(newPath: string, oldPath: string): string {
 		if (!newPath.trim()) return ''
-		const reserved = reservedDbtPath(newPath)
-		if (reserved) return reserved
 		const moduleLang = inferModuleLang(newPath)
 		if (!moduleLang) {
 			const exts = allowedModuleExtensions.join(', ')
@@ -907,9 +842,6 @@
 		// Flush module edits back to modules map before running preview
 		flushModuleContent()
 
-		// A dbt run is always the project's, whichever file is open: `dbt build`
-		// takes the whole bundle, and testing one model in isolation is not a
-		// thing dbt does.
 		const onModule = onModuleArgs
 		const testCode = onModule ? editorCode : code
 		const testLang = onModule ? effectiveLang : lang
@@ -920,17 +852,6 @@
 				: (args ?? {})
 		const testSchema = onModule ? testPanelSchema : schema
 		const testArgs = await processSecretArgs(rawTestArgs, testSchema, opWs)
-		// Testing with a model open builds THAT model: `dbt build --select <model>`
-		// is dbt's own inner loop, and running the whole project to check one file
-		// is the thing a dbt developer never does. Its tests come along, because
-		// `build` interleaves them.
-		if (dbtSelected) {
-			testArgs.command = {
-				...((testArgs.command as object) ?? {}),
-				label: 'build',
-				select: [dbtSelected.selector]
-			}
-		}
 		if (showPsCommonParams) {
 			for (const [k, v] of Object.entries(psCommonParams)) {
 				if (v !== undefined && v !== false && v !== '') {
@@ -974,9 +895,7 @@
 				}
 			},
 			undefined,
-			// A `__mod` helper is tested alone, so its siblings are left out. A dbt
-			// project cannot be: the bundle IS the project, and without it the run
-			// finds no `dbt_project.yml` whichever file happens to be open.
+			// A `__mod` helper is tested alone, so its siblings are left out.
 			onModule ? undefined : modules,
 			undefined,
 			timeout
@@ -1127,11 +1046,6 @@
 
 	async function inferModuleSchema() {
 		if (activeModuleTab === null) return
-		// A dbt project's files are not independently runnable: a model is SQL dbt
-		// compiles, not a script with arguments. Inferring some would put another
-		// language's parameters (a `.sql` model reads as Postgres) in the run form
-		// beside the descriptor's own.
-		if (lang === 'dbt') return
 		try {
 			await inferArgs(effectiveLang, editorCode, testPanelSchema)
 			injectPartitionArg(testPanelSchema, testPanelArgs, effectiveLang, editorCode)
@@ -2432,7 +2346,7 @@
 	>
 		<!-- Named, because a run that silently narrowed to whichever file happens to
 		     be open is the kind of surprise a warehouse bill discovers. -->
-		{dbtSelected ? `Build ${dbtSelected.name}` : 'Test'}
+		Test
 	</Button>
 {/snippet}
 
@@ -2598,34 +2512,7 @@
 {/snippet}
 
 {#snippet editorContent()}
-	<div
-		class="h-full !overflow-visible bg-surface dark:bg-surface-secondary relative flex {isDbt
-			? 'flex-row'
-			: 'flex-col'}"
-	>
-		{#if isDbt}
-			<DbtProjectPanel
-				modules={modules ?? {}}
-				scriptPath={path ?? ''}
-				descriptorName={mainFileName}
-				selected={activeModuleTab}
-				onSelect={(p) => (p === null ? switchToMain() : switchToModule(p))}
-				onDelete={removeModule}
-			>
-				{#snippet addFile()}
-					<Popover bind:isOpen={showAddModulePopover} placement="bottom-end" contentClasses="p-3 w-72">
-						{#snippet trigger()}
-							<div class="p-0.5 rounded hover:bg-surface-hover" title="New file">
-								<Plus size={12} />
-							</div>
-						{/snippet}
-						{#snippet content({ close })}
-							{@render addModuleForm(close)}
-						{/snippet}
-					</Popover>
-				{/snippet}
-			</DbtProjectPanel>
-		{/if}
+	<div class="h-full !overflow-visible bg-surface dark:bg-surface-secondary relative flex flex-col">
 		{#if supportsModules}
 			<div
 				class="flex items-center border-b border-tertiary/30 bg-surface-secondary px-1 gap-0.5 text-xs overflow-x-auto shrink-0"

@@ -43,6 +43,7 @@
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 	import { notifyContractWarnings } from './assets/AssetGraph/schemaContracts'
 	import ScriptEditor from './ScriptEditor.svelte'
+	import DbtEditor from './dbt/DbtEditor.svelte'
 	import { Alert, Button, Drawer, SecondsInput, Tab, TabContent, Tabs } from './common'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 	import type { SupportedLanguage, Schema } from '$lib/common'
@@ -235,7 +236,17 @@
 	)
 
 	let editor: Editor | undefined = $state(undefined)
-	let scriptEditor: ScriptEditor | undefined = $state(undefined)
+	// A dbt script gets its own editor: the artifact is a project bundle — a file
+	// tree, a descriptor, run arguments and a model graph — not a body of code.
+	// Both answer to the same handful of calls below, so everything around them
+	// is unchanged.
+	let scriptEditor: ScriptEditor | DbtEditor | undefined = $state(undefined)
+	let isDbt = $derived(script.language === 'dbt')
+	// The version whose stored graph the dbt editor draws until a refresh replaces
+	// it. A script never deployed has none, and `NewScript` carries no hash.
+	let deployedScriptHash = $derived(
+		savedScript && 'hash' in savedScript ? (savedScript.hash as string) : undefined
+	)
 	let captureTable: CaptureTable | undefined = $state(undefined)
 	let wacExportDrawer: WacExportDrawer | undefined = $state(undefined)
 
@@ -1126,7 +1137,10 @@
 							label="Runtime"
 						/>
 					{/if}
-					{#if customUi?.settingsPanel?.disableGeneratedUi !== true}
+					<!-- Not for dbt: its run form is derived from the descriptor server-side
+					     (`dbt_arg_schema`), so anything refined here is overwritten by the
+					     next deploy. -->
+					{#if customUi?.settingsPanel?.disableGeneratedUi !== true && !isDbt}
 						<Tab
 							value="ui"
 							aiId="script-builder-ui"
@@ -2154,54 +2168,74 @@
 			</div>
 		{/if}
 
-		<ScriptEditor
-			{disableAi}
-			workspaceOverride={opWorkspace}
-			sessionOpen={userDraftPath
-				? {
-						// URL draft path the editor loads/saves by, not the friendly
-						// `script.path` (a new script's has no row → "not found").
-						target: { kind: 'script', path: userDraftPath },
-						workspaceId: opWorkspace ?? undefined,
-						beforeOpen: persistDraftForSession
-					}
-				: undefined}
-			bind:selectedTab={selectedInputTab}
-			{customUi}
-			{onTestJob}
-			collabMode
-			edit={initialPath != ''}
-			on:format={() => {
-				saveDraft()
-			}}
-			on:saveDraft={() => {
-				saveDraft()
-			}}
-			on:openTriggers={openTriggers}
-			on:applyArgs={applyArgs}
-			on:addPreprocessor={addPreprocessor}
-			bind:editor
-			bind:this={scriptEditor}
-			bind:schema={script.schema}
-			path={script.path}
-			stablePathForCaptures={initialPath || fakeInitialPath}
-			bind:code={script.content}
-			lang={script.language}
-			timeout={script.timeout}
-			kind={script.kind}
-			autoKind={script.auto_kind}
-			{template}
-			tag={script.tag}
-			lastSavedCode={savedScript?.content}
-			lastDeployedCode={savedScript?.content}
-			bind:args
-			bind:hasPreprocessor
-			bind:captureTable
-			bind:assets={script.assets}
-			bind:modules={script.modules}
-			enablePreprocessorSnippet
-			{testPanelCollapsed}
-		/>
+		{#if isDbt}
+			<DbtEditor
+				workspaceOverride={opWorkspace}
+				{customUi}
+				{onTestJob}
+				on:format={() => saveDraft()}
+				on:saveDraft={() => saveDraft()}
+				bind:editor
+				bind:this={scriptEditor}
+				bind:schema={script.schema}
+				path={script.path}
+				bind:code={script.content}
+				timeout={script.timeout}
+				tag={script.tag}
+				deployedHash={deployedScriptHash}
+				bind:args
+				bind:modules={script.modules}
+			/>
+		{:else}
+			<ScriptEditor
+				{disableAi}
+				workspaceOverride={opWorkspace}
+				sessionOpen={userDraftPath
+					? {
+							// URL draft path the editor loads/saves by, not the friendly
+							// `script.path` (a new script's has no row → "not found").
+							target: { kind: 'script', path: userDraftPath },
+							workspaceId: opWorkspace ?? undefined,
+							beforeOpen: persistDraftForSession
+						}
+					: undefined}
+				bind:selectedTab={selectedInputTab}
+				{customUi}
+				{onTestJob}
+				collabMode
+				edit={initialPath != ''}
+				on:format={() => {
+					saveDraft()
+				}}
+				on:saveDraft={() => {
+					saveDraft()
+				}}
+				on:openTriggers={openTriggers}
+				on:applyArgs={applyArgs}
+				on:addPreprocessor={addPreprocessor}
+				bind:editor
+				bind:this={scriptEditor}
+				bind:schema={script.schema}
+				path={script.path}
+				stablePathForCaptures={initialPath || fakeInitialPath}
+				bind:code={script.content}
+				lang={script.language}
+				timeout={script.timeout}
+				kind={script.kind}
+				autoKind={script.auto_kind}
+				{template}
+				tag={script.tag}
+				lastSavedCode={savedScript?.content}
+				lastDeployedCode={savedScript?.content}
+				bind:args
+				bind:hasPreprocessor
+				bind:captureTable
+				bind:assets={script.assets}
+				bind:modules={script.modules}
+				enablePreprocessorSnippet
+				{testPanelCollapsed}
+			/>
+		{/if}
 	</div>
 {:else}
 	Script Builder not available to operators

@@ -829,10 +829,15 @@ pub async fn replace_dbt_manifest(
     // answer for a dynamic run that disabled every model, and the reader must be
     // able to tell it from a run that stored nothing.
     sqlx::query!(
+        // The `WHERE` is not optional: a versioned graph's key is a PARTIAL unique
+        // index (its version-less sibling is keyed by job alone), and Postgres
+        // infers no arbiter from a partial index unless the statement repeats its
+        // predicate.
         "INSERT INTO dbt_graph_snapshot
            (workspace_id, script_path, script_hash, job_id, digest, ingested_at)
          VALUES ($1, $2, $3, $4, $5, now())
          ON CONFLICT (workspace_id, script_path, script_hash, job_id)
+           WHERE script_hash IS NOT NULL
          DO UPDATE SET digest = EXCLUDED.digest, ingested_at = now()",
         workspace_id,
         script_path,
@@ -843,6 +848,29 @@ pub async fn replace_dbt_manifest(
     .execute(&mut **tx)
     .await?;
 
+    insert_graph_rows(
+        tx,
+        workspace_id,
+        script_path,
+        Some(script_hash),
+        job_id,
+        ingested,
+    )
+    .await
+}
+
+/// The node and edge rows of one stored graph, whichever provenance keys it.
+///
+/// `script_hash` is `None` for a graph parsed from the editor's buffer, which
+/// names no deployed version and is keyed to its own preview job.
+async fn insert_graph_rows(
+    tx: &mut Transaction<'_, Postgres>,
+    workspace_id: &str,
+    script_path: &str,
+    script_hash: Option<i64>,
+    job_id: uuid::Uuid,
+    ingested: &IngestedManifest,
+) -> Result<()> {
     // Batched: a manifest carries a row per model, test, seed and snapshot, and
     // one awaited statement each made publication scale with database latency
     // while holding this transaction. Chunked because Postgres binds at most
@@ -896,6 +924,95 @@ pub async fn replace_dbt_manifest(
         });
         q.push(" ON CONFLICT DO NOTHING");
         q.build().execute(&mut **tx).await?;
+    }
+    Ok(())
+}
+
+/// How many buffer parses of one script keep their graph.
+///
+/// The editor reads back only the refresh it just launched, so one would do;
+/// the slack is for two people editing the same project at once, whose refreshes
+/// would otherwise evict each other's graph mid-session.
+pub const DBT_EDITOR_GRAPHS_KEPT: i64 = 5;
+
+/// Store the graph a `parse` of the EDITOR's buffer produced.
+///
+/// The third provenance: not the version's graph, and not a run's snapshot of a
+/// version. A buffer differs from what is deployed — that is the point of
+/// refreshing it — and a project being written may have no deployed version at
+/// all, so these rows carry no `script_hash` and are keyed to the preview job
+/// that parsed them. `GET /jobs/dbt_graph/{id}` is the only way back to them;
+/// nothing reaches them through the path, which is what keeps a `jobs:run`
+/// principal from rewriting a deployed project's graph.
+///
+/// Unlike a run's snapshot this is never suppressed by matching the deployed
+/// digest: the editor pins to its own job, so a buffer that happens to agree
+/// with the deploy must still leave something to pin to.
+///
+/// See the mutator contract above: this authorizes nothing.
+pub async fn replace_dbt_editor_graph(
+    tx: &mut Transaction<'_, Postgres>,
+    workspace_id: &str,
+    script_path: &str,
+    // The preview job that parsed the buffer, which is this graph's whole key.
+    job_id: uuid::Uuid,
+    ingested: &IngestedManifest,
+    relation_root: &str,
+) -> Result<()> {
+    // By job alone, so re-executing one — a zombie recovered onto another
+    // worker — replaces its rows rather than colliding with them.
+    for table in ["dbt_node", "dbt_edge", "dbt_graph_snapshot"] {
+        sqlx::query(&format!(
+            "DELETE FROM {table} WHERE workspace_id = $1 AND job_id = $2 AND script_hash IS NULL"
+        ))
+        .bind(workspace_id)
+        .bind(job_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+    // The marker, before the rows: a project whose models are all disabled
+    // parses to an empty graph, and the reader has to tell that from a refresh
+    // that stored nothing.
+    sqlx::query!(
+        "INSERT INTO dbt_graph_snapshot
+           (workspace_id, script_path, script_hash, job_id, digest, ingested_at)
+         VALUES ($1, $2, NULL, $3, $4, now())",
+        workspace_id,
+        script_path,
+        job_id,
+        graph_digest(ingested, relation_root),
+    )
+    .execute(&mut **tx)
+    .await?;
+    insert_graph_rows(tx, workspace_id, script_path, None, job_id, ingested).await?;
+    // Bounded here rather than by a sweep: a refresh is a click, and the ones
+    // before it are dead the moment this one lands. The rows go with their
+    // marker, in this transaction, so no restart can strand either half.
+    let retired: Vec<uuid::Uuid> = sqlx::query_scalar!(
+        "DELETE FROM dbt_graph_snapshot g
+          WHERE g.workspace_id = $1 AND g.script_path = $2 AND g.script_hash IS NULL
+            AND g.job_id NOT IN (
+              SELECT job_id FROM dbt_graph_snapshot
+               WHERE workspace_id = $1 AND script_path = $2 AND script_hash IS NULL
+               ORDER BY ingested_at DESC LIMIT $3)
+        RETURNING g.job_id",
+        workspace_id,
+        script_path,
+        DBT_EDITOR_GRAPHS_KEPT,
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    if !retired.is_empty() {
+        for table in ["dbt_node", "dbt_edge"] {
+            sqlx::query(&format!(
+                "DELETE FROM {table} WHERE workspace_id = $1 AND job_id = ANY($2) \
+                   AND script_hash IS NULL"
+            ))
+            .bind(workspace_id)
+            .bind(&retired)
+            .execute(&mut **tx)
+            .await?;
+        }
     }
     Ok(())
 }

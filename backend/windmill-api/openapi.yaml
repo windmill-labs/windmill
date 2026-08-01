@@ -24692,6 +24692,16 @@ components:
             runs, because a dynamic descriptor's snapshot is written mid-run, and
             this is what tells it to stop. Omitted when the answer came from the
             version's deployed graph.
+        dbt_graph_ingested_at:
+          type: string
+          format: date-time
+          description: >-
+            When the dbt half on screen was parsed, for a graph pinned to a job.
+            What the dbt editor labels its provenance with — "parsed from the
+            editor at 14:32" against "as of last deploy" — since the two are
+            drawn identically and the ambiguity would otherwise just move into
+            the editor. Omitted for the unpinned workspace graph, which spans
+            every project and so has no one time.
     DbtAssetProvenance:
       type: object
       description: >-
