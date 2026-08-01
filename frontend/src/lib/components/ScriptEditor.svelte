@@ -23,6 +23,7 @@
 		dbtFileLang,
 		dbtModelSelector
 	} from '$lib/components/dbt/DbtProjectPanel.svelte'
+	import { canonicalModulePath, findModulePathClash } from './scriptModulePath'
 	import SchemaForm from './SchemaForm.svelte'
 	import PowerShellCommonParams from './PowerShellCommonParams.svelte'
 	import LogPanel from './scriptEditor/LogPanel.svelte'
@@ -533,35 +534,43 @@
 	/// The descriptor is the script's CONTENT, not a module. A module at that same
 	/// path would be a second, independent value for one file: the export writes
 	/// the content there, and the bundle would emit over it.
-	function reservedDbtPath(path: string): string | undefined {
-		return lang === 'dbt' && path.trim() === 'wm_dbt.yaml'
+	function reservedDbtPath(canonicalPath: string): string | undefined {
+		return lang === 'dbt' && canonicalPath === 'wm_dbt.yaml'
 			? `wm_dbt.yaml is the descriptor, edited from the tree — it cannot also be a file`
 			: undefined
 	}
 
 	function validateModulePath(path: string): string {
 		if (!path.trim()) return ''
-		const reserved = reservedDbtPath(path)
+		const canonical = canonicalModulePath(path)
+		if ('error' in canonical) return canonical.error
+		const reserved = reservedDbtPath(canonical.path)
 		if (reserved) return reserved
-		const moduleLang = inferModuleLang(path)
+		const moduleLang = inferModuleLang(canonical.path)
 		if (!moduleLang) {
 			const exts = allowedModuleExtensions.join(', ')
 			return `File must end with a supported extension: ${exts}`
 		}
-		const matchedExt = allowedModuleExtensions.find((ext) => path.endsWith(ext))
+		const matchedExt = allowedModuleExtensions.find((ext) => canonical.path.endsWith(ext))
 		if (!matchedExt) {
 			const exts = allowedModuleExtensions.join(', ')
 			return `File must end with a supported extension for this language: ${exts}`
 		}
-		if (modules?.[path.trim()]) {
-			return `Module ${path.trim()} already exists`
+		const clash = findModulePathClash(modules, canonical.path)
+		if (clash) {
+			return `Module ${clash} already exists`
 		}
 		return ''
 	}
 
 	function addModule() {
-		const modulePath = modulePathInput.trim()
-		if (!modulePath) return
+		if (!modulePathInput.trim()) return
+		const canonical = canonicalModulePath(modulePathInput)
+		if ('error' in canonical) {
+			modulePathError = canonical.error
+			return
+		}
+		const modulePath = canonical.path
 		const error = validateModulePath(modulePath)
 		if (error) {
 			modulePathError = error
@@ -592,29 +601,36 @@
 
 	function validateRenameModulePath(newPath: string, oldPath: string): string {
 		if (!newPath.trim()) return ''
-		const reserved = reservedDbtPath(newPath)
+		const canonical = canonicalModulePath(newPath)
+		if ('error' in canonical) return canonical.error
+		const reserved = reservedDbtPath(canonical.path)
 		if (reserved) return reserved
-		const moduleLang = inferModuleLang(newPath)
+		const moduleLang = inferModuleLang(canonical.path)
 		if (!moduleLang) {
 			const exts = allowedModuleExtensions.join(', ')
 			return `File must end with a supported extension: ${exts}`
 		}
-		const matchedExt = allowedModuleExtensions.find((ext) => newPath.endsWith(ext))
+		const matchedExt = allowedModuleExtensions.find((ext) => canonical.path.endsWith(ext))
 		if (!matchedExt) {
 			const exts = allowedModuleExtensions.join(', ')
 			return `File must end with a supported extension for this language: ${exts}`
 		}
-		if (newPath.trim() !== oldPath && modules?.[newPath.trim()]) {
-			return `Module ${newPath.trim()} already exists`
+		const clash = findModulePathClash(modules, canonical.path, oldPath)
+		if (clash) {
+			return `Module ${clash} already exists`
 		}
 		return ''
 	}
 
 	function renameModule(oldPath: string) {
-		const newPath = renameModuleInput.trim()
-		if (!newPath || newPath === oldPath) {
+		if (!renameModuleInput.trim()) return
+		const canonical = canonicalModulePath(renameModuleInput)
+		if ('error' in canonical) {
+			renameModuleError = canonical.error
 			return
 		}
+		const newPath = canonical.path
+		if (newPath === oldPath) return
 		const error = validateRenameModulePath(newPath, oldPath)
 		if (error) {
 			renameModuleError = error
