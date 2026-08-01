@@ -276,6 +276,15 @@ pub async fn resolve_on_behalf_of(
                 })?
         }
     };
+    // Every principal ends up on `v2_job.permissioned_as`, which is narrower than the columns
+    // it is stored in — an identity that cannot be enqueued is rejected here rather than at the
+    // first run of a runnable that looks fine.
+    if permissioned_as.len() > users::PERMISSIONED_AS_MAX_LEN {
+        return Err(Error::BadRequest(format!(
+            "the identity '{permissioned_as}' is longer than the {} characters a job can carry",
+            users::PERMISSIONED_AS_MAX_LEN
+        )));
+    }
     Ok(Some(permissioned_as))
 }
 
@@ -1620,7 +1629,11 @@ pub async fn on_behalf_of_from_permissioned_as(
     let Some(permissioned_as) = permissioned_as else {
         return Ok(None);
     };
-    let email = users::get_email_from_permissioned_as(permissioned_as, w_id, db).await?;
+    // Uncached: the address is copied onto the job row, where it stays for the life of the run
+    // and decides the superadmin flag and the instance groups. Nothing evicts the cache across
+    // processes, so a cached read would keep minting jobs under an address the account no longer
+    // holds for up to a minute after it moves.
+    let email = users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db).await?;
     Ok(Some(jobs::OnBehalfOf { email, permissioned_as: permissioned_as.to_string() }))
 }
 

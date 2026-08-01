@@ -231,6 +231,31 @@ async fn test_on_behalf_of_permissioned_as_drives_job_identity(
         Some("u/original-user")
     );
 
+    // A job row carries a narrower identity column than the runnable it comes from, so an
+    // address too long to be enqueued is refused at deploy rather than at the first run.
+    sqlx::query!(
+        "INSERT INTO password(email, password_hash, login_type, super_admin, verified, name)
+         VALUES ('a-very-long-superadmin-address-for-this-test@windmill.dev', '', 'password', true, true, '')"
+    )
+    .execute(&db)
+    .await?;
+    let resp = authed(
+        client().post(format!("{base}/scripts/create")),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({
+        "path": "u/test-user/obo_too_long",
+        "summary": "",
+        "description": "",
+        "content": "export async function main() { return 42; }",
+        "language": "deno",
+        "on_behalf_of_email": "a-very-long-superadmin-address-for-this-test@windmill.dev",
+        "preserve_on_behalf_of": true,
+    }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 400, "an unenqueueable identity must be rejected");
+
     // A pair naming two different principals would run as a composite of both.
     let resp = authed(
         client().post(format!("{base}/scripts/create")),

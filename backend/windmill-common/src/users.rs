@@ -27,6 +27,9 @@ pub const PERMISSIONED_AS_USER_PREFIX: &str = "u/";
 pub const PERMISSIONED_AS_GROUP_PREFIX: &str = "g/";
 /// Prefix for group-based usernames: "group-"
 pub const USERNAME_GROUP_PREFIX: &str = "group-";
+/// Widest principal a job row can carry (`v2_job.permissioned_as`), which is narrower than the
+/// columns runnables and triggers store one in.
+pub const PERMISSIONED_AS_MAX_LEN: usize = 55;
 
 /// An email-shaped username is its own principal, which is how a superadmin acting without a
 /// `usr` row is named (`usr.username` is constrained to `[\w-]+`, so a member never is). It is
