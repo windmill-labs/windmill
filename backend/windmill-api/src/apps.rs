@@ -328,6 +328,30 @@ async fn derive_draft_policy_on_behalf_of_email(
     Ok(())
 }
 
+/// The same repair for a draft served straight out of the draft table rather than through
+/// `get_app`, which is how the AI chat and the other-users' -draft banner read app drafts.
+pub(crate) async fn derive_stored_draft_policy_on_behalf_of_email(
+    db: &DB,
+    w_id: &str,
+    value: &mut sqlx::types::Json<Box<RawValue>>,
+) -> Result<()> {
+    if !value.0.get().contains("on_behalf_of") {
+        return Ok(());
+    }
+    let Ok(mut obj) =
+        serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(value.0.get())
+    else {
+        return Ok(());
+    };
+    let Some(policy) = obj.get_mut("policy").and_then(|p| p.as_object_mut()) else {
+        return Ok(());
+    };
+    if derive_on_behalf_of_email_in_place(db, w_id, policy, true).await? {
+        value.0 = to_raw_value(&obj);
+    }
+    Ok(())
+}
+
 #[derive(Serialize)]
 pub struct AppHistory {
     pub app_id: i64,
@@ -1198,7 +1222,10 @@ async fn get_app_by_id(
 
     check_scopes(&authed, || format!("apps:read:{}", &app.path))?;
 
-    derive_policy_on_behalf_of_email(&db, &w_id, &mut app.policy, false).await?;
+    // Round-tripping: the deployment-history drawer redeploys the version it fetched here, so
+    // an address left stale by another replica's email change would come back as a
+    // contradicting pair.
+    derive_policy_on_behalf_of_email(&db, &w_id, &mut app.policy, true).await?;
     Ok(Json(app))
 }
 
