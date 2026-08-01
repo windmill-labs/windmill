@@ -5855,6 +5855,8 @@ async fn clone_scripts(
     .execute(&mut **tx)
     .await?;
 
+    clear_orphaned_compat_address(tx, "script", target_workspace_id).await?;
+
     Ok(())
 }
 
@@ -5957,6 +5959,25 @@ async fn clone_asset_usages_and_triggers(
     Ok(())
 }
 
+/// The address is only meaningful next to the principal it was derived from: where the clone
+/// dropped one that names nobody in the target, an old worker reading the address alone would
+/// still run the row as the account left behind.
+async fn clear_orphaned_compat_address(
+    tx: &mut Transaction<'_, Postgres>,
+    table: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    // SAFETY: `table` is one of the two literals passed below, never user input.
+    sqlx::query(&format!(
+        "UPDATE {table} SET on_behalf_of_email = NULL
+         WHERE workspace_id = $1 AND on_behalf_of IS NULL AND on_behalf_of_email IS NOT NULL"
+    ))
+    .bind(target_workspace_id)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
 /// Carries over the recorded principal under the rule spelled out on [`clone_scripts`].
 async fn clone_flows(
     tx: &mut Transaction<'_, Postgres>,
@@ -6003,6 +6024,8 @@ async fn clone_flows(
     )
     .execute(&mut **tx)
     .await?;
+
+    clear_orphaned_compat_address(tx, "flow", target_workspace_id).await?;
 
     // Then clone flow versions
     let flow_versions = sqlx::query!(
