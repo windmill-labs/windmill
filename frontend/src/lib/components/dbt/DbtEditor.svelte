@@ -215,6 +215,9 @@
 			timeout
 		)
 		if (job) onTestJob?.({ jobId: job })
+		// A build's output is the point of running it, and the log panel lives
+		// under the other tab.
+		rightTab = 'run'
 		logPanel?.setFocusToLogs()
 		return job
 	}
@@ -435,21 +438,25 @@
 					<Tab value="models" label="Models" />
 					<Tab value="run" label="Run" />
 				</Tabs>
-				{#if rightTab === 'models'}
-					<div class="flex-1 min-h-0">
-						<DbtModelGraph
-							workspace={opWs}
-							scriptPath={path ?? ''}
-							descriptor={code}
-							modules={modules ?? undefined}
-							{args}
-							{tag}
-							{timeout}
-							{deployedHash}
-							onOpenFile={open}
-						/>
-					</div>
-				{:else}
+				<!-- Both panes stay MOUNTED and are hidden rather than swapped: each
+				     holds state a tab switch has no business ending. The graph holds
+				     the parse it is pinned to, and a refresh in flight — unmounting
+				     it drops the pin back to the deployed graph and abandons a job
+				     that costs a worker slot. The log panel holds a running build. -->
+				<div class="flex-1 min-h-0" class:hidden={rightTab !== 'models'}>
+					<DbtModelGraph
+						workspace={opWs}
+						scriptPath={path ?? ''}
+						descriptor={code}
+						modules={modules ?? undefined}
+						{args}
+						{tag}
+						{timeout}
+						{deployedHash}
+						onOpenFile={open}
+					/>
+				</div>
+				<div class="flex-1 min-h-0" class:hidden={rightTab !== 'run'}>
 					<Splitpanes horizontal class="h-full">
 						<Pane size={40} minSize={15}>
 							<div class="p-2 overflow-auto h-full">
@@ -472,7 +479,7 @@
 							/>
 						</Pane>
 					</Splitpanes>
-				{/if}
+				</div>
 			</div>
 		</Pane>
 	</Splitpanes>
