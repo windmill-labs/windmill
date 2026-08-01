@@ -1,7 +1,8 @@
 //! Provisioning the three dbt engines on a worker.
 //!
-//! `dbt-core-1x` and `dbt-core-2x` are Apache 2.0 and may be baked into the
-//! images; the Fusion engine is **never bundled**. Its license grants only a
+//! No engine ships in a Windmill image. `dbt-core-1x` and `dbt-core-2x` are
+//! Apache 2.0 and an operator may pre-stage either (`DBT_BUNDLED_DIR`); the
+//! Fusion engine is **never bundled**. Its license grants only a
 //! non-transferable, non-sublicensable redistribution right and forbids
 //! interposing on Provider-to-End-User communication, which is exactly what
 //! shipping it inside a job runner would do. The mitigation is that the user's
@@ -27,8 +28,9 @@ use crate::handle_child::{get_mem_peak, run_future_with_polling_update_job_polle
 
 lazy_static::lazy_static! {
     pub static ref DBT_CACHE_DIR: String = format!("{}dbt", *ROOT_CACHE_NOMOUNT_DIR);
-    /// Where the full images bake the Apache-2.0 engines. A persistent image
-    /// path, unlike the runtime caches, which are a fresh volume at start.
+    /// Where an operator may pre-stage an Apache-2.0 engine in a derived image.
+    /// A persistent image path, unlike the runtime caches, which are a fresh
+    /// volume at start — which is the whole reason it is a separate directory.
     static ref DBT_BUNDLED_DIR: String =
         std::env::var("DBT_BUNDLED_DIR").unwrap_or_else(|_| "/usr/local/dbt".to_string());
     static ref UV_PATH: String =
@@ -317,7 +319,11 @@ async fn provision_core_2x(
     let version = pinned_version
         .map(str::to_string)
         .unwrap_or_else(|| DBT_CORE_2X_VERSION.clone());
-    // The full images bake this engine in; only a slim image pays the fetch.
+    // No Windmill image ships an engine, so this is the operator's own
+    // pre-stage: `DBT_BUNDLED_DIR` populated in a derived image, for an
+    // air-gapped instance or a fleet that should not fetch per worker. Checked
+    // before the cache because it is read-only and shared, where the cache is a
+    // per-worker volume.
     let bundled = PathBuf::from(&*DBT_BUNDLED_DIR)
         .join(format!("core2x-{version}"))
         .join("dbt-sa-cli");
@@ -401,7 +407,8 @@ async fn provision_fusion(
     let script = fetch_under_job(
         "the Fusion installer",
         async {
-            let net = |e: reqwest::Error| Error::internal_err(format!("fetching the installer: {e}"));
+            let net =
+                |e: reqwest::Error| Error::internal_err(format!("fetching the installer: {e}"));
             Ok(windmill_common::utils::HTTP_CLIENT
                 .get(&*DBT_FUSION_INSTALL_URL)
                 .send()

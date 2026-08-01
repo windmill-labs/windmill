@@ -53,15 +53,26 @@ the dominant way dbt is orchestrated today.
 `engine: dbt-core-1x | dbt-core-2x | fusion` in the descriptor. Omitted, it is
 `dbt-core-1x`, which runs today's projects untouched.
 
-Only one engine is baked into the full images. The other two are fetched on
-first use and cached, for different reasons: 1.x cannot be baked because its
-adapter is a Python package chosen per project, and Fusion may not be.
+No engine is baked into any image. Each is fetched or built on first use and
+cached, for a different reason in each case.
 
 | Engine | Distribution | Cold start | License |
 |---|---|---|---|
-| `dbt-core-1x` (default) | Not bundled: a uv venv resolved per adapter on first use, then cached | One venv build per (core range, adapter) | Apache 2.0 |
-| `dbt-core-2x` | Bundled in the full images: one adapter-agnostic Rust binary | None | Apache 2.0 |
+| `dbt-core-1x` (default) | A uv venv resolved per adapter on first use, then cached. **Cannot** be baked: the adapter is a Python package chosen per project | One venv build per (core range, adapter) | Apache 2.0 |
+| `dbt-core-2x` | One adapter-agnostic Rust binary, fetched from GitHub releases on first use, cached | One download | Apache 2.0 |
 | `fusion` | **Never bundled.** Fetched from dbt Labs on first use, cached | One download (~290MB) | dbt Fusion engine license agreement |
+
+2.x is the one that *could* be baked, and deliberately is not: it is a
+pre-release (`2.0.0-alpha.5`) that nothing is defaulted onto, so baking it costs
+a layer in every image and a version pinned in two places with nothing keeping
+them in step. An operator who wants an engine pre-staged — an air-gapped
+instance, or a fleet that should not fetch per worker — populates
+`DBT_BUNDLED_DIR` (default `/usr/local/dbt`) with `core2x-<version>/dbt-sa-cli`
+in a derived image; the worker prefers it over its own cache.
+
+Two things to know before choosing 2.x: it is a pre-release, and it does not
+emit the per-node events the run page animates (see "Live per-model progress"),
+so a run on it reports its models only at the end.
 
 The 1.x venv resolves `dbt-core>=1.8,<2.0.0` *together with* the adapter rather
 than pinning a core version, because several adapters cap below the newest core
@@ -95,12 +106,12 @@ of taste:
 
 Consequence: ship with `dbt-core-1x`, which runs today's projects untouched, and
 flip the instance default to `fusion` once counsel clears the runtime-fetch model
-and a real project is verified end to end on it. Both bundled engines are
+and a real project is verified end to end on it. Both dbt-core engines are
 exercised by the e2e suite, so the flip is a config change, not a port.
 
 ## Decision 21: mirror the native warehouse boundary, do not invent one
 
-Everything structural is CE: the executor, both bundled engines, the manifest
+Everything structural is CE: the executor, all three engines, the manifest
 ingest, the `dbt://` asset graph, live progress, the editor. The only gate is
 on two adapters, and it is not a dbt-specific policy — it is the same boundary
 the native script languages already draw. Since `bigquery` and `snowflake`
@@ -110,8 +121,8 @@ mysql, duckdb, snowflake, bigquery, databricks, redshift, clickhouse,
 salesforce) is CE. Gating any of the others would make reaching a warehouse
 through dbt stricter than reaching it natively, which is backwards.
 
-Those two are *recognized* (for the gate and for the pip package the bundled
-engine needs), not rendered from a resource: an `oracledb` resource is
+Those two are *recognized* (for the gate and for the pip package the 1.x
+engine's venv needs), not rendered from a resource: an `oracledb` resource is
 `{user, password, database}` with no host/protocol/service, and dbt-sqlserver
 needs an ODBC `driver` the images do not install. Both reach their warehouse
 through the project's own `profiles.yml`, which is also how duckdb, clickhouse

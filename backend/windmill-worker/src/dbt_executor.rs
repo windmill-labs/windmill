@@ -2736,6 +2736,21 @@ const LS_MAX_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
 /// rows that are individually large; this keeps an ordinary preview from
 /// reaching it. Zero and negatives fall back to the default rather than reaching
 /// dbt, where `--limit 0` means something else.
+/// Whether a `show` selector can name at most one node, syntactically.
+///
+/// dbt splits a selector on WHITESPACE into a union and applies commas within
+/// each member, so the `,resource_type:model` intersection `run_show` appends
+/// binds to the last member only. More than one member therefore leaves the
+/// others unconstrained — and a seed among them is dispatched through dbt's
+/// seed runner, which writes its relation from the one command this runtime
+/// calls read-only.
+///
+/// Graph operators and wildcards are refused for the plainer reason: they
+/// resolve to a set, and `show` previews one relation.
+fn show_selects_one_node(model: &str) -> bool {
+    model.split_whitespace().count() == 1 && !model.contains(['+', '*', '@'])
+}
+
 fn show_limit(requested: Option<i64>) -> i64 {
     let max = windmill_parser_yaml::dbt::DBT_SHOW_MAX_LIMIT as i64;
     requested
@@ -2773,14 +2788,32 @@ async fn run_show(
                 .to_string(),
         ));
     };
+    let model = model.trim();
+    // ONE union member, because the intersection below binds to the LAST one:
+    // dbt splits a selector on whitespace into a union and applies commas within
+    // each member, so `my_seed safe_model,resource_type:model` still selects the
+    // seed — and dbt dispatches a selected SEED through its seed runner, which
+    // LOADS it. That writes a relation through a path recording no
+    // materialization, no graph and no retry state, from the one command this
+    // runtime advertises as read-only. Graph operators are refused for the same
+    // reason they are refused above: they resolve to a set, and `show` previews
+    // one relation.
+    if !show_selects_one_node(model) {
+        return Err(Error::BadRequest(format!(
+            "`show` previews ONE model's rows, so `model` must name exactly one — got \
+             `{model}`. A selector naming several (spaces), or a graph operator (`+`, \
+             `@`) or wildcard (`*`), resolves to a set: run `build` with it instead"
+        )));
+    }
     let mut cmd = dbt_command(p, &["show"]);
     add_vars(&mut cmd, descriptor, inv)?;
     // Intersected with `resource_type:model`, because `show` is only read-only
     // for models: dbt dispatches a selected SEED through its seed runner and
     // loads it, which would write a relation through a path that records no
     // materialization and no graph. A comma is dbt's own intersection, the same
-    // one `package:` already uses here, so a seed simply selects nothing.
-    cmd.args(["--select", &format!("{},resource_type:model", model.trim())]);
+    // one `package:` already uses here, so a seed simply selects nothing. Sound
+    // only because the check above left exactly one union member for it to bind.
+    cmd.args(["--select", &format!("{model},resource_type:model")]);
     let limit = show_limit(arg_i64(&inv.args, "limit")?);
     cmd.args(["--output", "json", "--limit", &limit.to_string()]);
     let stdout = run_capturing(
@@ -5156,6 +5189,22 @@ mod tests {
 
     // `--limit` decides how much of dbt's stdout the worker buffers, and any
     // caller who may run the script may set it.
+    #[test]
+    fn only_a_single_node_may_be_shown() {
+        // What the run page sends: one model, package-qualified.
+        assert!(show_selects_one_node("stg_orders,package:slow_shop"));
+        assert!(show_selects_one_node("stg_orders"));
+        // A union: the intersection would bind to `safe_model` alone, leaving
+        // `my_seed` selected — and a selected seed is LOADED, not shown.
+        assert!(!show_selects_one_node("my_seed safe_model"));
+        assert!(!show_selects_one_node("my_seed  safe_model,resource_type:model"));
+        // Resolve to a set rather than to one relation.
+        assert!(!show_selects_one_node("stg_orders+"));
+        assert!(!show_selects_one_node("+stg_orders"));
+        assert!(!show_selects_one_node("stg_*"));
+        assert!(!show_selects_one_node("@stg_orders"));
+    }
+
     #[test]
     fn a_show_limit_is_clamped_to_the_ceiling() {
         let max = windmill_parser_yaml::dbt::DBT_SHOW_MAX_LIMIT as i64;

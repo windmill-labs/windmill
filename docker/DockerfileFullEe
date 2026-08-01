@@ -79,27 +79,17 @@ RUN apt-get install -y iptables
 RUN apt-get install -y libsasl2-modules-gssapi-mit krb5-user
 
 # dbt
-# The two dbt-core engines are Apache 2.0; the Fusion engine is NEVER bundled.
-# Its license grants only a non-transferable, non-sublicensable redistribution
-# right, so Windmill does not redistribute it — the worker fetches it from dbt
-# Labs on first use instead (docs/dbt-runtime.md, decision 1).
+# NO dbt engine is baked in. Fusion may not be: its license grants only a
+# non-transferable, non-sublicensable redistribution right. dbt-core 1.x cannot
+# be, because its adapter is a Python package chosen per project. dbt-core 2.x
+# could be — one adapter-agnostic binary — but shipping a pre-release nobody is
+# defaulted onto costs a layer in every image and a version pinned in two places
+# that nothing keeps in step. The worker fetches whichever engine a project asks
+# for on first use and caches it (docs/dbt-runtime.md, decision 1).
 #
-# Only dbt-core 2.x is baked in: it is one adapter-agnostic binary. dbt-core 1.x
-# needs a venv per adapter (their transitive dependency sets conflict) and the
-# image cannot know which adapter a project uses, so the worker builds that venv
-# on first use and caches it. Installed under /usr/local, not the runtime cache
-# dirs — those are a fresh volume/tmpfs at runtime, the same trap the ansible
-# layer above documents. Keep the version in step with `dbt_engine.rs`.
-ARG DBT_CORE_2X_VERSION=2.0.0-alpha.5
-RUN set -eux; \
-    dir=/usr/local/dbt/core2x-${DBT_CORE_2X_VERSION}; \
-    mkdir -p "$dir"; \
-    curl -fsSL -o /tmp/dbt2.tar.gz \
-      "https://github.com/dbt-labs/dbt-core/releases/download/v${DBT_CORE_2X_VERSION}/dbt-core-${DBT_CORE_2X_VERSION}-$(uname -m)-unknown-linux-gnu.tar.gz"; \
-    tar xzf /tmp/dbt2.tar.gz -C "$dir" --strip-components 1; \
-    rm /tmp/dbt2.tar.gz; \
-    "$dir/dbt-sa-cli" --version; \
-    chmod -R a+rX /usr/local/dbt
+# An operator who wants one pre-staged — an air-gapped instance, or a fleet that
+# should not fetch per worker — populates `DBT_BUNDLED_DIR` (default
+# /usr/local/dbt) with `core2x-<version>/dbt-sa-cli` in their own image layer.
 
 # Fix UV cache permissions for non-root user support (uid 1000, etc.)
 # The uv tool install ansible command populates the UV cache with root-owned files
