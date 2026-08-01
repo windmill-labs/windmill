@@ -271,7 +271,7 @@ lazy_static::lazy_static! {
     /// the kernel OOM killer sacrificing the job rather than the worker; the default maximizes that
     /// margin. Userspace OOM daemons (earlyoom, systemd-oomd, nohang) rank every process on the
     /// host by the same score, so at 1000 a tiny job outranks multi-GB processes and gets killed
-    /// first — lowering this keeps the kernel ordering while leaving those daemons free to pick the
+    /// first. Lowering this keeps the kernel ordering while leaving those daemons free to pick the
     /// actual memory hog.
     pub static ref JOB_OOM_SCORE_ADJ: i32 = parse_job_oom_score_adj(std::env::var("JOB_OOM_SCORE_ADJ").ok().as_deref());
 
