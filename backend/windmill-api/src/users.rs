@@ -581,6 +581,17 @@ async fn update_username_in_workpsace<'c>(
     ).execute(&mut **tx)
     .await?;
 
+    // A draft carries the principal in its value, so a rename must reach it there too —
+    // deploying a draft that still names `u/{old}` would be rejected as a pair naming
+    // somebody who no longer exists.
+    sqlx::query!(
+        r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of_permissioned_as'], to_jsonb('u/' || $1))) WHERE value->>'on_behalf_of_permissioned_as' = ('u/' || $2) AND workspace_id = $3"#,
+        new_username,
+        old_username,
+        w_id
+    ).execute(&mut **tx)
+    .await?;
+
     // ---- app ----
     sqlx::query!(
         r#"UPDATE app SET path = REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,

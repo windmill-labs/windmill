@@ -6312,9 +6312,17 @@ async fn clone_drafts(
     target_workspace_id: &str,
     authed_email: &str,
 ) -> Result<()> {
+    // Same workspace-scoping rule as `clone_scripts`: a script/flow draft carries the
+    // principal in its value, and deploying it in the clone would send a pair naming
+    // somebody who is not a member there. Stripping it lets the deploy derive the
+    // clone's own principal from the email the draft still carries.
     sqlx::query!(
         "INSERT INTO draft (workspace_id, path, typ, value, created_at, email)
-         SELECT $2, path, typ, value, created_at, email
+         SELECT $2, path, typ,
+                CASE WHEN typ IN ('script', 'flow')
+                     THEN to_json(to_jsonb(value) - 'on_behalf_of_permissioned_as')
+                     ELSE value END,
+                created_at, email
          FROM draft
          WHERE workspace_id = $1 AND (email = $3 OR email IS NULL)",
         source_workspace_id,
