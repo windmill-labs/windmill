@@ -4920,6 +4920,7 @@ paths:
                             - settings
                             - key
                             - workspacedependencies
+                            - datatablemigration
                   mute_critical_alerts:
                     type: boolean
                 required:

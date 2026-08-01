@@ -58,8 +58,12 @@ use windmill_oauth::{OClient, RefreshToken, Url, OAUTH_HTTP_CLIENT};
 
 use windmill_api_auth::ApiAuthed;
 pub mod handler;
+pub(crate) mod lock;
 pub mod sync;
 pub mod workspace_integrations;
+
+#[cfg(feature = "native_trigger")]
+pub mod rename;
 
 // Service modules - add new services here:
 #[cfg(feature = "native_trigger")]
@@ -770,23 +774,37 @@ async fn update_oauth_token_resource(
     }
 }
 
+/// The scopes a webhook token must carry to run one runnable, and nothing else.
+///
+/// Always derived from the runnable the trigger points at *now*. A token that outlives a rename
+/// carries the old path, and a webhook presenting it is refused however correct the URL is.
+pub fn webhook_token_scopes(script_path: &str, is_flow: bool) -> Vec<String> {
+    let kind = if is_flow { "flows" } else { "scripts" };
+    vec![format!("jobs:run:{kind}:{script_path}")]
+}
+
 /// Create a new webhook token, minting a fresh `ephemeral-webhook-{service}-{rd5}`
 /// label and the per-service expiration (see `ServiceName::webhook_token_expiration`).
 /// The old token is **not** deleted — callers must call `delete_token_by_hash` on
 /// `old_token_hash` after the trigger row has been successfully updated.
 ///
 /// Returns `Ok(None)` if the old token no longer exists (e.g. manually deleted by user).
+///
+/// `scopes` is applied rather than carried over: the old token's scopes name whatever runnable it
+/// was minted for, which a rename may since have moved. Copying them is how a re-save "succeeds"
+/// while every callback it authorises is refused.
 pub async fn rotate_webhook_token(
     db: &DB,
     old_token_hash: &str,
     service_name: ServiceName,
+    scopes: Vec<String>,
 ) -> Result<Option<RotatedToken>> {
     use windmill_common::auth::{hash_token, TOKEN_PREFIX_LEN};
     use windmill_common::min_version::MIN_VERSION_SUPPORTS_TOKEN_HASH;
     use windmill_common::utils::rd_string;
 
     let old = match sqlx::query!(
-        "SELECT email, scopes, workspace_id, super_admin, owner FROM token WHERE token_hash = $1",
+        "SELECT email, workspace_id, super_admin, owner FROM token WHERE token_hash = $1",
         old_token_hash
     )
     .fetch_optional(db)
@@ -825,7 +843,7 @@ pub async fn rotate_webhook_token(
         old.email,
         new_label,
         old.super_admin,
-        old.scopes.as_deref(),
+        Some(scopes.as_slice()),
         old.workspace_id,
         old.owner,
         new_expiration,
@@ -918,6 +936,114 @@ pub async fn store_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres>
     .await?;
 
     Ok(())
+}
+
+/// Record the outcome of re-registering a webhook: the token that now authenticates it and the
+/// config the service resolved.
+///
+/// Deliberately not `store_native_trigger`: the runnable a trigger points at belongs to whoever
+/// renamed or edited it, not to the re-registration, which only ever holds the path as it stood
+/// before its network call. Writing that path back would undo a rename that landed in between.
+///
+/// Conditional on `updated_at` — the row version — for the same reason. `TriggerLock` does not
+/// cover the rename's own `UPDATE`, because deploys must never block on a third party, so another
+/// write can land *during* this registration's network call. Recording then would attach a token
+/// for state that no longer holds and, worse, clear the `REREGISTRATION_PENDING` a newer rename
+/// set to protect itself. Comparing the path alone would not catch it: a save at the same path, or
+/// a rename away and back, leaves the path equal while the token has moved on.
+///
+/// Returns `false` when the row changed, leaving it untouched for whoever wrote it to finish.
+pub(crate) async fn record_reregistration<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+    db: E,
+    workspace_id: &str,
+    service_name: ServiceName,
+    external_id: &str,
+    webhook_token: &str,
+    service_config: serde_json::Value,
+    expected_updated_at: DateTime<Utc>,
+) -> Result<bool> {
+    use windmill_common::auth::hash_token;
+
+    let applied = sqlx::query_scalar!(
+        r#"
+        UPDATE native_trigger
+        SET webhook_token_hash = $1, service_config = $2, error = NULL, updated_at = NOW()
+        WHERE
+            workspace_id = $3
+            AND service_name = $4
+            AND external_id = $5
+            AND updated_at = $6
+        RETURNING 1 AS "applied!"
+        "#,
+        hash_token(webhook_token),
+        sqlx::types::Json(service_config) as _,
+        workspace_id,
+        service_name as ServiceName,
+        external_id,
+        expected_updated_at,
+    )
+    .fetch_optional(db)
+    .await?
+    .is_some();
+
+    Ok(applied)
+}
+
+/// Apply a trigger edit, unless the runnable moved under it in the meantime.
+///
+/// A rename writes `native_trigger.script_path` from inside the deploy transaction, which is not
+/// under `TriggerLock` — so an edit holding the lock across its network call can still have the
+/// ground shift beneath it. Writing its snapshot's path back would undo the rename and hide the
+/// trigger from every listing, which is the bug this whole change exists to fix, so refuse instead.
+///
+/// Callers MUST have verified write access to `config.script_path`.
+///
+/// Returns `false` when the runnable moved; the edit is then stale and the caller should say so.
+pub(crate) async fn update_native_trigger_if_runnable_unchanged<
+    'c,
+    E: sqlx::Executor<'c, Database = Postgres>,
+>(
+    db: E,
+    workspace_id: &str,
+    service_name: ServiceName,
+    external_id: &str,
+    config: &NativeTriggerConfig,
+    service_config: serde_json::Value,
+    summary: Option<&str>,
+    expected_script_path: &str,
+    expected_is_flow: bool,
+) -> Result<bool> {
+    use windmill_common::auth::hash_token;
+
+    let applied = sqlx::query_scalar!(
+        r#"
+        UPDATE native_trigger
+        SET script_path = $1, is_flow = $2, webhook_token_hash = $3, service_config = $4,
+            summary = $5, error = NULL, updated_at = NOW()
+        WHERE
+            workspace_id = $6
+            AND service_name = $7
+            AND external_id = $8
+            AND script_path = $9
+            AND is_flow = $10
+        RETURNING 1 AS "applied!"
+        "#,
+        config.script_path,
+        config.is_flow,
+        hash_token(&config.webhook_token),
+        sqlx::types::Json(service_config) as _,
+        summary,
+        workspace_id,
+        service_name as ServiceName,
+        external_id,
+        expected_script_path,
+        expected_is_flow,
+    )
+    .fetch_optional(db)
+    .await?
+    .is_some();
+
+    Ok(applied)
 }
 
 pub async fn update_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres>>(

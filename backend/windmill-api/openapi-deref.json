@@ -37058,7 +37058,8 @@
           "trigger",
           "settings",
           "key",
-          "workspacedependencies"
+          "workspacedependencies",
+          "datatablemigration"
         ]
       },
       "AIProviderModel": {

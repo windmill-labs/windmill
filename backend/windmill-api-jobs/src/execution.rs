@@ -751,6 +751,7 @@ pub async fn run_flow<'c>(
         email,
         permissioned_as,
         authed.token_prefix.as_deref(),
+        authed.username_override.as_deref(),
         scheduled_for,
         None,
         run_query.parent_job,
@@ -768,7 +769,7 @@ pub async fn run_flow<'c>(
         push_authed.as_ref(),
         false,
         None,
-        trigger,
+        authed.trigger_or_fallback(trigger),
         run_query.suspended_mode,
     )
     .await?;
@@ -965,6 +966,7 @@ pub async fn push_script_job_by_path_into_queue<'c>(
         email,
         permissioned_as,
         authed.token_prefix.as_deref(),
+        authed.username_override.as_deref(),
         scheduled_for,
         None,
         run_query.parent_job,
@@ -987,7 +989,7 @@ pub async fn push_script_job_by_path_into_queue<'c>(
         push_authed.as_ref(),
         false,
         None,
-        trigger,
+        authed.trigger_or_fallback(trigger),
         run_query.suspended_mode,
     )
     .await?;

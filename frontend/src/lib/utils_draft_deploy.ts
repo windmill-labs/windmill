@@ -459,7 +459,10 @@ export async function deployDraft(
 					...rest,
 					path: scriptPath,
 					parent_hash: r.hash,
-					deployment_message: deploymentMessage
+					deployment_message: deploymentMessage,
+					// Deploy the draft's on-behalf-of as-is; the backend resets it to the
+					// deploying user without this flag, gated by can_preserve_on_behalf_of.
+					preserve_on_behalf_of: rest.on_behalf_of_email ? true : undefined
 				}
 			})
 			// Then deploy any draft trigger edits, so they aren't dropped with the draft.
@@ -483,6 +486,9 @@ export async function deployDraft(
 				visible_to_runner_only: d.visible_to_runner_only,
 				on_behalf_of_email: d.on_behalf_of_email,
 				on_behalf_of_permissioned_as: d.on_behalf_of_permissioned_as,
+				// Same as scripts and apps: the backend resets on_behalf_of_email to the
+				// deploying user without this flag, gated by can_preserve_on_behalf_of.
+				preserve_on_behalf_of: d.on_behalf_of_email ? true : undefined,
 				labels: d.labels,
 				deployment_message: deploymentMessage
 			}

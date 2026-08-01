@@ -10,7 +10,7 @@ use windmill_api_auth::{
     build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_owner_of_path,
     ApiAuthed,
 };
-use windmill_common::db::DB;
+use windmill_common::db::{Authable, DB};
 use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
 
 use crate::secret_backend_ext::{
@@ -367,10 +367,10 @@ async fn get_variable(
         {
             return Ok(Json(overlay));
         }
-        explain_variable_perm_error(&path, &w_id, &db).await?;
+        explain_variable_perm_error(&path, &w_id, &db, Some(&authed)).await?;
         unreachable!()
     } else {
-        explain_variable_perm_error(&path, &w_id, &db).await?;
+        explain_variable_perm_error(&path, &w_id, &db, Some(&authed)).await?;
         unreachable!()
     };
 
@@ -461,10 +461,27 @@ async fn get_value(
         .map(Json);
 }
 
+/// The grants alone can't explain a denial: a job started on behalf of another
+/// user is authorized as that user, so the error has to name who was actually
+/// asking or it reads as a grant bug.
+fn describe_authed(authed: Option<&(impl Authable + Sync)>) -> String {
+    match authed {
+        Some(authed) => format!(
+            "username: {}, email: {}, groups: {:?}, folders: {:?}",
+            authed.username(),
+            authed.email(),
+            authed.groups(),
+            authed.folders()
+        ),
+        None => "unauthenticated".to_string(),
+    }
+}
+
 async fn explain_variable_perm_error(
     path: &str,
     w_id: &str,
     db: &sqlx::Pool<Postgres>,
+    authed: Option<&(impl Authable + Sync)>,
 ) -> windmill_common::error::Result<()> {
     let extra_perms = sqlx::query_scalar!(
         "SELECT extra_perms from variable WHERE path = $1 AND workspace_id = $2",
@@ -489,13 +506,14 @@ async fn explain_variable_perm_error(
         .fetch_optional(db)
         .await?;
         return Err(Error::NotAuthorized(format!(
-            "Variable exists but you don't have access to it:\nvariable perms: {}\nfolder perms: {}",
-            serde_json::to_string_pretty(&extra_perms).unwrap_or_default(), serde_json::to_string_pretty(&folder_extra_perms).unwrap_or_default()
+            "Variable exists but you don't have access to it:\nvariable perms: {}\nfolder perms: {}\nauthed as: {}",
+            serde_json::to_string_pretty(&extra_perms).unwrap_or_default(), serde_json::to_string_pretty(&folder_extra_perms).unwrap_or_default(), describe_authed(authed)
         )));
     } else {
         return Err(Error::NotAuthorized(format!(
-            "Variable exists but you don't have access to it:\nvariable perms: {}",
-            serde_json::to_string_pretty(&extra_perms).unwrap_or_default()
+            "Variable exists but you don't have access to it:\nvariable perms: {}\nauthed as: {}",
+            serde_json::to_string_pretty(&extra_perms).unwrap_or_default(),
+            describe_authed(authed)
         )));
     }
 }
@@ -1498,7 +1516,13 @@ pub async fn get_value_internal<'a>(
     let variable = if let Some(variable) = variable_o {
         variable
     } else {
-        explain_variable_perm_error(path, w_id, &db_with_opt_authed.db()).await?;
+        explain_variable_perm_error(
+            path,
+            w_id,
+            &db_with_opt_authed.db(),
+            db_with_opt_authed.authed(),
+        )
+        .await?;
         unreachable!()
     };
 

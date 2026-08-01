@@ -298,6 +298,9 @@ pub(crate) struct ArchiveQueryParams {
     include_settings: Option<bool>,
     include_key: Option<bool>,
     include_workspace_dependencies: Option<bool>,
+    /// Default `false`: data table migrations ship in the tarball unless the repo
+    /// opted out of the `datatablemigration` object type.
+    skip_datatable_migrations: Option<bool>,
     default_ts: Option<String>,
     /// Settings format version: "v1" (default) returns legacy flat format, "v2" returns grouped format
     settings_version: Option<String>,
@@ -570,6 +573,7 @@ pub(crate) async fn tarball_workspace(
         include_settings,
         include_key,
         include_workspace_dependencies,
+        skip_datatable_migrations,
         default_ts,
         settings_version,
         preserve_extra_perms,
@@ -1601,7 +1605,7 @@ pub(crate) async fn tarball_workspace(
             .await?;
     }
 
-    {
+    if !skip_datatable_migrations.unwrap_or(false) {
         // Data table migrations live in the `datatable_migrations` table; surface
         // them in the export as `migrations/datatable/<datatable>/<version>_<name>`
         // .up.sql (and .down.sql when present) so `wmill sync` treats them like any
