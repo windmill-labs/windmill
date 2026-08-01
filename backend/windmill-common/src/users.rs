@@ -28,8 +28,11 @@ pub const PERMISSIONED_AS_GROUP_PREFIX: &str = "g/";
 /// Prefix for group-based usernames: "group-"
 pub const USERNAME_GROUP_PREFIX: &str = "group-";
 
+/// An email-shaped username is its own principal, which is how a superadmin acting outside
+/// their workspaces is named. One containing `/` is prefixed instead: readers split on the
+/// first `/`, so `g/alice@example.com` left bare would come back as a group.
 pub fn username_to_permissioned_as(user: &str) -> String {
-    if user.contains('@') {
+    if user.contains('@') && !user.contains('/') {
         user.to_string()
     } else if let Some(group) = user.strip_prefix(USERNAME_GROUP_PREFIX) {
         format!("{}{}", PERMISSIONED_AS_GROUP_PREFIX, group)
@@ -120,7 +123,10 @@ pub async fn permissioned_as_exists(
     // The bare form is the account whose *username* is that address, not anyone who merely
     // holds it: `u/{username}` is the canonical principal for everybody else, and the bare
     // branch of `fetch_authed_from_permissioned_as` grants neither their groups nor their
-    // folders.
+    // folders. Anything unprefixed that is not an address at all is malformed.
+    if !permissioned_as.contains('@') {
+        return Ok(false);
+    }
     Ok(sqlx::query_scalar!(
         "SELECT EXISTS(
             SELECT 1 FROM usr WHERE workspace_id = $1 AND username = $2
@@ -310,6 +316,10 @@ mod tests {
         assert_eq!(
             username_to_permissioned_as("alice@example.com"),
             "alice@example.com"
+        );
+        assert_eq!(
+            username_to_permissioned_as("g/alice@example.com"),
+            "u/g/alice@example.com"
         );
         assert_eq!(username_to_permissioned_as("group-all"), "g/all");
         assert_eq!(username_to_permissioned_as("group-my-team"), "g/my-team");

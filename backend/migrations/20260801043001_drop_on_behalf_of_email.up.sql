@@ -9,12 +9,16 @@
 CREATE FUNCTION pg_temp.permissioned_as_from_email(w_id VARCHAR, email VARCHAR)
 RETURNS VARCHAR AS $$
     SELECT COALESCE(
-        -- `username_to_permissioned_as`: an email-shaped username is stored verbatim.
-        (SELECT CASE WHEN u.username LIKE '%@%' THEN u.username ELSE 'u/' || u.username END
+        -- `username_to_permissioned_as`: an email-shaped username is its own principal unless
+        -- it contains a slash, which a reader would split on.
+        (SELECT CASE WHEN u.username LIKE '%@%' AND u.username NOT LIKE '%/%' THEN u.username
+                     ELSE 'u/' || u.username END
            FROM usr u WHERE u.workspace_id = $1 AND u.email = $2),
         -- A superadmin acting outside their workspaces has no usr row.
-        (SELECT CASE WHEN COALESCE(p.username, p.email) LIKE '%@%' THEN COALESCE(p.username, p.email)
-                     ELSE 'u/' || p.username END
+        (SELECT CASE WHEN COALESCE(p.username, p.email) LIKE '%@%'
+                      AND COALESCE(p.username, p.email) NOT LIKE '%/%'
+                     THEN COALESCE(p.username, p.email)
+                     ELSE 'u/' || COALESCE(p.username, p.email) END
            FROM password p WHERE p.email = $2 AND p.super_admin),
         (SELECT 'g/' || g.name FROM group_ g
           WHERE g.workspace_id = $1
