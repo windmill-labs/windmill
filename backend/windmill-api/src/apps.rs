@@ -334,6 +334,10 @@ async fn derive_draft_policy_on_behalf_of_email(
 
 /// The same repair for a draft served straight out of the draft table rather than through
 /// `get_app`, which is how the AI chat and the other-users' -draft banner read app drafts.
+///
+/// Not an authorization boundary: it resolves an address for whatever workspace and principal
+/// it is handed, so a caller acting for a user MUST already have established their read access
+/// to that draft.
 pub(crate) async fn derive_stored_draft_policy_on_behalf_of_email(
     db: &DB,
     w_id: &str,
