@@ -105,6 +105,10 @@ struct ScriptMetadata {
     pub has_preprocessor: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_behalf_of_email: Option<String>,
+    /// Emitted instead of the address from syncBehavior v1 on, where the CLI only needs to
+    /// know *that* the runnable has an identity — it re-reads the value itself on push.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub has_on_behalf_of: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub modules: Option<std::collections::HashMap<String, windmill_common::scripts::ScriptModule>>,
     #[serde(flatten)]
@@ -115,6 +119,15 @@ struct ScriptMetadata {
     pub labels: Option<Vec<String>>,
     #[serde(skip_serializing_if = "is_empty_extra_perms")]
     pub extra_perms: serde_json::Value,
+}
+
+/// `syncBehavior` as the CLI writes it (`"v1"`); anything unparseable is v0, matching
+/// `parseSyncBehavior` on the client.
+fn parse_sync_behavior_version(value: Option<&str>) -> u32 {
+    value
+        .and_then(|v| v.strip_prefix('v'))
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0)
 }
 
 /// The address a runnable's principal resolves to, memoised for the duration of one export.
@@ -332,6 +345,10 @@ pub(crate) struct ArchiveQueryParams {
     /// identities that may not exist in the target workspace. `wmill sync pull`
     /// passes `true` to surface ACLs in the git-tracked yaml.
     preserve_extra_perms: Option<bool>,
+    /// The caller's `wmill.yaml` `syncBehavior`. From v1 the CLI strips the on-behalf-of
+    /// address from what it writes and keeps only a `has_on_behalf_of` marker, so the
+    /// tarball emits that marker directly and skips resolving any address at all.
+    sync_behavior_version: Option<String>,
 }
 
 /// How to handle `extra_perms` in the serialized output.
@@ -600,6 +617,7 @@ pub(crate) async fn tarball_workspace(
         default_ts,
         settings_version,
         preserve_extra_perms,
+        sync_behavior_version,
     }): Query<ArchiveQueryParams>,
 ) -> Result<([(HeaderName, String); 2], impl IntoResponse)> {
     tracing::info!(
@@ -715,6 +733,10 @@ pub(crate) async fn tarball_workspace(
         }
     }
 
+    // From v1 the CLI never writes the address, so resolving it would be pure waste on the
+    // default sync path; emit the marker it actually keeps instead.
+    let obo_marker_only =
+        parse_sync_behavior_version(sync_behavior_version.as_deref()) >= 1;
     let mut obo_cache: HashMap<String, String> = HashMap::new();
     {
         let scripts = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(&format!(
@@ -792,7 +814,20 @@ pub(crate) async fn tarball_workspace(
                 auto_kind: script.auto_kind,
                 codebase: script.codebase,
                 has_preprocessor: script.has_preprocessor,
-                on_behalf_of_email: derive_email(&mut obo_cache, &db, &w_id, script.on_behalf_of_permissioned_as.as_deref()).await?,
+                on_behalf_of_email: if obo_marker_only {
+                    None
+                } else {
+                    derive_email(
+                        &mut obo_cache,
+                        &db,
+                        &w_id,
+                        script.on_behalf_of_permissioned_as.as_deref(),
+                    )
+                    .await?
+                },
+                has_on_behalf_of: (obo_marker_only
+                    && script.on_behalf_of_permissioned_as.is_some())
+                .then_some(true),
                 modules: script.modules,
                 labels: script.labels,
                 // Same opt-in contract as flow/app: the tarball only surfaces
@@ -864,14 +899,29 @@ pub(crate) async fn tarball_workspace(
          .await?;
 
         for mut flow in flows {
-            flow.on_behalf_of_email = derive_email(
-                &mut obo_cache,
-                &db,
-                &w_id,
-                flow.on_behalf_of_permissioned_as.as_deref(),
+            let flow_marker = obo_marker_only && flow.on_behalf_of_permissioned_as.is_some();
+            flow.on_behalf_of_email = if obo_marker_only {
+                None
+            } else {
+                derive_email(
+                    &mut obo_cache,
+                    &db,
+                    &w_id,
+                    flow.on_behalf_of_permissioned_as.as_deref(),
+                )
+                .await?
+            };
+            let mut overrides = serde_json::Map::new();
+            if flow_marker {
+                overrides.insert("has_on_behalf_of".to_string(), Value::Bool(true));
+            }
+            let flow_str = &to_string_without_metadata_inner(
+                &flow,
+                new_kinds_extra_perms,
+                None,
+                (!overrides.is_empty()).then_some(&overrides),
             )
-            .await?;
-            let flow_str = &to_string_without_metadata(&flow, new_kinds_extra_perms, None).unwrap();
+            .unwrap();
             archive
                 .write_to_archive(&flow_str, &format!("{}.flow.json", flow.path))
                 .await?;
