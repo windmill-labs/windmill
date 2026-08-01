@@ -1758,6 +1758,9 @@ fn validate_dbt_resource_path(name: &str, path: &str) -> Result<()> {
         && parts
             .iter()
             .all(|p| !p.is_empty() && *p != "." && *p != "..")
+        // `resource.path` is VARCHAR(255), so a longer path names a resource that
+        // cannot exist.
+        && bare.chars().count() <= 255
         && !bare.chars().any(|c| c.is_control() || "?#%\\ ".contains(c));
     if !ok {
         return Err(Error::BadRequest(format!(
@@ -2504,6 +2507,16 @@ mod tests {
         assert!(!json_text_has_nul_escape(&nul_json(2)));
         // 0 backslashes: the bare token "u0000" — safe.
         assert!(!json_text_has_nul_escape(&nul_json(0)));
+    }
+
+    #[test]
+    fn dbt_resource_path_length_bound() {
+        let at_limit = format!("f/dbt/{}", "a".repeat(255 - "f/dbt/".len()));
+        assert_eq!(at_limit.chars().count(), 255);
+        assert!(validate_dbt_resource_path("main", &at_limit).is_ok());
+        // The `$res:` prefix is not stored, so it does not count against the column.
+        assert!(validate_dbt_resource_path("main", &format!("$res:{at_limit}")).is_ok());
+        assert!(validate_dbt_resource_path("main", &format!("{at_limit}a")).is_err());
     }
 
     #[test]

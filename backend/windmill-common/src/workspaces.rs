@@ -2477,6 +2477,12 @@ mod tests {
         assert!(msg.contains("staging"), "{msg}");
         assert!(msg.contains("tab=windmill_data_tables"), "{msg}");
     }
+
+    #[test]
+    fn test_dbt_warehouse_name_length_bound() {
+        assert!(validate_dbt_warehouse_name(&"a".repeat(MAX_DBT_WAREHOUSE_NAME_LEN)).is_ok());
+        assert!(validate_dbt_warehouse_name(&"a".repeat(MAX_DBT_WAREHOUSE_NAME_LEN + 1)).is_err());
+    }
 }
 
 /// Whether a workspace configures this warehouse, without resolving it.
@@ -2484,12 +2490,25 @@ mod tests {
 /// For the one caller that needs the NAME and nothing else: a project bringing
 /// its own `profiles.yml` names a warehouse to say where its assets belong, and
 /// decrypting a connection it will never open to answer that would be waste.
+///
+/// NO AUTHORIZATION, like the resolver it delegates to: it reads workspace
+/// settings for whatever `w_id` it is given, so callers MUST already be scoped
+/// to that workspace.
 pub async fn dbt_warehouse_exists(db: &DB, w_id: &str, warehouse: &str) -> Result<()> {
     dbt_warehouse_resource(db, w_id, warehouse)
         .await
         .map(|_| ())
 }
 
+/// The longest warehouse name a workspace may configure.
+///
+/// It is the first segment of every `dbt://<warehouse>/<schema>/<name>` key, and
+/// those land in `asset.path`, a VARCHAR(255). A name near that width would push
+/// ordinary relations past the column, and the ingest's own bound would then
+/// skip them — a graph quietly missing models. 64 leaves room for two 63-char
+/// identifiers, which is Postgres's own limit; warehouses that allow longer ones
+/// still rely on that ingest bound as the backstop.
+pub const MAX_DBT_WAREHOUSE_NAME_LEN: usize = 64;
 
 /// A warehouse name is a URL path segment for a worker with no database, so a
 /// name that could re-cut the path (or the query) is refused — at every place a
@@ -2502,6 +2521,12 @@ pub fn validate_dbt_warehouse_name(name: &str) -> Result<()> {
     {
         return Err(Error::BadRequest(format!(
             "`{name}` is not a usable dbt warehouse name: use letters, digits, `_` and `-`"
+        )));
+    }
+    if name.chars().count() > MAX_DBT_WAREHOUSE_NAME_LEN {
+        return Err(Error::BadRequest(format!(
+            "`{name}` is too long for a dbt warehouse name (max {MAX_DBT_WAREHOUSE_NAME_LEN}): it \
+             prefixes every asset path this warehouse's models are keyed on"
         )));
     }
     Ok(())

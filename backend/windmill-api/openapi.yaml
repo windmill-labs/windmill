@@ -4601,6 +4601,27 @@ paths:
               schema:
                 $ref: "#/components/schemas/DbtWarehouseConnection"
 
+  /w/{workspace}/dbt/warehouse_exists/{name}:
+    get:
+      summary: check that a dbt warehouse is configured, without resolving it
+      description: >-
+        Job-scoped: needs a job token. For a project bringing its own
+        `profiles.yml`, which names a warehouse only to say where its assets
+        belong and never opens the connection.
+      operationId: dbtWarehouseExists
+      tags:
+        - dbt
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: the warehouse is configured
+
   /w/{workspace}/workspaces/list_ducklakes:
     get:
       summary: list ducklakes
