@@ -173,14 +173,29 @@ function legacyTriggerKind(kind: TriggerDeployKind) {
  * nowhere else since usernames are per-workspace. The key is therefore always overwritten:
  * with the picked user's principal for a custom choice, and cleared otherwise so the
  * backend derives the target's own from the email it is given. The shared `deployItem`
- * clears it too, but this app consumes the published package, so the clear has to exist
+ * does the same, but this app consumes the published package, so the rewrite has to exist
  * on both sides until that version ships.
+ *
+ * An app carries both halves inside its `policy` instead, so it needs both stamped here:
+ * the published package leaves the policy untouched, and a source principal beside a
+ * target address is rejected as a pair naming two different accounts.
  */
-function makeProvider(onBehalfOfPrincipal?: string): DeployProvider {
+function makeProvider(onBehalfOfPrincipal?: string, onBehalfOf?: string): DeployProvider {
 	const withPermissionedAs = <T extends Record<string, any>>(requestBody: T): T => ({
 		...requestBody,
 		on_behalf_of: onBehalfOfPrincipal
 	})
+	const withPolicyIdentity = <T extends Record<string, any>>(app: T): T =>
+		app.policy
+			? {
+					...app,
+					policy: {
+						...app.policy,
+						on_behalf_of: onBehalfOfPrincipal,
+						on_behalf_of_email: onBehalfOf
+					}
+				}
+			: app
 	return {
 		existsFlowByPath: (p) => FlowService.existsFlowByPath(p),
 		existsScriptByPath: (p) => ScriptService.existsScriptByPath(p),
@@ -200,10 +215,20 @@ function makeProvider(onBehalfOfPrincipal?: string): DeployProvider {
 			ScriptService.createScript({ ...p, requestBody: withPermissionedAs(p.requestBody) }),
 		archiveScriptByPath: (p) => ScriptService.archiveScriptByPath(p),
 		getAppByPath: (p) => AppService.getAppByPath(p),
-		createApp: (p) => AppService.createApp(p),
-		updateApp: (p) => AppService.updateApp(p),
-		createAppRaw: (p) => AppService.createAppRaw(p),
-		updateAppRaw: (p) => AppService.updateAppRaw(p),
+		createApp: (p) =>
+			AppService.createApp({ ...p, requestBody: withPolicyIdentity(p.requestBody) }),
+		updateApp: (p) =>
+			AppService.updateApp({ ...p, requestBody: withPolicyIdentity(p.requestBody) }),
+		createAppRaw: (p) =>
+			AppService.createAppRaw({
+				...p,
+				formData: { ...p.formData, app: withPolicyIdentity(p.formData.app) }
+			}),
+		updateAppRaw: (p) =>
+			AppService.updateAppRaw({
+				...p,
+				formData: { ...p.formData, app: withPolicyIdentity(p.formData.app) }
+			}),
 		getPublicSecretOfLatestVersionOfApp: (p) => AppService.getPublicSecretOfLatestVersionOfApp(p),
 		getRawAppData: (p) => AppService.getRawAppData(p),
 		deleteApp: (p) => AppService.deleteApp(p),
@@ -345,7 +370,7 @@ export async function deployItem(params: DeployItemParams): Promise<DeployResult
 	}
 
 	return sharedDeployItem(
-		makeProvider(onBehalfOfPrincipal),
+		makeProvider(onBehalfOfPrincipal, onBehalfOf),
 		kind as DeployKind,
 		path,
 		workspaceFrom,

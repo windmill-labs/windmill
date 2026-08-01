@@ -506,10 +506,21 @@ export async function deployItem(
         },
       });
     } else if (kind === "app" || kind === "raw_app") {
-      const app = await provider.getAppByPath({
+      const rawApp = await provider.getAppByPath({
         workspace: workspaceFrom,
         path,
       });
+      // See the flow branch: a source-workspace principal is never valid here, and the
+      // policy carries the app's in `on_behalf_of`. Clearing it lets the backend derive
+      // the target's own from the address.
+      const app = {
+        ...rawApp,
+        policy: {
+          ...rawApp.policy,
+          on_behalf_of: undefined,
+          on_behalf_of_email: onBehalfOf,
+        },
+      };
       if (alreadyExists) {
         if (app.raw_app) {
           const secret = await provider.getPublicSecretOfLatestVersionOfApp({
