@@ -2082,6 +2082,28 @@ async fn change_user_email(
     .execute(&mut *tx)
     .await?;
 
+    // An app draft carries a copy of the deployed policy, principal included.
+    sqlx::query!(
+        r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['policy', 'on_behalf_of'], to_jsonb($1::text))) WHERE typ IN ('app', 'raw_app') AND value->'policy'->>'on_behalf_of' = $2"#,
+        &new_principal,
+        &old_principal
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    // A raw-app draft persists the address the client read back too. The deploy sends it beside
+    // the principal, where an address naming somebody else is rejected — and unlike a live read
+    // it never refreshes on its own. Same group guard as the deployed policy above, plus the
+    // `IS NULL` arm: without it the predicate is `NULL` for a draft with no principal, which is
+    // neither true nor false, so those rows would be skipped.
+    sqlx::query!(
+        r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['policy', 'on_behalf_of_email'], to_jsonb($1::text))) WHERE typ IN ('app', 'raw_app') AND value->'policy'->>'on_behalf_of_email' = $2 AND (value->'policy'->>'on_behalf_of' IS NULL OR value->'policy'->>'on_behalf_of' NOT LIKE 'g/%')"#,
+        &new_email,
+        &old_email
+    )
+    .execute(&mut *tx)
+    .await?;
+
     // A folder's default rules are an ordered array, first match wins, so the rewrite has to
     // preserve their order. A rule left on the old address makes `ensure_permissioned_as_exists`
     // reject the creation of every runnable the rule matches.

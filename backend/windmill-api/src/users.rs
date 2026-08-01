@@ -615,6 +615,17 @@ async fn update_username_in_workpsace<'c>(
     .execute(&mut **tx)
     .await?;
 
+    // An app draft carries a copy of the deployed policy, so the rename must reach it
+    // there too — same reason as the script/flow draft sweep above.
+    sqlx::query!(
+        r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['policy', 'on_behalf_of'], to_jsonb('u/' || $1))) WHERE typ IN ('app', 'raw_app') AND value->'policy'->>'on_behalf_of' = ('u/' || $2) AND workspace_id = $3"#,
+        new_username,
+        old_username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
     sqlx::query!(
         "UPDATE app SET extra_perms = extra_perms - ('u/' || $2) || jsonb_build_object(('u/' || $1), extra_perms->('u/' || $2)) WHERE extra_perms ? ('u/' || $2) AND workspace_id = $3",
         new_username,
