@@ -72,7 +72,25 @@ pub async fn prefetch_cached_script(
     script: Script<ScriptRunnableSettingsHandle>,
     db: &DB,
 ) -> crate::error::Result<Script<ScriptRunnableSettingsInline>> {
-    let derived_email = match script.on_behalf_of.as_deref() {
+    prefetch_cached_script_inner(script, db, true).await
+}
+
+/// [`prefetch_cached_script`] without deriving the address, for callers that resolve it
+/// themselves — the workspace export memoizes one lookup per distinct principal, and skips it
+/// altogether for clients that only want the marker.
+pub async fn prefetch_cached_script_without_email(
+    script: Script<ScriptRunnableSettingsHandle>,
+    db: &DB,
+) -> crate::error::Result<Script<ScriptRunnableSettingsInline>> {
+    prefetch_cached_script_inner(script, db, false).await
+}
+
+async fn prefetch_cached_script_inner(
+    script: Script<ScriptRunnableSettingsHandle>,
+    db: &DB,
+    derive_email: bool,
+) -> crate::error::Result<Script<ScriptRunnableSettingsInline>> {
+    let derived_email = match script.on_behalf_of.as_deref().filter(|_| derive_email) {
         // Uncached: the client preserves this pair and sends it back, where the write path
         // validates it against an uncached lookup. A cached address would pair a live principal
         // with an address the account no longer holds, and the redeploy would be rejected.

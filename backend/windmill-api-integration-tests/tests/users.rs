@@ -684,6 +684,18 @@ async fn test_change_user_email_to_slash_address(db: Pool<Postgres>) -> anyhow::
     .execute(&db)
     .await?;
 
+    // The principal follows the address, and a job row carries it in a narrower column than the
+    // runnable does, so a move that would make it unenqueueable is refused rather than silently
+    // leaving runnables that look configured and cannot start.
+    let resp = authed(client().post(format!("{global_base}/change_email/ext@windmill.dev")))
+        .json(&json!({ "new_email": "a-very-long-superadmin-address-for-this-test@windmill.dev" }))
+        .send()
+        .await?;
+    let status = resp.status();
+    let body = resp.text().await?;
+    assert_eq!(status, 400, "{body}");
+    assert!(body.contains("characters a job can carry"), "{body}");
+
     let resp = authed(client().post(format!("{global_base}/change_email/ext@windmill.dev")))
         .json(&json!({ "new_email": "ops/alice@windmill.dev" }))
         .send()

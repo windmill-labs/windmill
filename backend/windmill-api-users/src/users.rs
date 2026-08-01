@@ -49,8 +49,8 @@ use windmill_common::oauth2::InstanceEvent;
 use windmill_common::users::truncate_token;
 use windmill_common::users::COOKIE_NAME;
 use windmill_common::users::{
-    username_to_permissioned_as, SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL,
-    SUPERADMIN_SYNC_EMAIL, VALID_EMAIL,
+    username_to_permissioned_as, PERMISSIONED_AS_MAX_LEN, SUPERADMIN_NOTIFICATION_EMAIL,
+    SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SYNC_EMAIL, VALID_EMAIL,
 };
 use windmill_common::utils::paginate;
 use windmill_common::worker::CLOUD_HOSTED;
@@ -1782,6 +1782,44 @@ async fn change_user_email(
         if referenced_by_short_column {
             return Err(Error::BadRequest(format!(
                 "{new_email} is longer than {SHORT_EMAIL_COLUMN_MAX_LEN} characters and this user owns a workspace, a Slack connection, usage counters or a queued job, whose columns cannot hold it"
+            )));
+        }
+    }
+
+    // An account named by its address carries that address into every principal column, and
+    // `v2_job.permissioned_as` is narrower than all of them: the move would leave runnables that
+    // look configured but cannot enqueue. Same limit the deploy path applies.
+    let old_principal_probe = username_to_permissioned_as(&old_email);
+    if username_to_permissioned_as(&new_email).chars().count() > PERMISSIONED_AS_MAX_LEN {
+        let names_a_runnable = sqlx::query_scalar!(
+            "SELECT EXISTS(
+                SELECT 1 FROM script WHERE on_behalf_of = $1
+                UNION ALL SELECT 1 FROM flow WHERE on_behalf_of = $1
+                UNION ALL SELECT 1 FROM app WHERE policy->>'on_behalf_of' = $1
+                UNION ALL SELECT 1 FROM schedule WHERE permissioned_as = $1
+                UNION ALL SELECT 1 FROM http_trigger WHERE permissioned_as = $1
+                UNION ALL SELECT 1 FROM websocket_trigger WHERE permissioned_as = $1
+                UNION ALL SELECT 1 FROM postgres_trigger WHERE permissioned_as = $1
+                UNION ALL SELECT 1 FROM mqtt_trigger WHERE permissioned_as = $1
+                UNION ALL SELECT 1 FROM kafka_trigger WHERE permissioned_as = $1
+                UNION ALL SELECT 1 FROM nats_trigger WHERE permissioned_as = $1
+                UNION ALL SELECT 1 FROM sqs_trigger WHERE permissioned_as = $1
+                UNION ALL SELECT 1 FROM gcp_trigger WHERE permissioned_as = $1
+                UNION ALL SELECT 1 FROM email_trigger WHERE permissioned_as = $1
+                UNION ALL SELECT 1 FROM amqp_trigger WHERE permissioned_as = $1
+                UNION ALL SELECT 1 FROM azure_trigger WHERE permissioned_as = $1
+                UNION ALL SELECT 1 FROM folder
+                    WHERE default_permissioned_as @> jsonb_build_array(
+                        jsonb_build_object('permissioned_as', $1::text)))",
+            &old_principal_probe
+        )
+        .fetch_one(&mut *tx)
+        .await?
+        .unwrap_or(false);
+        if names_a_runnable {
+            return Err(Error::BadRequest(format!(
+                "{new_email} is longer than the {PERMISSIONED_AS_MAX_LEN} characters a job can \
+                 carry, and runnables or triggers run on behalf of this account by its address"
             )));
         }
     }
