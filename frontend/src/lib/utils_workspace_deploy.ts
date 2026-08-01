@@ -176,10 +176,10 @@ function legacyTriggerKind(kind: TriggerDeployKind) {
  * clears it too, but this app consumes the published package, so the clear has to exist
  * on both sides until that version ships.
  */
-function makeProvider(onBehalfOfPermissionedAs?: string): DeployProvider {
+function makeProvider(onBehalfOfPrincipal?: string): DeployProvider {
 	const withPermissionedAs = <T extends Record<string, any>>(requestBody: T): T => ({
 		...requestBody,
-		on_behalf_of_permissioned_as: onBehalfOfPermissionedAs
+		on_behalf_of: onBehalfOfPrincipal
 	})
 	return {
 		existsFlowByPath: (p) => FlowService.existsFlowByPath(p),
@@ -289,7 +289,7 @@ export interface DeployItemParams {
 	 * specific user; undefined clears the key, leaving the backend to derive the target
 	 * workspace's own principal from `onBehalfOf`.
 	 */
-	onBehalfOfPermissionedAs?: string
+	onBehalfOfPrincipal?: string
 }
 
 /**
@@ -305,7 +305,7 @@ export async function deployItem(params: DeployItemParams): Promise<DeployResult
 		workspaceTo,
 		additionalInformation,
 		onBehalfOf,
-		onBehalfOfPermissionedAs
+		onBehalfOfPrincipal
 	} = params
 
 	if (kind === 'trigger') {
@@ -345,7 +345,7 @@ export async function deployItem(params: DeployItemParams): Promise<DeployResult
 	}
 
 	return sharedDeployItem(
-		makeProvider(onBehalfOfPermissionedAs),
+		makeProvider(onBehalfOfPrincipal),
 		kind as DeployKind,
 		path,
 		workspaceFrom,

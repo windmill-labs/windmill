@@ -475,21 +475,21 @@ async fn test_folder_default_permissioned_as(db: Pool<Postgres>) -> anyhow::Resu
         resp.text().await?
     );
     let flow = sqlx::query!(
-        "SELECT on_behalf_of_permissioned_as FROM flow WHERE path = $1 AND workspace_id = $2",
+        "SELECT on_behalf_of FROM flow WHERE path = $1 AND workspace_id = $2",
         "f/prodfolder/jobs/flow_admin_match",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        flow.on_behalf_of_permissioned_as.as_deref(),
+        flow.on_behalf_of.as_deref(),
         Some("g/wm_deployers"),
         "flow should resolve folder default to group email"
     );
     // The group email is synthetic and resolves back to nobody, so the group can
     // only survive as the stored permissioned_as.
     assert_eq!(
-        flow.on_behalf_of_permissioned_as.as_deref(),
+        flow.on_behalf_of.as_deref(),
         Some("g/wm_deployers"),
         "flow should run as the group the folder rule names"
     );
@@ -509,14 +509,14 @@ async fn test_folder_default_permissioned_as(db: Pool<Postgres>) -> anyhow::Resu
         resp.text().await?
     );
     let flow = sqlx::query!(
-        "SELECT on_behalf_of_permissioned_as FROM flow WHERE path = $1 AND workspace_id = $2",
+        "SELECT on_behalf_of FROM flow WHERE path = $1 AND workspace_id = $2",
         "f/prodfolder/reports/weekly",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        flow.on_behalf_of_permissioned_as.as_deref(),
+        flow.on_behalf_of.as_deref(),
         Some("u/original-user"),
         "a rule naming an address stores the principal it names, which is what carries that          user's groups and folders"
     );
@@ -531,14 +531,14 @@ async fn test_folder_default_permissioned_as(db: Pool<Postgres>) -> anyhow::Resu
     .await?;
     assert_eq!(resp.status(), 201);
     let flow = sqlx::query!(
-        "SELECT on_behalf_of_permissioned_as FROM flow WHERE path = $1 AND workspace_id = $2",
+        "SELECT on_behalf_of FROM flow WHERE path = $1 AND workspace_id = $2",
         "f/prodfolder/dev/flow_no_match",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        flow.on_behalf_of_permissioned_as, None,
+        flow.on_behalf_of, None,
         "no folder default ⇒ no on_behalf_of_email written"
     );
 
@@ -552,14 +552,14 @@ async fn test_folder_default_permissioned_as(db: Pool<Postgres>) -> anyhow::Resu
     .await?;
     assert_eq!(resp.status(), 201);
     let flow = sqlx::query!(
-        "SELECT on_behalf_of_permissioned_as FROM flow WHERE path = $1 AND workspace_id = $2",
+        "SELECT on_behalf_of FROM flow WHERE path = $1 AND workspace_id = $2",
         "u/test-user/outside_flow",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        flow.on_behalf_of_permissioned_as, None,
+        flow.on_behalf_of, None,
         "paths outside folders are never touched"
     );
 
@@ -582,14 +582,14 @@ async fn test_folder_default_permissioned_as(db: Pool<Postgres>) -> anyhow::Resu
         resp.text().await?
     );
     let script = sqlx::query!(
-        "SELECT on_behalf_of_permissioned_as FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
+        "SELECT on_behalf_of FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
         "f/prodfolder/jobs/new_script",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        script.on_behalf_of_permissioned_as.as_deref(),
+        script.on_behalf_of.as_deref(),
         Some("g/wm_deployers"),
         "new script at matching path gets folder default"
     );

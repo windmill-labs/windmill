@@ -2,14 +2,14 @@ import { expect, test } from "bun:test";
 import { deployItem } from "../windmill-utils-internal/src/deploy.ts";
 
 // `deployItem` spreads the source item into the request body, and a script's/flow's
-// on_behalf_of_permissioned_as names a username that only exists in the source
+// on_behalf_of names a username that only exists in the source
 // workspace. Sending it to the target pairs one workspace's principal with the other's
 // email, which the backend rejects. Deleting the spread is an easy regression, so pin
 // that the key never reaches the wire.
 function recordingProvider(captured: [string, any][], flowExists: boolean) {
   const source = {
     on_behalf_of_email: "alice@corp",
-    on_behalf_of_permissioned_as: "u/alice",
+    on_behalf_of: "u/alice",
   };
   return {
     existsFlowByPath: async () => flowExists,
@@ -35,7 +35,7 @@ function recordingProvider(captured: [string, any][], flowExists: boolean) {
   } as any;
 }
 
-test("deployItem: never sends the source workspace's on_behalf_of_permissioned_as", async () => {
+test("deployItem: never sends the source workspace's on_behalf_of", async () => {
   const captured: [string, any][] = [];
 
   // The clear is written out once per branch, so exercise all three: a flow that
@@ -77,7 +77,7 @@ test("deployItem: never sends the source workspace's on_behalf_of_permissioned_a
     expect(body.preserve_on_behalf_of).toBe(true);
     // ...while the principal is dropped, so the backend derives the target's own.
     expect(
-      "on_behalf_of_permissioned_as" in JSON.parse(JSON.stringify(body)),
+      "on_behalf_of" in JSON.parse(JSON.stringify(body)),
     ).toBe(false);
   }
 });

@@ -39,13 +39,13 @@ pub struct Flow {
     pub timeout: Option<i32>,
     #[serde(skip_serializing_if = "is_none_or_false")]
     pub visible_to_runner_only: Option<bool>,
-    /// Derived from `on_behalf_of_permissioned_as` on the read paths, not a column. Kept in
+    /// Derived from `on_behalf_of` on the read paths, not a column. Kept in
     /// the response so clients written against the old shape keep working.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub on_behalf_of_email: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub on_behalf_of_permissioned_as: Option<String>,
+    pub on_behalf_of: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
     /// Labels inherited from the parent folder, computed at read time. Not stored on the flow row.
@@ -135,7 +135,7 @@ pub struct NewFlow {
     /// Authorization identity to run as, paired with `on_behalf_of_email`. Both move
     /// together under the same `preserve_on_behalf_of` gate and must name the same user
     /// or group; `None` has it derived from that email rather than left unset.
-    pub on_behalf_of_permissioned_as: Option<String>,
+    pub on_behalf_of: Option<String>,
     pub preserve_on_behalf_of: Option<bool>,
     pub ws_error_handler_muted: Option<bool>,
     #[serde(default)]
@@ -173,7 +173,7 @@ pub struct EditFlow {
     pub deployment_message: Option<String>,
     pub visible_to_runner_only: Option<bool>,
     pub on_behalf_of_email: Option<String>,
-    pub on_behalf_of_permissioned_as: Option<String>,
+    pub on_behalf_of: Option<String>,
     pub preserve_on_behalf_of: Option<bool>,
     pub ws_error_handler_muted: Option<bool>,
     #[serde(default)]
@@ -198,7 +198,7 @@ impl EditFlow {
             deployment_message: self.deployment_message,
             visible_to_runner_only: self.visible_to_runner_only,
             on_behalf_of_email: self.on_behalf_of_email,
-            on_behalf_of_permissioned_as: self.on_behalf_of_permissioned_as,
+            on_behalf_of: self.on_behalf_of,
             preserve_on_behalf_of: self.preserve_on_behalf_of,
             ws_error_handler_muted: self.ws_error_handler_muted,
             labels: self.labels,

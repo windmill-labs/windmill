@@ -205,19 +205,22 @@ pub fn check_on_behalf_of_preservation(
 /// identity when they are not allowed to preserve someone else's.
 pub async fn resolve_on_behalf_of(
     on_behalf_of_email: Option<&str>,
-    on_behalf_of_permissioned_as: Option<&str>,
+    on_behalf_of: Option<&str>,
     preserve: bool,
     authed: &impl db::Authable,
     w_id: &str,
     db: &sqlx::Pool<Postgres>,
 ) -> error::Result<Option<String>> {
-    if on_behalf_of_email.is_none() && on_behalf_of_permissioned_as.is_none() {
+    if on_behalf_of_email.is_none() && on_behalf_of.is_none() {
         return Ok(None);
     }
+    // Falls through to the width check below rather than returning: the caller's own identity
+    // is address-shaped when they act without a `usr` row, and one too wide for a job row has
+    // to be refused here too.
     if !(preserve && can_preserve_on_behalf_of(authed)) {
-        return Ok(Some(users::username_to_permissioned_as(authed.username())));
+        return reject_unenqueueable(users::username_to_permissioned_as(authed.username()));
     }
-    let permissioned_as = match on_behalf_of_permissioned_as {
+    let permissioned_as = match on_behalf_of {
         Some(permissioned_as) => {
             // The principal wins, but a caller that also names a contradictory address has a
             // bug worth surfacing: that is exactly how a workspace deploy once shipped one
@@ -228,7 +231,7 @@ pub async fn resolve_on_behalf_of(
                         .await?;
                 if named != email {
                     return Err(Error::BadRequest(format!(
-                        "on_behalf_of_permissioned_as '{permissioned_as}' resolves to '{named}', \
+                        "on_behalf_of '{permissioned_as}' resolves to '{named}', \
                          not to on_behalf_of_email '{email}'. Both must name the same account."
                     )));
                 }
@@ -255,7 +258,7 @@ pub async fn resolve_on_behalf_of(
                     // `fetch_authed_from_permissioned_as` rather than failing.
                     if !users::permissioned_as_exists(w_id, permissioned_as, db).await? {
                         return Err(Error::BadRequest(format!(
-                            "on_behalf_of_permissioned_as '{permissioned_as}' names no user or \
+                            "on_behalf_of '{permissioned_as}' names no user or \
                              group in this workspace."
                         )));
                     }
@@ -270,15 +273,19 @@ pub async fn resolve_on_behalf_of(
                 .ok_or_else(|| {
                     Error::BadRequest(format!(
                         "on_behalf_of_email '{email}' names no user or group in this workspace, so \
-                         there is no identity to run as. Pass on_behalf_of_permissioned_as, or use \
+                         there is no identity to run as. Pass on_behalf_of, or use \
                          the address of a workspace member."
                     ))
                 })?
         }
     };
-    // Every principal ends up on `v2_job.permissioned_as`, which is narrower than the columns
-    // it is stored in — an identity that cannot be enqueued is rejected here rather than at the
-    // first run of a runnable that looks fine.
+    reject_unenqueueable(permissioned_as)
+}
+
+/// Every principal ends up on `v2_job.permissioned_as`, which is narrower than the columns it is
+/// stored in, so an identity that cannot be enqueued is refused at the deploy that records it
+/// rather than at the first run of a runnable that looks fine.
+fn reject_unenqueueable(permissioned_as: String) -> error::Result<Option<String>> {
     if permissioned_as.chars().count() > users::PERMISSIONED_AS_MAX_LEN {
         return Err(Error::BadRequest(format!(
             "the identity '{permissioned_as}' is longer than the {} characters a job can carry",
@@ -1596,7 +1603,7 @@ pub struct ScriptHashInfo<SR> {
     pub delete_after_secs: Option<i32>,
     pub timeout: Option<i32>,
     pub has_preprocessor: Option<bool>,
-    pub on_behalf_of_permissioned_as: Option<String>,
+    pub on_behalf_of: Option<String>,
     pub created_by: String,
     pub labels: Option<Vec<String>>,
     #[sqlx(flatten)]
@@ -1611,7 +1618,7 @@ impl<SR> ScriptHashInfo<SR> {
         w_id: &str,
         db: &DB,
     ) -> error::Result<Option<jobs::OnBehalfOf>> {
-        on_behalf_of_from_permissioned_as(self.on_behalf_of_permissioned_as.as_deref(), w_id, db)
+        on_behalf_of_from_permissioned_as(self.on_behalf_of.as_deref(), w_id, db)
             .await
     }
 }
@@ -1661,7 +1668,7 @@ impl ScriptHashInfo<ScriptRunnableSettingsHandle> {
             delete_after_secs: self.delete_after_secs,
             timeout: self.timeout,
             has_preprocessor: self.has_preprocessor,
-            on_behalf_of_permissioned_as: self.on_behalf_of_permissioned_as,
+            on_behalf_of: self.on_behalf_of,
             created_by: self.created_by,
             labels: self.labels,
             runnable_settings: ScriptRunnableSettingsInline {
@@ -1880,7 +1887,7 @@ async fn get_script_info_for_hash_inner<'e, E: sqlx::PgExecutor<'e>>(
                 delete_after_secs,
                 timeout,
                 has_preprocessor,
-                on_behalf_of_permissioned_as,
+                on_behalf_of,
                 created_by,
                 labels,
                 path
@@ -1900,7 +1907,7 @@ pub struct FlowVersionInfo {
     pub has_preprocessor: Option<bool>,
     pub has_failure_module: Option<bool>,
     pub chat_input_enabled: Option<bool>,
-    pub on_behalf_of_permissioned_as: Option<String>,
+    pub on_behalf_of: Option<String>,
     pub edited_by: String,
     pub dedicated_worker: Option<bool>,
     pub labels: Option<Vec<String>>,
@@ -1913,7 +1920,7 @@ impl FlowVersionInfo {
         w_id: &str,
         db: &DB,
     ) -> error::Result<Option<jobs::OnBehalfOf>> {
-        on_behalf_of_from_permissioned_as(self.on_behalf_of_permissioned_as.as_deref(), w_id, db)
+        on_behalf_of_from_permissioned_as(self.on_behalf_of.as_deref(), w_id, db)
             .await
     }
 }
@@ -2043,7 +2050,7 @@ pub fn get_flow_version_info_from_version<
                                     (flow_version.value->>'chat_input_enabled')::boolean as chat_input_enabled,
                                     flow.tag,
                                     flow.dedicated_worker,
-                                    flow.on_behalf_of_permissioned_as,
+                                    flow.on_behalf_of,
                                     flow.edited_by,
                                     flow.labels
                                 FROM
@@ -2182,7 +2189,7 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
     Option<Vec<String>>,
 )> {
     let r_o = sqlx::query!(
-            "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, cache_ignore_s3_path, runnable_settings_handle, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of_permissioned_as, created_by, labels FROM script
+            "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, cache_ignore_s3_path, runnable_settings_handle, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of, created_by, labels FROM script
              WHERE path = $1 AND workspace_id = $2 AND archived = false AND (lock IS NOT NULL OR $3 = false)
              ORDER BY created_at DESC LIMIT 1",
             script_path,
@@ -2195,7 +2202,7 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
     let script = utils::not_found_if_none(r_o, "script", script_path)?;
 
     let on_behalf_of = on_behalf_of_from_permissioned_as(
-        script.on_behalf_of_permissioned_as.as_deref(),
+        script.on_behalf_of.as_deref(),
         w_id,
         db2,
     )

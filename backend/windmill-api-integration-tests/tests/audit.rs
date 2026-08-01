@@ -55,7 +55,7 @@ async fn test_job_run_is_searchable_by_token_and_by_caller(
     // permissioned_as, so the audit `username` slot goes to it rather than to the caller.
     sqlx::query(
         "INSERT INTO script (workspace_id, hash, path, content, language, kind, created_by,
-             on_behalf_of_permissioned_as, schema, summary, description, lock, extra_perms)
+             on_behalf_of, schema, summary, description, lock, extra_perms)
          VALUES ('test-workspace', 900101, 'u/test-user-2/onbehalf', 'export function main() {}',
              'deno', 'script', 'test-user-2', 'u/test-user-2', '{}', '', '', '', '{\"g/all\": true}')",
     )

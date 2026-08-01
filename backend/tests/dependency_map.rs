@@ -447,7 +447,7 @@ def main():
                 deployment_message: None,
                 visible_to_runner_only: None,
                 on_behalf_of_email: None,
-                on_behalf_of_permissioned_as: None,
+                on_behalf_of: None,
                 preserve_on_behalf_of: None,
                 ws_error_handler_muted: None,
                 labels: None,

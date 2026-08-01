@@ -23,7 +23,7 @@ VALUES (
 );
 
 -- A script with an on-behalf-of identity
-INSERT INTO script (workspace_id, created_by, content, schema, summary, description, path, hash, language, lock, kind, on_behalf_of_permissioned_as)
+INSERT INTO script (workspace_id, created_by, content, schema, summary, description, path, hash, language, lock, kind, on_behalf_of)
 VALUES (
     'test-workspace', 'test-user',
     'export async function main() { return "obo"; }',
@@ -67,7 +67,7 @@ VALUES (
 );
 
 -- A flow with an on-behalf-of identity
-INSERT INTO flow (workspace_id, summary, description, path, versions, schema, value, edited_by, on_behalf_of_permissioned_as)
+INSERT INTO flow (workspace_id, summary, description, path, versions, schema, value, edited_by, on_behalf_of)
 VALUES (
     'test-workspace', 'OBO flow', '', 'f/system/obo_flow', '{200002}',
     '{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{},"required":[],"type":"object"}',

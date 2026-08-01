@@ -468,7 +468,7 @@ async fn update_username_in_workpsace<'c>(
     let old_principal = windmill_common::users::username_to_permissioned_as(old_username);
     let new_principal = windmill_common::users::username_to_permissioned_as(new_username);
     sqlx::query!(
-        "UPDATE script SET on_behalf_of_permissioned_as = $1 WHERE on_behalf_of_permissioned_as = $2 AND workspace_id = $3",
+        "UPDATE script SET on_behalf_of = $1 WHERE on_behalf_of = $2 AND workspace_id = $3",
         &new_principal,
         &old_principal,
         w_id
@@ -479,8 +479,8 @@ async fn update_username_in_workpsace<'c>(
     // ---- flows ----
     sqlx::query!(
         r#"INSERT INTO flow
-            (workspace_id, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_permissioned_as, concurrency_key, versions, value, schema, edited_by, edited_at)
-        SELECT workspace_id, REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1'), summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_permissioned_as, concurrency_key, versions, value, schema, edited_by, edited_at
+            (workspace_id, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, concurrency_key, versions, value, schema, edited_by, edited_at)
+        SELECT workspace_id, REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1'), summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, concurrency_key, versions, value, schema, edited_by, edited_at
             FROM flow
             WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         new_username,
@@ -558,7 +558,7 @@ async fn update_username_in_workpsace<'c>(
     .await?;
 
     sqlx::query!(
-        "UPDATE flow SET on_behalf_of_permissioned_as = $1 WHERE on_behalf_of_permissioned_as = $2 AND workspace_id = $3",
+        "UPDATE flow SET on_behalf_of = $1 WHERE on_behalf_of = $2 AND workspace_id = $3",
         &new_principal,
         &old_principal,
         w_id
@@ -588,7 +588,7 @@ async fn update_username_in_workpsace<'c>(
     // deploying a draft that still names `u/{old}` would be rejected as a pair naming
     // somebody who no longer exists.
     sqlx::query!(
-        r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of_permissioned_as'], to_jsonb('u/' || $1))) WHERE value->>'on_behalf_of_permissioned_as' = ('u/' || $2) AND workspace_id = $3"#,
+        r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of'], to_jsonb('u/' || $1))) WHERE value->>'on_behalf_of' = ('u/' || $2) AND workspace_id = $3"#,
         new_username,
         old_username,
         w_id

@@ -1997,7 +1997,7 @@ async fn change_user_email(
     .await?;
 
     sqlx::query!(
-        "UPDATE script SET on_behalf_of_permissioned_as = $1 WHERE on_behalf_of_permissioned_as = $2",
+        "UPDATE script SET on_behalf_of = $1 WHERE on_behalf_of = $2",
         &new_principal,
         &old_principal
     )
@@ -2005,7 +2005,7 @@ async fn change_user_email(
     .await?;
 
     sqlx::query!(
-        "UPDATE flow SET on_behalf_of_permissioned_as = $1 WHERE on_behalf_of_permissioned_as = $2",
+        "UPDATE flow SET on_behalf_of = $1 WHERE on_behalf_of = $2",
         &new_principal,
         &old_principal
     )
@@ -2017,7 +2017,7 @@ async fn change_user_email(
     // new address, and the deploy is rejected. Group-owned drafts are held back for the reason
     // given above the app sweep.
     sqlx::query!(
-        r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of_email'], to_jsonb($1::text))) WHERE typ IN ('script', 'flow') AND value->>'on_behalf_of_email' = $2 AND (value->>'on_behalf_of_permissioned_as' IS NULL OR value->>'on_behalf_of_permissioned_as' NOT LIKE 'g/%')"#,
+        r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of_email'], to_jsonb($1::text))) WHERE typ IN ('script', 'flow') AND value->>'on_behalf_of_email' = $2 AND (value->>'on_behalf_of' IS NULL OR value->>'on_behalf_of' NOT LIKE 'g/%')"#,
         &new_email,
         &old_email
     )
@@ -2025,7 +2025,7 @@ async fn change_user_email(
     .await?;
 
     sqlx::query!(
-        r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of_permissioned_as'], to_jsonb($1::text))) WHERE typ IN ('script', 'flow') AND value->>'on_behalf_of_permissioned_as' = $2"#,
+        r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of'], to_jsonb($1::text))) WHERE typ IN ('script', 'flow') AND value->>'on_behalf_of' = $2"#,
         &new_principal,
         &old_principal
     )

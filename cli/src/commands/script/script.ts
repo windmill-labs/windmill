@@ -546,14 +546,14 @@ export async function handleFile(
     delete (typed as any)?.has_on_behalf_of;
     // The authorization half of the identity is never exported to the repo (the
     // workspace tarball strips it); it only ever travels back from the remote row.
-    delete (typed as any)?.on_behalf_of_permissioned_as;
+    delete (typed as any)?.on_behalf_of;
 
     if (permissionedAsContext?.userIsAdminOrDeployer && hasOnBehalfOf) {
       if (remote && remote.on_behalf_of_email) {
         requestBodyCommon.on_behalf_of_email = remote.on_behalf_of_email;
-        (requestBodyCommon as any).on_behalf_of_permissioned_as = (
+        (requestBodyCommon as any).on_behalf_of = (
           remote as any
-        ).on_behalf_of_permissioned_as;
+        ).on_behalf_of;
         (requestBodyCommon as any).preserve_on_behalf_of = true;
         log.info(`Preserving ${remote.on_behalf_of_email} as on_behalf_of for script ${remotePath}`);
       }
@@ -1881,7 +1881,7 @@ async function setPermissionedAs(
       // The principal is derived server-side from the email, which resolves workspace
       // members, groups and superadmins acting outside their workspaces alike — a
       // client-side `usr` lookup would see only the first of those.
-      on_behalf_of_permissioned_as: undefined,
+      on_behalf_of: undefined,
       preserve_on_behalf_of: true,
       // Preserve any user draft at this path (see backend skip_draft_deletion).
       skip_draft_deletion: true,

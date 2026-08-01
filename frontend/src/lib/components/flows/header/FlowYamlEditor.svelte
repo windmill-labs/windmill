@@ -65,8 +65,8 @@
 			if (parsed['on_behalf_of_email'] !== undefined) {
 				flowStore.val.on_behalf_of_email = parsed['on_behalf_of_email']
 			}
-			if (parsed['on_behalf_of_permissioned_as'] !== undefined) {
-				flowStore.val.on_behalf_of_permissioned_as = parsed['on_behalf_of_permissioned_as']
+			if (parsed['on_behalf_of'] !== undefined) {
+				flowStore.val.on_behalf_of = parsed['on_behalf_of']
 			}
 			flowStore.val.value = parsed.value
 			flowStore.val.schema = parsed.schema

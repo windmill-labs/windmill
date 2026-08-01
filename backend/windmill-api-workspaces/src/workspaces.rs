@@ -5814,7 +5814,7 @@ async fn clone_scripts(
             dedicated_worker, ws_error_handler_muted, priority, timeout,
             delete_after_use, delete_after_secs, restart_unless_cancelled, concurrency_key,
             visible_to_runner_only, auto_kind, codebase, has_preprocessor,
-            on_behalf_of_permissioned_as, assets, modules
+            on_behalf_of, assets, modules
         )
         SELECT
             $1, hash, path, parent_hashes, summary, description, content,
@@ -5827,24 +5827,24 @@ async fn clone_scripts(
             -- Same three forms and the same prefix-first rule as permissioned_as_exists,
             -- superadmin fallback included: one acting outside their workspaces has no usr
             -- row but still authenticates.
-            CASE WHEN on_behalf_of_permissioned_as LIKE 'u/%' THEN
-                    (SELECT on_behalf_of_permissioned_as WHERE EXISTS (
+            CASE WHEN on_behalf_of LIKE 'u/%' THEN
+                    (SELECT on_behalf_of WHERE EXISTS (
                         SELECT 1 FROM usr u WHERE u.workspace_id = $1::varchar
-                          AND u.username = substring(on_behalf_of_permissioned_as from 3)
+                          AND u.username = substring(on_behalf_of from 3)
                         UNION ALL
                         SELECT 1 FROM password p WHERE p.super_admin
-                          AND (p.username = substring(on_behalf_of_permissioned_as from 3)
-                               OR p.email = substring(on_behalf_of_permissioned_as from 3))))
-                 WHEN on_behalf_of_permissioned_as LIKE 'g/%' THEN
-                    (SELECT on_behalf_of_permissioned_as WHERE EXISTS (
+                          AND (p.username = substring(on_behalf_of from 3)
+                               OR p.email = substring(on_behalf_of from 3))))
+                 WHEN on_behalf_of LIKE 'g/%' THEN
+                    (SELECT on_behalf_of WHERE EXISTS (
                         SELECT 1 FROM group_ g WHERE g.workspace_id = $1::varchar
-                          AND g.name = substring(on_behalf_of_permissioned_as from 3)))
+                          AND g.name = substring(on_behalf_of from 3)))
                  ELSE
-                    (SELECT on_behalf_of_permissioned_as WHERE EXISTS (
+                    (SELECT on_behalf_of WHERE EXISTS (
                         SELECT 1 FROM usr u WHERE u.workspace_id = $1::varchar
-                          AND u.username = on_behalf_of_permissioned_as
+                          AND u.username = on_behalf_of
                         UNION ALL
-                        SELECT 1 FROM password p WHERE p.email = on_behalf_of_permissioned_as
+                        SELECT 1 FROM password p WHERE p.email = on_behalf_of
                           AND p.super_admin))
             END, assets, modules
         FROM script
@@ -5969,31 +5969,31 @@ async fn clone_flows(
             workspace_id, path, summary, description, value, edited_by, edited_at,
             archived, schema, extra_perms, dependency_job, tag,
             ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only,
-            concurrency_key, versions, on_behalf_of_permissioned_as, lock_error_logs
+            concurrency_key, versions, on_behalf_of, lock_error_logs
         )
         SELECT $2, path, summary, description, value, edited_by, edited_at,
                archived, schema, extra_perms, NULL, tag,
                ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only,
                concurrency_key, ARRAY[]::bigint[],
                -- Same predicate as clone_scripts.
-               CASE WHEN on_behalf_of_permissioned_as LIKE 'u/%' THEN
-                       (SELECT on_behalf_of_permissioned_as WHERE EXISTS (
+               CASE WHEN on_behalf_of LIKE 'u/%' THEN
+                       (SELECT on_behalf_of WHERE EXISTS (
                            SELECT 1 FROM usr u WHERE u.workspace_id = $2::varchar
-                             AND u.username = substring(on_behalf_of_permissioned_as from 3)
+                             AND u.username = substring(on_behalf_of from 3)
                            UNION ALL
                            SELECT 1 FROM password p WHERE p.super_admin
-                             AND (p.username = substring(on_behalf_of_permissioned_as from 3)
-                                  OR p.email = substring(on_behalf_of_permissioned_as from 3))))
-                    WHEN on_behalf_of_permissioned_as LIKE 'g/%' THEN
-                       (SELECT on_behalf_of_permissioned_as WHERE EXISTS (
+                             AND (p.username = substring(on_behalf_of from 3)
+                                  OR p.email = substring(on_behalf_of from 3))))
+                    WHEN on_behalf_of LIKE 'g/%' THEN
+                       (SELECT on_behalf_of WHERE EXISTS (
                            SELECT 1 FROM group_ g WHERE g.workspace_id = $2::varchar
-                             AND g.name = substring(on_behalf_of_permissioned_as from 3)))
+                             AND g.name = substring(on_behalf_of from 3)))
                     ELSE
-                       (SELECT on_behalf_of_permissioned_as WHERE EXISTS (
+                       (SELECT on_behalf_of WHERE EXISTS (
                            SELECT 1 FROM usr u WHERE u.workspace_id = $2::varchar
-                             AND u.username = on_behalf_of_permissioned_as
+                             AND u.username = on_behalf_of
                            UNION ALL
-                           SELECT 1 FROM password p WHERE p.email = on_behalf_of_permissioned_as
+                           SELECT 1 FROM password p WHERE p.email = on_behalf_of
                              AND p.super_admin))
                END, lock_error_logs
         FROM flow
@@ -6363,7 +6363,7 @@ async fn clone_drafts(
         "INSERT INTO draft (workspace_id, path, typ, value, created_at, email)
          SELECT $2, path, typ,
                 CASE WHEN typ IN ('script', 'flow')
-                     THEN to_json(to_jsonb(value) - 'on_behalf_of_permissioned_as')
+                     THEN to_json(to_jsonb(value) - 'on_behalf_of')
                      ELSE value END,
                 created_at, email
          FROM draft

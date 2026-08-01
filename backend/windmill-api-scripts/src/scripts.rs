@@ -789,7 +789,7 @@ async fn is_noop_deploy_against_parent(
         // both halves are folded into `resolved_on_behalf_of` before the comparison below,
         // which is the identity that would actually be stored
         on_behalf_of_email: _,
-        on_behalf_of_permissioned_as: _,
+        on_behalf_of: _,
         // caller-intent flag (permission preservation), not script state
         preserve_on_behalf_of: _,
         assets,
@@ -854,7 +854,7 @@ async fn is_noop_deploy_against_parent(
     {
         return Ok(false);
     }
-    if resolved_on_behalf_of != parent.on_behalf_of_permissioned_as.as_deref() {
+    if resolved_on_behalf_of != parent.on_behalf_of.as_deref() {
         return Ok(false);
     }
     if !schema_opt_eq(schema.as_ref(), parent.schema.as_ref()) {
@@ -1006,7 +1006,7 @@ async fn create_script_internal<'c>(
     // Apply folder default_permissioned_as the first time a script is deployed
     // at this path. Check inside the transaction to avoid TOCTOU with concurrent deploys.
     let explicit_preserve = (ns.on_behalf_of_email.is_some()
-        || ns.on_behalf_of_permissioned_as.is_some())
+        || ns.on_behalf_of.is_some())
         && ns.preserve_on_behalf_of.unwrap_or(false)
         && windmill_common::can_preserve_on_behalf_of(&authed);
     if !explicit_preserve && windmill_common::can_preserve_on_behalf_of(&authed) {
@@ -1024,7 +1024,7 @@ async fn create_script_internal<'c>(
                     .await?
             {
                 ns.on_behalf_of_email = Some(default_email);
-                ns.on_behalf_of_permissioned_as = Some(default_permissioned_as);
+                ns.on_behalf_of = Some(default_permissioned_as);
                 ns.preserve_on_behalf_of = Some(true);
             }
         }
@@ -1033,9 +1033,9 @@ async fn create_script_internal<'c>(
     // Resolved here rather than at the INSERT so the no-op check below compares the identity
     // that would actually be stored: the parent row holds only the principal, while a
     // preserving push may name that same principal by address alone.
-    let resolved_on_behalf_of_permissioned_as = windmill_common::resolve_on_behalf_of(
+    let resolved_on_behalf_of = windmill_common::resolve_on_behalf_of(
         ns.on_behalf_of_email.as_deref(),
-        ns.on_behalf_of_permissioned_as.as_deref(),
+        ns.on_behalf_of.as_deref(),
         ns.preserve_on_behalf_of.unwrap_or(false),
         &authed,
         &w_id,
@@ -1146,7 +1146,7 @@ async fn create_script_internal<'c>(
                 && is_noop_deploy_against_parent(
                     &ns,
                     &ps,
-                    resolved_on_behalf_of_permissioned_as.as_deref(),
+                    resolved_on_behalf_of.as_deref(),
                     &db,
                 )
                 .await?
@@ -1614,7 +1614,7 @@ async fn create_script_internal<'c>(
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
          envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
          dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-         delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, codebase, has_preprocessor, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle, modules, labels, on_behalf_of_permissioned_as) \
+         delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, codebase, has_preprocessor, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle, modules, labels, on_behalf_of) \
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40)",
         &w_id,
         &hash.0,
@@ -1657,7 +1657,7 @@ async fn create_script_internal<'c>(
         runnable_settings_handle,
         ns.modules.as_ref().and_then(|m| serde_json::to_value(m).ok()),
         ns.labels.as_deref() as Option<&[String]>,
-        resolved_on_behalf_of_permissioned_as,
+        resolved_on_behalf_of,
     )
     .execute(&mut *tx)
     .await?;
@@ -1990,7 +1990,7 @@ async fn create_script_internal<'c>(
         )
         .await?;
         if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
-            resolved_on_behalf_of_permissioned_as.as_deref(),
+            resolved_on_behalf_of.as_deref(),
             ns.preserve_on_behalf_of.unwrap_or(false),
             &authed,
             &authed_principal,
@@ -2038,7 +2038,7 @@ async fn create_script_internal<'c>(
         )
         .await?;
         if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
-            resolved_on_behalf_of_permissioned_as.as_deref(),
+            resolved_on_behalf_of.as_deref(),
             ns.preserve_on_behalf_of.unwrap_or(false),
             &authed,
             &authed_principal,

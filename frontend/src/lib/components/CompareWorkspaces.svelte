@@ -710,7 +710,7 @@
 				workspaceFrom,
 				workspaceTo: workspaceToDeployTo,
 				onBehalfOf: getOnBehalfOfForDeploy(statusKey, kind),
-				onBehalfOfPermissionedAs: getOnBehalfOfPermissionedAsForDeploy(statusKey, kind)
+				onBehalfOfPrincipal: getOnBehalfOfPermissionedAsForDeploy(statusKey, kind)
 			})
 		}
 

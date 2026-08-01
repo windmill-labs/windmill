@@ -132,7 +132,7 @@ fn parse_sync_behavior_version(value: Option<&str>) -> u32 {
 
 /// The address a runnable's principal resolves to, memoised for the duration of one export.
 ///
-/// `on_behalf_of_permissioned_as` is sparse — most runnables carry none, and those that do
+/// `on_behalf_of` is sparse — most runnables carry none, and those that do
 /// usually share a handful of identities — so this collapses to roughly one lookup per
 /// distinct principal instead of one per row.
 async fn derive_email(
@@ -414,7 +414,7 @@ where
                     "edited_at",
                     "edited_by",
                     "permissioned_as",
-                    "on_behalf_of_permissioned_as",
+                    "on_behalf_of",
                     "archived",
                     "error",
                     "last_server_ping",
@@ -821,12 +821,12 @@ pub(crate) async fn tarball_workspace(
                         &mut obo_cache,
                         &db,
                         &w_id,
-                        script.on_behalf_of_permissioned_as.as_deref(),
+                        script.on_behalf_of.as_deref(),
                     )
                     .await?
                 },
                 has_on_behalf_of: (obo_marker_only
-                    && script.on_behalf_of_permissioned_as.is_some())
+                    && script.on_behalf_of.is_some())
                 .then_some(true),
                 modules: script.modules,
                 labels: script.labels,
@@ -889,7 +889,7 @@ pub(crate) async fn tarball_workspace(
 
     {
         let flows = sqlx::query_as::<_, Flow>(
-             "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_permissioned_as, flow.labels, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
+             "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of, flow.labels, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
              FROM flow
              LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
              WHERE flow.workspace_id = $1 AND flow.archived = false",
@@ -899,7 +899,7 @@ pub(crate) async fn tarball_workspace(
          .await?;
 
         for mut flow in flows {
-            let flow_marker = obo_marker_only && flow.on_behalf_of_permissioned_as.is_some();
+            let flow_marker = obo_marker_only && flow.on_behalf_of.is_some();
             flow.on_behalf_of_email = if obo_marker_only {
                 None
             } else {
@@ -907,7 +907,7 @@ pub(crate) async fn tarball_workspace(
                     &mut obo_cache,
                     &db,
                     &w_id,
-                    flow.on_behalf_of_permissioned_as.as_deref(),
+                    flow.on_behalf_of.as_deref(),
                 )
                 .await?
             };

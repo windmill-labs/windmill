@@ -678,7 +678,7 @@ async fn test_change_user_email_to_slash_address(db: Pool<Postgres>) -> anyhow::
     .execute(&db)
     .await?;
     sqlx::query!(
-        "INSERT INTO script (workspace_id, path, hash, content, summary, description, language, created_by, created_at, on_behalf_of_permissioned_as)
+        "INSERT INTO script (workspace_id, path, hash, content, summary, description, language, created_by, created_at, on_behalf_of)
          VALUES ('test-workspace', 'u/test-user/s', 93001, 'def main(): pass', '', '', 'python3', 'test-user', NOW(), 'ext@windmill.dev')"
     )
     .execute(&db)
@@ -692,7 +692,7 @@ async fn test_change_user_email_to_slash_address(db: Pool<Postgres>) -> anyhow::
 
     assert_eq!(
         sqlx::query_scalar!(
-            "SELECT on_behalf_of_permissioned_as FROM script WHERE path = 'u/test-user/s' AND workspace_id = 'test-workspace'"
+            "SELECT on_behalf_of FROM script WHERE path = 'u/test-user/s' AND workspace_id = 'test-workspace'"
         )
         .fetch_one(&db)
         .await?
@@ -740,8 +740,8 @@ async fn test_change_user_email_leaves_group_identities(db: Pool<Postgres>) -> a
 
     sqlx::query!(
         "INSERT INTO draft(workspace_id, path, typ, value, email)
-         VALUES ('test-workspace', 'u/test-user/dg', 'script', '{\"on_behalf_of_permissioned_as\": \"g/ops\", \"on_behalf_of_email\": \"group-ops@windmill.dev\"}'::json, 'test@windmill.dev'),
-                ('test-workspace', 'u/test-user/du', 'script', '{\"on_behalf_of_permissioned_as\": \"u/test-user-2\", \"on_behalf_of_email\": \"group-ops@windmill.dev\"}'::json, 'test@windmill.dev')"
+         VALUES ('test-workspace', 'u/test-user/dg', 'script', '{\"on_behalf_of\": \"g/ops\", \"on_behalf_of_email\": \"group-ops@windmill.dev\"}'::json, 'test@windmill.dev'),
+                ('test-workspace', 'u/test-user/du', 'script', '{\"on_behalf_of\": \"u/test-user-2\", \"on_behalf_of_email\": \"group-ops@windmill.dev\"}'::json, 'test@windmill.dev')"
     )
     .execute(&db)
     .await?;
@@ -769,7 +769,7 @@ async fn test_change_user_email_leaves_group_identities(db: Pool<Postgres>) -> a
     );
 
     let drafts = sqlx::query!(
-        "SELECT path, value->>'on_behalf_of_email' AS email, value->>'on_behalf_of_permissioned_as' AS principal FROM draft WHERE workspace_id = 'test-workspace' ORDER BY path"
+        "SELECT path, value->>'on_behalf_of_email' AS email, value->>'on_behalf_of' AS principal FROM draft WHERE workspace_id = 'test-workspace' ORDER BY path"
     )
     .fetch_all(&db)
     .await?;

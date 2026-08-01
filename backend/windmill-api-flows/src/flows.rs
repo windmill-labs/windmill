@@ -579,7 +579,7 @@ async fn create_flow(
     // Apply folder default_permissioned_as on create when the caller did not
     // explicitly preserve a value and the user can preserve.
     let explicit_preserve = (nf.on_behalf_of_email.is_some()
-        || nf.on_behalf_of_permissioned_as.is_some())
+        || nf.on_behalf_of.is_some())
         && nf.preserve_on_behalf_of.unwrap_or(false)
         && windmill_common::can_preserve_on_behalf_of(&authed);
     if !explicit_preserve && windmill_common::can_preserve_on_behalf_of(&authed) {
@@ -588,7 +588,7 @@ async fn create_flow(
                 .await?
         {
             nf.on_behalf_of_email = Some(default_email);
-            nf.on_behalf_of_permissioned_as = Some(default_permissioned_as);
+            nf.on_behalf_of = Some(default_permissioned_as);
             nf.preserve_on_behalf_of = Some(true);
         }
     }
@@ -599,10 +599,10 @@ async fn create_flow(
     check_schedule_conflict(&mut tx, &w_id, &nf.path).await?;
 
     let schema_str = nf.schema.and_then(|x| serde_json::to_string(&x.0).ok());
-    let resolved_on_behalf_of_permissioned_as =
+    let resolved_on_behalf_of =
         windmill_common::resolve_on_behalf_of(
             nf.on_behalf_of_email.as_deref(),
-            nf.on_behalf_of_permissioned_as.as_deref(),
+            nf.on_behalf_of.as_deref(),
             nf.preserve_on_behalf_of.unwrap_or(false),
             &authed,
             &w_id,
@@ -616,7 +616,7 @@ async fn create_flow(
         dedicated_worker, visible_to_runner_only,
         ws_error_handler_muted,
         value, schema, edited_by, edited_at, labels,
-        on_behalf_of_permissioned_as
+        on_behalf_of
     ) VALUES (
         $1, $2, $3, $4,
         NULL, '', $5,
@@ -637,7 +637,7 @@ async fn create_flow(
         schema_str,
         &authed.username,
         nf.labels.as_deref() as Option<&[String]>,
-        resolved_on_behalf_of_permissioned_as,
+        resolved_on_behalf_of,
     )
     .execute(&mut *tx)
     .await?;
@@ -693,7 +693,7 @@ async fn create_flow(
     )
     .await?;
     if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
-        resolved_on_behalf_of_permissioned_as.as_deref(),
+        resolved_on_behalf_of.as_deref(),
         nf.preserve_on_behalf_of.unwrap_or(false),
         &authed,
         &windmill_common::users::username_to_permissioned_as(&authed.username),
@@ -880,7 +880,7 @@ async fn derived_on_behalf_of_email(
     w_id: &str,
     flow: &Flow,
 ) -> error::Result<Option<String>> {
-    let Some(permissioned_as) = flow.on_behalf_of_permissioned_as.as_deref() else {
+    let Some(permissioned_as) = flow.on_behalf_of.as_deref() else {
         return Ok(None);
     };
     Ok(Some(
@@ -899,7 +899,7 @@ async fn get_flow_version(
     let mut tx = user_db.begin(&authed).await?;
 
     let flow = sqlx::query_as::<_, Flow>(
-        "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_permissioned_as, flow.labels, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
+        "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of, flow.labels, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
         FROM flow
         LEFT JOIN flow_version ON flow_version.path = flow.path AND flow_version.workspace_id = flow.workspace_id
         WHERE flow.path = $1 AND flow.workspace_id = $2 AND flow_version.id = $3",
@@ -957,7 +957,7 @@ async fn get_flow_version_by_id(
             flow.ws_error_handler_muted,
             flow.timeout,
             flow.visible_to_runner_only,
-            flow.on_behalf_of_permissioned_as,
+            flow.on_behalf_of,
             flow.labels,
             flow_version.schema,
             flow_version.value,
@@ -1118,10 +1118,10 @@ async fn update_flow(
     let old_dep_job = not_found_if_none(old_dep_job, "Flow", flow_path)?;
     let is_new_path = nf.path != flow_path;
     let schema_str = schema.and_then(|x| serde_json::to_string(&x).ok());
-    let resolved_on_behalf_of_permissioned_as =
+    let resolved_on_behalf_of =
         windmill_common::resolve_on_behalf_of(
             nf.on_behalf_of_email.as_deref(),
-            nf.on_behalf_of_permissioned_as.as_deref(),
+            nf.on_behalf_of.as_deref(),
             nf.preserve_on_behalf_of.unwrap_or(false),
             &authed,
             &w_id,
@@ -1148,7 +1148,7 @@ async fn update_flow(
             edited_by = $10,
             edited_at = now(),
             labels = COALESCE($13, labels),
-            on_behalf_of_permissioned_as = $14
+            on_behalf_of = $14
         WHERE
             path = $11 AND workspace_id = $12",
         if is_new_path { flow_path } else { &nf.path },
@@ -1164,7 +1164,7 @@ async fn update_flow(
         flow_path,
         w_id,
         nf.labels.as_deref() as Option<&[String]>,
-        resolved_on_behalf_of_permissioned_as,
+        resolved_on_behalf_of,
     )
     .execute(&mut *tx)
     .await
@@ -1176,8 +1176,8 @@ async fn update_flow(
         // if new path, must clone flow to new path and delete old flow for flow_version foreign key constraint
         sqlx::query!(
             "INSERT INTO flow
-                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_permissioned_as, concurrency_key, versions, value, schema, edited_by, edited_at, labels)
-            SELECT workspace_id, $1, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_permissioned_as, concurrency_key, versions, value, schema, edited_by, edited_at, labels
+                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, concurrency_key, versions, value, schema, edited_by, edited_at, labels)
+            SELECT workspace_id, $1, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, concurrency_key, versions, value, schema, edited_by, edited_at, labels
                 FROM flow
                 WHERE path = $2 AND workspace_id = $3",
             nf.path,
@@ -1352,7 +1352,7 @@ async fn update_flow(
     )
     .await?;
     if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
-        resolved_on_behalf_of_permissioned_as.as_deref(),
+        resolved_on_behalf_of.as_deref(),
         nf.preserve_on_behalf_of.unwrap_or(false),
         &authed,
         &windmill_common::users::username_to_permissioned_as(&authed.username),
@@ -1587,7 +1587,7 @@ async fn get_flow_by_path(
             flow.ws_error_handler_muted, 
             flow.timeout, 
             flow.visible_to_runner_only, 
-            flow.on_behalf_of_permissioned_as,
+            flow.on_behalf_of,
             flow.labels,
             folder_labels(flow.workspace_id, flow.path) AS inherited_labels,
             flow_version.id AS version_id,
@@ -1628,7 +1628,7 @@ async fn get_flow_by_path(
             flow.ws_error_handler_muted, 
             flow.timeout, 
             flow.visible_to_runner_only, 
-            flow.on_behalf_of_permissioned_as,
+            flow.on_behalf_of,
             flow.labels,
             folder_labels(flow.workspace_id, flow.path) AS inherited_labels,
             flow_version.id AS version_id,

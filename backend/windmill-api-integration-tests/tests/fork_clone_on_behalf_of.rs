@@ -25,7 +25,7 @@ async fn test_fork_keeps_only_resolvable_on_behalf_of(db: Pool<Postgres>) -> any
     .await?;
 
     sqlx::query!(
-        "INSERT INTO script (workspace_id, path, hash, content, summary, description, language, created_by, created_at, on_behalf_of_permissioned_as)
+        "INSERT INTO script (workspace_id, path, hash, content, summary, description, language, created_by, created_at, on_behalf_of)
          VALUES
          ('test-workspace', 'u/test-user/obo_member', 91001, 'def main(): pass', '', '', 'python3', 'test-user', NOW(), 'u/test-user'),
          ('test-workspace', 'u/test-user/obo_stranger', 91002, 'def main(): pass', '', '', 'python3', 'test-user', NOW(), 'u/test-user-2'),
@@ -36,7 +36,7 @@ async fn test_fork_keeps_only_resolvable_on_behalf_of(db: Pool<Postgres>) -> any
     .await?;
 
     sqlx::query!(
-        "INSERT INTO flow (workspace_id, path, summary, description, value, edited_by, edited_at, on_behalf_of_permissioned_as)
+        "INSERT INTO flow (workspace_id, path, summary, description, value, edited_by, edited_at, on_behalf_of)
          VALUES ('test-workspace', 'u/test-user/obo_flow', '', '', $1, 'test-user', NOW(), 'u/test-user-2')",
         json!({"modules": []})
     )
@@ -58,7 +58,7 @@ async fn test_fork_keeps_only_resolvable_on_behalf_of(db: Pool<Postgres>) -> any
     );
 
     let cloned = sqlx::query!(
-        "SELECT path, on_behalf_of_permissioned_as FROM script WHERE workspace_id = 'wm-fork-obo' ORDER BY path"
+        "SELECT path, on_behalf_of FROM script WHERE workspace_id = 'wm-fork-obo' ORDER BY path"
     )
     .fetch_all(&db)
     .await?;
@@ -67,7 +67,7 @@ async fn test_fork_keeps_only_resolvable_on_behalf_of(db: Pool<Postgres>) -> any
             .iter()
             .find(|r| r.path == path)
             .unwrap_or_else(|| panic!("{path} was cloned"))
-            .on_behalf_of_permissioned_as
+            .on_behalf_of
             .clone()
     };
 
@@ -86,7 +86,7 @@ async fn test_fork_keeps_only_resolvable_on_behalf_of(db: Pool<Postgres>) -> any
     assert_eq!(identity("u/test-user/obo_stranger"), None);
     assert_eq!(
         sqlx::query_scalar!(
-            "SELECT on_behalf_of_permissioned_as FROM flow WHERE workspace_id = 'wm-fork-obo'"
+            "SELECT on_behalf_of FROM flow WHERE workspace_id = 'wm-fork-obo'"
         )
         .fetch_one(&db)
         .await?,

@@ -338,7 +338,7 @@
 			workspaceTo: workspaceToDeployTo!,
 			additionalInformation,
 			onBehalfOf: getOnBehalfOfForDeploy(statusPath, kind),
-			onBehalfOfPermissionedAs: getOnBehalfOfPermissionedAsForDeploy(statusPath, kind)
+			onBehalfOfPrincipal: getOnBehalfOfPermissionedAsForDeploy(statusPath, kind)
 		})
 
 		if (result.success) {

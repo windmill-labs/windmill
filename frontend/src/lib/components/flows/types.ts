@@ -39,7 +39,7 @@ export type ExtendedOpenFlow = OpenFlow & {
 	dedicated_worker?: boolean
 	visible_to_runner_only?: boolean
 	on_behalf_of_email?: string
-	on_behalf_of_permissioned_as?: string
+	on_behalf_of?: string
 }
 
 export type FlowInputEditorState = {

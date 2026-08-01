@@ -72,7 +72,7 @@ pub async fn prefetch_cached_script(
     script: Script<ScriptRunnableSettingsHandle>,
     db: &DB,
 ) -> crate::error::Result<Script<ScriptRunnableSettingsInline>> {
-    let derived_email = match script.on_behalf_of_permissioned_as.as_deref() {
+    let derived_email = match script.on_behalf_of.as_deref() {
         Some(permissioned_as) => Some(
             crate::users::get_email_from_permissioned_as(
                 permissioned_as,
@@ -124,7 +124,7 @@ pub async fn prefetch_cached_script(
         has_preprocessor: script.has_preprocessor,
         // Derived, not stored: see the field's doc comment.
         on_behalf_of_email: derived_email,
-        on_behalf_of_permissioned_as: script.on_behalf_of_permissioned_as,
+        on_behalf_of: script.on_behalf_of,
         assets: script.assets,
         modules: script.modules,
         labels: script.labels,
@@ -400,7 +400,7 @@ pub async fn clone_script<'c>(
         codebase: s.codebase,
         has_preprocessor: s.has_preprocessor,
         on_behalf_of_email: s.on_behalf_of_email,
-        on_behalf_of_permissioned_as: s.on_behalf_of_permissioned_as,
+        on_behalf_of: s.on_behalf_of,
         preserve_on_behalf_of: None,
         assets: s.assets,
         modules: s.modules,
@@ -425,14 +425,14 @@ pub async fn clone_script<'c>(
     envs, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, \
     dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
     delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, \
-    codebase, has_preprocessor, on_behalf_of_permissioned_as, schema_validation, assets, debounce_key, debounce_delay_s, runnable_settings_handle, modules, labels)
+    codebase, has_preprocessor, on_behalf_of, schema_validation, assets, debounce_key, debounce_delay_s, runnable_settings_handle, modules, labels)
 
     SELECT  workspace_id, $1, path, array_prepend($2::bigint, COALESCE(parent_hashes, '{}'::bigint[])), summary, description, \
             content, created_by, schema, is_template, extra_perms, NULL, language, kind, tag, \
             envs, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, \
             dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
             delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, \
-            codebase, has_preprocessor, on_behalf_of_permissioned_as, schema_validation, assets, debounce_key, debounce_delay_s, runnable_settings_handle, modules, labels
+            codebase, has_preprocessor, on_behalf_of, schema_validation, assets, debounce_key, debounce_delay_s, runnable_settings_handle, modules, labels
 
     FROM script WHERE hash = $2 AND workspace_id = $3;
             ", new_hash, s.hash.0, w_id).execute(&mut *tx).await?;

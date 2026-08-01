@@ -26,9 +26,9 @@ RETURNS VARCHAR AS $$
 $$ LANGUAGE SQL STABLE;
 
 UPDATE script SET on_behalf_of_email =
-    pg_temp.email_from_permissioned_as(workspace_id, on_behalf_of_permissioned_as)
- WHERE on_behalf_of_permissioned_as IS NOT NULL;
+    pg_temp.email_from_permissioned_as(workspace_id, on_behalf_of)
+ WHERE on_behalf_of IS NOT NULL;
 
 UPDATE flow SET on_behalf_of_email =
-    pg_temp.email_from_permissioned_as(workspace_id, on_behalf_of_permissioned_as)
- WHERE on_behalf_of_permissioned_as IS NOT NULL;
+    pg_temp.email_from_permissioned_as(workspace_id, on_behalf_of)
+ WHERE on_behalf_of IS NOT NULL;
