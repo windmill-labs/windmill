@@ -15,6 +15,16 @@ import {
   removeExtensionToPath,
 } from "../src/commands/script/script.ts";
 
+/** The local map's keys are the walk's own — `path.join`, so `__dbt\\` on
+ *  Windows — while a remote's are the API's. The synthesized descriptor follows
+ *  the spelling of the `dbt_project.yml` it was derived from, like every other
+ *  key in that map, so an assertion on one platform's separator tests the
+ *  platform and not the synthesis. */
+const normalized = (m: Record<string, string>) =>
+  Object.fromEntries(
+    Object.entries(m).map(([k, v]) => [k.replaceAll("\\", "/"), v]),
+  );
+
 describe("a dbt project without a descriptor", () => {
   let dir: string;
 
@@ -43,7 +53,7 @@ describe("a dbt project without a descriptor", () => {
   test("is still discovered, as an empty descriptor", async () => {
     const root = await FSFSElement(dir, [], true);
     const map = await elementsToMap(root, () => false, false, {});
-    expect(map["f/analytics/analytics__dbt/wm_dbt.yaml"]).toBe("");
+    expect(normalized(map)["f/analytics/analytics__dbt/wm_dbt.yaml"]).toBe("");
   });
 
   // The metadata has to resolve to a content path that is not on disk, or every
@@ -120,8 +130,8 @@ describe("a dbt project without a descriptor", () => {
     );
     const remoteMap = await elementsToMap(remote as any, () => false, false, {});
     const key = "f/analytics/analytics__dbt/wm_dbt.yaml";
-    expect(local[key]).toBe("");
-    expect(remoteMap[key]).toBe("");
+    expect(normalized(local)[key]).toBe("");
+    expect(normalized(remoteMap)[key]).toBe("");
   });
 });
 
