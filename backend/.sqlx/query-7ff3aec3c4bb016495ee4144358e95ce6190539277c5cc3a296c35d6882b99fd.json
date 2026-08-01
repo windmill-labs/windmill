@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE flow SET on_behalf_of_email = $1 WHERE on_behalf_of_email = $2 AND (on_behalf_of_permissioned_as IS NULL OR on_behalf_of_permissioned_as NOT LIKE 'g/%')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7ff3aec3c4bb016495ee4144358e95ce6190539277c5cc3a296c35d6882b99fd"
+}

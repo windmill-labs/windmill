@@ -1965,7 +1965,7 @@ async fn change_user_email(
     .await?;
 
     sqlx::query!(
-        "UPDATE script SET on_behalf_of_email = $1 WHERE on_behalf_of_email = $2",
+        "UPDATE script SET on_behalf_of_email = $1 WHERE on_behalf_of_email = $2 AND (on_behalf_of_permissioned_as IS NULL OR on_behalf_of_permissioned_as NOT LIKE 'g/%')",
         &new_email,
         &old_email
     )
@@ -1973,7 +1973,7 @@ async fn change_user_email(
     .await?;
 
     sqlx::query!(
-        "UPDATE flow SET on_behalf_of_email = $1 WHERE on_behalf_of_email = $2",
+        "UPDATE flow SET on_behalf_of_email = $1 WHERE on_behalf_of_email = $2 AND (on_behalf_of_permissioned_as IS NULL OR on_behalf_of_permissioned_as NOT LIKE 'g/%')",
         &new_email,
         &old_email
     )
@@ -2022,8 +2022,13 @@ async fn change_user_email(
 
     // A script/flow draft carries the same pair inside its value, and deploying one sends
     // it verbatim — a half-rewritten pair is rejected as naming two different people.
+    //
+    // The `g/` guard on every email-keyed rewrite here (and on the two columns above): a
+    // group's synthetic address is `group-{name}@windmill.dev`, which a real user may also
+    // hold. A runnable configured for the *group* legitimately carries that address next to
+    // `g/{name}`, and it does not change when that user's email does.
     sqlx::query!(
-        r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of_email'], to_jsonb($1::text))) WHERE typ IN ('script', 'flow') AND value->>'on_behalf_of_email' = $2"#,
+        r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of_email'], to_jsonb($1::text))) WHERE typ IN ('script', 'flow') AND value->>'on_behalf_of_email' = $2 AND (value->>'on_behalf_of_permissioned_as' IS NULL OR value->>'on_behalf_of_permissioned_as' NOT LIKE 'g/%')"#,
         &new_email,
         &old_email
     )

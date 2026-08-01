@@ -563,6 +563,22 @@ async fn test_change_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
     .execute(&db)
     .await?;
 
+    // A group's synthetic address can also be a real user's. A runnable configured for the
+    // group carries it next to `g/{name}` and runs as the group, so the user's email change
+    // must not touch it — rewriting one half would leave a pair naming two different people.
+    sqlx::query!(
+        "UPDATE usr SET email = 'group-ops@windmill.dev' WHERE workspace_id = 'test-workspace' AND username = 'test-user'"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO draft(workspace_id, path, typ, value)
+         VALUES ('test-workspace', 'u/test-user-2/g', 'script',
+                 '{\"on_behalf_of_email\": \"group-ops@windmill.dev\", \"on_behalf_of_permissioned_as\": \"g/ops\"}'::json)"
+    )
+    .execute(&db)
+    .await?;
+
     let resp = change_email("test2@windmill.dev", "renamed@windmill.dev")
         .await
         .unwrap();
@@ -606,6 +622,17 @@ async fn test_change_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert!(
         !draft.contains("test2@windmill.dev") && draft.contains("renamed@windmill.dev"),
         "draft should carry only the new address: {draft}"
+    );
+
+    let group_draft = sqlx::query_scalar!(
+        "SELECT value::text FROM draft WHERE path = 'u/test-user-2/g' AND workspace_id = 'test-workspace'"
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or_default();
+    assert!(
+        group_draft.contains("group-ops@windmill.dev") && group_draft.contains("g/ops"),
+        "a group-configured draft must survive a colliding user's email change: {group_draft}"
     );
 
     let policy = sqlx::query_scalar!(

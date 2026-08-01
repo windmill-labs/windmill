@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT value::text FROM draft WHERE path = 'u/test-user-2/g' AND workspace_id = 'test-workspace'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "value",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "3b3206abf61a408758511f534f97ae914f4f5545b81533fbdcac0aeb2745501c"
+}
