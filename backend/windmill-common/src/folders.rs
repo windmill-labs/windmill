@@ -66,6 +66,9 @@ pub async fn resolve_folder_default_permissioned_as(
 
 /// On-behalf-of variant of [`resolve_folder_default_permissioned_as`], for flows and
 /// scripts which store the identity as an `(email, permissioned_as)` pair.
+///
+/// Reads folder rules through the non-RLS pool and authorizes nothing: callers must already
+/// be authorized for `w_id`.
 pub async fn resolve_folder_default_on_behalf_of(
     db: &Pool<Postgres>,
     w_id: &str,

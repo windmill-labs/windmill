@@ -232,29 +232,63 @@ async fn test_on_behalf_of_drives_job_identity(
     );
 
     // A job row carries a narrower identity column than the runnable it comes from, so an
-    // address too long to be enqueued is refused at deploy rather than at the first run.
+    // address too long to be enqueued is refused at deploy rather than at the first run —
+    // whether it is preserved from someone else or is the deployer's own.
+    const LONG_ADDRESS: &str = "a-very-long-superadmin-address-for-this-test@windmill.dev";
     sqlx::query!(
         "INSERT INTO password(email, password_hash, login_type, super_admin, verified, name)
-         VALUES ('a-very-long-superadmin-address-for-this-test@windmill.dev', '', 'password', true, true, '')"
+         VALUES ($1, '', 'password', true, true, '')",
+        LONG_ADDRESS
     )
     .execute(&db)
     .await?;
+    sqlx::query!(
+        "INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin)
+         VALUES (encode(sha256('LONG_TOKEN'::bytea), 'hex'), 'LONG_TOKEN', 'LONG_TOKEN', $1, 'long', true)",
+        LONG_ADDRESS
+    )
+    .execute(&db)
+    .await?;
+
+    let too_long = |path: &str| {
+        json!({
+            "path": path,
+            "summary": "",
+            "description": "",
+            "content": "export async function main() { return 42; }",
+            "language": "deno",
+            "on_behalf_of_email": LONG_ADDRESS,
+            "preserve_on_behalf_of": true,
+        })
+    };
     let resp = authed(
         client().post(format!("{base}/scripts/create")),
         "SECRET_TOKEN",
     )
-    .json(&json!({
-        "path": "u/test-user/obo_too_long",
-        "summary": "",
-        "description": "",
-        "content": "export async function main() { return 42; }",
-        "language": "deno",
-        "on_behalf_of_email": "a-very-long-superadmin-address-for-this-test@windmill.dev",
-        "preserve_on_behalf_of": true,
-    }))
+    .json(&too_long("u/test-user/obo_too_long"))
     .send()
     .await?;
     assert_eq!(resp.status(), 400, "an unenqueueable identity must be rejected");
+
+    // Picking "me" does not preserve anyone, so it takes the branch that stores the caller's
+    // own principal — which for an account acting without a `usr` row is their address.
+    let mut own = too_long("u/test-user/obo_too_long_self");
+    own["preserve_on_behalf_of"] = json!(false);
+    let resp = authed(
+        client().post(format!("{base}/scripts/create")),
+        "LONG_TOKEN",
+    )
+    .json(&own)
+    .send()
+    .await?;
+    let status = resp.status();
+    let body = resp.text().await?;
+    assert_eq!(status, 400, "{body}");
+    assert!(
+        body.contains("characters a job can carry"),
+        "the caller's own identity has to be refused by the same check, not by a column \
+         overflow further down: {body}"
+    );
 
     // A pair naming two different principals would run as a composite of both.
     let resp = authed(

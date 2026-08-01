@@ -203,6 +203,10 @@ pub fn check_on_behalf_of_preservation(
 ///
 /// Returns `None` when the runnable has no on-behalf-of identity, and the caller's own
 /// identity when they are not allowed to preserve someone else's.
+///
+/// Resolves through the non-RLS pool and authorizes nothing itself — `authed` decides only
+/// whether preservation is allowed, and its role flags are not re-checked against `w_id`.
+/// Callers must already be authorized for the workspace they pass.
 pub async fn resolve_on_behalf_of(
     on_behalf_of_email: Option<&str>,
     on_behalf_of: Option<&str>,
@@ -214,9 +218,9 @@ pub async fn resolve_on_behalf_of(
     if on_behalf_of_email.is_none() && on_behalf_of.is_none() {
         return Ok(None);
     }
-    // Falls through to the width check below rather than returning: the caller's own identity
-    // is address-shaped when they act without a `usr` row, and one too wide for a job row has
-    // to be refused here too.
+    // Through the same width check as every other branch: the caller's own identity is
+    // address-shaped when they act without a `usr` row, and one too wide for a job row is no
+    // more enqueueable for naming themselves.
     if !(preserve && can_preserve_on_behalf_of(authed)) {
         return reject_unenqueueable(users::username_to_permissioned_as(authed.username()));
     }
@@ -1613,6 +1617,9 @@ pub struct ScriptHashInfo<SR> {
 impl<SR> ScriptHashInfo<SR> {
     /// The identity this script runs as, or `None` when it runs as its caller. The address
     /// is derived from the principal rather than stored, so the two cannot disagree.
+    ///
+    /// Reads through the non-RLS pool and authorizes nothing: callers must already be
+    /// authorized for `w_id` and for this script.
     pub async fn on_behalf_of(
         &self,
         w_id: &str,
@@ -1915,6 +1922,9 @@ pub struct FlowVersionInfo {
 
 impl FlowVersionInfo {
     /// The identity this flow runs as, or `None` when it runs as its caller.
+    ///
+    /// Same contract as [`ScriptHashInfo::on_behalf_of`]: callers must already be authorized
+    /// for `w_id` and for this flow.
     pub async fn on_behalf_of(
         &self,
         w_id: &str,

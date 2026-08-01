@@ -170,6 +170,9 @@ pub fn invalidate_email_cache(workspace_id: &str, username: &str) {
 /// `None` when the email names nobody at all — an address outside the workspace that is
 /// not a superadmin's, or a group that no longer exists. Callers then leave the identity
 /// unrecorded rather than storing a principal that cannot authenticate.
+///
+/// Reads through the non-RLS pool and authorizes nothing: callers must already be authorized
+/// for `workspace_id`.
 pub async fn permissioned_as_from_email(
     workspace_id: &str,
     email: &str,
