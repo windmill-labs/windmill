@@ -121,8 +121,13 @@ async function worker() {
 }
 await Promise.all(Array.from({ length: CONCURRENCY }, worker))
 
+// An entry claims one thing — the page is not published yet — and 404 is the only
+// answer that means it. A timeout, 403 or 5xx on the same URL is a real fault, and
+// suppressing it would also read as "still waiting" and defer the staleness check.
+const isPendingDeploy = (r) => PENDING_DEPLOY.has(r.url) && r.status === 404
+
 const pending = results.filter((r) => PENDING_DEPLOY.has(r.url))
-const waiting = pending.filter((p) => !p.ok)
+const waiting = results.filter(isPendingDeploy)
 if (waiting.length) {
 	console.log(`\n⏳ ${waiting.length} link(s) waiting on a docs deploy:`)
 	for (const p of waiting.sort((a, b) => a.url.localeCompare(b.url))) {
@@ -137,7 +142,7 @@ const stale = [
 	...[...PENDING_DEPLOY.keys()].filter((u) => !urls.has(u)).map((u) => [u, 'nothing references it'])
 ]
 
-const failures = results.filter((r) => !r.ok && !PENDING_DEPLOY.has(r.url))
+const failures = results.filter((r) => !r.ok && !isPendingDeploy(r))
 if (failures.length === 0 && stale.length === 0) {
 	console.log(`\n✅ No broken docs links (${allUrls.length} checked).`)
 	process.exit(0)
