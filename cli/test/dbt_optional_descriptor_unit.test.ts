@@ -220,6 +220,43 @@ describe("a dbt project without a descriptor", () => {
     }
   });
 
+  // Both layouts deploy to the same remote path, and the folder layout is the
+  // one whose base is NOT its filename: `<base>__mod/script.ts` deploys to
+  // `<base>`, exactly where the dbt project goes.
+  test("the collision holds for a folder-layout script too", async () => {
+    const cwd = process.cwd();
+    process.chdir(dir);
+    const remote = { workspaceId: "w", remote: "http://127.0.0.1:1", name: "w", token: "t" };
+    const push = (p: string) =>
+      handleFile(p, remote as any, [], undefined, undefined, {}, []).then(
+        () => undefined,
+        (e) => e as Error,
+      );
+    try {
+      fs.mkdirSync(path.join(dir, "f/analytics/analytics__mod"), { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, "f/analytics/analytics__mod/script.ts"),
+        "export async function main() {}",
+      );
+      fs.writeFileSync(
+        path.join(dir, "f/analytics/analytics__dbt/wm_dbt.yaml"),
+        "profile: {}\n",
+      );
+
+      // From the dbt side: the descriptor must find the `__mod` entry point.
+      const fromDbt = await push("f/analytics/analytics__dbt/wm_dbt.yaml");
+      expect(fromDbt).toBeInstanceOf(DbtPathCollisionError);
+      expect(fromDbt?.message).toContain("analytics__mod/script.ts");
+
+      // And from the ordinary side, whose base is not its filename.
+      const fromMod = await push("f/analytics/analytics__mod/script.ts");
+      expect(fromMod).toBeInstanceOf(DbtPathCollisionError);
+      expect(fromMod?.message).toContain("analytics__dbt/dbt_project.yml");
+    } finally {
+      process.chdir(cwd);
+    }
+  });
+
   // The two sides spell "absent" differently — nothing on disk, nothing in the
   // export — so without one normalization a descriptor-less project reads as an
   // addition on every push and a deletion on every pull, forever.
