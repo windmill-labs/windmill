@@ -15,6 +15,17 @@ const CONCURRENCY = 24
 const TIMEOUT_MS = 20000
 const RETRIES = 2
 
+// Links whose target page is written but not yet deployed on windmill.dev: the app
+// link is already the final slug, so a 404 is expected until the docs side ships.
+// Every entry is still fetched — one that starts resolving is reported so the entry
+// gets dropped, because a stale entry silently hides a genuinely dead link.
+const PENDING_DEPLOY = new Map([
+	[
+		'https://www.windmill.dev/docs/getting_started/scripts_quickstart/dbt',
+		'windmilldocs#1625 (dbt runtime quickstart)'
+	]
+])
+
 async function walk(dir) {
 	const out = []
 	for (const entry of await readdir(dir, { withFileTypes: true })) {
@@ -111,9 +122,23 @@ async function worker() {
 }
 await Promise.all(Array.from({ length: CONCURRENCY }, worker))
 
-const failures = results.filter((r) => !r.ok)
+const pending = results.filter((r) => PENDING_DEPLOY.has(r.url))
+if (pending.length) {
+	console.log(`\n⏳ ${pending.length} link(s) waiting on a docs deploy:`)
+	for (const p of pending.sort((a, b) => a.url.localeCompare(b.url))) {
+		const state = p.ok ? 'LIVE — remove from PENDING_DEPLOY' : `not live yet (${p.status})`
+		console.log(`   ${p.url}\n     ${PENDING_DEPLOY.get(p.url)} — ${state}`)
+	}
+}
+for (const url of PENDING_DEPLOY.keys()) {
+	if (!urls.has(url)) {
+		console.log(`\n⏳ ${url} is in PENDING_DEPLOY but no longer referenced — remove the entry.`)
+	}
+}
+
+const failures = results.filter((r) => !r.ok && !PENDING_DEPLOY.has(r.url))
 if (failures.length === 0) {
-	console.log(`\n✅ All ${allUrls.length} docs links are reachable.`)
+	console.log(`\n✅ No broken docs links (${allUrls.length} checked).`)
 	process.exit(0)
 }
 
