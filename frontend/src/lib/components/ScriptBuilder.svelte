@@ -243,6 +243,20 @@
 	// is unchanged.
 	let scriptEditor: ScriptEditor | DbtEditor | undefined = $state(undefined)
 	let isDbt = $derived(script.language === 'dbt')
+	// The Generated UI tab is not offered for dbt, and the initialiser above runs
+	// before the language is known — so a customUi that disables Metadata and
+	// Runtime lands on `ui` and would leave the panel on a tab with no trigger and
+	// no content. Fall back to whatever IS offered.
+	$effect(() => {
+		if (isDbt && selectedTab === 'ui') {
+			selectedTab =
+				customUi?.settingsPanel?.disableMetadata !== true
+					? 'metadata'
+					: customUi?.settingsPanel?.disableRuntime !== true
+						? 'runtime'
+						: 'triggers'
+		}
+	})
 	// The version whose stored graph the dbt editor draws until a refresh replaces
 	// it. A script never deployed has none, and `NewScript` carries no hash.
 	let deployedScriptHash = $derived(
@@ -1943,12 +1957,14 @@
 									{/if}
 								</div>
 							</TabContent>
-							<TabContent value="ui" class="h-full p-4">
-								<ScriptSchema
-									bind:schema={script.schema}
-									customUi={customUi?.settingsPanel?.metadata?.editableSchemaForm}
-								/>
-							</TabContent>
+							{#if !isDbt}
+								<TabContent value="ui" class="h-full p-4">
+									<ScriptSchema
+										bind:schema={script.schema}
+										customUi={customUi?.settingsPanel?.metadata?.editableSchemaForm}
+									/>
+								</TabContent>
+							{/if}
 							<TabContent value="triggers" class="h-full">
 								<TriggersEditor
 									on:applyArgs={applyArgs}
