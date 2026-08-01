@@ -661,6 +661,49 @@ async fn test_change_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// A superadmin acting outside every workspace has no username of their own, so their runnables
+/// name them by their address — and an address may contain a `/`, which every reader of a
+/// principal splits on. Moving such an account has to leave behind the form that decodes back to
+/// them rather than one that reads as a group.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_change_user_email_to_slash_address(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let global_base = format!("http://localhost:{}/api/users", server.addr.port());
+
+    sqlx::query!(
+        "INSERT INTO password(email, password_hash, login_type, super_admin, verified, name)
+         VALUES ('ext@windmill.dev', 'not-a-real-hash', 'password', true, true, 'Ext')"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO script (workspace_id, path, hash, content, summary, description, language, created_by, created_at, on_behalf_of_permissioned_as)
+         VALUES ('test-workspace', 'u/test-user/s', 93001, 'def main(): pass', '', '', 'python3', 'test-user', NOW(), 'ext@windmill.dev')"
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().post(format!("{global_base}/change_email/ext@windmill.dev")))
+        .json(&json!({ "new_email": "ops/alice@windmill.dev" }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "change_email: {}", resp.text().await?);
+
+    assert_eq!(
+        sqlx::query_scalar!(
+            "SELECT on_behalf_of_permissioned_as FROM script WHERE path = 'u/test-user/s' AND workspace_id = 'test-workspace'"
+        )
+        .fetch_one(&db)
+        .await?
+        .as_deref(),
+        Some("u/ops/alice@windmill.dev"),
+        "left bare, the new address would come back as group 'alice@windmill.dev'"
+    );
+
+    Ok(())
+}
+
 /// A group's synthetic address (`group-{name}@windmill.dev`) can also be a real user's, and a
 /// runnable configured for the *group* carries that address next to `g/{name}`. Moving the
 /// colliding user's account must leave it alone: rewriting one half of the pair would leave it

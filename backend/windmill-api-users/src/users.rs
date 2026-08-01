@@ -49,7 +49,8 @@ use windmill_common::oauth2::InstanceEvent;
 use windmill_common::users::truncate_token;
 use windmill_common::users::COOKIE_NAME;
 use windmill_common::users::{
-    SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SYNC_EMAIL, VALID_EMAIL,
+    username_to_permissioned_as, SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL,
+    SUPERADMIN_SYNC_EMAIL, VALID_EMAIL,
 };
 use windmill_common::utils::paginate;
 use windmill_common::worker::CLOUD_HOSTED;
@@ -1977,31 +1978,33 @@ async fn change_user_email(
     .execute(&mut *tx)
     .await?;
 
-    // ---- permissioned_as holding a raw email ----
-    // `username_to_permissioned_as` returns its input verbatim when it contains '@', and the
-    // migration that introduced these columns back-filled them the same way, so a user whose
-    // username is their email is stored as the bare address instead of `u/{username}`. Those rows
-    // are the ones that go stale here; `u/{username}` rows are safe because the username is kept.
+    // ---- permissioned_as naming the account by its address ----
+    // A user whose username is their own address is stored as that address rather than as
+    // `u/{username}` (`u/`-prefixed when it contains a `/` a reader would split on), and the
+    // migration that introduced these columns back-filled them the same way. Those rows are the
+    // ones that go stale here; `u/{username}` rows are safe because the username is kept.
+    let old_principal = username_to_permissioned_as(&old_email);
+    let new_principal = username_to_permissioned_as(&new_email);
     sqlx::query!(
         "UPDATE app SET policy = jsonb_set(policy, ARRAY['on_behalf_of'], to_jsonb($1::text)) WHERE policy->>'on_behalf_of' = $2",
-        &new_email,
-        &old_email
+        &new_principal,
+        &old_principal
     )
     .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
         "UPDATE script SET on_behalf_of_permissioned_as = $1 WHERE on_behalf_of_permissioned_as = $2",
-        &new_email,
-        &old_email
+        &new_principal,
+        &old_principal
     )
     .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
         "UPDATE flow SET on_behalf_of_permissioned_as = $1 WHERE on_behalf_of_permissioned_as = $2",
-        &new_email,
-        &old_email
+        &new_principal,
+        &old_principal
     )
     .execute(&mut *tx)
     .await?;
@@ -2020,8 +2023,8 @@ async fn change_user_email(
 
     sqlx::query!(
         r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of_permissioned_as'], to_jsonb($1::text))) WHERE typ IN ('script', 'flow') AND value->>'on_behalf_of_permissioned_as' = $2"#,
-        &new_email,
-        &old_email
+        &new_principal,
+        &old_principal
     )
     .execute(&mut *tx)
     .await?;
@@ -2038,104 +2041,104 @@ async fn change_user_email(
                 ORDER BY ord)
             FROM jsonb_array_elements(default_permissioned_as) WITH ORDINALITY AS t(rule, ord))
         WHERE default_permissioned_as @> jsonb_build_array(jsonb_build_object('permissioned_as', $2::text))"#,
-        &new_email,
-        &old_email
+        &new_principal,
+        &old_principal
     )
     .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
         "UPDATE schedule SET permissioned_as = $1 WHERE permissioned_as = $2",
-        &new_email,
-        &old_email
+        &new_principal,
+        &old_principal
     )
     .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
         "UPDATE http_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
-        &new_email,
-        &old_email
+        &new_principal,
+        &old_principal
     )
     .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
         "UPDATE websocket_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
-        &new_email,
-        &old_email
+        &new_principal,
+        &old_principal
     )
     .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
         "UPDATE postgres_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
-        &new_email,
-        &old_email
+        &new_principal,
+        &old_principal
     )
     .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
         "UPDATE mqtt_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
-        &new_email,
-        &old_email
+        &new_principal,
+        &old_principal
     )
     .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
         "UPDATE kafka_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
-        &new_email,
-        &old_email
+        &new_principal,
+        &old_principal
     )
     .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
         "UPDATE nats_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
-        &new_email,
-        &old_email
+        &new_principal,
+        &old_principal
     )
     .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
         "UPDATE sqs_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
-        &new_email,
-        &old_email
+        &new_principal,
+        &old_principal
     )
     .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
         "UPDATE gcp_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
-        &new_email,
-        &old_email
+        &new_principal,
+        &old_principal
     )
     .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
         "UPDATE email_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
-        &new_email,
-        &old_email
+        &new_principal,
+        &old_principal
     )
     .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
         "UPDATE amqp_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
-        &new_email,
-        &old_email
+        &new_principal,
+        &old_principal
     )
     .execute(&mut *tx)
     .await?;
 
     sqlx::query!(
         "UPDATE azure_trigger SET permissioned_as = $1 WHERE permissioned_as = $2",
-        &new_email,
-        &old_email
+        &new_principal,
+        &old_principal
     )
     .execute(&mut *tx)
     .await?;
@@ -2153,8 +2156,8 @@ async fn change_user_email(
 
     sqlx::query!(
         "UPDATE v2_job SET permissioned_as = $1 WHERE permissioned_as = $2 AND id IN (SELECT id FROM v2_job_queue)",
-        &new_email,
-        &old_email
+        &new_principal,
+        &old_principal
     )
     .execute(&mut *tx)
     .await?;
