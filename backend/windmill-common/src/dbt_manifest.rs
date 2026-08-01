@@ -507,6 +507,17 @@ pub fn table_asset_path(
         }
         _ => schema.to_string(),
     };
+    // `/` is the segment boundary, and `canonicalize_table_asset_path` recovers
+    // the components from the LAST two — so an identifier carrying one (legal
+    // when quoted) moves that boundary: `("a/b", "c")` and `("a", "b/c")` both
+    // spell `<warehouse>/a/b/c` and two relations share one node, one lineage
+    // and one progress row. Refused rather than encoded: the `dbt://` spelling
+    // is a contract (docs/dbt-runtime.md, decision 11) that annotations and the
+    // frontend parse too. The relation keeps its manifest row and gets no asset,
+    // exactly as an over-long one does.
+    if qualified.contains('/') || name.contains('/') {
+        return None;
+    }
     let path = canonicalize_table_asset_path(&format!("{warehouse}/{qualified}/{name}"));
     // The bound lives HERE because all three derivations must agree, and it is
     // the column's: `asset.path` is VARCHAR(255), counted in CHARACTERS, and a
@@ -1279,6 +1290,25 @@ mod tests {
         assert_eq!(
             node(&i, "test.jaffle_shop.unique_customers_customer_id.c5").asset_path,
             None
+        );
+    }
+
+    // `/` is what separates the segments a `dbt://` key is read back by, and a
+    // quoted identifier may legally contain one — so two different relations
+    // would spell the same key and share a node, its lineage and its progress.
+    #[test]
+    fn a_relation_whose_identifier_carries_a_separator_gets_no_key() {
+        // The collision: `schema="a/b", name="c"` against `schema="a", name="b/c"`.
+        assert_eq!(table_asset_path("main", None, "a/b", "c", None), None);
+        assert_eq!(table_asset_path("main", None, "a", "b/c", None), None);
+        // A qualifying database is part of the same segment, so it counts too.
+        assert_eq!(
+            table_asset_path("main", Some("d/b"), "s", "t", Some("other")),
+            None
+        );
+        assert_eq!(
+            table_asset_path("main", None, "a", "c", None).as_deref(),
+            Some("main/a/c")
         );
     }
 
