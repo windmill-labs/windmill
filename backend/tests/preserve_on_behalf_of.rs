@@ -1391,6 +1391,93 @@ async fn test_app_update_preserves_on_behalf_of(db: Pool<Postgres>) -> anyhow::R
     Ok(())
 }
 
+/// A draft saved while the address was stored independently can name an account its principal
+/// no longer resolves to. The editor deploys the draft's policy verbatim, so reading it back
+/// has to derive the address too, or that draft can never be deployed again.
+#[sqlx::test(fixtures("preserve_on_behalf_of"))]
+async fn test_app_draft_policy_derives_on_behalf_of_email(db: Pool<Postgres>) -> anyhow::Result<()>
+{
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+    let path = "u/original-user/app_with_drifted_draft";
+
+    let resp = authed(client().post(format!("{base}/apps/create")), "SECRET_TOKEN")
+        .json(&new_app_with_on_behalf_of(
+            path,
+            Some("u/original-user"),
+            Some("original@windmill.dev"),
+            true,
+        ))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        201,
+        "Should create app: {}",
+        resp.text().await?
+    );
+
+    sqlx::query!(
+        "INSERT INTO draft (workspace_id, email, path, typ, value)
+         VALUES ($1, $2, $3, 'app', $4)",
+        "test-workspace",
+        "test@windmill.dev",
+        path,
+        json!({
+            "path": path,
+            "summary": "Drifted draft",
+            "value": { "type": "rawapp", "inline_script": null },
+            "policy": {
+                "execution_mode": "anonymous",
+                "triggerables": {},
+                "on_behalf_of": "u/original-user",
+                "on_behalf_of_email": "stale@windmill.dev"
+            }
+        })
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = authed(
+        client().get(format!("{base}/apps/get/p/{path}?get_draft=true")),
+        "SECRET_TOKEN",
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "Should get app with draft");
+    let body: serde_json::Value = resp.json().await?;
+    let draft_policy = &body["draft"]["policy"];
+    assert_eq!(
+        draft_policy.get("on_behalf_of_email").and_then(|v| v.as_str()),
+        Some("original@windmill.dev"),
+        "Draft policy address should be derived from its principal, not the stored one"
+    );
+
+    // Deploy the draft exactly as the editor received it.
+    let resp = authed(
+        client().post(format!("{base}/apps/update/{path}")),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({
+        "summary": "Drifted draft",
+        "policy": draft_policy,
+        "preserve_on_behalf_of": true
+    }))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "Deploying the draft back should not be rejected as a contradicting identity: {}",
+        resp.text().await?
+    );
+
+    Ok(())
+}
+
 /// Test schedule update preserves email/edited_by correctly
 #[sqlx::test(fixtures("preserve_on_behalf_of"))]
 async fn test_schedule_update_preserves_email(db: Pool<Postgres>) -> anyhow::Result<()> {
