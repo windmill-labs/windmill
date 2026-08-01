@@ -365,11 +365,17 @@ export async function handleFile(
 
     // Before anything is written: this path may also be a dbt project's, and
     // pushing here would deploy this file over it.
-    const collidingProject = await collidingDbtProject(
-      removeExtensionToPath(path)
-    );
-    if (collidingProject) {
-      throw dbtPathCollisionError(collidingProject, path);
+    //
+    // The descriptor is exempt because it IS that project's content file — its
+    // base resolves to the same `<base>__dbt/dbt_project.yml`, so the project
+    // would be found colliding with itself and every dbt push would fail.
+    if (!isDbtDescriptorPath(path)) {
+      const collidingProject = await collidingDbtProject(
+        removeExtensionToPath(path)
+      );
+      if (collidingProject) {
+        throw dbtPathCollisionError(collidingProject, path);
+      }
     }
 
     const language = inferContentTypeFromFilePath(path, opts?.defaultTs);

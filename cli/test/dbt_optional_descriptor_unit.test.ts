@@ -145,6 +145,49 @@ describe("a dbt project without a descriptor", () => {
     }
   });
 
+  // The guard above must not fire on the project's OWN descriptor: that file is
+  // the dbt script's content, and its base resolves to the same
+  // `<base>__dbt/dbt_project.yml` — so a naive check finds the project
+  // colliding with itself and every dbt push fails before deploying anything.
+  test("a project does not collide with itself", async () => {
+    const cwd = process.cwd();
+    process.chdir(dir);
+    const remote = { workspaceId: "w", remote: "http://127.0.0.1:1", name: "w", token: "t" };
+    const push = (p: string) =>
+      handleFile(p, remote as any, [], undefined, undefined, {}, []).then(
+        () => undefined,
+        (e) => e as Error,
+      );
+    try {
+      // Descriptor-less: the fixture's project, pushed through the module path.
+      const nodesc = await pushParentScriptForModule(
+        "f/analytics/analytics__dbt/models/stg_orders.sql",
+        remote as any,
+        [],
+        undefined,
+        undefined,
+        {},
+        [],
+      ).then(
+        () => undefined,
+        (e) => e as Error,
+      );
+      expect(nodesc).not.toBeInstanceOf(DbtPathCollisionError);
+
+      // Descriptor present, pushed directly. Both reach the network — which is
+      // unreachable here on purpose — so anything BUT the collision is a pass.
+      fs.writeFileSync(
+        path.join(dir, "f/analytics/analytics__dbt/wm_dbt.yaml"),
+        "profile: {}\n",
+      );
+      expect(await push("f/analytics/analytics__dbt/wm_dbt.yaml")).not.toBeInstanceOf(
+        DbtPathCollisionError,
+      );
+    } finally {
+      process.chdir(cwd);
+    }
+  });
+
   // The two sides spell "absent" differently — nothing on disk, nothing in the
   // export — so without one normalization a descriptor-less project reads as an
   // addition on every push and a deletion on every pull, forever.
