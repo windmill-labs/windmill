@@ -622,6 +622,13 @@
 		return ''
 	}
 
+	/// A spelling of the name the module already has. Nothing to do, so the button
+	/// that would submit it stays disabled rather than being a dead click.
+	function renameIsNoop(input: string, oldPath: string): boolean {
+		const canonical = canonicalModulePath(input)
+		return 'path' in canonical && canonical.path === oldPath
+	}
+
 	function renameModule(oldPath: string) {
 		if (!renameModuleInput.trim()) return
 		const canonical = canonicalModulePath(renameModuleInput)
@@ -2606,7 +2613,7 @@
 					close()
 				}}
 				disabled={!renameModuleInput.trim() ||
-					renameModuleInput.trim() === oldPath ||
+					renameIsNoop(renameModuleInput, oldPath) ||
 					!!renameModuleError}>Rename</Button
 			>
 		</div>

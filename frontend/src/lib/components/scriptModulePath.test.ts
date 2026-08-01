@@ -39,6 +39,12 @@ describe('findModulePathClash', () => {
 		expect(findModulePathClash(undefined, 'models/x.sql')).toBeUndefined()
 	})
 
+	// The worker does not trim path components, so an imported `x.sql ` is its
+	// own file and must not stand in the way of adding `x.sql`.
+	it('does not fold a key whose name carries whitespace', () => {
+		expect(findModulePathClash({ 'models/x.sql ': {} }, 'models/x.sql')).toBeUndefined()
+	})
+
 	// A rename must not stop at the module being renamed: with both spellings in
 	// the bundle, that would hide the other one and overwrite its content.
 	it('keeps looking past the key being renamed', () => {
