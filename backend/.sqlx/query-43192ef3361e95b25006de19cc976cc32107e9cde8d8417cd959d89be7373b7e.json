@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO script (\n            workspace_id, hash, path, parent_hashes, summary, description, content,\n            created_by, created_at, archived, schema, deleted, is_template,\n            extra_perms, lock, lock_error_logs, language, kind, tag,\n            envs, concurrent_limit, concurrency_time_window_s, cache_ttl,\n            dedicated_worker, ws_error_handler_muted, priority, timeout,\n            delete_after_use, delete_after_secs, restart_unless_cancelled, concurrency_key,\n            visible_to_runner_only, auto_kind, codebase, has_preprocessor,\n            on_behalf_of_permissioned_as, assets, modules\n        )\n        SELECT\n            $1, hash, path, parent_hashes, summary, description, content,\n            created_by, created_at, archived, schema, deleted, is_template,\n            extra_perms, lock, lock_error_logs, language, kind, tag,\n            envs, concurrent_limit, concurrency_time_window_s, cache_ttl,\n            dedicated_worker, ws_error_handler_muted, priority, timeout,\n            delete_after_use, delete_after_secs, restart_unless_cancelled, concurrency_key,\n            visible_to_runner_only, auto_kind, codebase, has_preprocessor,\n            -- Same three forms and the same prefix-first rule as permissioned_as_exists,\n            -- superadmin fallback included: one acting outside their workspaces has no usr\n            -- row but still authenticates.\n            CASE WHEN on_behalf_of_permissioned_as LIKE 'u/%' THEN\n                    (SELECT on_behalf_of_permissioned_as WHERE EXISTS (\n                        SELECT 1 FROM usr u WHERE u.workspace_id = $1::varchar\n                          AND u.username = substring(on_behalf_of_permissioned_as from 3)\n                        UNION ALL\n                        SELECT 1 FROM password p WHERE p.super_admin\n                          AND (p.username = substring(on_behalf_of_permissioned_as from 3)\n                               OR p.email = substring(on_behalf_of_permissioned_as from 3))))\n                 WHEN on_behalf_of_permissioned_as LIKE 'g/%' THEN\n                    (SELECT on_behalf_of_permissioned_as WHERE EXISTS (\n                        SELECT 1 FROM group_ g WHERE g.workspace_id = $1::varchar\n                          AND g.name = substring(on_behalf_of_permissioned_as from 3)))\n                 ELSE\n                    (SELECT on_behalf_of_permissioned_as WHERE EXISTS (\n                        SELECT 1 FROM usr u WHERE u.workspace_id = $1::varchar\n                          AND u.username = on_behalf_of_permissioned_as\n                        UNION ALL\n                        SELECT 1 FROM password p WHERE p.email = on_behalf_of_permissioned_as\n                          AND p.super_admin))\n            END, assets, modules\n        FROM script\n        WHERE workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "43192ef3361e95b25006de19cc976cc32107e9cde8d8417cd959d89be7373b7e"
+}

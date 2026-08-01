@@ -210,6 +210,27 @@ async fn test_on_behalf_of_permissioned_as_drives_job_identity(
         "a real account must win over the like-named group"
     );
 
+    // An address is the principal only for an account whose username is that address; for
+    // anybody else it is canonicalized, since the bare form carries neither their groups nor
+    // their folders.
+    let resp = authed(
+        client().post(format!("{base}/scripts/create")),
+        "SECRET_TOKEN",
+    )
+    .json(&script_body(
+        "u/test-user/obo_bare_address",
+        Some("original@windmill.dev"),
+    ))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 201, "creating: {}", resp.text().await?);
+    assert_eq!(
+        stored_permissioned_as(&db, "script", "u/test-user/obo_bare_address")
+            .await?
+            .as_deref(),
+        Some("u/original-user")
+    );
+
     // A pair naming two different principals would run as a composite of both.
     let resp = authed(
         client().post(format!("{base}/scripts/create")),

@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO script (workspace_id, path, hash, content, summary, description, language, created_by, created_at, on_behalf_of_permissioned_as)\n         VALUES\n         ('test-workspace', 'u/test-user/obo_member', 91001, 'def main(): pass', '', '', 'python3', 'test-user', NOW(), 'u/test-user'),\n         ('test-workspace', 'u/test-user/obo_stranger', 91002, 'def main(): pass', '', '', 'python3', 'test-user', NOW(), 'u/test-user-2'),\n         ('test-workspace', 'u/test-user/obo_group', 91003, 'def main(): pass', '', '', 'python3', 'test-user', NOW(), 'g/all'),\n         ('test-workspace', 'u/test-user/obo_superadmin', 91004, 'def main(): pass', '', '', 'python3', 'test-user', NOW(), 'u/ext-sa')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "36218b9e5992229ee4ddaf39b199cb6986d74827578496e0536499e10793adbc"
+}

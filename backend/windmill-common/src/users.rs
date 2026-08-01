@@ -91,29 +91,17 @@ pub async fn resolve_username_to_email<'c>(
 /// `g/{group}`, and a bare address when the username is itself email-shaped. Anything else
 /// is malformed — `fetch_authed_from_permissioned_as` would take its least-privileged
 /// branch rather than fail, so callers reject instead of storing it.
+///
+/// Decided prefix first, like `fetch_authed_from_permissioned_as` and
+/// [`get_email_from_permissioned_as`]: a group name may contain `@` while a username never
+/// carries a `u/`/`g/` prefix, so a bare address is only ever what is left over. Validating
+/// by a different rule than dispatch reads by is what lets a stored identity run as someone
+/// else.
 pub async fn permissioned_as_exists(
     workspace_id: &str,
     permissioned_as: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
 ) -> crate::error::Result<bool> {
-    // `@` before the prefixes, matching `username_to_permissioned_as`, which never emits
-    // `u/x@y`: anything containing `@` is a bare address, so `g/alice@example.com` is a user.
-    if permissioned_as.contains('@') {
-        return Ok(sqlx::query_scalar!(
-            "SELECT EXISTS(
-                SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2
-                UNION ALL
-                SELECT 1 FROM password WHERE email = $2 AND super_admin
-                UNION ALL
-                SELECT 1 FROM usr WHERE workspace_id = $1 AND username = $2
-            )",
-            workspace_id,
-            permissioned_as
-        )
-        .fetch_one(db)
-        .await?
-        .unwrap_or(false));
-    }
     if let Some(username) = permissioned_as.strip_prefix(PERMISSIONED_AS_USER_PREFIX) {
         return Ok(resolve_username_to_email(workspace_id, username, db)
             .await?
@@ -129,7 +117,22 @@ pub async fn permissioned_as_exists(
         .await?
         .unwrap_or(false));
     }
-    Ok(false)
+    // The bare form is the account whose *username* is that address, not anyone who merely
+    // holds it: `u/{username}` is the canonical principal for everybody else, and the bare
+    // branch of `fetch_authed_from_permissioned_as` grants neither their groups nor their
+    // folders.
+    Ok(sqlx::query_scalar!(
+        "SELECT EXISTS(
+            SELECT 1 FROM usr WHERE workspace_id = $1 AND username = $2
+            UNION ALL
+            SELECT 1 FROM password WHERE email = $2 AND super_admin
+        )",
+        workspace_id,
+        permissioned_as
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false))
 }
 
 /// Drop a cached address so a transactional email change is visible immediately.

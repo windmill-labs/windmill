@@ -1964,14 +1964,13 @@ async fn change_user_email(
     .execute(&mut *tx)
     .await?;
 
-    // Apps still store an address next to their principal (script/flow no longer do), and the
-    // synthetic `group-{name}@windmill.dev` may be a real user's, so the guard stays here: a
-    // group-owned app keeps its address when a colliding user moves.
-    // An app running in Anonymous or
-    // Publisher mode takes its permissions from there rather than from the caller, so a stale
-    // address silently costs it its superadmin flag and its instance groups.
+    // Apps store an address next to their principal, and the synthetic
+    // `group-{name}@windmill.dev` may be a real user's, so a group-owned app has to keep its
+    // address when a colliding user moves: an app running in Anonymous or Publisher mode takes
+    // its permissions from that pair rather than from the caller, and a half-rewritten pair
+    // names two accounts. Drafts below carry the same pair and need the same guard.
     sqlx::query!(
-        "UPDATE app SET policy = jsonb_set(policy, ARRAY['on_behalf_of_email'], to_jsonb($1::text)) WHERE policy->>'on_behalf_of_email' = $2 AND (policy->>'on_behalf_of' IS NULL OR NOT (policy->>'on_behalf_of' LIKE 'g/%' AND policy->>'on_behalf_of' NOT LIKE '%@%'))",
+        "UPDATE app SET policy = jsonb_set(policy, ARRAY['on_behalf_of_email'], to_jsonb($1::text)) WHERE policy->>'on_behalf_of_email' = $2 AND (policy->>'on_behalf_of' IS NULL OR policy->>'on_behalf_of' NOT LIKE 'g/%')",
         &new_email,
         &old_email
     )
@@ -2007,11 +2006,12 @@ async fn change_user_email(
     .execute(&mut *tx)
     .await?;
 
-    // Script/flow rows no longer store an address, but drafts still carry one beside the
-    // principal and `deployDraft` sends both — left stale it contradicts the principal, which
-    // now resolves to the new address, and the deploy is rejected.
+    // Script/flow rows store only the principal, but drafts carry an address beside it and
+    // `deployDraft` sends both — left stale it contradicts the principal, which resolves to the
+    // new address, and the deploy is rejected. Group-owned drafts are held back for the reason
+    // given above the app sweep.
     sqlx::query!(
-        r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of_email'], to_jsonb($1::text))) WHERE typ IN ('script', 'flow') AND value->>'on_behalf_of_email' = $2"#,
+        r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of_email'], to_jsonb($1::text))) WHERE typ IN ('script', 'flow') AND value->>'on_behalf_of_email' = $2 AND (value->>'on_behalf_of_permissioned_as' IS NULL OR value->>'on_behalf_of_permissioned_as' NOT LIKE 'g/%')"#,
         &new_email,
         &old_email
     )

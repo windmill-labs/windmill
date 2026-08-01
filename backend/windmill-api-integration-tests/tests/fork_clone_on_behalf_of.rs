@@ -15,12 +15,22 @@ async fn test_fork_keeps_only_resolvable_on_behalf_of(db: Pool<Postgres>) -> any
     let port = server.addr.port();
     let base_url = format!("http://localhost:{port}/api");
 
+    // A superadmin with no `usr` row anywhere: they authenticate from `password` alone, so
+    // their principal resolves in the fork as much as it did in the parent.
+    sqlx::query!(
+        "INSERT INTO password(email, password_hash, login_type, super_admin, verified, name, username)
+         VALUES ('sa@windmill.dev', 'not-a-real-hash', 'password', true, true, 'Ext', 'ext-sa')"
+    )
+    .execute(&db)
+    .await?;
+
     sqlx::query!(
         "INSERT INTO script (workspace_id, path, hash, content, summary, description, language, created_by, created_at, on_behalf_of_permissioned_as)
          VALUES
          ('test-workspace', 'u/test-user/obo_member', 91001, 'def main(): pass', '', '', 'python3', 'test-user', NOW(), 'u/test-user'),
          ('test-workspace', 'u/test-user/obo_stranger', 91002, 'def main(): pass', '', '', 'python3', 'test-user', NOW(), 'u/test-user-2'),
-         ('test-workspace', 'u/test-user/obo_group', 91003, 'def main(): pass', '', '', 'python3', 'test-user', NOW(), 'g/all')"
+         ('test-workspace', 'u/test-user/obo_group', 91003, 'def main(): pass', '', '', 'python3', 'test-user', NOW(), 'g/all'),
+         ('test-workspace', 'u/test-user/obo_superadmin', 91004, 'def main(): pass', '', '', 'python3', 'test-user', NOW(), 'u/ext-sa')"
     )
     .execute(&db)
     .await?;
@@ -68,6 +78,10 @@ async fn test_fork_keeps_only_resolvable_on_behalf_of(db: Pool<Postgres>) -> any
     );
     // Groups are cloned wholesale, so a group principal resolves too.
     assert_eq!(identity("u/test-user/obo_group").as_deref(), Some("g/all"));
+    assert_eq!(
+        identity("u/test-user/obo_superadmin").as_deref(),
+        Some("u/ext-sa")
+    );
     // `test-user-2` is not carried into the fork, so nothing there can run as them.
     assert_eq!(identity("u/test-user/obo_stranger"), None);
     assert_eq!(

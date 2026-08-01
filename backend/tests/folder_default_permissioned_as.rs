@@ -517,8 +517,8 @@ async fn test_folder_default_permissioned_as(db: Pool<Postgres>) -> anyhow::Resu
     .await?;
     assert_eq!(
         flow.on_behalf_of_permissioned_as.as_deref(),
-        Some("original@windmill.dev"),
-        "a rule naming a raw address stores it verbatim, as username_to_permissioned_as does"
+        Some("u/original-user"),
+        "a rule naming an address stores the principal it names, which is what carries that          user's groups and folders"
     );
 
     // 5c. Non-matching flow path — no default

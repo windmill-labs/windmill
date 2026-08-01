@@ -683,13 +683,22 @@ async fn test_change_user_email_leaves_group_identities(db: Pool<Postgres>) -> a
     .execute(&db)
     .await?;
 
-    // script/flow store only the principal now, and an email change does not move a username,
-    // so their identities are untouched by definition. What must still hold is the app policy,
-    // which does keep an address beside its principal.
+    // Script/flow rows hold only the principal, which an email change never moves. The pairs
+    // that do have to survive it are the app policy and the script/flow draft, and in both a
+    // group-owned identity keeps the group's synthetic address even though a real account now
+    // holds it — rewriting one half leaves the pair naming two accounts.
     sqlx::query!(
         "INSERT INTO app(workspace_id, path, summary, policy, versions)
          VALUES ('test-workspace', 'u/test-user/g', '', '{\"on_behalf_of\": \"g/ops\", \"on_behalf_of_email\": \"group-ops@windmill.dev\"}'::jsonb, '{}'),
                 ('test-workspace', 'u/test-user/u', '', '{\"on_behalf_of\": \"u/test-user-2\", \"on_behalf_of_email\": \"group-ops@windmill.dev\"}'::jsonb, '{}')"
+    )
+    .execute(&db)
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO draft(workspace_id, path, typ, value, email)
+         VALUES ('test-workspace', 'u/test-user/dg', 'script', '{\"on_behalf_of_permissioned_as\": \"g/ops\", \"on_behalf_of_email\": \"group-ops@windmill.dev\"}'::json, 'test@windmill.dev'),
+                ('test-workspace', 'u/test-user/du', 'script', '{\"on_behalf_of_permissioned_as\": \"u/test-user-2\", \"on_behalf_of_email\": \"group-ops@windmill.dev\"}'::json, 'test@windmill.dev')"
     )
     .execute(&db)
     .await?;
@@ -714,6 +723,31 @@ async fn test_change_user_email_leaves_group_identities(db: Pool<Postgres>) -> a
             ("u/test-user/u", Some("renamed@windmill.dev")),
         ],
         "the group-owned app keeps the group's address; the user-owned one moves"
+    );
+
+    let drafts = sqlx::query!(
+        "SELECT path, value->>'on_behalf_of_email' AS email, value->>'on_behalf_of_permissioned_as' AS principal FROM draft WHERE workspace_id = 'test-workspace' ORDER BY path"
+    )
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        drafts
+            .iter()
+            .map(|r| (r.path.as_str(), r.principal.as_deref(), r.email.as_deref()))
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                "u/test-user/dg",
+                Some("g/ops"),
+                Some("group-ops@windmill.dev")
+            ),
+            (
+                "u/test-user/du",
+                Some("u/test-user-2"),
+                Some("renamed@windmill.dev")
+            ),
+        ],
+        "a draft's pair moves as a whole or not at all — either half left behind is a 400 on deploy"
     );
 
     Ok(())

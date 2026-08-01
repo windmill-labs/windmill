@@ -5796,9 +5796,9 @@ async fn clone_variables(
 
 /// A principal is workspace-scoped — `usr` is keyed by `(workspace_id, username)` — and a
 /// clone lands in a workspace with its own membership, so it is kept only when it still
-/// names somebody there (the fork copies usernames and groups verbatim, so a member's
-/// principal survives). Dropping one that names nobody is the only safe alternative: it
-/// could not authenticate, and the runnable falls back to running as its caller.
+/// resolves there (the fork copies usernames and groups verbatim, and an instance superadmin
+/// resolves anywhere). Dropping one that names nobody is the only safe alternative: it could
+/// not authenticate, and the runnable falls back to running as its caller.
 async fn clone_scripts(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
@@ -5824,20 +5824,28 @@ async fn clone_scripts(
             dedicated_worker, ws_error_handler_muted, priority, timeout,
             delete_after_use, delete_after_secs, restart_unless_cancelled, concurrency_key,
             visible_to_runner_only, auto_kind, codebase, has_preprocessor,
-            -- Same three forms as permissioned_as_exists, '@' first: an email-shaped
-            -- username is stored bare, so it is a user and not a group.
-            CASE WHEN on_behalf_of_permissioned_as LIKE '%@%' THEN
+            -- Same three forms and the same prefix-first rule as permissioned_as_exists,
+            -- superadmin fallback included: one acting outside their workspaces has no usr
+            -- row but still authenticates.
+            CASE WHEN on_behalf_of_permissioned_as LIKE 'u/%' THEN
                     (SELECT on_behalf_of_permissioned_as WHERE EXISTS (
                         SELECT 1 FROM usr u WHERE u.workspace_id = $1::varchar
-                          AND (u.username = on_behalf_of_permissioned_as OR u.email = on_behalf_of_permissioned_as)))
-                 WHEN on_behalf_of_permissioned_as LIKE 'u/%' THEN
-                    (SELECT on_behalf_of_permissioned_as WHERE EXISTS (
-                        SELECT 1 FROM usr u WHERE u.workspace_id = $1::varchar
-                          AND u.username = substring(on_behalf_of_permissioned_as from 3)))
+                          AND u.username = substring(on_behalf_of_permissioned_as from 3)
+                        UNION ALL
+                        SELECT 1 FROM password p WHERE p.super_admin
+                          AND (p.username = substring(on_behalf_of_permissioned_as from 3)
+                               OR p.email = substring(on_behalf_of_permissioned_as from 3))))
                  WHEN on_behalf_of_permissioned_as LIKE 'g/%' THEN
                     (SELECT on_behalf_of_permissioned_as WHERE EXISTS (
                         SELECT 1 FROM group_ g WHERE g.workspace_id = $1::varchar
                           AND g.name = substring(on_behalf_of_permissioned_as from 3)))
+                 ELSE
+                    (SELECT on_behalf_of_permissioned_as WHERE EXISTS (
+                        SELECT 1 FROM usr u WHERE u.workspace_id = $1::varchar
+                          AND u.username = on_behalf_of_permissioned_as
+                        UNION ALL
+                        SELECT 1 FROM password p WHERE p.email = on_behalf_of_permissioned_as
+                          AND p.super_admin))
             END, assets, modules
         FROM script
         WHERE workspace_id = $2"#,
@@ -5966,19 +5974,28 @@ async fn clone_flows(
         SELECT $2, path, summary, description, value, edited_by, edited_at,
                archived, schema, extra_perms, NULL, tag,
                ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only,
-               concurrency_key, ARRAY[]::bigint[], CASE WHEN on_behalf_of_permissioned_as LIKE '%@%' THEN
-                    (SELECT on_behalf_of_permissioned_as WHERE EXISTS (
-                        SELECT 1 FROM usr u WHERE u.workspace_id = $2::varchar
-                          AND (u.username = on_behalf_of_permissioned_as OR u.email = on_behalf_of_permissioned_as)))
-                 WHEN on_behalf_of_permissioned_as LIKE 'u/%' THEN
-                    (SELECT on_behalf_of_permissioned_as WHERE EXISTS (
-                        SELECT 1 FROM usr u WHERE u.workspace_id = $2::varchar
-                          AND u.username = substring(on_behalf_of_permissioned_as from 3)))
-                 WHEN on_behalf_of_permissioned_as LIKE 'g/%' THEN
-                    (SELECT on_behalf_of_permissioned_as WHERE EXISTS (
-                        SELECT 1 FROM group_ g WHERE g.workspace_id = $2::varchar
-                          AND g.name = substring(on_behalf_of_permissioned_as from 3)))
-            END, lock_error_logs
+               concurrency_key, ARRAY[]::bigint[],
+               -- Same predicate as clone_scripts.
+               CASE WHEN on_behalf_of_permissioned_as LIKE 'u/%' THEN
+                       (SELECT on_behalf_of_permissioned_as WHERE EXISTS (
+                           SELECT 1 FROM usr u WHERE u.workspace_id = $2::varchar
+                             AND u.username = substring(on_behalf_of_permissioned_as from 3)
+                           UNION ALL
+                           SELECT 1 FROM password p WHERE p.super_admin
+                             AND (p.username = substring(on_behalf_of_permissioned_as from 3)
+                                  OR p.email = substring(on_behalf_of_permissioned_as from 3))))
+                    WHEN on_behalf_of_permissioned_as LIKE 'g/%' THEN
+                       (SELECT on_behalf_of_permissioned_as WHERE EXISTS (
+                           SELECT 1 FROM group_ g WHERE g.workspace_id = $2::varchar
+                             AND g.name = substring(on_behalf_of_permissioned_as from 3)))
+                    ELSE
+                       (SELECT on_behalf_of_permissioned_as WHERE EXISTS (
+                           SELECT 1 FROM usr u WHERE u.workspace_id = $2::varchar
+                             AND u.username = on_behalf_of_permissioned_as
+                           UNION ALL
+                           SELECT 1 FROM password p WHERE p.email = on_behalf_of_permissioned_as
+                             AND p.super_admin))
+               END, lock_error_logs
         FROM flow
         WHERE workspace_id = $1",
         source_workspace_id,
@@ -6338,10 +6355,10 @@ async fn clone_drafts(
     target_workspace_id: &str,
     authed_email: &str,
 ) -> Result<()> {
-    // Same workspace-scoping rule as `clone_scripts`: a script/flow draft carries the
-    // principal in its value, and deploying it in the clone would send a pair naming
-    // somebody who is not a member there. Stripping it lets the deploy derive the
-    // clone's own principal from the email the draft still carries.
+    // A script/flow draft carries the principal in its value, and deploying it in the clone
+    // would send a pair naming somebody who is not a member there. Stripped rather than
+    // filtered like `clone_scripts`: the address the draft still carries re-derives the
+    // clone's own principal at deploy time, which is the more accurate answer of the two.
     sqlx::query!(
         "INSERT INTO draft (workspace_id, path, typ, value, created_at, email)
          SELECT $2, path, typ,

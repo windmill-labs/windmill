@@ -201,8 +201,8 @@ pub fn check_on_behalf_of_preservation(
 /// nobody is rejected rather than recorded, since it could only produce a runnable that
 /// cannot authenticate.
 ///
-/// Returns `(None, None)` when the runnable has no on-behalf-of identity, and the caller's
-/// own identity when they are not allowed to preserve someone else's.
+/// Returns `None` when the runnable has no on-behalf-of identity, and the caller's own
+/// identity when they are not allowed to preserve someone else's.
 pub async fn resolve_on_behalf_of(
     on_behalf_of_email: Option<&str>,
     on_behalf_of_permissioned_as: Option<&str>,
@@ -233,17 +233,35 @@ pub async fn resolve_on_behalf_of(
                     )));
                 }
             }
-            // Symmetric with the address branch below: an identity that names nobody would
-            // only produce a runnable that cannot authenticate, and a bare or unprefixed
-            // value takes the least-privileged branch of `fetch_authed_from_permissioned_as`
-            // rather than failing, so it has to be rejected here.
-            if !users::permissioned_as_exists(w_id, permissioned_as, db).await? {
-                return Err(Error::BadRequest(format!(
-                    "on_behalf_of_permissioned_as '{permissioned_as}' names no user or group in \
-                     this workspace."
-                )));
+            // A bare address is canonical only for an account whose username is that address,
+            // or for a superadmin acting outside their workspaces. Sent for an ordinary member
+            // — which is what a folder rule naming an address produces — it is canonicalized to
+            // `u/{username}`: the bare branch of `fetch_authed_from_permissioned_as` grants
+            // neither their groups nor their folders, so storing it verbatim would run the job
+            // with less access than the account it names.
+            let canonical = if permissioned_as.starts_with(users::PERMISSIONED_AS_USER_PREFIX)
+                || permissioned_as.starts_with(users::PERMISSIONED_AS_GROUP_PREFIX)
+            {
+                None
+            } else {
+                users::permissioned_as_from_email(w_id, permissioned_as, db).await?
+            };
+            match canonical {
+                Some(canonical) => canonical,
+                None => {
+                    // Symmetric with the address branch below: an identity that names nobody
+                    // would only produce a runnable that cannot authenticate, and an unknown
+                    // prefix takes the least-privileged branch of
+                    // `fetch_authed_from_permissioned_as` rather than failing.
+                    if !users::permissioned_as_exists(w_id, permissioned_as, db).await? {
+                        return Err(Error::BadRequest(format!(
+                            "on_behalf_of_permissioned_as '{permissioned_as}' names no user or \
+                             group in this workspace."
+                        )));
+                    }
+                    permissioned_as.to_string()
+                }
             }
-            permissioned_as.to_string()
         }
         None => {
             let email = on_behalf_of_email.unwrap_or_default();
