@@ -979,10 +979,10 @@ async fn get_dbt_resumable_for_script(
     Ok(Json(Some(job_id)))
 }
 
-/// The identity a run of this script submitted by this caller would execute as,
-/// which is the key `dbt_run_state` is saved under — the author for an
-/// `on_behalf_of` script and the caller otherwise, the same choice
-/// `run_script_by_path` makes. `None` when the caller cannot see the script.
+/// The identity a run of this script submitted by this caller would execute as, which is the key
+/// `dbt_run_state` is saved under — the recorded `on_behalf_of` when the script has one and the
+/// caller otherwise, the same choice `run_script_by_path` makes. `None` when the caller cannot
+/// see the script.
 async fn dbt_retry_principal(
     user_db: &UserDB,
     authed: &ApiAuthed,
@@ -1002,8 +1002,6 @@ async fn dbt_retry_principal(
     .fetch_optional(&mut *tx)
     .await?;
     tx.commit().await?;
-    // Same rule the push applies, so this keys on what the run was actually stamped with: the
-    // recorded identity, or the caller when the script has none.
     Ok(script.map(|s| {
         s.on_behalf_of
             .unwrap_or_else(|| username_to_permissioned_as(&authed.username))

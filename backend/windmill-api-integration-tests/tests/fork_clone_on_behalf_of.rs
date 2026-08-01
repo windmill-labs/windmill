@@ -30,7 +30,8 @@ async fn test_fork_keeps_only_resolvable_on_behalf_of(db: Pool<Postgres>) -> any
          ('test-workspace', 'u/test-user/obo_member', 91001, 'def main(): pass', '', '', 'python3', 'test-user', NOW(), 'u/test-user', 'test@windmill.dev'),
          ('test-workspace', 'u/test-user/obo_stranger', 91002, 'def main(): pass', '', '', 'python3', 'test-user', NOW(), 'u/test-user-2', 'test2@windmill.dev'),
          ('test-workspace', 'u/test-user/obo_group', 91003, 'def main(): pass', '', '', 'python3', 'test-user', NOW(), 'g/all', 'group-all@windmill.dev'),
-         ('test-workspace', 'u/test-user/obo_superadmin', 91004, 'def main(): pass', '', '', 'python3', 'test-user', NOW(), 'u/ext-sa', 'sa@windmill.dev')"
+         ('test-workspace', 'u/test-user/obo_superadmin', 91004, 'def main(): pass', '', '', 'python3', 'test-user', NOW(), 'u/ext-sa', 'sa@windmill.dev'),
+         ('test-workspace', 'u/test-user/obo_address_only', 91005, 'def main(): pass', '', '', 'python3', 'test-user', NOW(), NULL, 'test2@windmill.dev')"
     )
     .execute(&db)
     .await?;
@@ -85,9 +86,23 @@ async fn test_fork_keeps_only_resolvable_on_behalf_of(db: Pool<Postgres>) -> any
     // `test-user-2` is not carried into the fork, so nothing there can run as them — and the
     // address has to go with the principal, or a worker that reads only the address still would.
     assert_eq!(identity("u/test-user/obo_stranger"), None);
+    // A row a server predating this release wrote carries the address alone; the clone must not
+    // mistake it for one it orphaned, because that address is all a later re-derivation has.
+    assert_eq!(
+        cloned
+            .iter()
+            .find(|r| r.path == "u/test-user/obo_address_only")
+            .and_then(|r| r.on_behalf_of_email.as_deref()),
+        Some("test2@windmill.dev"),
+    );
+
     let orphaned = cloned
         .iter()
-        .filter(|r| r.on_behalf_of.is_none() && r.on_behalf_of_email.is_some())
+        .filter(|r| {
+            r.on_behalf_of.is_none()
+                && r.on_behalf_of_email.is_some()
+                && r.path != "u/test-user/obo_address_only"
+        })
         .count();
     assert_eq!(orphaned, 0, "a dropped principal leaves no address behind");
     assert_eq!(

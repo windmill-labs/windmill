@@ -878,8 +878,9 @@ async fn get_latest_version(
     Ok(Json(version))
 }
 
-/// `on_behalf_of_email` is derived rather than stored: the read paths fill it from the
-/// principal so clients written against the address keep working.
+/// `on_behalf_of_email` is derived rather than selected: the read paths fill it from the
+/// principal so clients written against the address keep working. The column itself still
+/// exists for the workers that read it — see `legacy_on_behalf_of_email`.
 async fn derived_on_behalf_of_email(
     db: &DB,
     w_id: &str,

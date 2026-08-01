@@ -585,12 +585,13 @@ async fn update_username_in_workpsace<'c>(
     .await?;
 
     // A draft carries the principal in its value, so a rename must reach it there too —
-    // deploying a draft that still names `u/{old}` would be rejected as a pair naming
-    // somebody who no longer exists.
+    // deploying a draft that still names the old principal would be rejected as a pair naming
+    // somebody who no longer exists. Through the same canonical form as the columns above: a
+    // legacy `group-ops` username is named `g/ops`, which `'u/' || …` would never match.
     sqlx::query!(
-        r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of'], to_jsonb('u/' || $1))) WHERE value->>'on_behalf_of' = ('u/' || $2) AND workspace_id = $3"#,
-        new_username,
-        old_username,
+        r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of'], to_jsonb($1::text))) WHERE value->>'on_behalf_of' = $2 AND workspace_id = $3"#,
+        &new_principal,
+        &old_principal,
         w_id
     ).execute(&mut **tx)
     .await?;
