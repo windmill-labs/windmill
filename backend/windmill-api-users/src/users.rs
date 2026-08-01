@@ -2004,10 +2004,30 @@ async fn change_user_email(
     .execute(&mut *tx)
     .await?;
 
+    // The address these two keep beside the principal is what a worker predating
+    // MIN_VERSION_SUPPORTS_ON_BEHALF_OF_PRINCIPAL reads, so it follows the account for as long
+    // as one may be live. Group-owned rows are held back for the reason given above the app
+    // sweep: their address is the group's, which a colliding user does not take with them.
+    sqlx::query!(
+        "UPDATE script SET on_behalf_of_email = $1 WHERE on_behalf_of_email = $2 AND (on_behalf_of IS NULL OR on_behalf_of NOT LIKE 'g/%')",
+        &new_email,
+        &old_email
+    )
+    .execute(&mut *tx)
+    .await?;
+
     sqlx::query!(
         "UPDATE flow SET on_behalf_of = $1 WHERE on_behalf_of = $2",
         &new_principal,
         &old_principal
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE flow SET on_behalf_of_email = $1 WHERE on_behalf_of_email = $2 AND (on_behalf_of IS NULL OR on_behalf_of NOT LIKE 'g/%')",
+        &new_email,
+        &old_email
     )
     .execute(&mut *tx)
     .await?;

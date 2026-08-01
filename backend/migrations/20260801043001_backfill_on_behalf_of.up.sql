@@ -8,6 +8,12 @@
 -- through `get_script_info_for_hash` / `get_latest_hash_for_path`, which select that column, and
 -- workers are expected to lag the server. Deploys keep writing it until every live worker is new
 -- (MIN_VERSION_SUPPORTS_ON_BEHALF_OF_PRINCIPAL); a later release stops writing it and drops it.
+--
+-- That later migration MUST re-run this backfill before dropping: server pods are mixed for the
+-- minute or two a rollout takes, and one still on the previous release writes only the address —
+-- leaving a runnable deployed in that window with no principal, which reads as no identity at
+-- all and runs it as its caller. Re-deriving picks those up; dropping without it makes them
+-- permanent.
 
 -- Mirrors `users::permissioned_as_from_email`: a real account wins over the synthetic group
 -- namespace, which is not reserved and may be a user's own address.

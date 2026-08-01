@@ -806,8 +806,9 @@ async fn offboard_user_from_workspace<'c>(
     let new_prefix = reassign_to.to_string();
     let departing = windmill_common::users::username_to_permissioned_as(username);
 
-    // The app policy still stores an address beside its principal, so the replacement's is
-    // resolved here. resolve_new_permissioned_as already validated the user exists.
+    // The app policy stores an address beside its principal, and script/flow keep one for the
+    // workers that still read it, so the replacement's is resolved here.
+    // resolve_new_permissioned_as already validated the user exists.
     let new_on_behalf_of_user_username = new_permissioned_as
         .strip_prefix("u/")
         .unwrap_or(new_permissioned_as);
@@ -841,10 +842,11 @@ async fn offboard_user_from_workspace<'c>(
     .unwrap_or(0);
 
     sqlx::query!(
-        "UPDATE script SET on_behalf_of = $1 WHERE on_behalf_of = $2 AND workspace_id = $3",
+        "UPDATE script SET on_behalf_of = $1, on_behalf_of_email = $4 WHERE on_behalf_of = $2 AND workspace_id = $3",
         new_permissioned_as,
         &departing,
-        w_id
+        w_id,
+        new_on_behalf_of_user_email
     )
     .execute(&mut **tx)
     .await?;
@@ -853,8 +855,8 @@ async fn offboard_user_from_workspace<'c>(
     let flows_reassigned = sqlx::query_scalar!(
         r#"WITH inserted AS (
             INSERT INTO flow
-                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, concurrency_key, versions, value, schema, edited_by, edited_at, labels, lock_error_logs)
-            SELECT workspace_id, REGEXP_REPLACE(path, 'u/' || $2 || '/(.*)', $1 || '/\1'), summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, concurrency_key, versions, value, schema, edited_by, edited_at, labels, lock_error_logs
+                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels, lock_error_logs)
+            SELECT workspace_id, REGEXP_REPLACE(path, 'u/' || $2 || '/(.*)', $1 || '/\1'), summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels, lock_error_logs
                 FROM flow
                 WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3
             RETURNING 1
@@ -881,10 +883,11 @@ async fn offboard_user_from_workspace<'c>(
     .await?;
 
     sqlx::query!(
-        "UPDATE flow SET on_behalf_of = $1 WHERE on_behalf_of = $2 AND workspace_id = $3",
+        "UPDATE flow SET on_behalf_of = $1, on_behalf_of_email = $4 WHERE on_behalf_of = $2 AND workspace_id = $3",
         new_permissioned_as,
         &departing,
-        w_id
+        w_id,
+        new_on_behalf_of_user_email
     )
     .execute(&mut **tx)
     .await?;

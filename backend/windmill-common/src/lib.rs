@@ -1625,8 +1625,7 @@ impl<SR> ScriptHashInfo<SR> {
         w_id: &str,
         db: &DB,
     ) -> error::Result<Option<jobs::OnBehalfOf>> {
-        on_behalf_of_from_permissioned_as(self.on_behalf_of.as_deref(), w_id, db)
-            .await
+        on_behalf_of_from_permissioned_as(self.on_behalf_of.as_deref(), w_id, db).await
     }
 }
 
@@ -1636,6 +1635,9 @@ impl<SR> ScriptHashInfo<SR> {
 /// and nothing else, so a deploy has to keep filling it while one may still be live — otherwise
 /// a runnable deployed mid-upgrade runs as its deployer there. Once every worker is new the
 /// column is dead weight and a later release drops it.
+///
+/// Reads through the non-RLS pool and authorizes nothing: callers must already be authorized
+/// for `w_id`.
 pub async fn legacy_on_behalf_of_email(
     permissioned_as: Option<&str>,
     w_id: &str,
@@ -1952,8 +1954,7 @@ impl FlowVersionInfo {
         w_id: &str,
         db: &DB,
     ) -> error::Result<Option<jobs::OnBehalfOf>> {
-        on_behalf_of_from_permissioned_as(self.on_behalf_of.as_deref(), w_id, db)
-            .await
+        on_behalf_of_from_permissioned_as(self.on_behalf_of.as_deref(), w_id, db).await
     }
 }
 
@@ -2233,12 +2234,8 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
 
     let script = utils::not_found_if_none(r_o, "script", script_path)?;
 
-    let on_behalf_of = on_behalf_of_from_permissioned_as(
-        script.on_behalf_of.as_deref(),
-        w_id,
-        db2,
-    )
-    .await?;
+    let on_behalf_of =
+        on_behalf_of_from_permissioned_as(script.on_behalf_of.as_deref(), w_id, db2).await?;
 
     Ok((
         scripts::ScriptHash(script.hash),

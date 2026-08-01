@@ -383,8 +383,8 @@ pub struct Script<SR> {
     pub codebase: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub has_preprocessor: Option<bool>,
-    /// Derived from `on_behalf_of` on the read paths, not a column. Kept in
-    /// the response so clients written against the old shape keep working.
+    /// Derived from `on_behalf_of` on the read paths, not selected. Kept in the response so
+    /// clients written against the old shape keep working.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub on_behalf_of_email: Option<String>,
