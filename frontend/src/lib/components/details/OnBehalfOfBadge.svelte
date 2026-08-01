@@ -6,30 +6,29 @@
 	interface Props {
 		/** Authorization identity the runnable runs as: `u/{username}`, `g/{group}`, or a bare email. */
 		onBehalfOf: string | undefined
-		/** Address of the account `onBehalfOf` names, derived from it server-side. */
+		/** Address of the account `onBehalfOf` names, derived from it on the read paths. */
 		onBehalfOfEmail: string | undefined
 		kind: 'script' | 'flow'
 	}
 
 	let { onBehalfOf, onBehalfOfEmail, kind }: Props = $props()
 
-	// Rows written before the identity half existed carry only the address, so fall back
-	// to it rather than showing nothing for a runnable that does run on behalf of someone.
-	let identity = $derived(onBehalfOf ?? onBehalfOfEmail)
+	// The address is a display detail; it is only ever present alongside the identity, and
+	// it repeats it when the identity is itself an email.
 	let detailed = $derived(
-		onBehalfOfEmail != undefined && onBehalfOfEmail !== identity
-			? `${identity} (${onBehalfOfEmail})`
-			: identity
+		onBehalfOfEmail != undefined && onBehalfOfEmail !== onBehalfOf
+			? `${onBehalfOf} (${onBehalfOfEmail})`
+			: onBehalfOf
 	)
 </script>
 
-{#if identity}
+{#if onBehalfOf}
 	<Tooltip>
 		{#snippet text()}
 			Every run of this {kind} is permissioned as {detailed}, whoever starts it.
 		{/snippet}
 		<Badge color="violet" icon={{ icon: UserCog, position: 'left' }}>
-			<span class="truncate max-w-40">On behalf of {identity}</span>
+			<span class="truncate max-w-40">On behalf of {onBehalfOf}</span>
 		</Badge>
 	</Tooltip>
 {/if}
