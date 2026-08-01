@@ -26,13 +26,19 @@ RETURNS VARCHAR AS $$
     );
 $$ LANGUAGE SQL STABLE;
 
+-- A principal wider than `v2_job.permissioned_as` could not be enqueued, so it is not recorded
+-- at all — the runnable falls back to running as its caller until someone picks an identity the
+-- deploy path accepts. Only an address-derived principal can reach that width; a username is
+-- capped at 50.
 UPDATE script SET on_behalf_of_permissioned_as =
     pg_temp.permissioned_as_from_email(workspace_id, on_behalf_of_email)
- WHERE on_behalf_of_email IS NOT NULL AND on_behalf_of_permissioned_as IS NULL;
+ WHERE on_behalf_of_email IS NOT NULL AND on_behalf_of_permissioned_as IS NULL
+   AND length(pg_temp.permissioned_as_from_email(workspace_id, on_behalf_of_email)) <= 55;
 
 UPDATE flow SET on_behalf_of_permissioned_as =
     pg_temp.permissioned_as_from_email(workspace_id, on_behalf_of_email)
- WHERE on_behalf_of_email IS NOT NULL AND on_behalf_of_permissioned_as IS NULL;
+ WHERE on_behalf_of_email IS NOT NULL AND on_behalf_of_permissioned_as IS NULL
+   AND length(pg_temp.permissioned_as_from_email(workspace_id, on_behalf_of_email)) <= 55;
 
 -- Drafts carry the same pair in their value.
 UPDATE draft SET value = to_json(jsonb_set(
@@ -42,7 +48,7 @@ UPDATE draft SET value = to_json(jsonb_set(
  WHERE typ IN ('script', 'flow')
    AND value->>'on_behalf_of_email' IS NOT NULL
    AND value->>'on_behalf_of_permissioned_as' IS NULL
-   AND pg_temp.permissioned_as_from_email(workspace_id, value->>'on_behalf_of_email') IS NOT NULL;
+   AND length(pg_temp.permissioned_as_from_email(workspace_id, value->>'on_behalf_of_email')) <= 55;
 
 ALTER TABLE script DROP COLUMN IF EXISTS on_behalf_of_email;
 ALTER TABLE flow DROP COLUMN IF EXISTS on_behalf_of_email;

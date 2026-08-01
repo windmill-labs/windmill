@@ -224,10 +224,10 @@ pub async fn get_email_from_permissioned_as<'c>(
     get_email_from_permissioned_as_inner(permissioned_as, workspace_id, db, true).await
 }
 
-/// [`get_email_from_permissioned_as`] without the address cache. Nothing evicts that
-/// cache, so for a minute after an email change it still serves the old address — fine
-/// where the address only labels a job, wrong where it decides whether a write is
-/// accepted.
+/// [`get_email_from_permissioned_as`] without the address cache. Nothing evicts that cache
+/// across processes, so for a minute after an email change it still serves the old address —
+/// fine where the address only labels something on screen, wrong where it decides whether a
+/// write is accepted or is copied onto a job row that outlives the window.
 pub async fn get_email_from_permissioned_as_uncached<'c>(
     permissioned_as: &str,
     workspace_id: &str,

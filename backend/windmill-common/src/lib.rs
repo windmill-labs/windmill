@@ -279,7 +279,7 @@ pub async fn resolve_on_behalf_of(
     // Every principal ends up on `v2_job.permissioned_as`, which is narrower than the columns
     // it is stored in — an identity that cannot be enqueued is rejected here rather than at the
     // first run of a runnable that looks fine.
-    if permissioned_as.len() > users::PERMISSIONED_AS_MAX_LEN {
+    if permissioned_as.chars().count() > users::PERMISSIONED_AS_MAX_LEN {
         return Err(Error::BadRequest(format!(
             "the identity '{permissioned_as}' is longer than the {} characters a job can carry",
             users::PERMISSIONED_AS_MAX_LEN
