@@ -179,6 +179,45 @@ async fn test_on_behalf_of_permissioned_as_drives_job_identity(
         Some("u/superadmin-external")
     );
 
+    // The synthetic group namespace is not reserved, so a real account holding such an
+    // address must win over the like-named group — otherwise an email-only deploy would
+    // hand the runnable that group's folder access.
+    sqlx::query!(
+        "INSERT INTO group_ (workspace_id, name, summary, extra_perms) \
+         VALUES ('test-workspace', 'ops', '', '{}') ON CONFLICT DO NOTHING"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "UPDATE usr SET email = 'group-ops@windmill.dev' WHERE workspace_id = 'test-workspace' \
+         AND username = 'test-user-2'"
+    )
+    .execute(&db)
+    .await?;
+    let resp = authed(
+        client().post(format!("{base}/scripts/create")),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({
+        "path": "u/test-user/obo_group_collision",
+        "summary": "",
+        "description": "",
+        "content": "export async function main() { return 42; }",
+        "language": "deno",
+        "on_behalf_of_email": "group-ops@windmill.dev",
+        "preserve_on_behalf_of": true,
+    }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 201, "creating: {}", resp.text().await?);
+    assert_eq!(
+        stored_permissioned_as(&db, "script", "u/test-user/obo_group_collision")
+            .await?
+            .as_deref(),
+        Some("u/test-user-2"),
+        "a real account must win over the like-named group"
+    );
+
     // A pair naming two different principals would run as a composite of both.
     let resp = authed(
         client().post(format!("{base}/scripts/create")),

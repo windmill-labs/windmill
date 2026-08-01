@@ -92,28 +92,16 @@ pub async fn resolve_username_to_email<'c>(
 /// `None` when the email names nobody at all — an address outside the workspace that is
 /// not a superadmin's, or a group that no longer exists. Callers then leave the identity
 /// unrecorded rather than storing a principal that cannot authenticate.
-pub async fn permissioned_as_from_email<'c>(
+pub async fn permissioned_as_from_email(
     workspace_id: &str,
     email: &str,
-    db: impl sqlx::PgExecutor<'c>,
+    db: &sqlx::Pool<sqlx::Postgres>,
 ) -> crate::error::Result<Option<String>> {
-    // Groups have no address of their own; `get_email_from_permissioned_as` mints this
-    // synthetic one, so it is the only form that can be read back as a group.
-    if let Some(group) = email
-        .strip_prefix(USERNAME_GROUP_PREFIX)
-        .and_then(|rest| rest.strip_suffix("@windmill.dev"))
-    {
-        let exists = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM group_ WHERE workspace_id = $1 AND name = $2)",
-            workspace_id,
-            group
-        )
-        .fetch_one(db)
-        .await?
-        .unwrap_or(false);
-        return Ok(exists.then(|| format!("{}{}", PERMISSIONED_AS_GROUP_PREFIX, group)));
-    }
-    Ok(sqlx::query_scalar!(
+    let mut conn = db.acquire().await?;
+    // A real account always wins: the synthetic group namespace below is not reserved,
+    // so a user may legitimately hold a `group-*@windmill.dev` address, and resolving it
+    // to the like-named group would hand their runnables that group's folder access.
+    if let Some(username) = sqlx::query_scalar!(
         "SELECT COALESCE(
             (SELECT username FROM usr WHERE workspace_id = $1 AND email = $2),
             (SELECT COALESCE(username, email) FROM password WHERE email = $2 AND super_admin = true)
@@ -121,10 +109,29 @@ pub async fn permissioned_as_from_email<'c>(
         workspace_id,
         email
     )
-    .fetch_optional(db)
+    .fetch_optional(&mut *conn)
     .await?
     .flatten()
-    .map(|username| username_to_permissioned_as(&username)))
+    {
+        return Ok(Some(username_to_permissioned_as(&username)));
+    }
+    // Groups have no address of their own; `get_email_from_permissioned_as` mints this
+    // synthetic one, so it is the only form that can be read back as a group.
+    let Some(group) = email
+        .strip_prefix(USERNAME_GROUP_PREFIX)
+        .and_then(|rest| rest.strip_suffix("@windmill.dev"))
+    else {
+        return Ok(None);
+    };
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM group_ WHERE workspace_id = $1 AND name = $2)",
+        workspace_id,
+        group
+    )
+    .fetch_one(&mut *conn)
+    .await?
+    .unwrap_or(false);
+    Ok(exists.then(|| format!("{}{}", PERMISSIONED_AS_GROUP_PREFIX, group)))
 }
 
 /// Get email from permissioned_as string.

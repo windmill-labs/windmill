@@ -5794,6 +5794,11 @@ async fn clone_variables(
     Ok(())
 }
 
+/// A principal is workspace-scoped — `usr` is keyed by `(workspace_id, username)` — and a
+/// clone lands in a workspace with its own membership, so the source's is dropped rather
+/// than copied into a workspace where it may name nobody. The runnable falls back to its
+/// `created_by` until the target redeploys it, which is what it did before the principal
+/// was recorded at all.
 async fn clone_scripts(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
@@ -5819,7 +5824,7 @@ async fn clone_scripts(
             dedicated_worker, ws_error_handler_muted, priority, timeout,
             delete_after_use, delete_after_secs, restart_unless_cancelled, concurrency_key,
             visible_to_runner_only, auto_kind, codebase, has_preprocessor,
-            on_behalf_of_email, on_behalf_of_permissioned_as, assets, modules
+            on_behalf_of_email, NULL, assets, modules
         FROM script
         WHERE workspace_id = $2"#,
         target_workspace_id,
@@ -5930,6 +5935,7 @@ async fn clone_asset_usages_and_triggers(
     Ok(())
 }
 
+/// Drops the recorded principal for the reason spelled out on [`clone_scripts`].
 async fn clone_flows(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
@@ -5946,7 +5952,7 @@ async fn clone_flows(
         SELECT $2, path, summary, description, value, edited_by, edited_at,
                archived, schema, extra_perms, NULL, tag,
                ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only,
-               concurrency_key, ARRAY[]::bigint[], on_behalf_of_email, on_behalf_of_permissioned_as, lock_error_logs
+               concurrency_key, ARRAY[]::bigint[], on_behalf_of_email, NULL, lock_error_logs
         FROM flow
         WHERE workspace_id = $1",
         source_workspace_id,
