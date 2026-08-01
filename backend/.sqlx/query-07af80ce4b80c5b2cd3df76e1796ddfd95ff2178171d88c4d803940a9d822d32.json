@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE flow SET on_behalf_of_permissioned_as = $1 WHERE on_behalf_of_permissioned_as = $2 AND workspace_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "07af80ce4b80c5b2cd3df76e1796ddfd95ff2178171d88c4d803940a9d822d32"
+}

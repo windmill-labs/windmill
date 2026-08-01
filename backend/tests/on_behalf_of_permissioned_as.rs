@@ -1,6 +1,6 @@
-//! A script's on-behalf-of identity must drive the permissions of the jobs it produces,
-//! not just their email. Rows written before the identity was recorded keep falling back
-//! to the deployer, so upgrading an instance never widens what an existing script reaches.
+//! A script's on-behalf-of identity must drive the permissions of the jobs it produces, not
+//! just their address. The principal is the only stored half; the address is derived from it,
+//! so a request naming one, the other, or a mismatched pair all resolve to one account.
 
 use serde_json::json;
 use sqlx::{Pool, Postgres};
@@ -111,20 +111,12 @@ async fn test_on_behalf_of_permissioned_as_drives_job_identity(
         Some("u/original-user")
     );
 
-    // Rows deployed before the column existed carry no principal at all.
-    sqlx::query!(
-        "UPDATE script SET on_behalf_of_permissioned_as = NULL WHERE path = $1",
-        "u/test-user/obo_derived"
-    )
-    .execute(&db)
-    .await?;
-
     let recorded_job = run_by_hash(&base, &recorded).await?;
-    let legacy_job = run_by_hash(&base, &derived).await?;
+    let derived_job = run_by_hash(&base, &derived).await?;
 
     let jobs = sqlx::query!(
         "SELECT id, permissioned_as, permissioned_as_email FROM v2_job WHERE id = ANY($1)",
-        &[recorded_job, legacy_job][..]
+        &[recorded_job, derived_job][..]
     )
     .fetch_all(&db)
     .await?;
@@ -145,12 +137,12 @@ async fn test_on_behalf_of_permissioned_as_drives_job_identity(
         "a recorded permissioned_as must be what the job runs as"
     );
     assert_eq!(
-        identity(legacy_job),
+        identity(derived_job),
         (
-            "u/test-user".to_string(),
+            "u/original-user".to_string(),
             "original@windmill.dev".to_string()
         ),
-        "without a recorded permissioned_as the job keeps running as the deployer"
+        "a principal derived from the address drives the job the same way an explicit one does"
     );
 
     // A superadmin acting outside their workspaces has no `usr` row. Dropping them on an

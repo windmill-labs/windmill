@@ -41,6 +41,7 @@ use windmill_common::{
 /// Helper to fetch metadata for a schedule's script or flow
 async fn get_schedule_metadata<'c>(
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
+    db: &DB,
     schedule: &Schedule,
 ) -> Result<(
     Option<String>,     // tag
@@ -76,7 +77,7 @@ async fn get_schedule_metadata<'c>(
         Ok((
             flow_info.tag.clone(),
             None,
-            flow_info.on_behalf_of(),
+            flow_info.on_behalf_of(&schedule.workspace_id, db).await?,
             None,
             Some(version),
             parsed_retry,
@@ -101,6 +102,7 @@ async fn get_schedule_metadata<'c>(
             _labels,
         ) = windmill_common::get_latest_hash_for_path(
             &mut **tx,
+            db,
             &schedule.workspace_id,
             &schedule.script_path,
             false,
@@ -255,7 +257,7 @@ pub async fn push_scheduled_job<'c>(
 
         // Get metadata from the scheduled script/flow for tag, timeout, etc.
         let (tag, timeout, on_behalf_of, hash, flow_version, retry) =
-            get_schedule_metadata(&mut tx, schedule).await?;
+            get_schedule_metadata(&mut tx, db, schedule).await?;
 
         (
             JobPayload::SingleStepFlow {
@@ -309,7 +311,7 @@ pub async fn push_scheduled_job<'c>(
         )
         .warn_after_seconds_with_sql(1, "get_flow_version_info_from_version".to_string())
         .await?;
-        let on_behalf_of = flow_info.on_behalf_of();
+        let on_behalf_of = flow_info.on_behalf_of(&schedule.workspace_id, db).await?;
         let FlowVersionInfo { version, tag, dedicated_worker, labels, .. } = flow_info;
 
         (
@@ -344,6 +346,7 @@ pub async fn push_scheduled_job<'c>(
             labels,
         ) = windmill_common::get_latest_hash_for_path(
             &mut *tx,
+            db,
             &schedule.workspace_id,
             &schedule.script_path,
             false,

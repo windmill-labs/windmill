@@ -6975,7 +6975,7 @@ pub async fn run_wait_result_script_by_hash(
         .await?
         .prefetch_cached(&db)
         .await?;
-    let on_behalf_of = script_info.on_behalf_of();
+    let on_behalf_of = script_info.on_behalf_of(&w_id, &db).await?;
     let ScriptHashInfo {
         path,
         tag,
@@ -8886,7 +8886,7 @@ pub async fn run_job_by_hash_inner(
         .await?
         .prefetch_cached(&db)
         .await?;
-    let on_behalf_of = script_info.on_behalf_of();
+    let on_behalf_of = script_info.on_behalf_of(&w_id, &db).await?;
     let ScriptHashInfo {
         path,
         tag,

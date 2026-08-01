@@ -117,6 +117,29 @@ struct ScriptMetadata {
     pub extra_perms: serde_json::Value,
 }
 
+/// The address a runnable's principal resolves to, memoised for the duration of one export.
+///
+/// `on_behalf_of_permissioned_as` is sparse — most runnables carry none, and those that do
+/// usually share a handful of identities — so this collapses to roughly one lookup per
+/// distinct principal instead of one per row.
+async fn derive_email(
+    cache: &mut HashMap<String, String>,
+    db: &DB,
+    w_id: &str,
+    permissioned_as: Option<&str>,
+) -> Result<Option<String>> {
+    let Some(permissioned_as) = permissioned_as else {
+        return Ok(None);
+    };
+    if let Some(hit) = cache.get(permissioned_as) {
+        return Ok(Some(hit.clone()));
+    }
+    let email =
+        windmill_common::users::get_email_from_permissioned_as(permissioned_as, w_id, db).await?;
+    cache.insert(permissioned_as.to_string(), email.clone());
+    Ok(Some(email))
+}
+
 fn is_empty_extra_perms(value: &serde_json::Value) -> bool {
     value.as_object().is_some_and(|o| o.is_empty()) || value.is_null()
 }
@@ -692,6 +715,7 @@ pub(crate) async fn tarball_workspace(
         }
     }
 
+    let mut obo_cache: HashMap<String, String> = HashMap::new();
     {
         let scripts = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(&format!(
             "SELECT {} FROM script as o WHERE workspace_id = $1 AND archived = false
@@ -768,7 +792,7 @@ pub(crate) async fn tarball_workspace(
                 auto_kind: script.auto_kind,
                 codebase: script.codebase,
                 has_preprocessor: script.has_preprocessor,
-                on_behalf_of_email: script.on_behalf_of_email,
+                on_behalf_of_email: derive_email(&mut obo_cache, &db, &w_id, script.on_behalf_of_permissioned_as.as_deref()).await?,
                 modules: script.modules,
                 labels: script.labels,
                 // Same opt-in contract as flow/app: the tarball only surfaces
@@ -830,7 +854,7 @@ pub(crate) async fn tarball_workspace(
 
     {
         let flows = sqlx::query_as::<_, Flow>(
-             "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow.on_behalf_of_permissioned_as, flow.labels, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
+             "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_permissioned_as, flow.labels, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
              FROM flow
              LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
              WHERE flow.workspace_id = $1 AND flow.archived = false",
@@ -839,7 +863,14 @@ pub(crate) async fn tarball_workspace(
          .fetch_all(&mut *tx)
          .await?;
 
-        for flow in flows {
+        for mut flow in flows {
+            flow.on_behalf_of_email = derive_email(
+                &mut obo_cache,
+                &db,
+                &w_id,
+                flow.on_behalf_of_permissioned_as.as_deref(),
+            )
+            .await?;
             let flow_str = &to_string_without_metadata(&flow, new_kinds_extra_perms, None).unwrap();
             archive
                 .write_to_archive(&flow_str, &format!("{}.flow.json", flow.path))

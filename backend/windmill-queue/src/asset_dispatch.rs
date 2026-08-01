@@ -753,7 +753,9 @@ async fn push_subscriber(
     .await?
     .prefetch_cached(db)
     .await?;
-    let on_behalf_of = script.on_behalf_of();
+    let on_behalf_of = script
+        .on_behalf_of(&producer.workspace_id, db)
+        .await?;
     let hash = ScriptHash(script.hash);
     let tag = script.tag;
     let concurrency_settings = script.runnable_settings.concurrency_settings;

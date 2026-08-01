@@ -1594,7 +1594,7 @@ async fn create_script_internal<'c>(
         )
     };
 
-    let (resolved_on_behalf_of_email, resolved_on_behalf_of_permissioned_as) =
+    let resolved_on_behalf_of_permissioned_as =
         windmill_common::resolve_on_behalf_of(
             ns.on_behalf_of_email.as_deref(),
             ns.on_behalf_of_permissioned_as.as_deref(),
@@ -1610,8 +1610,8 @@ async fn create_script_internal<'c>(
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
          envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
          dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-         delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle, modules, labels, on_behalf_of_permissioned_as) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41)",
+         delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, codebase, has_preprocessor, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle, modules, labels, on_behalf_of_permissioned_as) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40)",
         &w_id,
         &hash.0,
         ns.path,
@@ -1643,7 +1643,6 @@ async fn create_script_internal<'c>(
         auto_kind.as_deref(),
         codebase,
         has_preprocessor.filter(|x: &bool| *x),
-        resolved_on_behalf_of_email,
         validate_schema,
         effective_assets
             .as_ref()

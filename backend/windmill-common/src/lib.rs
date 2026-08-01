@@ -192,21 +192,17 @@ pub fn check_on_behalf_of_preservation(
     None
 }
 
-/// Determines the identity to store when creating/updating a flow or script.
-/// - If `on_behalf_of_email` is None, the runnable has no on-behalf-of identity at all
-/// - If `preserve` is true and the user is admin or in the deployers group, the given pair is kept
-/// - Otherwise both halves are replaced by the authenticated user's own identity
+/// Resolves the identity to store when creating/updating a flow or script.
 ///
-/// The two halves must always name the same user or group: the permissioned_as decides
-/// what the job may access, while the email decides its instance-superadmin flag and its
-/// instance groups, so a mismatched pair would run as a composite of two accounts. A pair
-/// that disagrees is rejected, and a caller that names only the email — anything written
-/// before the permissioned_as existed — has it derived from that email rather than
-/// dropped, so a routine redeploy cannot silently hand a runnable to whoever deploys it.
+/// The permissioned_as is the only stored identity — it decides what the job may access,
+/// and the address is derived from it at read time — so the two can never name different
+/// accounts. Callers may supply either: a bare email (every client written before the
+/// principal existed) is resolved to the principal it names, and an email that names
+/// nobody is rejected rather than recorded, since it could only produce a runnable that
+/// cannot authenticate.
 ///
-/// The permissioned_as stays `None` when the email names nobody in this workspace, which
-/// leaves the run-time fallback (`created_by` / `edited_by`) in place instead of recording
-/// a principal that cannot authenticate.
+/// Returns `(None, None)` when the runnable has no on-behalf-of identity, and the caller's
+/// own identity when they are not allowed to preserve someone else's.
 pub async fn resolve_on_behalf_of(
     on_behalf_of_email: Option<&str>,
     on_behalf_of_permissioned_as: Option<&str>,
@@ -214,31 +210,45 @@ pub async fn resolve_on_behalf_of(
     authed: &impl db::Authable,
     w_id: &str,
     db: &sqlx::Pool<Postgres>,
-) -> error::Result<(Option<String>, Option<String>)> {
-    let Some(email) = on_behalf_of_email else {
-        return Ok((None, None));
-    };
+) -> error::Result<Option<String>> {
+    if on_behalf_of_email.is_none() && on_behalf_of_permissioned_as.is_none() {
+        return Ok(None);
+    }
     if !(preserve && can_preserve_on_behalf_of(authed)) {
-        return Ok((
-            Some(authed.email().to_string()),
-            Some(users::username_to_permissioned_as(authed.username())),
-        ));
+        return Ok(Some(users::username_to_permissioned_as(authed.username())));
     }
     let permissioned_as = match on_behalf_of_permissioned_as {
         Some(permissioned_as) => {
-            let named =
-                users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db).await?;
-            if named != email {
-                return Err(Error::BadRequest(format!(
-                    "on_behalf_of_permissioned_as '{permissioned_as}' resolves to '{named}', not \
-                     to on_behalf_of_email '{email}'. Both must name the same user or group."
-                )));
+            // The principal wins, but a caller that also names a contradictory address has a
+            // bug worth surfacing: that is exactly how a workspace deploy once shipped one
+            // workspace's principal beside another's address.
+            if let Some(email) = on_behalf_of_email {
+                let named =
+                    users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db)
+                        .await?;
+                if named != email {
+                    return Err(Error::BadRequest(format!(
+                        "on_behalf_of_permissioned_as '{permissioned_as}' resolves to '{named}', \
+                         not to on_behalf_of_email '{email}'. Both must name the same account."
+                    )));
+                }
             }
-            Some(permissioned_as.to_string())
+            permissioned_as.to_string()
         }
-        None => users::permissioned_as_from_email(w_id, email, db).await?,
+        None => {
+            let email = on_behalf_of_email.unwrap_or_default();
+            users::permissioned_as_from_email(w_id, email, db)
+                .await?
+                .ok_or_else(|| {
+                    Error::BadRequest(format!(
+                        "on_behalf_of_email '{email}' names no user or group in this workspace, so \
+                         there is no identity to run as. Pass on_behalf_of_permissioned_as, or use \
+                         the address of a workspace member."
+                    ))
+                })?
+        }
     };
-    Ok((Some(email.to_string()), permissioned_as))
+    Ok(Some(permissioned_as))
 }
 
 #[macro_export]
@@ -1549,7 +1559,6 @@ pub struct ScriptHashInfo<SR> {
     pub delete_after_secs: Option<i32>,
     pub timeout: Option<i32>,
     pub has_preprocessor: Option<bool>,
-    pub on_behalf_of_email: Option<String>,
     pub on_behalf_of_permissioned_as: Option<String>,
     pub created_by: String,
     pub labels: Option<Vec<String>>,
@@ -1558,22 +1567,29 @@ pub struct ScriptHashInfo<SR> {
 }
 
 impl<SR> ScriptHashInfo<SR> {
-    /// The identity this script runs as, or `None` when it runs as its caller.
-    ///
-    /// Rows written before `on_behalf_of_permissioned_as` existed only recorded the
-    /// email, so they fall back to the deployer — keeping their permissions exactly
-    /// what they were rather than silently widening them on upgrade.
-    pub fn on_behalf_of(&self) -> Option<jobs::OnBehalfOf> {
-        self.on_behalf_of_email
-            .as_ref()
-            .map(|email| jobs::OnBehalfOf {
-                email: email.clone(),
-                permissioned_as: self
-                    .on_behalf_of_permissioned_as
-                    .clone()
-                    .unwrap_or_else(|| users::username_to_permissioned_as(&self.created_by)),
-            })
+    /// The identity this script runs as, or `None` when it runs as its caller. The address
+    /// is derived from the principal rather than stored, so the two cannot disagree.
+    pub async fn on_behalf_of(
+        &self,
+        w_id: &str,
+        db: &DB,
+    ) -> error::Result<Option<jobs::OnBehalfOf>> {
+        on_behalf_of_from_permissioned_as(self.on_behalf_of_permissioned_as.as_deref(), w_id, db)
+            .await
     }
+}
+
+/// Shared by [`ScriptHashInfo::on_behalf_of`] and [`FlowVersionInfo::on_behalf_of`].
+pub async fn on_behalf_of_from_permissioned_as(
+    permissioned_as: Option<&str>,
+    w_id: &str,
+    db: &DB,
+) -> error::Result<Option<jobs::OnBehalfOf>> {
+    let Some(permissioned_as) = permissioned_as else {
+        return Ok(None);
+    };
+    let email = users::get_email_from_permissioned_as(permissioned_as, w_id, db).await?;
+    Ok(Some(jobs::OnBehalfOf { email, permissioned_as: permissioned_as.to_string() }))
 }
 
 impl ScriptHashInfo<ScriptRunnableSettingsHandle> {
@@ -1600,7 +1616,6 @@ impl ScriptHashInfo<ScriptRunnableSettingsHandle> {
             delete_after_secs: self.delete_after_secs,
             timeout: self.timeout,
             has_preprocessor: self.has_preprocessor,
-            on_behalf_of_email: self.on_behalf_of_email,
             on_behalf_of_permissioned_as: self.on_behalf_of_permissioned_as,
             created_by: self.created_by,
             labels: self.labels,
@@ -1820,7 +1835,6 @@ async fn get_script_info_for_hash_inner<'e, E: sqlx::PgExecutor<'e>>(
                 delete_after_secs,
                 timeout,
                 has_preprocessor,
-                on_behalf_of_email,
                 on_behalf_of_permissioned_as,
                 created_by,
                 labels,
@@ -1841,7 +1855,6 @@ pub struct FlowVersionInfo {
     pub has_preprocessor: Option<bool>,
     pub has_failure_module: Option<bool>,
     pub chat_input_enabled: Option<bool>,
-    pub on_behalf_of_email: Option<String>,
     pub on_behalf_of_permissioned_as: Option<String>,
     pub edited_by: String,
     pub dedicated_worker: Option<bool>,
@@ -1850,17 +1863,13 @@ pub struct FlowVersionInfo {
 
 impl FlowVersionInfo {
     /// The identity this flow runs as, or `None` when it runs as its caller.
-    /// See [`ScriptHashInfo::on_behalf_of`] for why the fallback exists.
-    pub fn on_behalf_of(&self) -> Option<jobs::OnBehalfOf> {
-        self.on_behalf_of_email
-            .as_ref()
-            .map(|email| jobs::OnBehalfOf {
-                email: email.clone(),
-                permissioned_as: self
-                    .on_behalf_of_permissioned_as
-                    .clone()
-                    .unwrap_or_else(|| users::username_to_permissioned_as(&self.edited_by)),
-            })
+    pub async fn on_behalf_of(
+        &self,
+        w_id: &str,
+        db: &DB,
+    ) -> error::Result<Option<jobs::OnBehalfOf>> {
+        on_behalf_of_from_permissioned_as(self.on_behalf_of_permissioned_as.as_deref(), w_id, db)
+            .await
     }
 }
 
@@ -1989,7 +1998,6 @@ pub fn get_flow_version_info_from_version<
                                     (flow_version.value->>'chat_input_enabled')::boolean as chat_input_enabled,
                                     flow.tag,
                                     flow.dedicated_worker,
-                                    flow.on_behalf_of_email,
                                     flow.on_behalf_of_permissioned_as,
                                     flow.edited_by,
                                     flow.labels
@@ -2106,6 +2114,7 @@ async fn get_latest_flow_version_for_path<'e, E: sqlx::PgExecutor<'e>>(
 
 pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
     db: E,
+    db2: &DB,
     w_id: &str,
     script_path: &str,
     require_locked: bool,
@@ -2128,7 +2137,7 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
     Option<Vec<String>>,
 )> {
     let r_o = sqlx::query!(
-            "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, cache_ignore_s3_path, runnable_settings_handle, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of_email, on_behalf_of_permissioned_as, created_by, labels FROM script
+            "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, cache_ignore_s3_path, runnable_settings_handle, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of_permissioned_as, created_by, labels FROM script
              WHERE path = $1 AND workspace_id = $2 AND archived = false AND (lock IS NOT NULL OR $3 = false)
              ORDER BY created_at DESC LIMIT 1",
             script_path,
@@ -2140,12 +2149,12 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
 
     let script = utils::not_found_if_none(r_o, "script", script_path)?;
 
-    let on_behalf_of = script.on_behalf_of_email.map(|email| jobs::OnBehalfOf {
-        email,
-        permissioned_as: script
-            .on_behalf_of_permissioned_as
-            .unwrap_or_else(|| users::username_to_permissioned_as(&script.created_by)),
-    });
+    let on_behalf_of = on_behalf_of_from_permissioned_as(
+        script.on_behalf_of_permissioned_as.as_deref(),
+        w_id,
+        db2,
+    )
+    .await?;
 
     Ok((
         scripts::ScriptHash(script.hash),

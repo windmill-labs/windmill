@@ -39,7 +39,10 @@ pub struct Flow {
     pub timeout: Option<i32>,
     #[serde(skip_serializing_if = "is_none_or_false")]
     pub visible_to_runner_only: Option<bool>,
+    /// Derived from `on_behalf_of_permissioned_as` on the read paths, not a column. Kept in
+    /// the response so clients written against the old shape keep working.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
     pub on_behalf_of_email: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_behalf_of_permissioned_as: Option<String>,

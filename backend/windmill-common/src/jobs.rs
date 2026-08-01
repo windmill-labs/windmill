@@ -118,7 +118,7 @@ pub async fn script_path_to_payload<'e>(
                     .await?
                     .prefetch_cached(&db)
                     .await?;
-            let on_behalf_of = script_info.on_behalf_of();
+            let on_behalf_of = script_info.on_behalf_of(w_id, &db).await?;
             let ScriptHashInfo {
                 hash,
                 tag,

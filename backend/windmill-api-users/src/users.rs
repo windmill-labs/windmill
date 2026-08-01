@@ -1964,28 +1964,10 @@ async fn change_user_email(
     .execute(&mut *tx)
     .await?;
 
-    // GROUP GUARD, repeated on every email-keyed rewrite below: a group's synthetic address
-    // `group-{name}@windmill.dev` may also be a real user's, and a runnable configured for
-    // the group keeps it when that user moves. A group is `g/` *without* an `@` — an
-    // email-shaped username is stored verbatim and `/` is legal in a local part. The
-    // `IS NULL` arm keeps rows that predate the column from being skipped on a `NULL`.
-    sqlx::query!(
-        "UPDATE script SET on_behalf_of_email = $1 WHERE on_behalf_of_email = $2 AND (on_behalf_of_permissioned_as IS NULL OR NOT (on_behalf_of_permissioned_as LIKE 'g/%' AND on_behalf_of_permissioned_as NOT LIKE '%@%'))",
-        &new_email,
-        &old_email
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query!(
-        "UPDATE flow SET on_behalf_of_email = $1 WHERE on_behalf_of_email = $2 AND (on_behalf_of_permissioned_as IS NULL OR NOT (on_behalf_of_permissioned_as LIKE 'g/%' AND on_behalf_of_permissioned_as NOT LIKE '%@%'))",
-        &new_email,
-        &old_email
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    // Apps carry the same identity inside their policy JSONB. An app running in Anonymous or
+    // Apps still store an address next to their principal (script/flow no longer do), and the
+    // synthetic `group-{name}@windmill.dev` may be a real user's, so the guard stays here: a
+    // group-owned app keeps its address when a colliding user moves.
+    // An app running in Anonymous or
     // Publisher mode takes its permissions from there rather than from the caller, so a stale
     // address silently costs it its superadmin flag and its instance groups.
     sqlx::query!(
@@ -2025,15 +2007,6 @@ async fn change_user_email(
     .execute(&mut *tx)
     .await?;
 
-    // A draft carries the pair in its value and deploying one sends it verbatim, so a
-    // half-rewritten pair is rejected as naming two different people.
-    sqlx::query!(
-        r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of_email'], to_jsonb($1::text))) WHERE typ IN ('script', 'flow') AND value->>'on_behalf_of_email' = $2 AND (value->>'on_behalf_of_permissioned_as' IS NULL OR NOT (value->>'on_behalf_of_permissioned_as' LIKE 'g/%' AND value->>'on_behalf_of_permissioned_as' NOT LIKE '%@%'))"#,
-        &new_email,
-        &old_email
-    )
-    .execute(&mut *tx)
-    .await?;
 
     sqlx::query!(
         r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of_permissioned_as'], to_jsonb($1::text))) WHERE typ IN ('script', 'flow') AND value->>'on_behalf_of_permissioned_as' = $2"#,

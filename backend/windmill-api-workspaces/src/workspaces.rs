@@ -5814,7 +5814,7 @@ async fn clone_scripts(
             dedicated_worker, ws_error_handler_muted, priority, timeout,
             delete_after_use, delete_after_secs, restart_unless_cancelled, concurrency_key,
             visible_to_runner_only, auto_kind, codebase, has_preprocessor,
-            on_behalf_of_email, on_behalf_of_permissioned_as, assets, modules
+            on_behalf_of_permissioned_as, assets, modules
         )
         SELECT
             $1, hash, path, parent_hashes, summary, description, content,
@@ -5824,7 +5824,7 @@ async fn clone_scripts(
             dedicated_worker, ws_error_handler_muted, priority, timeout,
             delete_after_use, delete_after_secs, restart_unless_cancelled, concurrency_key,
             visible_to_runner_only, auto_kind, codebase, has_preprocessor,
-            on_behalf_of_email, NULL, assets, modules
+            NULL, assets, modules
         FROM script
         WHERE workspace_id = $2"#,
         target_workspace_id,
@@ -5947,12 +5947,12 @@ async fn clone_flows(
             workspace_id, path, summary, description, value, edited_by, edited_at,
             archived, schema, extra_perms, dependency_job, tag,
             ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only,
-            concurrency_key, versions, on_behalf_of_email, on_behalf_of_permissioned_as, lock_error_logs
+            concurrency_key, versions, on_behalf_of_permissioned_as, lock_error_logs
         )
         SELECT $2, path, summary, description, value, edited_by, edited_at,
                archived, schema, extra_perms, NULL, tag,
                ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only,
-               concurrency_key, ARRAY[]::bigint[], on_behalf_of_email, NULL, lock_error_logs
+               concurrency_key, ARRAY[]::bigint[], NULL, lock_error_logs
         FROM flow
         WHERE workspace_id = $1",
         source_workspace_id,

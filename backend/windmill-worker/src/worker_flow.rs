@@ -6043,7 +6043,7 @@ async fn flow_to_payload(
     db: &DB,
 ) -> Result<JobPayloadWithTag, Error> {
     let flow_info = get_latest_flow_version_info_for_path(None, &db, w_id, &path, true).await?;
-    let on_behalf_of = flow_info.on_behalf_of();
+    let on_behalf_of = flow_info.on_behalf_of(w_id, &db).await?;
     let FlowVersionInfo { version, tag, .. } = flow_info;
     let payload = JobPayload::Flow {
         path,
@@ -6114,7 +6114,9 @@ pub async fn script_to_payload(
                 .await?
                 .prefetch_cached(&db)
                 .await?;
-            let on_behalf_of = script_info.on_behalf_of();
+            let on_behalf_of = script_info
+                .on_behalf_of(&flow_job.workspace_id, db)
+                .await?;
             let ScriptHashInfo {
                 tag,
                 cache_ttl,

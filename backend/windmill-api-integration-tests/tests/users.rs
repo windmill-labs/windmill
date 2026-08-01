@@ -553,16 +553,6 @@ async fn test_change_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
     .execute(&db)
     .await?;
 
-    // A draft carries the identity pair in its value; deploying one sends it verbatim, so a
-    // half-rewritten pair is rejected as naming two different people.
-    sqlx::query!(
-        "INSERT INTO draft(workspace_id, path, typ, value)
-         VALUES ('test-workspace', 'u/test-user-2/d', 'script',
-                 '{\"on_behalf_of_email\": \"test2@windmill.dev\", \"on_behalf_of_permissioned_as\": \"u/test-user-2\"}'::json)"
-    )
-    .execute(&db)
-    .await?;
-
     let resp = change_email("test2@windmill.dev", "renamed@windmill.dev")
         .await
         .unwrap();
@@ -596,17 +586,6 @@ async fn test_change_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
     .fetch_one(&db)
     .await?;
     assert_eq!(permissioned_as, "renamed@windmill.dev");
-
-    let draft = sqlx::query_scalar!(
-        "SELECT value::text FROM draft WHERE path = 'u/test-user-2/d' AND workspace_id = 'test-workspace'"
-    )
-    .fetch_one(&db)
-    .await?
-    .unwrap_or_default();
-    assert!(
-        !draft.contains("test2@windmill.dev") && draft.contains("renamed@windmill.dev"),
-        "draft should carry only the new address: {draft}"
-    );
 
     let policy = sqlx::query_scalar!(
         "SELECT policy::text FROM app WHERE path = 'u/test-user-2/app' AND workspace_id = 'test-workspace'"
@@ -704,37 +683,16 @@ async fn test_change_user_email_leaves_group_identities(db: Pool<Postgres>) -> a
     .execute(&db)
     .await?;
 
-    // Same email on all three: one runnable is configured for the group, one for the user,
-    // and one predates the principal column entirely. Only the group one must be left alone —
-    // a guard that also skipped the legacy row would strand its address.
-    for (i, (path, permissioned_as)) in [
-        ("u/test-user/g", Some("g/ops")),
-        ("u/test-user/u", Some("u/test-user-2")),
-        ("u/test-user/legacy", None),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        sqlx::query!(
-            "INSERT INTO draft(workspace_id, path, typ, value)
-             VALUES ('test-workspace', $1, 'script',
-                     json_build_object('on_behalf_of_email', 'group-ops@windmill.dev',
-                                       'on_behalf_of_permissioned_as', $2::text))",
-            path,
-            permissioned_as as Option<&str>
-        )
-        .execute(&db)
-        .await?;
-        sqlx::query!(
-            "INSERT INTO script(workspace_id, hash, path, summary, description, content, created_by, language, on_behalf_of_email, on_behalf_of_permissioned_as)
-             VALUES ('test-workspace', $3, $1, '', '', '', 'test-user', 'deno', 'group-ops@windmill.dev', $2::text)",
-            path,
-            permissioned_as as Option<&str>,
-            i as i64
-        )
-        .execute(&db)
-        .await?;
-    }
+    // script/flow store only the principal now, and an email change does not move a username,
+    // so their identities are untouched by definition. What must still hold is the app policy,
+    // which does keep an address beside its principal.
+    sqlx::query!(
+        "INSERT INTO app(workspace_id, path, summary, policy, versions)
+         VALUES ('test-workspace', 'u/test-user/g', '', '{\"on_behalf_of\": \"g/ops\", \"on_behalf_of_email\": \"group-ops@windmill.dev\"}'::jsonb, '{}'),
+                ('test-workspace', 'u/test-user/u', '', '{\"on_behalf_of\": \"u/test-user-2\", \"on_behalf_of_email\": \"group-ops@windmill.dev\"}'::jsonb, '{}')"
+    )
+    .execute(&db)
+    .await?;
 
     let resp = authed(client().post(format!("{global_base}/change_email/group-ops@windmill.dev")))
         .json(&json!({ "new_email": "renamed@windmill.dev" }))
@@ -742,39 +700,20 @@ async fn test_change_user_email_leaves_group_identities(db: Pool<Postgres>) -> a
         .await?;
     assert_eq!(resp.status(), 200, "change_email: {}", resp.text().await?);
 
-    let rows = sqlx::query!(
-        "SELECT path, on_behalf_of_email FROM script WHERE workspace_id = 'test-workspace' ORDER BY path"
+    let apps = sqlx::query!(
+        "SELECT path, policy->>'on_behalf_of_email' AS email FROM app WHERE workspace_id = 'test-workspace' ORDER BY path"
     )
     .fetch_all(&db)
     .await?;
     assert_eq!(
-        rows.iter()
-            .map(|r| (r.path.as_str(), r.on_behalf_of_email.as_deref()))
-            .collect::<Vec<_>>(),
-        vec![
-            ("u/test-user/g", Some("group-ops@windmill.dev")),
-            ("u/test-user/legacy", Some("renamed@windmill.dev")),
-            ("u/test-user/u", Some("renamed@windmill.dev")),
-        ],
-        "only the group-owned script keeps the group's address"
-    );
-
-    let drafts = sqlx::query!(
-        "SELECT path, value->>'on_behalf_of_email' AS email FROM draft WHERE workspace_id = 'test-workspace' ORDER BY path"
-    )
-    .fetch_all(&db)
-    .await?;
-    assert_eq!(
-        drafts
-            .iter()
+        apps.iter()
             .map(|r| (r.path.as_str(), r.email.as_deref()))
             .collect::<Vec<_>>(),
         vec![
             ("u/test-user/g", Some("group-ops@windmill.dev")),
-            ("u/test-user/legacy", Some("renamed@windmill.dev")),
             ("u/test-user/u", Some("renamed@windmill.dev")),
         ],
-        "same split for drafts"
+        "the group-owned app keeps the group's address; the user-owned one moves"
     );
 
     Ok(())
