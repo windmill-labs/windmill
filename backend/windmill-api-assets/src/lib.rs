@@ -1415,14 +1415,22 @@ pub async fn asset_graph_for(
                              OR ($5::text IS NOT NULL AND l.hash IS NULL
                                  AND e.script_hash IS NULL))
              JOIN chosen ch ON ch.job_id = e.job_id
+             -- Gated the same way as the `live` joins above, and for the same
+             -- reason twice over: unpinned this folds to a plain equality the
+             -- versioned key can bound, and pinned it is the only way an editor
+             -- graph's NULL-to-NULL hashes meet at all.
              JOIN dbt_node p ON p.workspace_id = e.workspace_id
                             AND p.script_path = e.script_path
-                            AND p.script_hash IS NOT DISTINCT FROM e.script_hash
+                            AND (p.script_hash = e.script_hash
+                                 OR ($5::text IS NOT NULL AND e.script_hash IS NULL
+                                     AND p.script_hash IS NULL))
                             AND p.job_id = ch.job_id
                             AND p.unique_id = e.parent_unique_id
              JOIN dbt_node c ON c.workspace_id = e.workspace_id
                             AND c.script_path = e.script_path
-                            AND c.script_hash IS NOT DISTINCT FROM e.script_hash
+                            AND (c.script_hash = e.script_hash
+                                 OR ($5::text IS NOT NULL AND e.script_hash IS NULL
+                                     AND c.script_hash IS NULL))
                             AND c.job_id = ch.job_id
                             AND c.unique_id = e.child_unique_id
             WHERE e.workspace_id = $1
