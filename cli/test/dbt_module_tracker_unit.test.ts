@@ -10,6 +10,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { buildTracker, elementsToMap } from "../src/commands/sync/sync.ts";
+import { isDbtGeneratedPath } from "../src/utils/resource_folders.ts";
+import { readModulesFromDisk } from "../src/commands/script/script.ts";
 
 describe("buildTracker with a dbt project", () => {
   let dir: string;
@@ -116,5 +118,23 @@ describe("buildTracker with a dbt project", () => {
       "f/analytics/analytics.script.json",
       "f/analytics/analytics__dbt/wm_dbt.yaml",
     ]);
+  });
+
+  // `cp -r my-dbt-project/.` copies whatever the checkout holds, and what a
+  // `.gitignore` was keeping out of the repo is exactly the file that must not
+  // become a script version. Both halves: bundled, it is uploaded; offered by
+  // the diff, every push asks to upload it again.
+  test("a local .env is neither bundled nor offered as a change", async () => {
+    const project = path.join(dir, "f/analytics/analytics__dbt");
+    fs.writeFileSync(path.join(project, ".env"), "DBT_PASSWORD=hunter2\n");
+    fs.writeFileSync(path.join(project, "models/stg.sql"), "select 1");
+
+    const modules = await readModulesFromDisk(project, undefined, false, true);
+    expect(Object.keys(modules ?? {})).toEqual(["dbt_project.yml", "models/stg.sql"]);
+
+    // The predicate the sync's ignore filter asks, so the file is not offered
+    // as an item of its own either.
+    expect(isDbtGeneratedPath("f/analytics/analytics__dbt/.env")).toBe(true);
+    expect(isDbtGeneratedPath("f/analytics/analytics__dbt/models/stg.sql")).toBe(false);
   });
 });

@@ -669,6 +669,21 @@ because `docs/` and dotfiles do not follow extensions. The push, the staleness
 hash and the sync diff share one predicate: a file one drops and another keeps
 is a change no push can resolve.
 
+**Secrets are not carried.** `.env`, `.env.*` and `.envrc` are skipped with the
+reason. The import above copies whatever the checkout holds, and what a
+`.gitignore` was keeping out of the repo is exactly the file that must not
+become a script version, readable by anyone who can read the script and handed
+back on every pull. dbt does not read them either — `env_var()` takes the
+process environment, which Windmill fills from the descriptor's `env` and the
+script's environment variables.
+
+**`dbt_project.yml` is rendered before it is read.** dbt allows `env_var()` in
+that file, so a project may name its profile or its packages directory through
+one. Windmill renders those two settings against the environment the run gives
+dbt before acting on them: reading the template instead leaves a rendered
+`profiles.yml` keyed under a name dbt never looks up, and a package cache
+watching a directory `dbt deps` never fills.
+
 ## The script artifact
 
 New `ScriptLang::Dbt`. Content is a YAML descriptor whose field names track dbt's

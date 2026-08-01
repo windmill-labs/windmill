@@ -917,6 +917,18 @@ impl PreparedProject {
         )
     }
 
+    /// The environment `dbt_project.yml`'s own `env_var()` calls render
+    /// against: the two the run gives dbt, in the order the child receives
+    /// them. `HOME` is left out on purpose — it is Windmill's, not the
+    /// project's, and it differs on every attempt.
+    fn template_env(&self) -> HashMap<String, String> {
+        self.descriptor_env
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .chain(self.invocation_env.iter().cloned())
+            .collect()
+    }
+
     /// A digest of the DESCRIPTOR's resolved environment, for `run_identity`.
     /// Digested rather than listed: the values are resolved secrets.
     ///
@@ -1016,8 +1028,21 @@ pub(crate) async fn prepare_project(
         ..Default::default()
     };
 
+    let resolved_env = resolve_env(descriptor, client).await?;
+    reject_reserved_env(
+        resolved_env.iter().map(|(k, _)| k),
+        "the descriptor's `env`",
+    )?;
+    reject_reserved_env(invocation_env.keys(), "the script's environment variables")?;
+    // `PreparedProject::template_env`, before there is one.
+    let template_env: HashMap<String, String> = resolved_env
+        .iter()
+        .cloned()
+        .chain(invocation_env.iter().map(|(k, v)| (k.clone(), v.clone())))
+        .collect();
+
     let (profiles_dir, warehouse, adapter, default_database, default_schema, profile_digest) =
-        write_profiles(descriptor, &project_dir, job_dir, client).await?;
+        write_profiles(descriptor, &project_dir, job_dir, client, &template_env).await?;
     // The lockfile's version, when it pinned one for this same engine — a
     // descriptor edited to another engine invalidates the pin.
     let pinned_version = locks
@@ -1039,12 +1064,6 @@ pub(crate) async fn prepare_project(
     )
     .await?;
 
-    let resolved_env = resolve_env(descriptor, client).await?;
-    reject_reserved_env(
-        resolved_env.iter().map(|(k, _)| k),
-        "the descriptor's `env`",
-    )?;
-    reject_reserved_env(invocation_env.keys(), "the script's environment variables")?;
     let descriptor_env: std::collections::BTreeMap<String, String> =
         resolved_env.iter().cloned().collect();
     let mut env = resolved_env;
@@ -1312,7 +1331,7 @@ async fn install_packages(
     // its dependencies over the network again.
     let target = p
         .project_dir
-        .join(packages_install_path(&p.project_dir).await?);
+        .join(packages_install_path(&p.project_dir, &p.template_env()).await?);
     let cached = expected_lock_digest.map(|lock| {
         PathBuf::from(&*DBT_CACHE_DIR)
             .join("packages")
@@ -1479,6 +1498,7 @@ async fn write_profiles(
     project_dir: &Path,
     job_dir: &str,
     client: &AuthedClient,
+    template_env: &HashMap<String, String>,
 ) -> error::Result<(
     PathBuf,
     Option<String>,
@@ -1528,7 +1548,7 @@ async fn write_profiles(
         // what dbt will render.
         let target = adapter_from_profiles_yml(
             &path,
-            &project_profile_name(project_dir).await,
+            &project_profile_name(project_dir, template_env).await,
             descriptor.profile.target.as_deref(),
         )
         .await?;
@@ -1597,7 +1617,7 @@ async fn write_profiles(
             ))
         })?;
     ensure_adapter_licensed(adapter)?;
-    let profile_name = project_profile_name(project_dir).await;
+    let profile_name = project_profile_name(project_dir, template_env).await;
     // The workspace's warehouse may name the target too, so a project that carries
     // no connection still gets `{{ target }}` right.
     let target = descriptor
@@ -1656,9 +1676,10 @@ async fn resolve_warehouse(
     // Through the API even when this worker holds the database, because the
     // route is where a resource is interpolated against the job — `$WM_TOKEN`
     // and its kin resolve there and nowhere the worker can reach.
-    client.get_dbt_warehouse(warehouse).await.map_err(|e| {
-        Error::BadRequest(format!("resolving the dbt warehouse `{warehouse}`: {e}"))
-    })
+    client
+        .get_dbt_warehouse(warehouse)
+        .await
+        .map_err(|e| Error::BadRequest(format!("resolving the dbt warehouse `{warehouse}`: {e}")))
 }
 
 /// Identifies the connection a rendered profile describes, for run identity.
@@ -1685,7 +1706,11 @@ fn profile_identity_digest(
     } else {
         normalized.replace(job_token, "$WM_TOKEN")
     };
-    digest(&format!("{}\n{}", normalized, root_cert_pem.unwrap_or_default()))
+    digest(&format!(
+        "{}\n{}",
+        normalized,
+        root_cert_pem.unwrap_or_default()
+    ))
 }
 
 async fn adapter_from_profiles_yml(
@@ -1796,9 +1821,35 @@ struct ProfileTarget {
     schema: Option<String>,
 }
 
+lazy_static::lazy_static! {
+    /// `{{ env_var('NAME') }}` / `{{ env_var("NAME", "default") }}`.
+    static ref ENV_VAR_CALL: regex::Regex = regex::Regex::new(
+        r#"\{\{\s*env_var\(\s*['"]([^'"]+)['"]\s*(?:,\s*['"]([^'"]*)['"]\s*)?\)\s*\}\}"#
+    )
+    .unwrap();
+}
+
+/// dbt renders `env_var()` in `dbt_project.yml` as well, so a setting Windmill
+/// reads out of that file has to be rendered against the environment the run
+/// hands dbt. Left as written, Windmill acts on the template and dbt acts on the
+/// value, and the two never name the same profile or the same directory.
+///
+/// Only `env_var` is rendered — the one Jinja call dbt documents for this file.
+/// An expression that resolves to nothing is left verbatim so dbt reports it.
+fn render_env_vars(value: &str, env: &HashMap<String, String>) -> String {
+    ENV_VAR_CALL
+        .replace_all(value, |caps: &regex::Captures| {
+            env.get(&caps[1])
+                .cloned()
+                .or_else(|| caps.get(2).map(|d| d.as_str().to_string()))
+                .unwrap_or_else(|| caps[0].to_string())
+        })
+        .into_owned()
+}
+
 /// dbt takes the profile to use from `dbt_project.yml`, so a rendered
 /// `profiles.yml` has to answer to that name rather than one of our choosing.
-async fn project_profile_name(project_dir: &Path) -> String {
+async fn project_profile_name(project_dir: &Path, env: &HashMap<String, String>) -> String {
     let Ok(content) = tokio::fs::read_to_string(project_dir.join("dbt_project.yml")).await else {
         return FALLBACK_PROFILE_NAME.to_string();
     };
@@ -1807,7 +1858,7 @@ async fn project_profile_name(project_dir: &Path) -> String {
         .and_then(|v| {
             v.get("profile")
                 .and_then(|p| p.as_str())
-                .map(|s| s.to_string())
+                .map(|s| render_env_vars(s, env))
         })
         .unwrap_or_else(|| FALLBACK_PROFILE_NAME.to_string())
 }
@@ -1820,7 +1871,10 @@ async fn project_profile_name(project_dir: &Path) -> String {
 /// Windmill's cache — dbt would still install to the escaping one, writing
 /// outside the job directory and leaving the cache watching a directory nothing
 /// fills.
-async fn packages_install_path(project_dir: &Path) -> error::Result<String> {
+async fn packages_install_path(
+    project_dir: &Path,
+    env: &HashMap<String, String>,
+) -> error::Result<String> {
     const DEFAULT: &str = "dbt_packages";
     let Ok(content) = tokio::fs::read_to_string(project_dir.join("dbt_project.yml")).await else {
         return Ok(DEFAULT.to_string());
@@ -1830,7 +1884,12 @@ async fn packages_install_path(project_dir: &Path) -> error::Result<String> {
         .and_then(|v| {
             v.get("packages-install-path")
                 .and_then(|p| p.as_str())
-                .map(|s| s.trim().trim_start_matches("./").to_string())
+                .map(|s| {
+                    render_env_vars(s, env)
+                        .trim()
+                        .trim_start_matches("./")
+                        .to_string()
+                })
         })
         .filter(|s| !s.is_empty());
     let Some(declared) = declared else {
@@ -2507,7 +2566,10 @@ async fn reconcile_materializations(
     if !progress.is_empty() {
         if let Err(e) = client.record_dbt_run_progress(&progress).await {
             // A display, not the run: the models are built either way.
-            tracing::warn!("recording dbt run progress for {} nodes: {e:#}", progress.len());
+            tracing::warn!(
+                "recording dbt run progress for {} nodes: {e:#}",
+                progress.len()
+            );
         }
     }
     out
@@ -2739,10 +2801,7 @@ async fn run_show(
     // loads it, which would write a relation through a path that records no
     // materialization and no graph. A comma is dbt's own intersection, the same
     // one `package:` already uses here, so a seed simply selects nothing.
-    cmd.args([
-        "--select",
-        &format!("{},resource_type:model", model.trim()),
-    ]);
+    cmd.args(["--select", &format!("{},resource_type:model", model.trim())]);
     let limit = show_limit(arg_i64(&inv.args, "limit")?);
     cmd.args(["--output", "json", "--limit", &limit.to_string()]);
     let stdout = run_capturing(
@@ -5013,22 +5072,73 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         let write = |yml: &str| std::fs::write(root.join("dbt_project.yml"), yml).unwrap();
+        let none = HashMap::new();
 
         write("name: p\n");
-        assert_eq!(packages_install_path(root).await.unwrap(), "dbt_packages");
+        assert_eq!(
+            packages_install_path(root, &none).await.unwrap(),
+            "dbt_packages"
+        );
         write("name: p\npackages-install-path: ./vendor\n");
-        assert_eq!(packages_install_path(root).await.unwrap(), "vendor");
+        assert_eq!(packages_install_path(root, &none).await.unwrap(), "vendor");
         // Unset and empty are the default; an escaping one is refused rather
         // than replaced, since dbt reads the file itself and would honour it.
         write("name: p\npackages-install-path: \"\"\n");
-        assert_eq!(packages_install_path(root).await.unwrap(), "dbt_packages");
+        assert_eq!(
+            packages_install_path(root, &none).await.unwrap(),
+            "dbt_packages"
+        );
         for escape in ["/etc", "../../etc", "a/../../b"] {
             write(&format!("name: p\npackages-install-path: \"{escape}\"\n"));
             assert!(
-                packages_install_path(root).await.is_err(),
+                packages_install_path(root, &none).await.is_err(),
                 "{escape} must not be honoured"
             );
         }
+        // An escaping value the ENVIRONMENT supplies is refused just the same:
+        // rendering happens before the check, not after it.
+        write("name: p\npackages-install-path: \"{{ env_var('D') }}\"\n");
+        let escaping = HashMap::from([("D".to_string(), "../out".to_string())]);
+        assert!(packages_install_path(root, &escaping).await.is_err());
+    }
+
+    // dbt renders `env_var()` in `dbt_project.yml`, so the profile it looks up
+    // and the directory `dbt deps` fills are the RENDERED ones. Reading the
+    // template instead leaves a project that runs everywhere else unable to find
+    // its profile, and its package cache watching a directory nothing fills.
+    #[tokio::test]
+    async fn a_projects_settings_are_rendered_with_the_runs_environment() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(
+            root.join("dbt_project.yml"),
+            "name: p\nprofile: \"{{ env_var('DBT_PROFILE', 'analytics') }}\"\n\
+             packages-install-path: \"{{ env_var('PKGS', 'vendor') }}\"\n",
+        )
+        .unwrap();
+
+        let none = HashMap::new();
+        assert_eq!(project_profile_name(root, &none).await, "analytics");
+        assert_eq!(packages_install_path(root, &none).await.unwrap(), "vendor");
+
+        let set = HashMap::from([
+            ("DBT_PROFILE".to_string(), "prod".to_string()),
+            ("PKGS".to_string(), "deps".to_string()),
+        ]);
+        assert_eq!(project_profile_name(root, &set).await, "prod");
+        assert_eq!(packages_install_path(root, &set).await.unwrap(), "deps");
+
+        // Neither set nor defaulted: left verbatim, so dbt reports it rather
+        // than Windmill inventing a name.
+        std::fs::write(
+            root.join("dbt_project.yml"),
+            "name: p\nprofile: \"{{ env_var('DBT_PROFILE') }}\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            project_profile_name(root, &none).await,
+            "{{ env_var('DBT_PROFILE') }}"
+        );
     }
 
     // A retry rewrites `run_results.json` with only the nodes it redid, so the

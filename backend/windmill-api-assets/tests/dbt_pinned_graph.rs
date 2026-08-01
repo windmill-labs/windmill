@@ -65,10 +65,30 @@ async fn seed(db: &Pool<Postgres>, job: uuid::Uuid) {
     .await
     .unwrap();
     sqlx::query!(
-        "INSERT INTO dbt_node (workspace_id, script_path, script_hash, job_id, unique_id,
-                               resource_type, name, asset_path, raw_code, tags)
-         VALUES ($1, $2, $3, $4, 'model.p.orders', 'model', 'orders',
-                 'u/a/wh/analytics/orders', 'select 1', '{}')",
+        r#"INSERT INTO dbt_node (workspace_id, script_path, script_hash, job_id, unique_id,
+                                 resource_type, name, asset_path, raw_code, tags, description,
+                                 columns, freshness)
+           VALUES ($1, $2, $3, $4, 'model.p.orders', 'model', 'orders',
+                   'u/a/wh/analytics/orders', 'select 1', '{finance}', 'daily order facts',
+                   '{"order_id": {"description": "natural key"}}'::jsonb,
+                   '{"warn_after": {"count": 12, "period": "hour"}}'::jsonb)"#,
+        WS,
+        PATH,
+        HASH,
+        job
+    )
+    .execute(db)
+    .await
+    .unwrap();
+    // A test node, for the arguments it carries: `accepted_values` spells out a
+    // column's domain.
+    sqlx::query!(
+        r#"INSERT INTO dbt_node (workspace_id, script_path, script_hash, job_id, unique_id,
+                                 resource_type, name, tags, test_kind, test_column, test_args,
+                                 attached_node)
+           VALUES ($1, $2, $3, $4, 'test.p.accepted_values_orders_status', 'test',
+                   'accepted_values_orders_status', '{}', 'accepted_values', 'status',
+                   '{"values": ["gold", "silver"]}'::jsonb, 'model.p.orders')"#,
         WS,
         PATH,
         HASH,
@@ -79,14 +99,24 @@ async fn seed(db: &Pool<Postgres>, job: uuid::Uuid) {
     .unwrap();
 }
 
+/// Everything on a node that the project's author wrote, rather than the shape
+/// of the relation it produces.
+const AUTHORED: [&str; 5] = [
+    "select 1",
+    "daily order facts",
+    "finance",
+    "natural key",
+    "gold",
+];
+
 fn query() -> GraphQuery {
     GraphQuery { asset_kinds: Some("dbt".to_string()), folder: None, dbt_script_hash: None }
 }
 
-/// Pinned to a run they are entitled to, the outsider gets the model — and not
-/// its SQL. Both halves matter: dropping the first is the blank Models panel
-/// under working progress rows, dropping the second hands out the project's
-/// source to anyone holding a link.
+/// Pinned to a run they are entitled to, the outsider gets the model — and
+/// nothing its author wrote. Both halves matter: dropping the first is the blank
+/// Models panel under working progress rows, dropping the second hands the
+/// project's source and documentation to anyone holding a link.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn a_pinned_run_survives_no_access_to_its_script(db: Pool<Postgres>) {
     let job = uuid::Uuid::from_u128(7);
@@ -118,10 +148,36 @@ async fn a_pinned_run_survives_no_access_to_its_script(db: Pool<Postgres>) {
         serde_json::json!(job),
         "and the marker must agree with it, or the page polls the graph 40 times"
     );
+    for authored in AUTHORED {
+        assert!(
+            !body.to_string().contains(authored),
+            "`{authored}` is the project's, and stays behind access to it: {body}"
+        );
+    }
     assert!(
-        !body.to_string().contains("select 1"),
-        "the model's SQL stays behind access to the script: {body}"
+        body.to_string().contains("u/a/wh/analytics/orders"),
+        "while the relation the run wrote is what the page is for: {body}"
     );
+
+    // The same read by someone who may open the project: the gate has to be the
+    // caller's access, not a field this endpoint stopped serving.
+    let seen = asset_graph_for(
+        &ApiAuthed { is_admin: true, ..outsider() },
+        WS,
+        UserDB::new(db.clone()),
+        db.clone(),
+        query(),
+        Some(PinnedRun { job_id: job, script_path: PATH.to_string(), script_hash: HASH }),
+    )
+    .await
+    .unwrap();
+    let seen = serde_json::to_value(&seen.0).unwrap().to_string();
+    for authored in AUTHORED {
+        assert!(
+            seen.contains(authored),
+            "`{authored}` renders for a reader of the project: {seen}"
+        );
+    }
 }
 
 /// Unpinned, the same caller sees nothing of the project: the workspace graph
@@ -179,15 +235,28 @@ async fn archiving_the_script_leaves_its_finished_runs_renderable(db: Pool<Postg
     .await
     .unwrap();
     assert!(
-        serde_json::to_value(&res.0).unwrap().to_string().contains("orders"),
+        serde_json::to_value(&res.0)
+            .unwrap()
+            .to_string()
+            .contains("orders"),
         "a completed run of an archived version still renders its models"
     );
 
-    let now = asset_graph_for(&admin, WS, UserDB::new(db.clone()), db.clone(), query(), None)
-        .await
-        .unwrap();
+    let now = asset_graph_for(
+        &admin,
+        WS,
+        UserDB::new(db.clone()),
+        db.clone(),
+        query(),
+        None,
+    )
+    .await
+    .unwrap();
     assert!(
-        !serde_json::to_value(&now.0).unwrap().to_string().contains("model.p.orders"),
+        !serde_json::to_value(&now.0)
+            .unwrap()
+            .to_string()
+            .contains("model.p.orders"),
         "while the workspace graph, which describes what is live, drops it"
     );
 }

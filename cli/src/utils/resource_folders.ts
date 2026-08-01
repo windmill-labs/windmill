@@ -678,6 +678,36 @@ const DBT_GENERATED_DIRS = ["target", "dbt_packages", "logs", ".git", ".venv", "
 
 const dbtGeneratedDirsCache = new Map<string, Set<string>>();
 
+/** `{{ env_var('NAME') }}` / `{{ env_var("NAME", "default") }}`. */
+const DBT_ENV_VAR_CALL =
+  /\{\{\s*env_var\(\s*['"]([^'"]+)['"]\s*(?:,\s*['"]([^'"]*)['"]\s*)?\)\s*\}\}/g;
+
+/**
+ * Render `dbt_project.yml`'s own `env_var()` calls, which dbt allows there too.
+ * A directory setting left as its template names no directory on disk, so the
+ * generated tree it points at would be bundled as project source.
+ *
+ * Against `process.env`, because the CLI runs where the project was built: that
+ * is the environment dbt used to produce the tree being read.
+ */
+export function renderDbtEnvVars(value: string): string {
+  return value.replace(
+    DBT_ENV_VAR_CALL,
+    (whole, name: string, fallback: string | undefined) =>
+      process.env[name] ?? fallback ?? whole,
+  );
+}
+
+/**
+ * Files that keep a project's secrets next to it rather than in it: dbt reads
+ * none of them (`env_var()` takes the process environment), and the documented
+ * way into a bundle is `cp -r my-project/.`, which copies whatever the checkout
+ * holds — including the `.env` a `.gitignore` was keeping out of the repo.
+ */
+export function isLocalSecretFile(name: string): boolean {
+  return name === ".env" || name.startsWith(".env.") || name === ".envrc";
+}
+
 /**
  * Directories to leave out of a dbt project's module bundle, as project-relative
  * paths — `target-path` and friends may be nested (`build/target`).
@@ -691,7 +721,7 @@ export function dbtGeneratedDirs(moduleFolderPath: string): Set<string> {
   if (cached) return cached;
   const dirs = new Set<string>(DBT_GENERATED_DIRS);
   const add = (raw: string) => {
-    const v = normalizeSep(raw.trim().replace(/^["']|["']$/g, ""))
+    const v = normalizeSep(renderDbtEnvVars(raw).trim().replace(/^["']|["']$/g, ""))
       .replace(/^\.\//, "")
       .replace(/\/+$/, "");
     // A configured path that escapes the project is dbt's problem, not ours;
@@ -767,7 +797,10 @@ export function isDbtGeneratedPath(p: string): boolean {
   // must not keep offering it as a pending change. An OVERSIZED one is the
   // exception — see `moduleFileExclusion`: hiding it here is what would make an
   // edit to a large seed report no change at all.
-  return moduleFileExclusion(p) === "binary";
+  return (
+    isLocalSecretFile(n.slice(n.lastIndexOf("/") + 1)) ||
+    moduleFileExclusion(p) === "binary"
+  );
 }
 
 /**

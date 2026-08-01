@@ -73,6 +73,7 @@ import {
   getModuleFolderSuffix,
   dbtGeneratedDirs,
   isUnderGeneratedDir,
+  isLocalSecretFile,
   moduleFileExclusion,
   oversizedModuleFileError,
   MAX_MODULE_BYTES,
@@ -760,6 +761,17 @@ export async function readModulesFromDisk(
         !isEntryPointFile(entry.name, isTopLevel)
       ) {
         if (verbatim) {
+          // Secrets stay on the machine that holds them. Skipped before the
+          // read, and loudly: a `.env` swept into the bundle is a credential
+          // stored in every version of the script and handed back on pull.
+          if (isLocalSecretFile(entry.name)) {
+            log.warn(
+              `Skipping ${relPath}: a local secrets file is not part of the dbt project — ` +
+                `dbt reads its values from the environment, so set them in the script's ` +
+                `environment variables or the descriptor's \`env\``,
+            );
+            continue;
+          }
           // A dbt project's authored files are text. A binary one -- an image
           // under `docs/`, a `.DS_Store`, a parquet seed -- would be read as
           // mojibake and, if it carries a NUL, rejected by Postgres with an

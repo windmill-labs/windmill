@@ -1296,27 +1296,24 @@ pub async fn asset_graph_for(
                   n.materialized, n.materialize_strategy, n.tags AS "tags!", n.description,
                   n.test_kind, n.test_column, n.test_args, n.severity, n.attached_node,
                   n.columns, n.freshness,
-                  -- The model's SQL is the project's source code, and this query
-                  -- deliberately reaches outside the requested folder so an
-                  -- in-scope consumer can explain the relation it reads. That is
-                  -- fine for the relation's shape, not for its body: `dbt_node`
-                  -- carries no RLS of its own, so the body is returned only when
-                  -- the caller can see the script that produced it. This runs in
-                  -- the authed transaction, so `script`'s RLS answers it.
-                  -- Matched on the HASH as well: `extra_perms` is per row, so a
-                  -- path recreated with narrower ones leaves the archived version
+                  n.raw_code, n.original_file_path,
+                  -- Whether the caller may read the project this row describes.
+                  -- The query deliberately reaches outside the requested folder
+                  -- so an in-scope consumer can explain the relation it reads,
+                  -- and `dbt_node` carries no RLS of its own; the relation's
+                  -- SHAPE is fine to answer that way, everything the project's
+                  -- author WROTE is not. Applied in Rust, over one predicate, so
+                  -- the fields it covers are named in one place. This runs in the
+                  -- authed transaction, so `script`'s RLS answers it. Matched on
+                  -- the HASH as well: `extra_perms` is per row, so a path
+                  -- recreated with narrower ones leaves the archived version
                   -- readable, and a path-only probe would answer for THAT grant
                   -- while returning this version's source.
-                  CASE WHEN EXISTS (
+                  EXISTS (
                       SELECT 1 FROM script sc
                        WHERE sc.workspace_id = n.workspace_id AND sc.path = n.script_path
                          AND sc.hash = n.script_hash
-                  ) THEN n.raw_code END AS raw_code,
-                  CASE WHEN EXISTS (
-                      SELECT 1 FROM script sc
-                       WHERE sc.workspace_id = n.workspace_id AND sc.path = n.script_path
-                         AND sc.hash = n.script_hash
-                  ) THEN n.original_file_path END AS original_file_path
+                  ) AS "script_visible!"
              FROM dbt_node n
              JOIN live l ON l.path = n.script_path AND l.hash = n.script_hash
              -- Every join onto `dbt_node` needs this, not just the scoping CTE:
@@ -1518,14 +1515,16 @@ pub async fn asset_graph_for(
         {
             *dbt_model_count.entry(r.script_path.clone()).or_default() += 1;
         }
-        // The model's SQL and its path in the project are the SCRIPT's source.
-        // RLS says whether the caller may see that script, but not whether a
-        // scoped token may: this endpoint is authorized as `assets:read`, so a
-        // token deliberately narrowed to it would otherwise read source for
-        // scripts outside its `scripts:read` paths. Same predicate the macro
-        // endpoint above applies, and the shape of the relation is unaffected —
-        // only its body is withheld.
-        let source_allowed = dbt_source_scope(&r.script_path);
+        // What the project's author WROTE — the model's SQL, its path in the
+        // repo, the prose and labels around it — as opposed to the shape of the
+        // relation it produces. RLS says whether the caller may see the script,
+        // but not whether a scoped token may: this endpoint is authorized as
+        // `assets:read`, so a token deliberately narrowed to it would otherwise
+        // read a project outside its `scripts:read` paths. Both answers gate the
+        // same set of fields, because a share-link viewer entitled to the RUN is
+        // not thereby entitled to the documentation of a project they cannot
+        // open.
+        let source_allowed = r.script_visible && dbt_source_scope(&r.script_path);
         let candidate = DbtAssetProvenance {
             raw_code: r.raw_code.clone().filter(|_| source_allowed),
             original_file_path: r.original_file_path.clone().filter(|_| source_allowed),
@@ -1533,11 +1532,15 @@ pub async fn asset_graph_for(
             resource_type: r.resource_type.clone(),
             materialized: r.materialized.clone(),
             materialize_strategy: r.materialize_strategy.clone(),
-            tags: r.tags.clone(),
-            description: r.description.clone(),
+            tags: if source_allowed {
+                r.tags.clone()
+            } else {
+                vec![]
+            },
+            description: r.description.clone().filter(|_| source_allowed),
             data_tests: vec![],
-            columns: r.columns.clone(),
-            freshness: r.freshness.clone(),
+            columns: r.columns.clone().filter(|_| source_allowed),
+            freshness: r.freshness.clone().filter(|_| source_allowed),
         };
         // One relation can carry rows from several projects — typically a model
         // in one and a source declaring it in another. The producer describes
@@ -1589,7 +1592,14 @@ pub async fn asset_graph_for(
         let test = DbtDataTest {
             kind: r.test_kind.clone().unwrap_or_else(|| r.name.clone()),
             column: r.test_column.clone(),
-            args: r.test_args.clone(),
+            // The test's kind and column are the badge's shape, already spelled
+            // out by its `unique_id`. Its arguments are authored data — an
+            // `accepted_values` list is a column's domain — so they follow the
+            // same gate as the model's own source.
+            args: r
+                .test_args
+                .clone()
+                .filter(|_| r.script_visible && dbt_source_scope(&r.script_path)),
             // dbt-core 1.x echoes the author's casing, 2.x uppercases; fold so
             // the badge reads the same whichever engine deployed the script.
             severity: r.severity.as_deref().map(|s| s.to_ascii_lowercase()),
