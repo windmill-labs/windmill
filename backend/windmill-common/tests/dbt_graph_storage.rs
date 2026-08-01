@@ -234,13 +234,11 @@ async fn clearing_one_version_leaves_the_others(db: Pool<Postgres>) {
     assert_eq!(edges_for(&db, 2).await, 1, "the other version keeps its own");
 }
 
-/// The routes that hard-delete a path clear no graph rows of their own: they
-/// delete the `script` rows and let `ON DELETE CASCADE` take the sidecars, since
-/// taking those first would lock them ahead of the script row — the reverse of a
-/// concurrent publication's order, which Postgres breaks by aborting one of the
-/// two. So the cascade has to reach every sidecar, markers included: a marker
-/// standing for rows that are gone is read as a snapshot, and its digest still
-/// answers the suppression check.
+/// The routes that hard-delete a path clear no graph rows: they delete the
+/// `script` rows and let `ON DELETE CASCADE` take the sidecars, since taking
+/// those first would lock them ahead of the script row and deadlock a concurrent
+/// publication. So the cascade has to reach every sidecar, snapshots and markers
+/// included.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn deleting_the_script_cascades_to_every_sidecar(db: Pool<Postgres>) {
     deploy_script(&db, 1).await;
