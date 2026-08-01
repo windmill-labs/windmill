@@ -2466,7 +2466,17 @@ async fn test_schedule_group_permissioned_as(db: Pool<Postgres>) -> anyhow::Resu
         "edited_by should be the deploying user, not the group"
     );
 
-    // A group has no address of its own, so the synthetic one can only come from deriving it.
+    // Writes put the derived address in the column too, so a response that read the row would
+    // look identical to one that derived. Desynchronise them to tell the two apart: the reply
+    // must be the address `g/all` derives to, not the one sitting in the row.
+    sqlx::query!(
+        "UPDATE schedule SET email = 'stale@windmill.dev' WHERE path = $1 AND workspace_id = $2",
+        "u/test-user/schedule_group_perm",
+        "test-workspace"
+    )
+    .execute(&db)
+    .await?;
+
     let resp = authed(
         client().get(format!("{base}/schedules/get/u/test-user/schedule_group_perm")),
         "SECRET_TOKEN",
@@ -2477,7 +2487,7 @@ async fn test_schedule_group_permissioned_as(db: Pool<Postgres>) -> anyhow::Resu
     assert_eq!(
         returned["email"].as_str(),
         Some("group-all@windmill.dev"),
-        "the schedule response derives the address from the principal"
+        "the schedule response derives the address from the principal, not from the column"
     );
 
     Ok(())
