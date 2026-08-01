@@ -125,13 +125,17 @@ pub async fn handle_child(
     let pid = child.id();
     #[cfg(target_os = "linux")]
     if let Some(pid) = pid {
+        let oom_score_adj = *windmill_common::worker::JOB_OOM_SCORE_ADJ;
         // procfs handles writes synchronously in-kernel; no fsync (it returns
         // EINVAL on procfs files).
-        match std::fs::write(format!("/proc/{pid}/oom_score_adj"), b"1000") {
+        match std::fs::write(
+            format!("/proc/{pid}/oom_score_adj"),
+            oom_score_adj.to_string(),
+        ) {
             Ok(()) => {}
             Err(e) => {
                 tracing::error!(
-                    "Failed to set oom_score_adj=1000 for pid {pid}: {e:#}. \
+                    "Failed to set oom_score_adj={oom_score_adj} for pid {pid}: {e:#}. \
                     OOM killer may target the worker instead of this job"
                 );
             }
