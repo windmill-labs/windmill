@@ -3,7 +3,7 @@ import { base } from '$lib/base'
 import type { Schema, SupportedLanguage } from './common'
 import { FlowService, type Script, ScriptService, ScheduleService } from './gen'
 import { hubBaseUrlStore, workspaceStore } from './stores'
-import { getHubFlowIdFromPath } from './utils'
+import { getHubFlowIdFromPath, getLocalSetting } from './utils'
 
 export function scriptLangToEditorLang(
 	lang:
@@ -194,7 +194,25 @@ export function processInlineLangs(selected: string | undefined, langs: string[]
 	return processLangs(selected, langs).filter((l) => !LANGS_NEEDING_MODULES.includes(l))
 }
 
+/**
+ * dbt is not offered as a language for a NEW script: a project bundle is a poor
+ * fit for the generic script editor, and it is moving to one of its own.
+ * Existing dbt scripts still open, run and deploy — `selected` keeps the entry
+ * so one of them still shows its own language in the picker.
+ *
+ * `localStorage.setItem('dbt_language', 'true')` offers it again.
+ */
+const DBT_LANGUAGE_SETTING = 'dbt_language'
+
+export function dbtLanguageOffered(selected?: string): boolean {
+	return selected === 'dbt' || getLocalSetting(DBT_LANGUAGE_SETTING) === 'true'
+}
+
 export function processLangs(selected: string | undefined, langs: string[]): string[] {
+	return processAllLangs(selected, langs).filter((l) => l !== 'dbt' || dbtLanguageOffered(selected))
+}
+
+function processAllLangs(selected: string | undefined, langs: string[]): string[] {
 	if (selected === 'nativets') {
 		return langs
 	} else {
