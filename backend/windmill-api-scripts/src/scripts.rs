@@ -71,6 +71,7 @@ use windmill_common::{
         ScriptHistory, ScriptHistoryUpdate, ScriptKind, ScriptLang, ScriptModule,
         ScriptWithStarred,
     },
+    triggers::MovedNativeTrigger,
     users::username_to_permissioned_as,
     utils::{not_found_if_none, query_elems_from_hub, require_admin, Pagination, StripPath},
     worker::to_raw_value,
@@ -499,6 +500,35 @@ async fn get_top_hub_scripts(
     Ok::<_, Error>((status_code, headers, response))
 }
 
+/// Re-point the webhooks of the native triggers a rename carried onto the new path.
+///
+/// Runs after the deploy transaction commits — repointing a webhook is not undoable — and off the
+/// request, because it waits on a third-party service that may be slow or gone, and a deploy that
+/// already committed must not look like it failed. The rename itself marked these rows
+/// `REREGISTRATION_PENDING`, so nothing is lost silently if this never finishes.
+fn reregister_moved_native_triggers(
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    moved: Vec<MovedNativeTrigger>,
+) {
+    if moved.is_empty() {
+        return;
+    }
+    #[cfg(feature = "native_trigger")]
+    {
+        let (db, authed, w_id) = (db.clone(), authed.clone(), w_id.to_string());
+        tokio::spawn(async move {
+            windmill_native_triggers::rename::reregister_triggers_after_rename(
+                &db, &authed, &w_id, &moved,
+            )
+            .await;
+        });
+    }
+    #[cfg(not(feature = "native_trigger"))]
+    let _ = (db, authed, w_id, moved);
+}
+
 async fn create_snapshot_script(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -513,6 +543,7 @@ async fn create_snapshot_script(
     let mut tx = None;
     let mut uploaded = false;
     let mut handle_deployment_metadata = None;
+    let mut moved_native_triggers = Vec::new();
     while let Some(field) = multipart.next_field().await.unwrap() {
         let name = field.name().unwrap().to_string();
         let data = field.bytes().await.unwrap();
@@ -520,7 +551,7 @@ async fn create_snapshot_script(
             let ns: NewScript = Some(serde_json::from_slice(&data).map_err(to_anyhow)?).unwrap();
             let is_tar = ns.codebase.as_ref().is_some_and(|x| x.ends_with(".tar"));
             let use_esm = ns.codebase.as_ref().is_some_and(|x| x.contains(".esm"));
-            let (new_hash, ntx, hdm) = create_script_internal(
+            let (new_hash, ntx, hdm, moved) = create_script_internal(
                 ns,
                 w_id.clone(),
                 authed.clone(),
@@ -540,6 +571,7 @@ async fn create_snapshot_script(
             script_hash = Some(nh);
             tx = Some(ntx);
             handle_deployment_metadata = hdm;
+            moved_native_triggers = moved;
         }
         if name == "file" {
             let hash = script_hash.as_ref().ok_or_else(|| {
@@ -570,6 +602,7 @@ async fn create_snapshot_script(
     }
 
     tx.unwrap().commit().await?;
+    reregister_moved_native_triggers(&db, &authed, &w_id, moved_native_triggers);
     if let Some(hdm) = handle_deployment_metadata {
         hdm.handle(&db).await?;
     }
@@ -627,7 +660,8 @@ async fn create_script(
     let script_path = ns.path.clone();
     let email = authed.email.clone();
     let username = authed.username.clone();
-    let (hash, tx, hdm) = create_script_internal(
+    let authed_for_triggers = authed.clone();
+    let (hash, tx, hdm, moved_native_triggers) = create_script_internal(
         ns,
         w_id.clone(),
         authed,
@@ -638,6 +672,7 @@ async fn create_script(
     )
     .await?;
     tx.commit().await?;
+    reregister_moved_native_triggers(&db, &authed_for_triggers, &w_id, moved_native_triggers);
     if let Some(hdm) = hdm {
         // hdm is Some when no lock generation is needed (script is ready immediately).
         // Trigger CI tests for any items that reference this script.
@@ -934,6 +969,7 @@ async fn create_script_internal<'c>(
     ScriptHash,
     Transaction<'c, Postgres>,
     Option<HandleDeploymentMetadata>,
+    Vec<MovedNativeTrigger>,
 )> {
     if authed.is_operator {
         return Err(Error::NotAuthorized(
@@ -1124,10 +1160,16 @@ async fn create_script_internal<'c>(
                     parent_hash = %p_hash.0,
                     "Skipping no-op script deploy (identical to parent)"
                 );
-                return Ok((p_hash.clone(), tx, None));
+                return Ok((p_hash.clone(), tx, None, Vec::new()));
             }
 
             if ps.path != ns.path {
+                // A rename writes the source as much as the destination, and only the destination
+                // is scope-checked above. `require_owner_of_path` answers whether the *user* owns
+                // the source, never what their token is scoped to — so without this a path-scoped
+                // token could move a script it has no say over, taking its native triggers along
+                // and re-registering them under that token's identity.
+                check_scopes(&authed, || format!("scripts:write:{}", ps.path))?;
                 require_owner_of_path(&authed, &ps.path)?;
             }
 
@@ -1876,6 +1918,7 @@ async fn create_script_internal<'c>(
         }
     }
 
+    let mut moved_native_triggers = Vec::new();
     let p_path_opt = parent_hashes_and_perms.as_ref().map(|x| x.p_path.clone());
     if let Some(ref p_path) = p_path_opt {
         if !skip_draft_deletion {
@@ -1952,7 +1995,7 @@ async fn create_script_internal<'c>(
         .await?;
 
         if p_path != &ns.path {
-            windmill_common::triggers::update_triggers_script_path(
+            moved_native_triggers = windmill_common::triggers::update_triggers_script_path(
                 &mut tx, &ns.path, p_path, &w_id, false,
             )
             .await
@@ -2299,6 +2342,7 @@ async fn create_script_internal<'c>(
             &authed.email,
             permissioned_as,
             authed.token_prefix.as_deref(),
+            authed.username_override.as_deref(),
             None,
             None,
             None,
@@ -2335,7 +2379,7 @@ async fn create_script_internal<'c>(
         .execute(&mut *new_tx)
         .await?;
 
-        Ok((hash, new_tx, None))
+        Ok((hash, new_tx, None, moved_native_triggers))
     } else {
         if codebase.is_none() {
             let db2 = db.clone();
@@ -2400,6 +2444,7 @@ async fn create_script_internal<'c>(
                 deployment_message: ns.deployment_message,
                 renamed_from: p_path_opt,
             }),
+            moved_native_triggers,
         ))
     }
 }

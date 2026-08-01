@@ -83,7 +83,7 @@ mod schedule_push {
             script_lang: None,
             permissioned_as_email: schedule.email.clone(),
             flow_step_id: None,
-            trigger_kind: Some(JobTriggerKind::Schedule),
+            trigger_kind: Some(JobTriggerKind::Schedule.into()),
             trigger: Some(schedule.path.clone()),
             priority: None,
             concurrent_limit: None,

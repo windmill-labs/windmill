@@ -172,19 +172,28 @@ impl External for NextCloud {
             )
             .await?;
 
-        // Fetch back the updated state and convert to JSON config
-        let trigger_data = self
-            .get(w_id, oauth_data, external_id, db, tx)
-            .await?
-            .ok_or_else(|| {
-                Error::InternalErr(format!(
-                    "Failed to fetch back trigger {} after update",
-                    external_id
-                ))
-            })?;
-        serde_json::to_value(&trigger_data).map_err(|e| {
-            Error::internal_err(format!("Failed to convert trigger data to JSON: {}", e))
-        })
+        // The webhook is already updated at this point, so the read-back is an enrichment (it
+        // picks up whatever Nextcloud resolved server-side), not a second chance to fail. Failing
+        // here would report a webhook that is in fact installed as un-installed, and callers would
+        // then unwind a token the service is already using.
+        let read_back = match self.get(w_id, oauth_data, external_id, db, tx).await {
+            Ok(Some(trigger_data)) => serde_json::to_value(&trigger_data).ok(),
+            Ok(None) => None,
+            Err(e) => {
+                tracing::warn!(
+                    "Nextcloud webhook {external_id} was updated but could not be read back, \
+                     storing the requested config: {e:#}"
+                );
+                None
+            }
+        };
+
+        match read_back {
+            Some(config) => Ok(config),
+            None => serde_json::to_value(&data.service_config).map_err(|e| {
+                Error::internal_err(format!("Failed to convert trigger data to JSON: {}", e))
+            }),
+        }
     }
 
     async fn get(

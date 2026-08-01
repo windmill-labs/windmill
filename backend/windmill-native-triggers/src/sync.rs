@@ -12,6 +12,11 @@ use crate::{
     update_native_trigger_service_config, External, NativeTrigger,
 };
 
+/// The one `native_trigger.error` an existence check owns. Finding the trigger on the service
+/// may only clear this value: every other failure recorded there — a webhook left aimed at a
+/// pre-rename path, a channel that failed to renew — is one existence cannot disprove.
+pub const EXTERNAL_TRIGGER_MISSING_ERROR: &str = "Trigger no longer exists on external service";
+
 #[derive(Debug, Serialize)]
 pub struct TriggerSyncInfo {
     pub external_id: String,
@@ -290,7 +295,7 @@ pub async fn reconcile_with_external_state(
     for trigger in windmill_triggers {
         if !external_trigger_map.contains_key(&trigger.external_id) {
             // Trigger no longer exists on external service - set error
-            let error_msg = "Trigger no longer exists on external service".to_string();
+            let error_msg = EXTERNAL_TRIGGER_MISSING_ERROR.to_string();
 
             if trigger.error.as_deref() != Some(&error_msg) {
                 tracing::info!(
@@ -336,8 +341,10 @@ pub async fn reconcile_with_external_state(
             // Trigger exists on external service
             let external_service_config = external_trigger_map.get(&trigger.external_id).unwrap();
 
-            // Clear error if it was set
-            if trigger.error.is_some() {
+            // Only clear the error this reconciler itself sets. Existence says nothing about the
+            // failures other paths record — a webhook left aimed at a pre-rename path is present
+            // here yet still broken, and wiping its error would erase the only signal the user has.
+            if trigger.error.as_deref() == Some(EXTERNAL_TRIGGER_MISSING_ERROR) {
                 tracing::info!(
                     "Trigger (external_id: '{}', script_path: '{}') exists on external service, clearing error",
                     trigger.external_id,

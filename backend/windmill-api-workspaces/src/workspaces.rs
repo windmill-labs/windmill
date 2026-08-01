@@ -3051,13 +3051,19 @@ async fn edit_datatable_config(
 
     // Validate every persisted data table name and rename segment before
     // touching anything, since they become directory segments in migration
-    // storage/export keys (`migrations/datatable/<name>/...`).
+    // storage/export keys (`migrations/datatable/<name>/...`). Names being
+    // introduced take the stricter git-sync-safe charset; already-persisted ones
+    // keep the historical rule so an old name can still be saved and renamed.
     for name in new_config.settings.datatables.keys() {
-        crate::datatable_migrations::validate_datatable_path_segment(name)?;
+        if old_datatables.contains_key(name) {
+            crate::datatable_migrations::validate_datatable_path_segment(name)?;
+        } else {
+            crate::datatable_migrations::validate_new_datatable_name(name)?;
+        }
     }
     for r in &new_config.renames {
         crate::datatable_migrations::validate_datatable_path_segment(&r.from)?;
-        crate::datatable_migrations::validate_datatable_path_segment(&r.to)?;
+        crate::datatable_migrations::validate_new_datatable_name(&r.to)?;
     }
 
     // Map new name -> old name so a renamed data table inherits the previous
@@ -3124,16 +3130,25 @@ async fn edit_datatable_config(
     .execute(&mut *tx)
     .await?;
 
-    crate::datatable_migrations::cascade_datatable_migration_renames_and_deletes(
-        &db,
-        &mut tx,
-        &w_id,
-        &new_config.renames,
-        &new_config.deleted_datatables,
-    )
-    .await?;
+    let cascaded_migration_paths =
+        crate::datatable_migrations::cascade_datatable_migration_renames_and_deletes(
+            &db,
+            &mut tx,
+            &w_id,
+            &new_config.renames,
+            &new_config.deleted_datatables,
+        )
+        .await?;
 
     tx.commit().await?;
+
+    crate::datatable_migrations::record_datatable_cascade_deployments(
+        &authed,
+        &db,
+        &w_id,
+        cascaded_migration_paths,
+    )
+    .await?;
 
     Ok(format!("Edit datatable config for workspace {}", &w_id))
 }
@@ -5565,14 +5580,14 @@ async fn clone_triggers_and_schedules(
         r#"INSERT INTO azure_trigger (
             azure_resource_path, azure_mode, scope_resource_id, topic_name,
             subscription_name, event_type_filters, push_auth_config, path, script_path,
-            is_flow, workspace_id, edited_by, email, edited_at, extra_perms, server_id,
+            is_flow, workspace_id, edited_by, edited_at, extra_perms, server_id,
             last_server_ping, error, mode, permissioned_as, error_handler_path,
             error_handler_args, retry, labels
         )
         SELECT
             azure_resource_path, azure_mode, scope_resource_id, topic_name,
             subscription_name, event_type_filters, push_auth_config, path, script_path,
-            is_flow, $1, edited_by, email, edited_at, extra_perms, NULL,
+            is_flow, $1, edited_by, edited_at, extra_perms, NULL,
             NULL, NULL, 'disabled'::TRIGGER_MODE, permissioned_as, error_handler_path,
             error_handler_args, retry, labels
         FROM azure_trigger WHERE workspace_id = $2"#,
@@ -9915,6 +9930,8 @@ async fn load_workspace_authed(
             folders: vec![],
             scopes: base_authed.scopes.clone(),
             username_override: base_authed.username_override.clone(),
+            username_override_is_token_label: base_authed.username_override_is_token_label,
+            is_session_token: base_authed.is_session_token,
             token_prefix: base_authed.token_prefix.clone(),
             read_only: base_authed.read_only,
         });
@@ -9944,6 +9961,8 @@ async fn load_workspace_authed(
         folders,
         scopes: base_authed.scopes.clone(),
         username_override: base_authed.username_override.clone(),
+        username_override_is_token_label: base_authed.username_override_is_token_label,
+        is_session_token: base_authed.is_session_token,
         token_prefix: base_authed.token_prefix.clone(),
         read_only: base_authed.read_only,
     })

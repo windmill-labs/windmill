@@ -875,6 +875,7 @@ async fn push_subscriber(
         permissioned_as,
         Some(producer_path),
         None,
+        None,
         Some(producer_path.to_string()),
         None,
         None,

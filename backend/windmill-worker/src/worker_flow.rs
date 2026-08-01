@@ -4344,10 +4344,17 @@ async fn push_next_flow_job(
         let flow_root_job = get_root_job_id(&flow_job);
 
         // forward root job permissions to the new job
-        let job_perms: Option<Authed> =
-            get_job_perms(&mut *tx, &flow_root_job, &flow_job.workspace_id)
-                .await?
-                .map(|x| x.into());
+        let root_job_perms =
+            get_job_perms(&mut *tx, &flow_root_job, &flow_job.workspace_id).await?;
+        // The end user is a property of whoever triggered the root run, so every step (and
+        // transitively every subflow's step) must see the same WM_END_USER_EMAIL as the run.
+        // It is read from the root's `job_perms` rather than off `flow_job`: only a freshly
+        // pulled job carries `permissioned_as_end_user_email`, and every step past the first
+        // is pushed from a flow job re-fetched by `get_mini_pulled_job`, which does not.
+        let end_user_email = root_job_perms
+            .as_ref()
+            .and_then(|x| x.end_user_email.clone());
+        let job_perms: Option<Authed> = root_job_perms.map(|x| x.into());
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "computed perms for job {i} of {len}");
         let tag = resolve_flow_step_tag(
@@ -4425,6 +4432,7 @@ async fn push_next_flow_job(
                 "job-span-{}",
                 flow_job.flow_innermost_root_job.unwrap_or(flow_job.id)
             )),
+            None,
             scheduled_for_o,
             flow_job.schedule_path(),
             Some(flow_job.id),
@@ -4441,7 +4449,7 @@ async fn push_next_flow_job(
             new_job_priority_override,
             job_perms.as_ref(),
             continue_with_runners,
-            None,
+            end_user_email,
             None,
             None,
         )

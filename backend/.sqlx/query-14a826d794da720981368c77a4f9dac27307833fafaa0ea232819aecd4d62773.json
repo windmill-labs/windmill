@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE native_trigger\n        SET webhook_token_hash = $1, service_config = $2, error = NULL, updated_at = NOW()\n        WHERE\n            workspace_id = $3\n            AND service_name = $4\n            AND external_id = $5\n            AND updated_at = $6\n        RETURNING 1 AS \"applied!\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "applied!",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Jsonb",
+        "Text",
+        {
+          "Custom": {
+            "name": "native_trigger_service",
+            "kind": {
+              "Enum": [
+                "nextcloud",
+                "google",
+                "github"
+              ]
+            }
+          }
+        },
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "14a826d794da720981368c77a4f9dac27307833fafaa0ea232819aecd4d62773"
+}

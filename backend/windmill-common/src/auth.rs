@@ -43,6 +43,29 @@ pub fn is_user_token(label: Option<&str>) -> bool {
     }
 }
 
+/// Whether `label` belongs to a namespace only the server mints, and which therefore must be
+/// rejected by `create_token`. Narrower than [`is_user_token`], which also drives label
+/// editability and expiry notifications and can afford to reserve more: `Ephemeral lsp token`
+/// and `debugger-token` are minted by the editor and the debugger through that same handler,
+/// so reserving them would break those features.
+///
+/// `username_override_from_label` trusts a label to name the entity acting only if it is in
+/// here, so anything added must be unmintable by a member.
+pub fn is_server_minted_label(label: &str) -> bool {
+    label.starts_with("ephemeral-webhook-")
+        || label.starts_with("ephemeral-script-end-user-")
+        || label == "ephemeral-script"
+        || label == "session"
+        || label.starts_with("mcp-oauth-")
+}
+
+/// Whether `label` is the one minted for a browser session at login. [`is_server_minted_label`]
+/// stops a member minting it directly, but `/users/refresh_token` hands one to any authenticated
+/// caller, so this attributes a request to the UI without proving it: never gate authority on it.
+pub fn is_session_label(label: Option<&str>) -> bool {
+    label == Some("session")
+}
+
 /// Hash a raw token using SHA-256 (hex-encoded, 64 chars).
 /// Used to store and look up tokens without keeping plaintext in the DB.
 pub fn hash_token(token: &str) -> String {
@@ -266,6 +289,7 @@ pub struct JobPerms {
     pub is_operator: bool,
     pub groups: Vec<String>,
     pub folders: Vec<serde_json::Value>,
+    pub end_user_email: Option<String>,
 }
 
 impl From<JobPerms> for Authed {
@@ -487,7 +511,7 @@ pub async fn get_job_perms<'a, E: sqlx::PgExecutor<'a>>(
 ) -> sqlx::Result<Option<JobPerms>> {
     sqlx::query_as!(
         JobPerms,
-        "SELECT email, username, is_admin, is_operator, groups, folders FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
+        "SELECT email, username, is_admin, is_operator, groups, folders, end_user_email FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
         job_id,
         w_id
     )

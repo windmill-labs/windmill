@@ -197,7 +197,14 @@ export function createGitSyncContext(workspace: string) {
 				include_path: ['f/**'],
 				exclude_path: [],
 				extra_include_path: [],
-				include_type: ['script', 'flow', 'app', 'folder', 'workspacedependencies']
+				include_type: [
+					'script',
+					'flow',
+					'app',
+					'folder',
+					'workspacedependencies',
+					'datatablemigration'
+				]
 			},
 			exclude_types_override: [],
 			legacyImported: false,
@@ -417,7 +424,14 @@ export function createGitSyncContext(workspace: string) {
 							const defaultTypes: GitSyncObjectType[] =
 								workspaceLegacyIncludeType.length > 0
 									? [...workspaceLegacyIncludeType]
-									: ['script', 'flow', 'app', 'folder', 'workspacedependencies']
+									: [
+											'script',
+											'flow',
+											'app',
+											'folder',
+											'workspacedependencies',
+											'datatablemigration'
+										]
 
 							let repoSettings: SettingsObject
 							if (isRepoLegacy) {
@@ -447,7 +461,8 @@ export function createGitSyncContext(workspace: string) {
 										'flow',
 										'app',
 										'folder',
-										'workspacedependencies'
+										'workspacedependencies',
+										'datatablemigration'
 									]
 								}
 							}
@@ -675,7 +690,14 @@ export function createGitSyncContext(workspace: string) {
 				include_path: ['f/**'],
 				exclude_path: [],
 				extra_include_path: [],
-				include_type: ['script', 'flow', 'app', 'folder', 'workspacedependencies']
+				include_type: [
+					'script',
+					'flow',
+					'app',
+					'folder',
+					'workspacedependencies',
+					'datatablemigration'
+				]
 			},
 			exclude_types_override: [],
 			legacyImported: false,
@@ -705,7 +727,14 @@ export function createGitSyncContext(workspace: string) {
 				include_path: ['f/**'],
 				exclude_path: [],
 				extra_include_path: [],
-				include_type: ['script', 'flow', 'app', 'folder', 'workspacedependencies']
+				include_type: [
+					'script',
+					'flow',
+					'app',
+					'folder',
+					'workspacedependencies',
+					'datatablemigration'
+				]
 			},
 			exclude_types_override: [],
 			legacyImported: false,

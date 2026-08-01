@@ -1,5 +1,5 @@
 import type { Job } from '$lib/gen'
-import { triggerIconMap } from '$lib/components/triggers/utils'
+import { triggerDisplayNamesMap, triggerIconMap } from '$lib/components/triggers/utils'
 import { formatMemory } from '$lib/utils'
 import { flowPathToHref } from '$lib/scripts'
 import { Calendar, Bot } from 'lucide-svelte'
@@ -125,14 +125,13 @@ export function getTriggerInfo(job: Job): { type: string; icon: any; detail?: st
 	}
 
 	// Check for trigger type from job trigger_kind if available
-	if ('trigger_kind' in job) {
-		const triggerKind = (job as any).trigger_kind
-		if (triggerKind && triggerIconMap[triggerKind]) {
-			return {
-				type: getTriggerDisplayName(triggerKind),
-				icon: triggerIconMap[triggerKind],
-				detail: triggerKind
-			}
+	const triggerKind = job.trigger_kind
+	if (triggerKind && triggerKind in triggerIconMap) {
+		// No detail: unlike the schedule branch above, the kind carries no path to add,
+		// and repeating it would render as "Webhook: webhook".
+		return {
+			type: triggerDisplayNamesMap[triggerKind],
+			icon: triggerIconMap[triggerKind]
 		}
 	}
 
@@ -152,28 +151,6 @@ export function getTriggerInfo(job: Job): { type: string; icon: any; detail?: st
 	}
 
 	return null
-}
-
-/**
- * Gets human-readable display name for trigger kinds
- */
-function getTriggerDisplayName(triggerKind: string): string {
-	const displayNames: Record<string, string> = {
-		webhook: 'Webhook',
-		http: 'HTTP',
-		websocket: 'WebSocket',
-		postgres: 'PostgreSQL',
-		kafka: 'Kafka',
-		nats: 'NATS',
-		mqtt: 'MQTT',
-		sqs: 'SQS',
-		gcp: 'GCP Pub/Sub',
-		email: 'Email',
-		schedule: 'Schedule',
-		app: 'App',
-		ui: 'UI'
-	}
-	return displayNames[triggerKind] || triggerKind.toUpperCase()
 }
 
 /**
@@ -555,6 +532,12 @@ export function getRelevantFields(job: Job): FieldConfig[] {
 			if (fieldName === 'schedule_path') {
 				// Always show schedule_path when it exists, regardless of category configuration
 				return job.schedule_path !== null && job.schedule_path !== undefined
+			}
+			if (fieldName === 'trigger_info' && job.trigger_kind) {
+				// A stamped trigger kind is how the run was started, whatever the category — but
+				// only one `getTriggerInfo` can name, or the row renders empty. A schedule is
+				// left out because its own field already says the same thing.
+				return !job.schedule_path && job.trigger_kind in triggerIconMap
 			}
 			return fieldsPresence[fieldName]
 		})

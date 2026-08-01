@@ -102,7 +102,9 @@ import {
   gitSyncDeployPush,
   deriveGitSyncDeployIncludes,
   isForkWorkspace,
+  gitRecordedDatatableMigrationPaths,
   type GitSyncDeployItem,
+  type RecordedMigrationPaths,
 } from "../../utils/git.ts";
 import { Workspace } from "../workspace/workspace.ts";
 import { removePathPrefix } from "../../types.ts";
@@ -1923,6 +1925,8 @@ export async function elementsToMap(
         fileType === "workspace_dependencies"
       )
         continue;
+      if (skips.skipDatatableMigrations && fileType === "datatable_migration")
+        continue;
     } catch {
       // If getTypeStrFromPath can't determine the type, continue processing the file
     }
@@ -2046,6 +2050,7 @@ export interface Skips {
   skipApps?: boolean | undefined;
   skipFolders?: boolean | undefined;
   skipWorkspaceDependencies?: boolean | undefined;
+  skipDatatableMigrations?: boolean | undefined;
   skipScriptsMetadata?: boolean | undefined;
   includeSchedules?: boolean | undefined;
   includeTriggers?: boolean | undefined;
@@ -2791,6 +2796,7 @@ export async function ignoreF(wmillconf: {
   extraIncludes?: string[];
   skipResourceTypes?: boolean;
   skipWorkspaceDependencies?: boolean;
+  skipDatatableMigrations?: boolean;
   json?: boolean;
   includeUsers?: boolean;
   includeGroups?: boolean;
@@ -2855,6 +2861,14 @@ export async function ignoreF(wmillconf: {
         ) {
           return false; // Don't ignore workspace dependencies (they are always included unless explicitly skipped)
         }
+        // `migrations/datatable/**` is outside the u/f/g namespaces the path
+        // filters are written against, so the skip flag is its only control.
+        if (
+          !wmillconf.skipDatatableMigrations &&
+          fileType === "datatable_migration"
+        ) {
+          return false;
+        }
       } catch {
         // If getTypeStrFromPath can't determine the type, fall through to normal logic
       }
@@ -2866,6 +2880,46 @@ export async function ignoreF(wmillconf: {
         (!isDirectory && whitelist != undefined && !whitelist.approve(p)))
     );
   };
+}
+
+/**
+ * How many migration *records* a set of changed files covers. One migration is two
+ * files (`.up.sql` + optional `.down.sql`) for a single `(datatable, timestamp)`,
+ * so counting paths would overstate what a prompt is about to delete.
+ */
+export function countDatatableMigrationRecords(
+  changes: { path: string }[],
+): number {
+  const records = new Set<string>();
+  for (const c of changes) {
+    const parsed = parseDatatableMigrationPath(c.path);
+    if (parsed) records.add(`${parsed.datatable}\0${parsed.timestamp}`);
+  }
+  return records.size;
+}
+
+/**
+ * The `deleted` changes for data table migrations that a push cannot safely trust.
+ *
+ * Migrations bypass the repo's path filters (they live outside `f/`/`u/`), so a clone
+ * made before they were synced sees every server-side migration as remote-only — and
+ * `pushMigrationFromDisk` reads a locally absent `.up.sql` as an instruction to delete
+ * it. `recorded` is what this repository's own history says (see
+ * `gitRecordedDatatableMigrationPaths`): a recorded path was genuinely tracked, so its
+ * absence now is a real deletion; a path missing from a `known` set is one this branch
+ * has never had, and deleting it is a guess. `unknown` history is not evidence of
+ * anything, so nothing is trusted. The caller confirms whatever comes back explicitly
+ * and never deletes it unattended.
+ */
+export function untrackedDatatableMigrationDeletions<
+  T extends { name: string; path: string },
+>(changes: T[], recorded: RecordedMigrationPaths): T[] {
+  return changes.filter(
+    (c) =>
+      c.name === "deleted" &&
+      isDatatableMigrationPath(c.path) &&
+      !(recorded.kind === "known" && recorded.paths.has(c.path)),
+  );
 }
 
 interface ChangeTracker {
@@ -3339,6 +3393,7 @@ export async function pull(
     opts.includeSettings,
     opts.includeKey,
     opts.skipWorkspaceDependencies,
+    opts.skipDatatableMigrations,
     opts.defaultTs,
   );
 
@@ -4214,6 +4269,7 @@ export async function push(
       opts.includeSettings,
       opts.includeKey,
       opts.skipWorkspaceDependencies,
+      opts.skipDatatableMigrations,
       opts.defaultTs,
     ))!,
     !opts.json,
@@ -4517,6 +4573,44 @@ export async function push(
 
   await fetchRemoteVersion(workspace);
 
+  const recordedMigrationPaths: RecordedMigrationPaths = changes.some(
+    (c) => c.name === "deleted" && isDatatableMigrationPath(c.path),
+  )
+    ? gitRecordedDatatableMigrationPaths()
+    : { kind: "known", paths: new Set() };
+  const ambiguousMigrationDeletions = untrackedDatatableMigrationDeletions(
+    changes,
+    recordedMigrationPaths,
+  );
+  const keepAmbiguousMigrationsOnRemote = () => {
+    log.info(
+      colors.yellow(
+        `Keeping ${countDatatableMigrationRecords(ambiguousMigrationDeletions)} data table migration(s) on the remote: ` +
+          (recordedMigrationPaths.kind === "known"
+            ? `this branch has never tracked them. Run 'wmill sync pull' to track them in git, or delete them from the workspace.`
+            : `${recordedMigrationPaths.reason}, so whether it ever tracked them cannot be established. ` +
+              `${recordedMigrationPaths.remedy} so a real deletion can be told apart, or delete them from the workspace.`),
+      ),
+    );
+    const kept = changes.filter(
+      (c) => !ambiguousMigrationDeletions.includes(c),
+    );
+    changes.length = 0;
+    changes.push(...kept);
+  };
+  // An unattended run never resolves this ambiguity destructively, and a dry-run
+  // preview has to show what a push would really do — settle both before the
+  // change list is printed or serialized. A TTY push asks instead, after the
+  // user has seen the list.
+  let ambiguousMigrationsResolved = false;
+  if (
+    ambiguousMigrationDeletions.length > 0 &&
+    (opts.dryRun || opts.yes || !process.stdin.isTTY)
+  ) {
+    keepAmbiguousMigrationsOnRemote();
+    ambiguousMigrationsResolved = true;
+  }
+
   // Shared UI (the ui/ folder) is pushed out-of-band via pushSharedUi on apply
   // and is excluded from the file diff (isNotWmillFile), so surface its diff in
   // the dry-run preview. Without this the "Pull from repo" preview reads "no
@@ -4769,6 +4863,18 @@ export async function push(
       }))
     ) {
       return;
+    }
+
+    if (ambiguousMigrationDeletions.length > 0 && !ambiguousMigrationsResolved) {
+      const deleteThem = await Confirm.prompt({
+        message:
+          `Nothing in this repository's history accounts for ${countDatatableMigrationRecords(ambiguousMigrationDeletions)} migration definition(s), so it may simply never have synced them. ` +
+          `Delete them from the workspace anyway?`,
+        default: false,
+      });
+      if (!deleteThem) {
+        keepAmbiguousMigrationsOnRemote();
+      }
     }
 
     const start = performance.now();
@@ -5056,13 +5162,17 @@ export async function push(
                 newObj,
                 opts.plainSecrets ?? false,
                 alreadySynced,
-                opts.message,
-                originalWorkspaceSpecificPath,
-                permissionedAsContext,
-                isWsSpecific ? true : undefined,
                 {
-                  noninteractive: (opts.yes ?? false) || !process.stdin.isTTY,
-                  skipReencrypt: opts.skipReencryptOnKeyChange,
+                  message: opts.message,
+                  originalLocalPath: originalWorkspaceSpecificPath,
+                  permissionedAsContext,
+                  wsSpecific: isWsSpecific ? true : undefined,
+                  keyPushOpts: {
+                    noninteractive:
+                      (opts.yes ?? false) || !process.stdin.isTTY,
+                    skipReencrypt: opts.skipReencryptOnKeyChange,
+                  },
+                  defaultTs: opts.defaultTs,
                 },
               );
 
@@ -5187,13 +5297,17 @@ export async function push(
                 obj,
                 opts.plainSecrets ?? false,
                 [],
-                opts.message,
-                localFilePath, // Pass the actual local file path
-                permissionedAsContext,
-                isAddedWsSpecific ? true : undefined,
                 {
-                  noninteractive: (opts.yes ?? false) || !process.stdin.isTTY,
-                  skipReencrypt: opts.skipReencryptOnKeyChange,
+                  message: opts.message,
+                  originalLocalPath: localFilePath,
+                  permissionedAsContext,
+                  wsSpecific: isAddedWsSpecific ? true : undefined,
+                  keyPushOpts: {
+                    noninteractive:
+                      (opts.yes ?? false) || !process.stdin.isTTY,
+                    skipReencrypt: opts.skipReencryptOnKeyChange,
+                  },
+                  defaultTs: opts.defaultTs,
                 },
               );
 
@@ -5314,7 +5428,7 @@ export async function push(
                         undefined,
                         opts.plainSecrets ?? false,
                         alreadySynced,
-                        opts.message,
+                        { message: opts.message },
                       );
                     } else {
                       // Flow folder doesn't exist locally — delete on server
@@ -5359,7 +5473,7 @@ export async function push(
                         undefined,
                         opts.plainSecrets ?? false,
                         alreadySynced,
-                        opts.message,
+                        { message: opts.message },
                       );
                     } else {
                       // App folder doesn't exist locally — delete on server
@@ -5405,7 +5519,7 @@ export async function push(
                         undefined,
                         opts.plainSecrets ?? false,
                         alreadySynced,
-                        opts.message,
+                        { message: opts.message, defaultTs: opts.defaultTs },
                       );
                     } else {
                       // The entire raw app folder was deleted locally,

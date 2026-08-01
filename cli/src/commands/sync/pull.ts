@@ -84,6 +84,7 @@ export async function downloadZip(
   includeSettings?: boolean,
   includeKey?: boolean,
   skipWorkspaceDependencies?: boolean,
+  skipDatatableMigrations?: boolean,
   defaultTs?: "bun" | "deno"
 ): Promise<JSZip | TarAsZip | undefined> {
   const requestHeaders = new Headers();
@@ -107,7 +108,7 @@ export async function downloadZip(
     }&skip_secrets=${skipSecrets ?? false}&include_schedules=${includeSchedules ?? false
     }&include_triggers=${includeTriggers ?? false}&include_users=${includeUsers ?? false
     }&include_groups=${includeGroups ?? false}&include_settings=${includeSettings ?? false
-    }&include_key=${includeKey ?? false}&include_workspace_dependencies=${includeWorkspaceDependenciesValue}&default_ts=${defaultTs ?? "bun"}&skip_resource_types=${skipResourceTypes ?? false}&settings_version=v2&preserve_extra_perms=true`;
+    }&include_key=${includeKey ?? false}&include_workspace_dependencies=${includeWorkspaceDependenciesValue}&skip_datatable_migrations=${skipDatatableMigrations ?? false}&default_ts=${defaultTs ?? "bun"}&skip_resource_types=${skipResourceTypes ?? false}&settings_version=v2&preserve_extra_perms=true`;
 
   const baseUrl = workspace.remote + "api/w/" + workspace.workspaceId + "/workspaces/tarball?";
 

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n                id,\n                q.runnable_settings_handle,\n                q.workspace_id,\n                j.runnable_id as \"runnable_id: ScriptHash\",\n                scheduled_for,\n                parent_job,\n                flow_innermost_root_job,\n                runnable_path,\n                kind as \"kind: JobKind\",\n                started_at,\n                permissioned_as,\n                created_by,\n                script_lang as \"script_lang: ScriptLang\",\n                permissioned_as_email,\n                flow_step_id,\n                trigger_kind as \"trigger_kind: JobTriggerKind\",\n                trigger,\n                q.priority,\n                concurrent_limit,\n                q.tag,\n                cache_ttl,\n                cache_ignore_s3_path,\n                r.ping as last_ping,\n                worker,\n                memory_peak,\n                running\n            FROM v2_job_queue q\n                JOIN v2_job j USING (id)\n                LEFT JOIN v2_job_runtime r USING (id)\n                LEFT JOIN v2_job_status s USING (id)\n            WHERE j.id = $1",
+  "query": "SELECT\n                id,\n                q.runnable_settings_handle,\n                q.workspace_id,\n                j.runnable_id as \"runnable_id: ScriptHash\",\n                scheduled_for,\n                parent_job,\n                flow_innermost_root_job,\n                runnable_path,\n                kind as \"kind: JobKind\",\n                started_at,\n                permissioned_as,\n                created_by,\n                script_lang as \"script_lang: ScriptLang\",\n                permissioned_as_email,\n                flow_step_id,\n                trigger_kind as \"trigger_kind: TriggerKindLabel\",\n                trigger,\n                q.priority,\n                concurrent_limit,\n                q.tag,\n                cache_ttl,\n                cache_ignore_s3_path,\n                r.ping as last_ping,\n                worker,\n                memory_peak,\n                running\n            FROM v2_job_queue q\n                JOIN v2_job j USING (id)\n                LEFT JOIN v2_job_runtime r USING (id)\n                LEFT JOIN v2_job_status s USING (id)\n            WHERE j.id = $1",
   "describe": {
     "columns": [
       {
@@ -143,7 +143,7 @@
       },
       {
         "ordinal": 15,
-        "name": "trigger_kind: JobTriggerKind",
+        "name": "trigger_kind: TriggerKindLabel",
         "type_info": {
           "Custom": {
             "name": "job_trigger_kind",
@@ -260,5 +260,5 @@
       false
     ]
   },
-  "hash": "b3771b690c5966272b1f42c9965bb6a8f961c119516e4c33dc928cd3b4f4edbc"
+  "hash": "9d331b63c901071a7e82c0a4a6859c77a37ef784fdac78ca1e7a971e141e780f"
 }

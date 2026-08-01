@@ -1,8 +1,9 @@
 use crate::{
     decrypt_oauth_data, delete_native_trigger, delete_token_by_hash, get_native_trigger,
-    list_native_triggers, rotate_webhook_token, store_native_trigger, update_native_trigger_error,
-    webhook_token_label, External, NativeTrigger, NativeTriggerConfig, NativeTriggerData,
-    ServiceName,
+    list_native_triggers, lock::TriggerLock, rotate_webhook_token, store_native_trigger,
+    sync::EXTERNAL_TRIGGER_MISSING_ERROR, update_native_trigger_error,
+    update_native_trigger_if_runnable_unchanged, webhook_token_label, webhook_token_scopes,
+    External, NativeTrigger, NativeTriggerConfig, NativeTriggerData, ServiceName,
 };
 use axum::{
     extract::{Path, Query},
@@ -52,6 +53,51 @@ async fn require_is_writer_on_runnable(
     }
 }
 
+/// A trigger may only point at a live runnable.
+///
+/// The webhook URL is built from this path, so a trigger pointed at a path the runnable has left
+/// keeps delivering there: for a flow the row is gone and the trigger vanishes from listings,
+/// for a script the abandoned version is still resolvable and fires stale code indefinitely. A
+/// client that loaded before a rename submits the old path in good faith, so this needs no
+/// concurrency to happen. The writer checks above do not cover it: they return early for admins
+/// and path owners without ever looking at the runnable.
+async fn require_runnable_exists(db: &DB, w_id: &str, path: &str, is_flow: bool) -> Result<()> {
+    let exists = if is_flow {
+        sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM flow WHERE path = $1 AND workspace_id = $2)",
+            path,
+            w_id
+        )
+        .fetch_one(db)
+        .await?
+    } else {
+        // Renaming a script archives the version at the old path instead of removing it, so a
+        // plain existence check would still accept a path the script has moved off. Every deploy
+        // archives its parent, leaving exactly one non-archived version at a live path and none
+        // at an abandoned one. Soft-delete sets `archived` too, and `deleted` is checked because
+        // it, not `archived`, is what stops a version from being resolved for execution.
+        sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND workspace_id = $2 \
+             AND archived = false AND deleted = false)",
+            path,
+            w_id
+        )
+        .fetch_one(db)
+        .await?
+    };
+
+    if exists.unwrap_or(false) {
+        Ok(())
+    } else {
+        Err(Error::BadRequest(format!(
+            "There is no {kind} at {path} to trigger. If the {kind} was renamed since this page \
+             was loaded, reload and try again; otherwise point this trigger at an existing {kind} \
+             or delete it.",
+            kind = if is_flow { "flow" } else { "script" }
+        )))
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ListQuery {
     pub page: Option<usize>,
@@ -72,7 +118,7 @@ pub struct CreateTriggerResponse {
     pub external_id: String,
 }
 
-async fn new_webhook_token(
+pub(crate) async fn new_webhook_token(
     tx: &mut PgConnection,
     db: &DB,
     authed: &ApiAuthed,
@@ -81,9 +127,7 @@ async fn new_webhook_token(
     workspace_id: &str,
     service_name: ServiceName,
 ) -> Result<String> {
-    let kind = if is_flow { "flows" } else { "scripts" };
-
-    let scopes = vec![format!("jobs:run:{kind}:{script_path}")];
+    let scopes = webhook_token_scopes(script_path, is_flow);
     let label = webhook_token_label(service_name);
     let expiration = service_name
         .webhook_token_expiration()
@@ -121,6 +165,7 @@ async fn create_native_trigger<T: External>(
         db.clone(),
     )
     .await?;
+    require_runnable_exists(&db, &workspace_id, &data.script_path, data.is_flow).await?;
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -225,10 +270,13 @@ async fn update_native_trigger_handler<T: External>(
         db.clone(),
     )
     .await?;
+    require_runnable_exists(&db, &workspace_id, &data.script_path, data.is_flow).await?;
 
     let integration_service = service_name.integration_service();
     let oauth_data: T::OAuthData =
         decrypt_oauth_data(&db, &workspace_id, integration_service).await?;
+
+    let lock = TriggerLock::acquire(&db, &workspace_id, service_name, &external_id).await?;
 
     let mut tx = user_db.clone().begin(&authed).await?;
 
@@ -260,7 +308,14 @@ async fn update_native_trigger_handler<T: External>(
         token
     } else {
         // Same runnable — rotate the token (mints a fresh label + expiration)
-        match rotate_webhook_token(&db, &existing.webhook_token_hash, service_name).await? {
+        match rotate_webhook_token(
+            &db,
+            &existing.webhook_token_hash,
+            service_name,
+            webhook_token_scopes(&data.script_path, data.is_flow),
+        )
+        .await?
+        {
             Some(rotated) => {
                 old_token_hash_to_delete = Some(rotated.old_token_hash);
                 rotated.new_token
@@ -302,7 +357,11 @@ async fn update_native_trigger_handler<T: External>(
         webhook_token,
     };
 
-    store_native_trigger(
+    // `existing` was read before the network call, and a rename writes `script_path` from the
+    // deploy transaction, which this lock does not cover. Writing a stale path back would undo the
+    // rename and drop the trigger out of every listing, so refuse the edit instead. The rename's
+    // own re-registration is queued behind this lock and puts the service back in step.
+    let applied = update_native_trigger_if_runnable_unchanged(
         &mut *tx,
         &workspace_id,
         service_name,
@@ -310,8 +369,17 @@ async fn update_native_trigger_handler<T: External>(
         &config,
         service_config,
         data.summary.as_deref(),
+        &existing.script_path,
+        existing.is_flow,
     )
     .await?;
+
+    if !applied {
+        return Err(Error::BadRequest(format!(
+            "The runnable of {external_id} was renamed while this trigger was being saved, so the \
+             edit was not applied. Reload and save again."
+        )));
+    }
 
     audit_log(
         &mut *tx,
@@ -325,6 +393,8 @@ async fn update_native_trigger_handler<T: External>(
     .await?;
 
     tx.commit().await?;
+
+    lock.release().await?;
 
     // Everything succeeded — clean up old token (best-effort)
     if let Some(old_hash) = old_token_hash_to_delete {
@@ -375,8 +445,10 @@ async fn get_native_trigger_handler<T: External>(
 
     let external_data = match native_trigger {
         Ok(Some(native_cfg)) => {
-            // Clear error if it was set
-            if windmill_trigger.error.is_some() {
+            // Only the "no longer exists" error is disproven by the trigger being there; other
+            // paths record failures (e.g. a webhook still aimed at a pre-rename path) that a
+            // successful fetch says nothing about.
+            if windmill_trigger.error.as_deref() == Some(EXTERNAL_TRIGGER_MISSING_ERROR) {
                 update_native_trigger_error(
                     &mut *tx,
                     &workspace_id,
@@ -390,7 +462,7 @@ async fn get_native_trigger_handler<T: External>(
         }
         Ok(None) => None,
         Err(Error::NotFound(_)) => {
-            let error_msg = "Trigger no longer exists on external service".to_string();
+            let error_msg = EXTERNAL_TRIGGER_MISSING_ERROR.to_string();
             tracing::warn!(
                 "Native trigger no longer exists on external service {}, setting error",
                 service_name
@@ -415,6 +487,8 @@ async fn get_native_trigger_handler<T: External>(
         Err(e) => return Err(e),
     };
 
+    tx.commit().await?;
+
     let full_resp = Json(FullTriggerResponse { windmill_data: windmill_trigger, external_data });
 
     Ok(full_resp)
@@ -428,6 +502,8 @@ async fn delete_native_trigger_handler<T: External>(
     Extension(user_db): Extension<UserDB>,
     Path((workspace_id, external_id)): Path<(String, String)>,
 ) -> Result<String> {
+    let lock = TriggerLock::acquire(&db, &workspace_id, service_name, &external_id).await?;
+
     let mut tx = user_db.begin(&authed).await?;
 
     let existing = get_native_trigger(&mut *tx, &workspace_id, service_name, &external_id)
@@ -482,6 +558,7 @@ async fn delete_native_trigger_handler<T: External>(
     .await?;
 
     tx.commit().await?;
+    lock.release().await?;
 
     Ok(format!("Native trigger deleted"))
 }

@@ -1957,14 +1957,6 @@ async fn change_user_email(
     .await?;
 
     sqlx::query!(
-        "UPDATE azure_trigger SET email = $1 WHERE email = $2",
-        &new_email,
-        &old_email
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query!(
         "UPDATE script SET on_behalf_of_email = $1 WHERE on_behalf_of_email = $2",
         &new_email,
         &old_email
@@ -2764,6 +2756,21 @@ async fn create_token(
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     check_token_create_rate_limit(&authed.username)?;
 
+    // `username_override_from_label` trusts a server-minted label to name the entity acting,
+    // so a forged one would put an arbitrary name in `created_by` and the audit trail.
+    // Deliberately narrower than the `is_user_token` guard on relabelling: the editor and the
+    // debugger mint their own tokens through this handler. Server-side mints bypass it by
+    // calling `create_token_internal` / `create_token_for_owner` directly.
+    if token_config
+        .label
+        .as_deref()
+        .is_some_and(windmill_common::auth::is_server_minted_label)
+    {
+        return Err(Error::BadRequest(
+            "label collides with a reserved system-token namespace".to_string(),
+        ));
+    }
+
     windmill_api_auth::ensure_scopes_within_caller(&authed, token_config.scopes.as_deref())?;
 
     let mut tx = db.begin().await?;
@@ -2798,19 +2805,19 @@ async fn impersonate(
             "impersonate_username is required".to_string(),
         ));
     }
-    // This route writes its own row rather than going through
-    // `create_token_internal`, so it repeats the guard: impersonation names its
-    // subject in `impersonate_email`, and a label that ALSO renames the caller
-    // would attribute this token's jobs to a third identity.
+    // This route writes its own row rather than going through the `create_token`
+    // handler, so it repeats that handler's guard: impersonation names its
+    // subject in `impersonate_email`, and a server-minted label — which
+    // `username_override_from_label` trusts to name the entity acting — would
+    // attribute this token's jobs to a third identity.
     if new_token
         .label
         .as_deref()
-        .is_some_and(windmill_api_auth::is_reserved_token_label)
+        .is_some_and(windmill_common::auth::is_server_minted_label)
     {
-        return Err(Error::BadRequest(format!(
-            "`{}` is a reserved token label",
-            new_token.label.unwrap_or_default()
-        )));
+        return Err(Error::BadRequest(
+            "label collides with a reserved system-token namespace".to_string(),
+        ));
     }
 
     let impersonated = new_token.impersonate_email.unwrap();
