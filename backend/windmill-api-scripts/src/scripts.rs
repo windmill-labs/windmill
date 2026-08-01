@@ -1012,7 +1012,8 @@ async fn create_script_internal<'c>(
 
     // Apply folder default_permissioned_as the first time a script is deployed
     // at this path. Check inside the transaction to avoid TOCTOU with concurrent deploys.
-    let explicit_preserve = ns.on_behalf_of_email.is_some()
+    let explicit_preserve = (ns.on_behalf_of_email.is_some()
+        || ns.on_behalf_of_permissioned_as.is_some())
         && ns.preserve_on_behalf_of.unwrap_or(false)
         && windmill_common::can_preserve_on_behalf_of(&authed);
     if !explicit_preserve && windmill_common::can_preserve_on_behalf_of(&authed) {

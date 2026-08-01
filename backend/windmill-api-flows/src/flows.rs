@@ -578,7 +578,8 @@ async fn create_flow(
 
     // Apply folder default_permissioned_as on create when the caller did not
     // explicitly preserve a value and the user can preserve.
-    let explicit_preserve = nf.on_behalf_of_email.is_some()
+    let explicit_preserve = (nf.on_behalf_of_email.is_some()
+        || nf.on_behalf_of_permissioned_as.is_some())
         && nf.preserve_on_behalf_of.unwrap_or(false)
         && windmill_common::can_preserve_on_behalf_of(&authed);
     if !explicit_preserve && windmill_common::can_preserve_on_behalf_of(&authed) {
@@ -1649,6 +1650,13 @@ async fn get_flow_by_path(
     };
 
     tx.commit().await?;
+
+    // The primary GET is what the CLI reads before a preserving push, so it must carry the
+    // derived address: without it the push sends neither half and the identity is cleared.
+    let mut flow_o = flow_o;
+    if let Some(fws) = flow_o.as_mut() {
+        fws.flow.on_behalf_of_email = derived_on_behalf_of_email(&db, &w_id, &fws.flow).await?;
+    }
 
     // No deployed row + `get_draft`: fall back to the draft table; see scripts.rs.
     let overlay = overlay_or_draft_only(

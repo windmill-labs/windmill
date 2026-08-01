@@ -132,7 +132,8 @@ async fn get_offboard_preview(
     email: &str,
 ) -> Result<OffboardPreview> {
     let user_prefix = format!("u/{}/%", username);
-    let user_owner = format!("u/{}", username);
+    // Same canonical form the mutation uses, so preview and execution cannot disagree.
+    let user_owner = windmill_common::users::username_to_permissioned_as(username);
 
     // ---- Owned objects (under u/{username}/) ----
     let scripts = sqlx::query_scalar!(

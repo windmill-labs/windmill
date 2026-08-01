@@ -81,6 +81,58 @@ pub async fn resolve_username_to_email<'c>(
     .flatten())
 }
 
+/// Whether a permissioned_as names something that exists in this workspace.
+///
+/// Accepts the three forms `username_to_permissioned_as` can produce: `u/{username}`,
+/// `g/{group}`, and a bare address when the username is itself email-shaped. Anything else
+/// is malformed — `fetch_authed_from_permissioned_as` would take its least-privileged
+/// branch rather than fail, so callers reject instead of storing it.
+pub async fn permissioned_as_exists(
+    workspace_id: &str,
+    permissioned_as: &str,
+    db: &sqlx::Pool<sqlx::Postgres>,
+) -> crate::error::Result<bool> {
+    if let Some(username) = permissioned_as.strip_prefix(PERMISSIONED_AS_USER_PREFIX) {
+        return Ok(resolve_username_to_email(workspace_id, username, db)
+            .await?
+            .is_some());
+    }
+    if let Some(group) = permissioned_as.strip_prefix(PERMISSIONED_AS_GROUP_PREFIX) {
+        return Ok(sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM group_ WHERE workspace_id = $1 AND name = $2)",
+            workspace_id,
+            group
+        )
+        .fetch_one(db)
+        .await?
+        .unwrap_or(false));
+    }
+    if permissioned_as.contains('@') {
+        return Ok(sqlx::query_scalar!(
+            "SELECT EXISTS(
+                SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2
+                UNION ALL
+                SELECT 1 FROM password WHERE email = $2 AND super_admin
+            )",
+            workspace_id,
+            permissioned_as
+        )
+        .fetch_one(db)
+        .await?
+        .unwrap_or(false));
+    }
+    Ok(false)
+}
+
+/// Drop a cached address so a transactional email change is visible immediately.
+///
+/// The address is derived at dispatch and feeds the instance-superadmin check and
+/// `email_to_igroup`, so serving a stale one would run jobs with the wrong authorization
+/// for up to the cache TTL.
+pub fn invalidate_email_cache(workspace_id: &str, username: &str) {
+    EMAIL_CACHE.remove(&(workspace_id.to_string(), username.to_string()));
+}
+
 /// Inverse of [`get_email_from_permissioned_as`]: the principal an on-behalf-of email
 /// names in this workspace, for callers that supply the email alone.
 ///

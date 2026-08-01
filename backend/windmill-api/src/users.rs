@@ -462,12 +462,15 @@ async fn update_username_in_workpsace<'c>(
     .execute(&mut **tx)
     .await?;
 
-    // The stored on-behalf-of identity is a `u/{username}`, so a rename would leave it
-    // pointing at a user that no longer exists and every run would fail authentication.
+    // Canonicalised through `username_to_permissioned_as`, not `'u/' || name`: an
+    // email-shaped username is stored bare, so the prefixed form would miss those rows and
+    // leave them naming a user that no longer exists.
+    let old_principal = windmill_common::users::username_to_permissioned_as(old_username);
+    let new_principal = windmill_common::users::username_to_permissioned_as(new_username);
     sqlx::query!(
-        "UPDATE script SET on_behalf_of_permissioned_as = ('u/' || $1) WHERE on_behalf_of_permissioned_as = ('u/' || $2) AND workspace_id = $3",
-        new_username,
-        old_username,
+        "UPDATE script SET on_behalf_of_permissioned_as = $1 WHERE on_behalf_of_permissioned_as = $2 AND workspace_id = $3",
+        &new_principal,
+        &old_principal,
         w_id
     )
     .execute(&mut **tx)
@@ -555,9 +558,9 @@ async fn update_username_in_workpsace<'c>(
     .await?;
 
     sqlx::query!(
-        "UPDATE flow SET on_behalf_of_permissioned_as = ('u/' || $1) WHERE on_behalf_of_permissioned_as = ('u/' || $2) AND workspace_id = $3",
-        new_username,
-        old_username,
+        "UPDATE flow SET on_behalf_of_permissioned_as = $1 WHERE on_behalf_of_permissioned_as = $2 AND workspace_id = $3",
+        &new_principal,
+        &old_principal,
         w_id
     )
     .execute(&mut **tx)

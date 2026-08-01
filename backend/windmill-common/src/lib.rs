@@ -233,6 +233,16 @@ pub async fn resolve_on_behalf_of(
                     )));
                 }
             }
+            // Symmetric with the address branch below: an identity that names nobody would
+            // only produce a runnable that cannot authenticate, and a bare or unprefixed
+            // value takes the least-privileged branch of `fetch_authed_from_permissioned_as`
+            // rather than failing, so it has to be rejected here.
+            if !users::permissioned_as_exists(w_id, permissioned_as, db).await? {
+                return Err(Error::BadRequest(format!(
+                    "on_behalf_of_permissioned_as '{permissioned_as}' names no user or group in \
+                     this workspace."
+                )));
+            }
             permissioned_as.to_string()
         }
         None => {
