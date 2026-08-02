@@ -17,7 +17,7 @@ import { deepEqual, readTextFile } from "../../utils/utils.ts";
 
 import { replaceInlineScripts, repopulateFields } from "./app.ts";
 import { createBundle, detectFrameworks } from "./bundle.ts";
-import { APP_BACKEND_FOLDER } from "./app_metadata.ts";
+import { APP_BACKEND_FOLDER, RECORDINGS_FOLDER } from "./app_metadata.ts";
 import { writeIfChanged } from "../../utils/utils.ts";
 import { yamlOptions } from "../sync/sync.ts";
 import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
@@ -309,13 +309,15 @@ async function collectAppFiles(
       const relativePath = basePath + entry.name;
 
       if (entry.isDirectory()) {
-        // Skip the runnables, node_modules, and sql_to_apply subfolders
+        // Skip the runnables, node_modules, sql_to_apply and recordings
+        // subfolders — none of them are app source
         if (
           entry.name === APP_BACKEND_FOLDER ||
           entry.name === "node_modules" ||
           entry.name === "dist" ||
           entry.name === ".claude" ||
-          entry.name === "sql_to_apply"
+          entry.name === "sql_to_apply" ||
+          entry.name === RECORDINGS_FOLDER
         ) {
           continue;
         }

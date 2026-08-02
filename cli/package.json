@@ -9,6 +9,7 @@
     "preinstall": "node ./prepare-yaml-validator.mjs",
     "dev": "bun run src/main.ts",
     "build": "./build.sh",
+    "gen:dev-recorder": "bun run generate-dev-recorder.ts",
     "test": "bun test test/",
     "test:unit": "UNIT_ONLY=1 bun test test/*_unit*",
     "check": "bunx tsc --noEmit",

@@ -68,11 +68,36 @@ function initWebSocket() {
 
 initWebSocket()
 
+/** A runnable call leaves this page over the WebSocket without touching the DOM,
+ * so the session recorder of \`wmill app dev --recording\` (which frames the app)
+ * has nothing else to tell it a step is still waiting on the backend. Announcing
+ * the request and its answer to the shell mirrors what the deployed runner posts
+ * across the same boundary. */
+const framed = typeof window !== 'undefined' && window.parent !== window
+
+function notifyRecorder(type: string, reqId: string) {
+    if (framed) window.parent.postMessage({ type, reqId }, window.location.origin)
+}
+
+function tracked(type: string, reqId: string, resolve: (v: any) => void, reject: (e: any) => void) {
+    notifyRecorder(type, reqId)
+    let settled = false
+    const done = () => {
+        if (settled) return
+        settled = true
+        notifyRecorder(type + 'Res', reqId)
+    }
+    return {
+        resolve: (v: any) => { done(); resolve(v) },
+        reject: (e: any) => { done(); reject(e) }
+    }
+}
+
 async function doRequest(type: string, o: object) {
     await wsReady
     return new Promise((resolve, reject) => {
         const reqId = Math.random().toString(36)
-        reqs[reqId] = { resolve, reject }
+        reqs[reqId] = tracked(type, reqId, resolve, reject)
         ws?.send(JSON.stringify({ ...o, type, reqId }))
     })
 }
@@ -119,7 +144,7 @@ export function streamJob(
     return new Promise(async (resolve, reject) => {
         await wsReady
         const reqId = Math.random().toString(36)
-        reqs[reqId] = { resolve, reject, onUpdate }
+        reqs[reqId] = { ...tracked('streamJob', reqId, resolve, reject), onUpdate }
         ws?.send(JSON.stringify({ jobId, type: 'streamJob', reqId }))
     })
 }
