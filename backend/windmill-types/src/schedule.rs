@@ -71,10 +71,8 @@ impl Schedule {
 /// response says what the *next run* will resolve to. The workspace export reads the stored
 /// column, so a synced file reproduces the row — a principal whose account has since been
 /// removed keeps the address the file already had instead of turning into a synthetic
-/// `@unknown.windmill.dev`. The column goes when
-/// `windmill_common::min_version::MIN_VERSION_DERIVES_SCHEDULE_EMAIL` expires (not a link: this
-/// crate is below `windmill-common`, not above it); this field stays, filled by deriving on both
-/// paths.
+/// `@unknown.windmill.dev`. The column goes once no supported worker still reads it
+/// (`docs/schedule-email-removal.md`); this field stays, filled by deriving on both paths.
 // No `Deserialize`: `Schedule` is flattened in, and serde's flatten buffers through an untagged
 // representation that `RawValue` (this type's `args`) cannot be read back from. `FromRow` is
 // unaffected — it reads columns by name.

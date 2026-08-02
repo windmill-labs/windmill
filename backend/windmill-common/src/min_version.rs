@@ -8,17 +8,6 @@ use semver::Version;
 // reads that column is live, and those runnables run as their deployer with no error anywhere.
 pub const MIN_VERSION_SUPPORTS_ON_BEHALF_OF_PRINCIPAL: VC =
     vc(1, 776, 0, "On-behalf-of principal");
-
-/// Names the release that stops reading `schedule.email`. Errs a minor high for the same reason
-/// as the constant above: the column is still written for the workers below this version whose
-/// `get_schedule_opt` selects it, inside the same transaction as the job completion — a missing
-/// column would roll that completion back and leave the occurrence to be re-executed.
-///
-/// Nothing gates on this at runtime; it exists so `vc()`'s compile-time assert fires once
-/// `MIN_KEEP_ALIVE_VERSION` passes it. Even then the column takes two releases to remove, because
-/// a rolling deploy runs both versions at once: see `docs/schedule-email-removal.md`.
-pub const MIN_VERSION_DERIVES_SCHEDULE_EMAIL: VC =
-    vc(1, 777, 0, "Schedule email derived from permissioned_as");
 pub const MIN_VERSION_SUPPORTS_NODE_DEBOUNCING: VC = vc(1, 658, 0, "Flow node debouncing");
 pub const MIN_VERSION_SUPPORTS_TOKEN_HASH: VC = vc(1, 659, 0, "Token hash storage");
 pub const MIN_VERSION_SUPPORTS_SYNC_JOBS_DEBOUNCING: VC = vc(1, 602, 0, "Sync jobs debouncing");
