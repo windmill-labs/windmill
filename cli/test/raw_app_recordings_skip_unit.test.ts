@@ -7,9 +7,14 @@
  */
 
 import { expect, test } from "bun:test";
+import { sep as SEP } from "node:path";
 import { elementsToMap } from "../src/commands/sync/sync.ts";
 
 type MockFile = { path: string; content: string };
+
+// FSFSElement joins with the platform separator, and the exclusion has to hold
+// on Windows too.
+const p = (...parts: string[]) => parts.join(SEP);
 
 function mockElement(files: MockFile[]) {
   return {
@@ -34,14 +39,15 @@ function mockElement(files: MockFile[]) {
 }
 
 test("elementsToMap skips recordings/ at the root of a raw app folder only", async () => {
+  const app = p("f", "demo", "myapp.raw_app");
   const files: MockFile[] = [
-    { path: "f/demo/myapp.raw_app/index.tsx", content: "export {}" },
+    { path: p(app, "index.tsx"), content: "export {}" },
     {
-      path: "f/demo/myapp.raw_app/recordings/recording-2026-01-01-00-00-00.json",
+      path: p(app, "recordings", "recording-2026-01-01-00-00-00.json"),
       content: '{"version":1}',
     },
     // The dev server never writes here, so this is the app's own source.
-    { path: "f/demo/myapp.raw_app/src/recordings/fixture.json", content: "{}" },
+    { path: p(app, "src", "recordings", "fixture.json"), content: "{}" },
   ];
 
   const result = await elementsToMap(
@@ -51,8 +57,7 @@ test("elementsToMap skips recordings/ at the root of a raw app folder only", asy
     {},
   );
 
-  expect(Object.keys(result).sort()).toEqual([
-    "f/demo/myapp.raw_app/index.tsx",
-    "f/demo/myapp.raw_app/src/recordings/fixture.json",
-  ]);
+  expect(Object.keys(result).sort()).toEqual(
+    [p(app, "index.tsx"), p(app, "src", "recordings", "fixture.json")].sort(),
+  );
 });
