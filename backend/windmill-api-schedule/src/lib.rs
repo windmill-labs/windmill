@@ -300,7 +300,7 @@ async fn create_schedule(
         &w_id,
     )
     .await?;
-    let legacy_email = windmill_common::users::get_email_from_permissioned_as(
+    let legacy_email = windmill_common::users::get_email_from_permissioned_as_uncached(
         &resolved_permissioned_as,
         &w_id,
         &db,
@@ -503,7 +503,7 @@ async fn edit_schedule(
         &authed,
     );
 
-    let legacy_email = windmill_common::users::get_email_from_permissioned_as(
+    let legacy_email = windmill_common::users::get_email_from_permissioned_as_uncached(
         &resolved_permissioned_as,
         &w_id,
         &db,
