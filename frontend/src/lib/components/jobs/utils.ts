@@ -2,8 +2,9 @@ import { JobService, type RunScriptByPathData, type RunScriptPreviewData } from 
 import {
 	missingWorkerTagOfQueuedJob,
 	NoWorkerForTagError,
-	NO_WORKER_GRACE_MS,
-	NO_WORKER_RECHECK_MS
+	NO_WORKER_CONFIRMATIONS,
+	NO_WORKER_FIRST_PROBE_MS,
+	NO_WORKER_PROBE_INTERVAL_MS
 } from './missingWorker'
 
 function isRunScriptByPathData(
@@ -65,11 +66,11 @@ export async function pollJobResult(
 	let attempts = 0
 	let polls = 0
 	// `attempts` only advances on errors, so a queued job would poll forever. The
-	// one case that never resolves on its own is a tag no worker serves, and a
-	// single negative lookup is not proof of it (a group scaled to zero reads the
-	// same), so only a second negative one recheck later is acted on.
-	let noWorkerCheckAt = Date.now() + NO_WORKER_GRACE_MS
-	let unservedTag: string | undefined = undefined
+	// one case that never resolves on its own is a tag no worker serves, which
+	// takes NO_WORKER_CONFIRMATIONS consecutive empty lookups to establish — a
+	// worker group booting reads like an unserved tag in any single one.
+	let noWorkerProbeAt = Date.now() + NO_WORKER_FIRST_PROBE_MS
+	let unservedProbes = 0
 	while (attempts < maxRetries) {
 		try {
 			await new Promise((resolve) =>
@@ -91,18 +92,24 @@ export async function pollJobResult(
 				if (typeof errorMsg !== 'string') errorMsg = undefined
 				console.error('JOB FAILED', job.result)
 				throw new Error(errorMsg ?? 'Job failed')
-			} else if (failIfNoWorkerForTag && Date.now() >= noWorkerCheckAt) {
+			} else if (failIfNoWorkerForTag && Date.now() >= noWorkerProbeAt) {
 				const tag = await missingWorkerTagOfQueuedJob(workspace, uuid)
-				if (tag && tag === unservedTag) {
+				noWorkerProbeAt = Date.now() + NO_WORKER_PROBE_INTERVAL_MS
+				unservedProbes = tag ? unservedProbes + 1 : 0
+				if (tag && unservedProbes >= NO_WORKER_CONFIRMATIONS) {
 					// Leaving it queued would let it run long after the caller reported it
-					// as failed, and every retry would pile on another orphan.
-					await JobService.cancelQueuedJob({ workspace, id: uuid, requestBody: {} }).catch((err) =>
-						console.warn('Could not cancel the unpickable job', err)
+					// as failed, and every retry would pile on another orphan. A cancel the
+					// server refuses is reported as such rather than claimed.
+					const cancelled = await JobService.cancelQueuedJob({
+						workspace,
+						id: uuid,
+						requestBody: {}
+					}).then(
+						() => true,
+						(err) => (console.warn('Could not cancel the unpickable job', err), false)
 					)
-					throw new NoWorkerForTagError(tag)
+					throw new NoWorkerForTagError(tag, cancelled)
 				}
-				unservedTag = tag
-				noWorkerCheckAt = Date.now() + NO_WORKER_RECHECK_MS
 			}
 		} catch (e) {
 			if (e instanceof NoWorkerForTagError) {

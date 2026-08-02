@@ -43,27 +43,43 @@ afterEach(() => {
 	vi.useRealTimers()
 })
 
+// Long enough for the whole confirmation window (first probe + 2 intervals).
+const PAST_CONFIRMATION_WINDOW_MS = 120_000
+
 describe('pollJobResult', () => {
 	it('cancels and reports a queued job whose tag stays unserved', async () => {
 		existsWorkersWithTags.mockResolvedValue({ postgresql: false })
 
 		const promise = pollJobResult('job-1', 'ws')
 		const rejects = expect(promise).rejects.toBeInstanceOf(NoWorkerForTagError)
-		await vi.advanceTimersByTimeAsync(30_000)
+		await vi.advanceTimersByTimeAsync(PAST_CONFIRMATION_WINDOW_MS)
 		await rejects
 		expect(cancelQueuedJob).toHaveBeenCalledWith(
 			expect.objectContaining({ id: 'job-1', workspace: 'ws' })
 		)
 	})
 
-	it('does not give up on a single unserved reading, as workers may be scaling up', async () => {
+	it('says the job is still queued when the cancel is refused', async () => {
+		existsWorkersWithTags.mockResolvedValue({ postgresql: false })
+		cancelQueuedJob.mockRejectedValue(new Error('nope'))
+
+		const promise = pollJobResult('job-1', 'ws')
+		const rejects = expect(promise).rejects.toThrow(/stays queued/)
+		await vi.advanceTimersByTimeAsync(PAST_CONFIRMATION_WINDOW_MS)
+		await rejects
+	})
+
+	it('does not give up while a worker group could still be coming up', async () => {
+		// A worker group booting is absent from worker_ping exactly like an unserved
+		// tag; only a run of empty lookups distinguishes them.
+		existsWorkersWithTags.mockResolvedValueOnce({ postgresql: false })
 		existsWorkersWithTags.mockResolvedValueOnce({ postgresql: false })
 		existsWorkersWithTags.mockResolvedValue({ postgresql: true })
 
 		const promise = pollJobResult('job-1', 'ws')
 		const tracker = settlementTracker(promise)
 
-		await vi.advanceTimersByTimeAsync(60_000)
+		await vi.advanceTimersByTimeAsync(PAST_CONFIRMATION_WINDOW_MS)
 		expect(tracker.settled).toBe(false)
 		expect(cancelQueuedJob).not.toHaveBeenCalled()
 	})
@@ -74,7 +90,7 @@ describe('pollJobResult', () => {
 		const promise = pollJobResult('job-1', 'ws')
 		const tracker = settlementTracker(promise)
 
-		await vi.advanceTimersByTimeAsync(60_000)
+		await vi.advanceTimersByTimeAsync(PAST_CONFIRMATION_WINDOW_MS)
 		expect(tracker.settled).toBe(false)
 
 		getCompletedJobResultMaybe.mockResolvedValue({ completed: true, success: true, result: 42 })

@@ -4,8 +4,12 @@
 	import { Loader2, RefreshCcw } from 'lucide-svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import Button from './common/button/Button.svelte'
-	import { dbSupportsSchemas } from './apps/components/display/dbtable/utils'
+	import {
+		dbSupportsSchemas,
+		getLanguageByResourceType
+	} from './apps/components/display/dbtable/utils'
 	import DbManager from './DBManager.svelte'
+	import MissingWorkerTagAlert from './jobs/MissingWorkerTagAlert.svelte'
 	import {
 		dbSchemaOpsWithPreviewScripts,
 		dbTableOpsWithPreviewScripts,
@@ -144,6 +148,11 @@
 		return colDefs.loading || dbSchemasPromise.loading
 	}
 
+	// Tag the schema/metadata jobs run on: for every DB the manager supports, the
+	// language name is the tag, which is what makes the missing-worker hint below
+	// possible without waiting for the poller to give up.
+	let jobTag = $derived(input ? getLanguageByResourceType(getDbType(input)) : undefined)
+
 	// A job queued behind busy workers still loads eventually, so this is a hint
 	// rather than an error. The no-worker-at-all case fails outright instead.
 	const SLOW_LOAD_MS = 10_000
@@ -185,7 +194,23 @@
 	}}
 />
 
-{#if dbSchema && ws && input}
+<!-- The error branch comes first on purpose: `dbSchema` is read from a cache that
+	survives a failed refetch, so ordering it first would hide the failure behind
+	stale content. -->
+{#if loadError}
+	<div class="h-full w-full flex flex-col items-center justify-center gap-3 p-8">
+		<div class="max-w-2xl w-full flex flex-col gap-3">
+			<Alert type="error" title="Could not load the database schema" size="xs">
+				{loadError}
+			</Alert>
+			<div class="self-start">
+				<Button size="xs" color="light" startIcon={{ icon: RefreshCcw }} on:click={() => refresh()}>
+					Retry
+				</Button>
+			</div>
+		</div>
+	</div>
+{:else if dbSchema && ws && input}
 	{@const _input = input}
 	{@const dbType = getDbType(_input)}
 	<Splitpanes horizontal>
@@ -276,28 +301,23 @@
 			</Pane>
 		{/if}
 	</Splitpanes>
-{:else if loadError}
-	<div class="h-full w-full flex flex-col items-center justify-center gap-3 p-8">
-		<div class="max-w-2xl w-full flex flex-col gap-3">
-			<Alert type="error" title="Could not load the database schema" size="xs">
-				{loadError}
-			</Alert>
-			<div class="self-start">
-				<Button size="xs" color="light" startIcon={{ icon: RefreshCcw }} on:click={() => refresh()}>
-					Retry
-				</Button>
-			</div>
-		</div>
-	</div>
 {:else}
 	<Splitpanes>
-		<Pane class="relative flex flex-col justify-center items-center gap-3">
+		<Pane class="relative flex flex-col justify-center items-center gap-3 p-8">
 			<Loader2 class="animate-spin" size={32} />
 			{#if slowLoad}
 				<span class="text-xs text-tertiary max-w-md text-center">
 					The schema query is taking a while. It runs as a job, so it waits for a worker serving its
 					tag to be free.
 				</span>
+				{#if jobTag}
+					<MissingWorkerTagAlert
+						tag={jobTag}
+						subject="Database queries"
+						workspace={ws}
+						class="max-w-2xl w-full"
+					/>
+				{/if}
 			{/if}
 		</Pane>
 	</Splitpanes>
