@@ -25,6 +25,11 @@
 	import Popover from '../meltComponents/Popover.svelte'
 	import DbtProjectPanel from './DbtProjectPanel.svelte'
 	import DbtModelGraph from './DbtModelGraph.svelte'
+	import DbtModelDetails from './DbtModelDetails.svelte'
+	import type {
+		AssetGraphNodeData,
+		DbtAssetProvenance
+	} from '$lib/components/assets/AssetGraph/types'
 	import {
 		DBT_DESCRIPTOR,
 		DBT_MODULE_EXTENSIONS,
@@ -193,6 +198,14 @@
 		disableHistory: true,
 		disableTracing: true
 	})
+
+	// The node picked on the graph, if any. It decides what the bottom section is:
+	// a model's details while one is selected, the run's logs otherwise. Held here
+	// rather than in the graph because closing the details has to deselect, and
+	// both halves are this component's to place.
+	let graphSelection = $state<AssetGraphNodeData | undefined>(undefined)
+	let selectedAsset = $derived(graphSelection?.kind === 'asset' ? graphSelection : undefined)
+	let selectedDbt = $state<DbtAssetProvenance | undefined>(undefined)
 
 	let jobLoader: JobLoader | undefined = $state(undefined)
 	let testJob: any = $state(undefined)
@@ -488,21 +501,44 @@
 						testJobId={testJob?.id}
 						testRunning={testIsLoading}
 						testResult={testJob?.result}
-						onOpenFile={open}
+						bind:selection={graphSelection}
+						bind:selectedDbt
 					/>
 				</Pane>
 				<Pane size={50} minSize={15} class="relative">
-					<LogPanel
-						bind:this={logPanel}
-						workspace={opWs}
-						lang={'dbt' as Preview['language']}
-						previewJob={testJob}
-						previewIsLoading={testIsLoading}
-						{editor}
-						{args}
-						showCaptures={false}
-						customUi={logPanelUi}
-					/>
+					<!-- Selecting a node takes this whole section: a model's relation,
+					     its declared columns and tests, its SQL and its actual rows do
+					     not fit under the canvas, and the close button is what puts the
+					     logs back — deselecting the node with it. The log panel is kept
+					     MOUNTED underneath so a build running while a node is selected
+					     does not lose its stream. -->
+					{#if selectedAsset && selectedDbt}
+						<DbtModelDetails
+							workspace={opWs}
+							scriptPath={path ?? ''}
+							assetPath={selectedAsset.path}
+							dbt={selectedDbt}
+							scriptHash={deployedHash}
+							{args}
+							fileInBundle={!!selectedDbt.original_file_path &&
+								!!modules?.[selectedDbt.original_file_path]}
+							onOpenFile={open}
+							onClose={() => (graphSelection = undefined)}
+						/>
+					{/if}
+					<div class="h-full" class:hidden={selectedAsset && selectedDbt}>
+						<LogPanel
+							bind:this={logPanel}
+							workspace={opWs}
+							lang={'dbt' as Preview['language']}
+							previewJob={testJob}
+							previewIsLoading={testIsLoading}
+							{editor}
+							{args}
+							showCaptures={false}
+							customUi={logPanelUi}
+						/>
+					</div>
 				</Pane>
 			</Splitpanes>
 		</Pane>

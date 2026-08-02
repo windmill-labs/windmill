@@ -14,15 +14,15 @@
 	import { onDestroy } from 'svelte'
 	import { JobService, OpenAPI, type ScriptModule } from '$lib/gen'
 	import { Button } from '$lib/components/common'
-	import { ClipboardCopy, FileCode2, Loader2, RefreshCw } from 'lucide-svelte'
-	import { copyToClipboard, displayDate } from '$lib/utils'
+	import { Loader2, RefreshCw } from 'lucide-svelte'
+	import { displayDate } from '$lib/utils'
 	import { base } from '$lib/base'
 	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
 	import type {
 		AssetGraphNodeData,
-		AssetGraphResponse
+		AssetGraphResponse,
+		DbtAssetProvenance
 	} from '$lib/components/assets/AssetGraph/types'
-	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import { useDbtRunStatus } from './runStatus.svelte'
 
 	let {
@@ -53,9 +53,13 @@
 		testJobId,
 		testRunning = false,
 		testResult,
-		/** Opens one of the project's files in the editor, so the graph is the
-		 *  project's own navigation. */
-		onOpenFile
+		/** Owned by the editor: the node's details take the whole bottom section,
+		 *  which is not this component's to render, and closing them there has to
+		 *  clear the selection here so the canvas stops showing a node as picked. */
+		selection = $bindable(),
+		/** What dbt says about the selected node. Resolved here because the graph
+		 *  response is this component's; the parent renders it. */
+		selectedDbt = $bindable()
 	}: {
 		workspace: string | undefined
 		scriptPath: string
@@ -68,7 +72,8 @@
 		testJobId?: string
 		testRunning?: boolean
 		testResult?: unknown
-		onOpenFile?: (path: string) => void
+		selection?: AssetGraphNodeData | undefined
+		selectedDbt?: DbtAssetProvenance | undefined
 	} = $props()
 
 	/** The last parse of the buffer. Component state on purpose: it describes a
@@ -326,6 +331,14 @@
 		void runStatus.load()
 	})
 
+	$effect(() => {
+		const sel = selection
+		selectedDbt =
+			sel?.kind === 'asset'
+				? graph?.assets.find((a) => a.kind === sel.asset_kind && a.path === sel.path)?.dbt
+				: undefined
+	})
+
 	let modelCount = $derived(
 		graph?.assets.filter((a) => a.dbt && a.dbt.resource_type !== 'source').length ?? 0
 	)
@@ -349,19 +362,6 @@
 		return 'never parsed'
 	})
 
-	let selection = $state<AssetGraphNodeData | undefined>(undefined)
-	let selectedDbt = $derived.by(() => {
-		const sel = selection
-		if (sel?.kind !== 'asset') return undefined
-		return graph?.assets.find((a) => a.kind === sel.asset_kind && a.path === sel.path)?.dbt
-	})
-	// The file the selected model is written in, when this bundle still holds it.
-	// A source has none, and neither does a model another project in the workspace
-	// materializes into the same relation.
-	let selectedFile = $derived.by(() => {
-		const f = selectedDbt?.original_file_path
-		return f && modules?.[f] ? f : undefined
-	})
 </script>
 
 <div class="flex flex-col h-full min-h-0">
@@ -456,42 +456,5 @@
 				scrollZoom={false}
 			/>
 		</div>
-		{#if selectedDbt?.raw_code}
-			<div class="shrink-0 border-t flex flex-col min-h-0 max-h-64">
-				<div
-					class="shrink-0 flex items-center gap-2 px-2 py-1 text-2xs border-b bg-surface-secondary text-secondary"
-				>
-					<span class="font-mono truncate"
-						>{selectedDbt.original_file_path ?? selectedDbt.unique_id}</span
-					>
-					{#if selectedDbt.materialized}
-						<span class="shrink-0 opacity-70">{selectedDbt.materialized}</span>
-					{/if}
-					<div class="ml-auto shrink-0 flex items-center gap-1">
-						{#if selectedFile && onOpenFile}
-							<Button
-								unifiedSize="2xs"
-								variant="subtle"
-								startIcon={{ icon: FileCode2 }}
-								on:click={() => onOpenFile?.(selectedFile!)}
-								title="Open this model's file"
-							>
-								Edit
-							</Button>
-						{/if}
-						<Button
-							unifiedSize="2xs"
-							variant="subtle"
-							startIcon={{ icon: ClipboardCopy }}
-							on:click={() => copyToClipboard(selection?.kind === 'asset' ? selection.path : '')}
-							title="Copy the relation this model writes"
-						/>
-					</div>
-				</div>
-				<div class="flex-1 min-h-0 overflow-auto">
-					<HighlightCode language="sql" code={selectedDbt.raw_code} />
-				</div>
-			</div>
-		{/if}
 	{/if}
 </div>
