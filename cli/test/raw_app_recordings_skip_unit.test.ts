@@ -33,13 +33,15 @@ function mockElement(files: MockFile[]) {
   };
 }
 
-test("elementsToMap skips recordings/ inside a raw app folder", async () => {
+test("elementsToMap skips recordings/ at the root of a raw app folder only", async () => {
   const files: MockFile[] = [
     { path: "f/demo/myapp.raw_app/index.tsx", content: "export {}" },
     {
       path: "f/demo/myapp.raw_app/recordings/recording-2026-01-01-00-00-00.json",
       content: '{"version":1}',
     },
+    // The dev server never writes here, so this is the app's own source.
+    { path: "f/demo/myapp.raw_app/src/recordings/fixture.json", content: "{}" },
   ];
 
   const result = await elementsToMap(
@@ -49,5 +51,8 @@ test("elementsToMap skips recordings/ inside a raw app folder", async () => {
     {},
   );
 
-  expect(Object.keys(result)).toEqual(["f/demo/myapp.raw_app/index.tsx"]);
+  expect(Object.keys(result).sort()).toEqual([
+    "f/demo/myapp.raw_app/index.tsx",
+    "f/demo/myapp.raw_app/src/recordings/fixture.json",
+  ]);
 });
