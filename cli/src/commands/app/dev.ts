@@ -755,7 +755,23 @@ async function dev(opts: DevOptions, appFolder?: string) {
     res.end(JSON.stringify(body));
   }
 
+  /** A cross-site POST needs no preflight, so any page open in the developer's
+   * browser could otherwise write files here. The shell is served by this very
+   * server, so its own port is the only origin that may. */
+  function isOwnOrigin(origin: string | undefined): boolean {
+    if (origin === undefined) return true;
+    try {
+      return new URL(origin).port === String(port);
+    } catch {
+      return false;
+    }
+  }
+
   function saveRecording(req: http.IncomingMessage, res: http.ServerResponse) {
+    if (!isOwnOrigin(req.headers.origin)) {
+      sendJson(res, 403, { error: "Cross-origin recording upload refused" });
+      return;
+    }
     const chunks: Buffer[] = [];
     let size = 0;
     let refused = false;
@@ -855,7 +871,11 @@ async function dev(opts: DevOptions, appFolder?: string) {
       if (pathname === "/" || pathname === "/index.html") {
         res.writeHead(200, { "Content-Type": "text/html" });
         res.end(
-          createRecorderShellHTML({ appPath, playerBaseUrl }),
+          createRecorderShellHTML({
+            appPath,
+            workspace: workspaceId,
+            playerBaseUrl,
+          }),
         );
         return;
       }

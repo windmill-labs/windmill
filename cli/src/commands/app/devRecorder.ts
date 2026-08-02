@@ -21,11 +21,13 @@ export { RECORDINGS_FOLDER } from "./app_metadata.ts";
 
 export function createRecorderShellHTML(opts: {
   appPath: string;
+  workspace: string;
   /** Base URL of the Windmill instance, for the "Open in player" link. */
   playerBaseUrl?: string;
 }): string {
   const config = JSON.stringify({
     appPath: opts.appPath,
+    workspace: opts.workspace,
     playerBaseUrl: opts.playerBaseUrl ?? null,
     savePath: RECORDER_SAVE_PATH,
   });
@@ -118,15 +120,22 @@ export function createRecorderShellHTML(opts: {
 
       function setStatus(text) { status.textContent = text; }
 
+      function steps(n) { return n + (n === 1 ? ' step' : ' steps'); }
+
       function tick() {
-        setStatus('Recording: ' + recorder.stepCount + (recorder.stepCount === 1 ? ' step' : ' steps'));
+        // Stop can wait a minute on a runnable the last step launched, so the
+        // toolbar has to say what it is waiting for rather than look wedged.
+        if (recorder.stopping) setStatus('Waiting for the last job to finish…');
+        else if (recorder.active) {
+          setStatus('Recording: ' + steps(recorder.stepCount));
+        }
       }
 
       function start() {
         recording = null;
         openLink.hidden = true;
         downloadBtn.hidden = true;
-        if (!recorder.start(iframe, { appPath: config.appPath })) {
+        if (!recorder.start(iframe, { appPath: config.appPath, workspace: config.workspace })) {
           setStatus('Cannot record: the app document is unreachable');
           return;
         }
@@ -137,16 +146,17 @@ export function createRecorderShellHTML(opts: {
       }
 
       async function stop() {
+        toggle.disabled = true;
+        setStatus('Finishing…');
+        // The ticker outlives the click: it is what reports the drain below.
+        recording = await recorder.stop();
         clearInterval(ticker);
         ticker = null;
-        toggle.disabled = true;
-        setStatus(recorder.stopping ? 'Waiting for the last job…' : 'Finishing…');
-        recording = await recorder.stop();
         toggle.classList.remove('recording');
         toggleLabel.textContent = 'Record';
         toggle.disabled = false;
         downloadBtn.hidden = false;
-        setStatus(recording.steps.length + ' steps recorded');
+        setStatus(steps(recording.steps.length) + ' recorded');
         await save();
       }
 
@@ -159,7 +169,7 @@ export function createRecorderShellHTML(opts: {
           });
           var body = await res.json();
           if (!res.ok) throw new Error(body.error || res.statusText);
-          setStatus(recording.steps.length + ' steps saved to ' + body.file);
+          setStatus(steps(recording.steps.length) + ' saved to ' + body.file);
           if (config.playerBaseUrl) {
             var src = window.location.origin + config.savePath + '/' + body.file;
             openLink.href = config.playerBaseUrl + 'replay?src=' + encodeURIComponent(src);
