@@ -1702,9 +1702,10 @@ pub async fn on_behalf_of_from_permissioned_as(
         return Ok(None);
     };
     // Uncached: the address is copied onto the job row, where it stays for the life of the run
-    // and decides the superadmin flag and the instance groups. Nothing evicts the cache across
-    // processes, so a cached read would keep minting jobs under an address the account no longer
-    // holds for up to a minute after it moves.
+    // and decides the superadmin flag and the instance groups. `notify_user_email_change` now
+    // evicts the cache on every replica, which is what lets app dispatch read it cached; this
+    // site can follow once it is exercised the same way, and stays uncached until then rather
+    // than for a reason of its own.
     let email = users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db).await?;
     Ok(Some(jobs::OnBehalfOf { email, permissioned_as: permissioned_as.to_string() }))
 }

@@ -381,22 +381,42 @@ async fn test_trigger_notify_user_email_change(db: Pool<Postgres>) {
     );
 
     // A superadmin outside their workspaces resolves through `password`, which names no
-    // workspace: the wildcard is the only way to reach that key.
-    let before_id = get_latest_event_id(&db).await.unwrap();
-    sqlx::query("UPDATE password SET email = 'sa2@windmill.dev' WHERE email = 'test@windmill.dev'")
-        .execute(&db)
-        .await
-        .expect("Failed to change superadmin email");
+    // workspace: the wildcard is the only way to reach that key. `super_admin` is half of what
+    // that fallback matches on, so losing it moves the mapping just as the address does.
+    for (label, stmt) in [
+        (
+            "email change",
+            "UPDATE password SET email = 'sa2@windmill.dev' WHERE email = 'test@windmill.dev'",
+        ),
+        (
+            "demotion",
+            "UPDATE password SET super_admin = false WHERE email = 'sa2@windmill.dev'",
+        ),
+        (
+            "promotion",
+            "UPDATE password SET super_admin = true WHERE email = 'sa2@windmill.dev'",
+        ),
+        (
+            "deletion",
+            "DELETE FROM password WHERE email = 'sa2@windmill.dev'",
+        ),
+    ] {
+        let before_id = get_latest_event_id(&db).await.unwrap();
+        sqlx::query(stmt)
+            .execute(&db)
+            .await
+            .unwrap_or_else(|e| panic!("Failed to apply superadmin {label}: {e}"));
 
-    let events = poll_notify_events(&db, before_id)
-        .await
-        .expect("Should poll events");
-    assert!(
-        events
-            .iter()
-            .any(|e| e.channel == "notify_user_email_change" && e.payload.is_empty()),
-        "superadmin email change should emit the wildcard"
-    );
+        let events = poll_notify_events(&db, before_id)
+            .await
+            .expect("Should poll events");
+        assert!(
+            events
+                .iter()
+                .any(|e| e.channel == "notify_user_email_change" && e.payload.is_empty()),
+            "superadmin {label} should emit the wildcard"
+        );
+    }
 }
 
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]

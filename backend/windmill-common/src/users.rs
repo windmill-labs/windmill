@@ -233,10 +233,11 @@ pub async fn get_email_from_permissioned_as<'c>(
     get_email_from_permissioned_as_inner(permissioned_as, workspace_id, db, true).await
 }
 
-/// [`get_email_from_permissioned_as`] without the address cache. Nothing evicts that cache
-/// across processes, so for a minute after an email change it still serves the old address —
-/// fine where the address only labels something on screen, wrong where it decides whether a
-/// write is accepted or is copied onto a job row that outlives the window.
+/// [`get_email_from_permissioned_as`] without the address cache. `notify_user_email_change`
+/// evicts that cache on every replica, so the cached read is the right default; this variant is
+/// for the narrower case where even the gap between the change committing and the eviction
+/// arriving is too much — a value about to be compared against a freshly resolved one, or
+/// written somewhere that outlives the request.
 ///
 /// Reads through the non-RLS pool and authorizes nothing, like the cached one: callers must
 /// already be authorized for `workspace_id`.

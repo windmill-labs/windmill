@@ -35,11 +35,11 @@ FOR EACH ROW
 WHEN (OLD.email IS DISTINCT FROM NEW.email OR OLD.username IS DISTINCT FROM NEW.username)
 EXECUTE FUNCTION notify_usr_email_change();
 
--- A superadmin acting outside their workspaces resolves through `password` instead, and that
--- row names no workspace, so there is no key to target: clear the whole cache. The empty payload
--- is the wildcard. Confined to superadmins because they are the only accounts the `usr` triggers
+-- A superadmin acting outside their workspaces resolves through `password` instead, and that row
+-- names no workspace, so there is no key to target: clear the whole cache. The empty payload is
+-- the wildcard. Confined to superadmins because they are the only accounts the `usr` triggers
 -- above cannot cover.
-CREATE OR REPLACE FUNCTION notify_superadmin_email_change()
+CREATE OR REPLACE FUNCTION notify_superadmin_identity_change()
 RETURNS TRIGGER AS $$
 BEGIN
     INSERT INTO notify_event (channel, payload) VALUES ('notify_user_email_change', '');
@@ -47,9 +47,27 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-CREATE TRIGGER password_superadmin_email_change_trigger
-AFTER UPDATE OF email, username ON password
+-- `super_admin` is half of what the fallback matches on, so gaining or losing it moves the
+-- mapping as surely as the address does: a demotion leaves the real address cached where the
+-- truth is now synthetic, and a promotion leaves that synthetic one cached in place of a real
+-- account. `OLD.super_admin OR NEW.super_admin` is what catches both directions.
+CREATE TRIGGER password_superadmin_update_trigger
+AFTER UPDATE OF email, username, super_admin ON password
 FOR EACH ROW
-WHEN (NEW.super_admin
-      AND (OLD.email IS DISTINCT FROM NEW.email OR OLD.username IS DISTINCT FROM NEW.username))
-EXECUTE FUNCTION notify_superadmin_email_change();
+WHEN ((OLD.super_admin OR NEW.super_admin)
+      AND (OLD.email IS DISTINCT FROM NEW.email
+           OR OLD.username IS DISTINCT FROM NEW.username
+           OR OLD.super_admin IS DISTINCT FROM NEW.super_admin))
+EXECUTE FUNCTION notify_superadmin_identity_change();
+
+CREATE TRIGGER password_superadmin_insert_trigger
+AFTER INSERT ON password
+FOR EACH ROW
+WHEN (NEW.super_admin)
+EXECUTE FUNCTION notify_superadmin_identity_change();
+
+CREATE TRIGGER password_superadmin_delete_trigger
+AFTER DELETE ON password
+FOR EACH ROW
+WHEN (OLD.super_admin)
+EXECUTE FUNCTION notify_superadmin_identity_change();
