@@ -1443,7 +1443,10 @@
 											CI Test Python
 										</Button>
 									</div>
-									{#if customUi?.settingsPanel?.metadata?.disableScriptKind !== true}
+									<!-- Not for dbt: each kind tags a script for a role in a flow that a project
+										     bundle cannot fill (approval, trigger, preprocessor), and the runtime only
+										     ever runs it as an action. -->
+										{#if customUi?.settingsPanel?.metadata?.disableScriptKind !== true && !isDbt}
 										<Section label="Script kind">
 											{#snippet header()}
 												<Tooltip
