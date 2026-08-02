@@ -14,9 +14,9 @@ export class NoWorkerForTagError extends Error {
 
 	constructor(tag: string) {
 		super(
-			`No worker is listening to the tag "${tag}", so this job can never start. ` +
-				`Add "${tag}" to the worker tags of one of your worker groups (Workers page), ` +
-				`or run a worker that serves it.`
+			`No worker is currently listening to the tag "${tag}", so this job was not picked up ` +
+				`and has been cancelled. Add "${tag}" to the worker tags of one of your worker groups ` +
+				`(Workers page), or run a worker that serves it.`
 		)
 		this.name = 'NoWorkerForTagError'
 		this.tag = tag
@@ -24,9 +24,9 @@ export class NoWorkerForTagError extends Error {
 }
 
 /** How long a job may sit un-started before we look for a worker serving its tag. */
-export const NO_WORKER_GRACE_MS = 10_000
-/** How often the lookup is repeated while the job stays queued. */
-export const NO_WORKER_RECHECK_MS = 15_000
+export const NO_WORKER_GRACE_MS = 8_000
+/** How long to wait before repeating the lookup while the job stays queued. */
+export const NO_WORKER_RECHECK_MS = 8_000
 
 /**
  * Whether any worker pinged in the last minute declares `tag`. Unknown answers

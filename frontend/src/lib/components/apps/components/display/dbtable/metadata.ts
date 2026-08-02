@@ -66,6 +66,8 @@ export async function loadTableMetaData(
 	}
 }
 
+/** Throws on failure without reporting it: every caller renders the error in its
+ * own pane, so toasting here would double-report it. */
 export async function loadAllTablesMetaData(
 	workspace: string | undefined,
 	input: DbInput
@@ -99,7 +101,7 @@ export async function loadAllTablesMetaData(
 
 		return map
 	} catch (e) {
-		sendUserToast('Error loading tables metadata: ' + ((e as Error)?.message || e), 'error')
+		console.error('Failed to load tables metadata', e)
 		throw e
 	}
 }

@@ -37,6 +37,15 @@ export async function runScript(data: RunScriptPreviewData | RunScriptByPathData
 	return uuid
 }
 
+/** Tight at first so a quick job feels instant, then slower: a schema
+ * introspection or a DDL migration can run for minutes, and a fixed sub-second
+ * tick would cost hundreds of round-trips for it. */
+function pollDelayMs(poll: number): number {
+	if (poll < 4) return 375
+	if (poll < 12) return 750
+	return 2000
+}
+
 /**
  * @function pollJobResult
  * @description Polls a job result by UUID until success, failure, or max retries reached.
@@ -54,14 +63,18 @@ export async function pollJobResult(
 	{ maxRetries = 7, withJobData, failIfNoWorkerForTag = true }: RunScriptOptions = {}
 ): Promise<unknown> {
 	let attempts = 0
-	// A job that never completes leaves `attempts` untouched, so the loop below is
-	// unbounded by design (a running job may take arbitrarily long). This deadline
-	// is what turns a job no worker can ever pick up, which would otherwise poll
-	// forever, into a reported error.
+	let polls = 0
+	// `attempts` only advances on errors, so a queued job would poll forever. The
+	// one case that never resolves on its own is a tag no worker serves, and a
+	// single negative lookup is not proof of it (a group scaled to zero reads the
+	// same), so only a second negative one recheck later is acted on.
 	let noWorkerCheckAt = Date.now() + NO_WORKER_GRACE_MS
+	let unservedTag: string | undefined = undefined
 	while (attempts < maxRetries) {
 		try {
-			await new Promise((resolve) => setTimeout(resolve, 500 * (attempts || 0.75)))
+			await new Promise((resolve) =>
+				setTimeout(resolve, attempts ? 500 * attempts : pollDelayMs(polls++))
+			)
 			const job = await JobService.getCompletedJobResultMaybe({
 				id: uuid,
 				workspace
@@ -80,7 +93,15 @@ export async function pollJobResult(
 				throw new Error(errorMsg ?? 'Job failed')
 			} else if (failIfNoWorkerForTag && Date.now() >= noWorkerCheckAt) {
 				const tag = await missingWorkerTagOfQueuedJob(workspace, uuid)
-				if (tag) throw new NoWorkerForTagError(tag)
+				if (tag && tag === unservedTag) {
+					// Leaving it queued would let it run long after the caller reported it
+					// as failed, and every retry would pile on another orphan.
+					await JobService.cancelQueuedJob({ workspace, id: uuid, requestBody: {} }).catch((err) =>
+						console.warn('Could not cancel the unpickable job', err)
+					)
+					throw new NoWorkerForTagError(tag)
+				}
+				unservedTag = tag
 				noWorkerCheckAt = Date.now() + NO_WORKER_RECHECK_MS
 			}
 		} catch (e) {

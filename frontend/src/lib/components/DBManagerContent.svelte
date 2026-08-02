@@ -84,17 +84,27 @@
 		return `${ws}:${getDbSchemasPath(input)}`
 	}
 
+	// Reported in place of the loading spinner: both queries run as jobs, so
+	// anything from a bad connection to a tag no worker serves surfaces here
+	// instead of leaving the manager spinning with no explanation. Each query
+	// owns its slot so neither can clear the other's error on a refetch.
+	let schemaError = $state<string | undefined>(undefined)
+	let colDefsError = $state<string | undefined>(undefined)
+	let loadError = $derived(schemaError ?? colDefsError)
+
 	let colDefs = resource(
 		() => [input, ws],
 		async () => {
+			colDefsError = undefined
 			if (!input) return
-			return await loadAllTablesMetaData(ws, input)
+			try {
+				return await loadAllTablesMetaData(ws, input)
+			} catch (e) {
+				colDefsError = 'Error loading tables metadata: ' + ((e as Error)?.message || e)
+				return
+			}
 		}
 	)
-	// Reported in place of the loading spinner: the schema query runs as a job, so
-	// anything from a bad connection to a tag no worker serves surfaces here
-	// instead of leaving the manager spinning with no explanation.
-	let schemaError = $state<string | undefined>(undefined)
 
 	let dbSchemasPromise = resource(
 		() => [input, ws],
@@ -266,11 +276,11 @@
 			</Pane>
 		{/if}
 	</Splitpanes>
-{:else if schemaError}
+{:else if loadError}
 	<div class="h-full w-full flex flex-col items-center justify-center gap-3 p-8">
 		<div class="max-w-2xl w-full flex flex-col gap-3">
 			<Alert type="error" title="Could not load the database schema" size="xs">
-				{schemaError}
+				{loadError}
 			</Alert>
 			<div class="self-start">
 				<Button size="xs" color="light" startIcon={{ icon: RefreshCcw }} on:click={() => refresh()}>
