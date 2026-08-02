@@ -230,10 +230,13 @@ pub async fn permissioned_as_from_email(
 /// but the poller delivers that asynchronously, so a hit can still be the old address for the
 /// length of one poll.
 ///
-/// Job dispatch reads it anyway, deliberately: the address it copies onto the job row can be one
-/// poll stale, landing after `change_user_email`'s `v2_job` sweep has passed, and that run keeps
-/// it. Accepted deliberately: the blast radius is that one run. Anything stored where a *later*
-/// read will trust it uses [`get_email_from_permissioned_as_uncached`] instead.
+/// Which of the two to use is a question of how long a wrong answer lives, not of whether it is
+/// stored — both of these get stored and read back. A config row (an app policy, a schedule, a
+/// runnable) is the authority for every run that follows it, so a stale address there is
+/// permanent and invisible: those use [`get_email_from_permissioned_as_uncached`]. Job dispatch
+/// also stores its answer, and the worker reads it back to build that run's authed, but it
+/// governs one job and dies with it — bounded enough to be worth keeping dispatch off the
+/// database, so it stays here.
 ///
 /// Reads through the non-RLS pool and authorizes nothing — callers must already be authorized
 /// for `workspace_id`.
@@ -248,11 +251,11 @@ pub async fn get_email_from_permissioned_as<'c>(
 /// [`get_email_from_permissioned_as`] for a value about to be **persisted**.
 ///
 /// The eviction is delivered by the `notify_event` poller, not synchronously, so for a few
-/// seconds after a change a replica can still serve the old address. Handing that to a read or a
-/// job dispatch costs one stale answer. Writing it into a row does not: the row outlives the
-/// eviction, later reads trust it, and nothing re-derives it — so a principal and an address that
-/// name different accounts become permanent. Use this wherever the result is stored, including
-/// the lookups that validate a pair before it is stored.
+/// seconds after a change a replica can still serve the old address. In a config row that is
+/// permanent: the row outlives the eviction, every later run trusts it, and nothing re-derives
+/// it, so a principal and an address that name different accounts stay that way. Use this for
+/// those, and for the lookups that validate a pair before it becomes one — see
+/// [`get_email_from_permissioned_as`] for the dispatch case that deliberately does not.
 pub async fn get_email_from_permissioned_as_uncached<'c>(
     permissioned_as: &str,
     workspace_id: &str,

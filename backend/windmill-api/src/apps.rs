@@ -4709,6 +4709,7 @@ async fn get_on_behalf_of(policy: &Policy, w_id: &str, db: &DB) -> Result<(Strin
         .to_string();
     let email = match policy.on_behalf_of_email.as_deref() {
         Some(email) => email.to_string(),
+        // Cached on purpose: the dispatch case `get_email_from_permissioned_as` carves out.
         None => {
             windmill_common::users::get_email_from_permissioned_as(&permissioned_as, w_id, db)
                 .await?
