@@ -1701,10 +1701,6 @@ pub async fn on_behalf_of_from_permissioned_as(
     let Some(permissioned_as) = permissioned_as else {
         return Ok(None);
     };
-    // The address is copied onto the job row, where it stays for the life of the run and decides
-    // the superadmin flag and the instance groups. `notify_user_email_change` evicts the key on
-    // every replica for each change that can move it, so a cache hit is only ever served while it
-    // still holds.
     let email = users::get_email_from_permissioned_as(permissioned_as, w_id, db).await?;
     Ok(Some(jobs::OnBehalfOf { email, permissioned_as: permissioned_as.to_string() }))
 }

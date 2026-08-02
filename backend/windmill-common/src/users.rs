@@ -232,9 +232,8 @@ pub async fn permissioned_as_from_email(
 ///
 /// Job dispatch reads it anyway, deliberately: the address it copies onto the job row can be one
 /// poll stale, landing after `change_user_email`'s `v2_job` sweep has passed, and that run keeps
-/// it. Accepted because an address changes far more rarely than jobs are dispatched, and the
-/// blast radius is the one run. Anything stored where a *later* read will trust it uses
-/// [`get_email_from_permissioned_as_uncached`] instead.
+/// it. Accepted deliberately: the blast radius is that one run. Anything stored where a *later*
+/// read will trust it uses [`get_email_from_permissioned_as_uncached`] instead.
 ///
 /// Reads through the non-RLS pool and authorizes nothing — callers must already be authorized
 /// for `workspace_id`.

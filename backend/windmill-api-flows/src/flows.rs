@@ -889,7 +889,7 @@ async fn derived_on_behalf_of_email(
     let Some(permissioned_as) = flow.on_behalf_of.as_deref() else {
         return Ok(None);
     };
-    // Uncached, for the reason given on `prefetch_cached_script`: this pair is round-tripped.
+    // Uncached: this pair is round-tripped by the client and stored again on redeploy.
     Ok(Some(
         windmill_common::users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db)
             .await?,
