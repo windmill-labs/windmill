@@ -61,6 +61,9 @@ describe('pollJobResult', () => {
 
 	it('cancels a queued write before reporting it, so it cannot apply later', async () => {
 		existsWorkersWithTags.mockResolvedValue({ postgresql: false })
+		cancelQueuedJob.mockImplementation(async () => {
+			getCompletedJobResultMaybe.mockResolvedValue({ completed: true, success: false })
+		})
 
 		const promise = pollJobResult('job-1', 'ws', { sideEffecting: true })
 		const rejects = expect(promise).rejects.toBeInstanceOf(NoWorkerForTagError)
@@ -69,6 +72,20 @@ describe('pollJobResult', () => {
 		expect(cancelQueuedJob).toHaveBeenCalledWith(
 			expect.objectContaining({ id: 'job-1', workspace: 'ws' })
 		)
+	})
+
+	it('returns the result of a write a worker completed as the cancel was sent', async () => {
+		// `cancelQueuedJob` answers 200 for an already-completed job too, so treating
+		// the request as proof would report a mutation that actually landed as failed
+		// and invite the user to run it twice.
+		existsWorkersWithTags.mockResolvedValue({ postgresql: false })
+		cancelQueuedJob.mockImplementation(async () => {
+			getCompletedJobResultMaybe.mockResolvedValue({ completed: true, success: true, result: 7 })
+		})
+
+		const promise = pollJobResult('job-1', 'ws', { sideEffecting: true })
+		await vi.advanceTimersByTimeAsync(PAST_CONFIRMATION_WINDOW_MS)
+		await expect(promise).resolves.toBe(7)
 	})
 
 	it('keeps waiting on a write the server would not cancel', async () => {

@@ -85,6 +85,9 @@ export async function pollJobResult(
 	// worker group booting reads like an unserved tag in any single one.
 	let noWorkerProbeAt = Date.now() + NO_WORKER_FIRST_PROBE_MS
 	let unservedProbes = 0
+	// Set once a cancel has been *requested* for an unserved write, so the loop
+	// can name the cause when the job turns out to have ended cancelled.
+	let cancelRequestedForTag: string | undefined = undefined
 	while (attempts < maxRetries) {
 		try {
 			await new Promise((resolve) =>
@@ -102,6 +105,9 @@ export async function pollJobResult(
 				}
 			} else if (job.completed) {
 				attempts = maxRetries
+				if (cancelRequestedForTag) {
+					throw new NoWorkerForTagError(cancelRequestedForTag, true)
+				}
 				let errorMsg: string | undefined = (job?.result as any)?.error?.message
 				if (typeof errorMsg !== 'string') errorMsg = undefined
 				console.error('JOB FAILED', job.result)
@@ -117,17 +123,15 @@ export async function pollJobResult(
 						// group coming back from zero (300s cooldown) would never recover.
 						throw new NoWorkerForTagError(tag, false)
 					}
-					const cancelled = await JobService.cancelQueuedJob({
-						workspace,
-						id: uuid,
-						requestBody: {}
-					}).then(
-						() => true,
-						(err) => (console.warn('Could not cancel the unpickable job', err), false)
+					// A write must not stay executable once its caller has handled it as
+					// failed. The cancel is only a request though: it answers 200 for a job
+					// a worker claimed and completed in the meantime too, so the outcome is
+					// read from the next poll — a write that actually landed still returns
+					// its result above.
+					await JobService.cancelQueuedJob({ workspace, id: uuid, requestBody: {} }).then(
+						() => (cancelRequestedForTag = tag),
+						(err) => console.warn('Could not cancel the unpickable job', err)
 					)
-					if (cancelled) throw new NoWorkerForTagError(tag, true)
-					// A write the server would not cancel is still executable: keep waiting
-					// rather than report a failure that can later apply itself anyway.
 					unservedProbes = 0
 				}
 			}
