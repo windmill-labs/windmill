@@ -1039,9 +1039,9 @@
 		}
 	}
 
-	/// Shown once, the first time dbt is chosen. The runtime, the editor and the
-	/// model graph all landed together and have not been through a release yet, so
-	/// saying so at the moment of choosing beats a surprise later.
+	/// Shown once, the first time dbt is chosen: the moment of choosing is when
+	/// "this is alpha and its details will move" is worth knowing, rather than
+	/// after a project has been built on it.
 	const DBT_ALPHA_SEEN = 'dbt_alpha_ack'
 	let dbtAlphaOpen = $state(false)
 
@@ -2299,9 +2299,8 @@
 			<span class="font-mono text-xs">dbt://</span> assets in the graph.
 		</p>
 		<p>
-			The runtime, this editor and the model graph shipped together and have not been through a
-			release yet. Expect rough edges, and expect details to move: the descriptor's fields, what a
-			run returns, and how the graph is stored are all still settling.
+			Expect rough edges, and expect details to move: the descriptor's fields, what a run returns,
+			and how the graph is stored are all still settling.
 		</p>
 		<p>
 			Deploying and running work today, and an existing project needs no changes —
