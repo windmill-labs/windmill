@@ -4661,10 +4661,10 @@ async fn app_load_csv_preview() -> Result<()> {
 /// Resolved uncached: unlike a read, this value is persisted, so a stale cached address would
 /// stay wrong in the row rather than for the minute the cache lives.
 ///
-/// Written unconditionally, including for versions that could derive it: a replica below
-/// `MIN_VERSION_DERIVES_APP_POLICY_EMAIL` fails outright when the key is absent, which would 400
-/// every anonymous and publisher app until a rolling deploy finished. Both the write and the key
-/// go together, a release later — see `docs/app-policy-email-removal.md`.
+/// Written unconditionally, including for the versions that could derive it instead: a replica
+/// predating that fallback fails outright when the key is absent, which would 400 every
+/// anonymous and publisher app for the length of a rolling deploy. The write is what holds the
+/// key in place — see `docs/app-policy-email-removal.md`.
 async fn stored_on_behalf_of_email(
     policy: &Policy,
     w_id: &str,

@@ -2,10 +2,10 @@
 -- `policy.on_behalf_of` becomes the authority for an app's identity: the address beside it is
 -- written through from it on every save, so the two can no longer name different accounts.
 --
--- The address key is deliberately NOT removed here, and is still written: a replica below
--- `MIN_VERSION_DERIVES_APP_POLICY_EMAIL` errors outright when it is absent, which would 400
--- every anonymous and publisher app served by one that has not yet rolled over. Removing the key
--- is a follow-up, per docs/app-policy-email-removal.md.
+-- The address key is deliberately NOT removed here, and is still written: a replica predating
+-- the derive-when-absent fallback errors outright when it is missing, which would 400 every
+-- anonymous and publisher app served by one that has not yet rolled over. Removing the key is a
+-- follow-up, per docs/app-policy-email-removal.md.
 --
 -- What is left is the backfill: a policy that only ever had the address has no principal to run
 -- as, so give it one.

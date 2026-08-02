@@ -7,13 +7,16 @@ thing holding it in place.
 
 ## The gate
 
-A replica below `MIN_VERSION_DERIVES_APP_POLICY_EMAIL` (`windmill-common/src/min_version.rs`)
-*requires* the key: its `get_on_behalf_of` errors outright when the key is absent, so it would
-400 every anonymous and publisher app saved without one. A rolling deploy runs both versions at
-once, which is why the write stays until no such replica can be live.
+`get_on_behalf_of` gained its derive-when-absent fallback in **1.777**. Every replica before that
+*requires* the key and errors outright without it, so it would 400 every anonymous and publisher
+app saved by a newer one. A rolling deploy runs both versions at once, which is why the write
+stays until no replica older than 1.777 can be live — in practice, once `MIN_KEEP_ALIVE_VERSION`
+(`windmill-common/src/min_version.rs`) has passed it.
 
-Nothing enforces this at runtime. `vc()`'s compile-time assert fires once `MIN_KEEP_ALIVE_VERSION`
-passes that version, and when this constraint stops compiling the gate has been reached.
+There is no `MIN_VERSION_*` constant for this and it does not need one: those exist to gate
+behavior at runtime or to trip the build when a constraint expires, and nothing here does either.
+The key is written unconditionally, so no replica ever meets its absence until someone follows
+the steps below.
 
 ## Step 1 — stop writing the key
 
