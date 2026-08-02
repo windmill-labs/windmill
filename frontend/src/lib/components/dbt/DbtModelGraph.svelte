@@ -56,10 +56,12 @@
 		/** Owned by the editor: the node's details take the whole bottom section,
 		 *  which is not this component's to render, and closing them there has to
 		 *  clear the selection here so the canvas stops showing a node as picked. */
-		selection = $bindable(),
-		/** What dbt says about the selected node. Resolved here because the graph
-		 *  response is this component's; the parent renders it. */
-		selectedDbt = $bindable()
+		/** The node picked on the canvas, owned by the parent: it decides what the
+		 *  bottom section shows, and closing that has to clear it. Reported rather
+		 *  than bound — the provenance travels with it, since resolving that needs
+		 *  the graph response, which is this component's. */
+		selection,
+		onSelect
 	}: {
 		workspace: string | undefined
 		scriptPath: string
@@ -73,7 +75,7 @@
 		testRunning?: boolean
 		testResult?: unknown
 		selection?: AssetGraphNodeData | undefined
-		selectedDbt?: DbtAssetProvenance | undefined
+		onSelect?: (selection: AssetGraphNodeData | undefined, dbt: DbtAssetProvenance | undefined) => void
 	} = $props()
 
 	/** The last parse of the buffer. Component state on purpose: it describes a
@@ -144,7 +146,7 @@
 		loading = true
 		failed = false
 		raw = undefined
-		selection = undefined
+		select(undefined)
 		void load()
 	})
 
@@ -331,13 +333,14 @@
 		void runStatus.load()
 	})
 
-	$effect(() => {
-		const sel = selection
-		selectedDbt =
+	function select(sel: AssetGraphNodeData | undefined) {
+		onSelect?.(
+			sel,
 			sel?.kind === 'asset'
 				? graph?.assets.find((a) => a.kind === sel.asset_kind && a.path === sel.path)?.dbt
 				: undefined
-	})
+		)
+	}
 
 	let modelCount = $derived(
 		graph?.assets.filter((a) => a.dbt && a.dbt.resource_type !== 'source').length ?? 0
@@ -451,7 +454,7 @@
 				{graph}
 				{selection}
 				assetRunStatus={runStatus.status}
-				onselect={(s) => (selection = s)}
+				onselect={select}
 				showMinimap={false}
 				scrollZoom={false}
 			/>

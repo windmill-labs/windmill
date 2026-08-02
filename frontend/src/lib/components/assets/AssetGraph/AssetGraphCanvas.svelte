@@ -1299,9 +1299,32 @@
 		}
 		// 'schedule' doesn't produce a selection.
 	}
+
+	/// Clicking empty canvas clears the selection. `onselect` already promises it
+	/// can receive `undefined`, it just never did — so a details pane opened from
+	/// a node had no way to close by clicking off it.
+	///
+	/// Read off the click TARGET rather than SvelteFlow's `onpaneclick`, which
+	/// does not fire here: what counts as "empty" is everything that is not a
+	/// node, an edge or one of the canvas's own controls, and that is a question
+	/// about the DOM the click landed on. In the CAPTURE phase, because the flow
+	/// stops the click before it bubbles back out to this wrapper.
+	function handleBackgroundClick(event: MouseEvent) {
+		if (boundPick || !onselect) return
+		const t = event.target as HTMLElement | null
+		if (
+			t?.closest(
+				'.svelte-flow__node, .svelte-flow__edge, .svelte-flow__controls, .svelte-flow__minimap, .svelte-flow__panel'
+			)
+		) {
+			return
+		}
+		onselect(undefined)
+	}
 </script>
 
-<div class="w-full h-full relative" bind:clientWidth={paneWidth}>
+<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+<div class="w-full h-full relative" bind:clientWidth={paneWidth} onclickcapture={handleBackgroundClick}>
 	<SvelteFlow
 		{nodes}
 		{edges}

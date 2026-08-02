@@ -501,8 +501,11 @@
 						testJobId={testJob?.id}
 						testRunning={testIsLoading}
 						testResult={testJob?.result}
-						bind:selection={graphSelection}
-						bind:selectedDbt
+						selection={graphSelection}
+						onSelect={(sel, dbt) => {
+							graphSelection = sel
+							selectedDbt = dbt
+						}}
 					/>
 				</Pane>
 				<Pane size={50} minSize={15} class="relative">

@@ -152,16 +152,17 @@
 				on:click={() => copyToClipboard(assetPath)}
 				title="Copy the relation"
 			/>
-			<!-- The way out, and the only one: it clears the selection, so the graph
-			     stops showing a node as picked at the same time this closes. -->
+			<!-- Labelled and bordered rather than a subtle icon: this is how you get
+			     the logs back, and an icon among four other icons did not read as the
+			     way out. Clicking the canvas background does the same. -->
 			<Button
 				unifiedSize="2xs"
-				variant="subtle"
+				variant="default"
 				startIcon={{ icon: X }}
-				iconOnly
 				on:click={() => onClose?.()}
 				title="Close and deselect"
-			/>
+				btnClasses="ml-1">Close</Button
+			>
 		</div>
 	</div>
 
