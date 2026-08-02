@@ -71,7 +71,7 @@
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import { parsePipelineAnnotations } from './assets/AssetGraph/parsePipelineAnnotations'
 	import DropdownV2 from './DropdownV2.svelte'
-	import { type Item } from '$lib/utils'
+	import { getLocalSetting, storeLocalSetting, type Item } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
 	import Awareness from './Awareness.svelte'
@@ -90,6 +90,8 @@
 	import { getContext, onMount, setContext, tick, untrack } from 'svelte'
 	import EditorHeader from './EditorHeader.svelte'
 	import ScriptSettingsBadges from './ScriptSettingsBadges.svelte'
+	import Badge from './common/badge/Badge.svelte'
+	import Modal from './common/modal/Modal.svelte'
 	import AutosaveIndicator from './AutosaveIndicator.svelte'
 	import LabelsInput from './LabelsInput.svelte'
 
@@ -1037,7 +1039,17 @@
 		}
 	}
 
+	/// Shown once, the first time dbt is chosen. The runtime, the editor and the
+	/// model graph all landed together and have not been through a release yet, so
+	/// saying so at the moment of choosing beats a surprise later.
+	const DBT_ALPHA_SEEN = 'dbt_alpha_ack'
+	let dbtAlphaOpen = $state(false)
+
 	function onScriptLanguageTrigger(lang: 'docker' | 'bunnative' | ScriptLang) {
+		if (lang === 'dbt' && getLocalSetting(DBT_ALPHA_SEEN) !== 'true') {
+			dbtAlphaOpen = true
+			storeLocalSetting(DBT_ALPHA_SEEN, 'true')
+		}
 		if (lang == 'docker') {
 			template = 'docker'
 		} else if (lang == 'bunnative') {
@@ -1313,6 +1325,9 @@
 															} as ButtonType.Icon}
 														>
 															<span class="truncate">{label}</span>
+															{#if lang === 'dbt'}
+																<Badge color="orange" verySmall baseClass="ml-1">alpha</Badge>
+															{/if}
 														</Button>
 														{#snippet text()}
 															{label} is only available with an enterprise license
@@ -2275,5 +2290,34 @@
 {:else}
 	Script Builder not available to operators
 {/if}
+
+<Modal title="dbt on Windmill is in alpha" bind:open={dbtAlphaOpen} cancelText="Got it">
+	<div class="flex flex-col gap-3 text-sm text-secondary">
+		<p>
+			A dbt script is a whole dbt project: the files are the script's module bundle, the content is
+			a <span class="font-mono text-xs">wm_dbt.yaml</span> descriptor, and the models become
+			<span class="font-mono text-xs">dbt://</span> assets in the graph.
+		</p>
+		<p>
+			The runtime, this editor and the model graph shipped together and have not been through a
+			release yet. Expect rough edges, and expect details to move: the descriptor's fields, what a
+			run returns, and how the graph is stored are all still settling.
+		</p>
+		<p>
+			Deploying and running work today, and an existing project needs no changes —
+			<span class="font-mono text-xs">cp -r</span> it into the script's folder and push. Nothing here
+			is load-bearing for other languages.
+		</p>
+		<p class="text-xs">
+			<a
+				href="https://www.windmill.dev/docs/getting_started/scripts_quickstart"
+				target="_blank"
+				rel="noreferrer"
+				class="text-blue-500 hover:underline">Docs</a
+			>
+			· report anything surprising, it is the most useful thing at this stage.
+		</p>
+	</div>
+</Modal>
 
 <WacExportDrawer bind:this={wacExportDrawer} />
