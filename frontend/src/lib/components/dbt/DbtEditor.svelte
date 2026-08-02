@@ -36,7 +36,7 @@
 		dbtModulePath,
 		dbtPathError
 	} from './projectFiles'
-	import { CornerDownLeft, Github, Play, Plus } from 'lucide-svelte'
+	import { ChevronDown, CornerDownLeft, Github, Play, Plus } from 'lucide-svelte'
 	import type { ScriptEditorWhitelabelCustomUi } from '../custom_ui'
 	import { processSecretArgs } from '../secretArgUtils'
 
@@ -174,6 +174,16 @@
 		}
 	})
 
+	// Whether the run arguments still say what the descriptor does. Only the
+	// command block counts: a `{{ placeholder }}` is a value the project asks for
+	// on every run, not an override of anything.
+	let argsOverridden = $derived.by(() => {
+		const cmd = args?.command as Record<string, unknown> | undefined
+		if (!cmd) return false
+		const dflt = (schema?.properties?.command?.default ?? {}) as Record<string, unknown>
+		return Object.keys(cmd).some((k) => JSON.stringify(cmd[k]) !== JSON.stringify(dflt[k]))
+	})
+
 	let jobLoader: JobLoader | undefined = $state(undefined)
 	let testJob: any = $state(undefined)
 	let testIsLoading = $state(false)
@@ -306,17 +316,44 @@
 				Cancel
 			</Button>
 		{:else}
-			<Button
-				on:click={() => runTest()}
-				unifiedSize="sm"
-				variant="accent-secondary"
-				startIcon={{ icon: Play, classes: 'animate-none' }}
-				shortCut={{ Icon: CornerDownLeft }}
-			>
-				<!-- Named, because a run that silently narrowed to whichever file happens
-				     to be open is the kind of surprise a warehouse bill discovers. -->
-				{selected ? `Build ${selected.name}` : 'Build project'}
-			</Button>
+			<div class="flex items-center">
+				<Button
+					on:click={() => runTest()}
+					unifiedSize="sm"
+					variant="accent-secondary"
+					startIcon={{ icon: Play, classes: 'animate-none' }}
+					shortCut={{ Icon: CornerDownLeft }}
+					btnClasses="!rounded-r-none"
+				>
+					<!-- Named, because a run that silently narrowed to whichever file happens
+					     to be open is the kind of surprise a warehouse bill discovers. -->
+					{selected ? `Build ${selected.name}` : 'Build project'}
+				</Button>
+				<!-- The command block lives here rather than in the panel: it is a run
+				     CONFIGURATION, set once and then built from repeatedly, and it was
+				     taking permanent vertical space from the two things you actually
+				     watch. The dot says it is no longer the descriptor's own. -->
+				<Popover placement="bottom-end" contentClasses="p-3 w-[30rem] max-h-[70vh] overflow-auto">
+					{#snippet trigger()}
+						<div
+							class="relative h-[30px] px-1.5 flex items-center rounded-r border border-l-0 border-gray-300 dark:border-gray-500 hover:bg-surface-hover"
+							title="Build arguments"
+						>
+							<ChevronDown size={14} />
+							{#if argsOverridden}
+								<span class="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-blue-500"></span>
+							{/if}
+						</div>
+					{/snippet}
+					{#snippet content()}
+						{#if schema}
+							<SchemaForm {schema} bind:args noVariablePicker={false} showSchemaExplorer />
+						{:else}
+							<p class="text-2xs text-tertiary">This descriptor takes no arguments.</p>
+						{/if}
+					{/snippet}
+				</Popover>
+			</div>
 		{/if}
 	</div>
 </div>
@@ -434,7 +471,7 @@
 			     while it runs, and a tab makes seeing the graph and the run a choice
 			     between them; the graph colours from the build instead. -->
 			<Splitpanes horizontal class="h-full">
-				<Pane size={55} minSize={20}>
+				<Pane size={50} minSize={20}>
 					<DbtModelGraph
 						workspace={opWs}
 						scriptPath={path ?? ''}
@@ -450,29 +487,18 @@
 						onOpenFile={open}
 					/>
 				</Pane>
-				<Pane size={45} minSize={15}>
-					<Splitpanes horizontal class="h-full">
-						<Pane size={38} minSize={12}>
-							<div class="p-2 overflow-auto h-full">
-								{#if schema}
-									<SchemaForm {schema} bind:args noVariablePicker={false} showSchemaExplorer />
-								{/if}
-							</div>
-						</Pane>
-						<Pane size={62} minSize={20} class="relative">
-							<LogPanel
-								bind:this={logPanel}
-								workspace={opWs}
-								lang={'dbt' as Preview['language']}
-								previewJob={testJob}
-								previewIsLoading={testIsLoading}
-								{editor}
-								{args}
-								showCaptures={false}
-								customUi={customUi?.previewPanel}
-							/>
-						</Pane>
-					</Splitpanes>
+				<Pane size={50} minSize={15} class="relative">
+					<LogPanel
+						bind:this={logPanel}
+						workspace={opWs}
+						lang={'dbt' as Preview['language']}
+						previewJob={testJob}
+						previewIsLoading={testIsLoading}
+						{editor}
+						{args}
+						showCaptures={false}
+						customUi={customUi?.previewPanel}
+					/>
 				</Pane>
 			</Splitpanes>
 		</Pane>
