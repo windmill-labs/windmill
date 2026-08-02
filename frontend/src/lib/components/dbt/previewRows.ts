@@ -1,4 +1,12 @@
-import { JobService } from '$lib/gen'
+import { JobService, type ScriptModule } from '$lib/gen'
+
+/** An unsaved project, submitted as its own preview job. */
+export type DbtPreviewBuffer = {
+	content: string
+	modules: Record<string, ScriptModule> | undefined
+	tag?: string
+	timeout?: number
+}
 
 /** A model's rows, as `dbt show` returns them. */
 export type DbtPreview =
@@ -15,6 +23,10 @@ export type DbtPreview =
  * not a run-form command — it is what a table's preview is made of, here and on
  * the run page's graph.
  *
+ * Which project runs is decided by the caller, and must match the graph the SQL
+ * on screen came from: a deployed version by hash, a buffer parse by shipping
+ * that same buffer.
+ *
  * `stillWanted` is asked before each poll and before the result is used, so a
  * preview outlives neither the page that asked for it nor a navigation.
  */
@@ -23,6 +35,10 @@ export async function previewDbtRows(opts: {
 	scriptPath: string
 	/** Pins the preview to a deployed version, for a graph showing that version. */
 	scriptHash?: string | number
+	/** The project as the editor holds it. Required when the graph was parsed
+	 *  from the buffer, because there may be no deployed version at all — and
+	 *  when there is, it can lack the model or build it from other SQL. */
+	buffer?: DbtPreviewBuffer
 	/** One node: a model name, or `package.model` where two packages share one. */
 	model: string
 	/** The run's own vars, so a descriptor with a required `{{ }}` var resolves. */
@@ -32,23 +48,41 @@ export async function previewDbtRows(opts: {
 	args?: Record<string, unknown>
 	stillWanted?: () => boolean
 }): Promise<DbtPreview | undefined> {
-	const { workspace, scriptPath, scriptHash, model, vars, limit, args, stillWanted } = opts
+	const { workspace, scriptPath, scriptHash, buffer, model, vars, limit, args, stillWanted } = opts
 	const startedAt = Date.now()
 	const requestBody = {
 		...(args ?? {}),
 		command: { label: 'show', vars: vars ?? {}, model, limit: limit ?? 25 }
 	}
 	try {
-		// By HASH whenever the caller pins one: the SQL on screen is that version's,
-		// and running the deployed one would show today's rows under it — or fail
-		// outright for a model since removed.
-		const id = scriptHash
-			? await JobService.runScriptByHash({
+		// The BUFFER when the caller has one, because then the graph and the SQL
+		// above these rows are the buffer's: a model added since the deploy exists
+		// in no other project, and one whose SQL changed builds different rows
+		// there. It ships whole — dbt resolves `ref()` project-wide.
+		//
+		// Otherwise by HASH whenever the caller pins one: the SQL on screen is that
+		// version's, and running the deployed one would show today's rows under
+		// it — or fail outright for a model since removed.
+		const id = buffer
+			? await JobService.runScriptPreview({
 					workspace,
-					hash: String(scriptHash),
-					requestBody
+					timeout: buffer.timeout,
+					requestBody: {
+						path: scriptPath,
+						content: buffer.content,
+						language: 'dbt',
+						tag: buffer.tag,
+						modules: buffer.modules,
+						args: requestBody
+					}
 				})
-			: await JobService.runScriptByPath({ workspace, path: scriptPath, requestBody })
+			: scriptHash
+				? await JobService.runScriptByHash({
+						workspace,
+						hash: String(scriptHash),
+						requestBody
+					})
+				: await JobService.runScriptByPath({ workspace, path: scriptPath, requestBody })
 		// Polled rather than awaited: a preview is a job, and its engine may need
 		// provisioning on a cold worker.
 		for (let i = 0; i < 90; i++) {

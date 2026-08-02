@@ -206,6 +206,10 @@
 	let graphSelection = $state<AssetGraphNodeData | undefined>(undefined)
 	let selectedAsset = $derived(graphSelection?.kind === 'asset' ? graphSelection : undefined)
 	let selectedDbt = $state<DbtAssetProvenance | undefined>(undefined)
+	// A node from a buffer parse previews out of that same buffer; one from the
+	// deployed graph previews out of that version. Either way the rows come from
+	// the project whose SQL is displayed above them.
+	let selectedFromBuffer = $state(false)
 
 	let jobLoader: JobLoader | undefined = $state(undefined)
 	let testJob: any = $state(undefined)
@@ -502,9 +506,10 @@
 						testRunning={testIsLoading}
 						testResult={testJob?.result}
 						selection={graphSelection}
-						onSelect={(sel, dbt) => {
+						onSelect={(sel, dbt, parsedFromBuffer) => {
 							graphSelection = sel
 							selectedDbt = dbt
+							selectedFromBuffer = parsedFromBuffer
 						}}
 					/>
 				</Pane>
@@ -522,6 +527,9 @@
 							assetPath={selectedAsset.path}
 							dbt={selectedDbt}
 							scriptHash={deployedHash}
+							buffer={selectedFromBuffer
+								? { content: code, modules: modules ?? undefined, tag, timeout }
+								: undefined}
 							{args}
 							fileInBundle={!!selectedDbt.original_file_path &&
 								!!modules?.[selectedDbt.original_file_path]}

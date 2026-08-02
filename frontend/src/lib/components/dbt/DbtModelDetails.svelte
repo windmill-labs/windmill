@@ -12,7 +12,7 @@
 	import { ClipboardCopy, Code2, FileCode2, Loader2, TableProperties, X } from 'lucide-svelte'
 	import { copyToClipboard } from '$lib/utils'
 	import type { DbtAssetProvenance } from '$lib/components/assets/AssetGraph/types'
-	import { previewDbtRows, type DbtPreview } from './previewRows'
+	import { previewDbtRows, type DbtPreview, type DbtPreviewBuffer } from './previewRows'
 	import { nodeSelector } from './parseDbtRun'
 
 	let {
@@ -21,8 +21,13 @@
 		/** The relation this node writes, which is the asset path. */
 		assetPath,
 		dbt,
-		/** Pins a preview to a deployed version, when the graph on screen is one. */
+		/** Pins a preview to a deployed version, when the graph on screen is one.
+		 *  Ignored when `buffer` is set — see it. */
 		scriptHash,
+		/** Set when the graph on screen was parsed from the editor, in which case
+		 *  the rows have to come from that same buffer: the SQL shown above them
+		 *  is the buffer's, and there may be no deployed version to run at all. */
+		buffer,
 		/** The run form's arguments: a `dbt show` is an invocation of this same
 		 *  project, so a descriptor with a required `{{ }}` var needs them. */
 		args,
@@ -36,6 +41,7 @@
 		assetPath: string
 		dbt: DbtAssetProvenance
 		scriptHash?: string | number
+		buffer?: DbtPreviewBuffer
 		args?: Record<string, unknown>
 		fileInBundle?: boolean
 		onOpenFile?: (path: string) => void
@@ -71,6 +77,7 @@
 			workspace,
 			scriptPath,
 			scriptHash,
+			buffer,
 			// Scoped to the node's package: a dependency package can ship a model
 			// whose name the project also uses.
 			model: nodeSelector(dbt.unique_id),

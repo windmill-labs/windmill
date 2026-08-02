@@ -42,9 +42,10 @@ export interface DbtAssetProvenance {
 	/** A source's declared freshness policy. */
 	freshness?: unknown
 	/** The model's SQL as written — the transform behind the node. Read-only:
-	 *  this is the copy taken at deploy, and the file itself lives in the
-	 *  producing script's `__dbt/` bundle. Absent for tests and for nodes with
-	 *  no body. */
+	 *  this is the copy captured when the graph on screen was parsed, whether
+	 *  that was a deploy or a refresh from the editor's buffer, and the file
+	 *  itself lives in the producing script's `__dbt/` bundle. Absent for tests
+	 *  and for nodes with no body. */
 	raw_code?: string
 	/** Its path inside the dbt project, e.g. `models/staging/stg_orders.sql`. */
 	original_file_path?: string

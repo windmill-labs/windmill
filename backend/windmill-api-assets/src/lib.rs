@@ -671,7 +671,9 @@ struct DbtAssetProvenance {
     #[serde(skip_serializing_if = "Option::is_none")]
     freshness: Option<serde_json::Value>,
     /// The model's SQL as written. Read-only in Windmill — the file lives in
-    /// the repo at the pinned commit, and this is a copy taken at deploy.
+    /// the producing script's bundle, and this is the copy captured when the
+    /// graph being read was parsed: at deploy, or by a refresh from the
+    /// editor's buffer.
     #[serde(skip_serializing_if = "Option::is_none")]
     raw_code: Option<String>,
     /// Its path inside the repo, e.g. `models/staging/stg_orders.sql`.

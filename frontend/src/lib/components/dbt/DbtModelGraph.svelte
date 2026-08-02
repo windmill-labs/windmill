@@ -11,7 +11,7 @@
 	// Explicit, because a refresh costs a worker job: engine provisioning is
 	// cached per (version, adapter) and `dbt deps` per lock digest, so a warm
 	// refresh is seconds and a cold one is a download.
-	import { onDestroy } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
 	import { JobService, OpenAPI, type ScriptModule } from '$lib/gen'
 	import { Button } from '$lib/components/common'
 	import { Loader2, RefreshCw } from 'lucide-svelte'
@@ -53,9 +53,6 @@
 		testJobId,
 		testRunning = false,
 		testResult,
-		/** Owned by the editor: the node's details take the whole bottom section,
-		 *  which is not this component's to render, and closing them there has to
-		 *  clear the selection here so the canvas stops showing a node as picked. */
 		/** The node picked on the canvas, owned by the parent: it decides what the
 		 *  bottom section shows, and closing that has to clear it. Reported rather
 		 *  than bound — the provenance travels with it, since resolving that needs
@@ -75,7 +72,14 @@
 		testRunning?: boolean
 		testResult?: unknown
 		selection?: AssetGraphNodeData | undefined
-		onSelect?: (selection: AssetGraphNodeData | undefined, dbt: DbtAssetProvenance | undefined) => void
+		onSelect?: (
+			selection: AssetGraphNodeData | undefined,
+			dbt: DbtAssetProvenance | undefined,
+			/** Whether the graph this node came from was parsed from the buffer.
+			 *  Sent with the selection rather than exposed on its own so it can
+			 *  never disagree with the SQL the parent is about to show. */
+			parsedFromBuffer: boolean
+		) => void
 	} = $props()
 
 	/** The last parse of the buffer. Component state on purpose: it describes a
@@ -333,12 +337,24 @@
 		void runStatus.load()
 	})
 
+	// Whether what is drawn is the buffer's graph. Not "a refresh has run": a pin
+	// that did not resolve falls back to the deployed graph, and everything keyed
+	// on this — the label, and which project a row preview runs — must follow the
+	// graph that actually came back.
+	let editorParsed = $derived(refreshJob != undefined && raw?.dbt_snapshot_job === refreshJob)
+
+	// `untrack`, because the effect that reloads the graph clears the selection
+	// through here: reading the graph to describe a selection would subscribe that
+	// effect to the very state its own fetch writes, and it would reload forever.
 	function select(sel: AssetGraphNodeData | undefined) {
-		onSelect?.(
-			sel,
-			sel?.kind === 'asset'
-				? graph?.assets.find((a) => a.kind === sel.asset_kind && a.path === sel.path)?.dbt
-				: undefined
+		untrack(() =>
+			onSelect?.(
+				sel,
+				sel?.kind === 'asset'
+					? graph?.assets.find((a) => a.kind === sel.asset_kind && a.path === sel.path)?.dbt
+					: undefined,
+				editorParsed
+			)
 		)
 	}
 
@@ -350,7 +366,7 @@
 	// drawn identically, so leaving it unlabelled would move the ambiguity the
 	// explicit refresh removes straight into the editor.
 	let provenance = $derived.by(() => {
-		if (refreshJob && raw?.dbt_snapshot_job === refreshJob) {
+		if (editorParsed) {
 			// Time alone: a refresh is something you did minutes ago in this
 			// session, so the date is noise and the seconds are worse than noise.
 			const at = raw?.dbt_graph_ingested_at
@@ -358,6 +374,10 @@
 				? `parsed from the editor at ${displayDate(at, false, false)}`
 				: 'parsed from the editor'
 		}
+		// Nothing has come back yet, so there is no provenance to state. Said
+		// plainly rather than left to the branches below, which would read the
+		// absent graph as a parse that failed to load.
+		if (loading) return 'loading…'
 		// A refresh landed but its graph is not what came back — the pin did not
 		// resolve to it. Saying which graph IS on screen beats guessing why.
 		if (refreshJob) return 'last parse could not be loaded — showing the deployed graph'
