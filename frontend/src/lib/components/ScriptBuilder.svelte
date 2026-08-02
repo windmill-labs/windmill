@@ -253,16 +253,22 @@
 	// no content. Fall back to whatever IS offered.
 	$effect(() => {
 		if (isDbt && selectedTab === 'ui') {
-			// The same chain the initialiser walks, minus `ui`: falling straight to
-			// `triggers` would offer a panel a custom UI disabled.
-			selectedTab =
-				customUi?.settingsPanel?.disableMetadata !== true
-					? 'metadata'
-					: customUi?.settingsPanel?.disableRuntime !== true
-						? 'runtime'
-						: customUi?.settingsPanel?.disableTriggers !== true
-							? 'triggers'
-							: 'metadata'
+			// The first tab this configuration actually offers. The `TabContent`s for
+			// metadata, runtime and triggers are NOT gated on their disable flags —
+			// nothing else can select one, since the initialiser only picks an
+			// enabled tab — so falling back to a disabled one would render a panel
+			// the embedder switched off. When a configuration leaves dbt no tab at
+			// all (only Generated UI enabled, which dbt hides), `ui` is where it
+			// stays: its content is gated for dbt, so the drawer shows nothing
+			// rather than something forbidden.
+			const first = (
+				[
+					['metadata', customUi?.settingsPanel?.disableMetadata],
+					['runtime', customUi?.settingsPanel?.disableRuntime],
+					['triggers', customUi?.settingsPanel?.disableTriggers]
+				] as const
+			).find(([, disabled]) => disabled !== true)?.[0]
+			if (first) selectedTab = first
 		}
 	})
 	// The version whose stored graph the dbt editor draws until a refresh replaces
