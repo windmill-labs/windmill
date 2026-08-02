@@ -51,8 +51,11 @@ import {
 import {
   createRecorderShellHTML,
   DEV_RECORDER_BUNDLE,
+  isOwnOrigin,
+  isRecordingFileName,
   RECORDER_BUNDLE_PATH,
   RECORDER_SAVE_PATH,
+  recordingFileName,
   RECORDINGS_FOLDER,
 } from "./devRecorder.ts";
 
@@ -755,20 +758,27 @@ async function dev(opts: DevOptions, appFolder?: string) {
     res.end(JSON.stringify(body));
   }
 
-  /** A cross-site POST needs no preflight, so any page open in the developer's
-   * browser could otherwise write files here. The shell is served by this very
-   * server, so its own port is the only origin that may. */
-  function isOwnOrigin(origin: string | undefined): boolean {
-    if (origin === undefined) return true;
-    try {
-      return new URL(origin).port === String(port);
-    } catch {
-      return false;
+  /** Write the recording under a name nothing else holds. `wx` is what makes
+   * this safe: two tabs stopping in the same millisecond both create, and the
+   * loser retries rather than overwriting the winner. */
+  async function writeRecording(body: string): Promise<string> {
+    const now = new Date();
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const file = recordingFileName(now, attempt);
+      try {
+        await fs.promises.writeFile(path.join(recordingsDir, file), body, {
+          flag: "wx",
+        });
+        return file;
+      } catch (error: any) {
+        if (error?.code !== "EEXIST") throw error;
+      }
     }
+    throw new Error("Could not find a free recording file name");
   }
 
   function saveRecording(req: http.IncomingMessage, res: http.ServerResponse) {
-    if (!isOwnOrigin(req.headers.origin)) {
+    if (!isOwnOrigin(req.headers.origin, req.headers.host)) {
       sendJson(res, 403, { error: "Cross-origin recording upload refused" });
       return;
     }
@@ -788,7 +798,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
       }
       chunks.push(chunk);
     });
-    req.on("end", () => {
+    req.on("end", async () => {
       if (refused) return;
       const body = Buffer.concat(chunks).toString("utf-8");
       try {
@@ -797,14 +807,10 @@ async function dev(opts: DevOptions, appFolder?: string) {
         sendJson(res, 400, { error: "Body is not valid JSON" });
         return;
       }
-      const stamp = new Date().toISOString().slice(0, 19).replace(
-        /[:T]/g,
-        "-",
-      );
-      const file = `recording-${stamp}.json`;
+      let file: string;
       try {
-        fs.mkdirSync(recordingsDir, { recursive: true });
-        fs.writeFileSync(path.join(recordingsDir, file), body);
+        await fs.promises.mkdir(recordingsDir, { recursive: true });
+        file = await writeRecording(body);
       } catch (error: any) {
         log.error(colors.red(`Failed to save recording: ${error.message}`));
         sendJson(res, 500, { error: error.message });
@@ -826,7 +832,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
 
   function serveRecording(url: string, res: http.ServerResponse) {
     const file = url.slice(RECORDER_SAVE_PATH.length + 1);
-    if (!/^[A-Za-z0-9._-]+\.json$/.test(file) || file.includes("..")) {
+    if (!isRecordingFileName(file)) {
       sendJson(res, 400, { error: "Invalid recording name" });
       return;
     }
@@ -841,7 +847,9 @@ async function dev(opts: DevOptions, appFolder?: string) {
       // can fetch the recording but never read it.
       ...(playerOrigin ? { "Access-Control-Allow-Origin": playerOrigin } : {}),
     });
-    res.end(fs.readFileSync(filePath));
+    // Streamed: a recording is megabytes, and this server also carries the app,
+    // its live reload and every runnable call.
+    fs.createReadStream(filePath).on("error", () => res.end()).pipe(res);
   }
 
   // Create HTTP server

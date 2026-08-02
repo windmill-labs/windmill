@@ -309,16 +309,20 @@ async function collectAppFiles(
       const relativePath = basePath + entry.name;
 
       if (entry.isDirectory()) {
-        // Skip the runnables, node_modules, sql_to_apply and recordings
-        // subfolders: none of them are app source
+        // Skip the runnables, node_modules, and sql_to_apply subfolders
         if (
           entry.name === APP_BACKEND_FOLDER ||
           entry.name === "node_modules" ||
           entry.name === "dist" ||
           entry.name === ".claude" ||
-          entry.name === "sql_to_apply" ||
-          entry.name === RECORDINGS_FOLDER
+          entry.name === "sql_to_apply"
         ) {
+          continue;
+        }
+        // Session recordings, which the dev server only ever writes at the app
+        // root. Matched there alone, so an app of its own with a `recordings/`
+        // component folder still ships it.
+        if (basePath === "/" && entry.name === RECORDINGS_FOLDER) {
           continue;
         }
         await readDirRecursive(fullPath + SEP, relativePath + "/");

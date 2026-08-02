@@ -19,6 +19,40 @@ export const RECORDER_SAVE_PATH = "/__recordings";
 export { DEV_RECORDER_BUNDLE };
 export { RECORDINGS_FOLDER } from "./app_metadata.ts";
 
+/** Whether a request to the save route came from the shell this server serves.
+ * A cross-site POST of JSON needs no preflight, so without this any page open in
+ * the developer's browser could write files into the app folder. Compared
+ * against the `Host` the browser actually reached us on, since the shell is
+ * equally `localhost`, `127.0.0.1` or whatever `--host` binds. */
+export function isOwnOrigin(
+  origin: string | undefined,
+  host: string | undefined,
+): boolean {
+  // Absent on a same-origin request in some browsers, and on non-browser
+  // clients (curl, a script); a forged one is no worse than no header at all.
+  if (origin === undefined) return true;
+  if (host === undefined) return false;
+  try {
+    return new URL(origin).host === host;
+  } catch {
+    return false;
+  }
+}
+
+/** Name a recording after the moment it was saved. Millisecond resolution plus
+ * the caller's collision retry: two tabs stopping together must not have one
+ * silently overwrite the other. */
+export function recordingFileName(now: Date, attempt = 0): string {
+  const stamp = now.toISOString().slice(0, 23).replace(/[:T.]/g, "-");
+  return `recording-${stamp}${attempt > 0 ? `-${attempt}` : ""}.json`;
+}
+
+/** Names the read route accepts. Rejects every separator and escape, so the
+ * name can only ever resolve inside the recordings folder. */
+export function isRecordingFileName(file: string): boolean {
+  return /^[A-Za-z0-9._-]+\.json$/.test(file) && !file.includes("..");
+}
+
 export function createRecorderShellHTML(opts: {
   appPath: string;
   workspace: string;
@@ -154,10 +188,11 @@ export function createRecorderShellHTML(opts: {
         ticker = null;
         toggle.classList.remove('recording');
         toggleLabel.textContent = 'Record';
-        toggle.disabled = false;
         downloadBtn.hidden = false;
         setStatus(steps(recording.steps.length) + ' recorded');
+        // Only now: starting a fresh recording drops the one being uploaded.
         await save();
+        toggle.disabled = false;
       }
 
       async function save() {
