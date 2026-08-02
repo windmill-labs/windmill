@@ -36,7 +36,7 @@
 		dbtModulePath,
 		dbtPathError
 	} from './projectFiles'
-	import { ChevronDown, CornerDownLeft, Github, Play, Plus } from 'lucide-svelte'
+	import { ChevronDown, CornerDownLeft, Play, Plus } from 'lucide-svelte'
 	import type { ScriptEditorWhitelabelCustomUi } from '../custom_ui'
 	import { processSecretArgs } from '../secretArgUtils'
 
@@ -184,6 +184,16 @@
 		return Object.keys(cmd).some((k) => JSON.stringify(cmd[k]) !== JSON.stringify(dflt[k]))
 	})
 
+	// Neither history nor tracing belongs beside a dbt build: the run form's own
+	// history is the deployed script's, and a build is one invocation rather than
+	// a flow with steps to trace. With those gone `LogPanel` is a single tab, and
+	// it drops its own tab strip rather than showing a bar of one.
+	let logPanelUi = $derived({
+		...(customUi?.previewPanel ?? {}),
+		disableHistory: true,
+		disableTracing: true
+	})
+
 	let jobLoader: JobLoader | undefined = $state(undefined)
 	let testJob: any = $state(undefined)
 	let testIsLoading = $state(false)
@@ -298,18 +308,6 @@
 		</span>
 	{/if}
 	<div class="ml-auto shrink-0 flex items-center gap-2">
-		{#if customUi?.editorBar?.useVsCode != false}
-			<Button
-				target="_blank"
-				href="https://www.windmill.dev/docs/cli_local_dev/vscode-extension"
-				variant="subtle"
-				unifiedSize="sm"
-				title="Edit this project locally"
-				startIcon={{ icon: Github }}
-			>
-				VScode
-			</Button>
-		{/if}
 		{#if testIsLoading}
 			<Button on:click={() => jobLoader?.cancelJob()} unifiedSize="sm">
 				<WindmillIcon white={true} class="mr-2 text-white" height="16px" width="20px" spin="fast" />
@@ -333,17 +331,23 @@
 				     CONFIGURATION, set once and then built from repeatedly, and it was
 				     taking permanent vertical space from the two things you actually
 				     watch. The dot says it is no longer the descriptor's own. -->
-				<Popover placement="bottom-end" contentClasses="p-3 w-[30rem] max-h-[70vh] overflow-auto">
+				<!-- The Popover renders its OWN `<button>`, so the trigger is styled
+				     rather than filled with another one: a nested button is invalid and
+				     swallows the click. `h-7` is the accent-secondary `sm` Button's
+				     height, which is what makes the pair read as one control. -->
+				<Popover
+					placement="bottom-end"
+					contentClasses="p-3 w-[30rem] max-h-[70vh] overflow-auto"
+					class="relative h-7 px-1.5 flex items-center rounded-r-md border border-l-0 border-blue-500/60 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40"
+					triggerAttrs={{ title: 'Build arguments' }}
+				>
 					{#snippet trigger()}
-						<div
-							class="relative h-[30px] px-1.5 flex items-center rounded-r border border-l-0 border-gray-300 dark:border-gray-500 hover:bg-surface-hover"
-							title="Build arguments"
-						>
-							<ChevronDown size={14} />
-							{#if argsOverridden}
-								<span class="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-blue-500"></span>
-							{/if}
-						</div>
+						<ChevronDown size={14} />
+						{#if argsOverridden}
+							<span
+								class="pointer-events-none absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-blue-500"
+							></span>
+						{/if}
 					{/snippet}
 					{#snippet content()}
 						{#if schema}
@@ -497,7 +501,7 @@
 						{editor}
 						{args}
 						showCaptures={false}
-						customUi={customUi?.previewPanel}
+						customUi={logPanelUi}
 					/>
 				</Pane>
 			</Splitpanes>

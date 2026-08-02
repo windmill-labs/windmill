@@ -245,6 +245,28 @@
 		}
 		return () => clearInterval(timer)
 	})
+	// A version pinned with no graph is usually a deploy that has not finished
+	// ingesting yet, so look again a few times before the empty state stands.
+	// Self-scheduling rather than effect-driven: a retry that finds the same empty
+	// answer changes no state an effect reads, so it would never re-arm. Bounded
+	// and backed off — a project with no warehouse identity never fills in, and
+	// must not poll for the life of the page.
+	$effect(() => {
+		void graphKey
+		if (running || scriptHash == undefined || jobId != undefined) return
+		let tries = 0
+		let timer: ReturnType<typeof setTimeout> | undefined
+		const again = () => {
+			if (destroyed || untrack(() => graph) != undefined || tries >= 5) return
+			tries += 1
+			void load().then(() => {
+				timer = setTimeout(again, 2000 * tries)
+			})
+		}
+		timer = setTimeout(again, 2000)
+		return () => clearTimeout(timer)
+	})
+
 	// Read by the preview poll, which outlives the component otherwise: its own
 	// loop is what has to stop, since there is no interval to clear.
 	let destroyed = false
@@ -703,9 +725,18 @@
 			relation, so it has no node here — the models it asserts against belong to the runs that build
 			them. Its results are in the table below.
 		{:else}
-			This dbt script has no models in the asset graph. A project that brings its own
-			<span class="font-mono">profiles.yml</span> without naming a
-			<span class="font-mono">profile.warehouse</span> has no warehouse identity to key them on.
+			<!-- States the fact and lists what can produce it, rather than asserting one
+			     cause. The common one is timing: a version's graph is written by its
+			     DEPLOY, so the seconds between deploying and that job finishing look
+			     exactly like a project with no warehouse identity. -->
+			No models stored for this version of the project.
+			{#if scriptHash}
+				A version's graph is written by its deploy, so this is what a deploy still in
+				flight looks like — it fills in when that job lands.
+			{/if}
+			A project that brings its own <span class="font-mono">profiles.yml</span> without naming
+			a <span class="font-mono">profile.warehouse</span> also has no warehouse identity to key
+			models on, and stores none.
 		{/if}
 	</div>
 {:else}
