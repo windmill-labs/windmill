@@ -310,7 +310,7 @@ async function collectAppFiles(
 
       if (entry.isDirectory()) {
         // Skip the runnables, node_modules, sql_to_apply and recordings
-        // subfolders — none of them are app source
+        // subfolders: none of them are app source
         if (
           entry.name === APP_BACKEND_FOLDER ||
           entry.name === "node_modules" ||
