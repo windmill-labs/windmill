@@ -4671,7 +4671,7 @@ async fn stored_on_behalf_of_email(
         return Ok(None);
     };
     Ok(Some(
-        windmill_common::users::get_email_from_permissioned_as(permissioned_as, w_id, db)
+        windmill_common::users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db)
             .await?,
     ))
 }

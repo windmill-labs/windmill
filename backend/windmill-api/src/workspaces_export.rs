@@ -149,7 +149,7 @@ async fn derive_email(
     }
     // The memo above holds this to one query per distinct principal per export.
     let email =
-        windmill_common::users::get_email_from_permissioned_as(permissioned_as, w_id, db)
+        windmill_common::users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db)
             .await?;
     cache.insert(permissioned_as.to_string(), email.clone());
     Ok(Some(email))

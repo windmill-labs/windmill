@@ -92,7 +92,7 @@ async fn prefetch_cached_script_inner(
 ) -> crate::error::Result<Script<ScriptRunnableSettingsInline>> {
     let derived_email = match script.on_behalf_of.as_deref().filter(|_| derive_email) {
         Some(permissioned_as) => Some(
-            crate::users::get_email_from_permissioned_as(
+            crate::users::get_email_from_permissioned_as_uncached(
                 permissioned_as,
                 &script.workspace_id,
                 db,

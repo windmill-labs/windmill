@@ -235,11 +235,38 @@ pub async fn get_email_from_permissioned_as<'c>(
     workspace_id: &str,
     db: impl sqlx::PgExecutor<'c>,
 ) -> crate::error::Result<String> {
+    get_email_from_permissioned_as_inner(permissioned_as, workspace_id, db, true).await
+}
+
+/// [`get_email_from_permissioned_as`] for a value about to be **persisted**.
+///
+/// The eviction is delivered by the `notify_event` poller, not synchronously, so for a few
+/// seconds after a change a replica can still serve the old address. Handing that to a read or a
+/// job dispatch costs one stale answer. Writing it into a row does not: the row outlives the
+/// eviction, later reads trust it, and nothing re-derives it — so a principal and an address that
+/// name different accounts become permanent. Use this wherever the result is stored, including
+/// the lookups that validate a pair before it is stored.
+pub async fn get_email_from_permissioned_as_uncached<'c>(
+    permissioned_as: &str,
+    workspace_id: &str,
+    db: impl sqlx::PgExecutor<'c>,
+) -> crate::error::Result<String> {
+    get_email_from_permissioned_as_inner(permissioned_as, workspace_id, db, false).await
+}
+
+async fn get_email_from_permissioned_as_inner<'c>(
+    permissioned_as: &str,
+    workspace_id: &str,
+    db: impl sqlx::PgExecutor<'c>,
+    use_cache: bool,
+) -> crate::error::Result<String> {
     if let Some(username) = permissioned_as.strip_prefix(PERMISSIONED_AS_USER_PREFIX) {
-        let lookup = EmailCacheKey(workspace_id, username);
-        if let Some((email, cached_at)) = EMAIL_CACHE.get(&lookup) {
-            if cached_at.elapsed().as_secs() < EMAIL_CACHE_TTL_SECS {
-                return Ok(email);
+        if use_cache {
+            let lookup = EmailCacheKey(workspace_id, username);
+            if let Some((email, cached_at)) = EMAIL_CACHE.get(&lookup) {
+                if cached_at.elapsed().as_secs() < EMAIL_CACHE_TTL_SECS {
+                    return Ok(email);
+                }
             }
         }
         let email = resolve_username_to_email(workspace_id, username, db)

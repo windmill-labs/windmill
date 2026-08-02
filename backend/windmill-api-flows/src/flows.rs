@@ -891,7 +891,7 @@ async fn derived_on_behalf_of_email(
     };
     // Uncached, for the reason given on `prefetch_cached_script`: this pair is round-tripped.
     Ok(Some(
-        windmill_common::users::get_email_from_permissioned_as(permissioned_as, w_id, db)
+        windmill_common::users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db)
             .await?,
     ))
 }

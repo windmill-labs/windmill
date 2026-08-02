@@ -79,7 +79,7 @@ pub async fn resolve_folder_default_on_behalf_of(
         return Ok(None);
     };
     let email =
-        crate::users::get_email_from_permissioned_as(&permissioned_as, w_id, db).await?;
+        crate::users::get_email_from_permissioned_as_uncached(&permissioned_as, w_id, db).await?;
     Ok(Some((email, permissioned_as)))
 }
 
