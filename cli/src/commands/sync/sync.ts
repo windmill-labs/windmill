@@ -141,6 +141,7 @@ import { isExecutionModeAnonymous } from "../app/app.ts";
 import {
   APP_BACKEND_FOLDER,
   generateAppLocksInternal,
+  RECORDINGS_FOLDER,
 } from "../app/app_metadata.ts";
 import {
   isFlowPath,
@@ -1870,6 +1871,7 @@ export async function elementsToMap(
       const suffix = path.split(getFolderSuffix("raw_app") + SEP).pop();
       if (
         suffix?.startsWith("dist/") ||
+        suffix?.startsWith(RECORDINGS_FOLDER + "/") ||
         suffix == "wmill.d.ts" ||
         suffix == "package-lock.json" ||
         suffix == "DATATABLES.md"
