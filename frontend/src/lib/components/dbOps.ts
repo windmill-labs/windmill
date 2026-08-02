@@ -114,28 +114,31 @@ export function dbTableOpsWithPreviewScripts({
 				column: colDef,
 				columns: colDefs
 			})
-			await runScriptAndPollResult({
-				workspace,
-				requestBody: {
-					args: { ...dbArg, value_to_update: newValue, ...values },
-					language,
-					content
-				}
-			})
+			await runScriptAndPollResult(
+				{
+					workspace,
+					requestBody: {
+						args: { ...dbArg, value_to_update: newValue, ...values },
+						language,
+						content
+					}
+				},
+				{ sideEffecting: true }
+			)
 		},
 		onDelete: async ({ values }) => {
 			const content = makeMarker('DELETE', { table: tableKey, columns: colDefs })
-			await runScriptAndPollResult({
-				workspace,
-				requestBody: { args: { ...dbArg, ...values }, language, content }
-			})
+			await runScriptAndPollResult(
+				{ workspace, requestBody: { args: { ...dbArg, ...values }, language, content } },
+				{ sideEffecting: true }
+			)
 		},
 		onInsert: async ({ values }) => {
 			const content = makeMarker('INSERT', { table: tableKey, columns: colDefs })
-			await runScriptAndPollResult({
-				workspace,
-				requestBody: { args: { ...dbArg, ...values }, language, content }
-			})
+			await runScriptAndPollResult(
+				{ workspace, requestBody: { args: { ...dbArg, ...values }, language, content } },
+				{ sideEffecting: true }
+			)
 		}
 	}
 }
@@ -340,7 +343,10 @@ export function dbSchemaOpsWithPreviewScripts({
 			? await WorkspaceService.getDatatableMigrationsStatus({ workspace, datatableName })
 			: undefined
 		if (!datatableName || !status?.enabled) {
-			await runScriptAndPollResult({ workspace, requestBody: { args: dbArg, content, language } })
+			await runScriptAndPollResult(
+				{ workspace, requestBody: { args: dbArg, content, language } },
+				{ sideEffecting: true }
+			)
 			return
 		}
 		// The new migration gets the highest timestamp, so any still-pending

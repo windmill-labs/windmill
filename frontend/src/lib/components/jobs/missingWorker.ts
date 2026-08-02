@@ -12,12 +12,15 @@ import { JobService, WorkerService } from '$lib/gen'
 export class NoWorkerForTagError extends Error {
 	tag: string
 
-	constructor(tag: string) {
+	constructor(tag: string, cancelled: boolean) {
 		super(
 			`No worker has been listening to the tag "${tag}" while this job waited, so it was never ` +
-				`picked up. It stays queued and will run once a worker with that tag comes online. ` +
-				`Add "${tag}" to the worker tags of one of your worker groups (Workers page), or run a ` +
-				`worker that serves it.`
+				`picked up and ${
+					cancelled
+						? 'has been cancelled'
+						: 'stays queued — it will run once a worker with that tag comes online'
+				}. Add "${tag}" to the worker tags of one of your worker groups (Workers page), or run ` +
+				`a worker that serves it.`
 		)
 		this.name = 'NoWorkerForTagError'
 		this.tag = tag

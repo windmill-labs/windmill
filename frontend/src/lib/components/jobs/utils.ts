@@ -18,6 +18,15 @@ type RunScriptOptions = {
 	withJobData?: boolean
 	/** Set to false to keep polling a job that no worker can pick up. */
 	failIfNoWorkerForTag?: boolean
+	/**
+	 * The job writes (insert/update/delete, DDL, arbitrary SQL). Such a job must
+	 * never stay executable once its caller has handled it as failed, or a later
+	 * pickup plus a retry applies it twice — so it is cancelled before the
+	 * missing-worker error is reported, and the poll keeps waiting if the cancel
+	 * is refused. Reads are abandoned queued instead, which leaves the autoscaler
+	 * the backlog it scales up on.
+	 */
+	sideEffecting?: boolean
 }
 
 /**
@@ -61,7 +70,12 @@ function pollDelayMs(poll: number): number {
 export async function pollJobResult(
 	uuid: string,
 	workspace: string,
-	{ maxRetries = 7, withJobData, failIfNoWorkerForTag = true }: RunScriptOptions = {}
+	{
+		maxRetries = 7,
+		withJobData,
+		failIfNoWorkerForTag = true,
+		sideEffecting = false
+	}: RunScriptOptions = {}
 ): Promise<unknown> {
 	let attempts = 0
 	let polls = 0
@@ -97,10 +111,24 @@ export async function pollJobResult(
 				noWorkerProbeAt = Date.now() + NO_WORKER_PROBE_INTERVAL_MS
 				unservedProbes = tag ? unservedProbes + 1 : 0
 				if (tag && unservedProbes >= NO_WORKER_CONFIRMATIONS) {
-					// Only the wait is given up on — the job is left queued. Cancelling it
-					// would remove the very backlog the autoscaler scales up on, so a group
-					// coming back from zero (300s cooldown by default) would never recover.
-					throw new NoWorkerForTagError(tag)
+					if (!sideEffecting) {
+						// Only the wait is given up on — the job is left queued. Cancelling a
+						// read would remove the very backlog the autoscaler scales up on, so a
+						// group coming back from zero (300s cooldown) would never recover.
+						throw new NoWorkerForTagError(tag, false)
+					}
+					const cancelled = await JobService.cancelQueuedJob({
+						workspace,
+						id: uuid,
+						requestBody: {}
+					}).then(
+						() => true,
+						(err) => (console.warn('Could not cancel the unpickable job', err), false)
+					)
+					if (cancelled) throw new NoWorkerForTagError(tag, true)
+					// A write the server would not cancel is still executable: keep waiting
+					// rather than report a failure that can later apply itself anyway.
+					unservedProbes = 0
 				}
 			}
 		} catch (e) {

@@ -228,14 +228,17 @@
 					throw runErr
 				}
 			} else {
-				await runScriptAndPollResult({
-					workspace: targetWorkspace,
-					requestBody: {
-						args: { database: `datatable://${dtName}` },
-						language: 'postgresql',
-						content: migrationSql
-					}
-				})
+				await runScriptAndPollResult(
+					{
+						workspace: targetWorkspace,
+						requestBody: {
+							args: { database: `datatable://${dtName}` },
+							language: 'postgresql',
+							content: migrationSql
+						}
+					},
+					{ sideEffecting: true }
+				)
 			}
 		} catch (e: any) {
 			sendUserToast(e?.body ?? e?.message ?? String(e), true)

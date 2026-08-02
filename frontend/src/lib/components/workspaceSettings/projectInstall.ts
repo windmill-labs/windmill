@@ -233,14 +233,17 @@ async function applyOneMigration(
 			only: created.timestamp
 		})
 	} else {
-		await runScriptAndPollResult({
-			workspace,
-			requestBody: {
-				language: 'postgresql',
-				content: m.sql,
-				args: { database: `datatable://${m.datatable_name}` }
-			}
-		})
+		await runScriptAndPollResult(
+			{
+				workspace,
+				requestBody: {
+					language: 'postgresql',
+					content: m.sql,
+					args: { database: `datatable://${m.datatable_name}` }
+				}
+			},
+			{ sideEffecting: true }
+		)
 	}
 }
 

@@ -123,7 +123,8 @@
 						args: dbArg
 					}
 				},
-				{ withJobData: true }
+				// The user types arbitrary SQL here, so treat every run as a write.
+				{ withJobData: true, sideEffecting: true }
 			)) as any
 			if (statements.length > 1) {
 				result = result[result.length - 1]

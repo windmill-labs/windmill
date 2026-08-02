@@ -17,7 +17,7 @@ vi.mock('$lib/gen', () => ({
 }))
 
 import { pollJobResult } from './utils'
-import { NoWorkerForTagError } from './missingWorker'
+import { hasWorkerForTag, NoWorkerForTagError } from './missingWorker'
 
 function settlementTracker(promise: Promise<unknown>) {
 	const state = { settled: false }
@@ -47,7 +47,7 @@ afterEach(() => {
 const PAST_CONFIRMATION_WINDOW_MS = 120_000
 
 describe('pollJobResult', () => {
-	it('reports a queued job whose tag stays unserved without cancelling it', async () => {
+	it('reports a queued read whose tag stays unserved without cancelling it', async () => {
 		existsWorkersWithTags.mockResolvedValue({ postgresql: false })
 
 		const promise = pollJobResult('job-1', 'ws')
@@ -57,6 +57,31 @@ describe('pollJobResult', () => {
 		// The backlog is what the autoscaler scales up on: cancelling would stop a
 		// group coming back from zero from ever recovering.
 		expect(cancelQueuedJob).not.toHaveBeenCalled()
+	})
+
+	it('cancels a queued write before reporting it, so it cannot apply later', async () => {
+		existsWorkersWithTags.mockResolvedValue({ postgresql: false })
+
+		const promise = pollJobResult('job-1', 'ws', { sideEffecting: true })
+		const rejects = expect(promise).rejects.toBeInstanceOf(NoWorkerForTagError)
+		await vi.advanceTimersByTimeAsync(PAST_CONFIRMATION_WINDOW_MS)
+		await rejects
+		expect(cancelQueuedJob).toHaveBeenCalledWith(
+			expect.objectContaining({ id: 'job-1', workspace: 'ws' })
+		)
+	})
+
+	it('keeps waiting on a write the server would not cancel', async () => {
+		existsWorkersWithTags.mockResolvedValue({ postgresql: false })
+		cancelQueuedJob.mockRejectedValue(new Error('nope'))
+
+		const promise = pollJobResult('job-1', 'ws', { sideEffecting: true })
+		const tracker = settlementTracker(promise)
+
+		// Reporting failure on a write that is still executable would let it apply
+		// itself after the caller gave up, and duplicate on retry.
+		await vi.advanceTimersByTimeAsync(PAST_CONFIRMATION_WINDOW_MS * 3)
+		expect(tracker.settled).toBe(false)
 	})
 
 	it('does not give up while a worker group could still be coming up', async () => {
@@ -86,5 +111,15 @@ describe('pollJobResult', () => {
 		getCompletedJobResultMaybe.mockResolvedValue({ completed: true, success: true, result: 42 })
 		await vi.advanceTimersByTimeAsync(3_000)
 		await expect(promise).resolves.toBe(42)
+	})
+})
+
+describe('hasWorkerForTag', () => {
+	it('treats an answer it did not get as a worker being there', async () => {
+		// `existsWorkersWithTags` returns an empty map when TAGS_ARE_SENSITIVE hides
+		// the tag from the caller. Reading that as "unserved" would diagnose a
+		// perfectly healthy instance.
+		existsWorkersWithTags.mockResolvedValue({})
+		await expect(hasWorkerForTag('ws', 'postgresql')).resolves.toBe(true)
 	})
 })

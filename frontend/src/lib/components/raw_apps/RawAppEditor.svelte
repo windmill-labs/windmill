@@ -1020,14 +1020,17 @@
 				}
 
 				try {
-					const result = await runScriptAndPollResult({
-						workspace: opWorkspace,
-						requestBody: {
-							language: 'postgresql',
-							content: sql,
-							args: { database: `datatable://${datatableName}` }
-						}
-					})
+					const result = await runScriptAndPollResult(
+						{
+							workspace: opWorkspace,
+							requestBody: {
+								language: 'postgresql',
+								content: sql,
+								args: { database: `datatable://${datatableName}` }
+							}
+						},
+						{ sideEffecting: true }
+					)
 
 					// If newTable was specified and the query succeeded, add it to data.tables
 					if (newTable) {
