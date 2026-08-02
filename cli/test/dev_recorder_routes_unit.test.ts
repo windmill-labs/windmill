@@ -13,8 +13,8 @@ import {
 test("only the shell's own origin may save a recording", () => {
   expect(isOwnOrigin("http://localhost:4000", "localhost:4000")).toBe(true);
   expect(isOwnOrigin("http://127.0.0.1:4000", "127.0.0.1:4000")).toBe(true);
-  // A cross-site POST of JSON needs no preflight, so a foreign origin that
-  // happens to share the port must still be refused.
+  // A cross-site POST carrying JSON under a simple content type needs no
+  // preflight, so a foreign origin sharing the port must still be refused.
   expect(isOwnOrigin("http://attacker.example:4000", "localhost:4000")).toBe(
     false,
   );
