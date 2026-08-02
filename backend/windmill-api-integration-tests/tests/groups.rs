@@ -297,3 +297,111 @@ async fn test_group_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     Ok(())
 }
+
+/// Deleting an instance group must not revoke workspace access a member still holds through
+/// another configured group.
+///
+/// `cleanup_removed_instance_groups` drops a workspace user whenever `added_via.group` names the
+/// deleted group, and that field records only their highest-precedence group — so without a
+/// reprocessing pass, deleting the top group also evicts members who still qualify via a lower one.
+#[cfg(feature = "private")]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_delete_instance_group_preserves_access_via_other_group(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let global_base = format!("http://localhost:{port}/api/groups");
+    let ws_base = format!("http://localhost:{port}/api/w/test-workspace/workspaces");
+
+    for g in ["igroup_a", "igroup_b"] {
+        let resp = authed(client().post(format!("{global_base}/create")))
+            .json(&json!({ "name": g, "summary": g }))
+            .send()
+            .await?;
+        assert_eq!(resp.status(), 200, "create {g}");
+    }
+
+    // multi@ belongs to both groups; only_a@ only to the group that gets deleted.
+    for (g, email) in [
+        ("igroup_a", "multi@example.com"),
+        ("igroup_b", "multi@example.com"),
+        ("igroup_a", "only_a@example.com"),
+    ] {
+        let resp = authed(client().post(format!("{global_base}/adduser/{g}")))
+            .json(&json!({ "email": email }))
+            .send()
+            .await?;
+        assert_eq!(resp.status(), 200, "adduser {g}/{email}");
+    }
+
+    // igroup_a grants the higher-precedence role, so added_via lands on it.
+    let resp = authed(client().post(format!("{ws_base}/edit_instance_groups")))
+        .json(&json!({
+            "groups": ["igroup_a", "igroup_b"],
+            "roles": { "igroup_a": "admin", "igroup_b": "developer" }
+        }))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "edit_instance_groups: {}",
+        resp.text().await?
+    );
+
+    let (is_admin, via): (bool, Option<String>) = sqlx::query_as(
+        "SELECT is_admin, added_via->>'group' FROM usr
+         WHERE workspace_id = 'test-workspace' AND email = 'multi@example.com'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert!(is_admin, "multi@ should start as admin via igroup_a");
+    assert_eq!(via.as_deref(), Some("igroup_a"));
+
+    let resp = authed(client().delete(format!("{global_base}/delete/igroup_a")))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "delete igroup_a: {}", resp.text().await?);
+
+    // Still a member, downgraded to igroup_b's role rather than evicted.
+    let (is_admin, is_operator, via): (bool, bool, Option<String>) = sqlx::query_as(
+        "SELECT is_admin, operator, added_via->>'group' FROM usr
+         WHERE workspace_id = 'test-workspace' AND email = 'multi@example.com'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert!(!is_admin, "multi@ should lose admin with igroup_a gone");
+    assert!(!is_operator, "igroup_b grants developer, not operator");
+    assert_eq!(
+        via.as_deref(),
+        Some("igroup_b"),
+        "added_via should re-point at the surviving group"
+    );
+
+    // igroup_a was only_a@'s sole path in, so they are removed.
+    let remaining: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM usr
+         WHERE workspace_id = 'test-workspace' AND email = 'only_a@example.com'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(remaining, 0, "only_a@ should be removed with igroup_a");
+
+    // The deleted group leaves no dangling reference in either auto_invite field.
+    let (groups, roles): (serde_json::Value, serde_json::Value) = sqlx::query_as(
+        "SELECT auto_invite->'instance_groups', auto_invite->'instance_groups_roles'
+         FROM workspace_settings WHERE workspace_id = 'test-workspace'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(groups, json!(["igroup_b"]), "igroup_a should be stripped");
+    assert_eq!(
+        roles,
+        json!({ "igroup_b": "developer" }),
+        "igroup_a's role entry should be stripped"
+    );
+
+    Ok(())
+}
