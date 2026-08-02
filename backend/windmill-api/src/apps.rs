@@ -4658,9 +4658,6 @@ async fn app_load_csv_preview() -> Result<()> {
 /// the stored copy can only ever agree with the principal — the drift it used to allow is what
 /// this replaces.
 ///
-/// Resolved uncached: unlike a read, this value is persisted, so a stale cached address would
-/// stay wrong in the row rather than for the minute the cache lives.
-///
 /// Written unconditionally, including for the versions that could derive it instead: a replica
 /// predating that fallback fails outright when the key is absent, which would 400 every
 /// anonymous and publisher app for the length of a rolling deploy. The write is what holds the
@@ -4674,7 +4671,7 @@ async fn stored_on_behalf_of_email(
         return Ok(None);
     };
     Ok(Some(
-        windmill_common::users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db)
+        windmill_common::users::get_email_from_permissioned_as(permissioned_as, w_id, db)
             .await?,
     ))
 }
@@ -4683,9 +4680,8 @@ async fn stored_on_behalf_of_email(
 /// when it is not the deployer's own. `None` when they match — a deployer handing an app their
 /// own identity is not an on-behalf-of deploy.
 ///
-/// Reads the address `stored_on_behalf_of_email` just resolved rather than looking it up again:
-/// that one is uncached, and a second cached read could write a since-changed address into a
-/// durable audit row.
+/// Reads the address `stored_on_behalf_of_email` just resolved rather than looking it up again,
+/// so the audit row and the policy row can only ever name the same account.
 fn audited_on_behalf_of(policy: &Policy, authed: &ApiAuthed) -> Option<String> {
     policy
         .on_behalf_of_email

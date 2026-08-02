@@ -225,43 +225,21 @@ pub async fn permissioned_as_from_email(
 /// - "u/{username}" → resolve via [`resolve_username_to_email`] (cached)
 /// - "g/{group}" → "group-{group}@windmill.dev"
 /// - raw email → return as-is
+///
+/// The cache is not a staleness tradeoff: `notify_user_email_change` evicts the key on every
+/// replica for each change that can move it, so a hit is only served while the mapping still
+/// holds. Reads through the non-RLS pool and authorizes nothing — callers must already be
+/// authorized for `workspace_id`.
 pub async fn get_email_from_permissioned_as<'c>(
     permissioned_as: &str,
     workspace_id: &str,
     db: impl sqlx::PgExecutor<'c>,
 ) -> crate::error::Result<String> {
-    get_email_from_permissioned_as_inner(permissioned_as, workspace_id, db, true).await
-}
-
-/// [`get_email_from_permissioned_as`] without the address cache. `notify_user_email_change`
-/// evicts that cache on every replica, so the cached read is the right default; this variant is
-/// for the narrower case where even the gap between the change committing and the eviction
-/// arriving is too much — a value about to be compared against a freshly resolved one, or
-/// written somewhere that outlives the request.
-///
-/// Reads through the non-RLS pool and authorizes nothing, like the cached one: callers must
-/// already be authorized for `workspace_id`.
-pub async fn get_email_from_permissioned_as_uncached<'c>(
-    permissioned_as: &str,
-    workspace_id: &str,
-    db: impl sqlx::PgExecutor<'c>,
-) -> crate::error::Result<String> {
-    get_email_from_permissioned_as_inner(permissioned_as, workspace_id, db, false).await
-}
-
-async fn get_email_from_permissioned_as_inner<'c>(
-    permissioned_as: &str,
-    workspace_id: &str,
-    db: impl sqlx::PgExecutor<'c>,
-    use_cache: bool,
-) -> crate::error::Result<String> {
     if let Some(username) = permissioned_as.strip_prefix(PERMISSIONED_AS_USER_PREFIX) {
-        if use_cache {
-            let lookup = EmailCacheKey(workspace_id, username);
-            if let Some((email, cached_at)) = EMAIL_CACHE.get(&lookup) {
-                if cached_at.elapsed().as_secs() < EMAIL_CACHE_TTL_SECS {
-                    return Ok(email);
-                }
+        let lookup = EmailCacheKey(workspace_id, username);
+        if let Some((email, cached_at)) = EMAIL_CACHE.get(&lookup) {
+            if cached_at.elapsed().as_secs() < EMAIL_CACHE_TTL_SECS {
+                return Ok(email);
             }
         }
         let email = resolve_username_to_email(workspace_id, username, db)

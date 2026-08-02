@@ -147,11 +147,9 @@ async fn derive_email(
     if let Some(hit) = cache.get(permissioned_as) {
         return Ok(Some(hit.clone()));
     }
-    // Uncached: the address goes into an archive a client redeploys from, and the write path
-    // validates the pair it sends back against an uncached lookup. The memo above still holds
-    // this to one query per distinct principal per export.
+    // The memo above holds this to one query per distinct principal per export.
     let email =
-        windmill_common::users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db)
+        windmill_common::users::get_email_from_permissioned_as(permissioned_as, w_id, db)
             .await?;
     cache.insert(permissioned_as.to_string(), email.clone());
     Ok(Some(email))

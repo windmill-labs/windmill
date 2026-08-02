@@ -2281,9 +2281,9 @@ async fn change_user_email(
     )
     .await?;
 
-    // Read back inside the transaction: the address is derived at dispatch through a cache
-    // that nothing else evicts, so without this a job pushed in the next 60s would resolve
-    // the old address and with it the wrong superadmin flag and instance groups.
+    // Read back inside the transaction so this process can evict its own keys immediately.
+    // `notify_user_email_change` reaches every replica for the same change, but asynchronously,
+    // and this one is the replica that just served the request.
     let memberships = sqlx::query_scalar!(
         "SELECT workspace_id FROM usr WHERE email = $1",
         &new_email

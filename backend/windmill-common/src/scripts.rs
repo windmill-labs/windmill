@@ -91,11 +91,8 @@ async fn prefetch_cached_script_inner(
     derive_email: bool,
 ) -> crate::error::Result<Script<ScriptRunnableSettingsInline>> {
     let derived_email = match script.on_behalf_of.as_deref().filter(|_| derive_email) {
-        // Uncached: the client preserves this pair and sends it back, where the write path
-        // validates it against an uncached lookup. A cached address would pair a live principal
-        // with an address the account no longer holds, and the redeploy would be rejected.
         Some(permissioned_as) => Some(
-            crate::users::get_email_from_permissioned_as_uncached(
+            crate::users::get_email_from_permissioned_as(
                 permissioned_as,
                 &script.workspace_id,
                 db,
