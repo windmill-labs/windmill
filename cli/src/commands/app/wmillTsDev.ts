@@ -79,6 +79,15 @@ function notifyRecorder(type: string, reqId: string) {
     if (framed) window.parent.postMessage({ type, reqId }, window.location.origin)
 }
 
+// A reload takes the previous context and its WebSocket with it, so whatever it
+// had in flight can never answer. Announcing a fresh module is how the shell
+// learns those calls are dead: a message posted from the unloading document
+// would be dropped with the realm that sent it, and this runs before any app
+// code can issue a call of its own.
+if (framed) {
+    window.parent.postMessage({ type: 'wmillDevReady' }, window.location.origin)
+}
+
 function tracked(type: string, reqId: string, resolve: (v: any) => void, reject: (e: any) => void) {
     notifyRecorder(type, reqId)
     let settled = false

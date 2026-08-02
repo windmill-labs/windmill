@@ -3,16 +3,19 @@
  * development and records the session with the same recorder the Windmill UI
  * uses, so a locally-built app can be demoed without deploying it first.
  *
- * The app keeps its own page (`/__app`, unchanged) and the shell holds the
- * toolbar: the recorder snapshots the framed document on every mutation, and a
- * toolbar living in that document would record itself.
+ * The shell holds the toolbar rather than the app page: the recorder snapshots
+ * the framed document on every mutation, and a toolbar living in that document
+ * would record itself. It also lives at its own path, so the app keeps the root
+ * URL its router and its own links expect.
  */
 import { DEV_RECORDER_BUNDLE } from "./devRecorderBundle.gen.ts";
 
 /** Path the bundled recorder is served from. */
 export const RECORDER_BUNDLE_PATH = "/__wm_recorder.js";
-/** Path the app page moves to while the shell owns the root. */
-export const RECORDER_APP_PATH = "/__app";
+/** Path the toolbar shell is served from. Not the root: the app stays there, so
+ * a link or a router push to `/` inside it reloads the app rather than nesting
+ * another shell in the frame. */
+export const RECORDER_SHELL_PATH = "/__record";
 /** Recordings are POSTed here and served back from `<path>/<file>`. */
 export const RECORDER_SAVE_PATH = "/__recordings";
 
@@ -59,12 +62,14 @@ export function createRecorderShellHTML(opts: {
   /** Base URL of the Windmill instance, for the "Open in player" link. */
   playerBaseUrl?: string;
 }): string {
+  // `<` escaped: this lands inside an inline <script>, where a `</script>` in
+  // any value (the app path comes from raw_app.yaml) would end the block.
   const config = JSON.stringify({
     appPath: opts.appPath,
     workspace: opts.workspace,
     playerBaseUrl: opts.playerBaseUrl ?? null,
     savePath: RECORDER_SAVE_PATH,
-  });
+  }).replace(/</g, "\\u003c");
   return `
 <!DOCTYPE html>
 <html lang="en">
@@ -125,7 +130,7 @@ export function createRecorderShellHTML(opts: {
     <button id="wm-rec-download" hidden>Download JSON</button>
     <span id="wm-rec-hint">Passwords are masked. Mark sensitive elements with <code>data-wm-no-record</code></span>
   </div>
-  <iframe id="wm-rec-frame" src="${RECORDER_APP_PATH}"></iframe>
+  <iframe id="wm-rec-frame" src="/"></iframe>
   <script src="${RECORDER_BUNDLE_PATH}"></script>
   <script>
     (function () {
@@ -144,12 +149,45 @@ export function createRecorderShellHTML(opts: {
       // shell; the recorder reads the answer off the framed window, the way the
       // deployed runner delivers it. Relaying is what makes a step wait for the
       // job it launched instead of recording the spinner.
+      var pending = [];
+      var stranded = [];
       window.addEventListener('message', function (e) {
         var frameWindow = iframe.contentWindow;
         if (!frameWindow || e.source !== frameWindow) return;
         var data = e.data;
-        if (!data || typeof data.type !== 'string' || !/Res$/.test(data.type)) return;
+        if (!data || typeof data.type !== 'string') return;
+        // A fresh document announced itself, so every call the previous one had
+        // in flight died with its WebSocket.
+        if (data.type === 'wmillDevReady') {
+          stranded = stranded.concat(pending);
+          pending = [];
+          return;
+        }
+        if (data.reqId === undefined) return;
+        if (!/Res$/.test(data.type)) {
+          pending.push(data.reqId);
+          return;
+        }
+        pending = pending.filter(function (id) { return id !== data.reqId });
         frameWindow.postMessage(data, window.location.origin);
+      });
+
+      // The recorder keeps a reload's outstanding request ids on purpose (a
+      // deployed app is answered by its parent, which survives). Here the answer
+      // died with the frame's WebSocket, so Stop would wait out the whole job
+      // budget unless the shell settles them. Deferred past the load handlers:
+      // the recorder rebinds its listener onto the new document in one of them.
+      iframe.addEventListener('load', function () {
+        if (stranded.length === 0) return;
+        var ids = stranded;
+        stranded = [];
+        setTimeout(function () {
+          var frameWindow = iframe.contentWindow;
+          if (!frameWindow) return;
+          ids.forEach(function (reqId) {
+            frameWindow.postMessage({ type: 'unloadRes', reqId: reqId }, window.location.origin);
+          });
+        }, 0);
       });
 
       function setStatus(text) { status.textContent = text; }

@@ -55,6 +55,7 @@ import {
   isRecordingFileName,
   RECORDER_BUNDLE_PATH,
   RECORDER_SAVE_PATH,
+  RECORDER_SHELL_PATH,
   recordingFileName,
   RECORDINGS_FOLDER,
 } from "./devRecorder.ts";
@@ -882,10 +883,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
         serveRecording(pathname, res);
         return;
       }
-      // Only the entry page becomes the shell: the app keeps every other path,
-      // including the one the shell frames, so a deep link its router owns still
-      // lands in the app.
-      if (pathname === "/" || pathname === "/index.html") {
+      if (pathname === RECORDER_SHELL_PATH) {
         res.writeHead(200, { "Content-Type": "text/html" });
         res.end(
           createRecorderShellHTML({
@@ -1532,6 +1530,9 @@ async function dev(opts: DevOptions, appFolder?: string) {
 
   server.listen(port, host, () => {
     const url = `http://${host}:${port}`;
+    // The toolbar lives beside the app, not in front of it, so recording mode
+    // is what the browser should land on.
+    const openUrl = recordingEnabled ? `${url}${RECORDER_SHELL_PATH}` : url;
     log.info(colors.bold.green(`🚀 Dev server running at ${url}`));
     log.info(
       colors.cyan(`🔌 WebSocket server running at ws://${host}:${port}`),
@@ -1541,7 +1542,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
     if (recordingEnabled) {
       log.info(
         colors.magenta(
-          `🎬 Session recording enabled: press Record in the toolbar. Recordings are saved to ${RECORDINGS_FOLDER}/`,
+          `🎬 Session recording at ${openUrl} : press Record in the toolbar. Recordings are saved to ${RECORDINGS_FOLDER}/`,
         ),
       );
     }
@@ -1551,7 +1552,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
     if (shouldOpen) {
       try {
         open
-          .openApp(open.apps.browser, { arguments: [url] })
+          .openApp(open.apps.browser, { arguments: [openUrl] })
           .catch((error: any) => {
             log.error(
               colors.yellow(
