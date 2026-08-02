@@ -23,10 +23,11 @@ export { DEV_RECORDER_BUNDLE };
 export { RECORDINGS_FOLDER } from "./app_metadata.ts";
 
 /** Whether a request to the save route came from the shell this server serves.
- * A cross-site POST of JSON needs no preflight, so without this any page open in
- * the developer's browser could write files into the app folder. Compared
- * against the `Host` the browser actually reached us on, since the shell is
- * equally `localhost`, `127.0.0.1` or whatever `--host` binds. */
+ * A cross-site POST carrying JSON under a simple content type (`text/plain`)
+ * needs no preflight, so without this any page open in the developer's browser
+ * could write files into the app folder. Compared against the `Host` the browser
+ * actually reached us on, since the shell is equally `localhost`, `127.0.0.1` or
+ * whatever `--host` binds. */
 export function isOwnOrigin(
   origin: string | undefined,
   host: string | undefined,
