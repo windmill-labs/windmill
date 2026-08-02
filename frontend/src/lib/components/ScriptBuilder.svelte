@@ -247,20 +247,12 @@
 	// is unchanged.
 	let scriptEditor: ScriptEditor | DbtEditor | undefined = $state(undefined)
 	let isDbt = $derived(script.language === 'dbt')
-	// The Generated UI tab is not offered for dbt, and the initialiser above runs
-	// before the language is known — so a customUi that disables Metadata and
-	// Runtime lands on `ui` and would leave the panel on a tab with no trigger and
-	// no content. Fall back to whatever IS offered.
+	// dbt hides Generated UI, but the initialiser picks a tab before the language is
+	// known, so `ui` can be selected. Fall back only to an ENABLED tab — the other
+	// TabContents are not gated on their disable flags — and otherwise stay on `ui`,
+	// whose content IS gated for dbt, so nothing renders rather than something hidden.
 	$effect(() => {
 		if (isDbt && selectedTab === 'ui') {
-			// The first tab this configuration actually offers. The `TabContent`s for
-			// metadata, runtime and triggers are NOT gated on their disable flags —
-			// nothing else can select one, since the initialiser only picks an
-			// enabled tab — so falling back to a disabled one would render a panel
-			// the embedder switched off. When a configuration leaves dbt no tab at
-			// all (only Generated UI enabled, which dbt hides), `ui` is where it
-			// stays: its content is gated for dbt, so the drawer shows nothing
-			// rather than something forbidden.
 			const first = (
 				[
 					['metadata', customUi?.settingsPanel?.disableMetadata],

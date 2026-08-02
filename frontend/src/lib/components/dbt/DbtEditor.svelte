@@ -26,6 +26,7 @@
 	import DbtProjectPanel from './DbtProjectPanel.svelte'
 	import DbtModelGraph from './DbtModelGraph.svelte'
 	import DbtModelDetails from './DbtModelDetails.svelte'
+	import type { DbtPreviewBuffer } from './previewRows'
 	import type {
 		AssetGraphNodeData,
 		DbtAssetProvenance
@@ -206,10 +207,11 @@
 	let graphSelection = $state<AssetGraphNodeData | undefined>(undefined)
 	let selectedAsset = $derived(graphSelection?.kind === 'asset' ? graphSelection : undefined)
 	let selectedDbt = $state<DbtAssetProvenance | undefined>(undefined)
-	// A node from a buffer parse previews out of that same buffer; one from the
-	// deployed graph previews out of that version. Either way the rows come from
-	// the project whose SQL is displayed above them.
-	let selectedFromBuffer = $state(false)
+	// Set when the selected node came from a buffer parse: the project that parse
+	// ran on, which is the one its rows must come from. Undefined for a node off
+	// the deployed graph, which previews by version instead. Either way the rows
+	// come from the project whose SQL is displayed above them.
+	let selectedBuffer = $state<DbtPreviewBuffer | undefined>(undefined)
 
 	let jobLoader: JobLoader | undefined = $state(undefined)
 	let testJob: any = $state(undefined)
@@ -506,10 +508,10 @@
 						testRunning={testIsLoading}
 						testResult={testJob?.result}
 						selection={graphSelection}
-						onSelect={(sel, dbt, parsedFromBuffer) => {
+						onSelect={(sel, dbt, buffer) => {
 							graphSelection = sel
 							selectedDbt = dbt
-							selectedFromBuffer = parsedFromBuffer
+							selectedBuffer = buffer
 						}}
 					/>
 				</Pane>
@@ -527,9 +529,7 @@
 							assetPath={selectedAsset.path}
 							dbt={selectedDbt}
 							scriptHash={deployedHash}
-							buffer={selectedFromBuffer
-								? { content: code, modules: modules ?? undefined, tag, timeout }
-								: undefined}
+							buffer={selectedBuffer}
 							{args}
 							fileInBundle={!!selectedDbt.original_file_path &&
 								!!modules?.[selectedDbt.original_file_path]}

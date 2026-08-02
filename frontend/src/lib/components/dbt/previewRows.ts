@@ -1,6 +1,8 @@
 import { JobService, type ScriptModule } from '$lib/gen'
 
-/** An unsaved project, submitted as its own preview job. */
+/** An unsaved project, submitted as its own preview job. Held as it was sent,
+ *  never re-read from the editor: a graph describes the project it was parsed
+ *  from, and so must anything run against that graph's nodes. */
 export type DbtPreviewBuffer = {
 	content: string
 	modules: Record<string, ScriptModule> | undefined
@@ -35,9 +37,9 @@ export async function previewDbtRows(opts: {
 	scriptPath: string
 	/** Pins the preview to a deployed version, for a graph showing that version. */
 	scriptHash?: string | number
-	/** The project as the editor holds it. Required when the graph was parsed
-	 *  from the buffer, because there may be no deployed version at all — and
-	 *  when there is, it can lack the model or build it from other SQL. */
+	/** The project the graph was parsed from, when that was a buffer. Required
+	 *  then, because there may be no deployed version at all — and when there
+	 *  is, it can lack the model or build it from other SQL. */
 	buffer?: DbtPreviewBuffer
 	/** One node: a model name, or `package.model` where two packages share one. */
 	model: string

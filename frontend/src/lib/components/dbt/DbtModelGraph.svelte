@@ -18,6 +18,7 @@
 	import { displayDate } from '$lib/utils'
 	import { base } from '$lib/base'
 	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
+	import type { DbtPreviewBuffer } from './previewRows'
 	import type {
 		AssetGraphNodeData,
 		AssetGraphResponse,
@@ -75,10 +76,11 @@
 		onSelect?: (
 			selection: AssetGraphNodeData | undefined,
 			dbt: DbtAssetProvenance | undefined,
-			/** Whether the graph this node came from was parsed from the buffer.
-			 *  Sent with the selection rather than exposed on its own so it can
-			 *  never disagree with the SQL the parent is about to show. */
-			parsedFromBuffer: boolean
+			/** The project this node was parsed from, when that was the editor's
+			 *  buffer rather than a deployed version — as submitted, not as the
+			 *  editor holds it now. Sent with the selection rather than exposed on
+			 *  its own so it can never disagree with the SQL the parent shows. */
+			buffer: DbtPreviewBuffer | undefined
 		) => void
 	} = $props()
 
@@ -86,6 +88,11 @@
 	 *  buffer, and a reload has a different one. */
 	let refreshJob = $state<string | undefined>(undefined)
 	let refreshing = $state(false)
+	// The project the pinned graph was parsed FROM, kept as submitted. Every node
+	// on screen describes this snapshot, so anything run against those nodes has
+	// to run against it too — reading the live buffer instead would preview one
+	// project under another one's SQL from the next keystroke onward.
+	let parsedBuffer = $state<DbtPreviewBuffer | undefined>(undefined)
 	let refreshError = $state<{ message: string; job?: string } | undefined>(undefined)
 	/** A parse still running well past the point one normally takes, so its job is
 	 *  reachable while it waits. Not an error — it may still land. */
@@ -165,18 +172,26 @@
 		refreshError = undefined
 		refreshPending = undefined
 		let id: string | undefined
+		// Read once, here: the editor keeps changing underneath, and everything the
+		// resulting graph is used for has to name the project it actually described.
+		const submitted: DbtPreviewBuffer = {
+			content: descriptor,
+			// The whole bundle, always: dbt resolves `ref()` project-wide and cannot
+			// parse one file of it.
+			modules: modules ? { ...modules } : undefined,
+			tag,
+			timeout
+		}
 		try {
 			id = await JobService.runScriptPreview({
 				workspace,
-				timeout,
+				timeout: submitted.timeout,
 				requestBody: {
 					path: scriptPath,
-					content: descriptor,
+					content: submitted.content,
 					language: 'dbt',
-					tag,
-					// The whole bundle, always: dbt resolves `ref()` project-wide and
-					// cannot parse one file of it.
-					modules,
+					tag: submitted.tag,
+					modules: submitted.modules,
 					// The form's `vars` come along, and only those: they steer
 					// `enabled`, schemas, aliases and materializations, so a parse
 					// without them reports a different project than the run would
@@ -240,6 +255,7 @@
 					return
 				}
 				refreshJob = id
+				parsedBuffer = submitted
 				return
 			}
 		} catch (e) {
@@ -353,7 +369,7 @@
 				sel?.kind === 'asset'
 					? graph?.assets.find((a) => a.kind === sel.asset_kind && a.path === sel.path)?.dbt
 					: undefined,
-				editorParsed
+				editorParsed ? parsedBuffer : undefined
 			)
 		)
 	}
