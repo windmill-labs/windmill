@@ -12,19 +12,25 @@ import { JobService, WorkerService } from '$lib/gen'
 export class NoWorkerForTagError extends Error {
 	tag: string
 
-	constructor(tag: string, cancelled: boolean) {
+	constructor(tag: string) {
 		super(
 			`No worker has been listening to the tag "${tag}" while this job waited, so it was never ` +
-				`picked up and ${
-					cancelled
-						? 'has been cancelled'
-						: 'stays queued — it will run once a worker with that tag comes online'
-				}. Add "${tag}" to the worker tags of one of your worker groups (Workers page), or run ` +
-				`a worker that serves it.`
+				`picked up. It stays queued and will run once a worker with that tag comes online. ` +
+				`Add "${tag}" to the worker tags of one of your worker groups (Workers page), or run a ` +
+				`worker that serves it.`
 		)
 		this.name = 'NoWorkerForTagError'
 		this.tag = tag
 	}
+}
+
+/** Shown while a write waits, which is never abandoned (see `sideEffecting`). */
+export function queuedWithoutWorkerMessage(tag: string): string {
+	return (
+		`No worker is listening to the tag "${tag}", so this operation is queued and will only run ` +
+		`once one is. Add "${tag}" to the worker tags of one of your worker groups (Workers page), ` +
+		`or run a worker that serves it.`
+	)
 }
 
 /** How long a job may sit un-started before the first lookup for a worker serving its tag. */

@@ -5,6 +5,7 @@ import {
 	type TableMetadata
 } from './apps/components/display/dbtable/utils'
 import { runScriptAndPollResult } from './jobs/utils'
+import { writingJobOptions } from './jobs/writingJob'
 import type { DBSchema, SQLSchema } from '$lib/stores'
 import { stringifySchema } from './copilot/lib'
 import type { DbInput, DbType } from './dbTypes'
@@ -123,21 +124,21 @@ export function dbTableOpsWithPreviewScripts({
 						content
 					}
 				},
-				{ sideEffecting: true }
+				writingJobOptions
 			)
 		},
 		onDelete: async ({ values }) => {
 			const content = makeMarker('DELETE', { table: tableKey, columns: colDefs })
 			await runScriptAndPollResult(
 				{ workspace, requestBody: { args: { ...dbArg, ...values }, language, content } },
-				{ sideEffecting: true }
+				writingJobOptions
 			)
 		},
 		onInsert: async ({ values }) => {
 			const content = makeMarker('INSERT', { table: tableKey, columns: colDefs })
 			await runScriptAndPollResult(
 				{ workspace, requestBody: { args: { ...dbArg, ...values }, language, content } },
-				{ sideEffecting: true }
+				writingJobOptions
 			)
 		}
 	}
@@ -345,7 +346,7 @@ export function dbSchemaOpsWithPreviewScripts({
 		if (!datatableName || !status?.enabled) {
 			await runScriptAndPollResult(
 				{ workspace, requestBody: { args: dbArg, content, language } },
-				{ sideEffecting: true }
+				writingJobOptions
 			)
 			return
 		}

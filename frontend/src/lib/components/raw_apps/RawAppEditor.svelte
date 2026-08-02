@@ -54,6 +54,7 @@
 	} from 'lucide-svelte'
 	import DraggableTabs, { type TabItem } from '$lib/components/common/tabs/DraggableTabs.svelte'
 	import { runScriptAndPollResult } from '../jobs/utils'
+	import { writingJobOptions } from '../jobs/writingJob'
 	import { RawAppHistoryManager } from './RawAppHistoryManager.svelte'
 	import { sendUserToast } from '$lib/utils'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
@@ -1029,7 +1030,7 @@
 								args: { database: `datatable://${datatableName}` }
 							}
 						},
-						{ sideEffecting: true }
+						writingJobOptions
 					)
 
 					// If newTable was specified and the query succeeded, add it to data.tables

@@ -2,7 +2,7 @@
 	import { CornerDownLeft, Loader2 } from 'lucide-svelte'
 	import Button from './common/button/Button.svelte'
 	import { runScriptAndPollResult } from './jobs/utils'
-	import { NoWorkerForTagError } from './jobs/missingWorker'
+	import { writingJobOptions } from './jobs/writingJob'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { untrack } from 'svelte'
@@ -125,7 +125,7 @@
 					}
 				},
 				// The user types arbitrary SQL here, so treat every run as a write.
-				{ withJobData: true, sideEffecting: true }
+				{ withJobData: true, ...writingJobOptions }
 			)) as any
 			if (statements.length > 1) {
 				result = result[result.length - 1]
@@ -160,15 +160,7 @@
 			else sendUserToast('Query executed')
 		} catch (e) {
 			console.error(e)
-			// The row_to_json fix rewrites a query the server rejected. A job no worker
-			// picked up was never rejected — resubmitting it would run the same
-			// (possibly writing) SQL a second time and hide the cause for another
-			// confirmation window.
-			if (
-				dbType === 'postgresql' &&
-				!doPostgresRowToJsonFix &&
-				!(e instanceof NoWorkerForTagError)
-			) {
+			if (dbType === 'postgresql' && !doPostgresRowToJsonFix) {
 				console.error('Error running query, trying with row_to_json fix')
 				isRunning = false
 				return await run({ doPostgresRowToJsonFix: true })

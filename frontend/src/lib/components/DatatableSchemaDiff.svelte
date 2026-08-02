@@ -14,6 +14,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { userWorkspaces } from '$lib/stores'
 	import { runScriptAndPollResult } from '$lib/components/jobs/utils'
+	import { writingJobOptions } from '$lib/components/jobs/writingJob'
 	import YAML from 'yaml'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
@@ -237,7 +238,7 @@
 							content: migrationSql
 						}
 					},
-					{ sideEffecting: true }
+					writingJobOptions
 				)
 			}
 		} catch (e: any) {

@@ -106,7 +106,7 @@
 			})
 
 			// The shell tag is the worker's name prefix, which its shell loop pulls
-			// directly instead of advertising it in `worker_ping` — the missing-worker
+			// directly instead of advertising it in `worker_ping`, so the missing-worker
 			// check would read it as unserved.
 			let result: any = await pollJobResult(jobId, $workspaceStore!, {
 				failIfNoWorkerForTag: false

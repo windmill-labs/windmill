@@ -19,14 +19,16 @@ type RunScriptOptions = {
 	/** Set to false to keep polling a job that no worker can pick up. */
 	failIfNoWorkerForTag?: boolean
 	/**
-	 * The job writes (insert/update/delete, DDL, arbitrary SQL). Such a job must
-	 * never stay executable once its caller has handled it as failed, or a later
-	 * pickup plus a retry applies it twice — so it is cancelled before the
-	 * missing-worker error is reported, and the poll keeps waiting if the cancel
-	 * is refused. Reads are abandoned queued instead, which leaves the autoscaler
-	 * the backlog it scales up on.
+	 * The job writes (insert/update/delete, DDL, arbitrary SQL). Such a job is
+	 * never given up on: reporting it as failed while it stays executable invites
+	 * a duplicate retry, and cancelling it first is not something the client can
+	 * do atomically: a worker can claim it between the tag probe and the cancel,
+	 * and a soft-cancelled statement may already have committed. `onNoWorkerForTag`
+	 * is what tells the user why it is waiting.
 	 */
 	sideEffecting?: boolean
+	/** Called once when the job has stayed queued on a tag no worker serves. */
+	onNoWorkerForTag?: (tag: string) => void
 }
 
 /**
@@ -74,20 +76,19 @@ export async function pollJobResult(
 		maxRetries = 7,
 		withJobData,
 		failIfNoWorkerForTag = true,
-		sideEffecting = false
+		sideEffecting = false,
+		onNoWorkerForTag
 	}: RunScriptOptions = {}
 ): Promise<unknown> {
 	let attempts = 0
 	let polls = 0
 	// `attempts` only advances on errors, so a queued job would poll forever. The
 	// one case that never resolves on its own is a tag no worker serves, which
-	// takes NO_WORKER_CONFIRMATIONS consecutive empty lookups to establish — a
-	// worker group booting reads like an unserved tag in any single one.
+	// takes NO_WORKER_CONFIRMATIONS consecutive empty lookups to establish, since
+	// a worker group booting reads like an unserved tag in any single one.
 	let noWorkerProbeAt = Date.now() + NO_WORKER_FIRST_PROBE_MS
 	let unservedProbes = 0
-	// Set once a cancel has been *requested* for an unserved write, so the loop
-	// can name the cause when the job turns out to have ended cancelled.
-	let cancelRequestedForTag: string | undefined = undefined
+	let reportedNoWorker = false
 	while (attempts < maxRetries) {
 		try {
 			await new Promise((resolve) =>
@@ -105,9 +106,6 @@ export async function pollJobResult(
 				}
 			} else if (job.completed) {
 				attempts = maxRetries
-				if (cancelRequestedForTag) {
-					throw new NoWorkerForTagError(cancelRequestedForTag, true)
-				}
 				let errorMsg: string | undefined = (job?.result as any)?.error?.message
 				if (typeof errorMsg !== 'string') errorMsg = undefined
 				console.error('JOB FAILED', job.result)
@@ -117,22 +115,15 @@ export async function pollJobResult(
 				noWorkerProbeAt = Date.now() + NO_WORKER_PROBE_INTERVAL_MS
 				unservedProbes = tag ? unservedProbes + 1 : 0
 				if (tag && unservedProbes >= NO_WORKER_CONFIRMATIONS) {
-					if (!sideEffecting) {
-						// Only the wait is given up on — the job is left queued. Cancelling a
-						// read would remove the very backlog the autoscaler scales up on, so a
-						// group coming back from zero (300s cooldown) would never recover.
-						throw new NoWorkerForTagError(tag, false)
+					if (!reportedNoWorker) {
+						reportedNoWorker = true
+						onNoWorkerForTag?.(tag)
 					}
-					// A write must not stay executable once its caller has handled it as
-					// failed. The cancel is only a request though: it answers 200 for a job
-					// a worker claimed and completed in the meantime too, so the outcome is
-					// read from the next poll — a write that actually landed still returns
-					// its result above.
-					await JobService.cancelQueuedJob({ workspace, id: uuid, requestBody: {} }).then(
-						() => (cancelRequestedForTag = tag),
-						(err) => console.warn('Could not cancel the unpickable job', err)
-					)
-					unservedProbes = 0
+					// Reads give up the wait but leave the job queued: cancelling one would
+					// remove the very backlog the autoscaler scales up on, so a group coming
+					// back from zero (300s cooldown) would never recover. Writes keep
+					// waiting instead (see `sideEffecting`).
+					if (!sideEffecting) throw new NoWorkerForTagError(tag)
 				}
 			}
 		} catch (e) {

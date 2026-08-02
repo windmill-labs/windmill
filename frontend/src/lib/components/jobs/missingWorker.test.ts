@@ -59,46 +59,25 @@ describe('pollJobResult', () => {
 		expect(cancelQueuedJob).not.toHaveBeenCalled()
 	})
 
-	it('cancels a queued write before reporting it, so it cannot apply later', async () => {
+	it('never abandons a write, and reports once why it is waiting', async () => {
 		existsWorkersWithTags.mockResolvedValue({ postgresql: false })
-		cancelQueuedJob.mockImplementation(async () => {
-			getCompletedJobResultMaybe.mockResolvedValue({ completed: true, success: false })
-		})
+		const onNoWorkerForTag = vi.fn()
 
-		const promise = pollJobResult('job-1', 'ws', { sideEffecting: true })
-		const rejects = expect(promise).rejects.toBeInstanceOf(NoWorkerForTagError)
-		await vi.advanceTimersByTimeAsync(PAST_CONFIRMATION_WINDOW_MS)
-		await rejects
-		expect(cancelQueuedJob).toHaveBeenCalledWith(
-			expect.objectContaining({ id: 'job-1', workspace: 'ws' })
-		)
-	})
-
-	it('returns the result of a write a worker completed as the cancel was sent', async () => {
-		// `cancelQueuedJob` answers 200 for an already-completed job too, so treating
-		// the request as proof would report a mutation that actually landed as failed
-		// and invite the user to run it twice.
-		existsWorkersWithTags.mockResolvedValue({ postgresql: false })
-		cancelQueuedJob.mockImplementation(async () => {
-			getCompletedJobResultMaybe.mockResolvedValue({ completed: true, success: true, result: 7 })
-		})
-
-		const promise = pollJobResult('job-1', 'ws', { sideEffecting: true })
-		await vi.advanceTimersByTimeAsync(PAST_CONFIRMATION_WINDOW_MS)
-		await expect(promise).resolves.toBe(7)
-	})
-
-	it('keeps waiting on a write the server would not cancel', async () => {
-		existsWorkersWithTags.mockResolvedValue({ postgresql: false })
-		cancelQueuedJob.mockRejectedValue(new Error('nope'))
-
-		const promise = pollJobResult('job-1', 'ws', { sideEffecting: true })
+		const promise = pollJobResult('job-1', 'ws', { sideEffecting: true, onNoWorkerForTag })
 		const tracker = settlementTracker(promise)
 
-		// Reporting failure on a write that is still executable would let it apply
-		// itself after the caller gave up, and duplicate on retry.
 		await vi.advanceTimersByTimeAsync(PAST_CONFIRMATION_WINDOW_MS * 3)
+		// Reporting failure while the write stays executable would let it apply after
+		// the caller gave up and duplicate on retry; cancelling it first cannot be
+		// done atomically from the client.
 		expect(tracker.settled).toBe(false)
+		expect(cancelQueuedJob).not.toHaveBeenCalled()
+		expect(onNoWorkerForTag).toHaveBeenCalledTimes(1)
+		expect(onNoWorkerForTag).toHaveBeenCalledWith('postgresql')
+
+		getCompletedJobResultMaybe.mockResolvedValue({ completed: true, success: true, result: 7 })
+		await vi.advanceTimersByTimeAsync(3_000)
+		await expect(promise).resolves.toBe(7)
 	})
 
 	it('does not give up while a worker group could still be coming up', async () => {

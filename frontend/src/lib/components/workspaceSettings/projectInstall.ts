@@ -23,6 +23,7 @@ import { updateRawAppPolicy } from '$lib/sharedUtils'
 import { apiErrorMessage as errorMessage } from '$lib/utils'
 import type { App } from '$lib/components/apps/types'
 import { runScriptAndPollResult } from '$lib/components/jobs/utils'
+import { writingJobOptions } from '$lib/components/jobs/writingJob'
 import {
 	classifyPath,
 	collectExportVarPaths,
@@ -242,7 +243,7 @@ async function applyOneMigration(
 					args: { database: `datatable://${m.datatable_name}` }
 				}
 			},
-			{ sideEffecting: true }
+			writingJobOptions
 		)
 	}
 }
