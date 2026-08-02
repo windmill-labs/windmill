@@ -226,10 +226,18 @@ pub async fn permissioned_as_from_email(
 /// - "g/{group}" → "group-{group}@windmill.dev"
 /// - raw email → return as-is
 ///
-/// The cache is not a staleness tradeoff: `notify_user_email_change` evicts the key on every
-/// replica for each change that can move it, so a hit is only served while the mapping still
-/// holds. Reads through the non-RLS pool and authorizes nothing — callers must already be
-/// authorized for `workspace_id`.
+/// `notify_user_email_change` evicts the key on every replica for each change that can move it,
+/// but the poller delivers that asynchronously, so a hit can still be the old address for the
+/// length of one poll.
+///
+/// Job dispatch reads it anyway, deliberately: the address it copies onto the job row can be one
+/// poll stale, landing after `change_user_email`'s `v2_job` sweep has passed, and that run keeps
+/// it. Accepted because an address changes far more rarely than jobs are dispatched, and the
+/// blast radius is the one run. Anything stored where a *later* read will trust it uses
+/// [`get_email_from_permissioned_as_uncached`] instead.
+///
+/// Reads through the non-RLS pool and authorizes nothing — callers must already be authorized
+/// for `workspace_id`.
 pub async fn get_email_from_permissioned_as<'c>(
     permissioned_as: &str,
     workspace_id: &str,
