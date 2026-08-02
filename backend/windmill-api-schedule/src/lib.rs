@@ -300,10 +300,7 @@ async fn create_schedule(
         &w_id,
     )
     .await?;
-    // Uncached: unlike a read, this value is persisted, so a stale cached address would stay
-    // wrong in the row instead of for the minute the cache lives — and `change_user_email`
-    // sweeps the column, which a cached write would immediately undo.
-    let legacy_email = windmill_common::users::get_email_from_permissioned_as_uncached(
+    let legacy_email = windmill_common::users::get_email_from_permissioned_as(
         &resolved_permissioned_as,
         &w_id,
         &db,
@@ -506,7 +503,7 @@ async fn edit_schedule(
         &authed,
     );
 
-    let legacy_email = windmill_common::users::get_email_from_permissioned_as_uncached(
+    let legacy_email = windmill_common::users::get_email_from_permissioned_as(
         &resolved_permissioned_as,
         &w_id,
         &db,
