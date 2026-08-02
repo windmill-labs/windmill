@@ -105,7 +105,12 @@
 				}
 			})
 
-			let result: any = await pollJobResult(jobId, $workspaceStore!)
+			// The shell tag is the worker's name prefix, which its shell loop pulls
+			// directly instead of advertising it in `worker_ping` — the missing-worker
+			// check would read it as unserved.
+			let result: any = await pollJobResult(jobId, $workspaceStore!, {
+				failIfNoWorkerForTag: false
+			})
 
 			if (isOnlyCdCommand) {
 				working_directory = (result as string).replace(/(\r\n|\n|\r)/g, '')
@@ -365,9 +370,10 @@
 					>
 						Full path
 
-						<Tooltip
-							class="absolute top-0.5"
-						>Commands run in the default directory. Run a standalone ‘cd’ to change it. Chained or invalid ‘cd’ commands won’t apply.</Tooltip>
+						<Tooltip class="absolute top-0.5"
+							>Commands run in the default directory. Run a standalone ‘cd’ to change it. Chained or
+							invalid ‘cd’ commands won’t apply.</Tooltip
+						>
 					</Badge>
 				</div>
 				<input type="text" disabled bind:value={working_directory} />
