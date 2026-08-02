@@ -4860,13 +4860,12 @@ fn audited_on_behalf_of(policy: &Policy, authed: &ApiAuthed) -> Option<String> {
 
 /// The identity an anonymous or publisher execution runs as.
 ///
-/// The address is resolved **uncached**, and that is not optional: it becomes the job's
-/// `permissioned_as_email`, from which `fetch_authed_from_permissioned_as` derives the
-/// superadmin flag and the instance groups. `EMAIL_CACHE` has a 60s TTL and nothing evicts it,
-/// so a cached read on a replica that did not handle an email change would enqueue jobs
-/// carrying the pre-change authorization. It costs one indexed lookup per execution, against a
-/// request that already does far more — and only for a `u/` principal, since `g/` and bare
-/// addresses resolve without touching the database.
+/// The address becomes the job's `permissioned_as_email`, from which
+/// `fetch_authed_from_permissioned_as` derives the superadmin flag and the instance groups, so it
+/// must not be stale. It is read through `EMAIL_CACHE` anyway: the `notify_user_email_change`
+/// trigger evicts the key on every change that can move it, on every replica, the same way this
+/// route's own `APP_POLICY_CACHE` is kept honest. Resolving per execution instead would put the
+/// only uncached query on a path that otherwise serves entirely from cache.
 async fn get_on_behalf_of(policy: &Policy, w_id: &str, db: &DB) -> Result<(String, String)> {
     let permissioned_as = policy
         .on_behalf_of
@@ -4878,12 +4877,8 @@ async fn get_on_behalf_of(policy: &Policy, w_id: &str, db: &DB) -> Result<(Strin
             )
         })?
         .to_string();
-    let email = windmill_common::users::get_email_from_permissioned_as_uncached(
-        &permissioned_as,
-        w_id,
-        db,
-    )
-    .await?;
+    let email =
+        windmill_common::users::get_email_from_permissioned_as(&permissioned_as, w_id, db).await?;
     Ok((permissioned_as, email))
 }
 

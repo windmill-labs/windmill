@@ -360,6 +360,45 @@ async fn test_trigger_notify_workspace_key_change(db: Pool<Postgres>) {
     );
 }
 
+/// The address a job runs as is served from a process-local cache, so every change that can move
+/// a `(workspace, username)` -> email mapping has to reach the other replicas as an eviction.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_trigger_notify_user_email_change(db: Pool<Postgres>) {
+    let before_id = get_latest_event_id(&db).await.unwrap();
+
+    sqlx::query("UPDATE usr SET email = 'renamed@windmill.dev' WHERE workspace_id = 'test-workspace' AND username = 'test-user'")
+        .execute(&db)
+        .await
+        .expect("Failed to change email");
+
+    let events = poll_notify_events(&db, before_id)
+        .await
+        .expect("Should poll events");
+    assert!(
+        events.iter().any(|e| e.channel == "notify_user_email_change"
+            && e.payload == "test-workspace:test-user"),
+        "email change should evict the key it moved"
+    );
+
+    // A superadmin outside their workspaces resolves through `password`, which names no
+    // workspace: the wildcard is the only way to reach that key.
+    let before_id = get_latest_event_id(&db).await.unwrap();
+    sqlx::query("UPDATE password SET email = 'sa2@windmill.dev' WHERE email = 'test@windmill.dev'")
+        .execute(&db)
+        .await
+        .expect("Failed to change superadmin email");
+
+    let events = poll_notify_events(&db, before_id)
+        .await
+        .expect("Should poll events");
+    assert!(
+        events
+            .iter()
+            .any(|e| e.channel == "notify_user_email_change" && e.payload.is_empty()),
+        "superadmin email change should emit the wildcard"
+    );
+}
+
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_trigger_notify_token_invalidation(db: Pool<Postgres>) {
     // First insert a session token with token_hash and token_prefix

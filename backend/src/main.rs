@@ -1831,6 +1831,17 @@ async fn process_notify_event(
             );
             windmill_api::auth::invalidate_token_from_cache(payload);
         }
+        "notify_user_email_change" => {
+            // `<workspace_id>:<username>`; workspace ids can't contain ':'. Empty payload is the
+            // wildcard a `password` change emits, having no workspace to name.
+            if payload.is_empty() {
+                tracing::info!("Superadmin email change detected, clearing address cache");
+                windmill_common::users::clear_email_cache();
+            } else if let Some((workspace_id, username)) = payload.split_once(':') {
+                tracing::info!("User email change detected, invalidating cache: {payload}");
+                windmill_common::users::invalidate_email_cache(workspace_id, username);
+            }
+        }
         "notify_app_policy_change" => {
             // payload is `<workspace_id>:<path>`; workspace ids can't contain ':'.
             if server_mode {

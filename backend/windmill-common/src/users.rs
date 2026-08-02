@@ -159,6 +159,12 @@ pub fn invalidate_email_cache(workspace_id: &str, username: &str) {
     EMAIL_CACHE.remove(&(workspace_id.to_string(), username.to_string()));
 }
 
+/// Drop every entry, for the changes that cannot name the key they invalidate: a superadmin
+/// resolves through `password`, whose row names no workspace.
+pub fn clear_email_cache() {
+    EMAIL_CACHE.clear();
+}
+
 /// Inverse of [`get_email_from_permissioned_as`]: the principal an on-behalf-of email
 /// names in this workspace, for callers that supply the email alone.
 ///
