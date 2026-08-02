@@ -452,7 +452,7 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(
         returned["policy"]["on_behalf_of_email"].as_str(),
         Some("original@windmill.dev"),
-        "the app response derives the address from the principal"
+        "the response returns the address written through from the principal"
     );
 
     // ========================================

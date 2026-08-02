@@ -322,9 +322,9 @@ pub struct Policy {
     /// The address `on_behalf_of` resolves to. Every write stores what the principal resolves
     /// to, so it is not taken from the request except when a client names only the address —
     /// which is how a cross-workspace deploy carries an identity — and it is rejected when the
-    /// two disagree. Optional on read: a policy without it executes by deriving from the
-    /// principal, which is what makes removing it a change of default (`MIN_VERSION_DERIVES_
-    /// APP_POLICY_EMAIL`, `docs/app-policy-email-removal.md`).
+    /// two disagree. Optional: a policy without it executes by deriving from the principal, so
+    /// removing it is a change of default rather than of behavior — see
+    /// `docs/app-policy-email-removal.md`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_behalf_of_email: Option<String>,
     //paths:
