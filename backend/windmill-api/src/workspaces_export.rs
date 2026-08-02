@@ -1041,10 +1041,7 @@ pub(crate) async fn tarball_workspace(
         // synced file matches the parent and the merge doesn't flip it.
         let parent_enabled =
             fork_parent_schedule_enabled(&db, parent_workspace_id.as_deref()).await?;
-        // The stored address, not a fresh derivation: the row still carries what this release
-        // wrote through from the principal, and re-deriving would turn a principal whose account
-        // has since been removed into a synthetic `@unknown.windmill.dev` where the exported file
-        // used to hold the real address.
+        // The stored address, not a fresh derivation — see `ScheduleWithEmail`.
         for sched in schedules {
             let enabled_override = parent_enabled.get(&sched.schedule.path).map(|enabled| {
                 let mut o = serde_json::Map::new();
