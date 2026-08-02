@@ -1,5 +1,3 @@
-import { JobService } from '$lib/gen'
-
 import { runScriptAndPollResult } from '$lib/components/jobs/utils'
 import type { DbInput } from '$lib/components/dbTypes'
 import {
@@ -43,50 +41,33 @@ export async function loadTableMetaData(
 	// back to `DATABASE()`), so we don't read the resource value client-side for it.
 	const content = makeMetadataMarker('LOAD_TABLE_METADATA', { table }, ducklake)
 
-	const job = await JobService.runScriptPreview({
-		workspace,
-		requestBody: { language, content, args: dbArg }
-	})
+	try {
+		const rows = (await runScriptAndPollResult({
+			workspace,
+			requestBody: { language, content, args: dbArg }
+		})) as Record<string, any>[]
+		const result = rows.map(lowercaseKeys)
 
-	const maxRetries = 8
-	let attempts = 0
-	while (attempts < maxRetries) {
-		try {
-			await new Promise((resolve) => setTimeout(resolve, 1000 * (attempts || 0.6)))
-
-			const testResult = (await JobService.getCompletedJob({
-				workspace,
-				id: job
-			})) as any
-
-			if (testResult.success) {
-				attempts = maxRetries
-
-				const result = testResult.result.map(lowercaseKeys)
-
-				// For Snowflake, fetch primary keys separately
-				if (
-					input.type === 'database' &&
-					(input.resourceType === 'snowflake' || (input.resourceType as any) === 'snowflake_oauth')
-				) {
-					const map: Record<string, TableMetadata> = { [table]: result }
-					await fetchAndAddSnowflakePrimaryKeysInMap(map, input, workspace, table)
-					return map[table]
-				}
-
-				return result
-			} else {
-				attempts++
-			}
-		} catch (error) {
-			attempts++
+		// For Snowflake, fetch primary keys separately
+		if (
+			input.type === 'database' &&
+			(input.resourceType === 'snowflake' || (input.resourceType as any) === 'snowflake_oauth')
+		) {
+			const map: Record<string, TableMetadata> = { [table]: result }
+			await fetchAndAddSnowflakePrimaryKeysInMap(map, input, workspace, table)
+			return map[table]
 		}
-	}
 
-	console.error('Failed to load table metadata after maximum retries.')
-	return undefined
+		return result
+	} catch (e) {
+		console.error('Failed to load table metadata', e)
+		sendUserToast('Error loading table metadata: ' + ((e as Error)?.message || e), true)
+		return undefined
+	}
 }
 
+/** Throws on failure without reporting it: every caller renders the error in its
+ * own pane, so toasting here would double-report it. */
 export async function loadAllTablesMetaData(
 	workspace: string | undefined,
 	input: DbInput
@@ -120,7 +101,7 @@ export async function loadAllTablesMetaData(
 
 		return map
 	} catch (e) {
-		sendUserToast('Error loading tables metadata: ' + e, 'error')
+		console.error('Failed to load tables metadata', e)
 		throw e
 	}
 }
@@ -171,7 +152,7 @@ async function fetchSnowflakePrimaryKeys(
 	const payload: Record<string, unknown> = {}
 	if (tableKey) payload.table = tableKey
 	const content = makeMetadataMarker('SNOWFLAKE_PRIMARY_KEYS', payload, undefined)
-	return (await JobService.runScriptPreviewAndWaitResult({
+	return (await runScriptAndPollResult({
 		workspace,
 		requestBody: {
 			language: 'snowflake',
@@ -206,7 +187,7 @@ export async function getDbSchemas(
 
 	let result: unknown
 	try {
-		result = await JobService.runScriptPreviewAndWaitResult({
+		result = await runScriptAndPollResult({
 			workspace,
 			requestBody: {
 				language: sqlScript.lang as Preview['language'],
