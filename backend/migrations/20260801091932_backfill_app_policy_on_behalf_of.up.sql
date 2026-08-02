@@ -1,15 +1,14 @@
 -- Add up migration script here
 -- `policy.on_behalf_of` becomes the authority for an app's identity: the address beside it is
--- derived from it on every read and written through on every save, so the two can no longer
--- name different accounts.
+-- written through from it on every save, so the two can no longer name different accounts.
 --
--- The address key is deliberately NOT removed here. The previous version's `get_on_behalf_of`
--- errors outright when it is absent, so stripping it would 400 every anonymous and publisher
--- app served by an API replica that has not yet rolled over. Removing the key is a follow-up,
--- once no supported version reads it.
+-- The address key is deliberately NOT removed here, and is still written: a replica below
+-- `MIN_VERSION_DERIVES_APP_POLICY_EMAIL` errors outright when it is absent, which would 400
+-- every anonymous and publisher app served by one that has not yet rolled over. Removing the key
+-- is a follow-up, per docs/app-policy-email-removal.md.
 --
--- What is left is the backfill: a policy that only ever had the address has no principal for
--- the read path to derive from, so give it one.
+-- What is left is the backfill: a policy that only ever had the address has no principal to run
+-- as, so give it one.
 
 -- Mirrors `users::permissioned_as_from_email`: a real account wins over the synthetic group
 -- namespace, which is not reserved and may be a user's own address. `pg_temp` lives for the

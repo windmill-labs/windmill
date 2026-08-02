@@ -4661,11 +4661,10 @@ async fn app_load_csv_preview() -> Result<()> {
 /// Resolved uncached: unlike a read, this value is persisted, so a stale cached address would
 /// stay wrong in the row rather than for the minute the cache lives.
 ///
-/// It is dead weight for this version, which derives the address on every read. It is written
-/// for the API replicas still running the previous version during a rolling deploy: their
-/// `get_on_behalf_of` fails outright when the key is absent, which would 400 every anonymous and
-/// publisher app until the rollover finished. Both the write and the key go once no supported
-/// version reads it.
+/// Written unconditionally, including for versions that could derive it: a replica below
+/// `MIN_VERSION_DERIVES_APP_POLICY_EMAIL` fails outright when the key is absent, which would 400
+/// every anonymous and publisher app until a rolling deploy finished. Both the write and the key
+/// go together, a release later — see `docs/app-policy-email-removal.md`.
 async fn stored_on_behalf_of_email(
     policy: &Policy,
     w_id: &str,

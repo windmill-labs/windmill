@@ -203,6 +203,12 @@ async fn rename_user(
         )));
     }
 
+    let old_instance_username =
+        sqlx::query_scalar!("SELECT username FROM password WHERE email = $1", user_email)
+            .fetch_optional(&mut *tx)
+            .await?
+            .flatten();
+
     sqlx::query!(
         "UPDATE password SET username = $1 WHERE email = $2",
         ru.new_username,
@@ -210,6 +216,36 @@ async fn rename_user(
     )
     .execute(&mut *tx)
     .await?;
+
+    // The per-workspace sweep below only reaches accounts with a `usr` row. A superadmin acting
+    // outside their workspaces has none, yet an app can name them: their principal is
+    // `u/{password.username}`, which this rename just moved. Matching on the address as well
+    // keeps a like-named member of some other workspace out of it.
+    if let Some(old_username) = old_instance_username.filter(|u| *u != ru.new_username) {
+        let old_principal = windmill_common::users::username_to_permissioned_as(&old_username);
+        let new_principal =
+            windmill_common::users::username_to_permissioned_as(&ru.new_username);
+        sqlx::query!(
+            "UPDATE app SET policy = jsonb_set(policy, ARRAY['on_behalf_of'], to_jsonb($1::text))
+             WHERE policy->>'on_behalf_of' = $2 AND policy->>'on_behalf_of_email' = $3",
+            &new_principal,
+            &old_principal,
+            user_email
+        )
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query!(
+            r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['policy', 'on_behalf_of'], to_jsonb($1::text)))
+               WHERE typ IN ('app', 'raw_app')
+                 AND value->'policy'->>'on_behalf_of' = $2
+                 AND value->'policy'->>'on_behalf_of_email' = $3"#,
+            &new_principal,
+            &old_principal,
+            user_email
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     let workspace_usernames = sqlx::query!(
         "SELECT workspace_id, username FROM usr WHERE email = $1",
