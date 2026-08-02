@@ -1868,7 +1868,13 @@ export async function elementsToMap(
     }
 
     if (isRawAppFile(path)) {
-      const suffix = path.split(getFolderSuffix("raw_app") + SEP).pop();
+      // FSFSElement builds paths with the platform separator, while the checks
+      // below are written with "/": without normalizing, none of them match on
+      // Windows and the push collector's own exclusions become perpetual diffs.
+      const suffix = path
+        .split(getFolderSuffix("raw_app") + SEP)
+        .pop()
+        ?.replaceAll(SEP, "/");
       if (
         suffix?.startsWith("dist/") ||
         suffix?.startsWith(RECORDINGS_FOLDER + "/") ||

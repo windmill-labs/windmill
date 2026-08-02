@@ -785,15 +785,24 @@ async function dev(opts: DevOptions, appFolder?: string) {
     const chunks: Buffer[] = [];
     let size = 0;
     let refused = false;
+    // An upload cut short (by the refusal below, or by the browser) raises
+    // 'error' on the request, which unhandled takes the dev server down.
+    req.on("error", (error: Error) => {
+      if (!refused) {
+        log.warn(colors.yellow(`Recording upload failed: ${error.message}`));
+      }
+    });
     req.on("data", (chunk: Buffer) => {
       if (refused) return;
       size += chunk.length;
       if (size > MAX_RECORDING_BYTES) {
         refused = true;
+        // Torn down only once the 413 is on the wire: destroying the socket
+        // first loses the response the browser is waiting to read.
+        res.on("finish", () => req.destroy());
         sendJson(res, 413, {
           error: `Recording exceeds ${MAX_RECORDING_BYTES} bytes`,
         });
-        req.destroy();
         return;
       }
       chunks.push(chunk);
