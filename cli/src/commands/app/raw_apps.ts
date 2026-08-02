@@ -17,7 +17,7 @@ import { deepEqual, readTextFile } from "../../utils/utils.ts";
 
 import { replaceInlineScripts, repopulateFields } from "./app.ts";
 import { createBundle, detectFrameworks } from "./bundle.ts";
-import { APP_BACKEND_FOLDER } from "./app_metadata.ts";
+import { APP_BACKEND_FOLDER, RECORDINGS_FOLDER } from "./app_metadata.ts";
 import { writeIfChanged } from "../../utils/utils.ts";
 import { yamlOptions } from "../sync/sync.ts";
 import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
@@ -317,6 +317,12 @@ async function collectAppFiles(
           entry.name === ".claude" ||
           entry.name === "sql_to_apply"
         ) {
+          continue;
+        }
+        // Session recordings, which the dev server only ever writes at the app
+        // root. Matched there alone, so an app of its own with a `recordings/`
+        // component folder still ships it.
+        if (basePath === "/" && entry.name === RECORDINGS_FOLDER) {
           continue;
         }
         await readDirRecursive(fullPath + SEP, relativePath + "/");

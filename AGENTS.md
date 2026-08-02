@@ -24,6 +24,7 @@ Open-source platform for internal tools, workflows, API integrations, background
 - **Domain guides**: `.claude/skills/native-trigger/` and `frontend/tutorial-system-guide.mdc`
 - **Brand/UI guidelines**: `frontend/brand-guidelines.md`
 - **CLI commands**: when adding/modifying/removing a command, subcommand, option, or description in `cli/src/commands/`, run `python system_prompts/generate.py` to refresh `system_prompts/auto-generated/` and `cli/src/guidance/skills.gen.ts`. The CLI docs the agents use to operate `wmill` are derived from the source — stale generated files give agents the wrong flags.
+- **Session recorder**: `frontend/src/lib/components/recording/` is also the recorder `wmill app dev --recording` serves, vendored into the CLI as `cli/src/commands/app/devRecorderBundle.gen.ts`. After changing `rawAppSnapshot.ts` or `rawAppRecording.svelte.ts`, run `bun run gen:dev-recorder` from `cli/` (`cli/test/dev_recorder_bundle_unit.test.ts` fails otherwise).
 
 ## Dev Environment
 
