@@ -47,26 +47,16 @@ afterEach(() => {
 const PAST_CONFIRMATION_WINDOW_MS = 120_000
 
 describe('pollJobResult', () => {
-	it('cancels and reports a queued job whose tag stays unserved', async () => {
+	it('reports a queued job whose tag stays unserved without cancelling it', async () => {
 		existsWorkersWithTags.mockResolvedValue({ postgresql: false })
 
 		const promise = pollJobResult('job-1', 'ws')
 		const rejects = expect(promise).rejects.toBeInstanceOf(NoWorkerForTagError)
 		await vi.advanceTimersByTimeAsync(PAST_CONFIRMATION_WINDOW_MS)
 		await rejects
-		expect(cancelQueuedJob).toHaveBeenCalledWith(
-			expect.objectContaining({ id: 'job-1', workspace: 'ws' })
-		)
-	})
-
-	it('says the job is still queued when the cancel is refused', async () => {
-		existsWorkersWithTags.mockResolvedValue({ postgresql: false })
-		cancelQueuedJob.mockRejectedValue(new Error('nope'))
-
-		const promise = pollJobResult('job-1', 'ws')
-		const rejects = expect(promise).rejects.toThrow(/stays queued/)
-		await vi.advanceTimersByTimeAsync(PAST_CONFIRMATION_WINDOW_MS)
-		await rejects
+		// The backlog is what the autoscaler scales up on: cancelling would stop a
+		// group coming back from zero from ever recovering.
+		expect(cancelQueuedJob).not.toHaveBeenCalled()
 	})
 
 	it('does not give up while a worker group could still be coming up', async () => {

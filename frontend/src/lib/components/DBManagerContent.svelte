@@ -94,7 +94,13 @@
 	// owns its slot so neither can clear the other's error on a refetch.
 	let schemaError = $state<string | undefined>(undefined)
 	let colDefsError = $state<string | undefined>(undefined)
-	let loadError = $derived(schemaError ?? colDefsError)
+	let loadError = $derived(
+		schemaError
+			? { title: 'Could not load the database schema', message: schemaError }
+			: colDefsError
+				? { title: 'Could not load the tables of this database', message: colDefsError }
+				: undefined
+	)
 
 	let colDefs = resource(
 		() => [input, ws],
@@ -158,7 +164,7 @@
 	const SLOW_LOAD_MS = 10_000
 	let slowLoad = $state(false)
 	$effect(() => {
-		if (!dbSchemasPromise.loading) {
+		if (!isLoading()) {
 			slowLoad = false
 			return
 		}
@@ -200,8 +206,8 @@
 {#if loadError}
 	<div class="h-full w-full flex flex-col items-center justify-center gap-3 p-8">
 		<div class="max-w-2xl w-full flex flex-col gap-3">
-			<Alert type="error" title="Could not load the database schema" size="xs">
-				{loadError}
+			<Alert type="error" title={loadError.title} size="xs">
+				{loadError.message}
 			</Alert>
 			<div class="self-start">
 				<Button size="xs" color="light" startIcon={{ icon: RefreshCcw }} on:click={() => refresh()}>

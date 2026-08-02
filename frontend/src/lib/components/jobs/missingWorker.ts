@@ -12,15 +12,12 @@ import { JobService, WorkerService } from '$lib/gen'
 export class NoWorkerForTagError extends Error {
 	tag: string
 
-	constructor(tag: string, cancelled: boolean) {
+	constructor(tag: string) {
 		super(
 			`No worker has been listening to the tag "${tag}" while this job waited, so it was never ` +
-				`picked up and ${
-					cancelled
-						? 'has been cancelled'
-						: 'could not be cancelled — it stays queued and will run if a worker with that tag comes online'
-				}. Add "${tag}" to the worker tags of one of your worker groups (Workers page), ` +
-				`or run a worker that serves it.`
+				`picked up. It stays queued and will run once a worker with that tag comes online. ` +
+				`Add "${tag}" to the worker tags of one of your worker groups (Workers page), or run a ` +
+				`worker that serves it.`
 		)
 		this.name = 'NoWorkerForTagError'
 		this.tag = tag
@@ -32,10 +29,10 @@ export const NO_WORKER_FIRST_PROBE_MS = 10_000
 /** How long to wait between lookups while the job stays queued. */
 export const NO_WORKER_PROBE_INTERVAL_MS = 40_000
 /**
- * How many consecutive lookups must come back empty before the job is given up
- * on. A worker group scaling from zero, or every worker down for a rollout, is
- * indistinguishable from an unserved tag in any single lookup — only a tag that
- * stays unserved across the whole window (~90s) is reported.
+ * How many consecutive lookups must come back empty before the caller stops
+ * waiting. A worker group scaling from zero, or every worker down for a rollout,
+ * is indistinguishable from an unserved tag in any single lookup, so no single
+ * empty reading is acted on.
  */
 export const NO_WORKER_CONFIRMATIONS = 3
 

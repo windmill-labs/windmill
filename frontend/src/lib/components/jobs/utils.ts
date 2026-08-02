@@ -97,18 +97,10 @@ export async function pollJobResult(
 				noWorkerProbeAt = Date.now() + NO_WORKER_PROBE_INTERVAL_MS
 				unservedProbes = tag ? unservedProbes + 1 : 0
 				if (tag && unservedProbes >= NO_WORKER_CONFIRMATIONS) {
-					// Leaving it queued would let it run long after the caller reported it
-					// as failed, and every retry would pile on another orphan. A cancel the
-					// server refuses is reported as such rather than claimed.
-					const cancelled = await JobService.cancelQueuedJob({
-						workspace,
-						id: uuid,
-						requestBody: {}
-					}).then(
-						() => true,
-						(err) => (console.warn('Could not cancel the unpickable job', err), false)
-					)
-					throw new NoWorkerForTagError(tag, cancelled)
+					// Only the wait is given up on — the job is left queued. Cancelling it
+					// would remove the very backlog the autoscaler scales up on, so a group
+					// coming back from zero (300s cooldown by default) would never recover.
+					throw new NoWorkerForTagError(tag)
 				}
 			}
 		} catch (e) {
