@@ -37,7 +37,8 @@ const OUT_FILE = join(
 
 /** Hash of everything that went into the bundle. Over the modules esbuild
  * actually pulled in rather than a hand-kept list, so a module added to the
- * recorder's import graph can't slip past the staleness check. */
+ * recorder's import graph can't slip past the staleness check. Line endings are
+ * normalized: a CRLF checkout is the same source, and must not read as drift. */
 export function hashRecorderSources(
   sources: string[],
   root: string = REPO_ROOT,
@@ -45,7 +46,9 @@ export function hashRecorderSources(
   const hash = createHash("sha256");
   for (const file of sources) {
     hash.update(file);
-    hash.update(readFileSync(join(root, file)));
+    hash.update(
+      readFileSync(join(root, file), "utf-8").replace(/\r\n/g, "\n"),
+    );
   }
   return hash.digest("hex");
 }
