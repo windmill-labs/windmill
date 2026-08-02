@@ -618,10 +618,6 @@ async fn get_draft_for_user(
     .fetch_optional(&db)
     .await?;
 
-    let mut row = row;
-    if let Some(row) = row.as_mut() {
-        derive_app_draft_identity(&db, &w_id, kind, &mut row.value).await?;
-    }
     row.map(Json).ok_or_else(|| {
         Error::NotFound(format!(
             "no draft for {} at {path}",
@@ -658,26 +654,9 @@ async fn get_own_draft(
     )
     .fetch_optional(&db)
     .await?;
-    let mut row = row;
-    if let Some(row) = row.as_mut() {
-        derive_app_draft_identity(&db, &w_id, kind, &mut row.value).await?;
-    }
     Ok(Json(row))
 }
 
-/// An app draft is deployed from its own copy of the policy, so the address beside its
-/// principal has to be derived here too — see `apps::derive_stored_draft_policy_on_behalf_of_email`.
-async fn derive_app_draft_identity(
-    db: &DB,
-    w_id: &str,
-    kind: UserDraftItemKind,
-    value: &mut sqlx::types::Json<Box<serde_json::value::RawValue>>,
-) -> Result<()> {
-    if matches!(kind, UserDraftItemKind::App | UserDraftItemKind::RawApp) {
-        crate::apps::derive_stored_draft_policy_on_behalf_of_email(db, w_id, value).await?;
-    }
-    Ok(())
-}
 
 /// The deployed table RLS resolves item-level `extra_perms` against.
 /// Delegates to `UserDraftItemKind::deployed_table()` (the shared single

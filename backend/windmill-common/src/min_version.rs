@@ -8,6 +8,14 @@ use semver::Version;
 // reads that column is live, and those runnables run as their deployer with no error anywhere.
 pub const MIN_VERSION_SUPPORTS_ON_BEHALF_OF_PRINCIPAL: VC =
     vc(1, 776, 0, "On-behalf-of principal");
+
+/// Names the release that stops *requiring* `policy.on_behalf_of_email`: an app policy carrying
+/// only a principal executes, deriving the address from it. The key is still written, so a
+/// replica below this version keeps finding what it expects. Nothing gates on this at runtime;
+/// it exists so `vc()`'s compile-time assert fires once `MIN_KEEP_ALIVE_VERSION` passes it, at
+/// which point the key can go — see `docs/app-policy-email-removal.md`.
+pub const MIN_VERSION_DERIVES_APP_POLICY_EMAIL: VC =
+    vc(1, 778, 0, "App policy email derived from on_behalf_of");
 pub const MIN_VERSION_SUPPORTS_NODE_DEBOUNCING: VC = vc(1, 658, 0, "Flow node debouncing");
 pub const MIN_VERSION_SUPPORTS_TOKEN_HASH: VC = vc(1, 659, 0, "Token hash storage");
 pub const MIN_VERSION_SUPPORTS_SYNC_JOBS_DEBOUNCING: VC = vc(1, 602, 0, "Sync jobs debouncing");

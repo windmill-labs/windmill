@@ -256,162 +256,10 @@ pub struct AppWithLastVersionAndStarred {
     pub starred: Option<bool>,
 }
 
-/// Fill `policy.on_behalf_of_email` from `policy.on_behalf_of` on every read path that returns
-/// a policy, so what a client sees is a function of the principal rather than whatever copy the
-/// row happens to hold.
-///
-/// `round_trips` picks the lookup. A read whose policy the client sends back on deploy must use
-/// the uncached one: `resolve_on_behalf_of` validates the returned pair against the uncached
-/// address, so a cached read would echo a stale address and 400 its own deploy for the minute
-/// after an email change. The serving reads keep the cache — `get_public_app_by_secret` is an
-/// anonymous page load, and nothing it returns comes back as a write.
-///
-/// The substring test keeps a policy with no principal off the parse-and-reserialize path
-/// entirely, so an app without an on-behalf-of identity pays nothing either way.
-async fn derive_policy_on_behalf_of_email(
-    db: &DB,
-    w_id: &str,
-    policy: &mut sqlx::types::Json<Box<RawValue>>,
-    round_trips: bool,
-) -> Result<()> {
-    if !policy.0.get().contains("on_behalf_of") {
-        return Ok(());
-    }
-    let Ok(mut obj) =
-        serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(policy.0.get())
-    else {
-        return Ok(());
-    };
-    if derive_on_behalf_of_email_in_place(db, w_id, &mut obj, round_trips).await? {
-        policy.0 = to_raw_value(&obj);
-    }
-    Ok(())
-}
 
-/// The draft variant of the derivation. A draft is stored exactly as its editor sent it, with
-/// no `resolve_on_behalf_of` pass, so its principal is caller-controlled: anyone who can save a
-/// draft under their own `u/` path chooses it. `u/` is therefore resolved against workspace
-/// membership alone, never `resolve_username_to_email`'s instance `password` fallback, which
-/// would turn a guessed username into a non-member superadmin's address.
-///
-/// A principal naming no member has its address key dropped rather than answered or left as it
-/// was: an external superadmin is a principal the deploy path accepts, so leaving a stale
-/// address beside it would keep 400ing a draft that is otherwise fine, while dropping it lets
-/// `resolve_on_behalf_of` derive from the principal alone. Nothing is disclosed either way.
-///
-/// `g/` and the bare-address form skip the lookup: the first is synthetic and the second is
-/// already the address, so neither tells the caller anything their draft did not.
-async fn derive_draft_on_behalf_of_email_in_place(
-    db: &DB,
-    w_id: &str,
-    obj: &mut serde_json::Map<String, serde_json::Value>,
-) -> Result<bool> {
-    let Some(permissioned_as) = obj
-        .get("on_behalf_of")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-    else {
-        return Ok(false);
-    };
-    let email = match permissioned_as.strip_prefix(windmill_common::users::PERMISSIONED_AS_USER_PREFIX)
-    {
-        Some(username) => {
-            let member = sqlx::query_scalar!(
-                "SELECT email FROM usr WHERE workspace_id = $1 AND username = $2",
-                w_id,
-                username
-            )
-            .fetch_optional(db)
-            .await?;
-            match member {
-                Some(email) => email,
-                None => return Ok(obj.remove("on_behalf_of_email").is_some()),
-            }
-        }
-        None => {
-            windmill_common::users::get_email_from_permissioned_as_uncached(
-                &permissioned_as,
-                w_id,
-                db,
-            )
-            .await?
-        }
-    };
-    obj.insert("on_behalf_of_email".to_string(), json!(email));
-    Ok(true)
-}
 
-/// Same derivation on an already-parsed policy. Reports whether it rewrote the address, so
-/// callers holding the raw form only pay to re-serialize when there was a principal to derive.
-async fn derive_on_behalf_of_email_in_place(
-    db: &DB,
-    w_id: &str,
-    obj: &mut serde_json::Map<String, serde_json::Value>,
-    round_trips: bool,
-) -> Result<bool> {
-    let Some(permissioned_as) = obj
-        .get("on_behalf_of")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-    else {
-        return Ok(false);
-    };
-    let email = if round_trips {
-        windmill_common::users::get_email_from_permissioned_as_uncached(&permissioned_as, w_id, db)
-            .await?
-    } else {
-        windmill_common::users::get_email_from_permissioned_as(&permissioned_as, w_id, db).await?
-    };
-    obj.insert("on_behalf_of_email".to_string(), json!(email));
-    Ok(true)
-}
 
-/// A draft carries its own copy of the policy and is deployed from it verbatim, so it needs the
-/// same derivation as the deployed one. A pair that drifted while the address was still stored
-/// independently would otherwise survive here — the backfill only fills in a missing principal —
-/// and deploying the draft unchanged would be rejected as a contradicting identity.
-async fn derive_draft_policy_on_behalf_of_email(
-    db: &DB,
-    w_id: &str,
-    draft: Option<&mut serde_json::Value>,
-) -> Result<()> {
-    let Some(policy) = draft
-        .and_then(|d| d.get_mut("policy"))
-        .and_then(|p| p.as_object_mut())
-    else {
-        return Ok(());
-    };
-    derive_draft_on_behalf_of_email_in_place(db, w_id, policy).await?;
-    Ok(())
-}
 
-/// The same repair for a draft served straight out of the draft table rather than through
-/// `get_app`, which is how the AI chat and the other-users' -draft banner read app drafts.
-///
-/// Not an authorization boundary: it resolves an address for whatever workspace and principal
-/// it is handed, so a caller acting for a user MUST already have established their read access
-/// to that draft.
-pub(crate) async fn derive_stored_draft_policy_on_behalf_of_email(
-    db: &DB,
-    w_id: &str,
-    value: &mut sqlx::types::Json<Box<RawValue>>,
-) -> Result<()> {
-    if !value.0.get().contains("on_behalf_of") {
-        return Ok(());
-    }
-    let Ok(mut obj) =
-        serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(value.0.get())
-    else {
-        return Ok(());
-    };
-    let Some(policy) = obj.get_mut("policy").and_then(|p| p.as_object_mut()) else {
-        return Ok(());
-    };
-    if derive_draft_on_behalf_of_email_in_place(db, w_id, policy).await? {
-        value.0 = to_raw_value(&obj);
-    }
-    Ok(())
-}
 
 #[derive(Serialize)]
 pub struct AppHistory {
@@ -471,10 +319,12 @@ pub struct S3Key {
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Policy {
     pub on_behalf_of: Option<String>,
-    /// Derived from `on_behalf_of`, never taken from the request: reads fill it from the
-    /// principal and writes store what the principal resolves to. Accepted on write so a client
-    /// naming only the address still resolves to a principal, and rejected there when the two
-    /// disagree.
+    /// The address `on_behalf_of` resolves to. Every write stores what the principal resolves
+    /// to, so it is not taken from the request except when a client names only the address —
+    /// which is how a cross-workspace deploy carries an identity — and it is rejected when the
+    /// two disagree. Optional on read: a policy without it executes by deriving from the
+    /// principal, which is what makes removing it a change of default (`MIN_VERSION_DERIVES_
+    /// APP_POLICY_EMAIL`, `docs/app-policy-email-removal.md`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_behalf_of_email: Option<String>,
     //paths:
@@ -1077,7 +927,7 @@ async fn get_app(
     check_scopes(&authed, || format!("apps:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
-    let mut app_o = if query.with_starred_info.unwrap_or(false) {
+    let app_o = if query.with_starred_info.unwrap_or(false) {
         sqlx::query_as::<_, AppWithLastVersionAndStarred>(
             "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
             app.extra_perms, app_version.value,
@@ -1112,10 +962,6 @@ async fn get_app(
     };
     tx.commit().await?;
 
-    if let Some(app) = app_o.as_mut() {
-        derive_policy_on_behalf_of_email(&db, &w_id, &mut app.app.policy, true).await?;
-    }
-
     // No deployed row + `get_draft`: fall back to the draft table; see scripts.rs.
     // Draft kind comes from the deployed row's `raw_app` flag, or for a draft-only
     // path from the caller's `raw_app` query param.
@@ -1125,7 +971,7 @@ async fn get_app(
         None if query.raw_app.unwrap_or(false) => UserDraftItemKind::RawApp,
         None => UserDraftItemKind::App,
     };
-    let mut overlay = overlay_or_draft_only(
+    let overlay = overlay_or_draft_only(
         &db,
         &w_id,
         &authed.email,
@@ -1136,14 +982,12 @@ async fn get_app(
         || windmill_common::error::Error::NotFound(format!("App not found at path {path}")),
     )
     .await?;
-    derive_draft_policy_on_behalf_of_email(&db, &w_id, overlay.draft.as_mut()).await?;
     Ok(Json(overlay))
 }
 
 async fn get_app_lite(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
-    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<AppWithLastVersion> {
     let path = path.to_path();
@@ -1165,8 +1009,7 @@ async fn get_app_lite(
 
     tx.commit().await?;
 
-    let mut app = not_found_if_none(app_o, "App", path)?;
-    derive_policy_on_behalf_of_email(&db, &w_id, &mut app.policy, false).await?;
+    let app = not_found_if_none(app_o, "App", path)?;
     Ok(Json(app))
 }
 
@@ -1283,7 +1126,6 @@ async fn custom_path_exists(
 async fn get_app_by_id(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
-    Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, i64)>,
 ) -> JsonResult<AppWithLastVersion> {
     let mut tx = user_db.begin(&authed).await?;
@@ -1301,14 +1143,10 @@ async fn get_app_by_id(
     .await?;
     tx.commit().await?;
 
-    let mut app = not_found_if_none(app_o, "App", id.to_string())?;
+    let app = not_found_if_none(app_o, "App", id.to_string())?;
 
     check_scopes(&authed, || format!("apps:read:{}", &app.path))?;
 
-    // Round-tripping: the deployment-history drawer redeploys the version it fetched here, so
-    // an address left stale by another replica's email change would come back as a
-    // contradicting pair.
-    derive_policy_on_behalf_of_email(&db, &w_id, &mut app.policy, true).await?;
     Ok(Json(app))
 }
 
@@ -1376,7 +1214,6 @@ async fn get_public_app_by_secret(
         app.bundle_secret = Some(compute_bundle_secret(&db, &w_id, &app.versions).await?);
     }
 
-    derive_policy_on_behalf_of_email(&db, &w_id, &mut app.policy, false).await?;
     Ok(Json(app))
 }
 
@@ -4860,12 +4697,10 @@ fn audited_on_behalf_of(policy: &Policy, authed: &ApiAuthed) -> Option<String> {
 
 /// The identity an anonymous or publisher execution runs as.
 ///
-/// The address becomes the job's `permissioned_as_email`, from which
-/// `fetch_authed_from_permissioned_as` derives the superadmin flag and the instance groups, so it
-/// must not be stale. It is read through `EMAIL_CACHE` anyway: the `notify_user_email_change`
-/// trigger evicts the key on every change that can move it, on every replica, the same way this
-/// route's own `APP_POLICY_CACHE` is kept honest. Resolving per execution instead would put the
-/// only uncached query on a path that otherwise serves entirely from cache.
+/// `on_behalf_of_email` is optional: every write stores it, so it is present on anything this
+/// release deployed, and it is only derived for a policy that predates that. Deriving is the
+/// fallback rather than the rule so that removing the key later is a change of default, not a
+/// change of behavior — see `docs/app-policy-email-removal.md`.
 async fn get_on_behalf_of(policy: &Policy, w_id: &str, db: &DB) -> Result<(String, String)> {
     let permissioned_as = policy
         .on_behalf_of
@@ -4877,8 +4712,13 @@ async fn get_on_behalf_of(policy: &Policy, w_id: &str, db: &DB) -> Result<(Strin
             )
         })?
         .to_string();
-    let email =
-        windmill_common::users::get_email_from_permissioned_as(&permissioned_as, w_id, db).await?;
+    let email = match policy.on_behalf_of_email.as_deref() {
+        Some(email) => email.to_string(),
+        None => {
+            windmill_common::users::get_email_from_permissioned_as(&permissioned_as, w_id, db)
+                .await?
+        }
+    };
     Ok((permissioned_as, email))
 }
 
