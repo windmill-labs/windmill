@@ -18,8 +18,8 @@ use windmill_common::{
     variables::{build_crypt, encrypt},
 };
 use windmill_native_triggers::{
-    classify_read_failure, decrypt_oauth_data, delete_native_trigger, delete_workspace_integration,
-    get_workspace_integration,
+    body_rejects_grant, classify_read_failure, decrypt_oauth_data, delete_native_trigger,
+    delete_workspace_integration, get_workspace_integration,
     google::{parse_stop_channel_params, should_renew_channel},
     http_error_status, list_native_triggers, map_external_error,
     nextcloud::NextCloud,
@@ -782,6 +782,13 @@ fn test_refresh_failures_blame_only_the_grant_they_refuse() {
         );
     }
     assert_eq!(refresh_failure_status(None), None);
+
+    // GitHub answers `bad_refresh_token` with HTTP 200, so the body is the only tell.
+    assert!(body_rejects_grant(r#"{"error":"bad_refresh_token"}"#));
+    assert!(body_rejects_grant(r#"{"error":"invalid_grant"}"#));
+    assert!(!body_rejects_grant(
+        r#"{"access_token":"t","token_type":"bearer"}"#
+    ));
 }
 
 /// A service that is busy or broken has not refused anything, and callers react differently to

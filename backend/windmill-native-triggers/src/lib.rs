@@ -54,7 +54,7 @@ use windmill_common::{
 use windmill_queue::PushArgsOwned;
 
 #[cfg(feature = "native_trigger")]
-use windmill_oauth::{OClient, RefreshToken, Url, OAUTH_HTTP_CLIENT};
+use windmill_oauth::{ExecuteError, OClient, RefreshToken, Url, OAUTH_HTTP_CLIENT};
 
 use windmill_api_auth::ApiAuthed;
 pub mod handler;
@@ -830,9 +830,34 @@ pub struct RefreshFailure {
     pub message: String,
 }
 
+#[cfg(feature = "native_trigger")]
 impl RefreshFailure {
     fn rejected(message: String) -> Self {
         RefreshFailure { status: Some(StatusCode::UNAUTHORIZED), message }
+    }
+}
+
+/// Whether a token endpoint's body says the refresh token itself is no good, which no status
+/// reliably reports: GitHub answers `bad_refresh_token` with HTTP 200.
+pub fn body_rejects_grant(body: &str) -> bool {
+    body.contains("invalid_grant") || body.contains("bad_refresh_token")
+}
+
+#[cfg(feature = "native_trigger")]
+fn refresh_failure_from(e: ExecuteError) -> RefreshFailure {
+    match &e {
+        // A body that would not deserialize is where a refusal hides when the status says
+        // nothing, and it is the only place the reason is written down.
+        ExecuteError::BadResponse { status, body, .. } => {
+            let body = String::from_utf8_lossy(body);
+            let status = if body_rejects_grant(&body) {
+                Some(StatusCode::UNAUTHORIZED)
+            } else {
+                Some(*status)
+            };
+            RefreshFailure { status, message: format!("{status_text}: {body}", status_text = e) }
+        }
+        _ => RefreshFailure { status: e.status(), message: error_source_chain(&e) },
     }
 }
 
@@ -888,9 +913,7 @@ pub async fn refresh_oauth_tokens(
         .with_client(&*OAUTH_HTTP_CLIENT)
         .execute()
         .await
-        // The token endpoint's status is what separates a rejected grant from an outage, and
-        // the reason (`invalid_grant`, …) only lives in the source chain.
-        .map_err(|e| RefreshFailure { status: e.status(), message: error_source_chain(&e) })?;
+        .map_err(refresh_failure_from)?;
 
     Ok(OAuthConfig {
         base_url: oauth_config.base_url.clone(),
