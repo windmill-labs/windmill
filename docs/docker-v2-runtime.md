@@ -43,7 +43,11 @@ Same conventions as a plain bash script, in this order:
    the container, so it works whatever the `WorkingDir` is — including `/` and paths
    under the tmpfs `/tmp`, which otherwise wouldn't flow back to the job. Being a
    bind-mount point, it must be written in place (`> ./result.json`); a
-   write-temp-then-`rename` fails.
+   write-temp-then-`rename` fails. Skipped, with a warning in the job logs, when the
+   image's `WorkingDir` doesn't provably resolve inside the container root (`..`, or a
+   symlink planted in the image rootfs) — nsjail resolves a mount destination before
+   `pivot_root`, so such a path would have it create a file on the *host*. A `# volume`
+   mounted at the `WorkingDir` gets the (empty) mount point materialized inside it.
 2. Otherwise the last non-empty line of **stdout**, returned as a string. stderr is
    excluded on purpose: the two pipes are merged by a fair `select`, so a diagnostic
    on stderr could otherwise beat a block-buffered stdout result.

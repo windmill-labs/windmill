@@ -170,6 +170,10 @@ struct OciConfig {
 /// directives and break out of the sandbox. Every byte is emitted as a printable
 /// ASCII char or a valid protobuf escape (`\"`, `\\`, `\n`/`\r`/`\t`, or 3-digit
 /// octal `\NNN` for control/non-ASCII bytes), so the result always parses.
+///
+/// `{` and `}` are escaped too: the profile is rendered by substituting `{PLACEHOLDER}`
+/// tokens one after another, so a value that still contained braces could smuggle in a
+/// later placeholder's expansion — and `{ENVARS}` expands to unquoted directives.
 fn proto_str(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('"');
@@ -180,6 +184,7 @@ fn proto_str(s: &str) -> String {
             b'\n' => out.push_str("\\n"),
             b'\r' => out.push_str("\\r"),
             b'\t' => out.push_str("\\t"),
+            b'{' | b'}' => out.push_str(&format!("\\{b:03o}")),
             0x20..=0x7e => out.push(b as char),
             _ => out.push_str(&format!("\\{b:03o}")),
         }
@@ -188,20 +193,61 @@ fn proto_str(s: &str) -> String {
     out
 }
 
-/// Render the nsjail mount that exposes `{job_dir}/result.json` inside the container
-/// at `{working_dir}/result.json`, i.e. the `./result.json` a bash script writes.
+/// In-jail destination for the `./result.json` bind — `{working_dir}/result.json` — or
+/// `None` when the image's `WorkingDir` cannot be proven to stay inside the jail.
+///
+/// nsjail resolves a mount destination against its temporary root *before* pivot_root,
+/// with ordinary path resolution: a `WorkingDir` that walks out of that root — via `..`,
+/// or via a symlink planted in the image rootfs — makes nsjail create, and mount over, a
+/// path on the *host*, as the worker user. So only a destination with no relative
+/// components and no symlink anywhere along its path inside the rootfs is accepted.
+/// `/tmp`, `/proc`, `/dev` and `/sys` come from the jail profile rather than the image,
+/// so there is nothing image-controlled to traverse under them.
+async fn result_mount_dst(job_dir: &str, working_dir: &str) -> Option<String> {
+    if !working_dir.starts_with('/') {
+        return None;
+    }
+    let mut components = Vec::new();
+    for c in working_dir.split('/') {
+        match c {
+            "" | "." => continue,
+            ".." => return None,
+            _ => components.push(c),
+        }
+    }
+    let jail_provided = matches!(
+        components.first(),
+        None | Some(&"tmp") | Some(&"proc") | Some(&"dev") | Some(&"sys")
+    );
+    if !jail_provided {
+        let mut path = std::path::PathBuf::from(format!("{job_dir}/rootfs"));
+        for c in &components {
+            path.push(c);
+            match tokio::fs::symlink_metadata(&path).await {
+                Ok(m) if m.is_symlink() => return None,
+                Ok(_) => {}
+                // Absent from here down: nsjail creates real directories under a
+                // non-symlink parent, which cannot escape.
+                Err(_) => break,
+            }
+        }
+    }
+    components.push("result.json");
+    Some(format!("/{}", components.join("/")))
+}
+
+/// Render the nsjail mount that exposes `{job_dir}/result.json` inside the container at
+/// `dst`, i.e. the `./result.json` a bash script writes.
 ///
 /// The host side deliberately sits *outside* `{job_dir}/rootfs`: the worker reads the
 /// result from a path it created itself, never one the image could have planted as a
 /// symlink to a host file. The container can't swap it either — unlinking a
 /// bind-mount point fails.
-fn render_result_mount(job_dir: &str, working_dir: &str) -> String {
-    let dst = format!("{}/result.json", working_dir.trim_end_matches('/'));
+fn render_result_mount(job_dir: &str, dst: &str) -> String {
     format!(
         "mount {{\n  src: {}\n  dst: {}\n  is_bind: true\n  rw: true\n  mandatory: false\n}}\n",
         proto_str(&format!("{job_dir}/result.json")),
-        // WorkingDir is image-controlled — escape it like every other dst.
-        proto_str(&dst),
+        proto_str(dst),
     )
 }
 
@@ -737,6 +783,19 @@ pub async fn handle_docker_v2_job(
     let rootfs_mounts = generate_rootfs_mounts(&rootfs).await?;
     // Bind source for `./result.json` inside the container; empty means "no result".
     write_file(job_dir, "result.json", "")?;
+    let result_dst = result_mount_dst(job_dir, working_dir).await;
+    if result_dst.is_none() {
+        append_logs(
+            &job.id,
+            &job.workspace_id,
+            format!(
+                "WARNING: the image's WorkingDir ({working_dir}) does not resolve inside the \
+                container root, so `./result.json` will not be collected for this job\n"
+            ),
+            conn,
+        )
+        .await;
+    }
     write_file(
         job_dir,
         "run.docker.config.proto",
@@ -753,7 +812,13 @@ pub async fn handle_docker_v2_job(
             )
             // `# volume` mounts + same-worker shared folder (empty if none).
             .replace("{SHARED_MOUNT}", shared_mount)
-            .replace("{RESULT_MOUNT}", &render_result_mount(job_dir, working_dir))
+            .replace(
+                "{RESULT_MOUNT}",
+                &result_dst
+                    .as_deref()
+                    .map(|dst| render_result_mount(job_dir, dst))
+                    .unwrap_or_default(),
+            )
             // Image env as `envar:` directives (child-only), so it never touches
             // nsjail's process env.
             .replace("{ENVARS}", &envars)
@@ -843,20 +908,68 @@ pub async fn handle_docker_v2_job(
 mod tests {
     use super::{
         digest_key, proto_str, ref_key, registry_qualified, render_envars, render_result_mount,
+        result_mount_dst,
     };
 
-    #[test]
-    fn result_mount_targets_working_dir() {
+    #[tokio::test]
+    async fn result_mount_dst_targets_working_dir() {
+        let job = tempfile::tempdir().unwrap();
+        let job_dir = job.path().to_str().unwrap();
+        std::fs::create_dir_all(format!("{job_dir}/rootfs/app/sub")).unwrap();
+
         // `./result.json` relative to the image's WorkingDir, with no doubled slash
-        // when WorkingDir is the root.
-        assert!(render_result_mount("/j", "/app").contains("dst: \"/app/result.json\""));
-        assert!(render_result_mount("/j", "/").contains("dst: \"/result.json\""));
-        assert!(render_result_mount("/j", "/app/").contains("dst: \"/app/result.json\""));
+        // when WorkingDir is the root and no trailing-slash artifact.
+        for (wd, expected) in [
+            ("/app/sub", "/app/sub/result.json"),
+            ("/", "/result.json"),
+            ("/app/", "/app/result.json"),
+            // The jail provides /tmp, so no image path is walked and a not-yet-existing
+            // directory under it is still fine.
+            ("/tmp/work", "/tmp/work/result.json"),
+            // As is one absent from the rootfs — nsjail creates it as real directories
+            // under a non-symlink parent.
+            ("/app/new/deep", "/app/new/deep/result.json"),
+        ] {
+            assert_eq!(
+                result_mount_dst(job_dir, wd).await.as_deref(),
+                Some(expected),
+                "{wd}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn result_mount_dst_rejects_escapes() {
+        let job = tempfile::tempdir().unwrap();
+        let job_dir = job.path().to_str().unwrap();
+        std::fs::create_dir_all(format!("{job_dir}/rootfs/app")).unwrap();
+        // An image rootfs entry that points out of the rootfs, at both depths.
+        std::os::unix::fs::symlink("/etc", format!("{job_dir}/rootfs/evil")).unwrap();
+        std::os::unix::fs::symlink("/etc", format!("{job_dir}/rootfs/app/evil")).unwrap();
+
+        // nsjail resolves the mount dst against its temp root *before* pivot_root, so
+        // each of these would otherwise have it create a file on the host.
+        for wd in [
+            "/../../../etc",
+            "/app/../../etc",
+            "/evil",
+            "/evil/deeper",
+            "/app/evil",
+            "relative/path",
+        ] {
+            assert!(
+                result_mount_dst(job_dir, wd).await.is_none(),
+                "{wd} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn result_mount_renders_escaped() {
         // The host side is the worker-created file, never a path inside the rootfs.
-        assert!(render_result_mount("/j", "/app").contains("src: \"/j/result.json\""));
-        // An image WorkingDir trying to inject extra directives is escaped.
-        let evil = render_result_mount("/j", "/x\"\nmount { src: \"/\" dst: \"/host\" }\n#");
-        assert!(!evil.contains("\ndst: \"/host\""));
+        let m = render_result_mount("/j", "/app/result.json");
+        assert!(m.contains("src: \"/j/result.json\""));
+        assert!(m.contains("dst: \"/app/result.json\""));
     }
 
     #[test]
@@ -928,6 +1041,9 @@ mod tests {
                                           // a raw byte or an invalid `\u{..}` that nsjail's parser would reject).
         assert_eq!(proto_str("a\u{1b}b"), "\"a\\033b\""); // ESC (0x1b)
         assert_eq!(proto_str("é"), "\"\\303\\251\""); // UTF-8 bytes 0xc3 0xa9
+                                                      // Braces are escaped so a value can never survive as a `{PLACEHOLDER}` token for
+                                                      // a later substitution pass to expand (`{ENVARS}` expands to unquoted directives).
+        assert_eq!(proto_str("/{ENVARS}"), "\"/\\173ENVARS\\175\"");
     }
 
     #[test]
