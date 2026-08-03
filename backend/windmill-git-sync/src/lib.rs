@@ -260,6 +260,140 @@ impl DeployedObject {
     }
 }
 
+/// Item kinds whose `workspace_diff` path is the `path` column of a table named
+/// after the kind. Interpolated into SQL, so it must stay a hardcoded allowlist.
+const PATH_KEYED_TABLES: &[&str] = &[
+    "resource",
+    "variable",
+    "schedule",
+    "http_trigger",
+    "websocket_trigger",
+    "kafka_trigger",
+    "nats_trigger",
+    "postgres_trigger",
+    "mqtt_trigger",
+    "amqp_trigger",
+    "sqs_trigger",
+    "gcp_trigger",
+    "azure_trigger",
+    "email_trigger",
+];
+
+/// What the deploy event that just committed did to `path`: [`DeployEventKind::Write`]
+/// if the workspace still holds an item there, [`DeployEventKind::Delete`] if it does
+/// not. `None` for a kind this does not know how to probe, so an unmapped kind is
+/// recorded as no evidence rather than as a deletion.
+///
+/// Existence mirrors the comparison's (`compare_two_*`): an archived script or flow
+/// counts as absent. Runs on `&db` (no RLS) — the caller is a post-commit tally, not
+/// a user-facing read.
+pub async fn probe_deploy_event_kind(
+    db: &DB,
+    w_id: &str,
+    kind: &str,
+    path: &str,
+) -> windmill_common::error::Result<Option<windmill_common::deploy_origin::DeployEventKind>> {
+    use windmill_common::deploy_origin::DeployEventKind;
+
+    let exists: Option<bool> = match kind {
+        "script" => Some(
+            sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM script WHERE workspace_id = $1 AND path = $2 AND archived = false)",
+                w_id,
+                path
+            )
+            .fetch_one(db)
+            .await?
+            .unwrap_or(false),
+        ),
+        "flow" => Some(
+            sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM flow WHERE workspace_id = $1 AND path = $2 AND archived = false)",
+                w_id,
+                path
+            )
+            .fetch_one(db)
+            .await?
+            .unwrap_or(false),
+        ),
+        // Raw apps live in the `app` table too, keyed by path like a regular app.
+        "app" | "raw_app" => Some(
+            sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM app WHERE workspace_id = $1 AND path = $2)",
+                w_id,
+                path
+            )
+            .fetch_one(db)
+            .await?
+            .unwrap_or(false),
+        ),
+        "folder" => {
+            let name = path.strip_prefix("f/").unwrap_or(path);
+            Some(
+                sqlx::query_scalar!(
+                    "SELECT EXISTS(SELECT 1 FROM folder WHERE workspace_id = $1 AND name = $2)",
+                    w_id,
+                    name
+                )
+                .fetch_one(db)
+                .await?
+                .unwrap_or(false),
+            )
+        }
+        "resource_type" => Some(
+            sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM resource_type WHERE workspace_id = $1 AND name = $2)",
+                w_id,
+                path
+            )
+            .fetch_one(db)
+            .await?
+            .unwrap_or(false),
+        ),
+        // Identified by (datatable, timestamp), which survives a rename of the
+        // migration's `name` segment; the full path does not.
+        "datatable_migration" => match path
+            .split_once('/')
+            .and_then(|(dt, rest)| Some((dt, rest.split_once('_')?.0.parse::<i64>().ok()?)))
+        {
+            Some((datatable, timestamp)) => Some(
+                sqlx::query_scalar!(
+                    "SELECT EXISTS(SELECT 1 FROM datatable_migrations \
+                     WHERE workspace_id = $1 AND datatable = $2 AND timestamp = $3)",
+                    w_id,
+                    datatable,
+                    timestamp
+                )
+                .fetch_one(db)
+                .await?
+                .unwrap_or(false),
+            ),
+            None => None,
+        },
+        k if PATH_KEYED_TABLES.contains(&k) => {
+            // SAFETY: `k` comes from the hardcoded PATH_KEYED_TABLES allowlist.
+            let sql =
+                format!("SELECT EXISTS(SELECT 1 FROM {k} WHERE workspace_id = $1 AND path = $2)");
+            Some(
+                sqlx::query_scalar(&sql)
+                    .bind(w_id)
+                    .bind(path)
+                    .fetch_one(db)
+                    .await?,
+            )
+        }
+        _ => None,
+    };
+
+    Ok(exists.map(|exists| {
+        if exists {
+            DeployEventKind::Write
+        } else {
+            DeployEventKind::Delete
+        }
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

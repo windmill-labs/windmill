@@ -29,6 +29,7 @@ pub async fn tally_deployed_object_changes(
     _obj: &DeployedObject,
     _db: &DB,
     _renamed_from: Option<&str>,
+    _origin: windmill_common::deploy_origin::DeployOrigin,
 ) -> Result<()> {
     // Workspace forks are an enterprise feature and not part of the open-source version
     return Ok(());

@@ -1,4 +1,5 @@
 import { requireLogin } from "../../core/auth.ts";
+import { markRequestsAsSyncOrigin } from "../../core/client.ts";
 import { fetchVersion, resolveWorkspace } from "../../core/context.ts";
 import {
   writeFile,
@@ -4126,6 +4127,7 @@ export async function push(
     },
 ) {
   if ((opts as any).jsonOutput) log.setSilent(true);
+  markRequestsAsSyncOrigin();
   // Save original CLI options before merging with config file
   const originalCliOpts = { ...opts };
 

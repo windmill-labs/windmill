@@ -257,6 +257,26 @@ pub async fn add_webhook_allowed_origin(
     next.run(req).await
 }
 
+/// Scope the request in the deploy origin it declares, so the fork tally can
+/// tell a write applied by a sync from one authored in the workspace. Unmarked
+/// requests run outside the scope: `deploy_origin::current` already reads those
+/// as authored, and skipping the scope keeps the common path free of it.
+async fn set_deploy_origin(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let origin = req
+        .headers()
+        .get(windmill_common::deploy_origin::DEPLOY_ORIGIN_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(windmill_common::deploy_origin::DeployOrigin::from_header_value)
+        .unwrap_or(windmill_common::deploy_origin::DeployOrigin::Authored);
+    match origin {
+        windmill_common::deploy_origin::DeployOrigin::Authored => next.run(req).await,
+        origin => windmill_common::deploy_origin::scope(origin, next.run(req)).await,
+    }
+}
+
 #[cfg(not(feature = "tantivy"))]
 type IndexReader = ();
 
@@ -1082,6 +1102,8 @@ pub async fn run_server(
     let app = app.layer(axum::middleware::from_fn(
         tracing_init::log_context_middleware,
     ));
+
+    let app = app.layer(axum::middleware::from_fn(set_deploy_origin));
 
     let app = app.layer(CatchPanicLayer::custom(|err| {
         tracing::error!("panic in handler, returning 500: {:?}", err);

@@ -30,6 +30,7 @@ use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
 #[cfg(feature = "python")]
 use windmill_parser_yaml::AnsibleRequirements;
 
+use windmill_common::deploy_origin::DeployOrigin;
 use windmill_common::{
     apps::AppScriptId,
     cache::{self, RawData},
@@ -931,8 +932,18 @@ pub(crate) async fn tally_unfinished_dependency_deploy(
         _ => return,
     };
 
-    if let Err(e) =
-        tally_deployed_object_changes(&job.workspace_id, &obj, db, renamed_from.as_deref()).await
+    // A dependency job runs long after the request that queued it, with no way back
+    // to the origin it declared. Authored is the safe reading: this path only ever
+    // tallies a deploy that left an item behind, never a removal, so it cannot make
+    // the merge offer a deletion it shouldn't.
+    if let Err(e) = tally_deployed_object_changes(
+        &job.workspace_id,
+        &obj,
+        db,
+        renamed_from.as_deref(),
+        DeployOrigin::Authored,
+    )
+    .await
     {
         tracing::error!(%e, "error tallying fork changes for unfinished dependency job {}", job.id);
     }

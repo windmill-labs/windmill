@@ -9233,6 +9233,14 @@ pub struct WorkspaceDiffRow {
     has_changes: Option<bool>,
     exists_in_source: Option<bool>,
     exists_in_fork: Option<bool>,
+    /// What the last deploy event on each side did (`write` / `delete` /
+    /// `rename_from`) and where it came from (`authored` / `sync`). Absent on a
+    /// side with no event recorded since the column was added, which reads as no
+    /// evidence: the counters alone never justify propagating a removal.
+    fork_last_event_kind: Option<String>,
+    fork_last_event_origin: Option<String>,
+    source_last_event_kind: Option<String>,
+    source_last_event_origin: Option<String>,
 }
 
 async fn compare_workspaces(
@@ -9324,7 +9332,9 @@ async fn compare_workspaces(
     // is left intact, so unpinning resurfaces it without a re-tally.
     let diff_items = sqlx::query_as!(
         WorkspaceDiffRow,
-        "SELECT path, kind, ahead, behind, has_changes, exists_in_source, exists_in_fork FROM workspace_diff
+        "SELECT path, kind, ahead, behind, has_changes, exists_in_source, exists_in_fork,
+            fork_last_event_kind, fork_last_event_origin, source_last_event_kind, source_last_event_origin
+        FROM workspace_diff
         WHERE source_workspace_id = $1 AND fork_workspace_id = $2
         AND NOT EXISTS (
             SELECT 1 FROM ws_specific ws
@@ -9586,13 +9596,22 @@ async fn compare_workspaces(
     };
 
     // Each direction accounts for what it carries (see the frontend's
-    // `diffActionableInDirection`): a lineage merge leaves out a row the fork lacks,
-    // while the update takes it whatever the counters say — and since it can carry
+    // `diffActionableInDirection`): a lineage merge leaves out a row the fork lacks
+    // unless the fork's own last event says it deleted or renamed it away, while the
+    // update takes it whatever the counters say — and since it can carry
     // `behind = 0`, that side counts rows rather than sums.
     let source_only = |d: &WorkspaceDiffRow| {
         d.exists_in_source.unwrap_or(false) && !d.exists_in_fork.unwrap_or(false)
     };
-    let merge_carries = |d: &WorkspaceDiffRow| !is_lineage_pair || !source_only(d);
+    let fork_removed_it = |d: &WorkspaceDiffRow| {
+        d.fork_last_event_origin.as_deref() == Some("authored")
+            && matches!(
+                d.fork_last_event_kind.as_deref(),
+                Some("delete") | Some("rename_from")
+            )
+    };
+    let merge_carries =
+        |d: &WorkspaceDiffRow| !is_lineage_pair || !source_only(d) || fork_removed_it(d);
     let ahead_sum = |rows: &[WorkspaceDiffRow]| {
         rows.iter()
             .filter(|d| merge_carries(d))

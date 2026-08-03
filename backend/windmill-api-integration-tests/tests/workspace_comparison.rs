@@ -2206,3 +2206,144 @@ async fn test_full_diff_scan_against_arbitrary_workspace(db: Pool<Postgres>) -> 
 
     Ok(())
 }
+
+/// Regression for WIN-2289. An item the parent has and the fork does not is the
+/// one row shape the counters cannot decide: a fork deletion and a git-sync pull
+/// reverting an earlier deploy both leave `ahead > 0, behind = 0` with the item
+/// gone from the fork. Only the recorded origin of the fork's last event tells
+/// them apart, so the comparison must carry it.
+///
+/// Gated on `private` for the same reason as the tally tests above: the OSS
+/// `handle_deployment_metadata` is a no-op, so no rows would ever be written.
+#[cfg(feature = "private")]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_compare_records_fork_removal_origin(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base_url = format!("http://localhost:{port}/api");
+    let admin = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+
+    sqlx::query!("DELETE FROM skip_workspace_diff_tally")
+        .execute(&db)
+        .await?;
+
+    // Deployed in the parent before the fork exists, so nothing is tallied yet and
+    // the fork starts with both scripts. bash needs no lock generation, so the
+    // create tallies inline instead of deferring to a dependency job (no worker
+    // runs in this test).
+    for path in ["u/admin/dropped_by_user", "u/admin/dropped_by_sync"] {
+        let resp = admin
+            .client()
+            .post(&format!("{base_url}/w/test-workspace/scripts/create"))
+            .json(&json!({
+                "path": path,
+                "summary": "",
+                "description": "",
+                "content": "echo 1",
+                "language": "bash",
+                "schema": {"type": "object", "properties": {}, "required": []},
+            }))
+            .send()
+            .await?;
+        let status = resp.status();
+        assert!(
+            status.is_success(),
+            "script create failed: {} — {}",
+            status,
+            resp.text().await?
+        );
+    }
+
+    let resp = admin
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/create_fork"
+        ))
+        .json(&json!({"id": "wm-fork-removal", "name": "Removal Fork"}))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "fork creation failed: {}",
+        resp.status()
+    );
+
+    // Same act, same resulting row shape; only the header a sync client sets differs.
+    for (path, origin_header) in [
+        ("u/admin/dropped_by_user", None),
+        ("u/admin/dropped_by_sync", Some("sync")),
+    ] {
+        let mut req = admin
+            .client()
+            .post(&format!(
+                "{base_url}/w/wm-fork-removal/scripts/archive/p/{path}"
+            ));
+        if let Some(origin) = origin_header {
+            req = req.header("X-Windmill-Deploy-Origin", origin);
+        }
+        let resp = req.send().await?;
+        let status = resp.status();
+        assert!(
+            status.is_success(),
+            "archive of {path} failed: {} — {}",
+            status,
+            resp.text().await?
+        );
+    }
+
+    // The tally runs in a `tokio::spawn` inside `handle_deployment_metadata`.
+    let mut recorded = 0;
+    for _ in 0..40 {
+        recorded = sqlx::query_scalar!(
+            "SELECT COUNT(*) AS \"count!\" FROM workspace_diff
+             WHERE source_workspace_id = 'test-workspace'
+               AND fork_workspace_id = 'wm-fork-removal'
+               AND kind = 'script'
+               AND fork_last_event_origin IS NOT NULL"
+        )
+        .fetch_one(&db)
+        .await?;
+        if recorded >= 2 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert_eq!(recorded, 2, "both archives should have tallied an event");
+
+    let comparison: serde_json::Value = admin
+        .client()
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-removal"
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let diffs = comparison["diffs"].as_array().unwrap();
+
+    for (path, expected_origin) in [
+        ("u/admin/dropped_by_user", "authored"),
+        ("u/admin/dropped_by_sync", "sync"),
+    ] {
+        let row = diffs
+            .iter()
+            .find(|d| d["path"] == path && d["kind"] == "script")
+            .unwrap_or_else(|| panic!("{path} should be in the diff; got {diffs:?}"));
+        assert_eq!(row["exists_in_source"].as_bool(), Some(true), "{row}");
+        assert_eq!(row["exists_in_fork"].as_bool(), Some(false), "{row}");
+        assert_eq!(row["behind"].as_i64(), Some(0), "{row}");
+        assert_eq!(row["fork_last_event_kind"].as_str(), Some("delete"), "{row}");
+        assert_eq!(
+            row["fork_last_event_origin"].as_str(),
+            Some(expected_origin),
+            "the two removals must stay distinguishable: {row}"
+        );
+    }
+
+    Ok(())
+}
