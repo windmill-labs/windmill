@@ -253,6 +253,47 @@ export function msToReadableTime(ms: number | undefined, maximumFractionDigits?:
 	}
 }
 
+/**
+ * A job ran through the workflow-as-code (WAC) executor iff its
+ * `workflow_as_code_status` carries a `_checkpoint`. AI-agent jobs populate the
+ * same column but never write `_checkpoint`, so they must not match here.
+ */
+export function isWorkflowAsCodeJob(
+	job: { workflow_as_code_status?: unknown } | undefined
+): boolean {
+	const wac = job?.workflow_as_code_status as Record<string, unknown> | undefined
+	return wac != undefined && wac['_checkpoint'] != undefined
+}
+
+/**
+ * Total execution time to display for a job, in ms.
+ *
+ * A WAC job suspends while the task jobs it dispatches run, so its `duration_ms`
+ * covers only the orchestration script's own compute, not the end-to-end run. For
+ * those, show the wall-clock span (`completed_at - started_at`) — the same total a
+ * flow reports. `duration_ms` must keep counting compute only: cloud usage
+ * accounting and workspace fairness consume it as service time.
+ */
+export function jobDisplayDurationMs(
+	job:
+		| {
+				started_at?: string
+				completed_at?: string
+				duration_ms?: number
+				workflow_as_code_status?: unknown
+		  }
+		| undefined
+): number | undefined {
+	if (isWorkflowAsCodeJob(job) && job?.started_at && job?.completed_at) {
+		const start = new Date(job.started_at).getTime()
+		const end = new Date(job.completed_at).getTime()
+		if (isFinite(start) && isFinite(end) && end >= start) {
+			return end - start
+		}
+	}
+	return job?.duration_ms
+}
+
 export function msToReadableTimeShort(
 	ms: number | undefined,
 	maximumFractionDigits?: number
