@@ -85,7 +85,10 @@
 	}: Props = $props()
 
 	let selectableItems = $derived(items.filter(selectablePredicate))
-	let hasSelectableItems = $derived(selectableItems.length > 0)
+	// "Select all" is a bulk action, so it lives or dies by the bulk-selectable set:
+	// a list of nothing but bulk-excluded rows would otherwise offer an enabled
+	// control that selects nothing. Each such row is still selectable on its own.
+	let hasSelectableItems = $derived(selectableItems.some((i) => !bulkExcluded(i)))
 
 	// Plain row click and the checkbox both toggle this row in/out — multi-select
 	// is the default, no modifier needed.

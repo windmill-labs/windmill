@@ -9584,12 +9584,10 @@ async fn compare_workspaces(
             .iter()
             .map(|s| s.ahead)
             .fold(0, |acc, s| acc + s.try_into().unwrap_or(0));
-    // An item the source has and the fork does not is offered to the fork whatever
-    // its `behind` counter says (the tally credits `ahead` for every deploy event in
-    // the fork, a pull of the source's own item included), so such a row can carry
-    // `behind = 0` and be dropped by the filter without moving either sum. Count the
-    // rows themselves, else a hidden one leaves the update direction claiming that
-    // nothing is withheld.
+    // The fork is offered an item the source has and it lacks whatever the counters
+    // say, so such a row can carry `behind = 0` and be dropped by the filter without
+    // moving either sum. Count the rows themselves, else a hidden one leaves the
+    // update direction claiming nothing is withheld.
     let source_only = |d: &WorkspaceDiffRow| {
         d.exists_in_source.unwrap_or(false) && !d.exists_in_fork.unwrap_or(false)
     };
