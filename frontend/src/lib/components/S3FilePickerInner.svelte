@@ -463,10 +463,20 @@
 	/** Reports whether the listing completed, so a caller that moved the cursor can undo it. */
 	async function loadFiles(): Promise<boolean> {
 		if (lazyMode) {
+			// Typing in the filter switches the picker to the flat listing while this is in
+			// flight, and `loadFolderPage` resolves rather than throwing once superseded.
+			// What follows belongs to the listing that started it: expanding a preselected
+			// file would graft browse results into the search, and clearing the flags would
+			// retire the search's spinner.
+			const generation = listingGeneration
 			fileListLoading = true
 			try {
 				await loadFolderPage(rootPath)
-				if (selectedFileKey !== undefined && !emptyString(selectedFileKey.s3)) {
+				if (
+					generation === listingGeneration &&
+					selectedFileKey !== undefined &&
+					!emptyString(selectedFileKey.s3)
+				) {
 					await expandToKey(selectedFileKey.s3)
 				}
 			} catch (e) {
@@ -476,8 +486,10 @@
 				reportFolderError(rootPath, e)
 				return false
 			} finally {
-				fileListLoading = false
-				fileInfoLoading = false
+				if (generation === listingGeneration) {
+					fileListLoading = false
+					fileInfoLoading = false
+				}
 			}
 			return true
 		}
@@ -805,7 +817,9 @@
 	}
 
 	/** Reports whether the fresh listing loaded, so a caller replaying pages can stop. */
-	async function clearAndLoadFiles({ keepFilter }: { keepFilter?: boolean } = {}): Promise<boolean> {
+	async function clearAndLoadFiles({
+		keepFilter
+	}: { keepFilter?: boolean } = {}): Promise<boolean> {
 		// Anything already in flight belongs to the listing being discarded.
 		listingGeneration += 1
 		inFlightFolderLoads = {}
