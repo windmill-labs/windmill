@@ -33,13 +33,17 @@
 			workspace: $workspaceStore,
 			addedCount
 		}),
-		async ({ search, isSuperadmin, open, workspace }) => {
+		async ({ search, isSuperadmin, open, workspace }, _previous, { onCleanup }) => {
 			if (!isSuperadmin || !open || !workspace) return []
-			return await UserService.listAddableInstanceUsers({
+			const request = UserService.listAddableInstanceUsers({
 				workspace,
 				perPage: 10,
 				search: search || undefined
 			})
+			// A superseded run is only aborted through the promise it registers here. Without this a
+			// slow earlier search can land last and overwrite the results of the newer one.
+			onCleanup(() => request.cancel())
+			return await request
 		},
 		{ debounce: 300, initialValue: [] }
 	)
