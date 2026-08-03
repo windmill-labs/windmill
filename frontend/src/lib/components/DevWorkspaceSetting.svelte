@@ -12,7 +12,6 @@
 	import { devBadgeText, devLabelKey, devLabelNoun } from '$lib/utils/devWorkspaceLabel'
 	import {
 		loadProtectionRules,
-		protectionRulesState,
 		isRuleActiveInRulesets,
 		isRuleUnconditionallyActiveInRulesets
 	} from '$lib/workspaceProtectionRules.svelte'
@@ -153,29 +152,15 @@
 		devWorkspaceResource.refetch()
 		// Attach/detach changes this (root) workspace's protection rules; reload them so the
 		// direct-deploy / forking lock UI reflects the change without a workspace switch or reload.
-		// Where it is safe to, this resource takes its value from that same load instead of fetching
-		// again: a second request would ask for the rules twice and flip the panel back to loading.
+		// Refetching duplicates the request `loadProtectionRules` just made, which is the price of it
+		// being the only way to supersede whatever this resource already has in flight: `mutate` just
+		// assigns, so an earlier fetch lands afterwards and puts the pre-attach rules back on screen.
+		// No guard makes seeding safe either — runed shares one `loading` flag, which a superseded
+		// request clears while its replacement is still running. One extra request on an admin-only
+		// action is cheaper than a panel that misreports what is enforced.
 		if ($workspaceStore) {
 			await loadProtectionRules($workspaceStore)
-			// Two ways seeding by hand goes wrong, both ending with the panel showing pre-attach rules:
-			// `loadProtectionRules` early-returns while a load for this workspace is already in flight,
-			// leaving the shared state unset or stale; and `mutate` only assigns, so a fetch this resource
-			// started on mount would land afterwards and overwrite the seed. Refetching covers both — it
-			// supersedes the outstanding request — so only seed when neither is in play.
-			if (
-				!rootProtectionRules.loading &&
-				!protectionRulesState.loading &&
-				protectionRulesState.workspace === $workspaceStore &&
-				protectionRulesState.rulesets != undefined
-			) {
-				rootProtectionRules.mutate({
-					ws: $workspaceStore,
-					rules: protectionRulesState.rulesets,
-					failed: protectionRulesState.error != undefined
-				})
-			} else {
-				rootProtectionRules.refetch()
-			}
+			rootProtectionRules.refetch()
 		}
 	}
 
