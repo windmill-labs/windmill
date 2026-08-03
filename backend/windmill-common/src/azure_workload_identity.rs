@@ -24,7 +24,9 @@ pub const AZURE_OSSRDBMS_SCOPE: &str = "https://ossrdbms-aad.database.windows.ne
 /// database. Carrying the mode in the password is what lets an existing deployment turn
 /// it on: the resource type schemas live on the hub, and every database form already has
 /// a password field. Anyone whose password is literally this string authenticates as the
-/// worker's identity instead of failing to log in.
+/// worker's identity instead of failing to log in, which is why it is deliberately less
+/// password-shaped than the instance's `entraid`: that one is set by whoever runs the
+/// instance, this one sits where users keep their own secrets.
 pub const WORKLOAD_IDENTITY_PASSWORD: &str = "ms_entraid";
 
 /// Renew an access token this long before it expires.

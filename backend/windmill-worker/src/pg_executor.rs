@@ -696,6 +696,18 @@ pub async fn do_postgresql(
 
     let auth_mode = PgAuthMode::of(&database)?;
 
+    // The sentinel password is easy to set by accident, so say in the job logs which
+    // identity the query actually ran as rather than only in the worker logs.
+    if matches!(auth_mode, PgAuthMode::WorkloadIdentity) {
+        windmill_queue::append_logs(
+            &job.id,
+            &job.workspace_id,
+            "Using Azure Workload Identity\n",
+            conn,
+        )
+        .await;
+    }
+
     // Include the auth mode in the cache key to distinguish connections to the same host
     // authenticated differently. The cache key is static (doesn't include the token), which
     // is correct because PostgreSQL connections remain valid after initial auth — fresh
