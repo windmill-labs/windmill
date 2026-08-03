@@ -64,6 +64,7 @@ function retargetTab(tab: SessionPreviewTab, url: string): void {
 	tab.loc = url
 	tab.friendlyLabel = undefined
 	tab.friendlyPath = undefined
+	tab.editorNamed = undefined
 }
 
 // Strip the query params the sessions preview injects into iframe URLs
@@ -409,14 +410,20 @@ export class SessionPreviewTabs {
 	// knows the item's summary / typed name once its cell loads, which the page
 	// can't read reactively from the runtime cell). Matched on the tab's commanded
 	// `url` — the stable per-(kind,path) editor identity. Transient, so no
-	// persist/flush: they're recomputed when the tab remounts.
+	// persist/flush: they're recomputed when the tab remounts. Callers must only
+	// call this once the item has loaded: it also marks the tab as named by its
+	// editor, which stops the page falling back to the workspace listing.
 	setEditorFriendlyLabel(
 		target: SessionTarget,
 		label: string | undefined,
 		friendlyPath?: string
 	): void {
 		const t = this.#tabs.find((x) => isEditorTabFor(x.url, target))
-		if (!t || (t.friendlyLabel === label && t.friendlyPath === friendlyPath)) return
+		if (!t) return
+		// Set before the no-change early return: an item with neither a summary nor
+		// a staged path leaves both fields undefined, and the editor still owns it.
+		t.editorNamed = true
+		if (t.friendlyLabel === label && t.friendlyPath === friendlyPath) return
 		t.friendlyLabel = label
 		t.friendlyPath = friendlyPath
 	}

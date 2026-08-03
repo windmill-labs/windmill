@@ -132,6 +132,9 @@
 	// still parked at a `…/draft_<uuid>` storage path falls back to its typed/auto
 	// name, and anything else to the plain location label.
 	$effect(() => {
+		// Only once the item has landed: stamping empty-handed off an unloaded cell
+		// would claim the tab from the listing-based name the page shows meanwhile.
+		if (slot.loadedPath !== path) return
 		const v = cell.store.val as { path?: string; draft_path?: string; summary?: string } | undefined
 		const friendly = v?.draft_path ?? v?.path
 		const label = itemDisplayName(path, friendly, v?.summary)

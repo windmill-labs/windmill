@@ -147,6 +147,11 @@ export type SessionPreviewTab = {
 	loc: string
 	friendlyLabel?: string
 	friendlyPath?: string
+	// True once this tab's live editor has loaded its item and reported a name —
+	// or reported that it has none. Until then the sessions page names the tab
+	// from the workspace listing; after, the editor is the only source, else
+	// clearing a summary would fall back to the listing's stale copy of it.
+	editorNamed?: boolean
 }
 
 // Sessions live in one per-user IndexedDB, one record per session in the

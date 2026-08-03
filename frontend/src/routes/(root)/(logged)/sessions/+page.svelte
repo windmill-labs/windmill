@@ -593,12 +593,15 @@
 	// session's tabs are labelled here, and two sessions on different forks can
 	// hold the same item path.
 	function listedItemFor(tab: SessionPreviewTab, workspace: string): WorkspaceItem | undefined {
+		// A loaded editor supersedes the listing for good — including when it names
+		// nothing, else clearing a summary would resurrect the listing's copy of it.
+		if (tab.editorNamed) return undefined
 		const route = parsePreviewItemRoute(tab.loc)
 		if (!route) return undefined
 		return listedItems[listedKey(workspace, route.kind)]?.find((i) => i.path === route.itemPath)
 	}
 
-	// Short tab label. An item whose live editor is mounted carries a
+	// Short tab label. An item whose live editor has loaded carries a
 	// `friendlyLabel` that editor stamped — its summary, or the typed/auto name of
 	// an item still parked at `…/draft_<uuid>` (the page can't read the runtime
 	// cell reactively, so the editor mirrors the name onto the tab model). Before
