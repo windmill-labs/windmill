@@ -25,6 +25,11 @@ const TOKEN_REFRESH_BUFFER: Duration = Duration::from_secs(5 * 60);
 /// A token with less life than this left is not worth handing to a connection.
 const TOKEN_MIN_LIFETIME: Duration = Duration::from_secs(30);
 
+/// How long a failed renewal suppresses the next attempt, as long as the current token
+/// still works. Without it every queued job retries the exchange in turn, so a
+/// throttling Entra ID would cost each of them the request's full latency.
+const REFRESH_RETRY_BACKOFF: Duration = Duration::from_secs(30);
+
 lazy_static::lazy_static! {
     /// Access tokens keyed by identity and scope, shared by every job on the worker.
     static ref TOKEN_CACHE: Mutex<HashMap<String, Arc<TokenSlot>>> = Mutex::new(HashMap::new());
@@ -35,8 +40,9 @@ struct TokenSlot {
     /// Read on the hit path, so it must never be held across the exchange.
     token: RwLock<Option<CachedToken>>,
     /// Held for the whole exchange, so a burst of jobs on a cold or expiring entry
-    /// makes one request to Entra ID instead of one per job.
-    refreshing: tokio::sync::Mutex<()>,
+    /// makes one request to Entra ID instead of one per job. Guards the time of the
+    /// last failed exchange, which is what the waiting jobs need to see.
+    refreshing: tokio::sync::Mutex<Option<Instant>>,
 }
 
 struct CachedToken {
@@ -51,6 +57,15 @@ impl TokenSlot {
             .as_ref()
             .filter(|cached| Instant::now() + remaining < cached.expires_at)
             .map(|cached| cached.token.clone())
+    }
+}
+
+/// Whether to go to Entra ID, given the last failed exchange and whether the current
+/// token would still serve. A cold slot always tries: there is nothing to fall back on.
+fn should_attempt_refresh(last_failure: Option<Instant>, has_usable_token: bool) -> bool {
+    match last_failure {
+        Some(at) if has_usable_token => at.elapsed() >= REFRESH_RETRY_BACKOFF,
+        _ => true,
     }
 }
 
@@ -135,27 +150,36 @@ impl WorkloadIdentityConfig {
             return Ok(token);
         }
 
-        let _refreshing = slot.refreshing.lock().await;
+        let mut last_failure = slot.refreshing.lock().await;
         // Whoever held the lock may have just refreshed it.
         if let Some(token) = slot.token_valid_for(TOKEN_REFRESH_BUFFER) {
             return Ok(token);
+        }
+
+        // Inside the refresh buffer the previous token still works, and Entra ID
+        // throttles bursts: a failed renewal must not fail an otherwise fine job.
+        let usable = slot.token_valid_for(TOKEN_MIN_LIFETIME);
+        if !should_attempt_refresh(*last_failure, usable.is_some()) {
+            return Ok(usable.unwrap());
         }
 
         match self.request_token(scope).await {
             Ok(fresh) => {
                 let token = fresh.token.clone();
                 *slot.token.write().unwrap() = Some(fresh);
+                *last_failure = None;
                 Ok(token)
             }
-            // Inside the refresh buffer the previous token still works, and Entra ID
-            // throttles bursts: a failed renewal must not fail an otherwise fine job.
-            Err(e) => match slot.token_valid_for(TOKEN_MIN_LIFETIME) {
-                Some(token) => {
-                    tracing::warn!("Keeping the current Entra ID token, renewal failed: {e:#}");
-                    Ok(token)
+            Err(e) => {
+                *last_failure = Some(Instant::now());
+                match usable {
+                    Some(token) => {
+                        tracing::warn!("Keeping the current Entra ID token, renewal failed: {e:#}");
+                        Ok(token)
+                    }
+                    None => Err(e),
                 }
-                None => Err(e),
-            },
+            }
         }
     }
 
@@ -263,6 +287,19 @@ mod tests {
             config.cache_key(AZURE_SQL_SCOPE),
             config.cache_key(AZURE_OSSRDBMS_SCOPE)
         );
+    }
+
+    /// A recent failure must not be re-attempted by every job queued behind the
+    /// refresh lock — but only while there is a token left to serve them.
+    #[test]
+    fn test_failed_refresh_is_not_retried_by_every_caller() {
+        assert!(!should_attempt_refresh(Some(Instant::now()), true));
+        assert!(should_attempt_refresh(Some(Instant::now()), false));
+        assert!(should_attempt_refresh(
+            Instant::now().checked_sub(REFRESH_RETRY_BACKOFF),
+            true
+        ));
+        assert!(should_attempt_refresh(None, true));
     }
 
     /// A token inside the refresh buffer is no longer served as fresh, but is still

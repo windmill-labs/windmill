@@ -837,9 +837,19 @@ pub struct PgDatabase {
     /// identity webhook injects into the pod.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub use_workload_identity: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    // A blank field means "not set" — it must not read as a distinct identity, which
+    // would key its own entry in the connection cache.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::utils::empty_as_none"
+    )]
     pub tenant_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::utils::empty_as_none"
+    )]
     pub client_id: Option<String>,
 }
 
