@@ -21568,7 +21568,7 @@ paths:
             type: string
         - name: search
           in: query
-          description: Free-text search matching anywhere in the key, case-insensitively. Scans a bounded number of keys per request; resume with the returned next_marker.
+          description: Match keys by path prefix, case-sensitively, on the raw key rather than per path segment (so "a/file1" matches "a/file1000"). Pushed down to the storage provider as a seek; resume with the returned next_marker.
           schema:
             type: string
         - name: storage

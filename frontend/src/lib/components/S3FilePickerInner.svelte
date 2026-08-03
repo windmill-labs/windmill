@@ -483,19 +483,23 @@
 	}
 
 	async function loadFlatFiles() {
+		// Debounced searches overlap: an older response must not add its keys to a newer
+		// search's results or overwrite its pagination state.
+		const generation = listingGeneration
 		fileListLoading = true
 		let availableFiles = await listStoredFilesRequest({
 			workspace: ws!,
 			maxKeys: maxKeys, // fixed pages of 1000 files for now
 			marker: page == 0 ? undefined : listMarkers[page - 1],
-			// `prefix` is a folder path, evaluated per segment by the storage layer;
-			// what the user types is a search, matched anywhere in the key. Sending the
-			// query as a prefix meant anything but a whole folder name found nothing.
+			// `prefix` is evaluated per path *segment* by the storage layer, so sending the
+			// query there matched only whole folder names. `search` matches the raw key
+			// prefix instead, which is what the box means.
 			prefix: rootPath !== '' ? rootPath : undefined,
 			search: filter.trim() !== '' ? filter.trim() : undefined,
 			storage: storage,
 			s3ResourcePath
 		})
+		if (generation !== listingGeneration) return
 		if (
 			availableFiles.restricted_access === null ||
 			availableFiles.restricted_access === undefined ||
@@ -1015,6 +1019,23 @@
 								No files in the workspace S3 bucket
 							{/if}
 						</div>
+						{#if flatHasMore}
+							<!-- A page can come back empty while keys remain — permission filtering
+							can remove every match. Without this the only control that could resume
+							the listing would be hidden behind the empty state. -->
+							<div class="flex justify-center pb-4">
+								<Button
+									variant="default"
+									size="xs2"
+									on:click={() => {
+										page += 1
+										loadFiles()
+									}}
+								>
+									Keep looking
+								</Button>
+							</div>
+						{/if}
 					{/if}
 				{:else}
 					<div class="grow min-h-0" bind:clientHeight={listDivHeight}>
