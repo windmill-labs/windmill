@@ -26,7 +26,8 @@ type SavedFlow = Omit<Flow & UserDraftOverlay, 'draft'> & { draft?: Flow }
 import type { HiddenRunnable } from '$lib/components/apps/types'
 import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { userWorkspaces, workspaceStore } from '$lib/stores'
-import { loadCopilot, copilotWorkspace } from '$lib/aiStore'
+import { copilotWorkspace } from '$lib/aiStore'
+import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 import { emptySchema, type StateStore } from '$lib/utils'
 import {
 	commitSessionWorkspace,

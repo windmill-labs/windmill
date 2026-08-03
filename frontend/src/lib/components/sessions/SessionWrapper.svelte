@@ -13,7 +13,8 @@
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { copilotInfo, loadCopilot } from '$lib/aiStore'
+	import { copilotInfo } from '$lib/aiStore'
+	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 	import {
 		Archive,
 		ArchiveRestore,
