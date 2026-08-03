@@ -306,9 +306,15 @@ impl External for GitHub {
         }
     }
 
-    /// GitHub answers 403 to both rate limiting and a permission failure.
+    /// GitHub answers 403 to both throttling and a permission failure, and words the throttle
+    /// two ways: the primary and secondary limits say "rate limit", the older secondary
+    /// response says "abuse detection mechanism".
     fn is_transient_response(&self, status: StatusCode, body: &str) -> bool {
-        status == StatusCode::FORBIDDEN && body.contains("rate limit")
+        if status != StatusCode::FORBIDDEN {
+            return false;
+        }
+        let body = body.to_ascii_lowercase();
+        body.contains("rate limit") || body.contains("abuse detection")
     }
 }
 

@@ -798,19 +798,26 @@ fn test_transient_service_failures_are_not_refusals() {
         );
     }
 
-    let throttled = GitHub.external_api_error(HttpRequestError::ApiError {
-        status: StatusCode::FORBIDDEN,
-        body: r#"{"message":"API rate limit exceeded for user ID 1."}"#.to_string(),
-    });
-    let throttled = map_external_error(throttled);
-    assert!(
-        matches!(throttled, Error::BadGateway(_)),
-        "a throttled 403 is the service failing to serve: {throttled:?}"
-    );
-    assert!(
-        !throttled.to_string().contains("admin rights"),
-        "a throttled 403 must not advise about permissions: {throttled}"
-    );
+    // GitHub words its throttle two ways, and neither is a permission problem.
+    for wording in [
+        "API rate limit exceeded for user ID 1.",
+        "You have exceeded a secondary rate limit.",
+        "You have triggered an abuse detection mechanism.",
+    ] {
+        let throttled = GitHub.external_api_error(HttpRequestError::ApiError {
+            status: StatusCode::FORBIDDEN,
+            body: format!(r#"{{"message":"{wording}"}}"#),
+        });
+        let throttled = map_external_error(throttled);
+        assert!(
+            matches!(throttled, Error::BadGateway(_)),
+            "a throttled 403 is the service failing to serve: {throttled:?}"
+        );
+        assert!(
+            !throttled.to_string().contains("admin rights"),
+            "a throttled 403 must not advise about permissions: {throttled}"
+        );
+    }
 
     let refused = GitHub.external_api_error(HttpRequestError::ApiError {
         status: StatusCode::FORBIDDEN,
