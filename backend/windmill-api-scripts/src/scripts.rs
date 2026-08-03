@@ -674,50 +674,76 @@ async fn create_script(
     tx.commit().await?;
     reregister_moved_native_triggers(&db, &authed_for_triggers, &w_id, moved_native_triggers);
     if let Some(hdm) = hdm {
-        // hdm is Some when no lock generation is needed (script is ready immediately).
-        // Trigger CI tests for any items that reference this script.
+        // Only a script that needed no lock generation is deployed and runnable by
+        // now; one that did gets its CI tests from the dependency job instead, so
+        // they don't run against a version whose lock does not exist yet — and
+        // don't run twice.
+        let ready_to_test = matches!(hdm, PostCommitDeploy::Full { .. });
         hdm.handle(&db).await?;
         let db2 = db.clone();
-        tokio::spawn(async move {
-            if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
-                &db2,
-                &w_id,
-                &script_path,
-                "script",
-                &email,
-                &username,
-            )
-            .await
-            {
-                tracing::error!(%e, "error triggering CI tests after script deploy");
-            }
-        });
+        if ready_to_test {
+            tokio::spawn(async move {
+                if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
+                    &db2,
+                    &w_id,
+                    &script_path,
+                    "script",
+                    &email,
+                    &username,
+                )
+                .await
+                {
+                    tracing::error!(%e, "error triggering CI tests after script deploy");
+                }
+            });
+        }
     }
     Ok((StatusCode::CREATED, format!("{}", hash)))
 }
 
-struct HandleDeploymentMetadata {
-    email: String,
-    created_by: String,
-    w_id: String,
-    obj: DeployedObject,
-    deployment_message: Option<String>,
-    renamed_from: Option<String>,
+/// What a script deploy still has to do once its transaction has committed.
+enum PostCommitDeploy {
+    /// Everything, for a deploy with no dependency job to hand it to.
+    Full {
+        email: String,
+        created_by: String,
+        w_id: String,
+        obj: DeployedObject,
+        deployment_message: Option<String>,
+        renamed_from: Option<String>,
+    },
+    /// Only the path a rename left behind; the dependency job handles the rest.
+    /// See `tally_rename_vacated_path`.
+    VacatedPath { w_id: String, obj: DeployedObject },
 }
 
-impl HandleDeploymentMetadata {
+impl PostCommitDeploy {
     async fn handle(self, db: &DB) -> Result<()> {
-        handle_deployment_metadata(
-            &self.email,
-            &self.created_by,
-            &db,
-            &self.w_id,
-            self.obj,
-            self.deployment_message,
-            false,
-            self.renamed_from.as_deref(),
-        )
-        .await
+        match self {
+            PostCommitDeploy::Full {
+                email,
+                created_by,
+                w_id,
+                obj,
+                deployment_message,
+                renamed_from,
+            } => {
+                handle_deployment_metadata(
+                    &email,
+                    &created_by,
+                    &db,
+                    &w_id,
+                    obj,
+                    deployment_message,
+                    false,
+                    renamed_from.as_deref(),
+                )
+                .await
+            }
+            PostCommitDeploy::VacatedPath { w_id, obj } => {
+                windmill_git_sync::tally_rename_vacated_path(db, &w_id, obj).await
+            }
+        }
     }
 }
 
@@ -972,7 +998,7 @@ async fn create_script_internal<'c>(
 ) -> Result<(
     ScriptHash,
     Transaction<'c, Postgres>,
-    Option<HandleDeploymentMetadata>,
+    Option<PostCommitDeploy>,
     Vec<MovedNativeTrigger>,
 )> {
     if authed.is_operator {
@@ -1033,8 +1059,7 @@ async fn create_script_internal<'c>(
 
     // Apply folder default_permissioned_as the first time a script is deployed
     // at this path. Check inside the transaction to avoid TOCTOU with concurrent deploys.
-    let explicit_preserve = (ns.on_behalf_of_email.is_some()
-        || ns.on_behalf_of.is_some())
+    let explicit_preserve = (ns.on_behalf_of_email.is_some() || ns.on_behalf_of.is_some())
         && ns.preserve_on_behalf_of.unwrap_or(false)
         && windmill_common::can_preserve_on_behalf_of(&authed);
     if !explicit_preserve && windmill_common::can_preserve_on_behalf_of(&authed) {
@@ -1175,13 +1200,8 @@ async fn create_script_internal<'c>(
             // CLI pushes must not produce phantom commits on the downstream
             // git repository.
             if skip_if_noop
-                && is_noop_deploy_against_parent(
-                    &ns,
-                    &ps,
-                    resolved_on_behalf_of.as_deref(),
-                    &db,
-                )
-                .await?
+                && is_noop_deploy_against_parent(&ns, &ps, resolved_on_behalf_of.as_deref(), &db)
+                    .await?
             {
                 tracing::info!(
                     workspace_id = %w_id,
@@ -2405,7 +2425,19 @@ async fn create_script_internal<'c>(
         .execute(&mut *new_tx)
         .await?;
 
-        Ok((hash, new_tx, None, moved_native_triggers))
+        // The dependency job takes it from here, except for the path a rename left.
+        let vacated =
+            p_path_opt
+                .filter(|old| *old != script_path)
+                .map(|old| PostCommitDeploy::VacatedPath {
+                    w_id: w_id.clone(),
+                    obj: DeployedObject::Script {
+                        hash: hash.clone(),
+                        path: old,
+                        parent_path: None,
+                    },
+                });
+        Ok((hash, new_tx, vacated, moved_native_triggers))
     } else {
         if codebase.is_none() {
             let db2 = db.clone();
@@ -2458,7 +2490,7 @@ async fn create_script_internal<'c>(
         Ok((
             hash,
             tx,
-            Some(HandleDeploymentMetadata {
+            Some(PostCommitDeploy::Full {
                 email: authed.email,
                 created_by: authed.username,
                 w_id,

@@ -9233,6 +9233,24 @@ pub struct WorkspaceDiffRow {
     has_changes: Option<bool>,
     exists_in_source: Option<bool>,
     exists_in_fork: Option<bool>,
+    /// The last deploy event claimed on each side, per
+    /// `windmill_common::deploy_origin`. Omitted rather than null, as the schema
+    /// declares; absent means no evidence, which never justifies propagating a
+    /// removal.
+    ///
+    /// Only the fork half is consumed today, by the merge direction. The update
+    /// direction has the mirror shape (a parent-side removal it cannot attribute)
+    /// but writes to the fork rather than to prod, and gating it on evidence would
+    /// strand a row a legacy tally left without any — so the source half is
+    /// recorded and surfaced, unread, rather than left as a gap to backfill.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fork_last_event_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fork_last_event_origin: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_last_event_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_last_event_origin: Option<String>,
 }
 
 async fn compare_workspaces(
@@ -9324,7 +9342,9 @@ async fn compare_workspaces(
     // is left intact, so unpinning resurfaces it without a re-tally.
     let diff_items = sqlx::query_as!(
         WorkspaceDiffRow,
-        "SELECT path, kind, ahead, behind, has_changes, exists_in_source, exists_in_fork FROM workspace_diff
+        "SELECT path, kind, ahead, behind, has_changes, exists_in_source, exists_in_fork,
+            fork_last_event_kind, fork_last_event_origin, source_last_event_kind, source_last_event_origin
+        FROM workspace_diff
         WHERE source_workspace_id = $1 AND fork_workspace_id = $2
         AND NOT EXISTS (
             SELECT 1 FROM ws_specific ws
@@ -9586,13 +9606,24 @@ async fn compare_workspaces(
     };
 
     // Each direction accounts for what it carries (see the frontend's
-    // `diffActionableInDirection`): a lineage merge leaves out a row the fork lacks,
-    // while the update takes it whatever the counters say — and since it can carry
+    // `diffActionableInDirection`): a lineage merge leaves out a row the fork lacks
+    // unless the fork's own last event says it deleted or renamed it away, while the
+    // update takes it whatever the counters say — and since it can carry
     // `behind = 0`, that side counts rows rather than sums.
     let source_only = |d: &WorkspaceDiffRow| {
         d.exists_in_source.unwrap_or(false) && !d.exists_in_fork.unwrap_or(false)
     };
-    let merge_carries = |d: &WorkspaceDiffRow| !is_lineage_pair || !source_only(d);
+    // Through the enums rather than their wire values: renaming one otherwise
+    // compiles clean on both sides and silently makes this always false.
+    let fork_removed_it = |d: &WorkspaceDiffRow| {
+        use windmill_common::deploy_origin::{DeployEventKind, DeployOrigin};
+        d.fork_last_event_origin.as_deref() == Some(DeployOrigin::Authored.as_str())
+            && d.fork_last_event_kind.as_deref().is_some_and(|k| {
+                k == DeployEventKind::Delete.as_str() || k == DeployEventKind::RenameFrom.as_str()
+            })
+    };
+    let merge_carries =
+        |d: &WorkspaceDiffRow| !is_lineage_pair || !source_only(d) || fork_removed_it(d);
     let ahead_sum = |rows: &[WorkspaceDiffRow]| {
         rows.iter()
             .filter(|d| merge_carries(d))

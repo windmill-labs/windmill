@@ -51,6 +51,7 @@
 		type DeployPermission,
 		type DeployResult
 	} from '$lib/utils_workspace_deploy'
+	import { asSyncDeploy } from '$lib/deployOrigin'
 	import { isTriggerOrScheduleKind } from 'windmill-utils-internal'
 	import Tooltip from './Tooltip.svelte'
 	import OnBehalfOfSelector, {
@@ -774,22 +775,29 @@
 		let anyFailed = false
 		// Datatables whose migrations deployed cleanly — candidates for a run prompt.
 		const deployedMigrationDatatables = new Set<string>()
-		for (const itemKey of sortedItems) {
-			const deployable = deployableItems.find((d) => d.key === itemKey)
+		const applyAll = async () => {
+			for (const itemKey of sortedItems) {
+				const deployable = deployableItems.find((d) => d.key === itemKey)
 
-			if (!deployable) {
-				sendUserToast(`Undeployable item: ${itemKey}`, true)
-				continue
-			}
+				if (!deployable) {
+					sendUserToast(`Undeployable item: ${itemKey}`, true)
+					continue
+				}
 
-			const from = mergeIntoParent ? current : parent
-			await deploy(deployable.kind, deployable.path, to, from, itemKey)
-			if (deploymentStatus[itemKey]?.status === 'failed') {
-				anyFailed = true
-			} else if (deployable.kind === 'datatable_migration') {
-				deployedMigrationDatatables.add(deployable.path.split('/')[0])
+				const from = mergeIntoParent ? current : parent
+				await deploy(deployable.kind, deployable.path, to, from, itemKey)
+				if (deploymentStatus[itemKey]?.status === 'failed') {
+					anyFailed = true
+				} else if (deployable.kind === 'datatable_migration') {
+					deployedMigrationDatatables.add(deployable.path.split('/')[0])
+				}
 			}
 		}
+		// Updating the fork copies the parent's state in, so the tally must not read
+		// the result as the fork authoring anything. Merging the other way is the
+		// opposite: someone chose those changes for the target, and a fork chain
+		// needs that to stay authored so it can be merged on again.
+		await (mergeIntoParent ? applyAll() : asSyncDeploy(applyAll))
 		deploying = false
 		deselectAll()
 
@@ -1398,7 +1406,10 @@
 									variant="accent"
 									unifiedSize="xs"
 									disabled={scanning}
-									startIcon={{ icon: scanning ? Loader2 : DiffIcon }}
+									startIcon={{
+										icon: scanning ? Loader2 : DiffIcon,
+										classes: scanning ? 'animate-spin' : undefined
+									}}
 									onClick={() => onScan?.()}
 								>
 									{scanning ? 'Computing diff…' : 'Compute diff'}
@@ -1578,8 +1589,8 @@
 						</Badge>
 					{/if}
 					<!-- Status badges. An item on one side only states the effect of
-					     deploying it, never which side moved — the comparison cannot know
-					     (see `diffRemovesInTarget`). -->
+					     deploying it; the row is offered at all only when the missing side
+					     recorded dropping it (see `diffForkDroppedItem`). -->
 					{#if diffCreatesInTarget(diff, mergeIntoParent)}
 						<Badge
 							title="This item exists in '{deploySourceWorkspace}' but not in '{deployTargetWorkspace}' — deploying it creates it there"
@@ -1587,8 +1598,11 @@
 							size="xs">New</Badge
 						>
 					{:else if removesInTarget(diff)}
+						{@const renamedAway = mergeIntoParent && diff.fork_last_event_kind === 'rename_from'}
 						<Badge
-							title="This item exists in '{deployTargetWorkspace}' but not in '{deploySourceWorkspace}' — deploying it removes it there"
+							title={renamedAway
+								? `'${deploySourceWorkspace}' renamed this item to another path — deploying it removes the old path in '${deployTargetWorkspace}'`
+								: `This item exists in '${deployTargetWorkspace}' but not in '${deploySourceWorkspace}' — deploying it removes it there`}
 							color="red"
 							size="xs">Removes in {deployTargetWorkspace}</Badge
 						>

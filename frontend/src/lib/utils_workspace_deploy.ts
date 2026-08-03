@@ -357,13 +357,16 @@ export async function deployItem(params: DeployItemParams): Promise<DeployResult
 /**
  * The two sides of a `workspace_diff` row a deploy direction reads:
  * `exists_in_source` is the parent (or arbitrary target) side, `exists_in_fork`
- * the current workspace.
+ * the current workspace. `fork_last_event_*` is what the tally recorded for the
+ * fork's last write at this path, absent on a row that predates the recording.
  */
 type WorkspaceDiffSides = {
 	ahead: number
 	behind: number
 	exists_in_source: boolean
 	exists_in_fork: boolean
+	fork_last_event_kind?: 'write' | 'delete' | 'rename_from'
+	fork_last_event_origin?: 'authored' | 'sync'
 }
 
 /** Deploying this row creates the item in the target, which does not have it. */
@@ -373,19 +376,33 @@ export function diffCreatesInTarget(diff: WorkspaceDiffSides, mergeIntoParent: b
 
 /**
  * Deploying this row removes the item in the target, the only side that has it.
- * Which side dropped it is unknowable — `ahead`/`behind` count deploy events on a
- * side, and a pull into the fork or a git-sync revert leaves the trace a delete
- * does — so a row states what deploying does, and a removal is never bulk-selected.
+ * A removal is always opt-in (never bulk-selected): the row states what deploying
+ * does, and for the merge direction `diffForkDroppedItem` is what justifies
+ * offering it at all.
  */
 export function diffRemovesInTarget(diff: WorkspaceDiffSides, mergeIntoParent: boolean): boolean {
 	return mergeIntoParent ? diff.exists_in_fork === false : diff.exists_in_source === false
 }
 
 /**
- * Rows a deploy in this direction can act on. A merge carries what the fork *has*:
- * an item only the parent has is no fork change (see `diffRemovesInTarget`), while
- * the update direction takes it whatever the counters say. Only an arbitrary target
- * merges one — that one-way sync has no tally, so target-only does mean "remove".
+ * The fork dropped the item on purpose — someone deleted it, or renamed it away.
+ * The counters cannot show this (they count writes on a side without saying what
+ * they were), so only the recorded event does: a sync-origin removal is a git-sync
+ * revert rather than a fork decision, and an unrecorded one is no evidence at all.
+ */
+export function diffForkDroppedItem(diff: WorkspaceDiffSides): boolean {
+	return (
+		diff.fork_last_event_origin === 'authored' &&
+		(diff.fork_last_event_kind === 'delete' || diff.fork_last_event_kind === 'rename_from')
+	)
+}
+
+/**
+ * Rows a deploy in this direction can act on. A merge carries what the fork *has*,
+ * plus what it can show it dropped; an item the fork merely never received is no
+ * fork change. The update direction takes a parent-only row whatever the counters
+ * say. An arbitrary target merges one unconditionally — that one-way sync has no
+ * tally, so target-only does mean "remove".
  */
 export function diffActionableInDirection(
 	diff: WorkspaceDiffSides,
@@ -393,7 +410,7 @@ export function diffActionableInDirection(
 	isArbitraryTarget: boolean = false
 ): boolean {
 	if (mergeIntoParent) {
-		if (!isArbitraryTarget && diff.exists_in_fork === false) {
+		if (!isArbitraryTarget && diff.exists_in_fork === false && !diffForkDroppedItem(diff)) {
 			return false
 		}
 		return diff.ahead > 0

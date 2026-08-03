@@ -261,6 +261,24 @@ pub async fn add_webhook_allowed_origin(
     next.run(req).await
 }
 
+/// Scope the request in the deploy origin it declares, so the fork tally can tell
+/// a write applied by a sync from one authored in the workspace. Entered for
+/// every request, including unmarked ones: `deploy_origin::current` reads the
+/// scope's presence as "the caller is serving this write", which is what
+/// separates a request from a worker that tallies someone else's.
+async fn set_deploy_origin(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let origin = req
+        .headers()
+        .get(windmill_common::deploy_origin::DEPLOY_ORIGIN_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(windmill_common::deploy_origin::DeployOrigin::from_header_value)
+        .unwrap_or(windmill_common::deploy_origin::DeployOrigin::Authored);
+    windmill_common::deploy_origin::scope(origin, next.run(req)).await
+}
+
 #[cfg(not(feature = "tantivy"))]
 type IndexReader = ();
 
@@ -1093,6 +1111,8 @@ pub async fn run_server(
     let app = app.layer(axum::middleware::from_fn(
         tracing_init::log_context_middleware,
     ));
+
+    let app = app.layer(axum::middleware::from_fn(set_deploy_origin));
 
     let app = app.layer(CatchPanicLayer::custom(|err| {
         tracing::error!("panic in handler, returning 500: {:?}", err);
