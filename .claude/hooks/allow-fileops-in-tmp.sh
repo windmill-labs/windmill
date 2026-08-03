@@ -53,10 +53,12 @@ under_tmp() {
   # because `rm` unlinks the symlink itself rather than following it.
   case "$t" in *[*?[]*) return 1 ;; esac
   [ -n "$(printf '%s' "$t" | tr -d 'A-Za-z0-9._/-')" ] && return 1
-  case "$t" in
-    /*) canon=$(realpath -m -- "$t" 2>/dev/null) ;;
-    *)  canon=$(realpath -m -- "${cwd:-$PWD}/$t" 2>/dev/null) ;;
-  esac
+  # Absolute only. Resolving a relative operand against the cwd makes any bare word look like
+  # a safe path whenever the cwd is under /tmp, while the tool itself reads it as an option:
+  # `tar P -xf ...` is --absolute-names, not ./P, and `cp /tmp/t -RL /tmp/o` is a
+  # dereferencing recursive copy, not a file named -RL.
+  case "$t" in /*) ;; *) return 1 ;; esac
+  canon=$(realpath -m -- "$t" 2>/dev/null)
   [ -n "$canon" ] || return 1
   # /tmp itself is never a target — only paths strictly inside it.
   case "$canon" in /tmp/?*) return 0 ;; esac
@@ -87,7 +89,7 @@ esac
 
 # ---------------------------------------------------------------- tar / unzip
 if [ -n "${ok_flags:-}" ]; then
-  saw_archive=0 saw_dest=0 extracting=0 end_opts=0
+  saw_archive=0 saw_dest=0 extracting=0 listing=0 end_opts=0
   i=1
   while [ "$i" -lt "${#toks[@]}" ]; do
     t="${toks[$i]}"
@@ -101,6 +103,7 @@ if [ -n "${ok_flags:-}" ]; then
           # leave a residue here and defer rather than being enumerated as denials.
           [ -n "$(printf '%s' "$flags" | tr -d "$ok_flags")" ] && exit 0
           case "$flags" in *x*) extracting=1 ;; esac
+          case "${toks[0]}$flags" in unzip*l*) listing=1 ;; esac
           # A flag consuming the next token must be alone in its bundle's final position
           # (`-xzf a.tar`), else the token it eats is ambiguous.
           case "${flags%?}" in *[$val_flags]*) exit 0 ;; esac
@@ -128,8 +131,9 @@ if [ -n "${ok_flags:-}" ]; then
   done
 
   [ "$saw_archive" = 1 ] || exit 0   # tar without -f reads a tape/stdin; unzip needs an archive
-  # Writes land relative to the working directory unless a destination was given.
-  if [ "$extracting" = 1 ] || [ "${toks[0]}" = "unzip" ]; then
+  # Writes land relative to the working directory unless a destination was given. `unzip -l`
+  # only lists, so it needs no destination.
+  if [ "$extracting" = 1 ] || { [ "${toks[0]}" = "unzip" ] && [ "$listing" = 0 ]; }; then
     [ "$saw_dest" = 1 ] || under_tmp "${cwd:-$PWD}" || exit 0
   fi
   allow "archive paths and extraction target are under /tmp"
@@ -148,15 +152,15 @@ while [ "$i" -lt "${#toks[@]}" ]; do
     [ "$t" = "--" ] && { end_opts=1; continue; }
     # Skip real options only before the first operand: past that point GNU utils treat a
     # leading-dash token as a filename, so validate it rather than skipping it.
-    if [ "$path_operand" = 0 ]; then
-      case "$t" in
-        -?*)
-          # Allowlist: long options and the dereferencing flags leave a residue and defer.
-          [ -n "$(printf '%s' "${t#-}" | tr -d "$ok_opts")" ] && exit 0
-          continue
-          ;;
-      esac
-    fi
+    # Checked at any position, not just before the first operand: GNU utils permute, so
+    # `cp /tmp/tree -RL /tmp/out` still enables dereferencing recursion.
+    case "$t" in
+      -?*)
+        # Allowlist: long options and the dereferencing flags leave a residue and defer.
+        [ -n "$(printf '%s' "${t#-}" | tr -d "$ok_opts")" ] && exit 0
+        continue
+        ;;
+    esac
   fi
 
   # chmod: consume the mode operand without a path check. Octal, or symbolic clauses.
