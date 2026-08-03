@@ -415,12 +415,20 @@ pub trait External: Send + Sync + 'static {
                     Self::AUTH_ENDPOINT,
                 )
                 .await
-                .map_err(|e| {
-                    // Typed like any other rejection: this is still the service refusing the
-                    // stored credentials, and callers downstream branch on that.
+                .map_err(|f| {
+                    // Only the token endpoint refusing the grant means the stored credentials
+                    // are at fault. Reached-and-broken or never-reached is an outage, and
+                    // telling the user to reconnect would send them to fix the wrong thing.
+                    let status = match f.status {
+                        Some(s) if s.is_client_error() => Some(StatusCode::UNAUTHORIZED),
+                        other => other,
+                    };
                     self.external_error(
-                        Some(StatusCode::UNAUTHORIZED),
-                        format!("the stored credentials could not be refreshed: {e}"),
+                        status,
+                        format!(
+                            "the stored credentials could not be refreshed: {}",
+                            f.message
+                        ),
                     )
                 })?;
 
@@ -494,6 +502,11 @@ pub struct ExternalApiError {
 impl std::fmt::Display for ExternalApiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.status {
+            Some(status) if status.is_server_error() => write!(
+                f,
+                "{} failed to serve the request ({}): {}",
+                self.service, status, self.detail
+            )?,
             Some(status) => write!(
                 f,
                 "{} rejected the request ({}): {}",
@@ -805,24 +818,47 @@ struct RefreshTokenResponse {
     refresh_token: Option<String>,
 }
 
+/// Why an OAuth token refresh did not produce a new token.
+#[derive(Debug)]
+pub struct RefreshFailure {
+    /// The token endpoint's own status, when it answered at all. `None` means it was never
+    /// reached, which is an outage rather than a problem with the stored credentials.
+    pub status: Option<StatusCode>,
+    pub message: String,
+}
+
+impl RefreshFailure {
+    fn rejected(message: String) -> Self {
+        RefreshFailure { status: Some(StatusCode::UNAUTHORIZED), message }
+    }
+}
+
 /// Refresh OAuth tokens using windmill-oauth.
 #[cfg(feature = "native_trigger")]
 pub async fn refresh_oauth_tokens(
     oauth_config: &OAuthConfig,
     refresh_endpoint: &str,
     auth_endpoint: &str,
-) -> Result<OAuthConfig> {
+) -> std::result::Result<OAuthConfig, RefreshFailure> {
     let refresh_token_str = oauth_config
         .refresh_token
         .as_ref()
-        .ok_or_else(|| Error::InternalErr("No refresh token available".to_string()))?;
+        .ok_or_else(|| RefreshFailure::rejected("no refresh token is stored".to_string()))?;
 
     // Build OAuth client for token refresh
     // Auth URL is not used for refresh, but required by the client constructor
-    let auth_url = Url::parse(&resolve_endpoint(&oauth_config.base_url, auth_endpoint))
-        .map_err(|e| Error::InternalErr(format!("Invalid auth URL: {}", e)))?;
+    let auth_url =
+        Url::parse(&resolve_endpoint(&oauth_config.base_url, auth_endpoint)).map_err(|e| {
+            RefreshFailure {
+                status: Some(StatusCode::BAD_REQUEST),
+                message: format!("invalid auth URL: {e}"),
+            }
+        })?;
     let token_url = Url::parse(&resolve_endpoint(&oauth_config.base_url, refresh_endpoint))
-        .map_err(|e| Error::InternalErr(format!("Invalid token URL: {}", e)))?;
+        .map_err(|e| RefreshFailure {
+            status: Some(StatusCode::BAD_REQUEST),
+            message: format!("invalid token URL: {e}"),
+        })?;
 
     let mut client = OClient::new(oauth_config.client_id.clone(), auth_url, token_url);
     client.set_client_secret(oauth_config.client_secret.clone());
@@ -832,7 +868,9 @@ pub async fn refresh_oauth_tokens(
         .with_client(&*OAUTH_HTTP_CLIENT)
         .execute()
         .await
-        .map_err(|e| Error::InternalErr(format!("Failed to refresh token: {:?}", e)))?;
+        // The token endpoint's status is what separates a rejected grant from an outage, and
+        // the reason (`invalid_grant`, …) only lives in the source chain.
+        .map_err(|e| RefreshFailure { status: e.status(), message: error_source_chain(&e) })?;
 
     Ok(OAuthConfig {
         base_url: oauth_config.base_url.clone(),
@@ -851,10 +889,11 @@ pub async fn refresh_oauth_tokens(
     _oauth_config: &OAuthConfig,
     _refresh_endpoint: &str,
     _auth_endpoint: &str,
-) -> Result<OAuthConfig> {
-    Err(Error::InternalErr(
-        "Native triggers feature is not enabled".to_string(),
-    ))
+) -> std::result::Result<OAuthConfig, RefreshFailure> {
+    Err(RefreshFailure {
+        status: None,
+        message: "the native_trigger feature is not enabled".to_string(),
+    })
 }
 
 async fn update_oauth_token_resource(
