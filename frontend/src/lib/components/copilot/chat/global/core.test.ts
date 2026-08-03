@@ -481,8 +481,7 @@ describe('global AI tools', () => {
 		expect(draft).not.toHaveProperty('advanced')
 	})
 
-	// `advanced` is the fallback for fields the definition no longer lists; a duplicate
-	// inside it must not quietly win over the argument the model actually passed.
+	// A duplicate inside `advanced` must not quietly outrank the named argument.
 	it('lets a real schedule argument win over the same key inside advanced', async () => {
 		await callGlobalTool('write_schedule', {
 			path: 'f/schedules/prec',
@@ -515,6 +514,20 @@ describe('global AI tools', () => {
 				advanced: { retry: { attempts: 2, seconds: 30 } }
 			})
 		).rejects.toThrow(/get_schedule_schema/)
+
+		// A misspelled key beside a valid sibling leaves `retry` non-empty, so only a
+		// recursive check catches it. The backend would default the lost delay to zero.
+		await expect(
+			callGlobalTool('write_schedule', {
+				path: 'f/schedules/badretry',
+				schedule: '0 0 6 * * *',
+				timezone: 'UTC',
+				script_path: 'f/scripts/run',
+				is_flow: false,
+				args: {},
+				advanced: { retry: { constant: { attempts: 2, seconds_typo: 30 } } }
+			})
+		).rejects.toThrow(/retry\.constant\.seconds_typo/)
 
 		expect(
 			getBackendDraft('trigger_schedule', 'f/schedules/badretry', { workspace: WORKSPACE })

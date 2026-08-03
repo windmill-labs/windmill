@@ -32,6 +32,7 @@ import {
 	triggerRequestSchemas
 } from './workspaceToolsZod.gen'
 import { z } from 'zod'
+import { advancedScheduleShape, buildScheduleToolSchema } from './scheduleToolSchema'
 import {
 	createToolDef,
 	droppedOptionKeys,
@@ -70,33 +71,11 @@ type WorkspaceMutationHelpers = {
 	getWorkspaceMutationTarget?: () => WorkspaceMutationTarget
 }
 
-// Only the fields a schedule request usually carries. The rest reach the same
-// validation through `advanced`, whose shape get_schedule_schema serves on demand:
-// inlined, `retry` alone is a quarter of this schema and is asked for far more rarely
-// than a plain cron. script_path/is_flow come from the runnable, not the model.
-const COMMON_SCHEDULE_FIELDS = [
-	'path',
-	'schedule',
-	'timezone',
-	'args',
-	'enabled',
-	'summary',
-	'description',
-	'on_failure',
-	'on_recovery',
-	'on_success'
-] as const
+// script_path/is_flow come from the runnable being edited, so they are hidden from the
+// model in both the tool schema and what get_schedule_schema serves.
+const SCHEDULE_TOOL_OPTIONS = { hidden: ['script_path', 'is_flow'] } as const
 
-const createScheduleToolSchema = scheduleRequestSchema
-	.pick(Object.fromEntries(COMMON_SCHEDULE_FIELDS.map((f) => [f, true])) as any)
-	.extend({
-		advanced: z
-			.record(z.string(), z.any())
-			.optional()
-			.describe(
-				'Less common schedule options: retry, paused_until, tag, labels, no_flow_overlap, dynamic_skip, cron_version, error-handler tuning (on_failure_times, on_failure_exact, *_extra_args). Call get_schedule_schema for their exact shape.'
-			)
-	})
+const createScheduleToolSchema = buildScheduleToolSchema(SCHEDULE_TOOL_OPTIONS)
 
 const getScheduleSchemaTool: Tool<any> = {
 	def: createToolDef(
@@ -104,24 +83,7 @@ const getScheduleSchemaTool: Tool<any> = {
 		'get_schedule_schema',
 		"Get the shape of create_schedule's `advanced` object: retry, pausing, tags, and error-handler tuning."
 	),
-	fn: async () => {
-		const common = new Set<string>(COMMON_SCHEDULE_FIELDS)
-		const full = z.toJSONSchema(scheduleRequestSchema) as {
-			properties?: Record<string, unknown>
-		}
-		return JSON.stringify(
-			{
-				type: 'object',
-				properties: Object.fromEntries(
-					Object.entries(full.properties ?? {}).filter(
-						([field]) => !common.has(field) && field !== 'script_path' && field !== 'is_flow'
-					)
-				)
-			},
-			null,
-			2
-		)
-	}
+	fn: async () => JSON.stringify(advancedScheduleShape(SCHEDULE_TOOL_OPTIONS), null, 2)
 }
 
 function getWorkspaceMutationTarget(helpers: unknown): WorkspaceMutationTarget | undefined {
@@ -168,7 +130,7 @@ function getWorkspaceMutationTargetFields(
 const createScheduleToolDef = createToolDef(
 	createScheduleToolSchema,
 	'create_schedule',
-	'Create a schedule for the current script or flow.',
+	'Create a schedule for the current script or flow. For anything beyond a plain cron (retry, pausing, tags, error-handler tuning), call get_schedule_schema first and pass those through `advanced`.',
 	{ strict: false }
 )
 
@@ -354,16 +316,15 @@ const createScheduleTool: Tool<any> = {
 			const requestBody = parseWithExplicitErrors(
 				scheduleRequestSchema as z.ZodType<NewSchedule>,
 				{
-					// `advanced` is a fallback for what the definition no longer lists, so a real
-					// argument wins over a duplicate inside the bag, and the runnable target wins
-					// over both.
+					// `advanced` carries what the definition does not list: a named argument
+					// outranks a duplicate inside the bag, and the runnable target outranks both.
 					...supplied,
 					...rest,
 					...getWorkspaceMutationTargetFields(helpers)
 				},
 				'Schedule'
 			)
-			const dropped = droppedOptionKeys(supplied, requestBody as Record<string, unknown>)
+			const dropped = droppedOptionKeys(supplied, requestBody)
 			if (dropped.length) {
 				throw new Error(
 					`Call get_schedule_schema for the exact shape: these options did not match it and would have been saved empty: ${dropped.join(', ')}.`

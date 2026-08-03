@@ -84,6 +84,7 @@ import type {
 	ChatCompletionUserMessageParam
 } from 'openai/resources/chat/completions.mjs'
 import { z } from 'zod'
+import { advancedScheduleShape, buildScheduleToolSchema } from '../scheduleToolSchema'
 import {
 	createToolDef,
 	droppedOptionKeys,
@@ -560,50 +561,7 @@ function flowDraftAsEditableInput(flowDraft: FlowDraftValue): {
 
 const writeScheduleSchema = scheduleRequestSchema.extend({ override: draftOverrideField })
 
-// Schedule fields common enough that a lookup round trip would cost more than carrying
-// them. Everything else reaches the same validation through `advanced`, whose shape
-// get_schedule_schema serves on demand: `retry` alone is a quarter of this schema and
-// is asked for far more rarely than a plain cron.
-const COMMON_SCHEDULE_FIELDS = [
-	'path',
-	'schedule',
-	'timezone',
-	'script_path',
-	'is_flow',
-	'args',
-	'enabled',
-	'summary',
-	'description',
-	'on_failure',
-	'on_recovery',
-	'on_success'
-] as const
-
-const writeScheduleToolSchema = scheduleRequestSchema
-	.pick(Object.fromEntries(COMMON_SCHEDULE_FIELDS.map((f) => [f, true])) as any)
-	.extend({
-		advanced: z
-			.record(z.string(), z.any())
-			.optional()
-			.describe(
-				'Less common schedule options: retry, paused_until, tag, labels, no_flow_overlap, dynamic_skip, permissioned_as, cron_version, error-handler tuning (on_failure_times, on_failure_exact, *_extra_args). Call get_schedule_schema for their exact shape.'
-			),
-		override: draftOverrideField
-	})
-
-const advancedScheduleShape = () => {
-	const common = new Set<string>(COMMON_SCHEDULE_FIELDS)
-	const full = z.toJSONSchema(scheduleRequestSchema) as {
-		properties?: Record<string, unknown>
-		required?: string[]
-	}
-	return {
-		type: 'object',
-		properties: Object.fromEntries(
-			Object.entries(full.properties ?? {}).filter(([field]) => !common.has(field))
-		)
-	}
-}
+const writeScheduleToolSchema = buildScheduleToolSchema().extend({ override: draftOverrideField })
 
 // The tool definition keeps `config` open-ended on purpose. Inlining the eleven
 // per-kind request schemas serializes to ~44k characters of JSON Schema, on its own
@@ -2985,11 +2943,10 @@ export const globalTools: Tool<{}>[] = [
 		fn: async (ctx) => {
 			const { advanced, ...rest } = (ctx.args ?? {}) as Record<string, unknown>
 			const supplied = (advanced as Record<string, unknown>) ?? {}
-			// `advanced` is a fallback for what the definition no longer lists, so a field
-			// the model also passed as a real argument keeps the argument's value rather
-			// than being silently overwritten by a duplicate inside the bag.
+			// `advanced` carries what the definition does not list, so a named argument
+			// outranks a duplicate of the same key inside the bag.
 			const parsed = writeScheduleSchema.parse({ ...supplied, ...rest })
-			const dropped = droppedOptionKeys(supplied, parsed as Record<string, unknown>)
+			const dropped = droppedOptionKeys(supplied, parsed)
 			if (dropped.length) {
 				throw new Error(
 					`Call get_schedule_schema for the exact shape: these options did not match it and would have been saved empty: ${dropped.join(', ')}.`

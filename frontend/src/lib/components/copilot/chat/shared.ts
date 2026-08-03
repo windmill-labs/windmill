@@ -717,23 +717,25 @@ async function callTool<T>({
 
 type MaybePromise<T> = T | Promise<T>
 
-const isEmptyValue = (value: unknown): boolean =>
-	value === undefined ||
-	(typeof value === 'object' && value !== null && Object.keys(value).length === 0)
-
 /**
- * Names the options a strip-mode parse accepted but emptied. Every sub-field of a
- * schedule's `retry` is optional, so a guessed `{attempts: 2}` validates clean and comes
- * back as `{}` — a schedule written with no retry policy at all, reported as a success.
- * The shapes these options need are served on demand rather than carried in the tool
- * definition, so the model cannot check itself and has to be told.
+ * Key paths present in `supplied` that a strip-mode parse discarded. Sub-fields of a
+ * schedule's `retry` are all optional, so a guessed shape validates clean, loses the
+ * misspelled keys and saves a policy that does nothing. Recursive because dropping one
+ * nested key leaves the parent non-empty.
  */
 export function droppedOptionKeys(
-	supplied: Record<string, unknown>,
-	parsed: Record<string, unknown>
+	supplied: unknown,
+	parsed: unknown,
+	prefix = ''
 ): string[] {
-	return Object.keys(supplied).filter(
-		(key) => !isEmptyValue(supplied[key]) && isEmptyValue(parsed[key])
+	if (supplied === null || typeof supplied !== 'object' || Array.isArray(supplied)) {
+		return parsed === undefined && prefix ? [prefix] : []
+	}
+	if (parsed === null || typeof parsed !== 'object') {
+		return Object.keys(supplied).length && prefix ? [prefix] : []
+	}
+	return Object.entries(supplied).flatMap(([key, value]) =>
+		droppedOptionKeys(value, (parsed as Record<string, unknown>)[key], prefix ? `${prefix}.${key}` : key)
 	)
 }
 
