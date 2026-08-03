@@ -64,15 +64,17 @@ impl Schedule {
     }
 }
 
-/// A [`Schedule`] plus the address of the identity it runs as, which its own row no longer
-/// carries: `permissioned_as` is the identity, and the address is a function of it.
+/// A [`Schedule`] plus the address of the identity it runs as. [`Schedule`] itself does not map
+/// that column: `permissioned_as` is the identity, and the address is a function of it. The
+/// database row still has an `email` column, written on every save until phase 2 drops it
+/// (`docs/schedule-email-removal.md`).
 ///
 /// The two read paths fill it differently, and deliberately. `get_schedule` derives it, so the
 /// response says what the *next run* will resolve to. The workspace export reads the stored
 /// column, so a synced file reproduces the row — a principal whose account has since been
 /// removed keeps the address the file already had instead of turning into a synthetic
-/// `@unknown.windmill.dev`. The column goes once no supported worker still reads it
-/// (`docs/schedule-email-removal.md`); this field stays, filled by deriving on both paths.
+/// `@unknown.windmill.dev`. When the column goes, this field stays, filled by deriving on both
+/// paths.
 // No `Deserialize`: `Schedule` is flattened in, and serde's flatten buffers through an untagged
 // representation that `RawValue` (this type's `args`) cannot be read back from. `FromRow` is
 // unaffected — it reads columns by name.
