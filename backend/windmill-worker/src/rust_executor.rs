@@ -23,8 +23,8 @@ use windmill_queue::{append_logs, CanceledBy};
 use crate::{
     common::{
         build_command_with_isolation, check_executor_binary_exists, create_args_and_out_file,
-        get_reserved_variables, read_result, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block,
-        start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
+        get_reserved_variables, read_result, resolve_nsjail_timeout,
+        resolve_nsjail_tmp_mount_block, start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,

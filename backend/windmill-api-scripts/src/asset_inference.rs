@@ -42,6 +42,13 @@ fn parse_assets_for_lang(
         #[cfg(feature = "python")]
         ScriptLang::Python3 => windmill_parser_py_asset::parse_assets(content),
         ScriptLang::Ansible => windmill_parser_yaml::parse_assets(content),
+        // dbt is the one language whose assets are not a function of the script
+        // content: they come from `manifest.json`, which needs a clone of the
+        // project's repo and a dbt invocation. The deploy-time dependency job
+        // does that parse and writes the `asset` rows itself
+        // (`dbt_executor::dbt_dep`), so returning None here is what keeps this
+        // path from clobbering them with an empty list.
+        ScriptLang::Dbt => return None,
         _ => return None,
     };
     match parsed {

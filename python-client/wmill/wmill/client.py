@@ -1377,8 +1377,14 @@ class Windmill:
     def username_to_email(self, username: str) -> str:
         """
         Get email from workspace username
-        This method is particularly useful for apps that require the email address of the viewer.
-        Indeed, in the viewer context WM_USERNAME is set to the username of the viewer but WM_EMAIL is set to the email of the creator of the app.
+
+        .. deprecated:: Read the contextual variables instead:
+        `os.environ.get("WM_END_USER_EMAIL") or os.environ.get("WM_EMAIL")`.
+        WM_END_USER_EMAIL is the email of whoever triggered the run when it came from an app, so
+        the fallback yields the app viewer inside an app and the executing user everywhere else -
+        without an extra API call, and unlike this method it also resolves viewers who are not
+        workspace members. An app viewed anonymously has no identity to report: the variable is
+        then empty and the fallback yields the app publisher.
         """
         return self.get(f"/w/{self.workspace}/users/username_to_email/{username}").text
 
@@ -2221,8 +2227,14 @@ def run_inline_script_preview(
 def username_to_email(username: str) -> str:
     """
     Get email from workspace username
-    This method is particularly useful for apps that require the email address of the viewer.
-    Indeed, in the viewer context WM_USERNAME is set to the username of the viewer but WM_EMAIL is set to the email of the creator of the app.
+
+    .. deprecated:: Read the contextual variables instead:
+    `os.environ.get("WM_END_USER_EMAIL") or os.environ.get("WM_EMAIL")`.
+    WM_END_USER_EMAIL is the email of whoever triggered the run when it came from an app, so the
+    fallback yields the app viewer inside an app and the executing user everywhere else - without
+    an extra API call, and unlike this function it also resolves viewers who are not workspace
+    members. An app viewed anonymously has no identity to report: the variable is then empty and
+    the fallback yields the app publisher.
     """
     return _client.username_to_email(username)
 

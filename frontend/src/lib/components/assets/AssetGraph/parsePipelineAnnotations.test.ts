@@ -233,3 +233,62 @@ describe('parseDurationSecs', () => {
 		expect(parseDurationSecs('999999999d')).toBeUndefined()
 	})
 })
+
+describe('dbt:// canonicalization', () => {
+	const readPath = (line: string) => parsePipelineAnnotations(line).triggerAssets?.[0]?.path
+
+	it('folds every spelling of a relation onto one key', () => {
+		const canonical = 'u/me/wh/analytics/orders'
+		expect(readPath('// on dbt://u/me/wh/Analytics/Orders')).toBe(canonical)
+		expect(readPath('// on dbt://u/me/wh/"Analytics"/"Orders"')).toBe(canonical)
+		expect(readPath('// on dbt://u/me/wh/`analytics`/`orders`')).toBe(canonical)
+		expect(readPath('// on dbt://u/me/wh/[Analytics]/[Orders]')).toBe(canonical)
+	})
+
+	it('unquotes each half of a qualified database.schema segment', () => {
+		// Only an unquoted period separates the two halves — the backend
+		// ingest keys the same relation as `archive.sales/orders`, so
+		// stripping just the outer quote pair would split the node in two.
+		expect(readPath('// on dbt://u/me/wh/"Archive"."Sales"/"Orders"')).toBe(
+			'u/me/wh/archive.sales/orders'
+		)
+	})
+
+	// Every dialect escapes its own delimiter by doubling it, and the worker and
+	// `canonicalize_table_asset_path` both decode it — a live annotation that did
+	// not would point the canvas at a different key than the deploy, which is two
+	// nodes for one table. The decoded spelling has to land there too: this
+	// function also sees names that have already been through `split_relation`.
+	it('decodes a doubled delimiter, and leaves a lone one alone', () => {
+		expect(readPath('// on dbt://u/me/wh/"sales""east"/"orders"')).toBe(
+			'u/me/wh/sales"east/orders'
+		)
+		expect(readPath('// on dbt://u/me/wh/analytics/"order""s"')).toBe(
+			'u/me/wh/analytics/order"s'
+		)
+		expect(readPath('// on dbt://u/me/wh/`da``ta`/`orders`')).toBe('u/me/wh/da`ta/orders')
+		expect(readPath('// on dbt://u/me/wh/[my]]schema]/[orders]')).toBe(
+			'u/me/wh/my]schema/orders'
+		)
+		// Already decoded: a lone delimiter is part of the name, not an opening
+		// quote, so both spellings agree.
+		expect(readPath('// on dbt://u/me/wh/sales"east/orders')).toBe(
+			readPath('// on dbt://u/me/wh/"sales""east"/"orders"')
+		)
+	})
+
+	// `canonicalize_table_asset_path` folds with `to_ascii_lowercase`, so this
+	// must too: full-Unicode folding turns `Sélection` into `sélection` here and
+	// `sÉlection` at deploy — two nodes for one table, which is the split this
+	// canonicalization exists to prevent. Every warehouse accepts such names.
+	it('folds case the way the deploy does, ASCII only', () => {
+		expect(readPath('// on dbt://u/me/wh/Sélection/Orders')).toBe('u/me/wh/sélection/orders')
+		expect(readPath('// on dbt://u/me/wh/ОТЧЁТ/Orders')).toBe('u/me/wh/ОТЧЁТ/orders')
+	})
+
+	it('leaves the resource path alone', () => {
+		expect(readPath('// on dbt://u/Me/WH/analytics/orders')).toBe(
+			'u/Me/WH/analytics/orders'
+		)
+	})
+})

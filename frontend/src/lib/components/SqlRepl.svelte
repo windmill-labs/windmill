@@ -2,6 +2,7 @@
 	import { CornerDownLeft, Loader2 } from 'lucide-svelte'
 	import Button from './common/button/Button.svelte'
 	import { runScriptAndPollResult } from './jobs/utils'
+	import { writingJobOptions } from './jobs/writingJob'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { untrack } from 'svelte'
@@ -123,7 +124,8 @@
 						args: dbArg
 					}
 				},
-				{ withJobData: true }
+				// The user types arbitrary SQL here, so treat every run as a write.
+				{ withJobData: true, ...writingJobOptions }
 			)) as any
 			if (statements.length > 1) {
 				result = result[result.length - 1]

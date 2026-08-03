@@ -21,6 +21,7 @@
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
+	import OnBehalfOfBadge from '$lib/components/details/OnBehalfOfBadge.svelte'
 	import { goto } from '$lib/navigation'
 	import { base } from '$lib/base'
 	import { Badge as HeaderBadge, Alert } from '$lib/components/common'
@@ -600,6 +601,11 @@
 			{#if $workspaceStore && flow}
 				<Star kind="flow" path={flow.path} summary={flow.summary} />
 			{/if}
+			<OnBehalfOfBadge
+				onBehalfOf={flow?.on_behalf_of}
+				onBehalfOfEmail={flow?.on_behalf_of_email}
+				kind="flow"
+			/>
 			{#if flow?.value?.priority != undefined}
 				<div class="hidden md:block">
 					<HeaderBadge color="blue" variant="outlined" size="xs">

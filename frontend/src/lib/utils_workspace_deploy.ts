@@ -167,7 +167,20 @@ function legacyTriggerKind(kind: TriggerDeployKind) {
 	return map[kind]
 }
 
-function makeProvider(): DeployProvider {
+/**
+ * `deployItem` overrides only the email half of the identity, while the body it builds
+ * spreads the *source* item — which carries the source workspace's permissioned_as, valid
+ * nowhere else since usernames are per-workspace. The key is therefore always overwritten:
+ * with the picked user's principal for a custom choice, and cleared otherwise so the
+ * backend derives the target's own from the email it is given. The shared `deployItem`
+ * clears it too, but this app consumes the published package, so the clear has to exist
+ * on both sides until that version ships.
+ */
+function makeProvider(onBehalfOfPrincipal?: string): DeployProvider {
+	const withPermissionedAs = <T extends Record<string, any>>(requestBody: T): T => ({
+		...requestBody,
+		on_behalf_of: onBehalfOfPrincipal
+	})
 	return {
 		existsFlowByPath: (p) => FlowService.existsFlowByPath(p),
 		existsScriptByPath: (p) => ScriptService.existsScriptByPath(p),
@@ -177,11 +190,14 @@ function makeProvider(): DeployProvider {
 		existsResourceType: (p) => ResourceService.existsResourceType(p),
 		existsFolder: (p) => FolderService.existsFolder(p),
 		getFlowByPath: (p) => FlowService.getFlowByPath(p),
-		createFlow: (p) => FlowService.createFlow(p),
-		updateFlow: (p) => FlowService.updateFlow(p),
+		createFlow: (p) =>
+			FlowService.createFlow({ ...p, requestBody: withPermissionedAs(p.requestBody) }),
+		updateFlow: (p) =>
+			FlowService.updateFlow({ ...p, requestBody: withPermissionedAs(p.requestBody) }),
 		archiveFlowByPath: (p) => FlowService.archiveFlowByPath(p),
 		getScriptByPath: (p) => ScriptService.getScriptByPath(p),
-		createScript: (p) => ScriptService.createScript(p),
+		createScript: (p) =>
+			ScriptService.createScript({ ...p, requestBody: withPermissionedAs(p.requestBody) }),
 		archiveScriptByPath: (p) => ScriptService.archiveScriptByPath(p),
 		getAppByPath: (p) => AppService.getAppByPath(p),
 		createApp: (p) => AppService.createApp(p),
@@ -267,6 +283,13 @@ export interface DeployItemParams {
 	 * If undefined, the deploying user's identity is used.
 	 */
 	onBehalfOf?: string
+	/**
+	 * Authorization half of `onBehalfOf` for flows/scripts (u/username or g/group).
+	 * Must name the same identity as `onBehalfOf`. Set it only when the user picked a
+	 * specific user; undefined clears the key, leaving the backend to derive the target
+	 * workspace's own principal from `onBehalfOf`.
+	 */
+	onBehalfOfPrincipal?: string
 }
 
 /**
@@ -275,7 +298,15 @@ export interface DeployItemParams {
  * which carries its sub-kind in `additionalInformation`.
  */
 export async function deployItem(params: DeployItemParams): Promise<DeployResult> {
-	const { kind, path, workspaceFrom, workspaceTo, additionalInformation, onBehalfOf } = params
+	const {
+		kind,
+		path,
+		workspaceFrom,
+		workspaceTo,
+		additionalInformation,
+		onBehalfOf,
+		onBehalfOfPrincipal
+	} = params
 
 	if (kind === 'trigger') {
 		// Legacy path: `DeployWorkspace.svelte` doesn't know the per-kind trigger
@@ -314,7 +345,7 @@ export async function deployItem(params: DeployItemParams): Promise<DeployResult
 	}
 
 	return sharedDeployItem(
-		makeProvider(),
+		makeProvider(onBehalfOfPrincipal),
 		kind as DeployKind,
 		path,
 		workspaceFrom,
