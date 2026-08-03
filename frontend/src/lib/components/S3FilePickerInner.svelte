@@ -513,11 +513,15 @@
 	 * the first page — and the `listMarkers.length == page` guard then never recovers.
 	 */
 	async function loadNextFlatPage() {
+		// The page number alone does not identify our advance: a filter or storage change
+		// resets the cursor, and the replacement listing can reach the same number before
+		// this request fails. Rolling that one back would strand *its* cursor instead.
+		const generation = listingGeneration
 		page += 1
 		const requested = page
 		const ok = await loadFiles()
 		// Only undo our own advance: another click may have moved it on meanwhile.
-		if (!ok && page === requested) {
+		if (!ok && generation === listingGeneration && page === requested) {
 			page = requested - 1
 		}
 	}
@@ -768,7 +772,13 @@
 		await clearAndLoadFiles()
 		for (let i = 0; i < currentPage; i++) {
 			page = i + 1
-			await loadFiles()
+			if (!(await loadFiles())) {
+				// Stop at the last page that actually loaded. Carrying on would read past
+				// `listMarkers`, send no marker and replay page one, and leave `page` ahead
+				// of `listMarkers` for good — which silently breaks every later "Load more".
+				page = i
+				break
+			}
 		}
 		const fileKeyFolders = fileKey.split('/').slice(0, -1)
 		let current_path: string | undefined = undefined
@@ -1064,11 +1074,7 @@
 							can remove every match. Without this the only control that could resume
 							the listing would be hidden behind the empty state. -->
 							<div class="flex justify-center pb-4">
-								<Button
-									variant="default"
-									size="xs2"
-									on:click={() => loadNextFlatPage()}
-								>
+								<Button variant="default" size="xs2" on:click={() => loadNextFlatPage()}>
 									Keep looking
 								</Button>
 							</div>
@@ -1197,11 +1203,7 @@
 							</div>
 
 							{#if flatHasMore}
-								<Button
-									variant="default"
-									size="xs2"
-									on:click={() => loadNextFlatPage()}
-								>
+								<Button variant="default" size="xs2" on:click={() => loadNextFlatPage()}>
 									Load more
 								</Button>
 							{/if}
