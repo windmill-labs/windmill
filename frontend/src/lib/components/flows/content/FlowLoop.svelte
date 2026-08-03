@@ -141,12 +141,34 @@
 	const ITERATOR_TOOLTIP =
 		'The JavaScript expression that will be evaluated to get the list of items to iterate over. Example: ["banana", "apple", flow_input.my_fruit].'
 	const DEFAULT_PARALLELISM = 4
-	const PARALLELISM_LABEL = 'Max concurrent iterations'
+	const PARALLELISM_LABEL = 'Limit concurrent iterations'
 	const SQUASH_PARALLEL_CONFLICT =
 		'Squash and Run in parallel are mutually exclusive: squashing runs every iteration in sequence on a single worker. Turn the other one off to use this.'
 	const PARALLELISM_TOOLTIP =
-		'Cap how many iterations run at once, so a huge loop does not flood the workers.'
+		'Cap how many iterations run at once, so a huge loop does not flood the workers. Without a cap every iteration starts at once.'
+
+	const parallelismCapped = $derived(
+		mod.value.type === 'forloopflow' && mod.value.parallelism != undefined
+	)
 </script>
+
+{#snippet parallelismToggle()}
+	<Toggle
+		size="xs"
+		textClass="text-xs font-normal text-primary"
+		checked={parallelismCapped}
+		on:change={({ detail }) => {
+			;(mod.value as ForloopFlow).parallelism = detail
+				? { type: 'static', value: DEFAULT_PARALLELISM }
+				: undefined
+		}}
+		options={{
+			right: PARALLELISM_LABEL,
+			rightTooltip: PARALLELISM_TOOLTIP,
+			rightDocumentationLink: 'https://www.windmill.dev/docs/flows/flow_loops'
+		}}
+	/>
+{/snippet}
 
 <Drawer bind:open={previewOpen} alwaysOpen size="75%" minSize="1000px">
 	<FlowLoopIterationPreview
@@ -283,11 +305,9 @@
 								textClass="text-xs font-normal text-primary"
 								bind:checked={mod.value.parallel}
 								on:change={({ detail }) => {
-									// An absent `parallelism` means "no cap" to the worker, and the input form
-									// renders nothing without a value — so seed one when parallel is switched on.
-									;(mod.value as ForloopFlow).parallelism = detail
-										? { type: 'static', value: DEFAULT_PARALLELISM }
-										: undefined
+									// An absent `parallelism` means "no cap" to the worker, so switching
+									// parallelism on must not seed one — the cap below is opted into.
+									if (!detail) (mod.value as ForloopFlow).parallelism = undefined
 								}}
 								disabled={mod.value.squash}
 								options={{
@@ -318,8 +338,8 @@
 												}
 											}
 											argName="parallelism"
-											label={PARALLELISM_LABEL}
-											headerTooltip={PARALLELISM_TOOLTIP}
+											collapsed={!parallelismCapped}
+											header={parallelismToggle}
 											schema={parallelismSchema}
 											argExtra={{ min: 1, step: 1 }}
 											animateAppear
