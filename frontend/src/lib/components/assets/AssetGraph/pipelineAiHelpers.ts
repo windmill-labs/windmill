@@ -6,6 +6,7 @@ import {
 	extractWrites,
 	type AssetWithAltAccessType
 } from '$lib/components/assets/lib'
+import { normalizePipelineFolder } from './lib'
 import { assetUri, autoOutputAsset, type PipelineOutputKind } from './pipelineTemplates'
 import { parsePipelineAnnotations, scd2CurrentTargetPath } from './parsePipelineAnnotations'
 import type { AssetGraphResponse } from './types'
@@ -133,14 +134,21 @@ function dedupeAssets(
 }
 
 export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIChatHelpers {
+	// The folder NAME, whichever form the caller holds it in — node paths are
+	// `f/<name>/<node>`, so an owner path here would prefix every path twice.
+	const folderName = () => normalizePipelineFolder(deps.getFolder())
+
 	// A staged draft is always persisted into the OPEN folder's data_pipeline
 	// bundle, so a path outside the folder would silently land an unrelated script
 	// there. Both build and edit must stay scoped to the folder.
 	function assertInFolder(path: string) {
-		const folder = deps.getFolder()
+		const folder = folderName()
 		if (folder && !path.startsWith(`f/${folder}/`)) {
+			// Name the corrected path rather than only the required prefix: the model
+			// otherwise re-sends variants of the same wrong path.
+			const leaf = path.split('/').filter(Boolean).pop() ?? '<node_name>'
 			throw new Error(
-				`Pipeline nodes must be in the open folder — use a path under 'f/${folder}/' (got '${path}').`
+				`Pipeline nodes must be in the open folder — use 'f/${folder}/${leaf}' (got '${path}').`
 			)
 		}
 	}
@@ -198,7 +206,7 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 				}
 			})
 		return {
-			folder: deps.getFolder(),
+			folder: folderName(),
 			mode: 'edit',
 			nodes,
 			assets: graph.assets.map((a) => assetUri({ kind: a.kind, path: a.path }))
@@ -263,7 +271,7 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 			const seeded =
 				inferred.writes[0] ??
 				(outputKind
-					? autoOutputAsset(outputKind as PipelineOutputKind, deps.getFolder(), language)
+					? autoOutputAsset(outputKind as PipelineOutputKind, folderName(), language)
 					: undefined)
 			// Effective outputs = what actually becomes an output edge on the canvas:
 			// body/annotation-inferred writes, or the output_kind seed as a fallback.

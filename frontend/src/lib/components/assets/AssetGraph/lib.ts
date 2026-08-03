@@ -1,5 +1,20 @@
 import type { AssetGraphEdge, AssetGraphResponse } from './types'
 
+/**
+ * The bare folder name a pipeline is scoped to, from either form a caller may
+ * hold (`analytics` or the owner path `f/analytics`). Every pipeline surface —
+ * the `/pipeline/<folder>` route, the editor's `folder` prop, the AI folder
+ * context — keys on the NAME and builds `f/<folder>/<node>` paths from it, so a
+ * value that still carries the prefix double-prefixes every path built from it.
+ * Folder names cannot contain `/`, so a leading `f/` is unambiguously the prefix.
+ */
+export function normalizePipelineFolder(folder: string): string {
+	return folder
+		.trim()
+		.replace(/^\/+|\/+$/g, '')
+		.replace(/^f\//, '')
+}
+
 // Shared graph predicates used by both the execution-DAG traversal
 // (graphTraversal.ts) and the post-deploy drift check (deployGraphDiff.ts).
 // A "write edge" is what makes a script a *producer* of an asset; the default

@@ -116,6 +116,16 @@ describe('resolvePreviewTab', () => {
 		})
 	})
 
+	it('routes a pipeline url carrying the owner path to the same folder editor', () => {
+		// A hand-written link (or a preview tab persisted from one) can hold
+		// `/pipeline/f%2F<folder>`; it must open the folder, not `f/<folder>`.
+		expect(resolvePreviewTab('/pipeline/f%2Fmy_folder')).toEqual({
+			kind: 'editor',
+			editorKind: 'pipeline',
+			path: 'my_folder'
+		})
+	})
+
 	it('routes the bare pipeline list page to the iframe fallback', () => {
 		expect(resolvePreviewTab('/pipeline')).toEqual({ kind: 'iframe' })
 	})

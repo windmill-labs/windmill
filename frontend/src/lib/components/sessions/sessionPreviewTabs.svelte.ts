@@ -1,6 +1,7 @@
 import { base } from '$lib/base'
 import { randomUUID } from '$lib/utils/uuid'
 import { editPathFor, type WorkspaceItem } from '$lib/components/workspacePicker'
+import { normalizePipelineFolder } from '$lib/components/assets/AssetGraph/lib'
 import {
 	artifactUrl,
 	matchPreviewPage,
@@ -97,13 +98,17 @@ function editorTargetFor(target: PreviewTarget): SessionTarget | undefined {
 // Adapt a session editor target (`open_preview` tool arg) to a preview
 // destination. A pipeline target's `path` is a folder name, not a workspace
 // item — it maps to the `/pipeline/<folder>` route, which resolvePreviewTab
-// mounts as the in-process graph editor.
+// mounts as the in-process graph editor. The model routinely passes the owner
+// path (`f/<folder>`) it was handed by create_folder, so normalize: the folder
+// is what every node path is built from, and `f/f/<folder>/…` nodes land
+// outside the folder.
 export function previewTargetForSessionTarget(
 	kind: SessionTarget['kind'],
 	path: string
 ): PreviewTarget | undefined {
 	if (kind === 'pipeline') {
-		return { type: 'page', href: `${base}/pipeline/${encodeURIComponent(path)}`, label: path }
+		const folder = normalizePipelineFolder(path)
+		return { type: 'page', href: `${base}/pipeline/${encodeURIComponent(folder)}`, label: folder }
 	}
 	const item: WorkspaceItem =
 		kind === 'raw_app'
