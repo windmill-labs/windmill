@@ -6,7 +6,7 @@
 	import type { SessionRuntime, SessionTargetKind } from './sessionRuntime.svelte'
 	import { useUserDraftSync, type DraftSyncCodec } from './useUserDraftSync.svelte'
 	import { makeFlowCodec, makeScriptCodec, makeRawAppCodec } from './sessionDraftCodecs'
-	import { draftFriendlyLeaf } from './previewRouter'
+	import { itemDisplayName } from './previewRouter'
 	import SessionItemNotFound from './SessionItemNotFound.svelte'
 
 	let {
@@ -134,7 +134,7 @@
 	$effect(() => {
 		const v = cell.store.val as { path?: string; draft_path?: string; summary?: string } | undefined
 		const friendly = v?.draft_path ?? v?.path
-		const label = v?.summary?.trim() || draftFriendlyLeaf(path, friendly)
+		const label = itemDisplayName(path, friendly, v?.summary)
 		// The full staged path rides along whenever it differs from the tab's
 		// route (storage) path — not just when it yielded a label: a DEPLOYED
 		// item with a staged rename is also regrouped under the typed folder by

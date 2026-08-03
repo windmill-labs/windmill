@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
 	artifactUrl,
 	draftFriendlyLeaf,
+	itemDisplayName,
 	matchReusablePage,
 	parseArtifactRoute,
 	parsePreviewItemRoute,
@@ -72,6 +73,24 @@ describe('draftFriendlyLeaf', () => {
 
 	it('returns undefined for an item already at a named (non-draft) storage path', () => {
 		expect(draftFriendlyLeaf('u/admin/my_app', 'u/admin/renamed')).toBeUndefined()
+	})
+})
+
+describe('itemDisplayName', () => {
+	it('prefers the summary, including for a draft-parked item that also has a typed name', () => {
+		expect(itemDisplayName('u/admin/my_script', undefined, 'Sync users nightly')).toBe(
+			'Sync users nightly'
+		)
+		expect(
+			itemDisplayName('u/admin/draft_abc123', 'u/admin/valuable_script', 'Sync users nightly')
+		).toBe('Sync users nightly')
+	})
+
+	it('falls through a blank summary to the draft leaf, then to nothing', () => {
+		expect(itemDisplayName('u/admin/draft_abc123', 'u/admin/valuable_script', '   ')).toBe(
+			'valuable_script'
+		)
+		expect(itemDisplayName('u/admin/my_script', undefined, '')).toBeUndefined()
 	})
 })
 
