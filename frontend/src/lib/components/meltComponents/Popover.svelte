@@ -17,6 +17,7 @@
 	import { debounce, pointerDownOutside } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
 	import { createEventDispatcher, untrack } from 'svelte'
+	import { getOverlayHost } from '$lib/components/common/overlayHost.svelte'
 	import { Button } from '$lib/components/common'
 	import DocLink from '$lib/components/apps/editor/settingsPanel/DocLink.svelte'
 	import type { FloatingConfig } from '@melt-ui/svelte/internal/actions/floating'
@@ -110,8 +111,12 @@
 		content
 	}: Props = $props()
 
-	// Dynamic portal: use 'body' when fullscreen, otherwise use the provided portal
-	let dynamicPortal = $derived(fullScreen ? 'body' : portal)
+	// Fullscreen abandons the trigger-relative positioning for a container of its own:
+	// the host pane when the editor is embedded in one (so it covers that pane, like a
+	// drawer), else the document.
+	const overlayHost = getOverlayHost()
+	const fullScreenHost = $derived(fullScreen ? overlayHost?.el() : undefined)
+	let dynamicPortal = $derived(fullScreen ? (fullScreenHost ?? 'body') : portal)
 
 	const {
 		elements: { trigger: _trigger, content: _content, arrow, close: closeElement, overlay },
@@ -251,7 +256,8 @@
 </button>
 
 {#if fullScreen && isOpen && !disablePopup}
-	<div use:melt={$overlay} class="fixed inset-0 z-10 bg-black/50"></div>
+	<div use:melt={$overlay} class="{fullScreenHost ? 'absolute' : 'fixed'} inset-0 z-10 bg-black/50"
+	></div>
 {/if}
 
 {#if isOpen && !disablePopup}
@@ -268,14 +274,18 @@
 		class={twMerge(
 			'relative dark:border rounded-md bg-surface-tertiary shadow-lg',
 			fullScreen
-				? `fixed !top-1/2 !left-1/2 !-translate-x-1/2 !-translate-y-1/2 !resize-none`
+				? `${fullScreenHost ? 'absolute' : 'fixed'} !top-1/2 !left-1/2 !-translate-x-1/2 !-translate-y-1/2 !resize-none`
 				: 'w-fit',
 			contentClasses,
 			`z-[5001]`
 		)}
 		data-popover
 		{...extraProps}
-		style={fullScreen ? `width: 90vw; max-width: 800px; height: 90vh;` : contentStyle}
+		style={fullScreen
+			? `width: ${fullScreenHost ? '90%' : '90vw'}; max-width: 800px; height: ${
+					fullScreenHost ? '90%' : '90vh'
+				};`
+			: contentStyle}
 	>
 		{#if displayArrow}
 			<div use:melt={$arrow}></div>

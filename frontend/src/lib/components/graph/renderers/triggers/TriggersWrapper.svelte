@@ -12,7 +12,7 @@
 	import { flip, offset, shift } from 'svelte-floating-ui/dom'
 	import { createFloatingActions, type ComputeConfig } from 'svelte-floating-ui'
 	import { clickOutside } from '$lib/utils'
-	import { getOverlayHost } from '$lib/components/common/overlayHost.svelte'
+	import { overlayPortalTarget } from '$lib/components/common/overlayHost.svelte'
 
 	interface Props {
 		path: string
@@ -55,11 +55,7 @@
 
 	const [floatingRef, floatingContent] = createFloatingActions(floatingConfig)
 
-	// `#flow-editor` is not unique when several flow editors are mounted at once (a session
-	// keeps every visited tab alive), and querySelector would drop the picker into whichever
-	// came first — a hidden tab, where a fixed-position box renders invisibly.
-	const overlayHost = getOverlayHost()
-	const pickerTarget = $derived(overlayHost?.el() ?? '#flow-editor')
+	const pickerTarget = overlayPortalTarget('#flow-editor')
 </script>
 
 <div style={`width: ${NODE.width}px;`} use:floatingRef>
@@ -119,7 +115,7 @@
 />
 
 {#if showTriggerScriptPicker}
-	<Portal target={pickerTarget}>
+	<Portal target={pickerTarget()}>
 		<!-- Not a Popover: this opens from a menu item inside AddTriggersButton, which
 		     closes before the picker renders, so there is no trigger element to bind to.
 		     Same box and dismiss behaviour as the other module pickers. -->

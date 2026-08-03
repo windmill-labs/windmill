@@ -36,3 +36,19 @@ export function getOverlayHost(): OverlayHostContext | undefined {
 export function overlayStack(): OverlayStack {
 	return getOverlayHost()?.drawers ?? globalOverlayStack
 }
+
+/**
+ * Portal target for an overlay that belongs to a flow editor: the host pane when the
+ * editor is embedded in one, else the editor root.
+ *
+ * `#flow-editor` is not a unique id — a session keeps every visited tab mounted, so
+ * querySelector would drop the overlay into whichever editor came first in the DOM.
+ * That tab is `opacity-0 pointer-events-none`, so the overlay renders invisibly.
+ *
+ * Reads context, so call it during component initialisation; call the returned getter
+ * where the target is used, to stay reactive as the host element mounts.
+ */
+export function overlayPortalTarget(fallback: string): () => HTMLElement | string {
+	const host = getOverlayHost()
+	return () => host?.el() ?? fallback
+}
