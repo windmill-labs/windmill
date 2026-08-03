@@ -479,7 +479,27 @@
 			}
 			return
 		}
-		await loadFlatFiles()
+		// Same contract as the lazy branch above: every caller here is un-awaited, so an
+		// uncaught rejection would leave the drawer on a spinner with nothing said. The
+		// generation guard keeps a superseded listing from clearing the spinner of the one
+		// that replaced it — `loadFlatFiles` returns early rather than throwing in that case.
+		const generation = listingGeneration
+		fileListLoading = true
+		try {
+			await loadFlatFiles()
+		} catch (e) {
+			console.error('Error listing files', e)
+			sendUserToast('Could not list the files', true)
+			// Nothing will load a preview now, so the right-hand pane has to stop waiting
+			// too. On the other exits it is owned by whoever is still fetching metadata.
+			if (generation === listingGeneration) {
+				fileInfoLoading = false
+			}
+		} finally {
+			if (generation === listingGeneration) {
+				fileListLoading = false
+			}
+		}
 	}
 
 	async function loadFlatFiles() {
