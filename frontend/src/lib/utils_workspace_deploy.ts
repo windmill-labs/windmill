@@ -382,17 +382,27 @@ export function diffRemovesInTarget(diff: WorkspaceDiffSides, mergeIntoParent: b
 }
 
 /**
- * Rows a deploy in this direction can act on. The fork can take any item the
- * parent has and it lacks whatever the counters say — a parent-only row can carry
- * `behind = 0` (see `diffRemovesInTarget`) and would else be unpullable. The merge
- * direction is not mirrored: a fork-only row with no `ahead` is one the parent
- * dropped, and merging must not re-create it there.
+ * Rows a deploy in this direction can act on.
+ *
+ * A merge into the parent carries what the fork *has*: an item only the parent has
+ * is not a fork change, whatever `ahead` says (see `diffRemovesInTarget`), so it is
+ * left out rather than offered as a removal nobody asked for. An arbitrary target
+ * keeps them — that comparison is an explicit one-way sync with no tally behind it,
+ * where a target-only item genuinely means "remove there".
+ *
+ * The update direction mirrors it: the fork takes any item the parent has and it
+ * lacks, whatever the counters say, since such a row can carry `behind = 0` and
+ * would else be unpullable.
  */
 export function diffActionableInDirection(
 	diff: WorkspaceDiffSides,
-	mergeIntoParent: boolean
+	mergeIntoParent: boolean,
+	isArbitraryTarget: boolean = false
 ): boolean {
 	if (mergeIntoParent) {
+		if (!isArbitraryTarget && diff.exists_in_fork === false) {
+			return false
+		}
 		return diff.ahead > 0
 	}
 	return diff.behind > 0 || diffCreatesInTarget(diff, mergeIntoParent)

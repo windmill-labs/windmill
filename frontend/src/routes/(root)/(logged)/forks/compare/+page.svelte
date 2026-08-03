@@ -158,7 +158,10 @@
 	// inside $derived. A conflict (ahead AND behind) is intentionally counted in both
 	// directions — it's actionable either way.
 	function countDir(c: WorkspaceComparison | undefined, mergeIntoParent: boolean): number {
-		return c?.diffs.filter((d) => diffActionableInDirection(d, mergeIntoParent)).length ?? 0
+		return (
+			c?.diffs.filter((d) => diffActionableInDirection(d, mergeIntoParent, isArbitraryTarget))
+				.length ?? 0
+		)
 	}
 	const deployCount = $derived(countDir(comparison, true))
 	const updateCount = $derived(countDir(comparison, false))

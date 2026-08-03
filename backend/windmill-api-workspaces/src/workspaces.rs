@@ -9579,18 +9579,25 @@ async fn compare_workspaces(
             .count(),
     };
 
-    let all_ahead_items_visible = summary.total_ahead
-        == confirmed_diffs
-            .iter()
-            .map(|s| s.ahead)
-            .fold(0, |acc, s| acc + s.try_into().unwrap_or(0));
-    // The fork is offered an item the source has and it lacks whatever the counters
-    // say, so such a row can carry `behind = 0` and be dropped by the filter without
-    // moving either sum. Count the rows themselves, else a hidden one leaves the
-    // update direction claiming nothing is withheld.
+    // A row the source has and the fork lacks is not something the fork can push, so
+    // the lineage merge leaves it out (see the frontend's `diffActionableInDirection`)
+    // and a hidden one withholds nothing from that direction. An arbitrary pair does
+    // carry it — that comparison is an explicit one-way sync — hence the lineage test.
+    // Conversely the fork is offered such a row whatever the counters say, so it can
+    // carry `behind = 0` and be dropped without moving either sum: the update side
+    // counts the rows themselves, else a hidden one leaves that direction claiming
+    // nothing is withheld.
     let source_only = |d: &WorkspaceDiffRow| {
         d.exists_in_source.unwrap_or(false) && !d.exists_in_fork.unwrap_or(false)
     };
+    let merge_carries = |d: &WorkspaceDiffRow| !is_lineage_pair || !source_only(d);
+    let ahead_sum = |rows: &[WorkspaceDiffRow]| {
+        rows.iter()
+            .filter(|d| merge_carries(d))
+            .map(|s| s.ahead)
+            .fold(0i64, |acc, s| acc + i64::from(s))
+    };
+    let all_ahead_items_visible = ahead_sum(&visible_diffs) == ahead_sum(&confirmed_diffs);
     let all_behind_items_visible = summary.total_behind
         == confirmed_diffs
             .iter()
@@ -9637,7 +9644,9 @@ async fn compare_workspaces(
         if visible_keys.contains(&(d.kind.as_str(), d.path.as_str())) {
             continue;
         }
-        if d.ahead > 0 {
+        // Both sides mirror the flags above: a row is only withheld from a direction
+        // that would have carried it.
+        if d.ahead > 0 && merge_carries(d) {
             hidden_ahead.total += 1;
             *hidden_ahead.by_kind.entry(d.kind.clone()).or_default() += 1;
             if sees_all_items {
@@ -9646,9 +9655,6 @@ async fn compare_workspaces(
                     .push(HiddenItem { kind: d.kind.clone(), path: d.path.clone() });
             }
         }
-        // `source_only` for the same reason it gates the flag above: such a row is
-        // offered to the fork on its existence alone, so a hidden one is withheld
-        // from the update direction even at `behind = 0`.
         if d.behind > 0 || source_only(d) {
             hidden_behind.total += 1;
             *hidden_behind.by_kind.entry(d.kind.clone()).or_default() += 1;

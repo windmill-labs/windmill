@@ -20,9 +20,11 @@ describe('deploy direction of a one-sided diff row', () => {
 		expect(diffRemovesInTarget(parentOnly, false)).toBe(false)
 	})
 
-	it('reads the same row as a removal when merging into the parent', () => {
+	it('keeps a parent-only row out of a merge into the parent, whatever its ahead count', () => {
+		expect(diffActionableInDirection(parentOnly, true)).toBe(false)
+		// An arbitrary target has no tally behind it and does propagate the removal.
+		expect(diffActionableInDirection(parentOnly, true, true)).toBe(true)
 		expect(diffRemovesInTarget(parentOnly, true)).toBe(true)
-		expect(diffCreatesInTarget(parentOnly, true)).toBe(false)
 	})
 
 	it('does not resurrect a fork-only item into an update of the fork', () => {

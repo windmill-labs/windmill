@@ -410,7 +410,9 @@
 	let canPreserveOnBehalfOf = $derived(mergeIntoParent ? canPreserveInParent : canPreserveInCurrent)
 
 	let selectableDiffs = $derived(
-		comparison?.diffs.filter((diff) => diffActionableInDirection(diff, mergeIntoParent)) ?? []
+		comparison?.diffs.filter((diff) =>
+			diffActionableInDirection(diff, mergeIntoParent, isArbitraryTarget)
+		) ?? []
 	)
 
 	let selectedItems = $state<string[]>([])
@@ -454,10 +456,17 @@
 		}) ?? []
 	)
 
+	// Gates the "update before deploying" alert, so it counts what a merge would
+	// actually carry — not every row with an `ahead` counter, which includes the
+	// parent-only ones the merge direction leaves out.
 	let itemsWithAheadChanges = $derived(
 		comparison?.diffs.filter((diff) => {
 			const status = deploymentStatus[getItemKey(diff)]?.status
-			return diff && diff.ahead > 0 && !(status && status == 'deployed')
+			return (
+				diff &&
+				diffActionableInDirection(diff, true, isArbitraryTarget) &&
+				!(status && status == 'deployed')
+			)
 		}) ?? []
 	)
 
