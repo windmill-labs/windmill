@@ -85,10 +85,11 @@
 
 	// Opens the direction the button offers, so the label and the list agree: a fork
 	// with nothing to deploy lands on the update side rather than on an empty deploy
-	// list.
+	// list. Both read `comparisonLoaded` — an absent comparison counts zero of
+	// everything, which is indistinguishable from "nothing to deploy".
 	function openComparisonDrawer() {
 		if (parentWorkspaceId && $workspaceStore) {
-			const dir = changesAhead > 0 ? '' : '&dir=update'
+			const dir = comparisonLoaded && changesAhead === 0 ? '&dir=update' : ''
 			goto('/forks/compare?workspace_id=' + encodeURIComponent($workspaceStore) + dir, {
 				replaceState: true
 			})
@@ -160,6 +161,7 @@
 	function countDir(c: WorkspaceComparison | undefined, mergeIntoParent: boolean): number {
 		return c?.diffs.filter((d) => diffActionableInDirection(d, mergeIntoParent)).length ?? 0
 	}
+	const comparisonLoaded = $derived(comparison !== undefined)
 	const changesAhead = $derived(countDir(comparison, true))
 	const changesBehind = $derived(countDir(comparison, false))
 
@@ -336,7 +338,7 @@
 					>
 						{#if showDraftsOnly}
 							Review & deploy drafts
-						{:else if changesAhead > 0}
+						{:else if !comparisonLoaded || changesAhead > 0}
 							Review & Deploy Changes
 						{:else}
 							Review & Update fork
