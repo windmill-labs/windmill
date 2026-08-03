@@ -3023,16 +3023,14 @@ async fn run_parse_only(
         by_resource_type: Default::default(),
         graph_job: None,
     };
-    // No warehouse identity means no `dbt://` key to store the relations under,
-    // so the parse still reports what it found and stores nothing.
-    let (Some(warehouse), Some(script_path)) =
-        (p.warehouse.as_deref(), job.runnable_path.as_deref())
-    else {
-        return Ok(to_raw_value(&result));
-    };
+    // Counted before the guard below, because what dbt found does not depend on a
+    // warehouse: the node and edge SETS come from the manifest and the selection,
+    // and the warehouse only supplies the identity their `dbt://` keys are built
+    // from. The placeholder therefore never reaches a row — nothing is written on
+    // the path that uses it.
     let ingested = windmill_common::dbt_manifest::ingest_manifest(
         &manifest,
-        warehouse,
+        p.warehouse.as_deref().unwrap_or("unkeyed"),
         p.default_database.as_deref(),
         selected.as_ref(),
     );
@@ -3044,6 +3042,12 @@ async fn run_parse_only(
             .entry(n.resource_type.clone())
             .or_default() += 1;
     }
+    // No warehouse identity means no `dbt://` key to store the relations under, so
+    // the parse reports what it found and stores nothing.
+    let (Some(_), Some(script_path)) = (p.warehouse.as_deref(), job.runnable_path.as_deref())
+    else {
+        return Ok(to_raw_value(&result));
+    };
     match conn {
         Connection::Sql(db) => match job.runnable_id.map(|h| h.0) {
             Some(script_hash) => {

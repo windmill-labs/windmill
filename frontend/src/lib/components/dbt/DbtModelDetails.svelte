@@ -64,7 +64,7 @@
 	// Cached per model AND per inputs, so flipping between nodes does not re-spend
 	// a worker slot, while an edited placeholder previews its own rows rather than
 	// returning the last ones. Vars only move this for a deployed graph; for a
-	// snapshot they are fixed, which is what `staleVars` below says out loud.
+	// snapshot they are fixed, which is what `staleArgs` below says out loud.
 	let previews = $state<Record<string, DbtPreview>>({})
 	let previewKey = $derived(
 		`${dbt.unique_id}|${JSON.stringify(previewVars)}|${JSON.stringify(previewPlaceholders)}`
@@ -116,13 +116,17 @@
 	// the selector with `resource_type:model`, so offering it on a seed, snapshot
 	// or source only ever produces a failed job.
 	let previewable = $derived(dbt.resource_type === 'model')
-	// The vars moved since this graph was parsed. Previewing under the old ones is
-	// what keeps the rows and the SQL describing one project, but silently doing so
-	// would leave the form and the rows disagreeing with nothing to explain it.
-	let staleVars = $derived(
-		buffer != undefined &&
-			JSON.stringify(previewVars) !== JSON.stringify((args?.command as any)?.vars ?? {})
-	)
+	// Any argument that has moved since this graph was parsed. Both channels reach
+	// relation identity — a var directly, a placeholder through the descriptor var
+	// it fills — and they are treated differently by design (vars pinned so the
+	// rows keep describing the graph, placeholders live so a form filled after the
+	// refresh can still preview at all). That difference is exactly what a reader
+	// cannot see, so neither is allowed to diverge quietly.
+	function argShape(a: Record<string, unknown> | undefined): string {
+		const { command, ...placeholders } = (a ?? {}) as Record<string, any>
+		return JSON.stringify({ vars: command?.vars ?? {}, placeholders })
+	}
+	let staleArgs = $derived(buffer != undefined && argShape(buffer.args) !== argShape(args))
 </script>
 
 <div class="h-full flex flex-col min-h-0">
@@ -195,11 +199,11 @@
 		</div>
 	</div>
 
-	{#if staleVars}
+	{#if staleArgs}
 		<div class="shrink-0 px-2 py-1 border-b text-2xs text-secondary bg-surface-secondary">
-			The run form's vars have changed since this graph was parsed. Rows are previewed under
-			the vars it was parsed with, so they keep describing the models on screen — refresh the
-			models to preview under the current ones.
+			The run arguments have changed since this graph was parsed, so these rows need not
+			describe the models on screen — arguments reach schemas, aliases and which models exist
+			at all. Refresh the models to draw and preview them under the current ones.
 		</div>
 	{/if}
 
