@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.777.0](https://github.com/windmill-labs/windmill/compare/v1.776.0...v1.777.0) (2026-08-03)
+
+
+### Features
+
+* add session recording to wmill app dev ([#10457](https://github.com/windmill-labs/windmill/issues/10457)) ([2105540](https://github.com/windmill-labs/windmill/commit/2105540cca7cc7bdced9e06ef3ad1ed54732feef))
+* give dbt its own editor with an explicitly refreshed model graph ([#10448](https://github.com/windmill-labs/windmill/issues/10448)) ([baefa13](https://github.com/windmill-labs/windmill/commit/baefa1345b7b7a4110257a53a417d4fc229d0149))
+* show an on-behalf-of badge on the script and flow detail pages ([#10452](https://github.com/windmill-labs/windmill/issues/10452)) ([9bafb7e](https://github.com/windmill-labs/windmill/commit/9bafb7ebd2b8571f1adf5a86b681af8d07660a50))
+
+
+### Bug Fixes
+
+* keep uri and method on request logs under RUST_LOG=error ([#10462](https://github.com/windmill-labs/windmill/issues/10462)) ([0466ea2](https://github.com/windmill-labs/windmill/commit/0466ea201952bd382d893bd973eedaa7183b597e))
+* report a missing worker tag instead of spinning in data table UIs ([#10456](https://github.com/windmill-labs/windmill/issues/10456)) ([eca24bd](https://github.com/windmill-labs/windmill/commit/eca24bdfb5c7a49c428d541ca06407d1635cc3b6))
+
 ## [1.776.0](https://github.com/windmill-labs/windmill/compare/v1.775.2...v1.776.0) (2026-08-01)
 
 
