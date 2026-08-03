@@ -416,11 +416,12 @@ pub trait External: Send + Sync + 'static {
                 )
                 .await
                 .map_err(|e| {
-                    Error::BadRequest(format!(
-                        "{} rejected the stored credentials and refreshing them failed: {e}. \
-                         Reconnect the integration from Workspace settings > Integrations.",
-                        Self::DISPLAY_NAME
-                    ))
+                    // Typed like any other rejection: this is still the service refusing the
+                    // stored credentials, and callers downstream branch on that.
+                    self.external_error(
+                        Some(StatusCode::UNAUTHORIZED),
+                        format!("the stored credentials could not be refreshed: {e}"),
+                    )
                 })?;
 
                 task::spawn({
@@ -459,13 +460,18 @@ pub trait External: Send + Sync + 'static {
     /// means the trigger is gone, not that the call broke) and the message stays readable by
     /// the time it reaches a user.
     fn external_api_error(&self, e: HttpRequestError) -> Error {
-        let status = e.status();
         let detail = match &e {
             HttpRequestError::ApiError { body, .. } => self
                 .describe_error_body(body)
                 .unwrap_or_else(|| body.to_string()),
-            other => other.to_string(),
+            // A reqwest error names the request it was making, never why it failed: the reason
+            // (refused, DNS, TLS) lives one link down the source chain.
+            other => error_source_chain(other),
         };
+        self.external_error(e.status(), detail)
+    }
+
+    fn external_error(&self, status: Option<StatusCode>, detail: String) -> Error {
         to_anyhow(ExternalApiError {
             service: Self::DISPLAY_NAME,
             status,
@@ -493,7 +499,9 @@ impl std::fmt::Display for ExternalApiError {
                 "{} rejected the request ({}): {}",
                 self.service, status, self.detail
             )?,
-            None => write!(f, "Could not reach {}: {}", self.service, self.detail)?,
+            // No status covers both never reaching the service and not being able to read what
+            // it answered, so the wording may not commit to either.
+            None => write!(f, "Request to {} failed: {}", self.service, self.detail)?,
         }
         if let Some(hint) = self.hint {
             write!(f, " — {}", hint)?;
@@ -503,6 +511,20 @@ impl std::fmt::Display for ExternalApiError {
 }
 
 impl std::error::Error for ExternalApiError {}
+
+fn error_source_chain(e: &dyn std::error::Error) -> String {
+    let mut msg = e.to_string();
+    let mut source = e.source();
+    while let Some(cause) = source {
+        let cause = cause.to_string();
+        // reqwest repeats "error sending request for url (…)" at two levels of the chain.
+        if !msg.contains(&cause) {
+            msg.push_str(&format!(": {cause}"));
+        }
+        source = source.and_then(|c| c.source());
+    }
+    msg
+}
 
 /// Provider bodies are unbounded and end up in toasts and `native_trigger.error`.
 fn truncate_detail(detail: &str) -> String {

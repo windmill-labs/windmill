@@ -106,6 +106,7 @@
 	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 	let loadError = $state<string | undefined>(undefined)
 	let externalError = $state<string | undefined>(undefined)
+	let retryEdit = $state<(() => void) | undefined>(undefined)
 
 	export function openNew(
 		nis_flow?: boolean,
@@ -134,6 +135,7 @@
 		summary = ''
 		loadError = undefined
 		externalError = undefined
+		retryEdit = undefined
 	}
 
 	export function openRecreate(nativeTrigger: ExtendedNativeTrigger) {
@@ -160,6 +162,7 @@
 		summary = nativeTrigger.summary ?? ''
 		loadError = undefined
 		externalError = undefined
+		retryEdit = undefined
 	}
 
 	export async function openEdit(
@@ -186,6 +189,7 @@
 		itemKind = nis_flow ? 'flow' : 'script'
 		loadError = undefined
 		externalError = undefined
+		retryEdit = undefined
 		// A failed load must not leave the previously edited trigger's target and config in the
 		// form, where saving would silently repoint this trigger at them.
 		serviceConfig = {}
@@ -217,6 +221,11 @@
 			loadError = err.body ?? err.message ?? String(err)
 			sendUserToast(`Failed to load trigger configuration: ${loadError}`, true)
 			externalData = null
+			// The service form is not rendered in the error state, so nothing else will ever
+			// clear its loading flag or narrow the permission left over from the last trigger.
+			loadingForm = false
+			can_write = false
+			retryEdit = () => openEdit(externalIdOrPath, nis_flow, defaultValues)
 		} finally {
 			clearTimeout(loadingTimeout)
 			loadingConfig = false
@@ -407,14 +416,18 @@
 	{#if loadingConfig && showLoading}
 		<Loader2 class="animate-spin" />
 	{:else if loadError}
-		<Alert type="error" title="Could not load this {serviceInfo?.serviceDisplayName} trigger">
+		<Alert
+			type="error"
+			title="Could not load this {serviceInfo?.serviceDisplayName} trigger"
+			descriptionClass="break-words"
+		>
 			<div class="flex flex-col gap-2 items-start">
 				<span>{loadError}</span>
 				<Button
 					size="xs"
 					variant="subtle"
 					startIcon={{ icon: RefreshCw }}
-					on:click={() => externalId && openEdit(externalId, isFlow)}
+					on:click={() => retryEdit?.()}
 				>
 					Retry
 				</Button>
@@ -431,6 +444,7 @@
 				<Alert
 					type="warning"
 					title="Could not read this trigger from {serviceInfo?.serviceDisplayName}"
+					descriptionClass="break-words"
 				>
 					{externalError} The configuration below is the one Windmill last saved.
 				</Alert>

@@ -112,7 +112,7 @@
 	{:else if availableEvents.length === 0}
 		<div class="text-red-500 text-xs space-y-2">
 			{#if eventsError}
-				<div>Could not load the available events: {eventsError}</div>
+				<div class="break-words">Could not load the available events: {eventsError}</div>
 			{:else}
 				<div
 					>No events available. Please ensure your workspace has a connected Nextcloud integration.</div
