@@ -34,6 +34,7 @@ import {
 import { z } from 'zod'
 import {
 	createToolDef,
+	droppedOptionKeys,
 	formatToolError,
 	type CreatedResourceTriggerKind,
 	type Tool,
@@ -69,7 +70,59 @@ type WorkspaceMutationHelpers = {
 	getWorkspaceMutationTarget?: () => WorkspaceMutationTarget
 }
 
-const createScheduleToolSchema = scheduleRequestSchema.omit({ script_path: true, is_flow: true })
+// Only the fields a schedule request usually carries. The rest reach the same
+// validation through `advanced`, whose shape get_schedule_schema serves on demand:
+// inlined, `retry` alone is a quarter of this schema and is asked for far more rarely
+// than a plain cron. script_path/is_flow come from the runnable, not the model.
+const COMMON_SCHEDULE_FIELDS = [
+	'path',
+	'schedule',
+	'timezone',
+	'args',
+	'enabled',
+	'summary',
+	'description',
+	'on_failure',
+	'on_recovery',
+	'on_success'
+] as const
+
+const createScheduleToolSchema = scheduleRequestSchema
+	.pick(Object.fromEntries(COMMON_SCHEDULE_FIELDS.map((f) => [f, true])) as any)
+	.extend({
+		advanced: z
+			.record(z.string(), z.any())
+			.optional()
+			.describe(
+				'Less common schedule options: retry, paused_until, tag, labels, no_flow_overlap, dynamic_skip, cron_version, error-handler tuning (on_failure_times, on_failure_exact, *_extra_args). Call get_schedule_schema for their exact shape.'
+			)
+	})
+
+const getScheduleSchemaTool: Tool<any> = {
+	def: createToolDef(
+		z.object({}),
+		'get_schedule_schema',
+		"Get the shape of create_schedule's `advanced` object: retry, pausing, tags, and error-handler tuning."
+	),
+	fn: async () => {
+		const common = new Set<string>(COMMON_SCHEDULE_FIELDS)
+		const full = z.toJSONSchema(scheduleRequestSchema) as {
+			properties?: Record<string, unknown>
+		}
+		return JSON.stringify(
+			{
+				type: 'object',
+				properties: Object.fromEntries(
+					Object.entries(full.properties ?? {}).filter(
+						([field]) => !common.has(field) && field !== 'script_path' && field !== 'is_flow'
+					)
+				)
+			},
+			null,
+			2
+		)
+	}
+}
 
 function getWorkspaceMutationTarget(helpers: unknown): WorkspaceMutationTarget | undefined {
 	return (helpers as WorkspaceMutationHelpers | undefined)?.getWorkspaceMutationTarget?.()
@@ -296,14 +349,23 @@ const createScheduleTool: Tool<any> = {
 	validateBeforeConfirmation: ({ helpers }) => validateWorkspaceMutationTarget(helpers),
 	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
 		try {
+			const { advanced, ...rest } = (args ?? {}) as Record<string, unknown>
+			const supplied = (advanced as Record<string, unknown>) ?? {}
 			const requestBody = parseWithExplicitErrors(
 				scheduleRequestSchema as z.ZodType<NewSchedule>,
 				{
-					...args,
+					...rest,
+					...supplied,
 					...getWorkspaceMutationTargetFields(helpers)
 				},
 				'Schedule'
 			)
+			const dropped = droppedOptionKeys(supplied, requestBody as Record<string, unknown>)
+			if (dropped.length) {
+				throw new Error(
+					`Call get_schedule_schema for the exact shape: these options did not match it and would have been saved empty: ${dropped.join(', ')}.`
+				)
+			}
 
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Validating schedule "${requestBody.path}"...`
@@ -472,7 +534,12 @@ const createTriggerTool: Tool<any> = {
 	}
 }
 
-const workspaceMutationTools = [createScheduleTool, createTriggerTool, getTriggerSchemaTool]
+const workspaceMutationTools = [
+	createScheduleTool,
+	createTriggerTool,
+	getTriggerSchemaTool,
+	getScheduleSchemaTool
+]
 
 export function createWorkspaceMutationTools<T>(): Tool<T>[] {
 	return workspaceMutationTools as Tool<T>[]

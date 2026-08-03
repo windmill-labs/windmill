@@ -455,6 +455,53 @@ describe('global AI tools', () => {
 		})
 	})
 
+	// The rare schedule fields reach the draft through `advanced` instead of the tool
+	// definition, so the merge back into the persisted value is what has to hold.
+	it('folds advanced schedule options into the draft', async () => {
+		const advanced = JSON.parse(await callGlobalTool('get_schedule_schema', {}))
+		expect(Object.keys(advanced.properties)).toEqual(
+			expect.arrayContaining(['retry', 'paused_until', 'no_flow_overlap'])
+		)
+		expect(advanced.properties).not.toHaveProperty('schedule')
+
+		await callGlobalTool('write_schedule', {
+			path: 'f/schedules/adv',
+			schedule: '0 0 9 * * *',
+			timezone: 'UTC',
+			script_path: 'f/scripts/run',
+			is_flow: false,
+			args: {},
+			advanced: { no_flow_overlap: true, tag: 'nightly' }
+		})
+
+		const draft = getBackendDraft<any>('trigger_schedule', 'f/schedules/adv', {
+			workspace: WORKSPACE
+		})
+		expect(draft).toMatchObject({ no_flow_overlap: true, tag: 'nightly' })
+		expect(draft).not.toHaveProperty('advanced')
+	})
+
+	// Every sub-field of `retry` is optional, so a guessed shape validates clean and
+	// strips to `{}`. Saving a schedule with no retry policy and reporting success is
+	// the failure the on-demand schema makes reachable.
+	it('refuses to save a mis-shaped advanced schedule option', async () => {
+		await expect(
+			callGlobalTool('write_schedule', {
+				path: 'f/schedules/badretry',
+				schedule: '0 0 6 * * *',
+				timezone: 'UTC',
+				script_path: 'f/scripts/run',
+				is_flow: false,
+				args: {},
+				advanced: { retry: { attempts: 2, seconds: 30 } }
+			})
+		).rejects.toThrow(/get_schedule_schema/)
+
+		expect(
+			getBackendDraft('trigger_schedule', 'f/schedules/badretry', { workspace: WORKSPACE })
+		).toBeUndefined()
+	})
+
 	it('rejects a trigger config that does not match the declared kind', async () => {
 		const error = await callGlobalTool('write_trigger', {
 			kind: 'kafka',

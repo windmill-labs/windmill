@@ -722,6 +722,26 @@ const MAX_TOOL_ERROR_LENGTH = 2000
 /** ApiError from the generated client carries the server's message in `body`,
  * not `message` — dig it out so tool failures show the real cause. Capped so a
  * verbose error body (e.g. an HTML error page) can't flood the chat context. */
+const isEmptyValue = (value: unknown): boolean =>
+	value === undefined ||
+	(typeof value === 'object' && value !== null && Object.keys(value).length === 0)
+
+/**
+ * Names the options a strip-mode parse accepted but emptied. Every sub-field of a
+ * schedule's `retry` is optional, so a guessed `{attempts: 2}` validates clean and comes
+ * back as `{}` — a schedule written with no retry policy at all, reported as a success.
+ * The shapes these options need are served on demand rather than carried in the tool
+ * definition, so the model cannot check itself and has to be told.
+ */
+export function droppedOptionKeys(
+	supplied: Record<string, unknown>,
+	parsed: Record<string, unknown>
+): string[] {
+	return Object.keys(supplied).filter(
+		(key) => !isEmptyValue(supplied[key]) && isEmptyValue(parsed[key])
+	)
+}
+
 export function formatToolError(error: any): string {
 	const bodyMessage =
 		error?.body?.error?.message ??

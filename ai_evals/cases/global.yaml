@@ -567,6 +567,40 @@
     - passes dry_run as true
     - leaves only the schedule draft for review
 
+- id: global-test29-schedule-with-retry-and-error-handler
+  prompt: |-
+    The workspace already has a report digest helper.
+    Schedule it every morning at 6am UTC with `dry_run` on, and have it retry twice
+    if it fails. Run it on our `nightly` worker group.
+    Draft only, I'll review before deploying.
+  initial: ai_evals/fixtures/frontend/global/initial/report_digest_script.json
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: schedule
+        pathIncludes:
+          - digest
+        valueIncludes:
+          - f/evals/global/send_report_digest
+          - attempts
+          - nightly
+  toolExpect:
+    requiredToolsUsed:
+      - write_schedule
+      - get_schedule_schema
+    forbiddenToolsUsed:
+      - write_script
+      - write_flow
+      - deploy_workspace_item
+  judgeChecklist:
+    - finds the existing report digest helper rather than creating a new script or flow
+    - creates one schedule draft for that helper running daily around 06:00 UTC
+    - configures a retry policy with two attempts
+    - routes the schedule to the nightly worker tag
+    - leaves the schedule as a draft without deploying
+
 - id: global-test18-human-slack-resource-with-secret
   prompt: |-
     I'm preparing Slack notifications for eval failures.

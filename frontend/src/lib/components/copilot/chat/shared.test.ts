@@ -149,6 +149,16 @@ describe('createToolDef', () => {
 			expect(served.properties?.is_flow).toBeUndefined()
 			expect(served.properties?.path).toBeUndefined()
 		}
+
+		// Same for the schedule options served on demand. The runnable target still wins
+		// on merge, so this is about not advertising a field the model cannot influence.
+		const getScheduleSchema = createWorkspaceMutationTools().find(
+			(tool) => tool.def.function.name === 'get_schedule_schema'
+		)!
+		const schedule = JSON.parse(await getScheduleSchema.fn({ args: {} } as any))
+		expect(schedule.properties?.script_path).toBeUndefined()
+		expect(schedule.properties?.is_flow).toBeUndefined()
+		expect(schedule.properties).toHaveProperty('retry')
 	})
 })
 
