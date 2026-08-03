@@ -87,8 +87,7 @@
 
 	let buttonEl: HTMLButtonElement | undefined = $state(undefined)
 
-	// An enclosing pane claims the overlays opened inside it (see overlayHost), so they
-	// stay in that pane instead of covering the app; elsewhere this is the document body.
+	// Overlays belong to the enclosing pane when there is one — see overlayHost.
 	const hostPortal = overlayPortalTarget('body')
 
 	const {
@@ -121,8 +120,6 @@
 		}
 	})
 
-	// melt's `portal` is a store, and the host element only binds once its children have
-	// initialised — a creation-time value alone would always miss it.
 	$effect(() => {
 		$portalOption = hostPortal()
 	})

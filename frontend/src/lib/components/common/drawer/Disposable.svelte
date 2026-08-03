@@ -103,8 +103,7 @@
 	}
 
 	function onKeyDown(event: KeyboardEvent) {
-		// A host that is off screen keeps its overlays mounted; they must not answer for
-		// the pane the user is actually looking at (see overlayHost).
+		// Hidden hosts stay mounted and still receive window keys — see overlayHost.
 		if (!hostActive()) return
 		if (open) {
 			switch (event.key) {

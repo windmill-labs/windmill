@@ -77,13 +77,6 @@
 	let mounted = false
 	const dispatch = createEventDispatcher()
 
-	// A percentage size follows its container, which — anchored in a pane rather than the
-	// viewport — can leave the drawer too narrow to use. Pixel sizes already state their
-	// intent, so only percentages take the floor.
-	const floor = $derived(size.trim().endsWith('%') ? `min(${minSize}, 100%)` : '0px')
-
-	let style = $derived(`--duration: ${duration}s; --size: ${size}; --min-size: ${floor};`)
-
 	function scrollLock(open: boolean) {
 		if (BROWSER) {
 			const body = document.querySelector('body')
@@ -119,6 +112,13 @@
 	const overlayHost = getOverlayHost()
 	const host = $derived(shouldUsePortal ? overlayHost?.el() : undefined)
 	const posClass = $derived(positionClass ?? (host ? '!absolute' : undefined))
+
+	// A percentage size follows its container, and a pane is far narrower than the viewport
+	// the percentage was chosen against, so it can leave the drawer unusably thin. Pixel
+	// sizes already state their intent, and unhosted drawers keep the size they always had.
+	const floor = $derived(host && size.trim().endsWith('%') ? `min(${minSize}, 100%)` : '0px')
+
+	let style = $derived(`--duration: ${duration}s; --size: ${size}; --min-size: ${floor};`)
 
 	const aiChatOpen = $derived(chatState.size > 0 && !host)
 </script>

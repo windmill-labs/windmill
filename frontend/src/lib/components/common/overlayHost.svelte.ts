@@ -42,20 +42,27 @@ export function overlayStack(): OverlayStack {
 }
 
 /**
- * Portal target for an overlay: the host pane when one encloses this component, else the
- * given fallback.
+ * Portal target for an overlay: the caller's own `fallback` container, resolved within the
+ * enclosing host pane when there is one.
  *
- * An id fallback such as `#flow-editor` is not necessarily unique — a session keeps every
- * visited tab mounted, so querySelector would drop the overlay into whichever editor came
- * first in the DOM. That tab is `opacity-0 pointer-events-none`, so the overlay renders
- * invisibly.
+ * An id fallback such as `#flow-editor` is not unique — a session keeps every visited tab
+ * mounted, so a document-wide querySelector would drop the overlay into whichever editor
+ * came first in the DOM. That tab is `opacity-0 pointer-events-none`, so the overlay
+ * renders invisibly. Scoping the lookup to the host keeps the caller's chosen container
+ * (which sets the overlay's offset parent and clipping) while picking this tab's copy of
+ * it; a fallback that names nothing inside the host, such as `body`, falls back to the
+ * host itself.
  *
  * Reads context, so call it during component initialisation; call the returned getter
  * where the target is used, to stay reactive as the host element mounts.
  */
 export function overlayPortalTarget(fallback: string): () => HTMLElement | string {
 	const host = getOverlayHost()
-	return () => host?.el() ?? fallback
+	return () => {
+		const el = host?.el()
+		if (!el) return fallback
+		return el.querySelector<HTMLElement>(fallback) ?? el
+	}
 }
 
 /**

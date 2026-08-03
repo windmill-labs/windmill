@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
+	import ConditionalPortal from '$lib/components/common/drawer/ConditionalPortal.svelte'
 	import {
 		getOverlayHost,
 		overlayHostActive,
@@ -46,11 +47,13 @@
 	}: Props = $props()
 	const type = $derived(_type ?? 'danger')
 
-	// Anchored to the enclosing pane when there is one (see overlayHost) so the dialog
-	// covers that pane rather than the whole app, matching Drawer.
+	// Anchored to the enclosing pane when there is one (see overlayHost): portalled into it
+	// and positioned against it, so the dialog covers that pane rather than the whole app.
+	// Both halves are required — `absolute` resolves against the nearest positioned DOM
+	// ancestor, which without the portal is whatever box the caller happens to sit in.
 	const overlayHost = getOverlayHost()
-	const hosted = $derived(!!overlayHost?.el())
-	const posClass = $derived(hosted ? 'absolute' : 'fixed')
+	const hostEl = $derived(overlayHost?.el())
+	const posClass = $derived(hostEl ? 'absolute' : 'fixed')
 
 	// Enter here confirms, so an open dialog buried under another overlay must not answer
 	// for it — only the topmost overlay handles keys.
@@ -60,8 +63,7 @@
 	const dispatch = createEventDispatcher()
 
 	function onKeyDown(event: KeyboardEvent) {
-		// A host that is off screen keeps its overlays mounted; they must not answer for
-		// the pane the user is actually looking at (see overlayHost).
+		// Hidden hosts stay mounted and still receive window keys — see overlayHost.
 		if (!hostActive()) return
 		if (open && keyListen && overlay.isTopmost()) {
 			// Only intercept Enter/Escape (without modifiers) so shortcuts like
@@ -124,81 +126,83 @@
 
 <svelte:window onkeydowncapture={onKeyDown} />
 
-{#if open}
-	<div
-		transition:fadeFast|local
-		class={twMerge(posClass, 'top-0 bottom-0 left-0 right-0', zIndexClass)}
-		role="dialog"
-		{id}
-	>
+<ConditionalPortal condition={!!hostEl} target={hostEl} class="contents">
+	{#if open}
 		<div
-			class={classNames(
-				posClass,
-				'inset-0 bg-gray-500 bg-opacity-75 transition-opacity',
-				open ? 'ease-out duration-300 opacity-100' : 'ease-in duration-200 opacity-0'
-			)}
-		></div>
+			transition:fadeFast|local
+			class={twMerge(posClass, 'top-0 bottom-0 left-0 right-0', zIndexClass)}
+			role="dialog"
+			{id}
+		>
+			<div
+				class={classNames(
+					posClass,
+					'inset-0 bg-gray-500 bg-opacity-75 transition-opacity',
+					open ? 'ease-out duration-300 opacity-100' : 'ease-in duration-200 opacity-0'
+				)}
+			></div>
 
-		<div class="{posClass} inset-0 z-10 overflow-y-auto">
-			<div class="flex min-h-full items-center justify-center p-4">
-				<div
-					class={classNames(
-						'relative transform overflow-hidden rounded-lg bg-surface px-4 pt-5 pb-4 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg sm:p-6',
-						open
-							? 'ease-out duration-300 opacity-100 translate-y-0 sm:scale-100'
-							: 'ease-in duration-200 opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95'
-					)}
-				>
-					<div class="flex">
-						{#if showIcon}
-							<div
-								class={`flex h-12 w-12 items-center justify-center rounded-full ${theme[type].classes.iconWrapper}`}
-							>
-								<Icon class={theme[type].classes.icon} />
-							</div>
-						{/if}
-						<div class={twMerge('ml-0 text-left flex-1 ', showIcon ? 'ml-4' : '')}>
-							<h3 class="text-lg font-medium text-primary">
-								{title}
-							</h3>
-							<div class="mt-2 text-sm text-secondary">
-								{@render children?.()}
-							</div>
-							{#if trashbin}
-								<p class="mt-3 text-xs text-tertiary"
-									>This item will be moved to the trashbin and can be restored by a workspace admin
-									within 3 days.</p
+			<div class="{posClass} inset-0 z-10 overflow-y-auto">
+				<div class="flex min-h-full items-center justify-center p-4">
+					<div
+						class={classNames(
+							'relative transform overflow-hidden rounded-lg bg-surface px-4 pt-5 pb-4 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg sm:p-6',
+							open
+								? 'ease-out duration-300 opacity-100 translate-y-0 sm:scale-100'
+								: 'ease-in duration-200 opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95'
+						)}
+					>
+						<div class="flex">
+							{#if showIcon}
+								<div
+									class={`flex h-12 w-12 items-center justify-center rounded-full ${theme[type].classes.iconWrapper}`}
 								>
+									<Icon class={theme[type].classes.icon} />
+								</div>
 							{/if}
+							<div class={twMerge('ml-0 text-left flex-1 ', showIcon ? 'ml-4' : '')}>
+								<h3 class="text-lg font-medium text-primary">
+									{title}
+								</h3>
+								<div class="mt-2 text-sm text-secondary">
+									{@render children?.()}
+								</div>
+								{#if trashbin}
+									<p class="mt-3 text-xs text-tertiary"
+										>This item will be moved to the trashbin and can be restored by a workspace
+										admin within 3 days.</p
+									>
+								{/if}
+							</div>
 						</div>
-					</div>
-					<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">
-						<Button
-							disabled={loading}
-							on:click={() => (dispatch('confirmed'), onConfirmed?.())}
-							color={theme[type].color}
-							size="sm"
-							shortCut={{ Icon: CornerDownLeft, hide: !keyListen, withoutModifier: true }}
-							variant="accent"
-							destructive={type === 'danger'}
-						>
-							{#if loading}
-								<Loader2 class="animate-spin" />
-							{/if}
-							<span class="min-w-20">{confirmationText} </span>
-						</Button>
-						<Button
-							disabled={loading}
-							on:click={() => (dispatch('canceled'), onCanceled?.())}
-							variant="default"
-							size="sm"
-							shortCut={{ key: 'Esc', hide: !keyListen, withoutModifier: true }}
-						>
-							Cancel
-						</Button>
+						<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">
+							<Button
+								disabled={loading}
+								on:click={() => (dispatch('confirmed'), onConfirmed?.())}
+								color={theme[type].color}
+								size="sm"
+								shortCut={{ Icon: CornerDownLeft, hide: !keyListen, withoutModifier: true }}
+								variant="accent"
+								destructive={type === 'danger'}
+							>
+								{#if loading}
+									<Loader2 class="animate-spin" />
+								{/if}
+								<span class="min-w-20">{confirmationText} </span>
+							</Button>
+							<Button
+								disabled={loading}
+								on:click={() => (dispatch('canceled'), onCanceled?.())}
+								variant="default"
+								size="sm"
+								shortCut={{ key: 'Esc', hide: !keyListen, withoutModifier: true }}
+							>
+								Cancel
+							</Button>
+						</div>
 					</div>
 				</div>
 			</div>
 		</div>
-	</div>
-{/if}
+	{/if}
+</ConditionalPortal>
