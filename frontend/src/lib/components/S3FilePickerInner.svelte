@@ -180,6 +180,12 @@
 	/** Identifies the metadata request that currently owns the preview pane. */
 	let metadataRequestId = 0
 
+	/**
+	 * Flat pagination cursor: `listMarkers[n]` is where page `n + 1` resumes, so `page`
+	 * may only advance over a page that actually loaded. Running ahead of `listMarkers`
+	 * sends no marker and silently replays the first page, and never recovers, because
+	 * the `listMarkers.length == page` guard stops recording from then on.
+	 */
 	let listMarkers: string[]
 	let page = $state(0)
 
@@ -529,12 +535,7 @@
 		return true
 	}
 
-	/**
-	 * Flat "Load more" / "Keep looking". The cursor lives in `page`, which indexes
-	 * `listMarkers`, so a page that fails must give it back: retrying from an advanced
-	 * `page` reads a marker slot that was never filled, sends none, and silently replays
-	 * the first page — and the `listMarkers.length == page` guard then never recovers.
-	 */
+	/** Flat "Load more" / "Keep looking": a page that fails has to give the cursor back. */
 	async function loadNextFlatPage() {
 		// The page number alone does not identify our advance: a filter or storage change
 		// resets the cursor, and the replacement listing can reach the same number before
@@ -625,9 +626,7 @@
 		}
 		// A short page means the listing is exhausted. Deriving "there is more" from
 		// `count % maxKeys` instead would keep offering another page whenever the total
-		// happens to be an exact multiple of the page size, and each of those clicks
-		// runs off the end of `listMarkers`, sends no marker, and silently re-fetches
-		// the first page.
+		// happens to be an exact multiple of the page size.
 		// Searching returns an explicit cursor because it skips over keys that did not
 		// match, so the last *returned* key is not where the next page resumes.
 		const serverMarker = availableFiles.next_marker ?? undefined
@@ -821,9 +820,7 @@
 			return
 		}
 		const currentPage = page
-		// Every page here has to land, starting with the fresh first one: `page` indexes
-		// `listMarkers`, so replaying on top of a listing that never loaded leaves it ahead
-		// of the markers for good, which silently breaks every later "Load more".
+		// Every page here has to land, starting with the fresh first one.
 		if (await clearAndLoadFiles()) {
 			for (let i = 0; i < currentPage; i++) {
 				page = i + 1
