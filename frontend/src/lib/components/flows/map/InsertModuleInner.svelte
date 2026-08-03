@@ -46,7 +46,9 @@
 	let width = $state(0)
 	let height = $state(0)
 	let owners = $state([])
-	let displayPath = $derived(width > 650 || height > 400)
+	// Thresholds mirror the popover's default size, so paths only appear once the user resizes it
+	// bigger. Keep them in sync with contentClasses in InsertModulePopover.svelte.
+	let displayPath = $derived(width > 650 || height > 480)
 </script>
 
 <div
@@ -84,7 +86,7 @@
 
 	<div class="flex flex-row grow min-h-0 gap-2">
 		{#if kind === 'script'}
-			<div class="flex-none flex flex-col text-xs text-primary overflow-auto gap-1">
+			<div class="flex-none w-40 flex flex-col text-xs text-primary overflow-auto gap-1">
 				<TopLevelNode
 					label="Action"
 					selected={selectedKind === 'script'}
@@ -188,14 +190,14 @@
 						/>
 					{/if}
 					{#if customUi?.aiSandbox != false}
-					<TopLevelNode
-						label="AI Sandbox"
-						selected={selectedKind === 'aisandbox'}
-						onSelect={() => {
-							selectedKind = 'aisandbox'
-						}}
-					/>
-				{/if}
+						<TopLevelNode
+							label="AI Sandbox"
+							selected={selectedKind === 'aisandbox'}
+							onSelect={() => {
+								selectedKind = 'aisandbox'
+							}}
+						/>
+					{/if}
 				{/if}
 			</div>
 		{/if}
