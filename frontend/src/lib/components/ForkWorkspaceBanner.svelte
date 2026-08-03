@@ -83,9 +83,13 @@
 		}
 	}
 
+	// Opens the direction the button offers, so the label and the list agree: a fork
+	// with nothing to deploy lands on the update side rather than on an empty deploy
+	// list.
 	function openComparisonDrawer() {
 		if (parentWorkspaceId && $workspaceStore) {
-			goto('/forks/compare?workspace_id=' + encodeURIComponent($workspaceStore), {
+			const dir = changesAhead > 0 ? '' : '&dir=update'
+			goto('/forks/compare?workspace_id=' + encodeURIComponent($workspaceStore) + dir, {
 				replaceState: true
 			})
 		}

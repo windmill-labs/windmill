@@ -382,11 +382,10 @@ export function diffRemovesInTarget(diff: WorkspaceDiffSides, mergeIntoParent: b
 }
 
 /**
- * Rows a deploy in this direction can act on. A merge carries what the fork *has*,
- * so an item only the parent has is left out whatever `ahead` says — it is no fork
- * change (see `diffRemovesInTarget`). An arbitrary target keeps it: that one-way
- * sync has no tally, so target-only really does mean "remove there". The update
- * direction takes any such row, which can carry `behind = 0` and would else be lost.
+ * Rows a deploy in this direction can act on. A merge carries what the fork *has*:
+ * an item only the parent has is no fork change (see `diffRemovesInTarget`), while
+ * the update direction takes it whatever the counters say. Only an arbitrary target
+ * merges one — that one-way sync has no tally, so target-only does mean "remove".
  */
 export function diffActionableInDirection(
 	diff: WorkspaceDiffSides,
