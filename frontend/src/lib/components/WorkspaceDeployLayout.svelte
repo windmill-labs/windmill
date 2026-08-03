@@ -195,6 +195,13 @@
 					{#if showGroupHeaders}
 						{@const selectable = groupSelectable(group)}
 						{@const selectedCount = selectable.filter((i) => selectedItems.includes(i.key)).length}
+						<!-- The label counts every ticked row, bulk-excluded ones included: those
+						     are deployed like any other, and reporting only the bulk-selectable
+						     ones would contradict the deploy button. The checkbox above keeps its
+						     own count, which must ignore them to reach a full-checked state. -->
+						{@const selectedInGroup = group.items.filter((i) =>
+							selectedItems.includes(i.key)
+						).length}
 						<!-- The disabled-state hint lives on the row: a disabled Checkbox is
 						     pointer-events-none, so a title on the input would never show. -->
 						<div
@@ -219,8 +226,8 @@
 							{/if}
 							<span class="text-xs font-semibold text-secondary truncate">{group.label}</span>
 							<span class="text-2xs text-tertiary whitespace-nowrap">
-								{group.items.length} item{group.items.length !== 1 ? 's' : ''}{selectedCount > 0
-									? ` · ${selectedCount} selected`
+								{group.items.length} item{group.items.length !== 1 ? 's' : ''}{selectedInGroup > 0
+									? ` · ${selectedInGroup} selected`
 									: ''}
 							</span>
 							{#if groupActions}

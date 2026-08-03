@@ -384,8 +384,9 @@ export function diffRemovesInTarget(diff: WorkspaceDiffSides, mergeIntoParent: b
 /**
  * Rows a deploy in this direction can act on. The fork can take any item the
  * parent has and it lacks whatever the counters say — a parent-only row can carry
- * `behind = 0` (see `diffRemovesInTarget`) and would else be unpullable. Not
- * mirrored: a fork-only row with no `ahead` means the parent dropped it.
+ * `behind = 0` (see `diffRemovesInTarget`) and would else be unpullable. The merge
+ * direction is not mirrored: a fork-only row with no `ahead` is one the parent
+ * dropped, and merging must not re-create it there.
  */
 export function diffActionableInDirection(
 	diff: WorkspaceDiffSides,

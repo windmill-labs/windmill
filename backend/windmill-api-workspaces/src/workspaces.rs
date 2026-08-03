@@ -5966,7 +5966,14 @@ async fn clone_scripts(
     .execute(&mut **tx)
     .await?;
 
-    clear_orphaned_compat_address(tx, "script", "hash", source_workspace_id, target_workspace_id).await?;
+    clear_orphaned_compat_address(
+        tx,
+        "script",
+        "hash",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .await?;
 
     Ok(())
 }
@@ -6204,7 +6211,8 @@ async fn clone_flows(
     .execute(&mut **tx)
     .await?;
 
-    clear_orphaned_compat_address(tx, "flow", "path", source_workspace_id, target_workspace_id).await?;
+    clear_orphaned_compat_address(tx, "flow", "path", source_workspace_id, target_workspace_id)
+        .await?;
 
     // Then clone flow versions
     let flow_versions = sqlx::query!(
@@ -9576,11 +9584,22 @@ async fn compare_workspaces(
             .iter()
             .map(|s| s.ahead)
             .fold(0, |acc, s| acc + s.try_into().unwrap_or(0));
+    // An item the source has and the fork does not is offered to the fork whatever
+    // its `behind` counter says (the tally credits `ahead` for every deploy event in
+    // the fork, a pull of the source's own item included), so such a row can carry
+    // `behind = 0` and be dropped by the filter without moving either sum. Count the
+    // rows themselves, else a hidden one leaves the update direction claiming that
+    // nothing is withheld.
+    let source_only = |d: &WorkspaceDiffRow| {
+        d.exists_in_source.unwrap_or(false) && !d.exists_in_fork.unwrap_or(false)
+    };
     let all_behind_items_visible = summary.total_behind
         == confirmed_diffs
             .iter()
             .map(|s| s.behind)
-            .fold(0, |acc, s| acc + s.try_into().unwrap_or(0));
+            .fold(0, |acc, s| acc + s.try_into().unwrap_or(0))
+        && visible_diffs.iter().filter(|d| source_only(d)).count()
+            == confirmed_diffs.iter().filter(|d| source_only(d)).count();
 
     // Blast-radius guard for the "changes not visible to your user" warning
     // (which hides the deploy button). The flag is a pure visibility guarantee —
@@ -9629,7 +9648,10 @@ async fn compare_workspaces(
                     .push(HiddenItem { kind: d.kind.clone(), path: d.path.clone() });
             }
         }
-        if d.behind > 0 {
+        // `source_only` for the same reason it gates the flag above: such a row is
+        // offered to the fork on its existence alone, so a hidden one is withheld
+        // from the update direction even at `behind = 0`.
+        if d.behind > 0 || source_only(d) {
             hidden_behind.total += 1;
             *hidden_behind.by_kind.entry(d.kind.clone()).or_default() += 1;
             if sees_all_items {

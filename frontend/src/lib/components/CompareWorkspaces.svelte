@@ -892,9 +892,15 @@
 		const filtered = bulkSelectableDiffs.filter(
 			(d) => !isTriggerOrScheduleKind(d.kind) && !hasDraft(d)
 		)
+		// The update direction leaves out two ambiguous shapes, both still one click
+		// away through "Select all": a conflict, and a parent-only row the fork has
+		// deploy events for — the fork may have dropped it on purpose, and a routine
+		// update must not silently bring it back.
 		const conflictSafe = mergeIntoParent
 			? filtered
-			: filtered.filter((d) => !(d.ahead > 0 && d.behind > 0))
+			: filtered.filter(
+					(d) => !(d.ahead > 0 && d.behind > 0) && !(d.ahead > 0 && diffCreatesInTarget(d, false))
+				)
 		// When reached from a session's Review, narrow the default to this chat's items.
 		const scoped = chatMask ? conflictSafe.filter((d) => diffInMask(d, chatMask)) : conflictSafe
 		selectedItems = scoped
@@ -980,6 +986,12 @@
 	let removalKeys = new Set<string>()
 	$effect(() => {
 		const diffs = comparison?.diffs
+		// Which rows are removals depends on the direction, so a flip has to refresh
+		// the set: keeping the other direction's would make every row of the new one
+		// look freshly flipped and revoke the opt-in this guard exists to protect.
+		// Re-running on the flip is otherwise a no-op — the direction toggle already
+		// deselects, and the default selection never picks a removal.
+		;[mergeIntoParent]
 		if (!diffs) return
 		untrack(() => {
 			const current = new Set(diffs.filter(removesInTarget).map((d) => getItemKey(d)))
