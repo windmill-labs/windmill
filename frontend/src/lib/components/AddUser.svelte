@@ -159,7 +159,15 @@
 				would blur the field on every search-as-you-type round trip. -->
 				<Select
 					bind:value={email}
-					bind:filterText={emailFilterText}
+					bind:filterText={
+						() => emailFilterText,
+						(v) => {
+							emailFilterText = v
+							// What is typed is itself a candidate email, so `Add` stays reachable without
+							// going through the "Add new" row first.
+							if (v) email = v.trim().toLowerCase()
+						}
+					}
 					items={emailItems}
 					placeholder="email"
 					clearable
