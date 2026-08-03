@@ -300,6 +300,7 @@
 	historyManager.manualSnapshot(files ?? {}, runnables, summary, data)
 
 	let iframe: HTMLIFrameElement | undefined = $state(undefined)
+	const PREVIEW_SHELL_URL = '/ui_builder/app-preview.html'
 	let previewIframe: HTMLIFrameElement | undefined = $state(undefined)
 	let previewIframeLoaded = $state(false)
 	let lastBuild: { css: string; js: string } | undefined = undefined
@@ -1303,12 +1304,27 @@
 	// scopes were removed.
 	let previewSdkKey: string | undefined = undefined
 
-	/** Assign the prologue and re-feed, so a running preview stops using a
+	/** Assign the prologue and restart the preview, so a running app stops using a
 	 * credential the policy no longer grants. */
 	function setPreviewSdkEnv(js: string) {
+		if (js === previewSdkEnvJs) return
 		previewSdkEnvJs = js
-		if (lastBuild) feedPreviewIframe(lastBuild)
-		syncExternalPreview()
+		// Re-feeding the build is not enough: the shell resets the DOM but keeps the
+		// JavaScript realm, so the old bundle's timers, listeners and pending
+		// callbacks still hold the client they imported — and the token it captured
+		// at module load. Only reloading discards them.
+		if (!lastBuild) return // nothing running yet; the first feed carries this env
+		previewIframeLoaded = false
+		// Both shells replay the build once they are back: the iframe from its
+		// `load` handler, the detached window from its `appPreviewReady` message.
+		if (previewIframe) previewIframe.src = PREVIEW_SHELL_URL
+		if (externalPreviewWindow && !externalPreviewWindow.closed) {
+			// User app code can navigate this window elsewhere, which makes its
+			// location cross-origin and unreachable — that document holds no token.
+			try {
+				externalPreviewWindow.location.replace(PREVIEW_SHELL_URL)
+			} catch (_) {}
+		}
 	}
 
 	$effect(() => {
@@ -1401,10 +1417,7 @@
 		}
 		// Scope the window name per app path so two open editors don't fight over
 		// (or take over / close) one shared OS-level preview window.
-		const win = window.open(
-			'/ui_builder/app-preview.html',
-			`windmillRawAppPreview:${encodeURIComponent(path)}`
-		)
+		const win = window.open(PREVIEW_SHELL_URL, `windmillRawAppPreview:${encodeURIComponent(path)}`)
 		if (!win) {
 			sendUserToast('Could not open the preview window (popup blocked?)', true)
 			return
@@ -2436,7 +2449,7 @@
 								<iframe
 									bind:this={previewIframe}
 									title="App preview"
-									src="/ui_builder/app-preview.html"
+									src={PREVIEW_SHELL_URL}
 									class="w-full flex-1 block"
 								></iframe>
 								{#if buildError}
