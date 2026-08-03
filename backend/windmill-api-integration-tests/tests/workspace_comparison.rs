@@ -2415,10 +2415,9 @@ async fn test_probe_covers_every_path_keyed_table(db: Pool<Postgres>) -> anyhow:
     Ok(())
 }
 
-/// A lock-generating deploy hands its metadata to a dependency job, which runs
-/// too far from the write to speak for the path a rename left behind — so the
-/// request records that itself. Flows always generate, so without it a renamed
-/// flow leaves its old path in the parent with nothing to merge.
+/// Flows always generate a lock, so without the request reporting the path a
+/// rename left behind, a renamed flow leaves its old path in the parent with
+/// nothing to merge.
 #[cfg(feature = "private")]
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_rename_records_the_vacated_path(db: Pool<Postgres>) -> anyhow::Result<()> {

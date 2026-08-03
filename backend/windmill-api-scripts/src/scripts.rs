@@ -674,24 +674,29 @@ async fn create_script(
     tx.commit().await?;
     reregister_moved_native_triggers(&db, &authed_for_triggers, &w_id, moved_native_triggers);
     if let Some(hdm) = hdm {
-        // hdm is Some when no lock generation is needed (script is ready immediately).
-        // Trigger CI tests for any items that reference this script.
+        // Only a script that needed no lock generation is deployed and runnable by
+        // now; one that did gets its CI tests from the dependency job instead, so
+        // they don't run against a version whose lock does not exist yet — and
+        // don't run twice.
+        let ready_to_test = matches!(hdm, PostCommitDeploy::Full { .. });
         hdm.handle(&db).await?;
         let db2 = db.clone();
-        tokio::spawn(async move {
-            if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
-                &db2,
-                &w_id,
-                &script_path,
-                "script",
-                &email,
-                &username,
-            )
-            .await
-            {
-                tracing::error!(%e, "error triggering CI tests after script deploy");
-            }
-        });
+        if ready_to_test {
+            tokio::spawn(async move {
+                if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
+                    &db2,
+                    &w_id,
+                    &script_path,
+                    "script",
+                    &email,
+                    &username,
+                )
+                .await
+                {
+                    tracing::error!(%e, "error triggering CI tests after script deploy");
+                }
+            });
+        }
     }
     Ok((StatusCode::CREATED, format!("{}", hash)))
 }
@@ -707,9 +712,8 @@ enum PostCommitDeploy {
         deployment_message: Option<String>,
         renamed_from: Option<String>,
     },
-    /// Only the path a rename left behind. The dependency job handles the rest,
-    /// but it runs too far from the write to speak for that path — see
-    /// `tally_rename_vacated_path`.
+    /// Only the path a rename left behind; the dependency job handles the rest.
+    /// See `tally_rename_vacated_path`.
     VacatedPath { w_id: String, obj: DeployedObject },
 }
 
@@ -1055,8 +1059,7 @@ async fn create_script_internal<'c>(
 
     // Apply folder default_permissioned_as the first time a script is deployed
     // at this path. Check inside the transaction to avoid TOCTOU with concurrent deploys.
-    let explicit_preserve = (ns.on_behalf_of_email.is_some()
-        || ns.on_behalf_of.is_some())
+    let explicit_preserve = (ns.on_behalf_of_email.is_some() || ns.on_behalf_of.is_some())
         && ns.preserve_on_behalf_of.unwrap_or(false)
         && windmill_common::can_preserve_on_behalf_of(&authed);
     if !explicit_preserve && windmill_common::can_preserve_on_behalf_of(&authed) {
@@ -1197,13 +1200,8 @@ async fn create_script_internal<'c>(
             // CLI pushes must not produce phantom commits on the downstream
             // git repository.
             if skip_if_noop
-                && is_noop_deploy_against_parent(
-                    &ns,
-                    &ps,
-                    resolved_on_behalf_of.as_deref(),
-                    &db,
-                )
-                .await?
+                && is_noop_deploy_against_parent(&ns, &ps, resolved_on_behalf_of.as_deref(), &db)
+                    .await?
             {
                 tracing::info!(
                     workspace_id = %w_id,
@@ -2372,7 +2370,7 @@ async fn create_script_internal<'c>(
         if let Some(ref p_path) = p_path_opt {
             args.insert("parent_path".to_string(), to_raw_value(&p_path));
         }
-    
+
         let tx = PushIsolationLevel::Transaction(tx);
         let (job_id, mut new_tx) = windmill_queue::push(
             &db,
@@ -2428,16 +2426,17 @@ async fn create_script_internal<'c>(
         .await?;
 
         // The dependency job takes it from here, except for the path a rename left.
-        let vacated = p_path_opt.filter(|old| *old != script_path).map(|old| {
-            PostCommitDeploy::VacatedPath {
-                w_id: w_id.clone(),
-                obj: DeployedObject::Script {
-                    hash: hash.clone(),
-                    path: old,
-                    parent_path: None,
-                },
-            }
-        });
+        let vacated =
+            p_path_opt
+                .filter(|old| *old != script_path)
+                .map(|old| PostCommitDeploy::VacatedPath {
+                    w_id: w_id.clone(),
+                    obj: DeployedObject::Script {
+                        hash: hash.clone(),
+                        path: old,
+                        parent_path: None,
+                    },
+                });
         Ok((hash, new_tx, vacated, moved_native_triggers))
     } else {
         if codebase.is_none() {

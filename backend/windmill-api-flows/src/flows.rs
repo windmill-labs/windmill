@@ -1497,9 +1497,7 @@ async fn update_flow(
 
     new_tx.commit().await?;
 
-    // A flow's deployment metadata is handled by its dependency job, which is too
-    // far from the write to speak for the path a rename left behind — so say it
-    // here, while this request still can.
+    // See `tally_rename_vacated_path`.
     if flow_path != nf.path {
         if let Err(e) = windmill_git_sync::tally_rename_vacated_path(
             &db,
