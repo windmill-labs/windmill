@@ -89,6 +89,16 @@
 			createAsDevWorkspace = false
 		}
 	})
+	// "Create a new dev workspace" links here with ?dev=true, so the button creates what it names.
+	// Applied once eligibility is confirmed rather than at init, since the effect above would clear a
+	// toggle set while the server check is still in flight.
+	let devRequestedFromUrl = $state(page.url.searchParams.get('dev') === 'true')
+	$effect(() => {
+		if (devRequestedFromUrl && canDesignateDevWorkspace) {
+			devRequestedFromUrl = false
+			createAsDevWorkspace = true
+		}
+	})
 
 	// The base workspace to fork from. A fork's git branch is based on its parent's branch, so picking
 	// a fork here (rather than the root) yields a fork of a fork.

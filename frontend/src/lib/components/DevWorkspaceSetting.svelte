@@ -15,7 +15,7 @@
 		fetchProtectionRulesForWorkspace,
 		isRuleUnconditionallyActiveInRulesets
 	} from '$lib/workspaceProtectionRules.svelte'
-	import { GitFork, ExternalLink } from 'lucide-svelte'
+	import { GitFork, ExternalLink, Check, Minus } from 'lucide-svelte'
 	import { resource } from 'runed'
 
 	let currentWs = $derived($userWorkspaces.find((w) => w.id === $workspaceStore))
@@ -60,10 +60,11 @@
 
 	// If this workspace already blocks direct deploy / forking through an existing protection rule, keep
 	// the matching lock toggle on but locked: attaching only manages its own reserved dev-workspace rule,
-	// so turning it "off" here couldn't lift a separately-defined block. Fetched only while the attach form
-	// is on screen; a failed fetch falls back to the editable default-on toggle (real rules still enforce).
+	// so turning it "off" here couldn't lift a separately-defined block. A failed fetch falls back to the
+	// editable default-on toggle (real rules still enforce). Once paired, the same rules report which
+	// locks are actually in force.
 	const rootProtectionRules = resource(
-		() => (!parentId && !pairedDev ? $workspaceStore : undefined),
+		() => (!parentId ? $workspaceStore : undefined),
 		async (ws, _prev, { signal }) => {
 			if (!ws) return undefined
 			const rules = await fetchProtectionRulesForWorkspace(ws)
@@ -122,10 +123,16 @@
 
 	async function refresh() {
 		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
+		// Both lookups have to be refetched explicitly: neither resource's source value changes when
+		// this workspace gains or loses its dev workspace, so without this the caller who is not a
+		// member of the dev workspace (the one that reads the pairing from the server rather than
+		// from the workspace list) keeps seeing the pre-attach/detach state until the tab remounts.
+		devWorkspaceResource.refetch()
 		// Attach/detach changes this (root) workspace's protection rules; reload them so the
 		// direct-deploy / forking lock UI reflects the change without a workspace switch or reload.
 		if ($workspaceStore) {
 			await loadProtectionRules($workspaceStore)
+			rootProtectionRules.refetch()
 		}
 	}
 
@@ -199,6 +206,35 @@
 			This workspace's {devLabelNoun(pairedDev.label)} is <b>{pairedDev.name}</b> ({pairedDev.id}).
 			Edits to this workspace are redirected there.
 		</p>
+		<!-- The locks are protection rules, so being paired does not imply them: a pairing that came
+		     from the deploy_to migration rather than from an attach carries neither. -->
+		<div class="flex flex-col gap-1 rounded-md border bg-surface-secondary p-3">
+			<span class="text-xs font-semibold text-emphasis">Protections in force on this workspace</span
+			>
+			{#if rulesUnknown}
+				<span class="text-2xs text-secondary">Checking protection rules…</span>
+			{:else}
+				<span class="text-2xs text-secondary flex items-center gap-1.5">
+					{#if alreadyBlocksDeploy}<Check size={12} class="text-green-600" />{:else}<Minus
+							size={12}
+						/>{/if}
+					Direct edits {alreadyBlocksDeploy ? 'are blocked' : 'are allowed'}
+				</span>
+				<span class="text-2xs text-secondary flex items-center gap-1.5">
+					{#if alreadyBlocksForking}<Check size={12} class="text-green-600" />{:else}<Minus
+							size={12}
+						/>{/if}
+					Forking {alreadyBlocksForking ? 'is blocked' : 'is allowed'}
+				</span>
+			{/if}
+			<button
+				type="button"
+				class="text-2xs text-secondary hover:text-primary hover:underline text-left w-fit"
+				onclick={() => goto(`${base}/workspace_settings?tab=rulesets`)}
+			>
+				Manage in Rulesets
+			</button>
+		</div>
 		<div class="flex gap-2">
 			{#if pairedDev.isMember}
 				<Button
@@ -242,44 +278,53 @@
 				Change to {attachLabel === 'staging' ? 'dev' : 'staging'}
 			</button>
 		</div>
-		{#if deployLocked}
+		<div class="flex flex-col gap-2 rounded-md border bg-surface-secondary p-3">
 			<div class="flex flex-col gap-0.5">
+				<span class="text-xs font-semibold text-emphasis">Protect this workspace on attach</span>
+				<span class="text-2xs text-secondary">
+					Nothing is enforced until you attach: these add protection rules to this workspace so
+					changes are made in the dev workspace and promoted here.
+				</span>
+			</div>
+			{#if deployLocked}
+				<div class="flex flex-col gap-0.5">
+					<Toggle
+						checked
+						disabled
+						options={{
+							right: 'Block direct edits in this workspace (deploy via the dev workspace)'
+						}}
+					/>
+					{#if alreadyBlocksDeploy}
+						<span class="text-2xs text-secondary ml-11"
+							>Already enforced by an existing protection rule</span
+						>
+					{/if}
+				</div>
+			{:else}
 				<Toggle
-					checked
-					disabled
+					bind:checked={lockProdDeploy}
 					options={{
 						right: 'Block direct edits in this workspace (deploy via the dev workspace)'
 					}}
 				/>
-				{#if alreadyBlocksDeploy}
-					<span class="text-2xs text-secondary ml-11"
-						>Already enforced by an existing protection rule</span
-					>
-				{/if}
-			</div>
-		{:else}
-			<Toggle
-				bind:checked={lockProdDeploy}
-				options={{
-					right: 'Block direct edits in this workspace (deploy via the dev workspace)'
-				}}
-			/>
-		{/if}
-		{#if forkingLocked}
-			<div class="flex flex-col gap-0.5">
-				<Toggle checked disabled options={{ right: 'Prevent forking this workspace' }} />
-				{#if alreadyBlocksForking}
-					<span class="text-2xs text-secondary ml-11"
-						>Already enforced by an existing protection rule</span
-					>
-				{/if}
-			</div>
-		{:else}
-			<Toggle
-				bind:checked={lockProdForking}
-				options={{ right: 'Prevent forking this workspace' }}
-			/>
-		{/if}
+			{/if}
+			{#if forkingLocked}
+				<div class="flex flex-col gap-0.5">
+					<Toggle checked disabled options={{ right: 'Prevent forking this workspace' }} />
+					{#if alreadyBlocksForking}
+						<span class="text-2xs text-secondary ml-11"
+							>Already enforced by an existing protection rule</span
+						>
+					{/if}
+				</div>
+			{:else}
+				<Toggle
+					bind:checked={lockProdForking}
+					options={{ right: 'Prevent forking this workspace' }}
+				/>
+			{/if}
+		</div>
 		<div class="flex gap-2">
 			<Button variant="accent" disabled={busy || !selectedDevId} onclick={attach}>
 				Attach dev workspace
@@ -287,11 +332,10 @@
 			<Button
 				variant="default"
 				startIcon={{ icon: GitFork }}
-				onclick={() => goto(`${base}/user/fork_workspace`)}
+				onclick={() => goto(`${base}/user/fork_workspace?dev=true`)}
 			>
 				Create a new dev workspace
 			</Button>
 		</div>
 	</div>
 {/if}
-
