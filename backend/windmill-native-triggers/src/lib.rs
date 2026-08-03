@@ -838,16 +838,18 @@ impl RefreshFailure {
 
 /// How to report a token endpoint's answer to a refresh.
 ///
-/// Only the statuses OAuth uses to refuse a grant (RFC 6749 §5.2) mean the stored credentials
-/// are at fault and the user should reconnect. Everything else — a timeout, rate limiting, a
-/// 5xx, no answer at all — is the endpoint failing to serve a grant that may well be valid,
-/// and sending the user off to reconnect would have them fix the wrong thing.
+/// The status on an `ExternalApiError` says what the call for the *trigger* answered, and 404
+/// there means the trigger is gone — it records that on the row and lets a delete drop it. A
+/// token endpoint's status carries none of that meaning (a wrong base URL 404s it while the
+/// webhook is perfectly alive), so only a refused grant is translated, to the 401 that earns
+/// the reconnect hint. Everything else is reported with no status, as the outage it is.
 pub fn refresh_failure_status(status: Option<StatusCode>) -> Option<StatusCode> {
     match status {
+        // RFC 6749 §5.2: a refused grant answers 400, or 401/403 for client authentication.
         Some(StatusCode::BAD_REQUEST | StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) => {
             Some(StatusCode::UNAUTHORIZED)
         }
-        other => other,
+        _ => None,
     }
 }
 

@@ -765,21 +765,29 @@ fn test_provider_404_is_recognized() {
 }
 
 /// Sending a user to reconnect their integration is only right when the token endpoint refused
-/// the grant. A busy or broken endpoint has them fix credentials that are fine.
+/// the grant; a busy or broken endpoint has them fix credentials that are fine. And a token
+/// endpoint's status must never reach the trigger's, where 404 means the webhook is gone and
+/// drops the row.
 #[test]
-fn test_only_a_refused_grant_blames_the_credentials() {
-    let rejected = |code: u16| {
-        refresh_failure_status(Some(StatusCode::from_u16(code).unwrap()))
-            == Some(StatusCode::UNAUTHORIZED)
-    };
-    assert!(rejected(400), "invalid_grant answers with 400");
-    assert!(rejected(401));
-    assert!(rejected(403));
-    assert!(!rejected(408), "a timeout is not a credential problem");
-    assert!(!rejected(429), "rate limiting is not a credential problem");
-    assert!(!rejected(503));
+fn test_refresh_failures_blame_only_the_grant_they_refuse() {
+    let status = |code: u16| refresh_failure_status(Some(StatusCode::from_u16(code).unwrap()));
+    for refused in [400, 401, 403] {
+        assert_eq!(status(refused), Some(StatusCode::UNAUTHORIZED), "{refused}");
+    }
+    for other in [404, 408, 429, 500, 503] {
+        assert_eq!(
+            status(other),
+            None,
+            "{other} from the token endpoint says nothing about the trigger"
+        );
+    }
     assert_eq!(refresh_failure_status(None), None);
+}
 
+/// A service that is busy or broken has not refused anything, and callers react differently to
+/// the two.
+#[test]
+fn test_transient_service_failures_are_not_refusals() {
     for transient in [408, 429, 503] {
         let err = nextcloud_error(StatusCode::from_u16(transient).unwrap(), "{}");
         assert!(
