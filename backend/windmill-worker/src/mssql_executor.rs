@@ -55,8 +55,6 @@ struct MssqlDatabase {
     tenant_id: Option<String>,
     #[serde(default, deserialize_with = "empty_as_none")]
     client_id: Option<String>,
-    #[serde(default, deserialize_with = "empty_as_none")]
-    federated_token_file: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -160,7 +158,6 @@ pub async fn do_mssql(
         let workload_identity = WorkloadIdentityConfig::resolve(
             database.tenant_id.as_deref(),
             database.client_id.as_deref(),
-            database.federated_token_file.as_deref(),
         )?;
         let logs = format!(
             "\nUsing Azure Workload Identity (client id {})",

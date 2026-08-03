@@ -710,7 +710,6 @@ ta9ELulniZau8zUAtwqwecxodzl+KO8NYj0a9PGgAM64dMqkRtRA8P4UP350Nag3\n\
             use_workload_identity: None,
             tenant_id: None,
             client_id: None,
-            federated_token_file: None,
         }
     }
 
@@ -834,16 +833,14 @@ pub struct PgDatabase {
     pub region: Option<String>,
     /// Azure Entra ID authentication (Azure Database for PostgreSQL): the worker's
     /// federated identity is exchanged for an access token used as the password.
-    /// The `tenant_id` / `client_id` / `federated_token_file` below override the
-    /// env vars the Azure workload identity webhook injects into the pod.
+    /// The `tenant_id` / `client_id` below override the env vars the Azure workload
+    /// identity webhook injects into the pod.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub use_workload_identity: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tenant_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub client_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub federated_token_file: Option<String>,
 }
 
 // Wrapper enum to hold either Tls or NoTls connection
@@ -1103,7 +1100,6 @@ impl PgDatabase {
         let workload_identity = azure_workload_identity::WorkloadIdentityConfig::resolve(
             self.tenant_id.as_deref(),
             self.client_id.as_deref(),
-            self.federated_token_file.as_deref(),
         )?;
         let token = workload_identity
             .access_token(azure_workload_identity::AZURE_OSSRDBMS_SCOPE)
@@ -1208,7 +1204,6 @@ impl PgDatabase {
             use_workload_identity: None,
             tenant_id: None,
             client_id: None,
-            federated_token_file: None,
         })
     }
 }

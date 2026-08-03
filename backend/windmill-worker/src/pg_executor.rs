@@ -78,21 +78,35 @@ enum PgAuthMode {
 }
 
 impl PgAuthMode {
-    fn of(database: &PgDatabase) -> Self {
-        if database.use_iam_auth == Some(true) {
-            PgAuthMode::Iam
-        } else if database.use_workload_identity == Some(true) {
-            PgAuthMode::WorkloadIdentity
-        } else {
-            PgAuthMode::Password
+    fn of(database: &PgDatabase) -> error::Result<Self> {
+        match (
+            database.use_iam_auth == Some(true),
+            database.use_workload_identity == Some(true),
+        ) {
+            (true, true) => Err(Error::BadRequest(
+                "Set only one of use_iam_auth and use_workload_identity on the resource"
+                    .to_string(),
+            )),
+            (true, false) => Ok(PgAuthMode::Iam),
+            (false, true) => Ok(PgAuthMode::WorkloadIdentity),
+            (false, false) => Ok(PgAuthMode::Password),
         }
     }
 
-    fn cache_key_segment(&self) -> &'static str {
+    /// The identity has to be part of the key too, not just the mode: `to_uri()` carries
+    /// the one password auth uses, and nothing carries the Entra one, so without this two
+    /// resources differing only by `client_id` would share a connection.
+    fn cache_key_segment(&self, database: &PgDatabase) -> String {
         match self {
-            PgAuthMode::Password => "",
-            PgAuthMode::Iam => "&iam=true",
-            PgAuthMode::WorkloadIdentity => "&workload_identity=true",
+            PgAuthMode::Password => String::new(),
+            PgAuthMode::Iam => "&iam=true".to_string(),
+            PgAuthMode::WorkloadIdentity => {
+                use std::hash::{Hash, Hasher};
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                database.tenant_id.hash(&mut h);
+                database.client_id.hash(&mut h);
+                format!("&workload_identity={:x}", h.finish())
+            }
         }
     }
 }
@@ -689,7 +703,7 @@ pub async fn do_postgresql(
         annotations.result_collection
     };
 
-    let auth_mode = PgAuthMode::of(&database);
+    let auth_mode = PgAuthMode::of(&database)?;
 
     // Include the auth mode in the cache key to distinguish connections to the same host
     // authenticated differently. The cache key is static (doesn't include the token), which
@@ -714,7 +728,7 @@ pub async fn do_postgresql(
     let database_string = format!(
         "{}{}&tls={tls_disc:x}",
         database.to_uri(),
-        auth_mode.cache_key_segment()
+        auth_mode.cache_key_segment(&database)
     );
     let database_string_clone = database_string.clone();
 

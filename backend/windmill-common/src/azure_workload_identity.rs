@@ -5,7 +5,7 @@
 //! Nothing long-lived is stored on the Windmill instance.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
@@ -22,9 +22,21 @@ pub const AZURE_OSSRDBMS_SCOPE: &str = "https://ossrdbms-aad.database.windows.ne
 /// Renew an access token this long before it expires.
 const TOKEN_REFRESH_BUFFER: Duration = Duration::from_secs(5 * 60);
 
+/// A token with less life than this left is not worth handing to a connection.
+const TOKEN_MIN_LIFETIME: Duration = Duration::from_secs(30);
+
 lazy_static::lazy_static! {
     /// Access tokens keyed by identity and scope, shared by every job on the worker.
-    static ref TOKEN_CACHE: Mutex<HashMap<String, CachedToken>> = Mutex::new(HashMap::new());
+    static ref TOKEN_CACHE: Mutex<HashMap<String, Arc<TokenSlot>>> = Mutex::new(HashMap::new());
+}
+
+#[derive(Default)]
+struct TokenSlot {
+    /// Read on the hit path, so it must never be held across the exchange.
+    token: RwLock<Option<CachedToken>>,
+    /// Held for the whole exchange, so a burst of jobs on a cold or expiring entry
+    /// makes one request to Entra ID instead of one per job.
+    refreshing: tokio::sync::Mutex<()>,
 }
 
 struct CachedToken {
@@ -32,9 +44,19 @@ struct CachedToken {
     expires_at: Instant,
 }
 
+impl TokenSlot {
+    fn token_valid_for(&self, remaining: Duration) -> Option<String> {
+        let cached = self.token.read().unwrap();
+        cached
+            .as_ref()
+            .filter(|cached| Instant::now() + remaining < cached.expires_at)
+            .map(|cached| cached.token.clone())
+    }
+}
+
 /// The federated credentials of the identity the worker authenticates as. The Azure
-/// workload identity webhook injects all of them as env vars; a resource may override
-/// them so one worker can reach databases behind distinct identities.
+/// workload identity webhook injects them as env vars; a resource may override the
+/// tenant and client so one worker can reach databases behind distinct identities.
 pub struct WorkloadIdentityConfig {
     tenant_id: String,
     client_id: String,
@@ -43,33 +65,40 @@ pub struct WorkloadIdentityConfig {
 }
 
 impl WorkloadIdentityConfig {
-    pub fn resolve(
-        tenant_id: Option<&str>,
-        client_id: Option<&str>,
-        federated_token_file: Option<&str>,
-    ) -> Result<Self> {
+    pub fn resolve(tenant_id: Option<&str>, client_id: Option<&str>) -> Result<Self> {
+        fn from_env(env_var: &str) -> Option<String> {
+            std::env::var(env_var).ok().filter(|v| !v.is_empty())
+        }
+
+        fn missing(env_var: &str, overridable: bool) -> Error {
+            Error::BadConfig(format!(
+                "Workload identity authentication requires the {} env var on the worker \
+                 (injected by the Azure workload identity webhook){}",
+                env_var,
+                if overridable {
+                    " or the matching field on the resource"
+                } else {
+                    ""
+                }
+            ))
+        }
+
         fn resolve_field(resource: Option<&str>, env_var: &str) -> Result<String> {
             resource
                 .filter(|v| !v.is_empty())
                 .map(str::to_string)
-                .or_else(|| std::env::var(env_var).ok().filter(|v| !v.is_empty()))
-                .ok_or_else(|| {
-                    Error::BadConfig(format!(
-                        "Workload identity authentication requires the {} env var on the worker \
-                         (injected by the Azure workload identity webhook) or the matching field \
-                         on the resource",
-                        env_var
-                    ))
-                })
+                .or_else(|| from_env(env_var))
+                .ok_or_else(|| missing(env_var, true))
         }
 
         Ok(Self {
             tenant_id: resolve_field(tenant_id, "AZURE_TENANT_ID")?,
             client_id: resolve_field(client_id, "AZURE_CLIENT_ID")?,
-            federated_token_file: resolve_field(
-                federated_token_file,
-                "AZURE_FEDERATED_TOKEN_FILE",
-            )?,
+            // Deliberately env-only: the projected token's path is the webhook's to
+            // choose, and a resource-supplied path would let whoever runs a script
+            // probe the worker filesystem through the resulting error.
+            federated_token_file: from_env("AZURE_FEDERATED_TOKEN_FILE")
+                .ok_or_else(|| missing("AZURE_FEDERATED_TOKEN_FILE", false))?,
             authority_host: std::env::var("AZURE_AUTHORITY_HOST")
                 .ok()
                 .filter(|v| !v.is_empty())
@@ -83,8 +112,8 @@ impl WorkloadIdentityConfig {
 
     fn cache_key(&self, scope: &str) -> String {
         format!(
-            "{}|{}|{}|{}|{}",
-            self.authority_host, self.tenant_id, self.client_id, self.federated_token_file, scope
+            "{}|{}|{}|{}",
+            self.authority_host, self.tenant_id, self.client_id, scope
         )
     }
 
@@ -101,11 +130,46 @@ impl WorkloadIdentityConfig {
 
     /// An Entra ID access token for `scope`, reusing the cached one while it is valid.
     pub async fn access_token(&self, scope: &str) -> Result<String> {
-        let cache_key = self.cache_key(scope);
-        if let Some(token) = cached_token(&cache_key) {
+        let slot = self.slot(scope);
+        if let Some(token) = slot.token_valid_for(TOKEN_REFRESH_BUFFER) {
             return Ok(token);
         }
 
+        let _refreshing = slot.refreshing.lock().await;
+        // Whoever held the lock may have just refreshed it.
+        if let Some(token) = slot.token_valid_for(TOKEN_REFRESH_BUFFER) {
+            return Ok(token);
+        }
+
+        match self.request_token(scope).await {
+            Ok(fresh) => {
+                let token = fresh.token.clone();
+                *slot.token.write().unwrap() = Some(fresh);
+                Ok(token)
+            }
+            // Inside the refresh buffer the previous token still works, and Entra ID
+            // throttles bursts: a failed renewal must not fail an otherwise fine job.
+            Err(e) => match slot.token_valid_for(TOKEN_MIN_LIFETIME) {
+                Some(token) => {
+                    tracing::warn!("Keeping the current Entra ID token, renewal failed: {e:#}");
+                    Ok(token)
+                }
+                None => Err(e),
+            },
+        }
+    }
+
+    fn slot(&self, scope: &str) -> Arc<TokenSlot> {
+        let mut cache = TOKEN_CACHE.lock().unwrap();
+        // Identities come off resources, so the key space is caller-controlled: drop
+        // what has expired and that no in-flight request is holding.
+        cache.retain(|_, slot| {
+            Arc::strong_count(slot) > 1 || slot.token_valid_for(TOKEN_MIN_LIFETIME).is_some()
+        });
+        cache.entry(self.cache_key(scope)).or_default().clone()
+    }
+
+    async fn request_token(&self, scope: &str) -> Result<CachedToken> {
         // The projected token rotates on disk, so it must be re-read on every exchange.
         let assertion = tokio::fs::read_to_string(&self.federated_token_file)
             .await
@@ -161,24 +225,8 @@ impl WorkloadIdentityConfig {
             .to_string();
         let expires_in = body["expires_in"].as_u64().unwrap_or(3600);
 
-        TOKEN_CACHE.lock().unwrap().insert(
-            cache_key,
-            CachedToken {
-                token: token.clone(),
-                expires_at: Instant::now() + Duration::from_secs(expires_in),
-            },
-        );
-
-        Ok(token)
+        Ok(CachedToken { token, expires_at: Instant::now() + Duration::from_secs(expires_in) })
     }
-}
-
-fn cached_token(cache_key: &str) -> Option<String> {
-    let cache = TOKEN_CACHE.lock().unwrap();
-    cache
-        .get(cache_key)
-        .filter(|cached| Instant::now() + TOKEN_REFRESH_BUFFER < cached.expires_at)
-        .map(|cached| cached.token.clone())
 }
 
 #[cfg(test)]
@@ -214,6 +262,23 @@ mod tests {
         assert_ne!(
             config.cache_key(AZURE_SQL_SCOPE),
             config.cache_key(AZURE_OSSRDBMS_SCOPE)
+        );
+    }
+
+    /// A token inside the refresh buffer is no longer served as fresh, but is still
+    /// good enough to fall back on when the renewal itself fails.
+    #[test]
+    fn test_token_within_refresh_buffer_is_stale_but_usable() {
+        let slot = TokenSlot::default();
+        *slot.token.write().unwrap() = Some(CachedToken {
+            token: "tok".to_string(),
+            expires_at: Instant::now() + TOKEN_REFRESH_BUFFER - Duration::from_secs(60),
+        });
+
+        assert_eq!(slot.token_valid_for(TOKEN_REFRESH_BUFFER), None);
+        assert_eq!(
+            slot.token_valid_for(TOKEN_MIN_LIFETIME),
+            Some("tok".to_string())
         );
     }
 }
