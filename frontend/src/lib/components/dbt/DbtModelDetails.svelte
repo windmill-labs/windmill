@@ -57,14 +57,14 @@
 	// drops a `{{ }}` only a run can fill, so a graph refreshed before the form
 	// was filled carries empty ones — replaying those would fail every preview on
 	// a value the run form is already holding.
-	let previewPlaceholders = $derived.by(() => {
-		const { command: _cmd, ...rest } = (args ?? {}) as Record<string, any>
+	function placeholdersOf(a: Record<string, unknown> | undefined): Record<string, any> {
+		const { command: _cmd, ...rest } = (a ?? {}) as Record<string, any>
 		return rest
-	})
+	}
+	let previewPlaceholders = $derived(placeholdersOf(args))
 	// Cached per model AND per inputs, so flipping between nodes does not re-spend
 	// a worker slot, while an edited placeholder previews its own rows rather than
-	// returning the last ones. Vars only move this for a deployed graph; for a
-	// snapshot they are fixed, which is what `staleArgs` below says out loud.
+	// returning the last ones.
 	let previews = $state<Record<string, DbtPreview>>({})
 	let previewKey = $derived(
 		`${dbt.unique_id}|${JSON.stringify(previewVars)}|${JSON.stringify(previewPlaceholders)}`
@@ -116,17 +116,18 @@
 	// the selector with `resource_type:model`, so offering it on a seed, snapshot
 	// or source only ever produces a failed job.
 	let previewable = $derived(dbt.resource_type === 'model')
-	// Any argument that has moved since this graph was parsed. Both channels reach
-	// relation identity — a var directly, a placeholder through the descriptor var
-	// it fills — and they are treated differently by design (vars pinned so the
-	// rows keep describing the graph, placeholders live so a form filled after the
-	// refresh can still preview at all). That difference is exactly what a reader
-	// cannot see, so neither is allowed to diverge quietly.
-	function argShape(a: Record<string, unknown> | undefined): string {
-		const { command, ...placeholders } = (a ?? {}) as Record<string, any>
-		return JSON.stringify({ vars: command?.vars ?? {}, placeholders })
-	}
-	let staleArgs = $derived(buffer != undefined && argShape(buffer.args) !== argShape(args))
+	// Both channels reach relation identity — a var directly, a placeholder through
+	// the descriptor var it fills — but only placeholders stay live, so only they
+	// can make these rows describe another project. Kept apart because the two say
+	// opposite things to a reader, and the pinned one is a guarantee, not a risk.
+	let stalePlaceholders = $derived(
+		buffer != undefined &&
+			JSON.stringify(placeholdersOf(buffer.args)) !== JSON.stringify(previewPlaceholders)
+	)
+	let staleVars = $derived(
+		buffer != undefined &&
+			JSON.stringify(previewVars) !== JSON.stringify((args?.command as any)?.vars ?? {})
+	)
 </script>
 
 <div class="h-full flex flex-col min-h-0">
@@ -199,11 +200,17 @@
 		</div>
 	</div>
 
-	{#if staleArgs}
+	{#if stalePlaceholders}
 		<div class="shrink-0 px-2 py-1 border-b text-2xs text-secondary bg-surface-secondary">
 			The run arguments have changed since this graph was parsed, so these rows need not
 			describe the models on screen — arguments reach schemas, aliases and which models exist
 			at all. Refresh the models to draw and preview them under the current ones.
+		</div>
+	{:else if staleVars}
+		<div class="shrink-0 px-2 py-1 border-b text-2xs text-secondary bg-surface-secondary">
+			The run form's vars have changed since this graph was parsed. Rows are previewed under
+			the vars it was parsed with, so they still describe the models on screen — refresh the
+			models to draw and preview them under the current ones.
 		</div>
 	{/if}
 

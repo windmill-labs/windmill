@@ -3023,11 +3023,10 @@ async fn run_parse_only(
         by_resource_type: Default::default(),
         graph_job: None,
     };
-    // Counted before the guard below, because what dbt found does not depend on a
-    // warehouse: the node and edge SETS come from the manifest and the selection,
-    // and the warehouse only supplies the identity their `dbt://` keys are built
-    // from. The placeholder therefore never reaches a row — nothing is written on
-    // the path that uses it.
+    // Counted before the guard, because the node and edge SETS come from the
+    // manifest and the selection while the warehouse only keys them — so a project
+    // with no warehouse identity still reports what dbt found. The placeholder
+    // reaches no row: the guard below returns before anything is written.
     let ingested = windmill_common::dbt_manifest::ingest_manifest(
         &manifest,
         p.warehouse.as_deref().unwrap_or("unkeyed"),
