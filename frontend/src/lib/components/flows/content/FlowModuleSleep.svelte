@@ -10,13 +10,16 @@
 	import type { FlowEditorContext } from '../types'
 	import { getStepPropPicker } from '../previousResults'
 	import { slideDynamic } from '$lib/transitions'
+	import { SAME_WORKER_INCOMPATIBLE_MSG } from '../utils.svelte'
+	import { Alert } from '$lib/components/common'
 
 	interface Props {
 		flowModule: FlowModule
 		previousModuleId: string | undefined
+		isAgentTool?: boolean
 	}
 
-	let { flowModule = $bindable(), previousModuleId }: Props = $props()
+	let { flowModule = $bindable(), previousModuleId, isAgentTool = false }: Props = $props()
 
 	const { selectionManager, flowStore, flowStateStore, previewArgs } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -42,13 +45,21 @@
 	const result = flowStateStore.val[selectionManager.getSelectedId()]?.previewResult ?? {}
 
 	let isSleepEnabled = $derived(Boolean(flowModule.sleep))
+	// Agent tools never go through the flow scheduler, so `same_worker` doesn't apply to them.
+	let sameWorker = $derived(Boolean(!isAgentTool && flowStore.val.value.same_worker))
 </script>
 
 <div class="flex flex-col gap-2">
+	{#if sameWorker}
+		<Alert type="warning" size="xs" title="Disabled by the shared directory">
+			{SAME_WORKER_INCOMPATIBLE_MSG} Disable `Same Worker` in the flow settings to use a sleep.
+		</Alert>
+	{/if}
 	<Toggle
 		size="xs"
 		textClass="text-xs font-normal text-primary"
 		checked={isSleepEnabled}
+		disabled={sameWorker}
 		on:change={() => {
 			if (isSleepEnabled && flowModule.sleep != undefined) {
 				flowModule.sleep = undefined
@@ -63,7 +74,7 @@
 			rightDocumentationLink: 'https://www.windmill.dev/docs/flows/sleep'
 		}}
 	/>
-	{#if flowModule.sleep && schema.properties['sleep']}
+	{#if flowModule.sleep && schema.properties['sleep'] && !sameWorker}
 		<div class="pl-9" transition:slideDynamic>
 			<PropPickerWrapper
 				popover={true}

@@ -59,10 +59,13 @@
 	// import { createConfiguredEditor } from 'vscode/monaco'
 	// import type { IStandaloneCodeEditor } from 'vscode/vscode/vs/editor/standalone/browser/standaloneCodeEditor'
 
+	/** Trailing debounce window (ms) on Monaco's onDidChangeModelContent. */
+	const CHANGE_TIMEOUT = 200
+
+	let changeTimeoutId: number | undefined = undefined
+
 	let divEl: HTMLDivElement | null = null
 	let editor = $state<meditor.IStandaloneCodeEditor | null>(null)
-	// Instance-scoped so onDestroy can tell a pending keystroke debounce from none.
-	let timeoutModel: number | undefined = undefined
 	let model: meditor.ITextModel
 	let pasteListenerCleanup: (() => void) | undefined = undefined
 
@@ -100,7 +103,8 @@
 		readOnly = false,
 		minHeight = 1000,
 		renderLineHighlight = 'none',
-		suggestion
+		suggestion,
+		leadingChangeSync = false
 	}: {
 		lang: string
 		code?: string
@@ -132,6 +136,11 @@
 		minHeight?: number
 		renderLineHighlight?: 'all' | 'line' | 'gutter' | 'none'
 		suggestion?: string
+		/** Materialize `code` on the first change of a burst instead of only after
+		 * the trailing debounce. Set it when a control's enabled state derives from
+		 * `code`; leave it off where each extra sync costs work downstream (an app
+		 * code input feeding an autoRefresh runnable re-runs a job per sync). */
+		leadingChangeSync?: boolean
 	} = $props()
 
 	let yPadding = MONACO_Y_PADDING
@@ -158,8 +167,18 @@
 			code = ncode
 		}
 		editor?.setValue(ncode)
+		// setValue emits a change event of its own; drop the burst it opens so an edit
+		// made right after an authoritative overwrite still counts as a leading change.
+		cancelPendingChanges()
 		if (formatCode) {
 			format()
+		}
+	}
+
+	function cancelPendingChanges(): void {
+		if (changeTimeoutId !== undefined) {
+			clearTimeout(changeTimeoutId)
+			changeTimeoutId = undefined
 		}
 	}
 
@@ -410,12 +429,21 @@
 			pasteListenerCleanup = () => pasteTarget?.removeEventListener('keydown', onPasteKeydown, true)
 		}
 
-		editor.onDidChangeModelContent((event) => {
-			timeoutModel && clearTimeout(timeoutModel)
-			timeoutModel = setTimeout(() => {
-				timeoutModel = undefined
+		editor.onDidChangeModelContent(() => {
+			// A paste is a single change, so under a trailing-only sync `code` stays
+			// stale for CHANGE_TIMEOUT after it: a consumer gating a control on `code`
+			// (FlowYamlEditor disables "Apply changes" until it differs from a snapshot)
+			// then swallows a click made in that window. Schedule before firing so a
+			// re-entrant change from a consumer does not count as leading too.
+			const leading = leadingChangeSync && changeTimeoutId === undefined
+			cancelPendingChanges()
+			changeTimeoutId = setTimeout(() => {
+				changeTimeoutId = undefined
 				updateCode()
-			}, 200)
+			}, CHANGE_TIMEOUT)
+			if (leading) {
+				updateCode()
+			}
 		})
 		editor.onDidChangeCursorPosition((event) => {
 			if (key) editorPositionMap[key] = event.position
@@ -623,10 +651,10 @@
 	onDestroy(() => {
 		try {
 			// Same guards as Editor: only a pending keystroke debounce is ours to flush.
-			if (editor && timeoutModel !== undefined) {
+			if (editor && changeTimeoutId !== undefined) {
 				updateCode()
 			}
-			clearTimeout(timeoutModel)
+			cancelPendingChanges()
 			valueAfterDispose = getCode()
 			pasteListenerCleanup?.()
 			vimDisposable?.dispose()

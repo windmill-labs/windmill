@@ -21,6 +21,7 @@
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
+	import OnBehalfOfBadge from '$lib/components/details/OnBehalfOfBadge.svelte'
 	import { goto } from '$lib/navigation'
 	import { base } from '$lib/base'
 	import { Badge as HeaderBadge, Alert } from '$lib/components/common'
@@ -50,8 +51,7 @@
 
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
 	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
-	import { createAppFromFlow } from '$lib/components/details/createAppFromScript'
-	import { importStore } from '$lib/components/apps/store'
+	import { createRawAppFromFlow } from '$lib/components/details/createRawAppFromScript'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import FlowGraphViewerStep from '$lib/components/FlowGraphViewerStep.svelte'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
@@ -356,9 +356,11 @@
 				label: 'Build app',
 				buttonProps: {
 					onClick: async () => {
-						const app = createAppFromFlow(flow.path, flow.schema)
-						$importStore = JSON.parse(JSON.stringify(app))
-						await goto('/apps/add')
+						const app = createRawAppFromFlow(flow.path, flow.summary, flow.schema)
+						// /apps_raw/add hard-reloads (cross-origin isolation), so the
+						// in-memory importStore would be dropped; hand off via sessionStorage.
+						sessionStorage.setItem('rawAppImport', JSON.stringify(app))
+						await goto('/apps_raw/add')
 					},
 					unifiedSize: 'md',
 					variant: 'subtle',
@@ -599,6 +601,11 @@
 			{#if $workspaceStore && flow}
 				<Star kind="flow" path={flow.path} summary={flow.summary} />
 			{/if}
+			<OnBehalfOfBadge
+				onBehalfOf={flow?.on_behalf_of}
+				onBehalfOfEmail={flow?.on_behalf_of_email}
+				kind="flow"
+			/>
 			{#if flow?.value?.priority != undefined}
 				<div class="hidden md:block">
 					<HeaderBadge color="blue" variant="outlined" size="xs">

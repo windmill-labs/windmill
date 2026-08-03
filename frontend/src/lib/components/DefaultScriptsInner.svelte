@@ -7,10 +7,10 @@
 	import Alert from './common/alert/Alert.svelte'
 
 	interface Props {
-		small?: boolean;
+		small?: boolean
 	}
 
-	let { small = false }: Props = $props();
+	let { small = false }: Props = $props()
 
 	function computeLangs(defaultScripts: WorkspaceDefaultScripts | undefined): Script['language'][] {
 		const allLangs = Object.keys(defaultScriptLanguages) as Script['language'][]

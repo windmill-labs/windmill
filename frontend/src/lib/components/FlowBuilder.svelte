@@ -11,6 +11,13 @@
 	} from '$lib/gen'
 	import { initHistory, redo, undo } from '$lib/history.svelte'
 	import {
+		clearLinkedAgentTools,
+		linkedAgentToolsForScope,
+		linkedToolsScope,
+		linkedAgentToolsVersion,
+		migrateLinkedAgentToolsScope
+	} from '$lib/components/flows/linkedAgentToolsStore.svelte'
+	import {
 		enterpriseLicense,
 		userStore,
 		userWorkspaces,
@@ -43,6 +50,11 @@
 	import WorkspaceScriptSettingsDrawer from './flows/content/WorkspaceScriptSettingsDrawer.svelte'
 	import FlowEditorDrawer from './flows/content/FlowEditorDrawer.svelte'
 	import { dfs as dfsApply } from './flows/dfs'
+	import {
+		claimLinkedToolsFetch,
+		invalidateLinkedToolsFetches,
+		publishLinkedAgentTools
+	} from './flows/flowState'
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
@@ -159,11 +171,15 @@
 	// For preserve_on_behalf_of feature
 	let preserveOnBehalfOf = writable(false)
 	let savedOnBehalfOfEmail = writable<string | undefined>(savedFlow?.on_behalf_of_email)
+	let savedOnBehalfOfPermissionedAs = writable<string | undefined>(
+		savedFlow?.on_behalf_of
+	)
 
 	// Keep savedOnBehalfOfEmail in sync when savedFlow is loaded asynchronously
 	$effect(() => {
 		if (savedFlow?.on_behalf_of_email !== undefined) {
 			savedOnBehalfOfEmail.set(savedFlow.on_behalf_of_email)
+			savedOnBehalfOfPermissionedAs.set(savedFlow.on_behalf_of)
 		}
 	})
 
@@ -449,6 +465,7 @@
 						dedicated_worker: flow.dedicated_worker,
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
+						on_behalf_of: flow.on_behalf_of,
 						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
 						deployment_message: deploymentMsg || undefined,
 						labels: (flow as any).labels
@@ -497,6 +514,7 @@
 						ws_error_handler_muted: flow.ws_error_handler_muted,
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
+						on_behalf_of: flow.on_behalf_of,
 						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
 						deployment_message: deploymentMsg || undefined,
 						labels: (flow as any).labels
@@ -547,6 +565,136 @@
 	const flowEditorDrawer = writable<FlowEditorDrawer | undefined>(undefined)
 	const history = initHistory(untrack(() => flowStore).val)
 	const pathStore = writable<string>(untrack(() => pathStoreInit) ?? initialPath)
+
+	// Linked-agent tool resolutions are scoped by workspace + flow path, but publishers key by the
+	// flow doc's own path while readers use the live-edited $pathStore — which diverge for renames
+	// and renamed drafts. Sweep the doc-path bucket into the live scope on every rename and every
+	// publish (initFlowState re-runs on session-draft sync and republishes under the doc path).
+	let prevLinkedToolsScope = untrack(() => linkedToolsScope(opWorkspace, $pathStore))
+	$effect(() => {
+		linkedAgentToolsVersion()
+		const scope = linkedToolsScope(opWorkspace, $pathStore)
+		const docScope = linkedToolsScope(
+			opWorkspace,
+			(flowStore.val as { path?: string }).path ?? $pathStore
+		)
+		untrack(() => {
+			if (scope !== prevLinkedToolsScope) {
+				sweepLinkedToolsScope(prevLinkedToolsScope, scope, opWorkspace, true)
+				prevLinkedToolsScope = scope
+			}
+			if (docScope !== scope) {
+				sweepLinkedToolsScope(docScope, scope, opWorkspace, false)
+			}
+		})
+	})
+
+	// `renamed` distinguishes the two sources. After a rename every fetch still running against the
+	// old scope is stale by definition, empty bucket or not — its result would land in a scope
+	// readers have left and be swept forward later. The doc-scope sweep has no such cut-off: fetches
+	// there belong to the refresh in progress, so it only acts once that scope holds something.
+	function sweepLinkedToolsScope(
+		from: string,
+		to: string,
+		ws: string | undefined,
+		renamed: boolean
+	) {
+		const sourceHasTools = Object.keys(linkedAgentToolsForScope(from)).length > 0
+		if (!renamed && !sourceHasTools) {
+			return
+		}
+		invalidateLinkedToolsFetches(from)
+		if (sourceHasTools) {
+			migrateLinkedAgentToolsScope(from, to)
+		}
+		// Restart what that cancelled: a link still loading has nothing in `to`, whereas one whose
+		// tools migrated is already current. A link changed in the same tick keeps the old agent's
+		// tools here, so it is left for the watcher below, which compares links rather than presence.
+		const resolved = linkedAgentToolsForScope(to)
+		for (const [moduleId, agentPath] of linkedAgentEntries(linkedAgentRefs)) {
+			if (resolved[moduleId] === undefined) {
+				publishLinkedAgentTools(agentPath, ws, to, moduleId)
+			}
+		}
+	}
+
+	// Re-resolve linked agents whenever the set of links changes. Wholesale replacements — undo/redo,
+	// YAML or AI apply, session restore — swap `agent` without re-running initFlowState, and the step
+	// editor only watches the step it is mounted on, so an unselected step would keep showing (and
+	// binding against) the previous agent's tools.
+	let linkedAgentRefs = $derived(
+		dfsApply(flowStore.val.value?.modules ?? [], (m) => m, { skipToolNodes: true })
+			.flatMap((m) => {
+				const value = m?.value as
+					| { type?: string; agent?: string; tools?: { id: string; value?: unknown }[] }
+					| undefined
+				if (value?.type !== 'aiagent') {
+					return []
+				}
+				const refs = value.agent ? [`${m.id}\u0000${value.agent}`] : []
+				// A linked agent nested as a tool is invisible to the walk above (tool nodes are skipped
+				// so resource-owned ids can't alias flow modules), yet it has its own store entry under
+				// the ancestry-qualified key the step editor writes.
+				for (const tool of value.tools ?? []) {
+					const nested = tool?.value as { type?: string; agent?: string } | undefined
+					if (nested?.type === 'aiagent' && nested.agent) {
+						refs.push(`${m.id}/${tool.id}\u0000${nested.agent}`)
+					}
+				}
+				return refs
+			})
+			.filter((x): x is string => x !== undefined)
+			.join('\u0001')
+	)
+	// The link each module's stored tools belong to. Seeded with the top-level links only, because
+	// those are exactly what initFlowState resolves — seeding the whole set would mark a nested
+	// linked agent as current when nothing has fetched it, and seeding nothing would clear and
+	// refetch every step on the first run.
+	let publishedAgentByModule = untrack(() =>
+		linkedAgentEntries(
+			dfsApply(flowStore.val.value?.modules ?? [], (m) => m, { skipToolNodes: true })
+				.map((m) => {
+					const value = m?.value as { type?: string; agent?: string } | undefined
+					return value?.type === 'aiagent' && value.agent
+						? `${m.id}\u0000${value.agent}`
+						: undefined
+				})
+				.filter((x): x is string => x !== undefined)
+				.join('\u0001')
+		)
+	)
+	$effect(() => {
+		const refs = linkedAgentRefs
+		const ws = opWorkspace
+		const scope = linkedToolsScope(opWorkspace, $pathStore)
+		untrack(() => {
+			const next = linkedAgentEntries(refs)
+			// Only links that actually changed are re-resolved, so a plain rename costs nothing: the
+			// sweep above carries its buckets to the new scope and every entry compares equal. A
+			// restore that renames and relinks in one tick still gets both.
+			for (const [moduleId, agentPath] of next) {
+				if (publishedAgentByModule.get(moduleId) === agentPath) {
+					continue
+				}
+				// Drop the previous agent's tools up front: the fetch below lands later, and until it
+				// does the graph and the step's binding editor would otherwise still be showing — and
+				// writing overrides against — the tool ids of the agent that was just replaced.
+				claimLinkedToolsFetch(scope, moduleId)
+				clearLinkedAgentTools(scope, moduleId)
+				publishLinkedAgentTools(agentPath, ws, scope, moduleId)
+			}
+			publishedAgentByModule = next
+		})
+	})
+
+	function linkedAgentEntries(refs: string): Map<string, string> {
+		const entries = new Map<string, string>()
+		for (const entry of refs ? refs.split('\u0001') : []) {
+			const [moduleId, agentPath] = entry.split('\u0000')
+			entries.set(moduleId, agentPath)
+		}
+		return entries
+	}
 
 	// "Open in AI session" target: the URL draft path the editor loads/saves by
 	// (which for a new flow differs from the live-edited friendly `$pathStore`),
@@ -614,6 +762,7 @@
 		outputPickerOpenFns,
 		preserveOnBehalfOf,
 		savedOnBehalfOfEmail,
+		savedOnBehalfOfPermissionedAs,
 		opWorkspace: () => opWorkspace
 	})
 

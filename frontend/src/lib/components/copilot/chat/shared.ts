@@ -478,6 +478,9 @@ export type UserDisplayMessage = BaseDisplayMessage & {
 	// bubble. The prompt lists them by reference; the content here is the durable
 	// copy, re-registered into the session file store on load for tool reads.
 	files?: AttachedTextFile[]
+	// The client authored this turn itself (background-job auto-resume), not the
+	// user — ArrowUp recall must skip it.
+	synthetic?: boolean
 }
 
 export type CreatedResourceTriggerKind =
@@ -574,6 +577,8 @@ export type ToolDisplayMessage = {
 	result?: any
 	logs?: string
 	isLoading?: boolean
+	/** Arguments fully streamed but execution not started (see queuedToolStatus). */
+	isQueued?: boolean
 	error?: string
 	needsConfirmation?: boolean
 	showDetails?: boolean
@@ -643,6 +648,26 @@ export function isActiveUserQuestion(message: DisplayMessage | undefined): boole
 			!answeredChoices(message.userQuestion)?.length &&
 			!message.userQuestion.canceled
 	)
+}
+
+// The loop is parked on the user: an unanswered askUserQuestion, or a tool call
+// staged for confirmation. The manager stays `loading` through both, so anything
+// rendering progress must ask here first or it reports "the AI is working".
+export type PendingUserAction = 'question' | 'confirmation'
+
+// Scans back to the turn boundary, not just the last message: a turn's cards are
+// created up front and run one at a time, and text between two tool calls pushes
+// an assistant card between them, so the blocked card is rarely last. Only cards
+// of a live turn can match — every resolution path clears `isLoading`.
+export function pendingUserAction(messages: DisplayMessage[]): PendingUserAction | undefined {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const message = messages[i]
+		if (message.role === 'user') break
+		if (message.role !== 'tool') continue
+		if (isActiveUserQuestion(message)) return 'question'
+		if (message.needsConfirmation && message.isLoading) return 'confirmation'
+	}
+	return undefined
 }
 
 // Fires after every tool call resolves, with the tool name. Lets a host (e.g.
@@ -746,6 +771,7 @@ export async function processToolCall<T>({
 				content: validationError,
 				parameters: args,
 				isLoading: false,
+				isQueued: false,
 				isStreamingArguments: false,
 				error: validationError,
 				needsConfirmation: false,
@@ -770,12 +796,18 @@ export async function processToolCall<T>({
 				? tool.confirmationMessage(args)
 				: tool?.confirmationMessage
 
+		// preAction fires at promotion, not stream time, so its "-ing" label covers
+		// only the execution window — queued cards keep their imperative header.
+		// Before the promotion patch, so a confirmation label still wins the header.
+		tool?.preAction?.({ toolCallbacks, toolId: toolCall.id })
+
 		toolCallbacks.setToolStatus(toolCall.id, {
 			...(requiresConfirmation
 				? { content: confirmationContent ?? 'Waiting for confirmation...' }
 				: {}),
 			parameters: args,
 			isLoading: true,
+			isQueued: false,
 			needsConfirmation: needsConfirmation,
 			showDetails: tool?.showDetails,
 			autoCollapseDetails: tool?.autoCollapseDetails
@@ -848,6 +880,7 @@ export async function processToolCall<T>({
 		const errorMessage = formatToolError(err)
 		toolCallbacks.setToolStatus(toolCall.id, {
 			isLoading: false,
+			isQueued: false,
 			isStreamingArguments: false,
 			error: errorMessage
 		})
@@ -910,8 +943,40 @@ export interface Tool<T> {
 	streamArguments?: boolean
 	showFade?: boolean
 	/** Header shown while the model is still streaming this call's arguments,
-	 * before `fn` runs and sets a real status. Defaults to "Calling <name>...". */
+	 * before `fn` runs and sets a real status. Defaults to "Preparing <name>...". */
 	streamingLabel?: string
+	/** Header shown while the call waits its turn to execute (args fully streamed).
+	 * Pass a function to derive it from the parsed arguments (e.g. name the script
+	 * about to run). Defaults to the humanized tool name ("run_script" → "Run script"). */
+	queuedLabel?: string | ((args: any) => string)
+}
+
+/** Status patch demoting a tool call to the queued state once its arguments have
+ * fully streamed: it waits its turn (tool calls in one message run sequentially)
+ * and processToolCall flips it back to loading when execution starts. The header
+ * switches from the "-ing" streaming label to an imperative one so a waiting call
+ * doesn't read as active. */
+export function queuedToolStatus(
+	tools: Tool<any>[],
+	toolName: string,
+	argsString: string | undefined
+): Partial<ToolDisplayMessage> {
+	const tool = tools.find((t) => t.def.function.name === toolName)
+	const words = toolName
+		.replaceAll('_', ' ')
+		.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+		.toLowerCase()
+	let content = words.charAt(0).toUpperCase() + words.slice(1)
+	if (typeof tool?.queuedLabel === 'string') {
+		content = tool.queuedLabel
+	} else if (typeof tool?.queuedLabel === 'function') {
+		try {
+			content = tool.queuedLabel(JSON.parse(argsString || '{}'))
+		} catch {
+			// Truncated/invalid args: keep the humanized name; the error path handles the rest.
+		}
+	}
+	return { isLoading: false, isQueued: true, isStreamingArguments: false, content }
 }
 
 /** Status of a job the chat started and tracks in the jobs tray. Mirrors the
@@ -1127,6 +1192,18 @@ const searchHubScriptsToolDef = createToolDef(
 	'Search for scripts in the hub'
 )
 
+/** The hub resolves a script by its version id alone; the app and summary
+ * segments are descriptive only. Mirrors the paths the hub pickers build. */
+function hubScriptPath(s: { version_id: number; app: string; summary: string }): string {
+	return `hub/${s.version_id}/${s.app}/${s.summary.toLowerCase().replaceAll(/\s+/g, '_')}`
+}
+
+/** Hub scripts are hosted outside the workspace: their paths resolve through the
+ * hub endpoints only, never through workspace lookups or drafts. */
+export function isHubPath(path: string): boolean {
+	return path.startsWith('hub/')
+}
+
 export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 	def: searchHubScriptsToolDef,
 	fn: async ({ args, toolId, toolCallbacks }) => {
@@ -1138,22 +1215,29 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 			text: parsedArgs.query,
 			kind: 'script'
 		})
+		// Each result costs a content fetch, so cap the fan-out when content is wanted.
+		const matches = withContent ? scripts.slice(0, 3) : scripts
 		toolCallbacks.setToolStatus(toolId, {
-			content: 'Found ' + scripts.length + ' scripts in the hub related to "' + args.query + '"'
+			content: `Found ${matches.length} script${matches.length === 1 ? '' : 's'} in the hub related to "${parsedArgs.query}"`
 		})
-		// if withContent, fetch scripts with their content, limit to 3 results
 		const results = await Promise.all(
-			scripts.slice(0, withContent ? 3 : undefined).map(async (s) => {
-				let content = ''
-				if (withContent) {
-					content = await ScriptService.getHubScriptContentByPath({
-						path: `hub/${s.version_id}/${s.app}/${s.summary.toLowerCase().replaceAll(/\s+/g, '_')}`
-					})
+			matches.map(async (s) => {
+				const path = hubScriptPath(s)
+				if (!withContent) {
+					return { path, summary: s.summary }
 				}
-				return {
-					path: `hub/${s.version_id}/${s.app}/${s.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
-					summary: s.summary,
-					...(withContent ? { content } : {})
+				try {
+					// get_full, not the raw content endpoint: callers are told to match the
+					// script's language, which raw content does not carry.
+					const hub = await ScriptService.getHubScriptByPath({ path })
+					return { path, summary: s.summary, language: hub.language, content: hub.content }
+				} catch (err) {
+					// One unreachable script must not sink the whole search.
+					return {
+						path,
+						summary: s.summary,
+						error: `Could not fetch content: ${err instanceof Error ? err.message : String(err)}`
+					}
 				}
 			})
 		)
@@ -1486,10 +1570,14 @@ export function backgroundJobCompletionNote(
 ): string {
 	const status = job.success ? 'succeeded' : 'FAILED'
 	const resultHead = formattedResult ?? formatResult(job.result).slice(0, 2000)
+	const flowHint =
+		!job.success && (job.job_kind === 'flow' || job.job_kind === 'flowpreview')
+			? ` For per-step statuses and results call get_flow_run_details with id="${jobId}".`
+			: ''
 	return (
 		`Background job ${jobId} for "${label}" ${status}.\n` +
 		`Result: ${resultHead}\n` +
-		`(For full logs call get_job_logs with id="${jobId}".)`
+		`(For full logs call get_job_logs with id="${jobId}".${flowHint})`
 	)
 }
 
@@ -1567,7 +1655,16 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 			...(job.success ? {} : { error: getErrorMessage(job.result) })
 		})
 
-		return formatResultSummary(job.result, job.logs, job.success)
+		const summary = formatResultSummary(job.result, job.logs, job.success)
+		// get_flow_run_details only exists in the global/sessions chat (the same
+		// hosts that wire the job hooks) — don't advertise it to in-editor chats.
+		if (detachEnabled && config.contextName === 'flow' && !job.success) {
+			return (
+				summary +
+				`\n\nFor per-step statuses and results (subflow steps included), call get_flow_run_details with id="${jobId}".`
+			)
+		}
+		return summary
 	} catch (error) {
 		const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
 		config.toolCallbacks.setToolStatus(config.toolId, {

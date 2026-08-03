@@ -2029,6 +2029,8 @@ export function validateRetryConfig(retry: Retry | undefined): string | null {
 }
 export type CssColor = keyof (typeof tokensFile)['tokens']['light']
 import tokensFile from './assets/tokens/tokens.json'
+// Hand-authored variant kept out of the Figma-generated tokens.json.
+import githubDarkTokens from './assets/tokens/githubDark.json'
 import { darkModeName, lightModeName } from './assets/tokens/colorTokensConfig'
 import BarsStaggered from './components/icons/BarsStaggered.svelte'
 import { GitIcon } from './components/icons'
@@ -2041,7 +2043,7 @@ export function getCssColor(
 		format = 'css-var'
 	}: {
 		alpha?: number
-		format?: 'css-var' | 'hex-dark' | 'hex-light'
+		format?: 'css-var' | 'hex-dark' | 'hex-light' | 'hex-github-dark'
 	}
 ): string {
 	if (format === 'hex-light') {
@@ -2049,6 +2051,9 @@ export function getCssColor(
 	}
 	if (format === 'hex-dark') {
 		return tokensFile.tokens[darkModeName][color]
+	}
+	if (format === 'hex-github-dark') {
+		return githubDarkTokens[color]
 	}
 	return `rgb(var(--color-${color}) / ${alpha})`
 }
@@ -2458,4 +2463,15 @@ export function parsePrettyDate(text: string): Date | null {
 	// Fallback to standard Date parsing (e.g., ISO strings)
 	const date = new Date(text)
 	return isNaN(date.getTime()) ? null : date
+}
+
+// Surface the backend's explanation: API errors carry the real message in
+// `.body` (plain text for Windmill 4xx), while `.message` is only the generic
+// status text ("Bad Request") the generated client fills in per status code.
+export function apiErrorMessage(e: any): string {
+	const body = e?.body
+	if (typeof body === 'string' && body.trim() !== '') return body
+	if (body && typeof body === 'object')
+		return body.error?.message ?? body.message ?? JSON.stringify(body)
+	return e?.message ?? String(e)
 }

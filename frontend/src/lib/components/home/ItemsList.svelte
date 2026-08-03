@@ -47,7 +47,7 @@
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import Item from './Item.svelte'
 	import TreeViewRoot from './TreeViewRoot.svelte'
-	import type { ItemType } from './treeViewUtils'
+	import { effectivePath, type ItemType } from './treeViewUtils'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { getContext, tick, untrack } from 'svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
@@ -260,6 +260,9 @@
 				// so a folder's full contents load on demand rather than relying on the
 				// folder happening to be within the loaded browse window.
 				pathStart: ownerFilter ? ownerFilter + '/' : undefined,
+				// Your own not-yet-deployed work belongs in the list you browse; the
+				// endpoint sorts and pages it with everything else.
+				includeDraftOnly: true,
 				perPage: 100,
 				cursor
 			})
@@ -284,7 +287,7 @@
 			if (it.type === 'script') {
 				// Pipeline-member scripts are folded into their pipeline entry.
 				if (it.auto_kind === 'pipeline') {
-					const m = it.path.match(/^f\/([^/]+)\//)
+					const m = effectivePath(it).match(/^f\/([^/]+)\//)
 					if (m) memberFolders.add(m[1])
 					continue
 				}
@@ -419,6 +422,7 @@
 				includeWithoutMain: includeWithoutMain ? true : undefined,
 				kinds: itemKind !== 'all' ? itemKind : undefined,
 				pathStart: `${owner}/`,
+				includeDraftOnly: true,
 				perPage: 100,
 				cursor: more ? st?.cursor : undefined
 			})
@@ -436,7 +440,9 @@
 		// other owner's untouched) so a re-sort/re-filter swaps its items atomically
 		// without blanking the whole tree; load-more appends to what's already shown.
 		const prefix = `${owner}/`
-		const base = more ? treeOwnerItems : treeOwnerItems.filter((x) => !x.path.startsWith(prefix))
+		const base = more
+			? treeOwnerItems
+			: treeOwnerItems.filter((x) => !effectivePath(x).startsWith(prefix))
 		const have = new Set(base.map(itemKey))
 		const merged = [...base]
 		for (const it of res.items ?? []) {
@@ -460,6 +466,10 @@
 	function collapseOwner(owner: string): void {
 		openOwners.delete(owner)
 	}
+	// The `f/<folder>` / `u/<user>` prefix a path belongs to.
+	function ownerOf(path: string): string {
+		return path.split('/').slice(0, 2).join('/')
+	}
 	// Reload the merged list once and re-fetch the owners that are currently expanded so
 	// they don't go blank. Used both for row mutations (create/edit/archive/move/share)
 	// and for in-place scope changes (sort/archive/library/kind): those keep the tree in
@@ -472,11 +482,29 @@
 		// late responses can't overwrite the fresh ones.
 		treeGen++
 		const toReload = treeLazyMode ? [...openOwners] : []
+		// Only the open owners are re-fetched below; a collapsed one keeps its rows as a
+		// cache, which this reload invalidates. Left in place they would outlive the scope
+		// they were loaded for: the owner stays grouped (so it keeps a node the new counts
+		// say is empty) and, since it is still marked loaded, expanding it again shows the
+		// previous scope's items instead of re-fetching. Drop them and let expand reload.
+		if (treeLazyMode) {
+			const open = new Set(toReload)
+			treeOwnerItems = treeOwnerItems.filter((x) => open.has(ownerOf(effectivePath(x))))
+			ownerLoad = Object.fromEntries(Object.entries(ownerLoad).filter(([o]) => open.has(o)))
+		}
 		await loadRunnables(true)
 		// force: the owners are still marked loaded, so re-fetch their first page and
 		// swap it in place (loadOwnerItems replaces each owner's rows atomically — the
 		// old rows stay visible until the new ones arrive, so nothing blanks mid-reorder).
 		for (const o of toReload) loadOwnerItems(o, false, true)
+	}
+
+	// For row mutations (create/delete/move/archive), which also change how many
+	// runnables an owner holds. A scope change (sort/archive/kind/…) doesn't go
+	// through here: the counts resource keys on those itself.
+	async function reloadItemsAndCounts(): Promise<void> {
+		void ownerCountsRes.refetch()
+		await reloadItems()
 	}
 
 	function filterItemsPathsBaseOnUserFilters(
@@ -485,9 +513,10 @@
 		filterUserFoldersType: 'only f/*' | 'u/username and f/*' | undefined
 	) {
 		if (!filterUserFoldersType || !filterUserFolders) return true
-		if (filterUserFoldersType === 'only f/*') return item.path.startsWith('f/')
+		const path = effectivePath(item)
+		if (filterUserFoldersType === 'only f/*') return path.startsWith('f/')
 		if (filterUserFoldersType === 'u/username and f/*')
-			return item.path.startsWith('f/') || item.path.startsWith(`u/${$userStore?.username}/`)
+			return path.startsWith('f/') || path.startsWith(`u/${$userStore?.username}/`)
 		return true // should not happen
 	}
 
@@ -668,18 +697,56 @@
 		if (!includeWithoutMain) f.push('library scripts hidden')
 		return f
 	})
-	// Complete owner list: every folder (from the folder list, not just loaded
-	// pages) plus the user prefixes present in the loaded/filtered items. So a
-	// folder whose items are far down the stream is still a selectable chip.
-	let owners = $derived(
-		Array.from(
-			new Set([
-				...allFolderOwners,
-				...allUserOwners,
-				...(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
-			])
-		).sort()
+	// Pipeline folders qualify for a chip whenever a pipeline can render: the kind must admit
+	// one and no label filter may be active, since pipelines carry no labels. Unlike
+	// `visiblePipelineFolders` this ignores the selected owner — the chips are how you switch
+	// owners, so they must not narrow to the current one.
+	let chipPipelineFolders = $derived(
+		(itemKind === 'all' || itemKind === 'script') && labelFilter == undefined
+			? pipelineFolders
+			: new Set<string>()
 	)
+	// Owner chips: only the owners actually holding something the user can see, your own
+	// space first and the rest most-populated first. A chip for an empty owner filters to
+	// nothing, and a workspace's full folder and member lists are mostly those, so an owner
+	// counting 0 gets no chip at all — including your own space.
+	let owners = $derived.by(() => {
+		const self = $userStore?.username ? `u/${$userStore.username}` : undefined
+		const loaded = filteredItems?.map((x) => ownerOf(effectivePath(x))) ?? []
+		if (ownerCounts == undefined) {
+			// Counts still in flight: the folder/user lists resolve first, so painting the full
+			// list here would show the wall this drops and snap to the ranked set a tick later.
+			if (!archived && ownerCountsRes.loading) return []
+			// No counts (archived view, or the request failed): every owner, alphabetically.
+			return Array.from(new Set([...allFolderOwners, ...allUserOwners, ...loaded])).sort()
+		}
+		const counted = new Map<string, number>(Object.entries(ownerCounts))
+		// The pipeline is a row of its own and its member scripts are folded out of the
+		// count, so it adds one where it renders — as in the tree node's own label.
+		for (const f of chipPipelineFolders) counted.set(`f/${f}`, (counted.get(`f/${f}`) ?? 0) + 1)
+		// No owner counts below what the loaded window already shows for it: the endpoint
+		// leaves pipeline members out, and a listed item must keep its chip.
+		const onScreen = new Map<string, number>()
+		for (const o of loaded) onScreen.set(o, (onScreen.get(o) ?? 0) + 1)
+		for (const [o, n] of onScreen) counted.set(o, Math.max(counted.get(o) ?? 0, n))
+		return (
+			[...counted.keys()]
+				// The user-folder restriction drops other users' rows from the list, so their chips
+				// would filter to nothing — the same rule `filterItemsPathsBaseOnUserFilters` applies.
+				.filter(
+					(o) =>
+						!filterUserFolders ||
+						!filterUserFoldersType ||
+						o.startsWith('f/') ||
+						(filterUserFoldersType === 'u/username and f/*' && o === self)
+				)
+				.sort((a, b) => {
+					if (a === self) return -1
+					if (b === self) return 1
+					return (counted.get(b) ?? 0) - (counted.get(a) ?? 0) || cmp(a, b)
+				})
+		)
+	})
 	// Reload from the server whenever an input the endpoint resolves changes: order,
 	// archived/library scope, kind, the selected owner/folder, or entering/leaving
 	// search (see the reload effect below). Only the label filter and fuzzy ranking
@@ -694,7 +761,53 @@
 	let treeLazyMode = $derived(
 		treeView && !searching && ownerFilter == undefined && labelFilter == undefined
 	)
-	let treeInjectFolders = $derived(treeLazyMode ? (folderNamesRes.current ?? []) : [])
+	// How many runnables each owner (`f/<folder>` / `u/<user>`) holds for this user,
+	// in one request. It labels every tree node up front — a lazy owner's own count is
+	// unknown until it's expanded — and lets both the tree and the owner chips drop the
+	// owners holding nothing instead of listing every workspace folder. Owners with none
+	// are omitted from the response, so an absent key means empty. Fetched in every mode
+	// (the chips are shown in all of them) except the archived view, which the endpoint
+	// doesn't count.
+	let ownerCountsRes = resource(
+		[() => $workspaceStore, () => archived, () => itemKind, () => includeWithoutMain],
+		async ([ws, showArchived, kind, withoutMain]) => {
+			if (!ws || showArchived) return undefined
+			try {
+				const res = await ScriptService.countRunnablesByOwner({
+					workspace: ws,
+					kinds: kind !== 'all' ? kind : undefined,
+					includeWithoutMain: withoutMain ? true : undefined,
+					// Same scope as the listing, so a badge counts the rows behind it.
+					includeDraftOnly: true
+				})
+				return res.counts
+			} catch {
+				// Best-effort: without counts the tree and the chips fall back to every owner.
+				return undefined
+			}
+		}
+	)
+	let ownerCounts = $derived(ownerCountsRes.current)
+	// The counts decide which owners the tree renders, so drawing it before they land
+	// would show every workspace folder and then prune it away. Hold the skeleton
+	// until the first response instead — it is fetched in parallel with the listing,
+	// so it costs no extra wait in practice. Only the first load gates: `current`
+	// survives a refetch, so an in-place scope change refreshes without flashing.
+	let treeCountsPending = $derived(
+		treeLazyMode && ownerCountsRes.current == undefined && ownerCountsRes.loading
+	)
+
+	// Owners the counts found the user has something in, split by kind. They cover
+	// what the folder/username lists miss: an item shared individually out of a
+	// folder or user space the user is otherwise not a member of.
+	function countOwners(kind: 'f' | 'u'): string[] {
+		return Object.keys(ownerCounts ?? {})
+			.filter((k) => k.startsWith(`${kind}/`))
+			.map((k) => k.slice(2))
+	}
+	let treeInjectFolders = $derived(
+		treeLazyMode ? [...new Set([...(folderNamesRes.current ?? []), ...countOwners('f')])] : []
+	)
 	let treeInjectUsers = $derived.by(() => {
 		// "Only f/*" hides every user namespace; "u/<you> and f/*" keeps just your own.
 		if (!treeLazyMode) return []
@@ -705,7 +818,10 @@
 		// and it must not vanish under a name sort whose first page is all folders.
 		if ($userStore?.username) s.add($userStore.username)
 		// Other users only when no user-folder restriction is active.
-		if (!filterUserFolders) for (const u of usernamesRes.current ?? []) s.add(u)
+		if (!filterUserFolders) {
+			for (const u of usernamesRes.current ?? []) s.add(u)
+			for (const u of countOwners('u')) s.add(u)
+		}
 		return [...s]
 	})
 	// The bottom "load more" only pages the *global* stream, which in lazy mode holds
@@ -759,6 +875,7 @@
 					includeWithoutMain: withoutMain ? true : undefined,
 					kinds: kind !== 'all' ? kind : undefined,
 					pathStart: owner ? owner + '/' : undefined,
+					includeDraftOnly: true,
 					perPage: 1000
 				})
 			} catch {
@@ -805,6 +922,7 @@
 				includeWithoutMain: withoutMain ? true : undefined,
 				kinds: kind !== 'all' ? kind : undefined,
 				pathStart: owner ? owner + '/' : undefined,
+				includeDraftOnly: true,
 				perPage: 1000,
 				cursor
 			})
@@ -1201,7 +1319,12 @@
 	{filter}
 	items={preFilteredItems}
 	bind:filteredItems
-	f={(x) => (x.summary ? x.summary + ' (' + x.path + ')' : x.path)}
+	f={(x) => {
+		// A draft-only row is named by the path typed in the editor — its stored path is a
+		// generated `draft_<uuid>` nobody types into the search box.
+		const p = x.draft_only && x.draft_path ? x.draft_path : x.path
+		return x.summary ? x.summary + ' (' + p + ')' : p
+	}}
 	{opts}
 />
 
@@ -1238,7 +1361,7 @@
 					if (itemKind != 'all') {
 						subtab = v
 					}
-					setQuery(page.url, 'kind', v)
+					setQuery('kind', v)
 				}}
 			>
 				{#snippet children({ item })}
@@ -1315,6 +1438,7 @@
 			syncQuery
 			bind:selectedFilter={ownerFilter}
 			filters={owners}
+			maxDisplayed={20}
 			bottomMargin={false}
 		/>
 		{#if allLabels.length > 0}
@@ -1427,7 +1551,7 @@
 		{/if}
 	</div>
 	<div>
-		{#if filteredItems == undefined}
+		{#if filteredItems == undefined || treeCountsPending}
 			<div class="mt-4"></div>
 			<Skeleton layout={[[2], 1]} />
 			{#each new Array(6) as _}
@@ -1465,15 +1589,17 @@
 					pipelineFolders={visiblePipelineFolders}
 					allFolders={treeInjectFolders}
 					allUsers={treeInjectUsers}
+					ownerCounts={treeLazyMode ? ownerCounts : undefined}
+					selfUsername={$userStore?.username}
 					ownerLoad={treeLazyMode ? ownerLoad : undefined}
 					onExpandOwner={treeLazyMode ? loadOwnerItems : undefined}
 					onCollapseOwner={treeLazyMode ? collapseOwner : undefined}
 					isSearching={filter !== ''}
-					on:scriptChanged={reloadItems}
-					on:flowChanged={reloadItems}
-					on:appChanged={reloadItems}
-					on:rawAppChanged={reloadItems}
-					on:reload={reloadItems}
+					on:scriptChanged={reloadItemsAndCounts}
+					on:flowChanged={reloadItemsAndCounts}
+					on:appChanged={reloadItemsAndCounts}
+					on:rawAppChanged={reloadItemsAndCounts}
+					on:reload={reloadItemsAndCounts}
 					{showCode}
 				/>
 			{/key}
@@ -1493,11 +1619,11 @@
 				{#each displayedItems as item, i (item.type + '/' + item.path + (item.hash ? '/' + item.hash : ''))}
 					<Item
 						{item}
-						on:scriptChanged={reloadItems}
-						on:flowChanged={reloadItems}
-						on:appChanged={reloadItems}
-						on:rawAppChanged={reloadItems}
-						on:reload={reloadItems}
+						on:scriptChanged={reloadItemsAndCounts}
+						on:flowChanged={reloadItemsAndCounts}
+						on:appChanged={reloadItemsAndCounts}
+						on:rawAppChanged={reloadItemsAndCounts}
+						on:reload={reloadItemsAndCounts}
 						{showCode}
 						showEditButton={showEditButtons}
 						keyboardSelected={selectedIndex === i}

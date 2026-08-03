@@ -59,6 +59,9 @@
 		onEditWorkspaceScript?: () => void
 		/** Replace the inline script's code — provided by the step editor. */
 		onApplyS3Snippet?: (code: string) => void
+		/** Agent tools never go through the flow scheduler, so the settings `same_worker`
+		 *  rules out for a flow step still apply to them. */
+		isAgentTool?: boolean
 	}
 
 	let {
@@ -77,7 +80,8 @@
 		canEditWorkspaceScript = false,
 		workspaceScriptNoEditReason = undefined,
 		onEditWorkspaceScript,
-		onApplyS3Snippet
+		onApplyS3Snippet,
+		isAgentTool = false
 	}: Props = $props()
 
 	let rootEl: HTMLDivElement | undefined = $state()
@@ -133,7 +137,7 @@
 				</div>
 
 				<div data-setting="sleep">
-					<FlowModuleSleep previousModuleId={previousModule?.id} bind:flowModule />
+					<FlowModuleSleep previousModuleId={previousModule?.id} bind:flowModule {isAgentTool} />
 				</div>
 			</div></section
 		>
@@ -145,7 +149,7 @@
 		<div class="flex flex-col gap-6">
 			{#if !loopSubset}
 				<div data-setting="retries">
-					<FlowRetries bind:flowModuleRetry={flowModule.retry} bind:flowModule />
+					<FlowRetries bind:flowModuleRetry={flowModule.retry} bind:flowModule {isAgentTool} />
 				</div>
 
 				<div data-setting="error-handling">

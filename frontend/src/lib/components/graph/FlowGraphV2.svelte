@@ -31,6 +31,7 @@
 		type SimplifiableFlow
 	} from './graphBuilder.svelte'
 	import ModuleNode from './renderers/nodes/ModuleNode.svelte'
+	import FailureModuleNode from './renderers/nodes/FailureModuleNode.svelte'
 	import InputNode from './renderers/nodes/InputNode.svelte'
 	import BranchAllStart from './renderers/nodes/BranchAllStart.svelte'
 	import BranchAllEndNode from './renderers/nodes/BranchAllEndNode.svelte'
@@ -61,6 +62,13 @@
 	import AssetsOverflowedNode from './renderers/nodes/AssetsOverflowedNode.svelte'
 	import type { FlowGraphAssetContext } from '../flows/types'
 	import AiToolNode, { computeAIToolNodes } from './renderers/nodes/AIToolNode.svelte'
+	import {
+		linkedAgentToolsForScope,
+		linkedAgentToolsVersion,
+		linkedToolsScope,
+		releaseLinkedToolsScope,
+		retainLinkedToolsScope
+	} from '$lib/components/flows/linkedAgentToolsStore.svelte'
 	import NewAiToolNode from './renderers/nodes/NewAIToolNode.svelte'
 	import NoteNode from './renderers/nodes/NoteNode.svelte'
 	import CollapsedGroupNode from './renderers/nodes/CollapsedGroupNode.svelte'
@@ -133,6 +141,9 @@
 		moduleActions?: Record<string, ModuleActionInfo>
 		selectionManager?: SelectionManager
 		path?: string | undefined
+		// Flow path for the linked-agent tools bucket. Separate from `path` because that one also
+		// drives the Trigger node, which read-only viewers must not render.
+		linkedToolsPath?: string | undefined
 		newFlow?: boolean
 		insertable?: boolean
 		earlyStop?: boolean
@@ -165,6 +176,9 @@
 		onMoveMultiple?: (ids: string[]) => void
 		movingIds?: string[]
 		onDelete?: (id: string) => void
+		/** Forget the run state of a node that only mirrors a run (the error handler marker), so it
+		 * stops being rendered. Must not touch the flow itself. */
+		onDismissRunNode?: (id: string) => void
 		onInsert?: (detail: {
 			sourceId?: string
 			targetId?: string
@@ -214,6 +228,7 @@
 	let {
 		onInsert = undefined,
 		onDelete = undefined,
+		onDismissRunNode = undefined,
 		onMove = undefined,
 		onDuplicate = undefined,
 		onDeleteBranch = undefined,
@@ -236,6 +251,7 @@
 		moduleActions = undefined,
 		selectionManager: selectionManagerProp = undefined,
 		path = undefined,
+		linkedToolsPath = undefined,
 		newFlow = false,
 		insertable = false,
 		earlyStop = false,
@@ -285,6 +301,14 @@
 		outerDivClass = '',
 		onHeight = undefined
 	}: Props = $props()
+
+	// Hold the scope this graph draws from while it is mounted: the store's cap must never drop a
+	// bucket that something on screen is reading, and nothing would refetch it afterwards.
+	$effect(() => {
+		const scope = linkedToolsScope(workspace, linkedToolsPath ?? path)
+		retainLinkedToolsScope(scope)
+		return () => releaseLinkedToolsScope(scope)
+	})
 
 	// Initialize note manager with fine-grained reactivity
 	const noteManager = new NoteManager(
@@ -524,6 +548,9 @@
 		},
 		hideJobStatus: () => {
 			onHideJobStatus?.()
+		},
+		dismissRunNode: (id: string) => {
+			onDismissRunNode?.(id)
 		}
 	}
 
@@ -682,6 +709,9 @@
 		currentGraphNodeDeps = graphNodeDeps
 
 		// Pre-compute extra space per node for assets, AI tools, group notes, group headers
+		const resolvedLinkedTools = linkedAgentToolsForScope(
+			linkedToolsScope(workspace, linkedToolsPath ?? path)
+		)
 		const nodeExtraSpace = computeNodeExtraSpace(graphNodeDeps, {
 			showAssets: $showAssets ?? true,
 			showNotes,
@@ -689,7 +719,8 @@
 			noteTextHeights,
 			groupDisplayState,
 			insertable,
-			flowModuleStates
+			flowModuleStates,
+			linkedAgentTools: resolvedLinkedTools
 		})
 
 		// Layout with extra space baked into sugiyama
@@ -716,7 +747,13 @@
 			: undefined
 
 		// Compute AI tool visual nodes (no position remapping)
-		let aiToolNodesResult = computeAIToolNodes(newNodes, eventHandler, insertable, flowModuleStates)
+		let aiToolNodesResult = computeAIToolNodes(
+			newNodes,
+			eventHandler,
+			insertable,
+			flowModuleStates,
+			resolvedLinkedTools
+		)
 
 		let finalNodes: (Node & NodeLayout)[] = [
 			...newNodes,
@@ -795,6 +832,7 @@
 	const nodeTypes = {
 		input2: InputNode,
 		module: ModuleNode,
+		failureModule: FailureModuleNode,
 		branchAllStart: BranchAllStart,
 		branchAllEnd: BranchAllEndNode,
 		forLoopEnd: ForLoopEndNode,
@@ -951,7 +989,9 @@
 			showNotes,
 			noteManager.renderCount,
 			currentGroups,
-			groupDisplayState.renderCount
+			groupDisplayState.renderCount,
+			// A linked step's tools resolve asynchronously; recompute tool nodes when they land.
+			linkedAgentToolsVersion()
 		]
 		untrack(async () => {
 			await updateStores()

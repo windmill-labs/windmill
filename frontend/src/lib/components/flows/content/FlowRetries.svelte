@@ -16,17 +16,21 @@
 	import { validateRetryConfig } from '$lib/utils'
 	import EEOnly from '$lib/components/EEOnly.svelte'
 	import { slideDynamic } from '$lib/transitions'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import { SAME_WORKER_INCOMPATIBLE_MSG } from '../utils.svelte'
 
 	interface Props {
 		flowModuleRetry: Retry | undefined
 		disabled?: boolean
 		flowModule?: FlowModule
+		isAgentTool?: boolean
 	}
 
 	let {
 		flowModule = $bindable(),
 		flowModuleRetry = $bindable(),
-		disabled = false
+		disabled = false,
+		isAgentTool = false
 	}: Props = $props()
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
@@ -58,6 +62,14 @@
 				)
 			: null
 	)
+
+	// `flowModule` is only set when editing a flow step: the trigger/schedule usages of this
+	// component share the flow editor context but are unaffected by `same_worker`, and so are
+	// agent tools, which never go through the flow scheduler.
+	let sameWorker = $derived(
+		Boolean(flowModule && !isAgentTool && flowStore?.val?.value?.same_worker)
+	)
+	let isDisabled = $derived(disabled || sameWorker)
 
 	let isRetryConditionEnabled = $derived(Boolean(flowModuleRetry?.retry_if))
 	// When retries are toggled off the config is still shown (read-only) so the row
@@ -171,10 +183,15 @@
 </script>
 
 <div class="flex flex-col gap-2">
+	{#if sameWorker}
+		<Alert type="warning" size="xs" title="Disabled by the shared directory">
+			{SAME_WORKER_INCOMPATIBLE_MSG} Disable `Same Worker` in the flow settings to use retries.
+		</Alert>
+	{/if}
 	<Toggle
 		size="xs"
 		textClass="text-xs font-normal text-primary"
-		{disabled}
+		disabled={isDisabled}
 		checked={delayType === 'constant' || delayType === 'exponential'}
 		on:change={() => {
 			if (delayType === 'constant' || delayType === 'exponential') {
@@ -193,7 +210,7 @@
 		}}
 	/>
 
-	{#if !retriesOff}
+	{#if !retriesOff && !sameWorker}
 		<div class="flex flex-col gap-6 pl-9" transition:slideDynamic>
 			<ToggleButtonGroup
 				selected={retriesOff ? displayDelayType : delayType}

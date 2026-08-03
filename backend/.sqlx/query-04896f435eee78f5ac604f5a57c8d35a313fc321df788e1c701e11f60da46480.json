@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT created_by, runnable_path FROM v2_job\n          WHERE id = $1 AND workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "created_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "runnable_path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "04896f435eee78f5ac604f5a57c8d35a313fc321df788e1c701e11f60da46480"
+}

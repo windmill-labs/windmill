@@ -21,6 +21,11 @@
 		item: ToggleGroupElements['item']
 		value: ToggleGroupItemProps
 		class?: string
+		// Fires on activation, including on the already-selected button — which the
+		// group's onSelected never reports (melt treats it as a deselection and the
+		// group keeps the current value). Keyboard activation needs its own keydown
+		// branch below: melt preventDefaults Enter/Space, so no click is synthesized.
+		onActivate?: (e: Event) => void
 	}
 
 	let {
@@ -38,7 +43,8 @@
 		id = undefined,
 		item,
 		value,
-		class: className = ''
+		class: className = '',
+		onActivate
 	}: Props = $props()
 
 	// Handle backward compatibility: small prop maps to size="sm"
@@ -74,6 +80,12 @@
 		)}
 		use:melt={$item(value)}
 		style={selectedColor ? `--selected-color: ${selectedColor}` : ''}
+		onclick={onActivate}
+		onkeydown={(e) => {
+			// `repeat` filtered out: a held key keeps firing keydown, and one activation
+			// must mean one call however the consumer's side effect behaves.
+			if (!e.repeat && (e.key === 'Enter' || e.key === ' ')) onActivate?.(e)
+		}}
 	>
 		{#if icon}
 			{@const SvelteComponent = icon}

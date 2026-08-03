@@ -23,10 +23,16 @@ use crate::ai::tools::McpClientStub as McpClient;
 use windmill_ai::{
     ai_providers::AIProvider,
     image_handler::upload_image_to_s3,
-    providers::create_query_builder,
+    providers::{
+        create_chat_completions_query_builder, create_query_builder, is_chat_completions_only,
+        remember_chat_completions_only,
+    },
+    proxy::{
+        common_outbound_headers, needs_unavailable_oauth_exchange, retain_effective_credentials,
+    },
     query_builder::{BuildRequestArgs, ParsedResponse},
     types::*,
-    utils::{pinned_ai_client_for, should_use_structured_output_tool, AI_HTTP_HEADERS},
+    utils::{pinned_ai_client_for, should_use_structured_output_tool},
 };
 use windmill_common::{
     cache,
@@ -35,7 +41,7 @@ use windmill_common::{
     error::{self, Error},
     flow_conversations::MessageType,
     flow_status::AgentAction,
-    flows::{FlowModule, FlowModuleValue, ToolValue},
+    flows::{AgentTool, FlowModule, FlowModuleValue, InputTransform, ToolValue},
     get_latest_hash_for_path,
     jobs::JobKind,
     scripts::get_full_hub_script_by_path,
@@ -46,7 +52,9 @@ use windmill_queue::{cancel_single_job, CanceledBy, MiniPulledJob};
 
 use crate::{
     ai::stream_event_processor::StreamEventProcessor,
-    common::{build_args_map, resolve_job_timeout, OccupancyMetrics, StreamNotifier},
+    common::{
+        build_args_map, resolve_job_timeout, transform_json_value, OccupancyMetrics, StreamNotifier,
+    },
     handle_child::{run_future_with_polling_update_job_poller_graceful, GracefulPollOutcome},
 };
 
@@ -113,17 +121,49 @@ fn find_module_by_id(
     Ok(found)
 }
 
-fn find_ai_agent_tool_module_in_parent_agent(
+async fn find_ai_agent_tool_module_in_parent_agent(
     modules: &Vec<FlowModule>,
     parent_agent_step_id: &str,
     tool_module_id: &str,
+    client: &AuthedClient,
 ) -> Result<Option<FlowModule>, Error> {
     let Some(parent_agent_module) = find_module_by_id(modules, parent_agent_step_id)? else {
         return Ok(None);
     };
 
-    let FlowModuleValue::AIAgent { tools, .. } = parent_agent_module.get_value()? else {
+    let FlowModuleValue::AIAgent { tools, agent, .. } = parent_agent_module.get_value()? else {
         return Ok(None);
+    };
+
+    // A linked parent carries no tools on the module (they live in the resource, resolved only in
+    // the main execution branch). Resolve them from the resource here too, so a nested agent tool
+    // of a saved+linked agent can still be located when it runs as its own job.
+    let tools = if let Some(agent_ref) = agent.as_deref() {
+        let agent_path = agent_ref
+            .trim_start_matches("$res:")
+            .trim_start_matches("res://");
+        // Definitions only: resolving their defaults here would hit the same inaccessible resources.
+        let resource_value = client
+            .get_resource_value::<serde_json::Value>(agent_path)
+            .await
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "failed to load ai_agent resource {agent_path}: {e}"
+                ))
+            })?;
+        match resource_value {
+            serde_json::Value::Object(mut map) => match map.remove("tools") {
+                Some(t) => serde_json::from_value::<Vec<AgentTool>>(t).map_err(|e| {
+                    Error::internal_err(format!(
+                        "invalid tools in ai_agent resource {agent_path}: {e}"
+                    ))
+                })?,
+                None => Vec::new(),
+            },
+            _ => Vec::new(),
+        }
+    } else {
+        tools
     };
 
     for tool in tools {
@@ -172,6 +212,36 @@ async fn fetch_script_description(db: &DB, w_id: &str, hash: i64) -> Option<Stri
     .filter(|d| !d.is_empty())
 }
 
+/// Overlay a linked step's host-local tool wiring onto the agent resource's tools. For each tool
+/// id present in `tool_inputs`, merge its per-input transforms into that tool's `input_transforms`
+/// (step wins). Only `FlowModule` tools carry input transforms; MCP/websearch tools are skipped.
+fn overlay_tool_inputs(
+    tools: &mut [AgentTool],
+    tool_inputs: &HashMap<String, HashMap<String, InputTransform>>,
+) {
+    if tool_inputs.is_empty() {
+        return;
+    }
+    for tool in tools.iter_mut() {
+        let Some(overrides) = tool_inputs.get(&tool.id) else {
+            continue;
+        };
+        let ToolValue::FlowModule(fmv) = &mut tool.value else {
+            continue;
+        };
+        let input_transforms = match fmv {
+            FlowModuleValue::Script { input_transforms, .. }
+            | FlowModuleValue::RawScript { input_transforms, .. }
+            | FlowModuleValue::FlowScript { input_transforms, .. }
+            | FlowModuleValue::AIAgent { input_transforms, .. } => input_transforms,
+            _ => continue,
+        };
+        for (key, transform) in overrides {
+            input_transforms.insert(key.clone(), transform.clone());
+        }
+    }
+}
+
 pub async fn handle_ai_agent_job(
     // connection
     conn: &Connection,
@@ -193,14 +263,20 @@ pub async fn handle_ai_agent_job(
     has_stream: &mut bool,
 ) -> Result<Box<RawValue>, Error> {
     // build_args_map returns None if no $res:/$var: transforms needed, in which case use original args
-    let args = match build_args_map(job, client, conn).await? {
+    let local_args = match build_args_map(job, client, conn).await? {
         Some(transformed) => transformed,
         None => job.args.as_ref().map(|a| a.0.clone()).unwrap_or_default(),
     };
-    let args = serde_json::from_str::<AIAgentArgs>(&serde_json::to_string(&args)?)?;
 
-    // Handle dry_run mode - check credentials without making API calls
-    if args.credentials_check {
+    // Handle dry_run mode - check credentials without making API calls.
+    // The credentials check is always invoked inline (provider present, no agent link and no
+    // parent flow), so it resolves before any flow/agent-resource context is fetched.
+    let is_credentials_check = local_args
+        .get("credentials_check")
+        .map(|v| v.get().trim() == "true")
+        .unwrap_or(false);
+    if is_credentials_check {
+        let args = serde_json::from_str::<AIAgentArgs>(&serde_json::to_string(&local_args)?)?;
         return handle_credentials_check(&args.provider).await;
     }
 
@@ -273,7 +349,9 @@ pub async fn handle_ai_agent_job(
             &value.modules,
             parent_agent_step_id,
             flow_step_id,
-        )?
+            client,
+        )
+        .await?
     } else {
         find_module_by_id(&value.modules, flow_step_id)?
     };
@@ -286,12 +364,116 @@ pub async fn handle_ai_agent_job(
 
     let summary = module.summary.clone();
 
-    let FlowModuleValue::AIAgent { tools, omit_output_from_conversation, .. } =
-        module.get_value()?
+    let FlowModuleValue::AIAgent {
+        tools: module_tools,
+        omit_output_from_conversation,
+        agent,
+        tool_inputs,
+        ..
+    } = module.get_value()?
     else {
         return Err(Error::internal_err(
             "AI agent module is not an AI agent".to_string(),
         ));
+    };
+
+    // A linked step takes its brain and tools from the resource and keeps only the flow-local
+    // inputs (user_message/user_attachments) of its own; both stay rigid, so the one thing it may
+    // bind to this flow is the tools' inputs, overlaid from `tool_inputs` below.
+    let (args, tools): (AIAgentArgs, Vec<AgentTool>) = if let Some(agent_ref) = agent.as_deref() {
+        let agent_path = agent_ref
+            .trim_start_matches("$res:")
+            .trim_start_matches("res://");
+        // Read raw and interpolate only the brain below. Interpolating the whole resource would also
+        // resolve each tool's default `$res:`/`$var:`, which a host flow may be overriding and which
+        // may be unreadable to whoever runs this flow — an unused tool could then fail the agent.
+        let resource_value = client
+            .get_resource_value::<serde_json::Value>(agent_path)
+            .await
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "failed to load ai_agent resource {agent_path}: {e}"
+                ))
+            })?;
+        let mut config = match resource_value {
+            serde_json::Value::Object(map) => map,
+            _ => {
+                return Err(Error::internal_err(format!(
+                    "ai_agent resource {agent_path} must be a JSON object"
+                )))
+            }
+        };
+        let mut tools = match config.remove("tools") {
+            Some(t) => serde_json::from_value::<Vec<AgentTool>>(t).map_err(|e| {
+                Error::internal_err(format!(
+                    "invalid tools in ai_agent resource {agent_path}: {e}"
+                ))
+            })?,
+            None => Vec::new(),
+        };
+        overlay_tool_inputs(&mut tools, &tool_inputs);
+        let brain = transform_json_value(
+            "ai_agent",
+            client,
+            &job.workspace_id,
+            serde_json::Value::Object(config),
+            job,
+            conn,
+            0,
+        )
+        .await?;
+        let mut brain = match brain {
+            serde_json::Value::Object(map) => map,
+            _ => {
+                return Err(Error::internal_err(format!(
+                    "ai_agent resource {agent_path} must be a JSON object"
+                )))
+            }
+        };
+        // Only after interpolating the resource: these are caller-controlled and already resolved by
+        // build_args_map, so passing them through it again would expand contextual values —
+        // `$WM_TOKEN` in a user message would reach the model provider.
+        for key in ["user_message", "user_attachments"] {
+            if let Some(v) = local_args.get(key) {
+                brain.insert(
+                    key.to_string(),
+                    serde_json::from_str(v.get()).unwrap_or(serde_json::Value::Null),
+                );
+            }
+        }
+        let args = serde_json::from_value::<AIAgentArgs>(serde_json::Value::Object(brain))
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "invalid ai_agent resource config {agent_path}: {e}"
+                ))
+            })?;
+        (args, tools)
+    } else {
+        let args = serde_json::from_str::<AIAgentArgs>(&serde_json::to_string(&local_args)?)?;
+        // "Edit" on a linked step clears `agent` but keeps the host's `tool_inputs` until Save or
+        // Cancel folds them back, so overlay them here too: a flow persisted mid-edit must still
+        // bind its tools to this flow's context rather than the agent author's.
+        let mut tools = module_tools;
+        overlay_tool_inputs(&mut tools, &tool_inputs);
+        (args, tools)
+    };
+
+    // Nesting is capped at flow → agent → nested agent. When this job is itself a nested tool,
+    // a linked resource's tool set may still contain AIAgent tools (the editor can't constrain a
+    // shared resource); don't advertise them — invoking one would only fail the depth check as a
+    // third-level agent.
+    let tools = if direct_parent_job_kind == JobKind::AIAgent {
+        tools
+            .into_iter()
+            .filter(|t| {
+                !matches!(
+                    &t.value,
+                    ToolValue::FlowModule(FlowModuleValue::AIAgent { .. })
+                )
+            })
+            .collect()
+    } else {
+        tools
     };
 
     // Separate Windmill tools from MCP tools, websearch, and extract MCP resource configs
@@ -407,6 +589,7 @@ pub async fn handle_ai_agent_job(
                                 Ok(Some(hub_script.schema))
                             } else {
                                 let hash = get_latest_hash_for_path(
+                                    db,
                                     db,
                                     &job.workspace_id,
                                     path.as_str(),
@@ -655,7 +838,15 @@ pub async fn run_agent(
     let api_key = credentials.api_key.as_deref().unwrap_or("");
 
     // Create the query builder for the provider
-    let query_builder = create_query_builder(&credentials, args.provider.get_model());
+    let mut query_builder = create_query_builder(&credentials, args.provider.get_model());
+    if query_builder.supports_chat_completions_fallback(base_url)
+        && is_chat_completions_only(base_url, args.provider.get_model())
+    {
+        query_builder = create_chat_completions_query_builder(&credentials);
+    }
+    // Both outlive the iteration that discovers them: a request shape or a route the
+    // endpoint rejected once stays rejected for the whole step.
+    let mut include_usage = true;
 
     // Initialize messages
     let mut messages =
@@ -970,19 +1161,27 @@ pub async fn run_agent(
                 has_websearch,
             };
 
-            let request_body = query_builder
-                .build_request(&build_args, client, &job.workspace_id)
-                .await?;
-
-            let endpoint =
-                query_builder.get_endpoint(base_url, args.provider.get_model(), output_type);
-            let auth_headers = query_builder.get_auth_headers(api_key, base_url, output_type);
+            // A worker cannot run the client credentials exchange, so an OAuth resource
+            // has no token here: the request would carry an empty credential and come
+            // back 401.
+            if needs_unavailable_oauth_exchange(
+                &credentials,
+                args.provider.resource.token_url.as_deref(),
+                &query_builder.get_auth_headers(api_key, base_url, output_type),
+            ) {
+                return Err(Error::ExecutionErr(format!(
+                    "The {:?} resource authenticates with OAuth, which AI agent steps do not \
+                     support. Set an API key on the resource, or carry the provider's credential \
+                     header in its `headers`.",
+                    credentials.provider
+                )));
+            }
 
             let timeout = resolve_job_timeout(conn, &job.workspace_id, job.id, job.timeout)
                 .await
                 .0;
 
-            let resource_headers = &credentials.custom_headers;
+            let trailing_headers = common_outbound_headers(&credentials).collect::<Vec<_>>();
 
             // `endpoint` derives from the user-controlled provider base_url, so pin
             // DNS to the SSRF-validated address: the connect must not rebind to an
@@ -990,79 +1189,107 @@ pub async fn run_agent(
             let pinned_ai_client = pinned_ai_client_for(base_url).await?;
 
             // Helper to build HTTP request with headers
-            let build_http_request = |body: String| {
-                let mut req = pinned_ai_client
-                    .post(&endpoint)
-                    .timeout(timeout)
-                    .header("Content-Type", "application/json");
+            let build_http_request =
+                |endpoint: &str, auth_headers: &[(&'static str, String)], body: String| {
+                    let mut req = pinned_ai_client
+                        .post(endpoint)
+                        .timeout(timeout)
+                        .header("Content-Type", "application/json");
 
-                for (header_name, header_value) in &auth_headers {
-                    req = req.header(*header_name, header_value.clone());
-                }
+                    for (header_name, header_value) in auth_headers {
+                        req = req.header(*header_name, header_value.clone());
+                    }
 
-                for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
-                    req = req.header(header_name.as_str(), header_value.as_str());
-                }
+                    for (header_name, header_value) in &trailing_headers {
+                        req = req.header(header_name.as_str(), header_value.as_str());
+                    }
 
-                for (header_name, header_value) in resource_headers {
-                    req = req.header(header_name.as_str(), header_value.as_str());
-                }
+                    req.body(body)
+                };
 
-                req.body(body)
-            };
+            // An endpoint can reject the request shape rather than the model:
+            // `stream_options`, which not every OpenAI-compatible provider accepts, and
+            // the route itself, when an Azure resource is outside the Responses API's
+            // model/region matrix. Each is retried once with that part dropped.
+            // Set where the route is found to be absent, and read once the fallback has
+            // answered: a rejection it did not resolve says nothing about the deployment.
+            let mut rerouted_by_a_route_rejection = false;
+            let resp = loop {
+                let request_body = if include_usage {
+                    query_builder
+                        .build_request(&build_args, client, &job.workspace_id)
+                        .await?
+                } else {
+                    query_builder
+                        .build_request_without_usage(&build_args, client, &job.workspace_id)
+                        .await?
+                };
+                let endpoint =
+                    query_builder.get_endpoint(base_url, args.provider.get_model(), output_type);
+                let auth_headers = retain_effective_credentials(
+                    &credentials,
+                    query_builder.get_auth_headers(api_key, base_url, output_type),
+                );
 
-            let resp = build_http_request(request_body.clone())
-                .send()
-                .await
-                .map_err(|e| Error::internal_err(format!("Failed to call API: {}", e)))?;
+                let resp = build_http_request(&endpoint, &auth_headers, request_body)
+                    .send()
+                    .await
+                    .map_err(|e| Error::internal_err(format!("Failed to call API: {}", e)))?;
 
-            // Check if request failed and we should retry without stream_options
-            let resp = match resp.error_for_status_ref() {
-                Ok(_) => resp,
-                Err(e) => {
-                    let status = resp.status();
-                    let text = resp
-                        .text()
-                        .await
-                        .unwrap_or_else(|_| "<failed to read body>".to_string());
-
-                    // Retry without stream_options if provider supports it and error suggests incompatibility
-                    // Common error patterns: 400 Bad Request with mentions of stream_options or include_usage
-                    let should_retry = query_builder.supports_retry_without_usage()
-                        && status.as_u16() == 400
-                        && (text.contains("stream_options")
-                            || text.contains("include_usage")
-                            || text.contains("Additional properties are not allowed"));
-
-                    if should_retry {
-                        tracing::info!(
-                            "Retrying request without stream_options due to provider incompatibility"
-                        );
-
-                        let retry_body = query_builder
-                            .build_request_without_usage(&build_args, client, &job.workspace_id)
-                            .await?;
-
-                        let retry_resp =
-                            build_http_request(retry_body).send().await.map_err(|e| {
-                                Error::internal_err(format!("Failed to call API on retry: {}", e))
-                            })?;
-
-                        match retry_resp.error_for_status_ref() {
-                            Ok(_) => retry_resp,
-                            Err(retry_e) => {
-                                let retry_text = retry_resp
-                                    .text()
-                                    .await
-                                    .unwrap_or_else(|_| "<failed to read body>".to_string());
-                                return Err(Error::internal_err(format!(
-                                    "API error on retry: {} - {}",
-                                    retry_e, retry_text
-                                )));
-                            }
+                match resp.error_for_status_ref() {
+                    Ok(_) => {
+                        if rerouted_by_a_route_rejection {
+                            remember_chat_completions_only(base_url, args.provider.get_model());
                         }
-                    } else {
-                        return Err(Error::internal_err(format!("API error: {} - {}", e, text)));
+                        break resp;
+                    }
+                    Err(e) => {
+                        let status = resp.status();
+                        let text = resp
+                            .text()
+                            .await
+                            .unwrap_or_else(|_| "<failed to read body>".to_string());
+
+                        // Common error patterns: 400 Bad Request with mentions of stream_options or include_usage
+                        let rejects_usage_tracking = include_usage
+                            && query_builder.supports_retry_without_usage()
+                            && status.as_u16() == 400
+                            && (text.contains("stream_options")
+                                || text.contains("include_usage")
+                                || text.contains("Additional properties are not allowed"));
+
+                        // Only the first call of the step may re-route: an endpoint that
+                        // does not serve this API rejects that one already, whereas a
+                        // rejection once the conversation is under way is about the
+                        // conversation (context length, content filter, tool schema).
+                        let route_unserved = i == 0
+                            && query_builder.supports_chat_completions_fallback(base_url)
+                            && matches!(status.as_u16(), 400 | 404)
+                            && *output_type == OutputType::Text;
+
+                        if rejects_usage_tracking {
+                            tracing::info!(
+                                "Retrying request without stream_options due to provider incompatibility"
+                            );
+                            include_usage = false;
+                        } else if route_unserved {
+                            tracing::info!(
+                                "Endpoint rejected the request ({}), falling back to chat/completions",
+                                status
+                            );
+                            // Only a 404 says the route is absent. A 400 is ambiguous —
+                            // a deployment that does serve the route rejects tool
+                            // schemas, blocked hosted tools and filtered content the
+                            // same way — so it re-routes this step and nothing more.
+                            rerouted_by_a_route_rejection = status.as_u16() == 404;
+                            query_builder = create_chat_completions_query_builder(&credentials);
+                            include_usage = true;
+                        } else {
+                            return Err(Error::internal_err(format!(
+                                "API error calling {}: {} - {}",
+                                endpoint, e, text
+                            )));
+                        }
                     }
                 }
             };
@@ -1435,6 +1662,85 @@ mod tests {
             content: Some(OpenAIContent::Text(content.to_string())),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn overlay_tool_inputs_binds_matching_flowmodule_tool_only() {
+        fn js(expr: &str) -> InputTransform {
+            InputTransform::Javascript { expr: expr.to_string() }
+        }
+        fn script_tool(id: &str, key: &str, expr: &str) -> AgentTool {
+            let mut its = HashMap::new();
+            its.insert(key.to_string(), js(expr));
+            AgentTool {
+                id: id.to_string(),
+                summary: None,
+                description: None,
+                value: ToolValue::FlowModule(FlowModuleValue::Script {
+                    input_transforms: its,
+                    path: "u/test/tool".to_string(),
+                    hash: None,
+                    tag_override: None,
+                    is_trigger: None,
+                    pass_flow_input_directly: None,
+                }),
+            }
+        }
+        fn script_its(tool: &AgentTool) -> &HashMap<String, InputTransform> {
+            let ToolValue::FlowModule(FlowModuleValue::Script { input_transforms, .. }) =
+                &tool.value
+            else {
+                panic!("expected script tool")
+            };
+            input_transforms
+        }
+
+        // "a" gets rebound, "b" is left alone, the MCP tool is skipped even though it has an override.
+        let mut tools = vec![
+            script_tool("a", "x", "authoring_flow_expr"),
+            script_tool("b", "y", "keep_me"),
+            AgentTool {
+                id: "m".to_string(),
+                summary: None,
+                description: None,
+                value: ToolValue::Mcp(windmill_common::flows::McpToolValue {
+                    resource_path: "u/test/mcp".to_string(),
+                    include_tools: vec![],
+                    exclude_tools: vec![],
+                }),
+            },
+        ];
+
+        let mut tool_inputs: HashMap<String, HashMap<String, InputTransform>> = HashMap::new();
+        tool_inputs.insert(
+            "a".to_string(),
+            HashMap::from([
+                ("x".to_string(), js("flow_input.tenant")),
+                ("z".to_string(), js("results.step1")),
+            ]),
+        );
+        tool_inputs.insert(
+            "m".to_string(),
+            HashMap::from([("q".to_string(), js("ignored"))]),
+        );
+
+        overlay_tool_inputs(&mut tools, &tool_inputs);
+
+        // "a": existing key replaced, new key added.
+        let a = script_its(&tools[0]);
+        assert!(
+            matches!(a.get("x"), Some(InputTransform::Javascript { expr }) if expr == "flow_input.tenant")
+        );
+        assert!(
+            matches!(a.get("z"), Some(InputTransform::Javascript { expr }) if expr == "results.step1")
+        );
+        // "b": no override for it, untouched.
+        let b = script_its(&tools[1]);
+        assert!(
+            matches!(b.get("y"), Some(InputTransform::Javascript { expr }) if expr == "keep_me")
+        );
+        // MCP tool: not a FlowModule, left as-is.
+        assert!(matches!(&tools[2].value, ToolValue::Mcp(_)));
     }
 
     #[test]

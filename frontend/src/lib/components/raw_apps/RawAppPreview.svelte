@@ -81,8 +81,13 @@
 		// `wm_coep` (embed-in-cross-origin-isolated-page opt-in) must be propagated
 		// to the wrapper document: under a COEP `require-corp` embedder, a nested
 		// document is only allowed to load if it asserts COEP itself, so the
-		// backend adds the header when the flag is present.
-		const coep = new URLSearchParams(window.location.search).has('wm_coep') ? '?wm_coep=1' : ''
+		// backend adds the header when the flag is present. Also request it when
+		// this document is itself cross-origin isolated (e.g. the raw app editor)
+		// — the wrapper would otherwise be blocked outright, URL flag or not.
+		const coep =
+			new URLSearchParams(window.location.search).has('wm_coep') || window.crossOriginIsolated
+				? '?wm_coep=1'
+				: ''
 		return `/api/w/${workspace}/apps_u/get_data/v/${secret}.html${coep}`
 	})
 

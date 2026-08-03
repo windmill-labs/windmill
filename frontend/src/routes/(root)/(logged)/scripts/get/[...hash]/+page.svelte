@@ -22,12 +22,7 @@
 	} from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import {
-		enterpriseLicense,
-		userStore,
-		userWorkspaces,
-		workspaceStore
-	} from '$lib/stores'
+	import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 	import AIFormAssistant from '$lib/components/copilot/AIFormAssistant.svelte'
 
@@ -45,6 +40,7 @@
 	} from '$lib/components/common'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
+	import DbtRunGraph from '$lib/components/dbt/DbtRunGraph.svelte'
 	import { goto } from '$lib/navigation'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 
@@ -54,6 +50,7 @@
 
 	import SavedInputsV2 from '$lib/components/SavedInputsV2.svelte'
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
+	import OnBehalfOfBadge from '$lib/components/details/OnBehalfOfBadge.svelte'
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
 	import {
 		Activity,
@@ -77,8 +74,7 @@
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import ScriptVersionHistory from '$lib/components/ScriptVersionHistory.svelte'
-	import { createAppFromScript } from '$lib/components/details/createAppFromScript'
-	import { importStore } from '$lib/components/apps/store'
+	import { createRawAppFromScript } from '$lib/components/details/createRawAppFromScript'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import PersistentScriptDrawer from '$lib/components/PersistentScriptDrawer.svelte'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
@@ -365,6 +361,74 @@
 		}
 	}
 
+	// A dbt retry must name the run it resumes, and a job id is not something to
+	// type from memory: picking `retry` fills the field with the run this caller's
+	// retry would land on. Filled once per script, so clearing it stays cleared.
+	let dbtResumableAsked: string | undefined = $state(undefined)
+	$effect(() => {
+		const ws = $workspaceStore
+		const path = script?.path
+		const command = args?.['command'] as Record<string, any> | undefined
+		if (!ws || !path || script?.language !== 'dbt' || command?.label !== 'retry') return
+		if (command['dbt_retry_job'] || dbtResumableAsked === path) return
+		dbtResumableAsked = path
+		JobService.getDbtResumableForScript({ workspace: ws, path })
+			.then((held) => {
+				// The page may show another script, or another workspace, by now:
+				// filling THIS answer into that form aims its retry at a run of a
+				// script it is not, which only a reload could undo.
+				if ($workspaceStore !== ws || script?.path !== path) return
+				const current = untrack(() => args)
+				const block = current?.['command'] as Record<string, any> | undefined
+				if (!held || !current || block?.label !== 'retry' || block['dbt_retry_job']) return
+				args = { ...current, command: { ...block, dbt_retry_job: held } }
+				if (jsonView) {
+					runForm?.setCode(JSON.stringify(args, null, '\t'))
+				}
+			})
+			.catch(() => {})
+	})
+
+	// Arrived from a failed dbt run's `Run again`, which prefills the arguments it
+	// ran with — a whole-project rebuild. Resuming that run instead is usually
+	// what the reader wants and there is nothing on this form that says so, hence
+	// the offer. Confirmed against the run rather than trusted from the URL: only
+	// the latest failure of a script is resumable, and by the time the form opens
+	// another run may hold it.
+	let dbtRetryFrom: string | undefined = $state(undefined)
+	$effect(() => {
+		const ws = $workspaceStore
+		const from = page.url.searchParams.get('dbt_retry_from') ?? undefined
+		dbtRetryFrom = undefined
+		if (!ws || !from || script?.language !== 'dbt') return
+		JobService.getDbtResumable({ workspace: ws, id: from })
+			.then((held) => {
+				if ($workspaceStore === ws && held === from) dbtRetryFrom = from
+			})
+			.catch(() => {})
+	})
+
+	function useDbtRetry() {
+		const from = dbtRetryFrom
+		if (!from) return
+		// Merged, never replaced: a tag, concurrency key or debounce key may
+		// interpolate `command.vars`, and the QUEUE reads those at enqueue — long
+		// before the worker restores the failed run's own arguments. Dropping them
+		// here routes the retry by a different key than the run it resumes. Same
+		// as the run page's retry.
+		args = {
+			...(args ?? {}),
+			command: {
+				...((args?.['command'] as Record<string, any> | undefined) ?? {}),
+				label: 'retry',
+				dbt_retry_job: from
+			}
+		}
+		if (jsonView) {
+			runForm?.setCode(JSON.stringify(args, null, '\t'))
+		}
+	}
+
 	let moveDrawer: MoveDrawer | undefined = $state()
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
 	let persistentScriptDrawer: PersistentScriptDrawer | undefined = $state()
@@ -446,9 +510,11 @@
 				label: 'Build app',
 				buttonProps: {
 					onClick: async () => {
-						const app = createAppFromScript(script.path, script.schema)
-						$importStore = JSON.parse(JSON.stringify(app))
-						await goto('/apps/add')
+						const app = createRawAppFromScript(script.path, script.summary, script.schema)
+						// /apps_raw/add hard-reloads (cross-origin isolation), so the
+						// in-memory importStore would be dropped; hand off via sessionStorage.
+						sessionStorage.setItem('rawAppImport', JSON.stringify(app))
+						await goto('/apps_raw/add')
 					},
 					disabled: !showEditButtons,
 					unifiedSize: 'md',
@@ -727,6 +793,11 @@
 						></Badge
 					>
 				{/if}
+				<OnBehalfOfBadge
+					onBehalfOf={script?.on_behalf_of}
+					onBehalfOfEmail={script?.on_behalf_of_email}
+					kind="script"
+				/>
 				{#if script?.priority != undefined}
 					<div class="hidden md:block">
 						<Badge color="blue" variant="outlined" size="xs">
@@ -755,11 +826,15 @@
 				<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showEditButtons = v)} />
 			</div>
 			{#if script}
-				<div class={twMerge('flex flex-col', isWac ? 'h-full divide-y' : '')}>
+				{@const showsDbtGraph = script.language === 'dbt' && !!script.path}
+				<div class={twMerge('flex flex-col', isWac || showsDbtGraph ? 'h-full divide-y' : '')}>
 					<div
 						class={twMerge(
 							'p-8 w-full max-w-3xl overflow-y-auto mx-auto flex flex-col relative',
-							isWac ? 'max-h-1/2' : ''
+							isWac ? 'max-h-1/2' : '',
+							// The graph takes the rest of the pane, as a flow's does, so the form
+							// scrolls within its half instead of pushing the models off-screen.
+							showsDbtGraph ? 'shrink-0 max-h-1/2' : ''
 						)}
 					>
 						{#if script?.path}
@@ -860,6 +935,27 @@
 								</div>
 							{/if}
 
+							<!-- Landed here from a failed dbt run's `Run again`, which prefills a
+							     whole-project rebuild. Resuming that run is one click, and the
+							     form alone never says it is possible. -->
+							{#if dbtRetryFrom && (args?.['command'] as any)?.label !== 'retry'}
+								<div class="mb-2">
+									<Alert type="info" size="xs" title="This rebuilds the whole project">
+										<div class="flex flex-row gap-2 items-center flex-wrap">
+											<span>
+												The run you came from failed part-way. <span class="font-mono"
+													>dbt retry</span
+												>
+												rebuilds only its failed and skipped nodes, with the arguments it ran with.
+											</span>
+											<Button size="xs" variant="border" color="light" on:click={useDbtRetry}>
+												Retry that run instead
+											</Button>
+										</div>
+									</Alert>
+								</div>
+							{/if}
+
 							{#if script?.schema?.prompt_for_ai !== undefined}
 								<AIFormAssistant
 									instructions={script.schema?.prompt_for_ai as string}
@@ -915,7 +1011,16 @@
 							</div>
 						</div>
 					</div>
-					{#if isWac && script.content}
+					{#if showsDbtGraph}
+						<!-- The bottom of the pane, the way a flow's graph takes it: a dbt
+						     script's `content` is a descriptor, so what it BUILDS is the thing
+						     to look at. Pinned to the version on screen and given no job, so
+						     this is the project as THIS deploy declared it; a node opens its
+						     SQL and previews its rows with whatever the form above holds. -->
+						<div class="grow min-h-0">
+							<DbtRunGraph scriptPath={script.path} scriptHash={script.hash} runArgs={args} fill />
+						</div>
+					{:else if isWac && script.content}
 						<div class="grow min-h-0" style="min-height: 400px;">
 							<WacDiagram code={script.content} language={script.language ?? ''} />
 						</div>

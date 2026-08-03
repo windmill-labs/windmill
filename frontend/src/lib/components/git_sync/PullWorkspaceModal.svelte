@@ -15,6 +15,7 @@
 	import { JobService, ResourceService } from '$lib/gen'
 	import { workspaceStore, userWorkspaces } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
+	import { apiErrorMessage } from '$lib/utils'
 	import hubPaths from '$lib/hubPaths.json'
 	import { jobManager } from '$lib/services/JobManager'
 	import type { SyncResponse, SettingsResponse, SettingsObject } from '$lib/git-sync'
@@ -100,7 +101,7 @@
 			onSettingsSaved?.()
 		} catch (error) {
 			console.error('Failed to save settings:', error)
-			sendUserToast('Failed to save updated settings', true)
+			sendUserToast('Failed to save updated settings: ' + apiErrorMessage(error), true)
 		}
 	}
 
@@ -289,7 +290,7 @@
 			}
 		} catch (error: any) {
 			console.error('Failed to apply settings:', error)
-			sendUserToast('Failed to apply settings: ' + error.message, true)
+			sendUserToast('Failed to apply settings: ' + apiErrorMessage(error), true)
 		} finally {
 			isApplying = false
 		}

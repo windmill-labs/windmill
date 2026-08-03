@@ -36,7 +36,7 @@ mod native_retry {
             script_lang: Some(ScriptLang::Deno),
             permissioned_as_email: "test@windmill.dev".to_string(),
             flow_step_id: None,
-            trigger_kind: Some(JobTriggerKind::Schedule),
+            trigger_kind: Some(JobTriggerKind::Schedule.into()),
             trigger: Some(SCHED.to_string()),
             priority: None,
             concurrent_limit: None,

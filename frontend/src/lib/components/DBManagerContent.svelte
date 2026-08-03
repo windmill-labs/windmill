@@ -1,9 +1,15 @@
 <script lang="ts">
 	import { dbSchemas, workspaceStore, type DBSchema } from '$lib/stores'
-	import { sendUserToast, sortArray } from '$lib/utils'
-	import { Loader2 } from 'lucide-svelte'
-	import { dbSupportsSchemas } from './apps/components/display/dbtable/utils'
+	import { sortArray } from '$lib/utils'
+	import { Loader2, RefreshCcw } from 'lucide-svelte'
+	import Alert from './common/alert/Alert.svelte'
+	import Button from './common/button/Button.svelte'
+	import {
+		dbSupportsSchemas,
+		getLanguageByResourceType
+	} from './apps/components/display/dbtable/utils'
 	import DbManager from './DBManager.svelte'
+	import MissingWorkerTagAlert from './jobs/MissingWorkerTagAlert.svelte'
 	import {
 		dbSchemaOpsWithPreviewScripts,
 		dbTableOpsWithPreviewScripts,
@@ -82,30 +88,61 @@
 		return `${ws}:${getDbSchemasPath(input)}`
 	}
 
+	// Reported in place of the loading spinner: both queries run as jobs, so
+	// anything from a bad connection to a tag no worker serves surfaces here
+	// instead of leaving the manager spinning with no explanation. Each query
+	// owns its slot so neither can clear the other's error on a refetch.
+	let schemaError = $state<string | undefined>(undefined)
+	let colDefsError = $state<string | undefined>(undefined)
+	let loadError = $derived(
+		schemaError
+			? { title: 'Could not load the database schema', message: schemaError }
+			: colDefsError
+				? { title: 'Could not load the tables of this database', message: colDefsError }
+				: undefined
+	)
+
 	let colDefs = resource(
 		() => [input, ws],
 		async () => {
+			colDefsError = undefined
 			if (!input) return
-			return await loadAllTablesMetaData(ws, input)
+			try {
+				return await loadAllTablesMetaData(ws, input)
+			} catch (e) {
+				colDefsError = 'Error loading tables metadata: ' + ((e as Error)?.message || e)
+				return
+			}
 		}
 	)
+
 	let dbSchemasPromise = resource(
 		() => [input, ws],
 		async () => {
+			schemaError = undefined
 			if (!input) return
 			const dbSchemasPath = schemaCacheKey(input)
 			if (input.type == 'database') {
-				$dbSchemas[dbSchemasPath] = await getDbSchemas(
+				const schema = await getDbSchemas(
 					input.resourceType,
 					input.resourcePath,
 					ws,
-					(message: string) => sendUserToast(message, true)
+					(message: string) => (schemaError = message)
 				)
+				if (!schema) {
+					schemaError ??= 'The schema query returned no schema'
+					return
+				}
+				$dbSchemas[dbSchemasPath] = schema
 			} else if (input.type == 'ducklake') {
-				$dbSchemas[dbSchemasPath] = await getDucklakeSchema({
-					workspace: ws!,
-					ducklake: input.ducklake
-				})
+				try {
+					$dbSchemas[dbSchemasPath] = await getDucklakeSchema({
+						workspace: ws!,
+						ducklake: input.ducklake
+					})
+				} catch (e) {
+					schemaError = 'Error fetching schema: ' + ((e as Error)?.message || e)
+				}
 			}
 		}
 	)
@@ -116,6 +153,24 @@
 	export function isLoading() {
 		return colDefs.loading || dbSchemasPromise.loading
 	}
+
+	// Tag the schema/metadata jobs run on: for every DB the manager supports, the
+	// language name is the tag, which is what makes the missing-worker hint below
+	// possible without waiting for the poller to give up.
+	let jobTag = $derived(input ? getLanguageByResourceType(getDbType(input)) : undefined)
+
+	// A job queued behind busy workers still loads eventually, so this is a hint
+	// rather than an error. The no-worker-at-all case fails outright instead.
+	const SLOW_LOAD_MS = 10_000
+	let slowLoad = $state(false)
+	$effect(() => {
+		if (!isLoading()) {
+			slowLoad = false
+			return
+		}
+		const t = setTimeout(() => (slowLoad = true), SLOW_LOAD_MS)
+		return () => clearTimeout(t)
+	})
 
 	let replPanelSize = $state(36)
 	const REPL_MIN_SIZE = 1.5
@@ -145,7 +200,23 @@
 	}}
 />
 
-{#if dbSchema && ws && input}
+<!-- The error branch comes first on purpose: `dbSchema` is read from a cache that
+	survives a failed refetch, so ordering it first would hide the failure behind
+	stale content. -->
+{#if loadError}
+	<div class="h-full w-full flex flex-col items-center justify-center gap-3 p-8">
+		<div class="max-w-2xl w-full flex flex-col gap-3">
+			<Alert type="error" title={loadError.title} size="xs">
+				{loadError.message}
+			</Alert>
+			<div class="self-start">
+				<Button size="xs" color="light" startIcon={{ icon: RefreshCcw }} on:click={() => refresh()}>
+					Retry
+				</Button>
+			</div>
+		</div>
+	</div>
+{:else if dbSchema && ws && input}
 	{@const _input = input}
 	{@const dbType = getDbType(_input)}
 	<Splitpanes horizontal>
@@ -238,8 +309,22 @@
 	</Splitpanes>
 {:else}
 	<Splitpanes>
-		<Pane class="relative flex justify-center items-center">
+		<Pane class="relative flex flex-col justify-center items-center gap-3 p-8">
 			<Loader2 class="animate-spin" size={32} />
+			{#if slowLoad}
+				<span class="text-xs text-tertiary max-w-md text-center">
+					The schema query is taking a while. It runs as a job, so it waits for a worker serving its
+					tag to be free.
+				</span>
+				{#if jobTag}
+					<MissingWorkerTagAlert
+						tag={jobTag}
+						subject="Database queries"
+						workspace={ws}
+						class="max-w-2xl w-full"
+					/>
+				{/if}
+			{/if}
 		</Pane>
 	</Splitpanes>
 {/if}

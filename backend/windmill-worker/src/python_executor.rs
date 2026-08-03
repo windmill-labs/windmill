@@ -3026,7 +3026,11 @@ pub async fn handle_python_reqs(
                     "failed to get PID for python installation process: {}",
                     &req
                   )))
-                  .and_then(|pid| write_file(&format!("/proc/{pid}"), "oom_score_adj", "1000"))
+                  .and_then(|pid| write_file(
+                      &format!("/proc/{pid}"),
+                      "oom_score_adj",
+                      &windmill_common::worker::JOB_OOM_SCORE_ADJ.to_string(),
+                  ))
                 {
                   tracing::error!(
                       req = %req,

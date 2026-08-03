@@ -53,17 +53,17 @@ use windmill_common::{
     auth::is_super_admin_email,
     ee_oss::{get_license_plan, LicensePlan},
     email_oss::send_email_plain_text,
-    error::{self, JsonResult, Result},
+    error::{self, pg_error_message, JsonResult, Result},
     get_database_url,
     global_settings::{
         AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
         CRITICAL_ALERT_MUTE_UI_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_HUB_SETTING,
-        EMAIL_DOMAIN_SETTING, ENV_SETTINGS, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
-        HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING, MAX_RETENTION_OVERRIDE_WORKSPACES,
-        RETENTION_PERIOD_SECS_OVERRIDES_SETTING, RUFF_CONFIG_SETTING,
-        WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
-        WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
-        WS_BASE_URL_SETTING,
+        EMAIL_DOMAIN_SETTING, ENV_SETTINGS, GITHUB_APP_WEBHOOK_BASE_URL_SETTING,
+        HTTP_ROUTE_WORKSPACED_ROUTE_SETTING, HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
+        MAX_RETENTION_OVERRIDE_WORKSPACES, RETENTION_PERIOD_SECS_OVERRIDES_SETTING,
+        RUFF_CONFIG_SETTING, WORKSPACE_FAIRNESS_DURATION_SECS_SETTING,
+        WORKSPACE_FAIRNESS_ENABLED_SETTING, WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING,
+        WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING, WS_BASE_URL_SETTING,
     },
     instance_config::{self, ApplyMode, InstanceConfig},
     server::Smtp,
@@ -115,6 +115,10 @@ pub fn global_service() -> Router {
             post(set_global_setting).get(get_global_setting),
         )
         .route("/list_global", get(list_global_settings))
+        .route(
+            "/github_app_stale_webhooks",
+            get(github_app_stale_webhooks),
+        )
         .route(
             "/instance_config",
             get(get_instance_config).put(set_instance_config),
@@ -783,6 +787,7 @@ pub async fn set_global_setting_internal(
         value
     };
 
+
     // EE gate for workspace-fairness settings. Workspace fairness only matters
     // on multi-tenant clusters; it is licensed as an Enterprise feature so the
     // setter rejects writes from non-EE builds. Disabling/clearing writes are
@@ -846,6 +851,7 @@ pub async fn set_global_setting_internal(
     if should_bump_instance_ai_revision {
         bump_instance_ai_config_revision();
     }
+
 
     Ok(())
 }
@@ -1078,6 +1084,30 @@ async fn run_setting_pre_write_hook(
                 }
             }
         }
+        GITHUB_APP_WEBHOOK_BASE_URL_SETTING => {
+            // A bad value here yields a webhook GitHub can never deliver to, and the
+            // failure only shows up much later as "falling back to polling" on a
+            // repository — so reject it at the boundary instead.
+            match value {
+                // Clearing (delete row) is handled by the caller; allow it through.
+                serde_json::Value::Null => {}
+                serde_json::Value::String(s) if s.trim().is_empty() => {}
+                serde_json::Value::String(s) => {
+                    windmill_common::global_settings::validate_webhook_base_url(s).map_err(
+                        |e| {
+                            error::Error::BadRequest(format!(
+                                "{GITHUB_APP_WEBHOOK_BASE_URL_SETTING}: {e}"
+                            ))
+                        },
+                    )?;
+                }
+                _ => {
+                    return Err(error::Error::BadRequest(format!(
+                        "{GITHUB_APP_WEBHOOK_BASE_URL_SETTING} must be a URL string"
+                    )));
+                }
+            }
+        }
         _ => {}
     }
     Ok(())
@@ -1168,6 +1198,7 @@ async fn set_instance_config(
         if ai_config_changed {
             bump_instance_ai_config_revision();
         }
+
     }
 
     if !desired.worker_configs.is_empty() {
@@ -1234,6 +1265,25 @@ pub async fn get_global_setting(
 struct GlobalSetting {
     name: String,
     value: serde_json::Value,
+}
+
+/// Repositories whose registered webhook still points at a receiver the instance no
+/// longer uses — what an admin has to re-save after changing the webhook base URL.
+/// Read-only; changing the setting never moves a live hook on its own.
+async fn github_app_stale_webhooks(
+    Extension(_db): Extension<DB>,
+    authed: ApiAuthed,
+) -> JsonResult<serde_json::Value> {
+    require_super_admin(&_db, &authed.email).await?;
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    {
+        let stale = windmill_common::git_sync_ee::stale_webhook_repos(&_db).await?;
+        return Ok(Json(serde_json::to_value(stale).map_err(|e| {
+            error::Error::internal_err(format!("Failed to serialize stale webhooks: {e}"))
+        })?));
+    }
+    #[cfg(not(all(feature = "enterprise", feature = "private")))]
+    Ok(Json(serde_json::json!([])))
 }
 
 #[cfg(feature = "enterprise")]
@@ -1506,6 +1556,10 @@ struct CustomInstanceDbLogs {
     db_connect: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     grant_permissions: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    replication_user: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    replication_user_error: Option<String>,
 }
 
 async fn list_custom_instance_pg_databases(
@@ -1701,38 +1755,27 @@ async fn setup_custom_instance_pg_database_inner(
         .map_err(|e| {
             error::Error::ExecutionErr(format!(
                 "Failed to grant permissions to custom_instance_user: {}",
-                e.to_string(),
+                pg_error_message(&e),
             ))
         })?;
-
-    // The replication attribute lives on a dedicated role used by postgres trigger
-    // connections. The getter creates the role (with its stored password) when the
-    // migration couldn't.
-    if let Err(e) = windmill_common::utils::get_custom_pg_instance_replication_password(db).await {
-        tracing::error!("Failed to ensure custom_instance_replication_user exists: {e:#}");
-    }
-    if let Err(e) = client
-        .batch_execute(
-            "ALTER ROLE custom_instance_replication_user REPLICATION;
-             GRANT custom_instance_user TO custom_instance_replication_user;
-             ALTER ROLE custom_instance_user NOREPLICATION;",
-        )
-        .await
-    {
-        tracing::error!(
-            "Failed to grant replication permission to custom_instance_replication_user: {e:#}"
-        );
-    }
 
     logs.grant_permissions = "OK".to_string();
 
     drop(client); // /!\ Drop before joining to avoid deadlock
-    join_handle
-        .await
-        .map_err(|e| error::Error::ExecutionErr(format!("join error: {}", e.to_string())))?
-        .map_err(|e| {
-            error::Error::ExecutionErr(format!("tokio_postgres error: {}", e.to_string()))
-        })?;
+    windmill_common::shutdown_pg_connection(join_handle).await?;
+
+    // Roles are cluster-wide, so the dedicated role used by postgres trigger connections is
+    // provisioned on the main pool rather than on the new database. Reported as its own step
+    // rather than failing the setup: without the role the database still serves datatables, only
+    // postgres triggers on them break.
+    match windmill_common::utils::ensure_custom_instance_replication_user(db).await {
+        Ok(()) => logs.replication_user = "OK".to_string(),
+        Err(e) => {
+            tracing::error!("Failed to provision custom_instance_replication_user: {e:#}");
+            logs.replication_user = "FAIL".to_string();
+            logs.replication_user_error = Some(e.to_string());
+        }
+    }
 
     Ok(())
 }

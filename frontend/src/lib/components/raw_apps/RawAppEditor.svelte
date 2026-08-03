@@ -29,6 +29,7 @@
 	import { runDomQueryOnHtml, type RawAppDomQuery, type RawAppDomRequester } from './rawAppDom'
 	import InlineElementPrompt from './InlineElementPrompt.svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
+	import { getAppliedDarkModeVariant, type DarkModeVariant } from '$lib/darkModeVariant'
 	import RawAppSidebar from './RawAppSidebar.svelte'
 	import type { Modules } from './RawAppModules.svelte'
 	import { isRunnableByName, isRunnableByPath } from '../apps/inputType'
@@ -53,6 +54,7 @@
 	} from 'lucide-svelte'
 	import DraggableTabs, { type TabItem } from '$lib/components/common/tabs/DraggableTabs.svelte'
 	import { runScriptAndPollResult } from '../jobs/utils'
+	import { writingJobOptions } from '../jobs/writingJob'
 	import { RawAppHistoryManager } from './RawAppHistoryManager.svelte'
 	import { sendUserToast } from '$lib/utils'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
@@ -1019,14 +1021,17 @@
 				}
 
 				try {
-					const result = await runScriptAndPollResult({
-						workspace: opWorkspace,
-						requestBody: {
-							language: 'postgresql',
-							content: sql,
-							args: { database: `datatable://${datatableName}` }
-						}
-					})
+					const result = await runScriptAndPollResult(
+						{
+							workspace: opWorkspace,
+							requestBody: {
+								language: 'postgresql',
+								content: sql,
+								args: { database: `datatable://${datatableName}` }
+							}
+						},
+						writingJobOptions
+					)
 
 					// If newTable was specified and the query succeeded, add it to data.tables
 					if (newTable) {
@@ -1206,7 +1211,22 @@
 				historyManager.markPendingChanges()
 			}
 		} else if (e.data.type === 'getBundle') {
-			getBundleResolve?.(e.data.bundle)
+			// The UI Builder omits `css` entirely when the app has no styles. Saving
+			// `undefined` drops the multipart field, and the backend then stores no
+			// css blob at all for that version. `js` gets no such default: the
+			// backend accepts any present `js` field regardless of length, so an
+			// empty one would publish a blank app instead of failing.
+			// `rawAppBundlerBridge` holds the same invariant over its own
+			// `bundleRawAppResult` message for the chat/draft path.
+			const bundle = e.data.bundle
+			if (!bundle?.js) {
+				getBundleReject?.(new Error('Raw app bundler returned an empty JavaScript bundle.'))
+			} else {
+				getBundleResolve?.({
+					js: String(bundle.js),
+					css: String(bundle.css ?? '')
+				})
+			}
 		} else if (e.data.type === 'updateModules') {
 			modules = e.data.modules
 		} else if (e.data.type === 'setActiveDocument') {
@@ -1289,7 +1309,7 @@
 	// it always matches the editor's current state. Plain rebuilds use
 	// `syncExternalPreview` alone (the theme hasn't changed).
 	function feedExternalPreview() {
-		postToExternalPreview({ type: 'setDarkMode', dark: darkMode })
+		postToExternalPreview({ type: 'setDarkMode', dark: darkMode, variant: darkVariant })
 		syncExternalPreview()
 	}
 
@@ -1329,10 +1349,12 @@
 	}
 
 	let getBundleResolve: (({ css, js }: { css: string; js: string }) => void) | undefined = undefined
+	let getBundleReject: ((reason: Error) => void) | undefined = undefined
 
 	async function getBundle(): Promise<{ css: string; js: string }> {
-		return new Promise((resolve) => {
+		return new Promise((resolve, reject) => {
 			getBundleResolve = resolve
+			getBundleReject = reject
 			iframe?.contentWindow?.postMessage(
 				{
 					type: 'getBundle'
@@ -1680,6 +1702,17 @@
 	})
 
 	let darkMode: boolean = $state(false)
+	// Mirrors the `github-dark` class (the runtime source of truth); the
+	// DarkModeObserver below must keep it in sync or it goes stale.
+	let darkVariant: DarkModeVariant = $state(getAppliedDarkModeVariant())
+	// Read the DOM classes, not reactive state, so the src stays constant after
+	// mount: a reactive src would reload the iframe on every theme toggle. Live
+	// theme changes travel through postMessage instead (see the $effect below).
+	function uiBuilderIframeSrc(): string {
+		const dark = document.documentElement.classList.contains('dark')
+		const variant = getAppliedDarkModeVariant()
+		return `/ui_builder/index.html?dark=${dark}&variant=${variant}`
+	}
 	// Host's computed `text-xs` size in px. Windmill bumps :root to 18px at
 	// ≥1760px viewports, so this re-evaluates on resize via the listener below.
 	let editorFontSize = $state(12)
@@ -1729,12 +1762,18 @@
 		// Push dark mode to both children. The UI Builder iframe and the
 		// preview iframe each listen for `setDarkMode` separately.
 		if (iframe && iframeLoaded) {
-			iframe.contentWindow?.postMessage({ type: 'setDarkMode', dark: darkMode }, '*')
+			iframe.contentWindow?.postMessage(
+				{ type: 'setDarkMode', dark: darkMode, variant: darkVariant },
+				'*'
+			)
 		}
 		if (previewIframe && previewIframeLoaded) {
-			previewIframe.contentWindow?.postMessage({ type: 'setDarkMode', dark: darkMode }, '*')
+			previewIframe.contentWindow?.postMessage(
+				{ type: 'setDarkMode', dark: darkMode, variant: darkVariant },
+				'*'
+			)
 		}
-		postToExternalPreview({ type: 'setDarkMode', dark: darkMode })
+		postToExternalPreview({ type: 'setDarkMode', dark: darkMode, variant: darkVariant })
 	})
 	$effect(() => {
 		// Match VS Code's editor font size to Windmill's text-xs.
@@ -2019,7 +2058,12 @@
 </script>
 
 <svelte:window onmessage={listener} onkeydown={handleKeydown} />
-<DarkModeObserver bind:darkMode />
+<DarkModeObserver
+	bind:darkMode
+	on:change={() => {
+		darkVariant = getAppliedDarkModeVariant()
+	}}
+/>
 
 <RawAppBackgroundRunner
 	workspace={opWorkspace ?? ''}
@@ -2197,7 +2241,7 @@
 											<iframe
 												bind:this={iframe}
 												title="UI builder"
-												src="/ui_builder/index.html"
+												src={uiBuilderIframeSrc()}
 												class="w-full h-full block"
 												onload={attachIframeSaveShortcut}
 											></iframe>

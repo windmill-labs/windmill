@@ -118,7 +118,10 @@ const LANG_COMPATIBILITY: Record<ScriptLang, PipelineOutputKind[]> = {
 	bunnative: ['none'],
 	nativets: ['none'],
 	ruby: ['none'],
-	rlang: ['none']
+	rlang: ['none'],
+	// A dbt script's outputs come from its manifest, not from a Windmill
+	// template — the picker has nothing to generate for it.
+	dbt: ['none']
 }
 
 export function compatibleOutputKinds(lang: ScriptLang): PipelineOutputKind[] {
@@ -215,7 +218,8 @@ const ASSET_URI_PREFIX: Record<AssetKind, string> = {
 	resource: '$res:',
 	ducklake: 'ducklake://',
 	datatable: 'datatable://',
-	volume: 'volume://'
+	volume: 'volume://',
+	dbt: 'dbt://'
 }
 
 export function assetUri(asset: { kind: AssetKind; path: string }): string {

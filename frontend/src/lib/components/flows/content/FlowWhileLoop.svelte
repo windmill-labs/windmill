@@ -47,9 +47,10 @@
 
 <Drawer bind:open={previewOpen} alwaysOpen size="75%" minSize="1000px">
 	<FlowLoopIterationPreview
-		modules={mod.value.type == 'forloopflow' ? mod.value.modules : []}
+		modules={mod.value.type == 'whileloopflow' ? mod.value.modules : []}
 		open={previewOpen}
 		previewArgs={previewIterationArgs}
+		whileLoop
 		bind:job
 		bind:jobId
 		on:close={() => {

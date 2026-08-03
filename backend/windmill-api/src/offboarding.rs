@@ -133,6 +133,10 @@ async fn get_offboard_preview(
 ) -> Result<OffboardPreview> {
     let user_prefix = format!("u/{}/%", username);
     let user_owner = format!("u/{}", username);
+    // Same form the mutation reassigns, so preview and execution cannot disagree. `usr.username`
+    // is constrained to `[\w-]+`, so a member is always named `u/{username}` — the address form a
+    // principal can also take names an account with no `usr` row, which is nobody offboardable.
+    let departing = windmill_common::users::username_to_permissioned_as(username);
 
     // ---- Owned objects (under u/{username}/) ----
     let scripts = sqlx::query_scalar!(
@@ -228,13 +232,13 @@ async fn get_offboard_preview(
 
     // ---- Operator references (not under user's path) ----
     let obo_scripts = sqlx::query_scalar!(
-        "SELECT path FROM script WHERE on_behalf_of_email = $1 AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived AND NOT deleted",
-        email, &user_prefix, w_id
+        "SELECT path FROM script WHERE on_behalf_of = $1 AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived AND NOT deleted",
+        &departing, &user_prefix, w_id
     ).fetch_all(db).await?;
 
     let obo_flows = sqlx::query_scalar!(
-        "SELECT path FROM flow WHERE on_behalf_of_email = $1 AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived",
-        email, &user_prefix, w_id
+        "SELECT path FROM flow WHERE on_behalf_of = $1 AND NOT path LIKE $2 AND workspace_id = $3 AND NOT archived",
+        &departing, &user_prefix, w_id
     ).fetch_all(db).await?;
 
     let obo_apps = sqlx::query_scalar!(
@@ -407,7 +411,6 @@ pub(crate) async fn offboard_workspace_user(
         &db,
         &w_id,
         &username,
-        &email,
         &req.reassign_to,
         &new_permissioned_as,
     )
@@ -563,7 +566,6 @@ pub(crate) async fn offboard_global_user(
                 &db,
                 &ws.workspace_id,
                 &ws.username,
-                &email,
                 &reassignment.reassign_to,
                 perm_as,
             )
@@ -798,14 +800,15 @@ async fn offboard_user_from_workspace<'c>(
     db: &DB,
     w_id: &str,
     username: &str,
-    email: &str,
     reassign_to: &str,
     new_permissioned_as: &str,
 ) -> Result<OffboardSummary> {
     let new_prefix = reassign_to.to_string();
+    let departing = windmill_common::users::username_to_permissioned_as(username);
 
-    // Resolve the new operator's email for on_behalf_of_email on scripts/flows/apps.
-    // resolve_new_permissioned_as already validated the user exists, and usr.email is NOT NULL.
+    // The app policy stores an address beside its principal, and script/flow keep one for the
+    // workers that still read it, so the replacement's is resolved here.
+    // resolve_new_permissioned_as already validated the user exists.
     let new_on_behalf_of_user_username = new_permissioned_as
         .strip_prefix("u/")
         .unwrap_or(new_permissioned_as);
@@ -839,10 +842,11 @@ async fn offboard_user_from_workspace<'c>(
     .unwrap_or(0);
 
     sqlx::query!(
-        "UPDATE script SET on_behalf_of_email = $1 WHERE on_behalf_of_email = $2 AND workspace_id = $3",
-        new_on_behalf_of_user_email,
-        email,
-        w_id
+        "UPDATE script SET on_behalf_of = $1, on_behalf_of_email = $4 WHERE on_behalf_of = $2 AND workspace_id = $3",
+        new_permissioned_as,
+        &departing,
+        w_id,
+        new_on_behalf_of_user_email
     )
     .execute(&mut **tx)
     .await?;
@@ -851,8 +855,8 @@ async fn offboard_user_from_workspace<'c>(
     let flows_reassigned = sqlx::query_scalar!(
         r#"WITH inserted AS (
             INSERT INTO flow
-                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels, lock_error_logs)
-            SELECT workspace_id, REGEXP_REPLACE(path, 'u/' || $2 || '/(.*)', $1 || '/\1'), summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels, lock_error_logs
+                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels, lock_error_logs)
+            SELECT workspace_id, REGEXP_REPLACE(path, 'u/' || $2 || '/(.*)', $1 || '/\1'), summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels, lock_error_logs
                 FROM flow
                 WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3
             RETURNING 1
@@ -879,10 +883,24 @@ async fn offboard_user_from_workspace<'c>(
     .await?;
 
     sqlx::query!(
-        "UPDATE flow SET on_behalf_of_email = $1 WHERE on_behalf_of_email = $2 AND workspace_id = $3",
-        new_on_behalf_of_user_email,
-        email,
-        w_id
+        "UPDATE flow SET on_behalf_of = $1, on_behalf_of_email = $4 WHERE on_behalf_of = $2 AND workspace_id = $3",
+        new_permissioned_as,
+        &departing,
+        w_id,
+        new_on_behalf_of_user_email
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    // Drafts hold both halves in their value and are not confined to the offboarded user's
+    // paths, so a draft on a shared path would keep running as them. Both are rewritten:
+    // `deployDraft` sends the pair, and one naming two people is rejected.
+    sqlx::query!(
+        r#"UPDATE draft SET value = to_json(jsonb_set(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of'], to_jsonb($1::text)), ARRAY['on_behalf_of_email'], to_jsonb($4::text))) WHERE typ IN ('script', 'flow') AND value->>'on_behalf_of' = $2 AND workspace_id = $3"#,
+        new_permissioned_as,
+        &departing,
+        w_id,
+        new_on_behalf_of_user_email
     )
     .execute(&mut **tx)
     .await?;

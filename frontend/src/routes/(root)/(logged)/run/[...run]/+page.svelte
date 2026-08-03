@@ -49,6 +49,7 @@
 		rememberRerunOrigin
 	} from '$lib/components/runs/rerunResolution.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
+	import DbtRunGraph from '$lib/components/dbt/DbtRunGraph.svelte'
 	import DispatchEventsPanel from '$lib/components/runs/DispatchEventsPanel.svelte'
 	import UpstreamSnapshotsPanel from '$lib/components/runs/UpstreamSnapshotsPanel.svelte'
 	import {
@@ -429,7 +430,10 @@
 	}
 
 	let runImmediatelyLoading = $state(false)
-	async function runImmediately() {
+	// An override may be a function, because the arguments it merges into are not
+	// known until they are here: a `WINDMILL_TOO_BIG` payload is a placeholder
+	// until fetched, and merging over that one drops what the fetch was for.
+	async function runImmediately(argsOverride?: ScriptArgs | ((args: ScriptArgs) => ScriptArgs)) {
 		runImmediatelyLoading = true
 		try {
 			let args = job?.args as ScriptArgs
@@ -439,6 +443,10 @@
 					id: job?.id!
 				})) as ScriptArgs
 			}
+			args =
+				typeof argsOverride === 'function'
+					? argsOverride(args ?? {})
+					: { ...args, ...(argsOverride ?? {}) }
 
 			const commonArgs = {
 				workspace: $workspaceStore!,
@@ -478,9 +486,52 @@
 			} else {
 				sendUserToast('Cannot run this job immediately', true)
 			}
+		} catch (err) {
+			// A refusal is the interesting case here: the worker rejects a `dbt
+			// retry` whose run is no longer the saved one, and a caller who saw
+			// nothing happen would just click again.
+			sendUserToast(`Could not create job: ${err}`, true)
 		} finally {
 			runImmediatelyLoading = false
 		}
+	}
+
+	// Whether a `dbt retry` submitted from here would resume THIS run: only the
+	// latest failure of a script is kept per principal, so a later run of it — or
+	// one that failed with nothing to rebuild — leaves this page's retry refused.
+	// Both entry points to it, the dropdown item and the graph's banner, ask.
+	let dbtResumable = $state(false)
+	$effect(() => {
+		const ws = $workspaceStore
+		const id = job?.id
+		const failed = job?.language === 'dbt' && job?.type === 'CompletedJob' && !job?.success
+		dbtResumable = false
+		if (!ws || !id || !failed) return
+		JobService.getDbtResumable({ workspace: ws, id })
+			.then((held) => {
+				// The page may have moved on, or the workspace changed, in flight.
+				if (job?.id === id && $workspaceStore === ws) dbtResumable = held === id
+			})
+			.catch(() => {})
+	})
+
+	// The retry goes through `runImmediately` so it carries the run's own arguments
+	// and resolved tag: worker tags, debounce and concurrency keys interpolate from
+	// the submitted arguments at enqueue, while the ones being resumed are restored
+	// later, inside the worker.
+	async function resumeDbtRun() {
+		// Merged INTO the run's own block, not put in its place: those fields are
+		// what a `$args[command.vars.tenant]` tag or concurrency key interpolates
+		// from at enqueue. The worker ignores them for a retry — it rebuilds with
+		// the arguments the failed run had — but the queue has already read them.
+		await runImmediately((args) => ({
+			...args,
+			command: {
+				...((args?.['command'] as Record<string, any> | undefined) ?? {}),
+				label: 'retry',
+				dbt_retry_job: job?.id
+			}
+		}))
 	}
 
 	let showEditButton = $derived(!isRuleActive('DisableDirectDeployment'))
@@ -794,8 +845,14 @@
 			{#if job?.job_kind === 'script' || job?.job_kind === 'script_hub' || job?.job_kind === 'flow'}
 				<Button
 					on:click|once={async () => {
+						// The form this lands on rebuilds the whole project. When resuming
+						// THIS run is the cheaper thing to do, name it so the form can
+						// offer that in one click rather than leaving the reader to know.
+						const from = dbtResumable ? `?dbt_retry_from=${job?.id}` : ''
 						goto(
-							viewHref + `#${computeSharableHash(job?.args, await getRerunTagOverride(job?.args))}`
+							viewHref +
+								from +
+								`#${computeSharableHash(job?.args, await getRerunTagOverride(job?.args))}`
 						)
 					}}
 					unifiedSize="md"
@@ -803,6 +860,11 @@
 					startIcon={{ icon: RefreshCw }}
 					loading={runImmediatelyLoading}
 					dropdownItems={[
+						// A failed dbt run's cheap next step is resuming its failed and skipped
+						// nodes rather than rebuilding the project, and `dbt_command` is the
+						// only argument that differs. Offered first, and only while the saved
+						// failure is still this run — which is what `dbtResumable` answers.
+						...(dbtResumable ? [{ label: 'dbt retry with same args', onClick: resumeDbtRun }] : []),
 						{
 							label: 'Run immediately with same args',
 							onClick: () => runImmediately()
@@ -969,6 +1031,25 @@
 				{/if}
 				{#if scriptProgress}
 					<JobProgressBar {job} {scriptProgress} class="py-4" hideStepTitle={true} />
+				{/if}
+
+				<!-- The models a dbt run touches, above its result: the run page is
+				     where you land on a running job, and the per-node table below
+				     only exists once the job has produced one. -->
+				{#if job?.language === 'dbt' && job?.script_path}
+					<div class="mr-2 sm:mr-0 mt-12">
+						<h3 class="text-xs font-semibold text-emphasis mb-1">Models</h3>
+						<DbtRunGraph
+							scriptPath={job.script_path}
+							jobId={job.id}
+							running={job.type !== 'CompletedJob'}
+							result={job.type === 'CompletedJob' ? job.result : undefined}
+							scriptHash={job.script_hash}
+							runArgs={job.args}
+							canResume={dbtResumable}
+							onResume={resumeDbtRun}
+						/>
+					</div>
 				{/if}
 
 				<!-- Result Section (moved outside tabs) -->

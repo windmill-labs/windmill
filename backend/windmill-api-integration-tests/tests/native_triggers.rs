@@ -17,8 +17,8 @@ use windmill_native_triggers::{
     decrypt_oauth_data, delete_native_trigger, delete_workspace_integration,
     get_workspace_integration,
     google::{parse_stop_channel_params, should_renew_channel},
-    require_native_integration_use, store_native_trigger, store_workspace_integration,
-    NativeTriggerConfig, OAuthConfig, ServiceName,
+    list_native_triggers, require_native_integration_use, store_native_trigger,
+    store_workspace_integration, NativeTriggerConfig, OAuthConfig, ServiceName,
 };
 
 // ============================================================================
@@ -50,6 +50,8 @@ fn test_authed() -> ApiAuthed {
         folders: vec![],
         scopes: None,
         username_override: None,
+        username_override_is_token_label: false,
+        is_session_token: false,
         token_prefix: None,
         read_only: false,
     }
@@ -565,6 +567,92 @@ async fn test_cleanup_preserves_triggers(db: Pool<Postgres>) -> anyhow::Result<(
     .await?
     .unwrap_or(0);
     assert_eq!(trigger_count, 1, "trigger should survive OAuth cleanup");
+
+    Ok(())
+}
+
+// ============================================================================
+// 5. Runnable rename
+// ============================================================================
+
+/// A rename has to carry the trigger row onto the new path and report it as moved: listings only
+/// return rows whose runnable still exists, so one left behind on the old path disappears from the
+/// UI for good, and one not reported keeps a webhook aimed at the old path.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_rename_moves_native_trigger(db: Pool<Postgres>) -> anyhow::Result<()> {
+    insert_test_script(&db, "f/test/before").await?;
+    store_native_trigger(
+        &db,
+        "test-workspace",
+        ServiceName::Nextcloud,
+        "ext-1",
+        &NativeTriggerConfig {
+            script_path: "f/test/before".to_string(),
+            is_flow: false,
+            webhook_token: "abcdefghij1234567890".to_string(),
+        },
+        json!({"event": "OCP\\Files\\Events\\Node\\NodeCreatedEvent"}),
+        None,
+    )
+    .await?;
+    // An unrelated trigger already sitting on the target path must not be reported as moved.
+    insert_test_script(&db, "f/test/after").await?;
+    store_native_trigger(
+        &db,
+        "test-workspace",
+        ServiceName::Nextcloud,
+        "ext-2",
+        &NativeTriggerConfig {
+            script_path: "f/test/after".to_string(),
+            is_flow: false,
+            webhook_token: "0987654321jihgfedcba".to_string(),
+        },
+        json!({"event": "OCP\\Files\\Events\\Node\\NodeCreatedEvent"}),
+        None,
+    )
+    .await?;
+
+    let mut tx = db.begin().await?;
+    sqlx::query!(
+        "UPDATE script SET path = $1 WHERE workspace_id = 'test-workspace' AND path = $2",
+        "f/test/after",
+        "f/test/before",
+    )
+    .execute(&mut *tx)
+    .await?;
+    let moved = windmill_common::triggers::update_triggers_script_path(
+        &mut tx,
+        "f/test/after",
+        "f/test/before",
+        "test-workspace",
+        false,
+    )
+    .await?;
+    tx.commit().await?;
+
+    assert_eq!(
+        moved
+            .iter()
+            .map(|t| (t.service_name.as_str(), t.external_id.as_str()))
+            .collect::<Vec<_>>(),
+        vec![("nextcloud", "ext-1")]
+    );
+
+    let triggers = list_native_triggers(
+        &db,
+        "test-workspace",
+        ServiceName::Nextcloud,
+        None,
+        None,
+        Some("f/test/after"),
+        Some(false),
+    )
+    .await?;
+    assert_eq!(
+        triggers.len(),
+        2,
+        "the moved trigger should be listed under the new path"
+    );
 
     Ok(())
 }

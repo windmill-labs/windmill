@@ -58,7 +58,10 @@ import { isChromiumBrowser } from '$lib/utils'
 import {
 	applyEditableFlowJsonToFlow,
 	buildEditableFlowJson,
+	EDITABLE_FLOW_STRUCTURAL_KEYS,
 	type EditableFlowJson,
+	FLOW_VALUE_SETTINGS_KEYS,
+	pickFlowValueSettings,
 	finalizeUnresolvedInlineScripts,
 	restoreSpecialRawscriptModule,
 	validateEditableFlowJson
@@ -87,6 +90,7 @@ import {
 	executeFlowStepTestRun,
 	executeTestRun,
 	findAndReplace,
+	isHubPath,
 	type CreatedResourceTriggerKind,
 	type PreviewCardKind,
 	type Tool,
@@ -137,6 +141,7 @@ import {
 	getDraftDiffValues
 } from '$lib/utils_draft_deploy'
 import { changedLineIndices, draftDeployedPatch, windowPatch } from './draftDiff'
+import { getFlowRunDetails } from './flowRunTree'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { invalidateWorkspaceComparison } from '$lib/workspaceComparison'
 import type { UserDraftItemKind } from '$lib/gen'
@@ -359,7 +364,11 @@ const listWorkspaceItemsSchema = z.object({
 
 const readWorkspaceItemSchema = z.object({
 	type: itemTypeSchema,
-	path: z.string().describe('Workspace path of the item to read.'),
+	path: z
+		.string()
+		.describe(
+			'Workspace path of the item to read, or a hub/<version>/<app>/<name> path from search_hub_scripts to read a hub script.'
+		),
 	trigger_kind: triggerKindSchema
 		.optional()
 		.describe('Required when type is trigger. Identifies which trigger service to call.'),
@@ -521,6 +530,7 @@ function appendEmptyInlineScriptWarning(result: string, editable: EditableFlowJs
 
 function editableFlowToDraftValue(editable: EditableFlowJson): FlowDraftValue {
 	const value: FlowValue = {
+		...pickFlowValueSettings(editable),
 		modules: editable.modules,
 		preprocessor_module: editable.preprocessor_module ?? undefined,
 		failure_module: editable.failure_module ?? undefined,
@@ -592,6 +602,16 @@ const searchResourceTypesSchema = z.object({
 
 const getJobLogsSchema = z.object({
 	id: z.string().describe('The UUID of the job to fetch logs for.')
+})
+
+const getFlowRunDetailsSchema = z.object({
+	id: z.string().describe('The UUID of the flow run to inspect.'),
+	step: z
+		.string()
+		.optional()
+		.describe(
+			'Step to drill into for its result (returned in full up to 12k chars), addressed by the step ids shown in the tree: "b" for a top-level step, "b/c" for a step inside a subflow, "b[12]" for iteration 12 of a loop or attempt 12 of a retried step (1-based), composable as "b[12]/c". Omit to get the whole per-step tree.'
+		)
 })
 
 const cancelJobSchema = z.object({
@@ -1166,11 +1186,13 @@ Rules:
 - Variable values are never readable. For secrets, create a secret variable and reference it from resources as "$var:path/to/variable".
 - Use search_resource_types before write_resource.
 - When script or raw app code needs an external npm package you are not fully familiar with, use search_npm_packages to find it and get its documentation and type definitions. Link the package documentation in your answer when you rely on it.
+- Hub scripts are prebuilt integrations for third-party services, hosted outside the workspace under \`hub/<version>/<app>/<name>\` paths. Use search_hub_scripts to find one before hand-writing an integration, then read_workspace_item with type "script" and the returned hub path to get its code, language, and input schema.
 - Use get_db_schema with a database resource path to fetch its tables and columns before writing SQL (or a script querying that database).
 - Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
 ${pipelineBullet}
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
+- To see what a flow run actually did per step — statuses and results across the whole execution tree, subflow steps and loop iterations included — use get_flow_run_details with the run id (it also works while the flow is still running). Pass step to read one step's result in full (capped at 12k chars). Prefer it over get_job_logs when you need step results rather than logs.
 - Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
 - Whenever you ask the user to perform a manual step in the UI — fill in a resource's credentials, set a secret variable's value, adjust a schedule or setting — call open_page in the same message, targeted at that item (pass open with its path to land in its edit drawer, or the page's filters otherwise). Never just describe where to click.
 - When the user is happy with the changes and wants to review or deploy them, use open_page with page "compare" — it opens the Compare & Deploy review page.${
@@ -1178,7 +1200,7 @@ ${pipelineBullet}
 			? ' By default it preselects the items this chat modified; pass items ("<kind>:<path>" entries) to control the selection'
 			: ' Pass items ("<kind>:<path>" entries naming the items you changed) so the review is scoped to them — omitting items preselects every pending change in the workspace'
 	}, or mode ("draft" or "fork") to force which comparison is shown. Prefer offering this review page over calling deploy_workspace_item directly when several items changed.
-- For a Windmill operation no other tool covers (workers, queue state, a run's result or args, ...), use search_api_endpoints to find a REST endpoint, then call_api_get for reads or call_api_endpoint for mutations (the user is asked to confirm those). Always prefer a dedicated tool when one exists; endpoints for authoring or deleting scripts, flows, apps, schedules, resources, or variables are not available through the API catalog tools — use the draft tools and delete_workspace_item instead.
+- For a Windmill operation no other tool covers (workers, queue state, a run's args, ...), use search_api_endpoints to find a REST endpoint, then call_api_get for reads or call_api_endpoint for mutations (the user is asked to confirm those). Always prefer a dedicated tool when one exists; endpoints for authoring or deleting scripts, flows, apps, schedules, resources, or variables are not available through the API catalog tools — use the draft tools and delete_workspace_item instead.
 - runScriptByPath / runFlowByPath from the API catalog run the DEPLOYED version of an item. Use them only when the user explicitly asks to run the deployed version, and read the item with read_workspace_item version: "deployed" first so the arguments match the deployed input schema (a draft may have different inputs). To test something you are editing or just wrote, always use test_run_script, test_run_flow, or test_run_step — they run the draft.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit. Set multiSelect: true only when the answers can genuinely co-apply and the user may pick several (not mutually exclusive).
 - When the user asks you to remember a lasting preference, always/never do something, or change/stop a behavior going forward, call update_user_instructions to persist it. It edits only the USER INSTRUCTIONS block (not WORKSPACE INSTRUCTIONS). Keep each instruction concise; do not use it for one-off requests scoped to the current task.
@@ -1774,6 +1796,20 @@ async function readWorkspaceItem(
 ): Promise<WorkspaceItem> {
 	switch (type) {
 		case 'script': {
+			// Hub scripts are not workspace items: search_hub_scripts hands back
+			// `hub/<version>/<app>/<slug>` paths, which getScriptByPath cannot resolve.
+			if (isHubPath(path)) {
+				const hub = await ScriptService.getHubScriptByPath({ path })
+				return {
+					type: 'script',
+					path,
+					summary: hub.summary,
+					language: hub.language as ScriptLang,
+					value: hub.content,
+					schema: hub.schema,
+					isDraft: false
+				}
+			}
 			// Prefer the DB draft (newer than the deployed version) when one exists,
 			// unless the caller explicitly asked for the deployed state.
 			const script = await ScriptService.getScriptByPath({
@@ -1947,8 +1983,9 @@ function getFlowInstructions(): string {
 
 - Global mode writes complete draft payloads only; it does not save, deploy, run, scaffold local files, or generate metadata.
 - Paths follow the conventions in the system prompt: default to \`u/<current-user>/<name>\` when the user gave a bare name; only use \`f/<folder>/<name>\` when the folder is known to exist. Never invent a folder.
-- \`write_flow\` mirrors flow mode's \`set_flow_json\`: pass \`path\`, optional \`summary\`, optional \`description\`, required \`modules\`, and optional \`schema\`, \`preprocessor_module\`, \`failure_module\`, \`groups\`, and \`notes\`. \`summary\` and \`description\` are top-level flow metadata (not part of the compact value \`patch_flow_json\` edits); the flow-structure arguments are JSON strings, matching the tool schema descriptions.
-- \`read_workspace_item\` returns a compact flow \`value\` object with \`modules\`, \`schema\`, \`preprocessor_module\`, \`failure_module\`, \`groups\`, and \`notes\`.
+- \`write_flow\` mirrors flow mode's \`set_flow_json\`: pass \`path\`, optional \`summary\`, optional \`description\`, required \`modules\`, and optional \`schema\`, \`preprocessor_module\`, \`failure_module\`, \`groups\`, and \`notes\`. \`summary\` and \`description\` are top-level flow metadata (not part of the compact value \`patch_flow_json\` edits); the flow-structure arguments are JSON strings, matching the tool schema descriptions. When overwriting an existing flow, top-level flow settings (see below) are preserved from the current flow — use \`patch_flow_json\` to change them.
+- \`read_workspace_item\` returns a compact flow \`value\` object with \`modules\`, \`schema\`, \`preprocessor_module\`, \`failure_module\`, \`groups\`, \`notes\`, and any top-level flow settings that are set.
+- Top-level flow settings appear as top-level keys of the compact flow value and can be added, edited, or removed with \`patch_flow_json\`: ${FLOW_VALUE_SETTINGS_KEYS.join(', ')}. For example, \`chat_input_enabled: true\` marks a flow as chat-style (flow-as-chat); keep it intact when restructuring such a flow.
 - \`modules\` contains normal sequential modules. Use top-level \`preprocessor_module\` and \`failure_module\` for special modules; do not put \`preprocessor\` or \`failure\` in \`modules\`.
 - Every module needs a stable unique \`id\` and a useful \`summary\` when the schema supports it.
 - Prefer path/script/flow modules when composing existing workspace logic. Use rawscript modules only when new inline code is needed.
@@ -2780,7 +2817,7 @@ export const globalTools: Tool<{}>[] = [
 				return JSON.stringify({ success: false, error: message })
 			}
 			const draft =
-				parsed.version === 'deployed'
+				parsed.version === 'deployed' || isHubPath(parsed.path)
 					? null
 					: await getGlobalDraft(workspace, parsed.type, parsed.path, parsed.trigger_kind)
 			if (draft) {
@@ -2878,7 +2915,8 @@ export const globalTools: Tool<{}>[] = [
 					path: parsed.path,
 					summary: parsed.summary,
 					description: parsed.description,
-					flow: editableFlowToDraftValue(resolved)
+					flow: editableFlowToDraftValue(resolved),
+					preserveBaseValueSettings: true
 				},
 				ctx
 			)
@@ -2951,6 +2989,7 @@ export const globalTools: Tool<{}>[] = [
 		},
 		requiresConfirmation: true,
 		confirmationMessage: (args) => `Run a test of ${pathLeaf(args?.path, 'the script')}`,
+		queuedLabel: (args) => `Test ${args?.path ?? 'the script'}`,
 		showDetails: true,
 		autoCollapseDetails: false
 	},
@@ -2962,6 +3001,7 @@ export const globalTools: Tool<{}>[] = [
 		},
 		requiresConfirmation: true,
 		confirmationMessage: (args) => `Run a test of ${pathLeaf(args?.path, 'the flow')}`,
+		queuedLabel: (args) => `Test ${args?.path ?? 'the flow'}`,
 		showDetails: true,
 		autoCollapseDetails: false
 	},
@@ -2974,6 +3014,7 @@ export const globalTools: Tool<{}>[] = [
 		requiresConfirmation: true,
 		confirmationMessage: (args) =>
 			`Run a test of step "${args?.stepId ?? ''}" in ${pathLeaf(args?.path, 'the flow')}`,
+		queuedLabel: (args) => `Test step "${args?.stepId ?? ''}" of ${args?.path ?? 'the flow'}`,
 		showDetails: true,
 		autoCollapseDetails: false
 	},
@@ -3000,6 +3041,30 @@ export const globalTools: Tool<{}>[] = [
 			const result = JSON.stringify(runs, null, 2)
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Listed ${runs.length} run(s)`,
+				result
+			})
+			return result
+		}
+	},
+	{
+		def: createToolDef(
+			getFlowRunDetailsSchema,
+			'get_flow_run_details',
+			"Inspect a flow run's execution tree: per-step statuses and truncated results, including subflow steps, loop iterations, branches, and retries. Works on running flows too. Pass step to fetch one step's result in full (up to 12k chars)."
+		),
+		showDetails: true,
+		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
+			const parsed = getFlowRunDetailsSchema.parse(args)
+			toolCallbacks.setToolStatus(toolId, {
+				content: parsed.step
+					? `Fetching result of step ${parsed.step} in run ${parsed.id}...`
+					: `Inspecting flow run ${parsed.id}...`
+			})
+			const result = await getFlowRunDetails(workspace, parsed.id, parsed.step)
+			toolCallbacks.setToolStatus(toolId, {
+				content: parsed.step
+					? `Fetched result of step ${parsed.step} in run ${parsed.id}`
+					: `Inspected flow run ${parsed.id}`,
 				result
 			})
 			return result
@@ -4169,7 +4234,13 @@ type FlowDraftArgs = {
 	description?: string
 	flow: FlowDraftValue
 	override?: boolean
+	/** Carry over the base value's non-structural fields (chat_input_enabled,
+	 * same_worker, ...) into the new value. Set by write_flow, whose arguments
+	 * cannot express them; patch_flow_json passes the full value state instead. */
+	preserveBaseValueSettings?: boolean
 }
+
+const FLOW_STRUCTURAL_VALUE_KEYS = new Set<string>(EDITABLE_FLOW_STRUCTURAL_KEYS)
 
 const FLOW_SPEC: WriteSpec<Flow, FlowDraftArgs> = {
 	probe: (workspace, path) => FlowService.existsFlowByPath({ workspace, path }),
@@ -4178,6 +4249,16 @@ const FLOW_SPEC: WriteSpec<Flow, FlowDraftArgs> = {
 		const value = structuredClone(args.flow.value)
 		if (args.flow.groups !== undefined && args.flow.groups !== null) {
 			value.groups = structuredClone(args.flow.groups)
+		}
+		if (args.preserveBaseValueSettings && base?.value) {
+			for (const [key, fieldValue] of Object.entries(base.value)) {
+				if (
+					!FLOW_STRUCTURAL_VALUE_KEYS.has(key) &&
+					(value as Record<string, unknown>)[key] === undefined
+				) {
+					;(value as Record<string, unknown>)[key] = structuredClone(fieldValue)
+				}
+			}
 		}
 		return base
 			? {

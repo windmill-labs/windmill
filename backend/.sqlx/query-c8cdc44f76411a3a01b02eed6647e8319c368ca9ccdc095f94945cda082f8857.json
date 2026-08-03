@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, permissioned_as, permissioned_as_email FROM v2_job WHERE id = ANY($1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "permissioned_as",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "permissioned_as_email",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "c8cdc44f76411a3a01b02eed6647e8319c368ca9ccdc095f94945cda082f8857"
+}

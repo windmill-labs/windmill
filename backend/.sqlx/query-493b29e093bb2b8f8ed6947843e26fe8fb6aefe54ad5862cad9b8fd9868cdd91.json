@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_settings SET dbt_warehouses = $1 WHERE workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "493b29e093bb2b8f8ed6947843e26fe8fb6aefe54ad5862cad9b8fd9868cdd91"
+}

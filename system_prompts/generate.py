@@ -107,6 +107,14 @@ def extract_ts_functions(content: str) -> list[dict]:
         if not return_type:
             return_type = 'Promise<void>' if is_async else 'void'
 
+        # `@internal` marks an export that exists for another module or for a
+        # test to reach, not for a user to call. The SDK reference these prompts
+        # become is a user-facing API list, so it must not advertise them.
+        # `@deprecated` exports stay callable for existing scripts but must not be
+        # suggested for new ones.
+        if jsdoc_raw and ('@internal' in jsdoc_raw or '@deprecated' in jsdoc_raw):
+            continue
+
         docstring = clean_jsdoc(jsdoc_raw) if jsdoc_raw else ''
         seen_names.add(name)
         functions.append({
@@ -183,6 +191,12 @@ def extract_py_functions(content: str) -> list[dict]:
 
         # Get docstring
         docstring = ast.get_docstring(node) or ''
+
+        # Same rule as the TypeScript SDK: a deprecated member stays callable for existing
+        # scripts but must not be suggested for new ones. The Python SDK marks them with the
+        # Sphinx `.. deprecated::` directive.
+        if '.. deprecated::' in docstring:
+            return
 
         # Build parameter list
         params = []
@@ -699,10 +713,24 @@ def generate_cli_commands_markdown(cli_data: dict) -> str:
     return md
 
 
+# Who is running the script is answered by contextual variables, not by an SDK call, so the
+# SDK reference has to say so: it is where an agent looks for a `usernameToEmail`-style helper.
+IDENTITY_OF_THE_RUN_TS = """To know who is running the script, read the contextual variables rather than calling the API:
+`process.env.WM_END_USER_EMAIL || process.env.WM_EMAIL`. WM_END_USER_EMAIL is the app viewer when
+the run was triggered from an app and empty otherwise (both variables are always defined), WM_EMAIL
+is the user the job is permissioned as. WM_USERNAME is the matching username."""
+
+IDENTITY_OF_THE_RUN_PY = """To know who is running the script, read the contextual variables rather than calling the API:
+`os.environ.get("WM_END_USER_EMAIL") or os.environ.get("WM_EMAIL")`. WM_END_USER_EMAIL is the app
+viewer when the run was triggered from an app and empty otherwise (both variables are always
+defined), WM_EMAIL is the user the job is permissioned as. WM_USERNAME is the matching username."""
+
+
 def generate_ts_sdk_markdown(functions: list[dict], _types: list[dict]) -> str:
     """Generate compact documentation for TypeScript SDK."""
     md = "# TypeScript SDK (windmill-client)\n\n"
     md += "Import: import * as wmill from 'windmill-client'\n\n"
+    md += IDENTITY_OF_THE_RUN_TS + "\n\n"
 
     for i, func in enumerate(functions):
         if func.get('docstring'):
@@ -725,6 +753,7 @@ def generate_py_sdk_markdown(functions: list[dict], _classes: list[dict]) -> str
     """Generate compact documentation for Python SDK."""
     md = "# Python SDK (wmill)\n\n"
     md += "Import: import wmill\n\n"
+    md += IDENTITY_OF_THE_RUN_PY + "\n\n"
 
     for func in functions:
         # Skip private functions

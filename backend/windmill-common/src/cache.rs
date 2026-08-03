@@ -297,20 +297,54 @@ impl std::fmt::Debug for FlowData {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+/// Top-level fields of a stored flow value that [`FlowValue`] does not model, so parsing a
+/// flow into a `FlowValue` drops them. Every write-back that round-trips a stored flow
+/// through `FlowValue` must capture them first and re-attach them with
+/// [`FlowExtras::reattach`], or they are destroyed on save. Adding a display-only flow
+/// field means adding it here — this is the only list, and `FlowValue` must never model a
+/// field named here: `reattach` flattens the two together, so a name in both would be
+/// emitted twice and the value would no longer deserialize.
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct FlowExtras {
     pub notes: Option<Box<RawValue>>,
     pub groups: Option<Box<RawValue>>,
 }
 
+impl FlowExtras {
+    /// Serialize `flow` with these extras folded back in. Fallible on purpose: the result is
+    /// written straight over a deployed flow value, so a serialization failure must abort the
+    /// write rather than persist a truncated value.
+    pub fn reattach(&self, flow: &FlowValue) -> error::Result<Box<RawValue>> {
+        // `flatten` + `RawValue` is fine for serialization; only deserialization breaks.
+        #[derive(Serialize)]
+        struct FlowValueWithExtras<'a> {
+            #[serde(flatten)]
+            flow: &'a FlowValue,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            notes: Option<&'a Box<RawValue>>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            groups: Option<&'a Box<RawValue>>,
+        }
+
+        serde_json::value::to_raw_value(&FlowValueWithExtras {
+            flow,
+            notes: self.notes.as_ref(),
+            groups: self.groups.as_ref(),
+        })
+        .map_err(|e| error::Error::internal_err(format!("Failed to serialize flow value: {e}")))
+    }
+
+    /// Capture the extras carried by a raw stored flow value.
+    pub fn capture(raw_flow: &RawValue) -> Self {
+        serde_json::from_str::<FlowExtras>(raw_flow.get())
+            .map_err(|e| tracing::warn!("Failed to parse flow extras: {e}"))
+            .unwrap_or_default()
+    }
+}
+
 impl FlowData {
-    pub fn extras(&self) -> Option<FlowExtras> {
-        serde_json::from_str::<FlowExtras>(self.raw_flow.get())
-            .map_err(|e| {
-                tracing::error!("Failed to parse flow extras: {}", e);
-                error::Error::internal_err(format!("Failed to parse flow extras: {}", e))
-            })
-            .ok()
+    pub fn extras(&self) -> FlowExtras {
+        FlowExtras::capture(&self.raw_flow)
     }
 }
 impl FlowData {
@@ -665,7 +699,23 @@ pub mod script {
             Ok(RawScript {
                 content: r.content,
                 lock: r.lock,
-                modules: r.modules.and_then(|v| serde_json::from_value(v).ok()),
+                modules: r.modules.and_then(|v| match serde_json::from_value(v) {
+                    Ok(modules) => Some(modules),
+                    // Not fatal: a script whose `modules` column cannot be read
+                    // still runs, just without its own files. But the result is
+                    // then cached under the script's hash, which never changes,
+                    // so the degraded run is what every later one gets too --
+                    // and for dbt "no modules" means no project at all. Say so
+                    // loudly, or the only symptom is a script that behaves as
+                    // if its files were never there.
+                    Err(err) => {
+                        tracing::error!(
+                            "Script {hash} has modules that cannot be deserialized, \
+                             running it without them: {err:#}"
+                        );
+                        None
+                    }
+                }),
                 meta: Some(ScriptMetadata {
                     language: r.language,
                     envs: r.envs,
@@ -1051,7 +1101,12 @@ const _: () = {
             let content = src.get_utf8("code.txt")?;
             let lock = src.get_utf8("lock.txt").ok();
             let meta = src.get_json("info.json").ok();
-            Ok(Self { content, lock, meta, modules: None })
+            // Required, even when empty: a script's modules are part of what it
+            // IS, so an entry without them must fail to import and be refetched
+            // rather than serve the script stripped of its own files.
+            let modules: Option<std::collections::HashMap<String, ScriptModule>> =
+                src.get_json("modules.json")?;
+            Ok(Self { content, lock, meta, modules })
         }
     }
 
@@ -1067,6 +1122,7 @@ const _: () = {
             if let Some(lock) = self.lock.as_ref() {
                 dst.put("lock.txt", lock.as_bytes())?;
             }
+            dst.put("modules.json", serde_json::to_vec(&self.modules)?)?;
             Ok(())
         }
     }
@@ -1278,6 +1334,38 @@ mod tests {
         assert!(leftover.is_empty(), "temp files must be renamed/cleaned up");
     }
 
+    // The first fetch of a script goes to the database, every later one to this
+    // directory. A module lost in between makes a worker restart silently start
+    // running the script without its own files — for dbt, without its project.
+    #[test]
+    fn a_scripts_modules_survive_the_file_system_cache() {
+        use crate::scripts::ScriptModule;
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+
+        let data = ScriptData {
+            code: "profile: {}".to_string(),
+            lock: None,
+            modules: Some(std::collections::HashMap::from([(
+                "dbt_project.yml".to_string(),
+                ScriptModule {
+                    content: "name: p".to_string(),
+                    language: ScriptLang::Dbt,
+                    lock: None,
+                },
+            )])),
+        };
+        data.export(&root).unwrap();
+        let back = ScriptData::resolve(RawScript::import(&root).unwrap()).unwrap();
+        assert_eq!(back.modules.unwrap()["dbt_project.yml"].content, "name: p");
+
+        // An entry written before modules were cached has no `modules.json`.
+        // It must fail to import so the caller refetches, rather than serving a
+        // script stripped of its files for as long as the directory lives.
+        std::fs::remove_file(root.join("modules.json")).unwrap();
+        assert!(RawScript::import(&root).is_err());
+    }
+
     #[test]
     fn flow_data_extras_preserves_notes_and_groups() {
         let raw = serde_json::value::to_raw_value(&json!({
@@ -1294,7 +1382,7 @@ mod tests {
         assert!(data.value().modules.is_empty());
 
         // But extras() recovers them from the raw JSON
-        let extras = data.extras().expect("extras should parse");
+        let extras = data.extras();
         let notes: serde_json::Value =
             serde_json::from_str(extras.notes.expect("notes present").get()).unwrap();
         assert_eq!(notes.as_array().unwrap().len(), 1);
@@ -1312,9 +1400,7 @@ mod tests {
         let raw = serde_json::value::to_raw_value(&json!({"modules": []})).unwrap();
         let data = FlowData::from_raw(raw).unwrap();
 
-        let extras = data
-            .extras()
-            .expect("extras should parse even without notes/groups");
+        let extras = data.extras();
         assert!(extras.notes.is_none());
         assert!(extras.groups.is_none());
     }
@@ -1337,10 +1423,51 @@ mod tests {
         let data2 = FlowData::from_raw(stripped_raw).unwrap();
 
         // Notes are gone after the FlowValue round-trip
-        let extras = data2.extras().expect("extras should parse");
         assert!(
-            extras.notes.is_none(),
+            data2.extras().notes.is_none(),
             "notes lost after FlowValue round-trip"
         );
+    }
+
+    #[test]
+    fn flow_extras_reattach_restores_what_the_roundtrip_drops() {
+        // Every write-back that re-serializes a stored flow through FlowValue must go
+        // through reattach, or notes/groups are destroyed.
+        let raw = serde_json::value::to_raw_value(&json!({
+            "modules": [{
+                "id": "a",
+                "value": {"type": "rawscript", "content": "x", "language": "bun",
+                          "input_transforms": {}}
+            }],
+            "same_worker": true,
+            "notes": [{"id": "n1", "text": "t", "color": "blue", "type": "free"}],
+            "groups": [{"start_id": "a", "end_id": "b", "summary": "grp"}]
+        }))
+        .unwrap();
+
+        let data = FlowData::from_raw(raw.clone()).unwrap();
+        let reattached: serde_json::Value =
+            serde_json::from_str(data.extras().reattach(data.value()).unwrap().get()).unwrap();
+        let original: serde_json::Value = serde_json::from_str(raw.get()).unwrap();
+
+        for key in original.as_object().unwrap().keys() {
+            assert_eq!(
+                reattached.get(key),
+                original.get(key),
+                "{key} did not survive the FlowValue round-trip"
+            );
+        }
+
+        // Absent extras must stay absent rather than serialize as null, which would show
+        // up as a spurious change in flow diffs.
+        let without =
+            FlowData::from_raw(serde_json::value::to_raw_value(&json!({ "modules": [] })).unwrap())
+                .unwrap();
+        let output = without
+            .extras()
+            .reattach(without.value())
+            .unwrap()
+            .to_string();
+        assert!(!output.contains("notes") && !output.contains("groups"));
     }
 }

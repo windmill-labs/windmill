@@ -78,6 +78,7 @@ export interface SyncOptions {
   skipResourceTypes?: boolean;
   skipSecrets?: boolean;
   skipWorkspaceDependencies?: boolean;
+  skipDatatableMigrations?: boolean;
   skipScripts?: boolean;
   skipFlows?: boolean;
   skipApps?: boolean;
@@ -343,6 +344,7 @@ export const DEFAULT_SYNC_OPTIONS: Readonly<
       | "includeSchedules"
       | "includeTriggers"
       | "skipWorkspaceDependencies"
+      | "skipDatatableMigrations"
       | "skipScripts"
       | "skipFlows"
       | "skipApps"
@@ -375,6 +377,7 @@ export const DEFAULT_SYNC_OPTIONS: Readonly<
   includeSettings: false,
   includeKey: false,
   skipWorkspaceDependencies: false,
+  skipDatatableMigrations: false,
   nonDottedPaths: false,
   syncBehavior: "v1",
 } as const;

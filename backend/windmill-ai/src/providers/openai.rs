@@ -229,7 +229,6 @@ pub enum ToolChoice {
 }
 
 pub struct OpenAIQueryBuilder {
-    #[allow(dead_code)]
     provider_kind: AIProvider,
 }
 
@@ -509,6 +508,10 @@ impl QueryBuilder for OpenAIQueryBuilder {
         build_openai_compatible_proxy_request(args)
     }
 
+    fn supports_chat_completions_fallback(&self, base_url: &str) -> bool {
+        self.provider_kind.is_azure(base_url)
+    }
+
     async fn parse_streaming_response(
         &self,
         response: reqwest::Response,
@@ -578,16 +581,25 @@ impl QueryBuilder for OpenAIQueryBuilder {
     }
 
     fn get_endpoint(&self, base_url: &str, _model: &str, _output_type: &OutputType) -> String {
-        format!("{}/responses", base_url)
+        let base_url = base_url.trim_end_matches('/');
+        if self.provider_kind.is_azure(base_url) {
+            AIProvider::build_azure_openai_url(base_url, "responses")
+        } else {
+            format!("{}/responses", base_url)
+        }
     }
 
     fn get_auth_headers(
         &self,
         api_key: &str,
-        _base_url: &str,
+        base_url: &str,
         _output_type: &OutputType,
     ) -> Vec<(&'static str, String)> {
-        vec![("Authorization", format!("Bearer {}", api_key))]
+        if self.provider_kind.is_azure(base_url) {
+            vec![("api-key", api_key.to_string())]
+        } else {
+            vec![("Authorization", format!("Bearer {}", api_key))]
+        }
     }
 }
 

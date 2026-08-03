@@ -10,7 +10,6 @@ pub use windmill_types::flows::*;
 
 use anyhow::Context;
 use serde::Deserialize;
-use serde::Serialize;
 use sqlx::types::Json;
 use sqlx::types::JsonRawValue;
 
@@ -99,18 +98,6 @@ pub async fn get_full_hub_flow_by_path(
         .flow)
 }
 
-/// Serialize-only wrapper that combines resolved FlowValue with display-only extras.
-/// flatten + RawValue is fine for serialization (only deserialization breaks).
-#[derive(Serialize)]
-struct FlowValueWithExtras<'a> {
-    #[serde(flatten)]
-    flow: &'a FlowValue,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    notes: Option<&'a Box<JsonRawValue>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    groups: Option<&'a Box<JsonRawValue>>,
-}
-
 /// Resolve the value of a flow if any.
 pub async fn resolve_maybe_value<T>(
     e: &sqlx::PgPool,
@@ -130,17 +117,13 @@ pub async fn resolve_maybe_value<T>(
 }
 
 /// Resolve modules recursively.
-/// Stashes display-only fields (notes, groups) before the FlowValue round-trip
-/// and re-injects them after, since FlowValue doesn't carry them.
 async fn resolve_value_for_api(
     e: &sqlx::PgPool,
     workspace_id: &str,
     value: &mut Box<JsonRawValue>,
     with_code: bool,
 ) -> Result<(), Error> {
-    let extras = serde_json::from_str::<FlowExtras>(value.get())
-        .map_err(|e| tracing::warn!("Failed to parse flow extras: {e}"))
-        .ok();
+    let extras = FlowExtras::capture(value);
 
     let mut val = serde_json::from_str::<FlowValue>(value.get()).map_err(|err| {
         Error::internal_err(format!("resolve: Failed to parse flow value: {}", err))
@@ -149,12 +132,7 @@ async fn resolve_value_for_api(
         resolve_module(e, workspace_id, &mut module.value, with_code).await?;
     }
 
-    let extras = extras.unwrap_or(FlowExtras { notes: None, groups: None });
-    *value = to_raw_value(&FlowValueWithExtras {
-        flow: &val,
-        notes: extras.notes.as_ref(),
-        groups: extras.groups.as_ref(),
-    });
+    *value = extras.reattach(&val)?;
     Ok(())
 }
 
@@ -271,43 +249,6 @@ pub async fn resolve_modules(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn flow_value_with_extras_serializes_notes_and_groups() {
-        let input = json!({
-            "modules": [],
-            "notes": [{"id": "n1", "text": "hello", "color": "yellow", "type": "free"}],
-            "groups": [{"start_id": "a", "end_id": "b", "summary": "grp"}]
-        });
-        let input_str = serde_json::to_string(&input).unwrap();
-
-        // Parse FlowValue (drops notes/groups) and FlowExtras (captures them)
-        let val: FlowValue = serde_json::from_str(&input_str).unwrap();
-        let extras: FlowExtras = serde_json::from_str(&input_str).unwrap();
-
-        // Serialize via FlowValueWithExtras — should include both
-        let combined = FlowValueWithExtras {
-            flow: &val,
-            notes: extras.notes.as_ref(),
-            groups: extras.groups.as_ref(),
-        };
-        let output: serde_json::Value =
-            serde_json::from_str(&serde_json::to_string(&combined).unwrap()).unwrap();
-
-        assert_eq!(output["notes"], input["notes"]);
-        assert_eq!(output["groups"], input["groups"]);
-        assert!(output["modules"].is_array());
-    }
-
-    #[test]
-    fn flow_value_with_extras_omits_none_extras() {
-        let val: FlowValue = serde_json::from_str(r#"{"modules":[]}"#).unwrap();
-        let combined = FlowValueWithExtras { flow: &val, notes: None, groups: None };
-        let output = serde_json::to_string(&combined).unwrap();
-        assert!(!output.contains("notes"));
-        assert!(!output.contains("groups"));
-    }
 
     #[test]
     fn extract_hub_flow_id_accepts_id_only_paths() {

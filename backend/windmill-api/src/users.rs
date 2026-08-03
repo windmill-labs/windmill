@@ -462,11 +462,25 @@ async fn update_username_in_workpsace<'c>(
     .execute(&mut **tx)
     .await?;
 
+    // Canonicalised through `username_to_permissioned_as`, not `'u/' || name`: an
+    // email-shaped username is stored bare, so the prefixed form would miss those rows and
+    // leave them naming a user that no longer exists.
+    let old_principal = windmill_common::users::username_to_permissioned_as(old_username);
+    let new_principal = windmill_common::users::username_to_permissioned_as(new_username);
+    sqlx::query!(
+        "UPDATE script SET on_behalf_of = $1 WHERE on_behalf_of = $2 AND workspace_id = $3",
+        &new_principal,
+        &old_principal,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
     // ---- flows ----
     sqlx::query!(
         r#"INSERT INTO flow
-            (workspace_id, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at)
-        SELECT workspace_id, REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1'), summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at
+            (workspace_id, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at)
+        SELECT workspace_id, REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1'), summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at
             FROM flow
             WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         new_username,
@@ -543,6 +557,15 @@ async fn update_username_in_workpsace<'c>(
     .execute(&mut **tx)
     .await?;
 
+    sqlx::query!(
+        "UPDATE flow SET on_behalf_of = $1 WHERE on_behalf_of = $2 AND workspace_id = $3",
+        &new_principal,
+        &old_principal,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
     // ---- draft ----
     sqlx::query!(
         r#"UPDATE draft SET path = REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
@@ -557,6 +580,18 @@ async fn update_username_in_workpsace<'c>(
         r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['path'], to_jsonb(REGEXP_REPLACE(value->>'path','u/' || $2 || '/(.*)','u/' || $1 || '/\1')))) WHERE value->>'path' LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         new_username,
         old_username,
+        w_id
+    ).execute(&mut **tx)
+    .await?;
+
+    // A draft carries the principal in its value, so a rename must reach it there too —
+    // deploying a draft that still names the old principal would be rejected as a pair naming
+    // somebody who no longer exists. Through the same canonical form as the columns above: a
+    // legacy `group-ops` username is named `g/ops`, which `'u/' || …` would never match.
+    sqlx::query!(
+        r#"UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value), ARRAY['on_behalf_of'], to_jsonb($1::text))) WHERE value->>'on_behalf_of' = $2 AND workspace_id = $3"#,
+        &new_principal,
+        &old_principal,
         w_id
     ).execute(&mut **tx)
     .await?;
