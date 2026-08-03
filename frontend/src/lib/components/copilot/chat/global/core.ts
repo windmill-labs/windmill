@@ -1181,7 +1181,7 @@ Rules:
 - Use list_workspace_items to find items and read_workspace_item before changing an existing item. For triggers, pass trigger_kind.
 - If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".
 - Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a draft to the workspace.
-- Use discard_local_draft to remove a draft, including the matching open editor draft. Use delete_workspace_item only to delete a deployed workspace item.
+- To undo something you created or changed in this chat, use discard_local_draft: everything you write is a draft until it is explicitly deployed, so "delete it" / "never mind" / "remove that" about your own work means discarding the draft (it also clears the matching open editor draft). Use delete_workspace_item only to remove an item that is already deployed in the workspace; it mutates the workspace and cannot remove a draft.
 - Use diff to review changes — before deploying, or when the user asks what changed. It is read-only: without arguments it lists every draft in the workspace with its change status; with type+path it returns that item's unified diff (for multi-file apps, pass file to read one file's diff). In a fork, pass against="parent_workspace" to compare the deployed fork with its parent workspace instead. Pass search to grep changed lines across all diffs.
 - Variable values are never readable. For secrets, create a secret variable and reference it from resources as "$var:path/to/variable".
 - Use search_resource_types before write_resource.
@@ -3182,12 +3182,13 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			deleteWorkspaceItemSchema,
 			'delete_workspace_item',
-			'Delete a deployed workspace item. Mutates the workspace.'
+			'Delete an item that is already deployed in the workspace. Mutates the workspace. FAILS if the path has no deployed item, so never call it to undo something you created in this chat — that is a draft; use discard_local_draft instead.'
 		),
 		showDetails: true,
 		showFade: true,
 		requiresConfirmation: true,
 		confirmationMessage: 'Delete workspace item',
+		validateBeforeConfirmation: validateDeleteWorkspaceItemTarget,
 		fn: async (ctx) => {
 			const parsed = deleteWorkspaceItemSchema.parse(ctx.args)
 			return deleteWorkspaceItem(parsed, ctx)
@@ -3197,7 +3198,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			discardLocalDraftSchema,
 			'discard_local_draft',
-			'Discard a draft only. Does not mutate deployed workspace items, but clears the matching open editor draft if one is mounted.'
+			'Discard a draft only — the tool to undo an item you created or edited in this chat and have not deployed. Does not mutate deployed workspace items, but clears the matching open editor draft if one is mounted.'
 		),
 		showDetails: true,
 		showFade: true,
@@ -6720,6 +6721,52 @@ async function deployDraft(
 		null,
 		2
 	)
+}
+
+// Undoing something created in this chat means discarding a draft, not deleting a
+// deploy. Must stay in validateBeforeConfirmation, not the tool body: otherwise the
+// user is asked to confirm a workspace mutation that cannot apply, and the delete
+// API 404s before the draft cleanup runs, leaving the draft they wanted gone.
+async function validateDeleteWorkspaceItemTarget(args: {
+	args: { type?: WorkspaceItemType; path?: string; trigger_kind?: TriggerKind }
+	workspace: string
+}): Promise<string | undefined> {
+	const { type, path, trigger_kind: triggerKind } = args.args
+	if (!type || !path) return undefined
+	if (type === 'trigger' && !triggerKind) {
+		return 'trigger_kind is required when deleting a trigger.'
+	}
+	if (await deployedItemExists(args.workspace, type, path, triggerKind)) return undefined
+
+	const draft = await getGlobalDraft(args.workspace, type, path, triggerKind)
+	return draft
+		? `No deployed ${type} at "${path}" — it only exists as a draft, so there is nothing to delete ` +
+				`from the workspace. Call discard_local_draft with the same type and path to remove the draft.`
+		: `No ${type} at "${path}": neither a deployed item nor a draft. Nothing to delete.`
+}
+
+async function deployedItemExists(
+	workspace: string,
+	type: WorkspaceItemType,
+	path: string,
+	triggerKind: TriggerKind | undefined
+): Promise<boolean> {
+	switch (type) {
+		case 'script':
+			return ScriptService.existsScriptByPath({ workspace, path })
+		case 'flow':
+			return FlowService.existsFlowByPath({ workspace, path })
+		case 'schedule':
+			return ScheduleService.existsSchedule({ workspace, path })
+		case 'trigger':
+			return triggerServices[triggerKind!].exists({ workspace, path })
+		case 'resource':
+			return ResourceService.existsResource({ workspace, path })
+		case 'variable':
+			return VariableService.existsVariable({ workspace, path })
+		case 'app':
+			return AppService.existsApp({ workspace, path })
+	}
 }
 
 async function deleteWorkspaceItem(
