@@ -8,7 +8,6 @@
 		createBranches,
 		createLoop,
 		createWhileLoop,
-		deleteFlowStateById,
 		emptyModule,
 		pickScript,
 		pickFlow,
@@ -35,6 +34,7 @@
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import { JobService } from '$lib/gen'
 	import { findModuleInFlow } from '../flowTree'
+	import { addBranch as addBranchOp, removeBranch as removeBranchOp } from '../branchOps'
 	import type { InlineScript, InsertKind } from '$lib/components/graph/graphBuilder.svelte'
 	import { MoveManager } from '$lib/components/graph/moveManager.svelte'
 	import { refreshFlowStateStore } from '../flowStoreRefresh.svelte'
@@ -269,40 +269,11 @@
 	}
 
 	export async function addBranch(id: string) {
-		push(history, flowStore.val)
-		let module = findModuleById(id)
-
-		if (!module) {
-			throw new Error(`Node ${id} not found`)
-		}
-
-		if (module.value.type === 'branchone' || module.value.type === 'branchall') {
-			module.value.branches.splice(module.value.branches.length, 0, {
-				summary: '',
-				expr: 'false',
-				modules: []
-			})
-		}
+		addBranchOp(id, { flowStore, history })
 	}
 
 	export function removeBranch(id: string, index: number) {
-		push(history, flowStore.val)
-		let module = findModuleById(id)
-
-		if (!module) {
-			throw new Error(`Node ${id} not found`)
-		}
-
-		if (module.value.type === 'branchone' || module.value.type === 'branchall') {
-			const offset = module.value.type === 'branchone' ? 1 : 0
-
-			if (module.value.branches[index - offset]?.modules) {
-				const leaves = dfs(module.value.branches[index - offset].modules, (mod) => mod.id)
-				leaves.forEach((leafId: string) => deleteFlowStateById(leafId, flowStateStore))
-			}
-
-			module.value.branches.splice(index - offset, 1)
-		}
+		removeBranchOp(id, index, { flowStore, flowStateStore, history })
 	}
 
 	type PendingDeleteConfirmation = {

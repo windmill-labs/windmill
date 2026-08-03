@@ -127,7 +127,7 @@
 	{:else if flowModule.value.type === 'whileloopflow'}
 		<FlowWhileLoop {noEditor} bind:mod={flowModule} {previousModule} {parentModule} />
 	{:else if flowModule.value.type === 'branchone'}
-		<FlowBranchesOneWrapper {noEditor} {previousModule} {parentModule} bind:flowModule {enableAi} />
+		<FlowBranchesOneWrapper {noEditor} {previousModule} {parentModule} bind:flowModule />
 	{:else if flowModule.value.type === 'branchall'}
 		<FlowBranchesAllWrapper {noEditor} {previousModule} {parentModule} bind:flowModule />
 	{:else if flowModule.value.type === 'identity'}
@@ -271,13 +271,7 @@
 	{/if}
 	{#each flowModule.value.branches as branch, branchIndex (branch)}
 		{#if selectedId === `${flowModule?.id}-branch-${branchIndex}`}
-			<FlowBranchOneWrapper
-				{noEditor}
-				{branch}
-				parentModule={flowModule}
-				{previousModule}
-				{enableAi}
-			/>
+			<FlowBranchOneWrapper {noEditor} {branch} parentModule={flowModule} {previousModule} />
 		{:else}
 			{#each branch.modules as child, index (child.id ?? index)}
 				{@const slot = moduleSlot(() => branch.modules, child.id, child)}

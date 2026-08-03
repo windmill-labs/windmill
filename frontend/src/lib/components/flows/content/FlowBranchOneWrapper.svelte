@@ -13,16 +13,9 @@
 		parentModule: FlowModule
 		previousModule: FlowModule | undefined
 		noEditor: boolean
-		enableAi?: boolean
 	}
 
-	let {
-		branch,
-		parentModule,
-		previousModule,
-		noEditor,
-		enableAi = false
-	}: Props = $props()
+	let { branch, parentModule, previousModule, noEditor }: Props = $props()
 </script>
 
 <div class="h-full flex flex-col">
@@ -32,18 +25,8 @@
 				<input bind:value={branch.summary} placeholder={'Summary'} />
 			</div>
 		{/snippet}
-		<div class="flex h-full min-h-0 flex-col overflow-auto p-4">
-			<BranchPredicateEditor
-				{branch}
-				{parentModule}
-				{previousModule}
-				{enableAi}
-				on:updateSummary={(e) => {
-					if (!branch.summary) {
-						branch.summary = e.detail
-					}
-				}}
-			/>
+		<div class="flex h-full min-h-0 flex-col overflow-auto p-4" style="scrollbar-gutter: stable">
+			<BranchPredicateEditor {branch} {parentModule} {previousModule} />
 		</div>
 	</FlowCard>
 </div>

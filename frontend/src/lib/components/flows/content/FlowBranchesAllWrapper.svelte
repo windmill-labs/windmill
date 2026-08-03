@@ -1,6 +1,21 @@
 <script lang="ts">
-	import { Alert, Badge } from '$lib/components/common'
+	import { Badge, Tab, Tabs } from '$lib/components/common'
+	import { GripVertical, Plus, Trash2 } from 'lucide-svelte'
+	import { getContext } from 'svelte'
+	import type { FlowEditorContext } from '../types'
+	import {
+		addBranch as addBranchOp,
+		removeBranch as removeBranchOp,
+		graphBranchIndex
+	} from '../branchOps'
+	import { refreshFlowStateStore } from '../flowStoreRefresh.svelte'
+	import Button from '$lib/components/common/button/Button.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import { dragHandle, dragHandleZone } from '@windmill-labs/svelte-dnd-action'
+	import { randomUUID } from '$lib/utils/uuid'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import StepSettingsBadges from './StepSettingsBadges.svelte'
+	import { tick, untrack } from 'svelte'
 
 	import type { BranchAll, FlowModule } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
@@ -21,73 +36,178 @@
 		value = flowModule.value as BranchAll
 	})
 
+	// dnd needs a stable id per item; branches have none and must not gain one (it would
+	// land in the saved flow), so ids are held beside them, keyed by object identity.
+	const branchIds = new WeakMap<object, string>()
+	function idFor(branch: object): string {
+		let id = branchIds.get(branch)
+		if (!id) {
+			id = randomUUID()
+			branchIds.set(branch, id)
+		}
+		return id
+	}
+
+	let items = $state(value.branches.map((b) => ({ id: idFor(b), branch: b })))
+	// dnd owns `items` for the length of a gesture: mid-drag it holds a shadow placeholder
+	// alongside the real entries, so rebuilding from `value.branches` there would splice a
+	// second copy of the dragged branch into the list (duplicate keys).
+	let dragging = false
+
+	$effect(() => {
+		const next = value.branches.map((b) => ({ id: idFor(b), branch: b }))
+		// untrack: this reads and writes `items`, which would otherwise re-invalidate itself.
+		untrack(() => {
+			if (dragging) return
+			const same = next.length === items.length && next.every((it, i) => it.id === items[i].id)
+			if (!same) items = next
+		})
+	})
+
+	function handleConsider(e: CustomEvent<{ items: typeof items }>) {
+		dragging = true
+		items = e.detail.items
+	}
+	function handleFinalize(e: CustomEvent<{ items: typeof items }>) {
+		items = e.detail.items
+		value.branches = items.map((it) => it.branch)
+		dragging = false
+	}
+
+	const { flowStore, flowStateStore, history } = getContext<FlowEditorContext>('FlowEditorContext')
+
+	function addBranch() {
+		addBranchOp(flowModule.id, { flowStore, history })
+		refreshFlowStateStore(flowStore)
+	}
+	function removeBranch(arrayIndex: number) {
+		// The shared op counts branches the way the graph does; see graphBranchIndex.
+		removeBranchOp(flowModule.id, graphBranchIndex(value.type, arrayIndex), {
+			flowStore,
+			flowStateStore,
+			history
+		})
+		refreshFlowStateStore(flowStore)
+	}
+
 	let runSettings: FlowRunSettings | undefined = $state(undefined)
+	let selectedTab = $state('branches')
 
 	useUiIntent(`branchall-${flowModule.id}`, {
-		openTab: (tab) => {
+		openTab: async (tab) => {
+			// Every setting the intent can name lives in the other tab, which only mounts
+			// `runSettings` once selected.
+			selectedTab = 'settings'
+			await tick()
 			runSettings?.openSetting(tab)
 		}
 	})
 </script>
 
 <div class="h-full flex flex-col w-full" id="flow-editor-branch-all-wrapper">
-	<FlowCard {noEditor} title={value.type == 'branchall' ? 'Run all branches' : 'Run one branch'}>
-		<div class="flex h-full min-h-0 flex-col gap-6 overflow-auto p-4">
-			{#if !noEditor}
-				<Alert
-					type="info"
-					title="All branches will be run"
-					tooltip="Branch all"
-					documentationLink="https://www.windmill.dev/docs/flows/flow_branches#branch-all"
-				>
-					The result of this step is the list of the result of each branch.
-				</Alert>
-			{/if}
+	<FlowCard
+		{noEditor}
+		title={value.type == 'branchall' ? 'Run all branches' : 'Run one branch'}
+		subtitle="Every branch runs. The result of this step is the list of each branch's result."
+		subtitleDocLink="https://www.windmill.dev/docs/flows/flow_branches#branch-all"
+	>
+		<div class="flex h-full min-h-0 flex-col">
+			<Tabs bind:selected={selectedTab} wrapperClass="shrink-0">
+				<Tab value="branches" label="Branches" />
+				<Tab value="settings" label="Run settings">
+					{#snippet extra()}
+						<StepSettingsBadges {flowModule} />
+					{/snippet}
+				</Tab>
+			</Tabs>
 
-			<section class="flex w-full flex-col gap-4">
-				<div>
-					<div class="mb-2 text-[11px] font-medium uppercase tracking-[0.04em] text-tertiary">
-						{value.branches.length} branch{value.branches.length > 1 ? 'es' : ''}
-					</div>
-					<div class="flex flex-col gap-2">
-						{#each value.branches as branch, i (branch)}
-							<div class="flex items-center gap-3 rounded-md border bg-surface-tertiary p-3">
-								<Badge color="blue" class="text-xs">Branch {i + 1}</Badge>
-								<input class="grow" type="text" bind:value={branch.summary} placeholder="Summary" />
-								<Toggle
-									size="xs"
-									bind:checked={branch.skip_failure}
-									options={{
-										right: 'Skip failure'
-									}}
-								/>
-							</div>
-						{/each}
-					</div>
-					<p class="mt-2 text-xs text-tertiary">Add branches and steps directly on the graph.</p>
-				</div>
-				<div>
-					<div class="mb-2 text-xs font-semibold text-emphasis">Run in parallel</div>
-					<Toggle
-						bind:checked={value.parallel}
-						options={{
-							right: 'All branches run in parallel'
-						}}
+			<div
+				class="flex min-h-0 flex-1 flex-col gap-6 overflow-auto p-4"
+				style="scrollbar-gutter: stable"
+			>
+				{#if selectedTab === 'branches'}
+					<section class="flex w-full flex-col gap-4">
+						<div>
+							<section
+								class="flex flex-col gap-3"
+								use:dragHandleZone={{ items, flipDurationMs: 150, dropTargetStyle: {} }}
+								onconsider={handleConsider}
+								onfinalize={handleFinalize}
+							>
+								{#each items as item, i (item.id)}
+									<div class="flex flex-col gap-2 rounded-md bg-surface-tertiary p-3 shadow-sm">
+										<div class="flex items-center gap-2">
+											<!-- svelte-ignore a11y_no_static_element_interactions -->
+											<div
+												class="shrink-0 cursor-move text-tertiary hover:text-primary"
+												use:dragHandle
+												aria-label="Reorder branch"
+											>
+												<GripVertical size={16} />
+											</div>
+											<Badge color="blue" class="text-xs">Branch {i + 1}</Badge>
+											<TextInput
+												size="sm"
+												class="grow"
+												bind:value={
+													() => item.branch.summary ?? '', (v) => (item.branch.summary = String(v))
+												}
+												inputProps={{ placeholder: 'Summary' }}
+											/>
+											<Button
+												unifiedSize="sm"
+												variant="subtle"
+												destructive
+												iconOnly
+												startIcon={{ icon: Trash2 }}
+												title="Delete branch"
+												wrapperClasses="shrink-0"
+												on:click={() => removeBranch(i)}
+											/>
+										</div>
+										<Toggle
+											size="xs"
+											textClass="text-xs font-normal text-primary"
+											bind:checked={item.branch.skip_failure}
+											options={{
+												right: 'Skip failure'
+											}}
+										/>
+									</div>
+								{/each}
+							</section>
+							<Button
+								unifiedSize="sm"
+								variant="default"
+								startIcon={{ icon: Plus }}
+								wrapperClasses="mt-4 self-start"
+								on:click={addBranch}
+							>
+								Add branch
+							</Button>
+						</div>
+						<div>
+							<div class="mb-2 text-xs font-semibold text-emphasis">Run in parallel</div>
+							<Toggle
+								bind:checked={value.parallel}
+								options={{
+									right: 'All branches run in parallel'
+								}}
+							/>
+						</div>
+					</section>
+				{:else}
+					<FlowRunSettings
+						embedded
+						loopSubset
+						bind:this={runSettings}
+						bind:flowModule
+						{parentModule}
+						{previousModule}
+						selectedId={flowModule.id}
 					/>
-				</div>
-			</section>
-
-			<section>
-				<FlowRunSettings
-					embedded
-					loopSubset
-					bind:this={runSettings}
-					bind:flowModule
-					{parentModule}
-					{previousModule}
-					selectedId={flowModule.id}
-				/>
-			</section>
+				{/if}
+			</div>
 		</div>
 	</FlowCard>
 </div>
