@@ -1260,6 +1260,26 @@ describe('global AI tools', () => {
 		).resolves.toBeUndefined()
 	})
 
+	// existsScriptByPath filters archived=false but deleteScriptByPath does not, so
+	// probing with it alone would make an archived script undeletable via the chat.
+	it('lets delete_workspace_item through for an archived script', async () => {
+		vi.mocked(ScriptService.existsScriptByPath).mockResolvedValueOnce(false)
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/archived_one',
+			content: 'export async function main() {}',
+			language: 'bun',
+			archived: true
+		} as any)
+
+		await expect(
+			getGlobalTool('delete_workspace_item').validateBeforeConfirmation?.({
+				args: { type: 'script', path: 'f/scripts/archived_one' },
+				workspace: WORKSPACE,
+				helpers: {}
+			})
+		).resolves.toBeUndefined()
+	})
+
 	// Covers the conflict-on-save / override branch of `persistGlobalDraft`
 	// directly: a non-force save whose recorded baseline is older than the
 	// server row is rejected with `status:'conflict'`, and `override` (force)

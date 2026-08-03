@@ -6728,20 +6728,23 @@ async function deployDraft(
 // user is asked to confirm a workspace mutation that cannot apply, and the delete
 // API 404s before the draft cleanup runs, leaving the draft they wanted gone.
 async function validateDeleteWorkspaceItemTarget(args: {
-	args: { type?: WorkspaceItemType; path?: string; trigger_kind?: TriggerKind }
+	args: unknown
 	workspace: string
 }): Promise<string | undefined> {
-	const { type, path, trigger_kind: triggerKind } = args.args
-	if (!type || !path) return undefined
-	if (type === 'trigger' && !triggerKind) {
-		return 'trigger_kind is required when deleting a trigger.'
-	}
-	if (await deployedItemExists(args.workspace, type, path, triggerKind)) return undefined
+	// These are the raw tool arguments; the schema parse runs later in the tool body.
+	// Wave a malformed call through so it still fails with the canonical schema error.
+	const parsed = deleteWorkspaceItemSchema.safeParse(args.args)
+	if (!parsed.success) return undefined
+	const { type, path, trigger_kind: triggerKind } = parsed.data
+	if (type === 'trigger' && !triggerKind) return undefined
 
-	const draft = await getGlobalDraft(args.workspace, type, path, triggerKind)
+	const { workspace } = args
+	if (await deployedItemExists(workspace, type, path, triggerKind)) return undefined
+
+	const draft = await getGlobalDraft(workspace, type, path, triggerKind)
 	return draft
 		? `No deployed ${type} at "${path}" — it only exists as a draft, so there is nothing to delete ` +
-				`from the workspace. Call discard_local_draft with the same type and path to remove the draft.`
+				`from the workspace. Call discard_local_draft with the same arguments to remove the draft.`
 		: `No ${type} at "${path}": neither a deployed item nor a draft. Nothing to delete.`
 }
 
@@ -6753,7 +6756,16 @@ async function deployedItemExists(
 ): Promise<boolean> {
 	switch (type) {
 		case 'script':
-			return ScriptService.existsScriptByPath({ workspace, path })
+			// existsScriptByPath is the only probe that filters archived=false, while
+			// deleteScriptByPath removes every row at the path. Fall back to the
+			// archived-inclusive read so an archived script stays deletable.
+			if (await ScriptService.existsScriptByPath({ workspace, path })) return true
+			try {
+				await ScriptService.getScriptByPath({ workspace, path })
+				return true
+			} catch {
+				return false
+			}
 		case 'flow':
 			return FlowService.existsFlowByPath({ workspace, path })
 		case 'schedule':
