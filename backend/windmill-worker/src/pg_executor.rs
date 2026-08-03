@@ -22,6 +22,7 @@ use tokio_postgres::{
     Column,
 };
 use uuid::Uuid;
+use windmill_common::azure_workload_identity::WORKLOAD_IDENTITY_PASSWORD;
 use windmill_common::error::to_anyhow;
 use windmill_common::error::{self, Error};
 use windmill_common::worker::{
@@ -68,7 +69,7 @@ pub async fn clear_pg_cache() {
 /// How the connection authenticates, which also keys the connection cache: a
 /// connection established under one mode must never be handed to a request asking
 /// for another.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum PgAuthMode {
     Password,
     /// AWS RDS IAM.
@@ -79,12 +80,10 @@ enum PgAuthMode {
 
 impl PgAuthMode {
     fn of(database: &PgDatabase) -> error::Result<Self> {
-        match (
-            database.use_iam_auth == Some(true),
-            database.use_workload_identity == Some(true),
-        ) {
+        let workload_identity = database.password.as_deref() == Some(WORKLOAD_IDENTITY_PASSWORD);
+        match (database.use_iam_auth == Some(true), workload_identity) {
             (true, true) => Err(Error::BadRequest(
-                "Set only one of use_iam_auth and use_workload_identity on the resource"
+                "IAM RDS authentication cannot use the Azure workload identity password"
                     .to_string(),
             )),
             (true, false) => Ok(PgAuthMode::Iam),
@@ -93,20 +92,12 @@ impl PgAuthMode {
         }
     }
 
-    /// The identity has to be part of the key too, not just the mode: `to_uri()` carries
-    /// the one password auth uses, and nothing carries the Entra one, so without this two
-    /// resources differing only by `client_id` would share a connection.
-    fn cache_key_segment(&self, database: &PgDatabase) -> String {
+    fn cache_key_segment(&self) -> &'static str {
         match self {
-            PgAuthMode::Password => String::new(),
-            PgAuthMode::Iam => "&iam=true".to_string(),
-            PgAuthMode::WorkloadIdentity => {
-                use std::hash::{Hash, Hasher};
-                let mut h = std::collections::hash_map::DefaultHasher::new();
-                database.tenant_id.hash(&mut h);
-                database.client_id.hash(&mut h);
-                format!("&workload_identity={:x}", h.finish())
-            }
+            // Workload identity needs no segment of its own: what selects it, the
+            // sentinel password, is already part of to_uri().
+            PgAuthMode::Password | PgAuthMode::WorkloadIdentity => "",
+            PgAuthMode::Iam => "&iam=true",
         }
     }
 }
@@ -728,7 +719,7 @@ pub async fn do_postgresql(
     let database_string = format!(
         "{}{}&tls={tls_disc:x}",
         database.to_uri(),
-        auth_mode.cache_key_segment(&database)
+        auth_mode.cache_key_segment()
     );
     let database_string_clone = database_string.clone();
 
@@ -2118,6 +2109,23 @@ impl FromSql<'_> for StringCollector {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The sentinel password is the whole opt-in: nothing else marks the resource, so a
+    /// resource carrying it must not fall through to password auth.
+    #[test]
+    fn test_workload_identity_password_selects_the_auth_mode() {
+        let db = |password: &str| {
+            PgDatabase::parse_uri(&format!("postgres://someuser:{password}@host:5432/db")).unwrap()
+        };
+        assert_eq!(
+            PgAuthMode::of(&db(WORKLOAD_IDENTITY_PASSWORD)).unwrap(),
+            PgAuthMode::WorkloadIdentity
+        );
+        assert_eq!(
+            PgAuthMode::of(&db("hunter2")).unwrap(),
+            PgAuthMode::Password
+        );
+    }
 
     #[test]
     fn test_map_s3object_jsonb_overflow() {

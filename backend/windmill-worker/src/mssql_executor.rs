@@ -11,7 +11,9 @@ use tiberius::{
 use tokio::net::TcpStream;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 use uuid::Uuid;
-use windmill_common::azure_workload_identity::{WorkloadIdentityConfig, AZURE_SQL_SCOPE};
+use windmill_common::azure_workload_identity::{
+    WorkloadIdentityConfig, AZURE_SQL_SCOPE, WORKLOAD_IDENTITY_PASSWORD,
+};
 use windmill_common::utils::merge_raw_values_to_object;
 use windmill_common::worker::SqlResultCollectionStrategy;
 use windmill_common::{
@@ -50,11 +52,6 @@ struct MssqlDatabase {
     ca_cert: Option<String>,
     encrypt: Option<bool>,
     integrated_auth: Option<bool>,
-    workload_identity: Option<bool>,
-    #[serde(default, deserialize_with = "empty_as_none")]
-    tenant_id: Option<String>,
-    #[serde(default, deserialize_with = "empty_as_none")]
-    client_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -154,11 +151,8 @@ pub async fn do_mssql(
                 "Integrated authentication is not available in this build. Requires mssql-kerberos (Linux) or mssql-winauth (Windows) feature.".to_string(),
             ));
         }
-    } else if database.workload_identity.unwrap_or(false) {
-        let workload_identity = WorkloadIdentityConfig::resolve(
-            database.tenant_id.as_deref(),
-            database.client_id.as_deref(),
-        )?;
+    } else if database.password.as_deref() == Some(WORKLOAD_IDENTITY_PASSWORD) {
+        let workload_identity = WorkloadIdentityConfig::resolve()?;
         let logs = format!(
             "\nUsing Azure Workload Identity (client id {})",
             workload_identity.client_id()
@@ -178,7 +172,7 @@ pub async fn do_mssql(
         config.authentication(AuthMethod::sql_server(user.clone(), password.clone()));
     } else {
         return Err(Error::BadRequest(
-            "No authentication method configured. Set integrated_auth, workload_identity, aad_token, or user/password.".to_string(),
+            "No authentication method configured. Set integrated_auth, aad_token, or user/password (password `ms_entraid` for Azure workload identity).".to_string(),
         ));
     }
 

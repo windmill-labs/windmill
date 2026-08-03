@@ -707,9 +707,6 @@ ta9ELulniZau8zUAtwqwecxodzl+KO8NYj0a9PGgAM64dMqkRtRA8P4UP350Nag3\n\
             accept_invalid_certs: None,
             use_iam_auth: None,
             region: None,
-            use_workload_identity: None,
-            tenant_id: None,
-            client_id: None,
         }
     }
 
@@ -828,29 +825,8 @@ pub struct PgDatabase {
     /// certificate is present — so resources that predate this flag (including
     /// git-synced ones, whose source never sets it) keep working unchanged.
     pub accept_invalid_certs: Option<bool>,
-    /// AWS RDS IAM authentication, with `region` as its only parameter.
     pub use_iam_auth: Option<bool>,
     pub region: Option<String>,
-    /// Azure Entra ID authentication (Azure Database for PostgreSQL): the worker's
-    /// federated identity is exchanged for an access token used as the password.
-    /// The `tenant_id` / `client_id` below override the env vars the Azure workload
-    /// identity webhook injects into the pod.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub use_workload_identity: Option<bool>,
-    // A blank field means "not set" — it must not read as a distinct identity, which
-    // would key its own entry in the connection cache.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::utils::empty_as_none"
-    )]
-    pub tenant_id: Option<String>,
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::utils::empty_as_none"
-    )]
-    pub client_id: Option<String>,
 }
 
 // Wrapper enum to hold either Tls or NoTls connection
@@ -1107,10 +1083,7 @@ impl PgDatabase {
     pub async fn connect_with_workload_identity(
         &self,
     ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
-        let workload_identity = azure_workload_identity::WorkloadIdentityConfig::resolve(
-            self.tenant_id.as_deref(),
-            self.client_id.as_deref(),
-        )?;
+        let workload_identity = azure_workload_identity::WorkloadIdentityConfig::resolve()?;
         let token = workload_identity
             .access_token(azure_workload_identity::AZURE_OSSRDBMS_SCOPE)
             .await?;
@@ -1211,9 +1184,6 @@ impl PgDatabase {
             accept_invalid_certs: None,
             use_iam_auth: None,
             region: None,
-            use_workload_identity: None,
-            tenant_id: None,
-            client_id: None,
         })
     }
 }

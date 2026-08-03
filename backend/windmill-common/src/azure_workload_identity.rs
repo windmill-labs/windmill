@@ -19,6 +19,14 @@ pub const AZURE_SQL_SCOPE: &str = "https://database.windows.net/.default";
 /// Entra ID scope of Azure Database for PostgreSQL / MySQL.
 pub const AZURE_OSSRDBMS_SCOPE: &str = "https://ossrdbms-aad.database.windows.net/.default";
 
+/// A database resource whose password is this authenticates as the worker's workload
+/// identity, the way a `DATABASE_URL` whose password is `entraid` does for the instance
+/// database. Carrying the mode in the password is what lets an existing deployment turn
+/// it on: the resource type schemas live on the hub, and every database form already has
+/// a password field. Anyone whose password is literally this string authenticates as the
+/// worker's identity instead of failing to log in.
+pub const WORKLOAD_IDENTITY_PASSWORD: &str = "ms_entraid";
+
 /// Renew an access token this long before it expires.
 const TOKEN_REFRESH_BUFFER: Duration = Duration::from_secs(5 * 60);
 
@@ -70,9 +78,9 @@ fn should_attempt_refresh(last_failure: Option<Instant>, has_usable_token: bool)
     }
 }
 
-/// The federated credentials of the identity the worker authenticates as. The Azure
-/// workload identity webhook injects them as env vars; a resource may override the
-/// tenant and client so one worker can reach databases behind distinct identities.
+/// The federated credentials of the identity the worker authenticates as, all injected
+/// into the pod by the Azure workload identity webhook. The identity is the worker's,
+/// not the resource's: reaching two databases as two identities means two worker groups.
 pub struct WorkloadIdentityConfig {
     tenant_id: String,
     client_id: String,
@@ -81,40 +89,24 @@ pub struct WorkloadIdentityConfig {
 }
 
 impl WorkloadIdentityConfig {
-    pub fn resolve(tenant_id: Option<&str>, client_id: Option<&str>) -> Result<Self> {
-        fn from_env(env_var: &str) -> Option<String> {
-            std::env::var(env_var).ok().filter(|v| !v.is_empty())
-        }
-
-        fn missing(env_var: &str, overridable: bool) -> Error {
-            Error::BadConfig(format!(
-                "Workload identity authentication requires the {} env var on the worker \
-                 (injected by the Azure workload identity webhook){}",
-                env_var,
-                if overridable {
-                    " or the matching field on the resource"
-                } else {
-                    ""
-                }
-            ))
-        }
-
-        fn resolve_field(resource: Option<&str>, env_var: &str) -> Result<String> {
-            resource
+    pub fn resolve() -> Result<Self> {
+        fn required(env_var: &str) -> Result<String> {
+            std::env::var(env_var)
+                .ok()
                 .filter(|v| !v.is_empty())
-                .map(str::to_string)
-                .or_else(|| from_env(env_var))
-                .ok_or_else(|| missing(env_var, true))
+                .ok_or_else(|| {
+                    Error::BadConfig(format!(
+                        "Workload identity authentication requires the {} env var on the worker, \
+                         injected by the Azure workload identity webhook",
+                        env_var
+                    ))
+                })
         }
 
         Ok(Self {
-            tenant_id: resolve_field(tenant_id, "AZURE_TENANT_ID")?,
-            client_id: resolve_field(client_id, "AZURE_CLIENT_ID")?,
-            // Deliberately env-only: the projected token's path is the webhook's to
-            // choose, and a resource-supplied path would let whoever runs a script
-            // probe the worker filesystem through the resulting error.
-            federated_token_file: from_env("AZURE_FEDERATED_TOKEN_FILE")
-                .ok_or_else(|| missing("AZURE_FEDERATED_TOKEN_FILE", false))?,
+            tenant_id: required("AZURE_TENANT_ID")?,
+            client_id: required("AZURE_CLIENT_ID")?,
+            federated_token_file: required("AZURE_FEDERATED_TOKEN_FILE")?,
             authority_host: std::env::var("AZURE_AUTHORITY_HOST")
                 .ok()
                 .filter(|v| !v.is_empty())
@@ -188,8 +180,7 @@ impl WorkloadIdentityConfig {
 
     fn slot(&self, scope: &str) -> Arc<TokenSlot> {
         let mut cache = TOKEN_CACHE.lock().unwrap();
-        // Identities come off resources, so the key space is caller-controlled: drop
-        // what has expired and that no in-flight request is holding.
+        // Drop what has expired and that no in-flight request is holding.
         cache.retain(|_, slot| {
             Arc::strong_count(slot) > 1 || slot.token_valid_for(TOKEN_MIN_LIFETIME).is_some()
         });
@@ -293,7 +284,7 @@ mod tests {
     }
 
     /// A recent failure must not be re-attempted by every job queued behind the
-    /// refresh lock — but only while there is a token left to serve them.
+    /// refresh lock, but only while there is a token left to serve them.
     #[test]
     fn test_failed_refresh_is_not_retried_by_every_caller() {
         assert!(!should_attempt_refresh(Some(Instant::now()), true));
