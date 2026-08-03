@@ -213,12 +213,11 @@ impl External for Google {
         }
     }
 
-    /// Google answers 403 to a quota being spent as well as to a permission failure.
+    /// Google answers 403 to a quota being spent as well as to a permission failure. Every
+    /// throttling reason it defines sits in the `usageLimits` domain, so matching the domain
+    /// covers the group without an allowlist to extend each time one is added.
     fn is_transient_response(&self, status: http::StatusCode, body: &str) -> bool {
-        status == http::StatusCode::FORBIDDEN
-            && (body.contains("rateLimitExceeded")
-                || body.contains("userRateLimitExceeded")
-                || body.contains("quotaExceeded"))
+        status == http::StatusCode::FORBIDDEN && body.contains("usageLimits")
     }
 }
 

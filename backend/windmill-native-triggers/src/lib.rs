@@ -54,7 +54,7 @@ use windmill_common::{
 use windmill_queue::PushArgsOwned;
 
 #[cfg(feature = "native_trigger")]
-use windmill_oauth::{ExecuteError, OClient, RefreshToken, Url, OAUTH_HTTP_CLIENT};
+use windmill_oauth::{ErrorField, ExecuteError, OClient, RefreshToken, Url, OAUTH_HTTP_CLIENT};
 
 use windmill_api_auth::ApiAuthed;
 pub mod handler;
@@ -879,12 +879,13 @@ impl RefreshFailure {
     }
 }
 
-/// Whether a token endpoint's answer means the grant itself was refused, rather than the
-/// endpoint failing to serve a grant that may well be valid.
+/// Whether a token endpoint's answer means reconnecting the integration is the fix, rather
+/// than the endpoint failing to serve a grant that may well be valid.
 ///
-/// RFC 6749 §5.2 answers a refusal with 400, or 401/403 when it is the client credentials at
-/// fault. The body is checked too because no status reliably reports it: GitHub answers
-/// `bad_refresh_token` with HTTP 200.
+/// Used when the answer carried no OAuth error code to read. The body is checked because no
+/// status reliably reports a refusal: GitHub answers `bad_refresh_token` with HTTP 200. The
+/// status is the last resort — on a token endpoint these three most often mean the stored
+/// grant is spent, and there is nothing better to go on.
 pub fn grant_refused(status: Option<StatusCode>, body: &str) -> bool {
     body.contains("invalid_grant")
         || body.contains("bad_refresh_token")
@@ -894,22 +895,37 @@ pub fn grant_refused(status: Option<StatusCode>, body: &str) -> bool {
         )
 }
 
+/// Whether an OAuth error code (RFC 6749 §5.2) means the credentials Windmill stored are what
+/// needs replacing. The rest — a malformed request, an unsupported grant type, a scope the
+/// server will not grant — are faults in how the integration asks, which reconnecting as the
+/// same user will reproduce exactly.
+#[cfg(feature = "native_trigger")]
+fn code_means_reconnect(code: &ErrorField) -> bool {
+    matches!(code, ErrorField::InvalidGrant | ErrorField::InvalidClient)
+}
+
 #[cfg(feature = "native_trigger")]
 fn refresh_failure_from(e: ExecuteError) -> RefreshFailure {
-    match &e {
+    let rejected = match &e {
+        // A code says exactly what was refused, so nothing else needs guessing at.
+        ExecuteError::ErrorResponse { error, .. } => code_means_reconnect(&error.error),
         // A body that would not deserialize is where a refusal hides when the status says
         // nothing, and it is the only place the reason is written down.
         ExecuteError::BadResponse { status, body, .. } => {
-            let body = String::from_utf8_lossy(body);
-            let message = format!("{e}: {body}");
-            if grant_refused(Some(*status), &body) {
-                RefreshFailure::rejected(message)
-            } else {
-                RefreshFailure::outage(message)
-            }
+            grant_refused(Some(*status), &String::from_utf8_lossy(body))
         }
-        _ if grant_refused(e.status(), "") => RefreshFailure::rejected(error_source_chain(&e)),
-        _ => RefreshFailure::outage(error_source_chain(&e)),
+        _ => grant_refused(e.status(), ""),
+    };
+    let message = match &e {
+        ExecuteError::BadResponse { body, .. } => {
+            format!("{e}: {}", String::from_utf8_lossy(body))
+        }
+        _ => error_source_chain(&e),
+    };
+    if rejected {
+        RefreshFailure::rejected(message)
+    } else {
+        RefreshFailure::outage(message)
     }
 }
 
