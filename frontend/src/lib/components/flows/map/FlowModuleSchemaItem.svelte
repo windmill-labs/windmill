@@ -348,6 +348,7 @@
 							{onUpdateMock}
 							{path}
 							{loopStatus}
+							logsToggle
 							rightMargin
 							historyOffset={{ mainAxis: 12, crossAxis: -9 }}
 							clazz="p-1"
