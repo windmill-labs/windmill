@@ -964,3 +964,46 @@ async fn test_get_imports(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     Ok(())
 }
+
+/// A dbt project names a warehouse and nothing else, so the workspace setting is
+/// the only place the connection is decided. Two things have to hold for that to
+/// work at all: the setting round-trips as the MAP the resolver reads (an
+/// envelope stored verbatim makes every warehouse name unresolvable), and the
+/// route that serves the name to a worker with no database stays job-scoped.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_dbt_warehouses(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+
+    let resp = authed(client().post(format!("{base}/workspaces/edit_dbt_warehouses")))
+        .json(&json!({
+            "dbt_warehouses": { "main": { "resource_path": "u/admin/wh", "target": "prod" } }
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let resp = authed(client().get(format!("{base}/workspaces/get_settings")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let settings = resp.json::<serde_json::Value>().await?;
+    assert_eq!(
+        settings["dbt_warehouses"],
+        json!({ "main": { "resource_path": "u/admin/wh", "target": "prod" } })
+    );
+
+    // A user token is not a job token: the warehouses a workspace configures are
+    // a running job's business, not a browsable list.
+    let resp = authed(client().get(format!("{base}/dbt/warehouse/main")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+
+    Ok(())
+}

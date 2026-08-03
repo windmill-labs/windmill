@@ -53,15 +53,19 @@
 		scoped && partition ? `_wm_partition = '${partition.replaceAll("'", "''")}'` : undefined
 	)
 
+	// Distinct from "no columns for this table": a failed metadata read says
+	// nothing about whether the table exists.
+	let colDefsError = $state<string | undefined>(undefined)
+
 	let colDefs = resource(
 		() => [input, refreshKey] as const,
 		async ([_input]) => {
+			colDefsError = undefined
 			if (!_input || !$workspaceStore) return undefined
 			try {
 				return await loadAllTablesMetaData($workspaceStore, _input)
-			} catch {
-				// A load failure reads the same as "table missing" from the preview's
-				// POV; the underlying error is surfaced by loadAllTablesMetaData.
+			} catch (e) {
+				colDefsError = (e as Error)?.message || String(e)
 				return undefined
 			}
 		}
@@ -118,6 +122,11 @@
 	{#if colDefs.loading && !colDefs.current}
 		<div class="flex items-center justify-center p-4 text-tertiary">
 			<Loader2 class="animate-spin" size={18} />
+		</div>
+	{:else if colDefsError}
+		<div class="flex items-start gap-2 p-3 text-2xs text-tertiary">
+			<AlertTriangle size={14} class="text-red-500 shrink-0 mt-0.5" />
+			{colDefsError}
 		</div>
 	{:else if !tableColDefs}
 		<div class="flex items-center gap-2 p-3 text-2xs text-tertiary">

@@ -65,6 +65,10 @@
 	import Trashbin from '$lib/components/settings/Trashbin.svelte'
 	import { untrack } from 'svelte'
 	import { getHandlerType } from '$lib/components/triggers/utils'
+	import DbtSettings, {
+		convertDbtSettingsFromBackend,
+		type DbtSettingsType
+	} from '$lib/components/workspaceSettings/DbtSettings.svelte'
 	import DucklakeSettings, {
 		convertDucklakeSettingsFromBackend,
 		type DucklakeSettingsType
@@ -251,6 +255,8 @@
 	let dataTableSettings: DataTableSettingsType = $state({ dataTables: [] })
 	let dataTableSettingsComponent: DataTableSettings | undefined = $state(undefined)
 
+	let dbtSettings: DbtSettingsType = $state({ warehouses: [] })
+	let dbtSavedSettings: DbtSettingsType = $state(untrack(() => dbtSettings))
 	let ducklakeSettings: DucklakeSettingsType = $state({ ducklakes: [] })
 	let ducklakeSavedSettings: DucklakeSettingsType = $state(untrack(() => ducklakeSettings))
 
@@ -379,6 +385,7 @@
 			| 'windmill_lfs'
 			| 'volume_storage'
 			| 'ducklake'
+			| 'dbt'
 			| 'git_sync'
 			| 'default_app'
 			| 'native_triggers'
@@ -641,6 +648,8 @@
 		)
 		s3ResourceSavedSettings = clone(s3ResourceSettings)
 		dataTableSettings = convertDataTableSettingsFromBackend(settings.datatable)
+		dbtSettings = convertDbtSettingsFromBackend(settings.dbt_warehouses)
+		dbtSavedSettings = clone(dbtSettings)
 		ducklakeSettings = convertDucklakeSettingsFromBackend(settings.ducklake)
 		ducklakeSavedSettings = clone(ducklakeSettings)
 
@@ -937,6 +946,13 @@
 		s3ResourceSettings.volumeStorage = s3ResourceSavedSettings.volumeStorage
 	}
 
+	function getDbtSettingsInitialAndModifiedValues() {
+		return {
+			savedValue: { dbtSettings: dbtSavedSettings },
+			modifiedValue: { dbtSettings: dbtSettings }
+		}
+	}
+
 	// Function to check if there are unsaved changes in ducklake settings
 	function getDucklakeSettingsInitialAndModifiedValues() {
 		return {
@@ -1079,6 +1095,8 @@
 				return getVolumeStorageInitialAndModifiedValues()
 			case 'ducklake':
 				return getDucklakeSettingsInitialAndModifiedValues()
+			case 'dbt':
+				return getDbtSettingsInitialAndModifiedValues()
 			case 'dev_workspace':
 				return getDeploySettingsInitialAndModifiedValues()
 			case 'webhook':
@@ -1143,6 +1161,9 @@
 				break
 			case 'windmill_data_tables':
 				dataTableSettingsComponent?.discard()
+				break
+			case 'dbt':
+				dbtSettings = clone(dbtSavedSettings)
 				break
 			case 'default_app':
 				discardDefaultAppSettingsChanges()
@@ -1277,6 +1298,12 @@
 					label: 'Ducklake',
 					aiId: 'workspace-settings-ducklake',
 					aiDescription: 'Ducklake workspace settings'
+				},
+				{
+					id: 'dbt',
+					label: 'dbt',
+					aiId: 'workspace-settings-dbt',
+					aiDescription: 'dbt warehouses workspace settings'
 				}
 			]
 		},
@@ -2033,6 +2060,14 @@ export async function main(
 								}}
 								onDiscard={() => {
 									s3ResourceSettings = clone(s3ResourceSavedSettings)
+								}}
+							/>
+						{:else if tab == 'dbt'}
+							<DbtSettings
+								bind:dbtSettings
+								bind:dbtSavedSettings
+								onDiscard={() => {
+									dbtSettings = clone(dbtSavedSettings)
 								}}
 							/>
 						{:else if tab == 'ducklake'}

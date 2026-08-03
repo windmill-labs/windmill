@@ -361,6 +361,8 @@ lazy_static::lazy_static! {
         std::env::var("NSJAIL_PY_RLIMIT_AS_MB").ok();
     pub static ref NSJAIL_ANSIBLE_RLIMIT_AS_MB: Option<String> =
         std::env::var("NSJAIL_ANSIBLE_RLIMIT_AS_MB").ok();
+    pub static ref NSJAIL_DBT_RLIMIT_AS_MB: Option<String> =
+        std::env::var("NSJAIL_DBT_RLIMIT_AS_MB").ok();
 
     // pub static ref DISABLE_NSJAIL: bool = false;
     pub static ref DISABLE_NSJAIL: bool = std::env::var("DISABLE_NSJAIL")
@@ -1576,7 +1578,7 @@ pub fn create_span_with_name(
         span.record("hostname", hostname);
     }
     if let Some(trigger_kind) = arc_job.trigger_kind.as_ref() {
-        span.record("trigger_kind", trigger_kind.to_string().as_str());
+        span.record("trigger_kind", trigger_kind.as_str());
     }
     if let Some(trigger) = arc_job.trigger.as_ref() {
         span.record("trigger", trigger.as_str());
@@ -1686,7 +1688,7 @@ pub fn log_context_for_job(
         flow_step_id: arc_job.flow_step_id.clone(),
         parent_job: arc_job.parent_job.map(|id| id.to_string()),
         root_job: arc_job.flow_innermost_root_job.map(|id| id.to_string()),
-        trigger_kind: arc_job.trigger_kind.as_ref().map(|k| k.to_string()),
+        trigger_kind: arc_job.trigger_kind.as_ref().map(|k| k.as_str().to_string()),
         trigger: arc_job.trigger.clone(),
         hostname: hostname.map(|h| h.to_string()),
         inbound_traceparent: job_inbound_traceparent(arc_job),
@@ -5865,6 +5867,30 @@ mount {{
                 .await
             }
         }
+        ScriptLang::Dbt => {
+            if run_inline {
+                return Err(Error::internal_err(
+                    "Inline execution is not yet supported for this language".to_string(),
+                ));
+            }
+            Box::pin(crate::dbt_executor::handle_dbt_job(
+                lock.as_ref(),
+                job_dir,
+                worker_name,
+                job,
+                mem_peak,
+                canceled_by,
+                conn,
+                client,
+                &code,
+                envs,
+                occupancy_metrics,
+                // The project's identity is derived from these, so the dbt
+                // executor needs them even though they are already on disk.
+                modules.as_ref(),
+            ))
+            .await
+        }
         // for related places search: ADD_NEW_LANG
         _ => panic!("unreachable, language is not supported: {language:#?}"),
     };
@@ -6002,6 +6028,7 @@ pub fn parse_sig_of_lang(
             ScriptLang::Rlang => Some(windmill_parser_r::parse_r_signature(code)?),
             #[cfg(not(feature = "rlang"))]
             ScriptLang::Rlang => None,
+            ScriptLang::Dbt => Some(windmill_parser_yaml::parse_dbt_sig(code)?),
             // for related places search: ADD_NEW_LANG
         }
     } else {

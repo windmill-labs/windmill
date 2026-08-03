@@ -5,6 +5,7 @@ import {
 	type TableMetadata
 } from './apps/components/display/dbtable/utils'
 import { runScriptAndPollResult } from './jobs/utils'
+import { writingJobOptions } from './jobs/writingJob'
 import type { DBSchema, SQLSchema } from '$lib/stores'
 import { stringifySchema } from './copilot/lib'
 import type { DbInput, DbType } from './dbTypes'
@@ -114,28 +115,31 @@ export function dbTableOpsWithPreviewScripts({
 				column: colDef,
 				columns: colDefs
 			})
-			await runScriptAndPollResult({
-				workspace,
-				requestBody: {
-					args: { ...dbArg, value_to_update: newValue, ...values },
-					language,
-					content
-				}
-			})
+			await runScriptAndPollResult(
+				{
+					workspace,
+					requestBody: {
+						args: { ...dbArg, value_to_update: newValue, ...values },
+						language,
+						content
+					}
+				},
+				writingJobOptions
+			)
 		},
 		onDelete: async ({ values }) => {
 			const content = makeMarker('DELETE', { table: tableKey, columns: colDefs })
-			await runScriptAndPollResult({
-				workspace,
-				requestBody: { args: { ...dbArg, ...values }, language, content }
-			})
+			await runScriptAndPollResult(
+				{ workspace, requestBody: { args: { ...dbArg, ...values }, language, content } },
+				writingJobOptions
+			)
 		},
 		onInsert: async ({ values }) => {
 			const content = makeMarker('INSERT', { table: tableKey, columns: colDefs })
-			await runScriptAndPollResult({
-				workspace,
-				requestBody: { args: { ...dbArg, ...values }, language, content }
-			})
+			await runScriptAndPollResult(
+				{ workspace, requestBody: { args: { ...dbArg, ...values }, language, content } },
+				writingJobOptions
+			)
 		}
 	}
 }
@@ -340,7 +344,10 @@ export function dbSchemaOpsWithPreviewScripts({
 			? await WorkspaceService.getDatatableMigrationsStatus({ workspace, datatableName })
 			: undefined
 		if (!datatableName || !status?.enabled) {
-			await runScriptAndPollResult({ workspace, requestBody: { args: dbArg, content, language } })
+			await runScriptAndPollResult(
+				{ workspace, requestBody: { args: dbArg, content, language } },
+				writingJobOptions
+			)
 			return
 		}
 		// The new migration gets the highest timestamp, so any still-pending

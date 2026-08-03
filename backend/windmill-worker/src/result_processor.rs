@@ -212,7 +212,7 @@ async fn process_jc(
         span.record("root_job", root_job.to_string().as_str());
     }
     if let Some(trigger_kind) = jc.job.trigger_kind.as_ref() {
-        span.record("trigger_kind", trigger_kind.to_string().as_str());
+        span.record("trigger_kind", trigger_kind.as_str());
     }
     if let Some(trigger) = jc.job.trigger.as_ref() {
         span.record("trigger", trigger.as_str());

@@ -123,7 +123,8 @@ pub const GITHUB_APP_WEBHOOK_BASE_URL_SETTING: &str = "github_app_webhook_base_u
 /// reconcile logs.
 pub fn validate_webhook_base_url(value: &str) -> Result<(), String> {
     let value = value.trim();
-    let url = url::Url::parse(value).map_err(|e| format!("must be an absolute http(s) URL: {e}"))?;
+    let url =
+        url::Url::parse(value).map_err(|e| format!("must be an absolute http(s) URL: {e}"))?;
     if !url.username().is_empty() || url.password().is_some() {
         return Err(
             "must not embed a username or password: the receiver URL is stored in workspace settings, where it is readable by workspace admins".to_string(),
@@ -298,6 +299,7 @@ pub const ENV_SETTINGS: &[&str] = &[
     "GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE",
     "MAX_WAIT_FOR_SIGINT",
     "MAX_WAIT_FOR_SIGTERM",
+    "JOB_OOM_SCORE_ADJ",
     "WORKER_GROUP",
     "SAML_METADATA",
     "INSTANCE_IS_DEV",

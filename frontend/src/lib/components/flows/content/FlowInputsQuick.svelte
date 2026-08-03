@@ -6,7 +6,7 @@
 <script lang="ts">
 	import { sendUserToast } from '$lib/toast'
 	import FlowScriptPickerQuick from '../pickers/FlowScriptPickerQuick.svelte'
-	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
+	import { defaultScriptLanguages, processInlineLangs } from '$lib/scripts'
 	import {
 		defaultScripts,
 		enterpriseLicense,
@@ -225,7 +225,7 @@
 		$insertButtonOpen = false
 	})
 	let langs = $derived(
-		processLangs(undefined, $defaultScripts?.order ?? Object.keys(defaultScriptLanguages))
+		processInlineLangs(undefined, $defaultScripts?.order ?? Object.keys(defaultScriptLanguages))
 			.map((l) => [defaultScriptLanguages[l], l])
 			.filter(
 				(x) => $defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x[1])

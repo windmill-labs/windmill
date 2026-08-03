@@ -32,6 +32,7 @@ app related commands
   - `--host <host:string>` - Host to bind the dev server to
   - `--entry <entry:string>` - Entry point file (default: index.ts for Svelte/Vue, index.tsx otherwise)
   - `--no-open` - Don't automatically open the browser
+  - `--recording` - Frame the app in a shell with a Record button, to capture a replayable session recording of the app under development
 - `app lint [app_folder:string]` - Lint a raw app folder to validate structure and buildability
   - `--fix` - Attempt to fix common issues (not implemented yet)
 - `app new` - create a new raw app from a template

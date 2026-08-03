@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT digest FROM dbt_graph_snapshot\n              WHERE workspace_id = $1 AND script_path = $2 AND script_hash = $3\n                AND job_id = $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "digest",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ff244d58f154fc3132205fbb8374f01ceb707d9ae0b02bf382d4f5dca73829e2"
+}

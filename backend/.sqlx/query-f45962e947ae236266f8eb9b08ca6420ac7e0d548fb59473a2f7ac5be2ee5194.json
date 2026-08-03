@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT job_id FROM dbt_run_state\n          WHERE workspace_id = $1 AND script_path = $2 AND permissioned_as = $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "job_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "f45962e947ae236266f8eb9b08ca6420ac7e0d548fb59473a2f7ac5be2ee5194"
+}
