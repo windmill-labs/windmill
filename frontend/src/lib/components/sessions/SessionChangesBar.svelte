@@ -1,5 +1,12 @@
 <script lang="ts">
-	import { Archive, ExternalLink, GitPullRequestClosed, MoveRight, Trash2 } from 'lucide-svelte'
+	import {
+		Archive,
+		ExternalLink,
+		GitPullRequestClosed,
+		MoveRight,
+		PanelRightOpen,
+		Trash2
+	} from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import SessionStatusPopover from './SessionStatusPopover.svelte'
@@ -12,8 +19,10 @@
 	import SessionDiffDrawer from './SessionDiffDrawer.svelte'
 	import { TOKEN_TRIGGER_CLASS } from './SessionStatusToken.svelte'
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
-	import { badgeCounts, badgeOf, buildDeployItems } from './sessionDeployModel'
+	import { badgeCounts, badgeOf, buildDeployItems, type DeployItem } from './sessionDeployModel'
 	import { useExistingMaskKeys } from './sessionDeployModel.svelte'
+	import { previewTargetForSessionTarget } from './sessionPreviewTabs.svelte'
+	import type { PreviewTarget } from './previewRouter'
 	import JobsSegment from '$lib/components/copilot/chat/JobsSegment.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import ArtifactsSegment from '$lib/components/copilot/chat/artifacts/ArtifactsSegment.svelte'
@@ -183,6 +192,36 @@
 	)
 	let editsOpen = $state(false)
 
+	// Destinations the preview panel can host: the three live editors, plus legacy
+	// drag-and-drop apps (mounted as an iframe over their edit route). Triggers,
+	// schedules and the like have no preview route, so their rows get no button.
+	// Keyed on the storage `path` — the edit route's key, which for a draft-only
+	// item is its `draft_<uuid>` path, not the friendly `displayPath`.
+	function previewTargetFor(item: DeployItem): PreviewTarget | undefined {
+		if (item.deployKind === 'app') {
+			return { type: 'item', item: { kind: 'app', raw_app: false, path: item.path, summary: '' } }
+		}
+		if (
+			item.deployKind === 'script' ||
+			item.deployKind === 'flow' ||
+			item.deployKind === 'raw_app'
+		) {
+			return previewTargetForSessionTarget(item.deployKind, item.path)
+		}
+		return undefined
+	}
+
+	// Open (or focus) the item in this session's preview panel. A 'focused' open
+	// leaves the tab where it is, so pulse it to make the click visibly land.
+	function openInPreview(item: DeployItem) {
+		const owner = runtime?.previewTabs
+		const target = previewTargetFor(item)
+		if (!owner || !target) return
+		editsOpen = false
+		const { status } = owner.open(target)
+		if (status === 'focused') owner.pulseFocus(owner.activeId)
+	}
+
 	// Only draft-vs-deployed drives the color: stale/failed live in the drawer's
 	// deploy model, not here.
 	const editsColorClass = $derived(
@@ -278,6 +317,18 @@
 							</Badge>
 						{:else}
 							<Badge small color="green">Deployed</Badge>
+						{/if}
+					{/snippet}
+					{#snippet actions(item)}
+						{#if previewTargetFor(item)}
+							<Button
+								unifiedSize="xs"
+								variant="subtle"
+								iconOnly
+								title="Open in preview"
+								startIcon={{ icon: PanelRightOpen }}
+								onClick={() => openInPreview(item)}
+							/>
 						{/if}
 					{/snippet}
 				</SessionStatusPopover>
