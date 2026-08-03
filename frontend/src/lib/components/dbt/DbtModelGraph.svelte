@@ -168,12 +168,12 @@
 	 *  the other's job. */
 	export async function refresh() {
 		if (refreshing || !workspace) return
-		refreshing = true
 		refreshError = undefined
 		refreshPending = undefined
 		let id: string | undefined
-		// Read once, here: the editor keeps changing underneath, and everything the
-		// resulting graph is used for has to name the project it actually described.
+		// Read once, and before the button is disabled: the editor keeps changing
+		// underneath, and everything the resulting graph is used for has to name the
+		// project it actually described.
 		const submitted: DbtPreviewBuffer = {
 			content: descriptor,
 			// The whole bundle, always: dbt resolves `ref()` project-wide and cannot
@@ -193,6 +193,7 @@
 				})
 			)
 		}
+		refreshing = true
 		try {
 			id = await JobService.runScriptPreview({
 				workspace,

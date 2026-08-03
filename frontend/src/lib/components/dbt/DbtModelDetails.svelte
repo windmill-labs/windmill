@@ -49,16 +49,26 @@
 		onClose?: () => void
 	} = $props()
 
-	// The arguments belonging to the project being previewed. A buffer preview
-	// uses the ones its parse ran under, not the ones the form holds now: vars
-	// decide schemas and aliases, so later ones could point `dbt show` at a
-	// relation this graph never described.
-	let effectiveArgs = $derived(buffer ? buffer.args : args)
-	// Cached per model AND per arguments, so flipping between nodes does not
-	// re-spend a worker slot, while an edited var previews its own rows rather
-	// than returning the last ones.
+	// Vars come from the snapshot when there is one: they decide `enabled`,
+	// schemas and aliases, so they are what the graph on screen was drawn under,
+	// and later ones could point `dbt show` at a relation it never described.
+	let previewVars = $derived((((buffer ? buffer.args : args) as any)?.command as any)?.vars ?? {})
+	// Placeholders come from the form, always. A parse runs `strict: false` and
+	// drops a `{{ }}` only a run can fill, so a graph refreshed before the form
+	// was filled carries empty ones — replaying those would fail every preview on
+	// a value the run form is already holding.
+	let previewPlaceholders = $derived.by(() => {
+		const { command: _cmd, ...rest } = (args ?? {}) as Record<string, any>
+		return rest
+	})
+	// Cached per model AND per inputs, so flipping between nodes does not re-spend
+	// a worker slot, while an edited placeholder previews its own rows rather than
+	// returning the last ones. Vars only move this for a deployed graph; for a
+	// snapshot they are fixed, which is what `staleVars` below says out loud.
 	let previews = $state<Record<string, DbtPreview>>({})
-	let previewKey = $derived(`${dbt.unique_id}|${JSON.stringify(effectiveArgs ?? {})}`)
+	let previewKey = $derived(
+		`${dbt.unique_id}|${JSON.stringify(previewVars)}|${JSON.stringify(previewPlaceholders)}`
+	)
 	let preview = $derived(previews[previewKey])
 	let previewing = $derived(preview != undefined && 'pending' in preview)
 	// Which pane is showing. Keyed by the preview's own key so moving to another
@@ -78,7 +88,6 @@
 		// model until reload. Only a result or an in-flight run blocks a re-run.
 		if (cached != undefined && !('error' in cached)) return
 		previews = { ...previews, [key]: { pending: true } }
-		const { command: _cmd, ...placeholders } = (effectiveArgs ?? {}) as Record<string, any>
 		const next = await previewDbtRows({
 			workspace,
 			scriptPath,
@@ -87,8 +96,8 @@
 			// Scoped to the node's package: a dependency package can ship a model
 			// whose name the project also uses.
 			model: nodeSelector(dbt.unique_id),
-			vars: ((effectiveArgs as any)?.command as any)?.vars ?? {},
-			args: placeholders,
+			vars: previewVars,
+			args: previewPlaceholders,
 			stillWanted: () => !destroyed
 		})
 		if (!next || destroyed) return
@@ -107,6 +116,13 @@
 	// the selector with `resource_type:model`, so offering it on a seed, snapshot
 	// or source only ever produces a failed job.
 	let previewable = $derived(dbt.resource_type === 'model')
+	// The vars moved since this graph was parsed. Previewing under the old ones is
+	// what keeps the rows and the SQL describing one project, but silently doing so
+	// would leave the form and the rows disagreeing with nothing to explain it.
+	let staleVars = $derived(
+		buffer != undefined &&
+			JSON.stringify(previewVars) !== JSON.stringify((args?.command as any)?.vars ?? {})
+	)
 </script>
 
 <div class="h-full flex flex-col min-h-0">
@@ -178,6 +194,14 @@
 			>
 		</div>
 	</div>
+
+	{#if staleVars}
+		<div class="shrink-0 px-2 py-1 border-b text-2xs text-secondary bg-surface-secondary">
+			The run form's vars have changed since this graph was parsed. Rows are previewed under
+			the vars it was parsed with, so they keep describing the models on screen — refresh the
+			models to preview under the current ones.
+		</div>
+	{/if}
 
 	<div class="flex-1 min-h-0 overflow-auto">
 		<div class="px-2 py-1.5 border-b text-2xs text-secondary flex flex-col gap-1">
