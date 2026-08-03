@@ -725,7 +725,6 @@ async fn create_flow(
     if let Some(dm) = nf.deployment_message {
         args.insert("deployment_message".to_string(), to_raw_value(&dm));
     }
-    windmill_common::deploy_origin::stamp_origin_arg(&mut args);
 
     let tx = PushIsolationLevel::Transaction(tx);
     let (dependency_job_uuid, mut new_tx) = push(
@@ -1406,7 +1405,6 @@ async fn update_flow(
         args.insert("deployment_message".to_string(), to_raw_value(&dm));
     }
     args.insert("parent_path".to_string(), to_raw_value(&flow_path));
-    windmill_common::deploy_origin::stamp_origin_arg(&mut args);
 
     let (dependency_job_uuid, mut new_tx) = push(
         &db,
@@ -1498,6 +1496,21 @@ async fn update_flow(
     }
 
     new_tx.commit().await?;
+
+    // A flow's deployment metadata is handled by its dependency job, which is too
+    // far from the write to speak for the path a rename left behind — so say it
+    // here, while this request still can.
+    if flow_path != nf.path {
+        if let Err(e) = windmill_git_sync::tally_rename_vacated_path(
+            &db,
+            &w_id,
+            DeployedObject::Flow { path: flow_path.to_string(), parent_path: None, version },
+        )
+        .await
+        {
+            tracing::error!(%e, "error tallying the path renamed away from");
+        }
+    }
 
     reregister_moved_native_triggers(&db, &authed, &w_id, moved_native_triggers);
 

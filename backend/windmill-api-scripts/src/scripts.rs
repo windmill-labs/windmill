@@ -696,28 +696,50 @@ async fn create_script(
     Ok((StatusCode::CREATED, format!("{}", hash)))
 }
 
-struct HandleDeploymentMetadata {
-    email: String,
-    created_by: String,
-    w_id: String,
-    obj: DeployedObject,
-    deployment_message: Option<String>,
-    renamed_from: Option<String>,
+/// What a script deploy still has to do once its transaction has committed.
+enum PostCommitDeploy {
+    /// Everything, for a deploy with no dependency job to hand it to.
+    Full {
+        email: String,
+        created_by: String,
+        w_id: String,
+        obj: DeployedObject,
+        deployment_message: Option<String>,
+        renamed_from: Option<String>,
+    },
+    /// Only the path a rename left behind. The dependency job handles the rest,
+    /// but it runs too far from the write to speak for that path — see
+    /// `tally_rename_vacated_path`.
+    VacatedPath { w_id: String, obj: DeployedObject },
 }
 
-impl HandleDeploymentMetadata {
+impl PostCommitDeploy {
     async fn handle(self, db: &DB) -> Result<()> {
-        handle_deployment_metadata(
-            &self.email,
-            &self.created_by,
-            &db,
-            &self.w_id,
-            self.obj,
-            self.deployment_message,
-            false,
-            self.renamed_from.as_deref(),
-        )
-        .await
+        match self {
+            PostCommitDeploy::Full {
+                email,
+                created_by,
+                w_id,
+                obj,
+                deployment_message,
+                renamed_from,
+            } => {
+                handle_deployment_metadata(
+                    &email,
+                    &created_by,
+                    &db,
+                    &w_id,
+                    obj,
+                    deployment_message,
+                    false,
+                    renamed_from.as_deref(),
+                )
+                .await
+            }
+            PostCommitDeploy::VacatedPath { w_id, obj } => {
+                windmill_git_sync::tally_rename_vacated_path(db, &w_id, obj).await
+            }
+        }
     }
 }
 
@@ -972,7 +994,7 @@ async fn create_script_internal<'c>(
 ) -> Result<(
     ScriptHash,
     Transaction<'c, Postgres>,
-    Option<HandleDeploymentMetadata>,
+    Option<PostCommitDeploy>,
     Vec<MovedNativeTrigger>,
 )> {
     if authed.is_operator {
@@ -2350,8 +2372,7 @@ async fn create_script_internal<'c>(
         if let Some(ref p_path) = p_path_opt {
             args.insert("parent_path".to_string(), to_raw_value(&p_path));
         }
-        windmill_common::deploy_origin::stamp_origin_arg(&mut args);
-
+    
         let tx = PushIsolationLevel::Transaction(tx);
         let (job_id, mut new_tx) = windmill_queue::push(
             &db,
@@ -2406,7 +2427,18 @@ async fn create_script_internal<'c>(
         .execute(&mut *new_tx)
         .await?;
 
-        Ok((hash, new_tx, None, moved_native_triggers))
+        // The dependency job takes it from here, except for the path a rename left.
+        let vacated = p_path_opt.filter(|old| *old != script_path).map(|old| {
+            PostCommitDeploy::VacatedPath {
+                w_id: w_id.clone(),
+                obj: DeployedObject::Script {
+                    hash: hash.clone(),
+                    path: old,
+                    parent_path: None,
+                },
+            }
+        });
+        Ok((hash, new_tx, vacated, moved_native_triggers))
     } else {
         if codebase.is_none() {
             let db2 = db.clone();
@@ -2459,7 +2491,7 @@ async fn create_script_internal<'c>(
         Ok((
             hash,
             tx,
-            Some(HandleDeploymentMetadata {
+            Some(PostCommitDeploy::Full {
                 email: authed.email,
                 created_by: authed.username,
                 w_id,

@@ -52,18 +52,6 @@ impl DeployOrigin {
             DeployOrigin::Authored
         }
     }
-
-    /// Read back a value this code wrote, `None` for one it does not recognize.
-    /// Strict where a request header is lenient: an unmarked request really is
-    /// authored, but an unreadable stored value is skew or corruption and must
-    /// not land on the reading that can propose a removal.
-    pub fn from_stored_value(value: &str) -> Option<Self> {
-        match value {
-            "authored" => Some(DeployOrigin::Authored),
-            "sync" => Some(DeployOrigin::Sync),
-            _ => None,
-        }
-    }
 }
 
 /// What a deploy event did to the path it is recorded against.
@@ -92,151 +80,51 @@ impl DeployEventKind {
     }
 }
 
-/// Job arg carrying the origin of the deploy a dependency job was queued for, so
-/// its tally can report the request's origin instead of guessing. Absent on a job
-/// queued before this existed, which reads as [`TallyEvidence::Unknown`].
-pub const DEPLOY_ORIGIN_ARG: &str = "__wm_deploy_origin";
-
-/// How much of a deploy event the tallying task can answer for.
-///
-/// The two capabilities come apart. A dependency job knows the origin its request
-/// declared and which path the deploy vacated — both are facts of the event it
-/// was queued for. What it cannot answer is what the path holds *now*: it runs
-/// whenever lock generation finishes, and by then someone else may have deleted
-/// the item, which the tally would otherwise probe and file under this deploy.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TallyEvidence {
-    /// The task that served the write, so the current state is still its own.
-    Served(DeployOrigin),
-    /// A deploy that committed before this task ran.
-    Deferred(DeployOrigin),
-    /// Nothing known: no request served it and no origin came with it.
-    Unknown,
-}
-
-impl TallyEvidence {
-    pub fn origin(&self) -> Option<DeployOrigin> {
-        match self {
-            TallyEvidence::Served(o) | TallyEvidence::Deferred(o) => Some(*o),
-            TallyEvidence::Unknown => None,
-        }
-    }
-
-    /// Whether the path's current contents describe this event's outcome.
-    pub fn can_probe(&self) -> bool {
-        matches!(self, TallyEvidence::Served(_))
-    }
-}
-
 tokio::task_local! {
-    static DEPLOY_EVIDENCE: TallyEvidence;
+    static REQUEST_DEPLOY_ORIGIN: DeployOrigin;
 }
 
-/// Run `f` with `evidence` describing every deploy event it causes. The API
-/// enters [`TallyEvidence::Served`] for every request, marked or not; a worker
-/// replaying a request's deploy enters [`TallyEvidence::Deferred`].
+/// Run `f` with `origin` as the origin of every deploy event it causes. Entered
+/// for every request, marked or not, so that being in scope at all means "this
+/// task is serving the write it is about to report" — see [`current`].
 ///
 /// Task-locals do not cross `tokio::spawn`, and the tally is spawned: read
-/// [`current`] on the scoped task and carry the value into the spawned future.
-pub async fn scope<F: std::future::Future>(evidence: TallyEvidence, f: F) -> F::Output {
-    DEPLOY_EVIDENCE.scope(evidence, f).await
+/// [`current`] on the request task and carry the value into the spawned future.
+pub async fn scope<F: std::future::Future>(origin: DeployOrigin, f: F) -> F::Output {
+    REQUEST_DEPLOY_ORIGIN.scope(origin, f).await
 }
 
-/// The evidence in scope, [`TallyEvidence::Unknown`] where there is no scope.
-pub fn current() -> TallyEvidence {
-    DEPLOY_EVIDENCE
-        .try_with(|evidence| *evidence)
-        .unwrap_or(TallyEvidence::Unknown)
-}
-
-/// Carry this deploy's origin into the dependency job it queues, whose tally is
-/// the only one a lock-generating deploy gets. Call from the request task, which
-/// is the last place that knows it. A no-op off one, leaving the job unable to
-/// claim anything.
-pub fn stamp_origin_arg(
-    args: &mut std::collections::HashMap<String, Box<serde_json::value::RawValue>>,
-) {
-    if let Some(origin) = current().origin() {
-        args.insert(
-            DEPLOY_ORIGIN_ARG.to_string(),
-            crate::worker::to_raw_value(&origin.as_str()),
-        );
-    }
-}
-
-/// The other half of [`stamp_origin_arg`]: what a dependency job may claim about
-/// the deploy it was queued for. Never [`TallyEvidence::Served`] — the job is not
-/// the request, whatever its args say.
-pub fn deferred_evidence_from_args(
-    args: &std::collections::HashMap<String, Box<serde_json::value::RawValue>>,
-) -> TallyEvidence {
-    args.get(DEPLOY_ORIGIN_ARG)
-        .and_then(|v| serde_json::from_str::<String>(v.get()).ok())
-        .and_then(|v| DeployOrigin::from_stored_value(&v))
-        .map(TallyEvidence::Deferred)
-        .unwrap_or(TallyEvidence::Unknown)
+/// The origin in scope, or `None` where there is no scope to read.
+///
+/// `None` is what a worker gets. A dependency job reports a deploy that
+/// committed before the job was even queued and finishes whenever lock
+/// generation finishes, so its reading of the workspace describes whoever wrote
+/// last, not its own event. Nothing outside a request can answer for that, so
+/// nothing outside a request is asked to.
+pub fn current() -> Option<DeployOrigin> {
+    REQUEST_DEPLOY_ORIGIN.try_with(|origin| *origin).ok()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// The whole worker side of the tally rests on this: nothing that did not
-    /// serve the write may be probed, without each call site remembering to say
-    /// so, and a deferred deploy still carries the origin it was queued with.
+    /// The whole worker side of the tally rests on this: a deploy reported from
+    /// anywhere but the task that served it records no evidence, without each
+    /// call site remembering to say so.
     #[tokio::test]
-    async fn evidence_tracks_who_is_reporting() {
-        assert_eq!(current(), TallyEvidence::Unknown);
-        assert!(!TallyEvidence::Unknown.can_probe());
-        assert!(!TallyEvidence::Deferred(DeployOrigin::Sync).can_probe());
+    async fn origin_is_absent_outside_a_request() {
+        assert_eq!(current(), None);
         assert_eq!(
-            TallyEvidence::Deferred(DeployOrigin::Sync).origin(),
-            Some(DeployOrigin::Sync)
+            scope(DeployOrigin::Authored, async { current() }).await,
+            Some(DeployOrigin::Authored)
         );
-
-        let served = TallyEvidence::Served(DeployOrigin::Authored);
-        assert_eq!(scope(served, async { current() }).await, served);
-        assert!(served.can_probe());
-
         // Not through a spawn, which is why `handle_deployment_metadata` reads it
         // before spawning the tally rather than inside.
-        let spawned = scope(served, async {
+        let spawned = scope(DeployOrigin::Sync, async {
             tokio::spawn(async { current() }).await.unwrap()
         })
         .await;
-        assert_eq!(spawned, TallyEvidence::Unknown);
-    }
-
-    /// A lock-generating deploy's only tally is the dependency job's, and this
-    /// round trip is the whole of what it knows.
-    #[tokio::test]
-    async fn origin_survives_the_dependency_job_args() {
-        for origin in [DeployOrigin::Authored, DeployOrigin::Sync] {
-            let args = scope(TallyEvidence::Served(origin), async {
-                let mut args = std::collections::HashMap::new();
-                stamp_origin_arg(&mut args);
-                args
-            })
-            .await;
-            assert_eq!(
-                deferred_evidence_from_args(&args),
-                TallyEvidence::Deferred(origin)
-            );
-        }
-
-        // Queued before this shipped, or by a version whose values this one does
-        // not know: claim nothing rather than guess the permissive reading.
-        assert_eq!(
-            deferred_evidence_from_args(&std::collections::HashMap::new()),
-            TallyEvidence::Unknown
-        );
-        let unreadable = std::collections::HashMap::from([(
-            DEPLOY_ORIGIN_ARG.to_string(),
-            crate::worker::to_raw_value(&"handwritten"),
-        )]);
-        assert_eq!(
-            deferred_evidence_from_args(&unreadable),
-            TallyEvidence::Unknown
-        );
+        assert_eq!(spawned, None);
     }
 }

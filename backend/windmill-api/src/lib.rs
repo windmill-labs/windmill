@@ -272,11 +272,7 @@ async fn set_deploy_origin(
         .and_then(|v| v.to_str().ok())
         .map(windmill_common::deploy_origin::DeployOrigin::from_header_value)
         .unwrap_or(windmill_common::deploy_origin::DeployOrigin::Authored);
-    windmill_common::deploy_origin::scope(
-        windmill_common::deploy_origin::TallyEvidence::Served(origin),
-        next.run(req),
-    )
-    .await
+    windmill_common::deploy_origin::scope(origin, next.run(req)).await
 }
 
 #[cfg(not(feature = "tantivy"))]

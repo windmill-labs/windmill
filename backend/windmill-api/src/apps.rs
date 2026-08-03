@@ -2040,7 +2040,6 @@ async fn create_app_internal<'a>(
     if let Some(dm) = &app.deployment_message {
         args.insert("deployment_message".to_string(), to_raw_value(&dm));
     }
-    windmill_common::deploy_origin::stamp_origin_arg(&mut args);
     let tx = PushIsolationLevel::Transaction(tx);
     let (dependency_job_uuid, new_tx) = push(
         &db,
@@ -2326,9 +2325,35 @@ async fn update_app(
     }
 
     let opath = path.to_string();
-    let (new_tx, npath, _v_id) =
+    let db2 = db.clone();
+    let (new_tx, npath, v_id) =
         update_app_internal(authed, db, user_db, &w_id, path, false, ns).await?;
     new_tx.commit().await?;
+
+    // As in `update_flow`: the dependency job that handles this app's deployment
+    // metadata is too far from the write to speak for the path a rename left.
+    // `raw_app` decides the diff row's kind, so read it back rather than guess —
+    // a wrong kind writes a row nothing reads.
+    if opath != npath {
+        match sqlx::query_scalar!("SELECT raw_app FROM app_version WHERE id = $1", v_id)
+            .fetch_optional(&db2)
+            .await
+        {
+            Ok(raw_app) => {
+                let vacated = if raw_app.unwrap_or(false) {
+                    DeployedObject::RawApp { path: opath.clone(), version: v_id, parent_path: None }
+                } else {
+                    DeployedObject::App { path: opath.clone(), version: v_id, parent_path: None }
+                };
+                if let Err(e) =
+                    windmill_git_sync::tally_rename_vacated_path(&db2, &w_id, vacated).await
+                {
+                    tracing::error!(%e, "error tallying the path renamed away from");
+                }
+            }
+            Err(e) => tracing::error!(%e, "could not read app_version {v_id} to tally the rename"),
+        }
+    }
 
     webhook.send_message(
         w_id.clone(),
@@ -2669,7 +2694,6 @@ async fn update_app_internal<'a>(
         args.insert("deployment_message".to_string(), to_raw_value(&dm));
     }
     args.insert("parent_path".to_string(), to_raw_value(&path));
-    windmill_common::deploy_origin::stamp_origin_arg(&mut args);
     let (dependency_job_uuid, new_tx) = push(
         &db,
         tx,

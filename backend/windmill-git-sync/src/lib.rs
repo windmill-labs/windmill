@@ -260,6 +260,29 @@ impl DeployedObject {
     }
 }
 
+/// Record, from the request that made it, that a rename left `vacated` empty.
+/// Only its path and kind are read, so build it naming the path the rename left.
+///
+/// A deploy whose metadata is handled by its dependency job needs this: that job
+/// runs at an unknown remove from the write, and the row it would write is
+/// deleted as soon as the two workspaces agree on the path — so a claim it made
+/// could reappear later against an item the parent has since recreated. Call
+/// once the rename has committed; the tally reads what the path holds now.
+pub async fn tally_rename_vacated_path(
+    db: &DB,
+    w_id: &str,
+    vacated: DeployedObject,
+) -> windmill_common::error::Result<()> {
+    tally_deployed_object_changes(
+        w_id,
+        &vacated,
+        db,
+        None,
+        windmill_common::deploy_origin::current(),
+    )
+    .await
+}
+
 /// Item kinds whose `workspace_diff` path is the `path` column of a table named
 /// after the kind. Interpolated into SQL, so it must stay a hardcoded allowlist —
 /// and, unlike the `sqlx::query!` arms below, a wrong name here is not a compile

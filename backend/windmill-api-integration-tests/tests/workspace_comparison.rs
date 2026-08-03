@@ -1,7 +1,5 @@
 use serde_json::json;
 use sqlx::{Pool, Postgres};
-#[cfg(feature = "private")]
-use windmill_common::deploy_origin::{DeployOrigin, TallyEvidence};
 
 use windmill_test_utils::*;
 
@@ -2349,9 +2347,9 @@ async fn test_compare_records_fork_removal_origin(db: Pool<Postgres>) -> anyhow:
     }
 
     // The call the worker makes on its success path for a lock-generating deploy:
-    // it reports a deploy that landed before the archive, so it may not claim what
-    // the path holds now (see `TallyEvidence`). The archive's evidence has to
-    // survive it, and only the counter moves.
+    // it reports a deploy that landed before the archive and cannot answer for what
+    // the path holds now. The archive's record has to survive it, and only the
+    // counter moves.
     windmill_git_sync::handle_deployment_metadata(
         "admin@windmill.dev",
         "admin",
@@ -2417,14 +2415,13 @@ async fn test_probe_covers_every_path_keyed_table(db: Pool<Postgres>) -> anyhow:
     Ok(())
 }
 
-/// A lock-generating deploy has no tally but its dependency job's, which runs
-/// long after the request and cannot be asked what the path holds now. It can
-/// still say which path the rename vacated, and with what origin — otherwise a
-/// renamed Python script (or any flow or app, which always generate) leaves its
-/// old path in the parent with nothing to merge.
+/// A lock-generating deploy hands its metadata to a dependency job, which runs
+/// too far from the write to speak for the path a rename left behind — so the
+/// request records that itself. Flows always generate, so without it a renamed
+/// flow leaves its old path in the parent with nothing to merge.
 #[cfg(feature = "private")]
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_deferred_rename_records_the_vacated_path(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_rename_records_the_vacated_path(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
 
     let server = ApiServer::start(db.clone()).await?;
@@ -2443,7 +2440,7 @@ async fn test_deferred_rename_records_the_vacated_path(db: Pool<Postgres>) -> an
         .post(&format!(
             "{base_url}/w/test-workspace/workspaces/create_fork"
         ))
-        .json(&json!({"id": "wm-fork-deferred", "name": "Deferred Fork"}))
+        .json(&json!({"id": "wm-fork-renamed", "name": "Rename Fork"}))
         .send()
         .await?;
     assert!(
@@ -2452,30 +2449,38 @@ async fn test_deferred_rename_records_the_vacated_path(db: Pool<Postgres>) -> an
         resp.status()
     );
 
-    // No worker runs here, so stand in for the dependency job the deploy queued:
-    // the origin its request stamped into the args, replayed on the worker.
-    for (origin, path) in [
-        (DeployOrigin::Authored, "u/admin/moved_by_user"),
-        (DeployOrigin::Sync, "u/admin/moved_by_sync"),
+    let flow = |path: &str| {
+        json!({
+            "path": path,
+            "summary": "",
+            "description": "",
+            "value": {"modules": []},
+            "schema": {"type": "object", "properties": {}, "required": []},
+        })
+    };
+    for (path, origin) in [
+        ("u/admin/moved_by_user", None),
+        ("u/admin/moved_by_sync", Some("sync")),
     ] {
-        windmill_common::deploy_origin::scope(
-            TallyEvidence::Deferred(origin),
-            windmill_git_sync::handle_deployment_metadata(
-                "admin@windmill.dev",
-                "admin",
-                &db,
-                "wm-fork-deferred",
-                windmill_git_sync::DeployedObject::Flow {
-                    path: format!("{path}_new"),
-                    parent_path: Some(path.to_string()),
-                    version: 0,
-                },
-                None,
-                true,
-                Some(path),
-            ),
-        )
-        .await?;
+        let mut req = admin
+            .client()
+            .post(&format!("{base_url}/w/wm-fork-renamed/flows/create"))
+            .json(&flow(path));
+        if let Some(origin) = origin {
+            req = req.header("X-Windmill-Deploy-Origin", origin);
+        }
+        let resp = req.send().await?;
+        assert!(resp.status().is_success(), "flow create: {}", resp.status());
+
+        let mut req = admin
+            .client()
+            .post(&format!("{base_url}/w/wm-fork-renamed/flows/update/{path}"))
+            .json(&flow(&format!("{path}_new")));
+        if let Some(origin) = origin {
+            req = req.header("X-Windmill-Deploy-Origin", origin);
+        }
+        let resp = req.send().await?;
+        assert!(resp.status().is_success(), "flow rename: {}", resp.status());
     }
 
     let mut rows = vec![];
@@ -2483,7 +2488,7 @@ async fn test_deferred_rename_records_the_vacated_path(db: Pool<Postgres>) -> an
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         rows = sqlx::query!(
             "SELECT path, fork_last_event_kind, fork_last_event_origin FROM workspace_diff
-             WHERE fork_workspace_id = 'wm-fork-deferred' AND kind = 'flow'
+             WHERE fork_workspace_id = 'wm-fork-renamed' AND kind = 'flow'
                AND fork_last_event_origin IS NOT NULL ORDER BY path"
         )
         .fetch_all(&db)
@@ -2505,68 +2510,11 @@ async fn test_deferred_rename_records_the_vacated_path(db: Pool<Postgres>) -> an
     assert_eq!(
         claimed,
         vec![
-            ("u/admin/moved_by_sync", Some("rename_from"), Some("sync")),
-            (
-                "u/admin/moved_by_user",
-                Some("rename_from"),
-                Some("authored")
-            ),
+            ("u/admin/moved_by_sync", Some("delete"), Some("sync")),
+            ("u/admin/moved_by_user", Some("delete"), Some("authored")),
         ],
-        "each vacated path is claimed with the origin its deploy was queued with, \
-         and the deployed paths — whose current contents this tally cannot answer \
-         for — claim nothing"
-    );
-
-    // A rename job finishing after something else removed the path it vacated: it
-    // has no way to show it is the later event, so it may fill a gap but never
-    // restate a path a served tally already spoke for.
-    let claimed_by_a_request = sqlx::query_scalar!(
-        "UPDATE workspace_diff SET fork_last_event_kind = 'delete', fork_last_event_origin = 'sync'
-         WHERE fork_workspace_id = 'wm-fork-deferred' AND kind = 'flow'
-           AND path = 'u/admin/moved_by_user' RETURNING 1 AS \"one!\""
-    )
-    .fetch_one(&db)
-    .await?;
-    assert_eq!(claimed_by_a_request, 1);
-    windmill_common::deploy_origin::scope(
-        TallyEvidence::Deferred(DeployOrigin::Authored),
-        windmill_git_sync::handle_deployment_metadata(
-            "admin@windmill.dev",
-            "admin",
-            &db,
-            "wm-fork-deferred",
-            windmill_git_sync::DeployedObject::Flow {
-                path: "u/admin/moved_by_user_new".to_string(),
-                parent_path: Some("u/admin/moved_by_user".to_string()),
-                version: 0,
-            },
-            None,
-            true,
-            Some("u/admin/moved_by_user"),
-        ),
-    )
-    .await?;
-    let mut still_sync = None;
-    for _ in 0..40 {
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        let row = sqlx::query!(
-            "SELECT ahead, fork_last_event_kind, fork_last_event_origin FROM workspace_diff
-             WHERE fork_workspace_id = 'wm-fork-deferred' AND kind = 'flow'
-               AND path = 'u/admin/moved_by_user'"
-        )
-        .fetch_one(&db)
-        .await?;
-        if row.ahead > 1 {
-            still_sync = Some(row);
-            break;
-        }
-    }
-    let still_sync = still_sync.expect("the stale tally should still bump the counter");
-    assert_eq!(still_sync.fork_last_event_kind.as_deref(), Some("delete"));
-    assert_eq!(
-        still_sync.fork_last_event_origin.as_deref(),
-        Some("sync"),
-        "a claim that cannot show it is the later event must not replace one that could"
+        "each vacated path is recorded with the origin of the rename that left it, \
+         and the deployed paths — which only the dependency job reports — are not"
     );
 
     Ok(())
