@@ -301,7 +301,7 @@ async fn create_schedule(
     )
     .await?;
     // email is still written for backwards compat with old workers that don't know about permissioned_as
-    let resolved_email = windmill_common::users::get_email_from_permissioned_as(
+    let resolved_email = windmill_common::users::get_email_from_permissioned_as_uncached(
         &resolved_permissioned_as,
         &w_id,
         &db,
@@ -510,7 +510,7 @@ async fn edit_schedule(
     let resolved_email = if resolved_permissioned_as
         != windmill_common::users::username_to_permissioned_as(&authed.username)
     {
-        windmill_common::users::get_email_from_permissioned_as(
+        windmill_common::users::get_email_from_permissioned_as_uncached(
             &resolved_permissioned_as,
             &w_id,
             &db,
