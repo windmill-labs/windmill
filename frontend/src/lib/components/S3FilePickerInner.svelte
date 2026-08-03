@@ -325,11 +325,7 @@
 			await pending
 			// Only reuse the joined result if it belongs to the same listing *and* the
 			// same epoch of this level.
-			if (
-				generation === listingGeneration &&
-				epoch === (folderEpoch[prefix] ?? 0) &&
-				!append
-			)
+			if (generation === listingGeneration && epoch === (folderEpoch[prefix] ?? 0) && !append)
 				return
 		}
 		const run = loadFolderPageInner(prefix, append)
@@ -1105,7 +1101,12 @@
 			<div class="min-w-[30%] border-r flex flex-col min-h-0">
 				{#if !rootPath}
 					<div class="w-full p-1 border-b">
-						<input type="text" placeholder="Search by path prefix" bind:value={filter} class="text-xl" />
+						<input
+							type="text"
+							placeholder="Search by path prefix"
+							bind:value={filter}
+							class="text-xl"
+						/>
 					</div>
 				{/if}
 				{#if displayedFileKeys.length === 0}
@@ -1240,7 +1241,7 @@
 						</VirtualList>
 					</div>
 					<div
-						class="flex flex-col gap-2 text-2xs justify-center items-center text-secondary w-full border-t h-16"
+						class="flex flex-col gap-2 text-2xs justify-center items-center text-secondary w-full border-t py-1"
 					>
 						{#if fileListLoading === true}
 							<div class="flex text-secondary mt-1 text-xs justify-center items-center w-full">
