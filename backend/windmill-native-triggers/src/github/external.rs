@@ -298,9 +298,9 @@ impl External for GitHub {
                 Some("reconnect the GitHub integration from Workspace settings > Integrations.")
             }
             StatusCode::FORBIDDEN => Some(
-                "managing webhooks needs admin rights on the repository: check that the connected \
-                 GitHub account has them and that the OAuth app is authorized for the \
-                 organization.",
+                "check that the OAuth app is authorized for the organization and that the \
+                 connected GitHub account has the access this needs — managing webhooks requires \
+                 admin rights on the repository.",
             ),
             _ => None,
         }

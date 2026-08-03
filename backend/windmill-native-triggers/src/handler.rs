@@ -1,17 +1,17 @@
 use crate::{
-    decrypt_oauth_data, delete_native_trigger, delete_token_by_hash, external_error_message,
-    get_native_trigger, http_error_status, list_native_triggers, lock::TriggerLock,
-    map_external_error, map_external_error_with, rotate_webhook_token, store_native_trigger,
+    classify_read_failure, decrypt_oauth_data, delete_native_trigger, delete_token_by_hash,
+    get_native_trigger, list_native_triggers, lock::TriggerLock, map_external_error,
+    map_external_error_with, rotate_webhook_token, store_native_trigger,
     sync::EXTERNAL_TRIGGER_MISSING_ERROR, update_native_trigger_error,
     update_native_trigger_if_runnable_unchanged, webhook_token_label, webhook_token_scopes,
-    External, NativeTrigger, NativeTriggerConfig, NativeTriggerData, ServiceName,
+    External, ExternalReadFailure, NativeTrigger, NativeTriggerConfig, NativeTriggerData,
+    ServiceName,
 };
 use axum::{
     extract::{Path, Query},
     routing::{delete, get, post},
     Extension, Json, Router,
 };
-use http::StatusCode;
 use serde::{Deserialize, Serialize};
 use sqlx::PgConnection;
 use std::sync::Arc;
@@ -472,43 +472,45 @@ async fn get_native_trigger_handler<T: External>(
             Some(native_cfg)
         }
         Ok(None) => None,
-        Err(e) if http_error_status(&e) == Some(StatusCode::NOT_FOUND) => {
-            let error_msg = EXTERNAL_TRIGGER_MISSING_ERROR.to_string();
-            tracing::warn!(
-                "Native trigger no longer exists on external service {}, setting error",
-                service_name
-            );
+        Err(e) => match classify_read_failure(e) {
+            ExternalReadFailure::Missing => {
+                let error_msg = EXTERNAL_TRIGGER_MISSING_ERROR.to_string();
+                tracing::warn!(
+                    "Native trigger no longer exists on external service {}, setting error",
+                    service_name
+                );
 
-            update_native_trigger_error(
-                &mut *tx,
-                &workspace_id,
-                service_name,
-                &external_id,
-                Some(&error_msg),
-            )
-            .await?;
+                update_native_trigger_error(
+                    &mut *tx,
+                    &workspace_id,
+                    service_name,
+                    &external_id,
+                    Some(&error_msg),
+                )
+                .await?;
 
-            tx.commit().await?;
+                tx.commit().await?;
 
-            return Err(Error::NotFound(format!(
-                "Trigger '{}' no longer exists on external service {}",
-                external_id, service_name
-            )));
-        }
-        // The service being unreadable says nothing about the trigger Windmill stores, and
-        // failing here would leave the editor with no configuration to show at all. Report what
-        // the service said alongside the stored configuration instead.
-        Err(e) => {
-            let message = external_error_message(&e);
-            tracing::warn!(
-                "Could not read trigger '{}' from {}, returning the stored configuration: {}",
-                external_id,
-                service_name,
-                message
-            );
-            external_error = Some(message);
-            None
-        }
+                return Err(Error::NotFound(format!(
+                    "Trigger '{}' no longer exists on external service {}",
+                    external_id, service_name
+                )));
+            }
+            // The service being unreadable says nothing about the trigger Windmill stores, and
+            // failing here would leave the editor with no configuration to show at all. Report
+            // what the service said alongside the stored configuration instead.
+            ExternalReadFailure::Unreadable(message) => {
+                tracing::warn!(
+                    "Could not read trigger '{}' from {}, returning the stored configuration: {}",
+                    external_id,
+                    service_name,
+                    message
+                );
+                external_error = Some(message);
+                None
+            }
+            ExternalReadFailure::Internal(e) => return Err(e),
+        },
     };
 
     tx.commit().await?;
@@ -559,7 +561,12 @@ async fn delete_native_trigger_handler<T: External>(
         .await
         .map_err(|e| {
             map_external_error_with(e, |m| {
-                format!("{m} The trigger was kept in Windmill, so it can still fire.")
+                let end = if m.ends_with(['.', '!', '?']) {
+                    ""
+                } else {
+                    "."
+                };
+                format!("{m}{end} The trigger was kept in Windmill, so it can still fire.")
             })
         })?;
 

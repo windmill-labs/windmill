@@ -315,19 +315,18 @@ impl External for NextCloud {
         Some(ocs.ocs.meta.message).filter(|m| !m.is_empty())
     }
 
+    /// Appended to every failed call of this service, so a hint may not assert what the caller
+    /// was doing — only name the requirement that most often explains the status.
     fn error_hint(&self, status: StatusCode) -> Option<&'static str> {
         match status {
             StatusCode::UNAUTHORIZED => {
                 Some("reconnect the Nextcloud integration from Workspace settings > Integrations.")
             }
             StatusCode::FORBIDDEN => Some(
-                "only a Nextcloud administrator may manage webhook listeners, and being a \
-                 Windmill admin does not count. Reconnect the integration from Workspace \
-                 settings > Integrations as a Nextcloud account that is an admin there or holds \
-                 delegated admin rights for the Webhooks setting.",
-            ),
-            StatusCode::NOT_FOUND => Some(
-                "the webhook no longer exists in Nextcloud and can be recreated from Windmill.",
+                "Nextcloud grants webhook management to administrators only, and a Windmill \
+                 admin is a different thing. If the connected Nextcloud account is not an admin \
+                 there and holds no delegated admin rights for the Webhooks setting, reconnect \
+                 the integration from Workspace settings > Integrations with one that does.",
             ),
             _ => None,
         }

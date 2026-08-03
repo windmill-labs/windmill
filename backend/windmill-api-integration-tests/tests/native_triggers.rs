@@ -18,13 +18,13 @@ use windmill_common::{
     variables::{build_crypt, encrypt},
 };
 use windmill_native_triggers::{
-    decrypt_oauth_data, delete_native_trigger, delete_workspace_integration,
+    classify_read_failure, decrypt_oauth_data, delete_native_trigger, delete_workspace_integration,
     get_workspace_integration,
     google::{parse_stop_channel_params, should_renew_channel},
     http_error_status, list_native_triggers, map_external_error,
     nextcloud::NextCloud,
     require_native_integration_use, store_native_trigger, store_workspace_integration, External,
-    HttpRequestError, NativeTriggerConfig, OAuthConfig, ServiceName,
+    ExternalReadFailure, HttpRequestError, NativeTriggerConfig, OAuthConfig, ServiceName,
 };
 
 // ============================================================================
@@ -723,8 +723,8 @@ fn nextcloud_error(status: StatusCode, body: &str) -> Error {
     NextCloud.external_api_error(HttpRequestError::ApiError { status, body: body.to_string() })
 }
 
-/// A rejection has to reach the user as the service's own sentence plus what to do about it.
-/// Reported as a 500 carrying the raw OCS envelope, it read as a Windmill outage.
+/// A rejection has to reach the user as the service's own sentence plus what to do about it,
+/// never as an internal error carrying the raw envelope.
 #[test]
 fn test_provider_rejection_is_readable_and_not_internal() {
     let err = nextcloud_error(
@@ -742,8 +742,8 @@ fn test_provider_rejection_is_readable_and_not_internal() {
         "the envelope should not reach the user: {message}"
     );
     assert!(
-        message.contains("Reconnect the integration"),
-        "message={message}"
+        message.contains("Workspace settings > Integrations"),
+        "the hint should say what to do: {message}"
     );
 }
 
@@ -756,5 +756,29 @@ fn test_provider_404_is_recognized() {
     assert!(
         matches!(map_external_error(err), Error::NotFound(_)),
         "a missing external trigger must map to NotFound"
+    );
+    assert!(matches!(
+        classify_read_failure(nextcloud_error(StatusCode::NOT_FOUND, "{}")),
+        ExternalReadFailure::Missing
+    ));
+}
+
+/// A service read degrades to the stored configuration, but only for the service's own
+/// failures: `External::get` also runs queries, and reporting one of those as the service's
+/// word would hide a Windmill outage behind a 200.
+#[test]
+fn test_only_service_failures_degrade_the_read() {
+    assert!(matches!(
+        classify_read_failure(nextcloud_error(StatusCode::FORBIDDEN, "{}")),
+        ExternalReadFailure::Unreadable(_)
+    ));
+    assert!(matches!(
+        classify_read_failure(Error::internal_err("connection pool timed out")),
+        ExternalReadFailure::Internal(_)
+    ));
+    let internal = Error::internal_err("connection pool timed out");
+    assert!(
+        matches!(map_external_error(internal), Error::InternalErrLoc { .. }),
+        "a non-provider error must pass through unmapped"
     );
 }

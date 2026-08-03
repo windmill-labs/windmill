@@ -635,7 +635,9 @@ impl HttpRequestError {
     }
 }
 
-fn as_external_api_error(e: &Error) -> Option<&ExternalApiError> {
+/// `Some` only for a failure the service itself produced. Everything else — a query, a
+/// decryption, a serialization — is Windmill's own and must not be reported as the service's.
+pub fn as_external_error(e: &Error) -> Option<&ExternalApiError> {
     match e {
         Error::Anyhow { error, .. } => error.downcast_ref::<ExternalApiError>(),
         _ => None,
@@ -645,13 +647,32 @@ fn as_external_api_error(e: &Error) -> Option<&ExternalApiError> {
 /// Extract the HTTP status code from an error returned by `http_client_request`.
 /// Returns `None` if the error didn't originate from an HTTP call.
 pub fn http_error_status(e: &Error) -> Option<StatusCode> {
-    as_external_api_error(e).and_then(|e| e.status)
+    as_external_error(e).and_then(|e| e.status)
 }
 
 /// The message to show a user for a failed provider call, without the internal decoration
 /// `Error`'s own `Display` adds. Non-provider errors are rendered as-is.
 pub fn external_error_message(e: &Error) -> String {
-    as_external_api_error(e).map_or_else(|| e.to_string(), |ext| ext.to_string())
+    as_external_error(e).map_or_else(|| e.to_string(), |ext| ext.to_string())
+}
+
+/// What a failed read of a trigger from its service means for the response.
+#[derive(Debug)]
+pub enum ExternalReadFailure {
+    /// The service answered that the trigger is gone.
+    Missing,
+    /// The service could not be read, which says nothing about the stored trigger.
+    Unreadable(String),
+    /// Windmill's own failure, wearing no service's name.
+    Internal(Error),
+}
+
+pub fn classify_read_failure(e: Error) -> ExternalReadFailure {
+    match as_external_error(&e) {
+        Some(ext) if ext.status == Some(StatusCode::NOT_FOUND) => ExternalReadFailure::Missing,
+        Some(ext) => ExternalReadFailure::Unreadable(ext.to_string()),
+        None => ExternalReadFailure::Internal(e),
+    }
 }
 
 /// Turn a provider failure into something a client can read and act on.
@@ -666,8 +687,7 @@ pub fn map_external_error(e: Error) -> Error {
 
 /// `map_external_error` with a chance to add what the failure means for Windmill's own state.
 pub fn map_external_error_with(e: Error, decorate: impl FnOnce(String) -> String) -> Error {
-    let Some((status, message)) =
-        as_external_api_error(&e).map(|ext| (ext.status, ext.to_string()))
+    let Some((status, message)) = as_external_error(&e).map(|ext| (ext.status, ext.to_string()))
     else {
         return e;
     };
