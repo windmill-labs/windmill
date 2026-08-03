@@ -1,5 +1,7 @@
 use serde_json::json;
 use sqlx::{Pool, Postgres};
+#[cfg(feature = "private")]
+use windmill_common::deploy_origin::{DeployOrigin, TallyEvidence};
 
 use windmill_test_utils::*;
 
@@ -2346,12 +2348,10 @@ async fn test_compare_records_fork_removal_origin(db: Pool<Postgres>) -> anyhow:
         );
     }
 
-    // A dependency job for the sync-archived script finishing now reports a deploy
-    // that landed before the archive, and probes the path as already gone. Were it
-    // allowed to vouch, it would file that deletion under its own identity and hand
-    // the merge a removal to offer against the parent. This is the call the worker
-    // makes on its success path, off any request task — the archive's evidence has
-    // to survive it, and only the counter moves.
+    // The call the worker makes on its success path for a lock-generating deploy:
+    // it reports a deploy that landed before the archive, so it may not claim what
+    // the path holds now (see `TallyEvidence`). The archive's evidence has to
+    // survive it, and only the counter moves.
     windmill_git_sync::handle_deployment_metadata(
         "admin@windmill.dev",
         "admin",
@@ -2414,5 +2414,108 @@ async fn test_probe_covers_every_path_keyed_table(db: Pool<Postgres>) -> anyhow:
             "an absent `{kind}` must probe as a deletion"
         );
     }
+    Ok(())
+}
+
+/// A lock-generating deploy has no tally but its dependency job's, which runs
+/// long after the request and cannot be asked what the path holds now. It can
+/// still say which path the rename vacated, and with what origin — otherwise a
+/// renamed Python script (or any flow or app, which always generate) leaves its
+/// old path in the parent with nothing to merge.
+#[cfg(feature = "private")]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_deferred_rename_records_the_vacated_path(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base_url = format!("http://localhost:{port}/api");
+    let admin = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+
+    sqlx::query!("DELETE FROM skip_workspace_diff_tally")
+        .execute(&db)
+        .await?;
+    let resp = admin
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/create_fork"
+        ))
+        .json(&json!({"id": "wm-fork-deferred", "name": "Deferred Fork"}))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "fork creation: {}",
+        resp.status()
+    );
+
+    // No worker runs here, so stand in for the dependency job the deploy queued:
+    // the origin its request stamped into the args, replayed on the worker.
+    for (origin, path) in [
+        (DeployOrigin::Authored, "u/admin/moved_by_user"),
+        (DeployOrigin::Sync, "u/admin/moved_by_sync"),
+    ] {
+        windmill_common::deploy_origin::scope(
+            TallyEvidence::Deferred(origin),
+            windmill_git_sync::handle_deployment_metadata(
+                "admin@windmill.dev",
+                "admin",
+                &db,
+                "wm-fork-deferred",
+                windmill_git_sync::DeployedObject::Flow {
+                    path: format!("{path}_new"),
+                    parent_path: Some(path.to_string()),
+                    version: 0,
+                },
+                None,
+                true,
+                Some(path),
+            ),
+        )
+        .await?;
+    }
+
+    let mut rows = vec![];
+    for _ in 0..40 {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        rows = sqlx::query!(
+            "SELECT path, fork_last_event_kind, fork_last_event_origin FROM workspace_diff
+             WHERE fork_workspace_id = 'wm-fork-deferred' AND kind = 'flow'
+               AND fork_last_event_origin IS NOT NULL ORDER BY path"
+        )
+        .fetch_all(&db)
+        .await?;
+        if rows.len() >= 2 {
+            break;
+        }
+    }
+    let claimed: Vec<_> = rows
+        .iter()
+        .map(|r| {
+            (
+                r.path.as_str(),
+                r.fork_last_event_kind.as_deref(),
+                r.fork_last_event_origin.as_deref(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        claimed,
+        vec![
+            ("u/admin/moved_by_sync", Some("rename_from"), Some("sync")),
+            (
+                "u/admin/moved_by_user",
+                Some("rename_from"),
+                Some("authored")
+            ),
+        ],
+        "each vacated path is claimed with the origin its deploy was queued with, \
+         and the deployed paths — whose current contents this tally cannot answer \
+         for — claim nothing"
+    );
+
     Ok(())
 }

@@ -32566,16 +32566,12 @@ components:
           description: If the item exists in the fork workspace
         fork_last_event_kind:
           $ref: "#/components/schemas/DeployEventKind"
-          description: What the fork's last deploy event at this path did. Absent when no event has been recorded on that side since the tally started recording them, which counts as no evidence.
         fork_last_event_origin:
           $ref: "#/components/schemas/DeployEventOrigin"
-          description: Where the fork's last deploy event at this path came from. Absent when no event has been recorded on that side.
         source_last_event_kind:
           $ref: "#/components/schemas/DeployEventKind"
-          description: What the source workspace's last deploy event at this path did.
         source_last_event_origin:
           $ref: "#/components/schemas/DeployEventOrigin"
-          description: Where the source workspace's last deploy event at this path came from.
 
     DeployEventKind:
       type: string
@@ -32583,7 +32579,8 @@ components:
       description: |
         What a deploy event did to the path it is recorded against: `write` (the path holds an item
         after the event), `delete` (it does not), or `rename_from` (the path was vacated by a rename
-        to another path). Create and update are not distinguished.
+        to another path). Create and update are not distinguished. Omitted when no such event has
+        been recorded for that side, which counts as no evidence.
 
     DeployEventOrigin:
       type: string
@@ -32591,7 +32588,8 @@ components:
       description: |
         Who caused a deploy event: `authored` (written in that workspace by the requester) or `sync`
         (applied there by a git-sync pull or a workspace-to-workspace deploy). Only an authored
-        removal is evidence that the workspace dropped the item on purpose.
+        removal is evidence that the workspace dropped the item on purpose. Omitted when no such
+        event has been recorded for that side.
 
     CompareSummary:
       type: object

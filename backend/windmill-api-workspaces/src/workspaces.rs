@@ -9233,18 +9233,23 @@ pub struct WorkspaceDiffRow {
     has_changes: Option<bool>,
     exists_in_source: Option<bool>,
     exists_in_fork: Option<bool>,
-    /// The last deploy event vouched for on each side, per
-    /// `windmill_common::deploy_origin`. Absent means no evidence, which never
-    /// justifies propagating a removal.
+    /// The last deploy event claimed on each side, per
+    /// `windmill_common::deploy_origin`. Omitted rather than null, as the schema
+    /// declares; absent means no evidence, which never justifies propagating a
+    /// removal.
     ///
     /// Only the fork half is consumed today, by the merge direction. The update
     /// direction has the mirror shape (a parent-side removal it cannot attribute)
     /// but writes to the fork rather than to prod, and gating it on evidence would
     /// strand a row a legacy tally left without any — so the source half is
     /// recorded and surfaced, unread, rather than left as a gap to backfill.
+    #[serde(skip_serializing_if = "Option::is_none")]
     fork_last_event_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     fork_last_event_origin: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     source_last_event_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     source_last_event_origin: Option<String>,
 }
 

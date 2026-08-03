@@ -2350,6 +2350,7 @@ async fn create_script_internal<'c>(
         if let Some(ref p_path) = p_path_opt {
             args.insert("parent_path".to_string(), to_raw_value(&p_path));
         }
+        windmill_common::deploy_origin::stamp_origin_arg(&mut args);
 
         let tx = PushIsolationLevel::Transaction(tx);
         let (job_id, mut new_tx) = windmill_queue::push(

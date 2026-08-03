@@ -725,6 +725,7 @@ async fn create_flow(
     if let Some(dm) = nf.deployment_message {
         args.insert("deployment_message".to_string(), to_raw_value(&dm));
     }
+    windmill_common::deploy_origin::stamp_origin_arg(&mut args);
 
     let tx = PushIsolationLevel::Transaction(tx);
     let (dependency_job_uuid, mut new_tx) = push(
@@ -1405,6 +1406,7 @@ async fn update_flow(
         args.insert("deployment_message".to_string(), to_raw_value(&dm));
     }
     args.insert("parent_path".to_string(), to_raw_value(&flow_path));
+    windmill_common::deploy_origin::stamp_origin_arg(&mut args);
 
     let (dependency_job_uuid, mut new_tx) = push(
         &db,

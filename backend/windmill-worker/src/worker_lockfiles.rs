@@ -30,6 +30,7 @@ use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
 #[cfg(feature = "python")]
 use windmill_parser_yaml::AnsibleRequirements;
 
+use windmill_common::deploy_origin::{DeployOrigin, TallyEvidence, DEPLOY_ORIGIN_ARG};
 use windmill_common::{
     apps::AppScriptId,
     cache::{self, RawData},
@@ -283,22 +284,25 @@ pub async fn handle_dependency_job(
             // we do not need to think about invalidating cache for other workers.
             cache::script::invalidate(current_hash);
 
-            if let Err(e) = handle_deployment_metadata(
-                &job.permissioned_as_email,
-                &job.created_by,
-                &db,
-                &w_id,
-                DeployedObject::Script {
-                    hash: current_hash,
-                    path: script_path.to_string(),
-                    parent_path: parent_path.clone(),
-                },
-                deployment_message.clone(),
-                false,
-                // As the flow and app dependency handlers do. A lock-generating
-                // create has no earlier tally, so this is the only chance the path
-                // a rename vacated gets to be recorded at all.
-                parent_path.as_deref(),
+            if let Err(e) = windmill_common::deploy_origin::scope(
+                deploy_evidence_from_args(job.args.as_ref()),
+                handle_deployment_metadata(
+                    &job.permissioned_as_email,
+                    &job.created_by,
+                    &db,
+                    &w_id,
+                    DeployedObject::Script {
+                        hash: current_hash,
+                        path: script_path.to_string(),
+                        parent_path: parent_path.clone(),
+                    },
+                    deployment_message.clone(),
+                    false,
+                    // As the flow and app dependency handlers do. A lock-generating
+                    // create has no earlier tally, so this is the only chance the
+                    // path a rename vacated gets to be recorded at all.
+                    parent_path.as_deref(),
+                ),
             )
             .await
             {
@@ -821,15 +825,18 @@ pub async fn handle_flow_dependency_job(
             return Ok(rv);
         }
 
-        if let Err(e) = handle_deployment_metadata(
-            &job.permissioned_as_email,
-            &job.created_by,
-            &db,
-            &job.workspace_id,
-            DeployedObject::Flow { path: job_path, parent_path: parent_path.clone(), version },
-            deployment_message,
-            false,
-            parent_path.as_deref(),
+        if let Err(e) = windmill_common::deploy_origin::scope(
+            deploy_evidence_from_args(job.args.as_ref()),
+            handle_deployment_metadata(
+                &job.permissioned_as_email,
+                &job.created_by,
+                &db,
+                &job.workspace_id,
+                DeployedObject::Flow { path: job_path, parent_path: parent_path.clone(), version },
+                deployment_message,
+                false,
+                parent_path.as_deref(),
+            ),
         )
         .await
         {
@@ -868,6 +875,16 @@ fn get_deployment_msg_and_parent_path_from_args(
         })
         .flatten();
     (deployment_message, parent_path)
+}
+
+/// What this dependency job may claim about the deploy it was queued for. The
+/// deploy's own request stamped its origin into the args; absent means the job
+/// predates that and nothing about it can be claimed.
+fn deploy_evidence_from_args(args: Option<&Json<HashMap<String, Box<RawValue>>>>) -> TallyEvidence {
+    args.and_then(|args| args.0.get(DEPLOY_ORIGIN_ARG))
+        .and_then(|v| serde_json::from_str::<String>(v.get()).ok())
+        .map(|v| TallyEvidence::Deferred(DeployOrigin::from_header_value(&v)))
+        .unwrap_or(TallyEvidence::Unknown)
 }
 
 /// Record the fork/parent change tally for a dependency job that did not reach its
@@ -932,14 +949,14 @@ pub(crate) async fn tally_unfinished_dependency_deploy(
         _ => return,
     };
 
-    // No origin: this runs whenever the dependency job happens to finish, minutes
-    // after the deploy it reports and possibly after someone else has deleted the
-    // path. The tally would then probe that deletion and file it under this
-    // deploy's identity, handing the merge a removal to offer. Only the counter is
-    // trustworthy here.
-    if let Err(e) =
-        tally_deployed_object_changes(&job.workspace_id, &obj, db, renamed_from.as_deref(), None)
-            .await
+    if let Err(e) = tally_deployed_object_changes(
+        &job.workspace_id,
+        &obj,
+        db,
+        renamed_from.as_deref(),
+        deploy_evidence_from_args(job.args.as_ref()),
+    )
+    .await
     {
         tracing::error!(%e, "error tallying fork changes for unfinished dependency job {}", job.id);
     }
@@ -2297,15 +2314,18 @@ pub async fn handle_app_dependency_job(
             DeployedObject::App { path: job_path, version: id, parent_path: parent_path.clone() }
         };
 
-        if let Err(e) = handle_deployment_metadata(
-            &job.permissioned_as_email,
-            &job.created_by,
-            &db,
-            &job.workspace_id,
-            deployed_object,
-            deployment_message,
-            false,
-            parent_path.as_deref(),
+        if let Err(e) = windmill_common::deploy_origin::scope(
+            deploy_evidence_from_args(job.args.as_ref()),
+            handle_deployment_metadata(
+                &job.permissioned_as_email,
+                &job.created_by,
+                &db,
+                &job.workspace_id,
+                deployed_object,
+                deployment_message,
+                false,
+                parent_path.as_deref(),
+            ),
         )
         .await
         {

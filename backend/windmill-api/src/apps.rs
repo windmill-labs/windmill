@@ -2040,6 +2040,7 @@ async fn create_app_internal<'a>(
     if let Some(dm) = &app.deployment_message {
         args.insert("deployment_message".to_string(), to_raw_value(&dm));
     }
+    windmill_common::deploy_origin::stamp_origin_arg(&mut args);
     let tx = PushIsolationLevel::Transaction(tx);
     let (dependency_job_uuid, new_tx) = push(
         &db,
@@ -2668,6 +2669,7 @@ async fn update_app_internal<'a>(
         args.insert("deployment_message".to_string(), to_raw_value(&dm));
     }
     args.insert("parent_path".to_string(), to_raw_value(&path));
+    windmill_common::deploy_origin::stamp_origin_arg(&mut args);
     let (dependency_job_uuid, new_tx) = push(
         &db,
         tx,
