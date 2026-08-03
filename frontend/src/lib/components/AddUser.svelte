@@ -17,25 +17,26 @@
 
 	const dispatch = createEventDispatcher()
 
-	interface Props {
-		/** Emails already in the workspace, filtered out of the instance user picker. */
-		existingEmails?: string[]
-	}
-
-	let { existingEmails = [] }: Props = $props()
-
 	let email: string | undefined = $state()
 	let username: string | undefined = $state()
 	let emailFilterText: string = $state('')
 	let popoverOpen: boolean = $state(false)
+	let addedCount: number = $state(0)
 
 	// Only superadmins may list the instance users, everyone else just types the email in.
 	// The list stays capped: what is typed narrows it server-side rather than client-side.
 	const instanceUsers = resource(
-		() => ({ search: emailFilterText, isSuperadmin: $superadmin, open: popoverOpen }),
-		async ({ search, isSuperadmin, open }) => {
-			if (!isSuperadmin || !open) return []
-			return await UserService.listUsersAsSuperAdmin({
+		() => ({
+			search: emailFilterText,
+			isSuperadmin: $superadmin,
+			open: popoverOpen,
+			workspace: $workspaceStore,
+			addedCount
+		}),
+		async ({ search, isSuperadmin, open, workspace }) => {
+			if (!isSuperadmin || !open || !workspace) return []
+			return await UserService.listAddableInstanceUsers({
+				workspace,
 				perPage: 10,
 				search: search || undefined
 			})
@@ -44,15 +45,10 @@
 	)
 
 	let emailItems = $derived(
-		instanceUsers.current
-			.filter(
-				(u) =>
-					u.login_type !== 'service_account' && !u.disabled && !existingEmails.includes(u.email)
-			)
-			.map((u) => ({
-				value: u.email,
-				label: u.username ? `${u.username} (${u.email})` : u.email
-			}))
+		instanceUsers.current.map((u) => ({
+			value: u.email,
+			label: u.username ? `${u.username} (${u.email})` : u.email
+		}))
 	)
 
 	function handleKeyUp(event: KeyboardEvent) {
@@ -94,6 +90,8 @@
 				}
 			})
 			sendUserToast(`Added ${email}`)
+			// The picker excludes members server-side, so it has to refetch to drop this one.
+			addedCount++
 			if (!(await UserService.existsEmail({ email: email! }))) {
 				let isSuperadmin = $superadmin
 				if (!isCloudHosted()) {
@@ -153,15 +151,20 @@
 				/>
 			{:else}
 				<span class="text-xs mb-1 leading-6">Email</span>
+				<!-- `loading` is deliberately not passed: Select disables its input while loading, which
+				would blur the field on every search-as-you-type round trip. -->
 				<Select
 					bind:value={email}
 					bind:filterText={emailFilterText}
 					items={emailItems}
-					loading={instanceUsers.loading}
 					placeholder="email"
 					clearable
 					onCreateItem={(e) => (email = e.trim().toLowerCase())}
-					noItemsMsg={$superadmin ? 'No user found on the instance' : 'Type an email address'}
+					noItemsMsg={instanceUsers.loading
+						? 'Loading...'
+						: $superadmin
+							? 'No user found on the instance'
+							: 'Type an email address'}
 				/>
 
 				{#if !automateUsernameCreation}

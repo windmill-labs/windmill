@@ -106,6 +106,7 @@ fn check_token_create_rate_limit(username: &str) -> Result<()> {
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_users))
+        .route("/list_addable", get(list_addable_instance_users))
         .route("/list_usage", get(list_user_usage))
         .route("/list_usernames", get(list_usernames))
         .route("/exists", post(exists_username))
@@ -420,6 +421,53 @@ async fn list_users(
     Ok(Json(rows))
 }
 
+#[derive(Serialize)]
+struct AddableInstanceUser {
+    email: String,
+    username: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct AddableInstanceUsersQuery {
+    search: Option<String>,
+    per_page: Option<i64>,
+}
+
+/// Instance accounts that can still be added to `w_id`, for the member picker. Service accounts
+/// live in `usr` only, so selecting from `password` leaves them out.
+async fn list_addable_instance_users(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Query(AddableInstanceUsersQuery { search, per_page }): Query<AddableInstanceUsersQuery>,
+) -> JsonResult<Vec<AddableInstanceUser>> {
+    require_super_admin(&db, &authed.email).await?;
+    let per_page = per_page.unwrap_or(10).clamp(1, 100);
+    // An absent search yields '%%', which matches every row.
+    let search = format!(
+        "%{}%",
+        escape_ilike_pattern(search.as_deref().unwrap_or_default())
+    );
+
+    // Every exclusion is part of the query so that the limit counts addable accounts only.
+    let rows = sqlx::query_as!(
+        AddableInstanceUser,
+        "SELECT email, username FROM password
+         WHERE disabled IS false
+           AND (email ILIKE $2 OR username ILIKE $2)
+           AND NOT EXISTS (SELECT 1 FROM usr WHERE usr.workspace_id = $1 AND usr.email = password.email)
+         ORDER BY email
+         LIMIT $3",
+        w_id,
+        search,
+        per_page
+    )
+    .fetch_all(&db)
+    .await?;
+
+    Ok(Json(rows))
+}
+
 async fn list_user_usage(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -460,26 +508,15 @@ struct ActiveUsersOnly {
     active_only: Option<bool>,
 }
 
-#[derive(Deserialize)]
-struct UserSearch {
-    search: Option<String>,
-}
-
 async fn list_users_as_super_admin(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Query(pagination): Query<Pagination>,
     Query(ActiveUsersOnly { active_only }): Query<ActiveUsersOnly>,
-    Query(UserSearch { search }): Query<UserSearch>,
 ) -> JsonResult<Vec<GlobalUserInfo>> {
     require_super_admin(&db, &authed.email).await?;
     let per_page = pagination.per_page.unwrap_or(10000).max(1);
     let offset = (pagination.page.unwrap_or(1).max(1) - 1) * per_page;
-    // An absent search yields '%%', which matches every row.
-    let search = format!(
-        "%{}%",
-        escape_ilike_pattern(search.as_deref().unwrap_or_default())
-    );
 
     let rows = if active_only.is_some_and(|x| x) {
         sqlx::query_as!(
@@ -488,16 +525,15 @@ async fn list_users_as_super_admin(
             authors as (SELECT distinct email FROM usr WHERE usr.operator IS false)
             SELECT email as "email!", (email NOT IN (SELECT email FROM authors)) as operator_only, NULL::bool as is_workspace_admin, login_type::text, verified as "verified!", super_admin as "super_admin!", devops as "devops!", name, company, username, first_time_user as "first_time_user!", role_source as "role_source!", disabled as "disabled!", NULL::text as workspace_id
             FROM password
-            WHERE email IN (SELECT email FROM active_users) AND (email ILIKE $3 OR username ILIKE $3)
+            WHERE email IN (SELECT email FROM active_users)
             UNION ALL
             SELECT email as "email!", operator as operator_only, is_admin as is_workspace_admin, 'service_account'::text as login_type, true as "verified!", false as "super_admin!", false as "devops!", NULL::text as name, NULL::text as company, username, false as "first_time_user!", 'service_account'::text as "role_source!", disabled as "disabled!", workspace_id
             FROM usr
-            WHERE is_service_account IS true AND (email ILIKE $3 OR username ILIKE $3)
+            WHERE is_service_account IS true
             ORDER BY "super_admin!" DESC, "devops!" DESC
             LIMIT $1 OFFSET $2"#,
             per_page as i32,
-            offset as i32,
-            search
+            offset as i32
         )
         .fetch_all(&db)
         .await?
@@ -505,16 +541,14 @@ async fn list_users_as_super_admin(
         sqlx::query_as!(
             GlobalUserInfo,
             r#"SELECT email as "email!", login_type::text, verified as "verified!", super_admin as "super_admin!", devops as "devops!", name, company, username, NULL::bool as operator_only, NULL::bool as is_workspace_admin, first_time_user as "first_time_user!", role_source as "role_source!", disabled as "disabled!", NULL::text as workspace_id FROM password
-            WHERE (email ILIKE $3 OR username ILIKE $3)
             UNION ALL
             SELECT email as "email!", 'service_account'::text as login_type, true as "verified!", false as "super_admin!", false as "devops!", NULL::text as name, NULL::text as company, username, operator as operator_only, is_admin as is_workspace_admin, false as "first_time_user!", 'service_account'::text as "role_source!", disabled as "disabled!", workspace_id
             FROM usr
-            WHERE is_service_account IS true AND (email ILIKE $3 OR username ILIKE $3)
+            WHERE is_service_account IS true
             ORDER BY "super_admin!" DESC, "devops!" DESC, "email!"
             LIMIT $1 OFFSET $2"#,
             per_page as i32,
-            offset as i32,
-            search
+            offset as i32
         )
         .fetch_all(&db)
         .await?

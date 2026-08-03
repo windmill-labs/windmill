@@ -754,7 +754,6 @@
 				{/if}
 
 				<AddUser
-					existingEmails={users?.map((u) => u.email) ?? []}
 					on:new={() => {
 						listUsers()
 						listInvites()

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "WITH active_users AS (SELECT distinct username as email FROM (SELECT username, timestamp, operation FROM audit_partitioned UNION ALL SELECT username, timestamp, operation FROM audit) AS a WHERE timestamp > NOW() - INTERVAL '1 month' AND (operation = 'users.login' OR operation = 'oauth.login' OR operation = 'users.token.refresh')),\n            authors as (SELECT distinct email FROM usr WHERE usr.operator IS false)\n            SELECT email as \"email!\", (email NOT IN (SELECT email FROM authors)) as operator_only, NULL::bool as is_workspace_admin, login_type::text, verified as \"verified!\", super_admin as \"super_admin!\", devops as \"devops!\", name, company, username, first_time_user as \"first_time_user!\", role_source as \"role_source!\", disabled as \"disabled!\", NULL::text as workspace_id\n            FROM password\n            WHERE email IN (SELECT email FROM active_users) AND (email ILIKE $3 OR username ILIKE $3)\n            UNION ALL\n            SELECT email as \"email!\", operator as operator_only, is_admin as is_workspace_admin, 'service_account'::text as login_type, true as \"verified!\", false as \"super_admin!\", false as \"devops!\", NULL::text as name, NULL::text as company, username, false as \"first_time_user!\", 'service_account'::text as \"role_source!\", disabled as \"disabled!\", workspace_id\n            FROM usr\n            WHERE is_service_account IS true AND (email ILIKE $3 OR username ILIKE $3)\n            ORDER BY \"super_admin!\" DESC, \"devops!\" DESC\n            LIMIT $1 OFFSET $2",
+  "query": "WITH active_users AS (SELECT distinct username as email FROM (SELECT username, timestamp, operation FROM audit_partitioned UNION ALL SELECT username, timestamp, operation FROM audit) AS a WHERE timestamp > NOW() - INTERVAL '1 month' AND (operation = 'users.login' OR operation = 'oauth.login' OR operation = 'users.token.refresh')),\n            authors as (SELECT distinct email FROM usr WHERE usr.operator IS false)\n            SELECT email as \"email!\", (email NOT IN (SELECT email FROM authors)) as operator_only, NULL::bool as is_workspace_admin, login_type::text, verified as \"verified!\", super_admin as \"super_admin!\", devops as \"devops!\", name, company, username, first_time_user as \"first_time_user!\", role_source as \"role_source!\", disabled as \"disabled!\", NULL::text as workspace_id\n            FROM password\n            WHERE email IN (SELECT email FROM active_users)\n            UNION ALL\n            SELECT email as \"email!\", operator as operator_only, is_admin as is_workspace_admin, 'service_account'::text as login_type, true as \"verified!\", false as \"super_admin!\", false as \"devops!\", NULL::text as name, NULL::text as company, username, false as \"first_time_user!\", 'service_account'::text as \"role_source!\", disabled as \"disabled!\", workspace_id\n            FROM usr\n            WHERE is_service_account IS true\n            ORDER BY \"super_admin!\" DESC, \"devops!\" DESC\n            LIMIT $1 OFFSET $2",
   "describe": {
     "columns": [
       {
@@ -77,8 +77,7 @@
     "parameters": {
       "Left": [
         "Int8",
-        "Int8",
-        "Text"
+        "Int8"
       ]
     },
     "nullable": [
@@ -98,5 +97,5 @@
       null
     ]
   },
-  "hash": "dec0c3dcad1edcb42f7b1e22229efef9b27b66b4fd0c30c7be675f6be2fb87c7"
+  "hash": "8aae160c589adf02e20b7e6ba860b66fb08f156776b96b7f3701aed330a7d000"
 }
