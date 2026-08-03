@@ -5003,6 +5003,10 @@ export async function push(
             if (deleteRawApp) {
               changes = [deleteRawApp];
             } else {
+              // The app is one bundle, so a single change re-pushes all of it.
+              // Whichever change survives here is the only one the loop sees:
+              // every branch below must turn any raw-app path into a whole-app
+              // push, or the entire app is silently dropped from the push.
               changes.splice(1, changes.length - 1);
             }
           }
@@ -5331,8 +5335,14 @@ export async function push(
               }
             } else if (change.name === "deleted") {
               // Same as the added branch: a dbt project's own `.lock` is one of
-              // its files, so deleting it has to reach the parent script.
-              if (change.path.endsWith(".lock") && !isDbtModulePath(change.path)) {
+              // its files, so deleting it has to reach the parent script. A raw
+              // app's `.lock` is part of its bundle, and a raw-app group is
+              // collapsed to one change, so skipping it drops the whole app.
+              if (
+                !isRawAppFile(change.path) &&
+                change.path.endsWith(".lock") &&
+                !isDbtModulePath(change.path)
+              ) {
                 continue;
               }
               if (isScriptModulePath(change.path)) {
