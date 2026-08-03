@@ -4,7 +4,11 @@
 	import InputTransformForm from '$lib/components/InputTransformForm.svelte'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import type SimpleEditor from '$lib/components/SimpleEditor.svelte'
-	import type { Flow, FlowModule } from '$lib/gen'
+	import type { Flow, FlowModule, StopAfterIf } from '$lib/gen'
+	import Label from '$lib/components/Label.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import type { ExtendedOpenFlow, FlowEditorContext } from '../types'
 	import { getContext } from 'svelte'
 	import { emptySchema } from '$lib/utils'
@@ -63,12 +67,20 @@
 		}
 		return null
 	}
-	let raise_error_message_stop_after_all_if = $state(
-		flowModule.stop_after_all_iters_if?.error_message != undefined
-	)
-	let raise_error_message_stop_after_if = $state(
-		flowModule.stop_after_if?.error_message != undefined
-	)
+	// `skip_if_stopped` and `error_message` are mutually exclusive in the worker, and
+	// setting neither is a third outcome — so the three are one choice, not two flags.
+	type StopStatus = 'success' | 'skipped' | 'error'
+	function stopStatus(stop: StopAfterIf): StopStatus {
+		if (stop.skip_if_stopped) return 'skipped'
+		if (stop.error_message != undefined) return 'error'
+		return 'success'
+	}
+	function setStopStatus(stop: StopAfterIf, status: StopStatus) {
+		stop.skip_if_stopped = status === 'skipped'
+		stop.error_message = status === 'error' ? (stop.error_message ?? '') : undefined
+		if (status !== 'error') stop.error_include_result = false
+	}
+
 	let { isLoop, isParallelLoop } = $derived(
 		flowModule.value.type === 'forloopflow' || flowModule.value.type === 'whileloopflow'
 			? { isLoop: true, isParallelLoop: flowModule.value.parallel ?? false }
@@ -157,6 +169,47 @@
 	)
 </script>
 
+{#snippet stopStatusPicker(stop: StopAfterIf)}
+	<div class="flex flex-col gap-2 pl-9" transition:slideDynamic>
+		<Label
+			label="Flow status"
+			tooltip="How the flow is reported once this condition stops it. Success returns this step's result, Skipped marks the flow as skipped, and Error fails it."
+		>
+			<ToggleButtonGroup
+				noWFull
+				selected={stopStatus(stop)}
+				onSelected={(v) => setStopStatus(stop, v)}
+			>
+				{#snippet children({ item })}
+					<ToggleButton value="success" label="Success" {item} small />
+					<ToggleButton value="skipped" label="Skipped" {item} small />
+					<ToggleButton value="error" label="Error" {item} small />
+				{/snippet}
+			</ToggleButtonGroup>
+		</Label>
+		{#if stop.error_message != undefined}
+			<div class="flex flex-col gap-2" transition:slideDynamic>
+				<TextInput
+					size="sm"
+					bind:value={() => stop.error_message ?? '', (v) => (stop.error_message = String(v))}
+					inputProps={{ placeholder: 'Enter custom error message (optional)' }}
+				/>
+				<Toggle
+					size="xs"
+					bind:checked={
+						() => stop.error_include_result ?? false, (v) => (stop.error_include_result = v)
+					}
+					options={{
+						right: 'Include result in error',
+						rightTooltip:
+							"When enabled, this step's output is embedded inside the raised error object (as error.result) instead of being discarded. The flow result stays { error }."
+					}}
+				/>
+			</div>
+		{/if}
+	</div>
+{/snippet}
+
 {#snippet stopAfterToggle()}
 	<Toggle
 		size="xs"
@@ -237,65 +290,8 @@
 					bind:editor={stopAfterEditor}
 				/>
 			</PropPickerWrapper>
-			{#if isStopAfterIfEnabled && !breakableParent && !isLoop}
-				<div class="flex flex-col gap-2 pl-9" transition:slideDynamic>
-					<Toggle
-						size="xs"
-						bind:checked={
-							() => flowModule.stop_after_if?.skip_if_stopped ?? false,
-							(v) => {
-								if (!flowModule.stop_after_if) return
-								flowModule.stop_after_if.skip_if_stopped = v
-								if (v) {
-									flowModule.stop_after_if.error_message = undefined
-									flowModule.stop_after_if.error_include_result = false
-									raise_error_message_stop_after_if = false
-								}
-							}
-						}
-						options={{
-							right: 'Label flow as "skipped"'
-						}}
-					/>
-					<Toggle
-						size="xs"
-						bind:checked={raise_error_message_stop_after_if}
-						on:change={(event) => {
-							if (flowModule.stop_after_if) {
-								if (event.detail) {
-									flowModule.stop_after_if.error_message = ''
-									flowModule.stop_after_if.skip_if_stopped = false
-								} else {
-									flowModule.stop_after_if.error_message = undefined
-									flowModule.stop_after_if.error_include_result = false
-								}
-							}
-						}}
-						options={{
-							right: 'Raise an error',
-							rightTooltip:
-								'If enabled and the stop condition is met, an error message will be raised. A custom message can be provided; otherwise, a default message will be used. Mutually exclusive with "Label flow as skipped".'
-						}}
-					/>
-				</div>
-			{/if}
-			{#if raise_error_message_stop_after_if && flowModule.stop_after_if}
-				<div class="flex flex-col gap-2 pl-9" transition:slideDynamic>
-					<input
-						type="text"
-						bind:value={flowModule.stop_after_if.error_message}
-						placeholder="Enter custom error message (optional)"
-					/>
-					<Toggle
-						size="xs"
-						bind:checked={flowModule.stop_after_if.error_include_result}
-						options={{
-							right: 'Include result in error',
-							rightTooltip:
-								"When enabled, this step's output is embedded inside the raised error object (as error.result) instead of being discarded. The flow result stays { error }."
-						}}
-					/>
-				</div>
+			{#if isStopAfterIfEnabled && !breakableParent && !isLoop && flowModule.stop_after_if}
+				{@render stopStatusPicker(flowModule.stop_after_if)}
 			{/if}
 		</div>
 	{/if}
@@ -334,65 +330,8 @@
 					bind:editor={stopAfterAllItersEditor}
 				/>
 			</PropPickerWrapper>
-			{#if isStopAfterAllIterationsEnabled && !breakableParent}
-				<div class="flex flex-col gap-2 pl-9" transition:slideDynamic>
-					<Toggle
-						size="xs"
-						bind:checked={
-							() => flowModule.stop_after_all_iters_if?.skip_if_stopped ?? false,
-							(v) => {
-								if (!flowModule.stop_after_all_iters_if) return
-								flowModule.stop_after_all_iters_if.skip_if_stopped = v
-								if (v) {
-									flowModule.stop_after_all_iters_if.error_message = undefined
-									flowModule.stop_after_all_iters_if.error_include_result = false
-									raise_error_message_stop_after_all_if = false
-								}
-							}
-						}
-						options={{
-							right: 'Label flow as "skipped"'
-						}}
-					/>
-					<Toggle
-						size="xs"
-						bind:checked={raise_error_message_stop_after_all_if}
-						on:change={(event) => {
-							if (flowModule.stop_after_all_iters_if) {
-								if (event.detail) {
-									flowModule.stop_after_all_iters_if.error_message = ''
-									flowModule.stop_after_all_iters_if.skip_if_stopped = false
-								} else {
-									flowModule.stop_after_all_iters_if.error_message = undefined
-									flowModule.stop_after_all_iters_if.error_include_result = false
-								}
-							}
-						}}
-						options={{
-							right: 'Raise an error',
-							rightTooltip:
-								'If enabled and the stop condition is met, an error message will be raised. A custom message can be provided; otherwise, a default message will be used. Mutually exclusive with "Label flow as skipped".'
-						}}
-					/>
-				</div>
-			{/if}
-			{#if raise_error_message_stop_after_all_if && flowModule.stop_after_all_iters_if}
-				<div class="flex flex-col gap-2 pl-9" transition:slideDynamic>
-					<input
-						type="text"
-						bind:value={flowModule.stop_after_all_iters_if.error_message}
-						placeholder="Enter custom error message (optional)"
-					/>
-					<Toggle
-						size="xs"
-						bind:checked={flowModule.stop_after_all_iters_if.error_include_result}
-						options={{
-							right: 'Include result in error',
-							rightTooltip:
-								"When enabled, this step's output is embedded inside the raised error object (as error.result) instead of being discarded. The flow result stays { error }."
-						}}
-					/>
-				</div>
+			{#if isStopAfterAllIterationsEnabled && !breakableParent && flowModule.stop_after_all_iters_if}
+				{@render stopStatusPicker(flowModule.stop_after_all_iters_if)}
 			{/if}
 		</div>
 	{/if}
