@@ -66,8 +66,8 @@ impl Schedule {
 
 /// A [`Schedule`] plus the address of the identity it runs as. [`Schedule`] itself does not map
 /// that column: `permissioned_as` is the identity, and the address is a function of it. The
-/// database row still has an `email` column, written on every save until phase 2 drops it
-/// (`docs/schedule-email-removal.md`).
+/// database row still has an `email` column, and every save still writes it; removing it stops
+/// those writes a release before dropping the column (`docs/schedule-email-removal.md`).
 ///
 /// The two read paths fill it differently, and deliberately. `get_schedule` derives it, so the
 /// response says what the *next run* will resolve to. The workspace export reads the stored
