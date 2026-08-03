@@ -162,11 +162,15 @@
 			.filter((d) => d.kind === 'script' || d.kind === 'flow' || d.kind === 'resource')
 			.map((d) => ({ path: d.path, kind: d.kind as 'script' | 'flow' | 'resource' }))
 		if (items.length === 0) return
+		// Counted for the comparison current at call time — the poll below outlives a
+		// fork switch, and a slow batch for the fork we left would repaint this one's.
+		const seq = requestSeq
 		try {
 			const batch = await ScriptService.getCiTestResultsBatch({
 				workspace: $workspaceStore,
 				requestBody: { items }
 			})
+			if (seq !== requestSeq) return
 			let passing = 0
 			let failing = 0
 			let running = 0
