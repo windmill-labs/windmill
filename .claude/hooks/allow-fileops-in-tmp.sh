@@ -11,12 +11,11 @@
 # read-exfiltration path around the `Read(**/.env)` / `Read(**/secrets/**)` deny rules: a copy
 # out of the project into /tmp would land the content somewhere `Read(/tmp/**)` allows.
 #
-# Deny-by-default tokenizing, identical in kind to guard-rm-outside-tmp.sh: every path token
-# must consist only of alphanumerics, `. _ / -` and glob chars `* ? [ ]`. That set contains
-# none of the characters bash uses for quoting, expansion, or command separation ($ ` ~ { } ( )
-# ' " \ ; & | < >), so those forms fail by construction. `realpath -m` then resolves `..` and
-# existing symlinks (so /tmp/link -> /etc/passwd is caught), and a wildcard in a non-final path
-# segment is refused because it can expand through a symlink realpath cannot see.
+# Deny-by-default tokenizing, in the same spirit as guard-rm-outside-tmp.sh: every path token
+# must consist only of alphanumerics and `. _ / -`. That set contains none of the characters
+# bash uses for quoting, expansion, or command separation ($ ` ~ { } ( ) ' " \ ; & | < >), nor
+# any glob character, so all of those forms fail by construction. `realpath -m` then resolves
+# `..` and existing symlinks, so `/tmp/link` pointing at /etc/passwd is caught.
 #
 # `tar` and `unzip` get their own parser: their write destination arrives as a flag VALUE
 # (`-C`, `-d`) rather than a positional, and a bundle like `-xzf` consumes the token after it.
@@ -47,10 +46,13 @@ read -r -a toks <<< "$cmd"
 # 0 iff the token is charset-safe and resolves to a path strictly inside /tmp.
 under_tmp() {
   local t="$1" canon
-  [ -n "$(printf '%s' "$t" | tr -d 'A-Za-z0-9._/*?[]-')" ] && return 1
-  # No wildcard in a non-final path segment (`a/*/b`): it can expand through a symlink
-  # realpath can't see. A slashless glob (`*.rs`) is a final-segment match — fine.
-  case "$t" in */*) case "${t%/*}" in *[*?[]*) return 1 ;; esac ;; esac
+  # Globs never auto-allow. Bash expands them only after this hook has decided, so realpath
+  # sees the unexpanded pattern: `/tmp/link*` canonicalizes to itself and passes, then
+  # expands onto a symlink whose target is outside /tmp. chmod and cp follow command-line
+  # symlinks, so that is a write to the target. guard-rm-outside-tmp.sh can allow globs
+  # because `rm` unlinks the symlink itself rather than following it.
+  case "$t" in *[*?[]*) return 1 ;; esac
+  [ -n "$(printf '%s' "$t" | tr -d 'A-Za-z0-9._/-')" ] && return 1
   case "$t" in
     /*) canon=$(realpath -m -- "$t" 2>/dev/null) ;;
     *)  canon=$(realpath -m -- "${cwd:-$PWD}/$t" 2>/dev/null) ;;
@@ -67,9 +69,17 @@ allow() {
 }
 
 # Bare command word only; wrappers (`timeout cp`), env prefixes, and `/bin/cp` defer.
+# Options are an allowlist per command, so anything that changes how symlinks are followed
+# defers instead of needing enumeration. `cp -L` / `-H` matter most: they dereference while
+# recursing, which copies the CONTENT of a symlink target from outside /tmp into a scratch
+# dir that `Read(/tmp/**)` then exposes. Plain `-r` and `-a` (which implies `-d`) recreate
+# such a symlink as a symlink instead, so no outside content is materialized.
 case "${toks[0]:-}" in
-  mkdir | cp | mv | touch) takes_mode=0 ;;
-  chmod) takes_mode=1 ;;   # chmod's first operand is a mode, not a path
+  mkdir) takes_mode=0; ok_opts='pv' ;;
+  cp)    takes_mode=0; ok_opts='rRvfnpa' ;;
+  mv)    takes_mode=0; ok_opts='vfn' ;;
+  touch) takes_mode=0; ok_opts='acmv' ;;
+  chmod) takes_mode=1; ok_opts='Rvfc' ;;   # chmod's first operand is a mode, not a path
   tar)   ok_flags='xctzjJavfC'; val_flags='fC' ;;
   unzip) ok_flags='oqnljvd';    val_flags='d'  ;;
   *) exit 0 ;;
@@ -140,8 +150,11 @@ while [ "$i" -lt "${#toks[@]}" ]; do
     # leading-dash token as a filename, so validate it rather than skipping it.
     if [ "$path_operand" = 0 ]; then
       case "$t" in
-        -*[*?[]*) exit 0 ;;   # a glob in an option (`-[-]`) can expand to `--`
-        -?*) [ -n "$(printf '%s' "$t" | tr -d 'A-Za-z0-9._-')" ] && exit 0; continue ;;
+        -?*)
+          # Allowlist: long options and the dereferencing flags leave a residue and defer.
+          [ -n "$(printf '%s' "${t#-}" | tr -d "$ok_opts")" ] && exit 0
+          continue
+          ;;
       esac
     fi
   fi
