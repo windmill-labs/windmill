@@ -635,8 +635,9 @@ describe('jobDisplayDurationMs', () => {
 	})
 
 	it('falls back to duration_ms when the timestamps are missing or inverted', () => {
-		expect(jobDisplayDurationMs({ ...wac, started_at: '2026-08-03T15:21:04.863Z', duration_ms: 7 }))
-			.toBe(7)
+		expect(
+			jobDisplayDurationMs({ ...wac, started_at: '2026-08-03T15:21:04.863Z', duration_ms: 7 })
+		).toBe(7)
 		expect(
 			jobDisplayDurationMs({
 				...wac,

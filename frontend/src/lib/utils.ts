@@ -258,9 +258,7 @@ export function msToReadableTime(ms: number | undefined, maximumFractionDigits?:
  * `workflow_as_code_status` carries a `_checkpoint`. AI-agent jobs populate the
  * same column but never write `_checkpoint`, so they must not match here.
  */
-export function isWorkflowAsCodeJob(
-	job: { workflow_as_code_status?: unknown } | undefined
-): boolean {
+function isWorkflowAsCodeJob(job: { workflow_as_code_status?: unknown } | undefined): boolean {
 	const wac = job?.workflow_as_code_status as Record<string, unknown> | undefined
 	return wac != undefined && wac['_checkpoint'] != undefined
 }
