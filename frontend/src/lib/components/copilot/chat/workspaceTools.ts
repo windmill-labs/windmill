@@ -33,7 +33,13 @@ import {
 } from './workspaceToolsZod.gen'
 import { z } from 'zod'
 import {
+	advancedScheduleShape,
+	buildScheduleToolSchema,
+	describeDroppedScheduleOptions
+} from './scheduleToolSchema'
+import {
 	createToolDef,
+	droppedOptionKeys,
 	formatToolError,
 	type CreatedResourceTriggerKind,
 	type Tool,
@@ -69,7 +75,20 @@ type WorkspaceMutationHelpers = {
 	getWorkspaceMutationTarget?: () => WorkspaceMutationTarget
 }
 
-const createScheduleToolSchema = scheduleRequestSchema.omit({ script_path: true, is_flow: true })
+// script_path/is_flow come from the runnable being edited, so they are hidden from the
+// model in both the tool schema and what get_schedule_schema serves.
+const SCHEDULE_TOOL_OPTIONS = { hidden: ['script_path', 'is_flow'] } as const
+
+const createScheduleToolSchema = buildScheduleToolSchema(SCHEDULE_TOOL_OPTIONS)
+
+const getScheduleSchemaTool: Tool<any> = {
+	def: createToolDef(
+		z.object({}),
+		'get_schedule_schema',
+		"Get the shape of create_schedule's `advanced` object: retry, pausing, tags, and error-handler tuning."
+	),
+	fn: async () => JSON.stringify(advancedScheduleShape(SCHEDULE_TOOL_OPTIONS), null, 2)
+}
 
 function getWorkspaceMutationTarget(helpers: unknown): WorkspaceMutationTarget | undefined {
 	return (helpers as WorkspaceMutationHelpers | undefined)?.getWorkspaceMutationTarget?.()
@@ -115,7 +134,7 @@ function getWorkspaceMutationTargetFields(
 const createScheduleToolDef = createToolDef(
 	createScheduleToolSchema,
 	'create_schedule',
-	'Create a schedule for the current script or flow.',
+	'Create a schedule for the current script or flow. For anything beyond a plain cron (retry, pausing, tags, error-handler tuning), call get_schedule_schema first and pass those through `advanced`.',
 	{ strict: false }
 )
 
@@ -296,14 +315,27 @@ const createScheduleTool: Tool<any> = {
 	validateBeforeConfirmation: ({ helpers }) => validateWorkspaceMutationTarget(helpers),
 	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
 		try {
+			const { advanced, ...rest } = (args ?? {}) as Record<string, unknown>
+			// `advanced` carries what the definition does not list: a named argument outranks
+			// a duplicate inside the bag, and the runnable target outranks both. The whole
+			// merged object is checked for stripped keys, not just the bag: an advanced option
+			// passed at the top level instead would otherwise be dropped without a word.
+			const merged = {
+				...((advanced as Record<string, unknown>) ?? {}),
+				...rest,
+				...getWorkspaceMutationTargetFields(helpers)
+			}
 			const requestBody = parseWithExplicitErrors(
 				scheduleRequestSchema as z.ZodType<NewSchedule>,
-				{
-					...args,
-					...getWorkspaceMutationTargetFields(helpers)
-				},
+				merged,
 				'Schedule'
 			)
+			const dropped = droppedOptionKeys(merged, requestBody)
+			if (dropped.length) {
+				throw new Error(
+					describeDroppedScheduleOptions(dropped)
+				)
+			}
 
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Validating schedule "${requestBody.path}"...`
@@ -472,7 +504,12 @@ const createTriggerTool: Tool<any> = {
 	}
 }
 
-const workspaceMutationTools = [createScheduleTool, createTriggerTool, getTriggerSchemaTool]
+const workspaceMutationTools = [
+	createScheduleTool,
+	createTriggerTool,
+	getTriggerSchemaTool,
+	getScheduleSchemaTool
+]
 
 export function createWorkspaceMutationTools<T>(): Tool<T>[] {
 	return workspaceMutationTools as Tool<T>[]

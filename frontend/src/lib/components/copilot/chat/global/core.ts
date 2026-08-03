@@ -85,7 +85,13 @@ import type {
 } from 'openai/resources/chat/completions.mjs'
 import { z } from 'zod'
 import {
+	advancedScheduleShape,
+	buildScheduleToolSchema,
+	describeDroppedScheduleOptions
+} from '../scheduleToolSchema'
+import {
 	createToolDef,
+	droppedOptionKeys,
 	createSearchHubScriptsTool,
 	executeFlowStepTestRun,
 	executeTestRun,
@@ -558,6 +564,8 @@ function flowDraftAsEditableInput(flowDraft: FlowDraftValue): {
 }
 
 const writeScheduleSchema = scheduleRequestSchema.extend({ override: draftOverrideField })
+
+const writeScheduleToolSchema = buildScheduleToolSchema().extend({ override: draftOverrideField })
 
 // The tool definition keeps `config` open-ended on purpose. Inlining the eleven
 // per-kind request schemas serializes to ~44k characters of JSON Schema, on its own
@@ -2928,7 +2936,7 @@ export const globalTools: Tool<{}>[] = [
 	},
 	{
 		def: createToolDef(
-			writeScheduleSchema,
+			writeScheduleToolSchema,
 			'write_schedule',
 			'Create or overwrite a draft schedule.',
 			{ strict: false }
@@ -2937,7 +2945,19 @@ export const globalTools: Tool<{}>[] = [
 		streamArguments: true,
 		showFade: true,
 		fn: async (ctx) => {
-			const parsed = writeScheduleSchema.parse(ctx.args)
+			const { advanced, ...rest } = (ctx.args ?? {}) as Record<string, unknown>
+			// `advanced` carries what the definition does not list, so a named argument
+			// outranks a duplicate of the same key inside the bag. The whole merged object
+			// is checked for stripped keys, not just the bag: an advanced option passed at
+			// the top level instead would otherwise be dropped without a word.
+			const merged = { ...((advanced as Record<string, unknown>) ?? {}), ...rest }
+			const parsed = writeScheduleSchema.parse(merged)
+			const dropped = droppedOptionKeys(merged, parsed)
+			if (dropped.length) {
+				throw new Error(
+					describeDroppedScheduleOptions(dropped)
+				)
+			}
 			return writeScheduleDraft(parsed, ctx)
 		}
 	},
@@ -2978,6 +2998,14 @@ export const globalTools: Tool<{}>[] = [
 			const { kind } = getTriggerSchemaSchema.parse(ctx.args)
 			return triggerConfigJsonSchema(kind)
 		}
+	},
+	{
+		def: createToolDef(
+			z.object({}),
+			'get_schedule_schema',
+			"Get the shape of write_schedule's `advanced` object: retry, pausing, tags, and error-handler tuning."
+		),
+		fn: async () => JSON.stringify(advancedScheduleShape(), null, 2)
 	},
 	{
 		def: createToolDef(

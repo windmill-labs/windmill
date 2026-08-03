@@ -149,6 +149,16 @@ describe('createToolDef', () => {
 			expect(served.properties?.is_flow).toBeUndefined()
 			expect(served.properties?.path).toBeUndefined()
 		}
+
+		// Same for the schedule options served on demand. The runnable target still wins
+		// on merge, so this is about not advertising a field the model cannot influence.
+		const getScheduleSchema = createWorkspaceMutationTools().find(
+			(tool) => tool.def.function.name === 'get_schedule_schema'
+		)!
+		const schedule = JSON.parse(await getScheduleSchema.fn({ args: {} } as any))
+		expect(schedule.properties?.script_path).toBeUndefined()
+		expect(schedule.properties?.is_flow).toBeUndefined()
+		expect(schedule.properties).toHaveProperty('retry')
 	})
 })
 
@@ -417,6 +427,89 @@ describe('processToolCall', () => {
 
 		expect(flowResult.content).toBe('the flow needs to be deployed before doing this action')
 		expect(requestConfirmation).not.toHaveBeenCalled()
+	})
+
+	// create_schedule duplicates the global `advanced` merge and guard, so it needs its
+	// own coverage: the fold must reach the request body and a mis-shape must stop the
+	// write rather than create a schedule with an inert policy.
+	it('folds advanced schedule options into create_schedule and refuses a mis-shaped one', async () => {
+		const gen = (await import('$lib/gen')) as any
+		const { processToolCall } = await import('./shared')
+		const { createWorkspaceMutationTools } = await import('./workspaceTools')
+		const workspaceMutationTools = createWorkspaceMutationTools()
+
+		gen.ScheduleService.previewSchedule.mockReset()
+		gen.ScheduleService.createSchedule.mockReset()
+		gen.ScheduleService.previewSchedule.mockResolvedValue({})
+		gen.ScheduleService.createSchedule.mockResolvedValue('schedule-created')
+
+		const target = {
+			getWorkspaceMutationTarget: () => ({
+				kind: 'script' as const,
+				path: 'f/scripts/current',
+				deployed: true
+			})
+		}
+		const callbacks = () => ({
+			setToolStatus: vi.fn(),
+			removeToolStatus: vi.fn(),
+			requestConfirmation: vi.fn().mockResolvedValue(true)
+		})
+
+		await processToolCall({
+			tools: workspaceMutationTools,
+			toolCall: {
+				id: 'call_adv',
+				type: 'function',
+				function: {
+					name: 'create_schedule',
+					arguments: JSON.stringify({
+						path: 'f/schedules/adv',
+						schedule: '0 0 12 * * *',
+						timezone: 'UTC',
+						args: null,
+						advanced: { tag: 'nightly', retry: { constant: { attempts: 2, seconds: 30 } } }
+					})
+				}
+			},
+			helpers: target,
+			workspace: 'test-workspace',
+			toolCallbacks: callbacks()
+		})
+
+		expect(gen.ScheduleService.createSchedule).toHaveBeenCalledWith({
+			workspace: 'test-workspace',
+			requestBody: expect.objectContaining({
+				tag: 'nightly',
+				retry: { constant: { attempts: 2, seconds: 30 } }
+			})
+		})
+
+		gen.ScheduleService.createSchedule.mockReset()
+		const badStatus = vi.fn()
+		await processToolCall({
+			tools: workspaceMutationTools,
+			toolCall: {
+				id: 'call_bad',
+				type: 'function',
+				function: {
+					name: 'create_schedule',
+					arguments: JSON.stringify({
+						path: 'f/schedules/bad',
+						schedule: '0 0 12 * * *',
+						timezone: 'UTC',
+						args: null,
+						advanced: { retry: { constant: { attempts: 2, seconds_typo: 30 } } }
+					})
+				}
+			},
+			helpers: target,
+			workspace: 'test-workspace',
+			toolCallbacks: { ...callbacks(), setToolStatus: badStatus }
+		})
+
+		expect(gen.ScheduleService.createSchedule).not.toHaveBeenCalled()
+		expect(JSON.stringify(badStatus.mock.calls)).toContain('get_schedule_schema')
 	})
 
 	it('injects runnable target fields into schedule and trigger requests', async () => {

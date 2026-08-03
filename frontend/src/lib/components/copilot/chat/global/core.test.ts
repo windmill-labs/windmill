@@ -455,6 +455,152 @@ describe('global AI tools', () => {
 		})
 	})
 
+	// The rare schedule fields reach the draft through `advanced` instead of the tool
+	// definition, so the merge back into the persisted value is what has to hold.
+	it('folds advanced schedule options into the draft', async () => {
+		const advanced = JSON.parse(await callGlobalTool('get_schedule_schema', {}))
+		expect(Object.keys(advanced.properties)).toEqual(
+			expect.arrayContaining(['retry', 'paused_until', 'no_flow_overlap'])
+		)
+		expect(advanced.properties).not.toHaveProperty('schedule')
+
+		await callGlobalTool('write_schedule', {
+			path: 'f/schedules/adv',
+			schedule: '0 0 9 * * *',
+			timezone: 'UTC',
+			script_path: 'f/scripts/run',
+			is_flow: false,
+			args: {},
+			advanced: { no_flow_overlap: true, tag: 'nightly' }
+		})
+
+		const draft = getBackendDraft<any>('trigger_schedule', 'f/schedules/adv', {
+			workspace: WORKSPACE
+		})
+		expect(draft).toMatchObject({ no_flow_overlap: true, tag: 'nightly' })
+		expect(draft).not.toHaveProperty('advanced')
+	})
+
+	// A duplicate inside `advanced` must not quietly outrank the named argument.
+	it('lets a real schedule argument win over the same key inside advanced', async () => {
+		await callGlobalTool('write_schedule', {
+			path: 'f/schedules/prec',
+			schedule: '0 0 9 * * *',
+			timezone: 'UTC',
+			script_path: 'f/scripts/run',
+			is_flow: false,
+			args: {},
+			advanced: { timezone: 'Europe/Paris', tag: 'nightly' }
+		})
+
+		const draft = getBackendDraft<any>('trigger_schedule', 'f/schedules/prec', {
+			workspace: WORKSPACE
+		})
+		expect(draft).toMatchObject({ timezone: 'UTC', tag: 'nightly' })
+	})
+
+	// Every sub-field of `retry` is optional, so a guessed shape validates clean and
+	// strips to `{}`. Saving a schedule with no retry policy and reporting success is
+	// the failure the on-demand schema makes reachable.
+	it('refuses to save a mis-shaped advanced schedule option', async () => {
+		await expect(
+			callGlobalTool('write_schedule', {
+				path: 'f/schedules/badretry',
+				schedule: '0 0 6 * * *',
+				timezone: 'UTC',
+				script_path: 'f/scripts/run',
+				is_flow: false,
+				args: {},
+				advanced: { retry: { attempts: 2, seconds: 30 } }
+			})
+		).rejects.toThrow(/get_schedule_schema/)
+
+		// A misspelled key beside a valid sibling leaves `retry` non-empty, so only a
+		// recursive check catches it. The backend would default the lost delay to zero.
+		await expect(
+			callGlobalTool('write_schedule', {
+				path: 'f/schedules/badretry',
+				schedule: '0 0 6 * * *',
+				timezone: 'UTC',
+				script_path: 'f/scripts/run',
+				is_flow: false,
+				args: {},
+				advanced: { retry: { constant: { attempts: 2, seconds_typo: 30 } } }
+			})
+		).rejects.toThrow(/retry\.constant\.seconds_typo/)
+
+		expect(
+			getBackendDraft('trigger_schedule', 'f/schedules/badretry', { workspace: WORKSPACE })
+		).toBeUndefined()
+	})
+
+	// The same option is legal at the top level, where the bag-only check never saw it.
+	it('catches a stripped schedule option passed outside advanced', async () => {
+		await expect(
+			callGlobalTool('write_schedule', {
+				path: 'f/schedules/toplevel',
+				schedule: '0 0 6 * * *',
+				timezone: 'UTC',
+				script_path: 'f/scripts/run',
+				is_flow: false,
+				args: {},
+				retry: { constant: { attempts: 2, seconds_typo: 30 } }
+			})
+		).rejects.toThrow(/retry\.constant\.seconds_typo/)
+	})
+
+	// A non-object `advanced` spreads to index keys that zod strips, so the options the
+	// model meant to set vanish. Rejecting beats writing a schedule missing all of them.
+	it('rejects a non-object advanced container', async () => {
+		await expect(
+			callGlobalTool('write_schedule', {
+				path: 'f/schedules/strbag',
+				schedule: '0 0 6 * * *',
+				timezone: 'UTC',
+				script_path: 'f/scripts/run',
+				is_flow: false,
+				args: {},
+				advanced: 'retry=2'
+			})
+		).rejects.toThrow(/not schedule fields/)
+	})
+
+	// A key that is not a schedule field cannot be explained by the lookup, so the error
+	// must not send the model there for it.
+	it('separates unknown keys from mis-shaped schedule options', async () => {
+		const error = await callGlobalTool('write_schedule', {
+			path: 'f/schedules/mixed',
+			schedule: '0 0 6 * * *',
+			timezone: 'UTC',
+			script_path: 'f/scripts/run',
+			is_flow: false,
+			args: {},
+			advanced: { retry: { constant: { seconds_typo: 1 } }, not_a_field: true }
+		}).catch((err) => (err as Error).message)
+
+		expect(error).toMatch(/retry\.constant\.seconds_typo.*get_schedule_schema/s)
+		expect(error).toMatch(/not schedule fields: not_a_field/)
+	})
+
+	// `args` is a real object-valued argument, not an advanced option: repeating it must
+	// not be reported as a dropped option just because the named one outranks the bag.
+	it('does not flag a duplicated object argument as dropped', async () => {
+		await callGlobalTool('write_schedule', {
+			path: 'f/schedules/dupargs',
+			schedule: '0 0 6 * * *',
+			timezone: 'UTC',
+			script_path: 'f/scripts/run',
+			is_flow: false,
+			args: { a: 1 },
+			advanced: { args: { b: 2 }, tag: 'nightly' }
+		})
+
+		const draft = getBackendDraft<any>('trigger_schedule', 'f/schedules/dupargs', {
+			workspace: WORKSPACE
+		})
+		expect(draft).toMatchObject({ args: { a: 1 }, tag: 'nightly' })
+	})
+
 	it('rejects a trigger config that does not match the declared kind', async () => {
 		const error = await callGlobalTool('write_trigger', {
 			kind: 'kafka',
