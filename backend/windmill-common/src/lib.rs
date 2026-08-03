@@ -29,6 +29,7 @@ use sqlx::{Acquire, Postgres};
 pub mod agent_workers;
 pub mod apps;
 pub mod assets;
+pub mod azure_workload_identity;
 pub mod dbt_manifest;
 pub mod audit;
 pub mod auth;
@@ -706,6 +707,10 @@ ta9ELulniZau8zUAtwqwecxodzl+KO8NYj0a9PGgAM64dMqkRtRA8P4UP350Nag3\n\
             accept_invalid_certs: None,
             use_iam_auth: None,
             region: None,
+            use_workload_identity: None,
+            tenant_id: None,
+            client_id: None,
+            federated_token_file: None,
         }
     }
 
@@ -824,8 +829,21 @@ pub struct PgDatabase {
     /// certificate is present — so resources that predate this flag (including
     /// git-synced ones, whose source never sets it) keep working unchanged.
     pub accept_invalid_certs: Option<bool>,
+    /// AWS RDS IAM authentication, with `region` as its only parameter.
     pub use_iam_auth: Option<bool>,
     pub region: Option<String>,
+    /// Azure Entra ID authentication (Azure Database for PostgreSQL): the worker's
+    /// federated identity is exchanged for an access token used as the password.
+    /// The `tenant_id` / `client_id` / `federated_token_file` below override the
+    /// env vars the Azure workload identity webhook injects into the pod.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub use_workload_identity: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub federated_token_file: Option<String>,
 }
 
 // Wrapper enum to hold either Tls or NoTls connection
@@ -1053,9 +1071,6 @@ impl PgDatabase {
     pub async fn connect_with_iam(
         &self,
     ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
-        use native_tls::TlsConnector;
-        use postgres_native_tls::MakeTlsConnector;
-
         // Resolve region: resource field takes priority, then env var
         let region = match self.region.as_deref() {
             Some(r) => r.to_string(),
@@ -1075,7 +1090,45 @@ impl PgDatabase {
                 error::Error::InternalErr(format!("IAM token generation failed: {e:#}"))
             })?;
 
-        // RDS IAM auth requires SSL.
+        self.connect_with_token("IAM RDS", &token).await
+    }
+
+    /// Connect to Azure Database for PostgreSQL as the worker's federated identity.
+    /// The Entra ID access token replaces the password; `user` must be the Entra
+    /// principal name the server knows the identity by.
+    #[cfg(feature = "enterprise")]
+    pub async fn connect_with_workload_identity(
+        &self,
+    ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
+        let workload_identity = azure_workload_identity::WorkloadIdentityConfig::resolve(
+            self.tenant_id.as_deref(),
+            self.client_id.as_deref(),
+            self.federated_token_file.as_deref(),
+        )?;
+        let token = workload_identity
+            .access_token(azure_workload_identity::AZURE_OSSRDBMS_SCOPE)
+            .await?;
+
+        self.connect_with_token("Azure workload identity", &token)
+            .await
+    }
+
+    /// Connect with an externally issued access token in place of the password.
+    /// Both issuers (AWS IAM, Entra ID) mandate TLS, so encryption is forced on
+    /// regardless of the resource's sslmode; the sslmode still selects how far the
+    /// server's certificate is verified.
+    #[cfg(feature = "enterprise")]
+    async fn connect_with_token(
+        &self,
+        auth_kind: &str,
+        token: &str,
+    ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
+        use native_tls::TlsConnector;
+        use postgres_native_tls::MakeTlsConnector;
+
+        let port = self.port.unwrap_or(5432);
+        let user = self.user.as_deref().unwrap_or("postgres");
+
         let mut connector = TlsConnector::builder();
         let verified = Self::configure_pg_tls_verification(
             &mut connector,
@@ -1084,19 +1137,19 @@ impl PgDatabase {
             self.accept_invalid_certs,
         )?;
         if !verified {
-            tracing::warn!("IAM RDS auth without certificate verification: TLS certificate verification is disabled. Provide root_certificate_pem (and set sslmode=verify-full) to enforce verification.");
+            tracing::warn!("{auth_kind} auth without certificate verification: TLS certificate verification is disabled. Provide root_certificate_pem (and set sslmode=verify-full) to enforce verification.");
         }
 
-        tracing::info!("Creating new IAM RDS connection to {}", &self.host);
+        tracing::info!("Creating new {auth_kind} connection to {}", &self.host);
 
-        // Use Config builder directly to pass the IAM token as the password.
+        // Use Config builder directly to pass the token as the password.
         // This avoids needing to URL-encode the token into a connection string.
         let mut config = tokio_postgres::Config::new();
         config
             .host(&self.host)
             .port(port as u16)
             .user(user)
-            .password(&token)
+            .password(token)
             .dbname(&self.dbname)
             .ssl_mode(tokio_postgres::config::SslMode::Require);
 
@@ -1152,6 +1205,10 @@ impl PgDatabase {
             accept_invalid_certs: None,
             use_iam_auth: None,
             region: None,
+            use_workload_identity: None,
+            tenant_id: None,
+            client_id: None,
+            federated_token_file: None,
         })
     }
 }

@@ -11,6 +11,7 @@ use tiberius::{
 use tokio::net::TcpStream;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 use uuid::Uuid;
+use windmill_common::azure_workload_identity::{WorkloadIdentityConfig, AZURE_SQL_SCOPE};
 use windmill_common::utils::merge_raw_values_to_object;
 use windmill_common::worker::SqlResultCollectionStrategy;
 use windmill_common::{
@@ -49,6 +50,13 @@ struct MssqlDatabase {
     ca_cert: Option<String>,
     encrypt: Option<bool>,
     integrated_auth: Option<bool>,
+    workload_identity: Option<bool>,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    tenant_id: Option<String>,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    client_id: Option<String>,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    federated_token_file: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -114,10 +122,10 @@ pub async fn do_mssql(
     let port_ref = database.port;
 
     config.host(host_ref.clone());
-    config.database(database.dbname);
+    config.database(&database.dbname);
     let use_instance_name = database.instance_name.as_ref().is_some_and(|x| x != "");
     if use_instance_name {
-        config.instance_name(database.instance_name.unwrap());
+        config.instance_name(database.instance_name.as_deref().unwrap_or_default());
     }
     if let Some(port) = database.port {
         config.port(port);
@@ -148,6 +156,19 @@ pub async fn do_mssql(
                 "Integrated authentication is not available in this build. Requires mssql-kerberos (Linux) or mssql-winauth (Windows) feature.".to_string(),
             ));
         }
+    } else if database.workload_identity.unwrap_or(false) {
+        let workload_identity = WorkloadIdentityConfig::resolve(
+            database.tenant_id.as_deref(),
+            database.client_id.as_deref(),
+            database.federated_token_file.as_deref(),
+        )?;
+        let logs = format!(
+            "\nUsing Azure Workload Identity (client id {})",
+            workload_identity.client_id()
+        );
+        append_logs(&job.id, &job.workspace_id, logs, conn).await;
+        let token = workload_identity.access_token(AZURE_SQL_SCOPE).await?;
+        config.authentication(AuthMethod::aad_token(token));
     } else if let Some(token_value) = &database.aad_token {
         if let Some(token) = &token_value.token {
             config.authentication(AuthMethod::aad_token(token));
@@ -160,7 +181,7 @@ pub async fn do_mssql(
         config.authentication(AuthMethod::sql_server(user.clone(), password.clone()));
     } else {
         return Err(Error::BadRequest(
-            "No authentication method configured. Set integrated_auth, aad_token, or user/password.".to_string(),
+            "No authentication method configured. Set integrated_auth, workload_identity, aad_token, or user/password.".to_string(),
         ));
     }
 
