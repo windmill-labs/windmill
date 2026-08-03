@@ -1,7 +1,7 @@
 openapi: '3.0.3'
 
 info:
-  version: 1.775.1
+  version: 1.777.1
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -37,7 +37,10 @@ components:
           description: JSON Schema for flow inputs. Use this to define input parameters, their types, defaults, and validation. For resource inputs, set type to 'object' and format to 'resource-<type>' (e.g., 'resource-stripe')
         on_behalf_of_email:
           type: string
-          description: The flow will be run with the permissions of the user with this email.
+          description: Address of the account the flow runs on behalf of. Derived from on_behalf_of on read; accepted on write, where it is resolved to the account it names.
+        on_behalf_of:
+          type: string
+          description: 'The flow runs with the permissions of this identity: u/{username}, g/{group}, or a bare email when the username is itself email-shaped. The only stored half of the identity; on_behalf_of_email is derived from it. Omit it when writing and it is resolved from that address instead.'
       required:
         - summary
         - value
@@ -677,6 +680,10 @@ components:
             - ruby
             - rlang
             - duckdb
+            # NOT dbt: a dbt script runs the project carried as its module
+            # bundle, which an inline snippet has none of, and the worker rejects
+            # inline execution — advertising it here would let such a flow
+            # validate and then always fail at runtime.
             # for related places search: ADD_NEW_LANG
         path:
           type: string
@@ -724,6 +731,7 @@ components:
                   - ducklake
                   - datatable
                   - volume
+                  - dbt
               access_type:
                 type: string
                 nullable: true

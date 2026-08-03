@@ -12,6 +12,16 @@ export function usesAnthropicMessagesApi(provider: AIProvider, model: string): b
 	)
 }
 
+// Anthropic bills a cached prefix at a tenth of the input rate, but only creates one
+// where an explicit `cache_control` breakpoint sits. With no breakpoint the whole
+// prompt is charged in full on every iteration of a chat. The native Anthropic path
+// sets its own breakpoints; OpenRouter forwards them over the OpenAI-compatible surface
+// but only documents them for Anthropic-backed models, so the gate is on the routed
+// model rather than the provider alone.
+export function usesOpenRouterPromptCaching(provider: AIProvider, model: string): boolean {
+	return provider === 'openrouter' && model.toLowerCase().startsWith('anthropic/')
+}
+
 // gpt-5+ and o-series reasoning models reject the legacy `max_tokens` field on
 // the OpenAI/Azure Chat Completions API and require `max_completion_tokens`
 // instead. The check strips any provider prefix (e.g. OpenRouter's "openai/o3")

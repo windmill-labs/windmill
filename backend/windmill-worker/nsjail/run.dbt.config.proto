@@ -1,0 +1,138 @@
+name: "dbt run project"
+
+mode: ONCE
+hostname: "dbt"
+log_level: ERROR
+time_limit: {TIMEOUT}
+
+{RLIMIT_AS}
+rlimit_cpu: 1000
+rlimit_fsize: 1000
+rlimit_nofile: 10000
+
+cwd: "{PROJECT_DIR}"
+
+# The warehouse is remote for every adapter but DuckDB, so the network stays.
+clone_newnet: false
+clone_newuser: {CLONE_NEWUSER}
+
+skip_setsid: true
+keep_caps: false
+keep_env: true
+mount_proc: true
+
+mount {
+    src: "/bin"
+    dst: "/bin"
+    is_bind: true
+}
+
+mount {
+    src: "/lib"
+    dst: "/lib"
+    is_bind: true
+}
+
+mount {
+    src: "/lib64"
+    dst: "/lib64"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
+    src: "/usr"
+    dst: "/usr"
+    is_bind: true
+}
+
+mount {
+    src: "/dev/null"
+    dst: "/dev/null"
+    is_bind: true
+    rw: true
+}
+
+mount {
+    src: "/dev/random"
+    dst: "/dev/random"
+    is_bind: true
+}
+
+mount {
+    src: "/dev/urandom"
+    dst: "/dev/urandom"
+    is_bind: true
+}
+
+mount {
+    dst: "/dev/shm"
+    fstype: "tmpfs"
+    rw: true
+    is_bind: false
+}
+
+{TMP_MOUNT_BLOCK}
+
+# The job's own directory: the project, the rendered profile, the artifacts
+# dbt writes and the logs the progress reporter tails all live under it.
+mount {
+    src: "{JOB_DIR}"
+    dst: "{JOB_DIR}"
+    is_bind: true
+    rw: true
+}
+
+# The engine and the interpreter it was built against, read-only: a project
+# must not be able to rewrite the dbt it is run by, or the one the next job
+# on this worker will be.
+mount {
+    src: "{ENGINE_DIR}"
+    dst: "{ENGINE_DIR}"
+    is_bind: true
+}
+
+mount {
+    src: "{PY_INSTALL_DIR}"
+    dst: "{PY_INSTALL_DIR}"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
+    src: "/etc"
+    dst: "/etc"
+    is_bind: true
+}
+
+# Container runtimes bind exactly these 3 files as separate submounts over
+# /etc; nsjail's ro remount of /etc is non-recursive so they stay writable.
+# Load-bearing -- do not remove as redundant with the /etc bind above.
+mount {
+    src: "/etc/resolv.conf"
+    dst: "/etc/resolv.conf"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
+    src: "/etc/hosts"
+    dst: "/etc/hosts"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
+    src: "/etc/ssl/certs"
+    dst: "/etc/ssl/certs"
+    is_bind: true
+    mandatory: false
+}
+
+{SHARED_MOUNT}
+
+# The project's own environment. Set here rather than on the process that
+# execs nsjail: the loader honours `LD_PRELOAD` before the jail exists.
+{ENVARS}
+
+iface_no_lo: true

@@ -6,6 +6,10 @@ pub mod openai;
 pub mod openrouter;
 pub mod other;
 
+use std::time::{Duration, Instant};
+
+use windmill_common::cache::Cache;
+
 use crate::{
     ai_providers::{AIPlatform, AIProvider},
     credentials::ProviderCredentials,
@@ -29,7 +33,13 @@ pub fn create_query_builder(
 ) -> Box<dyn QueryBuilder> {
     match credentials.provider {
         AIProvider::GoogleAI => Box::new(GoogleAIQueryBuilder::new(credentials.platform.clone())),
-        AIProvider::OpenAI => Box::new(OpenAIQueryBuilder::new(credentials.provider.clone())),
+        // Azure OpenAI serves the same Responses API as OpenAI under `/openai/v1`, and
+        // newer deployments reject a reasoning effort combined with function tools on
+        // `/chat/completions`. This cannot be decided per model: on Azure the model name
+        // is a user-chosen deployment name, which says nothing about the model behind it.
+        AIProvider::OpenAI | AIProvider::AzureOpenAI => {
+            Box::new(OpenAIQueryBuilder::new(credentials.provider.clone()))
+        }
         AIProvider::Anthropic => Box::new(AnthropicQueryBuilder::new(
             credentials.provider.clone(),
             credentials.platform.clone(),
@@ -39,6 +49,62 @@ pub fn create_query_builder(
             AnthropicQueryBuilder::new(AIProvider::AzureFoundry, AIPlatform::Standard),
         ),
         _ => Box::new(OtherQueryBuilder::new(credentials.provider.clone())),
+    }
+}
+
+/// The builder for the same resource on the OpenAI-compatible `/chat/completions`
+/// surface, for a provider whose preferred surface it turned out not to serve
+/// (`QueryBuilder::supports_chat_completions_fallback`).
+pub fn create_chat_completions_query_builder(
+    credentials: &ProviderCredentials,
+) -> Box<dyn QueryBuilder> {
+    Box::new(OtherQueryBuilder::new(credentials.provider.clone()))
+}
+
+lazy_static::lazy_static! {
+    /// Deployments that turned out not to serve the endpoint their provider prefers,
+    /// so the steps after the one that found out start on `/chat/completions` rather
+    /// than paying a rejected call each to learn the same thing. Keyed by endpoint and
+    /// deployment name, because Azure's Responses API support varies by both.
+    ///
+    /// Only rejections are remembered: a surface that answers costs nothing to keep
+    /// using. The entry expires because a deployment can gain Responses support
+    /// (Azure rolls it out per model and region) without anything here changing.
+    static ref CHAT_COMPLETIONS_ONLY: Cache<(String, String), Instant> = Cache::new(500);
+}
+
+const CHAT_COMPLETIONS_ONLY_TTL: Duration = Duration::from_secs(3600);
+
+/// Whether this deployment is known not to serve the endpoint its provider prefers.
+pub fn is_chat_completions_only(base_url: &str, model: &str) -> bool {
+    CHAT_COMPLETIONS_ONLY
+        .get(&(base_url.to_string(), model.to_string()))
+        .is_some_and(|learned_at| learned_at.elapsed() < CHAT_COMPLETIONS_ONLY_TTL)
+}
+
+/// Record that this deployment rejected the endpoint its provider prefers.
+pub fn remember_chat_completions_only(base_url: &str, model: &str) {
+    CHAT_COMPLETIONS_ONLY.insert((base_url.to_string(), model.to_string()), Instant::now());
+}
+
+#[cfg(test)]
+mod chat_completions_only_tests {
+    use super::*;
+
+    /// Azure's Responses API support varies by deployment, so what one deployment of a
+    /// resource rejected says nothing about the next one.
+    #[test]
+    fn a_rejection_is_remembered_per_deployment() {
+        let base_url = "https://rejection-per-deployment.openai.azure.com/openai";
+
+        remember_chat_completions_only(base_url, "legacy-deployment");
+
+        assert!(is_chat_completions_only(base_url, "legacy-deployment"));
+        assert!(!is_chat_completions_only(base_url, "gpt-5-deployment"));
+        assert!(!is_chat_completions_only(
+            "https://other.openai.azure.com/openai",
+            "legacy-deployment"
+        ));
     }
 }
 
@@ -139,7 +205,7 @@ mod parity_tests {
                 AIProvider::AzureOpenAI,
                 "https://example.openai.azure.com/openai",
                 "gpt-4o",
-                "chat/completions",
+                "responses",
             ),
             case(
                 AIProvider::OpenAI,

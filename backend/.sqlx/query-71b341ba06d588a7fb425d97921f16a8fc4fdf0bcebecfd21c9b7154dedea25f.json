@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE materialized_partition\n            SET status = 'failed',\n                error = COALESCE(error, 'the run ended before this model finished')\n          WHERE workspace_id = $1 AND job_id = $2 AND status = 'running'\n            AND NOT (asset_path = ANY($3))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "71b341ba06d588a7fb425d97921f16a8fc4fdf0bcebecfd21c9b7154dedea25f"
+}

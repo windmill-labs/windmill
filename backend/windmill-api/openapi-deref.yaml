@@ -4920,6 +4920,7 @@ paths:
                             - settings
                             - key
                             - workspacedependencies
+                            - datatablemigration
                   mute_critical_alerts:
                     type: boolean
                 required:
@@ -5001,8 +5002,6 @@ paths:
                   customer_id:
                     type: string
                   webhook:
-                    type: string
-                  deploy_to:
                     type: string
                   ai_config:
                     type: object
@@ -5858,33 +5857,6 @@ paths:
                 properties:
                   job_uuid:
                     type: string
-  /w/{workspace}/workspaces/edit_deploy_to:
-    post:
-      summary: edit deploy to
-      operationId: editDeployTo
-      tags:
-        - workspace
-      parameters:
-        - name: workspace
-          in: path
-          required: true
-          schema: *ref_4
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                deploy_to:
-                  type: string
-      responses:
-        '200':
-          description: status
-          content:
-            text/plain:
-              schema:
-                type: string
   /w/{workspace}/workspaces/edit_auto_invite:
     post:
       summary: edit auto invite

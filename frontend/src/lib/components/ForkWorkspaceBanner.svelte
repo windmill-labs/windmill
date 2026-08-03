@@ -9,6 +9,7 @@
 	import { onMount, untrack } from 'svelte'
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 	import { devLabelWord } from '$lib/utils/devWorkspaceLabel'
+	import { diffActionableInDirection } from '$lib/utils_workspace_deploy'
 
 	let loading = $state(false)
 	let comparison: WorkspaceComparison | undefined = $state(undefined)
@@ -82,9 +83,14 @@
 		}
 	}
 
+	// Opens the direction the button offers, so the label and the list agree: a fork
+	// with nothing to deploy lands on the update side, not on an empty deploy list.
+	// Both read `comparisonLoaded` — an unknown comparison counts zero of everything,
+	// which is indistinguishable from "nothing to deploy".
 	function openComparisonDrawer() {
 		if (parentWorkspaceId && $workspaceStore) {
-			goto('/forks/compare?workspace_id=' + encodeURIComponent($workspaceStore), {
+			const dir = comparisonLoaded && changesAhead === 0 ? '&dir=update' : ''
+			goto('/forks/compare?workspace_id=' + encodeURIComponent($workspaceStore) + dir, {
 				replaceState: true
 			})
 		}
@@ -148,6 +154,19 @@
 		return () => clearInterval(interval)
 	})
 
+	// Counted with the compare page's own predicate so the banner never advertises a
+	// direction whose list is empty: the `ahead`/`behind` sums in the summary include
+	// rows a direction does not carry, and miss a parent-only row that the update
+	// direction carries at `behind = 0`.
+	function countDir(c: WorkspaceComparison | undefined, mergeIntoParent: boolean): number {
+		return c?.diffs.filter((d) => diffActionableInDirection(d, mergeIntoParent)).length ?? 0
+	}
+	// A comparison in flight is not an answer: on a fork switch the component stays
+	// mounted and `comparison` still holds the previous fork's rows.
+	const comparisonLoaded = $derived(!loading && comparison !== undefined)
+	const changesAhead = $derived(countDir(comparison, true))
+	const changesBehind = $derived(countDir(comparison, false))
+
 	function forkAheadBehindMessage(changesAhead: number, changesBehind: number) {
 		let msg: string[] = []
 		if (changesAhead > 0 || changesBehind > 0) {
@@ -167,15 +186,21 @@
 	     stays aligned with it instead of bleeding to the viewport edges. -->
 	<div class="w-full text-xs max-w-7xl mx-auto px-4 sm:px-8 pt-2">
 		<div class="bg-blue-50 dark:bg-blue-900 rounded-md px-4 py-2">
-			<div class="flex items-center justify-between">
-				<div class="flex items-center gap-3">
-					<GitFork class="w-4 h-4 text-accent" />
-					<div class="text-sm">
+			<!-- The summary wraps inside its own column while the CTA keeps its width and
+			     stays on the first line: laid out as one non-wrapping row, the summary is
+			     long enough on a laptop-width viewport to push the button out of the
+			     banner instead of getting shorter. -->
+			<div class="flex items-center justify-between gap-x-3">
+				<div class="flex items-center flex-wrap gap-x-3 gap-y-1 min-w-0">
+					<GitFork class="w-4 h-4 text-accent shrink-0" />
+					<div class="text-sm min-w-0">
 						<span class="font-medium text-blue-900 dark:text-blue-100">
 							{isDevWorkspace
 								? `${devLabelWord(currentWorkspaceData?.dev_workspace_label)} workspace of`
 								: 'Fork of'}
-							<b>{parentWorkspaceData?.name}</b> ({parentWorkspaceId})
+							<b>{parentWorkspaceData?.name}</b
+							>{#if parentWorkspaceData?.name !== parentWorkspaceId}
+								({parentWorkspaceId}){/if}
 						</span>
 					</div>
 
@@ -186,17 +211,19 @@
 							{error}
 						</span>
 					{:else if comparison}
-						<div class="flex items-center gap-4 text-xs">
+						<div class="flex items-center flex-wrap gap-x-4 gap-y-1 text-xs min-w-0">
 							{#if comparison.summary.total_diffs > 0}
 								<span class="text-blue-700 dark:text-blue-100">
-									{forkAheadBehindMessage(
-										comparison.summary.total_ahead,
-										comparison.summary.total_behind
-									)}
+									{forkAheadBehindMessage(changesAhead, changesBehind)}
 									<span class="font-semibold underline">{parentWorkspaceId}</span> over {comparison
-										.summary.total_diffs} items:
+										.summary.total_diffs} items<span class="hidden lg:inline">:</span>
 								</span>
-								<div class="flex items-center gap-2">
+								<!-- The per-kind breakdown is the first thing to go on a narrow
+								     viewport: the item total above already sizes the change set, and
+								     the compare page carries the detail. -->
+								<div
+									class="hidden lg:flex items-center flex-wrap gap-x-2 gap-y-1 whitespace-nowrap"
+								>
 									{#if comparison.summary.scripts_changed > 0}
 										<span class="text-blue-700 dark:text-blue-100">
 											{comparison.summary.scripts_changed} script{comparison.summary
@@ -272,17 +299,23 @@
 								{#if ciTestTotal > 0}
 									-
 									{#if ciTestFailing > 0}
-										<div class="flex items-center gap-1 text-red-600 dark:text-red-400">
+										<div
+											class="flex items-center gap-1 text-red-600 dark:text-red-400 whitespace-nowrap"
+										>
 											<CircleX class="w-3 h-3" />
 											<span>CI: {ciTestFailing} failing</span>
 										</div>
 									{:else if ciTestRunning > 0}
-										<div class="flex items-center gap-1 text-yellow-600 dark:text-yellow-400">
+										<div
+											class="flex items-center gap-1 text-yellow-600 dark:text-yellow-400 whitespace-nowrap"
+										>
 											<Loader2 class="w-3 h-3 animate-spin" />
 											<span>CI: {ciTestRunning} running</span>
 										</div>
 									{:else}
-										<div class="flex items-center gap-1 text-green-600 dark:text-green-400">
+										<div
+											class="flex items-center gap-1 text-green-600 dark:text-green-400 whitespace-nowrap"
+										>
 											<CircleCheck class="w-3 h-3" />
 											<span>CI: {ciTestPassing} passing</span>
 										</div>
@@ -291,7 +324,9 @@
 
 								{#if comparison.summary.conflicts > 0}
 									-
-									<div class="flex items-center gap-1 text-orange-600 dark:text-orange-400">
+									<div
+										class="flex items-center gap-1 text-orange-600 dark:text-orange-400 whitespace-nowrap"
+									>
 										<AlertTriangle class="w-3 h-3" />
 										<span
 											>{comparison.summary.conflicts} conflict{comparison.summary.conflicts !== 1
@@ -316,7 +351,7 @@
 					{/if}
 				</div>
 
-				<div class="flex items-center gap-2">
+				<div class="flex items-center gap-2 shrink-0">
 					<Button
 						variant="default"
 						unifiedSize="sm"
@@ -324,7 +359,7 @@
 					>
 						{#if showDraftsOnly}
 							Review & deploy drafts
-						{:else if (comparison?.summary.total_ahead ?? 0) > 0}
+						{:else if !comparisonLoaded || changesAhead > 0}
 							Review & Deploy Changes
 						{:else}
 							Review & Update fork

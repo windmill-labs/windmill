@@ -559,27 +559,30 @@ function flowDraftAsEditableInput(flowDraft: FlowDraftValue): {
 
 const writeScheduleSchema = scheduleRequestSchema.extend({ override: draftOverrideField })
 
+// The tool definition keeps `config` open-ended on purpose. Inlining the eleven
+// per-kind request schemas serializes to ~44k characters of JSON Schema, on its own
+// more than a third of every chat request, resent on every iteration whether or not
+// triggers ever come up. The model fetches the single schema it needs through
+// get_trigger_schema, and the call is validated against that same schema below.
 const writeTriggerSchema = z.object({
 	kind: triggerKindSchema.describe('Trigger kind. Determines which fields are valid in config.'),
 	config: z
-		.union([
-			triggerRequestSchemas.http,
-			triggerRequestSchemas.websocket,
-			triggerRequestSchemas.kafka,
-			triggerRequestSchemas.nats,
-			triggerRequestSchemas.postgres,
-			triggerRequestSchemas.mqtt,
-			triggerRequestSchemas.amqp,
-			triggerRequestSchemas.sqs,
-			triggerRequestSchemas.gcp,
-			triggerRequestSchemas.azure,
-			triggerRequestSchemas.email
-		])
+		.record(z.string(), z.any())
 		.describe(
-			'Full trigger configuration. Must include path, script_path, is_flow plus the kind-specific fields.'
+			'Full trigger configuration: path, script_path, is_flow plus the kind-specific fields. Call get_trigger_schema with the same kind first to get its exact fields.'
 		),
 	override: draftOverrideField
 })
+
+const getTriggerSchemaSchema = z.object({
+	kind: triggerKindSchema.describe('Trigger kind whose configuration schema to return.')
+})
+
+function triggerConfigJsonSchema(kind: TriggerKind): string {
+	const schema = z.toJSONSchema(triggerRequestSchemas[kind]) as Record<string, unknown>
+	delete schema.$schema
+	return JSON.stringify(schema, null, 2)
+}
 
 const writeResourceSchema = resourceRequestSchema.extend({ override: draftOverrideField })
 
@@ -1184,7 +1187,7 @@ Rules:
 - To undo something you created or changed in this chat, use discard_local_draft: everything you write is a draft until it is explicitly deployed, so "delete it" / "never mind" / "remove that" about your own work means discarding the draft (it also clears the matching open editor draft). Use delete_workspace_item only to remove an item that is already deployed in the workspace; it mutates the workspace and fails if nothing is deployed at that path.
 - Use diff to review changes — before deploying, or when the user asks what changed. It is read-only: without arguments it lists every draft in the workspace with its change status; with type+path it returns that item's unified diff (for multi-file apps, pass file to read one file's diff). In a fork, pass against="parent_workspace" to compare the deployed fork with its parent workspace instead. Pass search to grep changed lines across all diffs.
 - Variable values are never readable. For secrets, create a secret variable and reference it from resources as "$var:path/to/variable".
-- Use search_resource_types before write_resource.
+- Use search_resource_types before write_resource, and get_trigger_schema before write_trigger: the trigger config fields differ per kind and are not listed in the write_trigger definition.
 - When script or raw app code needs an external npm package you are not fully familiar with, use search_npm_packages to find it and get its documentation and type definitions. Link the package documentation in your answer when you rely on it.
 - Hub scripts are prebuilt integrations for third-party services, hosted outside the workspace under \`hub/<version>/<app>/<name>\` paths. Use search_hub_scripts to find one before hand-writing an integration, then read_workspace_item with type "script" and the returned hub path to get its code, language, and input schema.
 - Use get_db_schema with a database resource path to fetch its tables and columns before writing SQL (or a script querying that database).
@@ -2950,7 +2953,30 @@ export const globalTools: Tool<{}>[] = [
 		showFade: true,
 		fn: async (ctx) => {
 			const parsed = writeTriggerSchema.parse(ctx.args)
-			return writeTriggerDraft(parsed, ctx)
+			// writeTriggerDraft dispatches on `kind`, so a config belonging to another kind
+			// has to be rejected here rather than reaching the API as a corrupt draft. The
+			// recovery instruction leads because formatToolError caps the message at 2k and
+			// a long issue list would otherwise push it out of what the model receives.
+			const config = triggerRequestSchemas[parsed.kind].safeParse(parsed.config)
+			if (!config.success) {
+				throw new Error(
+					`Invalid config for a "${parsed.kind}" trigger. Call get_trigger_schema with kind "${parsed.kind}" for its exact fields. Issues: ${config.error.issues
+						.map((i) => `${i.path.join('.') || '<root>'}: ${i.message}`)
+						.join('; ')}`
+				)
+			}
+			return writeTriggerDraft({ ...parsed, config: config.data }, ctx)
+		}
+	},
+	{
+		def: createToolDef(
+			getTriggerSchemaSchema,
+			'get_trigger_schema',
+			'Get the configuration schema for one trigger kind. Call before write_trigger.'
+		),
+		fn: async (ctx) => {
+			const { kind } = getTriggerSchemaSchema.parse(ctx.args)
+			return triggerConfigJsonSchema(kind)
 		}
 	},
 	{
@@ -6015,8 +6041,8 @@ function formatForkIndexEntry(e: ForkDiffEntryView): string {
 	switch (e.status) {
 		case 'only_in_fork':
 			return `- ${name} — only in fork (${e.patchLineCount} lines)${draftFlag}`
-		case 'deleted_in_fork':
-			return `- ${name} — deleted in fork, still in parent${draftFlag}`
+		case 'only_in_parent':
+			return `- ${name} — only in parent, not in fork${draftFlag}`
 		case 'modified':
 			return `- ${name} — differs (${aheadBehind}; ${e.patchLineCount} diff lines)${draftFlag}`
 		case 'unchanged':
@@ -6194,8 +6220,8 @@ function renderForkEntrySection(
 	const header =
 		entry.status === 'only_in_fork'
 			? `${entry.kind} "${path}" exists only in the fork — not in parent "${parent}". Full content:\n\n`
-			: entry.status === 'deleted_in_fork'
-				? `${entry.kind} "${path}" was deleted in the fork but still exists in parent "${parent}". Removed content:\n\n`
+			: entry.status === 'only_in_parent'
+				? `${entry.kind} "${path}" exists only in parent "${parent}" — not in the fork. Parent content:\n\n`
 				: `Fork changes vs parent "${parent}" for ${entry.kind} "${path}":\n\n`
 	if (args.file !== undefined && !entry.files) {
 		throw new Error(

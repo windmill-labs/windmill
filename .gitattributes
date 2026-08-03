@@ -1,0 +1,3 @@
+# Files a generator owns. Collapsed in review diffs and left out of language
+# stats: reviewing them means reviewing the generator instead.
+*.gen.ts linguist-generated=true

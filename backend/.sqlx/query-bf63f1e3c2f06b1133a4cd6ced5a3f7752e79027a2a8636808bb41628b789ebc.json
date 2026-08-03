@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE usr SET email = 'group-ops@windmill.dev' WHERE workspace_id = 'test-workspace' AND username = 'test-user-2'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "bf63f1e3c2f06b1133a4cd6ced5a3f7752e79027a2a8636808bb41628b789ebc"
+}

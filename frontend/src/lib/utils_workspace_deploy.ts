@@ -167,7 +167,20 @@ function legacyTriggerKind(kind: TriggerDeployKind) {
 	return map[kind]
 }
 
-function makeProvider(): DeployProvider {
+/**
+ * `deployItem` overrides only the email half of the identity, while the body it builds
+ * spreads the *source* item — which carries the source workspace's permissioned_as, valid
+ * nowhere else since usernames are per-workspace. The key is therefore always overwritten:
+ * with the picked user's principal for a custom choice, and cleared otherwise so the
+ * backend derives the target's own from the email it is given. The shared `deployItem`
+ * clears it too, but this app consumes the published package, so the clear has to exist
+ * on both sides until that version ships.
+ */
+function makeProvider(onBehalfOfPrincipal?: string): DeployProvider {
+	const withPermissionedAs = <T extends Record<string, any>>(requestBody: T): T => ({
+		...requestBody,
+		on_behalf_of: onBehalfOfPrincipal
+	})
 	return {
 		existsFlowByPath: (p) => FlowService.existsFlowByPath(p),
 		existsScriptByPath: (p) => ScriptService.existsScriptByPath(p),
@@ -177,11 +190,14 @@ function makeProvider(): DeployProvider {
 		existsResourceType: (p) => ResourceService.existsResourceType(p),
 		existsFolder: (p) => FolderService.existsFolder(p),
 		getFlowByPath: (p) => FlowService.getFlowByPath(p),
-		createFlow: (p) => FlowService.createFlow(p),
-		updateFlow: (p) => FlowService.updateFlow(p),
+		createFlow: (p) =>
+			FlowService.createFlow({ ...p, requestBody: withPermissionedAs(p.requestBody) }),
+		updateFlow: (p) =>
+			FlowService.updateFlow({ ...p, requestBody: withPermissionedAs(p.requestBody) }),
 		archiveFlowByPath: (p) => FlowService.archiveFlowByPath(p),
 		getScriptByPath: (p) => ScriptService.getScriptByPath(p),
-		createScript: (p) => ScriptService.createScript(p),
+		createScript: (p) =>
+			ScriptService.createScript({ ...p, requestBody: withPermissionedAs(p.requestBody) }),
 		archiveScriptByPath: (p) => ScriptService.archiveScriptByPath(p),
 		getAppByPath: (p) => AppService.getAppByPath(p),
 		createApp: (p) => AppService.createApp(p),
@@ -267,6 +283,13 @@ export interface DeployItemParams {
 	 * If undefined, the deploying user's identity is used.
 	 */
 	onBehalfOf?: string
+	/**
+	 * Authorization half of `onBehalfOf` for flows/scripts (u/username or g/group).
+	 * Must name the same identity as `onBehalfOf`. Set it only when the user picked a
+	 * specific user; undefined clears the key, leaving the backend to derive the target
+	 * workspace's own principal from `onBehalfOf`.
+	 */
+	onBehalfOfPrincipal?: string
 }
 
 /**
@@ -275,7 +298,15 @@ export interface DeployItemParams {
  * which carries its sub-kind in `additionalInformation`.
  */
 export async function deployItem(params: DeployItemParams): Promise<DeployResult> {
-	const { kind, path, workspaceFrom, workspaceTo, additionalInformation, onBehalfOf } = params
+	const {
+		kind,
+		path,
+		workspaceFrom,
+		workspaceTo,
+		additionalInformation,
+		onBehalfOf,
+		onBehalfOfPrincipal
+	} = params
 
 	if (kind === 'trigger') {
 		// Legacy path: `DeployWorkspace.svelte` doesn't know the per-kind trigger
@@ -314,13 +345,60 @@ export async function deployItem(params: DeployItemParams): Promise<DeployResult
 	}
 
 	return sharedDeployItem(
-		makeProvider(),
+		makeProvider(onBehalfOfPrincipal),
 		kind as DeployKind,
 		path,
 		workspaceFrom,
 		workspaceTo,
 		onBehalfOf
 	)
+}
+
+/**
+ * The two sides of a `workspace_diff` row a deploy direction reads:
+ * `exists_in_source` is the parent (or arbitrary target) side, `exists_in_fork`
+ * the current workspace.
+ */
+type WorkspaceDiffSides = {
+	ahead: number
+	behind: number
+	exists_in_source: boolean
+	exists_in_fork: boolean
+}
+
+/** Deploying this row creates the item in the target, which does not have it. */
+export function diffCreatesInTarget(diff: WorkspaceDiffSides, mergeIntoParent: boolean): boolean {
+	return mergeIntoParent ? diff.exists_in_source === false : diff.exists_in_fork === false
+}
+
+/**
+ * Deploying this row removes the item in the target, the only side that has it.
+ * Which side dropped it is unknowable — `ahead`/`behind` count deploy events on a
+ * side, and a pull into the fork or a git-sync revert leaves the trace a delete
+ * does — so a row states what deploying does, and a removal is never bulk-selected.
+ */
+export function diffRemovesInTarget(diff: WorkspaceDiffSides, mergeIntoParent: boolean): boolean {
+	return mergeIntoParent ? diff.exists_in_fork === false : diff.exists_in_source === false
+}
+
+/**
+ * Rows a deploy in this direction can act on. A merge carries what the fork *has*:
+ * an item only the parent has is no fork change (see `diffRemovesInTarget`), while
+ * the update direction takes it whatever the counters say. Only an arbitrary target
+ * merges one — that one-way sync has no tally, so target-only does mean "remove".
+ */
+export function diffActionableInDirection(
+	diff: WorkspaceDiffSides,
+	mergeIntoParent: boolean,
+	isArbitraryTarget: boolean = false
+): boolean {
+	if (mergeIntoParent) {
+		if (!isArbitraryTarget && diff.exists_in_fork === false) {
+			return false
+		}
+		return diff.ahead > 0
+	}
+	return diff.behind > 0 || diffCreatesInTarget(diff, mergeIntoParent)
 }
 
 /**

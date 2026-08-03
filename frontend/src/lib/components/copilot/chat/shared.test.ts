@@ -91,7 +91,9 @@ describe('createToolDef', () => {
 		expect(parameters?.oneOf).toBeUndefined()
 		expect(parameters?.allOf).toBeUndefined()
 		expect(parameters?.properties?.kind?.enum).toContain('http')
-		expect(parameters?.properties?.config?.anyOf?.length).toBeGreaterThan(1)
+		// config stays open-ended; get_trigger_schema serves the per-kind schemas instead.
+		expect(parameters?.properties?.config?.anyOf).toBeUndefined()
+		expect(JSON.stringify(toolDef).length).toBeLessThan(2000)
 	})
 
 	it('disables strict mode for schemas with optional properties', async () => {
@@ -129,18 +131,23 @@ describe('createToolDef', () => {
 
 	it('does not expose runnable target fields on workspace mutation tools', async () => {
 		const { createWorkspaceMutationTools } = await import('./workspaceTools')
-		const [scheduleTool, triggerTool] = createWorkspaceMutationTools()
+		const { triggerConfigSchemas } = await import('./workspaceToolsZod.gen')
+		const [scheduleTool] = createWorkspaceMutationTools()
 
 		const scheduleParameters = scheduleTool.def.function.parameters as any
 		expect(scheduleParameters?.properties?.script_path).toBeUndefined()
 		expect(scheduleParameters?.properties?.is_flow).toBeUndefined()
 
-		const triggerParameters = triggerTool.def.function.parameters as any
-		const triggerConfigVariants = triggerParameters?.properties?.config?.anyOf ?? []
-		expect(triggerConfigVariants.length).toBeGreaterThan(1)
-		for (const variant of triggerConfigVariants) {
-			expect(variant?.properties?.script_path).toBeUndefined()
-			expect(variant?.properties?.is_flow).toBeUndefined()
+		// These come from the runnable the chat is editing, so the model must not see them
+		// on any kind, including in the schemas get_trigger_schema serves on demand.
+		const getTriggerSchema = createWorkspaceMutationTools().find(
+			(tool) => tool.def.function.name === 'get_trigger_schema'
+		)!
+		for (const kind of Object.keys(triggerConfigSchemas)) {
+			const served = JSON.parse(await getTriggerSchema.fn({ args: { kind } } as any))
+			expect(served.properties?.script_path).toBeUndefined()
+			expect(served.properties?.is_flow).toBeUndefined()
+			expect(served.properties?.path).toBeUndefined()
 		}
 	})
 })

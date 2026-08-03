@@ -2055,6 +2055,7 @@ async fn create_app_internal<'a>(
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
         authed.token_prefix.as_deref(),
+        authed.username_override.as_deref(),
         None,
         None,
         None,
@@ -2681,6 +2682,7 @@ async fn update_app_internal<'a>(
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
         authed.token_prefix.as_deref(),
+        authed.username_override.as_deref(),
         None,
         None,
         None,
@@ -2837,15 +2839,12 @@ async fn execute_component(
     Json(mut payload): Json<ExecuteApp>,
 ) -> Result<String> {
     let path = path.to_path();
-    // Authorize FIRST, before touching the payload: confine the app embed token (the
-    // only credential handed to untrusted app JS, carrying `apps:run:<own path>`) to
-    // the app it was minted for. The route layer can't path-check the apps domain, so
-    // enforce it here. Scoped to embed tokens only — other callers (anonymous, cookie,
-    // plain external JWT) keep their existing access; the run is still policy-gated.
+    // Authorize before touching the payload: the route layer is resource-blind, so a
+    // path-scoped caller (app embed token, or a picker-minted `apps:run|write:<path>`)
+    // is confined to its own app only here. No-op for unscoped callers; anonymous ones
+    // are policy-gated below.
     if let Some(authed) = opt_authed.as_ref() {
-        if windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref()) {
-            check_scopes(authed, || format!("apps:run:{}", path))?;
-        }
+        check_scopes(authed, || format!("apps:run:{}", path))?;
     }
     // Only honor temp_script_refs for the inline-script preview path:
     // preview/editor mode (force_viewer_static_fields set, == `is_preview`),
@@ -3217,6 +3216,9 @@ async fn execute_component(
             .and_then(|a| a.token_prefix)
             .or_else(|| tokened.token.map(|t| t[0..TOKEN_PREFIX_LEN].to_string()))
             .as_deref(),
+        // The caller of an app run is whoever used the app, which `push` already derives from
+        // `username` here — the app identity took `permissioned_as`.
+        None,
         None,
         None,
         None,
@@ -3372,14 +3374,10 @@ async fn upload_s3_file_from_app(
     Query(query): Query<UploadFileToS3Query>,
     request: axum::extract::Request,
 ) -> JsonResult<AppUploadFileResponse> {
-    // Confine an app embed token (untrusted app JS) to uploading for its OWN app.
-    // The route is reachable with `apps:run` (RUN_PATH_ACTIONS), so without this a
-    // token minted for app A could drive app B's upload policy. Mirrors
-    // execute_component / download_s3_file; other callers are unaffected.
+    // Same path confinement as `execute_component`: without it a token scoped to app A
+    // could drive app B's upload policy.
     if let Some(authed) = opt_authed.as_ref() {
-        if windmill_api_auth::scopes::has_app_embed_sentinel(authed.scopes.as_deref()) {
-            check_scopes(authed, || format!("apps:run:{}", path.to_path()))?;
-        }
+        check_scopes(authed, || format!("apps:run:{}", path.to_path()))?;
     }
     let policy = if let Some(file_key_regex) = query.force_viewer_file_key_regex {
         // `force_viewer_*` lets the caller supply a synthetic upload policy that
@@ -3991,6 +3989,19 @@ struct AppS3FileQueryWithForceViewerAllowedS3Keys {
     pub force_viewer_allowed_s3_keys: Option<String>,
 }
 
+/// Confine a scoped caller to THIS app's S3 files, or it could read another app's
+/// through that app's on-behalf policy. Either grant reads them: `apps:read:<path>`
+/// (app embed tokens) or `apps:run:<path>` (a run-scoped token fetching back what its
+/// own runs produced). Unscoped/anonymous callers fall through to the provenance gate.
+#[cfg(feature = "parquet")]
+fn check_app_s3_read_scope(opt_authed: &Option<ApiAuthed>, path: &str) -> Result<()> {
+    let Some(authed) = opt_authed.as_ref() else {
+        return Ok(());
+    };
+    check_scopes(authed, || format!("apps:run:{}", path))
+        .or_else(|_| check_scopes(authed, || format!("apps:read:{}", path)))
+}
+
 #[cfg(feature = "parquet")]
 async fn download_s3_file_from_app(
     OptAuthed(opt_authed): OptAuthed,
@@ -4002,14 +4013,7 @@ async fn download_s3_file_from_app(
 
     let path = path.to_path();
 
-    // Authorize the app path first: a scoped caller (notably an app embed token,
-    // which carries `apps:read:<own path>`) may only download files for the app it
-    // was minted for — otherwise it could read another app's S3 files via that app's
-    // on-behalf policy. Unscoped sessions / anonymous callers pass through (the
-    // latter still gated by the policy allowlist in `check_if_allowed_...`).
-    if let Some(authed) = opt_authed.as_ref() {
-        check_scopes(authed, || format!("apps:read:{}", path))?;
-    }
+    check_app_s3_read_scope(&opt_authed, path)?;
 
     let force_viewer_allowed_s3_keys = if let Some(force_viewer_allowed_s3_keys) =
         query.force_viewer_allowed_s3_keys.clone()
@@ -4087,8 +4091,8 @@ fn app_s3_file_query(s3: String, storage: Option<String>, sig: AppS3Sig) -> AppS
     }
 }
 
-/// Shared entry for every app-scoped (`apps_u/*`) S3 display op: scope-confine an
-/// app embed token, resolve the on-behalf identity per `execution_mode`, then run
+/// Shared entry for every app-scoped (`apps_u/*`) S3 display op: confine a scoped
+/// caller to this app, resolve the on-behalf identity per `execution_mode`, then run
 /// the provenance gate (`check_if_allowed_to_access_s3_file_from_app`) once before
 /// dispatching to the S3 helpers.
 #[cfg(feature = "parquet")]
@@ -4099,9 +4103,7 @@ async fn app_s3_on_behalf_and_provenance(
     opt_authed: &Option<ApiAuthed>,
     file_query: &AppS3FileQuery,
 ) -> Result<crate::db::OptJobAuthed> {
-    if let Some(authed) = opt_authed.as_ref() {
-        check_scopes(authed, || format!("apps:read:{}", path))?;
-    }
+    check_app_s3_read_scope(opt_authed, path)?;
     let (on_behalf_authed, policy) =
         get_on_behalf_authed_from_app(db, path, w_id, opt_authed, None).await?;
     let read_authed = match check_if_allowed_to_access_s3_file_from_app(
@@ -4497,9 +4499,9 @@ async fn build_args(
         if arg_str.starts_with("\"$ctx:") {
             let prop = arg_str.trim_start_matches("\"$ctx:").trim_end_matches("\"");
             let value = match prop {
-                "username" => authed.as_ref().map(|a| {
-                    serde_json::to_value(a.username_override.as_ref().unwrap_or(&a.username))
-                }),
+                "username" => authed
+                    .as_ref()
+                    .map(|a| serde_json::to_value(a.display_username())),
                 "email" => authed.as_ref().map(|a| serde_json::to_value(&a.email)),
                 "workspace" => Some(serde_json::to_value(&w_id)),
                 "groups" => authed.as_ref().map(|a| serde_json::to_value(&a.groups)),

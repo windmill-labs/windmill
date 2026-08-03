@@ -12,7 +12,7 @@ import * as wmill from "../../../gen/services.gen.ts";
 import { ListableApp, Policy } from "../../../gen/types.gen.ts";
 
 import { GlobalOptions, isSuperset } from "../../types.ts";
-import { getWmillYamlPath } from "../../core/conf.ts";
+import { getWmillYamlPath, mergeConfigWithConfigFile } from "../../core/conf.ts";
 import { readInlinePathSync } from "../../utils/utils.ts";
 import devCommand from "./dev.ts";
 import lintCommand from "./lint.ts";
@@ -402,7 +402,14 @@ async function push(
 
   if (isRawAppByName || hasRawAppYaml) {
     const { pushRawApp } = await import("./raw_apps.ts");
-    await pushRawApp(workspace.workspaceId, remotePath, absoluteFilePath);
+    const merged = await mergeConfigWithConfigFile(opts);
+    await pushRawApp(
+      workspace.workspaceId,
+      remotePath,
+      absoluteFilePath,
+      undefined,
+      merged.defaultTs,
+    );
     log.info(colors.bold.underline.green("Raw app pushed"));
   } else {
     await pushApp(workspace.workspaceId, remotePath, absoluteFilePath);

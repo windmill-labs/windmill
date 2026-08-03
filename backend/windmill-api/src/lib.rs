@@ -79,6 +79,7 @@ mod capture;
 mod concurrency_groups;
 mod db;
 mod db_health;
+mod dbt;
 mod docs;
 mod drafts;
 
@@ -328,6 +329,8 @@ async fn inject_agent_authed(
                 folders: Vec::new(),
                 scopes: None,
                 username_override: None,
+                username_override_is_token_label: false,
+                is_session_token: false,
                 token_prefix: None,
                 read_only: false,
             },
@@ -568,6 +571,7 @@ pub async fn run_server(
                             "/concurrency_groups",
                             concurrency_groups::workspaced_service(),
                         )
+                        .nest("/dbt", dbt::workspaced_service())
                         .nest("/drafts", drafts::workspaced_service())
                         .nest("/embeddings", embeddings::workspaced_service())
                         .nest("/favorites", favorite::workspaced_service())

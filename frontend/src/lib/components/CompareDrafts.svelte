@@ -39,10 +39,16 @@
 		draftItems: DraftItem[]
 		/** True while the page's Workspace Drafts resource is loading. */
 		draftsLoading?: boolean
-		/** Fork context drives the merged toggle: only a fork offers the
-		 * deploy_to/update directions, so the toggle is hidden otherwise. */
+		/** Fork context drives the parent-relative draft handling (the
+		 * unchanged-from-parent filter), not the toggle. */
 		isFork?: boolean
 		parentWorkspaceId?: string
+		/** The workspace the comparison view merges into — the parent, or an
+		 * arbitrary target. Its presence is what the toggle needs: without one there
+		 * is no comparison to switch back to, so the toggle is hidden. */
+		compareTargetId?: string
+		/** The comparison is one-way, so the toggle drops the update direction. */
+		oneWayCompare?: boolean
 		deployCount?: number
 		updateCount?: number
 		draftCount?: number
@@ -69,6 +75,8 @@
 		draftsLoading = false,
 		isFork = false,
 		parentWorkspaceId,
+		compareTargetId,
+		oneWayCompare = false,
 		deployCount = 0,
 		updateCount = 0,
 		draftCount = 0,
@@ -678,12 +686,13 @@
 			{/snippet}
 
 			{#snippet header()}
-				{#if isFork}
+				{#if compareTargetId}
 					<div class="flex flex-wrap gap-1 items-center bg-surface-tertiary pb-4">
 						<CompareModeToggle
 							selected="draft"
-							{isFork}
-							{parentWorkspaceId}
+							isFork={true}
+							oneWay={oneWayCompare}
+							parentWorkspaceId={compareTargetId}
 							{deployCount}
 							{updateCount}
 							{draftCount}

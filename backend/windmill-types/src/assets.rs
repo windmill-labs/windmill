@@ -14,6 +14,18 @@ pub enum AssetKind {
     Ducklake,
     DataTable,
     Volume,
+    /// A warehouse relation a dbt project builds or reads,
+    /// `dbt://<warehouse>/<schema>/<name>`, where `<warehouse>` is the name the
+    /// workspace configures it under.
+    ///
+    /// The SCHEME names the producer — dbt is the only thing that creates one —
+    /// while the PATH stays the physical relation, because that is what two
+    /// projects agree on: a mart one builds is a `source` the next reads, and
+    /// their dbt `unique_id`s differ (`model.a.orders` vs
+    /// `source.b.analytics.orders`) where the relation does not
+    /// (docs/dbt-runtime.md, decision 11). A dbt run does not trigger that
+    /// reader — the shared node is lineage, not a cascade edge.
+    Dbt,
 }
 
 impl AssetKind {
@@ -28,6 +40,7 @@ impl AssetKind {
             AssetKind::Ducklake => Some("ducklake://"),
             AssetKind::DataTable => Some("datatable://"),
             AssetKind::Volume => Some("volume://"),
+            AssetKind::Dbt => Some("dbt://"),
             AssetKind::Variable => None,
         }
     }

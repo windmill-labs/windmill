@@ -25,6 +25,7 @@
 	import Tooltip from '../Tooltip.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import DropdownV2 from '../DropdownV2.svelte'
+	import MissingWorkerTagAlert from '../jobs/MissingWorkerTagAlert.svelte'
 	import { superadmin, userStore } from '$lib/stores'
 
 	let {
@@ -422,6 +423,7 @@
 				{/if}
 			</div>
 		{:else}
+			<MissingWorkerTagAlert tag="postgresql" subject="Migrations" {workspace} class="mb-2" />
 			{#if loadError}
 				<div class="text-xs text-red-500">
 					Could not read applied status from the data table: {loadError}

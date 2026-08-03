@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM native_trigger WHERE workspace_id = $1 AND service_name = $2 RETURNING webhook_token_hash",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "webhook_token_hash",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        {
+          "Custom": {
+            "name": "native_trigger_service",
+            "kind": {
+              "Enum": [
+                "nextcloud",
+                "google",
+                "github"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b9686c115e83ad0725503e2c076960914f825eaa2b44281a4e147cea6e886e7a"
+}

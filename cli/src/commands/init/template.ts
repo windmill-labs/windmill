@@ -97,6 +97,7 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
   { name: "skipApps", type: "boolean", default: "false", description: "Skip syncing apps" },
   { name: "skipFolders", type: "boolean", default: "false", description: "Skip syncing folders" },
   { name: "skipWorkspaceDependencies", type: "boolean", default: "false", description: "Skip syncing workspace dependencies" },
+  { name: "skipDatatableMigrations", type: "boolean", default: "false", description: "Skip syncing data table SQL migrations" },
 
   { name: "includeSchedules", type: "boolean", default: "false", description: "Include schedules in sync",
     commented: true, templateValue: "true", groupNote: "Uncomment to include these (excluded by default):" },

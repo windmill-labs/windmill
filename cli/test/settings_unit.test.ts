@@ -125,6 +125,7 @@ describe("migrateToGroupedFormat", () => {
     const settings = {
       name: "my-workspace",
       webhook: "https://example.com/hook",
+      // Older settings files still carry deploy_to; it is no longer a setting and must be dropped.
       deploy_to: "staging",
       default_app: "u/admin/dashboard",
       mute_critical_alerts: true,
@@ -133,7 +134,7 @@ describe("migrateToGroupedFormat", () => {
     const result = migrateToGroupedFormat(settings);
     expect(result.name).toBe("my-workspace");
     expect(result.webhook).toBe("https://example.com/hook");
-    expect(result.deploy_to).toBe("staging");
+    expect("deploy_to" in result).toBe(false);
     expect(result.default_app).toBe("u/admin/dashboard");
     expect(result.mute_critical_alerts).toBe(true);
     expect(result.color).toBe("#ff0000");
