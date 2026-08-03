@@ -152,6 +152,16 @@ describe('previewTargetForSessionTarget', () => {
 			label: 'my_folder'
 		})
 	})
+	it('maps a pipeline owner path to the same folder target as the bare name', () => {
+		// open_preview is routinely called with `f/<folder>`; keeping the prefix
+		// would scope the editor to the folder "f/<folder>" and make every node
+		// path `f/f/<folder>/…`.
+		expect(previewTargetForSessionTarget('pipeline', 'f/my_folder')).toEqual({
+			type: 'page',
+			href: `${base}/pipeline/my_folder`,
+			label: 'my_folder'
+		})
+	})
 })
 
 describe('SessionPreviewTabs.open', () => {

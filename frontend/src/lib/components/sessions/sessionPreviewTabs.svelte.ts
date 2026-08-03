@@ -1,6 +1,7 @@
 import { base } from '$lib/base'
 import { randomUUID } from '$lib/utils/uuid'
 import { editPathFor, type WorkspaceItem } from '$lib/components/workspacePicker'
+import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 import {
 	artifactUrl,
 	matchPreviewPage,
@@ -104,7 +105,8 @@ export function previewTargetForSessionTarget(
 	path: string
 ): PreviewTarget | undefined {
 	if (kind === 'pipeline') {
-		return { type: 'page', href: `${base}/pipeline/${encodeURIComponent(path)}`, label: path }
+		const folder = normalizePipelineFolder(path)
+		return { type: 'page', href: `${base}/pipeline/${encodeURIComponent(folder)}`, label: folder }
 	}
 	const item: WorkspaceItem =
 		kind === 'raw_app'

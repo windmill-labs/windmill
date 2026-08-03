@@ -13,6 +13,7 @@ import {
 	ScrollText
 } from 'lucide-svelte'
 import type { DrillIcon } from '$lib/components/drillPicker'
+import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 import type { WorkspaceItem, WorkspaceItemKind } from '$lib/components/workspacePicker'
 import type { SessionTargetKind } from './sessionRuntime.svelte'
 
@@ -186,7 +187,7 @@ export function parsePreviewItemRoute(fullPath: string): PreviewItemRoute | null
 // `/pipeline` list page is not an editor. Returns the folder name, or null.
 export function parsePipelineRoute(fullPath: string): string | null {
 	const m = stripBase(fullPath).match(/^\/pipeline\/([^/?#]+)/)
-	return m ? decodeURIComponent(m[1]) : null
+	return m ? normalizePipelineFolder(decodeURIComponent(m[1])) : null
 }
 
 // The id (before the hash) is the artifact's stable routing identity; the name rides in
