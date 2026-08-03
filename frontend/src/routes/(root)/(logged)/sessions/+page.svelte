@@ -299,7 +299,7 @@
 	// Adapt the session tab model to DraggableTabs items (labels derived from the
 	// observed location; every tab closable, none pinned).
 	const previewTabItems = $derived<TabItem[]>(
-		(owner?.tabs ?? []).map((t) => ({ id: t.id, label: tabLabelFor(t) }))
+		(owner?.tabs ?? []).map((t) => ({ id: t.id, label: tabLabelFor(t), title: tabTitleFor(t) }))
 	)
 	let newTabOpen = $state(false)
 	// Separate open flag for the empty-state launcher: it can be mounted at the
@@ -554,6 +554,14 @@
 	// back to the plain location label for summary-less items and non-item pages.
 	function tabLabelFor(tab: SessionPreviewTab): string {
 		return tab.friendlyLabel ?? previewLocationLabel(tab.loc)
+	}
+
+	// Hover title for a tab. A summary label is free text the strip truncates, and
+	// it hides the path entirely, so the tooltip carries both.
+	function tabTitleFor(tab: SessionPreviewTab): string {
+		const label = tabLabelFor(tab)
+		const path = tab.friendlyPath ?? parsePreviewItemRoute(tab.loc)?.itemPath
+		return path && path !== label ? `${label}\n${path}` : label
 	}
 
 	// A link click inside a live editor (e.g. a subflow reference) re-points the
