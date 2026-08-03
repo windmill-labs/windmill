@@ -2985,7 +2985,10 @@ export const globalTools: Tool<{}>[] = [
 		fn: async (ctx) => {
 			const { advanced, ...rest } = (ctx.args ?? {}) as Record<string, unknown>
 			const supplied = (advanced as Record<string, unknown>) ?? {}
-			const parsed = writeScheduleSchema.parse({ ...rest, ...supplied })
+			// `advanced` is a fallback for what the definition no longer lists, so a field
+			// the model also passed as a real argument keeps the argument's value rather
+			// than being silently overwritten by a duplicate inside the bag.
+			const parsed = writeScheduleSchema.parse({ ...supplied, ...rest })
 			const dropped = droppedOptionKeys(supplied, parsed as Record<string, unknown>)
 			if (dropped.length) {
 				throw new Error(

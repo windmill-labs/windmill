@@ -354,8 +354,11 @@ const createScheduleTool: Tool<any> = {
 			const requestBody = parseWithExplicitErrors(
 				scheduleRequestSchema as z.ZodType<NewSchedule>,
 				{
-					...rest,
+					// `advanced` is a fallback for what the definition no longer lists, so a real
+					// argument wins over a duplicate inside the bag, and the runnable target wins
+					// over both.
 					...supplied,
+					...rest,
 					...getWorkspaceMutationTargetFields(helpers)
 				},
 				'Schedule'

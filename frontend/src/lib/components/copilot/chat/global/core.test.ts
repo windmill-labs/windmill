@@ -481,6 +481,25 @@ describe('global AI tools', () => {
 		expect(draft).not.toHaveProperty('advanced')
 	})
 
+	// `advanced` is the fallback for fields the definition no longer lists; a duplicate
+	// inside it must not quietly win over the argument the model actually passed.
+	it('lets a real schedule argument win over the same key inside advanced', async () => {
+		await callGlobalTool('write_schedule', {
+			path: 'f/schedules/prec',
+			schedule: '0 0 9 * * *',
+			timezone: 'UTC',
+			script_path: 'f/scripts/run',
+			is_flow: false,
+			args: {},
+			advanced: { timezone: 'Europe/Paris', tag: 'nightly' }
+		})
+
+		const draft = getBackendDraft<any>('trigger_schedule', 'f/schedules/prec', {
+			workspace: WORKSPACE
+		})
+		expect(draft).toMatchObject({ timezone: 'UTC', tag: 'nightly' })
+	})
+
 	// Every sub-field of `retry` is optional, so a guessed shape validates clean and
 	// strips to `{}`. Saving a schedule with no retry policy and reporting success is
 	// the failure the on-demand schema makes reachable.

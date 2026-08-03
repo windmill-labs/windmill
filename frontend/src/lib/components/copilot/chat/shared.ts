@@ -717,11 +717,6 @@ async function callTool<T>({
 
 type MaybePromise<T> = T | Promise<T>
 
-const MAX_TOOL_ERROR_LENGTH = 2000
-
-/** ApiError from the generated client carries the server's message in `body`,
- * not `message` — dig it out so tool failures show the real cause. Capped so a
- * verbose error body (e.g. an HTML error page) can't flood the chat context. */
 const isEmptyValue = (value: unknown): boolean =>
 	value === undefined ||
 	(typeof value === 'object' && value !== null && Object.keys(value).length === 0)
@@ -742,6 +737,11 @@ export function droppedOptionKeys(
 	)
 }
 
+const MAX_TOOL_ERROR_LENGTH = 2000
+
+/** ApiError from the generated client carries the server's message in `body`,
+ * not `message` — dig it out so tool failures show the real cause. Capped so a
+ * verbose error body (e.g. an HTML error page) can't flood the chat context. */
 export function formatToolError(error: any): string {
 	const bodyMessage =
 		error?.body?.error?.message ??
