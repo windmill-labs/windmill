@@ -180,7 +180,18 @@
 			// parse one file of it.
 			modules: modules ? { ...modules } : undefined,
 			tag,
-			timeout
+			timeout,
+			// The form's `vars` come along, and only those: they steer `enabled`,
+			// schemas, aliases and materializations, so a parse without them reports
+			// a different project than the run would build. `select` and the rest
+			// belong to a command that builds. Deep-copied, because the form keeps
+			// being edited and this has to stay the parse's own inputs.
+			args: JSON.parse(
+				JSON.stringify({
+					...(args ?? {}),
+					command: { label: 'parse', vars: (args?.command as any)?.vars ?? {} }
+				})
+			)
 		}
 		try {
 			id = await JobService.runScriptPreview({
@@ -192,14 +203,7 @@
 					language: 'dbt',
 					tag: submitted.tag,
 					modules: submitted.modules,
-					// The form's `vars` come along, and only those: they steer
-					// `enabled`, schemas, aliases and materializations, so a parse
-					// without them reports a different project than the run would
-					// build. `select` and the rest belong to a command that builds.
-					args: {
-						...(args ?? {}),
-						command: { label: 'parse', vars: (args?.command as any)?.vars ?? {} }
-					}
+					args: submitted.args ?? {}
 				}
 			})
 			// Polled until the JOB ends, with no window of its own: a cold worker

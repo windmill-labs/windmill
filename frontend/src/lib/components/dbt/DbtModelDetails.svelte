@@ -29,7 +29,8 @@
 		 *  is the buffer's, and there may be no deployed version to run at all. */
 		buffer,
 		/** The run form's arguments: a `dbt show` is an invocation of this same
-		 *  project, so a descriptor with a required `{{ }}` var needs them. */
+		 *  project, so a descriptor with a required `{{ }}` var needs them. Used
+		 *  for a deployed graph; a buffer preview takes its parse's own instead. */
 		args,
 		/** Whether this model's file is in the bundle being edited. */
 		fileInBundle = false,
@@ -48,11 +49,16 @@
 		onClose?: () => void
 	} = $props()
 
+	// The arguments belonging to the project being previewed. A buffer preview
+	// uses the ones its parse ran under, not the ones the form holds now: vars
+	// decide schemas and aliases, so later ones could point `dbt show` at a
+	// relation this graph never described.
+	let effectiveArgs = $derived(buffer ? buffer.args : args)
 	// Cached per model AND per arguments, so flipping between nodes does not
 	// re-spend a worker slot, while an edited var previews its own rows rather
 	// than returning the last ones.
 	let previews = $state<Record<string, DbtPreview>>({})
-	let previewKey = $derived(`${dbt.unique_id}|${JSON.stringify(args ?? {})}`)
+	let previewKey = $derived(`${dbt.unique_id}|${JSON.stringify(effectiveArgs ?? {})}`)
 	let preview = $derived(previews[previewKey])
 	let previewing = $derived(preview != undefined && 'pending' in preview)
 	// Which pane is showing. Keyed by the preview's own key so moving to another
@@ -72,7 +78,7 @@
 		// model until reload. Only a result or an in-flight run blocks a re-run.
 		if (cached != undefined && !('error' in cached)) return
 		previews = { ...previews, [key]: { pending: true } }
-		const { command: _cmd, ...placeholders } = (args ?? {}) as Record<string, any>
+		const { command: _cmd, ...placeholders } = (effectiveArgs ?? {}) as Record<string, any>
 		const next = await previewDbtRows({
 			workspace,
 			scriptPath,
@@ -81,7 +87,7 @@
 			// Scoped to the node's package: a dependency package can ship a model
 			// whose name the project also uses.
 			model: nodeSelector(dbt.unique_id),
-			vars: (args?.command as any)?.vars ?? {},
+			vars: ((effectiveArgs as any)?.command as any)?.vars ?? {},
 			args: placeholders,
 			stillWanted: () => !destroyed
 		})

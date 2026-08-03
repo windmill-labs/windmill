@@ -8,6 +8,10 @@ export type DbtPreviewBuffer = {
 	modules: Record<string, ScriptModule> | undefined
 	tag?: string
 	timeout?: number
+	/** The arguments the project was parsed under, in run-form shape. Part of the
+	 *  snapshot because vars decide `enabled`, schemas and aliases: run a preview
+	 *  under later ones and it can address a relation this graph never had. */
+	args: Record<string, unknown> | undefined
 }
 
 /** A model's rows, as `dbt show` returns them. */

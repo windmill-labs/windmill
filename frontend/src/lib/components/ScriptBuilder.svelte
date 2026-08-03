@@ -1056,6 +1056,13 @@
 			template = 'script'
 		}
 		let language = langToLanguage(lang)
+		if (language === 'dbt') {
+			// A project bundle only ever runs as an action, and the selector that
+			// would set this back is hidden for dbt — so a script arriving here as a
+			// trigger or approval would keep a kind it cannot fill and drop out of
+			// the action pickers, with nothing on screen to repair it.
+			script.kind = 'script'
+		}
 		//
 		initContent(language, script.kind, template)
 		script.language = language
