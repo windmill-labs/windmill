@@ -355,6 +355,53 @@ export async function deployItem(params: DeployItemParams): Promise<DeployResult
 }
 
 /**
+ * The two sides of a `workspace_diff` row a deploy direction reads:
+ * `exists_in_source` is the parent (or arbitrary target) side, `exists_in_fork`
+ * the current workspace.
+ */
+type WorkspaceDiffSides = {
+	ahead: number
+	behind: number
+	exists_in_source: boolean
+	exists_in_fork: boolean
+}
+
+/** Deploying this row creates the item in the target, which does not have it. */
+export function diffCreatesInTarget(diff: WorkspaceDiffSides, mergeIntoParent: boolean): boolean {
+	return mergeIntoParent ? diff.exists_in_source === false : diff.exists_in_fork === false
+}
+
+/**
+ * Deploying this row removes the item in the target, the only side that has it.
+ * Which side dropped it is unknowable — `ahead`/`behind` count deploy events on a
+ * side, and a pull into the fork or a git-sync revert leaves the trace a delete
+ * does — so a row states what deploying does, and a removal is never bulk-selected.
+ */
+export function diffRemovesInTarget(diff: WorkspaceDiffSides, mergeIntoParent: boolean): boolean {
+	return mergeIntoParent ? diff.exists_in_fork === false : diff.exists_in_source === false
+}
+
+/**
+ * Rows a deploy in this direction can act on. A merge carries what the fork *has*:
+ * an item only the parent has is no fork change (see `diffRemovesInTarget`), while
+ * the update direction takes it whatever the counters say. Only an arbitrary target
+ * merges one — that one-way sync has no tally, so target-only does mean "remove".
+ */
+export function diffActionableInDirection(
+	diff: WorkspaceDiffSides,
+	mergeIntoParent: boolean,
+	isArbitraryTarget: boolean = false
+): boolean {
+	if (mergeIntoParent) {
+		if (!isArbitraryTarget && diff.exists_in_fork === false) {
+			return false
+		}
+		return diff.ahead > 0
+	}
+	return diff.behind > 0 || diffCreatesInTarget(diff, mergeIntoParent)
+}
+
+/**
  * Delete/archive an item in a workspace.
  * Used when deploying a deletion from one workspace to another.
  * Scripts and flows are archived (reversible). Other types are deleted.

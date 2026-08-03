@@ -1754,6 +1754,83 @@ async fn test_compare_workspaces_phantom_trigger_shortfuse(
     Ok(())
 }
 
+/// A source-only row is offered to the fork whatever its counters say, so it can
+/// carry `behind = 0` — a `behind`-derived tally never sees it, and hiding one must
+/// still be reported to the update direction. The merge direction does not carry
+/// such a row at all, so hiding one withholds nothing from that side.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_compare_workspaces_hidden_source_only_no_behind(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base_url = format!("http://localhost:{port}/api");
+    let non_admin = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN_2".to_string(),
+    );
+
+    sqlx::query!(
+        "INSERT INTO workspace (id, name, owner, parent_workspace_id)
+         VALUES ('wm-fork-test-workspace', 'Fork', 'test-user', 'test-workspace')"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!("INSERT INTO workspace_settings (workspace_id) VALUES ('wm-fork-test-workspace')")
+        .execute(&db)
+        .await?;
+    sqlx::query!(
+        "INSERT INTO workspace_key(workspace_id, kind, key)
+         VALUES ('wm-fork-test-workspace', 'cloud', 'test-key')"
+    )
+    .execute(&db)
+    .await?;
+
+    // Source-only row with no `behind`: the trigger has no backing row, so the
+    // visibility filter drops it exactly as it would an ACL-hidden one.
+    sqlx::query!(
+        "INSERT INTO workspace_diff
+         (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes, exists_in_source, exists_in_fork)
+         VALUES ('test-workspace', 'wm-fork-test-workspace', 'f/rt/parent_only', 'http_trigger', 1, 0, true, true, false)"
+    )
+    .execute(&db)
+    .await?;
+
+    let comparison: serde_json::Value = non_admin
+        .client()
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-test-workspace"
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(
+        comparison["all_behind_items_visible"].as_bool(),
+        Some(false),
+        "a hidden source-only row must trip the warning even at behind = 0: {comparison}"
+    );
+    assert_eq!(
+        comparison["hidden_behind"]["total"].as_i64(),
+        Some(1),
+        "a hidden source-only row must be counted as withheld from the update direction: {comparison}"
+    );
+    assert_eq!(
+        comparison["all_ahead_items_visible"].as_bool(),
+        Some(true),
+        "the merge direction does not carry a source-only row, so hiding one withholds nothing from it: {comparison}"
+    );
+    assert_eq!(
+        comparison["hidden_ahead"]["total"].as_i64(),
+        Some(0),
+        "a source-only row must not be reported as withheld from the merge direction: {comparison}"
+    );
+
+    Ok(())
+}
+
 /// Regression: the "sees everything" guard must require admin of BOTH sides, not
 /// just the fork. `filter_visible_diffs` keeps a modified/conflict row (one that
 /// exists in the source AND the fork) only when the caller can see it on both
