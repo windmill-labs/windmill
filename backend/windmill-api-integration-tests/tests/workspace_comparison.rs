@@ -1754,14 +1754,10 @@ async fn test_compare_workspaces_phantom_trigger_shortfuse(
     Ok(())
 }
 
-/// Regression: a row the source has and the fork lacks is offered to the fork
-/// whatever its counters say (the tally credits `ahead` for every deploy event in
-/// the fork, a pull of the source's own item included), so it can carry
-/// `behind = 0`. Both `all_behind_items_visible` and `hidden_behind` used to be
-/// derived from the `behind` counters alone, which such a row never moves — so
-/// hiding it left the update direction claiming that nothing was withheld. The
-/// merge direction is the mirror: it does not carry such a row at all, so hiding
-/// one withholds nothing from it and must not be reported on that side.
+/// A source-only row is offered to the fork whatever its counters say, so it can
+/// carry `behind = 0` — a `behind`-derived tally never sees it, and hiding one must
+/// still be reported to the update direction. The merge direction does not carry
+/// such a row at all, so hiding one withholds nothing from that side.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_compare_workspaces_hidden_source_only_no_behind(
     db: Pool<Postgres>,

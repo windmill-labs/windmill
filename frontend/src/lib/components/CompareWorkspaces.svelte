@@ -995,11 +995,9 @@
 	let removalKeys = new Set<string>()
 	$effect(() => {
 		const diffs = comparison?.diffs
-		// Which rows are removals depends on the direction, so a flip has to refresh
-		// the set: keeping the other direction's would make every row of the new one
-		// look freshly flipped and revoke the opt-in this guard exists to protect.
-		// Re-running on the flip is otherwise a no-op — the direction toggle already
-		// deselects, and the default selection never picks a removal.
+		// Removals are direction-dependent, so a flip must refresh the set: keeping the
+		// other direction's would make every row of the new one look freshly flipped
+		// and revoke the opt-in this guard protects.
 		;[mergeIntoParent]
 		if (!diffs) return
 		untrack(() => {
