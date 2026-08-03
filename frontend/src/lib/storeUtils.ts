@@ -37,7 +37,7 @@ export function clearStores(): void {
 	userStore.set(undefined)
 	workspaceStore.set(undefined)
 	usersWorkspaceStore.set(undefined)
-	nonMemberWorkspaces.set({})
+	nonMemberWorkspaces.set(undefined)
 	refreshSuperadmin.cancel()
 	superadmin.set(undefined)
 	devopsRole.set(undefined)

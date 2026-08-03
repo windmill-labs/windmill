@@ -1,5 +1,5 @@
 import { BROWSER } from 'esm-env'
-import { derived, type Readable, writable } from 'svelte/store'
+import { derived, get, type Readable, writable } from 'svelte/store'
 
 import type { IntrospectionQuery } from 'graphql'
 import {
@@ -93,23 +93,26 @@ export const lspTokenStore = writable<string | undefined>(undefined)
 export const hubBaseUrlStore = writable<string>(DEFAULT_HUB_BASE_URL)
 export const wsBaseUrlStore = writable<string | undefined>(undefined)
 export const disableHubStore = writable<boolean>(false)
-// The workspace a superadmin is currently in without being a member of it, plus its
-// parent — `listUserWorkspaces` is membership-gated, so `$userWorkspaces` would miss
-// them and every fork lookup would read the workspace as a parentless root. Holds only
-// what the current workspace needs: entries kept past a switch would go on presenting
-// themselves as memberships (workspace picker, workspace-family lookups).
-export const nonMemberWorkspaces = writable<Record<string, UserWorkspace>>({})
+// What a superadmin standing in a workspace they are not a member of needs to see it as a
+// fork: the workspace itself and its parent. `listUserWorkspaces` is membership-gated, so
+// `$userWorkspaces` would miss them and every fork lookup would read the workspace as a
+// parentless root. Owned by exactly one workspace (`forWorkspace`) — held past a switch,
+// these would go on presenting themselves as memberships (picker, workspace-family lookups).
+export const nonMemberWorkspaces = writable<
+	{ forWorkspace: string; workspaces: UserWorkspace[] } | undefined
+>(undefined)
 
 /**
- * Replaces the set, dropping archived/deleted workspaces — `userWorkspaces` must never
- * offer one. A no-op when the same ids are already held, so re-resolving cannot loop
- * against effects that depend on `userWorkspaces`.
+ * Records what was resolved for `forWorkspace`, dropping archived workspaces —
+ * `userWorkspaces` must never offer one. An archived workspace therefore resolves to an
+ * empty set, which still marks it as resolved and stops it being fetched again.
  */
-export function setNonMemberWorkspaces(workspaces: Workspace[]): void {
-	nonMemberWorkspaces.update((cur) => {
-		const next: Record<string, UserWorkspace> = {}
-		for (const w of workspaces.filter((w) => !w.deleted)) {
-			next[w.id] = {
+export function setNonMemberWorkspaces(forWorkspace: string, workspaces: Workspace[]): void {
+	nonMemberWorkspaces.set({
+		forWorkspace,
+		workspaces: workspaces
+			.filter((w) => !w.deleted)
+			.map((w) => ({
 				id: w.id,
 				name: w.name,
 				// No `usr` row here, hence no per-workspace username — same stand-in as the
@@ -120,12 +123,17 @@ export function setNonMemberWorkspaces(workspaces: Workspace[]): void {
 				is_dev_workspace: w.is_dev_workspace,
 				dev_workspace_label: w.dev_workspace_label,
 				disabled: false
-			}
-		}
-		const curIds = Object.keys(cur)
-		const nextIds = Object.keys(next)
-		return curIds.length === nextIds.length && nextIds.every((id) => id in cur) ? cur : next
+			}))
 	})
+}
+
+export function clearNonMemberWorkspaces(): void {
+	// A Svelte store notifies on every write of an object value, so clearing an already
+	// empty store is not free: the layout effect that fills this one also reads it, and
+	// would re-run itself forever.
+	if (get(nonMemberWorkspaces) != undefined) {
+		nonMemberWorkspaces.set(undefined)
+	}
 }
 
 export const userWorkspaces: Readable<Array<UserWorkspace>> = derived(
@@ -145,7 +153,9 @@ export const userWorkspaces: Readable<Array<UserWorkspace>> = derived(
 					}
 				]
 			: originalWorkspaces
-		const extra = Object.values(nonMember).filter((w) => !workspaces.some((x) => x.id === w.id))
+		const extra = (nonMember?.workspaces ?? []).filter(
+			(w) => !workspaces.some((x) => x.id === w.id)
+		)
 		return extra.length > 0 ? [...workspaces, ...extra] : workspaces
 	}
 )

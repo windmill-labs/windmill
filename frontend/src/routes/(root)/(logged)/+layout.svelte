@@ -43,6 +43,7 @@
 		globalS3FilePickerExplorer,
 		nonMemberWorkspaces,
 		setNonMemberWorkspaces,
+		clearNonMemberWorkspaces,
 		type UserWorkspace
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
@@ -707,9 +708,9 @@
 		const ws = $workspaceStore
 		const list = $userWorkspaces
 		const memberships = $usersWorkspaceStore?.workspaces
-		const resolved = Object.keys($nonMemberWorkspaces)
+		const resolvedFor = $nonMemberWorkspaces?.forWorkspace
 		const isSuperadmin = $superadmin
-		untrack(() => void resolveCurrentWorkspace(ws, list, memberships, resolved, isSuperadmin))
+		untrack(() => void resolveCurrentWorkspace(ws, list, memberships, resolvedFor, isSuperadmin))
 	})
 
 	// A superadmin can open a fork they aren't a member of, including a prefixless dev
@@ -721,7 +722,7 @@
 		ws: string | undefined,
 		list: typeof $userWorkspaces,
 		memberships: UserWorkspace[] | undefined,
-		resolved: string[],
+		resolvedFor: string | undefined,
 		isSuperadmin: string | false | undefined
 	): Promise<void> {
 		if (!ws) return
@@ -729,14 +730,14 @@
 			recordForkParent(ws, list)
 		}
 		// Absence from a list that hasn't arrived yet says nothing about membership.
-		if (memberships == undefined) return
+		if (memberships == undefined || resolvedFor === ws) return
 		if (memberships.some((w) => w.id === ws)) {
-			setNonMemberWorkspaces([])
+			clearNonMemberWorkspaces()
 			return
 		}
-		// The effect re-runs several times before the first fetch lands (each store this
-		// depends on settles separately), and none of those passes can see the result yet.
-		if (!isSuperadmin || resolved.includes(ws) || resolvingWorkspace === ws) return
+		// This effect re-runs while a fetch is in flight, and no such pass can see the
+		// result yet.
+		if (!isSuperadmin || resolvingWorkspace === ws) return
 		resolvingWorkspace = ws
 		try {
 			const workspace = await WorkspaceService.getWorkspaceAsSuperAdmin({ workspace: ws })
@@ -750,7 +751,7 @@
 			// A switch during the fetch already resolved (or cleared) the store for the
 			// workspace now open; this answer describes the one we left.
 			if ($workspaceStore !== ws) return
-			setNonMemberWorkspaces(parent ? [workspace, parent] : [workspace])
+			setNonMemberWorkspaces(ws, parent ? [workspace, parent] : [workspace])
 			if (parentId) {
 				rememberForkParent(ws, parentId)
 			}
