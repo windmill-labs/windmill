@@ -32654,6 +32654,32 @@ components:
         exists_in_fork:
           type: boolean
           description: If the item exists in the fork workspace
+        fork_last_event_kind:
+          $ref: "#/components/schemas/DeployEventKind"
+        fork_last_event_origin:
+          $ref: "#/components/schemas/DeployEventOrigin"
+        source_last_event_kind:
+          $ref: "#/components/schemas/DeployEventKind"
+        source_last_event_origin:
+          $ref: "#/components/schemas/DeployEventOrigin"
+
+    DeployEventKind:
+      type: string
+      enum: ["write", "delete", "rename_from"]
+      description: |
+        What a deploy event did to the path it is recorded against: `write` (the path holds an item
+        after the event), `delete` (it does not), or `rename_from` (the path was vacated by a rename
+        to another path). Create and update are not distinguished. Omitted when no such event has
+        been recorded for that side, which counts as no evidence.
+
+    DeployEventOrigin:
+      type: string
+      enum: ["authored", "sync"]
+      description: |
+        Who caused a deploy event: `authored` (written in that workspace by the requester) or `sync`
+        (applied there by a git-sync pull or a workspace-to-workspace deploy). Only an authored
+        removal is evidence that the workspace dropped the item on purpose. Omitted when no such
+        event has been recorded for that side.
 
     CompareSummary:
       type: object

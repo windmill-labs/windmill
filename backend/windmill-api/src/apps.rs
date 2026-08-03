@@ -2537,6 +2537,33 @@ async fn delete_app(
     Ok(format!("app {} deleted", path))
 }
 
+/// Report the path an app rename left behind (see `tally_rename_vacated_path`).
+/// `raw_app` decides the diff row's kind, so read it back rather than guess — a
+/// wrong kind writes a row nothing reads.
+async fn tally_app_rename(db: &DB, w_id: &str, opath: &str, npath: &str, v_id: i64) {
+    if opath == npath {
+        return;
+    }
+    let raw_app = match sqlx::query_scalar!("SELECT raw_app FROM app_version WHERE id = $1", v_id)
+        .fetch_optional(db)
+        .await
+    {
+        Ok(raw_app) => raw_app.unwrap_or(false),
+        Err(e) => {
+            tracing::error!(%e, "could not read app_version {v_id} to tally the rename");
+            return;
+        }
+    };
+    let vacated = if raw_app {
+        DeployedObject::RawApp { path: opath.to_string(), version: v_id, parent_path: None }
+    } else {
+        DeployedObject::App { path: opath.to_string(), version: v_id, parent_path: None }
+    };
+    if let Err(e) = windmill_git_sync::tally_rename_vacated_path(db, w_id, vacated).await {
+        tracing::error!(%e, "error tallying the path renamed away from");
+    }
+}
+
 async fn update_app(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -2567,9 +2594,12 @@ async fn update_app(
     }
 
     let opath = path.to_string();
-    let (new_tx, npath, _v_id) =
+    let db2 = db.clone();
+    let (new_tx, npath, v_id) =
         update_app_internal(authed, db, user_db, &w_id, path, false, ns).await?;
     new_tx.commit().await?;
+
+    tally_app_rename(&db2, &w_id, &opath, &npath, v_id).await;
 
     webhook.send_message(
         w_id.clone(),
@@ -2612,7 +2642,8 @@ async fn update_app_raw<'a>(
     let path = path.to_path();
     check_scopes(&authed, || format!("apps:write:{}", path))?;
     let opath = path.to_string();
-    let (npath, _id) = process_app_multipart!(
+    let db2 = db.clone();
+    let (npath, v_id) = process_app_multipart!(
         authed,
         user_db,
         db,
@@ -2622,6 +2653,7 @@ async fn update_app_raw<'a>(
         update_app_internal
     )
     .await?;
+    tally_app_rename(&db2, &w_id, &opath, &npath, v_id).await;
 
     webhook.send_message(
         w_id.clone(),

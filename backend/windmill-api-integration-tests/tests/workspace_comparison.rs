@@ -2206,3 +2206,357 @@ async fn test_full_diff_scan_against_arbitrary_workspace(db: Pool<Postgres>) -> 
 
     Ok(())
 }
+
+/// Regression for WIN-2289. A fork deletion and a git-sync pull reverting an
+/// earlier deploy leave the same `ahead > 0, behind = 0` row with the item gone
+/// from the fork; the comparison must carry the recorded origin that tells them
+/// apart, and a tally that cannot vouch for its event must not overwrite it.
+///
+/// Gated on `private` for the same reason as the tally tests above: the OSS
+/// `handle_deployment_metadata` is a no-op, so no rows would ever be written.
+#[cfg(feature = "private")]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_compare_records_fork_removal_origin(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base_url = format!("http://localhost:{port}/api");
+    let admin = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+
+    sqlx::query!("DELETE FROM skip_workspace_diff_tally")
+        .execute(&db)
+        .await?;
+
+    // Deployed in the parent before the fork exists, so nothing is tallied yet and
+    // the fork starts with both scripts. bash needs no lock generation, so the
+    // create tallies inline instead of deferring to a dependency job (no worker
+    // runs in this test).
+    for path in ["u/admin/dropped_by_user", "u/admin/dropped_by_sync"] {
+        let resp = admin
+            .client()
+            .post(&format!("{base_url}/w/test-workspace/scripts/create"))
+            .json(&json!({
+                "path": path,
+                "summary": "",
+                "description": "",
+                "content": "echo 1",
+                "language": "bash",
+                "schema": {"type": "object", "properties": {}, "required": []},
+            }))
+            .send()
+            .await?;
+        let status = resp.status();
+        assert!(
+            status.is_success(),
+            "script create failed: {} — {}",
+            status,
+            resp.text().await?
+        );
+    }
+
+    let resp = admin
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/create_fork"
+        ))
+        .json(&json!({"id": "wm-fork-removal", "name": "Removal Fork"}))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "fork creation failed: {}",
+        resp.status()
+    );
+
+    // Same act, same resulting row shape; only the header a sync client sets differs.
+    for (path, origin_header) in [
+        ("u/admin/dropped_by_user", None),
+        ("u/admin/dropped_by_sync", Some("sync")),
+    ] {
+        let mut req = admin.client().post(&format!(
+            "{base_url}/w/wm-fork-removal/scripts/archive/p/{path}"
+        ));
+        if let Some(origin) = origin_header {
+            req = req.header("X-Windmill-Deploy-Origin", origin);
+        }
+        let resp = req.send().await?;
+        let status = resp.status();
+        assert!(
+            status.is_success(),
+            "archive of {path} failed: {} — {}",
+            status,
+            resp.text().await?
+        );
+    }
+
+    // The tally runs in a `tokio::spawn` inside `handle_deployment_metadata`.
+    let mut recorded = 0;
+    for _ in 0..40 {
+        recorded = sqlx::query_scalar!(
+            "SELECT COUNT(*) AS \"count!\" FROM workspace_diff
+             WHERE source_workspace_id = 'test-workspace'
+               AND fork_workspace_id = 'wm-fork-removal'
+               AND kind = 'script'
+               AND fork_last_event_origin IS NOT NULL"
+        )
+        .fetch_one(&db)
+        .await?;
+        if recorded >= 2 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert_eq!(recorded, 2, "both archives should have tallied an event");
+
+    let comparison: serde_json::Value = admin
+        .client()
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-removal"
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let diffs = comparison["diffs"].as_array().unwrap();
+
+    for (path, expected_origin) in [
+        ("u/admin/dropped_by_user", "authored"),
+        ("u/admin/dropped_by_sync", "sync"),
+    ] {
+        let row = diffs
+            .iter()
+            .find(|d| d["path"] == path && d["kind"] == "script")
+            .unwrap_or_else(|| panic!("{path} should be in the diff; got {diffs:?}"));
+        assert_eq!(row["exists_in_source"].as_bool(), Some(true), "{row}");
+        assert_eq!(row["exists_in_fork"].as_bool(), Some(false), "{row}");
+        assert_eq!(row["behind"].as_i64(), Some(0), "{row}");
+        assert_eq!(
+            row["fork_last_event_kind"].as_str(),
+            Some("delete"),
+            "{row}"
+        );
+        assert_eq!(
+            row["fork_last_event_origin"].as_str(),
+            Some(expected_origin),
+            "the two removals must stay distinguishable: {row}"
+        );
+    }
+
+    // The call the worker makes on its success path for a lock-generating deploy:
+    // it reports a deploy that landed before the archive and cannot answer for what
+    // the path holds now. The archive's record has to survive it, and only the
+    // counter moves.
+    windmill_git_sync::handle_deployment_metadata(
+        "admin@windmill.dev",
+        "admin",
+        &db,
+        "wm-fork-removal",
+        windmill_git_sync::DeployedObject::Script {
+            hash: windmill_common::scripts::ScriptHash(0),
+            path: "u/admin/dropped_by_sync".to_string(),
+            parent_path: Some("u/admin/dropped_by_sync".to_string()),
+        },
+        None,
+        true,
+        // A redeploy that did not move the item passes the same path back; it must
+        // not be tallied a second time as the path a rename vacated.
+        Some("u/admin/dropped_by_sync"),
+    )
+    .await?;
+    let mut after = None;
+    for _ in 0..40 {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let row = sqlx::query!(
+            "SELECT ahead, fork_last_event_kind, fork_last_event_origin FROM workspace_diff
+             WHERE source_workspace_id = 'test-workspace' AND fork_workspace_id = 'wm-fork-removal'
+               AND kind = 'script' AND path = 'u/admin/dropped_by_sync'"
+        )
+        .fetch_one(&db)
+        .await?;
+        if row.ahead > 1 {
+            after = Some(row);
+            break;
+        }
+    }
+    let after = after.expect("the detached tally should still bump the counter");
+    assert_eq!(after.fork_last_event_kind.as_deref(), Some("delete"));
+    assert_eq!(
+        after.fork_last_event_origin.as_deref(),
+        Some("sync"),
+        "a tally that cannot vouch for its event must not overwrite one that did"
+    );
+    assert_eq!(after.ahead, 2, "and it counts once, not twice");
+
+    Ok(())
+}
+
+/// `probe_deploy_event_kind` builds its query for these kinds by interpolating the
+/// table name, so a wrong entry compiles fine and only fails once someone deploys
+/// that trigger kind in a fork — where the error aborts the tally and the item
+/// never reaches `workspace_diff` at all. Sweep the allowlist against a live
+/// database instead.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_probe_covers_every_path_keyed_table(db: Pool<Postgres>) -> anyhow::Result<()> {
+    for kind in windmill_git_sync::PATH_KEYED_TABLES {
+        let probed =
+            windmill_git_sync::probe_deploy_event_kind(&db, "test-workspace", kind, "u/a/nothing")
+                .await
+                .unwrap_or_else(|e| panic!("probing `{kind}` failed: {e}"));
+        assert_eq!(
+            probed,
+            Some(windmill_common::deploy_origin::DeployEventKind::Delete),
+            "an absent `{kind}` must probe as a deletion"
+        );
+    }
+    Ok(())
+}
+
+/// Flows always generate a lock, so without the request reporting the path a
+/// rename left behind, a renamed flow leaves its old path in the parent with
+/// nothing to merge.
+#[cfg(feature = "private")]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_rename_records_the_vacated_path(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base_url = format!("http://localhost:{port}/api");
+    let admin = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+
+    sqlx::query!("DELETE FROM skip_workspace_diff_tally")
+        .execute(&db)
+        .await?;
+    let resp = admin
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/create_fork"
+        ))
+        .json(&json!({"id": "wm-fork-renamed", "name": "Rename Fork"}))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "fork creation: {}",
+        resp.status()
+    );
+
+    let flow = |path: &str| {
+        json!({
+            "path": path,
+            "summary": "",
+            "description": "",
+            "value": {"modules": []},
+            "schema": {"type": "object", "properties": {}, "required": []},
+        })
+    };
+    for (path, origin) in [
+        ("u/admin/moved_by_user", None),
+        ("u/admin/moved_by_sync", Some("sync")),
+    ] {
+        let mut req = admin
+            .client()
+            .post(&format!("{base_url}/w/wm-fork-renamed/flows/create"))
+            .json(&flow(path));
+        if let Some(origin) = origin {
+            req = req.header("X-Windmill-Deploy-Origin", origin);
+        }
+        let resp = req.send().await?;
+        assert!(resp.status().is_success(), "flow create: {}", resp.status());
+
+        let mut req = admin
+            .client()
+            .post(&format!("{base_url}/w/wm-fork-renamed/flows/update/{path}"))
+            .json(&flow(&format!("{path}_new")));
+        if let Some(origin) = origin {
+            req = req.header("X-Windmill-Deploy-Origin", origin);
+        }
+        let resp = req.send().await?;
+        assert!(resp.status().is_success(), "flow rename: {}", resp.status());
+    }
+
+    let mut rows = vec![];
+    for _ in 0..40 {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        rows = sqlx::query!(
+            "SELECT path, fork_last_event_kind, fork_last_event_origin FROM workspace_diff
+             WHERE fork_workspace_id = 'wm-fork-renamed' AND kind = 'flow'
+               AND fork_last_event_origin IS NOT NULL ORDER BY path"
+        )
+        .fetch_all(&db)
+        .await?;
+        if rows.len() >= 2 {
+            break;
+        }
+    }
+    let claimed: Vec<_> = rows
+        .iter()
+        .map(|r| {
+            (
+                r.path.as_str(),
+                r.fork_last_event_kind.as_deref(),
+                r.fork_last_event_origin.as_deref(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        claimed,
+        vec![
+            ("u/admin/moved_by_sync", Some("delete"), Some("sync")),
+            ("u/admin/moved_by_user", Some("delete"), Some("authored")),
+        ],
+        "each vacated path is recorded with the origin of the rename that left it, \
+         and the deployed paths — which only the dependency job reports — are not"
+    );
+
+    // A script needing no lock deploys inline, so its own request reports both
+    // paths and can say why the old one is empty rather than only that it is.
+    let mut parent_hash: Option<String> = None;
+    for path in ["u/admin/inline", "u/admin/inline_moved"] {
+        let resp = admin
+            .client()
+            .post(&format!("{base_url}/w/wm-fork-renamed/scripts/create"))
+            .json(&json!({
+                "path": path,
+                "summary": "",
+                "description": "",
+                // bash needs no lock, so this deploys inline.
+                "content": "echo 1",
+                "language": "bash",
+                "schema": {"type": "object", "properties": {}, "required": []},
+                "parent_hash": parent_hash,
+            }))
+            .send()
+            .await?;
+        let status = resp.status();
+        let hash = resp.text().await?;
+        assert!(status.is_success(), "script deploy failed: {status} — {hash}");
+        parent_hash = Some(hash.trim().trim_matches('"').to_string());
+    }
+    let mut vacated = None;
+    for _ in 0..40 {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        vacated = sqlx::query!(
+            "SELECT fork_last_event_kind, fork_last_event_origin FROM workspace_diff
+             WHERE fork_workspace_id = 'wm-fork-renamed' AND kind = 'script'
+               AND path = 'u/admin/inline' AND fork_last_event_kind IS NOT NULL"
+        )
+        .fetch_optional(&db)
+        .await?;
+        if vacated.is_some() {
+            break;
+        }
+    }
+    let vacated = vacated.expect("the inline rename should report the path it left");
+    assert_eq!(vacated.fork_last_event_kind.as_deref(), Some("rename_from"));
+    assert_eq!(vacated.fork_last_event_origin.as_deref(), Some("authored"));
+
+    Ok(())
+}
