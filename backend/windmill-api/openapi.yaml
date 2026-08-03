@@ -30923,6 +30923,9 @@ components:
         parent_workspace_id:
           type: string
           nullable: true
+        deleted:
+          type: boolean
+          description: "Archived (soft-deleted) workspace"
         is_dev_workspace:
           type: boolean
         dev_workspace_label:

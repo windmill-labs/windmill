@@ -93,35 +93,39 @@ export const lspTokenStore = writable<string | undefined>(undefined)
 export const hubBaseUrlStore = writable<string>(DEFAULT_HUB_BASE_URL)
 export const wsBaseUrlStore = writable<string | undefined>(undefined)
 export const disableHubStore = writable<boolean>(false)
-// Workspaces a superadmin opened without being a member of them. `listUserWorkspaces`
-// is membership-gated, so they are absent from `usersWorkspaceStore` and every
-// `$userWorkspaces` lookup for the current workspace comes back undefined — which
-// reads as "root workspace with no parent", hiding the fork banner and leaving the
-// compare page without a deploy target. Filled in on demand from
-// `getWorkspaceAsSuperAdmin` (see the logged layout).
+// The workspace a superadmin is currently in without being a member of it, plus its
+// parent — `listUserWorkspaces` is membership-gated, so `$userWorkspaces` would miss
+// them and every fork lookup would read the workspace as a parentless root. Holds only
+// what the current workspace needs: entries kept past a switch would go on presenting
+// themselves as memberships (workspace picker, workspace-family lookups).
 export const nonMemberWorkspaces = writable<Record<string, UserWorkspace>>({})
 
-/** Idempotent so repeated resolutions of the same workspace don't churn `userWorkspaces`. */
-export function rememberNonMemberWorkspace(workspace: Workspace): void {
-	nonMemberWorkspaces.update((cur) =>
-		cur[workspace.id]
-			? cur
-			: {
-					...cur,
-					[workspace.id]: {
-						id: workspace.id,
-						name: workspace.name,
-						// No `usr` row here, hence no per-workspace username — same stand-in
-						// as the synthetic `admins` entry below.
-						username: 'superadmin',
-						color: workspace.color,
-						parent_workspace_id: workspace.parent_workspace_id,
-						is_dev_workspace: workspace.is_dev_workspace,
-						dev_workspace_label: workspace.dev_workspace_label,
-						disabled: false
-					}
-				}
-	)
+/**
+ * Replaces the set, dropping archived/deleted workspaces — `userWorkspaces` must never
+ * offer one. A no-op when the same ids are already held, so re-resolving cannot loop
+ * against effects that depend on `userWorkspaces`.
+ */
+export function setNonMemberWorkspaces(workspaces: Workspace[]): void {
+	nonMemberWorkspaces.update((cur) => {
+		const next: Record<string, UserWorkspace> = {}
+		for (const w of workspaces.filter((w) => !w.deleted)) {
+			next[w.id] = {
+				id: w.id,
+				name: w.name,
+				// No `usr` row here, hence no per-workspace username — same stand-in as the
+				// synthetic `admins` entry below.
+				username: 'superadmin',
+				color: w.color,
+				parent_workspace_id: w.parent_workspace_id,
+				is_dev_workspace: w.is_dev_workspace,
+				dev_workspace_label: w.dev_workspace_label,
+				disabled: false
+			}
+		}
+		const curIds = Object.keys(cur)
+		const nextIds = Object.keys(next)
+		return curIds.length === nextIds.length && nextIds.every((id) => id in cur) ? cur : next
+	})
 }
 
 export const userWorkspaces: Readable<Array<UserWorkspace>> = derived(

@@ -41,7 +41,9 @@
 		globalDbManagerDrawer,
 		globalForkModal,
 		globalS3FilePickerExplorer,
-		rememberNonMemberWorkspace
+		nonMemberWorkspaces,
+		setNonMemberWorkspaces,
+		type UserWorkspace
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { afterNavigate, beforeNavigate } from '$app/navigation'
@@ -704,47 +706,64 @@
 	$effect(() => {
 		const ws = $workspaceStore
 		const list = $userWorkspaces
-		const membershipsLoaded = $usersWorkspaceStore != undefined
+		const memberships = $usersWorkspaceStore?.workspaces
+		const resolved = Object.keys($nonMemberWorkspaces)
 		const isSuperadmin = $superadmin
-		untrack(() => void resolveCurrentWorkspace(ws, list, membershipsLoaded, isSuperadmin))
+		untrack(() => void resolveCurrentWorkspace(ws, list, memberships, resolved, isSuperadmin))
 	})
 
-	// A superadmin can open a fork they aren't a member of, including a prefixless
-	// dev workspace. The membership-gated list omits it, so the workspace has to be
-	// fetched directly: without it the deleted-fork recovery loses the parent, and
-	// every `$userWorkspaces` lookup misses, which the fork UI (banner, compare
-	// page, dev badge) reads as an ordinary root workspace.
+	// A superadmin can open a fork they aren't a member of, including a prefixless dev
+	// workspace, and only `getWorkspaceAsSuperAdmin` will hand back its lineage (see
+	// `nonMemberWorkspaces`). Membership is decided against the raw list, not
+	// `$userWorkspaces`: that one already carries what this resolves, so checking it
+	// would clear and re-fetch the entry on every pass.
 	async function resolveCurrentWorkspace(
 		ws: string | undefined,
 		list: typeof $userWorkspaces,
-		membershipsLoaded: boolean,
+		memberships: UserWorkspace[] | undefined,
+		resolved: string[],
 		isSuperadmin: string | false | undefined
 	): Promise<void> {
 		if (!ws) return
 		if (list.some((w) => w.id === ws)) {
 			recordForkParent(ws, list)
+		}
+		// Absence from a list that hasn't arrived yet says nothing about membership.
+		if (memberships == undefined) return
+		if (memberships.some((w) => w.id === ws)) {
+			setNonMemberWorkspaces([])
 			return
 		}
-		// Absent from a list that hasn't arrived yet says nothing about membership.
-		if (!membershipsLoaded || !isSuperadmin) return
+		// The effect re-runs several times before the first fetch lands (each store this
+		// depends on settles separately), and none of those passes can see the result yet.
+		if (!isSuperadmin || resolved.includes(ws) || resolvingWorkspace === ws) return
+		resolvingWorkspace = ws
 		try {
 			const workspace = await WorkspaceService.getWorkspaceAsSuperAdmin({ workspace: ws })
-			rememberNonMemberWorkspace(workspace)
 			const parentId = workspace.parent_workspace_id
-			if (!parentId) return
-			rememberForkParent(ws, parentId)
-			// The fork UI names the parent, which a superadmin is just as likely not to
-			// be a member of. One hop only: nothing above the parent is displayed.
-			if (!list.some((w) => w.id === parentId)) {
-				rememberNonMemberWorkspace(
-					await WorkspaceService.getWorkspaceAsSuperAdmin({ workspace: parentId })
-				)
+			// The fork UI names the parent, which a superadmin is just as likely not to be
+			// a member of. One hop only: nothing above the parent is displayed.
+			const parent =
+				parentId && !memberships.some((w) => w.id === parentId)
+					? await WorkspaceService.getWorkspaceAsSuperAdmin({ workspace: parentId })
+					: undefined
+			// A switch during the fetch already resolved (or cleared) the store for the
+			// workspace now open; this answer describes the one we left.
+			if ($workspaceStore !== ws) return
+			setNonMemberWorkspaces(parent ? [workspace, parent] : [workspace])
+			if (parentId) {
+				rememberForkParent(ws, parentId)
 			}
 		} catch {
 			// Best-effort: if we can't resolve the workspace, recovery falls back to the
 			// workspace picker rather than the parent redirect.
+		} finally {
+			if (resolvingWorkspace === ws) {
+				resolvingWorkspace = undefined
+			}
 		}
 	}
+	let resolvingWorkspace: string | undefined = undefined
 	$effect(() => {
 		$workspaceStore && untrack(() => onLoad())
 	})
