@@ -14675,6 +14675,7 @@ dependencies = [
  "pin-project",
  "postgres-native-tls 0.5.3",
  "prometheus",
+ "quick-xml",
  "quick_cache",
  "rand 0.9.0",
  "regex",
