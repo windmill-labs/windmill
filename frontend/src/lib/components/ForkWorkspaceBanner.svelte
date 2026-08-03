@@ -34,25 +34,34 @@
 	const drafts = useWorkspaceDrafts(() => (isFork ? ($workspaceStore ?? undefined) : undefined))
 	const draftCount = $derived(drafts.count)
 
-	// What the banner is allowed to answer from. Anything else — in flight, failed, or a
-	// tally that was skipped outright — counts zero of everything, which is
-	// indistinguishable from "nothing to deploy" and would send the user to the wrong
-	// direction. Typed helpers avoid the `never`-inference quirk on `$state` in `$derived`.
+	// Every read of `comparison` that decides what the banner says or where its button
+	// goes must go through this: anything else — in flight, failed, or a tally skipped
+	// outright — counts zero of everything, which is indistinguishable from "nothing to
+	// deploy". Typed helper avoids the `never`-inference quirk on `$state` in `$derived`.
 	function isAnswerable(c: WorkspaceComparison | undefined, isLoading: boolean): boolean {
 		return !isLoading && !!c && !c.skipped_comparison
 	}
-	const comparisonLoaded = $derived(isAnswerable(comparison, loading))
+	const hasAnswer = $derived(isAnswerable(comparison, loading))
 
 	// Fork is fully in sync with its parent (comparison ran, no ahead/behind diffs).
-	// Gated on `comparisonLoaded` for the reason above: it also selects the drafts CTA,
-	// which would otherwise win over the deploy/update one mid-load.
 	function isUpToDate(c: WorkspaceComparison | undefined): boolean {
 		return !!c && !c.skipped_comparison && c.summary.total_diffs === 0
 	}
-	let upToDate = $derived(comparisonLoaded && isUpToDate(comparison))
+	let upToDate = $derived(hasAnswer && isUpToDate(comparison))
 	// Up to date with the parent but local drafts are pending — show the draft
 	// state (same text + CTA as the draft banner) instead of "Everything is up to date".
 	let showDraftsOnly = $derived(upToDate && draftCount > 0)
+
+	// Leaving for a workspace with no comparison of its own has to invalidate whatever
+	// is in flight too, or that response lands as this one's answer — and its CI counts
+	// would be fetched for paths this workspace may not even have.
+	function dropComparison() {
+		requestSeq++
+		comparison = undefined
+		comparisonFor = undefined
+		loading = false
+		resetCiTestSummary()
+	}
 
 	$effect(() => {
 		;[$workspaceStore, parentWorkspaceId]
@@ -60,7 +69,7 @@
 			if (isFork && $workspaceStore) {
 				checkForChanges()
 			} else {
-				comparison = undefined
+				dropComparison()
 			}
 		})
 	})
@@ -69,7 +78,7 @@
 		if (isFork && $workspaceStore) {
 			checkForChanges()
 		} else {
-			comparison = undefined
+			dropComparison()
 		}
 	})
 
@@ -88,6 +97,7 @@
 		if (comparisonFor !== ws) {
 			comparison = undefined
 			comparisonFor = undefined
+			resetCiTestSummary()
 		}
 		const seq = ++requestSeq
 		loading = true
@@ -116,11 +126,9 @@
 
 	// Opens the direction the button offers, so the label and the list agree: a fork
 	// with nothing to deploy lands on the update side, not on an empty deploy list.
-	// Both read `comparisonLoaded` — an unknown comparison counts zero of everything,
-	// which is indistinguishable from "nothing to deploy".
 	function openComparisonDrawer() {
 		if (parentWorkspaceId && $workspaceStore) {
-			const dir = comparisonLoaded && changesAhead === 0 ? '&dir=update' : ''
+			const dir = hasAnswer && changesAhead === 0 ? '&dir=update' : ''
 			goto('/forks/compare?workspace_id=' + encodeURIComponent($workspaceStore) + dir, {
 				replaceState: true
 			})
@@ -139,6 +147,14 @@
 	let ciTestFailing = $state(0)
 	let ciTestRunning = $state(0)
 	let ciTestTotal = $state(0)
+
+	// These describe the rows of one comparison, so they are dropped with it.
+	function resetCiTestSummary() {
+		ciTestPassing = 0
+		ciTestFailing = 0
+		ciTestRunning = 0
+		ciTestTotal = 0
+	}
 
 	async function fetchCiTestSummary() {
 		if (!$workspaceStore || !comparison?.diffs) return
@@ -387,7 +403,7 @@
 					>
 						{#if showDraftsOnly}
 							Review & deploy drafts
-						{:else if !comparisonLoaded || changesAhead > 0}
+						{:else if !hasAnswer || changesAhead > 0}
 							Review & Deploy Changes
 						{:else}
 							Review & Update fork
