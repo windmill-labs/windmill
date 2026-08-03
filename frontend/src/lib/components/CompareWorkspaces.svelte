@@ -1406,7 +1406,10 @@
 									variant="accent"
 									unifiedSize="xs"
 									disabled={scanning}
-									startIcon={{ icon: scanning ? Loader2 : DiffIcon }}
+									startIcon={{
+										icon: scanning ? Loader2 : DiffIcon,
+										classes: scanning ? 'animate-spin' : undefined
+									}}
 									onClick={() => onScan?.()}
 								>
 									{scanning ? 'Computing diff…' : 'Compute diff'}
