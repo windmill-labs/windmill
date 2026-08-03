@@ -1773,6 +1773,27 @@
   judgeChecklist:
     - deletes the deployed script via delete_workspace_item rather than a raw API endpoint
 
+- id: global-undo-created-draft
+  prompt: |-
+    Create a draft Postgres resource at `u/admin/scratch_db` for host db.example.com port 5432, database `orders`, user `app`, and tell me what fields it ended up with.
+    Once you've shown me that, delete it from the workspace again — I only wanted to see the shape of it.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_empty.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - write_resource
+      - discard_local_draft
+    forbiddenToolsUsed:
+      - delete_workspace_item
+      - deploy_workspace_item
+  # Undoing a draft leaves no draft behind; validate via tool use.
+  skipJudge: true
+  judgeChecklist:
+    - undoes its own never-deployed resource with discard_local_draft rather than delete_workspace_item
+
 - id: global-draft-diff-report
   prompt: |-
     Update the existing workspace script at `f/evals/global/format_greeting` so the returned message ends with an exclamation mark, keeping everything else the same.
