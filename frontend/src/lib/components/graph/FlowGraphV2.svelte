@@ -486,7 +486,6 @@
 			// selectId or their intent (and the modal panel) never fires.
 			if (
 				nodes.find((n) => n.data?.moduleId === modId)?.type === 'aiTool' ||
-				modId === 'Trigger' ||
 				isFlowLevelPanelTarget(modId)
 			) {
 				selectionManager.selectId(modId, opts)

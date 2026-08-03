@@ -9,7 +9,14 @@ export type SelectIntentOptions = {
 
 /** Panels reached from toolbar buttons or dedicated graph nodes rather than step
  * modules. They open on a single selection; step modules deliberately do not. */
-const FLOW_LEVEL_PANEL_IDS = new Set(['constants', 'failure', 'preprocessor', 'Input', 'Result'])
+const FLOW_LEVEL_PANEL_IDS = new Set([
+	'constants',
+	'failure',
+	'preprocessor',
+	'Input',
+	'Result',
+	'Trigger'
+])
 
 export function isFlowLevelPanelTarget(id: string): boolean {
 	// 'settings-' prefixed, not 'settings' prefixed: step ids are user-editable, so a
