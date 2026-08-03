@@ -547,10 +547,11 @@
 		owner?.navigate(target)
 	}
 
-	// Short tab label. A never-deployed item parked at `…/draft_<uuid>` carries a
-	// `friendlyLabel` its live editor stamped (the page can't read the runtime cell
-	// reactively; the editor mirrors the typed/auto name onto the tab model). Falls
-	// back to the plain location label for deployed items and non-item pages.
+	// Short tab label. An item whose live editor is mounted carries a
+	// `friendlyLabel` that editor stamped — its summary, or the typed/auto name of
+	// an item still parked at `…/draft_<uuid>` (the page can't read the runtime
+	// cell reactively, so the editor mirrors the name onto the tab model). Falls
+	// back to the plain location label for summary-less items and non-item pages.
 	function tabLabelFor(tab: SessionPreviewTab): string {
 		return tab.friendlyLabel ?? previewLocationLabel(tab.loc)
 	}

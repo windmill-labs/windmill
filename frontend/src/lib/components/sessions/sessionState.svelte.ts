@@ -135,8 +135,9 @@ export type Session = {
 // last observed location (see the sessions page for the url/loc split).
 // `friendlyLabel` / `friendlyPath` are transient overrides the live editor
 // stamps; not persisted (hydrate rebuilds tabs field-by-field), recomputed on
-// next mount. `friendlyLabel` names a never-deployed item parked at
-// `…/draft_<uuid>` (its typed/auto name). `friendlyPath` is the item's full
+// next mount. `friendlyLabel` is the item's display name — its summary, or the
+// typed/auto name of a never-deployed item parked at
+// `…/draft_<uuid>`. `friendlyPath` is the item's full
 // staged path whenever it differs from the tab's route path — draft-parked OR
 // a deployed item with an undeployed rename — and scopes the breadcrumb
 // picker into the folder the picker tree displays the item under.

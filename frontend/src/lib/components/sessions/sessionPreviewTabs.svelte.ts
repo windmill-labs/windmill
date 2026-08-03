@@ -406,8 +406,8 @@ export class SessionPreviewTabs {
 
 	// Stamp the friendly display label (and full friendly path, which scopes the
 	// breadcrumb picker) for the editor tab hosting `target` (the live editor
-	// knows the item's typed/auto name once its cell loads, which the page can't
-	// read reactively from the runtime cell). Matched on the tab's commanded
+	// knows the item's summary / typed name once its cell loads, which the page
+	// can't read reactively from the runtime cell). Matched on the tab's commanded
 	// `url` — the stable per-(kind,path) editor identity. Transient, so no
 	// persist/flush: they're recomputed when the tab remounts.
 	setEditorFriendlyLabel(
