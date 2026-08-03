@@ -355,6 +355,57 @@ export async function deployItem(params: DeployItemParams): Promise<DeployResult
 }
 
 /**
+ * The two sides of a `workspace_diff` row a deploy direction reads:
+ * `exists_in_source` is the parent (or arbitrary target) side, `exists_in_fork`
+ * the current workspace.
+ */
+type WorkspaceDiffSides = {
+	ahead: number
+	behind: number
+	exists_in_source: boolean
+	exists_in_fork: boolean
+}
+
+/** Deploying this row creates the item in the target, which does not have it. */
+export function diffCreatesInTarget(diff: WorkspaceDiffSides, mergeIntoParent: boolean): boolean {
+	return mergeIntoParent ? diff.exists_in_source === false : diff.exists_in_fork === false
+}
+
+/**
+ * Deploying this row removes the item in the target, the only side that has it.
+ *
+ * Which side dropped it is unknowable from the comparison: `ahead`/`behind`
+ * count deploy events on a side, and pulling the parent's own item into the fork
+ * or a git-sync revert leaves the same trace a deliberate delete does. So a row
+ * may only ever be described by what deploying it does, never by a deletion that
+ * may not have happened — and, being destructive, it takes an explicit act to
+ * select.
+ */
+export function diffRemovesInTarget(diff: WorkspaceDiffSides, mergeIntoParent: boolean): boolean {
+	return mergeIntoParent ? diff.exists_in_fork === false : diff.exists_in_source === false
+}
+
+/**
+ * Rows a deploy in this direction can act on.
+ *
+ * The counters pick the rows flowing fork → parent. In the other direction the
+ * fork can additionally take any item the parent has and it lacks, whatever the
+ * counters say — a parent-only item can carry `behind = 0` (see
+ * `diffRemovesInTarget`) and would otherwise be unpullable. The mirror case is
+ * deliberately left out: a fork-only item with no `ahead` means the parent
+ * dropped it, and an update must not resurrect it there.
+ */
+export function diffActionableInDirection(
+	diff: WorkspaceDiffSides,
+	mergeIntoParent: boolean
+): boolean {
+	if (mergeIntoParent) {
+		return diff.ahead > 0
+	}
+	return diff.behind > 0 || diffCreatesInTarget(diff, mergeIntoParent)
+}
+
+/**
  * Delete/archive an item in a workspace.
  * Used when deploying a deletion from one workspace to another.
  * Scripts and flows are archived (reversible). Other types are deleted.

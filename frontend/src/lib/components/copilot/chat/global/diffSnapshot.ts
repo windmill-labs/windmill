@@ -620,7 +620,7 @@ const FORK_COMPARISON_REUSE_MS = 30_000
 export type ForkDiffStatus =
 	| 'modified'
 	| 'only_in_fork'
-	| 'deleted_in_fork'
+	| 'only_in_parent'
 	| 'unchanged'
 	| 'pending'
 	| 'error'
@@ -657,7 +657,7 @@ export interface ForkDiffIndexView {
 }
 
 interface ForkMaterialized {
-	status: 'modified' | 'only_in_fork' | 'deleted_in_fork' | 'unchanged' | 'error'
+	status: 'modified' | 'only_in_fork' | 'only_in_parent' | 'unchanged' | 'error'
 	patch: string
 	lineCount: number
 	files?: Record<string, DiffFileView>
@@ -1023,7 +1023,7 @@ async function materializeFork(
 			const forkValue = forkSide?.value
 			const valueMasked = parentSide?.valueMasked === true || forkSide?.valueMasked === true
 			const oneSidedStatus = !entry.existsInFork
-				? 'deleted_in_fork'
+				? 'only_in_parent'
 				: !entry.existsInParent
 					? 'only_in_fork'
 					: undefined

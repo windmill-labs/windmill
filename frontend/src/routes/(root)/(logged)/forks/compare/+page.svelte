@@ -10,6 +10,7 @@
 		reconcileAfterWorkspaceChange
 	} from '$lib/components/sessions/sessionState.svelte'
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
+	import { diffActionableInDirection } from '$lib/utils_workspace_deploy'
 	import { page } from '$app/state'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 	import { onDestroy, untrack } from 'svelte'
@@ -149,17 +150,18 @@
 	)
 
 	// Per-direction counts for the merged toggle badges. Deployable = items ahead
-	// (fork has changes the parent lacks); updateable = items behind. Computed
-	// here so they show on the toggle in draft mode too (where CompareDrafts has
-	// no comparison data of its own). Typed helpers avoid a $state `never`
-	// inference quirk on `comparison` inside $derived. A conflict (ahead AND
-	// behind) is intentionally counted in both directions — it's actionable either
-	// way.
-	function countDir(c: WorkspaceComparison | undefined, dir: 'ahead' | 'behind'): number {
-		return c?.diffs.filter((d) => d[dir] > 0).length ?? 0
+	// (fork has changes the parent lacks); updateable = items behind, plus what the
+	// parent has and the fork does not. Same predicate as the deploy list, so the
+	// badge never counts rows the list won't show. Computed here so they show on the
+	// toggle in draft mode too (where CompareDrafts has no comparison data of its
+	// own). Typed helpers avoid a $state `never` inference quirk on `comparison`
+	// inside $derived. A conflict (ahead AND behind) is intentionally counted in both
+	// directions — it's actionable either way.
+	function countDir(c: WorkspaceComparison | undefined, mergeIntoParent: boolean): number {
+		return c?.diffs.filter((d) => diffActionableInDirection(d, mergeIntoParent)).length ?? 0
 	}
-	const deployCount = $derived(countDir(comparison, 'ahead'))
-	const updateCount = $derived(countDir(comparison, 'behind'))
+	const deployCount = $derived(countDir(comparison, true))
+	const updateCount = $derived(countDir(comparison, false))
 
 	$effect(() => {
 		if (modeResolved || !currentWorkspaceData) return
