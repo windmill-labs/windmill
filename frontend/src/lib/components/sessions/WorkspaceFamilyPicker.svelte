@@ -479,8 +479,8 @@
 			{#if showCreateFork}
 				<div class="my-1 border-t border-border-light shrink-0"></div>
 				{#if creatingFork}
-					<!-- Small inline form with labels: fork id + base ("target") workspace. The base
-							     defaults to the root; picking a fork there creates a fork of a fork. -->
+					<!-- Small inline form with labels: fork id + base ("target") workspace. Picking a
+							     fork as the base creates a fork of a fork. -->
 					<div class="flex flex-col gap-2 px-2.5 py-2">
 						<div class="flex flex-col gap-0.5">
 							<span class="text-2xs font-normal text-hint">Fork ID</span>
