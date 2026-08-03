@@ -671,7 +671,9 @@ struct DbtAssetProvenance {
     #[serde(skip_serializing_if = "Option::is_none")]
     freshness: Option<serde_json::Value>,
     /// The model's SQL as written. Read-only in Windmill — the file lives in
-    /// the repo at the pinned commit, and this is a copy taken at deploy.
+    /// the producing script's bundle, and this is the copy captured when the
+    /// graph being read was parsed: at deploy, or by a refresh from the
+    /// editor's buffer.
     #[serde(skip_serializing_if = "Option::is_none")]
     raw_code: Option<String>,
     /// Its path inside the repo, e.g. `models/staging/stg_orders.sql`.
@@ -927,6 +929,13 @@ pub struct AssetGraphResponse {
     /// polls forever or gives up before the ingest.
     #[serde(skip_serializing_if = "Option::is_none")]
     dbt_snapshot_job: Option<uuid::Uuid>,
+    /// When the dbt half was parsed, for a graph pinned to a job. What the
+    /// editor labels its provenance with: a buffer refresh and the deployed
+    /// version's graph are drawn identically, so without saying which one is on
+    /// screen the ambiguity the explicit refresh removes just moves into the
+    /// editor.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dbt_graph_ingested_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// One `ref()`/`source()` edge, in the terms the canvas draws: the two
@@ -955,7 +964,11 @@ async fn asset_graph(
 pub struct PinnedRun {
     pub job_id: uuid::Uuid,
     pub script_path: String,
-    pub script_hash: i64,
+    /// `None` for a job that names no deployed version: a `parse` of the
+    /// EDITOR's buffer, whose graph belongs to that job alone. Such a job pins
+    /// only because it stored one — every other preview answers with the
+    /// workspace graph, as before.
+    pub script_hash: Option<i64>,
 }
 
 /// The asset graph, optionally as one run saw it.
@@ -974,11 +987,13 @@ pub async fn asset_graph_for(
     pinned: Option<PinnedRun>,
 ) -> JsonResult<AssetGraphResponse> {
     let dbt_job_id = pinned.as_ref().map(|p| p.job_id);
-    // The version is the job's own, not the caller's `dbt_script_hash`.
-    let dbt_script_hash = pinned
-        .as_ref()
-        .map(|p| p.script_hash)
-        .or(q.dbt_script_hash.map(|h| h.0));
+    // The version is the job's own, not the caller's `dbt_script_hash` — and
+    // that holds when the job names NONE, so the parameter cannot supply a
+    // version for a graph that has no business claiming one.
+    let dbt_script_hash = match pinned.as_ref() {
+        Some(p) => p.script_hash,
+        None => q.dbt_script_hash.map(|h| h.0),
+    };
     // Set only for a pinned run, where it lets `live` resolve without reading
     // `script`: a share-link viewer is entitled to the run but usually has no
     // grant on the script, and RLS there would empty the graph. `raw_code` has
@@ -1254,7 +1269,9 @@ pub async fn asset_graph_for(
              -- A pinned run names its own version, so `script` is not consulted:
              -- under RLS it would answer for the CALLER's grants on the project,
              -- emptying the graph for a share-link viewer who is entitled to the
-             -- run but not the script.
+             -- run but not the script. A NULL hash here is a job that names no
+             -- version at all — an editor buffer parse — and matches only the
+             -- version-less rows that parse stored.
              SELECT $5::text, $3::bigint WHERE $5::text IS NOT NULL
            ),
            -- The run's own snapshot when it left one, the version's graph
@@ -1277,7 +1294,15 @@ pub async fn asset_graph_for(
            ),
            scoped AS (
              SELECT n.script_path, n.unique_id FROM dbt_node n
-              JOIN live l ON l.path = n.script_path AND l.hash = n.script_hash
+              -- `=` still, with the NULL-to-NULL case spelled out and gated on
+              -- the pin: a version-less row's hash is NULL on both sides, which
+              -- `=` never matches, but `IS NOT DISTINCT FROM` would cost the
+              -- equality its index bound on the UNPINNED workspace graph — the
+              -- hot path. Unpinned, `$5` is NULL and the second arm folds away.
+              JOIN live l ON l.path = n.script_path
+                         AND (n.script_hash = l.hash
+                              OR ($5::text IS NOT NULL AND l.hash IS NULL
+                                  AND n.script_hash IS NULL))
               JOIN chosen ch ON ch.job_id = n.job_id
               WHERE n.workspace_id = $1 AND n.asset_path IS NOT NULL
                 -- Unpinned, the scope is the relations in view: `asset` says
@@ -1285,8 +1310,11 @@ pub async fn asset_graph_for(
                 -- WRONG scope — it holds one row set per path, describing the
                 -- current deploy, so a model this version had and the current one
                 -- dropped would be filtered out of its own run's graph. The
-                -- pinned version's nodes are the scope.
-                AND ($3::bigint IS NOT NULL OR n.asset_path IN (
+                -- pinned graph's nodes are the scope. Keyed on the pin rather
+                -- than on the hash: an editor parse pins without naming one, and
+                -- its models are precisely the ones `asset` does not know yet.
+                AND ($3::bigint IS NOT NULL OR $5::text IS NOT NULL
+                     OR n.asset_path IN (
                   SELECT path FROM asset
                    WHERE workspace_id = $1 AND kind = 'dbt'
                      AND ($2::text IS NULL OR usage_path LIKE $2)))
@@ -1309,13 +1337,21 @@ pub async fn asset_graph_for(
                   -- recreated with narrower ones leaves the archived version
                   -- readable, and a path-only probe would answer for THAT grant
                   -- while returning this version's source.
-                  EXISTS (
+                  --
+                  -- A version-less row has no `script` row to ask, and needs
+                  -- none: it exists only because this caller's own parse job
+                  -- created it from a buffer they wrote, and the unpinned `live`
+                  -- branch — fed from `script` — can never join to one.
+                  (n.script_hash IS NULL OR EXISTS (
                       SELECT 1 FROM script sc
                        WHERE sc.workspace_id = n.workspace_id AND sc.path = n.script_path
                          AND sc.hash = n.script_hash
-                  ) AS "script_visible!"
+                  )) AS "script_visible!"
              FROM dbt_node n
-             JOIN live l ON l.path = n.script_path AND l.hash = n.script_hash
+             JOIN live l ON l.path = n.script_path
+                        AND (n.script_hash = l.hash
+                             OR ($5::text IS NOT NULL AND l.hash IS NULL
+                                 AND n.script_hash IS NULL))
              -- Every join onto `dbt_node` needs this, not just the scoping CTE:
              -- `job_id` is part of the key, so without it each model comes back
              -- once per retained snapshot plus once for the version's graph.
@@ -1376,16 +1412,27 @@ pub async fn asset_graph_for(
            )
            SELECT p.asset_path AS "from_path!", c.asset_path AS "to_path!"
              FROM dbt_edge e
-             JOIN live l ON l.path = e.script_path AND l.hash = e.script_hash
+             JOIN live l ON l.path = e.script_path
+                        AND (e.script_hash = l.hash
+                             OR ($5::text IS NOT NULL AND l.hash IS NULL
+                                 AND e.script_hash IS NULL))
              JOIN chosen ch ON ch.job_id = e.job_id
+             -- Gated the same way as the `live` joins above, and for the same
+             -- reason twice over: unpinned this folds to a plain equality the
+             -- versioned key can bound, and pinned it is the only way an editor
+             -- graph's NULL-to-NULL hashes meet at all.
              JOIN dbt_node p ON p.workspace_id = e.workspace_id
                             AND p.script_path = e.script_path
-                            AND p.script_hash = e.script_hash
+                            AND (p.script_hash = e.script_hash
+                                 OR ($5::text IS NOT NULL AND e.script_hash IS NULL
+                                     AND p.script_hash IS NULL))
                             AND p.job_id = ch.job_id
                             AND p.unique_id = e.parent_unique_id
              JOIN dbt_node c ON c.workspace_id = e.workspace_id
                             AND c.script_path = e.script_path
-                            AND c.script_hash = e.script_hash
+                            AND (c.script_hash = e.script_hash
+                                 OR ($5::text IS NOT NULL AND e.script_hash IS NULL
+                                     AND c.script_hash IS NULL))
                             AND c.job_id = ch.job_id
                             AND c.unique_id = e.child_unique_id
             WHERE e.workspace_id = $1
@@ -1398,9 +1445,9 @@ pub async fn asset_graph_for(
               -- both render with their `ref()` edge missing.
               -- Same as the node scope: pinned, `asset` describes the CURRENT
               -- deploy, so gating on it drops the edges of models this version
-              -- had and a later one removed. The pinned version's own edges are
+              -- had and a later one removed. The pinned graph's own edges are
               -- the answer.
-              AND ($3::bigint IS NOT NULL OR EXISTS (
+              AND ($3::bigint IS NOT NULL OR $5::text IS NOT NULL OR EXISTS (
                 SELECT 1 FROM asset a
                  WHERE a.workspace_id = $1 AND a.kind = 'dbt'
                    AND a.path = c.asset_path
@@ -1414,25 +1461,42 @@ pub async fn asset_graph_for(
     .fetch_all(&mut *tx)
     .await?;
 
-    // The same predicate `chosen` applies, answered once for the caller: it is
-    // what lets a run page stop polling. No `v2_job` recheck, for the reason
+    // The marker `chosen` resolved to, answered once for the caller: its
+    // EXISTENCE is what lets a run page stop polling, and its timestamp is what
+    // an editor labels the graph's provenance with — "parsed from the editor at
+    // 14:32" against "as of last deploy". No `v2_job` recheck, for the reason
     // `chosen` gives — disagreeing with the route's decision here would leave a
     // share-link viewer with the right graph and a null marker, polling it 40
     // times over.
-    let dbt_snapshot_job = match dbt_job_id {
-        Some(job) => {
-            sqlx::query_scalar!(
-                "SELECT g.job_id FROM dbt_graph_snapshot g
-              WHERE g.workspace_id = $1 AND g.job_id = $2
-              LIMIT 1",
+    let dbt_marker = match (dbt_job_id, pinned_path) {
+        (Some(job), Some(path)) => {
+            sqlx::query!(
+                "SELECT g.job_id, g.ingested_at FROM dbt_graph_snapshot g
+                  WHERE g.workspace_id = $1 AND g.script_path = $2
+                    AND g.script_hash IS NOT DISTINCT FROM $3
+                    AND g.job_id = CASE WHEN EXISTS (
+                          SELECT 1 FROM dbt_graph_snapshot s
+                           WHERE s.workspace_id = $1 AND s.job_id = $4)
+                        THEN $4::uuid
+                        ELSE '00000000-0000-0000-0000-000000000000'::uuid END
+                  LIMIT 1",
                 &w_id,
+                path,
+                dbt_script_hash,
                 job,
             )
             .fetch_optional(&mut *tx)
             .await?
         }
-        None => None,
+        _ => None,
     };
+    // Only a graph of the RUN's own, never the version's fallback: the run page
+    // compares this against its job id to decide whether to keep polling.
+    let dbt_snapshot_job = dbt_marker
+        .as_ref()
+        .map(|m| m.job_id)
+        .filter(|j| !j.is_nil());
+    let dbt_graph_ingested_at = dbt_marker.as_ref().map(|m| m.ingested_at);
     tx.commit().await?;
 
     // Parse each pipeline member's body once into its badge annotations, keyed
@@ -1631,11 +1695,12 @@ pub async fn asset_graph_for(
 
     let mut edges = Vec::with_capacity(rows.len());
     let mut asset_set: std::collections::HashSet<(AssetKind, String)> = Default::default();
-    // Pinned to a version, the relations come from that version's own nodes. The
-    // `asset` rows above are path-keyed — one set per script, always the current
-    // deploy — so a model this version had and a later one dropped would be
-    // missing from its own run's graph.
-    if dbt_script_hash.is_some() {
+    // Pinned, the relations come from that graph's own nodes. The `asset` rows
+    // above are path-keyed — one set per script, always the current deploy — so
+    // a model this version had and a later one dropped would be missing from its
+    // own run's graph, and an editor buffer's new models would be missing
+    // outright, `asset` having never heard of them.
+    if dbt_script_hash.is_some() || pinned_path.is_some() {
         for r in &dbt_rows {
             if let Some(p) = r.asset_path.as_deref() {
                 asset_set.insert((AssetKind::Dbt, p.to_string()));
@@ -2111,6 +2176,7 @@ pub async fn asset_graph_for(
         test_edges,
         dbt_edges,
         dbt_snapshot_job,
+        dbt_graph_ingested_at,
     }))
 }
 

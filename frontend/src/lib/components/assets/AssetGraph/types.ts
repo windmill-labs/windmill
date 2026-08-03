@@ -42,9 +42,10 @@ export interface DbtAssetProvenance {
 	/** A source's declared freshness policy. */
 	freshness?: unknown
 	/** The model's SQL as written — the transform behind the node. Read-only:
-	 *  this is the copy taken at deploy, and the file itself lives in the
-	 *  producing script's `__dbt/` bundle. Absent for tests and for nodes with
-	 *  no body. */
+	 *  this is the copy captured when the graph on screen was parsed, whether
+	 *  that was a deploy or a refresh from the editor's buffer, and the file
+	 *  itself lives in the producing script's `__dbt/` bundle. Absent for tests
+	 *  and for nodes with no body. */
 	raw_code?: string
 	/** Its path inside the dbt project, e.g. `models/staging/stg_orders.sql`. */
 	original_file_path?: string
@@ -228,6 +229,10 @@ export interface AssetGraphResponse {
 	 *  asked for and found. A run page polls the graph until this is its own
 	 *  job, which is how it knows a dynamic descriptor's ingest has landed. */
 	dbt_snapshot_job?: string
+	/** When the dbt half on screen was parsed, for a graph pinned to a job.
+	 *  What the dbt editor labels its provenance with — a buffer refresh and the
+	 *  deployed version's graph are drawn identically. */
+	dbt_graph_ingested_at?: string
 }
 
 // `ref()` lineage BETWEEN two dbt models, in the terms the canvas draws

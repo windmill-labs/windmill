@@ -201,7 +201,13 @@ impl DbtNodeRetry {
 /// only admissible because a dbt run no longer dispatches: while it did, any
 /// successful job fired the script's whole deploy-time write set, so a command
 /// that built none of them woke every consumer for relations nothing touched.
-pub const DBT_COMMANDS: &[&str] = &["build", "retry", "show"];
+///
+/// `parse` reads no relation either: it resolves the project into a manifest and
+/// stores the graph, which is what the editor's model panel is refreshed by. It
+/// still needs a resolvable warehouse, because the profile is rendered before
+/// any dbt invocation — a misconfigured project therefore fails a refresh the way
+/// it would fail a run, which is the early feedback worth having.
+pub const DBT_COMMANDS: &[&str] = &["build", "retry", "show", "parse"];
 
 /// Rows a `show` returns unless the run asks for fewer. dbt enforces it, so the
 /// bound is not us splicing a `LIMIT` into someone's SQL.
@@ -319,11 +325,13 @@ fn vars_arg() -> Arg {
 
 /// What each command takes, in form order.
 ///
-/// `show` is absent on purpose: it previews ONE model's rows, which is a thing
-/// to do to a table you are looking at rather than a job to fill a form in for.
-/// The run page's graph and the assets list offer it where the tables are; the
-/// worker still accepts `{label: show, model, limit}` from a flow, the CLI or the
-/// API (`DBT_COMMANDS`, docs/dbt-runtime.md).
+/// `show` and `parse` are absent on purpose, for the same reason: each is a thing
+/// to do to the project you are looking at rather than a job to fill a form in
+/// for. `show` previews ONE model's rows, offered by the run page's graph and the
+/// assets list where the tables are; `parse` refreshes the model graph, offered by
+/// the dbt editor over the buffer being edited. The worker still accepts
+/// `{label: show, model, limit}` and `{label: parse, vars}` from a flow, the CLI or
+/// the API (`DBT_COMMANDS`, docs/dbt-runtime.md).
 fn command_variants(d: &DbtDescriptor) -> Vec<(&'static str, Vec<Arg>)> {
     let selection = || {
         vec![
@@ -641,16 +649,15 @@ full_refresh: true
     #[test]
     fn a_placeholder_may_not_take_a_run_argument_name() {
         for name in RESERVED_ARG_NAMES {
-            let d =
-                format!("profile:\n  warehouse: main\nvars:\n  v: \"{{{{ {name} }}}}\"\n");
+            let d = format!("profile:\n  warehouse: main\nvars:\n  v: \"{{{{ {name} }}}}\"\n");
             let err = parse_dbt_descriptor(&d).unwrap_err().to_string();
             assert!(err.contains(name), "{name}: {err}");
         }
         // A name of its own is fine.
-        assert!(parse_dbt_descriptor(
-            "profile:\n  warehouse: main\nvars:\n  v: \"{{ day }}\"\n"
-        )
-        .is_ok());
+        assert!(
+            parse_dbt_descriptor("profile:\n  warehouse: main\nvars:\n  v: \"{{ day }}\"\n")
+                .is_ok()
+        );
     }
 
     // The run form is built from this schema, and nothing else can build it:
@@ -700,14 +707,21 @@ full_refresh: true
         // hidden: a retry names the run it resumes.
         assert_eq!(retry["required"], serde_json::json!(["dbt_retry_job"]));
 
-        // `show` is NOT a form variant: previewing one model's rows is something
-        // you do to a table you are looking at, and the graph and the assets list
-        // are where that lives. The worker still accepts it programmatically.
-        assert!(
-            !variants.iter().any(|v| v["title"] == "show"),
-            "show must not be offered in the run form: {schema}"
-        );
-        assert!(DBT_COMMANDS.contains(&"show"), "but the worker still takes it");
+        // Neither `show` nor `parse` is a form variant: previewing one model's
+        // rows and refreshing the model graph are both things you do to the
+        // project in front of you, and the graph, the assets list and the dbt
+        // editor are where those live. The worker still accepts both
+        // programmatically, which is what makes them scriptable.
+        for hidden in ["show", "parse"] {
+            assert!(
+                !variants.iter().any(|v| v["title"] == hidden),
+                "{hidden} must not be offered in the run form: {schema}"
+            );
+            assert!(
+                DBT_COMMANDS.contains(&hidden),
+                "but the worker still takes {hidden}"
+            );
+        }
 
         // Every `{{ placeholder }}` the descriptor interpolates is an argument a
         // run must supply. The command block is not one: it defaults to the
@@ -765,4 +779,3 @@ full_refresh: true
         assert_eq!(day.typ, Typ::Unknown);
     }
 }
-

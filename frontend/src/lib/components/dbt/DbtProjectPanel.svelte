@@ -1,59 +1,3 @@
-<script module lang="ts">
-	import type { Preview } from '$lib/gen'
-
-	import YAML from 'yaml'
-
-	/** What `dbt build --select` should be given for an open file, or `undefined`
-	 *  when the file is not a model.
-	 *
-	 *  Only files under the project's `model-paths` are models; a project also
-	 *  holds macros, analyses and singular tests, all `.sql`, none of them
-	 *  selectable by name. The selector is package-qualified because a bare leaf
-	 *  name also matches a dependency package's model of the same name.
-	 */
-	export function dbtModelSelector(
-		modules: Record<string, { content?: string }>,
-		filePath: string
-	): string | undefined {
-		// `.py` as well as `.sql`: a dbt Python model is a model, and leaving it
-		// out would run the whole project to check one file — the larger
-		// warehouse bill this narrowing exists to avoid.
-		const ext = ['.sql', '.py'].find((e) => filePath.endsWith(e))
-		if (!ext) return undefined
-		let project: any
-		try {
-			project = YAML.parse(modules['dbt_project.yml']?.content ?? '')
-		} catch {
-			return undefined
-		}
-		if (!project?.name) return undefined
-		const modelPaths: string[] = Array.isArray(project['model-paths'])
-			? project['model-paths']
-			: ['models']
-		if (!modelPaths.some((d) => filePath === d || filePath.startsWith(d + '/'))) return undefined
-		const name = filePath.split('/').pop()!.slice(0, -ext.length)
-		return `${name},package:${project.name}`
-	}
-
-	/** The editor language for one project file, by extension.
-	 *
-	 *  A dbt project is heterogeneous where a `__mod` bundle is not: models are
-	 *  SQL, schemas and the project file are YAML, seeds are CSV. Every module is
-	 *  stored with `language: dbt`, so highlighting has to come from the name.
-	 *  `postgresql` and `ansible` are how Windmill spells "SQL" and "YAML" to the
-	 *  editor.
-	 */
-	export function dbtFileLang(path: string): Preview['language'] {
-		if (path.endsWith('.sql')) return 'postgresql'
-		if (path.endsWith('.yml') || path.endsWith('.yaml')) return 'ansible'
-		if (path.endsWith('.py')) return 'python3'
-		// `.md` (a doc block) and `.csv` (a seed) have no grammar of their own
-		// here; `bash` leaves prose alone, where the default would colour it as
-		// TypeScript.
-		return 'bash'
-	}
-</script>
-
 <script lang="ts">
 	// A dbt script's modules ARE its project, so they are browsed as the tree dbt
 	// expects rather than the flat tab strip helper files get. Selecting one opens
@@ -63,6 +7,7 @@
 	import type { ScriptModule } from '$lib/gen'
 	import type { Snippet } from 'svelte'
 	import { ChevronDown, ChevronRight, FileText, Trash2 } from 'lucide-svelte'
+	import { dbtProjectFileKey } from './projectFiles'
 
 	let {
 		modules,
@@ -121,6 +66,9 @@
 	}
 
 	let tree = $derived(buildTree(Object.keys(modules)))
+	// The key the bundle actually holds it under, which a project imported with a
+	// redundant spelling states differently from the canonical name.
+	let projectFileKey = $derived(dbtProjectFileKey(modules))
 	let fileCount = $derived(Object.keys(modules).length)
 	let collapsed = $state<Record<string, boolean>>({})
 </script>
@@ -163,7 +111,7 @@
 				<!-- `dbt_project.yml` is what makes the bundle a project: without it the
 				     worker refuses the version outright, so one click here would deploy a
 				     script that cannot run. -->
-				{#if onDelete && node.path !== 'dbt_project.yml'}
+				{#if onDelete && node.path !== projectFileKey}
 					<button
 						class="shrink-0 px-1 opacity-0 group-hover:opacity-100 text-secondary hover:text-red-500"
 						title="Delete {node.path}"

@@ -5,13 +5,7 @@
 	// where the alternative is reading `N of M OK created` out of the log.
 	import { onDestroy, untrack } from 'svelte'
 	import { OpenAPI, JobService } from '$lib/gen'
-	import {
-		nodeSelector,
-		parseDbtRun,
-		relationOutcome,
-		splitRelation,
-		splitUniqueId
-	} from './parseDbtRun'
+	import { nodeSelector, parseDbtRun, splitRelation, splitUniqueId } from './parseDbtRun'
 	import { Button } from '$lib/components/common'
 	import { ClipboardCopy, Code2, RefreshCw, TableProperties } from 'lucide-svelte'
 	import { copyToClipboard } from '$lib/utils'
@@ -20,7 +14,8 @@
 	import { workspaceStore } from '$lib/stores'
 	import { appendViewToken } from '$lib/viewToken'
 	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
-	import type { AssetGraphResponse, AssetRunState } from '$lib/components/assets/AssetGraph/types'
+	import type { AssetGraphResponse } from '$lib/components/assets/AssetGraph/types'
+	import { useDbtRunStatus } from './runStatus.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import type { AssetGraphNodeData } from '$lib/components/assets/AssetGraph/types'
@@ -33,7 +28,8 @@
 		scriptHash,
 		runArgs,
 		canResume = false,
-		onResume
+		onResume,
+		fill = false
 	}: {
 		scriptPath: string
 		/** The run whose per-model progress to show. dbt records a state per
@@ -44,7 +40,7 @@
 		// materialization rows the worker writes are what move the nodes.
 		running?: boolean
 		/** The finished job's result. It carries a status per dbt node, which is
-		 *  what a completed run is coloured from — see `settled`. */
+		 *  what a completed run is coloured from. */
 		result?: unknown
 		/** The script version this job ran. The graph is stored per deployed
 		 *  version, so passing it renders the project as it was — the models, SQL
@@ -58,6 +54,10 @@
 		/** Whether a `dbt retry` by this caller would resume THIS run. One failure
 		 *  is saved per script per principal, so a later run of the same script
 		 *  takes the state over and the worker refuses a resume aimed here. */
+		/** Fill the container instead of standing at a fixed height in a page's
+		 *  flow. A pane that IS the graph gives it the room; a page section that
+		 *  merely contains one does not. */
+		fill?: boolean
 		canResume?: boolean
 		/** Submits that retry. The caller owns it so the run's own arguments and
 		 *  resolved tag come along: worker tags, debounce and concurrency keys are
@@ -124,29 +124,19 @@
 	// the canvas builds its nodes with, where a bare `kind:path` looks right and
 	// silently never matches. A retry rewrites the same rows, so a failed node
 	// returns to `running` and on to its new outcome by itself.
-	let polled = $state<Map<string, AssetRunState>>(new Map())
-
-	async function loadProgress() {
-		const ws = $workspaceStore
-		if (!ws || !jobId) return
-		const gen = runGen
-		try {
-			const rows = await JobService.getRunProgress({ workspace: ws, id: jobId })
-			// Same reason as `load`: these are another run's per-model statuses once
-			// the page has moved on, and they would colour this run's models.
-			if (gen !== runGen) return
-			const next = new Map<string, AssetRunState>()
-			for (const r of rows) {
-				next.set(`asset:${r.asset_kind}:${r.asset_path}`, {
-					status: r.status,
-					rowCount: r.row_count
-				})
-			}
-			polled = next
-		} catch {
-			// A progress hiccup must not blank the graph.
-		}
-	}
+	// Shared with the editor's graph, so "what colour is this model right now" has
+	// one answer. `generation` is this page's own: a response that outlives a
+	// navigation between runs would colour the next one's models.
+	const runStatus = useDbtRunStatus({
+		workspace: () => $workspaceStore,
+		jobId: () => jobId,
+		running: () => running,
+		result: () => result,
+		graph: () => graph,
+		generation: () => runGen,
+		destroyed: () => destroyed
+	})
+	const loadProgress = () => runStatus.load()
 
 	let timer: ReturnType<typeof setInterval> | undefined
 	// Bounded so a static descriptor, which never writes a snapshot, stops
@@ -169,7 +159,7 @@
 		// its models with another run's statuses.
 		graphTries = 0
 		finalLoadFor = undefined
-		polled = new Map()
+		runStatus.reset()
 		raw = undefined
 		// Both are written by `load` alone and describe the run it answered for,
 		// so they are as run-scoped as `raw`: left behind, the gap before the new
@@ -209,7 +199,7 @@
 			timer = setInterval(() => void loadProgress(), 2000)
 			// Backed off, because for a whole class of runs neither stop below is
 			// reached and this walks to its cap: `dbt_snapshot_job` never matches a
-			// static descriptor, and `polled` stays empty on engines emitting no node
+			// static descriptor, and the polled status stays empty on engines emitting no node
 			// events. Each try re-sends every model's SQL.
 			let graphDelay = 3000
 			let graphTimer: ReturnType<typeof setTimeout> | undefined
@@ -218,7 +208,7 @@
 				// ingest happens BEFORE the build, so once any model reports
 				// progress it has already run: a snapshot that is not here by
 				// then is a snapshot this run never writes.
-				if (raw?.dbt_snapshot_job === jobId || polled.size > 0 || graphTries >= 12) {
+				if (raw?.dbt_snapshot_job === jobId || runStatus.status.size > 0 || graphTries >= 12) {
 					// One last load on the way out. Progress proves the ingest
 					// happened; it does not prove the previous tick SAW it, and
 					// dbt's compile window is usually wider than one tick.
@@ -242,19 +232,41 @@
 		// displayed and the page keeps the deployed fallback for good.
 		else if (finalLoadFor !== (jobId ?? '')) {
 			// Once per finished job, not per response: `load()` assigns `raw`, which
-			// recomputes `settled`, which re-enters this effect and refetches the
+			// recomputes the settled status, which re-enters this effect and refetches the
 			// whole graph for as long as the page is open. A plain variable, so
 			// reading it adds no dependency.
 			finalLoadFor = jobId ?? ''
 			void load()
-			// `settled` colours a finished run with no request. The poll is the
+			// The settled status colours a finished run with no request. The poll is the
 			// fallback for one that produced no `run_results.json` at all —
 			// cancelled or killed — whose relations the worker settles in the
 			// table instead.
-			if (!untrack(() => settled)) void loadProgress()
+			if (!untrack(() => runStatus.isSettled)) void loadProgress()
 		}
 		return () => clearInterval(timer)
 	})
+	// A version pinned with no graph is usually a deploy that has not finished
+	// ingesting yet, so look again a few times before the empty state stands.
+	// Self-scheduling rather than effect-driven: a retry that finds the same empty
+	// answer changes no state an effect reads, so it would never re-arm. Bounded
+	// and backed off — a project with no warehouse identity never fills in, and
+	// must not poll for the life of the page.
+	$effect(() => {
+		void graphKey
+		if (running || scriptHash == undefined || jobId != undefined) return
+		let tries = 0
+		let timer: ReturnType<typeof setTimeout> | undefined
+		const again = () => {
+			if (destroyed || untrack(() => graph) != undefined || tries >= 5) return
+			tries += 1
+			void load().then(() => {
+				timer = setTimeout(again, 2000 * tries)
+			})
+		}
+		timer = setTimeout(again, 2000)
+		return () => clearTimeout(timer)
+	})
+
 	// Read by the preview poll, which outlives the component otherwise: its own
 	// loop is what has to stop, since there is no interval to clear.
 	let destroyed = false
@@ -424,25 +436,7 @@
 	// carry, where the relation name would redo the worker's path derivation. The
 	// per-relation state table holds ONE row per relation, whichever job wrote it
 	// last, so reading THAT would show an old run a later one's models.
-	let settled = $derived.by(() => {
-		if (running) return undefined
-		if (!run?.nodes?.length || !graph) return undefined
-		const assetByNode = new Map<string, string>()
-		for (const a of graph.assets) {
-			if (a.dbt?.unique_id) assetByNode.set(a.dbt.unique_id, `asset:${a.kind}:${a.path}`)
-		}
-		const out = new Map<string, AssetRunState>()
-		for (const n of run.nodes) {
-			const id = assetByNode.get(n.unique_id)
-			const outcome = id && relationOutcome(n.status, n.outcome)
-			// A test or an analysis matches no relation, and a skipped node says
-			// nothing about one; both are left uncoloured rather than guessed at.
-			if (id && outcome) out.set(id, { status: outcome, rowCount: n.rows_affected })
-		}
-		return out.size > 0 ? out : undefined
-	})
-
-	let assetRunStatus = $derived(settled ?? polled)
+	let assetRunStatus = $derived(runStatus.status)
 
 	// The transform behind the selected relation. dbt's own DAG node is the model
 	// — the SQL and the table it writes are one thing — so a graph of relations
@@ -731,13 +725,24 @@
 			relation, so it has no node here — the models it asserts against belong to the runs that build
 			them. Its results are in the table below.
 		{:else}
-			This dbt script has no models in the asset graph. A project that brings its own
-			<span class="font-mono">profiles.yml</span> without naming a
-			<span class="font-mono">profile.warehouse</span> has no warehouse identity to key them on.
+			<!-- States the fact and lists what can produce it, rather than asserting one
+			     cause. The common one is timing: a version's graph is written by its
+			     DEPLOY, so the seconds between deploying and that job finishing look
+			     exactly like a project with no warehouse identity. -->
+			No models stored for this version of the project.
+			{#if scriptHash}
+				A version's graph is written by its deploy, so this is what a deploy still in
+				flight looks like — it fills in when that job lands.
+			{/if}
+			A project that brings its own <span class="font-mono">profiles.yml</span> without naming
+			a <span class="font-mono">profile.warehouse</span> also has no warehouse identity to key
+			models on, and stores none.
 		{/if}
 	</div>
 {:else}
-	<div class="border rounded overflow-hidden flex flex-col">
+	<div
+		class="overflow-hidden flex flex-col {fill ? 'h-full' : 'border rounded'}"
+	>
 		{#if relationDrift > 0}
 			<div class="shrink-0 px-2 py-1 text-2xs text-secondary border-b bg-surface-secondary">
 				{relationDrift}
@@ -754,7 +759,7 @@
 				{goneSinceRun === 1 ? 'it is' : 'they are'} not drawn.
 			</div>
 		{/if}
-		<div class="h-80">
+		<div class={fill ? 'flex-1 min-h-0' : 'h-80'}>
 			<AssetGraphCanvas
 				{graph}
 				{selection}

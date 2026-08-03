@@ -124,7 +124,7 @@ async fn a_pinned_run_survives_no_access_to_its_script(db: Pool<Postgres>) {
     let job = uuid::Uuid::from_u128(7);
     seed(&db, job).await;
 
-    let pinned = PinnedRun { job_id: job, script_path: PATH.to_string(), script_hash: HASH };
+    let pinned = PinnedRun { job_id: job, script_path: PATH.to_string(), script_hash: Some(HASH) };
     let res = asset_graph_for(
         &outsider(),
         WS,
@@ -169,7 +169,7 @@ async fn a_pinned_run_survives_no_access_to_its_script(db: Pool<Postgres>) {
         UserDB::new(db.clone()),
         db.clone(),
         query(),
-        Some(PinnedRun { job_id: job, script_path: PATH.to_string(), script_hash: HASH }),
+        Some(PinnedRun { job_id: job, script_path: PATH.to_string(), script_hash: Some(HASH) }),
     )
     .await
     .unwrap();
@@ -225,7 +225,7 @@ async fn archiving_the_script_leaves_its_finished_runs_renderable(db: Pool<Postg
     .unwrap();
 
     let admin = ApiAuthed { is_admin: true, ..outsider() };
-    let pinned = PinnedRun { job_id: job, script_path: PATH.to_string(), script_hash: HASH };
+    let pinned = PinnedRun { job_id: job, script_path: PATH.to_string(), script_hash: Some(HASH) };
     let res = asset_graph_for(
         &admin,
         WS,
@@ -324,7 +324,7 @@ async fn an_old_grant_at_the_same_path_does_not_expose_a_newer_version(db: Pool<
     .await
     .unwrap();
 
-    let pinned = PinnedRun { job_id: v2_job, script_path: PATH.to_string(), script_hash: V2 };
+    let pinned = PinnedRun { job_id: v2_job, script_path: PATH.to_string(), script_hash: Some(V2) };
     let res = asset_graph_for(
         &outsider(),
         WS,
@@ -344,5 +344,101 @@ async fn an_old_grant_at_the_same_path_does_not_expose_a_newer_version(db: Pool<
     assert!(
         !body.contains("select 2"),
         "but not the SQL of a version their grant never covered: {body}"
+    );
+}
+
+/// The editor's own graph, keyed to the parse job and to no version.
+async fn seed_editor_graph(db: &Pool<Postgres>, job: uuid::Uuid) {
+    sqlx::query!(
+        "INSERT INTO dbt_graph_snapshot (workspace_id, script_path, script_hash, job_id, digest)
+         VALUES ($1, $2, NULL, $3, 'd')",
+        WS,
+        PATH,
+        job
+    )
+    .execute(db)
+    .await
+    .unwrap();
+    sqlx::query!(
+        r#"INSERT INTO dbt_node (workspace_id, script_path, script_hash, job_id, unique_id,
+                                 resource_type, name, asset_path, raw_code, tags)
+           VALUES ($1, $2, NULL, $3, 'model.p.draft', 'model', 'draft',
+                   'u/a/wh/analytics/draft', 'select 3', '{}')"#,
+        WS,
+        PATH,
+        job
+    )
+    .execute(db)
+    .await
+    .unwrap();
+}
+
+/// A buffer parse is the third provenance: no deployed version behind it, and
+/// its models are ones no `asset` row has heard of. It renders when pinned to
+/// the job that produced it — the only way in — and its SQL comes with it, since
+/// it exists because this caller's own parse job wrote the buffer.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn an_editor_graph_renders_only_through_its_own_job(db: Pool<Postgres>) {
+    let job = uuid::Uuid::from_u128(7);
+    seed(&db, job).await;
+    let parse = uuid::Uuid::from_u128(9);
+    seed_editor_graph(&db, parse).await;
+
+    let admin = ApiAuthed { is_admin: true, ..outsider() };
+    let pinned = asset_graph_for(
+        &admin,
+        WS,
+        UserDB::new(db.clone()),
+        db.clone(),
+        query(),
+        Some(PinnedRun { job_id: parse, script_path: PATH.to_string(), script_hash: None }),
+    )
+    .await
+    .unwrap();
+    let body = serde_json::to_value(&pinned.0).unwrap();
+    assert!(
+        body.to_string().contains("u/a/wh/analytics/draft"),
+        "the buffer's own models render: {body}"
+    );
+    assert!(
+        body.to_string().contains("select 3"),
+        "and their SQL, which is what the caller just wrote: {body}"
+    );
+    assert_eq!(
+        body["dbt_snapshot_job"],
+        serde_json::json!(parse),
+        "labelled as a graph of its own, so the editor can say where it came from"
+    );
+    assert!(
+        !body.to_string().contains("select 1"),
+        "and the deployed version's models are not mixed into it: {body}"
+    );
+
+    // Through the PATH — which is what the workspace graph and every run of the
+    // deployed version ask for — a buffer parse must not appear at all. It
+    // describes an editor's unsaved state, not what the script owns.
+    let workspace = asset_graph_for(&admin, WS, UserDB::new(db.clone()), db.clone(), query(), None)
+        .await
+        .unwrap();
+    let workspace = serde_json::to_value(&workspace.0).unwrap().to_string();
+    assert!(
+        !workspace.contains("u/a/wh/analytics/draft"),
+        "an editor's buffer is not part of the workspace graph: {workspace}"
+    );
+
+    let deployed_run = asset_graph_for(
+        &admin,
+        WS,
+        UserDB::new(db.clone()),
+        db.clone(),
+        query(),
+        Some(PinnedRun { job_id: job, script_path: PATH.to_string(), script_hash: Some(HASH) }),
+    )
+    .await
+    .unwrap();
+    let deployed_run = serde_json::to_value(&deployed_run.0).unwrap().to_string();
+    assert!(
+        !deployed_run.contains("u/a/wh/analytics/draft"),
+        "nor of a run of the deployed version: {deployed_run}"
     );
 }

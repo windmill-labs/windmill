@@ -42,9 +42,16 @@ import initRustParser, { parse_rust } from 'windmill-parser-wasm-rust'
 import initYamlParser, {
 	parse_assets_ansible,
 	parse_ansible,
-	parse_ansible_delegate,
-	parse_dbt
+	parse_ansible_delegate
 } from 'windmill-parser-wasm-yaml'
+// `parse_dbt` is newer than the published `windmill-parser-wasm-yaml`, and a
+// NAMED import of an export a package does not have is a link-time failure —
+// which takes this whole module down, and with it every language's inference.
+// Reached through the namespace instead, so a package predating it degrades to
+// "no schema inferred for dbt" (the deployed script's own, derived server-side
+// by `dbt_arg_schema`, is unaffected).
+import * as yamlParser from 'windmill-parser-wasm-yaml'
+const parse_dbt: ((code: string) => string) | undefined = (yamlParser as any).parse_dbt
 import initCSharpParser, { parse_csharp } from 'windmill-parser-wasm-csharp'
 import initNuParser, { parse_nu } from 'windmill-parser-wasm-nu'
 import initJavaParser, { parse_java } from 'windmill-parser-wasm-java'
@@ -523,6 +530,9 @@ export async function inferArgs(
 				inferedSchema = parseRSignatureFallback(code)
 			}
 		} else if (language == 'dbt') {
+			// Absent on a parser package predating dbt: the editor keeps whatever
+			// schema it has rather than clearing the run form to nothing.
+			if (!parse_dbt) return null
 			await initWasmYaml()
 			inferedSchema = JSON.parse(parse_dbt(code))
 			// for related places search: ADD_NEW_LANG

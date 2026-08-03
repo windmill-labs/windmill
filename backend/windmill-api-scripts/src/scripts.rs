@@ -3580,10 +3580,13 @@ async fn delete_script_by_path(
     .map_err(|e| Error::internal_err(format!("deleting script by path {w_id}: {e:#}")))?;
 
     // After the DELETE, never before: every dbt writer locks the `script` row
-    // first, so taking a sidecar ahead of it deadlocks one of the pair. The graph
-    // needs no clear at all, cascading off `script`; the retry state does, being
-    // keyed by path alone and so inherited by whatever is created here next.
+    // first, so taking a sidecar ahead of it deadlocks one of the pair. The
+    // VERSIONED graph needs no clear at all, cascading off `script`; the retry
+    // state does, being keyed by path alone and so inherited by whatever is
+    // created here next, and so do the editor's own graphs, whose NULL
+    // `script_hash` satisfies that foreign key without riding its cascade.
     windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, path).await?;
+    windmill_common::dbt_manifest::clear_dbt_editor_graphs(&mut tx, &w_id, path).await?;
 
     if !trash_scripts.is_empty() {
         let mut trash_data = serde_json::json!({"scripts": trash_scripts});
@@ -3752,6 +3755,7 @@ async fn delete_scripts_bulk(
     // than the deleted ones: a path that had no script left can still hold state.
     for p in &request.paths {
         windmill_common::dbt_manifest::clear_dbt_run_state(&mut tx, &w_id, p).await?;
+        windmill_common::dbt_manifest::clear_dbt_editor_graphs(&mut tx, &w_id, p).await?;
     }
 
     // remove duplicates from deleted_paths

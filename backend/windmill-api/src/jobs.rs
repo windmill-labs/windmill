@@ -844,9 +844,16 @@ async fn get_dbt_run_graph(
     // required: the job gate below reaches this run, this reaches assets at all.
     check_scopes(&authed, || "assets:read".to_string())?;
     let job = sqlx::query!(
-        "SELECT created_by, runnable_path,
-                CASE WHEN kind = 'script' THEN runnable_id END AS script_hash
-           FROM v2_job WHERE id = $1 AND workspace_id = $2",
+        r#"SELECT created_by, runnable_path,
+                CASE WHEN kind = 'script' THEN runnable_id END AS script_hash,
+                -- Whether this job PARSED a graph of its own with no version
+                -- behind it: the dbt editor refreshing its buffer. That graph is
+                -- reachable no other way, so the job pins to it; every other
+                -- versionless job keeps answering with the workspace graph.
+                EXISTS (SELECT 1 FROM dbt_graph_snapshot g
+                         WHERE g.workspace_id = $2 AND g.job_id = $1
+                           AND g.script_hash IS NULL) AS "editor_graph!"
+           FROM v2_job WHERE id = $1 AND workspace_id = $2"#,
         job_id,
         &w_id
     )
@@ -869,16 +876,18 @@ async fn get_dbt_run_graph(
         view_token.as_deref(),
     )
     .await?;
-    // A preview or flow job names no deployed version, so there is no graph to
-    // pin to and the workspace one answers.
-    let pinned =
-        job.runnable_path
-            .zip(job.script_hash)
-            .map(|(path, hash)| windmill_api_assets::PinnedRun {
-                job_id,
-                script_path: path,
-                script_hash: hash,
-            });
+    // A preview or flow job names no deployed version, so there is usually no
+    // graph to pin to and the workspace one answers. The exception is a job that
+    // parsed one itself, which is what the dbt editor's refresh is: its graph
+    // belongs to that job alone and nothing else can reach it.
+    let pinned = job
+        .runnable_path
+        .filter(|_| job.script_hash.is_some() || job.editor_graph)
+        .map(|path| windmill_api_assets::PinnedRun {
+            job_id,
+            script_path: path,
+            script_hash: job.script_hash,
+        });
     windmill_api_assets::asset_graph_for(&authed, &w_id, user_db, db, q, pinned).await
 }
 

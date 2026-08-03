@@ -255,6 +255,26 @@ pub(crate) async fn handle_dbt_job(
         }
         None => windmill_parser_yaml::default_dbt_command(&descriptor).to_string(),
     };
+    // A parse is the whole job: it resolves the project into a manifest, stores
+    // the graph and stops. Handled before everything below because none of it
+    // applies — nothing is built, so there is no test phase, no materialization,
+    // no retry state and no ownership to publish.
+    if command == "parse" {
+        return run_parse_only(
+            &prepared,
+            &descriptor,
+            // Tolerant of the `{{ }}` placeholders only a run can fill, exactly
+            // as the deploy's own parse is: refreshing an editor buffer must not
+            // require filling the run form in first, and the graph it produces is
+            // the one the deploy would store.
+            &Invocation { strict: false, ..inv },
+            &mut ctx,
+            job,
+            conn,
+        )
+        .await;
+    }
+
     // `dbt retry` resumes from the previous run's `run_results.json`, which is what
     // makes one-job-per-invocation defensible. Each attempt gets a fresh job dir, so
     // that state is restored along with the ARGUMENTS it ran with: dbt reuses the
@@ -2934,6 +2954,158 @@ fn render_failures(r: &DbtRunResult) -> String {
     out
 }
 
+/// What a `parse` returns. Deliberately not a `DbtRunResult`: nothing ran, so
+/// there are no per-node outcomes to report and a result shaped like a build's
+/// would invite a caller to read totals that describe nothing.
+#[derive(Serialize, Debug)]
+pub struct DbtParseResult {
+    pub engine: String,
+    pub engine_version: String,
+    pub command: &'static str,
+    /// The workspace warehouse the relations are keyed on. Absent for a project
+    /// that brings its own `profiles.yml` and names none, which is exactly the
+    /// case that stores no graph.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warehouse: Option<String>,
+    pub nodes: usize,
+    pub edges: usize,
+    /// Nodes by dbt `resource_type` (`model`, `source`, `test`, `seed`,
+    /// `snapshot`, …). A map rather than a field each, so a resource type dbt
+    /// adds later is reported instead of silently dropped.
+    pub by_resource_type: std::collections::BTreeMap<String, usize>,
+    /// The job to read this graph back through, with
+    /// `GET /jobs/dbt_graph/{id}`. Its own, always — a version-less parse is
+    /// reachable no other way, and a versioned one resolves to its snapshot or
+    /// falls back to the version's graph, which is what it agreed with.
+    ///
+    /// Present once the write was ACCEPTED, which is the half a caller can act
+    /// on; absent when there was nothing to store (no warehouse identity to key
+    /// relations on) or nothing to store it against (a deleted script).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub graph_job: Option<Uuid>,
+}
+
+/// `dbt parse` over this job's project, stored as a graph and nothing else.
+///
+/// Three provenances end up here, and they differ only in what the graph is
+/// keyed to:
+///
+/// * a PREVIEW job — the editor refreshing its buffer — keys it to the job
+///   alone, with no version. Those rows are readable only back through that job
+///   id, never through the path, so a caller who needs no more than `jobs:run`
+///   cannot restate what a deployed project's graph says.
+/// * a job that names a deployed VERSION stores an ordinary per-run snapshot of
+///   it, suppressed when it matches what the deploy stored.
+/// * an agent worker posts either to the API, which decides the same way from
+///   the job it verified.
+///
+/// None of them publishes the path-keyed `asset` usages: a parse is a question
+/// about a project, and answering it must not move what the script owns.
+async fn run_parse_only(
+    p: &PreparedProject,
+    descriptor: &DbtDescriptor,
+    inv: &Invocation,
+    ctx: &mut JobCtx<'_>,
+    job: &MiniPulledJob,
+    conn: &Connection,
+) -> error::Result<Box<RawValue>> {
+    run_dbt_parse(p, descriptor, inv, ctx, &job.id, &job.workspace_id, conn).await?;
+    let manifest = read_manifest(&p.project_dir).await?;
+    let selected =
+        resolve_selection(p, descriptor, inv, ctx, &job.id, &job.workspace_id, conn).await?;
+    let mut result = DbtParseResult {
+        engine: p.engine.engine.as_str().to_string(),
+        engine_version: p.engine.version.clone(),
+        command: "parse",
+        warehouse: p.warehouse.clone(),
+        nodes: 0,
+        edges: 0,
+        by_resource_type: Default::default(),
+        graph_job: None,
+    };
+    // Counted before the guard, because the node and edge SETS come from the
+    // manifest and the selection while the warehouse only keys them — so a project
+    // with no warehouse identity still reports what dbt found. The placeholder
+    // reaches no row: the guard below returns before anything is written.
+    let ingested = windmill_common::dbt_manifest::ingest_manifest(
+        &manifest,
+        p.warehouse.as_deref().unwrap_or("unkeyed"),
+        p.default_database.as_deref(),
+        selected.as_ref(),
+    );
+    result.nodes = ingested.nodes.len();
+    result.edges = ingested.edges.len();
+    for n in &ingested.nodes {
+        *result
+            .by_resource_type
+            .entry(n.resource_type.clone())
+            .or_default() += 1;
+    }
+    // No warehouse identity means no `dbt://` key to store the relations under, so
+    // the parse reports what it found and stores nothing.
+    let (Some(_), Some(script_path)) = (p.warehouse.as_deref(), job.runnable_path.as_deref())
+    else {
+        return Ok(to_raw_value(&result));
+    };
+    match conn {
+        Connection::Sql(db) => match job.runnable_id.map(|h| h.0) {
+            Some(script_hash) => {
+                let stored = persist_ingest(
+                    db,
+                    &job.workspace_id,
+                    script_path,
+                    &ingested,
+                    &p.relation_root(),
+                    GraphPublisher::Version(script_hash),
+                    Some(job.id),
+                    // A parse answers for the arguments IT was given, so it can
+                    // no more stand as what the script owns than an overriding
+                    // run can. Ownership stays the deploy's.
+                    false,
+                )
+                .await?;
+                result.graph_job = stored.then_some(job.id);
+            }
+            None => {
+                let mut tx = db.begin().await?;
+                windmill_common::dbt_manifest::replace_dbt_editor_graph(
+                    &mut tx,
+                    &job.workspace_id,
+                    script_path,
+                    job.id,
+                    &job.permissioned_as,
+                    &ingested,
+                    &p.relation_root(),
+                )
+                .await?;
+                tx.commit().await?;
+                result.graph_job = Some(job.id);
+            }
+        },
+        Connection::Http(client) => {
+            client
+                .post::<_, serde_json::Value>(
+                    &format!("/api/agent_workers/dbt_graph/{}", job.workspace_id),
+                    None,
+                    // `per_run`, because a parse never writes the version's own
+                    // graph: it is a question about one invocation's project.
+                    &serde_json::json!({
+                        "job_id": job.id,
+                        "per_run": true,
+                        "relation_root": p.relation_root(),
+                        "manifest": ingested,
+                    }),
+                )
+                .await
+                .map_err(|e| {
+                    Error::internal_err(format!("publishing dbt graph from an agent worker: {e:#}"))
+                })?;
+            result.graph_job = Some(job.id);
+        }
+    }
+    Ok(to_raw_value(&result))
+}
+
 /// Refresh the stored graph from the manifest this run produced.
 async fn ingest_from_run(
     p: &PreparedProject,
@@ -5197,7 +5369,9 @@ mod tests {
         // A union: the intersection would bind to `safe_model` alone, leaving
         // `my_seed` selected — and a selected seed is LOADED, not shown.
         assert!(!show_selects_one_node("my_seed safe_model"));
-        assert!(!show_selects_one_node("my_seed  safe_model,resource_type:model"));
+        assert!(!show_selects_one_node(
+            "my_seed  safe_model,resource_type:model"
+        ));
         // Resolve to a set rather than to one relation.
         assert!(!show_selects_one_node("stg_orders+"));
         assert!(!show_selects_one_node("+stg_orders"));
