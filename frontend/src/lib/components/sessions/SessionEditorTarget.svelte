@@ -6,7 +6,7 @@
 	import type { SessionRuntime, SessionTargetKind } from './sessionRuntime.svelte'
 	import { useUserDraftSync, type DraftSyncCodec } from './useUserDraftSync.svelte'
 	import { makeFlowCodec, makeScriptCodec, makeRawAppCodec } from './sessionDraftCodecs'
-	import { draftFriendlyLeaf } from './previewRouter'
+	import { itemDisplayName } from './previewRouter'
 	import SessionItemNotFound from './SessionItemNotFound.svelte'
 
 	let {
@@ -124,17 +124,20 @@
 		codec: () => codec
 	})
 
-	// Stamp the tab's friendly label once this editor's cell knows the item's
-	// typed/auto name. The page can't read the runtime cell reactively (it lives
-	// outside the page's reactive root), but this editor — handed `runtime` as a
-	// prop — can, so it mirrors the name onto the tab model the page does observe.
-	// The label only applies to a never-deployed item still parked at a
-	// `…/draft_<uuid>` storage path; a deployed/real path keeps the plain
-	// location label.
+	// Stamp the tab's friendly label once this editor's cell knows how to name the
+	// item. The page can't read the runtime cell reactively (it lives outside the
+	// page's reactive root), but this editor — handed `runtime` as a prop — can,
+	// so it mirrors the name onto the tab model the page does observe. The item's
+	// summary names it whenever it has one; failing that, a never-deployed item
+	// still parked at a `…/draft_<uuid>` storage path falls back to its typed/auto
+	// name, and anything else to the plain location label.
 	$effect(() => {
-		const v = cell.store.val as { path?: string; draft_path?: string } | undefined
+		// Only once the item has landed: stamping empty-handed off an unloaded cell
+		// would claim the tab from the listing-based name the page shows meanwhile.
+		if (slot.loadedPath !== path) return
+		const v = cell.store.val as { path?: string; draft_path?: string; summary?: string } | undefined
 		const friendly = v?.draft_path ?? v?.path
-		const label = draftFriendlyLeaf(path, friendly)
+		const label = itemDisplayName(path, friendly, v?.summary)
 		// The full staged path rides along whenever it differs from the tab's
 		// route (storage) path — not just when it yielded a label: a DEPLOYED
 		// item with a staged rename is also regrouped under the typed folder by
