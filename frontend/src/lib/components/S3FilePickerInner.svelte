@@ -798,8 +798,10 @@
 		fileMetadata = undefined
 		filePreview = undefined
 		// A metadata load still in flight belongs to the file just deleted; retire it, or
-		// its response repopulates the pane it was cleared from.
+		// its response repopulates the pane it was cleared from. Retiring it also means
+		// nobody is left to report its outcome, so the pane's loading flag is ours.
 		metadataRequestId += 1
+		fileInfoLoading = false
 		if (lazyMode) {
 			// Only the level the file lived in changed; refetch it from its first page
 			// and keep the rest of the expanded tree. Its already-fetched entries have
