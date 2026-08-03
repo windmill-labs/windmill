@@ -193,8 +193,15 @@ fn proto_str(s: &str) -> String {
     out
 }
 
-/// In-jail destination for the `./result.json` bind — `{working_dir}/result.json` — or
-/// `None` when the image's `WorkingDir` cannot be proven to keep it inside the jail.
+/// Why `./result.json` can't be collected, phrased for the job log.
+const UNVERIFIABLE_DST: &str =
+    "it cannot be proven to resolve inside the container root (a `..` component, or a \
+    symlink in the image rootfs)";
+const SHADOWED_DST: &str =
+    "it is under /tmp, /proc, /dev or /sys, which are mounted over the result file";
+
+/// In-jail destination for the `./result.json` bind — `{working_dir}/result.json` — or the
+/// reason the image's `WorkingDir` makes it uncollectable.
 ///
 /// nsjail resolves a mount destination against its temporary root *before* pivot_root,
 /// with ordinary path resolution, and then creates it. A destination that walks out of
@@ -215,15 +222,15 @@ fn proto_str(s: &str) -> String {
 ///
 /// Nothing mutates the rootfs between this walk and the mount — extraction is finished and
 /// the container has not started — so there is no window to swap a component.
-async fn result_mount_dst(job_dir: &str, working_dir: &str) -> Option<String> {
+async fn result_mount_dst(job_dir: &str, working_dir: &str) -> Result<String, &'static str> {
     if !working_dir.starts_with('/') {
-        return None;
+        return Err(UNVERIFIABLE_DST);
     }
     let mut components = Vec::new();
     for c in working_dir.split('/') {
         match c {
             "" | "." => continue,
-            ".." => return None,
+            ".." => return Err(UNVERIFIABLE_DST),
             _ => components.push(c),
         }
     }
@@ -231,7 +238,7 @@ async fn result_mount_dst(job_dir: &str, working_dir: &str) -> Option<String> {
         components.first(),
         Some(&"tmp") | Some(&"proc") | Some(&"dev") | Some(&"sys")
     ) {
-        return None;
+        return Err(SHADOWED_DST);
     }
     components.push("result.json");
 
@@ -239,13 +246,13 @@ async fn result_mount_dst(job_dir: &str, working_dir: &str) -> Option<String> {
     for c in &components {
         path.push(c);
         match tokio::fs::symlink_metadata(&path).await {
-            Ok(m) if m.is_symlink() => return None,
+            Ok(m) if m.is_symlink() => return Err(UNVERIFIABLE_DST),
             Ok(_) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => break,
-            Err(_) => return None,
+            Err(_) => return Err(UNVERIFIABLE_DST),
         }
     }
-    Some(format!("/{}", components.join("/")))
+    Ok(format!("/{}", components.join("/")))
 }
 
 /// Render the nsjail mount that exposes `{job_dir}/result.json` inside the container at
@@ -796,14 +803,13 @@ pub async fn handle_docker_v2_job(
     // Bind source for `./result.json` inside the container; empty means "no result".
     write_file(job_dir, "result.json", "")?;
     let result_dst = result_mount_dst(job_dir, working_dir).await;
-    if result_dst.is_none() {
+    if let Err(reason) = result_dst {
         append_logs(
             &job.id,
             &job.workspace_id,
             format!(
                 "WARNING: `./result.json` will not be collected for this job: the image's \
-                WorkingDir ({working_dir}) cannot be proven to resolve inside the container \
-                root\n"
+                WorkingDir ({working_dir}) is unusable because {reason}\n"
             ),
             conn,
         )
@@ -921,7 +927,7 @@ pub async fn handle_docker_v2_job(
 mod tests {
     use super::{
         digest_key, proto_str, ref_key, registry_qualified, render_envars, render_result_mount,
-        result_mount_dst,
+        result_mount_dst, SHADOWED_DST, UNVERIFIABLE_DST,
     };
 
     #[tokio::test]
@@ -942,12 +948,15 @@ mod tests {
         ] {
             assert_eq!(
                 result_mount_dst(job_dir, wd).await.as_deref(),
-                Some(expected),
+                Ok(expected),
                 "{wd}"
             );
         }
     }
 
+    // The rootfs symlinks this plants have no Windows equivalent; the runtime is
+    // Linux-only (nsjail) anyway.
+    #[cfg(unix)]
     #[tokio::test]
     async fn result_mount_dst_rejects_escapes() {
         let job = tempfile::tempdir().unwrap();
@@ -974,16 +983,21 @@ mod tests {
             "relative/path",
             "/",   // the rootfs ships `result.json` as a symlink
             "/wd", // ...and so does this WorkingDir
-            // Mounted after the result bind (or not writable), so a destination there
-            // would be shadowed rather than collected.
-            "/tmp/work",
-            "/proc/x",
-            "/dev/x",
-            "/sys/x",
         ] {
-            assert!(
-                result_mount_dst(job_dir, wd).await.is_none(),
-                "{wd} should be rejected"
+            assert_eq!(
+                result_mount_dst(job_dir, wd).await,
+                Err(UNVERIFIABLE_DST),
+                "{wd} should be rejected as unverifiable"
+            );
+        }
+
+        // Mounted over the result file rather than escaping it — the job log must not
+        // blame a symlink that isn't there.
+        for wd in ["/tmp/work", "/proc/x", "/dev/x", "/sys/x"] {
+            assert_eq!(
+                result_mount_dst(job_dir, wd).await,
+                Err(SHADOWED_DST),
+                "{wd} should be rejected as shadowed"
             );
         }
     }
