@@ -50,12 +50,13 @@
 	const hideRefreshBar = page.url.searchParams.get('hideRefreshBar') === 'true'
 
 	// Embedder side: mint a scoped embed token (by path) from the member's session.
-	async function fetchEmbedToken(): Promise<{ token?: string }> {
+	async function fetchEmbedToken(opts?: { sdkConsent?: boolean }): Promise<{ token?: string }> {
 		const headers: Record<string, string> = {}
 		if (typeof OpenAPI.TOKEN === 'string' && OpenAPI.TOKEN) {
 			headers['Authorization'] = `Bearer ${OpenAPI.TOKEN}`
 		}
-		const res = await fetch(`${OpenAPI.BASE}/w/${workspace}/apps/embed_token/p/${path}`, {
+		const consent = opts?.sdkConsent ? '?sdk_consent=true' : ''
+		const res = await fetch(`${OpenAPI.BASE}/w/${workspace}/apps/embed_token/p/${path}${consent}`, {
 			headers
 		})
 		if (!res.ok) {

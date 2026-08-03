@@ -659,7 +659,14 @@ pub async fn run_server(
                                 .layer(Extension(argon2.clone()))
                                 .layer(cors.clone()),
                         )
-                        .nest("/variables", variables::workspaced_service())
+                        // CORS so a sandboxed raw app's opaque-origin bundle can
+                        // read variables with its frontend SDK token. Bearer-only:
+                        // the layer never allows credentials, so no cookie can ride
+                        // a cross-origin call. Consistent with resources/users.
+                        .nest(
+                            "/variables",
+                            variables::workspaced_service().layer(cors.clone()),
+                        )
                         .nest("/volumes", volumes_oss::workspaced_service())
                         .nest("/workers", windmill_api_workers::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
