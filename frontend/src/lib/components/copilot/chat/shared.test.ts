@@ -91,9 +91,7 @@ describe('createToolDef', () => {
 		expect(parameters?.oneOf).toBeUndefined()
 		expect(parameters?.allOf).toBeUndefined()
 		expect(parameters?.properties?.kind?.enum).toContain('http')
-		// config stays open-ended: the per-kind schemas are ~39k characters of JSON Schema
-		// as a union, and would be resent on every request. get_trigger_schema serves them
-		// one at a time instead.
+		// config stays open-ended; get_trigger_schema serves the per-kind schemas instead.
 		expect(parameters?.properties?.config?.anyOf).toBeUndefined()
 		expect(JSON.stringify(toolDef).length).toBeLessThan(2000)
 	})

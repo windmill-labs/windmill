@@ -441,9 +441,6 @@ describe('global AI tools', () => {
 		expect(names).toContain('list_runs')
 	})
 
-	// The eleven per-kind trigger schemas are fetched on demand, never inlined: as a
-	// union in the tool definition they serialize to ~44k characters resent on every
-	// request of every chat, more than a third of the whole payload.
 	it('keeps the trigger config schemas out of the tool definitions', async () => {
 		const def = JSON.stringify(getGlobalTool('write_trigger').def)
 		expect(def.length).toBeLessThan(2000)
@@ -458,20 +455,21 @@ describe('global AI tools', () => {
 	})
 
 	it('rejects a trigger config that does not match the declared kind', async () => {
-		await expect(
-			callGlobalTool('write_trigger', {
-				kind: 'kafka',
-				config: {
-					path: 'u/admin/wrong_kind',
-					script_path: 'f/scripts/handler',
-					is_flow: false,
-					route_path: 'api/wrong',
-					http_method: 'get'
-				}
-			})
-			// The schema rides along on the failure so the model can correct without a
-			// separate get_trigger_schema round trip.
-		).rejects.toThrow(/kafka_resource_path/)
+		const error = await callGlobalTool('write_trigger', {
+			kind: 'kafka',
+			config: {
+				path: 'u/admin/wrong_kind',
+				script_path: 'f/scripts/handler',
+				is_flow: false,
+				route_path: 'api/wrong',
+				http_method: 'get'
+			}
+		}).catch((err) => err as Error)
+
+		expect(error).toBeInstanceOf(Error)
+		// What the model actually receives is capped at MAX_TOOL_ERROR_LENGTH by
+		// formatToolError, so the recovery instruction has to survive that cap.
+		expect((error as Error).message.slice(0, 2000)).toContain('get_trigger_schema')
 	})
 
 	it('lists recent runs with compact summaries and forwarded filters', async () => {

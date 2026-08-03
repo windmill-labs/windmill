@@ -2955,15 +2955,14 @@ export const globalTools: Tool<{}>[] = [
 			const parsed = writeTriggerSchema.parse(ctx.args)
 			// writeTriggerDraft dispatches on `kind`, so a config belonging to another kind
 			// has to be rejected here rather than reaching the API as a corrupt draft. The
-			// failure carries the schema so the model can correct without a second call.
+			// recovery instruction leads because formatToolError caps the message at 2k and
+			// a long issue list would otherwise push it out of what the model receives.
 			const config = triggerRequestSchemas[parsed.kind].safeParse(parsed.config)
 			if (!config.success) {
 				throw new Error(
-					`Invalid config for a "${parsed.kind}" trigger: ${config.error.issues
+					`Invalid config for a "${parsed.kind}" trigger. Call get_trigger_schema with kind "${parsed.kind}" for its exact fields. Issues: ${config.error.issues
 						.map((i) => `${i.path.join('.') || '<root>'}: ${i.message}`)
-						.join(
-							'; '
-						)}\n\nSchema for kind "${parsed.kind}":\n${triggerConfigJsonSchema(parsed.kind)}`
+						.join('; ')}`
 				)
 			}
 			return writeTriggerDraft({ ...parsed, config: config.data }, ctx)
