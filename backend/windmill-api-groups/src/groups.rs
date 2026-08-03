@@ -514,6 +514,48 @@ async fn update_igroup(
     Ok(format!("Updated group {}", name))
 }
 
+/// Drop `groups` from every workspace's instance-group auto-assignment config.
+///
+/// Workspaces reference instance groups by name in `workspace_settings.auto_invite`, and
+/// nothing in the schema ties those references to `instance_group` rows. A deleted group whose
+/// name is left behind here silently re-acquires its members if a group of the same name is
+/// created later.
+///
+/// Mutates every workspace's settings, so callers must have established superadmin first.
+pub(crate) async fn remove_instance_groups_from_workspace_settings(
+    groups: &[String],
+    tx: &mut Transaction<'_, Postgres>,
+) -> Result<()> {
+    if groups.is_empty() {
+        return Ok(());
+    }
+
+    // Row filter must stay `?|`: it yields false on a JSON `null` instance_groups, where
+    // jsonb_array_elements_text would instead raise and abort the whole transaction. It is not
+    // index-backed — the GIN index covers the auto_invite column, not this expression — which
+    // is acceptable since workspace_settings holds one row per workspace.
+    sqlx::query!(
+        r#"UPDATE workspace_settings SET
+             auto_invite = jsonb_set(
+                 jsonb_set(
+                     COALESCE(auto_invite, '{}'::jsonb),
+                     '{instance_groups}',
+                     (SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
+                      FROM jsonb_array_elements(COALESCE(auto_invite->'instance_groups', '[]'::jsonb)) elem
+                      WHERE elem #>> '{}' <> ALL($1))
+                 ),
+                 '{instance_groups_roles}',
+                 COALESCE(auto_invite->'instance_groups_roles', '{}'::jsonb) - $1::text[]
+             )
+           WHERE auto_invite->'instance_groups' ?| $1"#,
+        groups
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
 async fn delete_igroup(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -538,6 +580,18 @@ async fn delete_igroup(
     } else {
         vec![]
     };
+
+    // Gated on `private` alone, matching the auto-add path it reverses
+    // (workspaces::edit_instance_groups) — CE builds include `private` without `enterprise`.
+    // Must precede the deletes below: membership is resolved by joining
+    // email_to_igroup to instance_group.
+    #[cfg(feature = "private")]
+    {
+        use windmill_api_workspaces::workspaces_ee::cleanup_removed_instance_groups;
+        cleanup_removed_instance_groups(std::slice::from_ref(&name), &[], &mut tx).await?;
+    }
+
+    remove_instance_groups_from_workspace_settings(std::slice::from_ref(&name), &mut tx).await?;
 
     sqlx::query!("DELETE FROM email_to_igroup WHERE igroup = $1", name)
         .execute(&mut *tx)
@@ -1264,6 +1318,24 @@ async fn overwrite_igroups(
 ) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
     let mut tx = db.begin().await?;
+
+    let imported_names: Vec<String> = igroups.iter().map(|g| g.name.clone()).collect();
+    let previous_names: Vec<String> = sqlx::query_scalar!(
+        "SELECT name FROM instance_group WHERE name <> ALL($1)",
+        &imported_names
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    // Must precede the deletes below: membership is resolved by joining
+    // email_to_igroup to instance_group.
+    #[cfg(feature = "private")]
+    {
+        use windmill_api_workspaces::workspaces_ee::cleanup_removed_instance_groups;
+        cleanup_removed_instance_groups(&previous_names, &[], &mut tx).await?;
+    }
+
+    remove_instance_groups_from_workspace_settings(&previous_names, &mut tx).await?;
 
     sqlx::query!("DELETE FROM email_to_igroup")
         .execute(&mut *tx)
