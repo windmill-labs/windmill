@@ -174,7 +174,20 @@
 				would blur the field on every search-as-you-type round trip. -->
 				<Select
 					bind:value={email}
-					bind:open={dropdownOpen}
+					bind:open={
+						() => dropdownOpen,
+						(v) => {
+							dropdownOpen = v
+							// A closed Select renders its value, not the search text, so an address that
+							// stays submittable has to become the value — otherwise `Add` is armed with
+							// something no longer on screen.
+							if (!v) {
+								const typed = typedEmail.trim().toLowerCase()
+								if (EMAIL_REGEX.test(typed)) email = typed
+								typedEmail = ''
+							}
+						}
+					}
 					bind:filterText={
 						() => emailFilterText,
 						(v) => {
