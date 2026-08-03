@@ -157,11 +157,23 @@
 		// rules twice and flip it back to loading, flashing the status panel after every attach.
 		if ($workspaceStore) {
 			await loadProtectionRules($workspaceStore)
-			rootProtectionRules.mutate({
-				ws: $workspaceStore,
-				rules: protectionRulesState.rulesets ?? [],
-				failed: protectionRulesState.error != undefined
-			})
+			// It early-returns while a load for this workspace is already in flight, leaving the shared
+			// state unset or holding the pre-attach rules — seeding from that would report the locks this
+			// attach just created as "allowed", and `mutate` never re-syncs. Only seed from a result this
+			// call demonstrably produced; otherwise pay for the second request.
+			if (
+				!protectionRulesState.loading &&
+				protectionRulesState.workspace === $workspaceStore &&
+				protectionRulesState.rulesets != undefined
+			) {
+				rootProtectionRules.mutate({
+					ws: $workspaceStore,
+					rules: protectionRulesState.rulesets,
+					failed: protectionRulesState.error != undefined
+				})
+			} else {
+				rootProtectionRules.refetch()
+			}
 		}
 	}
 
