@@ -6,17 +6,23 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-//! Where a deploy event came from, for the fork tally (`workspace_diff`).
+//! Where a deploy event came from, for the fork tally (`workspace_diff` — see the
+//! `workspace_diff_last_event` migration for what the tally does with it).
 //!
-//! A write applied by a sync leaves the same trace as one a person made, which
-//! is what makes a parent-only fork row undecidable. Clients that apply a state
-//! computed elsewhere (a git-sync pull, a workspace-to-workspace deploy) say so
-//! with [`DEPLOY_ORIGIN_HEADER`]; the API scopes it for the request and the tally
-//! records it alongside the counters.
+//! A client that applies a state computed elsewhere (a git-sync pull, a
+//! workspace-to-workspace deploy) says so with [`DEPLOY_ORIGIN_HEADER`]; the API
+//! scopes it for the request and the tally records it alongside the counters.
+//! Anything unmarked is [`DeployOrigin::Authored`].
 //!
-//! The flag is evidence for a UI offer, never authority: claiming `sync` only
-//! makes the tally *more* conservative (a sync-origin deletion is never offered
-//! as a removal to merge), and `authored` is what any unmarked request gets.
+//! The flag is evidence for a UI offer, never authority. Claiming `sync` cannot
+//! make the merge propose a removal — that needs `authored` — but it is not inert
+//! either: `compare_workspaces` excludes a parent-only `sync` row from both sides
+//! of its `all_ahead_items_visible` comparison, so stamping `sync` on a row the
+//! caller cannot see suppresses the "changes not visible to your user" warning
+//! that `authored` would raise. That flag is a visibility guarantee rather than an
+//! authorization boundary (each item is re-authorized at deploy time), and this
+//! matches how an untallied row already behaves, so it is bounded — but do not
+//! read the header as unable to affect anything.
 
 /// Request header a sync client sets to mark its writes as applied rather than
 /// authored. Only `sync` is meaningful; any other value reads as authored.

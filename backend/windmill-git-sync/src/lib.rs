@@ -261,8 +261,10 @@ impl DeployedObject {
 }
 
 /// Item kinds whose `workspace_diff` path is the `path` column of a table named
-/// after the kind. Interpolated into SQL, so it must stay a hardcoded allowlist.
-const PATH_KEYED_TABLES: &[&str] = &[
+/// after the kind. Interpolated into SQL, so it must stay a hardcoded allowlist —
+/// and, unlike the `sqlx::query!` arms below, a wrong name here is not a compile
+/// error, so `workspace_comparison.rs` sweeps this list against a live database.
+pub const PATH_KEYED_TABLES: &[&str] = &[
     "resource",
     "variable",
     "schedule",

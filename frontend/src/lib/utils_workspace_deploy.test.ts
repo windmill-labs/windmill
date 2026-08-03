@@ -6,9 +6,7 @@ import {
 } from './utils_workspace_deploy'
 
 /** The row shape the fork comparison returns for an item the parent has and the
- * fork does not. `ahead = 1, behind = 0` is what the tally leaves after the fork
- * pulled the parent's item in and then lost it — a delete and a git-sync revert
- * leave the same counters, so only the recorded last event separates them. */
+ * fork does not: one write on the fork side, whatever that write was. */
 const parentOnly = { ahead: 1, behind: 0, exists_in_source: true, exists_in_fork: false }
 const forkDeleted = {
 	...parentOnly,

@@ -9233,10 +9233,15 @@ pub struct WorkspaceDiffRow {
     has_changes: Option<bool>,
     exists_in_source: Option<bool>,
     exists_in_fork: Option<bool>,
-    /// What the last deploy event on each side did (`write` / `delete` /
-    /// `rename_from`) and where it came from (`authored` / `sync`). Absent on a
-    /// side with no event recorded since the column was added, which reads as no
-    /// evidence: the counters alone never justify propagating a removal.
+    /// The last deploy event vouched for on each side, per
+    /// `windmill_common::deploy_origin`. Absent means no evidence, which never
+    /// justifies propagating a removal.
+    ///
+    /// Only the fork half is consumed today, by the merge direction. The update
+    /// direction has the mirror shape (a parent-side removal it cannot attribute)
+    /// but writes to the fork rather than to prod, and gating it on evidence would
+    /// strand a row a legacy tally left without any — so the source half is
+    /// recorded and surfaced, unread, rather than left as a gap to backfill.
     fork_last_event_kind: Option<String>,
     fork_last_event_origin: Option<String>,
     source_last_event_kind: Option<String>,
@@ -9603,12 +9608,14 @@ async fn compare_workspaces(
     let source_only = |d: &WorkspaceDiffRow| {
         d.exists_in_source.unwrap_or(false) && !d.exists_in_fork.unwrap_or(false)
     };
+    // Through the enums rather than their wire values: renaming one otherwise
+    // compiles clean on both sides and silently makes this always false.
     let fork_removed_it = |d: &WorkspaceDiffRow| {
-        d.fork_last_event_origin.as_deref() == Some("authored")
-            && matches!(
-                d.fork_last_event_kind.as_deref(),
-                Some("delete") | Some("rename_from")
-            )
+        use windmill_common::deploy_origin::{DeployEventKind, DeployOrigin};
+        d.fork_last_event_origin.as_deref() == Some(DeployOrigin::Authored.as_str())
+            && d.fork_last_event_kind.as_deref().is_some_and(|k| {
+                k == DeployEventKind::Delete.as_str() || k == DeployEventKind::RenameFrom.as_str()
+            })
     };
     let merge_carries =
         |d: &WorkspaceDiffRow| !is_lineage_pair || !source_only(d) || fork_removed_it(d);

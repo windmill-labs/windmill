@@ -2207,11 +2207,10 @@ async fn test_full_diff_scan_against_arbitrary_workspace(db: Pool<Postgres>) -> 
     Ok(())
 }
 
-/// Regression for WIN-2289. An item the parent has and the fork does not is the
-/// one row shape the counters cannot decide: a fork deletion and a git-sync pull
-/// reverting an earlier deploy both leave `ahead > 0, behind = 0` with the item
-/// gone from the fork. Only the recorded origin of the fork's last event tells
-/// them apart, so the comparison must carry it.
+/// Regression for WIN-2289. A fork deletion and a git-sync pull reverting an
+/// earlier deploy leave the same `ahead > 0, behind = 0` row with the item gone
+/// from the fork; the comparison must carry the recorded origin that tells them
+/// apart, and a tally that cannot vouch for its event must not overwrite it.
 ///
 /// Gated on `private` for the same reason as the tally tests above: the OSS
 /// `handle_deployment_metadata` is a no-op, so no rows would ever be written.
@@ -2278,11 +2277,9 @@ async fn test_compare_records_fork_removal_origin(db: Pool<Postgres>) -> anyhow:
         ("u/admin/dropped_by_user", None),
         ("u/admin/dropped_by_sync", Some("sync")),
     ] {
-        let mut req = admin
-            .client()
-            .post(&format!(
-                "{base_url}/w/wm-fork-removal/scripts/archive/p/{path}"
-            ));
+        let mut req = admin.client().post(&format!(
+            "{base_url}/w/wm-fork-removal/scripts/archive/p/{path}"
+        ));
         if let Some(origin) = origin_header {
             req = req.header("X-Windmill-Deploy-Origin", origin);
         }
@@ -2337,7 +2334,11 @@ async fn test_compare_records_fork_removal_origin(db: Pool<Postgres>) -> anyhow:
         assert_eq!(row["exists_in_source"].as_bool(), Some(true), "{row}");
         assert_eq!(row["exists_in_fork"].as_bool(), Some(false), "{row}");
         assert_eq!(row["behind"].as_i64(), Some(0), "{row}");
-        assert_eq!(row["fork_last_event_kind"].as_str(), Some("delete"), "{row}");
+        assert_eq!(
+            row["fork_last_event_kind"].as_str(),
+            Some("delete"),
+            "{row}"
+        );
         assert_eq!(
             row["fork_last_event_origin"].as_str(),
             Some(expected_origin),
@@ -2345,5 +2346,54 @@ async fn test_compare_records_fork_removal_origin(db: Pool<Postgres>) -> anyhow:
         );
     }
 
+    // A dependency job for the sync-archived script finishing now would tally a
+    // deploy that landed before the archive. It probes the path as gone, so were it
+    // allowed to vouch it would file that deletion as authored and hand the merge a
+    // removal to offer against the parent. It carries no origin, so the archive's
+    // evidence has to survive it — only the counter moves.
+    windmill_git_sync::tally_deployed_object_changes(
+        "wm-fork-removal",
+        &windmill_git_sync::DeployedObject::Script {
+            hash: windmill_common::scripts::ScriptHash(0),
+            path: "u/admin/dropped_by_sync".to_string(),
+            parent_path: None,
+        },
+        &db,
+        None,
+        None,
+    )
+    .await?;
+    let after = sqlx::query!(
+        "SELECT ahead, fork_last_event_kind, fork_last_event_origin FROM workspace_diff
+         WHERE source_workspace_id = 'test-workspace' AND fork_workspace_id = 'wm-fork-removal'
+           AND kind = 'script' AND path = 'u/admin/dropped_by_sync'"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(after.fork_last_event_kind.as_deref(), Some("delete"));
+    assert_eq!(after.fork_last_event_origin.as_deref(), Some("sync"));
+    assert_eq!(after.ahead, 2, "the counter still moves");
+
+    Ok(())
+}
+
+/// `probe_deploy_event_kind` builds its query for these kinds by interpolating the
+/// table name, so a wrong entry compiles fine and only fails once someone deploys
+/// that trigger kind in a fork — where the error aborts the tally and the item
+/// never reaches `workspace_diff` at all. Sweep the allowlist against a live
+/// database instead.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_probe_covers_every_path_keyed_table(db: Pool<Postgres>) -> anyhow::Result<()> {
+    for kind in windmill_git_sync::PATH_KEYED_TABLES {
+        let probed =
+            windmill_git_sync::probe_deploy_event_kind(&db, "test-workspace", kind, "u/a/nothing")
+                .await
+                .unwrap_or_else(|e| panic!("probing `{kind}` failed: {e}"));
+        assert_eq!(
+            probed,
+            Some(windmill_common::deploy_origin::DeployEventKind::Delete),
+            "an absent `{kind}` must probe as a deletion"
+        );
+    }
     Ok(())
 }

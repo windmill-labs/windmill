@@ -385,11 +385,10 @@ export function diffRemovesInTarget(diff: WorkspaceDiffSides, mergeIntoParent: b
 }
 
 /**
- * The fork's last write at this path dropped the item on purpose — someone deleted
- * it, or renamed it away. Anything else is not evidence: `ahead`/`behind` count
- * writes on a side without saying what they did, a sync-origin removal is a
- * git-sync revert of a pull rather than a fork decision, and a row with no recorded
- * event predates the recording and has no history at all.
+ * The fork dropped the item on purpose — someone deleted it, or renamed it away.
+ * The counters cannot show this (they count writes on a side without saying what
+ * they were), so only the recorded event does: a sync-origin removal is a git-sync
+ * revert rather than a fork decision, and an unrecorded one is no evidence at all.
  */
 export function diffForkDroppedItem(diff: WorkspaceDiffSides): boolean {
 	return (

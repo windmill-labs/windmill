@@ -1,10 +1,7 @@
 import { OpenAPI } from '$lib/gen'
 
-/**
- * Header that tells the fork tally a write was applied to the workspace rather
- * than authored in it. Without it, pulling the parent's items into a fork leaves
- * the same trace as editing them there, and a parent-only row stays undecidable.
- */
+/** Header that tells the fork tally a write was applied to the workspace rather
+ * than authored in it. Mirrors `DEPLOY_ORIGIN_HEADER` in `windmill-common`. */
 const DEPLOY_ORIGIN_HEADER = 'X-Windmill-Deploy-Origin'
 
 let syncDepth = 0
