@@ -15,7 +15,7 @@
 	import IconedPath from '$lib/components/IconedPath.svelte'
 	import { ScriptService, type FlowModuleValue, type PathScript } from '$lib/gen'
 	import { hubBaseUrlStore, workspaceStore } from '$lib/stores'
-	import { Flag, Lock, PictureInPicture2, RefreshCw, Unlock } from 'lucide-svelte'
+	import { Flag, Lock, PanelRight, PictureInPicture2, RefreshCw, Unlock, X } from 'lucide-svelte'
 	import { createEventDispatcher, getContext, onMount, untrack } from 'svelte'
 	import type { FlowEditorContext, FlowPanelDetachContext } from '../types'
 	import { twMerge } from 'tailwind-merge'
@@ -28,6 +28,10 @@
 		title?: string | undefined
 		summary?: string | undefined
 		description?: string | undefined
+		/** Static one-line explanation of what this kind of step does. Not the editable
+		 *  `description`, which is the AI-tool prompt the user writes. */
+		subtitle?: string | undefined
+		subtitleDocLink?: string | undefined
 		children?: import('svelte').Snippet
 		action?: import('svelte').Snippet
 		isAgentTool?: boolean
@@ -39,6 +43,8 @@
 		title = undefined,
 		summary = $bindable(undefined),
 		description = $bindable(undefined),
+		subtitle = undefined,
+		subtitleDocLink = undefined,
 		children,
 		action,
 		isAgentTool = false,
@@ -55,6 +61,7 @@
 	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
 
 	const panelDetach = getContext<FlowPanelDetachContext | undefined>('flowPanelDetach')
+	// The detached modal draws no header of its own, so this row carries its chrome too.
 	// onMount, not $effect: claim() increments (reads+writes) the claim count, and
 	// a tracking effect would re-run on its own write.
 	onMount(() => panelDetach?.claim())
@@ -217,7 +224,7 @@
 		{#if title}
 			<!-- Absorbs the free space so the actions stay together on the right: with
 			     justify-between alone, adding the detach button centres them. -->
-			<div class="text-sm font-semibold text-emphasis pr-2 mr-auto">{title}</div>
+			<div class="mr-auto truncate pr-2 text-sm font-semibold text-emphasis">{title}</div>
 		{/if}
 		{@render children?.()}
 		{@render action?.()}
@@ -232,7 +239,42 @@
 				onClick={() => panelDetach.detach()}
 			/>
 		{/if}
+		{#if panelDetach?.dockVisible() || panelDetach?.modalOpen()}
+			<Button
+				unifiedSize="sm"
+				variant="subtle"
+				iconOnly
+				wrapperClasses="ml-2 shrink-0"
+				startIcon={{ icon: PanelRight }}
+				title="Dock to the right"
+				onClick={() => panelDetach.dock()}
+			/>
+		{/if}
+		{#if panelDetach?.modalOpen()}
+			<Button
+				unifiedSize="sm"
+				variant="subtle"
+				iconOnly
+				wrapperClasses="shrink-0"
+				startIcon={{ icon: X }}
+				title="Close"
+				onClick={() => panelDetach.close()}
+			/>
+		{/if}
 	</div>
+	{#if subtitle}
+		<p class="text-xs leading-snug text-tertiary">
+			{subtitle}
+			{#if subtitleDocLink}
+				<a
+					href={subtitleDocLink}
+					target="_blank"
+					rel="noreferrer"
+					class="text-blue-500 hover:underline">Docs</a
+				>
+			{/if}
+		</p>
+	{/if}
 	{#if isAgentTool}
 		{#if toolNameError}
 			<p class="text-3xs text-red-400 leading-tight w-full">{toolNameError}</p>

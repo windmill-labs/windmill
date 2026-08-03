@@ -32,7 +32,6 @@
 	import { extractAllModules } from '../copilot/chat/shared'
 	import type { Snippet } from 'svelte'
 	import { Button } from '../common'
-	import Badge from '../common/badge/Badge.svelte'
 	import { MousePointerClick, PanelRight, PictureInPicture2, X } from 'lucide-svelte'
 	const { flowStore, selectionManager } = getContext<FlowEditorContext>('FlowEditorContext')
 	const sessionScopedManager = getContext<AIChatManager>('aiChatManager')
@@ -202,7 +201,9 @@
 		dock: () => {
 			panelMode = 'docked'
 			panelModalOpen = false
-		}
+		},
+		modalOpen: () => modalPanel && panelMode === 'modal' && panelModalOpen,
+		close: () => (panelModalOpen = false)
 	})
 
 	$effect(() => {
@@ -410,37 +411,33 @@
 			<div
 				class="relative flex w-full max-w-4xl flex-col overflow-hidden rounded-md border bg-surface shadow-xl"
 			>
-				<div class="flex items-center justify-between gap-2 border-b px-2 py-1">
-					<Badge
-						color="indigo"
-						wrapperClass="min-w-0 max-w-full"
-						baseClass="!px-1"
-						title={selectionManager.getSelectedId()}
-					>
-						<span class="max-w-full truncate text-2xs">{selectionManager.getSelectedId()}</span>
-					</Badge>
-					<div class="flex items-center gap-0.5">
-						<Button
-							size="xs2"
-							variant="subtle"
-							iconOnly
-							startIcon={{ icon: PanelRight }}
-							title="Dock to the right"
-							on:click={() => {
-								panelMode = 'docked'
-								panelModalOpen = false
-							}}
-						/>
-						<Button
-							size="xs2"
-							variant="subtle"
-							iconOnly
-							startIcon={{ icon: X }}
-							title="Close"
-							on:click={() => (panelModalOpen = false)}
-						/>
+				<!-- Same fallback as the docked strip: a panel whose body has a card header
+				     hosts the id, dock and close inline, so this bar would double it. -->
+				{#if detachClaims === 0}
+					<div class="flex items-center justify-end gap-2 border-b px-2 py-1">
+						<div class="flex items-center gap-0.5">
+							<Button
+								size="xs2"
+								variant="subtle"
+								iconOnly
+								startIcon={{ icon: PanelRight }}
+								title="Dock to the right"
+								on:click={() => {
+									panelMode = 'docked'
+									panelModalOpen = false
+								}}
+							/>
+							<Button
+								size="xs2"
+								variant="subtle"
+								iconOnly
+								startIcon={{ icon: X }}
+								title="Close"
+								on:click={() => (panelModalOpen = false)}
+							/>
+						</div>
 					</div>
-				</div>
+				{/if}
 				<div class="min-h-0 flex-1 overflow-auto">
 					{@render panelBody()}
 				</div>

@@ -148,4 +148,8 @@ export type FlowPanelDetachContext = {
 	 *  other way back to the docked pane. */
 	dockVisible: () => boolean
 	dock: () => void
+	/** True while the detached modal is open. Its chrome lives in the panel's card header,
+	 *  so the modal draws no header of its own. */
+	modalOpen: () => boolean
+	close: () => void
 }
