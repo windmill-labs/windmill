@@ -2517,5 +2517,57 @@ async fn test_deferred_rename_records_the_vacated_path(db: Pool<Postgres>) -> an
          for — claim nothing"
     );
 
+    // A rename job finishing after something else removed the path it vacated: it
+    // has no way to show it is the later event, so it may fill a gap but never
+    // restate a path a served tally already spoke for.
+    let claimed_by_a_request = sqlx::query_scalar!(
+        "UPDATE workspace_diff SET fork_last_event_kind = 'delete', fork_last_event_origin = 'sync'
+         WHERE fork_workspace_id = 'wm-fork-deferred' AND kind = 'flow'
+           AND path = 'u/admin/moved_by_user' RETURNING 1 AS \"one!\""
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(claimed_by_a_request, 1);
+    windmill_common::deploy_origin::scope(
+        TallyEvidence::Deferred(DeployOrigin::Authored),
+        windmill_git_sync::handle_deployment_metadata(
+            "admin@windmill.dev",
+            "admin",
+            &db,
+            "wm-fork-deferred",
+            windmill_git_sync::DeployedObject::Flow {
+                path: "u/admin/moved_by_user_new".to_string(),
+                parent_path: Some("u/admin/moved_by_user".to_string()),
+                version: 0,
+            },
+            None,
+            true,
+            Some("u/admin/moved_by_user"),
+        ),
+    )
+    .await?;
+    let mut still_sync = None;
+    for _ in 0..40 {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let row = sqlx::query!(
+            "SELECT ahead, fork_last_event_kind, fork_last_event_origin FROM workspace_diff
+             WHERE fork_workspace_id = 'wm-fork-deferred' AND kind = 'flow'
+               AND path = 'u/admin/moved_by_user'"
+        )
+        .fetch_one(&db)
+        .await?;
+        if row.ahead > 1 {
+            still_sync = Some(row);
+            break;
+        }
+    }
+    let still_sync = still_sync.expect("the stale tally should still bump the counter");
+    assert_eq!(still_sync.fork_last_event_kind.as_deref(), Some("delete"));
+    assert_eq!(
+        still_sync.fork_last_event_origin.as_deref(),
+        Some("sync"),
+        "a claim that cannot show it is the later event must not replace one that could"
+    );
+
     Ok(())
 }
