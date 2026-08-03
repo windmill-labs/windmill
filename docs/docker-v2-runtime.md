@@ -39,11 +39,14 @@ python3 -c "import sys; print('hello', sys.argv[1])" "$name"
 Same conventions as a plain bash script, in this order:
 
 1. `./result.json` (relative to the image's `WorkingDir`) if non-empty → returned as
-   the JSON result. It is a host file bind-mounted into the container, so it works
-   whatever the `WorkingDir` is — including `/` and paths under the tmpfs `/tmp`,
-   which otherwise wouldn't flow back to the job. Being a bind-mount point, it must
-   be written in place (`> ./result.json`); a write-temp-then-`rename` fails.
-2. Otherwise the last non-empty line of output, returned as a string.
+   the JSON result; malformed JSON fails the job. It is a host file bind-mounted into
+   the container, so it works whatever the `WorkingDir` is — including `/` and paths
+   under the tmpfs `/tmp`, which otherwise wouldn't flow back to the job. Being a
+   bind-mount point, it must be written in place (`> ./result.json`); a
+   write-temp-then-`rename` fails.
+2. Otherwise the last non-empty line of **stdout**, returned as a string. stderr is
+   excluded on purpose: the two pipes are merged by a fair `select`, so a diagnostic
+   on stderr could otherwise beat a block-buffered stdout result.
 3. Otherwise a completion message.
 
 ## How it works

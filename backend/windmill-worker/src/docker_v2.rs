@@ -32,8 +32,9 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::{
     common::{
-        build_args_map, get_reserved_variables, raw_to_string, read_file, resolve_nsjail_timeout,
-        resolve_nsjail_tmp_mount_block, start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
+        build_args_map, get_reserved_variables, raw_to_string, read_and_check_file,
+        resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, start_child_process,
+        OccupancyMetrics, DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
@@ -813,13 +814,20 @@ pub async fn handle_docker_v2_job(
     .await?;
 
     // Same result conventions as a plain bash script: a non-empty `./result.json`
-    // wins, otherwise the last line of output, otherwise a completion message.
+    // wins, otherwise the last line of stdout, otherwise a completion message.
     let result_json_path = format!("{job_dir}/result.json");
     if tokio::fs::metadata(&result_json_path)
         .await
         .is_ok_and(|m| m.len() > 0)
     {
-        return read_file(&result_json_path).await;
+        // Checked, not `read_file`: the container is untrusted, and handing malformed
+        // JSON to `unsafe_raw` is undefined behavior.
+        return read_and_check_file(&result_json_path).await.map_err(|e| {
+            Error::ExecutionErr(format!(
+                "the `./result.json` written by the sandboxed container is not a valid \
+                JSON result: {e}"
+            ))
+        });
     }
 
     if let Some(last_line) = child_result.last_line {
