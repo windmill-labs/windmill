@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.776.0
+  version: 1.777.1
   title: Windmill API
 
   contact:
@@ -30989,6 +30989,15 @@ components:
         parent_workspace_id:
           type: string
           nullable: true
+        deleted:
+          type: boolean
+          description: "Archived (soft-deleted) workspace"
+        is_dev_workspace:
+          type: boolean
+        dev_workspace_label:
+          type: string
+          nullable: true
+          description: "Cosmetic display label of the dev workspace ('dev' | 'staging'); null defaults to 'dev'"
       required:
         - id
         - name
@@ -33296,8 +33305,17 @@ components:
           description: Short summary to be displayed when listed
         external_data:
           type: object
-          description: Configuration data from the external service
+          nullable: true
+          description: >-
+            Configuration data from the external service. Null when the service has no
+            such API, or when it could not be read — see external_error.
           additionalProperties: true
+        external_error:
+          type: string
+          nullable: true
+          description: >-
+            Why the external service configuration could not be read. When set,
+            external_data is null and the configuration Windmill stored is returned instead.
       required:
         - external_id
         - workspace_id

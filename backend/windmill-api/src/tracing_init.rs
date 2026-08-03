@@ -79,7 +79,11 @@ impl<B> MakeSpan<B> for MyMakeSpan {
             .get(TRACING_HEADER.as_str())
             .and_then(|x| x.to_str().map(|x| x.to_string()).ok())
             .unwrap_or(Uuid::new_v4().to_string());
-        tracing::info_span!(
+        // ERROR level, not INFO: a span is only recorded by a layer whose filter
+        // enables it, so under RUST_LOG=error/warn an INFO span is dropped and the
+        // 4xx/5xx `response` events in `MyOnResponse` print with no uri, method or
+        // traceId.
+        tracing::error_span!(
             "request",
             method = %request.method(),
             uri = %request.uri(),

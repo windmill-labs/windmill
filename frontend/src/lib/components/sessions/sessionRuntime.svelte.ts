@@ -26,7 +26,8 @@ type SavedFlow = Omit<Flow & UserDraftOverlay, 'draft'> & { draft?: Flow }
 import type { HiddenRunnable } from '$lib/components/apps/types'
 import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { userWorkspaces, workspaceStore } from '$lib/stores'
-import { loadCopilot, copilotWorkspace } from '$lib/aiStore'
+import { copilotWorkspace } from '$lib/aiStore'
+import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 import { emptySchema, type StateStore } from '$lib/utils'
 import {
 	commitSessionWorkspace,
@@ -55,6 +56,7 @@ import {
 	previewLocationLabel,
 	resolvePreviewTab
 } from './previewRouter'
+import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { UserDraft } from '$lib/userDraft.svelte'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
@@ -1009,13 +1011,19 @@ setOpenPreviewHandler(async ({ sessionId: callerSessionId, kind, path }) => {
 	// they are live so the model's next turn doesn't race ahead and hit an
 	// "Unknown tool call" error on the first node it tries to build.
 	if (kind === 'pipeline') {
+		const folder = normalizePipelineFolder(path)
 		const ready = await runtime.manager.waitForPipelineHelpers()
 		// A backgrounded session's preview tab does not mount, so its editor never
 		// registers — don't claim success, or the model calls build_pipeline_node
 		// into the void. Tell it the tools aren't available and how to recover.
 		if (!ready) {
-			return `Opened the pipeline preview for "${path}", but its editor tools (build_pipeline_node / edit_pipeline_node) have not registered — this usually means this session is not the one currently displayed. Do NOT call build_pipeline_node yet: ask the user to open/focus this session's pipeline preview, then retry open_preview.`
+			return `Opened the pipeline preview for folder "${folder}", but its editor tools (build_pipeline_node / edit_pipeline_node) have not registered — this usually means this session is not the one currently displayed. Do NOT call build_pipeline_node yet: ask the user to open/focus this session's pipeline preview, then retry open_preview.`
 		}
+		// Spell out the node-path prefix: a node built off the folder name alone (or
+		// off the owner path twice over) is rejected by build_pipeline_node.
+		return `${
+			result.status === 'focused' ? 'Focused the' : 'Opened the'
+		} pipeline editor for folder "${folder}" in the side panel. Its nodes go at paths under \`f/${folder}/\` (e.g. \`f/${folder}/<node_name>\`).`
 	}
 	return result.status === 'focused'
 		? `A preview tab is already showing ${kind} "${path}" — focused it.`

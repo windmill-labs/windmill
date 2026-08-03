@@ -6,7 +6,7 @@
 	import { zIndexes } from '$lib/zIndexes'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { chatState } from './sharedChatState.svelte'
-	import { loadCopilot } from '$lib/aiStore'
+	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 	import { aiChatManager } from './AIChatManager.svelte'
 	import { onDestroy } from 'svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
