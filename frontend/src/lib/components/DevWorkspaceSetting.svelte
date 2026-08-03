@@ -153,15 +153,17 @@
 		devWorkspaceResource.refetch()
 		// Attach/detach changes this (root) workspace's protection rules; reload them so the
 		// direct-deploy / forking lock UI reflects the change without a workspace switch or reload.
-		// The shared load is the only request: refetching this resource as well would ask for the same
-		// rules twice and flip it back to loading, flashing the status panel after every attach.
+		// Where it is safe to, this resource takes its value from that same load instead of fetching
+		// again: a second request would ask for the rules twice and flip the panel back to loading.
 		if ($workspaceStore) {
 			await loadProtectionRules($workspaceStore)
-			// It early-returns while a load for this workspace is already in flight, leaving the shared
-			// state unset or holding the pre-attach rules — seeding from that would report the locks this
-			// attach just created as "allowed", and `mutate` never re-syncs. Only seed from a result this
-			// call demonstrably produced; otherwise pay for the second request.
+			// Two ways seeding by hand goes wrong, both ending with the panel showing pre-attach rules:
+			// `loadProtectionRules` early-returns while a load for this workspace is already in flight,
+			// leaving the shared state unset or stale; and `mutate` only assigns, so a fetch this resource
+			// started on mount would land afterwards and overwrite the seed. Refetching covers both — it
+			// supersedes the outstanding request — so only seed when neither is in play.
 			if (
+				!rootProtectionRules.loading &&
 				!protectionRulesState.loading &&
 				protectionRulesState.workspace === $workspaceStore &&
 				protectionRulesState.rulesets != undefined
