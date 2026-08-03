@@ -32,7 +32,11 @@ import {
 	triggerRequestSchemas
 } from './workspaceToolsZod.gen'
 import { z } from 'zod'
-import { advancedScheduleShape, buildScheduleToolSchema } from './scheduleToolSchema'
+import {
+	advancedScheduleShape,
+	buildScheduleToolSchema,
+	describeDroppedScheduleOptions
+} from './scheduleToolSchema'
 import {
 	createToolDef,
 	droppedOptionKeys,
@@ -329,7 +333,7 @@ const createScheduleTool: Tool<any> = {
 			const dropped = droppedOptionKeys(merged, requestBody)
 			if (dropped.length) {
 				throw new Error(
-					`These schedule options were not recognized and would have been dropped: ${dropped.join(', ')}. Call get_schedule_schema for the exact shape of the advanced options.`
+					describeDroppedScheduleOptions(dropped)
 				)
 			}
 

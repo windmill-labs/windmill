@@ -562,7 +562,24 @@ describe('global AI tools', () => {
 				args: {},
 				advanced: 'retry=2'
 			})
-		).rejects.toThrow(/not recognized/)
+		).rejects.toThrow(/not schedule fields/)
+	})
+
+	// A key that is not a schedule field cannot be explained by the lookup, so the error
+	// must not send the model there for it.
+	it('separates unknown keys from mis-shaped schedule options', async () => {
+		const error = await callGlobalTool('write_schedule', {
+			path: 'f/schedules/mixed',
+			schedule: '0 0 6 * * *',
+			timezone: 'UTC',
+			script_path: 'f/scripts/run',
+			is_flow: false,
+			args: {},
+			advanced: { retry: { constant: { seconds_typo: 1 } }, not_a_field: true }
+		}).catch((err) => (err as Error).message)
+
+		expect(error).toMatch(/retry\.constant\.seconds_typo.*get_schedule_schema/s)
+		expect(error).toMatch(/not schedule fields: not_a_field/)
 	})
 
 	// `args` is a real object-valued argument, not an advanced option: repeating it must

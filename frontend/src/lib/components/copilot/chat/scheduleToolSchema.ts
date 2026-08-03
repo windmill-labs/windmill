@@ -52,3 +52,27 @@ export function buildScheduleToolSchema(opts: ScheduleToolOptions = {}) {
 				)
 		})
 }
+
+/**
+ * Explains keys a strip-mode parse discarded. A mis-shaped real field is recoverable by
+ * fetching its schema; a key that is not a schedule field at all is not, and pointing
+ * the model at the lookup for it would send it somewhere with no answer.
+ */
+export function describeDroppedScheduleOptions(dropped: string[]): string {
+	const fields = new Set(
+		Object.keys(
+			(z.toJSONSchema(scheduleRequestSchema) as { properties?: Record<string, unknown> })
+				.properties ?? {}
+		)
+	)
+	const misshaped = dropped.filter((path) => fields.has(path.split('.')[0]))
+	const unknown = dropped.filter((path) => !fields.has(path.split('.')[0]))
+	return [
+		misshaped.length
+			? `These schedule options do not match their schema and would have been dropped: ${misshaped.join(', ')}. Call get_schedule_schema for their exact shape.`
+			: '',
+		unknown.length ? `These are not schedule fields: ${unknown.join(', ')}.` : ''
+	]
+		.filter(Boolean)
+		.join(' ')
+}
