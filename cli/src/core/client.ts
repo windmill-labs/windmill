@@ -5,8 +5,9 @@ import { OpenAPI } from "../../gen/index.ts";
  * than authoring one in the target workspace (the fork tally reads the header to
  * decide whether a removal was deliberate).
  *
- * Belongs to `sync push` and nothing that authors: it is always the applying
- * half, including the git-sync auto-pull, which runs it inside a job.
+ * Belongs to the commands that apply and nothing that authors: `sync push`
+ * (including the git-sync auto-pull, which runs it inside a job) and the
+ * parent-to-fork half of `workspace merge`.
  */
 export function markRequestsAsSyncOrigin() {
   const existing = typeof OpenAPI.HEADERS === "object" ? OpenAPI.HEADERS : {};

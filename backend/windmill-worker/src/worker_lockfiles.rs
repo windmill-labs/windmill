@@ -877,13 +877,10 @@ fn get_deployment_msg_and_parent_path_from_args(
     (deployment_message, parent_path)
 }
 
-/// What this dependency job may claim about the deploy it was queued for. The
-/// deploy's own request stamped its origin into the args; absent means the job
-/// predates that and nothing about it can be claimed.
+/// What this dependency job may claim about the deploy it was queued for, from
+/// the origin that deploy's own request stamped into its args.
 fn deploy_evidence_from_args(args: Option<&Json<HashMap<String, Box<RawValue>>>>) -> TallyEvidence {
-    args.and_then(|args| args.0.get(DEPLOY_ORIGIN_ARG))
-        .and_then(|v| serde_json::from_str::<String>(v.get()).ok())
-        .map(|v| TallyEvidence::Deferred(DeployOrigin::from_header_value(&v)))
+    args.map(|args| windmill_common::deploy_origin::deferred_evidence_from_args(&args.0))
         .unwrap_or(TallyEvidence::Unknown)
 }
 

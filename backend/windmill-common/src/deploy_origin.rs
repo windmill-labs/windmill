@@ -52,6 +52,18 @@ impl DeployOrigin {
             DeployOrigin::Authored
         }
     }
+
+    /// Read back a value this code wrote, `None` for one it does not recognize.
+    /// Strict where a request header is lenient: an unmarked request really is
+    /// authored, but an unreadable stored value is skew or corruption and must
+    /// not land on the reading that can propose a removal.
+    pub fn from_stored_value(value: &str) -> Option<Self> {
+        match value {
+            "authored" => Some(DeployOrigin::Authored),
+            "sync" => Some(DeployOrigin::Sync),
+            _ => None,
+        }
+    }
 }
 
 /// What a deploy event did to the path it is recorded against.
@@ -152,6 +164,19 @@ pub fn stamp_origin_arg(
     }
 }
 
+/// The other half of [`stamp_origin_arg`]: what a dependency job may claim about
+/// the deploy it was queued for. Never [`TallyEvidence::Served`] — the job is not
+/// the request, whatever its args say.
+pub fn deferred_evidence_from_args(
+    args: &std::collections::HashMap<String, Box<serde_json::value::RawValue>>,
+) -> TallyEvidence {
+    args.get(DEPLOY_ORIGIN_ARG)
+        .and_then(|v| serde_json::from_str::<String>(v.get()).ok())
+        .and_then(|v| DeployOrigin::from_stored_value(&v))
+        .map(TallyEvidence::Deferred)
+        .unwrap_or(TallyEvidence::Unknown)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,5 +205,38 @@ mod tests {
         })
         .await;
         assert_eq!(spawned, TallyEvidence::Unknown);
+    }
+
+    /// A lock-generating deploy's only tally is the dependency job's, and this
+    /// round trip is the whole of what it knows.
+    #[tokio::test]
+    async fn origin_survives_the_dependency_job_args() {
+        for origin in [DeployOrigin::Authored, DeployOrigin::Sync] {
+            let args = scope(TallyEvidence::Served(origin), async {
+                let mut args = std::collections::HashMap::new();
+                stamp_origin_arg(&mut args);
+                args
+            })
+            .await;
+            assert_eq!(
+                deferred_evidence_from_args(&args),
+                TallyEvidence::Deferred(origin)
+            );
+        }
+
+        // Queued before this shipped, or by a version whose values this one does
+        // not know: claim nothing rather than guess the permissive reading.
+        assert_eq!(
+            deferred_evidence_from_args(&std::collections::HashMap::new()),
+            TallyEvidence::Unknown
+        );
+        let unreadable = std::collections::HashMap::from([(
+            DEPLOY_ORIGIN_ARG.to_string(),
+            crate::worker::to_raw_value(&"handwritten"),
+        )]);
+        assert_eq!(
+            deferred_evidence_from_args(&unreadable),
+            TallyEvidence::Unknown
+        );
     }
 }
