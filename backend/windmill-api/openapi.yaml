@@ -30952,8 +30952,11 @@ components:
           items:
             type: string
           description: >
-            Raw apps: author-declared scopes for the frontend SDK token. When
-            non-empty, viewers can mint (after consenting) a short-lived token
+            Raw apps: author-declared scopes for the frontend SDK token. Takes
+            effect only when `sandbox` is also true — an unsandboxed bundle runs
+            with the viewer's own session, so no token is advertised or minted
+            for it and this list stays inert. On a sandboxed app a non-empty
+            list lets viewers mint (after consenting) a short-lived token
             carrying their own identity restricted to these scopes, handed to
             the app bundle so `windmill-client` calls run as the viewer. Must
             be a subset of the server's curated allowlist (jobs:run, jobs:read,
@@ -31186,9 +31189,10 @@ components:
           description: >
             Scoped token for the app. For sandboxed low-code apps this is the
             embed token handed to the opaque iframe. For a raw app it is the
-            viewer-scoped frontend SDK token, returned only when the policy
-            declares sdk_scopes and the request carries sdk_consent=true.
-            Absent for anonymous viewers and whenever no token is needed.
+            viewer-scoped frontend SDK token, returned only when the app is
+            sandboxed, its policy declares frontend_sdk_scopes, and the request
+            carries sdk_consent=true. Absent for anonymous viewers and whenever
+            no token is needed.
         expiration:
           type: string
           format: date-time
@@ -31196,7 +31200,11 @@ components:
           description: Expiration of the embed token.
         raw_app:
           type: boolean
-          description: Raw apps render single-iframe and skip the opaque-viewer indirection and the embed token entirely.
+          description: >
+            Raw apps render single-iframe and skip the opaque-viewer
+            indirection and the embed token entirely. A sandboxed one may still
+            carry a token here: the viewer-scoped frontend SDK token, which is
+            a different credential from the low-code embed token.
         sandbox:
           type: boolean
           description: Publisher opted this app into sandbox isolation. When false the viewer runs the app same-origin with its full session.
@@ -31214,8 +31222,9 @@ components:
           items:
             type: string
           description: >
-            Raw apps: scopes the app policy declares for the frontend SDK
-            token. The viewer renders these in the permission prompt; token
+            Sandboxed raw apps: scopes the app policy declares for the frontend
+            SDK token. Null when the app is unsandboxed, however the policy
+            reads. The viewer renders these in the permission prompt; token
             stays absent until the endpoint is re-called with sdk_consent=true.
         viewer_email:
           type: string
