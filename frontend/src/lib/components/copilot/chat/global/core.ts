@@ -1181,7 +1181,7 @@ Rules:
 - Use list_workspace_items to find items and read_workspace_item before changing an existing item. For triggers, pass trigger_kind.
 - If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".
 - Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a draft to the workspace.
-- To undo something you created or changed in this chat, use discard_local_draft: everything you write is a draft until it is explicitly deployed, so "delete it" / "never mind" / "remove that" about your own work means discarding the draft (it also clears the matching open editor draft). Use delete_workspace_item only to remove an item that is already deployed in the workspace; it mutates the workspace and cannot remove a draft.
+- To undo something you created or changed in this chat, use discard_local_draft: everything you write is a draft until it is explicitly deployed, so "delete it" / "never mind" / "remove that" about your own work means discarding the draft (it also clears the matching open editor draft). Use delete_workspace_item only to remove an item that is already deployed in the workspace; it mutates the workspace and fails if nothing is deployed at that path.
 - Use diff to review changes — before deploying, or when the user asks what changed. It is read-only: without arguments it lists every draft in the workspace with its change status; with type+path it returns that item's unified diff (for multi-file apps, pass file to read one file's diff). In a fork, pass against="parent_workspace" to compare the deployed fork with its parent workspace instead. Pass search to grep changed lines across all diffs.
 - Variable values are never readable. For secrets, create a secret variable and reference it from resources as "$var:path/to/variable".
 - Use search_resource_types before write_resource.
@@ -6763,8 +6763,11 @@ async function deployedItemExists(
 			try {
 				await ScriptService.getScriptByPath({ workspace, path })
 				return true
-			} catch {
-				return false
+			} catch (e) {
+				// Only a 404 means "no script here". Let any other failure propagate rather
+				// than reporting a transient error as a missing item.
+				if ((e as { status?: number } | null | undefined)?.status === 404) return false
+				throw e
 			}
 		case 'flow':
 			return FlowService.existsFlowByPath({ workspace, path })
