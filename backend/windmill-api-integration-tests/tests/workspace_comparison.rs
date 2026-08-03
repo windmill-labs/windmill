@@ -1759,7 +1759,9 @@ async fn test_compare_workspaces_phantom_trigger_shortfuse(
 /// the fork, a pull of the source's own item included), so it can carry
 /// `behind = 0`. Both `all_behind_items_visible` and `hidden_behind` used to be
 /// derived from the `behind` counters alone, which such a row never moves — so
-/// hiding it left the update direction claiming that nothing was withheld.
+/// hiding it left the update direction claiming that nothing was withheld. The
+/// merge direction is the mirror: it does not carry such a row at all, so hiding
+/// one withholds nothing from it and must not be reported on that side.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_compare_workspaces_hidden_source_only_no_behind(
     db: Pool<Postgres>,
@@ -1818,6 +1820,16 @@ async fn test_compare_workspaces_hidden_source_only_no_behind(
         comparison["hidden_behind"]["total"].as_i64(),
         Some(1),
         "a hidden source-only row must be counted as withheld from the update direction: {comparison}"
+    );
+    assert_eq!(
+        comparison["all_ahead_items_visible"].as_bool(),
+        Some(true),
+        "the merge direction does not carry a source-only row, so hiding one withholds nothing from it: {comparison}"
+    );
+    assert_eq!(
+        comparison["hidden_ahead"]["total"].as_i64(),
+        Some(0),
+        "a source-only row must not be reported as withheld from the merge direction: {comparison}"
     );
 
     Ok(())

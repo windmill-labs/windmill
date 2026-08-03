@@ -9579,14 +9579,10 @@ async fn compare_workspaces(
             .count(),
     };
 
-    // A row the source has and the fork lacks is not something the fork can push, so
-    // the lineage merge leaves it out (see the frontend's `diffActionableInDirection`)
-    // and a hidden one withholds nothing from that direction. An arbitrary pair does
-    // carry it — that comparison is an explicit one-way sync — hence the lineage test.
-    // Conversely the fork is offered such a row whatever the counters say, so it can
-    // carry `behind = 0` and be dropped without moving either sum: the update side
-    // counts the rows themselves, else a hidden one leaves that direction claiming
-    // nothing is withheld.
+    // Each direction accounts for what it carries (see the frontend's
+    // `diffActionableInDirection`): a lineage merge leaves out a row the fork lacks,
+    // while the update takes it whatever the counters say — and since it can carry
+    // `behind = 0`, that side counts rows rather than sums.
     let source_only = |d: &WorkspaceDiffRow| {
         d.exists_in_source.unwrap_or(false) && !d.exists_in_fork.unwrap_or(false)
     };
