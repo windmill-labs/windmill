@@ -29,6 +29,7 @@
 		userStore,
 		workspaceStore,
 		userWorkspaces,
+		usersWorkspaceStore,
 		type UserExt,
 		defaultScripts,
 		hubBaseUrlStore,
@@ -39,7 +40,8 @@
 		whitelabelNameStore,
 		globalDbManagerDrawer,
 		globalForkModal,
-		globalS3FilePickerExplorer
+		globalS3FilePickerExplorer,
+		rememberNonMemberWorkspace
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { afterNavigate, beforeNavigate } from '$app/navigation'
@@ -702,16 +704,20 @@
 	$effect(() => {
 		const ws = $workspaceStore
 		const list = $userWorkspaces
+		const membershipsLoaded = $usersWorkspaceStore != undefined
 		const isSuperadmin = $superadmin
-		untrack(() => void recordCurrentForkParent(ws, list, isSuperadmin))
+		untrack(() => void resolveCurrentWorkspace(ws, list, membershipsLoaded, isSuperadmin))
 	})
 
 	// A superadmin can open a fork they aren't a member of, including a prefixless
-	// dev workspace. The membership-gated list omits it, so `recordForkParent` can't
-	// see its parent — fetch it directly so the deleted-fork recovery still works.
-	async function recordCurrentForkParent(
+	// dev workspace. The membership-gated list omits it, so the workspace has to be
+	// fetched directly: without it the deleted-fork recovery loses the parent, and
+	// every `$userWorkspaces` lookup misses, which the fork UI (banner, compare
+	// page, dev badge) reads as an ordinary root workspace.
+	async function resolveCurrentWorkspace(
 		ws: string | undefined,
 		list: typeof $userWorkspaces,
+		membershipsLoaded: boolean,
 		isSuperadmin: string | false | undefined
 	): Promise<void> {
 		if (!ws) return
@@ -719,14 +725,23 @@
 			recordForkParent(ws, list)
 			return
 		}
-		if (!isSuperadmin) return
+		// Absent from a list that hasn't arrived yet says nothing about membership.
+		if (!membershipsLoaded || !isSuperadmin) return
 		try {
 			const workspace = await WorkspaceService.getWorkspaceAsSuperAdmin({ workspace: ws })
-			if (workspace.parent_workspace_id) {
-				rememberForkParent(ws, workspace.parent_workspace_id)
+			rememberNonMemberWorkspace(workspace)
+			const parentId = workspace.parent_workspace_id
+			if (!parentId) return
+			rememberForkParent(ws, parentId)
+			// The fork UI names the parent, which a superadmin is just as likely not to
+			// be a member of. One hop only: nothing above the parent is displayed.
+			if (!list.some((w) => w.id === parentId)) {
+				rememberNonMemberWorkspace(
+					await WorkspaceService.getWorkspaceAsSuperAdmin({ workspace: parentId })
+				)
 			}
 		} catch {
-			// Best-effort: if we can't resolve the parent, recovery falls back to the
+			// Best-effort: if we can't resolve the workspace, recovery falls back to the
 			// workspace picker rather than the parent redirect.
 		}
 	}

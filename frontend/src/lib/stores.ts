@@ -93,25 +93,56 @@ export const lspTokenStore = writable<string | undefined>(undefined)
 export const hubBaseUrlStore = writable<string>(DEFAULT_HUB_BASE_URL)
 export const wsBaseUrlStore = writable<string | undefined>(undefined)
 export const disableHubStore = writable<boolean>(false)
-export const userWorkspaces: Readable<Array<UserWorkspace>> = derived(
-	[usersWorkspaceStore, superadmin],
-	([store, superadmin]) => {
-		const originalWorkspaces = store?.workspaces ?? []
-		if (superadmin) {
-			return [
-				...originalWorkspaces.filter((x) => x.id != 'admins'),
-				{
-					id: 'admins',
-					name: 'Admins',
-					username: 'superadmin',
-					color: undefined,
-					operator_settings: undefined,
-					disabled: false
+// Workspaces a superadmin opened without being a member of them. `listUserWorkspaces`
+// is membership-gated, so they are absent from `usersWorkspaceStore` and every
+// `$userWorkspaces` lookup for the current workspace comes back undefined — which
+// reads as "root workspace with no parent", hiding the fork banner and leaving the
+// compare page without a deploy target. Filled in on demand from
+// `getWorkspaceAsSuperAdmin` (see the logged layout).
+export const nonMemberWorkspaces = writable<Record<string, UserWorkspace>>({})
+
+/** Idempotent so repeated resolutions of the same workspace don't churn `userWorkspaces`. */
+export function rememberNonMemberWorkspace(workspace: Workspace): void {
+	nonMemberWorkspaces.update((cur) =>
+		cur[workspace.id]
+			? cur
+			: {
+					...cur,
+					[workspace.id]: {
+						id: workspace.id,
+						name: workspace.name,
+						// No `usr` row here, hence no per-workspace username — same stand-in
+						// as the synthetic `admins` entry below.
+						username: 'superadmin',
+						color: workspace.color,
+						parent_workspace_id: workspace.parent_workspace_id,
+						is_dev_workspace: workspace.is_dev_workspace,
+						dev_workspace_label: workspace.dev_workspace_label,
+						disabled: false
+					}
 				}
-			]
-		} else {
-			return originalWorkspaces
-		}
+	)
+}
+
+export const userWorkspaces: Readable<Array<UserWorkspace>> = derived(
+	[usersWorkspaceStore, superadmin, nonMemberWorkspaces],
+	([store, superadmin, nonMember]) => {
+		const originalWorkspaces = store?.workspaces ?? []
+		const workspaces = superadmin
+			? [
+					...originalWorkspaces.filter((x) => x.id != 'admins'),
+					{
+						id: 'admins',
+						name: 'Admins',
+						username: 'superadmin',
+						color: undefined,
+						operator_settings: undefined,
+						disabled: false
+					}
+				]
+			: originalWorkspaces
+		const extra = Object.values(nonMember).filter((w) => !workspaces.some((x) => x.id === w.id))
+		return extra.length > 0 ? [...workspaces, ...extra] : workspaces
 	}
 )
 

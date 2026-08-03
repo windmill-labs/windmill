@@ -30923,6 +30923,12 @@ components:
         parent_workspace_id:
           type: string
           nullable: true
+        is_dev_workspace:
+          type: boolean
+        dev_workspace_label:
+          type: string
+          nullable: true
+          description: "Cosmetic display label of the dev workspace ('dev' | 'staging'); null defaults to 'dev'"
       required:
         - id
         - name

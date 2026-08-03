@@ -4,6 +4,7 @@ import {
 	workspaceStore,
 	userStore,
 	usersWorkspaceStore,
+	nonMemberWorkspaces,
 	superadmin,
 	devopsRole,
 	clearWorkspaceFromStorage
@@ -36,6 +37,7 @@ export function clearStores(): void {
 	userStore.set(undefined)
 	workspaceStore.set(undefined)
 	usersWorkspaceStore.set(undefined)
+	nonMemberWorkspaces.set({})
 	refreshSuperadmin.cancel()
 	superadmin.set(undefined)
 	devopsRole.set(undefined)

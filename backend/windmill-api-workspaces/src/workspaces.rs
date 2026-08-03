@@ -247,6 +247,8 @@ struct Workspace {
     premium: bool,
     color: Option<String>,
     parent_workspace_id: Option<String>,
+    is_dev_workspace: bool,
+    dev_workspace_label: Option<String>,
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -749,7 +751,7 @@ async fn list_workspaces(
     let mut tx = user_db.begin(&authed).await?;
     let workspaces = sqlx::query_as!(
         Workspace,
-        "SELECT workspace.id, workspace.name, workspace.owner, workspace.deleted, workspace.premium, workspace_settings.color, workspace.parent_workspace_id
+        "SELECT workspace.id, workspace.name, workspace.owner, workspace.deleted, workspace.premium, workspace_settings.color, workspace.parent_workspace_id, workspace.is_dev_workspace, workspace.dev_workspace_label
          FROM workspace
          LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
          JOIN usr ON usr.workspace_id = workspace.id
@@ -4827,7 +4829,9 @@ async fn get_workspace_as_superadmin(
             workspace.deleted AS \"deleted!\",
             workspace.premium AS \"premium!\",
             workspace_settings.color AS \"color\",
-            workspace.parent_workspace_id AS \"parent_workspace_id\"
+            workspace.parent_workspace_id AS \"parent_workspace_id\",
+            workspace.is_dev_workspace AS \"is_dev_workspace!\",
+            workspace.dev_workspace_label AS \"dev_workspace_label\"
         FROM workspace
         LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
         WHERE workspace.id = $1",
@@ -4861,7 +4865,9 @@ async fn list_workspaces_as_super_admin(
             workspace.deleted AS \"deleted!\",
             workspace.premium AS \"premium!\",
             workspace_settings.color AS \"color\",
-            workspace.parent_workspace_id AS \"parent_workspace_id\"
+            workspace.parent_workspace_id AS \"parent_workspace_id\",
+            workspace.is_dev_workspace AS \"is_dev_workspace!\",
+            workspace.dev_workspace_label AS \"dev_workspace_label\"
         FROM workspace
         LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
          LIMIT $1 OFFSET $2",
@@ -5966,7 +5972,14 @@ async fn clone_scripts(
     .execute(&mut **tx)
     .await?;
 
-    clear_orphaned_compat_address(tx, "script", "hash", source_workspace_id, target_workspace_id).await?;
+    clear_orphaned_compat_address(
+        tx,
+        "script",
+        "hash",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .await?;
 
     Ok(())
 }
@@ -6204,7 +6217,8 @@ async fn clone_flows(
     .execute(&mut **tx)
     .await?;
 
-    clear_orphaned_compat_address(tx, "flow", "path", source_workspace_id, target_workspace_id).await?;
+    clear_orphaned_compat_address(tx, "flow", "path", source_workspace_id, target_workspace_id)
+        .await?;
 
     // Then clone flow versions
     let flow_versions = sqlx::query!(
