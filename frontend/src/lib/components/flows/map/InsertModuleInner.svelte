@@ -43,12 +43,12 @@
 	let loading = $state(false)
 	let small = $derived(kind === 'preprocessor' || kind === 'failure')
 
-	let width = $state(0)
 	let height = $state(0)
 	let owners = $state([])
-	// Thresholds mirror the popover's default size, so paths only appear once the user resizes it
-	// bigger. Keep them in sync with contentClasses in InsertModulePopover.svelte.
-	let displayPath = $derived(width > 650 || height > 480)
+	// Paths only appear once the user drags the popover taller than its default height, so this
+	// must track h-[480px] in InsertModulePopover.svelte. Width is pinned by w-[650px] below and
+	// so can never be the trigger.
+	let displayPath = $derived(height > 480)
 </script>
 
 <div
@@ -60,7 +60,6 @@
 		e.stopPropagation()
 	}}
 	role="none"
-	bind:clientWidth={width}
 	bind:clientHeight={height}
 >
 	<div class="flex flex-row items-center gap-2">

@@ -51,7 +51,7 @@
 	role="menuitem"
 	variant="subtle"
 	unifiedSize="sm"
-	btnClasses="justify-start {selected ? 'bg-surface-hover' : 'hover:bg-transparent'}"
+	btnClasses="justify-start {selected ? 'bg-surface-hover' : onHover ? 'hover:bg-transparent' : ''}"
 >
 	{#if lang}
 		<LanguageIcon {lang} width={13} height={13} />

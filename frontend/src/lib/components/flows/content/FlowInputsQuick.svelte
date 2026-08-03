@@ -254,9 +254,17 @@
 		preFilter
 		untrack(() => onPrefilterChange(preFilter))
 	})
-	let aiLength = $derived(
-		funcDesc?.length > 0 && !disableAi && selectedKind != 'flow' && preFilter == 'all' ? 2 : 0
+	// Gates the two AI rows and their slots in the index space; both must agree or arrow keys land
+	// on indices that render nothing.
+	let showAiRows = $derived(
+		!disableAi &&
+			funcDesc?.length > 0 &&
+			kind != 'failure' &&
+			kind != 'preprocessor' &&
+			(selectedKind == 'script' || selectedKind == 'trigger') &&
+			preFilter == 'all'
 	)
+	let aiLength = $derived(showAiRows ? 2 : 0)
 
 	// Every result row lives in one keyboard index space, and hovering a row moves that index, so
 	// mouse and keyboard can never highlight two different rows. Offsets follow the render order.
@@ -436,7 +444,7 @@
 			{/each}
 		{/if}
 
-		{#if !disableAi && funcDesc?.length > 0 && kind != 'failure' && kind != 'preprocessor' && (selectedKind == 'script' || selectedKind == 'trigger') && preFilter == 'all'}
+		{#if showAiRows}
 			<ul class="transition-all">
 				<li
 					><GenAiQuick
