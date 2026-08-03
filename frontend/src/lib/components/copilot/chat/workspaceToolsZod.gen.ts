@@ -500,6 +500,24 @@ export const triggerRequestSchemas = {
 
 const triggerPathSchema = z.string().min(1).describe("The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.")
 
+// The kind-specific fields of a trigger config, with the three the tool supplies
+// itself removed. Fetched one at a time through get_trigger_schema rather than
+// inlined into create_trigger: as a union of all eleven this serialized to ~39k
+// characters of JSON Schema, resent on every request of every chat.
+export const triggerConfigSchemas = {
+	http: httpTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+	websocket: websocketTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+	kafka: kafkaTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+	nats: natsTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+	postgres: postgresTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+	mqtt: mqttTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+	amqp: amqpTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+	sqs: sqsTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+	gcp: gcpTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+	azure: azureTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+	email: emailTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+} as const
+
 export const createTriggerToolSchema = z.object({
 	kind: z.enum([
 		"http",
@@ -515,17 +533,9 @@ export const createTriggerToolSchema = z.object({
 		"email",
 	]),
 	path: triggerPathSchema,
-	config: z.union([
-		httpTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
-		websocketTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
-		kafkaTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
-		natsTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
-		postgresTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
-		mqttTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
-		amqpTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
-		sqsTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
-		gcpTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
-		azureTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
-		emailTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
-	])
+	config: z
+		.record(z.string(), z.any())
+		.describe(
+			'The kind-specific trigger configuration. Call get_trigger_schema with the same kind first to get its exact fields.'
+		)
 })

@@ -28,6 +28,7 @@ import {
 import {
 	createTriggerToolSchema,
 	scheduleRequestSchema,
+	triggerConfigSchemas,
 	triggerRequestSchemas
 } from './workspaceToolsZod.gen'
 import { z } from 'zod'
@@ -121,9 +122,27 @@ const createScheduleToolDef = createToolDef(
 const createTriggerToolDef = createToolDef(
 	createTriggerToolSchema,
 	'create_trigger',
-	'Create a trigger for the current script or flow. For an email trigger (kind "email"), config.local_part is the local part of the receiving address (before the @); the tool reports the full address on success. Email triggers require email triggering to be configured on the instance — if it is not, the tool returns setup guidance instead of creating one.',
+	'Create a trigger for the current script or flow. Call get_trigger_schema with the same kind first: the config fields differ per kind and are not listed here. For an email trigger (kind "email"), config.local_part is the local part of the receiving address (before the @); the tool reports the full address on success. Email triggers require email triggering to be configured on the instance — if it is not, the tool returns setup guidance instead of creating one.',
 	{ strict: false }
 )
+
+const getTriggerSchemaToolSchema = z.object({
+	kind: z.enum(Object.keys(triggerConfigSchemas) as [TriggerKind, ...TriggerKind[]])
+})
+
+const getTriggerSchemaTool: Tool<any> = {
+	def: createToolDef(
+		getTriggerSchemaToolSchema,
+		'get_trigger_schema',
+		'Get the configuration schema for one trigger kind. Call before create_trigger.'
+	),
+	fn: async ({ args }) => {
+		const { kind } = parseWithExplicitErrors(getTriggerSchemaToolSchema, args, 'Trigger kind')
+		const schema = z.toJSONSchema(triggerConfigSchemas[kind]) as Record<string, unknown>
+		delete schema.$schema
+		return JSON.stringify(schema, null, 2)
+	}
+}
 
 const triggerConfigs = {
 	http: {
@@ -453,7 +472,7 @@ const createTriggerTool: Tool<any> = {
 	}
 }
 
-const workspaceMutationTools = [createScheduleTool, createTriggerTool]
+const workspaceMutationTools = [createScheduleTool, createTriggerTool, getTriggerSchemaTool]
 
 export function createWorkspaceMutationTools<T>(): Tool<T>[] {
 	return workspaceMutationTools as Tool<T>[]

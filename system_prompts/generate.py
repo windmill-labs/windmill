@@ -1046,6 +1046,17 @@ def generate_workspace_tool_zod_schemas(backend_schemas: dict, openflow_schemas:
         "",
         f"const triggerPathSchema = z.string().min(1).describe({_ts_string(trigger_path_description)})",
         "",
+        "// The kind-specific fields of a trigger config, with the three the tool supplies",
+        "// itself removed. Fetched one at a time through get_trigger_schema rather than",
+        "// inlined into create_trigger: as a union of all eleven this serialized to ~39k",
+        "// characters of JSON Schema, resent on every request of every chat.",
+        "export const triggerConfigSchemas = {",
+        *[
+            f"\t{kind}: {schema_name}.omit({{ path: true, script_path: true, is_flow: true }}),"
+            for kind, schema_name in WORKSPACE_TOOL_TRIGGER_SCHEMAS
+        ],
+        "} as const",
+        "",
         "export const createTriggerToolSchema = z.object({",
         "\tkind: z.enum([",
         *[
@@ -1054,12 +1065,11 @@ def generate_workspace_tool_zod_schemas(backend_schemas: dict, openflow_schemas:
         ],
         "\t]),",
         "\tpath: triggerPathSchema,",
-        "\tconfig: z.union([",
-    ])
-    for kind, schema_name in WORKSPACE_TOOL_TRIGGER_SCHEMAS:
-        lines.append(f"\t\t{schema_name}.omit({{ path: true, script_path: true, is_flow: true }}),")
-    lines.extend([
-        "\t])",
+        "\tconfig: z",
+        "\t\t.record(z.string(), z.any())",
+        "\t\t.describe(",
+        "\t\t\t'The kind-specific trigger configuration. Call get_trigger_schema with the same kind first to get its exact fields.'",
+        "\t\t)",
         "})",
     ])
     lines.append("")
