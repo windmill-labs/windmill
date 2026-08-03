@@ -421,7 +421,7 @@
 	 * target can sort past the first page of its own folder, and giving up there
 	 * leaves the selection looking absent.
 	 */
-	async function revealChild(parent: string, child: string) {
+	async function revealChild(parent: string, child: string, generation: number) {
 		for (let fetched = 0; fetched < MAX_PAGES_WHILE_REVEALING; fetched++) {
 			if (allFilesByKey[child] !== undefined) return
 			const state = folderState[parent]
@@ -432,20 +432,27 @@
 			} else {
 				return
 			}
+			if (generation !== listingGeneration) return
 		}
 	}
 
 	/**
 	 * Reveal a key by loading each folder above it in turn — with per-level listing
 	 * an ancestor's children are not known until that level is fetched.
+	 *
+	 * `generation` is the listing this walk belongs to. A reveal is a chain of round
+	 * trips, so the check has to be repeated after every one of them: a filter typed
+	 * mid-walk switches the picker to the search, and the loads that follow would date
+	 * themselves to that listing and graft browse results onto it.
 	 */
-	async function expandToKey(key: string) {
+	async function expandToKey(key: string, generation: number) {
 		if (!key.startsWith(rootPath)) return
 		const rest = key.slice(rootPath.length).split('/')
 		let prefix = rootPath
 		for (let i = 0; i < rest.length - 1; i++) {
 			const child = prefix + rest[i] + '/'
-			await revealChild(prefix, child)
+			await revealChild(prefix, child, generation)
+			if (generation !== listingGeneration) return
 			prefix = child
 			const info = allFilesByKey[prefix]
 			// The folder is genuinely absent; deeper levels cannot exist either.
@@ -453,7 +460,8 @@
 			info.collapsed = false
 		}
 		if (allFilesByKey[key] === undefined) {
-			await revealChild(prefix, key)
+			await revealChild(prefix, key, generation)
+			if (generation !== listingGeneration) return
 		}
 		refreshDisplayed()
 	}
@@ -477,7 +485,7 @@
 					selectedFileKey !== undefined &&
 					!emptyString(selectedFileKey.s3)
 				) {
-					await expandToKey(selectedFileKey.s3)
+					await expandToKey(selectedFileKey.s3, generation)
 				}
 			} catch (e) {
 				// `reloadContent` is called un-awaited from `open()`, so without this a
