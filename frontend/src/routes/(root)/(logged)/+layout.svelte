@@ -725,7 +725,13 @@
 		resolvedFor: string | undefined,
 		isSuperadmin: string | false | undefined
 	): Promise<void> {
-		if (!ws) return
+		// Leaving every workspace (deleting the one you were in) has to drop the cache too:
+		// the other two paths below only fire once another workspace is open, and until then
+		// the workspace picker would keep offering the one that just went away.
+		if (!ws) {
+			clearNonMemberWorkspaces()
+			return
+		}
 		if (list.some((w) => w.id === ws)) {
 			recordForkParent(ws, list)
 		}
