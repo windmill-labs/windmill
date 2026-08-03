@@ -373,27 +373,19 @@ export function diffCreatesInTarget(diff: WorkspaceDiffSides, mergeIntoParent: b
 
 /**
  * Deploying this row removes the item in the target, the only side that has it.
- *
- * Which side dropped it is unknowable from the comparison: `ahead`/`behind`
- * count deploy events on a side, and pulling the parent's own item into the fork
- * or a git-sync revert leaves the same trace a deliberate delete does. So a row
- * may only ever be described by what deploying it does, never by a deletion that
- * may not have happened — and, being destructive, it takes an explicit act to
- * select.
+ * Which side dropped it is unknowable — `ahead`/`behind` count deploy events on a
+ * side, and a pull into the fork or a git-sync revert leaves the trace a delete
+ * does — so a row states what deploying does, and a removal is never bulk-selected.
  */
 export function diffRemovesInTarget(diff: WorkspaceDiffSides, mergeIntoParent: boolean): boolean {
 	return mergeIntoParent ? diff.exists_in_fork === false : diff.exists_in_source === false
 }
 
 /**
- * Rows a deploy in this direction can act on.
- *
- * The counters pick the rows flowing fork → parent. In the other direction the
- * fork can additionally take any item the parent has and it lacks, whatever the
- * counters say — a parent-only item can carry `behind = 0` (see
- * `diffRemovesInTarget`) and would otherwise be unpullable. The mirror case is
- * deliberately left out: a fork-only item with no `ahead` means the parent
- * dropped it, and an update must not resurrect it there.
+ * Rows a deploy in this direction can act on. The fork can take any item the
+ * parent has and it lacks whatever the counters say — a parent-only row can carry
+ * `behind = 0` (see `diffRemovesInTarget`) and would else be unpullable. Not
+ * mirrored: a fork-only row with no `ahead` means the parent dropped it.
  */
 export function diffActionableInDirection(
 	diff: WorkspaceDiffSides,
