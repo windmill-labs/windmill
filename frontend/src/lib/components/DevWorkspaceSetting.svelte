@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { workspaceStore, userWorkspaces, usersWorkspaceStore } from '$lib/stores'
+	import { workspaceStore, userWorkspaces, usersWorkspaceStore, superadmin } from '$lib/stores'
 	import { WorkspaceService, type ProtectionRuleset } from '$lib/gen'
 	import { Badge, Button } from '$lib/components/common'
 	import Select from '$lib/components/select/Select.svelte'
@@ -31,8 +31,9 @@
 		() => (!isDev && !parentId && !canonicalDev ? $workspaceStore : undefined),
 		async (ws) => (ws ? await WorkspaceService.getDevWorkspace({ workspace: ws }) : undefined)
 	)
-	// The paired dev to display: the client entry when we're a member (so "Go to dev workspace" works),
-	// else the server result (pairing + detach still available to a prod admin).
+	// The paired dev to display: the client entry when we're a member, else the server result (pairing
+	// + detach still available to a prod admin). `isMember` decides whether switching into it would
+	// land somewhere the caller can use — a superadmin can enter any workspace, member or not.
 	let pairedDev = $derived(
 		canonicalDev
 			? {
@@ -151,6 +152,12 @@
 		devWorkspaceResource.refetch()
 		// Attach/detach changes this (root) workspace's protection rules; reload them so the
 		// direct-deploy / forking lock UI reflects the change without a workspace switch or reload.
+		// Refetching duplicates the request `loadProtectionRules` just made, which is the price of it
+		// being the only way to supersede whatever this resource already has in flight: `mutate` just
+		// assigns, so an earlier fetch lands afterwards and puts the pre-attach rules back on screen.
+		// No guard makes seeding safe either — runed shares one `loading` flag, which a superseded
+		// request clears while its replacement is still running. One extra request on an admin-only
+		// action is cheaper than a panel that misreports what is enforced.
 		if ($workspaceStore) {
 			await loadProtectionRules($workspaceStore)
 			rootProtectionRules.refetch()
@@ -251,8 +258,13 @@
 						/>{/if}
 					Forking {enforcesForkingBlock ? 'is blocked' : 'is allowed'}
 				</span>
+				{#if enforcesDeployBlock || enforcesForkingBlock}
+					<!-- Only admins reach this tab, and `check_user_against_rule` lets an admin through
+					     every rule, so without this the reader would try what the panel calls blocked. -->
+					<span class="text-2xs text-secondary">Workspace admins always bypass these rules.</span>
+				{/if}
 			{/if}
-			<div>
+			<div class="self-start">
 				<Button
 					variant="subtle"
 					unifiedSize="2xs"
@@ -263,7 +275,7 @@
 			</div>
 		</div>
 		<div class="flex gap-2">
-			{#if pairedDev.isMember}
+			{#if pairedDev.isMember || $superadmin}
 				<Button
 					variant="default"
 					startIcon={{ icon: GitFork }}
