@@ -308,6 +308,10 @@
 	// inline pane. Kept live-synced: every build is replayed into it until the
 	// user closes it. Not reactive — it's a window handle, not UI state.
 	let externalPreviewWindow: Window | null = null
+	// Mirrors `previewIframeLoaded` for the detached window: its reload is only
+	// initiated, never awaited, so a build posted meanwhile would run in the
+	// retiring document and again in its replacement.
+	let externalPreviewReady = $state(false)
 	let inspectorEnabled = $state(false)
 	let bundlerType: 'esbuild' | 'rolldown' = $state('esbuild')
 
@@ -1109,6 +1113,7 @@
 			e.source === externalPreviewWindow &&
 			e.origin === window.location.origin
 		) {
+			externalPreviewReady = true
 			feedExternalPreview()
 			return
 		}
@@ -1279,6 +1284,7 @@
 	function postToExternalPreview(msg: Record<string, unknown>) {
 		if (!externalPreviewWindow || externalPreviewWindow.closed) {
 			externalPreviewWindow = null
+			externalPreviewReady = false
 			return
 		}
 		// Restrict to our own origin: the detached window loads same-origin
@@ -1316,6 +1322,7 @@
 		previewIframeLoaded = false
 		if (previewIframe) previewIframe.src = PREVIEW_SHELL_URL
 		if (externalPreviewWindow && !externalPreviewWindow.closed) {
+			externalPreviewReady = false
 			// User app code can navigate this window elsewhere, which makes its
 			// location cross-origin and unreachable — that document holds no token.
 			try {
@@ -1378,7 +1385,7 @@
 	}
 
 	function syncExternalPreview() {
-		if (previewSdkPending) return
+		if (previewSdkPending || !externalPreviewReady) return
 		if (lastBuild) {
 			postToExternalPreview({
 				type: 'preview',
@@ -1438,13 +1445,17 @@
 			return
 		}
 		externalPreviewWindow = win
+		externalPreviewReady = false
 		// Initial feed: fires once when the freshly opened tab loads. This is the
 		// only feed path against an app-preview.html that predates the
 		// `appPreviewReady` handshake, so the window isn't blank on first open
 		// regardless of the pinned UI Builder artifact. A manual refresh is
 		// covered separately by the handshake in `listener` (this listener is
 		// bound to the now-stale document and won't fire again).
-		win.addEventListener('load', () => feedExternalPreview())
+		win.addEventListener('load', () => {
+			externalPreviewReady = true
+			feedExternalPreview()
+		})
 	}
 
 	let getBundleResolve: (({ css, js }: { css: string; js: string }) => void) | undefined = undefined
