@@ -1319,10 +1319,12 @@
 		const key = `${ws ?? ''}|${scopes.join(',')}`
 		if (key === previewSdkKey) return
 		previewSdkKey = key
-		if (scopes.length === 0 || !ws) {
-			setPreviewSdkEnv(NO_SDK_ENV_JS)
-			return
-		}
+		// Drop the old credential before asking for its replacement, never after:
+		// a mint is asynchronous, and until it answers the running preview — and
+		// any build fed meanwhile — would keep scopes the policy just removed, or
+		// a token for the workspace we just left.
+		setPreviewSdkEnv(NO_SDK_ENV_JS)
+		if (scopes.length === 0 || !ws) return
 		mintPreviewSdkToken(scopes, ws, key)
 	})
 
@@ -1342,11 +1344,10 @@
 				}).replace(/</g, '\\u003c')} };\n`
 			)
 		} catch (e) {
+			// Already tokenless — the effect cleared the env before calling us. The key
+			// stays set, so a failed mint is not retried until the scopes or workspace
+			// actually change, which is the only thing this effect reacts to.
 			console.warn('Could not mint a preview SDK token', e)
-			if (key !== previewSdkKey) return
-			setPreviewSdkEnv(NO_SDK_ENV_JS)
-			// The key stays set, so a failed mint is not retried until the scopes or
-			// workspace actually change — which is the only thing this effect reacts to.
 		}
 	}
 
