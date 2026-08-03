@@ -1303,20 +1303,17 @@
 	// otherwise hand the preview the wrong scope set — or restore a token after all
 	// scopes were removed.
 	let previewSdkKey: string | undefined = undefined
+	// Holds the build back between dropping a credential and settling its
+	// replacement, so the app mounts once — with the final credential — instead of
+	// once tokenless and again tokenful, running mount-time side effects twice.
+	let previewSdkPending = $state(false)
 
-	/** Assign the prologue and restart the preview, so a running app stops using a
-	 * credential the policy no longer grants. */
-	function setPreviewSdkEnv(js: string) {
-		if (js === previewSdkEnvJs) return
-		previewSdkEnvJs = js
-		// Re-feeding the build is not enough: the shell resets the DOM but keeps the
-		// JavaScript realm, so the old bundle's timers, listeners and pending
-		// callbacks still hold the client they imported — and the token it captured
-		// at module load. Only reloading discards them.
-		if (!lastBuild) return // nothing running yet; the first feed carries this env
+	/** Discard the running app. The shell resets the DOM but keeps the JavaScript
+	 * realm, so only a reload drops the old bundle's timers, listeners and the
+	 * token its client captured at module load. */
+	function restartPreviewRealm() {
+		if (!lastBuild) return // nothing running yet
 		previewIframeLoaded = false
-		// Both shells replay the build once they are back: the iframe from its
-		// `load` handler, the detached window from its `appPreviewReady` message.
 		if (previewIframe) previewIframe.src = PREVIEW_SHELL_URL
 		if (externalPreviewWindow && !externalPreviewWindow.closed) {
 			// User app code can navigate this window elsewhere, which makes its
@@ -1325,6 +1322,16 @@
 				externalPreviewWindow.location.replace(PREVIEW_SHELL_URL)
 			} catch (_) {}
 		}
+	}
+
+	/** Settle the credential and let the app start: the reloaded shells replay the
+	 * build themselves (the iframe from its `load` handler, the detached window
+	 * from `appPreviewReady`), so this only covers a shell already back up. */
+	function applyPreviewSdkEnv(js: string) {
+		previewSdkEnvJs = js
+		previewSdkPending = false
+		if (lastBuild) feedPreviewIframe(lastBuild)
+		syncExternalPreview()
 	}
 
 	$effect(() => {
@@ -1339,9 +1346,11 @@
 		// a mint is asynchronous, and until it answers the running preview — and
 		// any build fed meanwhile — would keep scopes the policy just removed, or
 		// a token for the workspace we just left.
-		setPreviewSdkEnv(NO_SDK_ENV_JS)
-		if (scopes.length === 0 || !ws) return
-		mintPreviewSdkToken(scopes, ws, key)
+		const willMint = scopes.length > 0 && !!ws
+		previewSdkPending = willMint
+		previewSdkEnvJs = NO_SDK_ENV_JS
+		restartPreviewRealm()
+		if (willMint) mintPreviewSdkToken(scopes, ws, key)
 	})
 
 	async function mintPreviewSdkToken(scopes: string[], ws: string, key: string) {
@@ -1351,7 +1360,7 @@
 				requestBody: { path, scopes }
 			})
 			if (key !== previewSdkKey) return
-			setPreviewSdkEnv(
+			applyPreviewSdkEnv(
 				`window.process = { env: ${JSON.stringify({
 					WM_RAW_APP: 'true',
 					WM_TOKEN: token,
@@ -1360,14 +1369,16 @@
 				}).replace(/</g, '\\u003c')} };\n`
 			)
 		} catch (e) {
-			// Already tokenless — the effect cleared the env before calling us. The key
-			// stays set, so a failed mint is not retried until the scopes or workspace
-			// actually change, which is the only thing this effect reacts to.
+			// Already tokenless — the effect cleared the env before calling us — so
+			// this only releases the build. The key stays set, so a failed mint is not
+			// retried until the scopes or workspace actually change.
 			console.warn('Could not mint a preview SDK token', e)
+			if (key === previewSdkKey) applyPreviewSdkEnv(NO_SDK_ENV_JS)
 		}
 	}
 
 	function syncExternalPreview() {
+		if (previewSdkPending) return
 		if (lastBuild) {
 			postToExternalPreview({
 				type: 'preview',
@@ -1381,6 +1392,10 @@
 	// overlays first: a fresh render supersedes the old crash or blank, and
 	// app-preview.html re-posts if the new render fails the same way.
 	function feedPreviewIframe(build: { css: string; js: string }) {
+		// Between dropping a credential and settling its replacement the shell stays
+		// blank; whichever settles last — the mint or the shell's own `load` — starts
+		// the app. Same for a shell still reloading: its `load` handler replays.
+		if (previewSdkPending || !previewIframeLoaded) return
 		runtimeError = undefined
 		emptyRender = false
 		// Same-origin app-preview.html, and the payload now carries a token — address
