@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { workspaceStore, userWorkspaces, usersWorkspaceStore } from '$lib/stores'
-	import { WorkspaceService } from '$lib/gen'
+	import { WorkspaceService, type ProtectionRuleset } from '$lib/gen'
 	import { Badge, Button } from '$lib/components/common'
 	import Select from '$lib/components/select/Select.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -12,7 +12,7 @@
 	import { devBadgeText, devLabelKey, devLabelNoun } from '$lib/utils/devWorkspaceLabel'
 	import {
 		loadProtectionRules,
-		fetchProtectionRulesForWorkspace,
+		isRuleActiveInRulesets,
 		isRuleUnconditionallyActiveInRulesets
 	} from '$lib/workspaceProtectionRules.svelte'
 	import { GitFork, ExternalLink, Check, Minus } from 'lucide-svelte'
@@ -67,19 +67,27 @@
 		() => (!parentId ? $workspaceStore : undefined),
 		async (ws, _prev, { signal }) => {
 			if (!ws) return undefined
-			const rules = await fetchProtectionRulesForWorkspace(ws)
+			// `fetchProtectionRulesForWorkspace` fails open with an empty list, which the toggles below
+			// want but the status panel must not read as "nothing is enforced" — so keep the failure.
+			let rules: ProtectionRuleset[] | undefined
+			try {
+				rules = await WorkspaceService.listProtectionRules({ workspace: ws })
+			} catch (e) {
+				console.error(`Failed to fetch protection rules for workspace ${ws}:`, e)
+			}
 			// The generated client can't take an abort signal, so drop a superseded response here: a late
 			// result for a previously selected workspace must not overwrite the current one's rules.
 			if (signal.aborted) throw new DOMException('superseded', 'AbortError')
-			return { ws, rules }
+			return { ws, rules: rules ?? [], failed: rules === undefined }
 		}
 	)
 	// Only trust a result that belongs to the current workspace (guards the in-flight window and any
 	// out-of-order response); undefined means "not known yet" and is treated as locked below.
-	let rootRules = $derived.by(() => {
+	let rootResult = $derived.by(() => {
 		const current = rootProtectionRules.current
-		return current && current.ws === $workspaceStore ? current.rules : undefined
+		return current && current.ws === $workspaceStore ? current : undefined
 	})
+	let rootRules = $derived(rootResult?.rules)
 	// Only a rule with no bypass users/groups matches the empty-bypass reserved lock we would create; a
 	// bypassable rule stays editable, otherwise forcing the lock on would revoke the bypassed users'
 	// direct-deploy / forking access.
@@ -100,6 +108,19 @@
 	// toggle's raw state, keeping the request consistent with what the locked toggle shows.
 	let effectiveLockProdDeploy = $derived(deployLocked || lockProdDeploy)
 	let effectiveLockProdForking = $derived(forkingLocked || lockProdForking)
+
+	// What the paired view reports. Unlike the toggles above, this asks whether the rule is enforced at
+	// all: a ruleset with bypass users still blocks everyone outside that list, so it is in force here
+	// even though the attach form leaves its toggle editable.
+	let enforcesDeployBlock = $derived(
+		isRuleActiveInRulesets(rootRules ?? [], 'DisableDirectDeployment')
+	)
+	let enforcesForkingBlock = $derived(
+		isRuleActiveInRulesets(rootRules ?? [], 'DisableWorkspaceForking')
+	)
+	// A failed read is not "nothing is enforced": report it as unknown rather than claiming allowed.
+	let enforcementReadFailed = $derived(rootResult?.failed ?? false)
+	let enforcementUnknown = $derived(rulesUnknown || enforcementReadFailed)
 
 	// A standalone root workspace, or an existing fork of this prod (same family), can be attached.
 	// A fork parented to a different workspace can't (the backend rejects a parent that isn't this
@@ -211,29 +232,35 @@
 		<div class="flex flex-col gap-1 rounded-md border bg-surface-secondary p-3">
 			<span class="text-xs font-semibold text-emphasis">Protections in force on this workspace</span
 			>
-			{#if rulesUnknown}
-				<span class="text-2xs text-secondary">Checking protection rules…</span>
+			{#if enforcementUnknown}
+				<span class="text-2xs text-secondary">
+					{enforcementReadFailed
+						? 'Could not read this workspace’s protection rules'
+						: 'Checking protection rules…'}
+				</span>
 			{:else}
 				<span class="text-2xs text-secondary flex items-center gap-1.5">
-					{#if alreadyBlocksDeploy}<Check size={12} class="text-green-600" />{:else}<Minus
+					{#if enforcesDeployBlock}<Check size={12} class="text-green-600" />{:else}<Minus
 							size={12}
 						/>{/if}
-					Direct edits {alreadyBlocksDeploy ? 'are blocked' : 'are allowed'}
+					Direct edits {enforcesDeployBlock ? 'are blocked' : 'are allowed'}
 				</span>
 				<span class="text-2xs text-secondary flex items-center gap-1.5">
-					{#if alreadyBlocksForking}<Check size={12} class="text-green-600" />{:else}<Minus
+					{#if enforcesForkingBlock}<Check size={12} class="text-green-600" />{:else}<Minus
 							size={12}
 						/>{/if}
-					Forking {alreadyBlocksForking ? 'is blocked' : 'is allowed'}
+					Forking {enforcesForkingBlock ? 'is blocked' : 'is allowed'}
 				</span>
 			{/if}
-			<button
-				type="button"
-				class="text-2xs text-secondary hover:text-primary hover:underline text-left w-fit"
-				onclick={() => goto(`${base}/workspace_settings?tab=rulesets`)}
-			>
-				Manage in Rulesets
-			</button>
+			<div>
+				<Button
+					variant="subtle"
+					unifiedSize="2xs"
+					onclick={() => goto(`${base}/workspace_settings?tab=rulesets`)}
+				>
+					Manage in Rulesets
+				</Button>
+			</div>
 		</div>
 		<div class="flex gap-2">
 			{#if pairedDev.isMember}
