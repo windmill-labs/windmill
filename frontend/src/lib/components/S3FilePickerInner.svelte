@@ -688,6 +688,11 @@
 			// Every caller invokes this un-awaited, so a key that no longer exists would
 			// otherwise leave the preview pane on "Loading..." forever.
 			console.error('Error loading metadata for', fileKey, e)
+			// Unless the pane has moved on: selections overlap, and a late failure for the
+			// previous file would blank the preview of the one now selected.
+			if (selectedFileKey?.s3 !== fileKey) {
+				return
+			}
 			fileMetadata = undefined
 			filePreview = undefined
 			fileInfoLoading = false
