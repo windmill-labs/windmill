@@ -460,7 +460,8 @@
 
 	let lastKeyFolders: string[] = $state([])
 
-	async function loadFiles() {
+	/** Reports whether the listing completed, so a caller that moved the cursor can undo it. */
+	async function loadFiles(): Promise<boolean> {
 		if (lazyMode) {
 			fileListLoading = true
 			try {
@@ -473,11 +474,12 @@
 				// failing root listing surfaces as an unhandled rejection and an empty
 				// tree indistinguishable from an empty bucket.
 				reportFolderError(rootPath, e)
+				return false
 			} finally {
 				fileListLoading = false
 				fileInfoLoading = false
 			}
-			return
+			return true
 		}
 		// Same contract as the lazy branch above: every caller here is un-awaited, so an
 		// uncaught rejection would leave the drawer on a spinner with nothing said. The
@@ -495,10 +497,28 @@
 			if (generation === listingGeneration) {
 				fileInfoLoading = false
 			}
+			return false
 		} finally {
 			if (generation === listingGeneration) {
 				fileListLoading = false
 			}
+		}
+		return true
+	}
+
+	/**
+	 * Flat "Load more" / "Keep looking". The cursor lives in `page`, which indexes
+	 * `listMarkers`, so a page that fails must give it back: retrying from an advanced
+	 * `page` reads a marker slot that was never filled, sends none, and silently replays
+	 * the first page — and the `listMarkers.length == page` guard then never recovers.
+	 */
+	async function loadNextFlatPage() {
+		page += 1
+		const requested = page
+		const ok = await loadFiles()
+		// Only undo our own advance: another click may have moved it on meanwhile.
+		if (!ok && page === requested) {
+			page = requested - 1
 		}
 	}
 
@@ -1047,10 +1067,7 @@
 								<Button
 									variant="default"
 									size="xs2"
-									on:click={() => {
-										page += 1
-										loadFiles()
-									}}
+									on:click={() => loadNextFlatPage()}
 								>
 									Keep looking
 								</Button>
@@ -1183,10 +1200,7 @@
 								<Button
 									variant="default"
 									size="xs2"
-									on:click={() => {
-										page += 1
-										loadFiles()
-									}}
+									on:click={() => loadNextFlatPage()}
 								>
 									Load more
 								</Button>
