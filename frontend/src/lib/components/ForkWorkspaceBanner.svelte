@@ -13,6 +13,9 @@
 
 	let loading = $state(false)
 	let comparison: WorkspaceComparison | undefined = $state(undefined)
+	/** Workspace `comparison` describes; control flow only, never rendered. */
+	let comparisonFor: string | undefined = undefined
+	let requestSeq = 0
 	let error: string | undefined = $state(undefined)
 
 	let currentWorkspaceData = $derived($userWorkspaces.find((w) => w.id === $workspaceStore))
@@ -31,12 +34,22 @@
 	const drafts = useWorkspaceDrafts(() => (isFork ? ($workspaceStore ?? undefined) : undefined))
 	const draftCount = $derived(drafts.count)
 
+	// What the banner is allowed to answer from. Anything else — in flight, failed, or a
+	// tally that was skipped outright — counts zero of everything, which is
+	// indistinguishable from "nothing to deploy" and would send the user to the wrong
+	// direction. Typed helpers avoid the `never`-inference quirk on `$state` in `$derived`.
+	function isAnswerable(c: WorkspaceComparison | undefined, isLoading: boolean): boolean {
+		return !isLoading && !!c && !c.skipped_comparison
+	}
+	const comparisonLoaded = $derived(isAnswerable(comparison, loading))
+
 	// Fork is fully in sync with its parent (comparison ran, no ahead/behind diffs).
-	// Typed helper avoids the $state `never`-inference quirk on `comparison` in $derived.
+	// Gated on `comparisonLoaded` for the reason above: it also selects the drafts CTA,
+	// which would otherwise win over the deploy/update one mid-load.
 	function isUpToDate(c: WorkspaceComparison | undefined): boolean {
 		return !!c && !c.skipped_comparison && c.summary.total_diffs === 0
 	}
-	let upToDate = $derived(isUpToDate(comparison))
+	let upToDate = $derived(comparisonLoaded && isUpToDate(comparison))
 	// Up to date with the parent but local drafts are pending — show the draft
 	// state (same text + CTA as the draft banner) instead of "Everything is up to date".
 	let showDraftsOnly = $derived(upToDate && draftCount > 0)
@@ -61,25 +74,43 @@
 	})
 
 	async function checkForChanges() {
-		if (!$workspaceStore || !parentWorkspaceId) {
+		const ws = $workspaceStore
+		const parent = parentWorkspaceId
+		if (!ws || !parent) {
 			return
 		}
 
+		// A comparison only ever describes the workspace it was requested for. The
+		// component survives a fork switch, so drop the previous fork's rows before
+		// fetching rather than let them answer for this one, and let only the newest
+		// request write — responses can land out of order, and a late one would
+		// otherwise paint another fork's counts over the current answer.
+		if (comparisonFor !== ws) {
+			comparison = undefined
+			comparisonFor = undefined
+		}
+		const seq = ++requestSeq
 		loading = true
 		error = undefined
 
 		try {
 			// Compare with parent workspace (shared single-flight fetch — the chat
 			// diff tool reuses this result instead of recomputing the comparison)
-			const result = await fetchWorkspaceComparison(parentWorkspaceId, $workspaceStore)
+			const result = await fetchWorkspaceComparison(parent, ws)
 
+			if (seq !== requestSeq) return
 			comparison = result
+			comparisonFor = ws
 		} catch (e) {
+			if (seq !== requestSeq) return
 			console.error('Failed to compare workspaces:', e)
 			error = `Failed to check for changes: ${e}`
-			// Still show banner if there's an error, but with error message
+			// Show the banner with the error rather than the rows we failed to refresh:
+			// on a switch those belong to the fork we just left.
+			comparison = undefined
+			comparisonFor = undefined
 		} finally {
-			loading = false
+			if (seq === requestSeq) loading = false
 		}
 	}
 
@@ -161,9 +192,6 @@
 	function countDir(c: WorkspaceComparison | undefined, mergeIntoParent: boolean): number {
 		return c?.diffs.filter((d) => diffActionableInDirection(d, mergeIntoParent)).length ?? 0
 	}
-	// A comparison in flight is not an answer: on a fork switch the component stays
-	// mounted and `comparison` still holds the previous fork's rows.
-	const comparisonLoaded = $derived(!loading && comparison !== undefined)
 	const changesAhead = $derived(countDir(comparison, true))
 	const changesBehind = $derived(countDir(comparison, false))
 
