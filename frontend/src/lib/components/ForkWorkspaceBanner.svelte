@@ -9,6 +9,7 @@
 	import { onMount, untrack } from 'svelte'
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 	import { devLabelWord } from '$lib/utils/devWorkspaceLabel'
+	import { diffActionableInDirection } from '$lib/utils_workspace_deploy'
 
 	let loading = $state(false)
 	let comparison: WorkspaceComparison | undefined = $state(undefined)
@@ -82,9 +83,14 @@
 		}
 	}
 
+	// Opens the direction the button offers, so the label and the list agree: a fork
+	// with nothing to deploy lands on the update side, not on an empty deploy list.
+	// Both read `comparisonLoaded` — an unknown comparison counts zero of everything,
+	// which is indistinguishable from "nothing to deploy".
 	function openComparisonDrawer() {
 		if (parentWorkspaceId && $workspaceStore) {
-			goto('/forks/compare?workspace_id=' + encodeURIComponent($workspaceStore), {
+			const dir = comparisonLoaded && changesAhead === 0 ? '&dir=update' : ''
+			goto('/forks/compare?workspace_id=' + encodeURIComponent($workspaceStore) + dir, {
 				replaceState: true
 			})
 		}
@@ -148,6 +154,19 @@
 		return () => clearInterval(interval)
 	})
 
+	// Counted with the compare page's own predicate so the banner never advertises a
+	// direction whose list is empty: the `ahead`/`behind` sums in the summary include
+	// rows a direction does not carry, and miss a parent-only row that the update
+	// direction carries at `behind = 0`.
+	function countDir(c: WorkspaceComparison | undefined, mergeIntoParent: boolean): number {
+		return c?.diffs.filter((d) => diffActionableInDirection(d, mergeIntoParent)).length ?? 0
+	}
+	// A comparison in flight is not an answer: on a fork switch the component stays
+	// mounted and `comparison` still holds the previous fork's rows.
+	const comparisonLoaded = $derived(!loading && comparison !== undefined)
+	const changesAhead = $derived(countDir(comparison, true))
+	const changesBehind = $derived(countDir(comparison, false))
+
 	function forkAheadBehindMessage(changesAhead: number, changesBehind: number) {
 		let msg: string[] = []
 		if (changesAhead > 0 || changesBehind > 0) {
@@ -195,10 +214,7 @@
 						<div class="flex items-center flex-wrap gap-x-4 gap-y-1 text-xs min-w-0">
 							{#if comparison.summary.total_diffs > 0}
 								<span class="text-blue-700 dark:text-blue-100">
-									{forkAheadBehindMessage(
-										comparison.summary.total_ahead,
-										comparison.summary.total_behind
-									)}
+									{forkAheadBehindMessage(changesAhead, changesBehind)}
 									<span class="font-semibold underline">{parentWorkspaceId}</span> over {comparison
 										.summary.total_diffs} items<span class="hidden lg:inline">:</span>
 								</span>
@@ -343,7 +359,7 @@
 					>
 						{#if showDraftsOnly}
 							Review & deploy drafts
-						{:else if (comparison?.summary.total_ahead ?? 0) > 0}
+						{:else if !comparisonLoaded || changesAhead > 0}
 							Review & Deploy Changes
 						{:else}
 							Review & Update fork

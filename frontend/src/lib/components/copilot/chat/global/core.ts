@@ -6014,8 +6014,8 @@ function formatForkIndexEntry(e: ForkDiffEntryView): string {
 	switch (e.status) {
 		case 'only_in_fork':
 			return `- ${name} — only in fork (${e.patchLineCount} lines)${draftFlag}`
-		case 'deleted_in_fork':
-			return `- ${name} — deleted in fork, still in parent${draftFlag}`
+		case 'only_in_parent':
+			return `- ${name} — only in parent, not in fork${draftFlag}`
 		case 'modified':
 			return `- ${name} — differs (${aheadBehind}; ${e.patchLineCount} diff lines)${draftFlag}`
 		case 'unchanged':
@@ -6193,8 +6193,8 @@ function renderForkEntrySection(
 	const header =
 		entry.status === 'only_in_fork'
 			? `${entry.kind} "${path}" exists only in the fork — not in parent "${parent}". Full content:\n\n`
-			: entry.status === 'deleted_in_fork'
-				? `${entry.kind} "${path}" was deleted in the fork but still exists in parent "${parent}". Removed content:\n\n`
+			: entry.status === 'only_in_parent'
+				? `${entry.kind} "${path}" exists only in parent "${parent}" — not in the fork. Parent content:\n\n`
 				: `Fork changes vs parent "${parent}" for ${entry.kind} "${path}":\n\n`
 	if (args.file !== undefined && !entry.files) {
 		throw new Error(
