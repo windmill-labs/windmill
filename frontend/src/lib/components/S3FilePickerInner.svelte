@@ -997,7 +997,7 @@
 			<div class="min-w-[30%] border-r flex flex-col min-h-0">
 				{#if !rootPath}
 					<div class="w-full p-1 border-b">
-						<input type="text" placeholder="Search files" bind:value={filter} class="text-xl" />
+						<input type="text" placeholder="Search by path prefix" bind:value={filter} class="text-xl" />
 					</div>
 				{/if}
 				{#if displayedFileKeys.length === 0}
@@ -1010,7 +1010,7 @@
 					{:else}
 						<div class="p-4 text-primary text-xs text-center italic">
 							{#if filter.trim() !== ''}
-								No files matching "{filter.trim()}"
+								No files starting with "{filter.trim()}"
 							{:else}
 								No files in the workspace S3 bucket
 							{/if}
