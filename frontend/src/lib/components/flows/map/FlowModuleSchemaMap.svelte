@@ -307,19 +307,33 @@
 		}
 	}
 
-	type PendingDeleteConfirmation = {
-		plan: DeletePlan
-	}
-
-	type PendingGroupAction = {
-		groups: FlowGroup[]
+	// A single delete can have several consequences at once (emptied groups *and*
+	// dependent steps); they are confirmed together so one user action never raises
+	// more than one dialog.
+	type PendingModuleAction = {
 		label: 'delete' | 'move'
+		stepCount: number
+		groups: FlowGroup[]
+		dependents: Record<string, string[]>
 		confirm: () => void
 		cancel?: () => void
 	}
 
-	let pendingDeleteConfirmation: PendingDeleteConfirmation | undefined = $state(undefined)
-	let pendingGroupAction: PendingGroupAction | undefined = $state(undefined)
+	// The modal keeps rendering `pendingModuleAction` while it fades out, so visibility is
+	// driven by `moduleActionOpen` rather than by clearing the value — clearing it would
+	// blank the dialog mid-transition. `moduleActionOpen` also makes confirm/cancel
+	// one-shot: the buttons stay clickable until the fade ends.
+	let pendingModuleAction: PendingModuleAction | undefined = $state(undefined)
+	let moduleActionOpen = $state(false)
+
+	function askModuleAction(action: PendingModuleAction) {
+		pendingModuleAction = action
+		moduleActionOpen = true
+	}
+
+	function stepNoun(action: PendingModuleAction | undefined) {
+		return (action?.stepCount ?? 1) > 1 ? 'steps' : 'step'
+	}
 
 	let graph: FlowGraphV2 | undefined = $state(undefined)
 	let noteMode = $state(false)
@@ -362,23 +376,20 @@
 			return
 		}
 
-		const proceed = () => {
-			if (request.needsDependencyConfirmation) {
-				pendingDeleteConfirmation = { plan: request.plan }
-			} else {
-				applyDeletePlan(request.plan)
-			}
+		const affectedGroups = request.plan.structureDelete?.affectedGroups ?? []
+
+		if (affectedGroups.length === 0 && !request.needsDependencyConfirmation) {
+			applyDeletePlan(request.plan)
+			return
 		}
 
-		if ((request.plan.structureDelete?.affectedGroups.length ?? 0) > 0) {
-			pendingGroupAction = {
-				groups: request.plan.structureDelete!.affectedGroups,
-				label: 'delete',
-				confirm: proceed
-			}
-		} else {
-			proceed()
-		}
+		askModuleAction({
+			label: 'delete',
+			stepCount: request.plan.targets.length,
+			groups: affectedGroups,
+			dependents: request.plan.dependents,
+			confirm: () => applyDeletePlan(request.plan)
+		})
 	}
 
 	export function deleteMultiple(ids: string[]) {
@@ -492,61 +503,58 @@
 
 <Portal name="flow-module">
 	<ConfirmationModal
-		title="Confirm deleting step with dependents"
-		confirmationText="Delete step"
-		open={Boolean(pendingDeleteConfirmation)}
+		title={`${pendingModuleAction?.label === 'move' ? 'Move' : 'Delete'} ${stepNoun(
+			pendingModuleAction
+		)}?`}
+		confirmationText={`${pendingModuleAction?.label === 'move' ? 'Move' : 'Delete'} ${stepNoun(
+			pendingModuleAction
+		)}`}
+		open={moduleActionOpen}
 		on:confirmed={() => {
-			if (pendingDeleteConfirmation) {
-				applyDeletePlan(pendingDeleteConfirmation.plan)
-				pendingDeleteConfirmation = undefined
-			}
+			if (!moduleActionOpen) return
+			moduleActionOpen = false
+			pendingModuleAction?.confirm()
 		}}
 		on:canceled={() => {
-			pendingDeleteConfirmation = undefined
+			if (!moduleActionOpen) return
+			moduleActionOpen = false
+			pendingModuleAction?.cancel?.()
 		}}
 	>
-		<div class="text-primary pb-2"
-			>Found the following steps that will require changes after this step is deleted:</div
-		>
-		{#each Object.entries(pendingDeleteConfirmation?.plan.dependents ?? {}) as [k, v]}
-			<div class="pb-3">
-				<h3 class="text-secondary font-semibold">{k}</h3>
-				<ul class="text-sm">
-					{#each v as dep}
-						<li>{dep}</li>
+		{#if pendingModuleAction}
+			{@const action = pendingModuleAction}
+			{@const dependents = Object.entries(action.dependents)}
+			{#if action.groups.length === 1}
+				{@const group = action.groups[0]}
+				<p
+					>The group{group.summary ? ` "${group.summary}"` : ''} will be removed (empty or duplicate).</p
+				>
+			{:else if action.groups.length > 1}
+				<p>The following groups will be removed (empty or duplicate):</p>
+				<ul class="list-disc pl-4 mt-1">
+					{#each action.groups as group}
+						<li>{group.summary || `${group.start_id} → ${group.end_id}`}</li>
 					{/each}
 				</ul>
-			</div>
-		{/each}
-	</ConfirmationModal>
-
-	<ConfirmationModal
-		title={pendingGroupAction?.groups.length === 1 ? 'Remove group?' : 'Remove groups?'}
-		confirmationText={pendingGroupAction?.label === 'delete' ? 'Delete step' : 'Move step'}
-		open={Boolean(pendingGroupAction)}
-		on:confirmed={() => {
-			pendingGroupAction?.confirm()
-			pendingGroupAction = undefined
-		}}
-		on:canceled={() => {
-			pendingGroupAction?.cancel?.()
-			pendingGroupAction = undefined
-		}}
-	>
-		{#if pendingGroupAction?.groups.length === 1}
-			{@const group = pendingGroupAction.groups[0]}
-			<p
-				>The group{group.summary ? ` "${group.summary}"` : ''} will be removed (empty or duplicate).
-				Are you sure you want to {pendingGroupAction.label} the step?</p
-			>
-		{:else}
-			<p>The following groups will be removed (empty or duplicate):</p>
-			<ul class="list-disc pl-4 mt-1">
-				{#each pendingGroupAction?.groups ?? [] as group}
-					<li>{group.summary || `${group.start_id} → ${group.end_id}`}</li>
-				{/each}
-			</ul>
-			<p class="mt-2">Are you sure you want to {pendingGroupAction?.label} the step?</p>
+			{/if}
+			{#if dependents.length > 0}
+				<p class={action.groups.length > 0 ? 'mt-3' : ''}
+					>The following steps will require changes afterwards:</p
+				>
+				<div class="mt-1">
+					{#each dependents as [k, v]}
+						<div class="pb-2">
+							<h3 class="text-secondary font-semibold">{k}</h3>
+							<ul class="text-sm">
+								{#each v as dep}
+									<li>{dep}</li>
+								{/each}
+							</ul>
+						</div>
+					{/each}
+				</div>
+			{/if}
+			<p class="mt-2">Are you sure you want to {action.label} the {stepNoun(action)}?</p>
 		{/if}
 	</ConfirmationModal>
 </Portal>
@@ -689,12 +697,14 @@
 					}
 
 					if (affectedGroups.length > 0) {
-						pendingGroupAction = {
-							groups: affectedGroups,
+						askModuleAction({
 							label: 'move',
+							stepCount: movedIds.length,
+							groups: affectedGroups,
+							dependents: {},
 							confirm: doMove,
 							cancel: () => moveManager.clearMoving()
-						}
+						})
 					} else {
 						doMove()
 					}
