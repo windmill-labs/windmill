@@ -501,7 +501,8 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 			const completion = await getCompletion(messageParams, abortController, toolDefs, {
 				forceModelProvider: modelProvider,
 				openaiClient: clients.openai,
-				reasoningEffort
+				reasoningEffort,
+				promptCaching: true
 			})
 			if (completion) {
 				const continueCompletion = await parseOpenAICompletion(

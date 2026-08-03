@@ -441,6 +441,37 @@ describe('global AI tools', () => {
 		expect(names).toContain('list_runs')
 	})
 
+	it('keeps the trigger config schemas out of the tool definitions', async () => {
+		const def = JSON.stringify(getGlobalTool('write_trigger').def)
+		expect(def.length).toBeLessThan(2000)
+		expect(def).not.toContain('kafka_resource_path')
+
+		const kafka = await callGlobalTool('get_trigger_schema', { kind: 'kafka' })
+		expect(JSON.parse(kafka).properties).toMatchObject({
+			kafka_resource_path: expect.anything(),
+			group_id: expect.anything(),
+			topics: expect.anything()
+		})
+	})
+
+	it('rejects a trigger config that does not match the declared kind', async () => {
+		const error = await callGlobalTool('write_trigger', {
+			kind: 'kafka',
+			config: {
+				path: 'u/admin/wrong_kind',
+				script_path: 'f/scripts/handler',
+				is_flow: false,
+				route_path: 'api/wrong',
+				http_method: 'get'
+			}
+		}).catch((err) => err as Error)
+
+		expect(error).toBeInstanceOf(Error)
+		// What the model actually receives is capped at MAX_TOOL_ERROR_LENGTH by
+		// formatToolError, so the recovery instruction has to survive that cap.
+		expect((error as Error).message.slice(0, 2000)).toContain('get_trigger_schema')
+	})
+
 	it('lists recent runs with compact summaries and forwarded filters', async () => {
 		const result = await callGlobalTool('list_runs', {
 			path: 'f/team/runner',
