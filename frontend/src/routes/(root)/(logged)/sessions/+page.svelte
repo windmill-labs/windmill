@@ -563,7 +563,9 @@
 	// the user has visited — without this, restoring a session shows a path leaf on
 	// every unvisited tab, each popping to its real name when first clicked.
 	// Requested keys are tracked outside the state so filling the map can't re-run
-	// the effect that fills it.
+	// the effect that fills it, and a key is released again on failure so a
+	// transient network error doesn't strand every unvisited tab on its path leaf
+	// for the lifetime of the page.
 	const listedItemsRequested = new Set<string>()
 	let listedItems = $state<Record<string, WorkspaceItem[]>>({})
 	const listedKey = (workspace: string, kind: WorkspaceItemKind) => `${workspace}:${kind}`
@@ -576,9 +578,14 @@
 			const key = listedKey(ws, route.kind)
 			if (listedItemsRequested.has(key)) continue
 			listedItemsRequested.add(key)
-			void loadKind(ws, route.kind).then((items) => {
-				listedItems = { ...listedItems, [key]: items }
-			})
+			void loadKind(ws, route.kind)
+				.then((items) => {
+					listedItems = { ...listedItems, [key]: items }
+				})
+				.catch((e) => {
+					listedItemsRequested.delete(key)
+					console.error(`Failed to load workspace ${route.kind}s`, e)
+				})
 		}
 	})
 
