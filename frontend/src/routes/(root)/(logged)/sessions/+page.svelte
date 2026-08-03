@@ -890,6 +890,7 @@
 											session={s}
 											runtime={rt}
 											active={s.id === activeSession?.id && tab.id === tabs?.activeId}
+											collapsed={tabs?.collapsed ?? false}
 											mounted={mountedTabKeys.has(tabKey(s.id, tab.id))}
 											label={tabLabelFor(tab)}
 											darkMode={isDarkMode.val}

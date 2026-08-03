@@ -19,6 +19,7 @@
 		session,
 		runtime,
 		active,
+		collapsed = false,
 		mounted,
 		label,
 		darkMode,
@@ -31,6 +32,9 @@
 		runtime: SessionRuntime | undefined
 		/** Visible tab — only one is at a time; the rest stay mounted but hidden. */
 		active: boolean
+		/** Preview panel is collapsed to zero width. The panel is never unmounted, so
+		 * this is the difference between the active tab and a tab on screen. */
+		collapsed?: boolean
 		/** Preview panel is in full screen — forwarded to editor views so a script
 		 * editor reopens its test pane when there's room. */
 		fullscreen?: boolean
@@ -123,7 +127,13 @@
 	// shared stack would let its overlays arbitrate Escape for the tab the user is looking at.
 	let editorEl: HTMLDivElement | undefined = $state()
 	let hostDrawers = $state({ val: [] as string[] })
-	setOverlayHost({ el: () => editorEl, drawers: hostDrawers, active: () => active })
+	setOverlayHost({
+		el: () => editorEl,
+		drawers: hostDrawers,
+		// Collapsing resizes the panel to zero rather than unmounting it, so the active
+		// tab of a collapsed panel is still as invisible as a background tab.
+		active: () => active && !collapsed
+	})
 
 	let flashing = $state(false)
 	let flashTimer: ReturnType<typeof setTimeout> | undefined
