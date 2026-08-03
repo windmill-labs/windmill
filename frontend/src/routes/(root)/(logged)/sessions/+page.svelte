@@ -964,6 +964,7 @@
 											session={s}
 											runtime={rt}
 											active={s.id === activeSession?.id && tab.id === tabs?.activeId}
+											collapsed={(tabs?.collapsed ?? false) && !fullscreen}
 											mounted={mountedTabKeys.has(tabKey(s.id, tab.id))}
 											label={tabLabelFor(tab, s.workspace_id ?? '')}
 											darkMode={isDarkMode.val}

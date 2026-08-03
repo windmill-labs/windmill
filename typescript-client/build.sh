@@ -8,10 +8,11 @@ npx --yes @hey-api/openapi-ts@0.43.0  --input "${script_dirpath}/../backend/wind
 cat <<EOF - src/core/OpenAPI.ts > temp_file && mv temp_file src/core/OpenAPI.ts
 const getEnv = (key: string) => {
   if (typeof window === "undefined") {
+    // \`typeof\` first: where \`process\` is undeclared entirely (web worker), even
+    // \`process?.env\` throws a ReferenceError.
     if (typeof process !== "undefined") {
       return process?.env?.[key];
     }
-    // node
     return globalThis?.process?.env?.[key];
   }
   // browser
@@ -22,12 +23,16 @@ const baseUrl = getEnv("BASE_INTERNAL_URL") ?? getEnv("BASE_URL") ?? "http://loc
 const baseUrlApi = (baseUrl ?? '') + "/api";
 
 EOF
+# Windmill's raw app wrapper sets WM_RAW_APP: such a bundle may call the API
+# cross-origin (sandboxed apps run on an opaque origin), and the API answers
+# `Access-Control-Allow-Origin: *`, which a credentialed request can never pair
+# with. Every other consumer keeps credentials on.
 if [[ "$OSTYPE" == "darwin"* ]]; then
-  sed -i '' 's/WITH_CREDENTIALS: false/WITH_CREDENTIALS: true/g' src/core/OpenAPI.ts
+  sed -i '' 's/WITH_CREDENTIALS: false/WITH_CREDENTIALS: !getEnv("WM_RAW_APP")/g' src/core/OpenAPI.ts
   sed -i '' 's/TOKEN: undefined/TOKEN: getEnv("WM_TOKEN")/g' src/core/OpenAPI.ts
   sed -i '' "s/BASE: '\/api'/BASE: baseUrlApi/g" src/core/OpenAPI.ts
 else
-  sed -i 's/WITH_CREDENTIALS: false/WITH_CREDENTIALS: true/g' src/core/OpenAPI.ts
+  sed -i 's/WITH_CREDENTIALS: false/WITH_CREDENTIALS: !getEnv("WM_RAW_APP")/g' src/core/OpenAPI.ts
   sed -i 's/TOKEN: undefined/TOKEN: getEnv("WM_TOKEN")/g' src/core/OpenAPI.ts
   sed -i "s/BASE: '\/api'/BASE: baseUrlApi/g" src/core/OpenAPI.ts
 fi

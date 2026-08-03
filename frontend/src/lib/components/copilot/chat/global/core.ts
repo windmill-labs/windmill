@@ -85,7 +85,13 @@ import type {
 } from 'openai/resources/chat/completions.mjs'
 import { z } from 'zod'
 import {
+	advancedScheduleShape,
+	buildScheduleToolSchema,
+	describeDroppedScheduleOptions
+} from '../scheduleToolSchema'
+import {
 	createToolDef,
+	droppedOptionKeys,
 	createSearchHubScriptsTool,
 	executeFlowStepTestRun,
 	executeTestRun,
@@ -559,27 +565,32 @@ function flowDraftAsEditableInput(flowDraft: FlowDraftValue): {
 
 const writeScheduleSchema = scheduleRequestSchema.extend({ override: draftOverrideField })
 
+const writeScheduleToolSchema = buildScheduleToolSchema().extend({ override: draftOverrideField })
+
+// The tool definition keeps `config` open-ended on purpose. Inlining the eleven
+// per-kind request schemas serializes to ~44k characters of JSON Schema, on its own
+// more than a third of every chat request, resent on every iteration whether or not
+// triggers ever come up. The model fetches the single schema it needs through
+// get_trigger_schema, and the call is validated against that same schema below.
 const writeTriggerSchema = z.object({
 	kind: triggerKindSchema.describe('Trigger kind. Determines which fields are valid in config.'),
 	config: z
-		.union([
-			triggerRequestSchemas.http,
-			triggerRequestSchemas.websocket,
-			triggerRequestSchemas.kafka,
-			triggerRequestSchemas.nats,
-			triggerRequestSchemas.postgres,
-			triggerRequestSchemas.mqtt,
-			triggerRequestSchemas.amqp,
-			triggerRequestSchemas.sqs,
-			triggerRequestSchemas.gcp,
-			triggerRequestSchemas.azure,
-			triggerRequestSchemas.email
-		])
+		.record(z.string(), z.any())
 		.describe(
-			'Full trigger configuration. Must include path, script_path, is_flow plus the kind-specific fields.'
+			'Full trigger configuration: path, script_path, is_flow plus the kind-specific fields. Call get_trigger_schema with the same kind first to get its exact fields.'
 		),
 	override: draftOverrideField
 })
+
+const getTriggerSchemaSchema = z.object({
+	kind: triggerKindSchema.describe('Trigger kind whose configuration schema to return.')
+})
+
+function triggerConfigJsonSchema(kind: TriggerKind): string {
+	const schema = z.toJSONSchema(triggerRequestSchemas[kind]) as Record<string, unknown>
+	delete schema.$schema
+	return JSON.stringify(schema, null, 2)
+}
 
 const writeResourceSchema = resourceRequestSchema.extend({ override: draftOverrideField })
 
@@ -1181,10 +1192,10 @@ Rules:
 - Use list_workspace_items to find items and read_workspace_item before changing an existing item. For triggers, pass trigger_kind.
 - If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".
 - Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a draft to the workspace.
-- Use discard_local_draft to remove a draft, including the matching open editor draft. Use delete_workspace_item only to delete a deployed workspace item.
+- To undo something you created or changed in this chat, use discard_local_draft: everything you write is a draft until it is explicitly deployed, so "delete it" / "never mind" / "remove that" about your own work means discarding the draft (it also clears the matching open editor draft). Use delete_workspace_item only to remove an item that is already deployed in the workspace; it mutates the workspace and fails if nothing is deployed at that path.
 - Use diff to review changes — before deploying, or when the user asks what changed. It is read-only: without arguments it lists every draft in the workspace with its change status; with type+path it returns that item's unified diff (for multi-file apps, pass file to read one file's diff). In a fork, pass against="parent_workspace" to compare the deployed fork with its parent workspace instead. Pass search to grep changed lines across all diffs.
 - Variable values are never readable. For secrets, create a secret variable and reference it from resources as "$var:path/to/variable".
-- Use search_resource_types before write_resource.
+- Use search_resource_types before write_resource, and get_trigger_schema before write_trigger: the trigger config fields differ per kind and are not listed in the write_trigger definition.
 - When script or raw app code needs an external npm package you are not fully familiar with, use search_npm_packages to find it and get its documentation and type definitions. Link the package documentation in your answer when you rely on it.
 - Hub scripts are prebuilt integrations for third-party services, hosted outside the workspace under \`hub/<version>/<app>/<name>\` paths. Use search_hub_scripts to find one before hand-writing an integration, then read_workspace_item with type "script" and the returned hub path to get its code, language, and input schema.
 - Use get_db_schema with a database resource path to fetch its tables and columns before writing SQL (or a script querying that database).
@@ -2925,7 +2936,7 @@ export const globalTools: Tool<{}>[] = [
 	},
 	{
 		def: createToolDef(
-			writeScheduleSchema,
+			writeScheduleToolSchema,
 			'write_schedule',
 			'Create or overwrite a draft schedule.',
 			{ strict: false }
@@ -2934,7 +2945,19 @@ export const globalTools: Tool<{}>[] = [
 		streamArguments: true,
 		showFade: true,
 		fn: async (ctx) => {
-			const parsed = writeScheduleSchema.parse(ctx.args)
+			const { advanced, ...rest } = (ctx.args ?? {}) as Record<string, unknown>
+			// `advanced` carries what the definition does not list, so a named argument
+			// outranks a duplicate of the same key inside the bag. The whole merged object
+			// is checked for stripped keys, not just the bag: an advanced option passed at
+			// the top level instead would otherwise be dropped without a word.
+			const merged = { ...((advanced as Record<string, unknown>) ?? {}), ...rest }
+			const parsed = writeScheduleSchema.parse(merged)
+			const dropped = droppedOptionKeys(merged, parsed)
+			if (dropped.length) {
+				throw new Error(
+					describeDroppedScheduleOptions(dropped)
+				)
+			}
 			return writeScheduleDraft(parsed, ctx)
 		}
 	},
@@ -2950,8 +2973,39 @@ export const globalTools: Tool<{}>[] = [
 		showFade: true,
 		fn: async (ctx) => {
 			const parsed = writeTriggerSchema.parse(ctx.args)
-			return writeTriggerDraft(parsed, ctx)
+			// writeTriggerDraft dispatches on `kind`, so a config belonging to another kind
+			// has to be rejected here rather than reaching the API as a corrupt draft. The
+			// recovery instruction leads because formatToolError caps the message at 2k and
+			// a long issue list would otherwise push it out of what the model receives.
+			const config = triggerRequestSchemas[parsed.kind].safeParse(parsed.config)
+			if (!config.success) {
+				throw new Error(
+					`Invalid config for a "${parsed.kind}" trigger. Call get_trigger_schema with kind "${parsed.kind}" for its exact fields. Issues: ${config.error.issues
+						.map((i) => `${i.path.join('.') || '<root>'}: ${i.message}`)
+						.join('; ')}`
+				)
+			}
+			return writeTriggerDraft({ ...parsed, config: config.data }, ctx)
 		}
+	},
+	{
+		def: createToolDef(
+			getTriggerSchemaSchema,
+			'get_trigger_schema',
+			'Get the configuration schema for one trigger kind. Call before write_trigger.'
+		),
+		fn: async (ctx) => {
+			const { kind } = getTriggerSchemaSchema.parse(ctx.args)
+			return triggerConfigJsonSchema(kind)
+		}
+	},
+	{
+		def: createToolDef(
+			z.object({}),
+			'get_schedule_schema',
+			"Get the shape of write_schedule's `advanced` object: retry, pausing, tags, and error-handler tuning."
+		),
+		fn: async () => JSON.stringify(advancedScheduleShape(), null, 2)
 	},
 	{
 		def: createToolDef(
@@ -3182,12 +3236,13 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			deleteWorkspaceItemSchema,
 			'delete_workspace_item',
-			'Delete a deployed workspace item. Mutates the workspace.'
+			'Delete an item that is already deployed in the workspace. Mutates the workspace. FAILS if the path has no deployed item, so never call it to undo something you created in this chat — that is a draft; use discard_local_draft instead.'
 		),
 		showDetails: true,
 		showFade: true,
 		requiresConfirmation: true,
 		confirmationMessage: 'Delete workspace item',
+		validateBeforeConfirmation: validateDeleteWorkspaceItemTarget,
 		fn: async (ctx) => {
 			const parsed = deleteWorkspaceItemSchema.parse(ctx.args)
 			return deleteWorkspaceItem(parsed, ctx)
@@ -3197,7 +3252,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			discardLocalDraftSchema,
 			'discard_local_draft',
-			'Discard a draft only. Does not mutate deployed workspace items, but clears the matching open editor draft if one is mounted.'
+			'Discard a draft only — the tool to undo an item you created or edited in this chat and have not deployed. Does not mutate deployed workspace items, but clears the matching open editor draft if one is mounted.'
 		),
 		showDetails: true,
 		showFade: true,
@@ -6720,6 +6775,67 @@ async function deployDraft(
 		null,
 		2
 	)
+}
+
+// Undoing something created in this chat means discarding a draft, not deleting a
+// deploy. Must stay in validateBeforeConfirmation, not the tool body: otherwise the
+// user is asked to confirm a workspace mutation that cannot apply, and the delete
+// API 404s before the draft cleanup runs, leaving the draft they wanted gone.
+async function validateDeleteWorkspaceItemTarget(args: {
+	args: unknown
+	workspace: string
+}): Promise<string | undefined> {
+	// These are the raw tool arguments; the schema parse runs later in the tool body.
+	// Wave a malformed call through so it still fails with the canonical schema error.
+	const parsed = deleteWorkspaceItemSchema.safeParse(args.args)
+	if (!parsed.success) return undefined
+	const { type, path, trigger_kind: triggerKind } = parsed.data
+	if (type === 'trigger' && !triggerKind) return undefined
+
+	const { workspace } = args
+	if (await deployedItemExists(workspace, type, path, triggerKind)) return undefined
+
+	const draft = await getGlobalDraft(workspace, type, path, triggerKind)
+	return draft
+		? `No deployed ${type} at "${path}" — it only exists as a draft, so there is nothing to delete ` +
+				`from the workspace. Call discard_local_draft with the same arguments to remove the draft.`
+		: `No ${type} at "${path}": neither a deployed item nor a draft. Nothing to delete.`
+}
+
+async function deployedItemExists(
+	workspace: string,
+	type: WorkspaceItemType,
+	path: string,
+	triggerKind: TriggerKind | undefined
+): Promise<boolean> {
+	switch (type) {
+		case 'script':
+			// existsScriptByPath is the only probe that filters archived=false, while
+			// deleteScriptByPath removes every row at the path. Fall back to the
+			// archived-inclusive read so an archived script stays deletable.
+			if (await ScriptService.existsScriptByPath({ workspace, path })) return true
+			try {
+				await ScriptService.getScriptByPath({ workspace, path })
+				return true
+			} catch (e) {
+				// Only a 404 means "no script here". Let any other failure propagate rather
+				// than reporting a transient error as a missing item.
+				if ((e as { status?: number } | null | undefined)?.status === 404) return false
+				throw e
+			}
+		case 'flow':
+			return FlowService.existsFlowByPath({ workspace, path })
+		case 'schedule':
+			return ScheduleService.existsSchedule({ workspace, path })
+		case 'trigger':
+			return triggerServices[triggerKind!].exists({ workspace, path })
+		case 'resource':
+			return ResourceService.existsResource({ workspace, path })
+		case 'variable':
+			return VariableService.existsVariable({ workspace, path })
+		case 'app':
+			return AppService.existsApp({ workspace, path })
+	}
 }
 
 async function deleteWorkspaceItem(

@@ -717,6 +717,28 @@ async function callTool<T>({
 
 type MaybePromise<T> = T | Promise<T>
 
+/**
+ * Key paths present in `supplied` that a strip-mode parse discarded. Sub-fields of a
+ * schedule's `retry` are all optional, so a guessed shape validates clean, loses the
+ * misspelled keys and saves a policy that does nothing. Recursive because dropping one
+ * nested key leaves the parent non-empty.
+ */
+export function droppedOptionKeys(
+	supplied: unknown,
+	parsed: unknown,
+	prefix = ''
+): string[] {
+	if (supplied === null || typeof supplied !== 'object' || Array.isArray(supplied)) {
+		return parsed === undefined && prefix ? [prefix] : []
+	}
+	if (parsed === null || typeof parsed !== 'object') {
+		return Object.keys(supplied).length && prefix ? [prefix] : []
+	}
+	return Object.entries(supplied).flatMap(([key, value]) =>
+		droppedOptionKeys(value, (parsed as Record<string, unknown>)[key], prefix ? `${prefix}.${key}` : key)
+	)
+}
+
 const MAX_TOOL_ERROR_LENGTH = 2000
 
 /** ApiError from the generated client carries the server's message in `body`,
