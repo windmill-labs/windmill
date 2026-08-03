@@ -212,6 +212,14 @@ impl External for Google {
             _ => None,
         }
     }
+
+    /// Google answers 403 to a quota being spent as well as to a permission failure.
+    fn is_transient_response(&self, status: http::StatusCode, body: &str) -> bool {
+        status == http::StatusCode::FORBIDDEN
+            && (body.contains("rateLimitExceeded")
+                || body.contains("userRateLimitExceeded")
+                || body.contains("quotaExceeded"))
+    }
 }
 
 // Helper methods for creating trigger type-specific watches

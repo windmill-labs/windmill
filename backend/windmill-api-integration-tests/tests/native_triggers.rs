@@ -18,12 +18,13 @@ use windmill_common::{
     variables::{build_crypt, encrypt},
 };
 use windmill_native_triggers::{
-    body_rejects_grant, classify_read_failure, decrypt_oauth_data, delete_native_trigger,
+    classify_read_failure, decrypt_oauth_data, delete_native_trigger,
     delete_workspace_integration, get_workspace_integration,
+    github::GitHub,
     google::{parse_stop_channel_params, should_renew_channel},
     http_error_status, list_native_triggers, map_external_error,
     nextcloud::NextCloud,
-    refresh_failure_status, require_native_integration_use, store_native_trigger,
+    grant_refused, require_native_integration_use, store_native_trigger,
     store_workspace_integration, External, ExternalReadFailure, HttpRequestError,
     NativeTriggerConfig, OAuthConfig, ServiceName,
 };
@@ -765,34 +766,28 @@ fn test_provider_404_is_recognized() {
 }
 
 /// Sending a user to reconnect their integration is only right when the token endpoint refused
-/// the grant; a busy or broken endpoint has them fix credentials that are fine. And a token
-/// endpoint's status must never reach the trigger's, where 404 means the webhook is gone and
-/// drops the row.
+/// the grant; a busy or broken endpoint has them fix credentials that are fine.
 #[test]
 fn test_refresh_failures_blame_only_the_grant_they_refuse() {
-    let status = |code: u16| refresh_failure_status(Some(StatusCode::from_u16(code).unwrap()));
-    for refused in [400, 401, 403] {
-        assert_eq!(status(refused), Some(StatusCode::UNAUTHORIZED), "{refused}");
+    let refused = |code: u16| grant_refused(Some(StatusCode::from_u16(code).unwrap()), "");
+    for code in [400, 401, 403] {
+        assert!(refused(code), "{code} refuses the grant");
     }
-    for other in [404, 408, 429, 500, 503] {
-        assert_eq!(
-            status(other),
-            None,
-            "{other} from the token endpoint says nothing about the trigger"
-        );
+    for code in [404, 408, 429, 500, 503] {
+        assert!(!refused(code), "{code} says nothing about the grant");
     }
-    assert_eq!(refresh_failure_status(None), None);
+    assert!(!grant_refused(None, ""));
 
     // GitHub answers `bad_refresh_token` with HTTP 200, so the body is the only tell.
-    assert!(body_rejects_grant(r#"{"error":"bad_refresh_token"}"#));
-    assert!(body_rejects_grant(r#"{"error":"invalid_grant"}"#));
-    assert!(!body_rejects_grant(
-        r#"{"access_token":"t","token_type":"bearer"}"#
-    ));
+    let ok = Some(StatusCode::OK);
+    assert!(grant_refused(ok, r#"{"error":"bad_refresh_token"}"#));
+    assert!(grant_refused(ok, r#"{"error":"invalid_grant"}"#));
+    assert!(!grant_refused(ok, r#"{"access_token":"t","token_type":"bearer"}"#));
 }
 
 /// A service that is busy or broken has not refused anything, and callers react differently to
-/// the two.
+/// the two. GitHub and Google spend a 403 on throttling, where advice about permissions sends
+/// the reader after a problem they do not have.
 #[test]
 fn test_transient_service_failures_are_not_refusals() {
     for transient in [408, 429, 503] {
@@ -802,6 +797,29 @@ fn test_transient_service_failures_are_not_refusals() {
             "{transient} should read as the service failing to serve, not refusing"
         );
     }
+
+    let throttled = GitHub.external_api_error(HttpRequestError::ApiError {
+        status: StatusCode::FORBIDDEN,
+        body: r#"{"message":"API rate limit exceeded for user ID 1."}"#.to_string(),
+    });
+    let throttled = map_external_error(throttled);
+    assert!(
+        matches!(throttled, Error::BadGateway(_)),
+        "a throttled 403 is the service failing to serve: {throttled:?}"
+    );
+    assert!(
+        !throttled.to_string().contains("admin rights"),
+        "a throttled 403 must not advise about permissions: {throttled}"
+    );
+
+    let refused = GitHub.external_api_error(HttpRequestError::ApiError {
+        status: StatusCode::FORBIDDEN,
+        body: r#"{"message":"Must have admin rights to Repository."}"#.to_string(),
+    });
+    assert!(
+        map_external_error(refused).to_string().contains("admin rights"),
+        "a real 403 keeps its guidance"
+    );
 }
 
 /// A service read degrades to the stored configuration, but only for the service's own

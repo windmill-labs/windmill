@@ -376,6 +376,12 @@ pub trait External: Send + Sync + 'static {
         None
     }
 
+    /// Whether the service is telling us it cannot serve the request right now, when the
+    /// status alone would read as a refusal. GitHub and Google both answer 403 to throttling.
+    fn is_transient_response(&self, _status: StatusCode, _body: &str) -> bool {
+        false
+    }
+
     async fn http_client_request<T: DeserializeOwned + Send, B: Serialize + Send + Sync>(
         &self,
         url: &str,
@@ -417,7 +423,7 @@ pub trait External: Send + Sync + 'static {
                 .await
                 .map_err(|f| {
                     self.external_error(
-                        refresh_failure_status(f.status),
+                        f.rejected.then_some(StatusCode::UNAUTHORIZED),
                         format!(
                             "the stored credentials could not be refreshed: {}",
                             f.message
@@ -461,23 +467,41 @@ pub trait External: Send + Sync + 'static {
     /// means the trigger is gone, not that the call broke) and the message stays readable by
     /// the time it reaches a user.
     fn external_api_error(&self, e: HttpRequestError) -> Error {
-        let detail = match &e {
-            HttpRequestError::ApiError { body, .. } => self
-                .describe_error_body(body)
-                .unwrap_or_else(|| body.to_string()),
+        let (detail, transient) = match &e {
+            HttpRequestError::ApiError { status, body } => (
+                self.describe_error_body(body)
+                    .unwrap_or_else(|| body.to_string()),
+                self.is_transient_response(*status, body),
+            ),
             // A reqwest error names the request it was making, never why it failed: the reason
             // (refused, DNS, TLS) lives one link down the source chain.
-            other => error_source_chain(other),
+            other => (error_source_chain(other), false),
         };
-        self.external_error(e.status(), detail)
+        self.external_error_inner(e.status(), detail, transient)
     }
 
     fn external_error(&self, status: Option<StatusCode>, detail: String) -> Error {
+        self.external_error_inner(status, detail, false)
+    }
+
+    fn external_error_inner(
+        &self,
+        status: Option<StatusCode>,
+        detail: String,
+        transient: bool,
+    ) -> Error {
         to_anyhow(ExternalApiError {
             service: Self::DISPLAY_NAME,
             status,
             detail: truncate_detail(&detail),
-            hint: status.and_then(|s| self.error_hint(s)),
+            // Guidance about permissions on a throttled request sends the reader after a
+            // problem they do not have.
+            hint: if transient {
+                None
+            } else {
+                status.and_then(|s| self.error_hint(s))
+            },
+            transient,
         })
         .into()
     }
@@ -490,12 +514,21 @@ pub struct ExternalApiError {
     pub status: Option<StatusCode>,
     pub detail: String,
     pub hint: Option<&'static str>,
+    /// The service could not serve the request now, whatever the status suggests: providers
+    /// overload 403 for throttling, and a refusal and an outage want opposite reactions.
+    pub transient: bool,
+}
+
+impl ExternalApiError {
+    fn is_transient(&self) -> bool {
+        self.transient || self.status.is_some_and(is_transient_status)
+    }
 }
 
 impl std::fmt::Display for ExternalApiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.status {
-            Some(status) if is_transient(status) => write!(
+            Some(status) if self.is_transient() => write!(
                 f,
                 "{} failed to serve the request ({}): {}",
                 self.service, status, self.detail
@@ -693,23 +726,24 @@ pub fn map_external_error(e: Error) -> Error {
 
 /// `map_external_error` with a chance to add what the failure means for Windmill's own state.
 pub fn map_external_error_with(e: Error, decorate: impl FnOnce(String) -> String) -> Error {
-    let Some((status, message)) = as_external_error(&e).map(|ext| (ext.status, ext.to_string()))
+    let Some((status, transient, message)) =
+        as_external_error(&e).map(|ext| (ext.status, ext.is_transient(), ext.to_string()))
     else {
         return e;
     };
     let message = decorate(message);
     match status {
-        Some(StatusCode::NOT_FOUND) => Error::NotFound(message),
         // A refusal is the caller's to fix; being unable to serve the request now is not, and
         // the two want different reactions from whoever reads it.
-        Some(s) if is_transient(s) => Error::BadGateway(message),
+        _ if transient => Error::BadGateway(message),
+        Some(StatusCode::NOT_FOUND) => Error::NotFound(message),
         Some(_) => Error::BadRequest(message),
         // No status at all: the provider was unreachable or answered something undecodable.
         None => Error::BadGateway(message),
     }
 }
 
-fn is_transient(status: StatusCode) -> bool {
+fn is_transient_status(status: StatusCode) -> bool {
     status.is_server_error()
         || matches!(
             status,
@@ -824,23 +858,40 @@ struct RefreshTokenResponse {
 /// Why an OAuth token refresh did not produce a new token.
 #[derive(Debug)]
 pub struct RefreshFailure {
-    /// The token endpoint's own status, when it answered at all. `None` means it was never
-    /// reached, which is an outage rather than a problem with the stored credentials.
-    pub status: Option<StatusCode>,
+    /// The token endpoint refused the grant, so the stored credentials are what to fix.
+    ///
+    /// Nothing else about the answer is carried further. The status a caller reads off an
+    /// `ExternalApiError` says what the call for the *trigger* answered, and 404 there means
+    /// the trigger is gone — it records that on the row and lets a delete drop it. A wrong
+    /// base URL 404s the token endpoint while the webhook is perfectly alive.
+    pub rejected: bool,
     pub message: String,
 }
 
 #[cfg(feature = "native_trigger")]
 impl RefreshFailure {
     fn rejected(message: String) -> Self {
-        RefreshFailure { status: Some(StatusCode::UNAUTHORIZED), message }
+        RefreshFailure { rejected: true, message }
+    }
+
+    fn outage(message: String) -> Self {
+        RefreshFailure { rejected: false, message }
     }
 }
 
-/// Whether a token endpoint's body says the refresh token itself is no good, which no status
-/// reliably reports: GitHub answers `bad_refresh_token` with HTTP 200.
-pub fn body_rejects_grant(body: &str) -> bool {
-    body.contains("invalid_grant") || body.contains("bad_refresh_token")
+/// Whether a token endpoint's answer means the grant itself was refused, rather than the
+/// endpoint failing to serve a grant that may well be valid.
+///
+/// RFC 6749 §5.2 answers a refusal with 400, or 401/403 when it is the client credentials at
+/// fault. The body is checked too because no status reliably reports it: GitHub answers
+/// `bad_refresh_token` with HTTP 200.
+pub fn grant_refused(status: Option<StatusCode>, body: &str) -> bool {
+    body.contains("invalid_grant")
+        || body.contains("bad_refresh_token")
+        || matches!(
+            status,
+            Some(StatusCode::BAD_REQUEST | StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN)
+        )
 }
 
 #[cfg(feature = "native_trigger")]
@@ -850,31 +901,15 @@ fn refresh_failure_from(e: ExecuteError) -> RefreshFailure {
         // nothing, and it is the only place the reason is written down.
         ExecuteError::BadResponse { status, body, .. } => {
             let body = String::from_utf8_lossy(body);
-            let status = if body_rejects_grant(&body) {
-                Some(StatusCode::UNAUTHORIZED)
+            let message = format!("{e}: {body}");
+            if grant_refused(Some(*status), &body) {
+                RefreshFailure::rejected(message)
             } else {
-                Some(*status)
-            };
-            RefreshFailure { status, message: format!("{status_text}: {body}", status_text = e) }
+                RefreshFailure::outage(message)
+            }
         }
-        _ => RefreshFailure { status: e.status(), message: error_source_chain(&e) },
-    }
-}
-
-/// How to report a token endpoint's answer to a refresh.
-///
-/// The status on an `ExternalApiError` says what the call for the *trigger* answered, and 404
-/// there means the trigger is gone — it records that on the row and lets a delete drop it. A
-/// token endpoint's status carries none of that meaning (a wrong base URL 404s it while the
-/// webhook is perfectly alive), so only a refused grant is translated, to the 401 that earns
-/// the reconnect hint. Everything else is reported with no status, as the outage it is.
-pub fn refresh_failure_status(status: Option<StatusCode>) -> Option<StatusCode> {
-    match status {
-        // RFC 6749 §5.2: a refused grant answers 400, or 401/403 for client authentication.
-        Some(StatusCode::BAD_REQUEST | StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) => {
-            Some(StatusCode::UNAUTHORIZED)
-        }
-        _ => None,
+        _ if grant_refused(e.status(), "") => RefreshFailure::rejected(error_source_chain(&e)),
+        _ => RefreshFailure::outage(error_source_chain(&e)),
     }
 }
 
@@ -892,18 +927,10 @@ pub async fn refresh_oauth_tokens(
 
     // Build OAuth client for token refresh
     // Auth URL is not used for refresh, but required by the client constructor
-    let auth_url =
-        Url::parse(&resolve_endpoint(&oauth_config.base_url, auth_endpoint)).map_err(|e| {
-            RefreshFailure {
-                status: Some(StatusCode::BAD_REQUEST),
-                message: format!("invalid auth URL: {e}"),
-            }
-        })?;
+    let auth_url = Url::parse(&resolve_endpoint(&oauth_config.base_url, auth_endpoint))
+        .map_err(|e| RefreshFailure::outage(format!("invalid auth URL: {e}")))?;
     let token_url = Url::parse(&resolve_endpoint(&oauth_config.base_url, refresh_endpoint))
-        .map_err(|e| RefreshFailure {
-            status: Some(StatusCode::BAD_REQUEST),
-            message: format!("invalid token URL: {e}"),
-        })?;
+        .map_err(|e| RefreshFailure::outage(format!("invalid token URL: {e}")))?;
 
     let mut client = OClient::new(oauth_config.client_id.clone(), auth_url, token_url);
     client.set_client_secret(oauth_config.client_secret.clone());
@@ -934,7 +961,7 @@ pub async fn refresh_oauth_tokens(
     _auth_endpoint: &str,
 ) -> std::result::Result<OAuthConfig, RefreshFailure> {
     Err(RefreshFailure {
-        status: None,
+        rejected: false,
         message: "the native_trigger feature is not enabled".to_string(),
     })
 }

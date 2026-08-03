@@ -305,6 +305,11 @@ impl External for GitHub {
             _ => None,
         }
     }
+
+    /// GitHub answers 403 to both rate limiting and a permission failure.
+    fn is_transient_response(&self, status: StatusCode, body: &str) -> bool {
+        status == StatusCode::FORBIDDEN && body.contains("rate limit")
+    }
 }
 
 impl GitHub {
