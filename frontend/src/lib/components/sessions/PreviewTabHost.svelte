@@ -32,8 +32,10 @@
 		runtime: SessionRuntime | undefined
 		/** Visible tab — only one is at a time; the rest stay mounted but hidden. */
 		active: boolean
-		/** Preview panel is collapsed to zero width. The panel is never unmounted, so
-		 * this is the difference between the active tab and a tab on screen. */
+		/** Preview panel is not on screen — collapsed, and not overridden by full screen.
+		 * The panel is never unmounted, so this is the difference between the active tab
+		 * and a tab the user can actually see. Resolved by the page, which owns the
+		 * collapse/full-screen precedence. */
 		collapsed?: boolean
 		/** Preview panel is in full screen — forwarded to editor views so a script
 		 * editor reopens its test pane when there's room. */
@@ -130,8 +132,8 @@
 	setOverlayHost({
 		el: () => editorEl,
 		drawers: hostDrawers,
-		// Collapsing resizes the panel to zero rather than unmounting it, so the active
-		// tab of a collapsed panel is still as invisible as a background tab.
+		// The panel is resized rather than unmounted, so the active tab of a panel that
+		// is off screen is as invisible as a background tab.
 		active: () => active && !collapsed
 	})
 
