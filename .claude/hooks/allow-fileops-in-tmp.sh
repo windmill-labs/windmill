@@ -103,7 +103,7 @@ if [ -n "${ok_flags:-}" ]; then
           # leave a residue here and defer rather than being enumerated as denials.
           [ -n "$(printf '%s' "$flags" | tr -d "$ok_flags")" ] && exit 0
           case "$flags" in *x*) extracting=1 ;; esac
-          case "${toks[0]}$flags" in unzip*l*) listing=1 ;; esac
+          case "${toks[0]}$flags" in unzip*[lv]*) listing=1 ;; esac
           # A flag consuming the next token must be alone in its bundle's final position
           # (`-xzf a.tar`), else the token it eats is ambiguous.
           case "${flags%?}" in *[$val_flags]*) exit 0 ;; esac
@@ -132,7 +132,7 @@ if [ -n "${ok_flags:-}" ]; then
 
   [ "$saw_archive" = 1 ] || exit 0   # tar without -f reads a tape/stdin; unzip needs an archive
   # Writes land relative to the working directory unless a destination was given. `unzip -l`
-  # only lists, so it needs no destination.
+  # and `-v` only list, so they need no destination.
   if [ "$extracting" = 1 ] || { [ "${toks[0]}" = "unzip" ] && [ "$listing" = 0 ]; }; then
     [ "$saw_dest" = 1 ] || under_tmp "${cwd:-$PWD}" || exit 0
   fi
@@ -150,8 +150,6 @@ while [ "$i" -lt "${#toks[@]}" ]; do
 
   if [ "$end_opts" = 0 ]; then
     [ "$t" = "--" ] && { end_opts=1; continue; }
-    # Skip real options only before the first operand: past that point GNU utils treat a
-    # leading-dash token as a filename, so validate it rather than skipping it.
     # Checked at any position, not just before the first operand: GNU utils permute, so
     # `cp /tmp/tree -RL /tmp/out` still enables dereferencing recursion.
     case "$t" in
