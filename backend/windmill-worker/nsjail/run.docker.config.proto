@@ -105,6 +105,12 @@ mount {
 # path and isn't shadowed by the tmpfs. Empty when there are no volumes.
 {SHARED_MOUNT}
 
+# `./result.json` (relative to the image's WorkingDir) bound to a host file outside
+# the image rootfs, so the JSON result the container writes flows back to the job
+# without the worker ever reading a path the image controls. Mounted last so it wins
+# over any colliding image path or `# volume`.
+{RESULT_MOUNT}
+
 iface_no_lo: true
 
 #{DEV}

@@ -32,7 +32,7 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::{
     common::{
-        build_args_map, get_reserved_variables, raw_to_string, resolve_nsjail_timeout,
+        build_args_map, get_reserved_variables, raw_to_string, read_file, resolve_nsjail_timeout,
         resolve_nsjail_tmp_mount_block, start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang,
@@ -185,6 +185,23 @@ fn proto_str(s: &str) -> String {
     }
     out.push('"');
     out
+}
+
+/// Render the nsjail mount that exposes `{job_dir}/result.json` inside the container
+/// at `{working_dir}/result.json`, i.e. the `./result.json` a bash script writes.
+///
+/// The host side deliberately sits *outside* `{job_dir}/rootfs`: the worker reads the
+/// result from a path it created itself, never one the image could have planted as a
+/// symlink to a host file. The container can't swap it either — unlinking a
+/// bind-mount point fails.
+fn render_result_mount(job_dir: &str, working_dir: &str) -> String {
+    let dst = format!("{}/result.json", working_dir.trim_end_matches('/'));
+    format!(
+        "mount {{\n  src: {}\n  dst: {}\n  is_bind: true\n  rw: true\n  mandatory: false\n}}\n",
+        proto_str(&format!("{job_dir}/result.json")),
+        // WorkingDir is image-controlled — escape it like every other dst.
+        proto_str(&dst),
+    )
 }
 
 /// Render container env vars as nsjail `envar:` directives (one per line). Each
@@ -717,6 +734,8 @@ pub async fn handle_docker_v2_job(
     // Render the nsjail profile: dynamic per-entry rootfs binds + image WorkingDir.
     let nsjail_timeout = resolve_nsjail_timeout(conn, &job.workspace_id, job.id, job.timeout).await;
     let rootfs_mounts = generate_rootfs_mounts(&rootfs).await?;
+    // Bind source for `./result.json` inside the container; empty means "no result".
+    write_file(job_dir, "result.json", "")?;
     write_file(
         job_dir,
         "run.docker.config.proto",
@@ -733,6 +752,7 @@ pub async fn handle_docker_v2_job(
             )
             // `# volume` mounts + same-worker shared folder (empty if none).
             .replace("{SHARED_MOUNT}", shared_mount)
+            .replace("{RESULT_MOUNT}", &render_result_mount(job_dir, working_dir))
             // Image env as `envar:` directives (child-only), so it never touches
             // nsjail's process env.
             .replace("{ENVARS}", &envars)
@@ -774,7 +794,7 @@ pub async fn handle_docker_v2_job(
         .stderr(Stdio::piped());
     let child = start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?;
 
-    handle_child(
+    let child_result = handle_child(
         &job.id,
         conn,
         mem_peak,
@@ -792,6 +812,20 @@ pub async fn handle_docker_v2_job(
     )
     .await?;
 
+    // Same result conventions as a plain bash script: a non-empty `./result.json`
+    // wins, otherwise the last line of output, otherwise a completion message.
+    let result_json_path = format!("{job_dir}/result.json");
+    if tokio::fs::metadata(&result_json_path)
+        .await
+        .is_ok_and(|m| m.len() > 0)
+    {
+        return read_file(&result_json_path).await;
+    }
+
+    if let Some(last_line) = child_result.last_line {
+        return Ok(to_raw_value(&json!(last_line.trim())));
+    }
+
     Ok(to_raw_value(&json!(format!(
         "sandboxed container ({image}) completed successfully"
     ))))
@@ -799,7 +833,23 @@ pub async fn handle_docker_v2_job(
 
 #[cfg(test)]
 mod tests {
-    use super::{digest_key, proto_str, ref_key, registry_qualified, render_envars};
+    use super::{
+        digest_key, proto_str, ref_key, registry_qualified, render_envars, render_result_mount,
+    };
+
+    #[test]
+    fn result_mount_targets_working_dir() {
+        // `./result.json` relative to the image's WorkingDir, with no doubled slash
+        // when WorkingDir is the root.
+        assert!(render_result_mount("/j", "/app").contains("dst: \"/app/result.json\""));
+        assert!(render_result_mount("/j", "/").contains("dst: \"/result.json\""));
+        assert!(render_result_mount("/j", "/app/").contains("dst: \"/app/result.json\""));
+        // The host side is the worker-created file, never a path inside the rootfs.
+        assert!(render_result_mount("/j", "/app").contains("src: \"/j/result.json\""));
+        // An image WorkingDir trying to inject extra directives is escaped.
+        let evil = render_result_mount("/j", "/x\"\nmount { src: \"/\" dst: \"/host\" }\n#");
+        assert!(!evil.contains("\ndst: \"/host\""));
+    }
 
     #[test]
     fn digest_key_is_filesystem_safe() {

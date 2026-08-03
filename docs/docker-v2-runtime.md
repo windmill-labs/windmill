@@ -34,6 +34,18 @@ python3 -c "import sys; print('hello', sys.argv[1])" "$name"
 - The image's `Env`, `WorkingDir` are applied; the windmill reserved variables
   (`WM_TOKEN`, `BASE_INTERNAL_URL`, …) are injected so `wmill`/API calls work.
 
+## Result
+
+Same conventions as a plain bash script, in this order:
+
+1. `./result.json` (relative to the image's `WorkingDir`) if non-empty → returned as
+   the JSON result. It is a host file bind-mounted into the container, so it works
+   whatever the `WorkingDir` is — including `/` and paths under the tmpfs `/tmp`,
+   which otherwise wouldn't flow back to the job. Being a bind-mount point, it must
+   be written in place (`> ./result.json`); a write-temp-then-`rename` fails.
+2. Otherwise the last non-empty line of output, returned as a string.
+3. Otherwise a completion message.
+
 ## How it works
 
 1. **Pull/extract** ([`crane`](https://github.com/google/go-containerregistry), no
@@ -101,7 +113,6 @@ the container inherits exactly the job's confinement:
 - Images that drop to a non-root uid or chown to arbitrary uids inside need a
   subuid **range** in the jail (single-uid only today — follow-up: `newuidmap`
   range mapping).
-- The script result is a completion message; capture output via stdout/logs.
 
 ## Follow-ups
 

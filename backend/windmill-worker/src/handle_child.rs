@@ -89,6 +89,10 @@ async fn kill_process_tree(pid: Option<u32>) -> Result<(), String> {
 
 pub struct HandleChildResult {
     pub result_stream: Option<String>,
+    /// Last non-empty line the child wrote to stdout/stderr, for executors whose
+    /// result convention is "last line of output" and that have no wrapper script
+    /// to tee it to a file (sandboxed containers).
+    pub last_line: Option<String>,
 }
 
 /// - wait until child exits and return with exit status
@@ -311,6 +315,7 @@ pub async fn handle_child(
     };
 
     let mut stream_result = Vec::new();
+    let mut last_line = String::new();
     /* a future that reads output from the child and appends to the database */
     let lines = write_lines(
         output,
@@ -325,6 +330,7 @@ pub async fn handle_child(
         child_name,
         &mut stream_result,
         stream_notifier,
+        Some(&mut last_line),
     )
     .instrument(trace_span!("child_lines"));
 
@@ -339,7 +345,10 @@ pub async fn handle_child(
         _ if *too_many_logs.borrow() => Err(Error::ExecutionErr(format!(
             "logs or result reached limit. (current max size: {MAX_RESULT_SIZE} characters)"
         ))),
-        Ok(Ok(status)) => process_status(&child_name, status, stream_result),
+        Ok(Ok(status)) => process_status(&child_name, status, stream_result).map(|mut r| {
+            r.last_line = (!last_line.is_empty()).then_some(last_line);
+            r
+        }),
         Ok(Err(kill_reason)) => match kill_reason {
             KillReason::AlreadyCompleted => {
                 Err(Error::AlreadyCompleted("Job already completed".to_string()))
@@ -367,6 +376,7 @@ pub async fn write_lines(
     child_name: &str,
     stream_result: &mut Vec<String>,
     stream_notifier: Option<StreamNotifier>,
+    mut last_line: Option<&mut String>,
 ) {
     let max_log_size = if *CLOUD_HOSTED {
         MAX_RESULT_SIZE
@@ -474,6 +484,12 @@ pub async fn write_lines(
                             log_remaining = 0;
                         }
                     } else {
+                        if let Some(buf) = last_line.as_mut() {
+                            if !line.trim().is_empty() {
+                                buf.clear();
+                                buf.push_str(&line);
+                            }
+                        }
                         append_with_limit(&mut joined, &line, &mut log_remaining);
                     }
                     if log_remaining == 0 {
@@ -1073,6 +1089,7 @@ pub fn process_status(
             } else {
                 Some(stream_result.join(""))
             },
+            last_line: None,
         })
     } else if let Some(code) = status.code() {
         Err(error::Error::ExitStatus(program.to_string(), code))
