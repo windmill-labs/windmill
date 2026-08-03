@@ -122,10 +122,10 @@ pub async fn do_mssql(
     let port_ref = database.port;
 
     config.host(host_ref.clone());
-    config.database(&database.dbname);
+    config.database(database.dbname);
     let use_instance_name = database.instance_name.as_ref().is_some_and(|x| x != "");
     if use_instance_name {
-        config.instance_name(database.instance_name.as_deref().unwrap_or_default());
+        config.instance_name(database.instance_name.unwrap());
     }
     if let Some(port) = database.port {
         config.port(port);
