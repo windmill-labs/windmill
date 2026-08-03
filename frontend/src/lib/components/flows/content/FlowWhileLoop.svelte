@@ -45,7 +45,7 @@
 	})
 </script>
 
-<Drawer bind:open={previewOpen} alwaysOpen size="75%" minSize="1000px">
+<Drawer bind:open={previewOpen} alwaysOpen size="75%">
 	<FlowLoopIterationPreview
 		modules={mod.value.type == 'whileloopflow' ? mod.value.modules : []}
 		open={previewOpen}

@@ -14,9 +14,10 @@
 <script lang="ts">
 	import { zIndexes } from '$lib/zIndexes'
 	import { onDestroy, untrack } from 'svelte'
-	import { overlayStack } from '../overlayHost.svelte'
+	import { overlayHostActive, overlayStack } from '../overlayHost.svelte'
 
 	const stack = overlayStack()
+	const hostActive = overlayHostActive()
 
 	interface Props {
 		open?: boolean
@@ -70,10 +71,9 @@
 		}
 	}
 
-	// A disposable can be unmounted while still open — the step panel is wrapped in a
-	// {#key selectedId} that tears its whole subtree down. Without this the id would sit
-	// on the shared stack for the rest of the session, and consumers that read the
-	// stack's length would silently stop working.
+	// A disposable can be unmounted while still open, by an ancestor that tears its whole
+	// subtree down. Its id would then sit on the stack forever, and since the topmost entry
+	// arbitrates Escape, every overlay opened afterwards would stop answering it.
 	onDestroy(() => {
 		stack.val = stack.val.filter((drawer) => drawer !== id)
 		delete minZIndexEntries[id]
@@ -103,6 +103,8 @@
 	}
 
 	function onKeyDown(event: KeyboardEvent) {
+		// Hidden hosts stay mounted and still receive window keys — see overlayHost.
+		if (!hostActive()) return
 		if (open) {
 			switch (event.key) {
 				case 'Escape':

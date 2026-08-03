@@ -5,15 +5,18 @@ export type OverlayStack = { val: string[] }
 /** Overlays that answer to the viewport share this one. */
 const globalOverlayStack: OverlayStack = $state({ val: [] })
 
-/** Where overlays opened from this subtree (drawers, modals, the flow editor's detached
- *  panel) belong. A host that embeds an editor in its own box provides one so its overlays
- *  stay inside that box — one tab's drawer must never cover a sibling tab or the chrome
- *  around it. */
+/** Where overlays opened from this subtree (drawers, modals, popovers) belong. A host that
+ *  embeds an editor in its own box provides one so its overlays stay inside that box — one
+ *  tab's drawer must never cover a sibling tab or the chrome around it. */
 export type OverlayHostContext = {
 	/** Element the overlays anchor to instead of the viewport. */
 	el: () => HTMLElement | undefined
 	/** Stack this host arbitrates Escape and click-away on. */
 	drawers: OverlayStack
+	/** Whether this host is the one on screen. Hosts stay mounted while hidden, and
+	 *  `opacity: 0` / `pointer-events: none` do not stop keyboard events from reaching a
+	 *  `svelte:window` listener — so key handlers must ask before acting. */
+	active: () => boolean
 }
 
 const OVERLAY_HOST_KEY = 'overlayHost'
@@ -28,8 +31,8 @@ export function getOverlayHost(): OverlayHostContext | undefined {
 
 /**
  * The stack this component's overlays belong to. An enclosing pane keeps its own, because
- * it stays mounted while hidden: on the shared stack, an overlay left open in a hidden tab
- * would outrank — and swallow the Escape of — the tab the user is looking at.
+ * it stays mounted while hidden: on the shared stack, an overlay left open in a hidden pane
+ * would outrank — and swallow the Escape of — the pane the user is looking at.
  *
  * Reads context, so call it during component initialisation.
  */
@@ -38,17 +41,34 @@ export function overlayStack(): OverlayStack {
 }
 
 /**
- * Portal target for an overlay that belongs to a flow editor: the host pane when the
- * editor is embedded in one, else the editor root.
+ * Portal target for an overlay: the caller's own `fallback` container, resolved within the
+ * enclosing host pane when there is one.
  *
- * `#flow-editor` is not a unique id — a session keeps every visited tab mounted, so
- * querySelector would drop the overlay into whichever editor came first in the DOM.
- * That tab is `opacity-0 pointer-events-none`, so the overlay renders invisibly.
+ * An id fallback such as `#flow-editor` is not unique — a session keeps every visited tab
+ * mounted, so a document-wide querySelector would drop the overlay into whichever editor
+ * came first in the DOM. That tab is `opacity-0 pointer-events-none`, so the overlay
+ * renders invisibly. Scoping the lookup to the host keeps the caller's chosen container
+ * (which sets the overlay's offset parent and clipping) while picking this tab's copy of
+ * it; a fallback that names nothing inside the host, such as `body`, falls back to the
+ * host itself.
  *
  * Reads context, so call it during component initialisation; call the returned getter
  * where the target is used, to stay reactive as the host element mounts.
  */
 export function overlayPortalTarget(fallback: string): () => HTMLElement | string {
 	const host = getOverlayHost()
-	return () => host?.el() ?? fallback
+	return () => {
+		const el = host?.el()
+		if (!el) return fallback
+		return el.querySelector<HTMLElement>(fallback) ?? el
+	}
+}
+
+/**
+ * Whether this component's overlays should respond to window-level keys. False only for
+ * overlays living in a host that is currently hidden; true everywhere outside a host.
+ */
+export function overlayHostActive(): () => boolean {
+	const host = getOverlayHost()
+	return () => host?.active() ?? true
 }

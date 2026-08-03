@@ -17,7 +17,7 @@
 	import { debounce, pointerDownOutside } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
 	import { createEventDispatcher, untrack } from 'svelte'
-	import { getOverlayHost } from '$lib/components/common/overlayHost.svelte'
+	import { getOverlayHost, overlayPortalTarget } from '$lib/components/common/overlayHost.svelte'
 	import { Button } from '$lib/components/common'
 	import DocLink from '$lib/components/apps/editor/settingsPanel/DocLink.svelte'
 	import type { FloatingConfig } from '@melt-ui/svelte/internal/actions/floating'
@@ -90,7 +90,7 @@
 		closeOnOutsideClick = true,
 		contentClasses = '',
 		contentStyle = '',
-		portal = 'body',
+		portal = undefined,
 		closeOnOtherPopoverOpen = false,
 		allowFullScreen = false,
 		extraProps = {},
@@ -112,11 +112,15 @@
 	}: Props = $props()
 
 	// Fullscreen abandons the trigger-relative positioning for a container of its own:
-	// the host pane when the editor is embedded in one (so it covers that pane, like a
+	// the host pane when this popover is enclosed in one (so it covers that pane, like a
 	// drawer), else the document.
 	const overlayHost = getOverlayHost()
+	const hostPortal = overlayPortalTarget('body')
 	const fullScreenHost = $derived(fullScreen ? overlayHost?.el() : undefined)
-	let dynamicPortal = $derived(fullScreen ? (fullScreenHost ?? 'body') : portal)
+	// `null` is melt's "render in place" and must survive; only an absent prop defers to the host.
+	let dynamicPortal = $derived(
+		fullScreen ? (fullScreenHost ?? 'body') : portal === undefined ? hostPortal() : portal
+	)
 
 	const {
 		elements: { trigger: _trigger, content: _content, arrow, close: closeElement, overlay },

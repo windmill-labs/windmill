@@ -170,7 +170,7 @@
 	/>
 {/snippet}
 
-<Drawer bind:open={previewOpen} alwaysOpen size="75%" minSize="1000px">
+<Drawer bind:open={previewOpen} alwaysOpen size="75%">
 	<FlowLoopIterationPreview
 		modules={mod.value.type == 'forloopflow' ? mod.value.modules : []}
 		open={previewOpen}

@@ -172,7 +172,6 @@
 	<Drawer
 		bind:open={previewOpen}
 		size="75%"
-		minSize="1000px"
 		{preventEscape}
 		alwaysOpen={deferContent}
 	>

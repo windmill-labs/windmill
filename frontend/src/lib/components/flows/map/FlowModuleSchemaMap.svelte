@@ -23,6 +23,7 @@
 	import { push } from '$lib/history.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Portal from '$lib/components/Portal.svelte'
+	import { overlayPortalTarget } from '$lib/components/common/overlayHost.svelte'
 
 	import { locateModules, groupByParent } from '../multiSelectUtils'
 	import { workspaceStore } from '$lib/stores'
@@ -457,9 +458,11 @@
 	$effect(() => {
 		sidebarMode == 'graph' ? (sidebarSize = 40) : (sidebarSize = 20)
 	})
+
+	const portalTarget = overlayPortalTarget('body')
 </script>
 
-<Portal name="flow-module">
+<Portal name="flow-module" target={portalTarget()}>
 	<ConfirmationModal
 		title="Confirm deleting step with dependents"
 		confirmationText="Delete step"

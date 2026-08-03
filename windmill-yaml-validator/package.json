@@ -1,6 +1,6 @@
 {
   "name": "windmill-yaml-validator",
-  "version": "1.776.0",
+  "version": "1.777.1",
   "description": "YAML validator for Windmill flow, schedule, and trigger files",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

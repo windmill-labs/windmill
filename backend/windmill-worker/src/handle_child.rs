@@ -50,7 +50,7 @@ use futures::{
 };
 
 use crate::common::{resolve_job_timeout, OccupancyMetrics, StreamNotifier};
-use crate::job_logger::{append_job_logs, append_result_stream, append_with_limit};
+use crate::job_logger::{append_job_logs, append_result_stream, append_with_limit, strip_nul};
 use crate::job_logger_oss::process_streaming_log_lines;
 use crate::worker_utils::{ping_job_status, update_worker_ping_from_job};
 use crate::{MAX_RESULT_SIZE, MAX_WAIT_FOR_SIGINT, MAX_WAIT_FOR_SIGTERM};
@@ -89,6 +89,18 @@ async fn kill_process_tree(pid: Option<u32>) -> Result<(), String> {
 
 pub struct HandleChildResult {
     pub result_stream: Option<String>,
+    /// Last non-empty line the child wrote to **stdout**, unmasked, for executors
+    /// whose result convention is "last line of stdout" and that have no wrapper
+    /// script to tee it to a file (sandboxed containers). stderr is excluded: the two
+    /// pipes are merged by a fair `select`, so their relative order is arbitrary — a
+    /// diagnostic on stderr must not be able to win over the real result.
+    pub last_line: Option<String>,
+}
+
+/// A line read from a child, tagged with the pipe it came from.
+struct OutputLine {
+    stderr: bool,
+    line: String,
 }
 
 /// - wait until child exits and return with exit status
@@ -311,6 +323,7 @@ pub async fn handle_child(
     };
 
     let mut stream_result = Vec::new();
+    let mut last_line = String::new();
     /* a future that reads output from the child and appends to the database */
     let lines = write_lines(
         output,
@@ -325,6 +338,7 @@ pub async fn handle_child(
         child_name,
         &mut stream_result,
         stream_notifier,
+        Some(&mut last_line),
     )
     .instrument(trace_span!("child_lines"));
 
@@ -339,7 +353,10 @@ pub async fn handle_child(
         _ if *too_many_logs.borrow() => Err(Error::ExecutionErr(format!(
             "logs or result reached limit. (current max size: {MAX_RESULT_SIZE} characters)"
         ))),
-        Ok(Ok(status)) => process_status(&child_name, status, stream_result),
+        Ok(Ok(status)) => process_status(&child_name, status, stream_result).map(|mut r| {
+            r.last_line = (!last_line.is_empty()).then_some(last_line);
+            r
+        }),
         Ok(Err(kill_reason)) => match kill_reason {
             KillReason::AlreadyCompleted => {
                 Err(Error::AlreadyCompleted("Job already completed".to_string()))
@@ -354,8 +371,8 @@ pub async fn handle_child(
 
 pub const WAC_STEP_PREFIX: &str = "WM_WAC_STEP: ";
 
-pub async fn write_lines(
-    output: impl stream::Stream<Item = io::Result<String>> + Send,
+async fn write_lines(
+    output: impl stream::Stream<Item = io::Result<OutputLine>> + Send,
     job_id: &Uuid,
     w_id: &str,
     worker: &str,
@@ -367,6 +384,7 @@ pub async fn write_lines(
     child_name: &str,
     stream_result: &mut Vec<String>,
     stream_notifier: Option<StreamNotifier>,
+    mut last_line: Option<&mut String>,
 ) {
     let max_log_size = if *CLOUD_HOSTED {
         MAX_RESULT_SIZE
@@ -434,24 +452,26 @@ pub async fn write_lines(
 
         while let Some(line) = read_lines.next().await {
             match line {
-                Ok(line) => {
+                Ok(OutputLine { stderr, line }) => {
                     if line.is_empty() {
                         continue;
                     }
-                    let line = if let Some(ref snap) = mask_snapshot {
-                        match snap.mask(&line) {
-                            std::borrow::Cow::Owned(masked) => masked,
-                            std::borrow::Cow::Borrowed(_) => line,
-                        }
-                    } else {
-                        line
-                    };
+                    // Masking is a log concern only: `mask` also appends a multi-line
+                    // notice, which would end up inside a captured result. Keep `line`
+                    // raw and log `logged`.
+                    let masked = mask_snapshot
+                        .as_ref()
+                        .and_then(|snap| match snap.mask(&line) {
+                            std::borrow::Cow::Owned(masked) => Some(masked),
+                            std::borrow::Cow::Borrowed(_) => None,
+                        });
+                    let logged = masked.as_deref().unwrap_or(line.as_str());
                     if *OTEL_JOB_LOGS {
-                        if let Some(otel_suffix) = line.strip_prefix(OTEL_PREFIX) {
+                        if let Some(otel_suffix) = logged.strip_prefix(OTEL_PREFIX) {
                             tracing::event!(tracing::Level::INFO, otel_suffix);
                         }
                     }
-                    if let Some(step_json) = line.strip_prefix(WAC_STEP_PREFIX) {
+                    if let Some(step_json) = logged.strip_prefix(WAC_STEP_PREFIX) {
                         // Real-time WAC step start marker — fire-and-forget DB write
                         let conn = conn.clone();
                         let job_id = job_id.clone();
@@ -464,7 +484,7 @@ pub async fn write_lines(
                         });
                         continue;
                     }
-                    if let Some(stream) = extract_stream_from_logs(&line) {
+                    if let Some(stream) = extract_stream_from_logs(logged) {
                         let len = stream.len();
                         if log_remaining >= len {
                             log_remaining -= len;
@@ -474,7 +494,15 @@ pub async fn write_lines(
                             log_remaining = 0;
                         }
                     } else {
-                        append_with_limit(&mut joined, &line, &mut log_remaining);
+                        if let Some(buf) = last_line.as_mut() {
+                            if !stderr && !line.trim().is_empty() {
+                                buf.clear();
+                                // Same NUL scrub the log path applies: Postgres rejects
+                                // a NUL in the resulting jsonb too.
+                                buf.push_str(&strip_nul(&line));
+                            }
+                        }
+                        append_with_limit(&mut joined, logged, &mut log_remaining);
                     }
                     if log_remaining == 0 {
                         tracing::info!(%job_id, "Too many logs lines for job {job_id}");
@@ -1029,7 +1057,7 @@ fn child_joined_output_stream(
     child: &mut Box<dyn TokioChildWrapper>,
     job_id: Uuid,
     w_id: String,
-) -> impl stream::FusedStream<Item = io::Result<String>> {
+) -> impl stream::FusedStream<Item = io::Result<OutputLine>> {
     let stderr = child
         .stderr()
         .take()
@@ -1043,8 +1071,10 @@ fn child_joined_output_stream(
     let stdout = BufReader::new(stdout).lines();
     let stderr = BufReader::new(stderr).lines();
     stream::select(
-        lines_to_stream(stderr, true, job_id.clone(), w_id.clone()),
-        lines_to_stream(stdout, false, job_id, w_id),
+        lines_to_stream(stderr, true, job_id.clone(), w_id.clone())
+            .map(|l| l.map(|line| OutputLine { stderr: true, line })),
+        lines_to_stream(stdout, false, job_id, w_id)
+            .map(|l| l.map(|line| OutputLine { stderr: false, line })),
     )
 }
 
@@ -1073,6 +1103,7 @@ pub fn process_status(
             } else {
                 Some(stream_result.join(""))
             },
+            last_line: None,
         })
     } else if let Some(code) = status.code() {
         Err(error::Error::ExitStatus(program.to_string(), code))
