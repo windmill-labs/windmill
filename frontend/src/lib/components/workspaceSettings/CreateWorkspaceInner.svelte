@@ -24,7 +24,8 @@
 	import {
 		workspaceIsFork,
 		findWorkspaceRoot,
-		findWorkspaceDescendants
+		findWorkspaceDescendants,
+		findDefaultForkBase
 	} from '$lib/utils/workspaceHierarchy'
 	import { useForkableWorkspaces } from '$lib/utils/useForkableWorkspaces.svelte'
 	import {
@@ -115,7 +116,9 @@
 			subtitle: w.is_dev_workspace ? 'dev workspace' : w.id === familyRoot?.id ? undefined : 'fork'
 		}))
 	)
-	let defaultBaseWorkspaceId = $derived(familyRoot?.id)
+	let defaultBaseWorkspaceId = $derived(
+		findDefaultForkBase($workspaceStore, forkableWorkspaces)?.id
+	)
 	// Seed the base once the family is known; keep an explicit user choice as long as it stays valid.
 	$effect(() => {
 		if (!isFork) return
@@ -896,8 +899,8 @@
 						{#if createAsDevWorkspace}
 							A dev workspace is always based on the root workspace.
 						{:else}
-							Workspace to fork from. Defaults to the root; pick an existing fork to create a fork
-							of a fork (the new branch is based on the selected workspace's branch).
+							Workspace to fork from: the new branch is based on the selected workspace's branch.
+							Pick an existing fork to create a fork of a fork.
 						{/if}
 					</span>
 					<Select
