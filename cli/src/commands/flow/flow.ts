@@ -232,11 +232,19 @@ export async function pushFlow(
 
   const hasOnBehalfOf = (localFlow as any).has_on_behalf_of ?? !!localFlow.on_behalf_of_email;
   delete (localFlow as any).has_on_behalf_of;
+  // The authorization half of the identity is never exported to the repo (the
+  // workspace tarball strips it); it only ever travels back from the remote row.
+  delete (localFlow as any).on_behalf_of;
 
-  const preserveFields: { on_behalf_of_email?: string; preserve_on_behalf_of?: boolean } = {};
+  const preserveFields: {
+    on_behalf_of_email?: string;
+    on_behalf_of?: string;
+    preserve_on_behalf_of?: boolean;
+  } = {};
   if (permissionedAsContext?.userIsAdminOrDeployer && hasOnBehalfOf) {
     if (flow && flow.on_behalf_of_email) {
       preserveFields.on_behalf_of_email = flow.on_behalf_of_email;
+      preserveFields.on_behalf_of = (flow as any).on_behalf_of;
       preserveFields.preserve_on_behalf_of = true;
       log.info(`Preserving ${flow.on_behalf_of_email} as on_behalf_of for flow ${remotePath}`);
     }
@@ -1218,6 +1226,8 @@ const command = new Command()
         ...remote,
         path: flowPath,
         on_behalf_of_email: email,
+        // Derived server-side; see the script command for why.
+        on_behalf_of: undefined,
         preserve_on_behalf_of: true,
         // Preserve any user draft at this path (see backend skip_draft_deletion).
         skip_draft_deletion: true,

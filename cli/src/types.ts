@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { sep as SEP } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 import { yamlParseContent } from "./utils/yaml.ts";
+import { isDbtDescriptorPath } from "./utils/resource_folders.ts";
 import { pushApp } from "./commands/app/app.ts";
 import { pushFolder } from "./commands/folder/folder.ts";
 import { pushFlow } from "./commands/flow/flow.ts";
@@ -405,7 +406,11 @@ export function getTypeStrFromPath(
     parsed.ext == ".rb" ||
     parsed.ext == ".r" ||
     // for related places search: ADD_NEW_LANG
-    (parsed.ext == ".yml" && parsed.name.split(".").pop() == "playbook")
+    (parsed.ext == ".yml" && parsed.name.split(".").pop() == "playbook") ||
+    // A dbt descriptor is `<project>__dbt/wm_dbt.yaml`. Without this it reads
+    // as one of the CLI's own `.yaml` metadata files and a pull writes the
+    // script's metadata and lock but never its content.
+    isDbtDescriptorPath(p)
   ) {
     return "script";
   }

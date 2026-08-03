@@ -70,8 +70,8 @@
 								.then(() => {
 									sendUserToast('Value updated')
 								})
-								.catch(() => {
-									sendUserToast('Error updating value', true)
+								.catch((e) => {
+									sendUserToast('Error updating value: ' + ((e as Error)?.message || e), true)
 									refresh?.()
 								})
 						}

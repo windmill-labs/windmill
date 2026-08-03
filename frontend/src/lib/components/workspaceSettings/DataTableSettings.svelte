@@ -87,6 +87,7 @@
 	import { clone } from '$lib/utils'
 	import SettingsFooter from './SettingsFooter.svelte'
 	import Alert from '../common/alert/Alert.svelte'
+	import MissingWorkerTagAlert from '../jobs/MissingWorkerTagAlert.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 
 	type Props = {
@@ -251,6 +252,8 @@
 		or Neon) instead.
 	</Alert>
 {/if}
+
+<MissingWorkerTagAlert tag="postgresql" subject="Browsing and querying data tables" class="mb-4" />
 
 <DataTable>
 	<Head>

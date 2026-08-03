@@ -606,6 +606,17 @@
 		return undefined
 	}
 
+	/**
+	 * Authorization half of the on_behalf_of pair for flows/scripts. Only a custom pick
+	 * names one; for every other choice the backend derives it from the email, so
+	 * returning undefined clears the source item's value rather than keeping it.
+	 */
+	function getOnBehalfOfPermissionedAsForDeploy(itemKey: string, kind: Kind): string | undefined {
+		if (kind === 'trigger' || isTriggerOrScheduleKind(kind)) return undefined
+		if (onBehalfOfChoice[itemKey] !== 'custom') return undefined
+		return customOnBehalfOf[itemKey]?.permissionedAs
+	}
+
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)
 	let isFlow = $state(true)
 
@@ -698,7 +709,8 @@
 				path,
 				workspaceFrom,
 				workspaceTo: workspaceToDeployTo,
-				onBehalfOf: getOnBehalfOfForDeploy(statusKey, kind)
+				onBehalfOf: getOnBehalfOfForDeploy(statusKey, kind),
+				onBehalfOfPrincipal: getOnBehalfOfPermissionedAsForDeploy(statusKey, kind)
 			})
 		}
 

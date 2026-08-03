@@ -10,12 +10,14 @@ path = "src/lib.rs"
 
 [features]
 default = []
-enterprise = ["windmill-common/enterprise"]
+enterprise = ["windmill-common/enterprise", "windmill-native-triggers?/enterprise"]
 private = ["windmill-common/private", "windmill-dep-map/private"]
 python = ["dep:windmill-parser-py", "dep:windmill-parser-py-asset"]
 prometheus = ["dep:prometheus", "windmill-common/prometheus"]
+native_trigger = ["dep:windmill-native-triggers", "windmill-native-triggers/native_trigger"]
 [dependencies]
 windmill-common = { workspace = true, default-features = false }
+windmill-native-triggers = { workspace = true, optional = true }
 windmill-object-store.workspace = true
 windmill-api-auth.workspace = true
 windmill-queue.workspace = true

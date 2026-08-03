@@ -51,7 +51,6 @@ use windmill_common::runnable_settings::{
     ConcurrencySettingsWithCustom, DebouncingSettings, RunnableSettingsTrait,
 };
 use windmill_common::scripts::{ScriptHash, ScriptRunnableSettingsInline};
-use windmill_common::users::username_to_permissioned_as;
 use windmill_common::utils::WarnAfterExt;
 use windmill_common::worker::{error_to_value, to_raw_value, Connection};
 use windmill_common::{
@@ -6043,13 +6042,9 @@ async fn flow_to_payload(
     w_id: &str,
     db: &DB,
 ) -> Result<JobPayloadWithTag, Error> {
-    let FlowVersionInfo { version, on_behalf_of_email, edited_by, tag, .. } =
-        get_latest_flow_version_info_for_path(None, &db, w_id, &path, true).await?;
-    let on_behalf_of = if let Some(email) = on_behalf_of_email {
-        Some(OnBehalfOf { email, permissioned_as: username_to_permissioned_as(&edited_by) })
-    } else {
-        None
-    };
+    let flow_info = get_latest_flow_version_info_for_path(None, &db, w_id, &path, true).await?;
+    let on_behalf_of = flow_info.on_behalf_of(w_id, &db).await?;
+    let FlowVersionInfo { version, tag, .. } = flow_info;
     let payload = JobPayload::Flow {
         path,
         dedicated_worker: None,
@@ -6115,6 +6110,13 @@ pub async fn script_to_payload(
         } else {
             let hash = script_hash.unwrap();
 
+            let script_info = get_script_info_for_hash(None, db, &flow_job.workspace_id, hash.0)
+                .await?
+                .prefetch_cached(&db)
+                .await?;
+            let on_behalf_of = script_info
+                .on_behalf_of(&flow_job.workspace_id, db)
+                .await?;
             let ScriptHashInfo {
                 tag,
                 cache_ttl,
@@ -6124,24 +6126,10 @@ pub async fn script_to_payload(
                 delete_after_use,
                 delete_after_secs,
                 timeout,
-                on_behalf_of_email,
-                created_by,
                 runnable_settings:
                     ScriptRunnableSettingsInline { concurrency_settings, debouncing_settings },
                 ..
-            } = get_script_info_for_hash(None, db, &flow_job.workspace_id, hash.0)
-                .await?
-                .prefetch_cached(&db)
-                .await?;
-
-            let on_behalf_of = if let Some(email) = on_behalf_of_email {
-                Some(OnBehalfOf {
-                    email,
-                    permissioned_as: username_to_permissioned_as(&created_by),
-                })
-            } else {
-                None
-            };
+            } = script_info;
             (
                 JobPayload::ScriptHash {
                     hash,

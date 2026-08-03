@@ -51,6 +51,9 @@ import { pollJobWithQueueLogging } from "../../utils/job_polling.ts";
 
 const TOP_HASH = "__app_hash";
 export const APP_BACKEND_FOLDER = "backend";
+/** Where `wmill app dev --recording` writes finished session recordings. Local
+ * artifacts, so the app source push skips them. */
+export const RECORDINGS_FOLDER = "recordings";
 
 // Union type for app files that can be either raw or normal apps
 type AppFile = RawAppFile | NormalAppFile;

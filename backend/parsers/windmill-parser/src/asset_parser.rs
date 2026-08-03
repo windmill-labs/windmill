@@ -1,4 +1,5 @@
 use serde::Serialize;
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 // Token recognized inside declared asset URIs that the runtime substitutes
@@ -28,6 +29,11 @@ pub enum AssetKind {
     Ducklake,
     DataTable,
     Volume,
+    /// A warehouse relation a dbt project builds or reads,
+    /// `dbt://<warehouse>/<schema>/<name>`, the warehouse named as the
+    /// workspace configures it. The scheme names the producer, the path stays
+    /// the relation — see `windmill_types::AssetKind::Dbt`.
+    Dbt,
 }
 
 #[derive(Serialize, Debug, PartialEq, Clone)]
@@ -714,21 +720,32 @@ pub fn asset_was_used(assets: &Vec<ParseAssetsResult>, (kind, path): (AssetKind,
     })
 }
 
-pub fn parse_asset_syntax(s: &str, enable_default_syntax: bool) -> Option<(AssetKind, &str)> {
+/// Split an asset URI into `(kind, path)`. The single point where user-written
+/// asset URIs become graph keys, and therefore where `dbt://` paths get
+/// canonicalized (see `canonicalize_table_asset_path`) — every other kind's
+/// suffix is kept verbatim and stays borrowed.
+pub fn parse_asset_syntax(
+    s: &str,
+    enable_default_syntax: bool,
+) -> Option<(AssetKind, Cow<'_, str>)> {
     if enable_default_syntax && s == "datatable" {
-        return Some((AssetKind::DataTable, "main"));
+        return Some((AssetKind::DataTable, Cow::Borrowed("main")));
     } else if enable_default_syntax && s == "ducklake" {
-        return Some((AssetKind::Ducklake, "main"));
+        return Some((AssetKind::Ducklake, Cow::Borrowed("main")));
     }
     for (prefix, kind) in ASSET_KINDS.iter() {
         if s.starts_with(prefix) {
+            let suffix = &s[prefix.len()..];
+            if *kind == AssetKind::Dbt {
+                return Some((*kind, Cow::Owned(canonicalize_table_asset_path(suffix))));
+            }
             // The suffix is kept verbatim. For S3 the path encodes the storage:
             // `s3://<storage>/<key>`, with an EMPTY storage segment for the
             // workspace default — so `s3:///key` yields `/key` (leading slash
             // significant, default storage) while `s3://secondary/key` yields
             // `secondary/key`. Stripping leading slashes here would conflate a
             // default-storage object with a named-storage one.
-            return Some((*kind, &s[prefix.len()..]));
+            return Some((*kind, Cow::Borrowed(suffix)));
         }
     }
     None
@@ -741,7 +758,122 @@ pub const ASSET_KINDS: &[(&str, AssetKind)] = &[
     ("ducklake://", AssetKind::Ducklake),
     ("datatable://", AssetKind::DataTable),
     ("volume://", AssetKind::Volume),
+    ("dbt://", AssetKind::Dbt),
 ];
+
+/// Canonical spelling of a `dbt://` path, `<warehouse>/<schema>/<name>`.
+///
+/// The whole point of keying warehouse relations on the relation rather than on
+/// the producing tool is that a dbt mart and a native script reading the same
+/// table land on one graph node. That only holds if both sides spell the key
+/// identically, and they will not by default: dbt's `manifest.json` gives
+/// `relation_name` pre-quoted (`"db"."Schema"."Tbl"`) while an annotation is
+/// written by hand, and the warehouses disagree on case (Snowflake folds
+/// unquoted identifiers up, Postgres folds them down, DuckDB compares them
+/// case-insensitively). Two spellings of one table produce two nodes, no edge,
+/// and nothing looks broken in isolation — so the rule is applied once, here,
+/// on every path that becomes a `dbt://` asset.
+///
+/// The rule: strip the quote characters the warehouses use (`"`, backtick,
+/// `[`/`]`) from the schema and name, then ASCII-lowercase them. This matches
+/// the case-insensitive identifier comparison the DuckDB paths already use
+/// (`schema_contracts::CapturedSchema::find`). The warehouse-name prefix is
+/// spelled as the workspace configures it, which is case-sensitive, and is left
+/// untouched.
+///
+/// Consequence to accept: a relation deliberately created under a quoted
+/// mixed-case identifier collides with its lowercase spelling. That is rarer
+/// than the case-fold mismatch it prevents, and it errs toward unifying nodes
+/// rather than splitting them.
+pub fn canonicalize_table_asset_path(path: &str) -> String {
+    let Some((resource, rest)) = path.rsplit_once('/').and_then(|(head, name)| {
+        head.rsplit_once('/')
+            .map(|(resource, schema)| (resource, (schema, name)))
+    }) else {
+        // Fewer than three segments: not a well-formed relation path. Leave it
+        // alone so the malformed value stays visible instead of being reshaped
+        // into something that looks valid.
+        return path.to_string();
+    };
+    let (schema, name) = rest;
+    format!(
+        "{}/{}/{}",
+        resource,
+        unquote_schema_segment(schema).to_ascii_lowercase(),
+        unquote_identifier(name).to_ascii_lowercase()
+    )
+}
+
+/// A doubled delimiter inside a quoted identifier is that delimiter, literally —
+/// the same rule the worker's `split_relation` applies to `relation_name`. Both
+/// have to decode it or one spelling of a table becomes two graph nodes: the dbt
+/// model under `sales"east`, its native consumer under `sales""east`.
+fn unquote_identifier(s: &str) -> String {
+    let s = s.trim();
+    for (open, close) in [('"', '"'), ('`', '`'), ('[', ']')] {
+        if s.len() >= 2 && s.starts_with(open) && s.ends_with(close) {
+            let inner = &s[1..s.len() - 1];
+            return inner.replace(&format!("{close}{close}"), &close.to_string());
+        }
+    }
+    s.to_string()
+}
+
+/// Unquote a schema segment, which carries a `<database>.<schema>` pair when a
+/// relation overrode its database. Each half is separately quotable, so
+/// stripping only the outer pair leaves `"Archive"."Sales"` as
+/// `Archive"."Sales` — a different key from the ingest's `archive.sales`, which
+/// silently splits the model and its native consumer into two nodes.
+///
+/// The halves go through `unquote_identifier`, which requires the quote at both
+/// ends, because this function sees both a warehouse SPELLING (from a `dbt://`
+/// annotation) and an already-DECODED identifier (from `table_asset_path`, whose
+/// callers ran `split_relation` or read the manifest) and cannot tell them apart.
+/// A lone `"` in a decoded name — `sa"les` — must survive: treated as opening a
+/// quote it would be dropped, filing the ingest's `sa"les` under `sales` while
+/// the annotation's `"sa""les"` decodes to `sa"les`, which is the split this
+/// canonicalization exists to prevent.
+fn unquote_schema_segment(s: &str) -> String {
+    let s = s.trim();
+    let mut parts: Vec<&str> = Vec::new();
+    let mut start = 0usize;
+    let mut quote: Option<char> = None;
+    let bytes: Vec<(usize, char)> = s.char_indices().collect();
+    let mut k = 0usize;
+    while k < bytes.len() {
+        let (i, c) = bytes[k];
+        match quote {
+            Some(q) => {
+                let close = if q == '[' { ']' } else { q };
+                if c == close {
+                    // Doubled: a literal delimiter, so the quote stays open.
+                    if bytes.get(k + 1).map(|(_, n)| *n) == Some(close) {
+                        k += 1;
+                    } else {
+                        quote = None;
+                    }
+                }
+            }
+            // Only a quote that OPENS the part can be a delimiter; one in the
+            // middle of a decoded identifier is part of the name.
+            None if (c == '"' || c == '`' || c == '[') && i == start => quote = Some(c),
+            // Only an UNQUOTED period separates the database from the schema;
+            // one inside an identifier is part of the name.
+            None if c == '.' => {
+                parts.push(&s[start..i]);
+                start = i + c.len_utf8();
+            }
+            None => {}
+        }
+        k += 1;
+    }
+    parts.push(&s[start..]);
+    parts
+        .into_iter()
+        .map(unquote_identifier)
+        .collect::<Vec<_>>()
+        .join(".")
+}
 
 // Tokenize a `key=value [key="quoted value"] ...` option string. Bare
 // values run until the next whitespace; quoted values consume until the
@@ -1555,11 +1687,11 @@ mod pipeline_annotation_tests {
         // objects and must never collapse to one identity.
         assert_eq!(
             parse_asset_syntax("s3:///exports/x", false),
-            Some((AssetKind::S3Object, "/exports/x"))
+            Some((AssetKind::S3Object, Cow::Borrowed("/exports/x")))
         );
         assert_eq!(
             parse_asset_syntax("s3://exports/x", false),
-            Some((AssetKind::S3Object, "exports/x"))
+            Some((AssetKind::S3Object, Cow::Borrowed("exports/x")))
         );
         assert_ne!(
             parse_asset_syntax("s3:///exports/x", false),
@@ -1569,28 +1701,181 @@ mod pipeline_annotation_tests {
         // The `// on` trigger annotation goes through the same function.
         assert_eq!(
             parse_asset_syntax("s3:///exports/x", true),
-            Some((AssetKind::S3Object, "/exports/x"))
+            Some((AssetKind::S3Object, Cow::Borrowed("/exports/x")))
         );
 
         assert_eq!(
             parse_asset_syntax("s3://secondary_storage/path/to/file.csv", false),
-            Some((AssetKind::S3Object, "secondary_storage/path/to/file.csv"))
+            Some((
+                AssetKind::S3Object,
+                Cow::Borrowed("secondary_storage/path/to/file.csv")
+            ))
         );
 
         // Hive-partition keys are preserved verbatim.
         assert_eq!(
             parse_asset_syntax("s3:///t/year=2024/month=01/f.parquet", false),
-            Some((AssetKind::S3Object, "/t/year=2024/month=01/f.parquet"))
+            Some((
+                AssetKind::S3Object,
+                Cow::Borrowed("/t/year=2024/month=01/f.parquet")
+            ))
         );
 
         // Non-S3 kinds also keep their suffix verbatim.
         assert_eq!(
             parse_asset_syntax("res://f/foo", false),
-            Some((AssetKind::Resource, "f/foo"))
+            Some((AssetKind::Resource, Cow::Borrowed("f/foo")))
         );
         assert_eq!(
             parse_asset_syntax("ducklake://analytics/orders", false),
-            Some((AssetKind::Ducklake, "analytics/orders"))
+            Some((AssetKind::Ducklake, Cow::Borrowed("analytics/orders")))
+        );
+    }
+
+    // A dbt mart and a native script reading the same warehouse table must land
+    // on ONE graph node. They only do if every spelling of the relation
+    // canonicalizes identically — dbt's manifest gives it pre-quoted, the
+    // annotation is hand-written, and the warehouses fold case in opposite
+    // directions. A regression here is invisible: both nodes still render, they
+    // just stop being the same node and the cross-boundary cascade never fires.
+    #[test]
+    fn table_paths_from_every_spelling_canonicalize_to_one_key() {
+        let canonical = Some((
+            AssetKind::Dbt,
+            Cow::Owned("main/analytics/orders".into()),
+        ));
+        for spelling in [
+            // Hand-written annotation.
+            "dbt://main/analytics/orders",
+            // dbt manifest `relation_name`, quoted (database segment already
+            // dropped by the ingest, which keys on the warehouse name instead).
+            "dbt://main/\"analytics\"/\"orders\"",
+            // Snowflake folds unquoted identifiers up, Postgres folds down.
+            "dbt://main/ANALYTICS/ORDERS",
+            "dbt://main/Analytics/Orders",
+            // BigQuery / Databricks backticks, SQL Server brackets.
+            "dbt://main/`analytics`/`orders`",
+            "dbt://main/[Analytics]/[Orders]",
+        ] {
+            assert_eq!(
+                parse_asset_syntax(spelling, false),
+                canonical,
+                "spelling {spelling} did not canonicalize"
+            );
+        }
+    }
+
+    // A relation that overrode its database carries `<database>.<schema>` in
+    // one segment, and each half can be quoted independently. Stripping only
+    // the outer pair leaves a key the manifest ingest never produces, so the
+    // model and a native script reading it become separate nodes.
+    #[test]
+    fn qualified_schema_segments_unquote_each_half() {
+        let canonical = Some((
+            AssetKind::Dbt,
+            Cow::Owned("main/archive.sales/orders".into()),
+        ));
+        for spelling in [
+            "dbt://main/archive.sales/orders",
+            "dbt://main/\"Archive\".\"Sales\"/\"Orders\"",
+            "dbt://main/`Archive`.`Sales`/`Orders`",
+            "dbt://main/[Archive].[Sales]/[Orders]",
+        ] {
+            assert_eq!(
+                parse_asset_syntax(spelling, false),
+                canonical,
+                "spelling {spelling} did not canonicalize"
+            );
+        }
+        // A period INSIDE one quoted identifier is part of the name, not a
+        // database qualifier.
+        assert_eq!(
+            parse_asset_syntax("dbt://main/\"sales.v2\"/orders", false),
+            Some((
+                AssetKind::Dbt,
+                Cow::Owned("main/sales.v2/orders".into())
+            ))
+        );
+    }
+
+    // Every dialect here escapes its own delimiter by doubling it, and the
+    // worker's `split_relation` decodes it — so a canonicalizer that did not
+    // would file the dbt model under `sales"east` and the native script reading
+    // it under `sales""east`, which is the split this key exists to prevent.
+    #[test]
+    fn a_doubled_delimiter_canonicalizes_like_the_relation_it_names() {
+        for (spelling, expected) in [
+            (
+                "dbt://main/\"sales\"\"east\"/\"orders\"",
+                "main/sales\"east/orders",
+            ),
+            (
+                "dbt://main/analytics/\"order\"\"s\"",
+                "main/analytics/order\"s",
+            ),
+            (
+                "dbt://main/`da``ta`/`orders`",
+                "main/da`ta/orders",
+            ),
+            (
+                "dbt://main/[my]]schema]/[orders]",
+                "main/my]schema/orders",
+            ),
+            // And in one half of a database-qualified segment.
+            (
+                "dbt://main/\"arch\"\"ive\".\"sales\"/orders",
+                "main/arch\"ive.sales/orders",
+            ),
+        ] {
+            assert_eq!(
+                parse_asset_syntax(spelling, false),
+                Some((AssetKind::Dbt, Cow::Owned(expected.into()))),
+                "spelling {spelling} did not canonicalize"
+            );
+        }
+        // The DECODED form has to land on the same key, in both halves: this
+        // function sees the warehouse's spelling from an annotation and an
+        // already-decoded identifier from the ingest, and cannot tell them
+        // apart. A lone delimiter treated as opening a quote would be dropped —
+        // `sa"les` filed as `sales` — and the two derivations would split.
+        for (decoded, spelled) in [
+            ("dbt://main/sa\"les/orders", "dbt://main/\"sa\"\"les\"/orders"),
+            ("dbt://main/analytics/order\"s", "dbt://main/analytics/\"order\"\"s\""),
+            (
+                "dbt://main/arch\"ive.sales/orders",
+                "dbt://main/\"arch\"\"ive\".\"sales\"/orders",
+            ),
+        ] {
+            assert_eq!(
+                parse_asset_syntax(decoded, false),
+                parse_asset_syntax(spelled, false),
+                "the decoded and quoted spellings of {decoded} disagree"
+            );
+        }
+    }
+
+    #[test]
+    fn table_canonicalization_leaves_the_warehouse_name_case_alone() {
+        // The warehouse-name prefix is spelled as the workspace configures it
+        // and is case-sensitive; only the two identifier segments are folded.
+        assert_eq!(
+            parse_asset_syntax("dbt://MyWarehouse/Sales/Orders", false),
+            Some((
+                AssetKind::Dbt,
+                Cow::Owned("MyWarehouse/sales/orders".into())
+            ))
+        );
+        // A database-qualified schema keeps its own case rules: the whole
+        // segment folds, dot included.
+        assert_eq!(
+            parse_asset_syntax("dbt://main/PROD.Sales/Orders", false),
+            Some((AssetKind::Dbt, Cow::Owned("main/prod.sales/orders".into())))
+        );
+        // Too few segments to be a relation: left alone rather than reshaped
+        // into something that looks well-formed.
+        assert_eq!(
+            parse_asset_syntax("dbt://Orders", false),
+            Some((AssetKind::Dbt, Cow::Owned("Orders".into())))
         );
     }
 

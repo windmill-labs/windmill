@@ -48,6 +48,17 @@ import {
   hasFolderSuffix,
   loadNonDottedPathsSetting,
 } from "../../utils/resource_folders.ts";
+import {
+  createRecorderShellHTML,
+  DEV_RECORDER_BUNDLE,
+  isOwnOrigin,
+  isRecordingFileName,
+  RECORDER_BUNDLE_PATH,
+  RECORDER_SAVE_PATH,
+  RECORDER_SHELL_PATH,
+  recordingFileName,
+  RECORDINGS_FOLDER,
+} from "./devRecorder.ts";
 
 // Resolved once per `wmill app dev` run from wmill.yaml; a bare `.ts` under
 // backend/ denotes this runtime, so readers must agree with the path assigner.
@@ -333,6 +344,7 @@ interface DevOptions extends GlobalOptions {
   host?: string;
   entry?: string;
   open?: boolean;
+  recording?: boolean;
 }
 
 async function dev(opts: DevOptions, appFolder?: string) {
@@ -537,6 +549,23 @@ async function dev(opts: DevOptions, appFolder?: string) {
     fs.mkdirSync(distDir);
   }
 
+  // Session recording: the app moves into an iframe of a shell page holding the
+  // recorder toolbar, and finished recordings land in the app folder.
+  const recordingEnabled = opts.recording ?? false;
+  const recordingsDir = path.join(process.cwd(), RECORDINGS_FOLDER);
+  // The player is a page of the instance this app is developed against, so the
+  // recording it fetches from here crosses origins.
+  const playerBaseUrl = workspace.remote.endsWith("/")
+    ? workspace.remote
+    : `${workspace.remote}/`;
+  const playerOrigin = (() => {
+    try {
+      return new URL(playerBaseUrl).origin;
+    } catch {
+      return undefined;
+    }
+  })();
+
   // SSE clients for live reload
   const clients: http.ServerResponse[] = [];
 
@@ -721,9 +750,151 @@ async function dev(opts: DevOptions, appFolder?: string) {
     );
   }
 
+  // Same ceiling the player refuses to load past, so nothing is written here
+  // that could not be replayed.
+  const MAX_RECORDING_BYTES = 100 * 1024 * 1024;
+
+  function sendJson(res: http.ServerResponse, status: number, body: unknown) {
+    res.writeHead(status, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(body));
+  }
+
+  /** Write the recording under a name nothing else holds. `wx` is what makes
+   * this safe: two tabs stopping in the same millisecond both create, and the
+   * loser retries rather than overwriting the winner. */
+  async function writeRecording(body: string): Promise<string> {
+    const now = new Date();
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const file = recordingFileName(now, attempt);
+      try {
+        await fs.promises.writeFile(path.join(recordingsDir, file), body, {
+          flag: "wx",
+        });
+        return file;
+      } catch (error: any) {
+        if (error?.code !== "EEXIST") throw error;
+      }
+    }
+    throw new Error("Could not find a free recording file name");
+  }
+
+  function saveRecording(req: http.IncomingMessage, res: http.ServerResponse) {
+    if (!isOwnOrigin(req.headers.origin, req.headers.host)) {
+      sendJson(res, 403, { error: "Cross-origin recording upload refused" });
+      return;
+    }
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let refused = false;
+    // An upload cut short (by the refusal below, or by the browser) raises
+    // 'error' on the request, which unhandled takes the dev server down.
+    req.on("error", (error: Error) => {
+      if (!refused) {
+        log.warn(colors.yellow(`Recording upload failed: ${error.message}`));
+      }
+    });
+    req.on("data", (chunk: Buffer) => {
+      if (refused) return;
+      size += chunk.length;
+      if (size > MAX_RECORDING_BYTES) {
+        refused = true;
+        // Torn down only once the 413 is on the wire: destroying the socket
+        // first loses the response the browser is waiting to read.
+        res.on("finish", () => req.destroy());
+        sendJson(res, 413, {
+          error: `Recording exceeds ${MAX_RECORDING_BYTES} bytes`,
+        });
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", async () => {
+      if (refused) return;
+      const body = Buffer.concat(chunks).toString("utf-8");
+      try {
+        JSON.parse(body);
+      } catch {
+        sendJson(res, 400, { error: "Body is not valid JSON" });
+        return;
+      }
+      let file: string;
+      try {
+        await fs.promises.mkdir(recordingsDir, { recursive: true });
+        file = await writeRecording(body);
+      } catch (error: any) {
+        log.error(colors.red(`Failed to save recording: ${error.message}`));
+        sendJson(res, 500, { error: error.message });
+        return;
+      }
+      log.info(
+        colors.green(
+          `🎬 Recording saved to ${path.join(RECORDINGS_FOLDER, file)}`,
+        ),
+      );
+      log.info(
+        colors.gray(
+          `   Replay it at ${playerBaseUrl}replay (open the file, or use ?src=)`,
+        ),
+      );
+      sendJson(res, 200, { file });
+    });
+  }
+
+  function serveRecording(url: string, res: http.ServerResponse) {
+    const file = url.slice(RECORDER_SAVE_PATH.length + 1);
+    if (!isRecordingFileName(file)) {
+      sendJson(res, 400, { error: "Invalid recording name" });
+      return;
+    }
+    const filePath = path.join(recordingsDir, file);
+    if (!fs.existsSync(filePath)) {
+      sendJson(res, 404, { error: "Recording not found" });
+      return;
+    }
+    res.writeHead(200, {
+      "Content-Type": "application/json",
+      // The player runs on the instance, not on the dev server: without this it
+      // can fetch the recording but never read it.
+      ...(playerOrigin ? { "Access-Control-Allow-Origin": playerOrigin } : {}),
+    });
+    // Streamed: a recording is megabytes, and this server also carries the app,
+    // its live reload and every runnable call.
+    fs.createReadStream(filePath).on("error", () => res.end()).pipe(res);
+  }
+
   // Create HTTP server
   const server = http.createServer((req, res) => {
     const url = req.url || "/";
+
+    if (recordingEnabled) {
+      const pathname = url.split("?")[0];
+      if (pathname === RECORDER_BUNDLE_PATH) {
+        res.writeHead(200, { "Content-Type": "application/javascript" });
+        res.end(DEV_RECORDER_BUNDLE);
+        return;
+      }
+      if (pathname === RECORDER_SAVE_PATH && req.method === "POST") {
+        saveRecording(req, res);
+        return;
+      }
+      if (
+        pathname.startsWith(`${RECORDER_SAVE_PATH}/`) && req.method === "GET"
+      ) {
+        serveRecording(pathname, res);
+        return;
+      }
+      if (pathname === RECORDER_SHELL_PATH) {
+        res.writeHead(200, { "Content-Type": "text/html" });
+        res.end(
+          createRecorderShellHTML({
+            appPath,
+            workspace: workspaceId,
+            playerBaseUrl,
+          }),
+        );
+        return;
+      }
+    }
 
     // SSE endpoint for live reload
     if (url === "/__events") {
@@ -1359,18 +1530,29 @@ async function dev(opts: DevOptions, appFolder?: string) {
 
   server.listen(port, host, () => {
     const url = `http://${host}:${port}`;
+    // The toolbar lives beside the app, not in front of it, so recording mode
+    // is what the browser should land on.
+    const openUrl = recordingEnabled ? `${url}${RECORDER_SHELL_PATH}` : url;
     log.info(colors.bold.green(`🚀 Dev server running at ${url}`));
     log.info(
       colors.cyan(`🔌 WebSocket server running at ws://${host}:${port}`),
     );
     log.info(colors.gray(`📦 Serving files from: ${process.cwd()}`));
-    log.info(colors.gray(`🔄 Live reload enabled\n`));
+    log.info(colors.gray(`🔄 Live reload enabled`));
+    if (recordingEnabled) {
+      log.info(
+        colors.magenta(
+          `🎬 Session recording at ${openUrl} : press Record in the toolbar. Recordings are saved to ${RECORDINGS_FOLDER}/`,
+        ),
+      );
+    }
+    log.info("");
 
     // Open browser if requested
     if (shouldOpen) {
       try {
         open
-          .openApp(open.apps.browser, { arguments: [url] })
+          .openApp(open.apps.browser, { arguments: [openUrl] })
           .catch((error: any) => {
             log.error(
               colors.yellow(
@@ -1423,6 +1605,10 @@ const command = new Command()
     "Entry point file (default: index.ts for Svelte/Vue, index.tsx otherwise)",
   )
   .option("--no-open", "Don't automatically open the browser")
+  .option(
+    "--recording",
+    "Frame the app in a shell with a Record button, to capture a replayable session recording of the app under development",
+  )
   .action(dev as any);
 
 export default command;

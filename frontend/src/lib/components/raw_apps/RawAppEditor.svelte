@@ -54,6 +54,7 @@
 	} from 'lucide-svelte'
 	import DraggableTabs, { type TabItem } from '$lib/components/common/tabs/DraggableTabs.svelte'
 	import { runScriptAndPollResult } from '../jobs/utils'
+	import { writingJobOptions } from '../jobs/writingJob'
 	import { RawAppHistoryManager } from './RawAppHistoryManager.svelte'
 	import { sendUserToast } from '$lib/utils'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
@@ -1020,14 +1021,17 @@
 				}
 
 				try {
-					const result = await runScriptAndPollResult({
-						workspace: opWorkspace,
-						requestBody: {
-							language: 'postgresql',
-							content: sql,
-							args: { database: `datatable://${datatableName}` }
-						}
-					})
+					const result = await runScriptAndPollResult(
+						{
+							workspace: opWorkspace,
+							requestBody: {
+								language: 'postgresql',
+								content: sql,
+								args: { database: `datatable://${datatableName}` }
+							}
+						},
+						writingJobOptions
+					)
 
 					// If newTable was specified and the query succeeded, add it to data.tables
 					if (newTable) {

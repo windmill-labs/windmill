@@ -12,7 +12,7 @@
 	import { Check, Code, Zap } from 'lucide-svelte'
 	import SuspendDrawer from './SuspendDrawer.svelte'
 	import { defaultScripts } from '$lib/stores'
-	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
+	import { defaultScriptLanguages, processInlineLangs } from '$lib/scripts'
 	import type { SupportedLanguage } from '$lib/common'
 	import DefaultScripts from '$lib/components/DefaultScripts.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
@@ -48,7 +48,7 @@
 	let filter = $state('')
 
 	let langs = $derived(
-		processLangs(undefined, $defaultScripts?.order ?? Object.keys(defaultScriptLanguages))
+		processInlineLangs(undefined, $defaultScripts?.order ?? Object.keys(defaultScriptLanguages))
 			.map((l) => [defaultScriptLanguages[l], l])
 			.filter(
 				(x) => $defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x[1])
