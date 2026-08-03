@@ -204,7 +204,8 @@ vi.mock('$lib/gen', async () => {
 				throw new Error('getResource mock not configured')
 			}),
 			createResource: vi.fn(async () => 'created'),
-			updateResource: vi.fn(async () => 'updated')
+			updateResource: vi.fn(async () => 'updated'),
+			deleteResource: vi.fn(async () => 'deleted')
 		}),
 		VariableService: wrapService(actual.VariableService, {
 			existsVariable: vi.fn(async () => false),
@@ -439,6 +440,37 @@ describe('global AI tools', () => {
 		expect(names).toContain('test_run_step')
 		expect(names).toContain('get_job_logs')
 		expect(names).toContain('list_runs')
+	})
+
+	it('keeps the trigger config schemas out of the tool definitions', async () => {
+		const def = JSON.stringify(getGlobalTool('write_trigger').def)
+		expect(def.length).toBeLessThan(2000)
+		expect(def).not.toContain('kafka_resource_path')
+
+		const kafka = await callGlobalTool('get_trigger_schema', { kind: 'kafka' })
+		expect(JSON.parse(kafka).properties).toMatchObject({
+			kafka_resource_path: expect.anything(),
+			group_id: expect.anything(),
+			topics: expect.anything()
+		})
+	})
+
+	it('rejects a trigger config that does not match the declared kind', async () => {
+		const error = await callGlobalTool('write_trigger', {
+			kind: 'kafka',
+			config: {
+				path: 'u/admin/wrong_kind',
+				script_path: 'f/scripts/handler',
+				is_flow: false,
+				route_path: 'api/wrong',
+				http_method: 'get'
+			}
+		}).catch((err) => err as Error)
+
+		expect(error).toBeInstanceOf(Error)
+		// What the model actually receives is capped at MAX_TOOL_ERROR_LENGTH by
+		// formatToolError, so the recovery instruction has to survive that cap.
+		expect((error as Error).message.slice(0, 2000)).toContain('get_trigger_schema')
 	})
 
 	it('lists recent runs with compact summaries and forwarded filters', async () => {
@@ -1220,6 +1252,63 @@ describe('global AI tools', () => {
 		expect(
 			getBackendDraft('script', 'f/scripts/discard-me', { workspace: WORKSPACE })
 		).toBeUndefined()
+	})
+
+	// "Create a resource, then never mind": delete_workspace_item must reject a path
+	// that was never deployed, before the confirmation card — otherwise the user
+	// confirms a workspace mutation that 404s past the draft cleanup, leaving the
+	// draft they asked to be rid of.
+	it('rejects deleting a draft-only item and names discard_local_draft', async () => {
+		await callGlobalTool('write_resource', {
+			path: 'u/admin/never_mind_db',
+			value: { host: 'db.example.com', port: 5432 },
+			resource_type: 'postgresql'
+		})
+
+		const error = await getGlobalTool('delete_workspace_item').validateBeforeConfirmation?.({
+			args: { type: 'resource', path: 'u/admin/never_mind_db' },
+			workspace: WORKSPACE,
+			helpers: {}
+		})
+
+		expect(error).toMatch(/only exists as a draft/)
+		expect(error).toMatch(/discard_local_draft/)
+		expect(ResourceService.deleteResource).not.toHaveBeenCalled()
+		expect(
+			getBackendDraft('resource', 'u/admin/never_mind_db', { workspace: WORKSPACE })
+		).toBeDefined()
+	})
+
+	it('lets delete_workspace_item through when the item is deployed', async () => {
+		vi.mocked(ResourceService.existsResource).mockResolvedValueOnce(true)
+
+		await expect(
+			getGlobalTool('delete_workspace_item').validateBeforeConfirmation?.({
+				args: { type: 'resource', path: 'u/admin/deployed_db' },
+				workspace: WORKSPACE,
+				helpers: {}
+			})
+		).resolves.toBeUndefined()
+	})
+
+	// existsScriptByPath filters archived=false but deleteScriptByPath does not, so
+	// probing with it alone would make an archived script undeletable via the chat.
+	it('lets delete_workspace_item through for an archived script', async () => {
+		vi.mocked(ScriptService.existsScriptByPath).mockResolvedValueOnce(false)
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/archived_one',
+			content: 'export async function main() {}',
+			language: 'bun',
+			archived: true
+		} as any)
+
+		await expect(
+			getGlobalTool('delete_workspace_item').validateBeforeConfirmation?.({
+				args: { type: 'script', path: 'f/scripts/archived_one' },
+				workspace: WORKSPACE,
+				helpers: {}
+			})
+		).resolves.toBeUndefined()
 	})
 
 	// Covers the conflict-on-save / override branch of `persistGlobalDraft`
@@ -4002,7 +4091,7 @@ describe('prepareGlobalSystemMessage', () => {
 
 		expect(content).toContain('Draft tools create or update drafts only')
 		expect(content).toContain(
-			'Use discard_local_draft to remove a draft, including the matching open editor draft'
+			'To undo something you created or changed in this chat, use discard_local_draft'
 		)
 		expect(content).toContain(
 			'After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step'
@@ -4117,10 +4206,10 @@ describe('prepareGlobalSystemMessage', () => {
 		const deleteItem = getGlobalTool('delete_workspace_item')
 
 		expect(discard.def.function.description).toBe(
-			'Discard a draft only. Does not mutate deployed workspace items, but clears the matching open editor draft if one is mounted.'
+			'Discard a draft only — the tool to undo an item you created or edited in this chat and have not deployed. Does not mutate deployed workspace items, but clears the matching open editor draft if one is mounted.'
 		)
 		expect(deleteItem.def.function.description).toBe(
-			'Delete a deployed workspace item. Mutates the workspace.'
+			'Delete an item that is already deployed in the workspace. Mutates the workspace. FAILS if the path has no deployed item, so never call it to undo something you created in this chat — that is a draft; use discard_local_draft instead.'
 		)
 		expect(discard.requiresConfirmation).toBe(true)
 		expect(deleteItem.requiresConfirmation).toBe(true)
