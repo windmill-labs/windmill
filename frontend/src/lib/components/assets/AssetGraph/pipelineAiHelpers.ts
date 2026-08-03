@@ -6,7 +6,7 @@ import {
 	extractWrites,
 	type AssetWithAltAccessType
 } from '$lib/components/assets/lib'
-import { normalizePipelineFolder } from './lib'
+import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 import { assetUri, autoOutputAsset, type PipelineOutputKind } from './pipelineTemplates'
 import { parsePipelineAnnotations, scd2CurrentTargetPath } from './parsePipelineAnnotations'
 import type { AssetGraphResponse } from './types'
@@ -134,8 +134,6 @@ function dedupeAssets(
 }
 
 export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIChatHelpers {
-	// The folder NAME, whichever form the caller holds it in — node paths are
-	// `f/<name>/<node>`, so an owner path here would prefix every path twice.
 	const folderName = () => normalizePipelineFolder(deps.getFolder())
 
 	// A staged draft is always persisted into the OPEN folder's data_pipeline
@@ -145,10 +143,12 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 		const folder = folderName()
 		if (folder && !path.startsWith(`f/${folder}/`)) {
 			// Name the corrected path rather than only the required prefix: the model
-			// otherwise re-sends variants of the same wrong path.
-			const leaf = path.split('/').filter(Boolean).pop() ?? '<node_name>'
+			// otherwise re-sends variants of the same wrong path. A path that is the
+			// folder itself has no node leaf to reuse.
+			const leaf = path.split('/').filter(Boolean).pop()
+			const node = !leaf || leaf === folder ? '<node_name>' : leaf
 			throw new Error(
-				`Pipeline nodes must be in the open folder — use 'f/${folder}/${leaf}' (got '${path}').`
+				`Pipeline nodes must be in the open folder — use 'f/${folder}/${node}' (got '${path}').`
 			)
 		}
 	}

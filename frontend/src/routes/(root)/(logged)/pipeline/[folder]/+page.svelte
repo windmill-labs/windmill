@@ -36,7 +36,7 @@
 		type ColumnLineageGraph
 	} from '$lib/components/assets/AssetGraph/columnLineageGraph'
 	import { resolveGraph } from '$lib/components/assets/AssetGraph/resolveGraph'
-	import { normalizePipelineFolder } from '$lib/components/assets/AssetGraph/lib'
+	import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 	import { hideDbtRunnables } from '$lib/components/assets/AssetGraph/hideDbtRunnables'
 	import { buildSchemaContractContext } from '$lib/components/assets/AssetGraph/schemaContracts'
 	import {
@@ -125,9 +125,6 @@
 	// layout without adding lineage information.
 	const DATA_KINDS = DATA_ASSET_KINDS
 
-	// Normalized so a link carrying the owner path (`/pipeline/f%2Fanalytics`)
-	// opens the same editor as `/pipeline/analytics` — the folder NAME is what
-	// every `f/<folder>/<node>` path on this page is built from.
 	let folder = $derived(normalizePipelineFolder(page.params.folder as string))
 
 	// Externalized editor state (drafts, live overlays, selection), shared with

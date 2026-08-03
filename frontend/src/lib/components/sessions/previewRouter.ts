@@ -13,7 +13,7 @@ import {
 	ScrollText
 } from 'lucide-svelte'
 import type { DrillIcon } from '$lib/components/drillPicker'
-import { normalizePipelineFolder } from '$lib/components/assets/AssetGraph/lib'
+import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 import type { WorkspaceItem, WorkspaceItemKind } from '$lib/components/workspacePicker'
 import type { SessionTargetKind } from './sessionRuntime.svelte'
 
@@ -171,9 +171,6 @@ export function parsePreviewItemRoute(fullPath: string): PreviewItemRoute | null
 // A `/pipeline/<folder>` route is the data-pipeline graph editor for that folder
 // (the folder is a single path segment, not a workspace item path). The bare
 // `/pipeline` list page is not an editor. Returns the folder name, or null.
-// The segment is normalized: a URL carrying the owner path (`/pipeline/f%2F<folder>`
-// — a hand-written link, or a preview tab persisted from one) still resolves to the
-// folder name the editor and its `f/<folder>/<node>` paths are built from.
 export function parsePipelineRoute(fullPath: string): string | null {
 	const m = stripBase(fullPath).match(/^\/pipeline\/([^/?#]+)/)
 	return m ? normalizePipelineFolder(decodeURIComponent(m[1])) : null
