@@ -219,7 +219,10 @@
 				</Tab>
 			</Tabs>
 
-			<div class="flex min-h-0 flex-1 flex-col gap-8 overflow-auto p-4">
+			<div
+				class="flex min-h-0 flex-1 flex-col gap-8 overflow-auto p-4"
+				style="scrollbar-gutter: stable"
+			>
 				{#if selectedTab === 'loop'}
 					<section>
 						<PropPickerWrapper

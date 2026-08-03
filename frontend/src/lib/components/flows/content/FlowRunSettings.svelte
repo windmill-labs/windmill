@@ -118,6 +118,7 @@
 <div
 	bind:this={rootEl}
 	class="flex flex-col gap-8 {embedded ? '' : 'flex-1 min-h-0 overflow-auto p-4'}"
+	style={embedded ? undefined : 'scrollbar-gutter: stable'}
 >
 	{#if !isFailure}
 		<section class="flex flex-col gap-3">
