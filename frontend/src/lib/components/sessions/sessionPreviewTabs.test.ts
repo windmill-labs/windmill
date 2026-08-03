@@ -3,6 +3,7 @@ import {
 	SessionPreviewTabs,
 	describePreview,
 	hydratePreviewTabs,
+	previewTargetForDeployKind,
 	previewTargetForSessionTarget,
 	selectPreviewTabsToClose,
 	type PreviewTabsAdapter,
@@ -151,6 +152,20 @@ describe('previewTargetForSessionTarget', () => {
 			href: `${base}/pipeline/my_folder`,
 			label: 'my_folder'
 		})
+	})
+})
+
+describe('previewTargetForDeployKind', () => {
+	it('maps a legacy drag-and-drop app to its non-raw edit route', () => {
+		expect(previewTargetForDeployKind('app', 'u/me/app')).toEqual({
+			type: 'item',
+			item: { kind: 'app', raw_app: false, path: 'u/me/app', summary: '' }
+		})
+	})
+	it('has no destination for kinds the preview panel cannot host', () => {
+		expect(previewTargetForDeployKind('schedule', 'u/me/s')).toBeUndefined()
+		expect(previewTargetForDeployKind('http_trigger', 'u/me/t')).toBeUndefined()
+		expect(previewTargetForDeployKind('variable', 'u/me/v')).toBeUndefined()
 	})
 })
 

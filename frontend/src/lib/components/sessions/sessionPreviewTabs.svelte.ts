@@ -13,6 +13,7 @@ import {
 	type PreviewTarget
 } from './previewRouter'
 import type { SessionPreviewTab, SessionTarget } from './sessionState.svelte'
+import type { Kind } from '$lib/utils_deployable'
 
 // The single live owner of a session's preview tabs. Runs behind a small
 // interface both the sessions page (renderer) and the `open_preview` tool cross,
@@ -110,6 +111,21 @@ export function previewTargetForSessionTarget(
 			? { kind: 'app', raw_app: true, path, summary: '' }
 			: { kind, path, summary: '' }
 	return { type: 'item', item }
+}
+
+// Adapt a deployable item's layout kind (the session review dock speaks `Kind`,
+// not SessionTarget) to a preview destination: the three live editors, plus
+// legacy drag-and-drop apps, which the panel hosts as an iframe over their edit
+// route. Triggers, schedules, resources and variables have no preview route, so
+// they map to undefined — the caller's test for "can this row be previewed?".
+export function previewTargetForDeployKind(kind: Kind, path: string): PreviewTarget | undefined {
+	if (kind === 'app') {
+		return { type: 'item', item: { kind: 'app', raw_app: false, path, summary: '' } }
+	}
+	if (kind === 'script' || kind === 'flow' || kind === 'raw_app') {
+		return previewTargetForSessionTarget(kind, path)
+	}
+	return undefined
 }
 
 // Build the initial tab model for a session: its saved tabs, else empty. Default

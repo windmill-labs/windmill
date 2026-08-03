@@ -21,7 +21,7 @@
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 	import { badgeCounts, badgeOf, buildDeployItems, type DeployItem } from './sessionDeployModel'
 	import { useExistingMaskKeys } from './sessionDeployModel.svelte'
-	import { previewTargetForSessionTarget } from './sessionPreviewTabs.svelte'
+	import { previewTargetForDeployKind } from './sessionPreviewTabs.svelte'
 	import type { PreviewTarget } from './previewRouter'
 	import JobsSegment from '$lib/components/copilot/chat/JobsSegment.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
@@ -192,34 +192,27 @@
 	)
 	let editsOpen = $state(false)
 
-	// Destinations the preview panel can host: the three live editors, plus legacy
-	// drag-and-drop apps (mounted as an iframe over their edit route). Triggers,
-	// schedules and the like have no preview route, so their rows get no button.
-	// Keyed on the storage `path` — the edit route's key, which for a draft-only
+	// Routed on the storage `path` — the edit route's key, which for a draft-only
 	// item is its `draft_<uuid>` path, not the friendly `displayPath`.
 	function previewTargetFor(item: DeployItem): PreviewTarget | undefined {
-		if (item.deployKind === 'app') {
-			return { type: 'item', item: { kind: 'app', raw_app: false, path: item.path, summary: '' } }
-		}
-		if (
-			item.deployKind === 'script' ||
-			item.deployKind === 'flow' ||
-			item.deployKind === 'raw_app'
-		) {
-			return previewTargetForSessionTarget(item.deployKind, item.path)
-		}
-		return undefined
+		return previewTargetForDeployKind(item.deployKind, item.path)
 	}
 
-	// Open (or focus) the item in this session's preview panel. A 'focused' open
-	// leaves the tab where it is, so pulse it to make the click visibly land.
+	// Open (or focus) the item in this session's preview panel. Mirrors
+	// manager.openArtifact: flash the tab only when a 'focused' open changed
+	// nothing else visible — open() also un-collapses the panel and can switch
+	// the active tab, either of which the user already sees.
 	function openInPreview(item: DeployItem) {
 		const owner = runtime?.previewTabs
 		const target = previewTargetFor(item)
 		if (!owner || !target) return
 		editsOpen = false
+		const wasDisplayed = !owner.collapsed
+		const prevActive = owner.activeId
 		const { status } = owner.open(target)
-		if (status === 'focused') owner.pulseFocus(owner.activeId)
+		if (status === 'focused' && wasDisplayed && owner.activeId === prevActive) {
+			owner.pulseFocus(owner.activeId)
+		}
 	}
 
 	// Only draft-vs-deployed drives the color: stale/failed live in the drawer's
