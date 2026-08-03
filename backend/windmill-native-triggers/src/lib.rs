@@ -365,6 +365,17 @@ pub trait External: Send + Sync + 'static {
         axum::Router::new()
     }
 
+    /// Pull the human-readable message out of an error body, when the service wraps it in an
+    /// envelope. Returning `None` (default) shows the body as-is.
+    fn describe_error_body(&self, _body: &str) -> Option<String> {
+        None
+    }
+
+    /// What the user has to do about a rejection, appended to the service's own message.
+    fn error_hint(&self, _status: StatusCode) -> Option<&'static str> {
+        None
+    }
+
     async fn http_client_request<T: DeserializeOwned + Send, B: Serialize + Send + Sync>(
         &self,
         url: &str,
@@ -388,13 +399,14 @@ pub trait External: Send + Sync + 'static {
 
         match result {
             Ok(response) => Ok(response),
-            Err(err)
-                if err.status() == Some(StatusCode::UNAUTHORIZED)
-                    || err.status() == Some(StatusCode::FORBIDDEN) =>
-            {
+            // Only an expired or revoked token is worth a refresh. A 403 means the account
+            // behind the token is authenticated and still not allowed, which minting a new
+            // token for that same account cannot change; retrying would only burn a refresh
+            // rotation per request and bury the service's own explanation.
+            Err(err) if err.status() == Some(StatusCode::UNAUTHORIZED) => {
                 tracing::info!(
-                    "HTTP auth error ({}), attempting token refresh",
-                    err.status().unwrap()
+                    "HTTP 401 from {}, attempting token refresh",
+                    Self::DISPLAY_NAME
                 );
 
                 let refreshed_oauth_config = refresh_oauth_tokens(
@@ -402,7 +414,14 @@ pub trait External: Send + Sync + 'static {
                     Self::REFRESH_ENDPOINT,
                     Self::AUTH_ENDPOINT,
                 )
-                .await?;
+                .await
+                .map_err(|e| {
+                    Error::BadRequest(format!(
+                        "{} rejected the stored credentials and refreshing them failed: {e}. \
+                         Reconnect the integration from Workspace settings > Integrations.",
+                        Self::DISPLAY_NAME
+                    ))
+                })?;
 
                 task::spawn({
                     let db_clone = db.clone();
@@ -422,7 +441,7 @@ pub trait External: Send + Sync + 'static {
                     }
                 });
 
-                let response = make_http_request(
+                make_http_request(
                     url,
                     method,
                     headers,
@@ -430,11 +449,68 @@ pub trait External: Send + Sync + 'static {
                     &refreshed_oauth_config.access_token,
                 )
                 .await
-                .map_err(to_anyhow)?;
-                Ok(response)
+                .map_err(|e| self.external_api_error(e))
             }
-            Err(e) => Err(to_anyhow(e).into()),
+            Err(e) => Err(self.external_api_error(e)),
         }
+    }
+
+    /// Wrap a failed provider call so the status stays inspectable by internal callers (a 404
+    /// means the trigger is gone, not that the call broke) and the message stays readable by
+    /// the time it reaches a user.
+    fn external_api_error(&self, e: HttpRequestError) -> Error {
+        let status = e.status();
+        let detail = match &e {
+            HttpRequestError::ApiError { body, .. } => self
+                .describe_error_body(body)
+                .unwrap_or_else(|| body.to_string()),
+            other => other.to_string(),
+        };
+        to_anyhow(ExternalApiError {
+            service: Self::DISPLAY_NAME,
+            status,
+            detail: truncate_detail(&detail),
+            hint: status.and_then(|s| self.error_hint(s)),
+        })
+        .into()
+    }
+}
+
+/// A native trigger provider refused or could not serve a request.
+#[derive(Debug)]
+pub struct ExternalApiError {
+    pub service: &'static str,
+    pub status: Option<StatusCode>,
+    pub detail: String,
+    pub hint: Option<&'static str>,
+}
+
+impl std::fmt::Display for ExternalApiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.status {
+            Some(status) => write!(
+                f,
+                "{} rejected the request ({}): {}",
+                self.service, status, self.detail
+            )?,
+            None => write!(f, "Could not reach {}: {}", self.service, self.detail)?,
+        }
+        if let Some(hint) = self.hint {
+            write!(f, " — {}", hint)?;
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for ExternalApiError {}
+
+/// Provider bodies are unbounded and end up in toasts and `native_trigger.error`.
+fn truncate_detail(detail: &str) -> String {
+    const MAX: usize = 400;
+    let detail = detail.trim();
+    match detail.char_indices().nth(MAX) {
+        Some((idx, _)) => format!("{}…", &detail[..idx]),
+        None => detail.to_string(),
     }
 }
 
@@ -537,14 +613,49 @@ impl HttpRequestError {
     }
 }
 
+fn as_external_api_error(e: &Error) -> Option<&ExternalApiError> {
+    match e {
+        Error::Anyhow { error, .. } => error.downcast_ref::<ExternalApiError>(),
+        _ => None,
+    }
+}
+
 /// Extract the HTTP status code from an error returned by `http_client_request`.
 /// Returns `None` if the error didn't originate from an HTTP call.
-pub fn http_error_status(e: &windmill_common::error::Error) -> Option<StatusCode> {
-    match e {
-        windmill_common::error::Error::Anyhow { error, .. } => error
-            .downcast_ref::<HttpRequestError>()
-            .and_then(|e| e.status()),
-        _ => None,
+pub fn http_error_status(e: &Error) -> Option<StatusCode> {
+    as_external_api_error(e).and_then(|e| e.status)
+}
+
+/// The message to show a user for a failed provider call, without the internal decoration
+/// `Error`'s own `Display` adds. Non-provider errors are rendered as-is.
+pub fn external_error_message(e: &Error) -> String {
+    as_external_api_error(e).map_or_else(|| e.to_string(), |ext| ext.to_string())
+}
+
+/// Turn a provider failure into something a client can read and act on.
+///
+/// Without this every rejection reaches the browser as a 500 carrying a raw upstream body.
+/// The provider's status is deliberately not mirrored: a 401/403 answered by Windmill reads as
+/// a Windmill permission problem, when the account that lacks rights is the one connected to
+/// the *provider*. Errors that did not come from a provider call pass through untouched.
+pub fn map_external_error(e: Error) -> Error {
+    map_external_error_with(e, |message| message)
+}
+
+/// `map_external_error` with a chance to add what the failure means for Windmill's own state.
+pub fn map_external_error_with(e: Error, decorate: impl FnOnce(String) -> String) -> Error {
+    let Some((status, message)) =
+        as_external_api_error(&e).map(|ext| (ext.status, ext.to_string()))
+    else {
+        return e;
+    };
+    let message = decorate(message);
+    match status {
+        Some(StatusCode::NOT_FOUND) => Error::NotFound(message),
+        Some(s) if s.is_server_error() => Error::BadGateway(message),
+        Some(_) => Error::BadRequest(message),
+        // No status at all: the provider was unreachable or answered something undecodable.
+        None => Error::BadGateway(message),
     }
 }
 

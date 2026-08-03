@@ -232,7 +232,10 @@ impl External for GitHub {
                 Err(e) => {
                     errors.push(crate::sync::SyncError {
                         resource_path: trigger.script_path.clone(),
-                        error_message: format!("Failed to verify GitHub webhook: {}", e),
+                        error_message: format!(
+                            "Failed to verify GitHub webhook: {}",
+                            crate::external_error_message(&e)
+                        ),
                         error_type: "api_error".to_string(),
                     });
                 }
@@ -287,6 +290,20 @@ impl External for GitHub {
 
     fn additional_routes(&self) -> axum::Router {
         routes::github_routes(self.clone())
+    }
+
+    fn error_hint(&self, status: StatusCode) -> Option<&'static str> {
+        match status {
+            StatusCode::UNAUTHORIZED => {
+                Some("reconnect the GitHub integration from Workspace settings > Integrations.")
+            }
+            StatusCode::FORBIDDEN => Some(
+                "managing webhooks needs admin rights on the repository: check that the connected \
+                 GitHub account has them and that the OAuth app is authorized for the \
+                 organization.",
+            ),
+            _ => None,
+        }
     }
 }
 

@@ -11,14 +11,20 @@
 use serde_json::json;
 use sqlx::{Pool, Postgres};
 
+use axum::http::StatusCode;
 use windmill_api_auth::ApiAuthed;
-use windmill_common::variables::{build_crypt, encrypt};
+use windmill_common::{
+    error::Error,
+    variables::{build_crypt, encrypt},
+};
 use windmill_native_triggers::{
     decrypt_oauth_data, delete_native_trigger, delete_workspace_integration,
     get_workspace_integration,
     google::{parse_stop_channel_params, should_renew_channel},
-    list_native_triggers, require_native_integration_use, store_native_trigger,
-    store_workspace_integration, NativeTriggerConfig, OAuthConfig, ServiceName,
+    http_error_status, list_native_triggers, map_external_error,
+    nextcloud::NextCloud,
+    require_native_integration_use, store_native_trigger, store_workspace_integration, External,
+    HttpRequestError, NativeTriggerConfig, OAuthConfig, ServiceName,
 };
 
 // ============================================================================
@@ -709,4 +715,46 @@ fn test_parse_stop_channel_params_missing_resource_id() {
     let (channel_id, resource_id, _url) = parse_stop_channel_params(&config);
     assert!(channel_id.is_none());
     assert_eq!(resource_id, "");
+}
+
+// --- provider error reporting ---
+
+fn nextcloud_error(status: StatusCode, body: &str) -> Error {
+    NextCloud.external_api_error(HttpRequestError::ApiError { status, body: body.to_string() })
+}
+
+/// A rejection has to reach the user as the service's own sentence plus what to do about it.
+/// Reported as a 500 carrying the raw OCS envelope, it read as a Windmill outage.
+#[test]
+fn test_provider_rejection_is_readable_and_not_internal() {
+    let err = nextcloud_error(
+        StatusCode::FORBIDDEN,
+        r#"{"ocs":{"meta":{"status":"failure","statuscode":403,"message":"Logged in account must be an admin, a sub admin or gotten special right to access this setting"},"data":[]}}"#,
+    );
+
+    let message = map_external_error(err).to_string();
+    assert!(
+        message.contains("Logged in account must be an admin"),
+        "message={message}"
+    );
+    assert!(
+        !message.contains("\"ocs\""),
+        "the envelope should not reach the user: {message}"
+    );
+    assert!(
+        message.contains("Reconnect the integration"),
+        "message={message}"
+    );
+}
+
+/// Both the "trigger is gone on the service" path and the delete that tolerates an
+/// already-removed webhook branch on this status.
+#[test]
+fn test_provider_404_is_recognized() {
+    let err = nextcloud_error(StatusCode::NOT_FOUND, "{}");
+    assert_eq!(http_error_status(&err), Some(StatusCode::NOT_FOUND));
+    assert!(
+        matches!(map_external_error(err), Error::NotFound(_)),
+        "a missing external trigger must map to NotFound"
+    );
 }

@@ -33194,6 +33194,12 @@ components:
           type: object
           description: Configuration data from the external service
           additionalProperties: true
+        external_error:
+          type: string
+          nullable: true
+          description: >-
+            Why the external service configuration could not be read. When set,
+            external_data is absent and the stored configuration is returned instead.
       required:
         - external_id
         - workspace_id

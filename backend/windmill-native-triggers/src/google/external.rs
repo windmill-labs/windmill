@@ -199,6 +199,19 @@ impl External for Google {
     fn additional_routes(&self) -> axum::Router {
         routes::google_routes(self.clone())
     }
+
+    fn error_hint(&self, status: http::StatusCode) -> Option<&'static str> {
+        match status {
+            http::StatusCode::UNAUTHORIZED => {
+                Some("reconnect the Google integration from Workspace settings > Integrations.")
+            }
+            http::StatusCode::FORBIDDEN => Some(
+                "the connected Google account is missing access to this resource or the scope the \
+                 integration was granted does not cover it.",
+            ),
+            _ => None,
+        }
+    }
 }
 
 // Helper methods for creating trigger type-specific watches
@@ -656,7 +669,10 @@ async fn renew_expiring_channels(
                     workspace_id,
                     ServiceName::Google,
                     &trigger.external_id,
-                    Some(&format!("Channel renewal failed: {}", e)),
+                    Some(&format!(
+                        "Channel renewal failed: {}",
+                        crate::external_error_message(&e)
+                    )),
                 )
                 .await;
 
