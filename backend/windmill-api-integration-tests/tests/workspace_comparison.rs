@@ -2346,33 +2346,52 @@ async fn test_compare_records_fork_removal_origin(db: Pool<Postgres>) -> anyhow:
         );
     }
 
-    // A dependency job for the sync-archived script finishing now would tally a
-    // deploy that landed before the archive. It probes the path as gone, so were it
-    // allowed to vouch it would file that deletion as authored and hand the merge a
-    // removal to offer against the parent. It carries no origin, so the archive's
-    // evidence has to survive it — only the counter moves.
-    windmill_git_sync::tally_deployed_object_changes(
+    // A dependency job for the sync-archived script finishing now reports a deploy
+    // that landed before the archive, and probes the path as already gone. Were it
+    // allowed to vouch, it would file that deletion under its own identity and hand
+    // the merge a removal to offer against the parent. This is the call the worker
+    // makes on its success path, off any request task — the archive's evidence has
+    // to survive it, and only the counter moves.
+    windmill_git_sync::handle_deployment_metadata(
+        "admin@windmill.dev",
+        "admin",
+        &db,
         "wm-fork-removal",
-        &windmill_git_sync::DeployedObject::Script {
+        windmill_git_sync::DeployedObject::Script {
             hash: windmill_common::scripts::ScriptHash(0),
             path: "u/admin/dropped_by_sync".to_string(),
-            parent_path: None,
+            parent_path: Some("u/admin/dropped_by_sync".to_string()),
         },
-        &db,
         None,
-        None,
+        true,
+        // A redeploy that did not move the item passes the same path back; it must
+        // not be tallied a second time as the path a rename vacated.
+        Some("u/admin/dropped_by_sync"),
     )
     .await?;
-    let after = sqlx::query!(
-        "SELECT ahead, fork_last_event_kind, fork_last_event_origin FROM workspace_diff
-         WHERE source_workspace_id = 'test-workspace' AND fork_workspace_id = 'wm-fork-removal'
-           AND kind = 'script' AND path = 'u/admin/dropped_by_sync'"
-    )
-    .fetch_one(&db)
-    .await?;
+    let mut after = None;
+    for _ in 0..40 {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let row = sqlx::query!(
+            "SELECT ahead, fork_last_event_kind, fork_last_event_origin FROM workspace_diff
+             WHERE source_workspace_id = 'test-workspace' AND fork_workspace_id = 'wm-fork-removal'
+               AND kind = 'script' AND path = 'u/admin/dropped_by_sync'"
+        )
+        .fetch_one(&db)
+        .await?;
+        if row.ahead > 1 {
+            after = Some(row);
+            break;
+        }
+    }
+    let after = after.expect("the detached tally should still bump the counter");
     assert_eq!(after.fork_last_event_kind.as_deref(), Some("delete"));
-    assert_eq!(after.fork_last_event_origin.as_deref(), Some("sync"));
-    assert_eq!(after.ahead, 2, "the counter still moves");
+    assert_eq!(
+        after.fork_last_event_origin.as_deref(),
+        Some("sync"),
+        "a tally that cannot vouch for its event must not overwrite one that did"
+    );
+    assert_eq!(after.ahead, 2, "and it counts once, not twice");
 
     Ok(())
 }

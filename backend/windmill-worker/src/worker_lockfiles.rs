@@ -295,7 +295,10 @@ pub async fn handle_dependency_job(
                 },
                 deployment_message.clone(),
                 false,
-                None,
+                // As the flow and app dependency handlers do. A lock-generating
+                // create has no earlier tally, so this is the only chance the path
+                // a rename vacated gets to be recorded at all.
+                parent_path.as_deref(),
             )
             .await
             {
@@ -897,9 +900,7 @@ pub(crate) async fn tally_unfinished_dependency_deploy(
         return;
     };
     let (_, parent_path) = get_deployment_msg_and_parent_path_from_args(job.args.clone());
-    // `parent_path` is the previous path, set whether or not the deploy renamed the
-    // item. Only an actual rename is a second (now removed) path to tally.
-    let renamed_from = parent_path.clone().filter(|p| *p != path);
+    let renamed_from = parent_path.clone();
 
     let obj = match job.kind {
         JobKind::Dependencies => {

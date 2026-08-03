@@ -257,10 +257,11 @@ pub async fn add_webhook_allowed_origin(
     next.run(req).await
 }
 
-/// Scope the request in the deploy origin it declares, so the fork tally can
-/// tell a write applied by a sync from one authored in the workspace. Unmarked
-/// requests run outside the scope: `deploy_origin::current` already reads those
-/// as authored, and skipping the scope keeps the common path free of it.
+/// Scope the request in the deploy origin it declares, so the fork tally can tell
+/// a write applied by a sync from one authored in the workspace. Entered for
+/// every request, including unmarked ones: `deploy_origin::current` reads the
+/// scope's presence as "the caller is serving this write", which is what
+/// separates a request from a worker that tallies someone else's.
 async fn set_deploy_origin(
     req: axum::extract::Request,
     next: axum::middleware::Next,
@@ -271,10 +272,7 @@ async fn set_deploy_origin(
         .and_then(|v| v.to_str().ok())
         .map(windmill_common::deploy_origin::DeployOrigin::from_header_value)
         .unwrap_or(windmill_common::deploy_origin::DeployOrigin::Authored);
-    match origin {
-        windmill_common::deploy_origin::DeployOrigin::Authored => next.run(req).await,
-        origin => windmill_common::deploy_origin::scope(origin, next.run(req)).await,
-    }
+    windmill_common::deploy_origin::scope(origin, next.run(req)).await
 }
 
 #[cfg(not(feature = "tantivy"))]

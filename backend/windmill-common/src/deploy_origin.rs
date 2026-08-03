@@ -84,7 +84,9 @@ tokio::task_local! {
     static REQUEST_DEPLOY_ORIGIN: DeployOrigin;
 }
 
-/// Run `f` with `origin` as the origin of every deploy event it causes.
+/// Run `f` with `origin` as the origin of every deploy event it causes. Entered
+/// for every request, marked or not, so that being in scope at all means "this
+/// task is serving the write it is about to report" — see [`current`].
 ///
 /// Task-locals do not cross `tokio::spawn`, and the tally is spawned: read
 /// [`current`] on the request task and carry the value into the spawned future.
@@ -92,11 +94,38 @@ pub async fn scope<F: std::future::Future>(origin: DeployOrigin, f: F) -> F::Out
     REQUEST_DEPLOY_ORIGIN.scope(origin, f).await
 }
 
-/// The origin in scope, defaulting to [`DeployOrigin::Authored`] outside a
-/// request (worker-side deploys, tests) and for any request that did not mark
-/// itself.
-pub fn current() -> DeployOrigin {
-    REQUEST_DEPLOY_ORIGIN
-        .try_with(|origin| *origin)
-        .unwrap_or(DeployOrigin::Authored)
+/// The origin in scope, or `None` where there is no scope to read.
+///
+/// `None` is what a worker gets: a dependency job deploys a script whose write
+/// committed before the job was even queued, and it finishes whenever it
+/// finishes. Its tally must not claim the event as its own — by then someone
+/// else may have deleted the path, and the tally would file that deletion under
+/// this deploy's identity. Nothing outside a request can vouch, so nothing
+/// outside a request is asked to.
+pub fn current() -> Option<DeployOrigin> {
+    REQUEST_DEPLOY_ORIGIN.try_with(|origin| *origin).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The whole worker side of the tally rests on this: a deploy reported from
+    /// anywhere but the task that served it records no evidence, without that
+    /// call site having to remember to say so.
+    #[tokio::test]
+    async fn origin_is_absent_outside_a_request() {
+        assert_eq!(current(), None);
+        assert_eq!(
+            scope(DeployOrigin::Authored, async { current() }).await,
+            Some(DeployOrigin::Authored)
+        );
+        // Not through a spawn, which is why `handle_deployment_metadata` reads it
+        // before spawning the tally rather than inside.
+        let spawned = scope(DeployOrigin::Sync, async {
+            tokio::spawn(async { current() }).await.unwrap()
+        })
+        .await;
+        assert_eq!(spawned, None);
+    }
 }
