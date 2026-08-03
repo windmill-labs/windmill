@@ -465,12 +465,10 @@ excludes: []`, "utf-8");
 });
 
 test("Raw App: deleted .lock sorting first does not short-circuit the app push", async () => {
-    // Regression: raw-app changes collapse to a single representative change
-    // (changes[0]), and deletes sort before adds/edits, so removing a backend
-    // runnable made its `.lock` the representative. The deleted branch skipped
-    // every `.lock` before it could reach the raw_app case, so the loop
-    // `continue`d and the whole app was never pushed, while the CLI reported
-    // "All N changes pushed".
+    // Regression: raw-app changes collapse to one representative change and
+    // deletes sort first, so removing a backend runnable makes its `.lock` the
+    // representative. Skipping a `.lock` there drops the whole app while the
+    // push still reports success.
     await withTestBackend(async (backend, tempDir) => {
       const testWorkspace = {
         remote: backend.baseUrl,
@@ -529,7 +527,8 @@ excludes: []`, "utf-8");
       const appJson = await appResp.json();
       const files = appJson?.value?.files ?? {};
       expect(files["/App.tsx"]).toContain("REGRESSION MARKER");
-      expect(files["/backend/query.ts"]).toBeUndefined();
+      // Backend runnables live in value.runnables, not in the bundled files.
+      expect(appJson?.value?.runnables?.query).toBeUndefined();
     });
 });
 

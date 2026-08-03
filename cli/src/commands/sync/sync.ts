@@ -5004,9 +5004,9 @@ export async function push(
               changes = [deleteRawApp];
             } else {
               // The app is one bundle, so a single change re-pushes all of it.
-              // Whichever change survives here is the only one the loop sees:
-              // every branch below must turn any raw-app path into a whole-app
-              // push, or the entire app is silently dropped from the push.
+              // That leaves the loop exactly one change: any skip it takes for
+              // a raw-app path drops the whole app from the push, and nothing
+              // downstream records that as a failure.
               changes.splice(1, changes.length - 1);
             }
           }
