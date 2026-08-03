@@ -17,7 +17,7 @@ export const FRONTEND_SDK_SCOPES: { value: string; label: string; description: s
 	{
 		value: 'users:read',
 		label: 'Read your identity',
-		description: 'Read the viewer username and email — not the workspace member list'
+		description: 'Call whoami (Read the viewer username, email, groups, is_super_admin...)'
 	},
 	{
 		value: 'resources:read',
@@ -72,5 +72,5 @@ export function storeSdkConsent(
 ): void {
 	try {
 		localStorage.setItem(sdkConsentKey(viewer, workspace, path), JSON.stringify(scopes))
-	} catch (_) {}
+	} catch (_) { }
 }
