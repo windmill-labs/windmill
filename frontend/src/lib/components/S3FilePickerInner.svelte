@@ -781,6 +781,11 @@
 		}
 		sendUserToast(`${fileKey} deleted from S3 bucket`)
 		selectedFileKey = { s3: '', storage }
+		// The preview pane and its toolbar render from these rather than from the
+		// selection, so the deleted file stays previewed — and offers to download, move
+		// and delete itself — until they are cleared too.
+		fileMetadata = undefined
+		filePreview = undefined
 		if (lazyMode) {
 			// Only the level the file lived in changed; refetch it from its first page
 			// and keep the rest of the expanded tree. Its already-fetched entries have
