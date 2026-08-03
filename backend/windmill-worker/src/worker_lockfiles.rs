@@ -30,7 +30,7 @@ use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
 #[cfg(feature = "python")]
 use windmill_parser_yaml::AnsibleRequirements;
 
-use windmill_common::deploy_origin::{DeployOrigin, TallyEvidence, DEPLOY_ORIGIN_ARG};
+use windmill_common::deploy_origin::TallyEvidence;
 use windmill_common::{
     apps::AppScriptId,
     cache::{self, RawData},
