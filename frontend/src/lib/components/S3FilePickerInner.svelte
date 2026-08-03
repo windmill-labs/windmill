@@ -177,6 +177,9 @@
 		  }
 		| undefined = $state(undefined)
 
+	/** Identifies the metadata request that currently owns the preview pane. */
+	let metadataRequestId = 0
+
 	let listMarkers: string[]
 	let page = $state(0)
 
@@ -675,6 +678,9 @@
 			fileInfoLoading = false
 			return
 		}
+		// The pane belongs to the newest request, not to a key: switching storage reloads
+		// the same key, so comparing keys would let an older request speak for a newer one.
+		const requestId = ++metadataRequestId
 		fileInfoLoading = true
 		let fileMetadataRaw: LoadFileMetadataResponse
 		try {
@@ -688,9 +694,9 @@
 			// Every caller invokes this un-awaited, so a key that no longer exists would
 			// otherwise leave the preview pane on "Loading..." forever.
 			console.error('Error loading metadata for', fileKey, e)
-			// Unless the pane has moved on: selections overlap, and a late failure for the
-			// previous file would blank the preview of the one now selected.
-			if (selectedFileKey?.s3 !== fileKey) {
+			// Unless a later request has taken the pane over: it will report its own
+			// outcome, including the loading flag, and blanking here would undo it.
+			if (requestId !== metadataRequestId) {
 				return
 			}
 			fileMetadata = undefined
