@@ -22,8 +22,9 @@ pub const AZURE_OSSRDBMS_SCOPE: &str = "https://ossrdbms-aad.database.windows.ne
 /// Renew an access token this long before it expires.
 const TOKEN_REFRESH_BUFFER: Duration = Duration::from_secs(5 * 60);
 
-/// A token with less life than this left is not worth handing to a connection.
-const TOKEN_MIN_LIFETIME: Duration = Duration::from_secs(30);
+/// A token with less life than this left is not worth handing to a connection: opening
+/// one takes up to 20 seconds, and it authenticates at the far end of that.
+const TOKEN_MIN_LIFETIME: Duration = Duration::from_secs(60);
 
 /// How long a failed renewal suppresses the next attempt, as long as the current token
 /// still works. Without it every queued job retries the exchange in turn, so a
@@ -172,7 +173,9 @@ impl WorkloadIdentityConfig {
             }
             Err(e) => {
                 *last_failure = Some(Instant::now());
-                match usable {
+                // Check again rather than trusting the pre-request value: a request that
+                // times out eats 20 seconds of whatever the token had left.
+                match slot.token_valid_for(TOKEN_MIN_LIFETIME) {
                     Some(token) => {
                         tracing::warn!("Keeping the current Entra ID token, renewal failed: {e:#}");
                         Ok(token)
