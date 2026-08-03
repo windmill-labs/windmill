@@ -2516,5 +2516,47 @@ async fn test_rename_records_the_vacated_path(db: Pool<Postgres>) -> anyhow::Res
          and the deployed paths — which only the dependency job reports — are not"
     );
 
+    // A script needing no lock deploys inline, so its own request reports both
+    // paths and can say why the old one is empty rather than only that it is.
+    let mut parent_hash: Option<String> = None;
+    for path in ["u/admin/inline", "u/admin/inline_moved"] {
+        let resp = admin
+            .client()
+            .post(&format!("{base_url}/w/wm-fork-renamed/scripts/create"))
+            .json(&json!({
+                "path": path,
+                "summary": "",
+                "description": "",
+                // bash needs no lock, so this deploys inline.
+                "content": "echo 1",
+                "language": "bash",
+                "schema": {"type": "object", "properties": {}, "required": []},
+                "parent_hash": parent_hash,
+            }))
+            .send()
+            .await?;
+        let status = resp.status();
+        let hash = resp.text().await?;
+        assert!(status.is_success(), "script deploy failed: {status} — {hash}");
+        parent_hash = Some(hash.trim().trim_matches('"').to_string());
+    }
+    let mut vacated = None;
+    for _ in 0..40 {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        vacated = sqlx::query!(
+            "SELECT fork_last_event_kind, fork_last_event_origin FROM workspace_diff
+             WHERE fork_workspace_id = 'wm-fork-renamed' AND kind = 'script'
+               AND path = 'u/admin/inline' AND fork_last_event_kind IS NOT NULL"
+        )
+        .fetch_optional(&db)
+        .await?;
+        if vacated.is_some() {
+            break;
+        }
+    }
+    let vacated = vacated.expect("the inline rename should report the path it left");
+    assert_eq!(vacated.fork_last_event_kind.as_deref(), Some("rename_from"));
+    assert_eq!(vacated.fork_last_event_origin.as_deref(), Some("authored"));
+
     Ok(())
 }
