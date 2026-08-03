@@ -171,9 +171,7 @@
 	// For preserve_on_behalf_of feature
 	let preserveOnBehalfOf = writable(false)
 	let savedOnBehalfOfEmail = writable<string | undefined>(savedFlow?.on_behalf_of_email)
-	let savedOnBehalfOfPermissionedAs = writable<string | undefined>(
-		savedFlow?.on_behalf_of
-	)
+	let savedOnBehalfOfPermissionedAs = writable<string | undefined>(savedFlow?.on_behalf_of)
 
 	// Keep savedOnBehalfOfEmail in sync when savedFlow is loaded asynchronously
 	$effect(() => {
@@ -200,6 +198,30 @@
 	// (session pane, drawer, etc.) where the viewport stays wide.
 	let topbarWidth = $state(0)
 	const compactTopbar = $derived(topbarWidth > 0 && topbarWidth < 720)
+
+	const diffEnabled = $derived(customUi?.topBar?.diff != false)
+	// Nothing to compare against until a deployed version exists.
+	const diffDisabled = $derived(!savedFlow || newFlow || savedFlow?.no_deployed === true)
+	const diffTitle = $derived(
+		diffDisabled ? 'Deploy this flow once to compare against the deployed version' : 'Diff'
+	)
+	// The narrow bar (sessions) and the width-collapsed one have no room for a Diff
+	// button, so it moves into the menu ahead of Deployment History instead of
+	// dropping out of reach.
+	const diffInMenu = $derived(condensedHeader || compactTopbar)
+	const diffMenuItems: Item[] = $derived(
+		diffEnabled && diffInMenu
+			? [
+					{
+						displayName: 'Diff',
+						icon: DiffIcon,
+						action: () => openDiffDrawer(),
+						disabled: diffDisabled,
+						tooltip: diffDisabled ? diffTitle : undefined
+					}
+				]
+			: []
+	)
 	let confirmDeploymentCallback: (triggersToDeploy: Trigger[]) => void = () => {}
 
 	// AI changes warning modal
@@ -1011,15 +1033,16 @@
 	const mod = isMac() ? '⌘' : 'Ctrl+'
 
 	function getMoreItems(): Item[] {
+		const leadingItems = [...diffMenuItems, ...baseMenuItems]
 		return [
-			...baseMenuItems,
+			...leadingItems,
 			{
 				displayName: 'Undo',
 				icon: Undo,
 				action: () => handleUndo(),
 				disabled: $history.index === 0,
 				shortcut: `${mod}Z`,
-				separatorTop: baseMenuItems.length > 0
+				separatorTop: leadingItems.length > 0
 			},
 			{
 				displayName: 'Redo',
@@ -1352,13 +1375,7 @@
 							></span>
 						{/if}
 					</div>
-					{#if customUi?.topBar?.diff != false}
-						{@const isDraftOnly = savedFlow?.no_deployed === true}
-						{@const diffDisabled = !savedFlow || newFlow || isDraftOnly}
-						{@const diffTitle =
-							newFlow || isDraftOnly
-								? 'Deploy this flow once to compare against the deployed version'
-								: 'Diff'}
+					{#if diffEnabled && !diffInMenu}
 						<!-- A disabled <button> fires no pointer events, so a title/tooltip on
 						     it never shows on hover. pointer-events-none on the button lets the
 						     hover reach this titled wrapper instead. -->
@@ -1369,7 +1386,6 @@
 								on:click={() => openDiffDrawer()}
 								disabled={diffDisabled}
 								btnClasses={diffDisabled ? 'pointer-events-none' : undefined}
-								iconOnly={compactTopbar}
 								title={diffTitle}
 								startIcon={{ icon: DiffIcon }}
 							>
