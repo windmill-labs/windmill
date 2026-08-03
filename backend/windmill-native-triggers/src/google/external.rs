@@ -199,6 +199,26 @@ impl External for Google {
     fn additional_routes(&self) -> axum::Router {
         routes::google_routes(self.clone())
     }
+
+    fn error_hint(&self, status: http::StatusCode) -> Option<&'static str> {
+        match status {
+            http::StatusCode::UNAUTHORIZED => {
+                Some("reconnect the Google integration from Workspace settings > Integrations.")
+            }
+            http::StatusCode::FORBIDDEN => Some(
+                "the connected Google account is missing access to this resource or the scope the \
+                 integration was granted does not cover it.",
+            ),
+            _ => None,
+        }
+    }
+
+    /// Google answers 403 to a quota being spent as well as to a permission failure. Every
+    /// throttling reason it defines sits in the `usageLimits` domain, so matching the domain
+    /// covers the group without an allowlist to extend each time one is added.
+    fn is_transient_response(&self, status: http::StatusCode, body: &str) -> bool {
+        status == http::StatusCode::FORBIDDEN && body.contains("usageLimits")
+    }
 }
 
 // Helper methods for creating trigger type-specific watches
@@ -656,7 +676,10 @@ async fn renew_expiring_channels(
                     workspace_id,
                     ServiceName::Google,
                     &trigger.external_id,
-                    Some(&format!("Channel renewal failed: {}", e)),
+                    Some(&format!(
+                        "Channel renewal failed: {}",
+                        crate::external_error_message(&e)
+                    )),
                 )
                 .await;
 

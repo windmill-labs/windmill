@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
 	artifactUrl,
 	draftFriendlyLeaf,
+	itemDisplayName,
 	matchReusablePage,
 	parseArtifactRoute,
 	parsePreviewItemRoute,
@@ -75,6 +76,24 @@ describe('draftFriendlyLeaf', () => {
 	})
 })
 
+describe('itemDisplayName', () => {
+	it('prefers the summary, including for a draft-parked item that also has a typed name', () => {
+		expect(itemDisplayName('u/admin/my_script', undefined, 'Sync users nightly')).toBe(
+			'Sync users nightly'
+		)
+		expect(
+			itemDisplayName('u/admin/draft_abc123', 'u/admin/valuable_script', 'Sync users nightly')
+		).toBe('Sync users nightly')
+	})
+
+	it('falls through a blank summary to the draft leaf, then to nothing', () => {
+		expect(itemDisplayName('u/admin/draft_abc123', 'u/admin/valuable_script', '   ')).toBe(
+			'valuable_script'
+		)
+		expect(itemDisplayName('u/admin/my_script', undefined, '')).toBeUndefined()
+	})
+})
+
 describe('resolvePreviewTab', () => {
 	it('routes a static page to the iframe fallback', () => {
 		expect(resolvePreviewTab('/runs')).toEqual({ kind: 'iframe' })
@@ -110,6 +129,16 @@ describe('resolvePreviewTab', () => {
 
 	it('routes a pipeline folder to the pipeline editor kind', () => {
 		expect(resolvePreviewTab('/pipeline/my_folder')).toEqual({
+			kind: 'editor',
+			editorKind: 'pipeline',
+			path: 'my_folder'
+		})
+	})
+
+	it('routes a pipeline url carrying the owner path to the same folder editor', () => {
+		// A hand-written link (or a preview tab persisted from one) can hold
+		// `/pipeline/f%2F<folder>`; it must open the folder, not `f/<folder>`.
+		expect(resolvePreviewTab('/pipeline/f%2Fmy_folder')).toEqual({
 			kind: 'editor',
 			editorKind: 'pipeline',
 			path: 'my_folder'

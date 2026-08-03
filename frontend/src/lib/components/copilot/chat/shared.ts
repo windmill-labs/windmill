@@ -5,6 +5,11 @@ import type {
 } from 'openai/resources/chat/completions.mjs'
 import type { UserDraftItemKind } from '$lib/gen'
 
+// The tool modules that import this one (workspaceTools, flow/core, global/core, ...)
+// call createToolDef and read SPECIAL_MODULE_IDS at *module scope*, so if a chunk cycle
+// ever reaches this file they evaluate against uninitialized bindings and the app dies
+// on load. Keep the import list here shallow. See docs/frontend-import-cycles.md.
+
 /**
  * Special module IDs used throughout the flow system
  */

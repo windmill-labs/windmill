@@ -464,6 +464,74 @@ excludes: []`, "utf-8");
     });
 });
 
+test("Raw App: deleted .lock sorting first does not short-circuit the app push", async () => {
+    // Regression: raw-app changes collapse to one representative change and
+    // deletes sort first, so removing a backend runnable makes its `.lock` the
+    // representative. Skipping a `.lock` there drops the whole app while the
+    // push still reports success.
+    await withTestBackend(async (backend, tempDir) => {
+      const testWorkspace = {
+        remote: backend.baseUrl,
+        workspaceId: backend.workspace,
+        name: "raw_app_lock_first_test",
+        token: backend.token
+      };
+      await addWorkspace(testWorkspace, { force: true, configDir: backend.testConfigDir });
+
+      await writeFile(`${tempDir}/wmill.yaml`, `defaultTs: bun
+includes:
+  - "**"
+excludes: []`, "utf-8");
+
+      const appDir = path.join(tempDir, "f", "test", "lock_first_app.raw_app");
+      await mkdir(path.join(tempDir, "f", "test"), { recursive: true });
+      await createRawAppOnDisk(appDir, true);
+
+      // A backend runnable's lockfile. Among the app's files it sorts first,
+      // so once deleted it becomes changes[0] for the whole group.
+      const queryLockPath = path.join(appDir, "backend", "query.lock");
+      await writeFile(queryLockPath, INLINE_SCRIPT_A_LOCK, "utf-8");
+
+      const pushResult1 = await backend.runCLICommand(
+        ['sync', 'push', '--yes'],
+        tempDir, "raw_app_lock_first_test"
+      );
+      expect(pushResult1.code).toEqual(0);
+      await waitForDeploymentJobs(backend);
+
+      // Remove the backend runnable (lock included) and edit a frontend file.
+      await rm(queryLockPath);
+      await rm(path.join(appDir, "backend", "query.ts"));
+      await rm(path.join(appDir, "backend", "query.yaml"));
+      const appTsxPath = path.join(appDir, "App.tsx");
+      const appTsxContent = await readFileContent(appTsxPath);
+      await writeFile(
+        appTsxPath,
+        appTsxContent.replace("hello world", "REGRESSION MARKER"),
+        "utf-8"
+      );
+
+      const pushResult2 = await backend.runCLICommand(
+        ['sync', 'push', '--yes'],
+        tempDir, "raw_app_lock_first_test"
+      );
+      expect(pushResult2.code).toEqual(0);
+      await waitForDeploymentJobs(backend);
+
+      // The edit must have reached the remote bundle, and the removed runnable
+      // must be gone from it.
+      const appResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/apps/get/p/f/test/lock_first_app`
+      );
+      expect(appResp.status).toEqual(200);
+      const appJson = await appResp.json();
+      const files = appJson?.value?.files ?? {};
+      expect(files["/App.tsx"]).toContain("REGRESSION MARKER");
+      // Backend runnables live in value.runnables, not in the bundled files.
+      expect(appJson?.value?.runnables?.query).toBeUndefined();
+    });
+});
+
 test("Raw App: delete file and push", async () => {
     await withTestBackend(async (backend, tempDir) => {
       // Set up workspace
