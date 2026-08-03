@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.777.1](https://github.com/windmill-labs/windmill/compare/v1.777.0...v1.777.1) (2026-08-03)
+
+
+### Bug Fixes
+
+* return result.json and stdout results from sandboxed containers ([#10460](https://github.com/windmill-labs/windmill/issues/10460)) ([d509551](https://github.com/windmill-labs/windmill/commit/d5095515ed007d4e7fbfc1a15582c550d3293ece))
+
 ## [1.777.0](https://github.com/windmill-labs/windmill/compare/v1.776.0...v1.777.0) (2026-08-03)
 
 
