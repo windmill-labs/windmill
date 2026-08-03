@@ -40,14 +40,18 @@ Same conventions as a plain bash script, in this order:
 
 1. `./result.json` (relative to the image's `WorkingDir`) if non-empty → returned as
    the JSON result; malformed JSON fails the job. It is a host file bind-mounted into
-   the container, so it works whatever the `WorkingDir` is — including `/` and paths
-   under the tmpfs `/tmp`, which otherwise wouldn't flow back to the job. Being a
-   bind-mount point, it must be written in place (`> ./result.json`); a
-   write-temp-then-`rename` fails. Skipped, with a warning in the job logs, when the
-   image's `WorkingDir` doesn't provably resolve inside the container root (`..`, or a
-   symlink planted in the image rootfs) — nsjail resolves a mount destination before
-   `pivot_root`, so such a path would have it create a file on the *host*. A `# volume`
-   mounted at the `WorkingDir` gets the (empty) mount point materialized inside it.
+   the container, so it works for `WorkingDir: ""` (→ `/`) too, which otherwise lands in
+   nsjail's ephemeral root and never reaches the job. Being a bind-mount point, it must
+   be written in place (`> ./result.json`); a write-temp-then-`rename` fails.
+
+   The bind is skipped, with a warning in the job logs, when the destination can't be
+   proven to stay inside the container: a `WorkingDir` with `..`, one whose path in the
+   extracted rootfs crosses a symlink, or one under `/tmp`, `/proc`, `/dev` or `/sys`
+   (mounted after this bind, so a result there would be shadowed anyway). nsjail resolves
+   a mount destination *before* `pivot_root`, so an unverified path would have it create
+   a file on the **host**. For the same reason the bind is applied directly after the
+   rootfs binds — a `# volume` mounted over the `WorkingDir` therefore hides it, and the
+   result falls through to the stdout rule below.
 2. Otherwise the last non-empty line of **stdout**, returned as a string. stderr is
    excluded on purpose: the two pipes are merged by a fair `select`, so a diagnostic
    on stderr could otherwise beat a block-buffered stdout result.

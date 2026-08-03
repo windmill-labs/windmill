@@ -194,15 +194,27 @@ fn proto_str(s: &str) -> String {
 }
 
 /// In-jail destination for the `./result.json` bind — `{working_dir}/result.json` — or
-/// `None` when the image's `WorkingDir` cannot be proven to stay inside the jail.
+/// `None` when the image's `WorkingDir` cannot be proven to keep it inside the jail.
 ///
 /// nsjail resolves a mount destination against its temporary root *before* pivot_root,
-/// with ordinary path resolution: a `WorkingDir` that walks out of that root — via `..`,
-/// or via a symlink planted in the image rootfs — makes nsjail create, and mount over, a
-/// path on the *host*, as the worker user. So only a destination with no relative
-/// components and no symlink anywhere along its path inside the rootfs is accepted.
-/// `/tmp`, `/proc`, `/dev` and `/sys` come from the jail profile rather than the image,
-/// so there is nothing image-controlled to traverse under them.
+/// with ordinary path resolution, and then creates it. A destination that walks out of
+/// that root therefore has nsjail create — and mount over — a path on the *host*, as the
+/// worker user. The profile places this mount directly after the rootfs binds and before
+/// every other mount, so the extracted rootfs is the only thing that can steer the
+/// resolution, and this walks the whole destination against it on the host:
+///
+/// - relative components (`..`) are rejected outright — they escape a fresh tmpfs too;
+/// - `/tmp`, `/proc`, `/dev` and `/sys` are mounted *after* this one (or aren't writable),
+///   so a destination under them would be shadowed rather than collected — rejected so
+///   the job says so instead of silently dropping the result;
+/// - every remaining component, **including the final `result.json`**, must exist as a
+///   non-symlink or not exist at all. The first absent component ends the walk: nsjail
+///   creates the rest as real directories under a parent already proven non-symlink.
+///   Any other error (an unreadable mode-000 directory the jail's uid 0 could still
+///   traverse) is treated as unsafe.
+///
+/// Nothing mutates the rootfs between this walk and the mount — extraction is finished and
+/// the container has not started — so there is no window to swap a component.
 async fn result_mount_dst(job_dir: &str, working_dir: &str) -> Option<String> {
     if !working_dir.starts_with('/') {
         return None;
@@ -215,24 +227,24 @@ async fn result_mount_dst(job_dir: &str, working_dir: &str) -> Option<String> {
             _ => components.push(c),
         }
     }
-    let jail_provided = matches!(
+    if matches!(
         components.first(),
-        None | Some(&"tmp") | Some(&"proc") | Some(&"dev") | Some(&"sys")
-    );
-    if !jail_provided {
-        let mut path = std::path::PathBuf::from(format!("{job_dir}/rootfs"));
-        for c in &components {
-            path.push(c);
-            match tokio::fs::symlink_metadata(&path).await {
-                Ok(m) if m.is_symlink() => return None,
-                Ok(_) => {}
-                // Absent from here down: nsjail creates real directories under a
-                // non-symlink parent, which cannot escape.
-                Err(_) => break,
-            }
-        }
+        Some(&"tmp") | Some(&"proc") | Some(&"dev") | Some(&"sys")
+    ) {
+        return None;
     }
     components.push("result.json");
+
+    let mut path = std::path::PathBuf::from(format!("{job_dir}/rootfs"));
+    for c in &components {
+        path.push(c);
+        match tokio::fs::symlink_metadata(&path).await {
+            Ok(m) if m.is_symlink() => return None,
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => break,
+            Err(_) => return None,
+        }
+    }
     Some(format!("/{}", components.join("/")))
 }
 
@@ -789,8 +801,9 @@ pub async fn handle_docker_v2_job(
             &job.id,
             &job.workspace_id,
             format!(
-                "WARNING: the image's WorkingDir ({working_dir}) does not resolve inside the \
-                container root, so `./result.json` will not be collected for this job\n"
+                "WARNING: `./result.json` will not be collected for this job: the image's \
+                WorkingDir ({working_dir}) cannot be proven to resolve inside the container \
+                root\n"
             ),
             conn,
         )
@@ -923,11 +936,8 @@ mod tests {
             ("/app/sub", "/app/sub/result.json"),
             ("/", "/result.json"),
             ("/app/", "/app/result.json"),
-            // The jail provides /tmp, so no image path is walked and a not-yet-existing
-            // directory under it is still fine.
-            ("/tmp/work", "/tmp/work/result.json"),
-            // As is one absent from the rootfs — nsjail creates it as real directories
-            // under a non-symlink parent.
+            // Absent from the rootfs — nsjail creates it as real directories under a
+            // parent already proven non-symlink.
             ("/app/new/deep", "/app/new/deep/result.json"),
         ] {
             assert_eq!(
@@ -943,9 +953,15 @@ mod tests {
         let job = tempfile::tempdir().unwrap();
         let job_dir = job.path().to_str().unwrap();
         std::fs::create_dir_all(format!("{job_dir}/rootfs/app")).unwrap();
-        // An image rootfs entry that points out of the rootfs, at both depths.
+        std::fs::create_dir_all(format!("{job_dir}/rootfs/wd")).unwrap();
+        // Image rootfs entries pointing out of the rootfs: as a directory component at
+        // both depths, and as the final `result.json` element itself (top level, and
+        // inside the WorkingDir).
         std::os::unix::fs::symlink("/etc", format!("{job_dir}/rootfs/evil")).unwrap();
         std::os::unix::fs::symlink("/etc", format!("{job_dir}/rootfs/app/evil")).unwrap();
+        std::os::unix::fs::symlink("/etc/passwd", format!("{job_dir}/rootfs/result.json")).unwrap();
+        std::os::unix::fs::symlink("/etc/passwd", format!("{job_dir}/rootfs/wd/result.json"))
+            .unwrap();
 
         // nsjail resolves the mount dst against its temp root *before* pivot_root, so
         // each of these would otherwise have it create a file on the host.
@@ -956,6 +972,14 @@ mod tests {
             "/evil/deeper",
             "/app/evil",
             "relative/path",
+            "/",   // the rootfs ships `result.json` as a symlink
+            "/wd", // ...and so does this WorkingDir
+            // Mounted after the result bind (or not writable), so a destination there
+            // would be shadowed rather than collected.
+            "/tmp/work",
+            "/proc/x",
+            "/dev/x",
+            "/sys/x",
         ] {
             assert!(
                 result_mount_dst(job_dir, wd).await.is_none(),

@@ -46,6 +46,17 @@ gidmap {
 # and avoid it. Generated from the extracted rootfs.
 {ROOTFS_MOUNTS}
 
+# `./result.json` (relative to the image's WorkingDir) bound to a host file outside the
+# image rootfs, so the JSON result the container writes flows back to the job without the
+# worker ever reading a path the image controls.
+#
+# Placed immediately after the rootfs binds and BEFORE every other mount: nsjail resolves
+# a mount destination against its temporary root before pivot_root, so whatever is mounted
+# earlier can steer where this lands. Keeping only the rootfs ahead of it means the image
+# is the single influence on that resolution — and `result_mount_dst` verifies the whole
+# path against the extracted rootfs on the host. Empty when it can't be verified.
+{RESULT_MOUNT}
+
 # Pseudo-filesystems the image expects. /tmp honors the same instance settings as
 # every other nsjail job (nsjail_tmp_backing tmpfs/disk, nsjail_tmpfs_size_mb);
 # /dev gets the standard nodes; /proc comes from mount_proc (the jail's own pid ns).
@@ -104,12 +115,6 @@ mount {
 # rootfs binds and the tmpfs /tmp so a volume target overrides any colliding image
 # path and isn't shadowed by the tmpfs. Empty when there are no volumes.
 {SHARED_MOUNT}
-
-# `./result.json` (relative to the image's WorkingDir) bound to a host file outside
-# the image rootfs, so the JSON result the container writes flows back to the job
-# without the worker ever reading a path the image controls. Mounted last so it wins
-# over any colliding image path or `# volume`.
-{RESULT_MOUNT}
 
 iface_no_lo: true
 
