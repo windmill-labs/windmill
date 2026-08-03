@@ -705,6 +705,9 @@
 			return
 		}
 
+		if (requestId !== metadataRequestId) {
+			return
+		}
 		if (fileMetadataRaw !== undefined) {
 			fileMetadata = {
 				fileKey: fileKey,
@@ -715,10 +718,15 @@
 			}
 		}
 		// async call
-		loadFilePreview(fileKey, fileMetadataRaw.size_in_bytes, fileMetadataRaw.mime_type)
+		loadFilePreview(fileKey, requestId, fileMetadataRaw.size_in_bytes, fileMetadataRaw.mime_type)
 	}
 
-	async function loadFilePreview(fileKey: string, fileSizeInBytes?: number, fileMimeType?: string) {
+	async function loadFilePreview(
+		fileKey: string,
+		requestId: number,
+		fileSizeInBytes?: number,
+		fileMimeType?: string
+	) {
 		let filePreviewRaw = await loadFilePreviewRequest({
 			workspace: ws!,
 			fileKey: fileKey,
@@ -743,6 +751,9 @@
 				'\n\n ... FILE CONTENT TRUNCATED ...\n\n'
 		}
 
+		if (requestId !== metadataRequestId) {
+			return
+		}
 		if (filePreviewRaw !== undefined) {
 			filePreview = {
 				fileKey: fileKey,
@@ -786,6 +797,9 @@
 		// and delete itself — until they are cleared too.
 		fileMetadata = undefined
 		filePreview = undefined
+		// A metadata load still in flight belongs to the file just deleted; retire it, or
+		// its response repopulates the pane it was cleared from.
+		metadataRequestId += 1
 		if (lazyMode) {
 			// Only the level the file lived in changed; refetch it from its first page
 			// and keep the rest of the expanded tree. Its already-fetched entries have
