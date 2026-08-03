@@ -769,15 +769,17 @@
 			return
 		}
 		const currentPage = page
-		await clearAndLoadFiles()
-		for (let i = 0; i < currentPage; i++) {
-			page = i + 1
-			if (!(await loadFiles())) {
-				// Stop at the last page that actually loaded. Carrying on would read past
-				// `listMarkers`, send no marker and replay page one, and leave `page` ahead
-				// of `listMarkers` for good — which silently breaks every later "Load more".
-				page = i
-				break
+		// Every page here has to land, starting with the fresh first one: `page` indexes
+		// `listMarkers`, so replaying on top of a listing that never loaded leaves it ahead
+		// of the markers for good, which silently breaks every later "Load more".
+		if (await clearAndLoadFiles()) {
+			for (let i = 0; i < currentPage; i++) {
+				page = i + 1
+				if (!(await loadFiles())) {
+					// Stop at the last page that actually loaded.
+					page = i
+					break
+				}
 			}
 		}
 		const fileKeyFolders = fileKey.split('/').slice(0, -1)
@@ -802,7 +804,8 @@
 		displayedFileKeys = [...new Set(displayedFileKeys)].sort()
 	}
 
-	async function clearAndLoadFiles({ keepFilter }: { keepFilter?: boolean } = {}) {
+	/** Reports whether the fresh listing loaded, so a caller replaying pages can stop. */
+	async function clearAndLoadFiles({ keepFilter }: { keepFilter?: boolean } = {}): Promise<boolean> {
 		// Anything already in flight belongs to the listing being discarded.
 		listingGeneration += 1
 		inFlightFolderLoads = {}
@@ -820,7 +823,7 @@
 		if (!keepFilter) {
 			filter = ''
 		}
-		await loadFiles()
+		return await loadFiles()
 	}
 
 	async function moveS3File(srcFileKey: string | undefined, destFileKey: string | undefined) {
