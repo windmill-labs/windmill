@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { useOverlayStack } from '$lib/components/flows/overlayStack.svelte'
-	import { openedDrawers } from '$lib/components/common/drawer/Disposable.svelte'
 	import { NODE, type FlowNodeColorClasses } from '../../util'
 	import { createEventDispatcher } from 'svelte'
 	import type { TriggerType } from '$lib/components/triggers/utils'
@@ -40,7 +39,7 @@
 
 	let showTriggerScriptPicker = $state(false)
 
-	const pickerOverlay = useOverlayStack(() => showTriggerScriptPicker, openedDrawers)
+	const pickerOverlay = useOverlayStack(() => showTriggerScriptPicker)
 	let numberOfTriggers = $state(0)
 
 	const dispatch = createEventDispatcher()

@@ -12,7 +12,7 @@
 	import { resolvePreviewTab, parsePreviewItemRoute } from './previewRouter'
 	import { withMenuHidden } from './sessionMode.svelte'
 	import ArtifactViewer from '../copilot/chat/artifacts/ArtifactViewer.svelte'
-	import { setOverlayHost } from '../common/overlayHost'
+	import { setOverlayHost } from '../common/overlayHost.svelte'
 
 	let {
 		tab,
@@ -119,9 +119,12 @@
 
 	// Overlays the editor opens (drawers, its detached-panel modal) anchor here rather
 	// than to the document, so they stay within this tab and hide with it when another
-	// tab takes over.
+	// tab takes over. The stack is per-tab for the same reason: this host stays mounted
+	// while hidden, and a shared stack would let its overlays arbitrate Escape for the
+	// tab the user is actually looking at.
 	let editorEl: HTMLDivElement | undefined = $state()
-	setOverlayHost(() => editorEl)
+	let hostDrawers = $state({ val: [] as string[] })
+	setOverlayHost({ el: () => editorEl, drawers: hostDrawers })
 
 	let flashing = $state(false)
 	let flashTimer: ReturnType<typeof setTimeout> | undefined

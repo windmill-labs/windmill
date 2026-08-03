@@ -6,7 +6,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import EEOnly from '$lib/components/EEOnly.svelte'
 	import { enterpriseLicense } from '$lib/stores'
-	import { getOverlayHost } from '../overlayHost'
+	import { getOverlayHost } from '../overlayHost.svelte'
 
 	interface Props {
 		aiId?: string | undefined
@@ -58,7 +58,7 @@
 	// A drawer anchored to a pane (see overlayHost) is as tall as that pane, so
 	// sizing against the viewport would overflow it.
 	const overlayHost = getOverlayHost()
-	const anchored = $derived(!!overlayHost?.())
+	const anchored = $derived(!!overlayHost?.el())
 </script>
 
 <div

@@ -1,17 +1,19 @@
 import { untrack } from 'svelte'
 import { randomUUID } from '$lib/utils/uuid'
+import { overlayStack } from '$lib/components/common/overlayHost.svelte'
 
 /**
- * Take a place on the shared overlay stack while open, and report whether this overlay is
- * the topmost one.
+ * Take a place on this subtree's overlay stack while open, and report whether this overlay
+ * is the topmost one.
  *
  * Escape belongs to whatever is on top, and every handler involved listens on `window`, so
  * none can stop another — the stack is the only arbiter. Joining it is what makes the
  * ordering work in both directions: a drawer opened from inside this overlay outranks it,
  * while the drawer this overlay is nested in does not.
  */
-export function useOverlayStack(isOpen: () => boolean, openedDrawers: { val: string[] }) {
+export function useOverlayStack(isOpen: () => boolean) {
 	const id = randomUUID()
+	const openedDrawers = overlayStack()
 
 	$effect(() => {
 		if (isOpen()) {

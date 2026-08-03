@@ -152,10 +152,10 @@
 	use:clickOutside={{
 		capture: true,
 		exclude: getPropPickerElements,
-		onClickOutside: () => {
-			propPickerConfig.set(undefined)
-			flowPropPickerConfig.set(undefined)
-		}
+		// Through the controller, not the stores: it owns the armed target, and a
+		// target left armed here would make the next click on that same input
+		// read as a toggle-off.
+		onClickOutside: connect.disarm
 	}}
 >
 	{#if popover}

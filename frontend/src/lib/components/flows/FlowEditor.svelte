@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { useOverlayStack } from './overlayStack.svelte'
-	import { openedDrawers } from '$lib/components/common/drawer/Disposable.svelte'
 	import FlowEditorPanel from './content/FlowEditorPanel.svelte'
 	import FlowModuleSchemaMap from './map/FlowModuleSchemaMap.svelte'
 	import type { OpenInSessionSource } from '$lib/components/sessions/OpenInSessionButton.svelte'
@@ -9,7 +8,7 @@
 	import { Skeleton } from '../common'
 	import { getContext, onDestroy, onMount, setContext } from 'svelte'
 	import type { FlowEditorContext, FlowPanelDetachContext } from './types'
-	import { getOverlayHost } from '$lib/components/common/overlayHost'
+	import { getOverlayHost } from '$lib/components/common/overlayHost.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import { zIndexes } from '$lib/zIndexes'
 	import { isFlowLevelPanelTarget } from '$lib/components/graph/selectionUtils.svelte'
@@ -134,10 +133,10 @@
 	let panelMode: 'docked' | 'modal' = $state('docked')
 	let panelModalOpen = $state(false)
 
-	const panelOverlay = useOverlayStack(() => panelMode === 'modal' && panelModalOpen, openedDrawers)
+	const panelOverlay = useOverlayStack(() => panelMode === 'modal' && panelModalOpen)
 
 	const overlayHost = getOverlayHost()
-	const modalHost = $derived(overlayHost?.())
+	const modalHost = $derived(overlayHost?.el())
 
 	function openPanelModalFromGraph(e: MouseEvent) {
 		// Only nodes that can take the selection, or the modal would open on whatever

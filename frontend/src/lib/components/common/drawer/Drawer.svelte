@@ -5,7 +5,7 @@
 	import ConditionalPortal from './ConditionalPortal.svelte'
 	import { chatState } from '$lib/components/copilot/chat/sharedChatState.svelte'
 	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
-	import { getOverlayHost } from '../overlayHost'
+	import { getOverlayHost } from '../overlayHost.svelte'
 
 	interface Props {
 		open?: boolean
@@ -117,7 +117,7 @@
 	// into that element and positioned against it rather than the viewport. The
 	// global-chat offset is the viewport's business, so it doesn't apply there.
 	const overlayHost = getOverlayHost()
-	const host = $derived(shouldUsePortal ? overlayHost?.() : undefined)
+	const host = $derived(shouldUsePortal ? overlayHost?.el() : undefined)
 	const posClass = $derived(positionClass ?? (host ? '!absolute' : undefined))
 
 	const aiChatOpen = $derived(chatState.size > 0 && !host)

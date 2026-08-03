@@ -2,7 +2,7 @@
 	import { PanelRight } from 'lucide-svelte'
 	import GraphZoomControls from './GraphZoomControls.svelte'
 	import type { FlowPanelDetachContext } from '$lib/components/flows/types'
-	import { openedDrawers } from '$lib/components/common/drawer/Disposable.svelte'
+	import { overlayStack } from '$lib/components/common/overlayHost.svelte'
 	import { FlowService, type FlowModule, type FlowNote, type Job, type OpenFlow } from '../../gen'
 	import { AI_OR_ASSET_NODE_TYPES, NODE, type GraphModuleState } from '.'
 	import { isTriggerStep } from '$lib/components/flows/flowStepSettings'
@@ -108,6 +108,7 @@
 
 	const triggerContext = getContext<TriggerContext>('TriggerContext')
 	const panelDetach = getContext<FlowPanelDetachContext | undefined>('flowPanelDetach')
+	const overlays = overlayStack()
 
 	// Create diffManager instance for this FlowGraphV2
 	const diffManager = createFlowDiffManager()
@@ -631,7 +632,7 @@
 		// Escape belongs to the topmost overlay. This listener is on `document` and theirs
 		// are on `window`, so this one always runs first — without the guard, dismissing a
 		// modal or picker would also clear the selection under it and lose the user's step.
-		if (event.key === 'Escape' && openedDrawers.val.length > 0) {
+		if (event.key === 'Escape' && overlays.val.length > 0) {
 			return
 		}
 		selectionManager.handleKeyDown(event)
