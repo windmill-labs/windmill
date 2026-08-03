@@ -125,7 +125,7 @@
 
 	// Below this editor width the step-details pane doesn't fit alongside the
 	// graph, so the editor starts in modal mode instead.
-	const MODAL_PANEL_BREAKPOINT = 1024
+	const MODAL_PANEL_BREAKPOINT = 1280
 	let rootEl: HTMLDivElement | undefined = $state()
 	// 'docked' = normal split pane; 'modal' = graph full-width, panel in a modal
 	// opened by double-clicking a node. Decided once at mount from the editor's
