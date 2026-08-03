@@ -1,6 +1,4 @@
 <script lang="ts" module>
-	export let openedDrawers: { val: string[] } = $state({ val: [] })
-
 	// When a disposable with minZIndex is open, all disposables use that as
 	// their z-index base so that overlays opened on top (e.g. a Drawer from
 	// inside a Modal) stack correctly above it.
@@ -15,7 +13,11 @@
 
 <script lang="ts">
 	import { zIndexes } from '$lib/zIndexes'
-	import { untrack } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
+	import { overlayHostActive, overlayStack } from '../overlayHost.svelte'
+
+	const stack = overlayStack()
+	const hostActive = overlayHostActive()
 
 	interface Props {
 		open?: boolean
@@ -59,21 +61,29 @@
 
 	export function openDrawer() {
 		open = true
-		if (openedDrawers.val.includes(id)) {
+		if (stack.val.includes(id)) {
 			return
 		}
-		openedDrawers.val.push(id)
-		offset = initialOffset + openedDrawers.val.length
+		stack.val.push(id)
+		offset = initialOffset + stack.val.length
 		if (minZIndex > 0) {
 			minZIndexEntries[id] = minZIndex
 		}
 	}
 
+	// A disposable can be unmounted while still open, by an ancestor that tears its whole
+	// subtree down. Its id would then sit on the stack forever, and since the topmost entry
+	// arbitrates Escape, every overlay opened afterwards would stop answering it.
+	onDestroy(() => {
+		stack.val = stack.val.filter((drawer) => drawer !== id)
+		delete minZIndexEntries[id]
+	})
+
 	export function closeDrawer() {
 		open = false
 		offset = initialOffset
-		if (openedDrawers.val.includes(id)) {
-			openedDrawers.val = openedDrawers.val.filter((drawer) => drawer !== id)
+		if (stack.val.includes(id)) {
+			stack.val = stack.val.filter((drawer) => drawer !== id)
 			if (minZIndex > 0) {
 				delete minZIndexEntries[id]
 			}
@@ -85,7 +95,7 @@
 	}
 
 	function handleClickAway(e) {
-		const last = openedDrawers.val[openedDrawers.val.length - 1]
+		const last = stack.val[stack.val.length - 1]
 		if (last === id) {
 			e.stopPropagation()
 			closeDrawer()
@@ -93,15 +103,14 @@
 	}
 
 	function onKeyDown(event: KeyboardEvent) {
+		// A host that is off screen keeps its overlays mounted; they must not answer for
+		// the pane the user is actually looking at (see overlayHost).
+		if (!hostActive()) return
 		if (open) {
 			switch (event.key) {
 				case 'Escape':
-					if (
-						(id == openedDrawers.val[openedDrawers.val.length - 1] ||
-							openedDrawers.val.length == 0) &&
-						!preventEscape
-					) {
-						openedDrawers.val.pop()
+					if ((id == stack.val[stack.val.length - 1] || stack.val.length == 0) && !preventEscape) {
+						stack.val.pop()
 						event.preventDefault()
 						event.stopPropagation()
 						event.stopImmediatePropagation()
@@ -113,8 +122,8 @@
 	}
 
 	if (open) {
-		openedDrawers.val.push(untrack(() => id))
-		offset = untrack(() => initialOffset) + openedDrawers.val.length
+		stack.val.push(untrack(() => id))
+		offset = untrack(() => initialOffset) + stack.val.length
 		if (minZIndex > 0) {
 			minZIndexEntries[untrack(() => id)] = minZIndex
 		}
@@ -145,5 +154,5 @@
 	zIndex,
 	closeDrawer,
 	open,
-	isTop: openedDrawers.val[openedDrawers.val.length - 1] == id
+	isTop: stack.val[stack.val.length - 1] == id
 })}

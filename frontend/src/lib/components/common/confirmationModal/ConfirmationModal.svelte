@@ -1,5 +1,10 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
+	import {
+		getOverlayHost,
+		overlayHostActive,
+		useOverlayStack
+	} from '$lib/components/common/overlayHost.svelte'
 	import { createEventDispatcher, type Snippet } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import Button from '../button/Button.svelte'
@@ -41,10 +46,24 @@
 	}: Props = $props()
 	const type = $derived(_type ?? 'danger')
 
+	// Anchored to the enclosing pane when there is one (see overlayHost) so the dialog
+	// covers that pane rather than the whole app, matching Drawer.
+	const overlayHost = getOverlayHost()
+	const hosted = $derived(!!overlayHost?.el())
+	const posClass = $derived(hosted ? 'absolute' : 'fixed')
+
+	// Enter here confirms, so an open dialog buried under another overlay must not answer
+	// for it — only the topmost overlay handles keys.
+	const overlay = useOverlayStack(() => open)
+	const hostActive = overlayHostActive()
+
 	const dispatch = createEventDispatcher()
 
 	function onKeyDown(event: KeyboardEvent) {
-		if (open && keyListen) {
+		// A host that is off screen keeps its overlays mounted; they must not answer for
+		// the pane the user is actually looking at (see overlayHost).
+		if (!hostActive()) return
+		if (open && keyListen && overlay.isTopmost()) {
 			// Only intercept Enter/Escape (without modifiers) so shortcuts like
 			// Cmd/Ctrl+C and Cmd/Ctrl+V keep working inside the modal.
 			if (event.metaKey || event.ctrlKey || event.altKey) {
@@ -108,18 +127,19 @@
 {#if open}
 	<div
 		transition:fadeFast|local
-		class={twMerge('fixed top-0 bottom-0 left-0 right-0', zIndexClass)}
+		class={twMerge(posClass, 'top-0 bottom-0 left-0 right-0', zIndexClass)}
 		role="dialog"
 		{id}
 	>
 		<div
 			class={classNames(
-				'fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity',
+				posClass,
+				'inset-0 bg-gray-500 bg-opacity-75 transition-opacity',
 				open ? 'ease-out duration-300 opacity-100' : 'ease-in duration-200 opacity-0'
 			)}
 		></div>
 
-		<div class="fixed inset-0 z-10 overflow-y-auto">
+		<div class="{posClass} inset-0 z-10 overflow-y-auto">
 			<div class="flex min-h-full items-center justify-center p-4">
 				<div
 					class={classNames(

@@ -12,6 +12,7 @@
 	import { resolvePreviewTab, parsePreviewItemRoute } from './previewRouter'
 	import { withMenuHidden } from './sessionMode.svelte'
 	import ArtifactViewer from '../copilot/chat/artifacts/ArtifactViewer.svelte'
+	import { setOverlayHost } from '../common/overlayHost.svelte'
 
 	let {
 		tab,
@@ -116,6 +117,14 @@
 		active ? 'z-10 opacity-100 pointer-events-auto' : 'z-0 opacity-0 pointer-events-none'
 	)
 
+	// Overlays the editor opens (drawers, modals, popovers) anchor here rather than to the
+	// document, so they stay within this tab and hide with it when another tab takes over.
+	// The stack is per-tab for the same reason: this host stays mounted while hidden, and a
+	// shared stack would let its overlays arbitrate Escape for the tab the user is looking at.
+	let editorEl: HTMLDivElement | undefined = $state()
+	let hostDrawers = $state({ val: [] as string[] })
+	setOverlayHost({ el: () => editorEl, drawers: hostDrawers, active: () => active })
+
 	let flashing = $state(false)
 	let flashTimer: ReturnType<typeof setTimeout> | undefined
 	// Guard against the effect's non-pulse reruns (tab/runtime changes) firing a flash.
@@ -152,7 +161,11 @@
 {/snippet}
 
 {#if slot.kind === 'editor' && mounted && runtime}
-	<div class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}" aria-hidden={!active}>
+	<div
+		bind:this={editorEl}
+		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
+		aria-hidden={!active}
+	>
 		<!-- Dynamic imports: the live editors pull in the heaviest module graphs in
 		     the app (FlowBuilder, ScriptBuilder/Monaco, the raw-app editor, the
 		     pipeline graph). Loading them only when an editor tab first mounts keeps

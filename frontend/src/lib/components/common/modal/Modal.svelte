@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { createBubbler, stopPropagation } from 'svelte/legacy'
+	import { getOverlayHost, overlayHostActive } from '$lib/components/common/overlayHost.svelte'
 
 	const bubble = createBubbler()
 	import { createEventDispatcher, untrack } from 'svelte'
@@ -40,6 +41,13 @@
 		actions
 	}: Props = $props()
 
+	// Anchored to the enclosing pane when there is one (see overlayHost) so the dialog
+	// covers that pane rather than the whole app, matching Drawer.
+	const overlayHost = getOverlayHost()
+	const hosted = $derived(!!overlayHost?.el())
+	const posClass = $derived(hosted ? 'absolute' : 'fixed')
+	const hostActive = overlayHostActive()
+
 	const dispatch = createEventDispatcher()
 
 	let disposable: Disposable | undefined = $state(undefined)
@@ -60,6 +68,9 @@
 	})
 
 	function onKeyDown(event: KeyboardEvent) {
+		// A host that is off screen keeps its overlays mounted; they must not answer for
+		// the pane the user is actually looking at (see overlayHost).
+		if (!hostActive()) return
 		if (open) {
 			switch (event.key) {
 				case 'Enter':
@@ -91,19 +102,20 @@
 			<div
 				onclick={() => (open = false)}
 				transition:fadeFast|local
-				class="fixed top-0 bottom-0 left-0 right-0"
+				class="{posClass} top-0 bottom-0 left-0 right-0"
 				style="z-index: {zIndex}"
 				role="dialog"
 				tabindex="-1"
 			>
 				<div
 					class={twMerge(
-						'fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity',
+						posClass,
+						'inset-0 bg-gray-500 bg-opacity-75 transition-opacity',
 						open ? 'ease-out duration-300 opacity-100' : 'ease-in duration-200 opacity-0'
 					)}
 				></div>
 
-				<div class="fixed inset-0 z-10 overflow-y-auto">
+				<div class="{posClass} inset-0 z-10 overflow-y-auto">
 					<div class="flex min-h-full items-center justify-center p-4">
 						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<div

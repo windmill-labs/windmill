@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { useSvelteFlow } from '@xyflow/svelte'
+	import { getOverlayHost } from '$lib/components/common/overlayHost.svelte'
 	import { StickyNote } from 'lucide-svelte'
 	import { getNoteEditorContext } from './noteEditor.svelte'
 	import { DEFAULT_NOTE_COLOR } from './noteColors'
@@ -25,6 +26,17 @@
 	let contextMenuVisible = $state(false)
 	let contextMenuPosition = $state<{ x: number; y: number }>({ x: 0, y: 0 })
 	let pendingFlowPosition = $state<{ x: number; y: number } | null>(null)
+
+	// Coordinates come from the pointer event, so they are viewport-relative. Inside a
+	// pane the menu is positioned against the pane instead, or its click-catcher would
+	// blanket the app chrome around it.
+	const overlayHost = getOverlayHost()
+	const hostEl = $derived(overlayHost?.el())
+	const posClass = $derived(hostEl ? 'absolute' : 'fixed')
+	const menuOrigin = $derived.by(() => {
+		const rect = contextMenuVisible ? hostEl?.getBoundingClientRect() : undefined
+		return { x: rect?.left ?? 0, y: rect?.top ?? 0 }
+	})
 
 	function handlePaneContextMenu(event: MouseEvent) {
 		// Only show context menu in edit mode
@@ -76,8 +88,9 @@
 {#if contextMenuVisible}
 	<!-- Context menu -->
 	<div
-		class="fixed {getContextMenuContainerClass('z-[9999]')}"
-		style="left: {contextMenuPosition.x}px; top: {contextMenuPosition.y}px;"
+		class="{posClass} {getContextMenuContainerClass('z-[9999]')}"
+		style="left: {contextMenuPosition.x - menuOrigin.x}px; top: {contextMenuPosition.y -
+			menuOrigin.y}px;"
 		transition:fly={{ duration: 150, y: -10 }}
 		role="menu"
 		tabindex="-1"
@@ -102,7 +115,7 @@
 
 	<!-- Invisible click catcher to close context menu -->
 	<div
-		class="fixed inset-0 z-[9998]"
+		class="{posClass} inset-0 z-[9998]"
 		role="presentation"
 		onclick={() => {
 			contextMenuVisible = false

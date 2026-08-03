@@ -13,6 +13,7 @@
 	import DropdownV2Inner from './DropdownV2Inner.svelte'
 	import { pointerDownOutside } from '$lib/utils'
 	import { createDropdownMenu, melt, createSync } from '@melt-ui/svelte'
+	import { overlayPortalTarget } from '$lib/components/common/overlayHost.svelte'
 	import type { MenubarMenuElements } from '@melt-ui/svelte'
 	import ResolveOpen from '$lib/components/common/menu/ResolveOpen.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -86,12 +87,18 @@
 
 	let buttonEl: HTMLButtonElement | undefined = $state(undefined)
 
+	// An enclosing pane claims the overlays opened inside it (see overlayHost), so they
+	// stay in that pane instead of covering the app; elsewhere this is the document body.
+	const hostPortal = overlayPortalTarget('body')
+
 	const {
 		elements: { menu: menuEl, item, trigger },
 		builders,
 		states,
+		options: { portal: portalOption },
 		ids: { menu: dropdownId }
 	} = createDropdownMenu({
+		portal: untrack(() => hostPortal()),
 		positioning: {
 			placement: untrack(() => placement)
 		},
@@ -112,6 +119,12 @@
 			}
 			return next
 		}
+	})
+
+	// melt's `portal` is a store, and the host element only binds once its children have
+	// initialised — a creation-time value alone would always miss it.
+	$effect(() => {
+		$portalOption = hostPortal()
 	})
 
 	const sync = createSync(states)
