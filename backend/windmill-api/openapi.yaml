@@ -3563,6 +3563,11 @@ paths:
           description: filter only active users
           schema:
             type: boolean
+        - name: search
+          in: query
+          description: filter users whose email or username contains this string
+          schema:
+            type: string
       responses:
         "200":
           description: user

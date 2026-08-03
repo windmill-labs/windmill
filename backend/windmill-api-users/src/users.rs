@@ -57,7 +57,9 @@ use windmill_common::{
     auth::{get_folders_for_user, get_groups_for_user},
     db::UserDB,
     error::{self, Error, JsonResult, Result},
-    utils::{not_found_if_none, rd_string, require_admin, Pagination, StripPath},
+    utils::{
+        escape_ilike_pattern, not_found_if_none, rd_string, require_admin, Pagination, StripPath,
+    },
 };
 use windmill_common::{BASE_URL, HUB_BASE_URL};
 use windmill_git_sync::handle_deployment_metadata;
@@ -458,15 +460,26 @@ struct ActiveUsersOnly {
     active_only: Option<bool>,
 }
 
+#[derive(Deserialize)]
+struct UserSearch {
+    search: Option<String>,
+}
+
 async fn list_users_as_super_admin(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Query(pagination): Query<Pagination>,
     Query(ActiveUsersOnly { active_only }): Query<ActiveUsersOnly>,
+    Query(UserSearch { search }): Query<UserSearch>,
 ) -> JsonResult<Vec<GlobalUserInfo>> {
     require_super_admin(&db, &authed.email).await?;
     let per_page = pagination.per_page.unwrap_or(10000).max(1);
     let offset = (pagination.page.unwrap_or(1).max(1) - 1) * per_page;
+    // An absent search yields '%%', which matches every row.
+    let search = format!(
+        "%{}%",
+        escape_ilike_pattern(search.as_deref().unwrap_or_default())
+    );
 
     let rows = if active_only.is_some_and(|x| x) {
         sqlx::query_as!(
@@ -475,15 +488,16 @@ async fn list_users_as_super_admin(
             authors as (SELECT distinct email FROM usr WHERE usr.operator IS false)
             SELECT email as "email!", (email NOT IN (SELECT email FROM authors)) as operator_only, NULL::bool as is_workspace_admin, login_type::text, verified as "verified!", super_admin as "super_admin!", devops as "devops!", name, company, username, first_time_user as "first_time_user!", role_source as "role_source!", disabled as "disabled!", NULL::text as workspace_id
             FROM password
-            WHERE email IN (SELECT email FROM active_users)
+            WHERE email IN (SELECT email FROM active_users) AND (email ILIKE $3 OR username ILIKE $3)
             UNION ALL
             SELECT email as "email!", operator as operator_only, is_admin as is_workspace_admin, 'service_account'::text as login_type, true as "verified!", false as "super_admin!", false as "devops!", NULL::text as name, NULL::text as company, username, false as "first_time_user!", 'service_account'::text as "role_source!", disabled as "disabled!", workspace_id
             FROM usr
-            WHERE is_service_account IS true
+            WHERE is_service_account IS true AND (email ILIKE $3 OR username ILIKE $3)
             ORDER BY "super_admin!" DESC, "devops!" DESC
             LIMIT $1 OFFSET $2"#,
             per_page as i32,
-            offset as i32
+            offset as i32,
+            search
         )
         .fetch_all(&db)
         .await?
@@ -491,14 +505,16 @@ async fn list_users_as_super_admin(
         sqlx::query_as!(
             GlobalUserInfo,
             r#"SELECT email as "email!", login_type::text, verified as "verified!", super_admin as "super_admin!", devops as "devops!", name, company, username, NULL::bool as operator_only, NULL::bool as is_workspace_admin, first_time_user as "first_time_user!", role_source as "role_source!", disabled as "disabled!", NULL::text as workspace_id FROM password
+            WHERE (email ILIKE $3 OR username ILIKE $3)
             UNION ALL
             SELECT email as "email!", 'service_account'::text as login_type, true as "verified!", false as "super_admin!", false as "devops!", NULL::text as name, NULL::text as company, username, operator as operator_only, is_admin as is_workspace_admin, false as "first_time_user!", 'service_account'::text as "role_source!", disabled as "disabled!", workspace_id
             FROM usr
-            WHERE is_service_account IS true
+            WHERE is_service_account IS true AND (email ILIKE $3 OR username ILIKE $3)
             ORDER BY "super_admin!" DESC, "devops!" DESC, "email!"
             LIMIT $1 OFFSET $2"#,
             per_page as i32,
-            offset as i32
+            offset as i32,
+            search
         )
         .fetch_all(&db)
         .await?

@@ -12,11 +12,48 @@
 	import Toggle from './Toggle.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { UserPlus } from 'lucide-svelte'
+	import Select from './select/Select.svelte'
+	import { resource } from 'runed'
 
 	const dispatch = createEventDispatcher()
 
+	interface Props {
+		/** Emails already in the workspace, filtered out of the instance user picker. */
+		existingEmails?: string[]
+	}
+
+	let { existingEmails = [] }: Props = $props()
+
 	let email: string | undefined = $state()
 	let username: string | undefined = $state()
+	let emailFilterText: string = $state('')
+	let popoverOpen: boolean = $state(false)
+
+	// Only superadmins may list the instance users, everyone else just types the email in.
+	// The list stays capped: what is typed narrows it server-side rather than client-side.
+	const instanceUsers = resource(
+		() => ({ search: emailFilterText, isSuperadmin: $superadmin, open: popoverOpen }),
+		async ({ search, isSuperadmin, open }) => {
+			if (!isSuperadmin || !open) return []
+			return await UserService.listUsersAsSuperAdmin({
+				perPage: 10,
+				search: search || undefined
+			})
+		},
+		{ debounce: 300, initialValue: [] }
+	)
+
+	let emailItems = $derived(
+		instanceUsers.current
+			.filter(
+				(u) =>
+					u.login_type !== 'service_account' && !u.disabled && !existingEmails.includes(u.email)
+			)
+			.map((u) => ({
+				value: u.email,
+				label: u.username ? `${u.username} (${u.email})` : u.email
+			}))
+	)
 
 	function handleKeyUp(event: KeyboardEvent) {
 		const key = event.key
@@ -94,7 +131,7 @@
 	let isServiceAccount = $derived(selected === 'service_account')
 </script>
 
-<Popover placement="bottom-end">
+<Popover placement="bottom-end" bind:isOpen={popoverOpen}>
 	{#snippet trigger()}
 		<Button variant="accent" unifiedSize="md" nonCaptureEvent={true} startIcon={{ icon: UserPlus }}>
 			Add new user
@@ -116,7 +153,16 @@
 				/>
 			{:else}
 				<span class="text-xs mb-1 leading-6">Email</span>
-				<input type="email mb-1" onkeyup={handleKeyUp} placeholder="email" bind:value={email} />
+				<Select
+					bind:value={email}
+					bind:filterText={emailFilterText}
+					items={emailItems}
+					loading={instanceUsers.loading}
+					placeholder="email"
+					clearable
+					onCreateItem={(e) => (email = e.trim().toLowerCase())}
+					noItemsMsg={$superadmin ? 'No user found on the instance' : 'Type an email address'}
+				/>
 
 				{#if !automateUsernameCreation}
 					<span class="text-xs mb-1 pt-2 leading-6">Username</span>
