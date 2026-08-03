@@ -416,15 +416,8 @@ pub trait External: Send + Sync + 'static {
                 )
                 .await
                 .map_err(|f| {
-                    // Only the token endpoint refusing the grant means the stored credentials
-                    // are at fault. Reached-and-broken or never-reached is an outage, and
-                    // telling the user to reconnect would send them to fix the wrong thing.
-                    let status = match f.status {
-                        Some(s) if s.is_client_error() => Some(StatusCode::UNAUTHORIZED),
-                        other => other,
-                    };
                     self.external_error(
-                        status,
+                        refresh_failure_status(f.status),
                         format!(
                             "the stored credentials could not be refreshed: {}",
                             f.message
@@ -502,7 +495,7 @@ pub struct ExternalApiError {
 impl std::fmt::Display for ExternalApiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.status {
-            Some(status) if status.is_server_error() => write!(
+            Some(status) if is_transient(status) => write!(
                 f,
                 "{} failed to serve the request ({}): {}",
                 self.service, status, self.detail
@@ -707,11 +700,21 @@ pub fn map_external_error_with(e: Error, decorate: impl FnOnce(String) -> String
     let message = decorate(message);
     match status {
         Some(StatusCode::NOT_FOUND) => Error::NotFound(message),
-        Some(s) if s.is_server_error() => Error::BadGateway(message),
+        // A refusal is the caller's to fix; being unable to serve the request now is not, and
+        // the two want different reactions from whoever reads it.
+        Some(s) if is_transient(s) => Error::BadGateway(message),
         Some(_) => Error::BadRequest(message),
         // No status at all: the provider was unreachable or answered something undecodable.
         None => Error::BadGateway(message),
     }
+}
+
+fn is_transient(status: StatusCode) -> bool {
+    status.is_server_error()
+        || matches!(
+            status,
+            StatusCode::REQUEST_TIMEOUT | StatusCode::TOO_MANY_REQUESTS
+        )
 }
 
 /// Read OAuth client_id and client_secret from instance-level global settings.
@@ -830,6 +833,21 @@ pub struct RefreshFailure {
 impl RefreshFailure {
     fn rejected(message: String) -> Self {
         RefreshFailure { status: Some(StatusCode::UNAUTHORIZED), message }
+    }
+}
+
+/// How to report a token endpoint's answer to a refresh.
+///
+/// Only the statuses OAuth uses to refuse a grant (RFC 6749 §5.2) mean the stored credentials
+/// are at fault and the user should reconnect. Everything else — a timeout, rate limiting, a
+/// 5xx, no answer at all — is the endpoint failing to serve a grant that may well be valid,
+/// and sending the user off to reconnect would have them fix the wrong thing.
+pub fn refresh_failure_status(status: Option<StatusCode>) -> Option<StatusCode> {
+    match status {
+        Some(StatusCode::BAD_REQUEST | StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) => {
+            Some(StatusCode::UNAUTHORIZED)
+        }
+        other => other,
     }
 }
 

@@ -23,8 +23,9 @@ use windmill_native_triggers::{
     google::{parse_stop_channel_params, should_renew_channel},
     http_error_status, list_native_triggers, map_external_error,
     nextcloud::NextCloud,
-    require_native_integration_use, store_native_trigger, store_workspace_integration, External,
-    ExternalReadFailure, HttpRequestError, NativeTriggerConfig, OAuthConfig, ServiceName,
+    refresh_failure_status, require_native_integration_use, store_native_trigger,
+    store_workspace_integration, External, ExternalReadFailure, HttpRequestError,
+    NativeTriggerConfig, OAuthConfig, ServiceName,
 };
 
 // ============================================================================
@@ -761,6 +762,31 @@ fn test_provider_404_is_recognized() {
         classify_read_failure(nextcloud_error(StatusCode::NOT_FOUND, "{}")),
         ExternalReadFailure::Missing
     ));
+}
+
+/// Sending a user to reconnect their integration is only right when the token endpoint refused
+/// the grant. A busy or broken endpoint has them fix credentials that are fine.
+#[test]
+fn test_only_a_refused_grant_blames_the_credentials() {
+    let rejected = |code: u16| {
+        refresh_failure_status(Some(StatusCode::from_u16(code).unwrap()))
+            == Some(StatusCode::UNAUTHORIZED)
+    };
+    assert!(rejected(400), "invalid_grant answers with 400");
+    assert!(rejected(401));
+    assert!(rejected(403));
+    assert!(!rejected(408), "a timeout is not a credential problem");
+    assert!(!rejected(429), "rate limiting is not a credential problem");
+    assert!(!rejected(503));
+    assert_eq!(refresh_failure_status(None), None);
+
+    for transient in [408, 429, 503] {
+        let err = nextcloud_error(StatusCode::from_u16(transient).unwrap(), "{}");
+        assert!(
+            matches!(map_external_error(err), Error::BadGateway(_)),
+            "{transient} should read as the service failing to serve, not refusing"
+        );
+    }
 }
 
 /// A service read degrades to the stored configuration, but only for the service's own
