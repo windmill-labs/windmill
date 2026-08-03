@@ -534,6 +534,56 @@ describe('global AI tools', () => {
 		).toBeUndefined()
 	})
 
+	// The same option is legal at the top level, where the bag-only check never saw it.
+	it('catches a stripped schedule option passed outside advanced', async () => {
+		await expect(
+			callGlobalTool('write_schedule', {
+				path: 'f/schedules/toplevel',
+				schedule: '0 0 6 * * *',
+				timezone: 'UTC',
+				script_path: 'f/scripts/run',
+				is_flow: false,
+				args: {},
+				retry: { constant: { attempts: 2, seconds_typo: 30 } }
+			})
+		).rejects.toThrow(/retry\.constant\.seconds_typo/)
+	})
+
+	// A non-object `advanced` spreads to index keys that zod strips, so the options the
+	// model meant to set vanish. Rejecting beats writing a schedule missing all of them.
+	it('rejects a non-object advanced container', async () => {
+		await expect(
+			callGlobalTool('write_schedule', {
+				path: 'f/schedules/strbag',
+				schedule: '0 0 6 * * *',
+				timezone: 'UTC',
+				script_path: 'f/scripts/run',
+				is_flow: false,
+				args: {},
+				advanced: 'retry=2'
+			})
+		).rejects.toThrow(/not recognized/)
+	})
+
+	// `args` is a real object-valued argument, not an advanced option: repeating it must
+	// not be reported as a dropped option just because the named one outranks the bag.
+	it('does not flag a duplicated object argument as dropped', async () => {
+		await callGlobalTool('write_schedule', {
+			path: 'f/schedules/dupargs',
+			schedule: '0 0 6 * * *',
+			timezone: 'UTC',
+			script_path: 'f/scripts/run',
+			is_flow: false,
+			args: { a: 1 },
+			advanced: { args: { b: 2 }, tag: 'nightly' }
+		})
+
+		const draft = getBackendDraft<any>('trigger_schedule', 'f/schedules/dupargs', {
+			workspace: WORKSPACE
+		})
+		expect(draft).toMatchObject({ args: { a: 1 }, tag: 'nightly' })
+	})
+
 	it('rejects a trigger config that does not match the declared kind', async () => {
 		const error = await callGlobalTool('write_trigger', {
 			kind: 'kafka',

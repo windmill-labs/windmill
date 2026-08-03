@@ -312,22 +312,24 @@ const createScheduleTool: Tool<any> = {
 	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
 		try {
 			const { advanced, ...rest } = (args ?? {}) as Record<string, unknown>
-			const supplied = (advanced as Record<string, unknown>) ?? {}
+			// `advanced` carries what the definition does not list: a named argument outranks
+			// a duplicate inside the bag, and the runnable target outranks both. The whole
+			// merged object is checked for stripped keys, not just the bag: an advanced option
+			// passed at the top level instead would otherwise be dropped without a word.
+			const merged = {
+				...((advanced as Record<string, unknown>) ?? {}),
+				...rest,
+				...getWorkspaceMutationTargetFields(helpers)
+			}
 			const requestBody = parseWithExplicitErrors(
 				scheduleRequestSchema as z.ZodType<NewSchedule>,
-				{
-					// `advanced` carries what the definition does not list: a named argument
-					// outranks a duplicate inside the bag, and the runnable target outranks both.
-					...supplied,
-					...rest,
-					...getWorkspaceMutationTargetFields(helpers)
-				},
+				merged,
 				'Schedule'
 			)
-			const dropped = droppedOptionKeys(supplied, requestBody)
+			const dropped = droppedOptionKeys(merged, requestBody)
 			if (dropped.length) {
 				throw new Error(
-					`Call get_schedule_schema for the exact shape: these options did not match it and would have been saved empty: ${dropped.join(', ')}.`
+					`These schedule options were not recognized and would have been dropped: ${dropped.join(', ')}. Call get_schedule_schema for the exact shape of the advanced options.`
 				)
 			}
 

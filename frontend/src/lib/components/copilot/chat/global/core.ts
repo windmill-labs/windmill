@@ -2942,14 +2942,16 @@ export const globalTools: Tool<{}>[] = [
 		showFade: true,
 		fn: async (ctx) => {
 			const { advanced, ...rest } = (ctx.args ?? {}) as Record<string, unknown>
-			const supplied = (advanced as Record<string, unknown>) ?? {}
 			// `advanced` carries what the definition does not list, so a named argument
-			// outranks a duplicate of the same key inside the bag.
-			const parsed = writeScheduleSchema.parse({ ...supplied, ...rest })
-			const dropped = droppedOptionKeys(supplied, parsed)
+			// outranks a duplicate of the same key inside the bag. The whole merged object
+			// is checked for stripped keys, not just the bag: an advanced option passed at
+			// the top level instead would otherwise be dropped without a word.
+			const merged = { ...((advanced as Record<string, unknown>) ?? {}), ...rest }
+			const parsed = writeScheduleSchema.parse(merged)
+			const dropped = droppedOptionKeys(merged, parsed)
 			if (dropped.length) {
 				throw new Error(
-					`Call get_schedule_schema for the exact shape: these options did not match it and would have been saved empty: ${dropped.join(', ')}.`
+					`These schedule options were not recognized and would have been dropped: ${dropped.join(', ')}. Call get_schedule_schema for the exact shape of the advanced options.`
 				)
 			}
 			return writeScheduleDraft(parsed, ctx)
