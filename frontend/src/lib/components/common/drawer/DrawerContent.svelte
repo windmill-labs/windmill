@@ -3,10 +3,10 @@
 	import { classNames } from '$lib/utils'
 	import CloseButton from '../CloseButton.svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import EEOnly from '$lib/components/EEOnly.svelte'
 	import { enterpriseLicense } from '$lib/stores'
-	import { getOverlayHost } from '../overlayHost.svelte'
+	import { DRAWER_ANCHORED } from './Drawer.svelte'
 
 	interface Props {
 		aiId?: string | undefined
@@ -55,10 +55,11 @@
 
 	const dispatch = createEventDispatcher()
 
-	// A drawer anchored to a pane (see overlayHost) is as tall as that pane, so
-	// sizing against the viewport would overflow it.
-	const overlayHost = getOverlayHost()
-	const anchored = $derived(!!overlayHost?.el())
+	// A drawer anchored to a pane (see overlayHost) is as tall as that pane, so sizing
+	// against the viewport would overflow it. Asking the drawer rather than the host keeps
+	// this in step with `shouldUsePortal`, which decides whether it is anchored at all.
+	const drawerAnchored = getContext<(() => boolean) | undefined>(DRAWER_ANCHORED)
+	const anchored = $derived(drawerAnchored?.() ?? false)
 </script>
 
 <div

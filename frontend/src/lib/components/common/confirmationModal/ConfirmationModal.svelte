@@ -56,8 +56,10 @@
 	const posClass = $derived(hostEl ? 'absolute' : 'fixed')
 
 	// Enter here confirms, so an open dialog buried under another overlay must not answer
-	// for it — only the topmost overlay handles keys.
-	const overlay = useOverlayStack(() => open)
+	// for it — only the topmost overlay handles keys. A dialog that has opted out of key
+	// handling must stay off the stack entirely, or it would take the top spot and decline,
+	// leaving Escape dead for the drawer it sits in.
+	const overlay = useOverlayStack(() => open && keyListen)
 	const hostActive = overlayHostActive()
 
 	const dispatch = createEventDispatcher()

@@ -1,5 +1,11 @@
+<script lang="ts" module>
+	/** Whether the enclosing drawer is anchored to a pane rather than the viewport. Set by
+	 *  Drawer, read by its content, so the two can never disagree on the answer. */
+	export const DRAWER_ANCHORED = Symbol('drawerAnchored')
+</script>
+
 <script lang="ts">
-	import { onMount, createEventDispatcher, untrack } from 'svelte'
+	import { onMount, createEventDispatcher, setContext, untrack } from 'svelte'
 	import { BROWSER } from 'esm-env'
 	import Disposable from './Disposable.svelte'
 	import ConditionalPortal from './ConditionalPortal.svelte'
@@ -12,9 +18,6 @@
 		duration?: number
 		placement?: string
 		size?: string
-		/** Pixel floor for a percentage `size`, so the drawer stays usable in a narrow
-		 *  container. Never grows past the container itself. */
-		minSize?: string
 		alwaysOpen?: boolean
 		shouldUsePortal?: boolean
 		offset?: number
@@ -31,7 +34,6 @@
 		duration: _duration = 0.3,
 		placement = 'right',
 		size = '600px',
-		minSize = '600px',
 		alwaysOpen = false,
 		shouldUsePortal = true,
 		offset = 0,
@@ -112,11 +114,16 @@
 	const overlayHost = getOverlayHost()
 	const host = $derived(shouldUsePortal ? overlayHost?.el() : undefined)
 	const posClass = $derived(positionClass ?? (host ? '!absolute' : undefined))
+	setContext(DRAWER_ANCHORED, () => !!host)
 
 	// A percentage size follows its container, and a pane is far narrower than the viewport
-	// the percentage was chosen against, so it can leave the drawer unusably thin. Pixel
-	// sizes already state their intent, and unhosted drawers keep the size they always had.
-	const floor = $derived(host && size.trim().endsWith('%') ? `min(${minSize}, 100%)` : '0px')
+	// that percentage was chosen against, so it can leave the drawer unusably thin. Below a
+	// 600px pane this wins over `--size` outright and the drawer covers the pane; that is the
+	// point. Pixel sizes already state their intent, and unhosted drawers are unaffected.
+	const MIN_ANCHORED_SIZE = '600px'
+	const floor = $derived(
+		host && size.trim().endsWith('%') ? `min(${MIN_ANCHORED_SIZE}, 100%)` : '0px'
+	)
 
 	let style = $derived(`--duration: ${duration}s; --size: ${size}; --min-size: ${floor};`)
 
