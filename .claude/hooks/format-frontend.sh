@@ -11,7 +11,7 @@ if [ -z "$FILE_PATH" ]; then
 fi
 
 # Check if the file is in the frontend directory
-if [[ "$FILE_PATH" == *"/frontend/"* ]]; then
+if [[ "$FILE_PATH" == "$CLAUDE_PROJECT_DIR/frontend/"* ]]; then
     # Check if it's a formattable file type
     if [[ "$FILE_PATH" =~ \.(ts|js|svelte|json|css|html|md)$ ]]; then
         cd "$CLAUDE_PROJECT_DIR/frontend" || exit 0
