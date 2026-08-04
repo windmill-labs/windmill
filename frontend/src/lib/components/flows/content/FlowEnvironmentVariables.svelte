@@ -238,6 +238,7 @@
 		pickableProperties: () => undefined,
 		result: () => undefined,
 		extraResults: () => undefined,
+		onPick: () => {},
 		exprBeingEdited: writable([])
 	})
 </script>

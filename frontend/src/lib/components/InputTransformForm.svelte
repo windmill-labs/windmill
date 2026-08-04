@@ -622,7 +622,14 @@
 						result={propPickerWrapperContext.result?.()}
 						extraResults={propPickerWrapperContext.extraResults?.()}
 						onSelect={(path) => {
-							connectProperty(path)
+							// A predicate is usually half-written when you reach for a property, so
+							// insert at the cursor and leave the rest of the expression alone. Only
+							// a field that isn't an expression yet gets replaced outright.
+							if (propertyType === 'javascript' && monaco) {
+								propPickerWrapperContext.onPick?.(path)
+							} else {
+								connectProperty(path)
+							}
 							dispatch('change', { argName })
 						}}
 					/>

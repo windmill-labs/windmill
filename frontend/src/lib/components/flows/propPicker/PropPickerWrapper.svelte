@@ -24,6 +24,10 @@
 		 *  hangs off each input, so it reads them from here instead. */
 		result: () => any
 		extraResults: () => any
+		/** Deliver a pick the way the pane does — as a `select` event, so each setting's own
+		 *  handler inserts it at the cursor. Replacing the whole value is right for a step
+		 *  input but destroys a half-written predicate. */
+		onPick: (path: string) => void
 		exprBeingEdited: Writable<string[]>
 	}
 </script>
@@ -101,6 +105,7 @@
 		pickableProperties: () => pickableProperties,
 		result: () => result,
 		extraResults: () => extraResults,
+		onPick: (path) => dispatch('select', path),
 		exprBeingEdited: writable<string[]>([])
 	})
 

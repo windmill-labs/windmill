@@ -44,7 +44,8 @@
 		pickerMode: () => 'popover' as const,
 		pickableProperties: () => undefined,
 		result: () => undefined,
-		extraResults: () => undefined
+		extraResults: () => undefined,
+		onPick: () => {}
 	})
 
 	let open = $state(false)
