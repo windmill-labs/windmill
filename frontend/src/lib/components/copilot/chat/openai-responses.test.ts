@@ -65,9 +65,27 @@ describe('buildPromptCacheKey', () => {
 		)
 
 		expect(key.length).toBeLessThanOrEqual(64)
-		// The parts that keep distinct endpoints apart must survive the shortening.
 		expect(key.startsWith('some-customer-workspace:azure_openai:')).toBe(true)
-		expect(key.endsWith(':chat')).toBe(true)
+	})
+
+	// A max-length workspace on the longest provider name leaves no room for the model
+	// or surface, so only the digest can keep those keys apart.
+	it('keeps distinct models and surfaces apart when the workspace fills the bound', () => {
+		const workspace = 'w'.repeat(50)
+		const keys = [
+			buildPromptCacheKey('chat', { provider: 'azure_openai', model: 'gpt-5.6' }, workspace),
+			buildPromptCacheKey('chat', { provider: 'azure_openai', model: 'gpt-5.1' }, workspace),
+			buildPromptCacheKey('script', { provider: 'azure_openai', model: 'gpt-5.6' }, workspace)
+		]
+
+		for (const key of keys) {
+			expect(key.length).toBeLessThanOrEqual(64)
+		}
+		expect(new Set(keys).size).toBe(3)
+		// Stable, or every turn would land on a different cache.
+		expect(keys[0]).toBe(
+			buildPromptCacheKey('chat', { provider: 'azure_openai', model: 'gpt-5.6' }, workspace)
+		)
 	})
 })
 

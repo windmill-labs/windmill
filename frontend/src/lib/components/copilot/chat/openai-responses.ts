@@ -189,6 +189,16 @@ const MAX_PROMPT_CACHE_KEY_LENGTH = 64
  * splits traffic across the ~15 requests/minute one key sustains before it starts
  * missing again.
  */
+/** FNV-1a. A routing key needs to be stable and distinct, not cryptographic. */
+function shortHash(value: string): string {
+	let h = 0x811c9dc5
+	for (let i = 0; i < value.length; i++) {
+		h ^= value.charCodeAt(i)
+		h = Math.imul(h, 0x01000193) >>> 0
+	}
+	return h.toString(16).padStart(8, '0')
+}
+
 export function buildPromptCacheKey(
 	surface: string,
 	modelProvider: { provider: string; model: string },
@@ -198,13 +208,11 @@ export function buildPromptCacheKey(
 	if (key.length <= MAX_PROMPT_CACHE_KEY_LENGTH) {
 		return key
 	}
-	// Drop from the middle: the workspace keeps keys apart and the surface is what the
-	// prefix actually belongs to, so the model name is what can afford to be shortened.
-	const fixed = [workspace, modelProvider.provider, surface].join(':')
-	const room = MAX_PROMPT_CACHE_KEY_LENGTH - fixed.length - 1
-	return room > 0
-		? [workspace, modelProvider.provider, modelProvider.model.slice(0, room), surface].join(':')
-		: key.slice(0, MAX_PROMPT_CACHE_KEY_LENGTH)
+	// Same shape as the backend's `bounded_prompt_cache_key`: a readable head keeps the
+	// key traceable, and the digest carries every distinction the head lost. Truncating
+	// alone would collapse a long workspace's models and surfaces onto one key.
+	const suffix = shortHash(key)
+	return `${key.slice(0, MAX_PROMPT_CACHE_KEY_LENGTH - suffix.length - 1)}:${suffix}`
 }
 
 function convertCompletionConfigToResponsesConfig(
