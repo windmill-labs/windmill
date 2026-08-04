@@ -34,7 +34,7 @@ use windmill_common::FlowVersionInfo;
 use windmill_common::DB;
 use windmill_common::{
     error::{self, Result},
-    schedule::Schedule,
+    schedule::{Schedule, ScheduleWithEmail},
     utils::{now_from_db, ScheduleType, StripPath},
 };
 
@@ -640,7 +640,7 @@ pub async fn rearm_schedule(db: &DB, w_id: &str, path: &str) -> Result<RearmOutc
     // read and the push would otherwise leave a queued occurrence for a schedule
     // that is disabled, or one built from superseded settings.
     let schedule = sqlx::query_as::<_, Schedule>(
-        "SELECT workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, args, extra_perms, email, permissioned_as, error, on_failure, on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, on_success, on_success_extra_args, ws_error_handler_muted, retry, no_flow_overlap, summary, description, tag, paused_until, cron_version, dynamic_skip, labels FROM schedule WHERE path = $1 AND workspace_id = $2 FOR UPDATE",
+        "SELECT workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, args, extra_perms, permissioned_as, error, on_failure, on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, on_success, on_success_extra_args, ws_error_handler_muted, retry, no_flow_overlap, summary, description, tag, paused_until, cron_version, dynamic_skip, labels FROM schedule WHERE path = $1 AND workspace_id = $2 FOR UPDATE",
     )
     .bind(path)
     .bind(w_id)
@@ -699,13 +699,31 @@ pub async fn get_schedule_opt<'c>(
     path: &str,
 ) -> Result<Option<Schedule>> {
     let schedule_opt = sqlx::query_as::<_, Schedule>(
-        "SELECT workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, args, extra_perms, email, permissioned_as, error, on_failure, on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, on_success, on_success_extra_args, ws_error_handler_muted, retry, no_flow_overlap, summary, description, tag, paused_until, cron_version, dynamic_skip, labels FROM schedule WHERE path = $1 AND workspace_id = $2",
+        "SELECT workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, args, extra_perms, permissioned_as, error, on_failure, on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, on_success, on_success_extra_args, ws_error_handler_muted, retry, no_flow_overlap, summary, description, tag, paused_until, cron_version, dynamic_skip, labels FROM schedule WHERE path = $1 AND workspace_id = $2",
     )
     .bind(path)
     .bind(w_id)
     .fetch_optional(e)
     .await?;
     Ok(schedule_opt)
+}
+
+/// Attach the address the schedule's `permissioned_as` resolves to, for the read paths whose
+/// response shape has always carried one. The identity a schedule runs as is its principal
+/// alone; the address is never read back from the row.
+///
+/// Not an authorization boundary: it resolves an address for any `(w_id, schedule)` handed to
+/// it, so a caller acting for a user MUST already have established their read access to that
+/// schedule.
+pub async fn with_derived_email<'c>(
+    e: impl sqlx::PgExecutor<'c>,
+    w_id: &str,
+    schedule: Schedule,
+) -> Result<ScheduleWithEmail> {
+    let email =
+        windmill_common::users::get_email_from_permissioned_as(&schedule.permissioned_as, w_id, e)
+            .await?;
+    Ok(ScheduleWithEmail { schedule, email })
 }
 
 pub async fn exists_schedule(

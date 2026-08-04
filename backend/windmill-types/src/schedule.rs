@@ -17,7 +17,6 @@ pub struct Schedule {
     pub is_flow: bool,
     pub args: Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
     pub extra_perms: serde_json::Value,
-    pub email: String,
     pub permissioned_as: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
@@ -63,6 +62,28 @@ impl Schedule {
     pub fn parse_retry(self) -> Option<Retry> {
         self.retry.map(|r| serde_json::from_value(r).ok()).flatten()
     }
+}
+
+/// A [`Schedule`] plus the address of the identity it runs as. [`Schedule`] itself does not map
+/// that column: `permissioned_as` is the identity, and the address is a function of it. The
+/// database row still has an `email` column, and every save still writes it; removing it stops
+/// those writes a release before dropping the column (`docs/schedule-email-removal.md`).
+///
+/// The two read paths fill it differently, and deliberately. `get_schedule` derives it, so the
+/// response says what the *next run* will resolve to. The workspace export reads the stored
+/// column, so a synced file reproduces the row — a principal whose account has since been
+/// removed keeps the address the file already had instead of turning into a synthetic
+/// `@unknown.windmill.dev`. When the column goes, this field stays, filled by deriving on both
+/// paths.
+// No `Deserialize`: `Schedule` is flattened in, and serde's flatten buffers through an untagged
+// representation that `RawValue` (this type's `args`) cannot be read back from. `FromRow` is
+// unaffected — it reads columns by name.
+#[derive(Serialize, FromRow, Debug, Clone)]
+pub struct ScheduleWithEmail {
+    #[serde(flatten)]
+    #[sqlx(flatten)]
+    pub schedule: Schedule,
+    pub email: String,
 }
 
 pub fn schedule_to_user(path: &str) -> String {

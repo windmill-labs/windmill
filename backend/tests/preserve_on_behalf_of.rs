@@ -2442,6 +2442,62 @@ async fn test_schedule_group_permissioned_as(db: Pool<Postgres>) -> anyhow::Resu
         "edited_by should be the deploying user, not the group"
     );
 
+    // Writes put the derived address in the column too, so a response that read the row would
+    // look identical to one that derived. Desynchronise them to tell the two apart: the reply
+    // must be the address `g/all` derives to, not the one sitting in the row.
+    sqlx::query!(
+        "UPDATE schedule SET email = 'stale@windmill.dev' WHERE path = $1 AND workspace_id = $2",
+        "u/test-user/schedule_group_perm",
+        "test-workspace"
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = authed(
+        client().get(format!("{base}/schedules/get/u/test-user/schedule_group_perm")),
+        "SECRET_TOKEN",
+    )
+    .send()
+    .await?;
+    let returned: serde_json::Value = resp.json().await?;
+    assert_eq!(
+        returned["email"].as_str(),
+        Some("group-all@windmill.dev"),
+        "the schedule response derives the address from the principal, not from the column"
+    );
+
+    // Toggling is not a change of identity: it must leave the address column alone, or the row
+    // ends up naming whoever flipped the switch rather than its principal. The desynchronised
+    // value above doubles as the sentinel that nothing rewrote it.
+    let resp = authed(
+        client().post(format!(
+            "{base}/schedules/setenabled/u/test-user/schedule_group_perm"
+        )),
+        "EXTERNAL_SUPERADMIN_TOKEN",
+    )
+    .json(&json!({ "enabled": true }))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "Superadmin should toggle the schedule: {}",
+        resp.text().await?
+    );
+
+    let row = sqlx::query!(
+        "SELECT enabled, email FROM schedule WHERE path = $1 AND workspace_id = $2",
+        "u/test-user/schedule_group_perm",
+        "test-workspace"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert!(row.enabled, "the toggle should have taken effect");
+    assert_eq!(
+        row.email, "stale@windmill.dev",
+        "toggling must leave the stored address alone, not stamp the toggler's"
+    );
+
     Ok(())
 }
 

@@ -52,7 +52,7 @@ use windmill_common::{
     db::UserDB,
     error::{to_anyhow, Error, Result},
     flows::Flow,
-    schedule::Schedule,
+    schedule::ScheduleWithEmail,
     scripts::{Schema, Script, ScriptLang},
     variables::{build_crypt, ExportableListableVariable},
     workspace_dependencies::WorkspaceDependencies,
@@ -737,8 +737,7 @@ pub(crate) async fn tarball_workspace(
 
     // From v1 the CLI never writes the address, so resolving it would be pure waste on the
     // default sync path; emit the marker it actually keeps instead.
-    let obo_marker_only =
-        parse_sync_behavior_version(sync_behavior_version.as_deref()) >= 1;
+    let obo_marker_only = parse_sync_behavior_version(sync_behavior_version.as_deref()) >= 1;
     let mut obo_cache: HashMap<String, String> = HashMap::new();
     {
         let scripts = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(&format!(
@@ -1029,8 +1028,8 @@ pub(crate) async fn tarball_workspace(
         // derived from the workspace ducklake settings (and admins bypass the
         // RLS that hides them), so exporting them would drag unsyncable rows
         // into git.
-        let schedules = sqlx::query_as::<_, Schedule>(
-            "SELECT workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, args, extra_perms, email, permissioned_as, error, on_failure, on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, on_success, on_success_extra_args, ws_error_handler_muted, retry, no_flow_overlap, summary, description, tag, paused_until, cron_version, dynamic_skip, labels FROM schedule
+        let schedules = sqlx::query_as::<_, ScheduleWithEmail>(
+            "SELECT workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, args, extra_perms, permissioned_as, email, error, on_failure, on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, on_success, on_success_extra_args, ws_error_handler_muted, retry, no_flow_overlap, summary, description, tag, paused_until, cron_version, dynamic_skip, labels FROM schedule
              WHERE workspace_id = $1 AND NOT starts_with(path, $2)",
         )
         .bind(&w_id)
@@ -1042,21 +1041,23 @@ pub(crate) async fn tarball_workspace(
         // synced file matches the parent and the merge doesn't flip it.
         let parent_enabled =
             fork_parent_schedule_enabled(&db, parent_workspace_id.as_deref()).await?;
-        for schedule in schedules {
-            let enabled_override = parent_enabled.get(&schedule.path).map(|enabled| {
+        // The stored address, not a fresh derivation — see `ScheduleWithEmail`.
+        for sched in schedules {
+            let enabled_override = parent_enabled.get(&sched.schedule.path).map(|enabled| {
                 let mut o = serde_json::Map::new();
                 o.insert("enabled".to_string(), Value::Bool(*enabled));
                 o
             });
+            let path = sched.schedule.path.clone();
             let app_str = &to_string_without_metadata_inner(
-                &schedule,
+                &sched,
                 ExtraPermsBehavior::Drop,
                 None,
                 enabled_override.as_ref(),
             )
             .unwrap();
             archive
-                .write_to_archive(&app_str, &format!("{}.schedule.json", schedule.path))
+                .write_to_archive(&app_str, &format!("{}.schedule.json", path))
                 .await?;
         }
     }
