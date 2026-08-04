@@ -25,7 +25,6 @@ Open-source platform for internal tools, workflows, API integrations, background
 - **Brand/UI guidelines**: `frontend/brand-guidelines.md`
 - **CLI commands**: when adding/modifying/removing a command, subcommand, option, or description in `cli/src/commands/`, run `python system_prompts/generate.py` to refresh `system_prompts/auto-generated/` and `cli/src/guidance/skills.gen.ts`. The CLI docs the agents use to operate `wmill` are derived from the source — stale generated files give agents the wrong flags.
 - **Session recorder**: `frontend/src/lib/components/recording/` is also the recorder `wmill app dev --recording` serves, vendored into the CLI as `cli/src/commands/app/devRecorderBundle.gen.ts`. After changing `rawAppSnapshot.ts` or `rawAppRecording.svelte.ts`, run `bun run gen:dev-recorder` from `cli/` (`cli/test/dev_recorder_bundle_unit.test.ts` fails otherwise).
-- **Raw-app `wmill` client**: `frontend/src/lib/rawAppWmillTs.ts` is injected as a virtual module by all three raw-app bundlers, so the backend one carries a copy at `backend/windmill-api/src/apps_raw_wmill_ts.ts`. After changing it, copy it over (`apps_raw_bundle.rs`'s `test_vendored_wmill_ts_matches_frontend` fails otherwise).
 
 ## Dev Environment
 

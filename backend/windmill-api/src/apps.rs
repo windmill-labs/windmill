@@ -2644,6 +2644,10 @@ async fn update_app_raw_source(
 
     let path = path.to_path();
     check_scopes(&authed, || format!("apps:write:{}", path))?;
+    // The sources are compiled by a job on a worker: dependency resolution and
+    // the build run there, on caller-supplied input. A token that can't run jobs
+    // must not gain that through an app write, so require both scopes.
+    check_scopes(&authed, || "jobs:run".to_string())?;
 
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
@@ -2665,22 +2669,30 @@ async fn update_app_raw_source(
     let files: RawAppSourceFiles = serde_json::from_str(value.0.get())
         .map_err(|e| Error::BadRequest(format!("app value is not a raw app source: {e}")))?;
 
-    // Before the compile, which costs a job: an app of the other kind is refused
-    // by update_app_internal anyway, and the caller shouldn't wait to find out.
-    ensure_deployed_kind_matches(&db, &w_id, path, true, ns.allow_kind_change).await?;
+    // Both before the compile, which costs a job: nothing should compile for a
+    // path the caller can't write, and an app of the other kind is refused by
+    // update_app_internal anyway.
+    let deployed_raw_app = deployed_app_kind(&user_db, &authed, &w_id, path)
+        .await?
+        .ok_or_else(|| Error::NotFound(format!("App {path} not found")))?;
+    if !ns.allow_kind_change.unwrap_or(false) {
+        reject_kind_change(path, true, Some(deployed_raw_app))?;
+    }
 
     let (js, css) =
         apps_raw_bundle::bundle_raw_app_sources(&db, &user_db, &authed, &w_id, &files.files)
             .await?;
 
     let opath = path.to_string();
-    let (mut tx, npath, id) =
+    let db2 = db.clone();
+    let (mut tx, npath, v_id) =
         update_app_internal(authed, db, user_db, &w_id, path, true, ns).await?;
-    store_raw_app_file(&w_id, &id, "js", bytes::Bytes::from(js), &mut tx).await?;
+    store_raw_app_file(&w_id, &v_id, "js", bytes::Bytes::from(js), &mut tx).await?;
     if !css.is_empty() {
-        store_raw_app_file(&w_id, &id, "css", bytes::Bytes::from(css), &mut tx).await?;
+        store_raw_app_file(&w_id, &v_id, "css", bytes::Bytes::from(css), &mut tx).await?;
     }
     tx.commit().await?;
+    tally_app_rename(&db2, &w_id, &opath, &npath, v_id).await;
 
     webhook.send_message(
         w_id.clone(),
@@ -2720,19 +2732,16 @@ fn reject_kind_change(path: &str, raw_app: bool, deployed_raw_app: Option<bool>)
     )))
 }
 
-/// The same refusal `update_app_internal` makes, run before the caller pays for
-/// a compile. Advisory only — the locked check inside the transaction is what
-/// actually holds the invariant.
-async fn ensure_deployed_kind_matches(
-    db: &DB,
+/// Whether the app deployed at `path` is raw, or None when there is none the
+/// caller can see. Through `user_db`, so it can't tell a caller anything about
+/// an app they aren't allowed to read.
+async fn deployed_app_kind(
+    user_db: &UserDB,
+    authed: &ApiAuthed,
     w_id: &str,
     path: &str,
-    raw_app: bool,
-    allow_kind_change: Option<bool>,
-) -> Result<()> {
-    if allow_kind_change.unwrap_or(false) {
-        return Ok(());
-    }
+) -> Result<Option<bool>> {
+    let mut tx = user_db.clone().begin(authed).await?;
     let deployed_raw_app = sqlx::query_scalar!(
         "SELECT app_version.raw_app FROM app
          JOIN app_version ON app_version.id = app.versions[array_upper(app.versions, 1)]
@@ -2740,9 +2749,10 @@ async fn ensure_deployed_kind_matches(
         path,
         w_id
     )
-    .fetch_optional(db)
+    .fetch_optional(&mut *tx)
     .await?;
-    reject_kind_change(path, raw_app, deployed_raw_app)
+    tx.commit().await?;
+    Ok(deployed_raw_app)
 }
 
 async fn update_app_raw<'a>(

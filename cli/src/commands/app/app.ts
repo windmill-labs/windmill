@@ -16,6 +16,7 @@ import { getWmillYamlPath, mergeConfigWithConfigFile } from "../../core/conf.ts"
 import { readInlinePathSync } from "../../utils/utils.ts";
 import devCommand from "./dev.ts";
 import lintCommand from "./lint.ts";
+import bundleCommand from "./bundle_command.ts";
 import newCommand from "./new.ts";
 import generateAgentsCommand from "./generate_agents.ts";
 import { isVersionsGeq1585 } from "../sync/global.ts";
@@ -436,6 +437,7 @@ const command = new Command()
   .action(push as any)
   .command("dev", devCommand)
   .command("lint", lintCommand)
+  .command("bundle", bundleCommand)
   .command("new", newCommand)
   .command("generate-agents", generateAgentsCommand)
   .command(

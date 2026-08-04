@@ -1165,7 +1165,7 @@ export const mcpEndpointTools: EndpointTool[] = [
     {
         name: "updateAppRawSource",
         description: "update a raw app from its sources, bundling them server-side",
-        instructions: "Use this to change a raw (full-code) app — an app whose `raw_app` field is true. Send the whole `value` (`files`, `runnables`, `data`), not a patch: read the current one with getAppByPath first and edit it. The sources are compiled on a worker, so a compile error comes back as the error of this call. Low-code apps use updateApp instead.",
+        instructions: "Use this to change a raw (full-code) app — an app whose `raw_app` field is true. Send the whole `value` (`files`, `runnables`, `data`), not a patch: read the current one with getAppByPath first and edit it. The sources are compiled on a worker by the same build the editor and the CLI run, so a compile error comes back as the error of this call. Low-code apps use updateApp instead.",
         path: "/w/{workspace}/apps/update_raw_source/{path}",
         method: "POST",
         pathParamsSchema: {
@@ -1255,6 +1255,13 @@ export const mcpEndpointTools: EndpointTool[] = [
                                 "sandbox": {
                                         "type": "boolean",
                                         "description": "Publisher opt-in to app sandbox isolation (alpha). When true the app is isolated from each viewer's Windmill session. When false/absent the app runs same-origin with the viewer's full session (the default, pre-isolation behavior).\n"
+                                },
+                                "frontend_sdk_scopes": {
+                                        "type": "array",
+                                        "items": {
+                                                "type": "string"
+                                        },
+                                        "description": "Raw apps: author-declared scopes for the frontend SDK token. Takes effect only when `sandbox` is also true \u2014 an unsandboxed bundle runs with the viewer's own session, so no token is advertised or minted for it and this list stays inert. On a sandboxed app a non-empty list lets viewers mint (after consenting) a short-lived token carrying their own identity restricted to these scopes, handed to the app bundle so `windmill-client` calls run as the viewer. Must be a subset of the server's curated allowlist (jobs:run, jobs:read, users:read, resources:read, variables:read).\n"
                                 }
                         }
                 },

@@ -3,17 +3,17 @@
  * a bun job so the compile happens on a worker, not in the API process — see
  * `apps_raw_bundle.rs`, which is the only thing that runs it.
  *
- * Mirrors the two bundlers that already exist (the editor's, in the ui_builder
- * iframe, and the CLI's `createBundle`): same entry-point pick, the same virtual
- * `wmill` module, `/ui/` resolved against the workspace's shared UI, and
- * NODE_ENV pinned to production — without which React ships its dev build and
- * the bundle doubles in size.
+ * The build itself is `wmill app bundle`, the same one `wmill app push` runs, so
+ * an app deployed through the API is compiled exactly as the CLI and the editor
+ * compile it — entry point, virtual `wmill` module, `/ui/` shared-UI resolution
+ * and the Svelte/Vue plugins included. Reimplementing any of that here would be
+ * a third bundler to keep in step with the other two.
  */
 export async function main(
 	files: Record<string, string>,
-	wmill_ts: string,
-	shared_ui: Record<string, string> | undefined
-): Promise<{ js: string; css: string }> {
+	shared_ui: Record<string, string> | undefined,
+	cli_command: string[]
+): Promise<{ js_gz: string; css_gz: string }> {
 	const fs = await import('node:fs/promises')
 	const path = await import('node:path')
 
@@ -31,13 +31,16 @@ export async function main(
 	for (const [p, content] of Object.entries(files ?? {})) {
 		await write(p, content)
 	}
+	// `ui/` next to the app is where `wmill app bundle` looks for the shared UI.
 	for (const [p, content] of Object.entries(shared_ui ?? {})) {
 		await write('ui/' + p.replace(/^\/+/, ''), content)
 	}
 
 	if (files['/package.json']) {
-		// --ignore-scripts: the app's dependencies are compiled, never run, so a
-		// package's lifecycle script has no business executing on the worker.
+		// Installed here rather than left to the CLI so it can be --ignore-scripts:
+		// the app's dependencies are compiled, never run, so a package's lifecycle
+		// script has no business executing on the worker. The CLI skips its own
+		// install once node_modules exists.
 		const install = Bun.spawnSync(['bun', 'install', '--ignore-scripts'], {
 			cwd: dir,
 			stdout: 'pipe',
@@ -50,46 +53,33 @@ export async function main(
 		}
 	}
 
-	const entry = ['/index.tsx', '/index.ts', '/index.js'].find((e) => files?.[e])
-	if (!entry) {
-		throw new Error('no entry point: the app needs one of /index.tsx, /index.ts, /index.js')
+	const outDir = path.join(dir, 'dist')
+	const build = Bun.spawnSync([...cli_command, dir, '--out', outDir], {
+		cwd: dir,
+		stdout: 'pipe',
+		stderr: 'pipe'
+	})
+	if (build.exitCode !== 0) {
+		throw new Error(
+			'bundle failed:\n' + build.stdout.toString() + build.stderr.toString()
+		)
 	}
 
-	const wmillPlugin = {
-		name: 'wmill-virtual',
-		setup(build: any) {
-			build.onResolve({ filter: /^(\.\.\/)+wmill(\.ts)?$|^(\.\/|\/)?wmill(\.ts)?$/ }, () => ({
-				path: 'wmill-virtual',
-				namespace: 'wmill-virtual'
-			}))
-			build.onLoad({ filter: /.*/, namespace: 'wmill-virtual' }, () => ({
-				contents: wmill_ts,
-				loader: 'ts'
-			}))
+	const read = async (name: string) => {
+		try {
+			return await fs.readFile(path.join(outDir, name), 'utf8')
+		} catch {
+			return ''
 		}
 	}
-
-	const result = await Bun.build({
-		entrypoints: [path.join(dir, entry.replace(/^\/+/, ''))],
-		outdir: path.join(dir, 'dist'),
-		target: 'browser',
-		minify: true,
-		define: { 'process.env.NODE_ENV': '"production"' },
-		plugins: [wmillPlugin]
-	})
-	if (!result.success) {
-		throw new Error('bundle failed:\n' + (result.logs ?? []).map((l: any) => String(l)).join('\n'))
-	}
-
-	let js = ''
-	let css = ''
-	for (const out of result.outputs) {
-		const text = await out.text()
-		if (out.path.endsWith('.css')) css += text
-		else if (out.path.endsWith('.js')) js += text
-	}
+	const js = await read('bundle.js')
+	const css = await read('bundle.css')
 	if (js === '') {
-		throw new Error('bundle produced no javascript')
+		throw new Error('bundle produced no javascript:\n' + build.stdout.toString())
 	}
-	return { js, css }
+
+	// Gzipped so a large app's bundle stays well inside MAX_RESULT_SIZE_MB, which
+	// a deployment can set far below the 500MB default.
+	const gz = (s: string) => Buffer.from(Bun.gzipSync(Buffer.from(s, 'utf8'))).toString('base64')
+	return { js_gz: gz(js), css_gz: gz(css) }
 }
