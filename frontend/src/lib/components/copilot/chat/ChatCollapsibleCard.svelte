@@ -43,26 +43,24 @@
 	{#snippet headerButton()}
 		<button
 			class={twMerge(
-				'min-w-0 py-0.5 my-0.5 rounded-md hover:bg-surface-hover transition-colors inline-flex items-center text-left',
+				'min-w-0 py-0.5 my-0.5 rounded-md hover:bg-surface-hover transition-colors inline-flex items-center gap-2 text-left',
 				headerClass
 			)}
 			onclick={onToggle}
 			disabled={!toggleable}
 		>
-			<div class="flex items-center gap-2 min-w-0">
-				{@render icon?.()}
-				<span class={twMerge('text-primary font-medium text-2xs', labelClass)}>
-					{label}
-				</span>
-				{#if toggleable}
-					<ChevronRight
-						class={twMerge(
-							'w-3 h-3 text-secondary transition-transform duration-150 shrink-0',
-							expanded ? 'rotate-90' : ''
-						)}
-					/>
-				{/if}
-			</div>
+			{@render icon?.()}
+			<span class={twMerge('text-primary font-medium text-2xs', labelClass)}>
+				{label}
+			</span>
+			{#if toggleable}
+				<ChevronRight
+					class={twMerge(
+						'w-3 h-3 text-secondary transition-transform duration-150 shrink-0',
+						expanded ? 'rotate-90' : ''
+					)}
+				/>
+			{/if}
 		</button>
 	{/snippet}
 

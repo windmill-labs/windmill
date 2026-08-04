@@ -4,6 +4,7 @@
 	import { Brain, Loader2 } from 'lucide-svelte'
 	import type { DisplayMessage } from './shared'
 	import ChatCollapsibleCard from './ChatCollapsibleCard.svelte'
+	import { thinkingPreferences } from './thinkingPreferences.svelte'
 	import CodeDisplay from './script/CodeDisplay.svelte'
 	import LinkRenderer from './LinkRenderer.svelte'
 	import { workspaceStore } from '$lib/stores'
@@ -23,15 +24,40 @@
 	const reasoning = $derived(
 		message.role === 'assistant' ? message.reasoning?.trim() || undefined : undefined
 	)
+	// Set the moment thinking ends, which is mid-turn on the live message — the
+	// answer streams on afterwards.
+	const reasoningDurationMs = $derived(
+		message.role === 'assistant' ? message.reasoningDurationMs : undefined
+	)
 	// Spinner while the reasoning text streams before the answer. Only the live
 	// synthetic message carries `streaming` — a finalized reasoning-only message
 	// (thinking that led straight to a tool call) must not look in-progress.
 	const reasoningStreaming = $derived(
-		!!reasoning && message.role === 'assistant' && !!message.streaming && !message.content
+		!!reasoning &&
+			message.role === 'assistant' &&
+			!!message.streaming &&
+			!message.content &&
+			reasoningDurationMs === undefined
 	)
-	// Expand while still thinking, collapse once the answer begins — unless toggled.
+	// Undefined until this block is toggled by hand, so flipping the preference
+	// reaches every block the reader hasn't already made a decision about.
 	let reasoningToggled = $state<boolean | undefined>(undefined)
-	const reasoningExpanded = $derived(reasoningToggled ?? reasoningStreaming)
+	const reasoningExpanded = $derived(reasoningToggled ?? thinkingPreferences.expandByDefault)
+	const reasoningLabel = $derived(
+		reasoningDurationMs !== undefined
+			? `Thought for ${formatThinkingDuration(reasoningDurationMs)}`
+			: reasoningStreaming
+				? 'Thinking...'
+				: 'Thinking'
+	)
+
+	function formatThinkingDuration(ms: number): string {
+		const seconds = Math.max(1, Math.round(ms / 1000))
+		if (seconds < 60) return `${seconds}s`
+		const minutes = Math.floor(seconds / 60)
+		const rest = seconds % 60
+		return rest === 0 ? `${minutes}m` : `${minutes}m ${rest}s`
+	}
 
 	const candidatePaths = $derived(extractCandidatePaths(message.content))
 	const rendererPlugin = {
@@ -74,10 +100,11 @@
 
 {#if reasoning}
 	<ChatCollapsibleCard
-		label="Thinking"
+		label={reasoningLabel}
 		expanded={reasoningExpanded}
 		onToggle={() => (reasoningToggled = !reasoningExpanded)}
 		class="mb-2"
+		labelClass="truncate"
 		contentClass="font-sans text-secondary {markdownProse.xs}"
 	>
 		{#snippet icon()}

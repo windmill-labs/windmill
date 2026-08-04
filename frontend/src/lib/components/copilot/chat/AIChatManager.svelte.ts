@@ -428,6 +428,38 @@ export class AIChatManager {
 	// a scalar: several workspace/provider pairs can be unavailable at once, and
 	// the chat loop only notifies on first detection per pair.
 	private reasoningSummaryUnavailableFor = $state<string[]>([])
+	// Timed off arrival, not off the typewriter: the reveal paces *display*, so
+	// reading the clock there would report how long the text took to paint.
+	private reasoningStartedAt: number | undefined
+	private reasoningEndedAt: number | undefined
+	/** Set the moment thinking ends, which is mid-turn — the answer is still
+	 * streaming. Reactive so the live message settles to "Thought for X" then,
+	 * rather than waiting for the turn to finalize. */
+	currentReasoningDurationMs = $state<number | undefined>(undefined)
+
+	private markReasoningStarted() {
+		if (this.reasoningStartedAt === undefined) {
+			this.reasoningStartedAt = Date.now()
+			this.currentReasoningDurationMs = undefined
+		}
+	}
+
+	/** Thinking ends at the first answer token; a turn that thinks straight into a
+	 * tool call ends it at the message boundary instead. */
+	private markReasoningEnded() {
+		if (this.reasoningStartedAt !== undefined && this.reasoningEndedAt === undefined) {
+			this.reasoningEndedAt = Date.now()
+			this.currentReasoningDurationMs = this.reasoningEndedAt - this.reasoningStartedAt
+		}
+	}
+
+	private takeReasoningDuration(): number | undefined {
+		const duration = this.currentReasoningDurationMs
+		this.reasoningStartedAt = undefined
+		this.reasoningEndedAt = undefined
+		this.currentReasoningDurationMs = undefined
+		return duration
+	}
 
 	private reasoningSummaryKey(provider: string): string {
 		return `${this.operatingWorkspace ?? ''}:${provider}`
@@ -2931,6 +2963,7 @@ export class AIChatManager {
 			this.currentReply = ''
 			this.currentReasoning = ''
 			this.currentReasoningActive = false
+			this.takeReasoningDuration()
 
 			// Compaction trigger. Without a known context window there is no limit
 			// to enforce, so compaction stays off rather than guessing one.
@@ -2996,9 +3029,19 @@ export class AIChatManager {
 				messages: [...this.messages],
 				abortController: this.abortController,
 				callbacks: {
-					onNewToken: (token) => this.replyReveal.push(token),
-					onReasoningDelta: (token) => this.reasoningReveal.push(token),
-					onReasoningStart: () => (this.currentReasoningActive = true),
+					onNewToken: (token) => {
+						this.markReasoningEnded()
+						this.replyReveal.push(token)
+					},
+					// Not every provider fires onReasoningStart, so deltas start the clock too.
+					onReasoningDelta: (token) => {
+						this.markReasoningStarted()
+						this.reasoningReveal.push(token)
+					},
+					onReasoningStart: () => {
+						this.markReasoningStarted()
+						this.currentReasoningActive = true
+					},
 					onMessageEnd: () => {
 						// Drain any un-revealed backlog into currentReply first, so the reads
 						// below see the full text. This funnel covers clean completion, tool
@@ -3006,6 +3049,10 @@ export class AIChatManager {
 						// keeps text from being lost or duplicated on any exit path.
 						this.replyReveal.flush()
 						this.reasoningReveal.flush()
+						// A turn that reasoned straight into a tool call never saw an answer
+						// token, so this is where its thinking stops.
+						this.markReasoningEnded()
+						const reasoningDurationMs = this.takeReasoningDuration()
 						// Keep the streamed text for the abort/error paths. Non-empty only:
 						// parsers flush (and reset) when a tool call starts after text, and
 						// the catch's later empty call would wipe it — stale keeps are
@@ -3019,7 +3066,9 @@ export class AIChatManager {
 								{
 									role: 'assistant',
 									content: this.currentReply,
-									...(this.currentReasoning ? { reasoning: this.currentReasoning } : {}),
+									...(this.currentReasoning
+										? { reasoning: this.currentReasoning, reasoningDurationMs }
+										: {}),
 									contextElements:
 										this.mode === AIMode.SCRIPT
 											? oldSelectedContext.filter((c) => c.type === 'code')

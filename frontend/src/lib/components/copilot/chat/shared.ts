@@ -601,6 +601,9 @@ export type AssistantDisplayMessage = BaseDisplayMessage & {
 	role: 'assistant'
 	/** Summarized reasoning/thinking text streamed before the answer (Anthropic + compat providers). */
 	reasoning?: string
+	/** Wall time the model spent reasoning, from the first thinking token to the
+	 * first answer token. Absent on messages finalized before it was recorded. */
+	reasoningDurationMs?: number
 	/**
 	 * True only on the synthetic live message appended while tokens stream
 	 * (see AIChat.svelte). Finalized messages never set it — without the flag,
