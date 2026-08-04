@@ -31949,6 +31949,9 @@ components:
           description: the resolved resource, rendered into profiles.yml
         target:
           type: string
+        resource_type:
+          type: string
+          description: decides whether the value is translated into a profiles.yml target or already is one
       required:
         - value
 
