@@ -1121,7 +1121,7 @@ export const mcpEndpointTools: EndpointTool[] = [
     {
         name: "updateApp",
         description: "update app",
-        instructions: "Low-code apps only. An app whose `raw_app` field (from getAppByPath) is true is a raw (full-code) app: its value holds source files that must be compiled to a js/css bundle, which this tool cannot upload, so updating one here is refused. Edit a raw app in its editor at /apps_raw/edit/<path> instead.",
+        instructions: "Low-code apps only. An app whose `raw_app` field (from getAppByPath) is true is a raw (full-code) app and is refused here; use updateAppRawSource for those.",
         path: "/w/{workspace}/apps/update/{path}",
         method: "POST",
         pathParamsSchema: {
@@ -1156,6 +1156,123 @@ export const mcpEndpointTools: EndpointTool[] = [
                         "description": "(body parameter). Defaults to `path` when omitted; set it only to change the path."
                 }
         }
+},
+        queryFieldRenames: undefined,
+        bodyFieldRenames: {
+        "path__body": "path"
+}
+    },
+    {
+        name: "updateAppRawSource",
+        description: "update a raw app from its sources, compiling them on a worker (which runs the app's own dependencies to do so)",
+        instructions: "Use this to change a raw (full-code) app — an app whose `raw_app` field is true. Send the whole `value` (`files`, `runnables`, `data`), not a patch: read the current one with getAppByPath first and edit it. The sources are compiled on a worker by the same build the editor and the CLI run, so a compile error comes back as the error of this call. Compiling runs the app's own dependencies on a worker, so this tool can execute code there. Low-code apps use updateApp instead.",
+        path: "/w/{workspace}/apps/update_raw_source/{path}",
+        method: "POST",
+        pathParamsSchema: {
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string"
+                }
+        },
+        "required": [
+                "path"
+        ]
+},
+        queryParamsSchema: undefined,
+        bodySchema: {
+        "type": "object",
+        "properties": {
+                "summary": {
+                        "type": "string"
+                },
+                "value": {
+                        "type": "object",
+                        "description": "The raw app's value. `files` maps each source path (e.g. `/index.tsx`, `/App.tsx`, `/package.json`) to its content and must contain an entry point (`/index.tsx`, `/index.ts` or `/index.js`); `runnables` and `data` are carried through unchanged.",
+                        "properties": {
+                                "files": {
+                                        "type": "object",
+                                        "additionalProperties": {
+                                                "type": "string"
+                                        }
+                                },
+                                "runnables": {
+                                        "type": "object"
+                                },
+                                "data": {
+                                        "type": "object"
+                                }
+                        },
+                        "required": [
+                                "files"
+                        ]
+                },
+                "policy": {
+                        "type": "object",
+                        "properties": {
+                                "triggerables": {
+                                        "type": "object",
+                                        "additionalProperties": {
+                                                "type": "object"
+                                        }
+                                },
+                                "triggerables_v2": {
+                                        "type": "object",
+                                        "additionalProperties": {
+                                                "type": "object"
+                                        }
+                                },
+                                "s3_inputs": {
+                                        "type": "array",
+                                        "items": {
+                                                "type": "object"
+                                        }
+                                },
+                                "allowed_s3_keys": {
+                                        "type": "array",
+                                        "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                        "s3_path": {
+                                                                "type": "string"
+                                                        },
+                                                        "resource": {
+                                                                "type": "string"
+                                                        }
+                                                }
+                                        }
+                                },
+                                "execution_mode": {
+                                        "type": "string",
+                                        "description": "Possible values: viewer, publisher, anonymous"
+                                },
+                                "on_behalf_of": {
+                                        "type": "string"
+                                },
+                                "on_behalf_of_email": {
+                                        "type": "string"
+                                },
+                                "sandbox": {
+                                        "type": "boolean",
+                                        "description": "Publisher opt-in to app sandbox isolation (alpha). When true the app is isolated from each viewer's Windmill session. When false/absent the app runs same-origin with the viewer's full session (the default, pre-isolation behavior).\n"
+                                },
+                                "frontend_sdk_scopes": {
+                                        "type": "array",
+                                        "items": {
+                                                "type": "string"
+                                        },
+                                        "description": "Raw apps: author-declared scopes for the frontend SDK token. Takes effect only when `sandbox` is also true \u2014 an unsandboxed bundle runs with the viewer's own session, so no token is advertised or minted for it and this list stays inert. On a sandboxed app a non-empty list lets viewers mint (after consenting) a short-lived token carrying their own identity restricted to these scopes, handed to the app bundle so `windmill-client` calls run as the viewer. Must be a subset of the server's curated allowlist (jobs:run, jobs:read, users:read, resources:read, variables:read).\n"
+                                }
+                        }
+                },
+                "path__body": {
+                        "type": "string",
+                        "description": "(body parameter). Defaults to `path` when omitted; set it only to change the path."
+                }
+        },
+        "required": [
+                "value"
+        ]
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: {

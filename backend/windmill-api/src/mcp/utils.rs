@@ -551,7 +551,46 @@ fn jwt_scopes_for_proxied_route(
                 None,
             )
         })?;
-    Ok(Some(vec![scope]))
+    let mut scopes = vec![scope];
+    if let Some((tool, extras)) = extra_scopes_for_route(route_path) {
+        // Only when the token names this tool. `mcp:all` and `mcp:favorites` reach
+        // every endpoint without naming any, and they are the create-token and
+        // OAuth defaults — a token whose consent screen talks about scripts and
+        // flows must not come with this.
+        if caller_scopes.is_some_and(|s| selects_endpoint_tool(s, tool)) {
+            scopes.extend(extras.iter().map(|s| (*s).to_string()));
+        }
+    }
+    Ok(Some(scopes))
+}
+
+/// The tool a route belongs to and the scopes its handler requires beyond the
+/// one the route's own domain implies, added to the JWT minted for that single
+/// proxied request.
+///
+/// Minting is what keeps the grant *confined*: the JWT is built here and handed
+/// to the internal request, never to the client, so the MCP token itself stays
+/// `mcp:`-only and can't reach `/jobs/run/preview`. Putting the scope on the
+/// token instead would widen every request it makes, which is a far larger grant
+/// than the tool needs.
+fn extra_scopes_for_route(route_path: &str) -> Option<(&'static str, &'static [&'static str])> {
+    // Matched on segments: a runnable path is caller-chosen and can contain
+    // anything, so a script called `f/apps/update_raw_source/x` must not decide
+    // what its own request is minted.
+    let mut segments = route_path.split('/').skip_while(|s| *s != "w");
+    let (_, _ws) = (segments.next()?, segments.next()?);
+    // Compiling an app's sources runs the app's own dependencies on a worker, so
+    // a token reaches that capability only by naming this tool.
+    (segments.next() == Some("apps") && segments.next() == Some("update_raw_source"))
+        .then_some(("updateAppRawSource", &["jobs:run"]))
+}
+
+/// Whether the token names `tool` rather than reaching it through a blanket
+/// grant. Parsed by `windmill-mcp`, which owns the scope grammar; `mcp:all` and
+/// `mcp:favorites` yield `*` or nothing, neither of which names a tool.
+fn selects_endpoint_tool(caller_scopes: &[String], tool: &str) -> bool {
+    windmill_mcp::common::scope::parse_mcp_scopes(caller_scopes)
+        .is_ok_and(|config| config.endpoints.iter().any(|e| e == tool))
 }
 
 /// Create HTTP request with authentication
@@ -665,6 +704,44 @@ mod tests {
             jwt_scopes_for_proxied_route(Some(&s), "GET", "/api/w/ws/variables/get/u/admin/secret")
                 .unwrap(),
             Some(scopes(&["variables:read"]))
+        );
+    }
+
+    #[test]
+    fn proxy_jwt_raw_app_source_deploy_needs_the_tool_named() {
+        // The handler requires jobs:run as well: compiling an app's sources runs
+        // its dependencies on a worker. It goes in the per-request JWT, not on the
+        // token — the token stays mcp:-only and so can't reach /jobs/run/preview —
+        // and only for a token that named this tool. The defaults (mcp:favorites
+        // on create, mcp:all through OAuth) reach every endpoint without naming
+        // one, and must not carry a capability their consent screen never showed.
+        let route = "/api/w/ws/apps/update_raw_source/u/admin/app";
+        let named = scopes(&["mcp:endpoints:listScripts,updateAppRawSource"]);
+        assert_eq!(
+            jwt_scopes_for_proxied_route(Some(&named), "POST", route).unwrap(),
+            Some(scopes(&["apps:write", "jobs:run"]))
+        );
+        for implicit in [
+            scopes(&["mcp:all"]),
+            scopes(&["mcp:favorites"]),
+            scopes(&["mcp:endpoints:*"]),
+        ] {
+            assert_eq!(
+                jwt_scopes_for_proxied_route(Some(&implicit), "POST", route).unwrap(),
+                Some(scopes(&["apps:write"])),
+                "a token that never named the tool must not get jobs:run"
+            );
+        }
+        // A runnable path is caller-chosen, so it must not select the extras of a
+        // route it merely spells out.
+        assert_eq!(
+            jwt_scopes_for_proxied_route(
+                Some(&named),
+                "POST",
+                "/api/w/ws/jobs/run/p/f/apps/update_raw_source/x"
+            )
+            .unwrap(),
+            Some(scopes(&["jobs:run:scripts"]))
         );
     }
 

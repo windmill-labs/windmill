@@ -398,7 +398,10 @@ def schema_to_rust_value(schema: Optional[Dict[str, Any]]) -> str:
     """Convert a schema dict to a Rust serde_json::json! expression."""
     if schema is None:
         return "None"
-    return f"Some(serde_json::json!({json.dumps(schema, indent=8)}))"
+    # ensure_ascii=False: json.dumps would escape a non-ASCII character in a
+    # description as \uXXXX, which Rust rejects — its string literals spell it
+    # \u{XXXX}. Emitting the character itself is valid in both.
+    return f"Some(serde_json::json!({json.dumps(schema, indent=8, ensure_ascii=False)}))"
 
 def build_tool_description(operation: Dict[str, Any], method: str, path: str) -> str:
     """Build the MCP tool description from OpenAPI summary and description."""
