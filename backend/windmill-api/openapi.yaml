@@ -5899,6 +5899,41 @@ paths:
                 items:
                   $ref: "#/components/schemas/User"
 
+  /w/{workspace}/users/list_addable:
+    get:
+      summary: list instance users that can still be added to this workspace (require to be super admin)
+      operationId: listAddableInstanceUsers
+      tags:
+        - user
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: search
+          in: query
+          description: filter users whose email or username contains this string
+          schema:
+            type: string
+        - name: per_page
+          in: query
+          description: number of users to return (default 10, max 100)
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: addable instance users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    email:
+                      type: string
+                    username:
+                      type: string
+                  required:
+                    - email
+
   /w/{workspace}/users/list_usage:
     get:
       summary: list users usage
