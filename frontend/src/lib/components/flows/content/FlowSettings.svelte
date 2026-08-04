@@ -188,7 +188,7 @@
 				label="Advanced"
 				collapsable={true}
 				small={true}
-				class="h-full grow mt-2 min-h-0 flex flex-col gap-6"
+				class="h-full grow mt-2 min-h-0 flex flex-col gap-6 pb-2"
 			>
 				<!-- Worker Group Section -->
 				{#if customUi?.settingsTabs?.workerGroup != false}
