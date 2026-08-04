@@ -6,6 +6,7 @@ import {
 	matchReusablePage,
 	parseArtifactRoute,
 	parsePreviewItemRoute,
+	parsePreviewSelectedId,
 	previewLocationLabel,
 	resolvePreviewTab
 } from './previewRouter'
@@ -154,6 +155,22 @@ describe('resolvePreviewTab', () => {
 			kind: 'artifact',
 			id: 'abc 123'
 		})
+	})
+})
+
+describe('parsePreviewSelectedId', () => {
+	it('reads the step a tab was opened on, and stays out of the tab identity', () => {
+		const url = '/flows/edit/f/foo/bar?selected=b'
+		expect(parsePreviewSelectedId(url)).toBe('b')
+		expect(resolvePreviewTab(url)).toEqual({
+			kind: 'editor',
+			editorKind: 'flow',
+			path: 'f/foo/bar'
+		})
+	})
+
+	it('is undefined without the param', () => {
+		expect(parsePreviewSelectedId('/flows/edit/f/foo/bar')).toBeUndefined()
 	})
 })
 

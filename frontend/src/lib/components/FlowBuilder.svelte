@@ -114,6 +114,7 @@
 	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { setOpenInSessionHandoff } from './sessions/openInSessionContext'
 
 	let {
 		initialPath = $bindable(''),
@@ -700,6 +701,27 @@
 	// (which for a new flow differs from the live-edited friendly `$pathStore`),
 	// falling back to `$pathStore` in drawer mounts that carry no storage path.
 	const sessionTargetPath = $derived(liveEditorDraftStoragePath || $pathStore)
+
+	const sessionOpen = $derived(
+		sessionTargetPath
+			? {
+					target: { kind: 'flow' as const, path: sessionTargetPath },
+					workspaceId: opWorkspace ?? undefined,
+					beforeOpen: persistDraftForSession
+				}
+			: undefined
+	)
+
+	// Reaches the AI entry point in a step's inline-editor toolbar, which the
+	// recursive module wrapper sits too deep under to be handed a prop. `selected`
+	// is the flow editor's own step param, so the session preview opens on the
+	// step whose code the user was editing.
+	setOpenInSessionHandoff({
+		source: (opts) =>
+			sessionOpen && opts?.moduleId
+				? { ...sessionOpen, previewParams: { selected: opts.moduleId } }
+				: sessionOpen
+	})
 
 	$effect(() => {
 		if (liveEditorDraftStoragePath === undefined || !opWorkspace) return
@@ -1455,13 +1477,7 @@
 					aiChatOpen={aiChatManager.open}
 					showFlowAiButton={!disableAi && customUi?.topBar?.aiBuilder != false}
 					toggleAiChat={() => aiChatManager.toggleOpen()}
-					sessionOpen={sessionTargetPath
-						? {
-								target: { kind: 'flow', path: sessionTargetPath },
-								workspaceId: opWorkspace ?? undefined,
-								beforeOpen: persistDraftForSession
-							}
-						: undefined}
+					{sessionOpen}
 					onOpenPreview={flowPreviewButtons?.openPreview}
 					localModuleStates={showJobStatus ? localModuleStates : {}}
 					{showJobStatus}

@@ -8,6 +8,9 @@
 		target: SessionTarget
 		workspaceId?: string
 		beforeOpen?: () => void | Promise<void>
+		/** Where inside the item the preview should open (a flow's `selected`
+		 * step). Steers the editor only — tab identity is (kind, path). */
+		previewParams?: Record<string, string>
 	}
 </script>
 
@@ -48,7 +51,7 @@
 		opening = true
 		try {
 			await source.beforeOpen?.()
-			await openEditorInSession(source.target, source.workspaceId)
+			await openEditorInSession(source.target, source.workspaceId, source.previewParams)
 		} finally {
 			opening = false
 		}

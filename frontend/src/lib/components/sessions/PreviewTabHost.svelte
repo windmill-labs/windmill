@@ -9,7 +9,7 @@
 	} from './sessionState.svelte'
 	import type { SessionRuntime } from './sessionRuntime.svelte'
 	import { Loader2 } from 'lucide-svelte'
-	import { resolvePreviewTab, parsePreviewItemRoute } from './previewRouter'
+	import { resolvePreviewTab, parsePreviewItemRoute, parsePreviewSelectedId } from './previewRouter'
 	import { withMenuHidden } from './sessionMode.svelte'
 	import ArtifactViewer from '../copilot/chat/artifacts/ArtifactViewer.svelte'
 	import { setOverlayHost } from '../common/overlayHost.svelte'
@@ -57,6 +57,10 @@
 	// any editable item (script/flow/raw app) or a pipeline folder mounts its own
 	// live editor.
 	const slot = $derived(resolvePreviewTab(tab.url))
+	// Where inside the editor the tab was opened on ("open this flow step in a
+	// session"). Only the in-process editors need it handed over — an iframe tab
+	// loads the URL whole, params included.
+	const selectedId = $derived(parsePreviewSelectedId(tab.url))
 	const workspaceId = $derived(
 		session ? (getEffectiveWorkspaceId(session) ?? $workspaceStore ?? '') : ''
 	)
@@ -193,6 +197,7 @@
 					{onNavigate}
 					{isActiveSession}
 					{active}
+					initialSelectedId={selectedId}
 				/>
 			{/await}
 		{:else if slot.editorKind === 'script'}

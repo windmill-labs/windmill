@@ -182,6 +182,18 @@ export function parsePreviewItemRoute(fullPath: string): PreviewItemRoute | null
 	return { kind: 'app', raw_app: false, itemPath }
 }
 
+// The place inside a previewed flow editor its tab URL asks for (`?selected=`,
+// the same param the full-page flow editor reads). Live editors are mounted in
+// process rather than in an iframe, so the host has to read this off the tab URL
+// and seed the editor with it.
+export function parsePreviewSelectedId(url: string): string | undefined {
+	try {
+		return new URL(url, 'http://_').searchParams.get('selected') || undefined
+	} catch {
+		return undefined
+	}
+}
+
 // A `/pipeline/<folder>` route is the data-pipeline graph editor for that folder
 // (the folder is a single path segment, not a workspace item path). The bare
 // `/pipeline` list page is not an editor. Returns the folder name, or null.
