@@ -223,16 +223,22 @@ pub fn escape_ilike_pattern(s: &str) -> String {
 }
 
 lazy_static::lazy_static! {
+    /// `[\p{Alphabetic}\p{Nd}_-]`, not `[\w-]`: Postgres' `\w` is `alnum` plus
+    /// underscore, while Rust's also covers combining marks, connector
+    /// punctuation and join controls. Spelling it out keeps these in step with
+    /// the CHECK constraints below, which are the real authority — a character
+    /// accepted here and rejected there puts the raw constraint violation back
+    /// on the wire, which is what this guard exists to prevent.
+    static ref PROPER_CHAR: &'static str = r"\p{Alphabetic}\p{Nd}_-";
+
     /// Mirrors the `proper_id` CHECK shared by `script`, `flow`, `variable`,
-    /// `resource` and `schedule`, for every character assigned as of the Unicode
-    /// version `regex-syntax` is built against. Codepoints assigned later are
-    /// rejected here and accepted by Postgres, so widen this rather than
-    /// narrowing it to ASCII: an existing path that stops validating breaks
-    /// every deploy path that carries it (CLI push, git-sync, fork deploy).
-    static ref PROPER_PATH_RE: regex::Regex = regex::Regex::new(r"^[ufg](/[\w-]+){2,}$").unwrap();
+    /// `resource` and `schedule`.
+    static ref PROPER_PATH_RE: regex::Regex =
+        regex::Regex::new(&format!(r"^[ufg](/[{}]+){{2,}}$", *PROPER_CHAR)).unwrap();
     /// Mirrors the `proper_name` CHECK on `resource_type.name`, which
     /// `resource.resource_type` references without a foreign key of its own.
-    static ref PROPER_TYPE_NAME_RE: regex::Regex = regex::Regex::new(r"^[\w-]{1,50}$").unwrap();
+    static ref PROPER_TYPE_NAME_RE: regex::Regex =
+        regex::Regex::new(&format!(r"^[{}]{{1,50}}$", *PROPER_CHAR)).unwrap();
 }
 
 /// Reject a path the `proper_id` constraint would reject anyway, so the caller
@@ -1456,6 +1462,12 @@ mod tests {
             "u/admin/foo/",
             "u/admin/lawful_variable/x<script>alert(1)</script>",
             "<script>alert(1)</script>",
+            // Postgres' `\w` covers neither join controls nor combining marks;
+            // Rust's `\w` covers both, so `[\w-]` here would pass these through
+            // to the constraint and leak its message back to the caller.
+            "u/admin/a\u{200C}b",
+            "u/admin/a\u{0301}b",
+            "u/admin/a\u{203F}b",
         ] {
             assert!(check_proper_path(bad).is_err(), "{bad} should be rejected");
         }
@@ -1470,7 +1482,12 @@ mod tests {
                 "{ok} should be accepted"
             );
         }
-        for bad in ["", &"a".repeat(51), "<img src=x onerror=prompt('hacked')>"] {
+        for bad in [
+            "",
+            &"a".repeat(51),
+            "<img src=x onerror=prompt('hacked')>",
+            "a\u{200C}b",
+        ] {
             assert!(
                 check_proper_type_name(bad).is_err(),
                 "{bad} should be rejected"
