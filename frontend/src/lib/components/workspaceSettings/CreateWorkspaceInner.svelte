@@ -24,7 +24,8 @@
 	import {
 		workspaceIsFork,
 		findWorkspaceRoot,
-		findWorkspaceDescendants
+		findWorkspaceDescendants,
+		findDefaultForkBase
 	} from '$lib/utils/workspaceHierarchy'
 	import { useForkableWorkspaces } from '$lib/utils/useForkableWorkspaces.svelte'
 	import {
@@ -89,6 +90,16 @@
 			createAsDevWorkspace = false
 		}
 	})
+	// "Create a new dev workspace" links here with ?dev=true, so the button creates what it names.
+	// Applied once eligibility is confirmed rather than at init, since the effect above would clear a
+	// toggle set while the server check is still in flight.
+	let devRequestedFromUrl = $state(page.url.searchParams.get('dev') === 'true')
+	$effect(() => {
+		if (devRequestedFromUrl && canDesignateDevWorkspace) {
+			devRequestedFromUrl = false
+			createAsDevWorkspace = true
+		}
+	})
 
 	// The base workspace to fork from. A fork's git branch is based on its parent's branch, so picking
 	// a fork here (rather than the root) yields a fork of a fork.
@@ -115,7 +126,9 @@
 			subtitle: w.is_dev_workspace ? 'dev workspace' : w.id === familyRoot?.id ? undefined : 'fork'
 		}))
 	)
-	let defaultBaseWorkspaceId = $derived(familyRoot?.id)
+	let defaultBaseWorkspaceId = $derived(
+		findDefaultForkBase($workspaceStore, forkableWorkspaces)?.id
+	)
 	// Seed the base once the family is known; keep an explicit user choice as long as it stays valid.
 	$effect(() => {
 		if (!isFork) return
@@ -896,8 +909,8 @@
 						{#if createAsDevWorkspace}
 							A dev workspace is always based on the root workspace.
 						{:else}
-							Workspace to fork from. Defaults to the root; pick an existing fork to create a fork
-							of a fork (the new branch is based on the selected workspace's branch).
+							Workspace to fork from: the new branch is based on the selected workspace's branch.
+							Pick an existing fork to create a fork of a fork.
 						{/if}
 					</span>
 					<Select

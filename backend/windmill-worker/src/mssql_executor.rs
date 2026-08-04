@@ -11,6 +11,9 @@ use tiberius::{
 use tokio::net::TcpStream;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 use uuid::Uuid;
+use windmill_common::azure_workload_identity::{
+    WorkloadIdentityConfig, AZURE_SQL_SCOPE, WORKLOAD_IDENTITY_PASSWORD,
+};
 use windmill_common::utils::merge_raw_values_to_object;
 use windmill_common::worker::SqlResultCollectionStrategy;
 use windmill_common::{
@@ -148,6 +151,15 @@ pub async fn do_mssql(
                 "Integrated authentication is not available in this build. Requires mssql-kerberos (Linux) or mssql-winauth (Windows) feature.".to_string(),
             ));
         }
+    } else if database.password.as_deref() == Some(WORKLOAD_IDENTITY_PASSWORD) {
+        let workload_identity = WorkloadIdentityConfig::resolve()?;
+        let logs = format!(
+            "\nUsing Azure Workload Identity (client id {})",
+            workload_identity.client_id()
+        );
+        append_logs(&job.id, &job.workspace_id, logs, conn).await;
+        let token = workload_identity.access_token(AZURE_SQL_SCOPE).await?;
+        config.authentication(AuthMethod::aad_token(token));
     } else if let Some(token_value) = &database.aad_token {
         if let Some(token) = &token_value.token {
             config.authentication(AuthMethod::aad_token(token));
@@ -160,7 +172,7 @@ pub async fn do_mssql(
         config.authentication(AuthMethod::sql_server(user.clone(), password.clone()));
     } else {
         return Err(Error::BadRequest(
-            "No authentication method configured. Set integrated_auth, aad_token, or user/password.".to_string(),
+            "No authentication method configured. Set integrated_auth, aad_token, or user/password (password `ms_entraid` for Azure workload identity).".to_string(),
         ));
     }
 

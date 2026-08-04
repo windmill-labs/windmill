@@ -247,6 +247,8 @@ struct Workspace {
     premium: bool,
     color: Option<String>,
     parent_workspace_id: Option<String>,
+    is_dev_workspace: bool,
+    dev_workspace_label: Option<String>,
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -749,7 +751,7 @@ async fn list_workspaces(
     let mut tx = user_db.begin(&authed).await?;
     let workspaces = sqlx::query_as!(
         Workspace,
-        "SELECT workspace.id, workspace.name, workspace.owner, workspace.deleted, workspace.premium, workspace_settings.color, workspace.parent_workspace_id
+        "SELECT workspace.id, workspace.name, workspace.owner, workspace.deleted, workspace.premium, workspace_settings.color, workspace.parent_workspace_id, workspace.is_dev_workspace, workspace.dev_workspace_label
          FROM workspace
          LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
          JOIN usr ON usr.workspace_id = workspace.id
@@ -4827,7 +4829,9 @@ async fn get_workspace_as_superadmin(
             workspace.deleted AS \"deleted!\",
             workspace.premium AS \"premium!\",
             workspace_settings.color AS \"color\",
-            workspace.parent_workspace_id AS \"parent_workspace_id\"
+            workspace.parent_workspace_id AS \"parent_workspace_id\",
+            workspace.is_dev_workspace AS \"is_dev_workspace!\",
+            workspace.dev_workspace_label AS \"dev_workspace_label\"
         FROM workspace
         LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
         WHERE workspace.id = $1",
@@ -4861,7 +4865,9 @@ async fn list_workspaces_as_super_admin(
             workspace.deleted AS \"deleted!\",
             workspace.premium AS \"premium!\",
             workspace_settings.color AS \"color\",
-            workspace.parent_workspace_id AS \"parent_workspace_id\"
+            workspace.parent_workspace_id AS \"parent_workspace_id\",
+            workspace.is_dev_workspace AS \"is_dev_workspace!\",
+            workspace.dev_workspace_label AS \"dev_workspace_label\"
         FROM workspace
         LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
          LIMIT $1 OFFSET $2",
@@ -5966,7 +5972,14 @@ async fn clone_scripts(
     .execute(&mut **tx)
     .await?;
 
-    clear_orphaned_compat_address(tx, "script", "hash", source_workspace_id, target_workspace_id).await?;
+    clear_orphaned_compat_address(
+        tx,
+        "script",
+        "hash",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .await?;
 
     Ok(())
 }
@@ -6204,7 +6217,8 @@ async fn clone_flows(
     .execute(&mut **tx)
     .await?;
 
-    clear_orphaned_compat_address(tx, "flow", "path", source_workspace_id, target_workspace_id).await?;
+    clear_orphaned_compat_address(tx, "flow", "path", source_workspace_id, target_workspace_id)
+        .await?;
 
     // Then clone flow versions
     let flow_versions = sqlx::query!(
@@ -9219,6 +9233,24 @@ pub struct WorkspaceDiffRow {
     has_changes: Option<bool>,
     exists_in_source: Option<bool>,
     exists_in_fork: Option<bool>,
+    /// The last deploy event claimed on each side, per
+    /// `windmill_common::deploy_origin`. Omitted rather than null, as the schema
+    /// declares; absent means no evidence, which never justifies propagating a
+    /// removal.
+    ///
+    /// Only the fork half is consumed today, by the merge direction. The update
+    /// direction has the mirror shape (a parent-side removal it cannot attribute)
+    /// but writes to the fork rather than to prod, and gating it on evidence would
+    /// strand a row a legacy tally left without any — so the source half is
+    /// recorded and surfaced, unread, rather than left as a gap to backfill.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fork_last_event_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fork_last_event_origin: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_last_event_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_last_event_origin: Option<String>,
 }
 
 async fn compare_workspaces(
@@ -9310,7 +9342,9 @@ async fn compare_workspaces(
     // is left intact, so unpinning resurfaces it without a re-tally.
     let diff_items = sqlx::query_as!(
         WorkspaceDiffRow,
-        "SELECT path, kind, ahead, behind, has_changes, exists_in_source, exists_in_fork FROM workspace_diff
+        "SELECT path, kind, ahead, behind, has_changes, exists_in_source, exists_in_fork,
+            fork_last_event_kind, fork_last_event_origin, source_last_event_kind, source_last_event_origin
+        FROM workspace_diff
         WHERE source_workspace_id = $1 AND fork_workspace_id = $2
         AND NOT EXISTS (
             SELECT 1 FROM ws_specific ws
@@ -9571,16 +9605,39 @@ async fn compare_workspaces(
             .count(),
     };
 
-    let all_ahead_items_visible = summary.total_ahead
-        == confirmed_diffs
-            .iter()
+    // Each direction accounts for what it carries (see the frontend's
+    // `diffActionableInDirection`): a lineage merge leaves out a row the fork lacks
+    // unless the fork's own last event says it deleted or renamed it away, while the
+    // update takes it whatever the counters say — and since it can carry
+    // `behind = 0`, that side counts rows rather than sums.
+    let source_only = |d: &WorkspaceDiffRow| {
+        d.exists_in_source.unwrap_or(false) && !d.exists_in_fork.unwrap_or(false)
+    };
+    // Through the enums rather than their wire values: renaming one otherwise
+    // compiles clean on both sides and silently makes this always false.
+    let fork_removed_it = |d: &WorkspaceDiffRow| {
+        use windmill_common::deploy_origin::{DeployEventKind, DeployOrigin};
+        d.fork_last_event_origin.as_deref() == Some(DeployOrigin::Authored.as_str())
+            && d.fork_last_event_kind.as_deref().is_some_and(|k| {
+                k == DeployEventKind::Delete.as_str() || k == DeployEventKind::RenameFrom.as_str()
+            })
+    };
+    let merge_carries =
+        |d: &WorkspaceDiffRow| !is_lineage_pair || !source_only(d) || fork_removed_it(d);
+    let ahead_sum = |rows: &[WorkspaceDiffRow]| {
+        rows.iter()
+            .filter(|d| merge_carries(d))
             .map(|s| s.ahead)
-            .fold(0, |acc, s| acc + s.try_into().unwrap_or(0));
+            .fold(0i64, |acc, s| acc + i64::from(s))
+    };
+    let all_ahead_items_visible = ahead_sum(&visible_diffs) == ahead_sum(&confirmed_diffs);
     let all_behind_items_visible = summary.total_behind
         == confirmed_diffs
             .iter()
             .map(|s| s.behind)
-            .fold(0, |acc, s| acc + s.try_into().unwrap_or(0));
+            .fold(0, |acc, s| acc + s.try_into().unwrap_or(0))
+        && visible_diffs.iter().filter(|d| source_only(d)).count()
+            == confirmed_diffs.iter().filter(|d| source_only(d)).count();
 
     // Blast-radius guard for the "changes not visible to your user" warning
     // (which hides the deploy button). The flag is a pure visibility guarantee —
@@ -9620,7 +9677,9 @@ async fn compare_workspaces(
         if visible_keys.contains(&(d.kind.as_str(), d.path.as_str())) {
             continue;
         }
-        if d.ahead > 0 {
+        // Both sides mirror the flags above: a row is only withheld from a direction
+        // that would have carried it.
+        if d.ahead > 0 && merge_carries(d) {
             hidden_ahead.total += 1;
             *hidden_ahead.by_kind.entry(d.kind.clone()).or_default() += 1;
             if sees_all_items {
@@ -9629,7 +9688,7 @@ async fn compare_workspaces(
                     .push(HiddenItem { kind: d.kind.clone(), path: d.path.clone() });
             }
         }
-        if d.behind > 0 {
+        if d.behind > 0 || source_only(d) {
             hidden_behind.total += 1;
             *hidden_behind.by_kind.entry(d.kind.clone()).or_default() += 1;
             if sees_all_items {

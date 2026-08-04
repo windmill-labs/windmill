@@ -6,8 +6,9 @@
 	import { base } from '$lib/base'
 	import { twMerge } from 'tailwind-merge'
 	import { aiChatManager, AIMode } from './chat/AIChatManager.svelte'
+	import { chatState } from './chat/sharedChatState.svelte'
 	import { copilotInfo } from '$lib/aiStore'
-	import { getContext, type ComponentProps } from 'svelte'
+	import { type ComponentProps } from 'svelte'
 
 	interface Props {
 		moduleId?: string
@@ -15,10 +16,6 @@
 	}
 
 	const { moduleId, btnProps }: Props = $props()
-
-	// Inside a session pane the step's AI chat is driven by the session's own chat, so a
-	// per-step opener would be a second entry point to the same thing.
-	const inSessionPane = !!getContext('aiChatManager')
 
 	const aiChatScriptModeClasses = $derived(
 		aiChatManager.mode === AIMode.SCRIPT && aiChatManager.isOpen
@@ -40,7 +37,10 @@
 	/>
 {/snippet}
 
-{#if !inSessionPane}
+<!-- This button only opens the docked chat pane. Without one there is nothing to
+     open, so it hides rather than rendering a dead click — the flow and raw-app
+     toolbars carry the "open in AI session" entry point in that mode. -->
+{#if chatState.dockedChatAvailable}
 	{#if $copilotInfo.enabled}
 		{@render button(() => {
 			aiChatManager.openChat()

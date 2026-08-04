@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.778.0](https://github.com/windmill-labs/windmill/compare/v1.777.1...v1.778.0) (2026-08-03)
+
+
+### Features
+
+* **apps:** use the windmill-client SDK from raw app frontend code ([#10377](https://github.com/windmill-labs/windmill/issues/10377)) ([7e1c1fa](https://github.com/windmill-labs/windmill/commit/7e1c1fa3a455b8187886692567e0045658ed7013))
+* azure workload identity auth for mssql and postgres resources ([#10470](https://github.com/windmill-labs/windmill/issues/10470)) ([beef6e2](https://github.com/windmill-labs/windmill/commit/beef6e295cb4e01af00c279f406012a82d91c8c4))
+* **fork:** merge a fork deletion on evidence, not on the counters ([#10484](https://github.com/windmill-labs/windmill/issues/10484)) ([f365929](https://github.com/windmill-labs/windmill/commit/f365929eaaebf546c58ee1641a010d5f1f8b555f))
+* label ai session preview tabs by item summary ([#10475](https://github.com/windmill-labs/windmill/issues/10475)) ([b93ee66](https://github.com/windmill-labs/windmill/commit/b93ee66bba72250c17d4c7f567436b348504c2b1))
+* lazily expand s3 explorer folders one level at a time ([#10420](https://github.com/windmill-labs/windmill/issues/10420)) ([386e115](https://github.com/windmill-labs/windmill/commit/386e115daaf850ac45d10f2240bacb5758d238e6))
+
+
+### Bug Fixes
+
+* anchor overlays to their preview tab instead of the viewport ([#10477](https://github.com/windmill-labs/windmill/issues/10477)) ([b718ea8](https://github.com/windmill-labs/windmill/commit/b718ea84956995d96f4056cdbd03bd8634883921))
+* base a new fork on the dev workspace when forking from one ([#10489](https://github.com/windmill-labs/windmill/issues/10489)) ([db46d34](https://github.com/windmill-labs/windmill/commit/db46d347272c940057dca1aa7fb4b4456eea8a9e))
+* **cli:** stop a deleted raw-app .lock from dropping the whole app push ([#10473](https://github.com/windmill-labs/windmill/issues/10473)) ([4254324](https://github.com/windmill-labs/windmill/commit/42543240e87ad232f6dffde61d47cfaced766b20))
+* confirm step delete consequences in a single dialog ([#10485](https://github.com/windmill-labs/windmill/issues/10485)) ([5aeee56](https://github.com/windmill-labs/windmill/commit/5aeee564beaab5b398b0eff1ae9db8e9ef1d9bfe))
+* normalize the pipeline folder so AI node paths aren't double-prefixed ([#10479](https://github.com/windmill-labs/windmill/issues/10479)) ([4db432f](https://github.com/windmill-labs/windmill/commit/4db432f0048c9295e93ff7da0753eef7145d3623))
+* refresh the dev-workspace pairing after attach and detach ([#10491](https://github.com/windmill-labs/windmill/issues/10491)) ([fadbe07](https://github.com/windmill-labs/windmill/commit/fadbe079e4e747147861c6df495270cf2f390700))
+* report why a native trigger service refused instead of a 500 ([#10463](https://github.com/windmill-labs/windmill/issues/10463)) ([4f03aa9](https://github.com/windmill-labs/windmill/commit/4f03aa91a714eb0132cf01a6cd4f37a1a11cfe02))
+* show the fork banner to a superadmin who is not a workspace member ([#10465](https://github.com/windmill-labs/windmill/issues/10465)) ([3cef678](https://github.com/windmill-labs/windmill/commit/3cef678b5f247ec431e89cfc2a6a97e79dce2b51))
+* stop reading a parent-only fork item as deleted in the fork ([#10467](https://github.com/windmill-labs/windmill/issues/10467)) ([689f5d7](https://github.com/windmill-labs/windmill/commit/689f5d7c751f5fd8d4ceb7a79004a22afb8263b8))
+* stop the chat deleting drafts as deployed workspace items ([#10476](https://github.com/windmill-labs/windmill/issues/10476)) ([ed9fb47](https://github.com/windmill-labs/windmill/commit/ed9fb47f5a9e05aa8380d288d892f8068eaf1d0c))
+
+
+### Performance Improvements
+
+* cut ai chat request size and cache the prefix on openrouter ([#10481](https://github.com/windmill-labs/windmill/issues/10481)) ([e15bea4](https://github.com/windmill-labs/windmill/commit/e15bea419a1a65f6d9b577e918d5e617e0345da2))
+* serve the rare schedule options on demand instead of inlining them ([#10487](https://github.com/windmill-labs/windmill/issues/10487)) ([a3c59c7](https://github.com/windmill-labs/windmill/commit/a3c59c7320be961a88b581ab06ded24b80e1d544))
+
 ## [1.777.1](https://github.com/windmill-labs/windmill/compare/v1.777.0...v1.777.1) (2026-08-03)
 
 

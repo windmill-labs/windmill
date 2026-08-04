@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.777.1
+  version: 1.778.0
   title: Windmill API
 
   contact:
@@ -8499,6 +8499,7 @@ paths:
         - app
       parameters:
         - $ref: "#/components/parameters/CustomPath"
+        - $ref: "#/components/parameters/SdkConsent"
       responses:
         "200":
           description: embed token
@@ -12015,6 +12016,43 @@ paths:
                   - $ref: "#/components/schemas/AppWithLastVersion"
                   - $ref: "#/components/schemas/UserDraftOverlay"
 
+  /w/{workspace}/apps/preview_sdk_token:
+    post:
+      summary: mint a frontend SDK token for the raw app editor's preview
+      operationId: mintPreviewSdkToken
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                  description: App being edited; may not be deployed yet.
+                scopes:
+                  type: array
+                  items:
+                    type: string
+                  description: >
+                    Scopes from the policy being edited. Capped by the curated
+                    allowlist and by the caller's own scopes, and minted as the
+                    caller, so it grants nothing they could not mint themselves.
+              required:
+                - path
+                - scopes
+      responses:
+        "200":
+          description: the token
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/apps/embed_token/p/{path}:
     get:
       summary: get app embed token by path
@@ -12024,6 +12062,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
+        - $ref: "#/components/parameters/SdkConsent"
       responses:
         "200":
           description: embed token
@@ -12162,6 +12201,7 @@ paths:
           required: true
           schema:
             type: string
+        - $ref: "#/components/parameters/SdkConsent"
       responses:
         "200":
           description: embed token
@@ -21566,6 +21606,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: search
+          in: query
+          description: Match keys by path prefix, case-sensitively, on the raw key rather than per path segment (so "a/file1" matches "a/file1000"). Pushed down to the storage provider as a seek; resume with the returned next_marker.
+          schema:
+            type: string
         - name: storage
           in: query
           schema:
@@ -21593,6 +21638,67 @@ paths:
                     type: boolean
                 required:
                   - windmill_large_files
+
+  /w/{workspace}/job_helpers/list_stored_files_paged:
+    get:
+      summary: List one page of a single folder level in a workspace object storage
+      operationId: listStoredFilesPaged
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: prefix
+          in: query
+          description: Folder to list; empty for the bucket root, otherwise must end with '/'
+          schema:
+            type: string
+        - name: max_keys
+          in: query
+          description: Maximum number of folders and files combined
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+        - name: page_token
+          in: query
+          description: Opaque token from a previous response, to continue listing the same folder
+          schema:
+            type: string
+        - name: storage
+          in: query
+          schema:
+            type: string
+        - name: s3_resource_path
+          in: query
+          description: When set, list the files of this object storage resource instead of the workspace storage
+          schema:
+            type: string
+      responses:
+        "200":
+          description: One page of folders and files at this level
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  folders:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/StorageFolder"
+                  files:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/StorageFile"
+                  next_page_token:
+                    type: string
+                    description: When set, more entries remain at this level
+                  restricted_access:
+                    type: boolean
+                required:
+                  - folders
+                  - files
+                  - restricted_access
 
   /w/{workspace}/job_helpers/load_file_metadata:
     get:
@@ -24154,6 +24260,16 @@ components:
       required: true
       schema:
         type: string
+    SdkConsent:
+      name: sdk_consent
+      in: query
+      required: false
+      description: >
+        Raw apps: the viewer confirmed the frontend-SDK permissions consent
+        banner, so the viewer-scoped SDK token may actually be minted. Without
+        it the response only advertises the declared sdk_scopes.
+      schema:
+        type: boolean
     PathId:
       name: id
       in: path
@@ -30923,6 +31039,15 @@ components:
         parent_workspace_id:
           type: string
           nullable: true
+        deleted:
+          type: boolean
+          description: "Archived (soft-deleted) workspace"
+        is_dev_workspace:
+          type: boolean
+        dev_workspace_label:
+          type: string
+          nullable: true
+          description: "Cosmetic display label of the dev workspace ('dev' | 'staging'); null defaults to 'dev'"
       required:
         - id
         - name
@@ -31274,6 +31399,20 @@ components:
             is isolated from each viewer's Windmill session. When false/absent
             the app runs same-origin with the viewer's full session (the
             default, pre-isolation behavior).
+        frontend_sdk_scopes:
+          type: array
+          items:
+            type: string
+          description: >
+            Raw apps: author-declared scopes for the frontend SDK token. Takes
+            effect only when `sandbox` is also true — an unsandboxed bundle runs
+            with the viewer's own session, so no token is advertised or minted
+            for it and this list stays inert. On a sandboxed app a non-empty
+            list lets viewers mint (after consenting) a short-lived token
+            carrying their own identity restricted to these scopes, handed to
+            the app bundle so `windmill-client` calls run as the viewer. Must
+            be a subset of the server's curated allowlist (jobs:run, jobs:read,
+            users:read, resources:read, variables:read).
 
     ListableApp:
       type: object
@@ -31499,7 +31638,13 @@ components:
         token:
           type: string
           nullable: true
-          description: Narrowly-scoped embed token for the iframe. Absent for fully anonymous or raw apps, which load without a scoped token.
+          description: >
+            Scoped token for the app. For sandboxed low-code apps this is the
+            embed token handed to the opaque iframe. For a raw app it is the
+            viewer-scoped frontend SDK token, returned only when the app is
+            sandboxed, its policy declares frontend_sdk_scopes, and the request
+            carries sdk_consent=true. Absent for anonymous viewers and whenever
+            no token is needed.
         expiration:
           type: string
           format: date-time
@@ -31507,7 +31652,11 @@ components:
           description: Expiration of the embed token.
         raw_app:
           type: boolean
-          description: Raw apps render single-iframe and skip the opaque-viewer indirection and the embed token entirely.
+          description: >
+            Raw apps render single-iframe and skip the opaque-viewer
+            indirection and the embed token entirely. A sandboxed one may still
+            carry a token here: the viewer-scoped frontend SDK token, which is
+            a different credential from the low-code embed token.
         sandbox:
           type: boolean
           description: Publisher opted this app into sandbox isolation. When false the viewer runs the app same-origin with its full session.
@@ -31519,6 +31668,22 @@ components:
           type: string
           nullable: true
           description: The resolved workspace; pairs with app_path so apps at the same path in different workspaces don't share a localStorage store.
+        sdk_scopes:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: >
+            Sandboxed raw apps: scopes the app policy declares for the frontend
+            SDK token. Null when the app is unsandboxed, however the policy
+            reads. The viewer renders these in the permission prompt; token
+            stays absent until the endpoint is re-called with sdk_consent=true.
+        viewer_email:
+          type: string
+          nullable: true
+          description: >
+            The caller's own email, returned alongside sdk_scopes so the viewer
+            can key its stored "do not ask again" per person.
       required:
         - raw_app
         - sandbox
@@ -31894,6 +32059,34 @@ components:
           type: string
       required:
         - s3
+
+    StorageFolder:
+      type: object
+      properties:
+        prefix:
+          type: string
+          description: Full key prefix of the folder, ending with '/'
+        name:
+          type: string
+          description: Last path segment, without the trailing '/'
+      required:
+        - prefix
+        - name
+
+    StorageFile:
+      type: object
+      properties:
+        key:
+          type: string
+        name:
+          type: string
+        size:
+          type: integer
+        last_modified:
+          type: string
+      required:
+        - key
+        - name
 
     WindmillFileMetadata:
       type: object
@@ -32555,6 +32748,32 @@ components:
         exists_in_fork:
           type: boolean
           description: If the item exists in the fork workspace
+        fork_last_event_kind:
+          $ref: "#/components/schemas/DeployEventKind"
+        fork_last_event_origin:
+          $ref: "#/components/schemas/DeployEventOrigin"
+        source_last_event_kind:
+          $ref: "#/components/schemas/DeployEventKind"
+        source_last_event_origin:
+          $ref: "#/components/schemas/DeployEventOrigin"
+
+    DeployEventKind:
+      type: string
+      enum: ["write", "delete", "rename_from"]
+      description: |
+        What a deploy event did to the path it is recorded against: `write` (the path holds an item
+        after the event), `delete` (it does not), or `rename_from` (the path was vacated by a rename
+        to another path). Create and update are not distinguished. Omitted when no such event has
+        been recorded for that side, which counts as no evidence.
+
+    DeployEventOrigin:
+      type: string
+      enum: ["authored", "sync"]
+      description: |
+        Who caused a deploy event: `authored` (written in that workspace by the requester) or `sync`
+        (applied there by a git-sync pull or a workspace-to-workspace deploy). Only an authored
+        removal is evidence that the workspace dropped the item on purpose. Omitted when no such
+        event has been recorded for that side.
 
     CompareSummary:
       type: object
@@ -33202,8 +33421,17 @@ components:
           description: Short summary to be displayed when listed
         external_data:
           type: object
-          description: Configuration data from the external service
+          nullable: true
+          description: >-
+            Configuration data from the external service. Null when the service has no
+            such API, or when it could not be read — see external_error.
           additionalProperties: true
+        external_error:
+          type: string
+          nullable: true
+          description: >-
+            Why the external service configuration could not be read. When set,
+            external_data is null and the configuration Windmill stored is returned instead.
       required:
         - external_id
         - workspace_id

@@ -1497,6 +1497,19 @@ async fn update_flow(
 
     new_tx.commit().await?;
 
+    // See `tally_rename_vacated_path`.
+    if flow_path != nf.path {
+        if let Err(e) = windmill_git_sync::tally_rename_vacated_path(
+            &db,
+            &w_id,
+            DeployedObject::Flow { path: flow_path.to_string(), parent_path: None, version },
+        )
+        .await
+        {
+            tracing::error!(%e, "error tallying the path renamed away from");
+        }
+    }
+
     reregister_moved_native_triggers(&db, &authed, &w_id, moved_native_triggers);
 
     // Trigger CI tests for items that reference this flow

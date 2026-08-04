@@ -13,6 +13,7 @@ import {
 	ScrollText
 } from 'lucide-svelte'
 import type { DrillIcon } from '$lib/components/drillPicker'
+import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 import type { WorkspaceItem, WorkspaceItemKind } from '$lib/components/workspacePicker'
 import type { SessionTargetKind } from './sessionRuntime.svelte'
 
@@ -151,6 +152,20 @@ export function draftFriendlyLeaf(
 	return leaf && !leaf.startsWith('draft_') ? leaf : undefined
 }
 
+/** The display name for an item, from what a lister or a live editor cell knows
+ * about it: its summary when set, else the typed/auto name of an item parked at a
+ * `…/draft_<uuid>` storage path. `undefined` when neither applies, leaving the
+ * caller on `previewLocationLabel`. Shared by the live editor's tab stamp and the
+ * sessions page's pre-mount lookup so one tab can't be named two ways depending
+ * on which of them got there first. */
+export function itemDisplayName(
+	storagePath: string,
+	friendlyPath: string | undefined,
+	summary: string | undefined
+): string | undefined {
+	return summary?.trim() || draftFriendlyLeaf(storagePath, friendlyPath)
+}
+
 export type PreviewItemRoute = { kind: WorkspaceItemKind; raw_app: boolean; itemPath: string }
 
 // Parse a preview URL/pathname into the workspace item it edits, or null for a
@@ -172,7 +187,7 @@ export function parsePreviewItemRoute(fullPath: string): PreviewItemRoute | null
 // `/pipeline` list page is not an editor. Returns the folder name, or null.
 export function parsePipelineRoute(fullPath: string): string | null {
 	const m = stripBase(fullPath).match(/^\/pipeline\/([^/?#]+)/)
-	return m ? decodeURIComponent(m[1]) : null
+	return m ? normalizePipelineFolder(decodeURIComponent(m[1])) : null
 }
 
 // The id (before the hash) is the artifact's stable routing identity; the name rides in
