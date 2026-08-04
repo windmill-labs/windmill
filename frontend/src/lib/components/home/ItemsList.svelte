@@ -1143,17 +1143,29 @@
 	const SKIP_SELECTOR =
 		'[role="menu"], [role="menuitem"], [role="dialog"], [role="listbox"], [role="combobox"], [aria-expanded="true"], [data-menu], [data-chat-keyboard-scope]'
 
+	// The marker sits on the row itself, not on its title link — selection mode
+	// drops the link, and the action buttons must stay keyboard-reachable there too.
 	function getSelectedRowActionButtons(): HTMLElement[] {
-		const anchor = document.querySelector<HTMLElement>('a[data-row-keyboard-selected="true"]')
-		const actions = anchor?.parentElement?.querySelector<HTMLElement>('[data-row-actions]')
+		const actions = document.querySelector<HTMLElement>(
+			'[data-row-keyboard-selected="true"] [data-row-actions]'
+		)
 		return actions ? Array.from(actions.querySelectorAll<HTMLElement>('button, a[href]')) : []
 	}
 
 	function handleGlobalKeydown(e: KeyboardEvent) {
+		// An open dialog owns the keyboard, even when focus is still on the control
+		// that opened it (a modal opened from a button doesn't move focus). Checking
+		// only the focused element is not enough: this listener is registered on
+		// window in the capture phase before the dialog's own, so without this the
+		// list acts first — Enter would tick the highlighted row INTO the batch the
+		// dialog is confirming, and Escape would clear the whole selection instead of
+		// just dismissing the dialog. Dialogs are only in the DOM while open.
+		if (document.querySelector('[role="dialog"]')) return
+
 		const target = e.target as HTMLElement | null
 
-		// Escape leaves selection mode from either view (everything below is flat-list
-		// navigation) — unless a menu or dialog owns the key, which closes itself first.
+		// Escape leaves selection mode from either view; everything below is flat-list
+		// navigation. A menu that owns the key closes itself first.
 		if (e.key === 'Escape' && homeSelection.active) {
 			const active = document.activeElement as HTMLElement | null
 			if (!target?.closest(SKIP_SELECTOR) && !active?.closest(SKIP_SELECTOR)) {
@@ -1315,8 +1327,9 @@
 				e.preventDefault()
 				loadMoreAndPreselectFirstNew()
 			} else if (selectedIndex >= 0 && selectedIndex < displayedItems.length) {
+				// The row's title link is its first anchor (the action buttons follow it).
 				const anchor = document.querySelector<HTMLAnchorElement>(
-					'a[data-row-keyboard-selected="true"]'
+					'[data-row-keyboard-selected="true"] a[href]'
 				)
 				if (anchor) {
 					e.preventDefault()

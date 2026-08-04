@@ -124,18 +124,20 @@
 		if (action === 'discard') invalidateWorkspaceDrafts(workspace)
 		const failed = res.filter((o) => o.error != undefined)
 		await onDone()
+		// Only what the batch actually changed leaves the selection. The rows it
+		// skipped as ineligible stay ticked so the next action can still address
+		// them — a partial failure must not drop them along with the successes.
+		const untouched = items.filter((i) => !batch.some((b) => b.key === i.key)).map((i) => i.key)
 		if (failed.length === 0) {
-			sendUserToast(`${ACTION_LABEL[action]}: ${res.length} item${res.length === 1 ? '' : 's'}`)
-			// Only the acted-on items leave the selection: a filtered batch keeps the
-			// rest ticked so the next action can still address them.
-			selection.keepOnly(items.filter((i) => !batch.some((b) => b.key === i.key)).map((i) => i.key))
+			sendUserToast(`${ACTION_LABEL[action]}: ${res.length} item${plural(res.length)}`)
+			selection.keepOnly(untouched)
 			close()
 			return
 		}
-		// Keep the failures ticked (and the modal open, listing them) so they can be
-		// retried without rebuilding the selection.
+		// Keep the failures ticked too (and the modal open, listing them) so they can
+		// be retried without rebuilding the selection.
 		outcomes = res
-		selection.keepOnly(failed.map((o) => o.item.key))
+		selection.keepOnly([...untouched, ...failed.map((o) => o.item.key)])
 	}
 </script>
 

@@ -41,8 +41,10 @@
 	// Read from context rather than threaded down: the tree renders items through
 	// several nested levels that have no other reason to know about selection.
 	const homeSelection = getHomeSelection()
-	// Raw apps are not selectable: none of the bulk actions can address one (they
-	// have no draft, archive or move route from Home).
+	// A raw app the listing returns is an `app` row carrying `raw_app`, and is
+	// selectable like any other app. The separate `raw_app` type is the legacy
+	// listing shape, which renders through RawAppRow — no selection control there,
+	// so it must not enter the selection either.
 	let bulkItem = $derived(
 		homeSelection?.available && item.type !== 'raw_app'
 			? toBulkItem(item, $userStore, $workspaceStore)

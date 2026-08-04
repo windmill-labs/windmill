@@ -171,6 +171,7 @@
 <div
 	bind:this={rowEl}
 	data-home-row-key={rowSelection?.key}
+	data-row-keyboard-selected={keyboardSelected ? 'true' : undefined}
 	class={twMerge(
 		'group/row w-full inline-flex items-center gap-4 first-of-type:!border-t-0 first-of-type:rounded-t-md last-of-type:rounded-b-md [*:not(:last-child)]:border-b px-4 py-3 border-b last:border-b-0',
 		depth > 0 ? '!rounded-none' : '',
@@ -234,7 +235,6 @@
 	{#if href && !inSelectionMode}
 		<a
 			{href}
-			data-row-keyboard-selected={keyboardSelected ? 'true' : undefined}
 			class="min-w-0 grow hover:underline decoration-gray-400 inline-flex items-center gap-4"
 		>
 			{@render rowContent(!rowSelection)}

@@ -10,7 +10,10 @@ import { isOwner } from '$lib/utils'
 import { effectivePath } from './treeViewUtils'
 import type { UserExt } from '$lib/stores'
 
-export type BulkKind = 'script' | 'flow' | 'app' | 'raw_app'
+/** A raw app is not a kind of its own here: the listing returns it as an `app`
+ * row carrying `raw_app`, which every action addresses through `BulkItem.rawApp`
+ * (only the draft overlay distinguishes the two). */
+export type BulkKind = 'script' | 'flow' | 'app'
 
 /** The flattened row facts every bulk action needs, snapshotted at selection
  * time so an action still knows what it is acting on after the list reloads. */
@@ -101,6 +104,11 @@ export class HomeSelection {
 
 	register(item: BulkItem): void {
 		this.registry.set(item.key, item)
+		// Refresh the snapshot of an already-selected row too: the per-row menu stays
+		// usable during a selection and every action reloads the list, so a row that
+		// was archived or lost write access meanwhile must not keep passing the
+		// eligibility gates on its stale copy.
+		if (this.selected.has(item.key)) this.selected.set(item.key, item)
 	}
 
 	unregister(key: string): void {

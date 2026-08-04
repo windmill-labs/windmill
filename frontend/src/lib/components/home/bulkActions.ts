@@ -77,7 +77,7 @@ async function moveItem(ctx: BulkContext, item: BulkItem, target: string): Promi
 	if (newPath === item.path) return
 	await updateItemPathAndSummary({
 		workspace: ctx.workspace,
-		kind: item.kind === 'flow' ? 'flow' : item.kind === 'script' ? 'script' : 'app',
+		kind: item.kind,
 		initialPath: item.path,
 		newPath,
 		newSummary: item.summary
@@ -117,14 +117,8 @@ async function deleteItem(ctx: BulkContext, item: BulkItem): Promise<void> {
 }
 
 async function discardItemDraft(ctx: BulkContext, item: BulkItem): Promise<void> {
-	const kind =
-		item.kind === 'script'
-			? 'script'
-			: item.kind === 'flow'
-				? 'flow'
-				: item.rawApp
-					? 'raw_app'
-					: 'app'
+	// The draft overlay is the one place a raw app is its own kind.
+	const kind = item.kind === 'app' && item.rawApp ? 'raw_app' : item.kind
 	// invalidate=false: the caller refreshes the draft list once for the batch.
 	const res = await discardDraft(kind, item.path, ctx.workspace, item.draftOnly, false, false)
 	if (!res.success) throw new Error(res.error ?? 'discard failed')
