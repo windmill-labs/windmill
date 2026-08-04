@@ -437,7 +437,6 @@ def find_mcp_tools(spec: Dict[str, Any]) -> List[Dict[str, Any]]:
                     'include_fields': operation.get('x-mcp-tool-include-fields'),
                     'opaque_fields': operation.get('x-mcp-tool-opaque-fields'),
                     'include_query_params': operation.get('x-mcp-tool-include-query-params'),
-                    'extra_scopes': operation.get('x-mcp-extra-scopes', []),
                 }
                 tools.append(tool)
     
@@ -484,9 +483,6 @@ export const mcpEndpointTools: EndpointTool[] = [];
         body_schema_ts = json.dumps(body_schema, indent=8) if body_schema else "undefined"
         query_field_renames_ts = json.dumps(query_field_renames, indent=8) if query_field_renames else "undefined"
         body_field_renames_ts = json.dumps(body_field_renames, indent=8) if body_field_renames else "undefined"
-        # Scopes a token needs on top of the route's own for this tool to work;
-        # the token scope picker adds them when the tool is selected.
-        extra_scopes_ts = json.dumps(tool.get('extra_scopes') or [])
 
         # Generate tool definition
         tool_def = f"""    {{
@@ -499,8 +495,7 @@ export const mcpEndpointTools: EndpointTool[] = [];
         queryParamsSchema: {query_params_ts},
         bodySchema: {body_schema_ts},
         queryFieldRenames: {query_field_renames_ts},
-        bodyFieldRenames: {body_field_renames_ts},
-        extraScopes: {extra_scopes_ts}
+        bodyFieldRenames: {body_field_renames_ts}
     }}"""
         tool_definitions.append(tool_def)
 
@@ -521,8 +516,6 @@ export interface EndpointTool {{
     bodySchema?: object;
     queryFieldRenames?: Record<string, string>;
     bodyFieldRenames?: Record<string, string>;
-    /** Scopes a token needs on top of this route's own for the tool to work. */
-    extraScopes: string[];
 }}
 
 export const mcpEndpointTools: EndpointTool[] = [
