@@ -1,10 +1,9 @@
 <script lang="ts">
 	import Markdown from 'svelte-exmarkdown'
 	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
-	import { twMerge } from 'tailwind-merge'
-	import { Brain, ChevronDown, ChevronRight, Loader2 } from 'lucide-svelte'
-	import { slide } from 'svelte/transition'
+	import { Brain, Loader2 } from 'lucide-svelte'
 	import type { DisplayMessage } from './shared'
+	import ChatCollapsibleCard from './ChatCollapsibleCard.svelte'
 	import CodeDisplay from './script/CodeDisplay.svelte'
 	import LinkRenderer from './LinkRenderer.svelte'
 	import { workspaceStore } from '$lib/stores'
@@ -74,36 +73,22 @@
 </script>
 
 {#if reasoning}
-	<div class="mb-2 bg-surface border border-border-light rounded-md overflow-hidden text-xs">
-		<button
-			class={twMerge(
-				'w-full p-2 bg-surface-secondary/30 hover:bg-surface-hover transition-colors flex items-center gap-2 text-left',
-				reasoningExpanded ? 'border-b border-border-light' : ''
-			)}
-			onclick={() => (reasoningToggled = !reasoningExpanded)}
-		>
-			{#if reasoningExpanded}
-				<ChevronDown class="w-3 h-3 text-secondary" />
-			{:else}
-				<ChevronRight class="w-3 h-3 text-secondary" />
-			{/if}
+	<ChatCollapsibleCard
+		label="Thinking"
+		expanded={reasoningExpanded}
+		onToggle={() => (reasoningToggled = !reasoningExpanded)}
+		class="mb-2"
+		contentClass="font-sans text-secondary {markdownProse.xs}"
+	>
+		{#snippet icon()}
 			{#if reasoningStreaming}
-				<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-500" />
+				<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-500 shrink-0" />
 			{:else}
-				<Brain class="w-3.5 h-3.5 text-secondary" />
+				<Brain class="w-3 h-3 text-secondary shrink-0" />
 			{/if}
-			<span class="text-primary font-medium text-2xs">Thinking</span>
-		</button>
-
-		{#if reasoningExpanded}
-			<div
-				transition:slide={{ duration: 150 }}
-				class="p-2 bg-surface text-secondary {markdownProse.xs}"
-			>
-				<Markdown md={reasoning} plugins={[gfmPlugin()]} />
-			</div>
-		{/if}
-	</div>
+		{/snippet}
+		<Markdown md={reasoning} plugins={[gfmPlugin()]} />
+	</ChatCollapsibleCard>
 {/if}
 
 {#if message.content}

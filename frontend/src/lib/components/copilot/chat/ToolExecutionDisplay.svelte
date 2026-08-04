@@ -1,12 +1,11 @@
 <script lang="ts">
-	import { Loader2, ChevronRight, XCircle, Play } from 'lucide-svelte'
+	import { Loader2, XCircle, Play } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { getAiChatManager } from './aiChatManagerContext'
 
 	const aiChatManager = getAiChatManager()
 	import { isActiveUserQuestion, type ToolDisplayMessage } from './shared'
-	import { twMerge } from 'tailwind-merge'
-	import { slide } from 'svelte/transition'
+	import ChatCollapsibleCard from './ChatCollapsibleCard.svelte'
 	import ToolContentDisplay from './ToolContentDisplay.svelte'
 	import ToolMessageActions from './ToolMessageActions.svelte'
 	import ToolPreviewCard from './ToolPreviewCard.svelte'
@@ -38,9 +37,11 @@
 	const detailsAvailable = $derived(message.showDetails === true || message.error !== undefined)
 
 	let isExpanded = $derived(
-		(detailsAvailable && (!isSuccessful || !autoCollapseDetails)) ||
-			(message.isStreamingArguments && hasParameters) ||
-			(message.isLoading && message.needsConfirmation)
+		Boolean(
+			(detailsAvailable && (!isSuccessful || !autoCollapseDetails)) ||
+				(message.isStreamingArguments && hasParameters) ||
+				(message.isLoading && message.needsConfirmation)
+		)
 	)
 
 	const visibleActions = $derived(
@@ -65,141 +66,113 @@
 {#if activeUserQuestion}
 	<AskUserQuestionDisplay toolCallId={message.tool_call_id} userQuestion={activeUserQuestion} />
 {:else}
+	<!-- Discrete preview chip for an item a tool created/updated, pinned to the
+	     right of the header row. Rendered inline (not gated on expand) so it stays
+	     visible after the tool collapses. -->
+	{#snippet previewChip()}
+		{#if message.previewCard}
+			<ToolPreviewCard card={message.previewCard} />
+		{/if}
+	{/snippet}
+
 	<!-- Queued calls (waiting their turn behind the executing tool) are faded: the
 	     reduced weight is what says "not started" — no icon, no spinner. -->
-	<div
-		class={twMerge(
-			'font-mono text-xs',
-			message.isQueued && !message.error ? 'opacity-60 hover:opacity-100 transition-opacity' : ''
-		)}
+	<ChatCollapsibleCard
+		label={message.content}
+		expanded={isExpanded}
+		onToggle={() => (isExpanded = !isExpanded)}
+		toggleable={detailsAvailable || message.isStreamingArguments === true}
+		class={message.isQueued && !message.error
+			? 'opacity-60 hover:opacity-100 transition-opacity'
+			: ''}
+		headerClass={message.needsConfirmation ? 'opacity-80' : ''}
+		labelClass={showPreviewChip ? 'truncate' : ''}
+		contentClass="space-y-3"
+		headerRight={showPreviewChip ? previewChip : undefined}
 	>
-		<!-- Collapsible Header -->
-		{#snippet headerButton()}
-			<button
-				class={twMerge(
-					'min-w-0 py-0.5 my-0.5 rounded-md hover:bg-surface-hover transition-colors inline-flex items-center text-left',
-					message.needsConfirmation ? 'opacity-80' : ''
-				)}
-				onclick={() => (isExpanded = !isExpanded)}
-				disabled={!detailsAvailable && !message.isStreamingArguments}
-			>
-				<div class="flex items-center gap-2 min-w-0">
-					{#if message.isLoading && !message.needsConfirmation}
-						<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-500 shrink-0" />
-					{/if}
-					<span
-						class={twMerge('text-primary font-medium text-2xs', showPreviewChip ? 'truncate' : '')}
-					>
-						{message.content}
-					</span>
-
-					{#if detailsAvailable || message.isStreamingArguments}
-						<ChevronRight
-							class={twMerge(
-								'w-3 h-3 text-secondary transition-transform duration-150 shrink-0',
-								isExpanded ? 'rotate-90' : ''
-							)}
-						/>
-					{/if}
-				</div>
-			</button>
+		{#snippet icon()}
+			{#if message.isLoading && !message.needsConfirmation}
+				<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-500 shrink-0" />
+			{/if}
 		{/snippet}
 
-		<!-- Discrete preview chip for an item a tool created/updated, pinned to
-		     the right of the header row. Rendered inline (not gated on expand) so it
-		     stays visible after the tool collapses. -->
-		{#if showPreviewChip && message.previewCard}
-			<div class="flex items-center justify-between gap-2">
-				{@render headerButton()}
-				<ToolPreviewCard card={message.previewCard} />
-			</div>
-		{:else}
-			{@render headerButton()}
-		{/if}
-
 		<!-- Image a tool produced (e.g. take_screenshot) — shown inline, not gated on expand. -->
-		{#if message.imageUrl}
-			<div class="my-1">
-				<ExpandableImage
-					src={message.imageUrl}
-					alt="App preview screenshot"
-					class="max-h-48 max-w-full rounded border border-border-light"
+		{#snippet belowHeader()}
+			{#if message.imageUrl}
+				<div class="my-1">
+					<ExpandableImage
+						src={message.imageUrl}
+						alt="App preview screenshot"
+						class="max-h-48 max-w-full rounded border border-border-light"
+					/>
+				</div>
+			{/if}
+		{/snippet}
+
+		<!-- Parameters Section - show if we have parameters, or if confirmation is needed (even with empty params) -->
+		{#if hasParameters || message.needsConfirmation}
+			<div class={message.needsConfirmation ? 'opacity-80' : ''}>
+				<ToolContentDisplay
+					title="Parameters"
+					content={message.parameters}
+					streaming={message.isStreamingArguments}
+					toolName={message.toolName}
+					showFade={message.showFade}
 				/>
 			</div>
 		{/if}
 
-		<!-- Expanded Content -->
-		{#if isExpanded}
-			<div
-				transition:slide={{ duration: 150 }}
-				class="border border-border-light rounded-md bg-surface p-3 space-y-3"
-			>
-				<!-- Parameters Section - show if we have parameters, or if confirmation is needed (even with empty params) -->
-				{#if hasParameters || message.needsConfirmation}
-					<div class={message.needsConfirmation ? 'opacity-80' : ''}>
-						<ToolContentDisplay
-							title="Parameters"
-							content={message.parameters}
-							streaming={message.isStreamingArguments}
-							toolName={message.toolName}
-							showFade={message.showFade}
-						/>
-					</div>
-				{/if}
-
-				<!-- Confirmation Footer -->
-				{#if message.needsConfirmation}
-					<div class="flex flex-row items-center justify-end gap-2">
-						<Button
-							variant="default"
-							size="xs"
-							on:click={() => {
-								if (message.tool_call_id) {
-									aiChatManager.handleToolConfirmation(message.tool_call_id, false)
-								}
-							}}
-							startIcon={{ icon: XCircle }}
-							destructive
-						></Button>
-						<Button
-							variant="accent"
-							size="xs"
-							on:click={() => {
-								if (message.tool_call_id) {
-									aiChatManager.handleToolConfirmation(message.tool_call_id, true)
-								}
-							}}
-							startIcon={{ icon: Play }}
-						>
-							Run
-						</Button>
-					</div>
-
-					<!-- Logs and Result - hide while streaming -->
-				{:else if !message.isStreamingArguments}
-					<ToolContentDisplay
-						title="Logs"
-						content={message.logs}
-						loading={message.isLoading}
-						showWhileLoading={false}
-						showFade={message.showFade}
-					/>
-
-					{#if visibleActions.length > 0}
-						<ToolMessageActions actions={visibleActions} />
-					{:else if message.webSearchSources?.length && !message.error}
-						<WebSearchSourcesDisplay sources={message.webSearchSources} />
-					{:else}
-						<ToolContentDisplay
-							title="Result"
-							content={message.result}
-							error={message.error}
-							loading={message.isLoading}
-							showFade={message.showFade}
-						/>
-					{/if}
-				{/if}
+		<!-- Confirmation Footer -->
+		{#if message.needsConfirmation}
+			<div class="flex flex-row items-center justify-end gap-2">
+				<Button
+					variant="default"
+					size="xs"
+					on:click={() => {
+						if (message.tool_call_id) {
+							aiChatManager.handleToolConfirmation(message.tool_call_id, false)
+						}
+					}}
+					startIcon={{ icon: XCircle }}
+					destructive
+				></Button>
+				<Button
+					variant="accent"
+					size="xs"
+					on:click={() => {
+						if (message.tool_call_id) {
+							aiChatManager.handleToolConfirmation(message.tool_call_id, true)
+						}
+					}}
+					startIcon={{ icon: Play }}
+				>
+					Run
+				</Button>
 			</div>
+
+			<!-- Logs and Result - hide while streaming -->
+		{:else if !message.isStreamingArguments}
+			<ToolContentDisplay
+				title="Logs"
+				content={message.logs}
+				loading={message.isLoading}
+				showWhileLoading={false}
+				showFade={message.showFade}
+			/>
+
+			{#if visibleActions.length > 0}
+				<ToolMessageActions actions={visibleActions} />
+			{:else if message.webSearchSources?.length && !message.error}
+				<WebSearchSourcesDisplay sources={message.webSearchSources} />
+			{:else}
+				<ToolContentDisplay
+					title="Result"
+					content={message.result}
+					error={message.error}
+					loading={message.isLoading}
+					showFade={message.showFade}
+				/>
+			{/if}
 		{/if}
-	</div>
+	</ChatCollapsibleCard>
 {/if}
