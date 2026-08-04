@@ -371,6 +371,10 @@
 		// node's own children count undercounts because rows nest into subfolders.
 		count: number
 	}
+	// The endpoint's maximum. Expanding an owner is one deliberate click on one scoped
+	// prefix, and the tree renders every row it gets back, so paging it in browse-sized
+	// chunks would only bury the folder's contents behind "Load more".
+	const OWNER_PAGE_SIZE = 1000
 	let ownerLoad = $state<Record<string, OwnerLoadState>>({})
 	let treeOwnerItems = $state<ItemType[]>([])
 	let treeGen = 0
@@ -426,7 +430,7 @@
 				kinds: itemKind !== 'all' ? itemKind : undefined,
 				pathStart: `${owner}/`,
 				includeDraftOnly: true,
-				perPage: 100,
+				perPage: OWNER_PAGE_SIZE,
 				cursor: more ? st?.cursor : undefined
 			})
 		} catch (e: any) {
@@ -1673,7 +1677,6 @@
 			{#key treeKey}
 				<TreeViewRoot
 					items={treeSource}
-					{nbDisplayed}
 					{collapseAll}
 					sortCompare={compareItems}
 					groupDesc={sortOrder === 'name_desc'}

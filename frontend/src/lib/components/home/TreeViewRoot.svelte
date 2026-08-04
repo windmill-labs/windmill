@@ -6,7 +6,6 @@
 	interface Props {
 		collapseAll: boolean
 		showCode: (path: string, summary: string) => void
-		nbDisplayed: number
 		items: ItemType[] | undefined
 		isSearching?: boolean
 		pipelineFolders?: Set<string>
@@ -42,7 +41,6 @@
 	let {
 		collapseAll,
 		showCode,
-		nbDisplayed = $bindable(),
 		items,
 		isSearching = false,
 		pipelineFolders,
@@ -58,6 +56,12 @@
 		onExpandOwner,
 		onCollapseOwner
 	}: Props = $props()
+
+	// A root node is a collapsed one-line header until it is expanded, so rendering many
+	// costs almost nothing — unlike the list view, whose window counts actual rows. This
+	// is also how many more each click reveals.
+	const ROOT_MAX = 100
+	let rootDisplayed = $state(ROOT_MAX)
 
 	let groupedItems: ReturnType<typeof groupItems> | 'loading' = $state('loading')
 	$effect(() => {
@@ -153,7 +157,7 @@
 	</div>
 {:else}
 	<div class="border rounded-md bg-surface-tertiary">
-		{#each groupedItems.slice(0, nbDisplayed) as item, rootIndex ('folderName' in item ? `f__${item.folderName}` : 'username' in item ? `u__${item.username}` : `i__${item.type}__${item.path}`)}
+		{#each groupedItems.slice(0, rootDisplayed) as item, rootIndex ('folderName' in item ? `f__${item.folderName}` : 'username' in item ? `u__${item.username}` : `i__${item.type}__${item.path}`)}
 			{#if item}
 				<TreeView
 					{rootIndex}
@@ -175,17 +179,17 @@
 			{/if}
 		{/each}
 	</div>
-	{#if nbDisplayed < groupedItems.length || hasMoreServer}
+	{#if rootDisplayed < groupedItems.length || hasMoreServer}
 		<span class="text-xs font-normal text-secondary"
-			>{Math.min(nbDisplayed, groupedItems.length)} root nodes{hasMoreServer
+			>{Math.min(rootDisplayed, groupedItems.length)} root nodes{hasMoreServer
 				? ''
 				: ` out of ${groupedItems.length}`}
 			<button
 				class="ml-4 text-xs font-normal text-primary hover:text-emphasis"
 				onclick={() => {
-					if (nbDisplayed < groupedItems.length) nbDisplayed += 30
+					if (rootDisplayed < groupedItems.length) rootDisplayed += ROOT_MAX
 					else onLoadMore?.()
-				}}>load 30 more</button
+				}}>load {ROOT_MAX} more</button
 			></span
 		>
 	{/if}

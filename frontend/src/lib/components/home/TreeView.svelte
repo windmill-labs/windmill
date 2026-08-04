@@ -93,19 +93,20 @@
 		return (ownerCounts[ownerKey] ?? 0) + (hasPipeline ? 1 : 0)
 	})
 
-	let showMax = $state(15)
-	// A lazy owner paginates server-side ("Load more"), so when opened on its own it
-	// shows all its already-loaded rows (no second, confusing client "Show more").
-	// EXCEPT under "expand all" (collapseAll=false), which opens every visible owner at
-	// once — rendering all of each would be thousands of rows and freeze the tab — so
-	// there we cap to the client slice and let "Show more" reveal the rest per owner.
-	let effectiveMax = $derived(
-		isLazyOwner && ownerState != undefined && (isFolder(item) || isUser(item))
-			? collapseAll
-				? item.items.length
-				: Math.min(item.items.length, showMax)
-			: showMax
-	)
+	// Cap on how many of a node's already-loaded children render at once, and how many
+	// more each "Show more" reveals.
+	const SHOW_MAX = 100
+	let showMax = $state(SHOW_MAX)
+	// Opening a node by hand is a request to see what it holds, so it renders every row
+	// already loaded for it; pagination is server-side ("Load more"), not a second
+	// client cap stacked on top of it. "Expand all" and search instead open every node
+	// at once — rendering all of each would be thousands of rows and freeze the tab —
+	// so those cap to `showMax` and let "Show more" reveal the rest node by node.
+	let effectiveMax = $derived.by(() => {
+		// A leaf has no children to slice; it renders through <Item>.
+		if (!isFolder(item) && !isUser(item)) return 0
+		return collapseAll && !isSearching ? item.items.length : Math.min(item.items.length, showMax)
+	})
 
 	$effect(() => {
 		const expandAll = !collapseAll
@@ -247,7 +248,7 @@
 					<div
 						class="text-center text-xs py-2 text-secondary cursor-pointer hover:text-primary"
 						onclick={() => {
-							showMax += Math.min(30, item.items.length - showMax)
+							showMax += Math.min(SHOW_MAX, item.items.length - showMax)
 						}}
 					>
 						Show more ({showMax}/{item.items.length})
