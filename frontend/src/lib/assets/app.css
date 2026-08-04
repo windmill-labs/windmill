@@ -64,7 +64,7 @@
 	   that ignores an ancestor's `transform: scale()`, so emoji keep their unzoomed size
 	   inside the flow graph canvas. Noto's COLR glyphs are vectors and scale like any
 	   other text. unicode-range split verbatim from Google Fonts so pages fetch only the
-	   chunks they render — keep the ranges as served; editing them breaks that gating. */
+	   chunks they render — a range edited out of step with its file mis-gates that. */
 	@font-face {
 		font-family: 'Noto Color Emoji';
 		src: url('/fonts/noto-color-emoji.0.woff2') format('woff2');
