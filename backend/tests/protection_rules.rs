@@ -607,5 +607,54 @@ async fn test_protection_rule_rename(db: Pool<Postgres>) -> anyhow::Result<()> {
         assert_eq!(resp.status(), 400, "{}", why);
     }
 
+    // Names are stored verbatim and the editor submits the current name on every save, so a padded
+    // name has to survive a restrictions-only edit rather than being trimmed into a rename.
+    let padded = " padded-name ";
+    let resp = authed(
+        client().post(format!("{base}/workspaces/protection_rules")),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({
+        "name": padded,
+        "rules": ["DisableDirectDeployment"],
+        "bypass_users": [],
+        "bypass_groups": []
+    }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "setup: create the padded rule");
+
+    let resp = authed(
+        client().post(format!(
+            "{base}/workspaces/protection_rules/%20padded-name%20"
+        )),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({
+        "name": padded,
+        "rules": ["DisableWorkspaceForking"],
+        "bypass_users": [],
+        "bypass_groups": []
+    }))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "restrictions-only edit of a padded name should succeed: {}",
+        resp.text().await?
+    );
+
+    let still_there: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM workspace_protection_rule WHERE workspace_id = 'test-workspace' AND name = $1)",
+    )
+    .bind(padded)
+    .fetch_one(&db)
+    .await?;
+    assert!(
+        still_there,
+        "the padded name must not have been trimmed into a rename"
+    );
+
     Ok(())
 }

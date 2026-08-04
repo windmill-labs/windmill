@@ -143,11 +143,21 @@
 	// this workspace's own admin rights say nothing about: the rulesets tab is admin-only, so a link
 	// offered to anyone else lands them on a tab they cannot open. Asked of the parent directly, as
 	// `is_admin` is per-workspace. A superadmin is admin everywhere and has no `usr` row to find.
+	// Tagged with its workspace and guarded against a superseded response, like the rules resource
+	// above: runed keeps the previous `current` while a new source loads, so switching between dev
+	// workspaces would otherwise offer Edit based on the previous parent's role.
 	const parentUser = resource(
 		() => (isDev && parentId ? parentId : undefined),
-		async (ws) => (ws ? await getUserExt(ws) : undefined)
+		async (ws, _prev, { signal }) => {
+			if (!ws) return undefined
+			const user = await getUserExt(ws)
+			if (signal.aborted) throw new DOMException('superseded', 'AbortError')
+			return { ws, isAdmin: user?.is_admin === true }
+		}
 	)
-	let canEditParentRules = $derived($superadmin || parentUser.current?.is_admin === true)
+	let canEditParentRules = $derived(
+		$superadmin || (parentUser.current?.ws === parentId && parentUser.current?.isAdmin === true)
+	)
 
 	// With a name, deep-links into that rule's drawer; without one, the rulesets list. Built from
 	// scratch rather than from the current query so no stale `?workspace=<dev>` survives a switch.

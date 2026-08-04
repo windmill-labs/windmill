@@ -9022,11 +9022,13 @@ async fn update_protection_rule(
     // A rename moves the row's primary key, so it needs the same name checks a create does. The
     // reserved rule can be neither end of one: the dev-workspace feature finds it by name, so
     // renaming it away would strand the lock and renaming onto it would collide with the feature.
-    let new_name = req
-        .name
-        .as_deref()
-        .map(str::trim)
-        .filter(|n| *n != rule_name);
+    // Compare raw before trimming: names are stored verbatim, so a rule genuinely called
+    // " prod-lock " must survive an edit that submits its current name back untouched. Only a name
+    // that actually differs is normalized and applied.
+    let new_name = match req.name.as_deref() {
+        Some(n) if n != rule_name => Some(n.trim()).filter(|t| *t != rule_name),
+        _ => None,
+    };
     if let Some(new_name) = new_name {
         if new_name.is_empty() {
             return Err(Error::BadRequest(
