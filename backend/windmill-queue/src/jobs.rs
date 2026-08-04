@@ -6749,7 +6749,11 @@ async fn push_inner<'c, 'd>(
         language as Option<ScriptLang>,
         same_worker,
         pre_run_error.map(|e| e.to_string()),
-        email,
+        // `job_authed`'s, not the caller's: that one came through
+        // `fetch_authed_from_permissioned_as`, which re-resolves the address from the principal's
+        // live binding. The same statement writes it to `job_perms.email`, and the two columns
+        // naming different accounts is the state this is here to prevent.
+        job_authed.email,
         visible_to_owner,
         flow_innermost_root_job,
         guarded_concurrent_limit,

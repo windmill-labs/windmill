@@ -152,9 +152,9 @@ pub async fn permissioned_as_exists(
 
 /// Drop a cached address so a transactional email change is visible immediately.
 ///
-/// The address is derived at dispatch and feeds the instance-superadmin check and
-/// `email_to_igroup`, so serving a stale one would run jobs with the wrong authorization
-/// for up to the cache TTL.
+/// Not the thing that keeps authorization correct — `fetch_authed_from_permissioned_as`
+/// re-resolves the address before granting anything. This keeps the cache from serving an
+/// address that is merely wrong for the TTL, on reads and on what is shown.
 pub fn invalidate_email_cache(workspace_id: &str, username: &str) {
     EMAIL_CACHE.remove(&(workspace_id.to_string(), username.to_string()));
 }
