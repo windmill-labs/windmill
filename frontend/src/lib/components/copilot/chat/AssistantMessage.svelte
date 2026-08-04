@@ -105,7 +105,7 @@
 		onToggle={() => (reasoningToggled = !reasoningExpanded)}
 		class="mb-2"
 		labelClass="truncate"
-		contentClass="font-sans text-secondary {markdownProse.xs}"
+		contentClass="font-main text-secondary {markdownProse.xs}"
 	>
 		{#snippet icon()}
 			{#if reasoningStreaming}
