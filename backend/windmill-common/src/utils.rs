@@ -224,8 +224,11 @@ pub fn escape_ilike_pattern(s: &str) -> String {
 
 lazy_static::lazy_static! {
     /// Mirrors the `proper_id` CHECK shared by `script`, `flow`, `variable`,
-    /// `resource` and `schedule`. Rust's `\w` is a superset of Postgres', so a
-    /// path the database would accept is never rejected here.
+    /// `resource` and `schedule`, for every character assigned as of the Unicode
+    /// version `regex-syntax` is built against. Codepoints assigned later are
+    /// rejected here and accepted by Postgres, so widen this rather than
+    /// narrowing it to ASCII: an existing path that stops validating breaks
+    /// every deploy path that carries it (CLI push, git-sync, fork deploy).
     static ref PROPER_PATH_RE: regex::Regex = regex::Regex::new(r"^[ufg](/[\w-]+){2,}$").unwrap();
     /// Mirrors the `proper_name` CHECK on `resource_type.name`, which
     /// `resource.resource_type` references without a foreign key of its own.
@@ -236,6 +239,13 @@ lazy_static::lazy_static! {
 /// gets a plain 400 instead of the raw Postgres constraint-violation string,
 /// which names the table and constraint and echoes the input back.
 pub fn check_proper_path(path: &str) -> Result<()> {
+    // The column is varchar(255); without this an over-long but well-formed path
+    // still reaches Postgres and leaks the same kind of message back.
+    if path.chars().count() > 255 {
+        return Err(Error::BadRequest(
+            "Invalid path: it must be at most 255 characters".to_string(),
+        ));
+    }
     if !PROPER_PATH_RE.is_match(path) {
         return Err(Error::BadRequest(
             "Invalid path: it must be of the form u/<user>/<name>, f/<folder>/<name> or \
@@ -1426,6 +1436,47 @@ pub fn truncate_with_ellipsis(s: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The guards are only safe because they are never stricter than the DB
+    /// constraints they front. Narrowing `\w` to ASCII reads equivalent and
+    /// compiles, but would start rejecting paths that already deploy today.
+    #[test]
+    fn proper_path_matches_the_db_constraint() {
+        for ok in [
+            "u/admin/foo",
+            "f/some-folder/bar/baz",
+            "g/all/x",
+            "u/usér/nom",
+        ] {
+            assert!(check_proper_path(ok).is_ok(), "{ok} should be accepted");
+        }
+        for bad in [
+            "a/admin/foo",
+            "u/admin",
+            "u/admin/foo/",
+            "u/admin/lawful_variable/x<script>alert(1)</script>",
+            "<script>alert(1)</script>",
+        ] {
+            assert!(check_proper_path(bad).is_err(), "{bad} should be rejected");
+        }
+        assert!(check_proper_path(&format!("u/admin/{}", "a".repeat(300))).is_err());
+    }
+
+    #[test]
+    fn proper_type_name_matches_the_db_constraint() {
+        for ok in ["postgresql", "c_aws_account", "my-type", &"a".repeat(50)] {
+            assert!(
+                check_proper_type_name(ok).is_ok(),
+                "{ok} should be accepted"
+            );
+        }
+        for bad in ["", &"a".repeat(51), "<img src=x onerror=prompt('hacked')>"] {
+            assert!(
+                check_proper_type_name(bad).is_err(),
+                "{bad} should be rejected"
+            );
+        }
+    }
 
     #[test]
     fn truncate_handles_multibyte_at_boundary() {
