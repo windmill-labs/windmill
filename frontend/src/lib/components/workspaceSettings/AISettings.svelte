@@ -332,10 +332,14 @@
 			sendUserToast('AI settings updated')
 		}
 		storeInitialState()
-		// The parent owns `initialConfig`, so it must learn what was persisted: this component is
-		// destroyed when the settings tab changes, and a stale `initialConfig` would come back as the
-		// editor state on remount and overwrite the saved config on the next save.
-		await onSave?.(clone(config), settingsState)
+		// Hand the parent what was persisted: it owns `initialConfig`, and this component is
+		// destroyed on a settings tab switch, so a stale prop returns as editor state on remount
+		// and is written back by the next save. Clone it, since `providers` aliases our `$state`
+		// and the `lastLoadedConfigKey` guard would then track our own edits; pre-arm that guard
+		// so the prop update does not re-apply the config over what the editor now shows.
+		const savedConfig = clone(config)
+		lastLoadedConfigKey = JSON.stringify(savedConfig)
+		await onSave?.(savedConfig, settingsState)
 	}
 
 	async function onAiProviderChange(provider: AIProvider) {
