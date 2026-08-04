@@ -405,11 +405,12 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
     // 7. App: Admin preserves on_behalf_of
     // ========================================
 
+    // Principal only, so the stored address can only have come from deriving it.
     let resp = authed(client().post(format!("{base}/apps/create")), "SECRET_TOKEN")
         .json(&new_app_with_on_behalf_of(
             "u/test-user/app_admin_preserve",
             Some("u/original-user"),
-            Some("original@windmill.dev"),
+            None,
             true,
         ))
         .send()
@@ -434,10 +435,24 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
         Some("u/original-user"),
         "Admin should preserve app on_behalf_of"
     );
+    // The address is written through from the principal, never taken from the request, so the
+    // stored copy can only agree with it.
     assert_eq!(
         policy.get("on_behalf_of_email").and_then(|v| v.as_str()),
         Some("original@windmill.dev"),
-        "Admin should preserve app on_behalf_of_email"
+        "the stored address is derived from the principal, not the one the client sent"
+    );
+    let resp = authed(
+        client().get(format!("{base}/apps/get/p/u/test-user/app_admin_preserve")),
+        "SECRET_TOKEN",
+    )
+    .send()
+    .await?;
+    let returned: serde_json::Value = resp.json().await?;
+    assert_eq!(
+        returned["policy"]["on_behalf_of_email"].as_str(),
+        Some("original@windmill.dev"),
+        "the response returns the address written through from the principal"
     );
 
     // ========================================
@@ -476,11 +491,6 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
         Some("u/original-user"),
         "Deployer should preserve app on_behalf_of"
     );
-    assert_eq!(
-        policy.get("on_behalf_of_email").and_then(|v| v.as_str()),
-        Some("original@windmill.dev"),
-        "Deployer should preserve app on_behalf_of_email"
-    );
 
     // ========================================
     // 9. App: Non-admin cannot preserve
@@ -518,10 +528,26 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
         Some("u/test-user-2"),
         "Non-admin should have their own permissioned_as as app on_behalf_of"
     );
+
+    // ========================================
+    // 9b. App: a policy naming two different accounts is rejected
+    // ========================================
+
+    // This is the shape a workspace deploy produces when it carries the source
+    // workspace's principal beside the target's address.
+    let resp = authed(client().post(format!("{base}/apps/create")), "SECRET_TOKEN")
+        .json(&new_app_with_on_behalf_of(
+            "u/test-user/app_mismatched_pair",
+            Some("u/original-user"),
+            Some("test2@windmill.dev"),
+            true,
+        ))
+        .send()
+        .await?;
     assert_eq!(
-        policy.get("on_behalf_of_email").and_then(|v| v.as_str()),
-        Some("test2@windmill.dev"),
-        "Non-admin should have their own email as app on_behalf_of_email"
+        resp.status(),
+        400,
+        "a policy whose two halves name different accounts must be rejected"
     );
 
     // ========================================
@@ -1238,11 +1264,6 @@ async fn test_app_update_preserves_on_behalf_of(db: Pool<Postgres>) -> anyhow::R
         Some("u/original-user"),
         "Admin update should preserve app on_behalf_of"
     );
-    assert_eq!(
-        policy.get("on_behalf_of_email").and_then(|v| v.as_str()),
-        Some("original@windmill.dev"),
-        "Admin update should preserve app on_behalf_of_email"
-    );
 
     // ========================================
     // Deployer updates with preserve flag
@@ -1303,11 +1324,6 @@ async fn test_app_update_preserves_on_behalf_of(db: Pool<Postgres>) -> anyhow::R
         policy.get("on_behalf_of").and_then(|v| v.as_str()),
         Some("u/original-user"),
         "Deployer update should preserve app on_behalf_of"
-    );
-    assert_eq!(
-        policy.get("on_behalf_of_email").and_then(|v| v.as_str()),
-        Some("original@windmill.dev"),
-        "Deployer update should preserve app on_behalf_of_email"
     );
 
     // ========================================
@@ -1370,10 +1386,69 @@ async fn test_app_update_preserves_on_behalf_of(db: Pool<Postgres>) -> anyhow::R
         Some("u/test-user-2"),
         "Non-admin update should overwrite app on_behalf_of with their own"
     );
+
+    Ok(())
+}
+
+
+
+/// A superadmin acting outside their workspaces has no `usr` row, so the per-workspace rename
+/// sweep never reaches the apps that name them. Their principal is their instance username, so
+/// without a global sweep a rename leaves those apps naming an account that resolves to nobody.
+#[sqlx::test(fixtures("preserve_on_behalf_of"))]
+async fn test_rename_sweeps_external_superadmin_app_identity(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+    let path = "u/original-user/app_run_by_external_superadmin";
+
+    let resp = authed(client().post(format!("{base}/apps/create")), "SECRET_TOKEN")
+        .json(&new_app_with_on_behalf_of(
+            path,
+            Some("u/superadmin-external"),
+            Some("superadmin-external@windmill.dev"),
+            true,
+        ))
+        .send()
+        .await?;
     assert_eq!(
-        policy.get("on_behalf_of_email").and_then(|v| v.as_str()),
-        Some("test2@windmill.dev"),
-        "Non-admin update should overwrite app on_behalf_of_email with their own"
+        resp.status(),
+        201,
+        "Should create app: {}",
+        resp.text().await?
+    );
+
+    let resp = authed(
+        client().post(format!(
+            "http://localhost:{port}/api/users/rename/superadmin-external@windmill.dev"
+        )),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({ "new_username": "superadmin_renamed" }))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "Should rename: {}",
+        resp.text().await?
+    );
+
+    let app = sqlx::query!(
+        "SELECT policy FROM app WHERE path = $1 AND workspace_id = $2",
+        path,
+        "test-workspace"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        app.policy.get("on_behalf_of").and_then(|v| v.as_str()),
+        Some("u/superadmin_renamed"),
+        "the rename should follow the principal an app names"
     );
 
     Ok(())

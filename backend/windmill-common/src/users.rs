@@ -159,6 +159,12 @@ pub fn invalidate_email_cache(workspace_id: &str, username: &str) {
     EMAIL_CACHE.remove(&(workspace_id.to_string(), username.to_string()));
 }
 
+/// Drop this name's entry in every workspace, for the changes that know the name but not the
+/// workspace: a superadmin resolves through `password`, whose row names no workspace of its own.
+pub fn invalidate_email_cache_for_username(username: &str) {
+    EMAIL_CACHE.retain(|(_workspace_id, cached_username), _| cached_username != username);
+}
+
 /// Inverse of [`get_email_from_permissioned_as`]: the principal an on-behalf-of email
 /// names in this workspace, for callers that supply the email alone.
 ///
@@ -219,6 +225,27 @@ pub async fn permissioned_as_from_email(
 /// - "u/{username}" → resolve via [`resolve_username_to_email`] (cached)
 /// - "g/{group}" → "group-{group}@windmill.dev"
 /// - raw email → return as-is
+///
+/// `notify_user_email_change` evicts the key on every replica for each change that can move it,
+/// but the poller delivers that asynchronously, so a hit can still be the old address for the
+/// length of one poll.
+///
+/// Which of the two to use is a question of how long a wrong answer lives, not of whether it is
+/// stored — both of these get stored and read back. A config row (an app policy, a schedule, a
+/// runnable) is the authority for every run that follows it, so a stale address there is
+/// permanent and invisible: those use [`get_email_from_permissioned_as_uncached`]. Job dispatch
+/// also stores its answer, and the worker reads it back to build that run's authed, but it
+/// governs one job and dies with it, so it stays here.
+///
+/// What makes a stale dispatch address harmless is not that bound, though — it is that nothing is
+/// authorized from the address itself. `fetch_authed_from_permissioned_as` re-reads
+/// `password.super_admin` and `email_to_igroup` live, keyed on it, and `change_user_email` moves
+/// both onto the new address, so a stale one matches nothing and grants nothing: the direction is
+/// de-privileging, never escalation. Memoize an `Authed` beside the address, or grant from this
+/// string without that live re-read, and dispatch has to move to the uncached variant.
+///
+/// Reads through the non-RLS pool and authorizes nothing — callers must already be authorized
+/// for `workspace_id`.
 pub async fn get_email_from_permissioned_as<'c>(
     permissioned_as: &str,
     workspace_id: &str,
@@ -227,13 +254,21 @@ pub async fn get_email_from_permissioned_as<'c>(
     get_email_from_permissioned_as_inner(permissioned_as, workspace_id, db, true).await
 }
 
-/// [`get_email_from_permissioned_as`] without the address cache. Nothing evicts that cache
-/// across processes, so for a minute after an email change it still serves the old address —
-/// fine where the address only labels something on screen, wrong where it decides whether a
-/// write is accepted or is copied onto a job row that outlives the window.
+/// [`get_email_from_permissioned_as`] for a value about to be **persisted**.
 ///
-/// Reads through the non-RLS pool and authorizes nothing, like the cached one: callers must
-/// already be authorized for `workspace_id`.
+/// The eviction is delivered by the `notify_event` poller, not synchronously, so for a few
+/// seconds after a change a replica can still serve the old address. In a config row that is
+/// permanent: the row outlives the eviction, every later run trusts it, and nothing re-derives
+/// it, so a principal and an address that name different accounts stay that way.
+///
+/// Use this for three cases, all of which end in a stored pair:
+/// - writing the address into a row;
+/// - the lookup that validates a pair before it is stored;
+/// - **reads whose result the client sends back** — a script or a workspace export hands over a
+///   principal and address together, and a redeploy validates that pair against a fresh
+///   resolution, so a stale one comes back as a rejected deploy rather than a stale display.
+///
+/// See [`get_email_from_permissioned_as`] for the dispatch case that deliberately does not.
 pub async fn get_email_from_permissioned_as_uncached<'c>(
     permissioned_as: &str,
     workspace_id: &str,

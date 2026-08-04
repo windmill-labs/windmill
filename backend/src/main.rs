@@ -1831,6 +1831,17 @@ async fn process_notify_event(
             );
             windmill_api::auth::invalidate_token_from_cache(payload);
         }
+        "notify_user_email_change" => {
+            // `<workspace_id>:<username>`, or `*:<username>` from a `password` change, which
+            // knows the name but no workspace. Workspace ids can't contain ':'.
+            if let Some(username) = payload.strip_prefix("*:") {
+                tracing::info!("Superadmin identity change detected, invalidating: {username}");
+                windmill_common::users::invalidate_email_cache_for_username(username);
+            } else if let Some((workspace_id, username)) = payload.split_once(':') {
+                tracing::info!("User email change detected, invalidating cache: {payload}");
+                windmill_common::users::invalidate_email_cache(workspace_id, username);
+            }
+        }
         "notify_app_policy_change" => {
             // payload is `<workspace_id>:<path>`; workspace ids can't contain ':'.
             if server_mode {

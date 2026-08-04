@@ -1701,11 +1701,8 @@ pub async fn on_behalf_of_from_permissioned_as(
     let Some(permissioned_as) = permissioned_as else {
         return Ok(None);
     };
-    // Uncached: the address is copied onto the job row, where it stays for the life of the run
-    // and decides the superadmin flag and the instance groups. Nothing evicts the cache across
-    // processes, so a cached read would keep minting jobs under an address the account no longer
-    // holds for up to a minute after it moves.
-    let email = users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db).await?;
+    // Cached on purpose: the dispatch case `get_email_from_permissioned_as` carves out.
+    let email = users::get_email_from_permissioned_as(permissioned_as, w_id, db).await?;
     Ok(Some(jobs::OnBehalfOf { email, permissioned_as: permissioned_as.to_string() }))
 }
 

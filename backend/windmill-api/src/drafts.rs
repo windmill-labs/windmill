@@ -657,6 +657,7 @@ async fn get_own_draft(
     Ok(Json(row))
 }
 
+
 /// The deployed table RLS resolves item-level `extra_perms` against.
 /// Delegates to `UserDraftItemKind::deployed_table()` (the shared single
 /// source); `None` kinds fall through to the path-only access check.

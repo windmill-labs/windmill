@@ -377,6 +377,44 @@ async fn fetch_authed_from_permissioned_as_inner(
     w_id: &str,
     conn: &mut sqlx::PgConnection,
 ) -> Result<Authed> {
+    // The `usr` row is the live binding between a `u/` principal and an address, and it is read
+    // here anyway for the workspace role. Callers may hand us a cached address, so read it before
+    // anything is granted: `super_admin` and `email_to_igroup` below are keyed on the address
+    // while the role is keyed on the principal, and an address that no longer belongs to this
+    // principal — a username freed and reassigned while its previous holder keeps a privileged
+    // account — would mix one account's role with another's instance privileges.
+    let member = match permissioned_as.split_once('/') {
+        Some(("u", name)) => sqlx::query!(
+            "SELECT is_admin, operator, email FROM usr where username = $1 AND \
+                                         workspace_id = $2 AND disabled = false",
+            name,
+            &w_id
+        )
+        .fetch_optional(&mut *conn)
+        .await?,
+        _ => None,
+    };
+    let resolved_email;
+    let email = match member.as_ref() {
+        Some(m) => m.email.as_str(),
+        // No `usr` row: the principal names an account only `password` knows, so validate against
+        // the same fallback `resolve_username_to_email` uses. Reached only for a superadmin acting
+        // outside their workspaces, which is why it is worth a query the member path does not pay.
+        None => match permissioned_as.split_once('/') {
+            Some(("u", name)) => {
+                resolved_email = sqlx::query_scalar!(
+                    "SELECT email FROM password WHERE (username = $1 OR email = $1) \
+                     AND super_admin = true ORDER BY email LIMIT 1",
+                    name
+                )
+                .fetch_optional(&mut *conn)
+                .await?;
+                resolved_email.as_deref().unwrap_or(email)
+            }
+            _ => email,
+        },
+    };
+
     let is_super_admin = permissioned_as == SUPERADMIN_SYNC_EMAIL
         || email == SUPERADMIN_SECRET_EMAIL
         || email == SUPERADMIN_NOTIFICATION_EMAIL
@@ -390,22 +428,12 @@ async fn fetch_authed_from_permissioned_as_inner(
         if prefix == "u" {
             let (is_admin, is_operator) = if is_super_admin {
                 (true, false)
+            } else if let Some(m) = member.as_ref() {
+                (m.is_admin, m.operator)
             } else {
-                let r = sqlx::query!(
-                    "SELECT is_admin, operator FROM usr where username = $1 AND \
-                                                 workspace_id = $2 AND disabled = false",
-                    name,
-                    &w_id
-                )
-                .fetch_optional(&mut *conn)
-                .await?;
-                if let Some(r) = r {
-                    (r.is_admin, r.operator)
-                } else {
-                    return Err(Error::NotFound(format!(
-                        "user {name} not found in workspace {w_id}"
-                    )));
-                }
+                return Err(Error::NotFound(format!(
+                    "user {name} not found in workspace {w_id}"
+                )));
             };
 
             let groups = get_groups_for_user(w_id, &name, email, &mut *conn).await?;
