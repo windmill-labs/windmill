@@ -179,6 +179,7 @@ fn plan_role_changes(
     old: Option<&DataTablePermissions>,
     req: &SetDatatablePermissions,
     existing_pg_roles: &HashSet<String>,
+    public_schema_is_open: bool,
 ) -> Result<RolePlan> {
     // A disabled data table has no Postgres roles, whatever its config says, so
     // re-enabling always plans every role as a creation.
@@ -388,6 +389,7 @@ fn plan_role_changes(
                         ));
                         creates_sql.push(create_role_statement(&pg_rolename, &password));
                         creates_sql.push(grant_role_to_root_statement(&pg_rolename, root_pg_role));
+                        creates_sql.push(revoke_public_create_statement(&pg_rolename));
                         creates_sql.push(grant_connect_statement(&pg_rolename, dbname));
                     }
                 }
@@ -423,6 +425,7 @@ fn plan_role_changes(
                     creates_sql.push(create_role_statement(&pg_rolename, &password));
                 }
                 creates_sql.push(grant_role_to_root_statement(&pg_rolename, root_pg_role));
+                creates_sql.push(revoke_public_create_statement(&pg_rolename));
                 creates_sql.push(grant_connect_statement(&pg_rolename, dbname));
                 roles.insert(
                     name.clone(),
@@ -434,6 +437,19 @@ fn plan_role_changes(
                 );
             }
         }
+    }
+
+    // A role that can still create objects in `public` defeats "created bare".
+    // Only the schema's owner or a superuser can close that off, and the data
+    // table's own role is usually neither — Postgres silently ignores the REVOKE
+    // otherwise — so say it rather than emit a statement that would do nothing.
+    if public_schema_is_open && !creates_sql.is_empty() {
+        warnings.push(
+            "CREATE on schema `public` is granted to PUBLIC in this database, so new roles can \
+             still create objects there — Postgres cannot deny it per role. To close it, a \
+             superuser or the schema's owner must run: REVOKE CREATE ON SCHEMA public FROM PUBLIC;"
+                .to_string(),
+        );
     }
 
     statements.extend(order_renames(
@@ -516,6 +532,19 @@ fn order_renames(
 /// on exactly the data tables whose root is `custom_instance_user` rather than a
 /// superuser. A plain GRANT is used rather than `WITH INHERIT TRUE` so the
 /// statement also parses on Postgres before 16.
+/// Keep a created role out of the `public` schema.
+///
+/// Roles are created bare and privileges are added additively, which has to
+/// include not being able to make objects. This only strips a *direct* grant —
+/// when CREATE is held by `PUBLIC` the role still has it, and Postgres has no
+/// per-role deny, so the plan warns instead (see `public_schema_warning`).
+fn revoke_public_create_statement(pg_rolename: &str) -> PlannedStatement {
+    PlannedStatement::plain(format!(
+        "REVOKE CREATE ON SCHEMA public FROM {};",
+        quote_ident(pg_rolename)
+    ))
+}
+
 fn grant_role_to_root_statement(pg_rolename: &str, root_pg_role: &str) -> PlannedStatement {
     PlannedStatement::plain(format!(
         "GRANT {} TO {};",
@@ -573,11 +602,22 @@ async fn read_datatable(db: &DB, w_id: &str, datatable_name: &str) -> Result<Dat
 /// Connect to the data table's own database as `root` and report the identity
 /// the plan has to be built against: the database name, the role that owns the
 /// existing objects, and the roles that actually exist in the cluster.
+/// What the plan has to be built against, probed from the data table's own
+/// database rather than assumed from its config.
+struct RootConnection {
+    dbname: String,
+    root_pg_role: String,
+    existing_pg_roles: HashSet<String>,
+    /// Whether `PUBLIC` holds CREATE on schema `public`, i.e. every role in this
+    /// database — including the ones created here — can make objects in it.
+    public_schema_is_open: bool,
+}
+
 async fn connect_as_root(
     db: &DB,
     w_id: &str,
     datatable_name: &str,
-) -> Result<(tokio_postgres::Client, String, String, HashSet<String>)> {
+) -> Result<(tokio_postgres::Client, RootConnection)> {
     let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {e}")))?;
@@ -616,7 +656,31 @@ async fn connect_as_root(
         .map(|row| row.get::<_, String>(0))
         .collect();
 
-    Ok((client, dbname, root_pg_role, existing_pg_roles))
+    // grantee 0 is PUBLIC. A NULL acl means the server default, which granted
+    // PUBLIC CREATE on `public` before Postgres 15.
+    let public_schema_is_open: bool = client
+        .query_one(
+            "SELECT COALESCE(
+                 (SELECT bool_or(a.privilege_type = 'CREATE' AND a.grantee = 0)
+                  FROM pg_namespace n, aclexplode(n.nspacl) a
+                  WHERE n.nspname = 'public'),
+                 current_setting('server_version_num')::int < 150000
+             )",
+            &[],
+        )
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to inspect the public schema: {}",
+                pg_error_message(&e)
+            ))
+        })?
+        .get(0);
+
+    Ok((
+        client,
+        RootConnection { dbname, root_pg_role, existing_pg_roles, public_schema_is_open },
+    ))
 }
 
 async fn build_plan(
@@ -626,16 +690,16 @@ async fn build_plan(
     req: &SetDatatablePermissions,
 ) -> Result<(tokio_postgres::Client, RolePlan)> {
     let datatable = read_datatable(db, w_id, datatable_name).await?;
-    let (client, dbname, root_pg_role, existing_pg_roles) =
-        connect_as_root(db, w_id, datatable_name).await?;
+    let (client, conn) = connect_as_root(db, w_id, datatable_name).await?;
     let plan = plan_role_changes(
         w_id,
         datatable_name,
-        &dbname,
-        &root_pg_role,
+        &conn.dbname,
+        &conn.root_pg_role,
         datatable.permissions.as_ref(),
         req,
-        &existing_pg_roles,
+        &conn.existing_pg_roles,
+        conn.public_schema_is_open,
     )?;
     Ok((client, plan))
 }
@@ -868,6 +932,15 @@ mod tests {
         req: &SetDatatablePermissions,
         existing: &[&str],
     ) -> Result<RolePlan> {
+        plan_with_public(old, req, existing, false)
+    }
+
+    fn plan_with_public(
+        old: Option<&DataTablePermissions>,
+        req: &SetDatatablePermissions,
+        existing: &[&str],
+        public_schema_is_open: bool,
+    ) -> Result<RolePlan> {
         plan_role_changes(
             W_ID,
             DT,
@@ -876,6 +949,7 @@ mod tests {
             old,
             req,
             &existing.iter().map(|r| r.to_string()).collect(),
+            public_schema_is_open,
         )
     }
 
@@ -901,7 +975,12 @@ mod tests {
             sql(&plan)[1],
             format!("GRANT \"{pg_role}\" TO \"{ROOT_PG}\";")
         );
-        assert!(sql(&plan)[2].contains("has_database_privilege"));
+        // Created bare: it must not be able to make objects in `public`.
+        assert_eq!(
+            sql(&plan)[2],
+            format!("REVOKE CREATE ON SCHEMA public FROM \"{pg_role}\";")
+        );
+        assert!(sql(&plan)[3].contains("has_database_privilege"));
 
         let stored = &plan.permissions.roles["analyst"];
         assert_eq!(stored.pg_rolename.as_deref(), Some(pg_role.as_str()));
@@ -911,6 +990,34 @@ mod tests {
         assert!(plan.permissions.roles[ROOT_DATATABLE_ROLE]
             .pg_rolename
             .is_none());
+    }
+
+    /// A role-scoped REVOKE cannot take back what PUBLIC holds, so the plan has
+    /// to say so instead of pretending the statement closed it.
+    #[test]
+    fn an_open_public_schema_is_warned_about_not_silently_revoked() {
+        let req = SetDatatablePermissions {
+            enabled: true,
+            roles: vec![role("root", &[]), role("analyst", &[])],
+            default_role: None,
+            renames: vec![],
+        };
+
+        let closed = plan_with_public(None, &req, &[], false).unwrap();
+        assert!(closed.warnings.is_empty(), "{:?}", closed.warnings);
+
+        let open = plan_with_public(None, &req, &[], true).unwrap();
+        assert!(
+            open.warnings
+                .iter()
+                .any(|w| w.contains("REVOKE CREATE ON SCHEMA public FROM PUBLIC")),
+            "{:?}",
+            open.warnings
+        );
+        // The plan still runs the role-scoped revoke, which strips a direct grant.
+        assert!(sql(&open)
+            .iter()
+            .any(|s| s.starts_with("REVOKE CREATE ON SCHEMA public FROM \"wm_")));
     }
 
     #[test]
