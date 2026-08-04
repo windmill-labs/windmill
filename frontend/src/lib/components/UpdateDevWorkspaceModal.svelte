@@ -174,8 +174,11 @@
 		const req = pending
 		if (!req || updating) return
 		if (!canDeploy) {
+			// Read before closing: the href is derived from the request being answered, so clearing it
+			// first leaves nothing to navigate to.
+			const href = compareHref
 			close()
-			await goto(compareHref)
+			await goto(href)
 			return
 		}
 		updating = true
