@@ -14,6 +14,7 @@
 		type ResolvedExpandedSubflowStep
 	} from '../expandedSubflowStep'
 	import { parseExpandedSubflowId } from '$lib/components/restartFromStepPath'
+	import { base } from '$app/paths'
 
 	interface Props {
 		/** Graph node id of the selected step, of the form `subflow:<step>[:<step>...]:<leaf>`. */
@@ -32,8 +33,9 @@
 
 	// Modules of the subflows crossed so far: the panel stays mounted while the user clicks
 	// through the expansion, so without this every click refetches the whole chain. Deploying
-	// a subflow bumps the generation, which is part of the key, rather than invalidating it.
+	// a subflow bumps the generation, which drops what the cache holds.
 	let modulesCache = new Map<string, FlowModule[]>()
+	let cachedGeneration = 0
 	let generation = $state(0)
 	// `undefined` while resolving. A resolution is only applied when it is still the one the
 	// current selection asked for, so a slower deep chain can't overwrite a newer selection.
@@ -42,11 +44,15 @@
 
 	$effect(() => {
 		const [id, ws, gen] = [selectedId, opWs, generation]
+		if (gen !== cachedGeneration) {
+			modulesCache.clear()
+			cachedGeneration = gen
+		}
 		const request = ++latestRequest
 		loaded = undefined
 		const rootModules = untrack(() => $state.snapshot(flowStore.val.value.modules) as FlowModule[])
 		resolveExpandedSubflowStep(id, rootModules, async (path) => {
-			const key = `${gen}:${ws}:${path}`
+			const key = `${ws}:${path}`
 			let modules = modulesCache.get(key)
 			if (!modules) {
 				modules = (await FlowService.getFlowByPath({ workspace: ws!, path })).value.modules
@@ -110,7 +116,7 @@
 					title="Open the subflow in a new tab"
 					startIcon={{ icon: ExternalLink }}
 					iconOnly
-					href={`/flows/edit/${containingFlowPath}?workspace=${opWs}${
+					href={`${base}/flows/edit/${containingFlowPath}?workspace=${opWs}${
 						module ? `&selected=${encodeURIComponent(leafId)}` : ''
 					}`}
 					target="_blank"

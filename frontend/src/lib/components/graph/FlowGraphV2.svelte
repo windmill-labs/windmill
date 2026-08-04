@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { FlowService, type FlowModule, type FlowNote, type Job, type OpenFlow } from '../../gen'
 	import { findStepPath, parseExpandedSubflowId } from '$lib/components/restartFromStepPath'
+	import { expandedSubflowParentId } from '../flows/expandedSubflowStep'
+	import { sendUserToast } from '$lib/utils'
 	import { AI_OR_ASSET_NODE_TYPES, NODE, type GraphModuleState } from '.'
 	import { getContext, onDestroy, onMount, tick, untrack, type Snippet } from 'svelte'
 	import { createFlowDiffManager } from '../flows/flowDiffManager.svelte'
@@ -1095,12 +1097,10 @@
 	/** Flow an expanded subflow node stands for, read from the step it inlines: the edited
 	 * flow for a top-level expansion, the enclosing expansion's modules otherwise. */
 	function expandedSubflowPath(nodeId: string): string | undefined {
-		const parsed = parseExpandedSubflowId(nodeId)
-		const steps = parsed?.subflowSteps
-		const parentModules = steps
-			? expandedSubflows[steps.length > 1 ? 'subflow:' + steps.join(':') : steps[0]]?.modules
-			: modules
-		const value = parentModules && findStepPath(parentModules, parsed?.leaf ?? nodeId)?.target.value
+		const parentId = expandedSubflowParentId(nodeId)
+		const parentModules = parentId == undefined ? modules : expandedSubflows[parentId]?.modules
+		const stepId = parseExpandedSubflowId(nodeId)?.leaf ?? nodeId
+		const value = parentModules && findStepPath(parentModules, stepId)?.target.value
 		return value && value.type === 'flow' ? value.path : undefined
 	}
 
@@ -1124,7 +1124,7 @@
 				const flow = await FlowService.getFlowByPath({ workspace: workspace, path })
 				expandedSubflows[id] = { modules: flow.value.modules, groups: flow.value.groups }
 			} catch (err) {
-				console.error(`Could not reload expanded subflow ${path}`, err)
+				sendUserToast(`Could not reload expanded subflow ${path}: ${err.body ?? err}`, true)
 			}
 		}
 		expandedSubflows = expandedSubflows

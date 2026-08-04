@@ -12,6 +12,21 @@ export type ResolvedExpandedSubflowStep = {
 }
 
 /**
+ * Graph node id of the expansion an inline-expanded subflow node sits in, i.e. the key
+ * whose modules hold the step it stands for: `subflow:a:b` → `a`, `subflow:a:b:c` →
+ * `subflow:a:b`. `undefined` for a top-level expansion, whose step belongs to the edited
+ * flow itself. Note that the last segment of `subflowSteps` is the parent's own step, so
+ * every segment stays in the parent key.
+ */
+export function expandedSubflowParentId(nodeId: string): string | undefined {
+	const steps = parseExpandedSubflowId(nodeId)?.subflowSteps
+	if (!steps) {
+		return undefined
+	}
+	return steps.length > 1 ? 'subflow:' + steps.join(':') : steps[0]
+}
+
+/**
  * Resolves a `subflow:A:B:leaf` graph node id (an inline-expanded subflow step) to the
  * step it stands for, following each `Flow{path}` boundary through the flows it points
  * at. `loadFlowModules` fetches a flow's modules by path.

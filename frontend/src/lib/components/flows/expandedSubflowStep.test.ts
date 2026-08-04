@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { FlowModule } from '$lib/gen'
-import { resolveExpandedSubflowStep } from './expandedSubflowStep'
+import { expandedSubflowParentId, resolveExpandedSubflowStep } from './expandedSubflowStep'
 
 const script = (id: string): FlowModule =>
 	({ id, value: { type: 'rawscript', language: 'bun', content: '', input_transforms: {} } }) as any
@@ -17,6 +17,16 @@ const flows: Record<string, FlowModule[]> = {
 }
 const rootModules = [forloop('k', [subflow('a', 'f/inner')])]
 const loadFlowModules = async (path: string) => flows[path]
+
+describe('expandedSubflowParentId', () => {
+	// The last segment of `subflowSteps` is the parent's own step, so it belongs to the
+	// parent key: `subflow:a:b` sits in expansion `a`, not in itself.
+	it('is the enclosing expansion, not the expansion itself', () => {
+		expect(expandedSubflowParentId('subflow:a:b')).toBe('a')
+		expect(expandedSubflowParentId('subflow:a:b:c')).toBe('subflow:a:b')
+		expect(expandedSubflowParentId('a')).toBeUndefined()
+	})
+})
 
 describe('resolveExpandedSubflowStep', () => {
 	it('follows every subflow boundary down to the selected step', async () => {
