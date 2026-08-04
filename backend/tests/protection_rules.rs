@@ -492,6 +492,25 @@ async fn test_dev_workspace_lock_rule_reservation(db: Pool<Postgres>) -> anyhow:
     .await?;
     assert_eq!(rules, 2, "only DisableWorkspaceForking should remain");
 
+    // Renaming it away would strand the pairing's lock, which is located by name.
+    let resp = authed(
+        client().post(format!("{base}/workspaces/protection_rules/{name}")),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({
+        "name": "renamed-lock",
+        "rules": ["DisableWorkspaceForking"],
+        "bypass_users": [],
+        "bypass_groups": []
+    }))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        400,
+        "renaming the reserved rule should be refused"
+    );
+
     let resp = authed(
         client().delete(format!("{base}/workspaces/protection_rules/{name}")),
         "SECRET_TOKEN",
@@ -503,6 +522,90 @@ async fn test_dev_workspace_lock_rule_reservation(db: Pool<Postgres>) -> anyhow:
         400,
         "deleting the reserved rule should stay refused: detaching the dev workspace removes it"
     );
+
+    Ok(())
+}
+
+/// Renaming used to be dropped silently: the handler took the name from the path and ignored the
+/// body, so the editor reported success while the row kept its old name.
+#[sqlx::test(fixtures("base"))]
+async fn test_protection_rule_rename(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+
+    for name in ["before-rename", "occupied"] {
+        let resp = authed(
+            client().post(format!("{base}/workspaces/protection_rules")),
+            "SECRET_TOKEN",
+        )
+        .json(&json!({
+            "name": name,
+            "rules": ["DisableDirectDeployment"],
+            "bypass_users": [],
+            "bypass_groups": []
+        }))
+        .send()
+        .await?;
+        assert_eq!(resp.status(), 200, "setup: create '{}'", name);
+    }
+
+    let resp = authed(
+        client().post(format!("{base}/workspaces/protection_rules/before-rename")),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({
+        "name": "after-rename",
+        "rules": ["DisableWorkspaceForking"],
+        "bypass_users": [],
+        "bypass_groups": []
+    }))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "rename should succeed: {}",
+        resp.text().await?
+    );
+
+    let names: Vec<String> = sqlx::query_scalar(
+        "SELECT name FROM workspace_protection_rule WHERE workspace_id = 'test-workspace' ORDER BY name",
+    )
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        names,
+        vec!["after-rename".to_string(), "occupied".to_string()],
+        "the row should have moved to the new name, not been duplicated"
+    );
+
+    for (target, why) in [
+        (
+            "occupied",
+            "renaming onto an existing rule should be refused",
+        ),
+        (
+            windmill_common::workspaces::DEV_WORKSPACE_LOCK_RULE_NAME,
+            "renaming onto the reserved name should be refused",
+        ),
+    ] {
+        let resp = authed(
+            client().post(format!("{base}/workspaces/protection_rules/after-rename")),
+            "SECRET_TOKEN",
+        )
+        .json(&json!({
+            "name": target,
+            "rules": ["DisableWorkspaceForking"],
+            "bypass_users": [],
+            "bypass_groups": []
+        }))
+        .send()
+        .await?;
+        assert_eq!(resp.status(), 400, "{}", why);
+    }
 
     Ok(())
 }

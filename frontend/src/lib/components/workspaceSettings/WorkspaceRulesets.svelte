@@ -19,15 +19,21 @@
 	let selectedRule: ProtectionRuleset | undefined = $state(undefined)
 	let ruleDrawer: Drawer | undefined = $state(undefined)
 
+	// A failed load still yields an empty list so the table renders, so the deep link below has to be
+	// told apart from a genuinely absent rule.
+	let loadFailed = $state(false)
+
 	async function loadRules() {
 		if (!$workspaceStore) return
 
 		try {
 			rules = await WorkspaceService.listProtectionRules({ workspace: $workspaceStore })
+			loadFailed = false
 		} catch (error) {
 			console.error('Failed to load protection rules:', error)
 			sendUserToast('Failed to load protection rules', true)
 			rules = []
+			loadFailed = true
 		}
 	}
 
@@ -50,7 +56,7 @@
 			if (match) {
 				selectedRule = match
 				ruleDrawer?.openDrawer()
-			} else {
+			} else if (!loadFailed) {
 				sendUserToast(`Protection rule '${name}' not found in this workspace`, true)
 			}
 			const params = new URLSearchParams(window.location.search)

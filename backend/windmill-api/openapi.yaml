@@ -6657,6 +6657,12 @@ paths:
                 - bypass_groups
                 - bypass_users
               properties:
+                name:
+                  type: string
+                  description: >-
+                    New name for the rule. Omit, or pass the current name, to leave it unchanged.
+                    The reserved `dev_workspace_lock` rule cannot be renamed, nor can another rule
+                    be renamed onto it.
                 rules:
                   $ref: "#/components/schemas/ProtectionRules"
                 bypass_groups:

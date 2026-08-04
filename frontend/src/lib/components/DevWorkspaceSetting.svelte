@@ -9,6 +9,7 @@
 	import { goto } from '$app/navigation'
 	import { base } from '$lib/base'
 	import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
+	import { getUserExt } from '$lib/user'
 	import { devBadgeText, devLabelKey, devLabelNoun } from '$lib/utils/devWorkspaceLabel'
 	import {
 		loadProtectionRules,
@@ -138,10 +139,15 @@
 				r.rules.includes('DisableDirectDeployment') || r.rules.includes('DisableWorkspaceForking')
 		)
 	)
-	// A prod admin viewing from the dev side can still edit prod's rules, but only after switching
-	// there; a non-member has nowhere to switch to, so the link is hidden rather than broken. A
-	// superadmin can enter any workspace, member or not (mirrors the paired view's switch button).
-	let canReachParent = $derived($superadmin || $userWorkspaces.some((w) => w.id === parentId))
+	// Editing prod's rules from the dev side needs admin IN PROD, which membership does not imply and
+	// this workspace's own admin rights say nothing about: the rulesets tab is admin-only, so a link
+	// offered to anyone else lands them on a tab they cannot open. Asked of the parent directly, as
+	// `is_admin` is per-workspace. A superadmin is admin everywhere and has no `usr` row to find.
+	const parentUser = resource(
+		() => (isDev && parentId ? parentId : undefined),
+		async (ws) => (ws ? await getUserExt(ws) : undefined)
+	)
+	let canEditParentRules = $derived($superadmin || parentUser.current?.is_admin === true)
 
 	// With a name, deep-links into that rule's drawer; without one, the rulesets list. Built from
 	// scratch rather than from the current query so no stale `?workspace=<dev>` survives a switch.
@@ -245,10 +251,17 @@
 <!-- The locks are protection rules, so being paired does not imply them: a pairing that came from the
      deploy_to migration rather than from an attach carries neither. `onOpen` navigates to the rules
      of the workspace this panel describes, which is not the active one on the dev side; it is
-     undefined when the reader cannot reach them (a dev member who is not a member of prod). -->
-{#snippet protectionsPanel(title: string, onOpen: ((name?: string) => void) | undefined)}
+     undefined when the reader is not an admin there. The labels name that workspace in that case,
+     so the button does not switch workspaces without saying so. -->
+{#snippet protectionsPanel(opts: {
+	title: string
+	onOpen?: (name?: string) => void
+	editLabel: string
+	manageLabel: string
+})}
+	{@const onOpen = opts.onOpen}
 	<div class="flex flex-col gap-1 rounded-md border bg-surface-secondary p-3">
-		<span class="text-xs font-semibold text-emphasis">{title}</span>
+		<span class="text-xs font-semibold text-emphasis">{opts.title}</span>
 		{#if enforcementUnknown}
 			<span class="text-2xs text-secondary">
 				{enforcementReadFailed
@@ -291,7 +304,7 @@
 									startIcon={{ icon: Pen }}
 									onclick={() => onOpen(ruleset.name)}
 								>
-									Edit
+									{opts.editLabel}
 								</Button>
 							{/if}
 						</div>
@@ -302,7 +315,7 @@
 		{#if onOpen && enforcingRulesets.length === 0}
 			<div class="self-start mt-1">
 				<Button variant="subtle" unifiedSize="2xs" onclick={() => onOpen()}>
-					Manage in Rulesets
+					{opts.manageLabel}
 				</Button>
 			</div>
 		{/if}
@@ -322,10 +335,16 @@
 				<span class="font-mono">{currentLabel}</span> branch.
 			</span>
 		</div>
-		{@render protectionsPanel(
-			`Protections in force on ${parentId}`,
-			canReachParent ? openRulesetsInParent : undefined
-		)}
+		<!-- A reader who is not a member of the parent gets a 403 listing its rules, which is expected
+		     here rather than an anomaly worth a permanent error box, so drop the panel instead. -->
+		{#if !enforcementReadFailed}
+			{@render protectionsPanel({
+				title: `Protections in force on ${parentId}`,
+				onOpen: canEditParentRules ? openRulesetsInParent : undefined,
+				editLabel: `Edit in ${parentId}`,
+				manageLabel: `Manage in ${parentId}`
+			})}
+		{/if}
 		<div>
 			<Button
 				variant="default"
@@ -342,7 +361,12 @@
 			This workspace's {devLabelNoun(pairedDev.label)} is <b>{pairedDev.name}</b> ({pairedDev.id}).
 			Edits to this workspace are redirected there.
 		</p>
-		{@render protectionsPanel('Protections in force on this workspace', openRulesets)}
+		{@render protectionsPanel({
+			title: 'Protections in force on this workspace',
+			onOpen: openRulesets,
+			editLabel: 'Edit',
+			manageLabel: 'Manage in Rulesets'
+		})}
 		<div class="flex gap-2">
 			{#if pairedDev.isMember || $superadmin}
 				<Button
