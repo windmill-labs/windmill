@@ -411,6 +411,19 @@ async fn test_raw_app_kind_is_not_flipped_by_update(db: Pool<Postgres>) -> anyho
         "expected the raw update of a low-code app to be refused"
     );
 
+    // The source endpoint refuses the same mismatch up front — it must not queue
+    // a bundle job (which no worker would pick up here) to find that out.
+    let resp = authed(client().post(format!("{base}/update_raw_source/{low_code_path}")))
+        .json(&json!({ "value": { "files": { "/index.tsx": "export {}" } } }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+    assert!(
+        resp.text().await?.contains("is a low-code app"),
+        "expected the source deploy of a low-code app to be refused"
+    );
+
     // Metadata-only updates and same-kind deploys still go through.
     let resp = authed(client().post(format!("{base}/update/{raw_path}")))
         .json(&json!({ "summary": "Renamed" }))

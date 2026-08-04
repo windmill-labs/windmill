@@ -12299,7 +12299,7 @@ paths:
       summary: update app
       operationId: updateApp
       x-mcp-tool: true
-      x-mcp-instructions: "Low-code apps only. An app whose `raw_app` field (from getAppByPath) is true is a raw (full-code) app: its value holds source files that must be compiled to a js/css bundle, which this tool cannot upload, so updating one here is refused. Edit a raw app in its editor at /apps_raw/edit/<path> instead."
+      x-mcp-instructions: "Low-code apps only. An app whose `raw_app` field (from getAppByPath) is true is a raw (full-code) app and is refused here; use updateAppRawSource for those."
       x-mcp-tool-include-fields:
         - path
         - value
@@ -12327,6 +12327,74 @@ paths:
                 summary:
                   type: string
                 value: {}
+                policy:
+                  $ref: "#/components/schemas/Policy"
+                deployment_message:
+                  type: string
+                custom_path:
+                  type: string
+                preserve_on_behalf_of:
+                  type: boolean
+                  description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it."
+                labels:
+                  type: array
+                  items:
+                    type: string
+                skip_draft_deletion:
+                  type: boolean
+                  description: "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
+                allow_kind_change:
+                  type: boolean
+                  description: "When true, this deploy may switch the app between low-code and raw. Without it, deploying a value to an app of the other kind is refused so an app is never converted by accident."
+      responses:
+        "200":
+          description: app updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/apps/update_raw_source/{path}:
+    post:
+      summary: update a raw app from its sources, bundling them server-side
+      operationId: updateAppRawSource
+      x-mcp-tool: true
+      x-mcp-instructions: "Use this to change a raw (full-code) app — an app whose `raw_app` field is true. Send the whole `value` (`files`, `runnables`, `data`), not a patch: read the current one with getAppByPath first and edit it. The sources are compiled on a worker, so a compile error comes back as the error of this call. Low-code apps use updateApp instead."
+      x-mcp-tool-include-fields:
+        - path
+        - value
+        - summary
+        - policy
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      requestBody:
+        description: raw app sources to bundle and deploy
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                summary:
+                  type: string
+                value:
+                  type: object
+                  description: "The raw app's value. `files` maps each source path (e.g. `/index.tsx`, `/App.tsx`, `/package.json`) to its content and must contain an entry point (`/index.tsx`, `/index.ts` or `/index.js`); `runnables` and `data` are carried through unchanged."
+                  properties:
+                    files:
+                      type: object
+                      additionalProperties:
+                        type: string
+                    runnables:
+                      type: object
+                    data:
+                      type: object
+                  required: [files]
                 policy:
                   $ref: "#/components/schemas/Policy"
                 deployment_message:

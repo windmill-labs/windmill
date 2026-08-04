@@ -1113,7 +1113,7 @@ Creates a new version of an existing script when called with the same path and t
     EndpointTool {
         name: Cow::Borrowed("updateApp"),
         description: Cow::Borrowed("update app"),
-        instructions: Cow::Borrowed("Low-code apps only. An app whose `raw_app` field (from getAppByPath) is true is a raw (full-code) app: its value holds source files that must be compiled to a js/css bundle, which this tool cannot upload, so updating one here is refused. Edit a raw app in its editor at /apps_raw/edit/<path> instead."),
+        instructions: Cow::Borrowed("Low-code apps only. An app whose `raw_app` field (from getAppByPath) is true is a raw (full-code) app and is refused here; use updateAppRawSource for those."),
         path: Cow::Borrowed("/w/{workspace}/apps/update/{path}"),
         method: Cow::Borrowed("POST"),
         path_params_schema: Some(serde_json::json!({
@@ -1142,6 +1142,113 @@ Creates a new version of an existing script when called with the same path and t
                 },
                 "deployment_message": {
                         "type": "string"
+                },
+                "path__body": {
+                        "type": "string",
+                        "description": "(body parameter). Defaults to `path` when omitted; set it only to change the path."
+                }
+        }
+})),
+        query_field_renames: None,
+        body_field_renames: Some(serde_json::json!({
+        "path__body": "path"
+})),
+    },
+    EndpointTool {
+        name: Cow::Borrowed("updateAppRawSource"),
+        description: Cow::Borrowed("update a raw app from its sources, bundling them server-side"),
+        instructions: Cow::Borrowed("Use this to change a raw (full-code) app — an app whose `raw_app` field is true. Send the whole `value` (`files`, `runnables`, `data`), not a patch: read the current one with getAppByPath first and edit it. The sources are compiled on a worker, so a compile error comes back as the error of this call. Low-code apps use updateApp instead."),
+        path: Cow::Borrowed("/w/{workspace}/apps/update_raw_source/{path}"),
+        method: Cow::Borrowed("POST"),
+        path_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string"
+                }
+        },
+        "required": [
+                "path"
+        ]
+})),
+        query_params_schema: None,
+        body_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "summary": {
+                        "type": "string"
+                },
+                "value": {
+                        "type": "object",
+                        "description": "The raw app's value. `files` maps each source path (e.g. `/index.tsx`, `/App.tsx`, `/package.json`) to its content and must contain an entry point (`/index.tsx`, `/index.ts` or `/index.js`); `runnables` and `data` are carried through unchanged.",
+                        "properties": {
+                                "files": {
+                                        "type": "object",
+                                        "additionalProperties": {
+                                                "type": "string"
+                                        }
+                                },
+                                "runnables": {
+                                        "type": "object"
+                                },
+                                "data": {
+                                        "type": "object"
+                                }
+                        },
+                        "required": [
+                                "files"
+                        ]
+                },
+                "policy": {
+                        "type": "object",
+                        "properties": {
+                                "triggerables": {
+                                        "type": "object",
+                                        "additionalProperties": {
+                                                "type": "object"
+                                        }
+                                },
+                                "triggerables_v2": {
+                                        "type": "object",
+                                        "additionalProperties": {
+                                                "type": "object"
+                                        }
+                                },
+                                "s3_inputs": {
+                                        "type": "array",
+                                        "items": {
+                                                "type": "object"
+                                        }
+                                },
+                                "allowed_s3_keys": {
+                                        "type": "array",
+                                        "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                        "s3_path": {
+                                                                "type": "string"
+                                                        },
+                                                        "resource": {
+                                                                "type": "string"
+                                                        }
+                                                }
+                                        }
+                                },
+                                "execution_mode": {
+                                        "type": "string",
+                                        "description": "Possible values: viewer, publisher, anonymous"
+                                },
+                                "on_behalf_of": {
+                                        "type": "string"
+                                },
+                                "on_behalf_of_email": {
+                                        "type": "string"
+                                },
+                                "sandbox": {
+                                        "type": "boolean",
+                                        "description": "Publisher opt-in to app sandbox isolation (alpha). When true the app is isolated from each viewer's Windmill session. When false/absent the app runs same-origin with the viewer's full session (the default, pre-isolation behavior).\n"
+                                }
+                        }
                 },
                 "path__body": {
                         "type": "string",
