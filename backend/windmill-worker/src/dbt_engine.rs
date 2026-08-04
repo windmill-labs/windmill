@@ -722,6 +722,7 @@ async fn run_tool(
 #[cfg(test)]
 mod core1x_tests {
     use super::*;
+    use crate::dbt_profiles::KnownAdapter;
 
     // Several adapters cap dbt-core below what this runtime would ask for
     // (dbt-mysql ~=1.7, dbt-oracle and dbt-databricks below 1.12) and
@@ -729,8 +730,8 @@ mod core1x_tests {
     // those projects fail at provisioning. The install names a ceiling instead.
     #[test]
     fn every_adapter_either_names_a_package_or_is_fusion_only() {
-        for a in DbtAdapter::ALL {
-            if matches!(a, DbtAdapter::Salesforce) {
+        for a in KnownAdapter::ALL {
+            if matches!(a, KnownAdapter::Salesforce) {
                 continue;
             }
             assert!(
@@ -740,8 +741,8 @@ mod core1x_tests {
             );
         }
         // Fusion has it built in, and there is no package to install.
-        assert!(DbtAdapter::Salesforce.pip_package().is_empty());
-        assert_eq!(DbtAdapter::Salesforce.name(), "salesforce");
+        assert!(KnownAdapter::Salesforce.pip_package().is_empty());
+        assert_eq!(KnownAdapter::Salesforce.name(), "salesforce");
     }
 
     /// A preview submits its own lockfile, so this string reaches a path join

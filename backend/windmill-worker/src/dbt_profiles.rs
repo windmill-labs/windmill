@@ -43,10 +43,17 @@ impl AdapterSpec {
     };
 }
 
-/// The dbt adapter a Windmill resource type maps to (decision 9). The resource
-/// type name is the authority — connection details are never sniffed.
+/// The adapters Windmill has facts about (decision 9): a field mapping from one of its own
+/// resource types, a pip package, the license gate. dbt has many more, which `DbtAdapter`
+/// carries by name — this enum is what a warehouse resource type can *translate* into, not
+/// the set of adapters dbt projects may use.
+///
+/// The resource type name is the authority — connection details are never sniffed. The
+/// warehouse picker offers the resource types that reach an adapter at all
+/// (`WAREHOUSE_RESOURCE_TYPES` in `frontend/.../workspaceSettings/DbtSettings.svelte`), so
+/// an arm gaining or losing a field mapping belongs there too.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DbtAdapter {
+pub enum KnownAdapter {
     Postgres,
     Redshift,
     Mysql,
@@ -60,20 +67,20 @@ pub enum DbtAdapter {
     OracleDB,
 }
 
-impl DbtAdapter {
+impl KnownAdapter {
     pub fn from_resource_type(rt: &str) -> Option<Self> {
         match rt {
-            "postgresql" | "postgres" => Some(DbtAdapter::Postgres),
-            "redshift" => Some(DbtAdapter::Redshift),
-            "mysql" => Some(DbtAdapter::Mysql),
-            "duckdb" => Some(DbtAdapter::Duckdb),
-            "clickhouse" => Some(DbtAdapter::Clickhouse),
-            "snowflake" | "snowflake_oauth" => Some(DbtAdapter::Snowflake),
-            "bigquery" | "gcp_service_account" => Some(DbtAdapter::Bigquery),
-            "databricks" => Some(DbtAdapter::Databricks),
-            "salesforce" => Some(DbtAdapter::Salesforce),
-            "ms_sql_server" | "mssql" | "sqlserver" | "fabric" => Some(DbtAdapter::Mssql),
-            "oracledb" | "oracle" => Some(DbtAdapter::OracleDB),
+            "postgresql" | "postgres" => Some(KnownAdapter::Postgres),
+            "redshift" => Some(KnownAdapter::Redshift),
+            "mysql" => Some(KnownAdapter::Mysql),
+            "duckdb" => Some(KnownAdapter::Duckdb),
+            "clickhouse" => Some(KnownAdapter::Clickhouse),
+            "snowflake" | "snowflake_oauth" => Some(KnownAdapter::Snowflake),
+            "bigquery" | "gcp_service_account" => Some(KnownAdapter::Bigquery),
+            "databricks" => Some(KnownAdapter::Databricks),
+            "salesforce" => Some(KnownAdapter::Salesforce),
+            "ms_sql_server" | "mssql" | "sqlserver" | "fabric" => Some(KnownAdapter::Mssql),
+            "oracledb" | "oracle" => Some(KnownAdapter::OracleDB),
             _ => None,
         }
     }
@@ -86,15 +93,15 @@ impl DbtAdapter {
     /// `dbname` instead of failing to build.
     fn spec(&self) -> &'static AdapterSpec {
         match self {
-            DbtAdapter::Postgres => &AdapterSpec::PG,
-            DbtAdapter::Redshift => &AdapterSpec {
+            KnownAdapter::Postgres => &AdapterSpec::PG,
+            KnownAdapter::Redshift => &AdapterSpec {
                 name: "redshift",
                 dbt_type: "redshift",
                 pip_package: "dbt-redshift",
                 default_port: 5439,
                 ..AdapterSpec::PG
             },
-            DbtAdapter::Mysql => &AdapterSpec {
+            KnownAdapter::Mysql => &AdapterSpec {
                 name: "mysql",
                 dbt_type: "mysql",
                 pip_package: "dbt-mysql",
@@ -102,31 +109,31 @@ impl DbtAdapter {
                 database_key: "schema",
                 ..AdapterSpec::PG
             },
-            DbtAdapter::Duckdb => &AdapterSpec {
+            KnownAdapter::Duckdb => &AdapterSpec {
                 name: "duckdb",
                 dbt_type: "duckdb",
                 pip_package: "dbt-duckdb",
                 ..AdapterSpec::PG
             },
-            DbtAdapter::Clickhouse => &AdapterSpec {
+            KnownAdapter::Clickhouse => &AdapterSpec {
                 name: "clickhouse",
                 dbt_type: "clickhouse",
                 pip_package: "dbt-clickhouse",
                 ..AdapterSpec::PG
             },
-            DbtAdapter::Snowflake => &AdapterSpec {
+            KnownAdapter::Snowflake => &AdapterSpec {
                 name: "snowflake",
                 dbt_type: "snowflake",
                 pip_package: "dbt-snowflake",
                 ..AdapterSpec::PG
             },
-            DbtAdapter::Bigquery => &AdapterSpec {
+            KnownAdapter::Bigquery => &AdapterSpec {
                 name: "bigquery",
                 dbt_type: "bigquery",
                 pip_package: "dbt-bigquery",
                 ..AdapterSpec::PG
             },
-            DbtAdapter::Databricks => &AdapterSpec {
+            KnownAdapter::Databricks => &AdapterSpec {
                 name: "databricks",
                 dbt_type: "databricks",
                 pip_package: "dbt-databricks",
@@ -136,13 +143,13 @@ impl DbtAdapter {
             // `provision_core_1x` refuses it by name rather than asking uv to
             // install `""`. Pinned by
             // `every_adapter_either_names_a_package_or_is_fusion_only`.
-            DbtAdapter::Salesforce => &AdapterSpec {
+            KnownAdapter::Salesforce => &AdapterSpec {
                 name: "salesforce",
                 dbt_type: "salesforce",
                 pip_package: "",
                 ..AdapterSpec::PG
             },
-            DbtAdapter::Mssql => &AdapterSpec {
+            KnownAdapter::Mssql => &AdapterSpec {
                 name: "mssql",
                 dbt_type: "sqlserver",
                 pip_package: "dbt-sqlserver",
@@ -150,7 +157,7 @@ impl DbtAdapter {
                 display_name: Some("Microsoft SQL server"),
                 ..AdapterSpec::PG
             },
-            DbtAdapter::OracleDB => &AdapterSpec {
+            KnownAdapter::OracleDB => &AdapterSpec {
                 name: "oracle",
                 dbt_type: "oracle",
                 pip_package: "dbt-oracle",
@@ -165,18 +172,18 @@ impl DbtAdapter {
     /// there is: a second would be the thing that goes stale. Test-only, so a
     /// release build does not carry a table nothing reads.
     #[cfg(test)]
-    pub const ALL: &'static [DbtAdapter] = &[
-        DbtAdapter::Postgres,
-        DbtAdapter::Redshift,
-        DbtAdapter::Mysql,
-        DbtAdapter::Duckdb,
-        DbtAdapter::Clickhouse,
-        DbtAdapter::Snowflake,
-        DbtAdapter::Bigquery,
-        DbtAdapter::Databricks,
-        DbtAdapter::Salesforce,
-        DbtAdapter::Mssql,
-        DbtAdapter::OracleDB,
+    pub const ALL: &'static [KnownAdapter] = &[
+        KnownAdapter::Postgres,
+        KnownAdapter::Redshift,
+        KnownAdapter::Mysql,
+        KnownAdapter::Duckdb,
+        KnownAdapter::Clickhouse,
+        KnownAdapter::Snowflake,
+        KnownAdapter::Bigquery,
+        KnownAdapter::Databricks,
+        KnownAdapter::Salesforce,
+        KnownAdapter::Mssql,
+        KnownAdapter::OracleDB,
     ];
 
     /// Which dbt driver a resource needs, from the fields it carries — a
@@ -195,13 +202,13 @@ impl DbtAdapter {
     pub fn infer_from_resource(v: &Value) -> Option<Self> {
         let has = |k: &str| v.get(k).is_some_and(|x| !x.is_null());
         if has("account_identifier") || has("warehouse") {
-            Some(DbtAdapter::Snowflake)
+            Some(KnownAdapter::Snowflake)
         } else if has("http_path") {
-            Some(DbtAdapter::Databricks)
+            Some(KnownAdapter::Databricks)
         } else if has("project_id") && has("client_email") {
-            Some(DbtAdapter::Bigquery)
+            Some(KnownAdapter::Bigquery)
         } else if has("dbname") && has("host") && (has("sslmode") || has("root_certificate_pem")) {
-            Some(DbtAdapter::Postgres)
+            Some(KnownAdapter::Postgres)
         } else {
             None
         }
@@ -245,9 +252,9 @@ impl DbtAdapter {
     /// the same table plainly, and the two never share a node.
     pub fn target_identity_keys(&self) -> (&'static str, &'static str) {
         match self {
-            DbtAdapter::Snowflake => ("database", "schema"),
-            DbtAdapter::Bigquery => ("project", "dataset"),
-            DbtAdapter::Databricks => ("catalog", "schema"),
+            KnownAdapter::Snowflake => ("database", "schema"),
+            KnownAdapter::Bigquery => ("project", "dataset"),
+            KnownAdapter::Databricks => ("catalog", "schema"),
             _ => (self.database_key(), "schema"),
         }
     }
@@ -267,6 +274,112 @@ impl DbtAdapter {
     fn display_name(&self) -> &'static str {
         let spec = self.spec();
         spec.display_name.unwrap_or(spec.dbt_type)
+    }
+}
+
+/// The adapter a profile connects with: dbt's own `type:`, plus whatever
+/// Windmill happens to know about it.
+///
+/// Open by construction, because dbt's adapter set is open and Windmill's
+/// knowledge of it is not. The eleven above are the ones it has facts about — a
+/// field mapping from a resource, a pip package, a license gate — but a
+/// `dbt_profile` resource carries a target block Windmill never has to
+/// understand, so any other adapter is carried by name and installed under the
+/// `dbt-<name>` convention every adapter on PyPI follows. That is what makes
+/// "whatever dbt supports" true rather than "whatever this enum lists".
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DbtAdapter {
+    known: Option<KnownAdapter>,
+    /// dbt's own `type:` spelling, lowercased. Also the pip package's suffix.
+    name: String,
+}
+
+impl DbtAdapter {
+    /// The adapter a Windmill resource type renders as, or `None` when that type
+    /// names no adapter at all. Resource type names, not dbt's — the two agree
+    /// for most, and `KnownAdapter::from_resource_type` carries the rest.
+    pub fn from_resource_type(rt: &str) -> Option<Self> {
+        KnownAdapter::from_resource_type(rt).map(Self::from)
+    }
+
+    /// An adapter as dbt spells it, known or not.
+    ///
+    /// The name reaches a pip requirement and a venv path, so it is confined to
+    /// what an adapter name can be rather than escaped at each use: a leading
+    /// `-` would be a pip flag, and a `/` or `..` a path segment.
+    pub fn from_dbt_type(t: &str) -> error::Result<Self> {
+        let name = t.trim().to_ascii_lowercase();
+        let shaped = name.len() <= 40
+            && name.starts_with(|c: char| c.is_ascii_alphanumeric())
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+        if !shaped {
+            return Err(Error::BadRequest(format!(
+                "`{t}` is not a dbt adapter name: dbt spells one with letters, digits, `_` and \
+                 `-`, as in `postgres` or `trino`"
+            )));
+        }
+        Ok(Self { known: KnownAdapter::from_resource_type(&name), name })
+    }
+
+    /// The adapter a `dbt_profile` resource states.
+    ///
+    /// Both of its keys are required, which is what tells it from a connection
+    /// resource that happens to carry a `type`: Windmill's bigquery resource is
+    /// a service-account JSON, and says `type: service_account`.
+    pub fn stated_by_resource(v: &Value) -> Option<error::Result<Self>> {
+        let stated = v.get("type")?.as_str()?;
+        v.get("target")?.as_object()?;
+        Some(Self::from_dbt_type(stated))
+    }
+
+    /// The adapter's facts, when it is one Windmill has any.
+    pub fn known(&self) -> Option<KnownAdapter> {
+        self.known
+    }
+
+    /// dbt's own `type:` key in `profiles.yml`.
+    pub fn dbt_type(&self) -> &str {
+        self.known.map_or(self.name.as_str(), |k| k.dbt_type())
+    }
+
+    /// The adapter's name as a user would write it, for error messages.
+    pub fn name(&self) -> &str {
+        self.known.map_or(self.name.as_str(), |k| k.name())
+    }
+
+    /// The pip package providing this adapter for the dbt-core 1.x engine.
+    /// Empty means no such package exists and only Fusion has it.
+    pub fn pip_package(&self) -> String {
+        match self.known {
+            Some(k) => k.pip_package().to_string(),
+            None => format!("dbt-{}", self.name),
+        }
+    }
+
+    /// The keys a target block spells its database and schema with.
+    /// An unknown adapter is read with dbt's ordinary pair.
+    pub fn target_identity_keys(&self) -> (&'static str, &'static str) {
+        self.known
+            .map_or(("database", "schema"), |k| k.target_identity_keys())
+    }
+
+    /// Whether this adapter needs an enterprise license. Never for an unknown
+    /// one: the gate mirrors the two native warehouse languages, and an adapter
+    /// with no Windmill runtime behind it is not one of them.
+    pub fn requires_enterprise(&self) -> bool {
+        self.known.is_some_and(|k| k.requires_enterprise())
+    }
+
+    fn display_name(&self) -> &str {
+        self.known.map_or(self.name.as_str(), |k| k.display_name())
+    }
+}
+
+impl From<KnownAdapter> for DbtAdapter {
+    fn from(known: KnownAdapter) -> Self {
+        Self { known: Some(known), name: known.dbt_type().to_string() }
     }
 }
 
@@ -294,7 +407,7 @@ fn enterprise_licensed() -> bool {
 /// one dbt executor and the adapter is only known once the profile resolves. So
 /// it is checked at both deploy and run — and it says so plainly, rather than
 /// letting the run fail later with a connection error the user cannot act on.
-pub fn ensure_adapter_licensed(adapter: DbtAdapter) -> error::Result<()> {
+pub fn ensure_adapter_licensed(adapter: &DbtAdapter) -> error::Result<()> {
     if adapter.requires_enterprise() && !enterprise_licensed() {
         return Err(Error::BadRequest(format!(
             "{} is only available with an enterprise license",
@@ -355,7 +468,7 @@ pub struct RenderedProfile {
 /// per-adapter default — dbt errors out clearly when it ends up missing, which
 /// is a better failure than a Windmill-invented default.
 pub fn render_profile(
-    adapter: DbtAdapter,
+    adapter: &DbtAdapter,
     resource: &Value,
     profile_name: &str,
     target: &str,
@@ -367,6 +480,29 @@ pub fn render_profile(
     // resolved against the project and never found.
     profiles_dir: &std::path::Path,
 ) -> error::Result<RenderedProfile> {
+    if let Some(block) = dbt_profile_target(resource) {
+        return render_dbt_profile_target(
+            adapter,
+            block,
+            profile_name,
+            target,
+            threads,
+            schema_override,
+            profiles_dir,
+        );
+    }
+
+    // Past here the resource is one of Windmill's own connection types, which
+    // becomes a target only through a field mapping below — so an adapter
+    // Windmill has no facts about cannot be rendered from one at all.
+    let adapter = adapter.known().ok_or_else(|| {
+        Error::BadRequest(format!(
+            "no Windmill resource translates into a `{}` target; point the warehouse at a \
+             `dbt_profile` resource, whose `target` is the profiles.yml block itself",
+            adapter.dbt_type()
+        ))
+    })?;
+
     let mut out: Vec<(String, ProfileValue)> = vec![("type".into(), quoted(adapter.dbt_type()))];
     let mut schema = schema_override.map(|x| x.to_string());
     let database;
@@ -376,7 +512,7 @@ pub fn render_profile(
         // shape as Postgres in both dbt and Windmill's resource types, so one
         // arm renders all three; only the default port and the database key
         // differ.
-        DbtAdapter::Postgres | DbtAdapter::Redshift | DbtAdapter::Mysql => {
+        KnownAdapter::Postgres | KnownAdapter::Redshift | KnownAdapter::Mysql => {
             let host = s(resource, "host").ok_or_else(|| {
                 Error::BadRequest(format!("{} resource has no `host`", adapter.dbt_type()))
             })?;
@@ -420,7 +556,7 @@ pub fn render_profile(
             schema = match adapter {
                 // Already emitted as the database key; reported back so the
                 // caller can spell `dbt://` paths with it.
-                DbtAdapter::Mysql => Some(dbname.clone()),
+                KnownAdapter::Mysql => Some(dbname.clone()),
                 _ => schema
                     .or_else(|| s(resource, "schema"))
                     .or(Some("public".into())),
@@ -428,20 +564,21 @@ pub fn render_profile(
         }
         // Their Windmill resources do not carry what dbt needs — an `oracledb`
         // resource has no host/service, dbt-sqlserver needs an ODBC `driver` the
-        // images lack — so a rendered profile could not connect. They go through
-        // the project's own `profiles.yml` instead.
-        DbtAdapter::Duckdb
-        | DbtAdapter::Clickhouse
-        | DbtAdapter::Salesforce
-        | DbtAdapter::Mssql
-        | DbtAdapter::OracleDB => {
+        // images lack — so a rendered profile could not connect. They are reached
+        // through a target written for them instead.
+        KnownAdapter::Duckdb
+        | KnownAdapter::Clickhouse
+        | KnownAdapter::Salesforce
+        | KnownAdapter::Mssql
+        | KnownAdapter::OracleDB => {
             return Err(Error::BadRequest(format!(
-                "the `{}` adapter has no Windmill resource mapping; point \
-                 `profile.profiles_yml` at the project's own profiles.yml instead",
+                "a `{}` resource carries nothing dbt can connect with; point the warehouse at a \
+                 `dbt_profile` resource, whose `target` is the profiles.yml block itself, or \
+                 `profile.profiles_yml` at the project's own profiles.yml",
                 adapter.dbt_type()
             )));
         }
-        DbtAdapter::Snowflake => {
+        KnownAdapter::Snowflake => {
             let account = s(resource, "account_identifier")
                 .or_else(|| s(resource, "account"))
                 .ok_or_else(|| {
@@ -477,7 +614,7 @@ pub fn render_profile(
             }
             schema = schema.or_else(|| s(resource, "schema"));
         }
-        DbtAdapter::Bigquery => {
+        KnownAdapter::Bigquery => {
             // Windmill's bigquery resource is the raw service-account JSON, so
             // hand dbt the same document via `method: service-account-json`
             // rather than re-deriving individual fields.
@@ -501,12 +638,18 @@ pub fn render_profile(
                 ));
             }
         }
-        DbtAdapter::Databricks => {
-            for (k, rk) in [
-                ("host", "host"),
-                ("http_path", "http_path"),
-                ("token", "token"),
-            ] {
+        KnownAdapter::Databricks => {
+            // Windmill's databricks resource spells the workspace `workspace_url`, and
+            // spells it as a full URL; dbt wants a bare hostname under `host`.
+            let host = s(resource, "host")
+                .or_else(|| s(resource, "workspace_url").map(|u| bare_host(&u)))
+                .ok_or_else(|| {
+                    Error::BadRequest(
+                        "databricks resource has no `workspace_url`/`host`".to_string(),
+                    )
+                })?;
+            out.push(("host".into(), quoted(&host)));
+            for (k, rk) in [("http_path", "http_path"), ("token", "token")] {
                 let v = s(resource, rk).ok_or_else(|| {
                     Error::BadRequest(format!("databricks resource has no `{rk}`"))
                 })?;
@@ -524,12 +667,12 @@ pub fn render_profile(
     // database, already emitted above. Pushing the generic one too would put
     // two `schema` keys in one target — an invalid profile, or one silently
     // pointing at the wrong database.
-    if adapter != DbtAdapter::Mysql {
+    if adapter != KnownAdapter::Mysql {
         if let Some(sc) = schema.clone() {
             // dbt-bigquery spells it `dataset`; every other adapter says
             // `schema`. Emitting `schema` there produces a profile dbt rejects.
             let key = match adapter {
-                DbtAdapter::Bigquery => "dataset",
+                KnownAdapter::Bigquery => "dataset",
                 _ => "schema",
             };
             out.push((key.into(), quoted(&sc)));
@@ -549,7 +692,7 @@ pub fn render_profile(
         yaml.push_str(&format!("      {k}: {}\n", v.render()));
     }
     // The service-account document is a nested mapping, not a scalar.
-    if adapter == DbtAdapter::Bigquery {
+    if adapter == KnownAdapter::Bigquery {
         yaml.push_str("      keyfile_json:\n");
         let obj = resource
             .as_object()
@@ -565,10 +708,142 @@ pub fn render_profile(
         yaml,
         schema,
         database,
-        root_certificate_pem: matches!(adapter, DbtAdapter::Postgres)
+        root_certificate_pem: matches!(adapter, KnownAdapter::Postgres)
             .then(|| s(resource, "root_certificate_pem"))
             .flatten(),
     })
+}
+
+/// The target block of a `dbt_profile` resource: the `profiles.yml` output
+/// itself, with the adapter named in `type` and its keys under `target`.
+///
+/// This is how every adapter with no field mapping above is reached — the ones
+/// Windmill has facts about and the ones it has never heard of alike. Both keys
+/// are required to take that path, so a connection resource that happens to
+/// carry one of them is still rendered by its adapter's own arm.
+fn dbt_profile_target(resource: &Value) -> Option<&serde_json::Map<String, Value>> {
+    resource.get("type")?.as_str()?;
+    resource.get("target")?.as_object()
+}
+
+/// Render a `dbt_profile` resource's target block.
+///
+/// Its keys are dbt's, not Windmill's, so they are passed through verbatim
+/// rather than translated: that is the whole point of the type, and it is what
+/// lets an adapter Windmill knows nothing about connect. Only what dbt cannot
+/// take literally is handled here — the adapter's own `type`, a certificate
+/// that is a PEM body rather than the path dbt hands the driver, and the two
+/// keys a descriptor may override.
+fn render_dbt_profile_target(
+    adapter: &DbtAdapter,
+    block: &serde_json::Map<String, Value>,
+    profile_name: &str,
+    target: &str,
+    threads: Option<u32>,
+    schema_override: Option<&str>,
+    profiles_dir: &std::path::Path,
+) -> error::Result<RenderedProfile> {
+    let (database_key, schema_key) = adapter.target_identity_keys();
+    let root_certificate_pem = block
+        .get("root_certificate_pem")
+        .and_then(|v| v.as_str())
+        .filter(|v| !v.is_empty())
+        .map(|v| v.to_string());
+
+    let (qp, qt) = (yaml_scalar(profile_name), yaml_scalar(target));
+    let mut yaml = format!("{qp}:\n  target: {qt}\n  outputs:\n    {qt}:\n");
+    // Keys quoted throughout this block, the block's own and Windmill's alike: a
+    // target whose `"host"` is quoted and whose `schema` is not reads as a bug.
+    yaml.push_str(&format!(
+        "      \"type\": {}\n",
+        yaml_scalar(adapter.dbt_type())
+    ));
+    for (k, v) in block {
+        // A null is an optional field the resource form left unset, and dbt
+        // validates several keys against a schema that rejects one.
+        if k == "type" || k == "root_certificate_pem" || v.is_null() {
+            continue;
+        }
+        if (k == schema_key && schema_override.is_some()) || (k == "threads" && threads.is_some()) {
+            continue;
+        }
+        emit_entry(&mut yaml, 6, k, v);
+    }
+    if root_certificate_pem.is_some() {
+        yaml.push_str(&format!(
+            "      \"sslrootcert\": {}\n",
+            yaml_scalar(&profiles_dir.join(ROOT_CERT_FILENAME).to_string_lossy())
+        ));
+    }
+    if let Some(sc) = schema_override {
+        yaml.push_str(&format!(
+            "      {}: {}\n",
+            yaml_scalar(schema_key),
+            yaml_scalar(sc)
+        ));
+    }
+    if let Some(t) = threads {
+        yaml.push_str(&format!("      \"threads\": {t}\n"));
+    }
+
+    let str_key = |k: &str| block.get(k).and_then(|v| v.as_str()).map(|v| v.to_string());
+    Ok(RenderedProfile {
+        yaml,
+        schema: schema_override
+            .map(|x| x.to_string())
+            .or_else(|| str_key(schema_key)),
+        database: str_key(database_key),
+        root_certificate_pem,
+    })
+}
+
+/// Emit one target key, nesting as deep as the value goes: an adapter's
+/// credential can be a mapping of its own (bigquery's `keyfile_json`) or a list.
+///
+/// Keys are quoted like values, because both come from the resource: an
+/// adapter-specific key nothing here enumerates is as free-form as a password.
+fn emit_entry(out: &mut String, indent: usize, key: &str, v: &Value) {
+    let pad = " ".repeat(indent);
+    let qk = yaml_scalar(key);
+    match v {
+        Value::Object(m) => {
+            out.push_str(&format!("{pad}{qk}:\n"));
+            for (k, v) in m {
+                if !v.is_null() {
+                    emit_entry(out, indent + 2, k, v);
+                }
+            }
+        }
+        Value::Array(items) => {
+            out.push_str(&format!("{pad}{qk}:\n"));
+            for item in items {
+                match item {
+                    Value::Object(m) => {
+                        out.push_str(&format!("{pad}  -\n"));
+                        for (k, v) in m {
+                            if !v.is_null() {
+                                emit_entry(out, indent + 4, k, v);
+                            }
+                        }
+                    }
+                    _ => out.push_str(&format!("{pad}  - {}\n", yaml_value(item))),
+                }
+            }
+        }
+        _ => out.push_str(&format!("{pad}{qk}: {}\n", yaml_value(v))),
+    }
+}
+
+/// A scalar as dbt reads it: quoted when it is text, bare when it is not.
+/// `port`, `threads` and the boolean toggles adapters carry are validated
+/// against a JSON schema that rejects the quoted form.
+fn yaml_value(v: &Value) -> String {
+    match v {
+        Value::String(s) => yaml_scalar(s),
+        Value::Bool(b) => b.to_string(),
+        Value::Number(n) => n.to_string(),
+        other => yaml_scalar(&other.to_string()),
+    }
 }
 
 /// One rendered `profiles.yml` value. Strings are always quoted so credential
@@ -591,6 +866,17 @@ impl ProfileValue {
 
 fn quoted(v: &str) -> ProfileValue {
     ProfileValue::Str(v.to_string())
+}
+
+/// A workspace URL as dbt wants it: the hostname alone. Windmill's databricks
+/// resource carries the full deployment URL, while dbt-databricks builds its own
+/// URL from `host`, so a scheme left in place produces `https://https://…`.
+fn bare_host(url: &str) -> String {
+    url.trim()
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .trim_end_matches('/')
+        .to_string()
 }
 
 /// Emit a YAML scalar that survives any credential content. Always
@@ -616,7 +902,7 @@ mod tests {
         let r = json!({"host": "db.internal", "port": 5433, "user": "u", "password": "p",
                        "dbname": "warehouse", "sslmode": "require"});
         let p = render_profile(
-            DbtAdapter::Postgres,
+            &KnownAdapter::Postgres.into(),
             &r,
             "wm",
             "prod",
@@ -648,7 +934,7 @@ mod tests {
         let r = json!({"host": "cluster.redshift.amazonaws.com", "user": "u",
                        "password": "p", "dbname": "warehouse"});
         let p = render_profile(
-            DbtAdapter::Redshift,
+            &KnownAdapter::Redshift.into(),
             &r,
             "wm",
             "prod",
@@ -660,6 +946,119 @@ mod tests {
         assert!(p.yaml.contains("      port: 5439\n"), "{}", p.yaml);
     }
 
+    // The point of `dbt_profile`: an adapter with no field mapping still
+    // connects, because the block is dbt's own and reaches it untranslated.
+    #[test]
+    fn dbt_profile_target_renders_verbatim() {
+        let r = json!({"type": "clickhouse", "target": {"host": "ch.internal", "port": 8123,
+                       "secure": true, "user": "u", "password": "p", "schema": "analytics"}});
+        let p = render_profile(
+            &KnownAdapter::Clickhouse.into(),
+            &r,
+            "wm",
+            "prod",
+            None,
+            None,
+            std::path::Path::new("/tmp/p"),
+        )
+        .unwrap();
+        assert!(
+            p.yaml.contains("      \"type\": \"clickhouse\"\n"),
+            "{}",
+            p.yaml
+        );
+        assert!(
+            p.yaml.contains("      \"host\": \"ch.internal\"\n"),
+            "{}",
+            p.yaml
+        );
+        // dbt types these in its own schema and rejects the quoted form.
+        assert!(p.yaml.contains("      \"port\": 8123\n"), "{}", p.yaml);
+        assert!(p.yaml.contains("      \"secure\": true\n"), "{}", p.yaml);
+        // The identity a `dbt://` path is spelled with, read back from the block.
+        assert_eq!(p.schema.as_deref(), Some("analytics"));
+    }
+
+    // Two `schema` keys in one target is a profile dbt rejects, or one silently
+    // pointing at the schema the descriptor meant to override.
+    #[test]
+    fn dbt_profile_schema_override_replaces_the_block_key() {
+        let r = json!({"type": "clickhouse", "target": {"host": "h", "schema": "raw"}});
+        let p = render_profile(
+            &KnownAdapter::Clickhouse.into(),
+            &r,
+            "wm",
+            "prod",
+            None,
+            Some("staging"),
+            std::path::Path::new("/tmp/p"),
+        )
+        .unwrap();
+        assert_eq!(p.yaml.matches("\"schema\":").count(), 1, "{}", p.yaml);
+        assert!(p.yaml.contains("\"schema\": \"staging\"\n"), "{}", p.yaml);
+        assert_eq!(p.schema.as_deref(), Some("staging"));
+    }
+
+    // Windmill's bigquery resource is the raw service-account JSON, whose own
+    // `type` is `service_account`: reading that as the stated adapter would take
+    // every bigquery warehouse down a path meant for `dbt_profile`.
+    #[test]
+    fn only_an_adapter_name_states_an_adapter() {
+        let sa = json!({"type": "service_account", "project_id": "p", "client_email": "e"});
+        assert!(DbtAdapter::stated_by_resource(&sa).is_none());
+        let stated = DbtAdapter::stated_by_resource(&json!({"type": "trino", "target": {}}))
+            .unwrap()
+            .unwrap();
+        // An adapter Windmill has no facts about is still an adapter, installed
+        // under the convention every dbt adapter on PyPI follows.
+        assert_eq!(stated.dbt_type(), "trino");
+        assert_eq!(stated.pip_package(), "dbt-trino");
+        assert!(stated.known().is_none());
+    }
+
+    // An unknown adapter's name becomes `dbt-<name>` in a pip requirement and a
+    // venv path, both on the host and outside the jail.
+    #[test]
+    fn an_adapter_name_cannot_be_a_pip_flag_or_a_path() {
+        for bad in [
+            "--index-url=http://evil",
+            "-e .",
+            "../../etc/passwd",
+            "dbt postgres",
+            "",
+        ] {
+            assert!(DbtAdapter::from_dbt_type(bad).is_err(), "{bad}");
+        }
+        assert_eq!(
+            DbtAdapter::from_dbt_type("TRINO").unwrap().dbt_type(),
+            "trino"
+        );
+    }
+
+    // Windmill's databricks resource spells the workspace as a full URL under
+    // `workspace_url`; dbt-databricks builds its own URL from a bare `host`.
+    #[test]
+    fn databricks_takes_its_host_from_the_workspace_url() {
+        let r = json!({"workspace_url": "https://dbc-a1b2.cloud.databricks.com/",
+                       "http_path": "/sql/1.0/warehouses/x", "token": "t"});
+        let p = render_profile(
+            &KnownAdapter::Databricks.into(),
+            &r,
+            "wm",
+            "prod",
+            None,
+            None,
+            std::path::Path::new("/tmp/p"),
+        )
+        .unwrap();
+        assert!(
+            p.yaml
+                .contains("      host: \"dbc-a1b2.cloud.databricks.com\"\n"),
+            "{}",
+            p.yaml
+        );
+    }
+
     // A resource's private CA is the only way a `verify-full` connection can
     // succeed, and `root_certificate_pem` is also what identifies the resource as
     // Postgres — forwarding one and dropping the other is incoherent.
@@ -668,7 +1067,7 @@ mod tests {
         let r = json!({"host": "h", "dbname": "d", "sslmode": "verify-full",
                        "root_certificate_pem": "-----BEGIN CERTIFICATE-----\nx\n"});
         let p = render_profile(
-            DbtAdapter::Postgres,
+            &KnownAdapter::Postgres.into(),
             &r,
             "wm",
             "prod",
@@ -695,7 +1094,7 @@ mod tests {
         // No CA configured, no dangling sslrootcert pointing at a missing file.
         let plain = json!({"host": "h", "dbname": "d", "sslmode": "require"});
         let p = render_profile(
-            DbtAdapter::Postgres,
+            &KnownAdapter::Postgres.into(),
             &plain,
             "wm",
             "prod",
@@ -716,7 +1115,7 @@ mod tests {
         let r = json!({"account_identifier": "acc", "username": "u", "token": "tok",
                        "database": "db", "warehouse": "wh"});
         let p = render_profile(
-            DbtAdapter::Snowflake,
+            &KnownAdapter::Snowflake.into(),
             &r,
             "wm",
             "prod",
@@ -740,7 +1139,7 @@ mod tests {
     fn bigquery_requires_a_dataset() {
         let r = json!({"project_id": "p", "client_email": "e", "private_key": "k"});
         let err = render_profile(
-            DbtAdapter::Bigquery,
+            &KnownAdapter::Bigquery.into(),
             &r,
             "wm",
             "prod",
@@ -752,7 +1151,7 @@ mod tests {
         .to_string();
         assert!(err.contains("profile.schema"), "{err}");
         let p = render_profile(
-            DbtAdapter::Bigquery,
+            &KnownAdapter::Bigquery.into(),
             &r,
             "wm",
             "prod",
@@ -772,16 +1171,16 @@ mod tests {
     #[test]
     fn ambiguous_host_resources_decline_rather_than_guess() {
         let mssql = json!({"host": "h", "dbname": "d", "user": "u", "password": "p"});
-        assert_eq!(DbtAdapter::infer_from_resource(&mssql), None);
+        assert_eq!(KnownAdapter::infer_from_resource(&mssql), None);
         let pg = json!({"host": "h", "dbname": "d", "sslmode": "require"});
         assert_eq!(
-            DbtAdapter::infer_from_resource(&pg),
-            Some(DbtAdapter::Postgres)
+            KnownAdapter::infer_from_resource(&pg),
+            Some(KnownAdapter::Postgres)
         );
         let sf = json!({"account_identifier": "acc", "database": "d"});
         assert_eq!(
-            DbtAdapter::infer_from_resource(&sf),
-            Some(DbtAdapter::Snowflake)
+            KnownAdapter::infer_from_resource(&sf),
+            Some(KnownAdapter::Snowflake)
         );
     }
 
@@ -791,7 +1190,7 @@ mod tests {
     fn mysql_emits_exactly_one_schema_key() {
         let r = json!({"host": "h", "dbname": "sales", "user": "u"});
         let p = render_profile(
-            DbtAdapter::Mysql,
+            &KnownAdapter::Mysql.into(),
             &r,
             "wm",
             "dev",
@@ -811,7 +1210,7 @@ mod tests {
     #[test]
     fn a_profile_name_or_target_cannot_open_a_sibling_key() {
         let rendered = render_profile(
-            DbtAdapter::Postgres,
+            &KnownAdapter::Postgres.into(),
             &serde_json::json!({"host": "h", "user": "u", "password": "p", "dbname": "d"}),
             "prod # hidden",
             "dev\n  evil: yes",
@@ -846,7 +1245,7 @@ mod tests {
         let r = json!({"host": "h", "dbname": "d",
                        "password": "p\"\nhost: evil.example.com\n#"});
         let p = render_profile(
-            DbtAdapter::Postgres,
+            &KnownAdapter::Postgres.into(),
             &r,
             "wm",
             "dev",
@@ -872,25 +1271,25 @@ mod tests {
     #[test]
     fn only_mssql_and_oracle_are_enterprise_gated() {
         for a in [
-            DbtAdapter::Postgres,
-            DbtAdapter::Redshift,
-            DbtAdapter::Mysql,
-            DbtAdapter::Duckdb,
-            DbtAdapter::Clickhouse,
-            DbtAdapter::Snowflake,
-            DbtAdapter::Bigquery,
-            DbtAdapter::Databricks,
-            DbtAdapter::Salesforce,
+            KnownAdapter::Postgres,
+            KnownAdapter::Redshift,
+            KnownAdapter::Mysql,
+            KnownAdapter::Duckdb,
+            KnownAdapter::Clickhouse,
+            KnownAdapter::Snowflake,
+            KnownAdapter::Bigquery,
+            KnownAdapter::Databricks,
+            KnownAdapter::Salesforce,
         ] {
             assert!(!a.requires_enterprise(), "{a:?}");
-            assert!(ensure_adapter_licensed(a).is_ok(), "{a:?}");
+            assert!(ensure_adapter_licensed(&a.into()).is_ok(), "{a:?}");
         }
         for (a, name) in [
-            (DbtAdapter::Mssql, "Microsoft SQL server"),
-            (DbtAdapter::OracleDB, "Oracle DB"),
+            (KnownAdapter::Mssql, "Microsoft SQL server"),
+            (KnownAdapter::OracleDB, "Oracle DB"),
         ] {
             assert!(a.requires_enterprise(), "{a:?}");
-            match ensure_adapter_licensed(a) {
+            match ensure_adapter_licensed(&a.into()) {
                 Ok(()) => assert!(
                     enterprise_licensed(),
                     "{a:?} was accepted without an enterprise license"
