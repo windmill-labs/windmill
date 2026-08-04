@@ -1091,6 +1091,14 @@ export const mcpEndpointTools: EndpointTool[] = [
         queryParamsSchema: {
         "type": "object",
         "properties": {
+                "page": {
+                        "type": "integer",
+                        "description": "which page to return (start at 1, default 1)"
+                },
+                "per_page": {
+                        "type": "integer",
+                        "description": "number of items to return for a given page (default 30, max 100)"
+                },
                 "path_start": {
                         "type": "string",
                         "description": "mask to filter matching starting path"
@@ -1105,7 +1113,7 @@ export const mcpEndpointTools: EndpointTool[] = [
     {
         name: "getAppByPath",
         description: "get app by path",
-        instructions: "Returns the app's whole `value`, which is what updateApp needs: it takes the whole thing, not a patch. `raw_app` says whether this is a full-code app (its value holds `files`/`runnables`) or a low-code one (a `grid`), and only a full-code app can be deployed through MCP.",
+        instructions: "Returns the app's whole `value`, which is what updateApp needs: it takes the whole thing, not a patch. A big enough app is truncated by the tool-result limit; sending that back fails the build rather than deploying something partial, so edit those in the app editor or with the CLI. `raw_app` says whether this is a full-code app (its value holds `files`/`runnables`) or a low-code one (a `grid`), and only a full-code app can be deployed through MCP.",
         path: "/w/{workspace}/apps/get/p/{path}",
         method: "GET",
         pathParamsSchema: {

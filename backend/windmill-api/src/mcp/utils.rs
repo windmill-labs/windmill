@@ -585,6 +585,10 @@ fn extra_scopes_for_route(route_path: &str) -> Option<(&'static str, &'static [&
     // Both deploy an app by compiling its sources, which runs the app's own
     // dependencies on a worker — a token reaches that only by naming the tool.
     // The names are the ones agents see (`x-mcp-tool-name`), not the operation ids.
+    //
+    // They are deliberately the names the retired low-code tools used, so a token
+    // issued before that switch reaches these instead — an accepted upgrade, not
+    // an oversight: MCP has one pair of app-write tools and they are these.
     match segments.next() {
         Some("create_raw_source") => Some(("createApp", &["jobs:run"])),
         Some("update_raw_source") => Some(("updateApp", &["jobs:run"])),

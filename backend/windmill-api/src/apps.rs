@@ -17,7 +17,9 @@ use crate::{
     auth::{get_end_user_email, AuthCache, OptTokened},
     db::{ApiAuthed, DB},
     jobs::RunJobQuery,
-    users::{require_owner_of_path, require_path_read_access_for_preview, OptAuthed},
+    users::{
+        require_is_writer, require_owner_of_path, require_path_read_access_for_preview, OptAuthed,
+    },
     utils::{build_scope_path_predicate, check_scopes},
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
@@ -2717,6 +2719,20 @@ async fn update_app_raw_source(
     Ok(format!("app {} updated (npath: {:?})", opath, npath))
 }
 
+/// Whether a deployed app already occupies `path`. Through the privileged pool
+/// on purpose: a path taken by an app the caller can't see is still taken, and
+/// `create_app_internal` would fail on the unique index either way.
+async fn app_exists(db: &DB, w_id: &str, path: &str) -> Result<bool> {
+    Ok(sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM app WHERE path = $1 AND workspace_id = $2)",
+        path,
+        w_id
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false))
+}
+
 /// Create a raw app from its sources, compiling them on a worker. The counterpart
 /// of `update_app_raw_source`: `create_raw` takes a bundle the caller already
 /// built, which an API client has no way to produce.
@@ -2754,6 +2770,23 @@ async fn create_app_raw_source(
 
     let files: RawAppSourceFiles = serde_json::from_str(app.value.0.get())
         .map_err(|e| Error::BadRequest(format!("app value is not a raw app source: {e}")))?;
+
+    // Before the compile, which costs a job on a worker: it must not run for a
+    // path already taken, nor for one the caller can't write. `create_app_internal`
+    // rejects both, but only after the sources have been built.
+    if app_exists(&db, &w_id, &path).await? {
+        return Err(Error::BadRequest(format!("App {path} already exists")));
+    }
+    require_is_writer(
+        &authed,
+        &path,
+        &w_id,
+        db.clone(),
+        "SELECT extra_perms FROM app WHERE path = $1 AND workspace_id = $2",
+        "app",
+    )
+    .await?;
+
     let (js, css) =
         apps_raw_bundle::bundle_raw_app_sources(&db, &user_db, &authed, &w_id, &files.files).await?;
 
