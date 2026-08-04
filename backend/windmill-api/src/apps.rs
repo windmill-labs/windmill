@@ -17,7 +17,9 @@ use crate::{
     auth::{get_end_user_email, AuthCache, OptTokened},
     db::{ApiAuthed, DB},
     jobs::RunJobQuery,
-    users::{require_owner_of_path, require_path_read_access_for_preview, OptAuthed},
+    users::{
+        require_is_writer, require_owner_of_path, require_path_read_access_for_preview, OptAuthed,
+    },
     utils::{build_scope_path_predicate, check_scopes},
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
@@ -2669,12 +2671,22 @@ async fn update_app_raw_source(
     let files: RawAppSourceFiles = serde_json::from_str(value.0.get())
         .map_err(|e| Error::BadRequest(format!("app value is not a raw app source: {e}")))?;
 
-    // Both before the compile, which costs a job: nothing should compile for a
-    // path the caller can't write, and an app of the other kind is refused by
-    // update_app_internal anyway.
+    // All before the compile, which costs a job on a worker: it must not run for
+    // a path with no app, for a caller who can only read one (RLS refuses the
+    // write, but not until their sources have been built), or for an app of the
+    // other kind, which update_app_internal refuses anyway.
     let deployed_raw_app = deployed_app_kind(&user_db, &authed, &w_id, path)
         .await?
         .ok_or_else(|| Error::NotFound(format!("App {path} not found")))?;
+    require_is_writer(
+        &authed,
+        path,
+        &w_id,
+        db.clone(),
+        "SELECT extra_perms FROM app WHERE path = $1 AND workspace_id = $2",
+        "app",
+    )
+    .await?;
     if !ns.allow_kind_change.unwrap_or(false) {
         reject_kind_change(path, true, Some(deployed_raw_app))?;
     }

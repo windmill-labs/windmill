@@ -90,7 +90,7 @@ export async function main(
 	if (installed) {
 		const attempt = spawn([installed, 'app', 'bundle', dir, '--out', outDir])
 		// Colours sit between the words cliffy prints, so match on the stripped text.
-		const plain = attempt.output.replace(/\[[0-9;]*m/g, '')
+		const plain = attempt.output.replace(/\x1b\[[0-9;]*m/g, '')
 		if (attempt.ok) {
 			buildOutput = attempt.output
 		} else if (!/Unknown command|Usage:\s+wmill app\b/.test(plain)) {

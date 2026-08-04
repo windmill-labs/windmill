@@ -1156,7 +1156,7 @@ Creates a new version of an existing script when called with the same path and t
     },
     EndpointTool {
         name: Cow::Borrowed("updateAppRawSource"),
-        description: Cow::Borrowed("update a raw app from its sources, bundling them server-side"),
+        description: Cow::Borrowed("update a raw app from its sources, compiling them on a worker (which runs the app's own dependencies to do so)"),
         instructions: Cow::Borrowed("Use this to change a raw (full-code) app — an app whose `raw_app` field is true. Send the whole `value` (`files`, `runnables`, `data`), not a patch: read the current one with getAppByPath first and edit it. The sources are compiled on a worker by the same build the editor and the CLI run, so a compile error comes back as the error of this call. Compiling runs the app's own dependencies on a worker, so this tool can execute code there. Low-code apps use updateApp instead."),
         path: Cow::Borrowed("/w/{workspace}/apps/update_raw_source/{path}"),
         method: Cow::Borrowed("POST"),

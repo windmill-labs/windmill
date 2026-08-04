@@ -585,13 +585,12 @@ fn extra_scopes_for_route(route_path: &str) -> Option<(&'static str, &'static [&
         .then_some(("updateAppRawSource", &["jobs:run"]))
 }
 
-/// Whether the token names `tool` in an `mcp:endpoints:` list. A `*` there is
-/// "every endpoint", which names nothing.
+/// Whether the token names `tool` rather than reaching it through a blanket
+/// grant. Parsed by `windmill-mcp`, which owns the scope grammar; `mcp:all` and
+/// `mcp:favorites` yield `*` or nothing, neither of which names a tool.
 fn selects_endpoint_tool(caller_scopes: &[String], tool: &str) -> bool {
-    caller_scopes.iter().any(|s| {
-        s.strip_prefix("mcp:endpoints:")
-            .is_some_and(|list| list.split(',').any(|t| t.trim() == tool))
-    })
+    windmill_mcp::common::scope::parse_mcp_scopes(caller_scopes)
+        .is_ok_and(|config| config.endpoints.iter().any(|e| e == tool))
 }
 
 /// Create HTTP request with authentication
