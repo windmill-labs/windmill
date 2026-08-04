@@ -320,10 +320,14 @@ impl KnownAdapter {
 /// Open by construction, because dbt's adapter set is open and Windmill's
 /// knowledge of it is not. The eleven above are the ones it has facts about — a
 /// field mapping from a resource, a pip package, a license gate — but a
-/// `dbt_profile` resource carries a target block Windmill never has to
-/// understand, so any other adapter is carried by name and installed under the
-/// `dbt-<name>` convention every adapter on PyPI follows. That is what makes
+/// `dbt_profile` resource carries an output block Windmill never has to
+/// understand, so any other adapter is carried by name — rendered, licensed and
+/// identified without Windmill knowing anything about it. That is what makes
 /// "whatever dbt supports" true rather than "whatever this enum lists".
+///
+/// Using one and INSTALLING one are separate: the dbt-core 1.x venv fetches
+/// `dbt-<name>` from PyPI, which `ensure_adapter_installable` gates on what the
+/// instance trusts. Nothing here is that gate.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DbtAdapter {
     known: Option<KnownAdapter>,

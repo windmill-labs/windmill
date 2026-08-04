@@ -261,12 +261,25 @@ connection fields until it had the name.
 `DbtAdapter` carries an optional `KnownAdapter` beside the name, so the eleven
 adapters Windmill has facts about (a field mapping, a pip package, the license
 gate) keep them, and every other adapter dbt has — `trino`, `athena`, `spark`,
-whatever ships next — is carried by name and installed as `dbt-<name>`, the
-convention every adapter on PyPI follows. A closed list would have made
+whatever ships next — is carried by name and rendered, licensed and identified
+without Windmill knowing anything about it. A closed list would have made
 "whatever dbt supports" mean "whatever this enum lists", and each new adapter a
 Windmill release. The name is constrained to `[a-z0-9_-]` starting alphanumeric
 *because* it is open: it reaches a pip requirement and a venv path on the host,
 where a leading `-` is a flag and a `/` is a path segment.
+
+**Installing one is a separate question from using one.** `dbt-core-1x` fetches
+`dbt-<name>` from PyPI, `dbt-` is not a reserved prefix there, and that install
+runs through `run_tool` — outside the nsjail ordinary Python dependency
+installation uses, with uv executing a source distribution's PEP 517 backend. An
+unbounded name would therefore let a script author publish `dbt-<x>` and run code
+as the worker, on the one dependency path that is not sandboxed. So
+`ensure_adapter_installable` gates that install on `PUBLISHED_ADAPTERS` plus
+whatever an operator lists in `DBT_EXTRA_ADAPTERS`: the author chooses which
+adapter to use, the admin decides which packages this instance trusts. Nothing
+else is gated — a profile still renders for any adapter, and `dbt-core-2x` and
+`fusion` carry their adapters in the binary, install nothing, and take any
+`type` at all.
 
 Two keys are not passed through: `type` (Windmill writes the adapter's own dbt
 spelling) and `root_certificate_pem`, which is a PEM body rather than the path
