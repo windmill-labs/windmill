@@ -196,28 +196,22 @@
 					)
 			)
 
-			const writeScope = domain.scopes.find((s) => s.value === writeScopeValue)
-			if (writeScope?.requires_resource_path) {
-				selectedScopes = [...selectedScopes, `${writeScopeValue}`]
-			} else {
-				selectedScopes = [...selectedScopes, writeScopeValue]
-			}
+			// A path-restricted scope already counts as selected for this checkbox (see
+			// initializeDomainStates), so ticking it has to carry those paths over: re-adding the bare
+			// scope would silently widen the grant from those paths to the whole domain.
+			const runScopeValues = domain.scopes
+				.filter((scope) => scope.value.includes(':run:'))
+				.map((scope) => scope.value)
 
-			const runScopes = domain.scopes.filter((scope) => scope.value.includes(':run:'))
-			for (const runScope of runScopes) {
-				if (runScope.requires_resource_path) {
-					selectedScopes = [...selectedScopes, `${runScope.value}`]
-				} else {
-					selectedScopes = [...selectedScopes, runScope.value]
-				}
-			}
-
-			for (const scope of domain.scopes) {
-				const scopeState = domainState.scopes[scope.value]
+			for (const scopeValue of [writeScopeValue, ...runScopeValues]) {
+				const scopeState = domainState.scopes[scopeValue]
+				const paths = scopeState?.resourcePaths ?? []
+				selectedScopes = [
+					...selectedScopes,
+					paths.length > 0 ? `${scopeValue}:${paths.join(',')}` : scopeValue
+				]
 				if (scopeState) {
-					if (scope.value === writeScopeValue || runScopes.some((rs) => rs.value === scope.value)) {
-						scopeState.isSelected = true
-					}
+					scopeState.isSelected = true
 				}
 			}
 		} else {
@@ -490,19 +484,28 @@
 	fetchScopeDomains()
 </script>
 
-<!-- The label can be a long comma-joined path list: it has to truncate rather than widen its
-     container, which would push the per-scope "Restrict paths" buttons out of the panel. -->
-{#snippet scopeChip(label: string, removeTitle: string, onRemove: (e: MouseEvent) => void)}
+<!-- The label can be a long comma-joined path list. It must never widen its container, which would
+     push the per-scope path buttons out of the panel, so it either truncates or wraps. Wrap it
+     wherever the reader is auditing the grant: an ellipsis there hides the paths being granted. -->
+{#snippet scopeChip(
+	label: string,
+	removeTitle: string,
+	onRemove: (e: MouseEvent) => void,
+	opts?: { removeDisabled?: boolean; wrapLabel?: boolean }
+)}
 	<span
 		class="inline-flex items-center gap-1 min-w-0 max-w-full px-1.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 rounded font-mono"
 	>
-		<span class="truncate" title={label}>{label}</span>
+		<span
+			class={opts?.wrapLabel ? 'break-all' : 'truncate'}
+			title={opts?.wrapLabel ? undefined : label}>{label}</span
+		>
 		<button
 			type="button"
 			onclick={onRemove}
 			class="text-blue-600 hover:text-blue-800 flex-shrink-0"
 			title={removeTitle}
-			{disabled}
+			disabled={opts?.removeDisabled ?? disabled}
 		>
 			<X size={10} />
 		</button>
@@ -537,7 +540,9 @@
 			{:else}
 				<div class="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
 					{#each selectedScopes.slice(0, 10) as scope}
-						{@render scopeChip(scope, 'Remove scope', () => removeSelectedScope(scope))}
+						{@render scopeChip(scope, 'Remove scope', () => removeSelectedScope(scope), {
+							wrapLabel: true
+						})}
 					{/each}
 					{#if selectedScopes.length > 10}
 						<span
@@ -675,8 +680,9 @@
 															>
 																{resourcePathArray.length > 0 ? 'Add path' : 'Restrict paths'}
 																<Tooltip light>
-																	Restrict this scope to specific resource paths. If no paths are
-																	specified, the scope gives full access.
+																	Restrict this scope to specific resource paths. Each path you add
+																	widens what the scope reaches. If no paths are specified, the
+																	scope gives full access.
 																</Tooltip>
 															</Button>
 														{/snippet}
@@ -724,8 +730,11 @@
 										{#if scope.requires_resource_path && resourcePathArray.length > 0}
 											<div class="flex flex-wrap gap-1 mt-2">
 												{#each resourcePathArray as path}
-													{@render scopeChip(path, 'Remove path', () =>
-														removeResourcePath(scope.value, path)
+													{@render scopeChip(
+														path,
+														'Remove path',
+														() => removeResourcePath(scope.value, path),
+														{ removeDisabled: isDisabled }
 													)}
 												{/each}
 											</div>
