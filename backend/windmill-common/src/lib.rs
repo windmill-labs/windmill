@@ -794,6 +794,23 @@ ta9ELulniZau8zUAtwqwecxodzl+KO8NYj0a9PGgAM64dMqkRtRA8P4UP350Nag3\n\
         assert!(pg(Some("allow"), None).to_uri().contains("sslmode=prefer"));
         assert!(pg(None, None).to_uri().contains("sslmode=prefer"));
     }
+
+    /// The other paths default a missing login to `postgres`; Entra must not, or the
+    /// server rejects a role the resource never named.
+    #[test]
+    fn entra_login_rejects_a_missing_user() {
+        let mut db = pg(None, None);
+        assert_eq!(db.entra_login().unwrap(), "u");
+        assert_eq!(db.login_name(), "u");
+
+        db.user = None;
+        assert_eq!(db.login_name(), "postgres");
+
+        for blank in [None, Some(""), Some("  ")] {
+            db.user = blank.map(|u: &str| u.to_string());
+            assert!(db.entra_login().is_err(), "{blank:?} is not a login");
+        }
+    }
 }
 
 #[derive(Serialize, Debug)]
@@ -1079,22 +1096,45 @@ impl PgDatabase {
                 error::Error::InternalErr(format!("IAM token generation failed: {e:#}"))
             })?;
 
-        self.connect_with_token("IAM RDS", &token).await
+        self.connect_with_token("IAM RDS", user, &token).await
+    }
+
+    /// The role an Entra-authenticated connection logs in as. Azure maps each Entra
+    /// principal to a role of its own (`pgaadauth_create_principal`), so unlike the
+    /// other paths this one has no sensible default: `postgres` would send the server a
+    /// role name the resource never mentions, and the rejection then names a value the
+    /// user never configured.
+    pub fn entra_login(&self) -> error::Result<&str> {
+        self.user
+            .as_deref()
+            .map(str::trim)
+            .filter(|u| !u.is_empty())
+            .ok_or_else(|| {
+                error::Error::BadRequest(
+                    "Azure workload identity authentication requires `user` on the resource. \
+                     Set it to the Postgres role the worker's Entra principal is mapped to, \
+                     as created by pgaadauth_create_principal."
+                        .to_string(),
+                )
+            })
     }
 
     /// Connect to Azure Database for PostgreSQL as the worker's federated identity.
-    /// The Entra ID access token replaces the password; `user` must be the Entra
-    /// principal name the server knows the identity by.
+    /// The Entra ID access token replaces the password.
     #[cfg(feature = "enterprise")]
     pub async fn connect_with_workload_identity(
         &self,
     ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
+        // Before the token exchange: a missing login is worth reporting without first
+        // spending a round trip to Entra ID on it.
+        let user = self.entra_login()?;
+
         let workload_identity = azure_workload_identity::WorkloadIdentityConfig::resolve()?;
         let token = workload_identity
             .access_token(azure_workload_identity::AZURE_OSSRDBMS_SCOPE)
             .await?;
 
-        self.connect_with_token("Azure workload identity", &token)
+        self.connect_with_token("Azure workload identity", user, &token)
             .await
     }
 
@@ -1106,13 +1146,13 @@ impl PgDatabase {
     async fn connect_with_token(
         &self,
         auth_kind: &str,
+        user: &str,
         token: &str,
     ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
         use native_tls::TlsConnector;
         use postgres_native_tls::MakeTlsConnector;
 
         let port = self.port.unwrap_or(5432);
-        let user = self.login_name();
 
         let mut connector = TlsConnector::builder();
         let verified = Self::configure_pg_tls_verification(
