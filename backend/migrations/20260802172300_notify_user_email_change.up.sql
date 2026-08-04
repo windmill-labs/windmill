@@ -44,19 +44,18 @@ EXECUTE FUNCTION notify_usr_email_change();
 CREATE OR REPLACE FUNCTION notify_superadmin_identity_change()
 RETURNS TRIGGER AS $$
 DECLARE
-    new_name TEXT;
-    old_name TEXT;
+    names TEXT[] := '{}';
 BEGIN
-    IF TG_OP <> 'DELETE' THEN new_name := COALESCE(NEW.username, NEW.email); END IF;
-    IF TG_OP <> 'INSERT' THEN old_name := COALESCE(OLD.username, OLD.email); END IF;
-    IF new_name IS NOT NULL THEN
-        INSERT INTO notify_event (channel, payload)
-        VALUES ('notify_user_email_change', '*:' || new_name);
-    END IF;
-    IF old_name IS NOT NULL AND old_name IS DISTINCT FROM new_name THEN
-        INSERT INTO notify_event (channel, payload)
-        VALUES ('notify_user_email_change', '*:' || old_name);
-    END IF;
+    -- Both columns, not `COALESCE`: `resolve_username_to_email` matches a `u/` principal against
+    -- `username` OR `email`, and whichever string the caller passed is the key it cached under,
+    -- so an account with a username can still hold a live entry under its address. Old and new
+    -- of each, because a change to either leaves the other's entry behind.
+    IF TG_OP <> 'DELETE' THEN names := names || ARRAY[NEW.username, NEW.email]; END IF;
+    IF TG_OP <> 'INSERT' THEN names := names || ARRAY[OLD.username, OLD.email]; END IF;
+    INSERT INTO notify_event (channel, payload)
+    SELECT DISTINCT 'notify_user_email_change', '*:' || n
+      FROM unnest(names) AS n
+     WHERE n IS NOT NULL;
     RETURN COALESCE(NEW, OLD);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
