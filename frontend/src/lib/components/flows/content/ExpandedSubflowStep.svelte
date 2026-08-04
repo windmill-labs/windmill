@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { getContext, untrack } from 'svelte'
-	import { resource } from 'runed'
 	import { FlowService, type FlowModule } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
@@ -10,7 +9,10 @@
 	import { ChevronRight, ExternalLink, Pen } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/utils'
 	import type { FlowEditorContext } from '../types'
-	import { resolveExpandedSubflowStep } from '../expandedSubflowStep'
+	import {
+		resolveExpandedSubflowStep,
+		type ResolvedExpandedSubflowStep
+	} from '../expandedSubflowStep'
 	import { parseExpandedSubflowId } from '$lib/components/restartFromStepPath'
 
 	interface Props {
@@ -28,24 +30,46 @@
 
 	let leafId = $derived(parseExpandedSubflowId(selectedId)?.leaf ?? selectedId)
 
-	let step = resource([() => selectedId, () => opWs], async ([id, ws]) =>
-		resolveExpandedSubflowStep(
-			id,
-			untrack(() => $state.snapshot(flowStore.val.value.modules) as FlowModule[]),
-			async (path) => (await FlowService.getFlowByPath({ workspace: ws!, path })).value.modules
-		)
-	)
+	// Modules of the subflows crossed so far: the panel stays mounted while the user clicks
+	// through the expansion, so without this every click refetches the whole chain. Deploying
+	// a subflow bumps the generation, which is part of the key, rather than invalidating it.
+	let modulesCache = new Map<string, FlowModule[]>()
+	let generation = $state(0)
+	// `undefined` while resolving. A resolution is only applied when it is still the one the
+	// current selection asked for, so a slower deep chain can't overwrite a newer selection.
+	let loaded = $state<{ step?: ResolvedExpandedSubflowStep; error?: Error } | undefined>(undefined)
+	let latestRequest = 0
 
-	// While a new selection resolves, `step.current` still holds the previous step: hide the
-	// breadcrumb and the actions rather than pointing them at the step the user just left.
-	let resolved = $derived(step.loading ? undefined : step.current)
+	$effect(() => {
+		const [id, ws, gen] = [selectedId, opWs, generation]
+		const request = ++latestRequest
+		loaded = undefined
+		const rootModules = untrack(() => $state.snapshot(flowStore.val.value.modules) as FlowModule[])
+		resolveExpandedSubflowStep(id, rootModules, async (path) => {
+			const key = `${gen}:${ws}:${path}`
+			let modules = modulesCache.get(key)
+			if (!modules) {
+				modules = (await FlowService.getFlowByPath({ workspace: ws!, path })).value.modules
+				modulesCache.set(key, modules)
+			}
+			return modules
+		})
+			.then((step) => {
+				if (request === latestRequest) loaded = { step }
+			})
+			.catch((error) => {
+				if (request === latestRequest) loaded = { error }
+			})
+	})
+
+	let resolved = $derived(loaded?.step)
 
 	function editSubflow(path: string, stepId: string | undefined) {
 		$flowEditorDrawer?.openDrawer(
 			path,
 			() => {
 				sendUserToast('Subflow has been updated')
-				step.refetch()
+				generation++
 				onSubflowUpdated?.()
 			},
 			stepId
@@ -95,13 +119,13 @@
 		{/if}
 	</div>
 	<div class="min-h-0 grow overflow-auto">
-		{#if step.loading}
+		{#if loaded == undefined}
 			<div class="p-4">
 				<Skeleton layout={[[2], 1, [8]]} />
 			</div>
-		{:else if step.error}
+		{:else if loaded.error}
 			<div class="p-4 text-xs text-secondary">
-				Could not load the subflow this step belongs to: {step.error.message}
+				Could not load the subflow this step belongs to: {loaded.error.message}
 			</div>
 		{:else if resolved?.module}
 			<FlowGraphViewerStep stepDetail={resolved.module} workspace={opWs} />

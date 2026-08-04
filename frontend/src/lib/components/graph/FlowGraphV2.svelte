@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { FlowService, type FlowModule, type FlowNote, type Job, type OpenFlow } from '../../gen'
+	import { findStepPath, parseExpandedSubflowId } from '$lib/components/restartFromStepPath'
 	import { AI_OR_ASSET_NODE_TYPES, NODE, type GraphModuleState } from '.'
 	import { getContext, onDestroy, onMount, tick, untrack, type Snippet } from 'svelte'
 	import { createFlowDiffManager } from '../flows/flowDiffManager.svelte'
@@ -466,10 +467,6 @@
 		return newNodes
 	}
 
-	// Flow path each expanded subflow was loaded from, so its inlined steps can be refetched
-	// after the subflow is edited elsewhere. Keyed like `expandedSubflows`, by graph node id.
-	let expandedSubflowPaths: Record<string, string> = {}
-
 	let eventHandler = {
 		deleteBranch: (detail, label) => {
 			selectionManager.selectId(label)
@@ -512,12 +509,10 @@
 			const flow = await FlowService.getFlowByPath({ workspace: workspace, path })
 			expandedSubflows[id] = { modules: flow.value.modules, groups: flow.value.groups }
 			expandedSubflows = expandedSubflows
-			expandedSubflowPaths[id] = path
 		},
 		minimizeSubflow: (id: string) => {
 			delete expandedSubflows[id]
 			expandedSubflows = expandedSubflows
-			delete expandedSubflowPaths[id]
 		},
 		expandGroup: (groupId: string) => {
 			groupDisplayState.expandGroup(groupId)
@@ -1097,16 +1092,39 @@
 		}
 	}
 
+	/** Flow an expanded subflow node stands for, read from the step it inlines: the edited
+	 * flow for a top-level expansion, the enclosing expansion's modules otherwise. */
+	function expandedSubflowPath(nodeId: string): string | undefined {
+		const parsed = parseExpandedSubflowId(nodeId)
+		const steps = parsed?.subflowSteps
+		const parentModules = steps
+			? expandedSubflows[steps.length > 1 ? 'subflow:' + steps.join(':') : steps[0]]?.modules
+			: modules
+		const value = parentModules && findStepPath(parentModules, parsed?.leaf ?? nodeId)?.target.value
+		return value && value.type === 'flow' ? value.path : undefined
+	}
+
+	/** Refetch the steps inlined by every expanded subflow, e.g. after one was deployed from
+	 * the flow editor drawer. Outermost first, so a nested expansion resolves its path from
+	 * its refreshed parent: a step now pointing at another flow must not keep rendering the
+	 * one it pointed at when it was expanded. */
 	export async function reloadExpandedSubflows() {
-		const reloaded = await Promise.all(
-			Object.entries(expandedSubflowPaths).map(async ([id, path]) => {
-				const flow = await FlowService.getFlowByPath({ workspace: workspace, path })
-				return [id, { modules: flow.value.modules, groups: flow.value.groups }] as const
-			})
+		const ids = Object.keys(expandedSubflows).sort(
+			(a, b) =>
+				(parseExpandedSubflowId(a)?.subflowSteps.length ?? 0) -
+				(parseExpandedSubflowId(b)?.subflowSteps.length ?? 0)
 		)
-		for (const [id, data] of reloaded) {
-			if (expandedSubflows[id] != undefined) {
-				expandedSubflows[id] = data
+		for (const id of ids) {
+			const path = expandedSubflowPath(id)
+			if (path == undefined) {
+				delete expandedSubflows[id]
+				continue
+			}
+			try {
+				const flow = await FlowService.getFlowByPath({ workspace: workspace, path })
+				expandedSubflows[id] = { modules: flow.value.modules, groups: flow.value.groups }
+			} catch (err) {
+				console.error(`Could not reload expanded subflow ${path}`, err)
 			}
 		}
 		expandedSubflows = expandedSubflows

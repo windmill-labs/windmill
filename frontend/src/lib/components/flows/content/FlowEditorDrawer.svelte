@@ -68,6 +68,7 @@
 	const flowStateStore: StateStore<FlowState> = $state({ val: {} })
 
 	let diffDrawer: DiffDrawer | undefined = $state()
+	let flowBuilder: FlowBuilder | undefined = $state(undefined)
 </script>
 
 <Drawer bind:this={flowEditorDrawer} size="100%">
@@ -89,6 +90,7 @@
 			</div>
 		{:else if flow}
 			<FlowBuilder
+				bind:this={flowBuilder}
 				{flowStore}
 				{flowStateStore}
 				initialPath={flowPath}
@@ -119,7 +121,9 @@
 			<Button
 				variant="default"
 				on:click={() => {
-					const selected = selectedStepId ? `?selected=${encodeURIComponent(selectedStepId)}` : ''
+					// Follow the drawer's own selection, which the user may have moved since it opened.
+					const stepId = flowBuilder?.getSelectedId() ?? selectedStepId
+					const selected = stepId ? `?selected=${encodeURIComponent(stepId)}` : ''
 					window.open(`/flows/edit/${flowPath}${selected}`, '_blank', 'noopener,noreferrer')
 					flowEditorDrawer?.closeDrawer()
 				}}
