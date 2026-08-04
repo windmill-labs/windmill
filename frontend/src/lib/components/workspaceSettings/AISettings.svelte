@@ -57,7 +57,7 @@
 		usesInstanceAiConfig?: boolean
 		instanceAiSummary?: InstanceAISummary
 		customSave?: (config: AIConfig) => Promise<void>
-		onSave?: (info?: GetCopilotSettingsStateResponse) => void | Promise<void>
+		onSave?: (savedConfig: AIConfig, info?: GetCopilotSettingsStateResponse) => void | Promise<void>
 		title?: string
 		description?: string
 		link?: string
@@ -332,7 +332,10 @@
 			sendUserToast('AI settings updated')
 		}
 		storeInitialState()
-		await onSave?.(settingsState)
+		// The parent owns `initialConfig`, so it must learn what was persisted: this component is
+		// destroyed when the settings tab changes, and a stale `initialConfig` would come back as the
+		// editor state on remount and overwrite the saved config on the next save.
+		await onSave?.(clone(config), settingsState)
 	}
 
 	async function onAiProviderChange(provider: AIProvider) {

@@ -2029,7 +2029,8 @@ export async function main(
 								{hasInstanceAiConfig}
 								{usesInstanceAiConfig}
 								{instanceAiSummary}
-								onSave={(copilotSettingsState) => {
+								onSave={(savedConfig, copilotSettingsState) => {
+									aiInitialConfig = savedConfig
 									if (!copilotSettingsState) {
 										return
 									}
