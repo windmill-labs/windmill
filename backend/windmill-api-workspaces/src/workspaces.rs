@@ -46,10 +46,10 @@ use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 use windmill_common::workspaces::{
     check_deploy_rules, check_user_against_rule, get_datatable_resource_from_db,
     get_datatable_resource_from_db_unchecked, redact_datatable_settings_for_export,
-    validate_dev_workspace_id,
-    validate_fork_workspace_id, validate_workspace_name, DataTable, DataTableCatalogResourceType,
-    DataTableForkBehavior, DatatableAccess, ProtectionRuleKind, ProtectionRules, ProtectionRuleset,
-    RuleCheckResult, WorkspaceGitSyncSettings, DEV_WORKSPACE_LOCK_RULE_NAME,
+    validate_dev_workspace_id, validate_fork_workspace_id, validate_workspace_name, DataTable,
+    DataTableCatalogResourceType, DataTableForkBehavior, DatatableAccess, ProtectionRuleKind,
+    ProtectionRules, ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings,
+    DEV_WORKSPACE_LOCK_RULE_NAME,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::PgDatabase;
@@ -3049,8 +3049,13 @@ async fn edit_datatable_config(
     }
 
     // Before the config is overwritten, while the deleted data tables can still be
-    // resolved to a connection.
+    // resolved to a connection. `deleted_datatables` is client-supplied and drives an
+    // irreversible drop, so only act on names the save is actually removing — a stale
+    // client must not be able to drop the roles of a data table that survives it.
     for deleted in &new_config.deleted_datatables {
+        if new_config.settings.datatables.contains_key(deleted) {
+            continue;
+        }
         crate::datatable_permissions::drop_roles_of_deleted_datatable(&db, &w_id, deleted).await;
     }
 
@@ -6944,17 +6949,28 @@ async fn create_workspace_fork(
         apply_forked_datatable(&db, &mut tx, &parent_workspace_id, &forked_id, fdt).await?;
     }
 
-    // Postgres roles are cluster-wide but their grants are per-database, so the cloned
-    // `permissions` block would point the fork's roles at roles holding privileges on the
-    // parent's database. A fork therefore starts unpermissioned and is opted in on its own.
+    // A forked data table now points at a fresh database where the parent's roles hold
+    // nothing, so its cloned `permissions` block is meaningless and is dropped — the fork
+    // opts in on its own. A data table that was NOT forked still points at the parent's
+    // database, where those roles do hold grants: keeping its block is what stops a fork
+    // (which any member may create) from reaching the parent's data as root.
+    let forked_datatable_names: Vec<String> = nw
+        .forked_datatables
+        .iter()
+        .map(|f| f.name.clone())
+        .collect();
     sqlx::query!(
         r#"UPDATE workspace_settings
            SET datatable = jsonb_set(datatable, '{datatables}', (
-               SELECT COALESCE(jsonb_object_agg(key, value - 'permissions'), '{}'::jsonb)
+               SELECT COALESCE(jsonb_object_agg(
+                   key,
+                   CASE WHEN key = ANY($2) THEN value - 'permissions' ELSE value END
+               ), '{}'::jsonb)
                FROM jsonb_each(datatable->'datatables')
            ))
            WHERE workspace_id = $1 AND jsonb_typeof(datatable->'datatables') = 'object'"#,
         &forked_id,
+        &forked_datatable_names[..],
     )
     .execute(&mut *tx)
     .await?;

@@ -169,10 +169,14 @@ fn plan_role_changes(
     let mut statements = Vec::new();
     let mut warnings = Vec::new();
 
-    let drop_role = |statements: &mut Vec<PlannedStatement>, pg_role: &str| {
+    let mut dropped_pg_roles: HashSet<String> = HashSet::new();
+    let drop_role = |statements: &mut Vec<PlannedStatement>,
+                     dropped: &mut HashSet<String>,
+                     pg_role: &str| {
         if !existing_pg_roles.contains(pg_role) {
             return;
         }
+        dropped.insert(pg_role.to_string());
         let q = quote_ident(pg_role);
         // Give the objects back to root before dropping, else the DROP fails on
         // anything the role still owns. DROP OWNED then clears what is left:
@@ -191,7 +195,7 @@ fn plan_role_changes(
                 continue;
             }
             if let Some(pg_role) = role.pg_rolename.as_deref() {
-                drop_role(&mut statements, pg_role);
+                drop_role(&mut statements, &mut dropped_pg_roles, pg_role);
             }
         }
         // Opting out drops the roles, so keeping their definitions would leave
@@ -259,6 +263,8 @@ fn plan_role_changes(
         }
     }
 
+    let renamed_away: HashSet<&str> = rename_src.values().copied().collect();
+
     // Which old role each requested role continues: its rename source if it was
     // renamed, else the old role of the same name. Matching on the requested name
     // alone would spare an old role that a *different* role is being renamed onto,
@@ -280,11 +286,29 @@ fn plan_role_changes(
             continue;
         }
         if let Some(pg_role) = role.pg_rolename.as_deref() {
-            drop_role(&mut statements, pg_role);
+            drop_role(&mut statements, &mut dropped_pg_roles, pg_role);
         }
     }
 
     let mut roles: BTreeMap<String, DataTableRole> = BTreeMap::new();
+    // Renames run before creates so a name freed by a rename can be taken by a new
+    // role in the same save; both run after the drops, for the same reason.
+    // Postgres names this save frees, by dropping the role or renaming it away.
+    // A name in here is occupied now but free by the time the creates run, so a new
+    // role may take it — treating it as taken would silently reuse the old role
+    // (and reset its password) instead of creating the new one.
+    let vacated_pg_roles: HashSet<String> = dropped_pg_roles
+        .iter()
+        .cloned()
+        .chain(rename_src.iter().filter_map(|(to, from)| {
+            let old_pg = old_roles.get(*from)?.pg_rolename.clone()?;
+            let new_pg = datatable_pg_role_name(w_id, datatable, to);
+            (old_pg != new_pg).then_some(old_pg)
+        }))
+        .collect();
+
+    let mut pending_renames: Vec<(String, String, String)> = Vec::new();
+    let mut creates_sql: Vec<PlannedStatement> = Vec::new();
 
     for (name, tenants) in requested.iter() {
         if name == ROOT_DATATABLE_ROLE {
@@ -299,7 +323,14 @@ fn plan_role_changes(
         let previous = rename_src
             .get(name.as_str())
             .and_then(|from| old_roles.get(*from).map(|r| (*from, r)))
-            .or_else(|| old_roles.get(name).map(|r| (name.as_str(), r)));
+            .or_else(|| {
+                // An old role of the same name that is being renamed away is not
+                // this role's predecessor: the name is being freed and taken by a
+                // brand new role, which has to be created rather than inherited.
+                (!renamed_away.contains(name.as_str()))
+                    .then(|| old_roles.get(name).map(|r| (name.as_str(), r)))
+                    .flatten()
+            });
 
         match previous {
             Some((from, old_role)) if old_role.pg_rolename.is_some() => {
@@ -310,31 +341,13 @@ fn plan_role_changes(
                     .unwrap_or_else(|| rd_string(32));
                 if old_pg != pg_rolename {
                     if existing_pg_roles.contains(&old_pg) {
-                        statements.push(PlannedStatement::plain(format!(
-                            "ALTER ROLE {} RENAME TO {};",
-                            quote_ident(&old_pg),
-                            quote_ident(&pg_rolename)
-                        )));
-                        // RENAME discards an md5-hashed password, so the stored
-                        // one would stop working; re-setting it is a no-op under
-                        // scram-sha-256 and a repair under md5.
-                        statements.push(PlannedStatement {
-                            sql: format!(
-                                "ALTER ROLE {} PASSWORD {};",
-                                quote_ident(&pg_rolename),
-                                quote_literal(&password)
-                            ),
-                            display: format!(
-                                "ALTER ROLE {} PASSWORD '<unchanged>';",
-                                quote_ident(&pg_rolename)
-                            ),
-                        });
+                        pending_renames.push((old_pg.clone(), pg_rolename.clone(), password.clone()));
                     } else {
                         warnings.push(format!(
                             "Role '{from}' was expected to exist in the database as '{old_pg}' but does not; it will be created as '{pg_rolename}'."
                         ));
-                        statements.push(create_role_statement(&pg_rolename, &password));
-                        statements.push(grant_connect_statement(&pg_rolename, dbname));
+                        creates_sql.push(create_role_statement(&pg_rolename, &password));
+                        creates_sql.push(grant_connect_statement(&pg_rolename, dbname));
                     }
                 }
                 roles.insert(
@@ -348,11 +361,13 @@ fn plan_role_changes(
             }
             _ => {
                 let password = rd_string(32);
-                if existing_pg_roles.contains(&pg_rolename) {
+                if existing_pg_roles.contains(&pg_rolename)
+                    && !vacated_pg_roles.contains(&pg_rolename)
+                {
                     warnings.push(format!(
                         "A Postgres role named '{pg_rolename}' already exists; it will be reused and its password reset."
                     ));
-                    statements.push(PlannedStatement {
+                    creates_sql.push(PlannedStatement {
                         sql: format!(
                             "ALTER ROLE {} WITH LOGIN PASSWORD {};",
                             quote_ident(&pg_rolename),
@@ -364,9 +379,9 @@ fn plan_role_changes(
                         ),
                     });
                 } else {
-                    statements.push(create_role_statement(&pg_rolename, &password));
+                    creates_sql.push(create_role_statement(&pg_rolename, &password));
                 }
-                statements.push(grant_connect_statement(&pg_rolename, dbname));
+                creates_sql.push(grant_connect_statement(&pg_rolename, dbname));
                 roles.insert(
                     name.clone(),
                     DataTableRole {
@@ -379,11 +394,66 @@ fn plan_role_changes(
         }
     }
 
+    statements.extend(order_renames(pending_renames, existing_pg_roles, &dropped_pg_roles)?);
+    statements.extend(creates_sql);
+
     Ok(RolePlan {
         statements,
         permissions: DataTablePermissions { enabled: true, roles },
         warnings,
     })
+}
+
+/// Order the planned renames so each runs only once its target name is free, and
+/// emit them.
+///
+/// A rename whose target is still occupied aborts the whole transaction with a
+/// bare "role already exists", so the ordering is part of the plan rather than
+/// something the admin has to discover: `a -> b` where the old `b` is being
+/// dropped or itself renamed away is a legitimate save, it just has to run in the
+/// right order. A true cycle (swapping two names) cannot be ordered at all and is
+/// reported as such instead of failing in Postgres.
+fn order_renames(
+    renames: Vec<(String, String, String)>,
+    existing_pg_roles: &HashSet<String>,
+    dropped_pg_roles: &HashSet<String>,
+) -> Result<Vec<PlannedStatement>> {
+    let mut pending = renames;
+    let mut vacated: HashSet<String> = dropped_pg_roles.clone();
+    let mut statements = Vec::new();
+
+    while !pending.is_empty() {
+        let ready = pending
+            .iter()
+            .position(|(_, to, _)| !existing_pg_roles.contains(to) || vacated.contains(to));
+        let Some(i) = ready else {
+            let blocked: Vec<&str> = pending.iter().map(|(from, _, _)| from.as_str()).collect();
+            return Err(Error::BadRequest(format!(
+                "Renaming {} would swap Postgres role names, which cannot be done in one \
+                 transaction. Apply the renames in two separate saves.",
+                blocked.join(", ")
+            )));
+        };
+        let (from, to, password) = pending.remove(i);
+        statements.push(PlannedStatement::plain(format!(
+            "ALTER ROLE {} RENAME TO {};",
+            quote_ident(&from),
+            quote_ident(&to)
+        )));
+        // RENAME discards an md5-hashed password, so the stored one would stop
+        // working; re-setting it is a no-op under scram-sha-256 and a repair under
+        // md5.
+        statements.push(PlannedStatement {
+            sql: format!(
+                "ALTER ROLE {} PASSWORD {};",
+                quote_ident(&to),
+                quote_literal(&password)
+            ),
+            display: format!("ALTER ROLE {} PASSWORD '<unchanged>';", quote_ident(&to)),
+        });
+        vacated.insert(from);
+    }
+    Ok(statements)
 }
 
 fn create_role_statement(pg_rolename: &str, password: &str) -> PlannedStatement {
@@ -848,6 +918,74 @@ mod tests {
             drop_at < rename_at,
             "drop must precede the rename that reuses the name: {statements:?}"
         );
+    }
+
+    /// Freeing a name by renaming its holder away and giving it to a brand new
+    /// role in the same save: the new role must actually be created, and only
+    /// after the rename has vacated the name.
+    #[test]
+    fn a_name_freed_by_a_rename_can_be_taken_by_a_new_role() {
+        let old = enabled_with(&["analyst"]);
+        let old_pg = datatable_pg_role_name(W_ID, DT, "analyst");
+        let req = SetDatatablePermissions {
+            enabled: true,
+            roles: vec![role("root", &[]), role("reader", &[]), role("analyst", &[])],
+            renames: vec![DatatableRoleRename {
+                from: "analyst".to_string(),
+                to: "reader".to_string(),
+            }],
+        };
+        let plan = plan(Some(&old), &req, &[old_pg.as_str()]).unwrap();
+
+        let statements = sql(&plan);
+        let rename_at = statements
+            .iter()
+            .position(|s| s.starts_with("ALTER ROLE") && s.contains("RENAME TO"))
+            .expect("the old role is renamed away");
+        let create_at = statements
+            .iter()
+            .position(|s| s.starts_with("CREATE ROLE"))
+            .expect("the reused name is created fresh, not silently inherited");
+        assert!(
+            rename_at < create_at,
+            "the rename must vacate the name before the create takes it: {statements:?}"
+        );
+        // The new role is a different Postgres role from the one that was renamed.
+        assert_eq!(
+            plan.permissions.roles["analyst"].pg_rolename.as_deref(),
+            Some(old_pg.as_str())
+        );
+        assert_ne!(
+            plan.permissions.roles["reader"].pg_rolename.as_deref(),
+            Some(old_pg.as_str())
+        );
+    }
+
+    /// Swapping two role names cannot be ordered into a working sequence, so it
+    /// is refused with an actionable message rather than aborting in Postgres.
+    #[test]
+    fn swapping_two_role_names_is_refused_with_an_explanation() {
+        let old = enabled_with(&["a", "b"]);
+        let existing: Vec<String> = ["a", "b"]
+            .iter()
+            .map(|r| datatable_pg_role_name(W_ID, DT, r))
+            .collect();
+        let req = SetDatatablePermissions {
+            enabled: true,
+            roles: vec![role("root", &[]), role("a", &[]), role("b", &[])],
+            renames: vec![
+                DatatableRoleRename { from: "a".to_string(), to: "b".to_string() },
+                DatatableRoleRename { from: "b".to_string(), to: "a".to_string() },
+            ],
+        };
+        let err = plan(
+            Some(&old),
+            &req,
+            &existing.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("separate saves"), "{err}");
     }
 
     #[test]

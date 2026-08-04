@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_settings\n           SET datatable = jsonb_set(datatable, '{datatables}', (\n               SELECT COALESCE(jsonb_object_agg(\n                   key,\n                   CASE WHEN key = ANY($2) THEN value - 'permissions' ELSE value END\n               ), '{}'::jsonb)\n               FROM jsonb_each(datatable->'datatables')\n           ))\n           WHERE workspace_id = $1 AND jsonb_typeof(datatable->'datatables') = 'object'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6020173a1ed1f946766e7865892ed2010bfd7271fda90166e768be924a854456"
+}
