@@ -231,11 +231,15 @@ points at the object-storage resource and a DuckLake names its catalog.
 **What a warehouse may point at.** Either a Windmill connection resource whose
 type `render_profile` translates (`postgresql`, `redshift`, `mysql`, `snowflake`,
 `snowflake_oauth`, `bigquery`, `gcp_service_account`, `databricks`), or a
-**`dbt_profile`** resource — `{ type, target }`, where `type` is the adapter as
-`profiles.yml` spells it and `target` is the output block itself. The picker is
+**`dbt_profile`** resource, whose VALUE IS one entry of that file's `outputs`
+map — `type` included, nothing lifted out or renamed. A block is copied from a
+working `profiles.yml` and pasted in, which is the whole point: a type that asked
+the user to restructure their block first would be doing the translation this
+exists to avoid. Its schema declares no properties, so the resource form renders
+one JSON editor over the value (`ResourceForm.svelte`). The picker is
 constrained to exactly these (`WAREHOUSE_RESOURCE_TYPES`); anything else has no
-way to become a target, which is why an unconstrained picker was a trap: it
-offered slack and github resources for a field that can only be a warehouse.
+way to become a target at all, which is why an unconstrained picker was a trap:
+it offered slack and github resources for a field that can only be a warehouse.
 
 The two exist for different reasons. A Windmill resource is the ergonomic path
 and is shared with everything else that connects to that warehouse, but it is
@@ -244,6 +248,14 @@ happens to carry into the keys dbt reads, so only what an arm covers can be
 expressed, and an adapter with no arm cannot be reached from one at all.
 `dbt_profile` inverts that — nothing is translated, so any adapter and any key it
 documents works.
+
+Which of the two a value is cannot be read off the value: both are objects with a
+`type`, and Windmill's bigquery resource is a service-account JSON that says
+`type: service_account`. So the warehouse carries its resource's TYPE
+(`DbtWarehouseConnection.resource_type`), and that is also what finally makes
+decision 9's "the resource type name is the authority" true at runtime rather
+than aspirational — the translated path resolved its adapter by sniffing
+connection fields until it had the name.
 
 **`dbt_profile` is open, deliberately.** Its `type` is not checked against a list:
 `DbtAdapter` carries an optional `KnownAdapter` beside the name, so the eleven
