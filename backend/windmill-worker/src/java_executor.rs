@@ -29,6 +29,7 @@ use crate::{
     handle_child, is_sandboxing_enabled, read_ee_registry_bool_with_workspace_override,
     read_ee_registry_with_workspace_override,
     universal_pkg_installer::{par_install_language_dependencies_all_at_once, RequiredDependency},
+    worker_utils::JobPingHeartbeat,
     COURSIER_CACHE_DIR, DISABLE_NUSER, JAVA_CACHE_DIR, JAVA_HOME_DIR, JAVA_REPOSITORY_DIR,
     MAVEN_REPOS, NO_DEFAULT_MAVEN, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
 };
@@ -294,6 +295,10 @@ pub async fn resolve<'a>(
                     std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
                 );
         }
+        // Resolution against a distant or slow registry can run for minutes, and the lockfile has to
+        // be read from a clean stdout, so it cannot go through handle_child's polling loop: without
+        // a ping of its own the job is reaped as a zombie and restarted mid-resolution.
+        let _heartbeat = JobPingHeartbeat::start(conn, *job_id, "java lockfile resolution");
         let output = cmd.output().await?;
         // Check if the command was successful
         if output.status.success() {
@@ -450,35 +455,12 @@ async fn install<'a>(
 
             Ok(cmd)
         },
-        async move |_| {
-            move_to_repository(&fetch_dir2, 0).await?;
-            remove_dir_all(&fetch_dir2).await?;
-            #[async_recursion]
-            async fn move_to_repository(path: &str, depth: u8) -> anyhow::Result<()> {
-                if depth == 3 {
-                    copy_dir_recursively(
-                        &PathBuf::from(path),
-                        &PathBuf::from(&*JAVA_REPOSITORY_DIR),
-                    )?;
-
-                    return Ok(());
-                }
-                let mut entries = tokio::fs::read_dir(path).await?;
-                loop {
-                    let Some(entry) = entries.next_entry().await? else {
-                        break Ok(());
-                    };
-
-                    let path = entry
-                        .path()
-                        .to_str()
-                        .ok_or(anyhow!("Internal Error: Cannot convert Path to Str"))?
-                        .to_owned();
-
-                    move_to_repository(&path, depth + 1).await?;
-                }
+        async move |dependencies| {
+            let res = move_to_repository(&fetch_dir2, &*JAVA_REPOSITORY_DIR, &dependencies).await;
+            if let Err(e) = remove_dir_all(&fetch_dir2).await {
+                tracing::warn!("could not remove java fetch dir {fetch_dir2}: {e}");
             }
-            Ok(())
+            Ok(res?)
         },
         &job.id,
         &job.workspace_id,
@@ -488,6 +470,73 @@ async fn install<'a>(
     )
     .await?;
     Ok(classpath)
+}
+
+/// Copies every fetched artifact out of coursier's cache and into the shared repository, at the
+/// `<group as path>/<artifact>/<version>` location the classpath is built from.
+///
+/// Coursier lays its cache out as `<scheme>/<host>/<registry url path>/<group as path>/...`, so how
+/// deep the maven layout starts depends on the configured registry: one segment for Maven Central
+/// (`maven2`), two for a Nexus or Artifactory repository (`repository/maven-public`), none for a
+/// root-hosted mirror. Matching on the coordinate suffix rather than on a fixed depth is what keeps
+/// private registries working: copy the artifacts one level off and every classpath entry silently
+/// points at a directory that does not exist, since javac ignores missing entries without a word.
+async fn move_to_repository(
+    fetch_dir: &str,
+    repository_dir: &str,
+    deps: &[RequiredDependency<()>],
+) -> anyhow::Result<()> {
+    #[async_recursion]
+    async fn find_and_copy(
+        dir: &str,
+        wanted: &mut HashMap<String, (String, String)>,
+    ) -> anyhow::Result<()> {
+        if wanted.is_empty() {
+            return Ok(());
+        }
+        if let Some(suffix) = wanted.keys().find(|s| dir.ends_with(s.as_str())).cloned() {
+            let (destination, _) = wanted.remove(&suffix).expect("key was just found");
+            copy_dir_recursively(&PathBuf::from(dir), &PathBuf::from(&destination))?;
+            return Ok(());
+        }
+        let mut entries = tokio::fs::read_dir(dir).await?;
+        while let Some(entry) = entries.next_entry().await? {
+            if !entry.file_type().await?.is_dir() {
+                continue;
+            }
+            let path = entry
+                .path()
+                .to_str()
+                .ok_or(anyhow!("Internal Error: Cannot convert Path to Str"))?
+                .to_owned();
+            find_and_copy(&path, wanted).await?;
+        }
+        Ok(())
+    }
+
+    let mut wanted = HashMap::new();
+    for RequiredDependency { path, display_name, .. } in deps {
+        let suffix = path
+            .strip_prefix(repository_dir)
+            .filter(|suffix| suffix.starts_with('/'))
+            .ok_or_else(|| anyhow!("Internal Error: {path} is not under {repository_dir}"))?;
+        wanted.insert(suffix.to_owned(), (path.clone(), display_name.clone()));
+    }
+
+    find_and_copy(fetch_dir, &mut wanted).await?;
+
+    if !wanted.is_empty() {
+        bail!(
+            "the configured maven repositories did not serve: {}. \
+            Coursier reported success but no artifact for them was found in its cache.",
+            wanted
+                .values()
+                .map(|(_, display_name)| display_name.as_str())
+                .sorted()
+                .join(", ")
+        );
+    }
+    Ok(())
 }
 
 async fn compile<'a>(
@@ -1012,3 +1061,91 @@ class Wmill {
     }
 }
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dep(
+        repository_dir: &str,
+        group_path: &str,
+        artifact: &str,
+        version: &str,
+    ) -> RequiredDependency<()> {
+        RequiredDependency {
+            path: format!("{repository_dir}/{group_path}/{artifact}/{version}"),
+            _s3_handle: format!("{}:{artifact}:{version}", group_path.replace("/", ".")),
+            display_name: format!("{artifact}:{version}"),
+            custom_payload: (),
+        }
+    }
+
+    async fn touch(path: &str) {
+        let path = PathBuf::from(path);
+        create_dir_all(path.parent().unwrap()).await.unwrap();
+        File::create(path).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn artifacts_are_found_whatever_the_registry_url_path_is() {
+        let tmp = tempfile::tempdir().unwrap();
+        let fetch_dir = tmp.path().join("fetch").to_str().unwrap().to_owned();
+        let repository_dir = tmp.path().join("repository").to_str().unwrap().to_owned();
+
+        // maven central has a single url segment before the maven layout, a nexus repository two,
+        // and a root-hosted mirror none at all
+        touch(&format!("{fetch_dir}/https/repo1.maven.org/maven2/commons-cli/commons-cli/1.4/commons-cli-1.4.jar")).await;
+        touch(&format!("{fetch_dir}/https/nexus.local/repository/maven-public/com/google/code/gson/gson/2.8.9/gson-2.8.9.jar")).await;
+        touch(&format!("{fetch_dir}/https/maven.local/org/apache/commons/commons-lang3/3.8.1/commons-lang3-3.8.1.jar")).await;
+
+        let deps = vec![
+            dep(&repository_dir, "commons-cli", "commons-cli", "1.4"),
+            dep(&repository_dir, "com/google/code/gson", "gson", "2.8.9"),
+            dep(
+                &repository_dir,
+                "org/apache/commons",
+                "commons-lang3",
+                "3.8.1",
+            ),
+        ];
+
+        move_to_repository(&fetch_dir, &repository_dir, &deps)
+            .await
+            .unwrap();
+
+        for (dep, jar) in deps.iter().zip([
+            "commons-cli-1.4.jar",
+            "gson-2.8.9.jar",
+            "commons-lang3-3.8.1.jar",
+        ]) {
+            assert!(
+                metadata(format!("{}/{jar}", dep.path)).await.is_ok(),
+                "{} was not copied to {}",
+                dep.display_name,
+                dep.path
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn artifact_missing_from_the_cache_is_named_in_the_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let fetch_dir = tmp.path().join("fetch").to_str().unwrap().to_owned();
+        let repository_dir = tmp.path().join("repository").to_str().unwrap().to_owned();
+
+        touch(&format!("{fetch_dir}/https/nexus.local/repository/maven-public/commons-cli/commons-cli/1.4/commons-cli-1.4.jar")).await;
+
+        let deps = vec![
+            dep(&repository_dir, "commons-cli", "commons-cli", "1.4"),
+            dep(&repository_dir, "com/google/code/gson", "gson", "2.8.9"),
+        ];
+
+        let err = move_to_repository(&fetch_dir, &repository_dir, &deps)
+            .await
+            .unwrap_err()
+            .to_string();
+
+        assert!(err.contains("gson:2.8.9"), "unexpected error: {err}");
+        assert!(!err.contains("commons-cli:1.4"), "unexpected error: {err}");
+    }
+}
