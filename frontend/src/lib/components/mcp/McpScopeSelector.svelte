@@ -461,8 +461,6 @@
 	let exposedScriptCount = $state<number | undefined>(undefined)
 	let exposedFlowCount = $state<number | undefined>(undefined)
 
-	// Mirror the backend's is_resource_allowed: `*`, an exact path, or an `x/*`
-	// subtree (matching the folder itself or anything beneath it).
 	// Custom-mode counts are computed synchronously from the already-loaded
 	// allScripts/allFlows plus the current selections/patterns — no extra fetch.
 	$effect(() => {
@@ -670,8 +668,8 @@
 					<Alert type="warning" size="xs" title="Some selected endpoints will not be exposed">
 						<span class="text-xs">
 							Endpoints that cannot be limited to specific script paths are withheld from a token
-							restricted to a script selection: {withheldEndpoints.join(', ')}. Clear the Scripts
-							selection and patterns to expose them.
+							restricted to a script selection: {withheldEndpoints.join(', ')}. Widening the script
+							wildcard pattern to <code>*</code> exposes them, and keeps the run tools below available.
 						</span>
 					</Alert>
 				{/if}
