@@ -5,6 +5,7 @@
 	import { zIndexes } from '$lib/zIndexes'
 
 	import { createTooltip, melt } from '@melt-ui/svelte'
+	import { overlayPortalTarget } from '$lib/components/common/overlayHost.svelte'
 	import { fade } from 'svelte/transition'
 	import TooltipInner from '../TooltipInner.svelte'
 
@@ -36,7 +37,7 @@
 		disablePopup = false,
 		openDelay = 300,
 		closeDelay = 0,
-		portal = 'body',
+		portal = undefined,
 		customBgClass = undefined,
 		style = '',
 		class: className = '',
@@ -45,9 +46,15 @@
 		text
 	}: Props = $props()
 
+	// Overlays belong to the enclosing pane when there is one — see overlayHost.
+	// `null` is melt's "render in place" and must survive; only an absent prop defers to the host.
+	const hostPortal = overlayPortalTarget('body')
+	const effectivePortal = () => (portal === undefined ? hostPortal() : portal)
+
 	const {
 		elements: { trigger, content },
-		states: { open }
+		states: { open },
+		options: { portal: portalOption }
 	} = createTooltip({
 		positioning: {
 			placement: untrack(() => placement)
@@ -55,7 +62,11 @@
 		openDelay: untrack(() => openDelay),
 		closeDelay: untrack(() => closeDelay),
 		group: true,
-		portal: untrack(() => portal)
+		portal: untrack(() => effectivePortal())
+	})
+
+	$effect(() => {
+		$portalOption = effectivePortal()
 	})
 
 	// Cursor anchoring: floating-ui positions against `reference.getBoundingClientRect()`.

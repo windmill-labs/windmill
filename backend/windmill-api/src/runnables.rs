@@ -30,6 +30,7 @@ use axum::{
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult},
@@ -38,7 +39,9 @@ use windmill_types::scripts::ScriptHash;
 use windmill_types::user_drafts::DraftUserRef;
 
 pub fn workspaced_service() -> Router {
-    Router::new().route("/list", get(list_runnables))
+    Router::new()
+        .route("/list", get(list_runnables))
+        .route("/counts", get(count_runnables_by_owner))
 }
 
 #[derive(Deserialize)]
@@ -61,6 +64,9 @@ struct ListRunnablesQuery {
     per_page: Option<usize>,
     /// Opaque keyset cursor from a previous page's `next_cursor`.
     cursor: Option<String>,
+    /// Also list the caller's drafts at paths with no deployed row. Off by
+    /// default so picker callers stay deployed-only.
+    include_draft_only: Option<bool>,
 }
 
 // Absent optional fields are omitted (not serialized as null) to match the
@@ -169,6 +175,46 @@ fn escape_like(s: &str) -> String {
         .replace('_', "\\_")
 }
 
+/// The `domain:action` scope grant of a fine-grained token (e.g.
+/// `scripts:read:f/foo/*`) as a predicate on `{alias}.path`, with its values
+/// appended to `binds` (placeholders numbered from `base + 1`). `None` means the
+/// token is unscoped for that domain and needs no predicate; an empty grant
+/// yields `false` so the branch matches nothing. RLS doesn't honor token scopes,
+/// so this has to be pushed into SQL.
+fn scope_path_predicate(
+    authed: &ApiAuthed,
+    domain: &str,
+    alias: &str,
+    base: usize,
+    binds: &mut Vec<String>,
+) -> Option<String> {
+    match build_scope_path_filter(authed, domain, "read") {
+        ScopePathFilter::AllowAll => None,
+        ScopePathFilter::Restricted { exact, prefix } => {
+            let mut terms: Vec<String> = vec![];
+            for e in exact {
+                binds.push(e);
+                terms.push(format!("{}.path = ${}", alias, base + binds.len()));
+            }
+            for pre in prefix {
+                binds.push(pre.clone());
+                let pe = format!("${}", base + binds.len());
+                binds.push(format!("{}/%", escape_like(&pre)));
+                let pl = format!("${}", base + binds.len());
+                terms.push(format!(
+                    "({}.path = {} OR {}.path LIKE {})",
+                    alias, pe, alias, pl
+                ));
+            }
+            Some(if terms.is_empty() {
+                "false".to_string()
+            } else {
+                format!("({})", terms.join(" OR "))
+            })
+        }
+    }
+}
+
 /// The three UNION-ALL branch SELECTs, each projecting the shared `RunnableItem`
 /// column set (NULL for columns that don't apply to that kind). `$1`=workspace,
 /// `$2`=username (favorites), `$3`=email (drafts). Kind-specific and per-request
@@ -246,6 +292,65 @@ fn branch_sqls() -> Branches {
     Branches { script, flow, app }
 }
 
+/// The draft-only branch for a kind: the caller's drafts at paths carrying no
+/// deployed row, projected into the same column set as `branch_sqls` so they
+/// sort, search and paginate as ordinary rows. Same `$1`/`$2`/`$3` contract.
+fn draft_branch_sql(kind: &str) -> String {
+    let (typ_pred, deployed) = match kind {
+        "script" => ("d.typ = 'script'", "script"),
+        "flow" => ("d.typ = 'flow'", "flow"),
+        _ => ("d.typ IN ('app', 'raw_app')", "app"),
+    };
+    // Scripts bind the Path widget to `script.path`, so the typed path round-trips
+    // through the draft JSON's own `path`; flows and apps write a separate
+    // `draft_path` only when it differs from the deployed one. See scripts.rs.
+    let typed_path = if kind == "script" {
+        "path"
+    } else {
+        "draft_path"
+    };
+    // `auto_kind` is only what the editor stamped into the draft — a `// pipeline`
+    // annotation is not re-derived from the content here, unlike the per-kind
+    // endpoints. That errs toward listing a pipeline member as its own row rather
+    // than folding it into a pipeline entry and hiding it.
+    let kind_cols = match kind {
+        "script" => {
+            "d.value->>'language' as language, d.value->>'kind' as script_kind, \
+                     d.value->>'auto_kind' as auto_kind, false as raw_app"
+        }
+        _ => {
+            "NULL::text as language, NULL::text as script_kind, NULL::text as auto_kind, \
+              (d.typ = 'raw_app') as raw_app"
+        }
+    };
+    format!(
+        "SELECT '{kind}' as kind, o.path, o.summary, o.workspace_id, '{{}}'::jsonb as extra_perms, \
+                false as starred, false as archived, \
+                true as is_draft, true as draft_only, o.draft_path, \
+                json_build_array(json_build_object('username', $2::text)) as draft_users, \
+                NULL::text[] as labels, NULL::text[] as inherited_labels, \
+                NULL::bool as ws_error_handler_muted, o.created_at as edited_at, \
+                NULL::bigint as hash, o.language, o.script_kind, o.auto_kind, \
+                NULL::bool as use_codebase, NULL::bool as has_deploy_errors, \
+                o.raw_app, NULL::text as execution_mode, NULL::bigint as id, NULL::bigint as version, \
+                o.created_at as sort_time, lower(COALESCE(NULLIF(o.summary, ''), o.draft_path, o.path)) as sort_name, 0::bigint as tiebreak \
+         FROM ( \
+             SELECT DISTINCT ON (d.path) d.workspace_id, d.path, d.created_at, \
+                    COALESCE(d.value->>'summary', '') as summary, \
+                    NULLIF(NULLIF(d.value->>'{typed_path}', ''), d.path) as draft_path, \
+                    {kind_cols} \
+             FROM draft d \
+             WHERE d.workspace_id = $1 AND {typ_pred} AND (d.email = $3 OR d.email IS NULL) \
+               AND NOT EXISTS (SELECT 1 FROM {deployed} x \
+                               WHERE x.workspace_id = d.workspace_id AND x.path = d.path) \
+             -- Owned draft over a legacy NULL-email one, then newest: the app branch spans
+             -- two draft kinds (`app` and `raw_app`) that can both exist at a path, and the
+             -- pick decides raw_app, summary and draft_path. Same tiebreak as apps.rs.
+             ORDER BY d.path, (d.email IS NULL), d.created_at DESC \
+         ) o"
+    )
+}
+
 async fn list_runnables(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -276,10 +381,6 @@ async fn list_runnables(
     if show_archived {
         kinds.retain(|k| *k != "app");
     }
-    // Operators may only see scripts.
-    if authed.is_operator {
-        kinds.retain(|k| *k == "script");
-    }
 
     let branches = branch_sqls();
 
@@ -292,13 +393,24 @@ async fn list_runnables(
     };
 
     let mut common: Vec<String> = vec!["o.workspace_id = $1".to_string()];
+    // Same predicates for the draft branches, except the search: a draft is named by
+    // the path typed in the editor, its stored path being a generated `draft_<uuid>`
+    // nobody searches for. Labels never apply (the draft branches are dropped under a
+    // label filter), so they are not repeated here.
+    let mut draft_common: Vec<String> = vec!["o.workspace_id = $1".to_string()];
     if let Some(ps) = q.path_start.as_ref().filter(|s| !s.is_empty()) {
         let p = add_bind(&mut binds, format!("{}%", escape_like(ps)));
         common.push(format!("o.path LIKE {}", p));
+        // An owner filter follows where the draft says it will live, not the
+        // `u/<caller>/draft_<uuid>` it is parked at.
+        draft_common.push(format!("COALESCE(o.draft_path, o.path) LIKE {}", p));
     }
     if let Some(search) = q.search.as_ref().filter(|s| !s.is_empty()) {
         let p = add_bind(&mut binds, format!("%{}%", escape_like(search)));
         common.push(format!("(o.summary ILIKE {p} OR o.path ILIKE {p})"));
+        draft_common.push(format!(
+            "(o.summary ILIKE {p} OR o.path ILIKE {p} OR o.draft_path ILIKE {p})"
+        ));
     }
     if let Some(label) = q.label.as_ref().filter(|s| !s.is_empty()) {
         for l in label.split(',') {
@@ -309,6 +421,7 @@ async fn list_runnables(
         }
     }
     let common_where = common.join(" AND ");
+    let draft_common_where = draft_common.join(" AND ");
 
     // Keyset predicate for pages after the first (non-starred rows only). A
     // row-value comparison keeps the composite order; the key is cast to the
@@ -333,55 +446,21 @@ async fn list_runnables(
         None => None,
     };
 
-    // Fine-grained scoped tokens (e.g. `scripts:read:f/foo/*`) must be confined to
-    // their granted paths. RLS alone doesn't honor token scopes, so push the
-    // per-domain path grant into SQL (empty grant -> the branch matches nothing).
-    // Unscoped sessions -> AllowAll -> no predicate.
-    let scope_where = |filter: ScopePathFilter, binds: &mut Vec<String>| -> Option<String> {
-        match filter {
-            ScopePathFilter::AllowAll => None,
-            ScopePathFilter::Restricted { exact, prefix } => {
-                let mut terms: Vec<String> = vec![];
-                for e in exact {
-                    binds.push(e);
-                    terms.push(format!("o.path = ${}", 3 + binds.len()));
-                }
-                for pre in prefix {
-                    binds.push(pre.clone());
-                    let pe = format!("${}", 3 + binds.len());
-                    binds.push(format!("{}/%", escape_like(&pre)));
-                    let pl = format!("${}", 3 + binds.len());
-                    terms.push(format!("(o.path = {} OR o.path LIKE {})", pe, pl));
-                }
-                Some(if terms.is_empty() {
-                    "false".to_string()
-                } else {
-                    format!("({})", terms.join(" OR "))
-                })
-            }
-        }
-    };
     // Only push scope binds for kinds whose branch is actually included: a scoped token
     // with e.g. `kinds=script` omits the flow/app branches, so binding their scope values
     // (which no SQL references) would make the parameter count mismatch and 500.
     let script_scope = if kinds.contains(&"script") {
-        scope_where(
-            build_scope_path_filter(&authed, "scripts", "read"),
-            &mut binds,
-        )
+        scope_path_predicate(&authed, "scripts", "o", 3, &mut binds)
     } else {
         None
     };
     let flow_scope = if kinds.contains(&"flow") {
-        scope_where(
-            build_scope_path_filter(&authed, "flows", "read"),
-            &mut binds,
-        )
+        scope_path_predicate(&authed, "flows", "o", 3, &mut binds)
     } else {
         None
     };
     let app_scope = if kinds.contains(&"app") {
-        scope_where(build_scope_path_filter(&authed, "apps", "read"), &mut binds)
+        scope_path_predicate(&authed, "apps", "o", 3, &mut binds)
     } else {
         None
     };
@@ -423,11 +502,38 @@ async fn list_runnables(
         app_extras.push(s.clone());
     }
 
+    // Draft-only rows are the caller's own work in progress: never archived, so they
+    // have no place in the archived view, and carrying no labels of their own they are
+    // out of scope of a label filter (as in the per-kind endpoints). Operators don't
+    // see other people's drafts and have none of their own to see.
+    let include_drafts = q.include_draft_only.unwrap_or(false)
+        && !authed.is_operator
+        && !show_archived
+        && q.label.as_ref().filter(|s| !s.is_empty()).is_none();
+    let draft_extras_for = |kind: &str| -> Vec<String> {
+        let mut extras: Vec<String> = vec![];
+        let scope = match kind {
+            "script" => &script_scope,
+            "flow" => &flow_scope,
+            _ => &app_scope,
+        };
+        // The lib filter reads the same projected `auto_kind`, so a draft-only library
+        // script hides with the deployed ones.
+        if kind == "script" && (!q.include_without_main.unwrap_or(false) || authed.is_operator) {
+            extras.push("(o.auto_kind IS NULL OR o.auto_kind <> 'lib')".to_string());
+        }
+        if let Some(s) = scope {
+            extras.push(s.clone());
+        }
+        extras
+    };
+
     // Favorite filter for a branch: Some(true) = starred only, Some(false) =
     // non-starred only, None = no filter. Both views pin starred on the first page
     // (each is one row per path), so the paged stream always passes Some(false).
     let build_branch = |base: &str,
                         kind: &str,
+                        common: &str,
                         extras: &[String],
                         fav: Option<bool>,
                         keyset: Option<&str>,
@@ -436,7 +542,7 @@ async fn list_runnables(
         // Base-table predicates go inside the projection subquery (they read
         // o.*/favorite.*); the keyset reads the projected sort aliases, so it
         // sits in the wrapper WHERE where those aliases are visible.
-        let mut w = vec![common_where.clone()];
+        let mut w = vec![common.to_string()];
         w.extend(extras.iter().cloned());
         match fav {
             Some(true) => w.push("favorite.path IS NOT NULL".to_string()),
@@ -471,7 +577,37 @@ async fn list_runnables(
             "app" => (&branches.app, &app_extras),
             _ => return None,
         };
-        Some(build_branch(base, kind, extras, fav, keyset, limit))
+        Some(build_branch(
+            base,
+            kind,
+            &common_where,
+            extras,
+            fav,
+            keyset,
+            limit,
+        ))
+    };
+
+    let draft_branch_for = |kind: &str,
+                            fav: Option<bool>,
+                            keyset: Option<&str>,
+                            limit: Option<usize>|
+     -> Option<String> {
+        if !include_drafts || !kinds.contains(&kind) {
+            return None;
+        }
+        // `fav` is ignored: with no favorite join there is nothing to filter on, and the
+        // starred pass skips draft branches entirely.
+        let _ = fav;
+        Some(build_branch(
+            &draft_branch_sql(kind),
+            &format!("draft_{kind}"),
+            &draft_common_where,
+            &draft_extras_for(kind),
+            None,
+            keyset,
+            limit,
+        ))
     };
 
     let run_union = |branches_sql: Vec<String>, limit: Option<usize>| -> String {
@@ -492,6 +628,9 @@ async fn list_runnables(
     // favorite is a single row in either — the starred-first contract holds in the
     // archived view too, and the pinned first page stays bounded.
     if first_page {
+        // No draft branch here: a draft-only path has no favorite row (the UI won't let
+        // you star one), so it would scan the caller's whole draft slice per kind to
+        // return nothing. The main stream below takes them unfiltered instead.
         let starred_branches: Vec<String> = ["script", "flow", "app"]
             .iter()
             .filter_map(|k| branch_for(k, Some(true), None, None))
@@ -511,10 +650,14 @@ async fn list_runnables(
 
     // Main paged stream: non-starred rows (starred were pinned on the first page above).
     let main_fav = Some(false);
-    let ns_branches: Vec<String> = ["script", "flow", "app"]
-        .iter()
-        .filter_map(|k| branch_for(k, main_fav, keyset_sql.as_deref(), Some(per_page)))
-        .collect();
+    let ns_branches: Vec<String> =
+        ["script", "flow", "app"]
+            .iter()
+            .filter_map(|k| branch_for(k, main_fav, keyset_sql.as_deref(), Some(per_page)))
+            .chain(["script", "flow", "app"].iter().filter_map(|k| {
+                draft_branch_for(k, main_fav, keyset_sql.as_deref(), Some(per_page))
+            }))
+            .collect();
 
     let mut next_cursor: Option<String> = None;
     if !ns_branches.is_empty() {
@@ -538,4 +681,331 @@ async fn list_runnables(
     tx.commit().await?;
 
     Ok(Json(ListRunnablesResponse { items, next_cursor }))
+}
+
+#[derive(Deserialize)]
+struct CountRunnablesQuery {
+    /// Comma-separated subset of `script,flow,app`; omitted means all.
+    kinds: Option<String>,
+    /// Include library scripts (no runnable main). Ignored for flows/apps.
+    include_without_main: Option<bool>,
+    /// Also count the caller's drafts at paths with no deployed row, matching
+    /// the same flag on `/list`.
+    include_draft_only: Option<bool>,
+}
+
+#[derive(Serialize)]
+struct RunnableCountsResponse {
+    /// Owner prefix (`f/<folder>` or `u/<user>`) -> number of visible runnables,
+    /// counting what the tree lists as a row (see the pipeline note below).
+    /// Owners with none are omitted so the tree can hide them.
+    counts: HashMap<String, i64>,
+}
+
+#[derive(sqlx::FromRow)]
+struct OwnerCount {
+    owner: String,
+    count: i64,
+}
+
+/// A byte-ordered range covering exactly the paths under `o.owner`: any
+/// `owner/<rest>` is >= `owner || '/'` and, since '/' (0x2F) is immediately
+/// followed by '0' (0x30), < `owner || '0'`. `~>=~` / `~<~` are the
+/// text_pattern_ops operators, which is what lets `idx_<kind>_owner_prefix`
+/// answer the count with an index-only scan — the default opclass sorts by the
+/// database collation and cannot serve a byte-prefix range.
+fn owner_prefix_range(alias: &str) -> String {
+    format!("{alias}.path ~>=~ (o.owner || '/') AND {alias}.path ~<~ (o.owner || '0')")
+}
+
+/// Per-owner runnable counts for the homepage tree, so every folder / user node
+/// can show its size and the empty ones can be dropped without loading them.
+///
+/// Runs off the non-RLS pool and re-derives visibility from `path` alone: an
+/// owner is readable whole or not at all (admin, folder in the caller's read
+/// set, or the caller's own user space). That is what makes the count an
+/// index-only prefix scan — RLS instead applies `split_part`/`current_setting`
+/// predicates per row, which no index serves. The one case `path` cannot express
+/// is an item shared individually out of an otherwise unreadable owner; those
+/// owners are recovered by a second `extra_perms` pass over the GIN indexes.
+///
+/// The share pass's GIN indexes are on `extra_perms` alone, so on a multi-tenant
+/// instance its bitmap matches grantee keys (`g/all` exists in every workspace)
+/// across workspaces and `workspace_id` is only a recheck. Scoping the index
+/// would need `btree_gin`, a contrib extension self-hosted installs can't be
+/// assumed to have; the RLS policies already scan these indexes the same way.
+async fn count_runnables_by_owner(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Query(q): Query<CountRunnablesQuery>,
+) -> JsonResult<RunnableCountsResponse> {
+    let kinds: Vec<&str> = match q.kinds.as_deref() {
+        None | Some("") => vec!["script", "flow", "app"],
+        // Deduplicated: every kind becomes its own count subquery, so a repeated
+        // entry would both double that kind's count and multiply the scans.
+        Some(csv) => {
+            let mut ks: Vec<&str> = vec![];
+            for k in csv.split(',').map(|s| s.trim()) {
+                if ["script", "flow", "app"].contains(&k) && !ks.contains(&k) {
+                    ks.push(k);
+                }
+            }
+            ks
+        }
+    };
+    if kinds.is_empty() {
+        return Ok(Json(RunnableCountsResponse { counts: HashMap::new() }));
+    }
+    let with_libs = q.include_without_main.unwrap_or(false) && !authed.is_operator;
+
+    // Per-kind predicates shared by both passes. `alias` is the branch's table
+    // alias; `binds` collects the scope values, numbered from `base + 1`.
+    let kind_filters =
+        |kind: &str, alias: &str, base: usize, binds: &mut Vec<String>| -> Vec<String> {
+            let mut w = vec![format!("{alias}.workspace_id = $1")];
+            match kind {
+                "script" => {
+                    w.push(format!("{alias}.archived = false"));
+                    // `pipeline` members are always excluded: the tree folds them into
+                    // their folder's single "Pipeline" entry and never lists them as
+                    // rows, so counting them would promise items that never appear.
+                    // `lib` follows the caller's include_without_main, as in the listing.
+                    let mut hidden = vec!["'pipeline'"];
+                    if !with_libs {
+                        hidden.push("'lib'");
+                    }
+                    w.push(format!(
+                        "({alias}.auto_kind IS NULL OR {alias}.auto_kind NOT IN ({}))",
+                        hidden.join(", ")
+                    ));
+                    if let Some(s) = scope_path_predicate(&authed, "scripts", alias, base, binds) {
+                        w.push(s);
+                    }
+                }
+                "flow" => {
+                    w.push(format!("{alias}.archived = false"));
+                    if let Some(s) = scope_path_predicate(&authed, "flows", alias, base, binds) {
+                        w.push(s);
+                    }
+                }
+                _ => {
+                    if let Some(s) = scope_path_predicate(&authed, "apps", alias, base, binds) {
+                        w.push(s);
+                    }
+                }
+            }
+            w
+        };
+    let table_of = |kind: &str| match kind {
+        "script" => "script",
+        "flow" => "flow",
+        _ => "app",
+    };
+
+    // `SELECT owner, count(*) ... GROUP BY owner` over a set of per-kind path
+    // selects — the shape both the admin sweep and the share pass end in.
+    let grouped_by_owner = |branches: Vec<String>| -> String {
+        format!(
+            "SELECT split_part(p.path, '/', 1) || '/' || split_part(p.path, '/', 2) AS owner, \
+                    count(*)::bigint AS count \
+             FROM ({}) p GROUP BY 1",
+            branches.join(" UNION ALL ")
+        )
+    };
+
+    let mut counts: HashMap<String, i64> = HashMap::new();
+
+    if authed.is_admin {
+        // Admins read the whole workspace, so one grouped scan per kind is the
+        // cheapest shape. Enumerating owners and prefix-scanning each instead
+        // would cost one scan per folder AND per member, growing with headcount
+        // rather than with content.
+        // $1 = workspace.
+        let mut binds: Vec<String> = vec![];
+        let branches: Vec<String> = kinds
+            .iter()
+            .map(|kind| {
+                let alias = "t";
+                let w = kind_filters(kind, alias, 1, &mut binds);
+                format!(
+                    "SELECT {alias}.path FROM {} {alias} WHERE {}",
+                    table_of(kind),
+                    w.join(" AND ")
+                )
+            })
+            .collect();
+        let sql = grouped_by_owner(branches);
+        let mut query = sqlx::query_as::<_, OwnerCount>(&sql).bind(&w_id);
+        for b in &binds {
+            query = query.bind(b);
+        }
+        for r in query.fetch_all(&db).await? {
+            counts.insert(r.owner, r.count);
+        }
+        add_draft_counts(&authed, &db, &w_id, &kinds, with_libs, &q, &mut counts).await?;
+        counts.retain(|_, c| *c > 0);
+        return Ok(Json(RunnableCountsResponse { counts }));
+    }
+
+    // Pass 1 — prefix counts for the owners the caller reads wholesale: their
+    // folders and their own user space, a set bounded by the grants they hold.
+    // $1 = workspace, $2 = readable folder names, $3 = username.
+    let mut binds: Vec<String> = vec![];
+    let terms: Vec<String> = kinds
+        .iter()
+        .map(|kind| {
+            let alias = "t";
+            let mut w = kind_filters(kind, alias, 3, &mut binds);
+            w.push(owner_prefix_range(alias));
+            format!(
+                "(SELECT count(*) FROM {} {alias} WHERE {})",
+                table_of(kind),
+                w.join(" AND ")
+            )
+        })
+        .collect();
+    let sql = format!(
+        "WITH owners(owner) AS ( \
+           SELECT 'f/' || name FROM folder WHERE workspace_id = $1 AND name = ANY($2) \
+           UNION SELECT 'u/' || $3 \
+         ) \
+         SELECT o.owner AS owner, ({})::bigint AS count FROM owners o",
+        terms.join(" + ")
+    );
+    let readable_folders: Vec<String> = authed.folders.iter().map(|f| f.0.clone()).collect();
+    let mut query = sqlx::query_as::<_, OwnerCount>(&sql)
+        .bind(&w_id)
+        .bind(&readable_folders)
+        .bind(&authed.username);
+    for b in &binds {
+        query = query.bind(b);
+    }
+    for r in query.fetch_all(&db).await? {
+        counts.insert(r.owner, r.count);
+    }
+
+    // Pass 2 — owners the caller only reaches through an individual share.
+    // $1 = workspace, $2 = the caller's grantee keys.
+    let mut grantees = vec![format!("u/{}", authed.username)];
+    grantees.extend(authed.groups.iter().map(|g| format!("g/{}", g)));
+    let mut binds: Vec<String> = vec![];
+    let branches: Vec<String> = kinds
+        .iter()
+        .map(|kind| {
+            let alias = "t";
+            let mut w = kind_filters(kind, alias, 2, &mut binds);
+            w.push(format!("{alias}.extra_perms ?| $2"));
+            format!(
+                "SELECT {alias}.path FROM {} {alias} WHERE {}",
+                table_of(kind),
+                w.join(" AND ")
+            )
+        })
+        .collect();
+    let sql = grouped_by_owner(branches);
+    let mut query = sqlx::query_as::<_, OwnerCount>(&sql)
+        .bind(&w_id)
+        .bind(&grantees);
+    for b in &binds {
+        query = query.bind(b);
+    }
+    for r in query.fetch_all(&db).await? {
+        // Owners already in `counts` were counted whole in pass 1, shares
+        // included — only the ones missing there are added here.
+        counts.entry(r.owner).or_insert(r.count);
+    }
+
+    add_draft_counts(&authed, &db, &w_id, &kinds, with_libs, &q, &mut counts).await?;
+    counts.retain(|_, c| *c > 0);
+    Ok(Json(RunnableCountsResponse { counts }))
+}
+
+/// Adds the caller's draft-only rows to `counts`, in the same shape `/list`
+/// returns them so a badge never disagrees with the rows behind it.
+///
+/// Not restricted to the readable owners the deployed passes walk: a draft is
+/// the caller's own and `/list` reads it off the non-RLS `draft` table, so
+/// scoping it to folder grants would hide a count for a row that still lists.
+/// Deployed and draft rows can't overlap (the anti-join is what makes a draft
+/// "draft-only"), so the two counts add.
+async fn add_draft_counts(
+    authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
+    kinds: &[&str],
+    with_libs: bool,
+    q: &CountRunnablesQuery,
+    counts: &mut HashMap<String, i64>,
+) -> Result<(), Error> {
+    if !q.include_draft_only.unwrap_or(false) || authed.is_operator {
+        return Ok(());
+    }
+    // $1 = workspace, $2 = the caller's email.
+    let mut binds: Vec<String> = vec![];
+    let branches: Vec<String> = kinds
+        .iter()
+        .map(|kind| {
+            let (typ_pred, deployed, domain) = match *kind {
+                "script" => ("d.typ = 'script'", "script", "scripts"),
+                "flow" => ("d.typ = 'flow'", "flow", "flows"),
+                _ => ("d.typ IN ('app', 'raw_app')", "app", "apps"),
+            };
+            // The owner a draft counts under is where it says it will live, not the
+            // `u/<caller>/draft_<uuid>` it is parked at — same path `/list` groups and
+            // filters on. Scripts round-trip the typed path through the draft JSON's
+            // own `path`; flows and apps write `draft_path`. See scripts.rs.
+            let typed_path = if *kind == "script" { "path" } else { "draft_path" };
+            let effective_path =
+                format!("COALESCE(NULLIF(d.value->>'{typed_path}', ''), d.path) as path");
+            let mut w = vec![
+                "d.workspace_id = $1".to_string(),
+                typ_pred.to_string(),
+                "(d.email = $2 OR d.email IS NULL)".to_string(),
+                format!(
+                    "NOT EXISTS (SELECT 1 FROM {deployed} x \
+                     WHERE x.workspace_id = d.workspace_id AND x.path = d.path)"
+                ),
+            ];
+            if *kind == "script" {
+                // Same rule as the deployed count, over the `auto_kind` the editor
+                // stamped into the draft: a pipeline member is folded into its
+                // pipeline entry rather than listed, and `lib` follows the caller.
+                let mut hidden = vec!["'pipeline'"];
+                if !with_libs {
+                    hidden.push("'lib'");
+                }
+                w.push(format!(
+                    "(d.value->>'auto_kind' IS NULL OR d.value->>'auto_kind' NOT IN ({}))",
+                    hidden.join(", ")
+                ));
+            }
+            if let Some(s) = scope_path_predicate(authed, domain, "d", 2, &mut binds) {
+                w.push(s);
+            }
+            // DISTINCT ON collapses a path holding both the caller's draft and a
+            // legacy NULL-email one, which `/list` shows as a single row. Wrapped
+            // because its ORDER BY would otherwise bind to the whole UNION.
+            format!(
+                "SELECT path FROM (SELECT DISTINCT ON (d.path) {effective_path} FROM draft d WHERE {} ORDER BY d.path, (d.email IS NULL), d.created_at DESC) s",
+                w.join(" AND ")
+            )
+        })
+        .collect();
+    let sql = format!(
+        "SELECT split_part(p.path, '/', 1) || '/' || split_part(p.path, '/', 2) AS owner, \
+                count(*)::bigint AS count \
+         FROM ({}) p GROUP BY 1",
+        branches.join(" UNION ALL ")
+    );
+    let mut query = sqlx::query_as::<_, OwnerCount>(&sql)
+        .bind(w_id)
+        .bind(&authed.email);
+    for b in &binds {
+        query = query.bind(b);
+    }
+    for r in query.fetch_all(db).await? {
+        *counts.entry(r.owner).or_insert(0) += r.count;
+    }
+    Ok(())
 }

@@ -48,18 +48,6 @@
       "Read(/tmp/**)",
       "Write(/tmp/**)",
       "Edit(/tmp/**)",
-      "Bash(mkdir:/tmp/*)",
-      "Bash(mkdir:/tmp/**)",
-      "Bash(cp:/tmp/*)",
-      "Bash(cp:/tmp/**)",
-      "Bash(mv:/tmp/*)",
-      "Bash(mv:/tmp/**)",
-      "Bash(touch:/tmp/*)",
-      "Bash(touch:/tmp/**)",
-      "Bash(chmod:/tmp/*)",
-      "Bash(chmod:/tmp/**)",
-      "Bash(tar * /tmp/*)",
-      "Bash(unzip * /tmp/*)",
       "mcp__claude_ai_Gmail__search_threads",
       "mcp__claude_ai_Gmail__get_thread",
       "mcp__claude_ai_Gmail__get_message",
@@ -123,6 +111,11 @@
           {
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-rm-outside-tmp.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/allow-fileops-in-tmp.sh",
             "timeout": 5
           }
         ]

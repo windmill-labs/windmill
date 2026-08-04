@@ -167,7 +167,7 @@ pub enum ObjectType {
     DatatableMigration,
 }
 
-pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28809/sync-script-to-git-repo-windmill";
+pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28871/sync-script-to-git-repo-windmill";
 
 /// Hub script that applies a repository's state back into a workspace
 /// (the repo → Windmill / "pull" direction). Same script the UI runs from
@@ -175,7 +175,7 @@ pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28809/sync-script-to-git-repo
 /// ignores the slug, so the slug is kept free of characters that would be
 /// percent-encoded into the run URL (a `:` becomes `%3A`, which some hardened
 /// reverse proxies reject as double-encoding when the client re-encodes it).
-pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28808/git-sync-init-repository-windmill";
+pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28870/git-sync-init-repository-windmill";
 
 /// Prefix used to identify fork workspaces. A workspace whose id starts with this string is a
 /// fork of another workspace.
@@ -434,6 +434,16 @@ pub struct AutoPullSettings {
     /// HMAC secret for the repo webhook, encrypted at rest (managed-app, phase 2).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub webhook_secret: Option<String>,
+    /// Receiver URL the live webhook was registered with. Compared against the
+    /// currently configured one to re-register the hook when the instance's
+    /// webhook base URL changes.
+    ///
+    /// `None` on hooks predating this field: the reconcile then asks GitHub where
+    /// that hook actually points and backfills this when it matches, replaces it
+    /// when it doesn't, and registers a fresh hook when GitHub reports it gone. Only
+    /// a failed lookup leaves the hook untouched, to be retried later.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub webhook_url: Option<String>,
     /// Why the repo has no active webhook while one was requested (auto/webhook
     /// mode): instance base URL unset, app missing the webhook permission, etc.
     /// Surfaced in the UI as a "falling back to polling" warning; `None` when the
@@ -460,6 +470,7 @@ impl std::fmt::Debug for AutoPullSettings {
                 "webhook_secret",
                 &self.webhook_secret.as_ref().map(|_| "<redacted>"),
             )
+            .field("webhook_url", &self.webhook_url)
             .field("webhook_error", &self.webhook_error)
             .field("last_synced_sha", &self.last_synced_sha)
             .field("last_pull_status", &self.last_pull_status)
@@ -1866,7 +1877,7 @@ async fn inspect_fork_catalog(
     );
     let table_rows = client.query(&qt, &[]).await;
     drop(client);
-    let _ = join_handle.await;
+    let _ = crate::shutdown_pg_connection(join_handle).await;
 
     existing_schemas.extend(
         same_catalog_res
@@ -1920,7 +1931,7 @@ async fn inspect_fork_catalog(
             let join_handle = tokio::spawn(async move { connection.await });
             let res = query_schemas(&client, schemas).await;
             drop(client);
-            let _ = join_handle.await;
+            let _ = crate::shutdown_pg_connection(join_handle).await;
             res.map_err(|e| Error::internal_err(format!("{e}")))
         }
         .await;
@@ -2241,6 +2252,7 @@ mod tests {
             sync_forks: false,
             webhook_id: None,
             webhook_secret: None,
+            webhook_url: None,
             webhook_error: None,
             last_synced_sha: synced
                 .iter()
@@ -2465,4 +2477,134 @@ mod tests {
         assert!(msg.contains("staging"), "{msg}");
         assert!(msg.contains("tab=windmill_data_tables"), "{msg}");
     }
+
+    #[test]
+    fn test_dbt_warehouse_name_length_bound() {
+        assert!(validate_dbt_warehouse_name(&"a".repeat(MAX_DBT_WAREHOUSE_NAME_LEN)).is_ok());
+        assert!(validate_dbt_warehouse_name(&"a".repeat(MAX_DBT_WAREHOUSE_NAME_LEN + 1)).is_err());
+    }
+}
+
+/// Whether a workspace configures this warehouse, without resolving it.
+///
+/// For the one caller that needs the NAME and nothing else: a project bringing
+/// its own `profiles.yml` names a warehouse to say where its assets belong, and
+/// decrypting a connection it will never open to answer that would be waste.
+///
+/// NO AUTHORIZATION, like the resolver it delegates to: it reads workspace
+/// settings for whatever `w_id` it is given, so callers MUST already be scoped
+/// to that workspace.
+pub async fn dbt_warehouse_exists(db: &DB, w_id: &str, warehouse: &str) -> Result<()> {
+    dbt_warehouse_resource(db, w_id, warehouse)
+        .await
+        .map(|_| ())
+}
+
+/// The longest warehouse name a workspace may configure.
+///
+/// It is the first segment of every `dbt://<warehouse>/<schema>/<name>` key, and
+/// those land in `asset.path`, a VARCHAR(255). A name near that width would push
+/// ordinary relations past the column, and the ingest's own bound would then
+/// skip them — a graph quietly missing models. 64 leaves room for two 63-char
+/// identifiers, which is Postgres's own limit; warehouses that allow longer ones
+/// still rely on that ingest bound as the backstop.
+pub const MAX_DBT_WAREHOUSE_NAME_LEN: usize = 64;
+
+/// A warehouse name is a URL path segment for a worker with no database, so a
+/// name that could re-cut the path (or the query) is refused — at every place a
+/// name enters, not only where one is written, since a descriptor names one too.
+pub fn validate_dbt_warehouse_name(name: &str) -> Result<()> {
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(Error::BadRequest(format!(
+            "`{name}` is not a usable dbt warehouse name: use letters, digits, `_` and `-`"
+        )));
+    }
+    if name.chars().count() > MAX_DBT_WAREHOUSE_NAME_LEN {
+        return Err(Error::BadRequest(format!(
+            "`{name}` is too long for a dbt warehouse name (max {MAX_DBT_WAREHOUSE_NAME_LEN}): it \
+             prefixes every asset path this warehouse's models are keyed on"
+        )));
+    }
+    Ok(())
+}
+
+/// A dbt warehouse's resolved connection: the value a `profiles.yml` is rendered
+/// from, and the target the workspace names for it.
+///
+/// Carries CREDENTIALS. dbt is unpermissioned by design (docs/dbt-runtime.md,
+/// Decision 24), so this is served to a running job rather than gated on the
+/// runner's access to the resource — but it must never reach a route a user can
+/// browse.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct DbtWarehouseConnection {
+    pub value: serde_json::Value,
+    /// Omitted rather than null when absent, so the wire shape matches the
+    /// schema generated clients validate against.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+}
+
+/// The warehouse a dbt project runs against, by name — `main` when the
+/// descriptor names none.
+///
+/// NO AUTHORIZATION: reads workspace settings for whatever `w_id` it is given.
+/// Callers MUST already be scoped to that workspace — a running job, or a route
+/// that checked its token. What it returns is a POINTER; resolving it is a
+/// separate step, and dbt warehouses are unpermissioned there (Decision 24), so
+/// the pointer is not the last line of defence. A descriptor cannot name a
+/// resource at all, which is what makes the workspace the only place a
+/// warehouse is configured — and
+/// what lets asset identity key on the NAME (`dbt://main/analytics/orders`),
+/// one spelling every project on that warehouse shares.
+pub async fn dbt_warehouse_resource(
+    db: &DB,
+    w_id: &str,
+    warehouse: &str,
+) -> Result<(String, Option<String>)> {
+    let cfg = sqlx::query_scalar!(
+        "SELECT dbt_warehouses FROM workspace_settings WHERE workspace_id = $1",
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten()
+    .unwrap_or(serde_json::Value::Null);
+    let entry = cfg.get(warehouse).cloned().ok_or_else(|| {
+        let configured = cfg
+            .as_object()
+            .map(|o| o.keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
+        Error::NotFound(if configured.is_empty() {
+            format!(
+                "no dbt warehouse is configured for this workspace — an admin adds one under \
+                 Settings → dbt, and a project reaches it by name (`{warehouse}` here)"
+            )
+        } else {
+            format!(
+                "dbt warehouse `{warehouse}` is not configured for this workspace (configured: \
+                 {})",
+                configured.join(", ")
+            )
+        })
+    })?;
+    let path = entry
+        .get("resource_path")
+        .and_then(|p| p.as_str())
+        .ok_or_else(|| {
+            Error::internal_err(format!(
+                "dbt warehouse `{warehouse}` names no resource_path"
+            ))
+        })?;
+    // Stored with or without the prefix, like the storage configs; the caller
+    // resolves a bare path.
+    let path = path.strip_prefix("$res:").unwrap_or(path).to_string();
+    let target = entry
+        .get("target")
+        .and_then(|t| t.as_str())
+        .map(|t| t.to_string());
+    Ok((path, target))
 }

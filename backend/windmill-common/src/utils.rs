@@ -222,6 +222,89 @@ pub fn escape_ilike_pattern(s: &str) -> String {
         .replace('_', "\\_")
 }
 
+lazy_static::lazy_static! {
+    /// `[\p{Alphabetic}\p{Nd}_-]`, not `[\w-]`: Postgres' `\w` is `alnum` plus
+    /// underscore, while Rust's also covers combining marks, connector
+    /// punctuation and join controls. Spelling it out keeps these in step with
+    /// the CHECK constraints below, which are the real authority — a character
+    /// accepted here and rejected there puts the raw constraint violation back
+    /// on the wire, which is what this guard exists to prevent.
+    static ref PROPER_CHAR: &'static str = r"\p{Alphabetic}\p{Nd}_-";
+
+    /// Mirrors the `proper_id` CHECK shared by `script`, `flow`, `variable`,
+    /// `resource` and `schedule`.
+    static ref PROPER_PATH_RE: regex::Regex =
+        regex::Regex::new(&format!(r"^[ufg](/[{}]+){{2,}}$", *PROPER_CHAR)).unwrap();
+    /// Mirrors the `proper_name` CHECK on `resource_type.name`, which
+    /// `resource.resource_type` references without a foreign key of its own.
+    static ref PROPER_TYPE_NAME_RE: regex::Regex =
+        regex::Regex::new(&format!(r"^[{}]{{1,50}}$", *PROPER_CHAR)).unwrap();
+}
+
+/// Reject a path the `proper_id` constraint would reject anyway, so the caller
+/// gets a plain 400 instead of the raw Postgres constraint-violation string,
+/// which names the table and constraint and echoes the input back.
+pub fn check_proper_path(path: &str) -> Result<()> {
+    // The column is varchar(255); without this an over-long but well-formed path
+    // still reaches Postgres and leaks the same kind of message back.
+    if path.chars().count() > 255 {
+        return Err(Error::BadRequest(
+            "Invalid path: it must be at most 255 characters".to_string(),
+        ));
+    }
+    if !PROPER_PATH_RE.is_match(path) {
+        return Err(Error::BadRequest(
+            "Invalid path: it must be of the form u/<user>/<name>, f/<folder>/<name> or \
+             g/<group>/<name>, where every segment contains only alphanumeric characters, \
+             '_' or '-'"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Replace a Postgres rejection with a message that says what the caller did
+/// wrong and nothing about the schema. The raw error names the table and the
+/// constraint and echoes the input back.
+///
+/// This, not `check_proper_path`, is what makes the leak unreachable: Postgres
+/// classifies `\w` by the database's `LC_CTYPE`, so no fixed Rust charset can
+/// mirror `proper_id` across deployments (`u/usér/nom` is valid under a UTF-8
+/// locale and rejected under `C`). The pre-checks exist to give the common cases
+/// a precise message; this catches whatever they let through.
+pub fn sanitize_db_error(e: sqlx::Error) -> Error {
+    let Some(db_err) = e.as_database_error() else {
+        return Error::from(e);
+    };
+    match db_err.code().as_deref() {
+        // check_violation — `proper_id` / `proper_name` and friends
+        Some("23514") => Error::BadRequest(
+            "Invalid path or name: it does not match the required format".to_string(),
+        ),
+        // string_data_right_truncation
+        Some("22001") => Error::BadRequest("A field exceeds its maximum length".to_string()),
+        // insufficient_privilege — row-level security rejected the row
+        Some("42501") => {
+            Error::NotAuthorized("You don't have write permission at this path".to_string())
+        }
+        _ => Error::from(e),
+    }
+}
+
+/// Confine a resource type name to the charset `resource_type.name` already
+/// enforces. `resource.resource_type` has no such constraint of its own, so
+/// without this any string up to 50 chars can be stored and later rendered as
+/// the type of a resource everyone in the workspace sees.
+pub fn check_proper_type_name(name: &str) -> Result<()> {
+    if !PROPER_TYPE_NAME_RE.is_match(name) {
+        return Err(Error::BadRequest(
+            "Invalid resource type: it must be 1 to 50 alphanumeric characters, '_' or '-'"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
 pub fn require_admin(is_admin: bool, username: &str) -> Result<()> {
     if !is_admin {
         Err(Error::RequireAdmin(username.to_string()))
@@ -1058,30 +1141,90 @@ pub async fn get_custom_pg_instance_password(db: &DB) -> Result<String> {
     )
 }
 
-const REFRESH_CUSTOM_INSTANCE_REPLICATION_USER_SQL: &str = r#"
+/// PL/pgSQL granting `custom_instance_replication_user` the ability to open replication
+/// connections, inlined into the `DO` blocks below.
+///
+/// The REPLICATION attribute requires a real superuser on PG <= 15 (PG 16+ accepts
+/// CREATEROLE + REPLICATION), and managed postgres never hands one out: on RDS the
+/// capability is carried by the `rds_replication` role instead. Both privilege failures
+/// raise `insufficient_privilege`, so the attribute is attempted first and the provider
+/// role is the fallback.
+const GRANT_REPLICATION_CAPABILITY_PLPGSQL: &str = r#"
+            BEGIN
+                EXECUTE 'ALTER ROLE custom_instance_replication_user REPLICATION';
+            EXCEPTION WHEN insufficient_privilege THEN
+                IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rds_replication') THEN
+                    EXECUTE 'GRANT rds_replication TO custom_instance_replication_user';
+                ELSE
+                    RAISE;
+                END IF;
+            END;
+
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'custom_instance_user') THEN
+                EXECUTE 'GRANT custom_instance_user TO custom_instance_replication_user';
+                -- Stripping REPLICATION off custom_instance_user is a cleanup, so it is both
+                -- guarded and best-effort: the clause is superuser-only on PG <= 15 even when the
+                -- attribute is already unset, and failing it must not roll back the role above.
+                IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'custom_instance_user' AND rolreplication) THEN
+                    BEGIN
+                        EXECUTE 'ALTER ROLE custom_instance_user NOREPLICATION';
+                    EXCEPTION WHEN insufficient_privilege THEN
+                        NULL;
+                    END;
+                END IF;
+            END IF;
+"#;
+
+/// `rotate_condition` decides when a new password is generated: always for the refresh
+/// endpoint, only when the role or its stored password is missing for the boot converge.
+/// Both variants are a single statement so they can run on any executor, and both are
+/// atomic: a role that cannot be granted replication is rolled back rather than left
+/// half-provisioned.
+fn provision_replication_user_sql(rotate_condition: &str) -> String {
+    format!(
+        r#"
     DO $$
         DECLARE
             pwd text;
         BEGIN
-            SELECT gen_random_uuid()::text INTO pwd;
+            -- Same lock as get_custom_pg_instance_replication_password: without it, every API
+            -- replica booting onto a version that provisions the role races into CREATE USER,
+            -- and the losers abort on duplicate_object.
+            PERFORM pg_advisory_xact_lock(hashtext('custom_instance_replication_pwd'));
 
-            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'custom_instance_replication_user') THEN
-                EXECUTE format('ALTER USER custom_instance_replication_user WITH PASSWORD %L REPLICATION', pwd);
-            ELSE
-                EXECUTE format('CREATE USER custom_instance_replication_user WITH PASSWORD %L REPLICATION', pwd);
+            IF {rotate_condition} THEN
+                SELECT gen_random_uuid()::text INTO pwd;
+
+                IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'custom_instance_replication_user') THEN
+                    EXECUTE format('ALTER USER custom_instance_replication_user WITH PASSWORD %L', pwd);
+                ELSE
+                    EXECUTE format('CREATE USER custom_instance_replication_user WITH PASSWORD %L', pwd);
+                END IF;
+
+                INSERT INTO global_settings (name, value)
+                VALUES ('custom_instance_replication_pwd', to_jsonb(pwd::text))
+                ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value;
             END IF;
-
-            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'custom_instance_user') THEN
-                GRANT custom_instance_user TO custom_instance_replication_user;
-                ALTER ROLE custom_instance_user NOREPLICATION;
-            END IF;
-
-            INSERT INTO global_settings (name, value)
-            VALUES ('custom_instance_replication_pwd', to_jsonb(pwd::text))
-            ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value;
+{GRANT_REPLICATION_CAPABILITY_PLPGSQL}
         END
         $$;
-"#;
+"#
+    )
+}
+
+lazy_static::lazy_static! {
+    static ref REFRESH_CUSTOM_INSTANCE_REPLICATION_USER_SQL: String =
+        provision_replication_user_sql("TRUE");
+
+    // The password test mirrors REPLICATION_PWD_READ_SQL, whose readers flatten a NULL away: a row
+    // holding a JSON null reads back as no password, so it must rotate rather than count as
+    // provisioned and strand the getter.
+    static ref ENSURE_CUSTOM_INSTANCE_REPLICATION_USER_SQL: String = provision_replication_user_sql(
+        "NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'custom_instance_replication_user')
+                OR NOT EXISTS (SELECT 1 FROM global_settings
+                    WHERE name = 'custom_instance_replication_pwd' AND value #>> '{}' IS NOT NULL)"
+    );
+}
 
 const REPLICATION_PWD_READ_SQL: &str =
     "SELECT value #>> '{}' FROM global_settings WHERE name = 'custom_instance_replication_pwd'";
@@ -1093,8 +1236,22 @@ const REPLICATION_PWD_READ_SQL: &str =
 /// Authorization: rotates a stored database credential and performs no authorization
 /// itself — callers MUST restrict this to superadmin or internal server paths.
 pub async fn refresh_custom_instance_replication_user_pwd(db: &DB) -> Result<()> {
-    sqlx::query(REFRESH_CUSTOM_INSTANCE_REPLICATION_USER_SQL)
+    sqlx::query(REFRESH_CUSTOM_INSTANCE_REPLICATION_USER_SQL.as_str())
         .execute(db)
+        .await?;
+    Ok(())
+}
+
+/// Create `custom_instance_replication_user` if it is missing and (re)grant it replication,
+/// leaving an existing password in place. Idempotent, so it can be converged on every boot.
+///
+/// Authorization: same contract as [`refresh_custom_instance_replication_user_pwd`] —
+/// callers MUST restrict this to superadmin or internal server paths.
+pub async fn ensure_custom_instance_replication_user<'c>(
+    executor: impl sqlx::PgExecutor<'c>,
+) -> Result<()> {
+    sqlx::query(ENSURE_CUSTOM_INSTANCE_REPLICATION_USER_SQL.as_str())
+        .execute(executor)
         .await?;
     Ok(())
 }
@@ -1127,7 +1284,7 @@ pub async fn get_custom_pg_instance_replication_password(db: &DB) -> Result<Stri
         tx.commit().await?;
         return Ok(pwd);
     }
-    sqlx::query(REFRESH_CUSTOM_INSTANCE_REPLICATION_USER_SQL)
+    sqlx::query(ENSURE_CUSTOM_INSTANCE_REPLICATION_USER_SQL.as_str())
         .execute(&mut *tx)
         .await?;
     let pwd = sqlx::query_scalar::<_, Option<String>>(REPLICATION_PWD_READ_SQL)
@@ -1290,9 +1447,96 @@ pub fn strip_json_nul(serialized: &str) -> Cow<'_, str> {
     Cow::Owned(String::from_utf8(out).expect("removing a NUL escape preserves valid UTF-8"))
 }
 
+/// Prefix of `s` holding at most `max_chars` characters.
+/// Slicing by byte index (`&s[..n]`) panics when `n` lands inside a multibyte character.
+pub fn truncate_chars(s: &str, max_chars: usize) -> &str {
+    match s.char_indices().nth(max_chars) {
+        Some((byte_idx, _)) => &s[..byte_idx],
+        None => s,
+    }
+}
+
+/// Keep at most `max_chars` characters of `s`, appending `...` when anything was dropped —
+/// so a truncated result is `max_chars + 3` characters long, not `max_chars`.
+pub fn truncate_with_ellipsis(s: &str, max_chars: usize) -> String {
+    let truncated = truncate_chars(s, max_chars);
+    if truncated.len() < s.len() {
+        format!("{}...", truncated)
+    } else {
+        s.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The guards are only safe because they are never stricter than the DB
+    /// constraints they front. Narrowing `\w` to ASCII reads equivalent and
+    /// compiles, but would start rejecting paths that already deploy today.
+    #[test]
+    fn proper_path_matches_the_db_constraint() {
+        for ok in [
+            "u/admin/foo",
+            "f/some-folder/bar/baz",
+            "g/all/x",
+            "u/usér/nom",
+        ] {
+            assert!(check_proper_path(ok).is_ok(), "{ok} should be accepted");
+        }
+        for bad in [
+            "a/admin/foo",
+            "u/admin",
+            "u/admin/foo/",
+            "u/admin/lawful_variable/x<script>alert(1)</script>",
+            "<script>alert(1)</script>",
+            // Postgres' `\w` covers neither join controls nor combining marks;
+            // Rust's `\w` covers both, so `[\w-]` here would pass these through
+            // to the constraint and leak its message back to the caller.
+            "u/admin/a\u{200C}b",
+            "u/admin/a\u{0301}b",
+            "u/admin/a\u{203F}b",
+        ] {
+            assert!(check_proper_path(bad).is_err(), "{bad} should be rejected");
+        }
+        assert!(check_proper_path(&format!("u/admin/{}", "a".repeat(300))).is_err());
+    }
+
+    #[test]
+    fn proper_type_name_matches_the_db_constraint() {
+        for ok in ["postgresql", "c_aws_account", "my-type", &"a".repeat(50)] {
+            assert!(
+                check_proper_type_name(ok).is_ok(),
+                "{ok} should be accepted"
+            );
+        }
+        for bad in [
+            "",
+            &"a".repeat(51),
+            "<img src=x onerror=prompt('hacked')>",
+            "a\u{200C}b",
+        ] {
+            assert!(
+                check_proper_type_name(bad).is_err(),
+                "{bad} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn truncate_handles_multibyte_at_boundary() {
+        // Byte 25 of this string falls inside a 2-byte 'а'; naive `&s[..25]` would panic.
+        let cyrillic = "а".repeat(30);
+        assert_eq!(truncate_chars(&cyrillic, 25), "а".repeat(25));
+        assert_eq!(
+            truncate_with_ellipsis(&cyrillic, 25),
+            format!("{}...", "а".repeat(25))
+        );
+        assert_eq!(truncate_with_ellipsis("ааааааааааааа", 25), "ааааааааааааа");
+        assert_eq!(truncate_chars("abcd", 3), "abc");
+        assert_eq!(truncate_with_ellipsis("abc", 3), "abc");
+        assert_eq!(truncate_with_ellipsis("abcd", 3), "abc...");
+    }
 
     // The 6-char JSON escape for U+0000: backslash + "u0000". Written via an
     // escaped backslash so no literal NUL byte ever appears in this source.

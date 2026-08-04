@@ -10,6 +10,7 @@ npx --yes @hey-api/openapi-ts@0.43.0  --input "${script_dirpath}/../backend/wind
 sed -i 's/get \[Symbol\.toStringTag\]() {/get \[Symbol\.toStringTag\]() : string {/g' "${script_dirpath}/src/core/CancelablePromise.ts"
 
 cp "${script_dirpath}/client.ts" "${script_dirpath}/src/"
+cp "${script_dirpath}/wacError.ts" "${script_dirpath}/src/"
 cp "${script_dirpath}/s3Types.ts" "${script_dirpath}/src/"
 cp "${script_dirpath}/sqlUtils.ts" "${script_dirpath}/src/"
 echo "" >> "${script_dirpath}/src/index.ts"

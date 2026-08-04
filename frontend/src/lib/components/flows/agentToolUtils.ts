@@ -6,7 +6,7 @@ export const SPECIAL_TOOL_KINDS = ['mcpTool', 'websearchTool', 'aiAgentTool'] as
 export type SpecialToolKind = (typeof SPECIAL_TOOL_KINDS)[number]
 
 // Type aliases for better readability
-export type AgentTool = AiAgent['tools'][number]
+export type AgentTool = NonNullable<AiAgent['tools']>[number]
 export type FlowModuleTool = AgentTool & { value: { tool_type: 'flowmodule' } & FlowModuleValue }
 export type AiAgentTool = AgentTool & {
 	value: { tool_type: 'flowmodule' } & { type: 'aiagent' } & FlowModuleValue
@@ -122,10 +122,13 @@ export function agentToolToFlowModule(tool: FlowModuleTool): FlowModule {
 }
 
 /**
- * Convert a FlowModule back to an AgentTool
- * Used when saving changes back to the AI Agent tools array
+ * Wrap a newly created FlowModule as an AgentTool.
+ *
+ * Only valid for a module that is not already a tool: FlowModule carries none of the
+ * AgentTool-level metadata (`description`), so folding an edited module back into an
+ * existing tool through here would drop it — spread over the existing tool instead.
  */
-export function flowModuleToAgentTool(flowModule: FlowModule): AgentTool {
+export function newFlowModuleAgentTool(flowModule: FlowModule): AgentTool {
 	return {
 		id: flowModule.id,
 		summary: flowModule.summary,

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO dbt_node (workspace_id, script_path, script_hash, job_id, unique_id,\n            resource_type, name, asset_path, materialized, materialize_strategy, unique_key,\n            tags, description, test_kind, test_column, test_args, severity, attached_node,\n            columns, freshness, raw_code, original_file_path, ingested_at)\n         SELECT $2, script_path, script_hash, job_id, unique_id,\n            resource_type, name, asset_path, materialized, materialize_strategy, unique_key,\n            tags, description, test_kind, test_column, test_args, severity, attached_node,\n            columns, freshness, raw_code, original_file_path, ingested_at\n         FROM dbt_node\n         WHERE workspace_id = $1 AND job_id = '00000000-0000-0000-0000-000000000000'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "94c0aae349172b9295b81b9e61e2f8f0ca36920ab66e8922815157a0c147bc47"
+}

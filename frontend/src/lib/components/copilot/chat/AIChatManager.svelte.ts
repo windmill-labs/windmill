@@ -903,7 +903,7 @@ export class AIChatManager {
 			const count = this.pendingJobNotes.length
 			this.instructions =
 				count === 1 ? 'A background job just finished.' : `${count} background jobs just finished.`
-			await this.sendRequest()
+			await this.sendRequest({ synthetic: true })
 		} catch (e) {
 			console.error('Auto-resume after background job failed', e)
 		} finally {
@@ -2417,7 +2417,26 @@ export class AIChatManager {
 	beforeSend?: () => Promise<void> | void
 	afterFirstTurnSaved?: () => Promise<void> | void
 
-	sendRequest = async (
+	/** A send is between the composer clearing and its turn being installed.
+	 * `loading` only rises after the attachment-upkeep awaits, so consumers that
+	 * must not read half-installed history (ArrowUp recall) need this instead.
+	 * Counted, not boolean: a send recursively flushes queued messages, and the
+	 * inner one finishing doesn't mean the outer is done. */
+	#sendsInFlight = $state(0)
+	get sendInFlight(): boolean {
+		return this.#sendsInFlight > 0
+	}
+
+	sendRequest = async (options: Parameters<typeof this.sendRequestImpl>[0] = {}) => {
+		this.#sendsInFlight++
+		try {
+			return await this.sendRequestImpl(options)
+		} finally {
+			this.#sendsInFlight--
+		}
+	}
+
+	private sendRequestImpl = async (
 		options: {
 			removeDiff?: boolean
 			addBackCode?: boolean
@@ -2446,6 +2465,11 @@ export class AIChatManager {
 			 * under it are released once this send installs its bubble or exits before
 			 * install. Absent on normal sends, so they never touch a resend's reservation. */
 			resendReservationKey?: string
+			/** This send was authored by the client (background-job auto-resume), not
+			 * the user. Per-send, not read from #autoResuming: that flag stays up
+			 * while this call recursively flushes queued messages, and those are real
+			 * user turns. */
+			synthetic?: boolean
 		} = {}
 	) => {
 		// Returns whether the input was consumed: true when it was sent as a chat
@@ -2629,6 +2653,7 @@ export class AIChatManager {
 				// lets the history's blob store persist one copy for both.
 				images: images.length > 0 ? images : undefined,
 				files: files.length > 0 ? files : undefined,
+				synthetic: options.synthetic ? true : undefined,
 				index: this.messages.length // matching with actual messages index. not -1 because it's not yet added to the messages array
 			}
 		]
@@ -3803,10 +3828,11 @@ export class AIChatManager {
 
 	cancelLoadingTools = (messageText: 'Canceled' | 'Error' = 'Canceled') => {
 		this.displayMessages = this.displayMessages.map((message) => {
-			if (message.role === 'tool' && message.isLoading) {
+			if (message.role === 'tool' && (message.isLoading || message.isQueued)) {
 				return {
 					...message,
 					isLoading: false,
+					isQueued: false,
 					// A question's card disappears once canceled, so keep the question
 					// itself readable in the collapsed header.
 					content: message.userQuestion

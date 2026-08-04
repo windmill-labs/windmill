@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE script SET archived = true, extra_perms = '{\"u/outsider\": true}'::jsonb\n            WHERE workspace_id = $1 AND hash = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "381d59e7ab08e2ae7147e4c277a2d96f22375fa2b1eccafb7f09928a8b0cb549"
+}

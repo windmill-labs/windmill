@@ -7,7 +7,7 @@
 	import RawAppYamlEditor, { type RawAppYamlUpdate } from './RawAppYamlEditor.svelte'
 	import type Drawer from '../common/drawer/Drawer.svelte'
 	import Alert from '../common/alert/Alert.svelte'
-	import { type Policy, WorkspaceService } from '$lib/gen'
+	import { AppService, type Policy, WorkspaceService } from '$lib/gen'
 	import DiffDrawer from '../DiffDrawer.svelte'
 	import { deepEqual } from 'fast-equals'
 
@@ -30,6 +30,7 @@
 	import InlineElementPrompt from './InlineElementPrompt.svelte'
 	import RawAppCoepWarning from './RawAppCoepWarning.svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
+	import { getAppliedDarkModeVariant, type DarkModeVariant } from '$lib/darkModeVariant'
 	import RawAppSidebar from './RawAppSidebar.svelte'
 	import type { Modules } from './RawAppModules.svelte'
 	import { isRunnableByName, isRunnableByPath } from '../apps/inputType'
@@ -54,9 +55,12 @@
 	} from 'lucide-svelte'
 	import DraggableTabs, { type TabItem } from '$lib/components/common/tabs/DraggableTabs.svelte'
 	import { runScriptAndPollResult } from '../jobs/utils'
+	import { writingJobOptions } from '../jobs/writingJob'
 	import { RawAppHistoryManager } from './RawAppHistoryManager.svelte'
 	import { sendUserToast } from '$lib/utils'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import { UserDraft } from '$lib/userDraft.svelte'
+	import { setOpenInSessionHandoff } from '$lib/components/sessions/openInSessionContext'
 	import {
 		buildDataTableWhitelist,
 		parseDataTableRef,
@@ -207,6 +211,40 @@
 	// drawers, DB selector) so their lookups target the app's workspace too.
 	setRawAppOperatingWorkspace(() => opWorkspace)
 
+	// The path autosaves land on, which is what the session preview loads the app by.
+	const draftStoragePath = $derived(autosavePath ?? liveEditorDraftStoragePath)
+
+	// Materialize a brand-new app's draft before the session preview loads it by
+	// path — an untouched new app never autosaved, so forcePersist is the only
+	// thing that creates the row. Gated to never-deployed: forcePersist skips the
+	// discardIf baseline, safe only when there is none.
+	async function persistDraftForSession(): Promise<void> {
+		if (!opWorkspace || draftStoragePath === undefined) return
+		await UserDraftDbSyncer.flush({
+			workspace: opWorkspace,
+			itemKind: 'raw_app',
+			path: draftStoragePath
+		})
+		if (newApp) {
+			await UserDraft.forcePersist('raw_app', draftStoragePath, { workspace: opWorkspace })
+		}
+	}
+
+	const sessionOpen = $derived(
+		path
+			? {
+					target: { kind: 'raw_app' as const, path },
+					workspaceId: opWorkspace ?? undefined,
+					beforeOpen: persistDraftForSession
+				}
+			: undefined
+	)
+
+	// Reaches the AI entry point in an inline script's toolbar, which sits too deep
+	// in the sidebar to be handed a prop. A raw app has no addressable sub-editor,
+	// so the preview just opens the app.
+	setOpenInSessionHandoff({ source: () => sessionOpen })
+
 	// Convert to object format for child components
 	let dataTableRefsObjects = $derived(data.tables.map(parseDataTableRef))
 	let dataTableWhitelist = $derived(buildDataTableWhitelist(dataTableRefsObjects))
@@ -299,6 +337,7 @@
 	historyManager.manualSnapshot(files ?? {}, runnables, summary, data)
 
 	let iframe: HTMLIFrameElement | undefined = $state(undefined)
+	const PREVIEW_SHELL_URL = '/ui_builder/app-preview.html'
 	let previewIframe: HTMLIFrameElement | undefined = $state(undefined)
 	let coepWarning: RawAppCoepWarning | undefined = $state(undefined)
 	let previewIframeLoaded = $state(false)
@@ -307,6 +346,10 @@
 	// inline pane. Kept live-synced: every build is replayed into it until the
 	// user closes it. Not reactive — it's a window handle, not UI state.
 	let externalPreviewWindow: Window | null = null
+	// Mirrors `previewIframeLoaded` for the detached window: its reload is only
+	// initiated, never awaited, so a build posted meanwhile would run in the
+	// retiring document and again in its replacement.
+	let externalPreviewReady = $state(false)
 	let inspectorEnabled = $state(false)
 	let bundlerType: 'esbuild' | 'rolldown' = $state('esbuild')
 
@@ -1021,14 +1064,17 @@
 				}
 
 				try {
-					const result = await runScriptAndPollResult({
-						workspace: opWorkspace,
-						requestBody: {
-							language: 'postgresql',
-							content: sql,
-							args: { database: `datatable://${datatableName}` }
-						}
-					})
+					const result = await runScriptAndPollResult(
+						{
+							workspace: opWorkspace,
+							requestBody: {
+								language: 'postgresql',
+								content: sql,
+								args: { database: `datatable://${datatableName}` }
+							}
+						},
+						writingJobOptions
+					)
 
 					// If newTable was specified and the query succeeded, add it to data.tables
 					if (newTable) {
@@ -1105,6 +1151,7 @@
 			e.source === externalPreviewWindow &&
 			e.origin === window.location.origin
 		) {
+			externalPreviewReady = true
 			feedExternalPreview()
 			// The detached window is cross-origin isolated like the inline preview,
 			// so blocked external resources warrant the same COEP warning.
@@ -1211,7 +1258,22 @@
 				historyManager.markPendingChanges()
 			}
 		} else if (e.data.type === 'getBundle') {
-			getBundleResolve?.(e.data.bundle)
+			// The UI Builder omits `css` entirely when the app has no styles. Saving
+			// `undefined` drops the multipart field, and the backend then stores no
+			// css blob at all for that version. `js` gets no such default: the
+			// backend accepts any present `js` field regardless of length, so an
+			// empty one would publish a blank app instead of failing.
+			// `rawAppBundlerBridge` holds the same invariant over its own
+			// `bundleRawAppResult` message for the chat/draft path.
+			const bundle = e.data.bundle
+			if (!bundle?.js) {
+				getBundleReject?.(new Error('Raw app bundler returned an empty JavaScript bundle.'))
+			} else {
+				getBundleResolve?.({
+					js: String(bundle.js),
+					css: String(bundle.css ?? '')
+				})
+			}
 		} else if (e.data.type === 'updateModules') {
 			modules = e.data.modules
 		} else if (e.data.type === 'setActiveDocument') {
@@ -1263,6 +1325,7 @@
 	function postToExternalPreview(msg: Record<string, unknown>) {
 		if (!externalPreviewWindow || externalPreviewWindow.closed) {
 			externalPreviewWindow = null
+			externalPreviewReady = false
 			return
 		}
 		// Restrict to our own origin: the detached window loads same-origin
@@ -1271,9 +1334,105 @@
 		externalPreviewWindow.postMessage(msg, window.location.origin)
 	}
 
+	// `app-preview.html` evaluates the js we post, so prefixing the env is what a
+	// bundled `windmill-client` needs — it reads `window.process.env` at module
+	// load. Gated and scoped exactly like a deployed app — sandbox off or no
+	// scopes means no env at all — so preview hits the same 403s, and the same
+	// misconfiguration, as the deployed bundle.
+
+	// Stated on every payload, tokenless included: the preview shell reuses one
+	// window across builds, so omitting it would leave an old token in place.
+	// Deleting rather than blanking matches a deployed app with no scopes.
+	const NO_SDK_ENV_JS = 'try { delete window.process } catch (_) {}\n'
+	let previewSdkEnvJs = $state(NO_SDK_ENV_JS)
+	// Identifies the request whose answer is still wanted. Toggling scopes starts a
+	// new mint while an older one is in flight, and an out-of-order answer would
+	// otherwise hand the preview the wrong scope set — or restore a token after all
+	// scopes were removed.
+	let previewSdkKey: string | undefined = undefined
+	// Holds the build back between dropping a credential and settling its
+	// replacement, so the app mounts once — with the final credential — instead of
+	// once tokenless and again tokenful, running mount-time side effects twice.
+	let previewSdkPending = $state(false)
+
+	/** Discard the running app. The shell resets the DOM but keeps the JavaScript
+	 * realm, so only a reload drops the old bundle's timers, listeners and the
+	 * token its client captured at module load. */
+	function restartPreviewRealm() {
+		if (!lastBuild) return // nothing running yet
+		previewIframeLoaded = false
+		if (previewIframe) previewIframe.src = PREVIEW_SHELL_URL
+		if (externalPreviewWindow && !externalPreviewWindow.closed) {
+			externalPreviewReady = false
+			// User app code can navigate this window elsewhere, which makes its
+			// location cross-origin and unreachable — that document holds no token.
+			try {
+				externalPreviewWindow.location.replace(PREVIEW_SHELL_URL)
+			} catch (_) {}
+		}
+	}
+
+	/** Settle the credential and let the app start: the reloaded shells replay the
+	 * build themselves (the iframe from its `load` handler, the detached window
+	 * from `appPreviewReady`), so this only covers a shell already back up. */
+	function applyPreviewSdkEnv(js: string) {
+		previewSdkEnvJs = js
+		previewSdkPending = false
+		if (lastBuild) feedPreviewIframe(lastBuild)
+		syncExternalPreview()
+	}
+
+	$effect(() => {
+		// Frontend SDK access is sandbox-only, so isolation off gets no credential
+		// here either, however the policy's scope list reads.
+		const scopes = policy?.sandbox === true ? (policy?.frontend_sdk_scopes ?? []) : []
+		const ws = opWorkspace
+		const key = `${ws ?? ''}|${scopes.join(',')}`
+		if (key === previewSdkKey) return
+		previewSdkKey = key
+		// Drop the old credential before asking for its replacement, never after:
+		// a mint is asynchronous, and until it answers the running preview — and
+		// any build fed meanwhile — would keep scopes the policy just removed, or
+		// a token for the workspace we just left.
+		const willMint = scopes.length > 0 && !!ws
+		previewSdkPending = willMint
+		previewSdkEnvJs = NO_SDK_ENV_JS
+		restartPreviewRealm()
+		if (willMint) mintPreviewSdkToken(scopes, ws, key)
+	})
+
+	async function mintPreviewSdkToken(scopes: string[], ws: string, key: string) {
+		try {
+			const token = await AppService.mintPreviewSdkToken({
+				workspace: ws,
+				requestBody: { path, scopes }
+			})
+			if (key !== previewSdkKey) return
+			applyPreviewSdkEnv(
+				`window.process = { env: ${JSON.stringify({
+					WM_RAW_APP: 'true',
+					WM_TOKEN: token,
+					BASE_URL: window.location.origin,
+					WM_WORKSPACE: ws
+				}).replace(/</g, '\\u003c')} };\n`
+			)
+		} catch (e) {
+			// Already tokenless — the effect cleared the env before calling us — so
+			// this only releases the build. The key stays set, so a failed mint is not
+			// retried until the scopes or workspace actually change.
+			console.warn('Could not mint a preview SDK token', e)
+			if (key === previewSdkKey) applyPreviewSdkEnv(NO_SDK_ENV_JS)
+		}
+	}
+
 	function syncExternalPreview() {
+		if (previewSdkPending || !externalPreviewReady) return
 		if (lastBuild) {
-			postToExternalPreview({ type: 'preview', css: lastBuild.css, js: lastBuild.js })
+			postToExternalPreview({
+				type: 'preview',
+				css: lastBuild.css,
+				js: previewSdkEnvJs + lastBuild.js
+			})
 		}
 	}
 
@@ -1281,11 +1440,17 @@
 	// overlays first: a fresh render supersedes the old crash or blank, and
 	// app-preview.html re-posts if the new render fails the same way.
 	function feedPreviewIframe(build: { css: string; js: string }) {
+		// Between dropping a credential and settling its replacement the shell stays
+		// blank; whichever settles last — the mint or the shell's own `load` — starts
+		// the app. Same for a shell still reloading: its `load` handler replays.
+		if (previewSdkPending || !previewIframeLoaded) return
 		runtimeError = undefined
 		emptyRender = false
+		// Same-origin app-preview.html, and the payload now carries a token — address
+		// it to our origin rather than '*', as the detached preview already does.
 		previewIframe?.contentWindow?.postMessage(
-			{ type: 'preview', css: build.css, js: build.js },
-			'*'
+			{ type: 'preview', css: build.css, js: previewSdkEnvJs + build.js },
+			window.location.origin
 		)
 	}
 
@@ -1294,7 +1459,7 @@
 	// it always matches the editor's current state. Plain rebuilds use
 	// `syncExternalPreview` alone (the theme hasn't changed).
 	function feedExternalPreview() {
-		postToExternalPreview({ type: 'setDarkMode', dark: darkMode })
+		postToExternalPreview({ type: 'setDarkMode', dark: darkMode, variant: darkVariant })
 		syncExternalPreview()
 	}
 
@@ -1315,15 +1480,13 @@
 		}
 		// Scope the window name per app path so two open editors don't fight over
 		// (or take over / close) one shared OS-level preview window.
-		const win = window.open(
-			'/ui_builder/app-preview.html',
-			`windmillRawAppPreview:${encodeURIComponent(path)}`
-		)
+		const win = window.open(PREVIEW_SHELL_URL, `windmillRawAppPreview:${encodeURIComponent(path)}`)
 		if (!win) {
 			sendUserToast('Could not open the preview window (popup blocked?)', true)
 			return
 		}
 		externalPreviewWindow = win
+		externalPreviewReady = false
 		// Initial feed: fires once when the freshly opened tab loads. This is the
 		// only feed path against an app-preview.html that predates the
 		// `appPreviewReady` handshake, so the window isn't blank on first open
@@ -1331,6 +1494,7 @@
 		// covered separately by the handshake in `listener` (this listener is
 		// bound to the now-stale document and won't fire again).
 		win.addEventListener('load', () => {
+			externalPreviewReady = true
 			feedExternalPreview()
 			// Attach here too: against an artifact that predates the handshake, this
 			// is the only place the freshly opened window is ever seen loaded.
@@ -1339,10 +1503,12 @@
 	}
 
 	let getBundleResolve: (({ css, js }: { css: string; js: string }) => void) | undefined = undefined
+	let getBundleReject: ((reason: Error) => void) | undefined = undefined
 
 	async function getBundle(): Promise<{ css: string; js: string }> {
-		return new Promise((resolve) => {
+		return new Promise((resolve, reject) => {
 			getBundleResolve = resolve
+			getBundleReject = reject
 			iframe?.contentWindow?.postMessage(
 				{
 					type: 'getBundle'
@@ -1690,6 +1856,17 @@
 	})
 
 	let darkMode: boolean = $state(false)
+	// Mirrors the `github-dark` class (the runtime source of truth); the
+	// DarkModeObserver below must keep it in sync or it goes stale.
+	let darkVariant: DarkModeVariant = $state(getAppliedDarkModeVariant())
+	// Read the DOM classes, not reactive state, so the src stays constant after
+	// mount: a reactive src would reload the iframe on every theme toggle. Live
+	// theme changes travel through postMessage instead (see the $effect below).
+	function uiBuilderIframeSrc(): string {
+		const dark = document.documentElement.classList.contains('dark')
+		const variant = getAppliedDarkModeVariant()
+		return `/ui_builder/index.html?dark=${dark}&variant=${variant}`
+	}
 	// Host's computed `text-xs` size in px. Windmill bumps :root to 18px at
 	// ≥1760px viewports, so this re-evaluates on resize via the listener below.
 	let editorFontSize = $state(12)
@@ -1739,12 +1916,18 @@
 		// Push dark mode to both children. The UI Builder iframe and the
 		// preview iframe each listen for `setDarkMode` separately.
 		if (iframe && iframeLoaded) {
-			iframe.contentWindow?.postMessage({ type: 'setDarkMode', dark: darkMode }, '*')
+			iframe.contentWindow?.postMessage(
+				{ type: 'setDarkMode', dark: darkMode, variant: darkVariant },
+				'*'
+			)
 		}
 		if (previewIframe && previewIframeLoaded) {
-			previewIframe.contentWindow?.postMessage({ type: 'setDarkMode', dark: darkMode }, '*')
+			previewIframe.contentWindow?.postMessage(
+				{ type: 'setDarkMode', dark: darkMode, variant: darkVariant },
+				'*'
+			)
 		}
-		postToExternalPreview({ type: 'setDarkMode', dark: darkMode })
+		postToExternalPreview({ type: 'setDarkMode', dark: darkMode, variant: darkVariant })
 	})
 	$effect(() => {
 		// Match VS Code's editor font size to Windmill's text-xs.
@@ -2029,7 +2212,12 @@
 </script>
 
 <svelte:window onmessage={listener} onkeydown={handleKeydown} />
-<DarkModeObserver bind:darkMode />
+<DarkModeObserver
+	bind:darkMode
+	on:change={() => {
+		darkVariant = getAppliedDarkModeVariant()
+	}}
+/>
 
 <RawAppBackgroundRunner
 	workspace={opWorkspace ?? ''}
@@ -2057,6 +2245,7 @@
 		{newPath}
 		{labels}
 		appPath={path}
+		{sessionOpen}
 		{liveEditorDraftStoragePath}
 		{autosaveWorkspace}
 		{autosavePath}
@@ -2207,7 +2396,7 @@
 											<iframe
 												bind:this={iframe}
 												title="UI builder"
-												src="/ui_builder/index.html"
+												src={uiBuilderIframeSrc()}
 												class="w-full h-full block"
 												onload={attachIframeSaveShortcut}
 											></iframe>
@@ -2331,7 +2520,7 @@
 								<iframe
 									bind:this={previewIframe}
 									title="App preview"
-									src="/ui_builder/app-preview.html"
+									src={PREVIEW_SHELL_URL}
 									class="w-full flex-1 block"
 								></iframe>
 								<RawAppCoepWarning bind:this={coepWarning} iframe={previewIframe} />

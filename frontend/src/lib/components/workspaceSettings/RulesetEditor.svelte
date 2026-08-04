@@ -14,6 +14,7 @@
 	} from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { clone } from '$lib/utils'
+	import { DEV_WORKSPACE_LOCK_RULE_NAME } from '$lib/workspaceProtectionRules.svelte'
 	import { untrack } from 'svelte'
 	import { Save, X, Plus } from 'lucide-svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
@@ -28,6 +29,9 @@
 
 	// Create mode vs Edit mode
 	const isCreateMode = $derived(!rule)
+	// The dev-workspace feature creates, finds and removes its rule by name, so this one name is
+	// fixed. Its restrictions and bypassers stay editable.
+	const isNameLocked = $derived(rule?.name === DEV_WORKSPACE_LOCK_RULE_NAME)
 
 	// Helper function to check if a rule is in the array
 	const hasRule = (ruleKind: string) => rule?.rules?.includes(ruleKind as any) ?? false
@@ -190,6 +194,7 @@
 				workspace: $workspaceStore,
 				ruleName: initialName,
 				requestBody: {
+					name,
 					rules: [
 						...(disableDirectDeployment ? ['DisableDirectDeployment' as ProtectionRuleKind] : []),
 						...(disableFork ? ['DisableWorkspaceForking' as ProtectionRuleKind] : []),
@@ -235,10 +240,16 @@
 			bind:value={name}
 			error={nameError}
 			inputProps={{
-				placeholder: 'Enter rule name'
+				placeholder: 'Enter rule name',
+				disabled: isNameLocked
 			}}
 		/>
-		{#if nameError}
+		{#if isNameLocked}
+			<div class="text-xs text-secondary">
+				Managed by the dev workspace pairing, which locates this rule by name. Its restrictions and
+				bypassers below can still be changed.
+			</div>
+		{:else if nameError}
 			<div class="text-xs text-red-600">{nameError}</div>
 		{/if}
 	</Section>

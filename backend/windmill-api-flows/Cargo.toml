@@ -10,8 +10,9 @@ path = "src/lib.rs"
 
 [features]
 default = []
-enterprise = ["windmill-common/enterprise"]
+enterprise = ["windmill-common/enterprise", "windmill-native-triggers?/enterprise"]
 private = ["windmill-common/private", "windmill-dep-map/private"]
+native_trigger = ["dep:windmill-native-triggers", "windmill-native-triggers/native_trigger"]
 [dependencies]
 windmill-common = { workspace = true, default-features = false }
 windmill-api-auth.workspace = true
@@ -19,6 +20,7 @@ windmill-queue.workspace = true
 windmill-audit.workspace = true
 windmill-git-sync.workspace = true
 windmill-dep-map.workspace = true
+windmill-native-triggers = { workspace = true, optional = true }
 
 axum.workspace = true
 hyper.workspace = true

@@ -175,6 +175,10 @@ fn is_write_access(access: Option<AssetUsageAccessType>) -> bool {
 /// producers). Resource / datatable / volume reads stay explicit-`// on`:
 /// a config/lookup read cascading is more often surprising than wanted.
 fn is_auto_trigger_kind(kind: AssetKind) -> bool {
+    // `Dbt` is deliberately NOT here. dbt is the only thing that can produce a
+    // warehouse relation (`// materialize` takes DuckLake targets only) and a dbt
+    // run does not dispatch, so a derived `dbt://` edge could never fire — it
+    // would draw a cascade arrow into a script nothing can wake.
     matches!(kind, AssetKind::Ducklake | AssetKind::S3Object)
 }
 
@@ -647,6 +651,7 @@ pub fn asset_kind_from_parser(parser_kind: windmill_parser::asset_parser::AssetK
         windmill_parser::asset_parser::AssetKind::Ducklake => AssetKind::Ducklake,
         windmill_parser::asset_parser::AssetKind::DataTable => AssetKind::DataTable,
         windmill_parser::asset_parser::AssetKind::Volume => AssetKind::Volume,
+        windmill_parser::asset_parser::AssetKind::Dbt => AssetKind::Dbt,
     }
 }
 

@@ -43,7 +43,6 @@ export interface SimplifiedSettings {
 
   // Other fields
   webhook?: string;
-  deploy_to?: string;
   ai_config?: AIConfig;
   large_file_storage?: any;
   git_sync?: any;
@@ -73,7 +72,6 @@ interface LegacySimplifiedSettings {
   success_handler_extra_args?: any;
   // Other fields same as SimplifiedSettings
   webhook?: string;
-  deploy_to?: string;
   ai_config?: AIConfig;
   large_file_storage?: any;
   git_sync?: any;
@@ -96,7 +94,6 @@ export function migrateToGroupedFormat(settings: any): SimplifiedSettings {
 
   // Copy non-legacy fields
   if (settings.webhook !== undefined) result.webhook = settings.webhook;
-  if (settings.deploy_to !== undefined) result.deploy_to = settings.deploy_to;
   if (settings.ai_config !== undefined) result.ai_config = settings.ai_config;
   if (settings.large_file_storage !== undefined) result.large_file_storage = settings.large_file_storage;
   if (settings.git_sync !== undefined) result.git_sync = settings.git_sync;
@@ -196,7 +193,6 @@ export async function pushWorkspaceSettings(
       error_handler: remoteSettings.error_handler as ErrorHandlerConfig | undefined,
       success_handler: remoteSettings.success_handler as SuccessHandlerConfig | undefined,
       webhook: remoteSettings.webhook,
-      deploy_to: remoteSettings.deploy_to,
       ai_config: remoteSettings.ai_config,
       large_file_storage: remoteSettings.large_file_storage,
       git_sync: remoteSettings.git_sync,
@@ -311,16 +307,6 @@ export async function pushWorkspaceSettings(
       requestBody: {
         path: localSuccessHandler?.path,
         extra_args: localSuccessHandler?.extra_args,
-      },
-    });
-  }
-
-  if (localSettings.deploy_to != settings.deploy_to) {
-    log.debug(`Updating deploy to...`);
-    await wmill.editDeployTo({
-      workspace,
-      requestBody: {
-        deploy_to: localSettings.deploy_to,
       },
     });
   }

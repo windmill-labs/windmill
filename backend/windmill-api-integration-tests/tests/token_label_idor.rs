@@ -179,12 +179,43 @@ async fn test_trigger_token_labels_still_creatable(db: Pool<Postgres>) -> anyhow
         "http-test-user-2-cd34",
         "email-test-user-2-ef56",
         "my-ci-token",
+        // Minted client-side by the editor (every TypeScript editor load) and the debugger.
+        "Ephemeral lsp token",
+        "debugger-token",
     ] {
         let resp = create_token_with_label(port, "SECRET_TOKEN_2", label).await;
         assert_eq!(
             resp.status(),
             201,
             "creating a token with label {label:?} must succeed"
+        );
+    }
+
+    Ok(())
+}
+
+/// The mirror of the above: reserved namespaces must NOT be mintable. `username_override_from_label`
+/// trusts these shapes to name the entity acting, so a forged one would stamp an arbitrary
+/// name onto `v2_job.created_by` and the audit `end_user` — on an `on_behalf_of` runnable,
+/// which also takes the `username`/`email` columns, that leaves no trace of the real caller.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_reserved_token_labels_not_creatable(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    for label in [
+        "ephemeral-webhook-forged",
+        "ephemeral-script-end-user-svcaccount",
+        "ephemeral-script",
+        "session",
+        "mcp-oauth-forged",
+    ] {
+        let resp = create_token_with_label(port, "SECRET_TOKEN_2", label).await;
+        assert_eq!(
+            resp.status(),
+            400,
+            "creating a token with reserved label {label:?} must be rejected"
         );
     }
 

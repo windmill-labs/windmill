@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { Drawer, DrawerContent } from '$lib/components/common'
+	import { base } from '$lib/base'
+	import RawAppRecordSession from '$lib/components/workspaceSettings/RawAppRecordSession.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { isMac, userPathPrefix } from '$lib/utils'
 	import { editPathFor } from '$lib/components/workspacePicker'
@@ -7,20 +9,17 @@
 
 	import { AppService, type Policy } from '$lib/gen'
 	import { UserDraft } from '$lib/userDraft.svelte'
-	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
-	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
+	import OpenInSessionButton, {
+		type OpenInSessionSource
+	} from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { discardDraftAfterDeploy } from '$lib/userDraftToast'
-	import {
-		enterpriseLicense,
-		userStore,
-		userWorkspaces,
-		workspaceStore
-	} from '$lib/stores'
+	import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import {
 		Bug,
 		DiffIcon,
 		EllipsisVertical,
 		FileJson,
+		Circle,
 		History,
 		PanelLeft,
 		PanelLeftClose,
@@ -115,6 +114,9 @@
 		/** Initial labels for the app, threaded from the loaded app data. */
 		labels?: string[]
 		appPath: string
+		/** "Open in AI session" hand-off, owned by the editor (it persists the
+		 * draft the session preview loads). Undefined until the app has a path. */
+		sessionOpen?: OpenInSessionSource
 		runnables: Record<string, Runnable>
 		files: Record<string, string> | undefined
 		/** Data configuration including tables and creation policy */
@@ -180,6 +182,7 @@
 		newPath = '',
 		labels: initialLabels = undefined,
 		appPath,
+		sessionOpen,
 		runnables,
 		data,
 		files,
@@ -217,22 +220,6 @@
 	// session's (workspace, path), else the full-page editor's own values.
 	const opWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
 	const indicatorPath = $derived(autosavePath ?? liveEditorDraftStoragePath)
-
-	// Materialize a brand-new app's draft before the session preview loads it by
-	// path — an untouched new app never autosaved, so forcePersist is the only
-	// thing that creates the row (`appPath === indicatorPath` in the full-page
-	// editor). Gated to never-deployed: forcePersist skips the discardIf baseline.
-	async function persistDraftForSession(): Promise<void> {
-		if (!opWorkspace || indicatorPath === undefined) return
-		await UserDraftDbSyncer.flush({
-			workspace: opWorkspace,
-			itemKind: 'raw_app',
-			path: indicatorPath
-		})
-		if (newApp) {
-			await UserDraft.forcePersist('raw_app', indicatorPath, { workspace: opWorkspace })
-		}
-	}
 
 	$effect(() => {
 		const typed = newEditedPath
@@ -290,6 +277,7 @@
 
 	let saveDrawerOpen = $state(false)
 	let historyBrowserDrawerOpen = $state(false)
+	let recordDrawer = $state<Drawer | undefined>(undefined)
 	let deploymentMsg: string | undefined = $state(undefined)
 
 	// Top-bar responsive collapse — container width, not viewport.
@@ -577,6 +565,14 @@
 			displayName: 'Edit in YAML',
 			icon: FileJson,
 			action: () => onOpenYamlEditor?.()
+		},
+		{
+			displayName: 'Record demo',
+			icon: Circle,
+			action: () => {
+				recordDrawer?.openDrawer()
+			},
+			disabled: !savedApp
 		}
 	])
 
@@ -696,6 +692,41 @@
 <Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
 	<DrawerContent title="Deployment History" on:close={() => (historyBrowserDrawerOpen = false)}>
 		<DeploymentHistory on:restore={(e) => onRestore?.(e.detail)} {appPath} />
+	</DrawerContent>
+</Drawer>
+
+<!-- Full screen: the demo is recorded at the size it replays at. -->
+<Drawer bind:this={recordDrawer} size="100vw">
+	<DrawerContent
+		title="Record a demo — {savedApp?.path ?? appPath}"
+		on:close={() => recordDrawer?.closeDrawer()}
+	>
+		<div class="flex flex-col h-full min-h-0 gap-2">
+			<div class="text-xs text-secondary flex flex-col gap-1">
+				<span>
+					Use the app the way someone else would — each interaction becomes a step, and the
+					recording captures the page as they would see it. Passwords are masked; add
+					<span class="font-mono">data-wm-no-record</span> to anything else that should stay out.
+				</span>
+				<span>
+					Stop recording, then <b>Download</b> the JSON. It is self-contained: open it on
+					<a href="{base}/replay" target="_blank" rel="noreferrer" class="text-blue-500 underline">
+						{base}/replay
+					</a>
+					— a public page that needs no login and can be embedded in an iframe. Host the JSON anywhere
+					it can be fetched (S3, GitHub raw, your docs site) and link
+					<span class="font-mono">{base}/replay?src=&lt;url&gt;</span> to have it load itself. Windmill
+					keeps no copy.
+				</span>
+			</div>
+			<div class="flex-1 min-h-0">
+				{#if recordDrawer}
+					<!-- opWorkspace, not the selected one: a session edits an app that may
+				     live in another workspace, and recording must load and run it there. -->
+					<RawAppRecordSession workspace={opWorkspace ?? ''} path={savedApp?.path ?? appPath} />
+				{/if}
+			</div>
+		</div>
 	</DrawerContent>
 </Drawer>
 
@@ -828,17 +859,7 @@
 			</Button>
 		</div>
 		<AppExportButton bind:this={appExport} />
-		<OpenInSessionButton
-			source={appPath
-				? {
-						target: { kind: 'raw_app', path: appPath },
-						workspaceId: opWorkspace ?? undefined,
-						// Persist the draft (and materialize a brand-new one) so the session
-						// preview opens the app exactly as it is in the editor right now.
-						beforeOpen: persistDraftForSession
-					}
-				: undefined}
-		>
+		<OpenInSessionButton source={sessionOpen}>
 			{#snippet fallback()}
 				<Button
 					unifiedSize={headerBtnSize}

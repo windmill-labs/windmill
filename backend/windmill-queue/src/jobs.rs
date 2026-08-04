@@ -41,7 +41,7 @@ use windmill_common::audit::AuditAuthor;
 use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
-use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
+use windmill_common::jobs::{JobTriggerKind, TriggerKindLabel, EMAIL_ERROR_HANDLER_USER_EMAIL};
 use windmill_common::min_version::{
     MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
 };
@@ -486,6 +486,7 @@ pub async fn push_init_job<'c>(
         None,
         None,
         None,
+        None,
         false,
         true,
         None,
@@ -539,6 +540,7 @@ pub async fn push_periodic_bash_job<'c>(
         "worker@windmill.dev",
         SUPERADMIN_SECRET_EMAIL.to_string(),
         Some("worker_periodic_script_job"),
+        None,
         None,
         None,
         None,
@@ -1053,6 +1055,32 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     // if scheduling next job failed, return the job_id early to ensure the job get retried after a timeout
     if let Some(job_id) = opt_uuid {
         return Ok((job_id, duration, None));
+    }
+
+    // Auto-resolve a retry chain that ultimately worked, from whichever of the two
+    // completions lands last (see resolve_retry_chain_if_succeeded): a success that has a
+    // parent (so is a possible retry attempt), or a failure that just enqueued a retry.
+    // `retry_pending` already implies a non-flow-step `Script`.
+    let resolve_root = if success && !skipped && !completed_job.is_flow_step() {
+        matches!(completed_job.kind, JobKind::Script)
+            .then(|| completed_job.parent_job)
+            .flatten()
+    } else if !success && !skipped && retry_pending {
+        Some(completed_job.parent_job.unwrap_or(completed_job.id))
+    } else {
+        None
+    };
+    if let Some(root) = resolve_root {
+        if let Err(e) = resolve_retry_chain_if_succeeded(
+            db,
+            root,
+            &completed_job.workspace_id,
+            completed_job.runnable_id,
+        )
+        .await
+        {
+            tracing::error!("Error auto-resolving native retry chain {root}: {e:#}");
+        }
     }
 
     #[cfg(feature = "cloud")]
@@ -1668,6 +1696,7 @@ async fn restart_job_if_perpetual_inner(
             &queued_job.permissioned_as_email,
             queued_job.permissioned_as.clone(),
             Some(&format!("add.completed.job{}", queued_job.id)),
+            None,
             scheduled_for,
             queued_job.schedule_path(),
             None,
@@ -1691,6 +1720,80 @@ async fn restart_job_if_perpetual_inner(
         .await?;
         tx.commit().await?;
     }
+    Ok(())
+}
+
+/// Marks the failures a succeeding native retry attempt superseded as resolved, so
+/// triage surfaces stop showing red for a chain that ultimately worked. `automatic` is set
+/// so the UI can say so without reading `resolved_by`, which is NULL for every manual CE
+/// resolution too; `ON CONFLICT DO NOTHING` keeps a human's note intact.
+///
+/// Membership of the chain must be *proven* per row, never inferred from `parent_job`
+/// alone: `root` is `job.parent_job.unwrap_or(job.id)`, so for a job launched with an
+/// explicit `parent_job` (WAC inline children, SDK-launched children) `root` is the
+/// *calling* job, and its other failed children are unrelated. Resolving those would hide
+/// exactly the failures this feature exists to surface, so each row must be either
+/// - a job carrying a `native_retry_attempt` marker under `root` (provably an attempt), or
+/// - `root` itself as the original attempt, which is only provable when `root` is
+///   parentless and unmarked.
+///
+/// Both arms also require the same `runnable_id` as the succeeding attempt, since every
+/// attempt in a chain runs the same runnable. The deliberate cost is a miss, not an
+/// over-reach: when the original attempt had a parent it is an unmarked sibling
+/// indistinguishable from any other child of the caller, so it stays red.
+///
+/// Nothing is trusted of the caller (this writes through a privileged pool): the gate is
+/// "some marked attempt under `root` running `runnable_id` has succeeded", evaluated in
+/// SQL, so a call for a chain that has not succeeded resolves nothing.
+///
+/// Call this from *both* completion paths. A retry is enqueued before its predecessor's
+/// failure row is committed, so with a zero delay the retry can succeed while that row is
+/// still absent; the success-side call would then find nothing to resolve. Calling again
+/// when a failure commits with a retry pending makes the two commit orders converge.
+///
+/// `ON CONFLICT DO NOTHING` makes a repeat call idempotent while a resolution *exists*, but
+/// it is not inert: once a human unresolves a chain member, a later sweep for the same
+/// chain resolves it again. Reaching that needs another completion under the same `root`
+/// (a WAC inline sibling, or a replayed completion), so it is rare rather than impossible.
+/// Making an unresolve durable against it needs a tombstone the read path can see, which
+/// this deliberately does not add.
+pub async fn resolve_retry_chain_if_succeeded(
+    db: &Pool<Postgres>,
+    root: Uuid,
+    workspace_id: &str,
+    runnable_id: Option<ScriptHash>,
+) -> Result<(), Error> {
+    sqlx::query!(
+        "INSERT INTO job_resolution (job_id, workspace_id, resolved_by, note, automatic)
+            SELECT c.id, c.workspace_id, NULL, NULL, true
+                FROM v2_job_completed c
+                JOIN v2_job j ON j.id = c.id
+                WHERE c.status = 'failure'
+                    AND c.workspace_id = $2
+                    AND j.flow_step_id IS NULL
+                    AND j.runnable_id IS NOT DISTINCT FROM $3
+                    AND EXISTS (
+                        SELECT 1 FROM v2_job_completed sc
+                        JOIN v2_job sj ON sj.id = sc.id
+                        JOIN native_retry_attempt nra ON nra.job_id = sc.id
+                        WHERE sc.status = 'success'
+                            AND sc.workspace_id = $2
+                            AND sj.parent_job = $1
+                            AND sj.runnable_id IS NOT DISTINCT FROM $3
+                    )
+                    AND (
+                        (j.parent_job = $1
+                            AND EXISTS (SELECT 1 FROM native_retry_attempt WHERE job_id = c.id))
+                        OR (c.id = $1 AND j.parent_job IS NULL
+                            AND NOT EXISTS (SELECT 1 FROM native_retry_attempt WHERE job_id = c.id))
+                    )
+            ON CONFLICT (job_id) DO NOTHING",
+        root,
+        workspace_id,
+        runnable_id.map(|h| h.0),
+    )
+    .execute(db)
+    .await?;
     Ok(())
 }
 
@@ -1896,6 +1999,7 @@ pub async fn maybe_enqueue_native_script_retry(
         &job.permissioned_as_email,
         job.permissioned_as.clone(),
         Some(&format!("retry.{}", job.id)),
+        None,
         Some(scheduled_for),
         None,
         Some(root),
@@ -2131,7 +2235,16 @@ pub async fn report_error_to_workspace_handler_or_critical_side_channel(
 async fn fetch_error_handler_from_db(
     db: &Pool<Postgres>,
     w_id: &str,
-) -> Result<(Option<String>, Option<Json<Box<RawValue>>>, bool, bool, bool), Error> {
+) -> Result<
+    (
+        Option<String>,
+        Option<Json<Box<RawValue>>>,
+        bool,
+        bool,
+        bool,
+    ),
+    Error,
+> {
     sqlx::query_as::<
         _,
         (
@@ -2285,9 +2398,7 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
         // A cancellation is a human action rather than an operational failure, and unlike the
         // handler path this one has no per-workspace toggle to opt out of reporting them.
         let suppressed = match INSTANCE_ALERT_THROTTLE.get(w_id) {
-            Some((last_sent, suppressed))
-                if now - last_sent < INSTANCE_ALERT_COOLDOWN_SECONDS =>
-            {
+            Some((last_sent, suppressed)) if now - last_sent < INSTANCE_ALERT_COOLDOWN_SECONDS => {
                 INSTANCE_ALERT_THROTTLE.insert(w_id.clone(), (last_sent, suppressed + 1));
                 None
             }
@@ -2732,6 +2843,7 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         Some(&format!("error.handler.{job_id}")),
         None,
         None,
+        None,
         Some(job_id),
         None,
         Some(job_id),
@@ -2820,6 +2932,7 @@ pub async fn push_success_handler<'a, 'c, T: Serialize + Send + Sync>(
         Some(&format!("success.handler.{job_id}")),
         None,
         None,
+        None,
         Some(job_id), // parent_job
         Some(job_id), // root_job
         Some(job_id), // flow_innermost_root_job
@@ -2891,7 +3004,7 @@ pub struct MiniPulledJob {
     pub preprocessed: Option<bool>,
     pub script_entrypoint_override: Option<String>,
     pub trigger: Option<String>,
-    pub trigger_kind: Option<JobTriggerKind>,
+    pub trigger_kind: Option<TriggerKindLabel>,
     pub visible_to_owner: bool,
     pub permissioned_as_end_user_email: Option<String>,
     pub runnable_settings_handle: Option<i64>,
@@ -2967,7 +3080,7 @@ pub struct MiniCompletedJob {
     pub script_lang: Option<ScriptLang>,
     pub permissioned_as_email: String,
     pub flow_step_id: Option<String>,
-    pub trigger_kind: Option<JobTriggerKind>,
+    pub trigger_kind: Option<TriggerKindLabel>,
     pub trigger: Option<String>,
     pub priority: Option<i16>,
     pub concurrent_limit: Option<i32>,
@@ -2994,7 +3107,7 @@ impl From<QueuedJobV2> for MiniCompletedJob {
             script_lang: job.script_lang,
             permissioned_as_email: job.permissioned_as_email,
             flow_step_id: job.flow_step_id,
-            trigger_kind: job.trigger_kind,
+            trigger_kind: job.trigger_kind.map(Into::into),
             trigger: job.trigger,
             priority: job.priority,
             concurrent_limit: job.concurrent_limit,
@@ -3083,12 +3196,12 @@ impl MiniCompletedJob {
 }
 
 fn schedule_path(
-    trigger_kind: &Option<JobTriggerKind>,
+    trigger_kind: &Option<TriggerKindLabel>,
     trigger: &Option<String>,
 ) -> Option<String> {
     if trigger_kind
         .as_ref()
-        .is_some_and(|t| matches!(t, JobTriggerKind::Schedule))
+        .is_some_and(|t| t.is(JobTriggerKind::Schedule))
     {
         trigger.clone()
     } else {
@@ -3166,11 +3279,10 @@ impl MiniPulledJob {
             preprocessed: job.preprocessed.clone(),
             script_entrypoint_override: job.script_entrypoint_override.clone(),
             trigger: job.schedule_path.clone(),
-            trigger_kind: if job.schedule_path.is_some() {
-                Some(JobTriggerKind::Schedule)
-            } else {
-                None
-            },
+            trigger_kind: job
+                .schedule_path
+                .is_some()
+                .then(|| JobTriggerKind::Schedule.into()),
             visible_to_owner: job.visible_to_owner.clone(),
             permissioned_as_end_user_email: None,
         }
@@ -3268,7 +3380,15 @@ impl PulledJob {
                 Some(is_operator),
                 Some(groups),
                 Some(folders),
-            ) => Some(JobPerms { email, username, is_admin, is_operator, groups, folders }),
+            ) => Some(JobPerms {
+                email,
+                username,
+                is_admin,
+                is_operator,
+                groups,
+                folders,
+                end_user_email: self.job.permissioned_as_end_user_email.clone(),
+            }),
             _ => None,
         };
 
@@ -3290,13 +3410,10 @@ impl PulledJob {
 pub async fn create_token(db: &DB, job: &MiniPulledJob, perms: Option<JobPerms>) -> String {
     // skipping test runs
     if job.workspace_id != "" {
-        let label = if job.permissioned_as != format!("u/{}", job.created_by)
-            && job.permissioned_as != job.created_by
-        {
-            format!("ephemeral-script-end-user-{}", job.created_by)
-        } else {
-            "ephemeral-script".to_string()
-        };
+        let label = windmill_common::auth::ephemeral_script_token_label(
+            &job.permissioned_as,
+            &job.created_by,
+        );
         windmill_common::auth::create_token_for_owner(
             db,
             &job.workspace_id,
@@ -3375,7 +3492,7 @@ pub async fn get_mini_pulled_job<'c>(
         preprocessed,
         script_entrypoint_override,
         trigger,
-        trigger_kind as \"trigger_kind: JobTriggerKind\",
+        trigger_kind as \"trigger_kind: TriggerKindLabel\",
         visible_to_owner,
         NULL as permissioned_as_end_user_email
         FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id WHERE v2_job_queue.id = $1",
@@ -3402,7 +3519,7 @@ pub struct QueuedJobV2 {
     pub script_lang: Option<ScriptLang>,
     pub permissioned_as_email: String,
     pub flow_step_id: Option<String>,
-    pub trigger_kind: Option<JobTriggerKind>,
+    pub trigger_kind: Option<TriggerKindLabel>,
     pub trigger: Option<String>,
     pub priority: Option<i16>,
     pub concurrent_limit: Option<i32>,
@@ -3444,7 +3561,7 @@ pub async fn get_queued_job_v2<'c>(
                 script_lang as "script_lang: ScriptLang",
                 permissioned_as_email,
                 flow_step_id,
-                trigger_kind as "trigger_kind: JobTriggerKind",
+                trigger_kind as "trigger_kind: TriggerKindLabel",
                 trigger,
                 q.priority,
                 concurrent_limit,
@@ -4944,7 +5061,7 @@ pub fn get_mini_completed_job<'a, 'e, A: sqlx::Acquire<'e, Database = Postgres> 
             MiniCompletedJob,
             "SELECT
             j.id, j.workspace_id, j.runnable_id AS \"runnable_id: ScriptHash\", q.scheduled_for, q.started_at, j.parent_job, j.flow_innermost_root_job, j.runnable_path, j.kind as \"kind!: JobKind\", j.permissioned_as,
-            j.created_by, j.script_lang AS \"script_lang: ScriptLang\", j.permissioned_as_email, j.flow_step_id, j.trigger_kind AS \"trigger_kind: JobTriggerKind\", j.trigger, j.priority, j.concurrent_limit, j.tag, j.cache_ttl, q.cache_ignore_s3_path, q.runnable_settings_handle
+            j.created_by, j.script_lang AS \"script_lang: ScriptLang\", j.permissioned_as_email, j.flow_step_id, j.trigger_kind AS \"trigger_kind: TriggerKindLabel\", j.trigger, j.priority, j.concurrent_limit, j.tag, j.cache_ttl, q.cache_ignore_s3_path, q.runnable_settings_handle
             FROM v2_job j LEFT JOIN v2_job_queue q ON j.id = q.id
             WHERE j.id = $1 AND j.workspace_id = $2",
             id,
@@ -5169,6 +5286,11 @@ pub async fn push<'c, 'd>(
     email: &str,
     permissioned_as: String,
     token_prefix: Option<&str>,
+    // Identifies the caller in the audit trail — distinct from the `end_user_email` below,
+    // which the job itself reads. The API sources it from `ApiAuthed::username_override`;
+    // a token label reaches audit through here alone, since `user` is the token owner.
+    // Callers that know no caller beyond `user` pass None.
+    audit_end_user: Option<&str>,
     scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
     schedule_path: Option<String>,
     parent_job: Option<Uuid>,
@@ -5199,6 +5321,7 @@ pub async fn push<'c, 'd>(
         email,
         permissioned_as,
         token_prefix,
+        audit_end_user,
         scheduled_for_o,
         schedule_path,
         parent_job,
@@ -5233,6 +5356,7 @@ async fn push_inner<'c, 'd>(
     mut email: &str,
     mut permissioned_as: String,
     token_prefix: Option<&str>,
+    audit_end_user: Option<&str>,
     #[allow(unused_mut)] mut scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
     schedule_path: Option<String>, //should be removed in favor of the trigger param below
     parent_job: Option<Uuid>,
@@ -6313,7 +6437,17 @@ async fn push_inner<'c, 'd>(
             tag = None;
         }
 
-        let interpolated_tag = tag.map(|x| interpolate_args(x, &args, workspace_id));
+        // `$workspace` must resolve the same way the default tags below do, or an explicit tag and
+        // a default tag from the same workspace address two different worker pools. Resolving costs
+        // a lookup, so pay it only for tags that actually interpolate `$workspace`.
+        let interpolated_tag = match tag {
+            None => None,
+            Some(x) if x.contains("$workspace") => {
+                let tag_ws = crate::tags::tag_workspace_id(&workspace_id, db).await;
+                Some(interpolate_args(x, &args, &tag_ws))
+            }
+            Some(x) => Some(interpolate_args(x, &args, workspace_id)),
+        };
         let effective_ws = per_workspace_tag(&workspace_id, db).await;
 
         let default = || {
@@ -6724,20 +6858,27 @@ async fn push_inner<'c, 'd>(
             JobKind::UnassignedSinglestepFlow => "jobs.run.unassigned_singlestepflow",
         };
 
-        let audit_author = if format!("u/{user}") != permissioned_as && user != permissioned_as {
-            AuditAuthor {
-                email: email.to_string(),
-                username: windmill_common::auth::permissioned_as_to_username(&permissioned_as),
-                username_override: Some(user.to_string()),
-                token_prefix: token_prefix.map(|s| s.to_string()),
-            }
-        } else {
-            AuditAuthor {
-                email: email.to_string(),
-                username: user.to_string(),
-                username_override: None,
-                token_prefix: token_prefix.map(|s| s.to_string()),
-            }
+        let runs_on_behalf = format!("u/{user}") != permissioned_as && user != permissioned_as;
+        // `user` is the end user of `permissioned_as` when the job runs as someone else, and
+        // `audit_end_user` takes the one `end_user` slot ahead of it. Record it here so it stays
+        // searchable: `username` holds the run-as identity in that case, not the caller.
+        if runs_on_behalf && audit_end_user.is_some_and(|e| e != user) {
+            hm.insert("created_by", user);
+        }
+        let audit_author = AuditAuthor {
+            email: email.to_string(),
+            username: if runs_on_behalf {
+                windmill_common::auth::permissioned_as_to_username(&permissioned_as)
+            } else {
+                user.to_string()
+            },
+            // `username` is the identity the job runs as; `end_user` identifies the caller
+            // behind it, as it does for an app run. An explicitly passed one therefore wins
+            // over `user`, which only stands in for a caller when the job runs as someone else.
+            username_override: audit_end_user
+                .map(|s| s.to_string())
+                .or_else(|| runs_on_behalf.then(|| user.to_string())),
+            token_prefix: token_prefix.map(|s| s.to_string()),
         };
 
         if let Some(ref stringified_args) = stringified_args {

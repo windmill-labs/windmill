@@ -691,6 +691,7 @@ pub async fn run_flow<'c>(
     bool,
     Option<sqlx::Transaction<'c, sqlx::Postgres>>,
 )> {
+    let on_behalf_of = flow_version_info.on_behalf_of(w_id, &db).await?;
     let FlowVersionInfo {
         version,
         tag,
@@ -698,8 +699,6 @@ pub async fn run_flow<'c>(
         has_preprocessor,
         has_failure_module,
         chat_input_enabled,
-        on_behalf_of_email,
-        edited_by,
         early_return,
         labels,
         ..
@@ -719,10 +718,10 @@ pub async fn run_flow<'c>(
             Some(authed.clone().into()),
             PushIsolationLevel::Transaction(tx),
         )
-    } else if let Some(on_behalf_of_email) = on_behalf_of_email.as_ref() {
+    } else if let Some(obo) = on_behalf_of.as_ref() {
         (
-            on_behalf_of_email,
-            username_to_permissioned_as(&edited_by),
+            &obo.email,
+            obo.permissioned_as.clone(),
             None,
             PushIsolationLevel::IsolatedRoot(db.clone()),
         )
@@ -752,6 +751,7 @@ pub async fn run_flow<'c>(
         email,
         permissioned_as,
         authed.token_prefix.as_deref(),
+        authed.username_override.as_deref(),
         scheduled_for,
         None,
         run_query.parent_job,
@@ -769,7 +769,7 @@ pub async fn run_flow<'c>(
         push_authed.as_ref(),
         false,
         None,
-        trigger,
+        authed.trigger_or_fallback(trigger),
         run_query.suspended_mode,
     )
     .await?;
@@ -966,6 +966,7 @@ pub async fn push_script_job_by_path_into_queue<'c>(
         email,
         permissioned_as,
         authed.token_prefix.as_deref(),
+        authed.username_override.as_deref(),
         scheduled_for,
         None,
         run_query.parent_job,
@@ -988,7 +989,7 @@ pub async fn push_script_job_by_path_into_queue<'c>(
         push_authed.as_ref(),
         false,
         None,
-        trigger,
+        authed.trigger_or_fallback(trigger),
         run_query.suspended_mode,
     )
     .await?;

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte'
+	import { overlayPortalTarget } from '$lib/components/common/overlayHost.svelte'
 	import { createBubbler } from 'svelte/legacy'
 
 	const bubble = createBubbler()
@@ -54,8 +55,12 @@
 		children
 	}: Props = $props()
 
+	// Overlays belong to the enclosing pane when there is one — see overlayHost.
+	const hostPortal = overlayPortalTarget('body')
+
 	// Use the passed createMenu function
 	const menu = untrack(() => createMenu)({
+		portal: untrack(() => hostPortal()),
 		positioning: {
 			placement: untrack(() => placement),
 			fitViewport: true,
@@ -76,8 +81,13 @@
 	const {
 		elements: { trigger, menu: menuElement, item },
 		builders,
-		states
+		states,
+		options: { portal: portalOption }
 	} = menu
+
+	$effect(() => {
+		$portalOption = hostPortal()
+	})
 
 	const sync = createSync(states)
 	watch(

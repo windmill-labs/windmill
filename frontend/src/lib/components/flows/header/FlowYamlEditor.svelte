@@ -31,6 +31,23 @@
 		editor?.setCode(code)
 	}
 
+	/** `value` is assigned unconditionally below and `FlowEditor` dereferences
+	 * `flowStore.val.value.modules`, so an OpenFlow document missing it takes the
+	 * whole editor down mid-render — after the toast has already claimed success.
+	 * Reject it up front instead. */
+	function validateShape(parsed: unknown) {
+		if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+			throw new Error('the document must be a mapping (key: value)')
+		}
+		const value = (parsed as Record<string, unknown>).value
+		if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+			throw new Error("missing 'value' - paste a whole OpenFlow document, not just its value")
+		}
+		if (!Array.isArray((value as Record<string, unknown>).modules)) {
+			throw new Error("'value.modules' must be a list")
+		}
+	}
+
 	function validateGroups(groups: { start_id: string; end_id: string }[] | undefined) {
 		if (!groups) return
 		const seen = new Set<string>()
@@ -46,6 +63,7 @@
 	function apply() {
 		try {
 			const parsed = YAML.parse(code)
+			validateShape(parsed)
 			validateGroups(parsed.value?.groups)
 			if (parsed.summary && typeof parsed.summary === 'string') {
 				flowStore.val.summary = parsed.summary
@@ -64,6 +82,9 @@
 			}
 			if (parsed['on_behalf_of_email'] !== undefined) {
 				flowStore.val.on_behalf_of_email = parsed['on_behalf_of_email']
+			}
+			if (parsed['on_behalf_of'] !== undefined) {
+				flowStore.val.on_behalf_of = parsed['on_behalf_of']
 			}
 			flowStore.val.value = parsed.value
 			flowStore.val.schema = parsed.schema
@@ -101,6 +122,7 @@
 						minHeight={editorHeight}
 						bind:code
 						lang="yaml"
+						leadingChangeSync
 					/>
 				</div>
 			{/await}

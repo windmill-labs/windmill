@@ -29,18 +29,22 @@ use sqlx::{Acquire, Postgres};
 pub mod agent_workers;
 pub mod apps;
 pub mod assets;
+pub mod azure_workload_identity;
+pub mod dbt_manifest;
 pub mod audit;
 pub mod auth;
 #[cfg(feature = "benchmark")]
 pub mod bench;
 pub mod cache;
 pub mod client;
+pub mod data_metrics;
 pub mod db;
 #[cfg(all(feature = "enterprise", feature = "private"))]
 mod db_entra_ee;
 #[cfg(all(feature = "enterprise", feature = "private"))]
 mod db_iam_ee;
 pub mod db_params;
+pub mod deploy_origin;
 #[cfg(feature = "private")]
 pub mod deployment_requests_ee;
 pub mod deployment_requests_oss;
@@ -62,7 +66,6 @@ pub mod instance_config;
 pub mod job_metrics;
 pub mod log_context;
 pub mod materialization;
-pub mod data_metrics;
 pub mod min_version;
 pub mod notify_events;
 pub mod runtime_assets;
@@ -192,24 +195,111 @@ pub fn check_on_behalf_of_preservation(
     None
 }
 
-/// Determines the on_behalf_of_email value to use when creating/updating a flow or script.
-/// - If `on_behalf_of_email` is None, returns None
-/// - If `preserve` is true and the user is admin or in the deployers group, returns the original value
-/// - Otherwise, returns the authenticated user's email
-pub fn resolve_on_behalf_of_email<'a>(
-    on_behalf_of_email: Option<&'a str>,
+/// Resolves the identity to store when creating/updating a flow or script.
+///
+/// The permissioned_as is the only stored identity — it decides what the job may access,
+/// and the address is derived from it at read time — so the two can never name different
+/// accounts. Callers may supply either: a bare email (every client written before the
+/// principal existed) is resolved to the principal it names, and an email that names
+/// nobody is rejected rather than recorded, since it could only produce a runnable that
+/// cannot authenticate.
+///
+/// Returns `None` when the runnable has no on-behalf-of identity, and the caller's own
+/// identity when they are not allowed to preserve someone else's.
+///
+/// Resolves through the non-RLS pool and authorizes nothing itself — `authed` decides only
+/// whether preservation is allowed, and its role flags are not re-checked against `w_id`.
+/// Callers must already be authorized for the workspace they pass.
+pub async fn resolve_on_behalf_of(
+    on_behalf_of_email: Option<&str>,
+    on_behalf_of: Option<&str>,
     preserve: bool,
-    authed: &'a impl db::Authable,
-) -> Option<&'a str> {
-    if on_behalf_of_email.is_some() {
-        if preserve && can_preserve_on_behalf_of(authed) {
-            on_behalf_of_email
-        } else {
-            Some(authed.email())
-        }
-    } else {
-        None
+    authed: &impl db::Authable,
+    w_id: &str,
+    db: &sqlx::Pool<Postgres>,
+) -> error::Result<Option<String>> {
+    if on_behalf_of_email.is_none() && on_behalf_of.is_none() {
+        return Ok(None);
     }
+    // Through the same width check as every other branch: the caller's own identity is
+    // address-shaped when they act without a `usr` row, and one too wide for a job row is no
+    // more enqueueable for naming themselves.
+    if !(preserve && can_preserve_on_behalf_of(authed)) {
+        return reject_unenqueueable(users::username_to_permissioned_as(authed.username()));
+    }
+    let permissioned_as = match on_behalf_of {
+        Some(permissioned_as) => {
+            // The principal wins, but a caller that also names a contradictory address has a
+            // bug worth surfacing: that is exactly how a workspace deploy once shipped one
+            // workspace's principal beside another's address.
+            if let Some(email) = on_behalf_of_email {
+                let named =
+                    users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db)
+                        .await?;
+                if named != email {
+                    return Err(Error::BadRequest(format!(
+                        "on_behalf_of '{permissioned_as}' resolves to '{named}', \
+                         not to on_behalf_of_email '{email}'. Both must name the same account."
+                    )));
+                }
+            }
+            // A bare address is canonical only for an account whose username is that address,
+            // or for a superadmin acting outside their workspaces. Sent for an ordinary member
+            // — which is what a folder rule naming an address produces — it is canonicalized to
+            // `u/{username}`: the bare branch of `fetch_authed_from_permissioned_as` grants
+            // neither their groups nor their folders, so storing it verbatim would run the job
+            // with less access than the account it names.
+            let canonical = if permissioned_as.starts_with(users::PERMISSIONED_AS_USER_PREFIX)
+                || permissioned_as.starts_with(users::PERMISSIONED_AS_GROUP_PREFIX)
+            {
+                None
+            } else {
+                users::permissioned_as_from_email(w_id, permissioned_as, db).await?
+            };
+            match canonical {
+                Some(canonical) => canonical,
+                None => {
+                    // Symmetric with the address branch below: an identity that names nobody
+                    // would only produce a runnable that cannot authenticate, and an unknown
+                    // prefix takes the least-privileged branch of
+                    // `fetch_authed_from_permissioned_as` rather than failing.
+                    if !users::permissioned_as_exists(w_id, permissioned_as, db).await? {
+                        return Err(Error::BadRequest(format!(
+                            "on_behalf_of '{permissioned_as}' names no user or \
+                             group in this workspace."
+                        )));
+                    }
+                    permissioned_as.to_string()
+                }
+            }
+        }
+        None => {
+            let email = on_behalf_of_email.unwrap_or_default();
+            users::permissioned_as_from_email(w_id, email, db)
+                .await?
+                .ok_or_else(|| {
+                    Error::BadRequest(format!(
+                        "on_behalf_of_email '{email}' names no user or group in this workspace, so \
+                         there is no identity to run as. Pass on_behalf_of, or use \
+                         the address of a workspace member."
+                    ))
+                })?
+        }
+    };
+    reject_unenqueueable(permissioned_as)
+}
+
+/// Every principal ends up on `v2_job.permissioned_as`, which is narrower than the columns it is
+/// stored in, so an identity that cannot be enqueued is refused at the deploy that records it
+/// rather than at the first run of a runnable that looks fine.
+fn reject_unenqueueable(permissioned_as: String) -> error::Result<Option<String>> {
+    if permissioned_as.chars().count() > users::PERMISSIONED_AS_MAX_LEN {
+        return Err(Error::BadRequest(format!(
+            "the identity '{permissioned_as}' is longer than the {} characters a job can carry",
+            users::PERMISSIONED_AS_MAX_LEN
+        )));
+    }
+    Ok(Some(permissioned_as))
 }
 
 #[macro_export]
@@ -704,6 +794,23 @@ ta9ELulniZau8zUAtwqwecxodzl+KO8NYj0a9PGgAM64dMqkRtRA8P4UP350Nag3\n\
         assert!(pg(Some("allow"), None).to_uri().contains("sslmode=prefer"));
         assert!(pg(None, None).to_uri().contains("sslmode=prefer"));
     }
+
+    /// The other paths default a missing login to `postgres`; Entra must not, or the
+    /// server rejects a role the resource never named.
+    #[test]
+    fn entra_login_rejects_a_missing_user() {
+        let mut db = pg(None, None);
+        assert_eq!(db.entra_login().unwrap(), "u");
+        assert_eq!(db.login_name(), "u");
+
+        db.user = None;
+        assert_eq!(db.login_name(), "postgres");
+
+        for blank in [None, Some(""), Some("  ")] {
+            db.user = blank.map(|u: &str| u.to_string());
+            assert!(db.entra_login().is_err(), "{blank:?} is not a login");
+        }
+    }
 }
 
 #[derive(Serialize, Debug)]
@@ -770,6 +877,11 @@ impl Future for TokioPgConnection {
 }
 
 impl PgDatabase {
+    /// The role the connection logs in as, whichever way it authenticates.
+    pub fn login_name(&self) -> &str {
+        self.user.as_deref().unwrap_or("postgres")
+    }
+
     pub fn to_uri(&self) -> String {
         let sslmode = match self.sslmode.as_deref() {
             Some("allow") => "prefer".to_string(),
@@ -788,7 +900,7 @@ impl PgDatabase {
         };
         format!(
             "postgres://{user}:{password}@{host}:{port}/{dbname}?sslmode={sslmode}",
-            user = urlencoding::encode(&self.user.as_deref().unwrap_or("postgres")),
+            user = urlencoding::encode(self.login_name()),
             password = urlencoding::encode(&self.password.as_deref().unwrap_or("")),
             host = host,
             port = self.port.unwrap_or(5432),
@@ -965,9 +1077,6 @@ impl PgDatabase {
     pub async fn connect_with_iam(
         &self,
     ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
-        use native_tls::TlsConnector;
-        use postgres_native_tls::MakeTlsConnector;
-
         // Resolve region: resource field takes priority, then env var
         let region = match self.region.as_deref() {
             Some(r) => r.to_string(),
@@ -979,7 +1088,7 @@ impl PgDatabase {
         };
 
         let port = self.port.unwrap_or(5432);
-        let user = self.user.as_deref().unwrap_or("postgres");
+        let user = self.login_name();
 
         let token = db_iam_ee::generate_auth_token(&region, &self.host, port as u64, user)
             .await
@@ -987,7 +1096,64 @@ impl PgDatabase {
                 error::Error::InternalErr(format!("IAM token generation failed: {e:#}"))
             })?;
 
-        // RDS IAM auth requires SSL.
+        self.connect_with_token("IAM RDS", user, &token).await
+    }
+
+    /// The role an Entra-authenticated connection logs in as. Azure maps each Entra
+    /// principal to a role of its own (`pgaadauth_create_principal`), so unlike the
+    /// other paths this one has no sensible default: `postgres` would send the server a
+    /// role name the resource never mentions, and the rejection then names a value the
+    /// user never configured.
+    pub fn entra_login(&self) -> error::Result<&str> {
+        self.user
+            .as_deref()
+            .map(str::trim)
+            .filter(|u| !u.is_empty())
+            .ok_or_else(|| {
+                error::Error::BadRequest(
+                    "Azure workload identity authentication requires `user` on the resource. \
+                     Set it to the Postgres role the worker's Entra principal is mapped to, \
+                     as created by pgaadauth_create_principal."
+                        .to_string(),
+                )
+            })
+    }
+
+    /// Connect to Azure Database for PostgreSQL as the worker's federated identity.
+    /// The Entra ID access token replaces the password.
+    #[cfg(feature = "enterprise")]
+    pub async fn connect_with_workload_identity(
+        &self,
+    ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
+        // Before the token exchange: a missing login is worth reporting without first
+        // spending a round trip to Entra ID on it.
+        let user = self.entra_login()?;
+
+        let workload_identity = azure_workload_identity::WorkloadIdentityConfig::resolve()?;
+        let token = workload_identity
+            .access_token(azure_workload_identity::AZURE_OSSRDBMS_SCOPE)
+            .await?;
+
+        self.connect_with_token("Azure workload identity", user, &token)
+            .await
+    }
+
+    /// Connect with an externally issued access token in place of the password.
+    /// Both issuers (AWS IAM, Entra ID) mandate TLS, so encryption is forced on
+    /// regardless of the resource's sslmode; the sslmode still selects how far the
+    /// server's certificate is verified.
+    #[cfg(feature = "enterprise")]
+    async fn connect_with_token(
+        &self,
+        auth_kind: &str,
+        user: &str,
+        token: &str,
+    ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
+        use native_tls::TlsConnector;
+        use postgres_native_tls::MakeTlsConnector;
+
+        let port = self.port.unwrap_or(5432);
+
         let mut connector = TlsConnector::builder();
         let verified = Self::configure_pg_tls_verification(
             &mut connector,
@@ -996,19 +1162,19 @@ impl PgDatabase {
             self.accept_invalid_certs,
         )?;
         if !verified {
-            tracing::warn!("IAM RDS auth without certificate verification: TLS certificate verification is disabled. Provide root_certificate_pem (and set sslmode=verify-full) to enforce verification.");
+            tracing::warn!("{auth_kind} auth without certificate verification: TLS certificate verification is disabled. Provide root_certificate_pem (and set sslmode=verify-full) to enforce verification.");
         }
 
-        tracing::info!("Creating new IAM RDS connection to {}", &self.host);
+        tracing::info!("Creating new {auth_kind} connection to {}", &self.host);
 
-        // Use Config builder directly to pass the IAM token as the password.
+        // Use Config builder directly to pass the token as the password.
         // This avoids needing to URL-encode the token into a connection string.
         let mut config = tokio_postgres::Config::new();
         config
             .host(&self.host)
             .port(port as u16)
             .user(user)
-            .password(&token)
+            .password(token)
             .dbname(&self.dbname)
             .ssl_mode(tokio_postgres::config::SslMode::Require);
 
@@ -1065,6 +1231,49 @@ impl PgDatabase {
             use_iam_auth: None,
             region: None,
         })
+    }
+}
+
+/// How long a `tokio_postgres` connection task gets to wind down once its `Client` is dropped.
+const PG_CONNECTION_SHUTDOWN_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Wind down the task driving a `tokio_postgres` connection after its `Client` has been dropped,
+/// surfacing whatever error the connection ended with. A teardown that has to be aborted is
+/// reported as success — the work the client did is already done and complete.
+///
+/// The task only finishes once the exchange the client left behind (its Terminate, and any
+/// still-unanswered request) has been settled by the peer. A connection proxy that stops
+/// replying leaves that pending forever, so waiting on the task without a deadline pins the
+/// caller and the socket for the lifetime of the process. Aborting past the grace period drops
+/// the stream, which is the only cleanup the task owes.
+pub async fn shutdown_pg_connection(
+    join_handle: tokio::task::JoinHandle<Result<(), tokio_postgres::Error>>,
+) -> error::Result<()> {
+    let abort_handle = join_handle.abort_handle();
+    match tokio::time::timeout(PG_CONNECTION_SHUTDOWN_GRACE, join_handle).await {
+        Ok(Ok(Ok(()))) => Ok(()),
+        Ok(Ok(Err(e))) => Err(error::Error::internal_err(format!(
+            "tokio_postgres error: {}",
+            e
+        ))),
+        Ok(Err(e)) => Err(error::Error::internal_err(format!("join error: {}", e))),
+        Err(_) => {
+            tracing::warn!(
+                "Postgres connection did not close within {}s of its client being dropped, aborting it",
+                PG_CONNECTION_SHUTDOWN_GRACE.as_secs()
+            );
+            abort_handle.abort();
+            Ok(())
+        }
+    }
+}
+
+#[cfg(test)]
+mod pg_connection_shutdown_tests {
+    #[tokio::test(start_paused = true)]
+    async fn gives_up_on_a_connection_task_that_never_finishes() {
+        let never_finishes = tokio::spawn(std::future::pending());
+        assert!(super::shutdown_pg_connection(never_finishes).await.is_ok());
     }
 }
 
@@ -1214,15 +1423,12 @@ pub async fn create_custom_instance_database(
         tracing::warn!(
             "Failed to grant permissions on '{}': {}. Continuing.",
             dbname,
-            e
+            crate::error::pg_error_message(&e)
         );
     }
 
     drop(client);
-    join_handle
-        .await
-        .map_err(|e| error::Error::internal_err(format!("join error: {}", e)))?
-        .map_err(|e| error::Error::internal_err(format!("tokio_postgres error: {}", e)))?;
+    shutdown_pg_connection(join_handle).await?;
 
     // Register in global_settings
     let status_json = serde_json::json!({
@@ -1480,11 +1686,72 @@ pub struct ScriptHashInfo<SR> {
     pub delete_after_secs: Option<i32>,
     pub timeout: Option<i32>,
     pub has_preprocessor: Option<bool>,
-    pub on_behalf_of_email: Option<String>,
+    pub on_behalf_of: Option<String>,
     pub created_by: String,
     pub labels: Option<Vec<String>>,
     #[sqlx(flatten)]
     pub runnable_settings: SR,
+}
+
+impl<SR> ScriptHashInfo<SR> {
+    /// The identity this script runs as, or `None` when it runs as its caller. The address
+    /// is derived from the principal rather than stored, so the two cannot disagree.
+    ///
+    /// Reads through the non-RLS pool and authorizes nothing: callers must already be
+    /// authorized for `w_id` and for this script.
+    pub async fn on_behalf_of(
+        &self,
+        w_id: &str,
+        db: &DB,
+    ) -> error::Result<Option<jobs::OnBehalfOf>> {
+        on_behalf_of_from_permissioned_as(self.on_behalf_of.as_deref(), w_id, db).await
+    }
+}
+
+/// The address to store beside the principal, or `None` once no worker needs it.
+///
+/// A worker predating [`MIN_VERSION_SUPPORTS_ON_BEHALF_OF_PRINCIPAL`] reads `on_behalf_of_email`
+/// and nothing else, so a deploy has to keep filling it while one may still be live — otherwise
+/// a runnable deployed mid-upgrade runs as its deployer there. Once every worker is new the
+/// column is dead weight and a later release drops it.
+///
+/// Reads through the non-RLS pool and authorizes nothing: callers must already be authorized
+/// for `w_id`.
+pub async fn legacy_on_behalf_of_email(
+    permissioned_as: Option<&str>,
+    w_id: &str,
+    db: &DB,
+) -> error::Result<Option<String>> {
+    let Some(permissioned_as) = permissioned_as else {
+        return Ok(None);
+    };
+    if min_version::MIN_VERSION_SUPPORTS_ON_BEHALF_OF_PRINCIPAL.met_conservatively() {
+        return Ok(None);
+    }
+    Ok(Some(
+        users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db).await?,
+    ))
+}
+
+/// Shared by [`ScriptHashInfo::on_behalf_of`] and [`FlowVersionInfo::on_behalf_of`].
+///
+/// Reads identity data through the non-RLS pool and enforces nothing itself: it answers who a
+/// row already says it runs as. Callers must have authorized `w_id` — and the row they read it
+/// from — before dispatching a job with what it returns.
+pub async fn on_behalf_of_from_permissioned_as(
+    permissioned_as: Option<&str>,
+    w_id: &str,
+    db: &DB,
+) -> error::Result<Option<jobs::OnBehalfOf>> {
+    let Some(permissioned_as) = permissioned_as else {
+        return Ok(None);
+    };
+    // Uncached: the address is copied onto the job row, where it stays for the life of the run
+    // and decides the superadmin flag and the instance groups. Nothing evicts the cache across
+    // processes, so a cached read would keep minting jobs under an address the account no longer
+    // holds for up to a minute after it moves.
+    let email = users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db).await?;
+    Ok(Some(jobs::OnBehalfOf { email, permissioned_as: permissioned_as.to_string() }))
 }
 
 impl ScriptHashInfo<ScriptRunnableSettingsHandle> {
@@ -1511,7 +1778,7 @@ impl ScriptHashInfo<ScriptRunnableSettingsHandle> {
             delete_after_secs: self.delete_after_secs,
             timeout: self.timeout,
             has_preprocessor: self.has_preprocessor,
-            on_behalf_of_email: self.on_behalf_of_email,
+            on_behalf_of: self.on_behalf_of,
             created_by: self.created_by,
             labels: self.labels,
             runnable_settings: ScriptRunnableSettingsInline {
@@ -1730,7 +1997,7 @@ async fn get_script_info_for_hash_inner<'e, E: sqlx::PgExecutor<'e>>(
                 delete_after_secs,
                 timeout,
                 has_preprocessor,
-                on_behalf_of_email,
+                on_behalf_of,
                 created_by,
                 labels,
                 path
@@ -1750,10 +2017,24 @@ pub struct FlowVersionInfo {
     pub has_preprocessor: Option<bool>,
     pub has_failure_module: Option<bool>,
     pub chat_input_enabled: Option<bool>,
-    pub on_behalf_of_email: Option<String>,
+    pub on_behalf_of: Option<String>,
     pub edited_by: String,
     pub dedicated_worker: Option<bool>,
     pub labels: Option<Vec<String>>,
+}
+
+impl FlowVersionInfo {
+    /// The identity this flow runs as, or `None` when it runs as its caller.
+    ///
+    /// Same contract as [`ScriptHashInfo::on_behalf_of`]: callers must already be authorized
+    /// for `w_id` and for this flow.
+    pub async fn on_behalf_of(
+        &self,
+        w_id: &str,
+        db: &DB,
+    ) -> error::Result<Option<jobs::OnBehalfOf>> {
+        on_behalf_of_from_permissioned_as(self.on_behalf_of.as_deref(), w_id, db).await
+    }
 }
 
 struct CachedFlowPath(String);
@@ -1881,7 +2162,7 @@ pub fn get_flow_version_info_from_version<
                                     (flow_version.value->>'chat_input_enabled')::boolean as chat_input_enabled,
                                     flow.tag,
                                     flow.dedicated_worker,
-                                    flow.on_behalf_of_email,
+                                    flow.on_behalf_of,
                                     flow.edited_by,
                                     flow.labels
                                 FROM
@@ -1997,6 +2278,7 @@ async fn get_latest_flow_version_for_path<'e, E: sqlx::PgExecutor<'e>>(
 
 pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
     db: E,
+    db2: &DB,
     w_id: &str,
     script_path: &str,
     require_locked: bool,
@@ -2014,13 +2296,12 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
     Option<bool>,
     Option<i16>,
     Option<i32>,
-    Option<String>,
-    String,
+    Option<jobs::OnBehalfOf>,
     Option<i64>,
     Option<Vec<String>>,
 )> {
     let r_o = sqlx::query!(
-            "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, cache_ignore_s3_path, runnable_settings_handle, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of_email, created_by, labels FROM script
+            "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, cache_ignore_s3_path, runnable_settings_handle, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of, created_by, labels FROM script
              WHERE path = $1 AND workspace_id = $2 AND archived = false AND (lock IS NOT NULL OR $3 = false)
              ORDER BY created_at DESC LIMIT 1",
             script_path,
@@ -2031,6 +2312,9 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
         .await?;
 
     let script = utils::not_found_if_none(r_o, "script", script_path)?;
+
+    let on_behalf_of =
+        on_behalf_of_from_permissioned_as(script.on_behalf_of.as_deref(), w_id, db2).await?;
 
     Ok((
         scripts::ScriptHash(script.hash),
@@ -2046,8 +2330,7 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
         script.dedicated_worker,
         script.priority,
         script.timeout,
-        script.on_behalf_of_email,
-        script.created_by,
+        on_behalf_of,
         script.runnable_settings_handle,
         script.labels,
     ))

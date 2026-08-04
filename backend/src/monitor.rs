@@ -46,7 +46,7 @@ use windmill_common::otel_oss::{
 use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     apps::APP_WORKSPACED_ROUTE,
-    auth::create_token_for_owner,
+    auth::{create_token_for_owner, ephemeral_script_token_label},
     ee_oss::CriticalErrorChannel,
     email_oss::send_email_if_possible,
     error,
@@ -1394,6 +1394,17 @@ pub async fn delete_expired_items(db: &DB) -> () {
     .await
     {
         tracing::error!("Error reaping orphaned native retry markers: {:?}", e);
+    }
+
+    // Same story for job_resolution: no FK, so a job deleted outside delete_jobs
+    // would leave its resolution behind.
+    if let Err(e) = sqlx::query!(
+        "DELETE FROM job_resolution jr WHERE NOT EXISTS (SELECT 1 FROM v2_job WHERE id = jr.job_id)"
+    )
+    .execute(db)
+    .await
+    {
+        tracing::error!("Error reaping orphaned job resolutions: {:?}", e);
     }
 
     if let Err(e) = windmill_queue::cascade::reap_stale_join_slots(db).await {
@@ -4651,13 +4662,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
             continue;
         }
         if let Some(job) = job.unwrap() {
-            let label = if job.permissioned_as != format!("u/{}", job.created_by)
-                && job.permissioned_as != job.created_by
-            {
-                format!("ephemeral-script-end-user-{}", job.created_by)
-            } else {
-                "ephemeral-script".to_string()
-            };
+            let label = ephemeral_script_token_label(&job.permissioned_as, &job.created_by);
             let token = create_token_for_owner(
                 &db,
                 &job.workspace_id,

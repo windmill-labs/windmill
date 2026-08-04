@@ -567,6 +567,40 @@
     - passes dry_run as true
     - leaves only the schedule draft for review
 
+- id: global-test29-schedule-with-retry-and-error-handler
+  prompt: |-
+    The workspace already has a report digest helper.
+    Schedule it every morning at 6am UTC with `dry_run` on, and have it retry twice
+    if it fails. Run it on our `nightly` worker group.
+    Draft only, I'll review before deploying.
+  initial: ai_evals/fixtures/frontend/global/initial/report_digest_script.json
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: schedule
+        pathIncludes:
+          - digest
+        valueIncludes:
+          - f/evals/global/send_report_digest
+          - attempts
+          - nightly
+  toolExpect:
+    requiredToolsUsed:
+      - write_schedule
+      - get_schedule_schema
+    forbiddenToolsUsed:
+      - write_script
+      - write_flow
+      - deploy_workspace_item
+  judgeChecklist:
+    - finds the existing report digest helper rather than creating a new script or flow
+    - creates one schedule draft for that helper running daily around 06:00 UTC
+    - configures a retry policy with two attempts
+    - routes the schedule to the nightly worker tag
+    - leaves the schedule as a draft without deploying
+
 - id: global-test18-human-slack-resource-with-secret
   prompt: |-
     I'm preparing Slack notifications for eval failures.
@@ -1773,6 +1807,27 @@
   judgeChecklist:
     - deletes the deployed script via delete_workspace_item rather than a raw API endpoint
 
+- id: global-undo-created-draft
+  prompt: |-
+    Create a draft Postgres resource at `u/admin/scratch_db` for host db.example.com port 5432, database `orders`, user `app`, and tell me what fields it ended up with.
+    Once you've shown me that, delete it from the workspace again — I only wanted to see the shape of it.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_empty.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - write_resource
+      - discard_local_draft
+    forbiddenToolsUsed:
+      - delete_workspace_item
+      - deploy_workspace_item
+  # Undoing a draft leaves no draft behind; validate via tool use.
+  skipJudge: true
+  judgeChecklist:
+    - undoes its own never-deployed resource with discard_local_draft rather than delete_workspace_item
+
 - id: global-draft-diff-report
   prompt: |-
     Update the existing workspace script at `f/evals/global/format_greeting` so the returned message ends with an exclamation mark, keeping everything else the same.
@@ -1877,3 +1932,49 @@
         stringIncludesAnyOf:
           - email
   skipJudge: true
+
+# --- Windmill Hub reuse (search_hub_scripts + read_workspace_item on a hub/ path) ---
+# Holded's API is obscure enough that a model writing from memory cannot reproduce
+# its endpoint and `key` auth header — so the draft's fidelity to the published
+# script is what proves the hub content was actually fetched, not guessed.
+- id: global-hub1-reuse-hub-script
+  prompt: |-
+    I want to email one of my Holded invoices to a customer from Windmill.
+    There is already a script for that on the Windmill hub — reuse it instead of writing
+    your own, and save it as a draft script at `f/evals/global/holded_send_document`.
+    Leave it as an AI draft; do not deploy it.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 12
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        path: f/evals/global/holded_send_document
+        language: bun
+        valueIncludes:
+          - api.holded.com/api/invoicing/v1/documents
+          # `mailTemplateId` is an optional field of the published script's body
+          # that a model writing from memory does not invent, so it is what
+          # separates reusing the hub script from re-deriving one that merely
+          # hits the same endpoint.
+          - mailTemplateId
+  toolExpect:
+    requiredToolsUsed:
+      - search_hub_scripts
+      - read_workspace_item
+      - write_script
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      - tool: read_workspace_item
+        field: path
+        stringIncludesAnyOf:
+          - hub/
+  judgeChecklist:
+    - the draft sends an existing Holded document by email rather than creating one
+    - the request targets Holded's document send endpoint, not an invented URL
+    - authentication uses Holded's own key header rather than a bearer token
+    - the document type, document id, and recipient emails are inputs to the script
+    - the result stays an AI draft and is not deployed

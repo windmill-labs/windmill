@@ -69,6 +69,9 @@ vi.mock('$lib/gen', async () => {
 			}),
 			queryHubScripts: vi.fn(async () => []),
 			getHubScriptContentByPath: vi.fn(async () => ''),
+			getHubScriptByPath: vi.fn(async () => {
+				throw new Error('getHubScriptByPath mock not configured')
+			}),
 			listScripts: vi.fn(async () => [])
 		}),
 		JobService: wrapService(actual.JobService, {
@@ -201,7 +204,8 @@ vi.mock('$lib/gen', async () => {
 				throw new Error('getResource mock not configured')
 			}),
 			createResource: vi.fn(async () => 'created'),
-			updateResource: vi.fn(async () => 'updated')
+			updateResource: vi.fn(async () => 'updated'),
+			deleteResource: vi.fn(async () => 'deleted')
 		}),
 		VariableService: wrapService(actual.VariableService, {
 			existsVariable: vi.fn(async () => false),
@@ -438,6 +442,183 @@ describe('global AI tools', () => {
 		expect(names).toContain('list_runs')
 	})
 
+	it('keeps the trigger config schemas out of the tool definitions', async () => {
+		const def = JSON.stringify(getGlobalTool('write_trigger').def)
+		expect(def.length).toBeLessThan(2000)
+		expect(def).not.toContain('kafka_resource_path')
+
+		const kafka = await callGlobalTool('get_trigger_schema', { kind: 'kafka' })
+		expect(JSON.parse(kafka).properties).toMatchObject({
+			kafka_resource_path: expect.anything(),
+			group_id: expect.anything(),
+			topics: expect.anything()
+		})
+	})
+
+	// The rare schedule fields reach the draft through `advanced` instead of the tool
+	// definition, so the merge back into the persisted value is what has to hold.
+	it('folds advanced schedule options into the draft', async () => {
+		const advanced = JSON.parse(await callGlobalTool('get_schedule_schema', {}))
+		expect(Object.keys(advanced.properties)).toEqual(
+			expect.arrayContaining(['retry', 'paused_until', 'no_flow_overlap'])
+		)
+		expect(advanced.properties).not.toHaveProperty('schedule')
+
+		await callGlobalTool('write_schedule', {
+			path: 'f/schedules/adv',
+			schedule: '0 0 9 * * *',
+			timezone: 'UTC',
+			script_path: 'f/scripts/run',
+			is_flow: false,
+			args: {},
+			advanced: { no_flow_overlap: true, tag: 'nightly' }
+		})
+
+		const draft = getBackendDraft<any>('trigger_schedule', 'f/schedules/adv', {
+			workspace: WORKSPACE
+		})
+		expect(draft).toMatchObject({ no_flow_overlap: true, tag: 'nightly' })
+		expect(draft).not.toHaveProperty('advanced')
+	})
+
+	// A duplicate inside `advanced` must not quietly outrank the named argument.
+	it('lets a real schedule argument win over the same key inside advanced', async () => {
+		await callGlobalTool('write_schedule', {
+			path: 'f/schedules/prec',
+			schedule: '0 0 9 * * *',
+			timezone: 'UTC',
+			script_path: 'f/scripts/run',
+			is_flow: false,
+			args: {},
+			advanced: { timezone: 'Europe/Paris', tag: 'nightly' }
+		})
+
+		const draft = getBackendDraft<any>('trigger_schedule', 'f/schedules/prec', {
+			workspace: WORKSPACE
+		})
+		expect(draft).toMatchObject({ timezone: 'UTC', tag: 'nightly' })
+	})
+
+	// Every sub-field of `retry` is optional, so a guessed shape validates clean and
+	// strips to `{}`. Saving a schedule with no retry policy and reporting success is
+	// the failure the on-demand schema makes reachable.
+	it('refuses to save a mis-shaped advanced schedule option', async () => {
+		await expect(
+			callGlobalTool('write_schedule', {
+				path: 'f/schedules/badretry',
+				schedule: '0 0 6 * * *',
+				timezone: 'UTC',
+				script_path: 'f/scripts/run',
+				is_flow: false,
+				args: {},
+				advanced: { retry: { attempts: 2, seconds: 30 } }
+			})
+		).rejects.toThrow(/get_schedule_schema/)
+
+		// A misspelled key beside a valid sibling leaves `retry` non-empty, so only a
+		// recursive check catches it. The backend would default the lost delay to zero.
+		await expect(
+			callGlobalTool('write_schedule', {
+				path: 'f/schedules/badretry',
+				schedule: '0 0 6 * * *',
+				timezone: 'UTC',
+				script_path: 'f/scripts/run',
+				is_flow: false,
+				args: {},
+				advanced: { retry: { constant: { attempts: 2, seconds_typo: 30 } } }
+			})
+		).rejects.toThrow(/retry\.constant\.seconds_typo/)
+
+		expect(
+			getBackendDraft('trigger_schedule', 'f/schedules/badretry', { workspace: WORKSPACE })
+		).toBeUndefined()
+	})
+
+	// The same option is legal at the top level, where the bag-only check never saw it.
+	it('catches a stripped schedule option passed outside advanced', async () => {
+		await expect(
+			callGlobalTool('write_schedule', {
+				path: 'f/schedules/toplevel',
+				schedule: '0 0 6 * * *',
+				timezone: 'UTC',
+				script_path: 'f/scripts/run',
+				is_flow: false,
+				args: {},
+				retry: { constant: { attempts: 2, seconds_typo: 30 } }
+			})
+		).rejects.toThrow(/retry\.constant\.seconds_typo/)
+	})
+
+	// A non-object `advanced` spreads to index keys that zod strips, so the options the
+	// model meant to set vanish. Rejecting beats writing a schedule missing all of them.
+	it('rejects a non-object advanced container', async () => {
+		await expect(
+			callGlobalTool('write_schedule', {
+				path: 'f/schedules/strbag',
+				schedule: '0 0 6 * * *',
+				timezone: 'UTC',
+				script_path: 'f/scripts/run',
+				is_flow: false,
+				args: {},
+				advanced: 'retry=2'
+			})
+		).rejects.toThrow(/not schedule fields/)
+	})
+
+	// A key that is not a schedule field cannot be explained by the lookup, so the error
+	// must not send the model there for it.
+	it('separates unknown keys from mis-shaped schedule options', async () => {
+		const error = await callGlobalTool('write_schedule', {
+			path: 'f/schedules/mixed',
+			schedule: '0 0 6 * * *',
+			timezone: 'UTC',
+			script_path: 'f/scripts/run',
+			is_flow: false,
+			args: {},
+			advanced: { retry: { constant: { seconds_typo: 1 } }, not_a_field: true }
+		}).catch((err) => (err as Error).message)
+
+		expect(error).toMatch(/retry\.constant\.seconds_typo.*get_schedule_schema/s)
+		expect(error).toMatch(/not schedule fields: not_a_field/)
+	})
+
+	// `args` is a real object-valued argument, not an advanced option: repeating it must
+	// not be reported as a dropped option just because the named one outranks the bag.
+	it('does not flag a duplicated object argument as dropped', async () => {
+		await callGlobalTool('write_schedule', {
+			path: 'f/schedules/dupargs',
+			schedule: '0 0 6 * * *',
+			timezone: 'UTC',
+			script_path: 'f/scripts/run',
+			is_flow: false,
+			args: { a: 1 },
+			advanced: { args: { b: 2 }, tag: 'nightly' }
+		})
+
+		const draft = getBackendDraft<any>('trigger_schedule', 'f/schedules/dupargs', {
+			workspace: WORKSPACE
+		})
+		expect(draft).toMatchObject({ args: { a: 1 }, tag: 'nightly' })
+	})
+
+	it('rejects a trigger config that does not match the declared kind', async () => {
+		const error = await callGlobalTool('write_trigger', {
+			kind: 'kafka',
+			config: {
+				path: 'u/admin/wrong_kind',
+				script_path: 'f/scripts/handler',
+				is_flow: false,
+				route_path: 'api/wrong',
+				http_method: 'get'
+			}
+		}).catch((err) => err as Error)
+
+		expect(error).toBeInstanceOf(Error)
+		// What the model actually receives is capped at MAX_TOOL_ERROR_LENGTH by
+		// formatToolError, so the recovery instruction has to survive that cap.
+		expect((error as Error).message.slice(0, 2000)).toContain('get_trigger_schema')
+	})
+
 	it('lists recent runs with compact summaries and forwarded filters', async () => {
 		const result = await callGlobalTool('list_runs', {
 			path: 'f/team/runner',
@@ -532,6 +713,29 @@ describe('global AI tools', () => {
 				summary: 'Send Message'
 			}
 		])
+	})
+
+	it('reads a hub script path through the hub endpoint, not the workspace one', async () => {
+		vi.mocked(ScriptService.getHubScriptByPath).mockResolvedValueOnce({
+			content: 'export async function main() {}',
+			language: 'bunnative',
+			summary: 'Send a message to discord using webhook',
+			schema: { type: 'object', properties: {} }
+		})
+
+		const raw = await callGlobalTool('read_workspace_item', {
+			type: 'script',
+			path: 'hub/28294/discord/send_a_message_to_discord_using_webhook'
+		})
+
+		expect(ScriptService.getHubScriptByPath).toHaveBeenCalledWith({
+			path: 'hub/28294/discord/send_a_message_to_discord_using_webhook'
+		})
+		expect(ScriptService.getScriptByPath).not.toHaveBeenCalled()
+		expect(JSON.parse(raw)).toMatchObject({
+			language: 'bunnative',
+			value: 'export async function main() {}'
+		})
 	})
 
 	it('reads the deployed state, skipping chat and DB drafts, with version: deployed', async () => {
@@ -1194,6 +1398,63 @@ describe('global AI tools', () => {
 		expect(
 			getBackendDraft('script', 'f/scripts/discard-me', { workspace: WORKSPACE })
 		).toBeUndefined()
+	})
+
+	// "Create a resource, then never mind": delete_workspace_item must reject a path
+	// that was never deployed, before the confirmation card — otherwise the user
+	// confirms a workspace mutation that 404s past the draft cleanup, leaving the
+	// draft they asked to be rid of.
+	it('rejects deleting a draft-only item and names discard_local_draft', async () => {
+		await callGlobalTool('write_resource', {
+			path: 'u/admin/never_mind_db',
+			value: { host: 'db.example.com', port: 5432 },
+			resource_type: 'postgresql'
+		})
+
+		const error = await getGlobalTool('delete_workspace_item').validateBeforeConfirmation?.({
+			args: { type: 'resource', path: 'u/admin/never_mind_db' },
+			workspace: WORKSPACE,
+			helpers: {}
+		})
+
+		expect(error).toMatch(/only exists as a draft/)
+		expect(error).toMatch(/discard_local_draft/)
+		expect(ResourceService.deleteResource).not.toHaveBeenCalled()
+		expect(
+			getBackendDraft('resource', 'u/admin/never_mind_db', { workspace: WORKSPACE })
+		).toBeDefined()
+	})
+
+	it('lets delete_workspace_item through when the item is deployed', async () => {
+		vi.mocked(ResourceService.existsResource).mockResolvedValueOnce(true)
+
+		await expect(
+			getGlobalTool('delete_workspace_item').validateBeforeConfirmation?.({
+				args: { type: 'resource', path: 'u/admin/deployed_db' },
+				workspace: WORKSPACE,
+				helpers: {}
+			})
+		).resolves.toBeUndefined()
+	})
+
+	// existsScriptByPath filters archived=false but deleteScriptByPath does not, so
+	// probing with it alone would make an archived script undeletable via the chat.
+	it('lets delete_workspace_item through for an archived script', async () => {
+		vi.mocked(ScriptService.existsScriptByPath).mockResolvedValueOnce(false)
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/archived_one',
+			content: 'export async function main() {}',
+			language: 'bun',
+			archived: true
+		} as any)
+
+		await expect(
+			getGlobalTool('delete_workspace_item').validateBeforeConfirmation?.({
+				args: { type: 'script', path: 'f/scripts/archived_one' },
+				workspace: WORKSPACE,
+				helpers: {}
+			})
+		).resolves.toBeUndefined()
 	})
 
 	// Covers the conflict-on-save / override branch of `persistGlobalDraft`
@@ -1941,7 +2202,7 @@ describe('global AI tools', () => {
 			path: 'f/flows/existing',
 			summary: 'deployed summary',
 			description: 'deployed description',
-			value: { modules: [] },
+			value: { modules: [], chat_input_enabled: true, same_worker: true },
 			schema: { properties: { deployed: { type: 'boolean' } } },
 			edited_by: 'admin',
 			edited_at: '2026-05-22T09:00:00Z',
@@ -1961,7 +2222,11 @@ describe('global AI tools', () => {
 			path: 'f/flows/existing',
 			summary: 'new summary',
 			description: 'deployed description',
-			value: { modules: [{ id: 'step', value: { type: 'identity' } }] }
+			value: {
+				modules: [{ id: 'step', value: { type: 'identity' } }],
+				chat_input_enabled: true,
+				same_worker: true
+			}
 		})
 	})
 
@@ -3972,7 +4237,7 @@ describe('prepareGlobalSystemMessage', () => {
 
 		expect(content).toContain('Draft tools create or update drafts only')
 		expect(content).toContain(
-			'Use discard_local_draft to remove a draft, including the matching open editor draft'
+			'To undo something you created or changed in this chat, use discard_local_draft'
 		)
 		expect(content).toContain(
 			'After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step'
@@ -4087,10 +4352,10 @@ describe('prepareGlobalSystemMessage', () => {
 		const deleteItem = getGlobalTool('delete_workspace_item')
 
 		expect(discard.def.function.description).toBe(
-			'Discard a draft only. Does not mutate deployed workspace items, but clears the matching open editor draft if one is mounted.'
+			'Discard a draft only — the tool to undo an item you created or edited in this chat and have not deployed. Does not mutate deployed workspace items, but clears the matching open editor draft if one is mounted.'
 		)
 		expect(deleteItem.def.function.description).toBe(
-			'Delete a deployed workspace item. Mutates the workspace.'
+			'Delete an item that is already deployed in the workspace. Mutates the workspace. FAILS if the path has no deployed item, so never call it to undo something you created in this chat — that is a draft; use discard_local_draft instead.'
 		)
 		expect(discard.requiresConfirmation).toBe(true)
 		expect(deleteItem.requiresConfirmation).toBe(true)

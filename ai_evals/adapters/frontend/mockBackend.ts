@@ -561,6 +561,35 @@ export function runBenchmarkScriptPreview(input: {
 	})
 }
 
+export function runBenchmarkScriptByPath(input: {
+	workspace: string
+	path: string
+	args?: Record<string, unknown>
+}): string {
+	const script = getBenchmarkScriptByPath(input.workspace, input.path)
+	return createBenchmarkCompletedJob({
+		workspace: input.workspace,
+		jobKind: 'script',
+		success: script !== null,
+		scriptPath: input.path,
+		args: input.args,
+		result:
+			script !== null
+				? {
+						path: input.path,
+						args: input.args ?? {},
+						mocked: true
+					}
+				: {
+						error: `Script "${input.path}" not found in benchmark workspace`
+					},
+		logs:
+			script !== null
+				? 'Mock benchmark script run completed successfully.'
+				: `Script "${input.path}" not found in benchmark workspace.`
+	})
+}
+
 export function runBenchmarkFlowByPath(input: {
 	workspace: string
 	path: string
@@ -748,6 +777,27 @@ const BENCHMARK_MCP_TOOLS: EndpointTool[] = [
 		}
 	},
 	{
+		name: 'getJob',
+		description: 'get job',
+		instructions: '',
+		path: '/w/{workspace}/jobs_u/get/{id}',
+		method: 'GET',
+		path_params_schema: {
+			type: 'object',
+			properties: { workspace: { type: 'string' }, id: { type: 'string', format: 'uuid' } },
+			required: ['workspace', 'id']
+		},
+		query_params_schema: {
+			type: 'object',
+			properties: {
+				no_logs: { type: 'boolean' },
+				no_code: { type: 'boolean' },
+				approval_token: { type: 'string' }
+			},
+			required: []
+		}
+	},
+	{
 		name: 'runScriptByPath',
 		description: 'Run the deployed version of a script by path',
 		instructions: '',
@@ -809,6 +859,142 @@ export function listBenchmarkMcpTools(): EndpointTool[] {
 	return BENCHMARK_MCP_TOOLS
 }
 
+/** A stand-in Windmill hub. `search_hub_scripts` and a `hub/` read go out over
+ * relative `/api/...` fetches, which have no origin here, so without these the
+ * hub tools throw and no case can exercise hub reuse. Serving fixtures rather
+ * than the live hub also keeps assertions on script content stable as the real
+ * hub republishes new versions. */
+const BENCHMARK_HUB_SCRIPTS = [
+	{
+		version_id: 22235,
+		app: 'holded',
+		summary: 'Send Document',
+		terms: 'holded invoice document send email mail',
+		language: 'bun',
+		content: `//native
+type Holded = {
+  apiKey: string;
+};
+/**
+ * Send Document
+ * Send a specific document by email.
+ */
+export async function main(
+  auth: Holded,
+  docType: string,
+  documentId: string,
+  body: {
+    mailTemplateId?: string;
+    emails: string;
+    subject?: string;
+    message?: string;
+    docIds?: string;
+  },
+) {
+  const url = new URL(
+    \`https://api.holded.com/api/invoicing/v1/documents/\${docType}/\${documentId}/send\`,
+  );
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      key: auth.apiKey,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(\`\${response.status} \${text}\`);
+  }
+  return await response.json();
+}
+`,
+		schema: {
+			type: 'object',
+			required: ['auth', 'docType', 'documentId', 'body'],
+			properties: {
+				auth: { type: 'object', format: 'resource-holded' },
+				docType: { type: 'string' },
+				documentId: { type: 'string' },
+				body: { type: 'object' }
+			}
+		}
+	},
+	{
+		version_id: 28294,
+		app: 'discord',
+		summary: 'Send a message to Discord using Webhook',
+		terms: 'discord webhook message send chat channel',
+		language: 'bunnative',
+		content: `//native
+
+type DiscordWebhook = {
+  webhook_url: string;
+};
+export async function main(discord_webhook: DiscordWebhook, message: string) {
+  const response = await fetch(\`\${discord_webhook.webhook_url}?wait=true\`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content: message }),
+  });
+  if (!response.ok) {
+    throw new Error(\`\${response.status} \${await response.text()}\`);
+  }
+  return await response.json();
+}
+`,
+		schema: {
+			type: 'object',
+			required: ['discord_webhook', 'message'],
+			properties: {
+				discord_webhook: { type: 'object', format: 'resource-discord_webhook' },
+				message: { type: 'string' }
+			}
+		}
+	}
+]
+
+/** Naive whole-word overlap — enough to rank a handful of fixtures for a natural
+ * query without pulling an embedding model into the benchmark. Every frontend eval
+ * shares this handler, so the bar to match is deliberately high: naming the
+ * integration, or overlapping on three meaningful words. A looser bar answers
+ * "send a Slack message" with the Discord fixture, handing an unrelated case a
+ * plausible-looking wrong integration. */
+function searchBenchmarkHubScripts(text: string) {
+	const tokens = new Set(
+		text
+			.toLowerCase()
+			.split(/[^a-z0-9]+/)
+			.filter((token) => token.length > 2)
+	)
+	return BENCHMARK_HUB_SCRIPTS.map((script) => {
+		const words = new Set(
+			`${script.app} ${script.summary} ${script.terms}`.toLowerCase().split(/[^a-z0-9]+/)
+		)
+		const score = [...tokens].filter((token) => words.has(token)).length
+		return { script, score, namesApp: tokens.has(script.app) }
+	})
+		.filter((entry) => entry.namesApp || entry.score >= 3)
+		.sort((a, b) => b.score - a.score)
+		.map(({ script }, index) => ({
+			ask_id: script.version_id,
+			id: script.version_id,
+			version_id: script.version_id,
+			summary: script.summary,
+			app: script.app,
+			kind: 'script',
+			score: 1 - index * 0.01
+		}))
+}
+
+/** The hub keys a script by its version id; the app and slug segments that
+ * follow are descriptive, so match on the id exactly as the real hub does. */
+function getBenchmarkHubScript(path: string) {
+	const versionId = Number(path.replace(/^\/api\/scripts\/hub\/get_full\/hub\//, '').split('/')[0])
+	return BENCHMARK_HUB_SCRIPTS.find((script) => script.version_id === versionId)
+}
+
 const BENCHMARK_WORKERS = [
 	{
 		worker: 'wk-benchmark-1',
@@ -832,22 +1018,96 @@ const BENCHMARK_WORKERS = [
 	}
 ]
 
+const BENCHMARK_JOB_GET_PATH = /^\/api\/w\/([^/]+)\/jobs_u\/get\/([^/]+)$/
+const BENCHMARK_RUN_BY_PATH = /^\/api\/w\/([^/]+)\/jobs\/run\/(p|f)\/([^/]+)$/
+
+/** `executeEndpoint` sends a JSON string; anything else means no args were supplied. */
+function parseBenchmarkRequestBody(
+	body: BodyInit | null | undefined
+): Record<string, unknown> | undefined {
+	if (typeof body !== 'string') {
+		return undefined
+	}
+	try {
+		const parsed = JSON.parse(body)
+		return typeof parsed === 'object' && parsed !== null
+			? (parsed as Record<string, unknown>)
+			: undefined
+	} catch {
+		return undefined
+	}
+}
+
 /** True when `handleBenchmarkApiFetch` has an answer for this `/api/...` url.
  * Any other relative fetch must keep its normal (non-benchmark) behavior —
  * intercepting it with a synthetic 404 sends the model into retry loops. */
 export function hasBenchmarkApiHandler(url: string): boolean {
 	const path = url.split('?')[0]
-	return path === '/api/workers/list' || /^\/api\/w\/[^/]+\/jobs\/queue\/list$/.test(path)
+	return (
+		path === '/api/workers/list' ||
+		BENCHMARK_JOB_GET_PATH.test(path) ||
+		BENCHMARK_RUN_BY_PATH.test(path) ||
+		/^\/api\/w\/[^/]+\/jobs\/queue\/list$/.test(path) ||
+		path === '/api/embeddings/query_hub_scripts' ||
+		path.startsWith('/api/scripts/hub/get_full/')
+	)
 }
 
-/** Answer a relative `/api/...` fetch issued by the API catalog executor. */
-export function handleBenchmarkApiFetch(url: string): Response {
+/** Answer a relative `/api/...` fetch — from the API catalog executor, or from the
+ * chat's hub tools. */
+export function handleBenchmarkApiFetch(url: string, init?: RequestInit): Response {
 	const path = url.split('?')[0]
 	if (path === '/api/workers/list') {
 		return Response.json(BENCHMARK_WORKERS)
 	}
 	if (/^\/api\/w\/[^/]+\/jobs\/queue\/list$/.test(path)) {
 		return Response.json([])
+	}
+	const jobGet = BENCHMARK_JOB_GET_PATH.exec(path)
+	if (jobGet) {
+		const id = decodeURIComponent(jobGet[2])
+		const job = getBenchmarkCompletedJob(decodeURIComponent(jobGet[1]), id)
+		if (!job) {
+			return Response.json({ error: `Job not found for "${id}"` }, { status: 404 })
+		}
+		// The real endpoint lets a caller drop the bulky fields. Ignoring that here would
+		// size the model's context off a payload it explicitly asked to shrink.
+		const query = new URLSearchParams(url.split('?')[1] ?? '')
+		if (query.get('no_logs') === 'true') {
+			delete job.logs
+		}
+		if (query.get('no_code') === 'true') {
+			delete job.raw_code
+		}
+		return Response.json(job)
+	}
+	const runByPath = BENCHMARK_RUN_BY_PATH.exec(path)
+	if (runByPath) {
+		const workspace = decodeURIComponent(runByPath[1])
+		const runnablePath = decodeURIComponent(runByPath[3])
+		const args = parseBenchmarkRequestBody(init?.body)
+		// The real endpoint answers with the bare job id as text, not JSON.
+		return new Response(
+			runByPath[2] === 'f'
+				? runBenchmarkFlowByPath({ workspace, path: runnablePath, args })
+				: runBenchmarkScriptByPath({ workspace, path: runnablePath, args })
+		)
+	}
+	if (path === '/api/embeddings/query_hub_scripts') {
+		const text = new URLSearchParams(url.split('?')[1] ?? '').get('text') ?? ''
+		return Response.json(searchBenchmarkHubScripts(text))
+	}
+	if (path.startsWith('/api/scripts/hub/get_full/')) {
+		const script = getBenchmarkHubScript(path)
+		if (!script) {
+			return Response.json({ error: 'hub script not found' }, { status: 404 })
+		}
+		return Response.json({
+			content: script.content,
+			language: script.language,
+			schema: script.schema,
+			summary: script.summary
+		})
 	}
 	return Response.json({ error: `no benchmark handler for ${path}` }, { status: 404 })
 }

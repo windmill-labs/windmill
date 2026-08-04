@@ -182,6 +182,30 @@ describe("computeGitSyncDeployBranch", () => {
     ).toBe("wm_deploy/prod/f__team_a");
   });
 
+  test("datatable migration branches off its repo-relative migrations/ path", () => {
+    const items = [
+      {
+        path_type: "datatable_migration",
+        path: "migrations/datatable/mydb/20260101000000_add_users",
+      },
+    ];
+    expect(
+      computeGitSyncDeployBranch({ ...base, useIndividualBranch: true, items })
+    ).toBe(
+      "wm_deploy/prod/datatable_migration/migrations__datatable__mydb__20260101000000_add_users"
+    );
+    // group_by_folder collapses every data table's migrations onto one branch —
+    // the backend's debounce key takes the same two segments.
+    expect(
+      computeGitSyncDeployBranch({
+        ...base,
+        useIndividualBranch: true,
+        groupByFolder: true,
+        items,
+      })
+    ).toBe("wm_deploy/prod/migrations__datatable");
+  });
+
   test("falls back to parent_path when path is absent", () => {
     expect(
       computeGitSyncDeployBranch({
@@ -355,6 +379,17 @@ describe("gitSyncIncludePattern", () => {
     );
     expect(gitSyncIncludePattern("amqptrigger", "f/t")).toBe(
       "f/t.amqp_trigger.*"
+    );
+  });
+  test("datatable migration expands to its two repo-relative .sql files", () => {
+    expect(
+      gitSyncIncludePattern(
+        "datatable_migration",
+        "migrations/datatable/mydb/20260101000000_add_users"
+      )
+    ).toBe(
+      "migrations/datatable/mydb/20260101000000_add_users.up.sql," +
+        "migrations/datatable/mydb/20260101000000_add_users.down.sql"
     );
   });
 });

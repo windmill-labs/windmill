@@ -137,9 +137,8 @@ describe('Anthropic Messages API routing', () => {
 
 		const headers = anthropicCreate.mock.calls[0][1].headers
 		// X-Provider must carry the real provider so the backend resolves Foundry
-		// credentials/URL; the SDK header selects the Messages API path.
+		// credentials and URL.
 		expect(headers['X-Provider']).toBe('azure_foundry')
-		expect(headers['X-Anthropic-SDK']).toBe('true')
 	})
 
 	it('getNonStreamingCompletion routes native Anthropic through the Anthropic client', async () => {
@@ -246,5 +245,54 @@ describe('Anthropic Messages API routing', () => {
 		}
 		// no autocomplete request should be issued for these models
 		expect(fetchSpy).not.toHaveBeenCalled()
+	})
+})
+
+// Without an explicit breakpoint Anthropic charges the full prompt on every iteration,
+// and the tool definitions alone are the largest part of a chat request. OpenRouter
+// forwards the field only for Anthropic-backed models, hence the model-level gate.
+describe('OpenRouter prompt caching', () => {
+	const conversation: ChatCompletionMessageParam[] = [
+		{ role: 'system', content: 'system prompt' },
+		{ role: 'user', content: 'first' },
+		{ role: 'assistant', content: 'answer' },
+		{ role: 'tool', tool_call_id: 't1', content: 'tool output' }
+	]
+
+	// The `~` form is OpenRouter's own floating alias for the same vendor, so it has
+	// to reach the same gate — a prefix match on the raw id silently misses it and
+	// puts the chat back on full price every turn.
+	it.each(['anthropic/claude-sonnet-5', '~anthropic/claude-sonnet-latest'])(
+		'breaks on the system prompt and the newest user turn for %s',
+		async (model) => {
+			const { getCompletion } = await import('./lib')
+			h.currentModel = { provider: 'openrouter', model }
+
+			await getCompletion([...conversation], new AbortController(), undefined, {
+				promptCaching: true
+			})
+
+			const sent = openaiCreate.mock.calls[0][0].messages
+			const ephemeral = { type: 'ephemeral' }
+			expect(sent[0].content).toEqual([
+				{ type: 'text', text: 'system prompt', cache_control: ephemeral }
+			])
+			expect(sent[1].content).toEqual([{ type: 'text', text: 'first', cache_control: ephemeral }])
+			expect(sent[3].content).toBe('tool output')
+			// The chat replays this same history through the Anthropic path, which rejects
+			// unknown fields on its own blocks, so the originals must come back untouched.
+			expect(conversation[0].content).toBe('system prompt')
+		}
+	)
+
+	it('leaves other OpenRouter upstreams alone', async () => {
+		const { getCompletion } = await import('./lib')
+		h.currentModel = { provider: 'openrouter', model: 'openai/gpt-5.1' }
+
+		await getCompletion([...conversation], new AbortController(), undefined, {
+			promptCaching: true
+		})
+
+		expect(openaiCreate.mock.calls[0][0].messages[0].content).toBe('system prompt')
 	})
 })

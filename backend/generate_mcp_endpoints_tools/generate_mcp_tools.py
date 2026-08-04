@@ -398,7 +398,10 @@ def schema_to_rust_value(schema: Optional[Dict[str, Any]]) -> str:
     """Convert a schema dict to a Rust serde_json::json! expression."""
     if schema is None:
         return "None"
-    return f"Some(serde_json::json!({json.dumps(schema, indent=8)}))"
+    # ensure_ascii=False: json.dumps would escape a non-ASCII character in a
+    # description as \uXXXX, which Rust rejects — its string literals spell it
+    # \u{XXXX}. Emitting the character itself is valid in both.
+    return f"Some(serde_json::json!({json.dumps(schema, indent=8, ensure_ascii=False)}))"
 
 def build_tool_description(operation: Dict[str, Any], method: str, path: str) -> str:
     """Build the MCP tool description from OpenAPI summary and description."""
@@ -423,7 +426,11 @@ def find_mcp_tools(spec: Dict[str, Any]) -> List[Dict[str, Any]]:
             if isinstance(operation, dict) and operation.get('x-mcp-tool') is True:
                 # Extract tool information
                 tool = {
-                    'name': operation.get('operationId', f"{method}_{path.replace('/', '_').replace('{', '').replace('}', '')}"),
+                    # The name an agent sees. Defaults to the operationId, which
+                    # every generated client is keyed on, so an endpoint whose
+                    # tool should read differently overrides it here rather than
+                    # by renaming the operation.
+                    'name': operation.get('x-mcp-tool-name') or operation.get('operationId', f"{method}_{path.replace('/', '_').replace('{', '').replace('}', '')}"),
                     'description': build_tool_description(operation, method, path),
                     'instructions': operation.get('x-mcp-instructions', ''),
                     'path': path,
@@ -436,7 +443,16 @@ def find_mcp_tools(spec: Dict[str, Any]) -> List[Dict[str, Any]]:
                     'include_query_params': operation.get('x-mcp-tool-include-query-params'),
                 }
                 tools.append(tool)
-    
+
+    # A tool name used to be an operationId, which OpenAPI already keeps unique.
+    # `x-mcp-tool-name` gives that up, and a duplicate would be silent: a token's
+    # `mcp:endpoints:<name>` resolves by first match, so which endpoint it reaches
+    # would depend on the order of this file.
+    names = [t['name'] for t in tools]
+    duplicates = sorted({n for n in names if names.count(n) > 1})
+    if duplicates:
+        raise ValueError(f"duplicate MCP tool name(s): {', '.join(duplicates)}")
+
     return tools
 
 def generate_typescript_code(tools: List[Dict[str, Any]], spec: Dict[str, Any], base_path: str = "") -> str:

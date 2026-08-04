@@ -27,7 +27,9 @@
 	import { inferArgs } from '$lib/infer'
 	import { emptySchema, sendUserToast } from '$lib/utils'
 	import type { Schema } from '$lib/common'
-	import type { AssetGraphSelection, PipelineMode } from './types'
+	import type { AssetGraphSelection, DbtAssetProvenance, PipelineMode } from './types'
+	import HighlightCode from '$lib/components/HighlightCode.svelte'
+	import DbtIcon from '$lib/components/icons/DbtIcon.svelte'
 	import PipelineScriptView from './PipelineScriptView.svelte'
 	import {
 		parsePipelineAnnotations,
@@ -154,6 +156,9 @@
 		// resolved graph). Drives the transitive column-lineage trace shown for a
 		// selected materialized asset.
 		selectionColumnGraph?: ColumnLineageGraph
+		/** dbt provenance of the selected relation, when a dbt project
+		 *  materializes it — carries the model's own SQL. */
+		selectionDbt?: DbtAssetProvenance
 		// Whether the selected ducklake asset's schema can evolve (whole-table
 		// `replace` producer). Forwarded to the Schema tab: version history when
 		// true, a single fixed-schema view when false. Defaults to true (unknown).
@@ -284,6 +289,7 @@
 		onScriptRemoved,
 		selectionProducers = [],
 		selectionColumnGraph,
+		selectionDbt,
 		schemaCanEvolve = true,
 		selectionForkMaterialization = undefined,
 		schemaContractContext = undefined,
@@ -425,6 +431,20 @@
 				(p) => p.kind === activeRunnable!.kind && p.path === activeRunnable!.path
 			)
 	)
+
+	// Where the selected model's file sits on disk: the producing script's
+	// module folder holds the dbt project verbatim, so this is the path a
+	// `wmill sync pull` writes and the one to edit.
+	let dbtBundlePath = $derived.by(() => {
+		const file = selectionDbt?.original_file_path
+		if (!file) return undefined
+		// A relation may have several script producers, and nothing here says which
+		// of them is the dbt project this model came from. Prefixing the wrong one
+		// names a `__dbt` folder that does not exist, so an ambiguous relation shows
+		// the path inside the project alone.
+		const scripts = selectionProducers.filter((p) => p.kind === 'script')
+		return scripts.length === 1 ? `${scripts[0].path}__dbt/${file}` : file
+	})
 
 	// Bound from ScriptEditor — populated by inferAssets on every code
 	// change. Forwarded to the page so the canvas can re-derive write
@@ -1216,6 +1236,25 @@
 										</div>
 									</div>
 								{/key}
+							{:else if selectionDbt?.raw_code}
+								<!-- The transform behind the node. Read-only on purpose: dbt
+								     development is a local loop (`dbt run --select`, `dbt test`
+								     against a dev target), and a browser textarea over one file
+								     of a project is a worse version of it. The header names the
+								     file's path in the bundle so the edit is one `cd` away. -->
+								<div class="flex flex-col h-full min-h-0">
+									<div
+										class="shrink-0 flex items-center gap-2 px-3 py-1.5 text-2xs border-b bg-surface-secondary text-secondary"
+									>
+										<DbtIcon width={11} height={11} />
+										<span class="font-mono truncate">{dbtBundlePath ?? selectionDbt.unique_id}</span
+										>
+										<span class="ml-auto shrink-0 opacity-70">read-only · edit locally</span>
+									</div>
+									<div class="flex-1 min-h-0 overflow-auto">
+										<HighlightCode language="sql" code={selectionDbt.raw_code} />
+									</div>
+								</div>
 							{:else}
 								<div class="p-3 text-xs text-secondary">
 									No inline preview yet for {selection.asset_kind}. Use the producer/consumer arrows

@@ -123,6 +123,7 @@
 	let supabaseConnect: SupabaseConnect | undefined = $state(undefined)
 	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
 	let deleteIsLinked = $state(false)
+	let deletePath = $state('')
 	let loading = $state({
 		resources: true,
 		types: true
@@ -644,7 +645,10 @@
 	}}
 >
 	<div class="flex flex-col w-full space-y-4">
-		<span>Are you sure you want to remove this resource?</span>
+		<span
+			>Are you sure you want to remove <span class="font-semibold break-all">{deletePath}</span
+			>?</span
+		>
 		{#if deleteIsLinked}
 			<Alert type="warning" title="Linked variable">
 				This resource is linked with a variable of the same path. The linked variable will also be
@@ -1014,6 +1018,8 @@
 						<tbody class="divide-y bg-surface">
 							{#if filteredItems}
 								{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, marked, is_refreshed, labels, inherited_labels, ws_specific, draft_only, is_draft }}
+									{@const hasDraft =
+										getLocalDraftHint($workspaceStore, 'resource', path) ?? is_draft}
 									<Row>
 										<Cell first>
 											<SharedBadge {canWrite} extraPerms={extra_perms} />
@@ -1027,17 +1033,9 @@
 														handledHash = `#/resource/${path}`
 														resourceEditor?.initEdit?.(path)
 													}}
-													>{#if marked}{@html marked}{:else}{path}{/if}{(getLocalDraftHint(
-														$workspaceStore,
-														'resource',
-														path
-													) ?? is_draft)
-														? '*'
-														: ''}</a
+													>{#if marked}{@html marked}{:else}{path}{/if}{hasDraft ? '*' : ''}</a
 												>
-												{#if draft_only}
-													<DraftBadge draft_only is_draft={false} />
-												{/if}
+												<DraftBadge {draft_only} is_draft={hasDraft} />
 												{#if labels?.length}
 													<div class="flex items-center gap-0.5">
 														{#each labels as label}
@@ -1226,6 +1224,7 @@
 																	deleteResource(path, account)
 																} else {
 																	deleteIsLinked = is_linked ?? false
+																	deletePath = path
 																	deleteConfirmedCallback = () => {
 																		deleteResource(path, account)
 																	}

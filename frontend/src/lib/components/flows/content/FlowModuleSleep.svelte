@@ -12,13 +12,16 @@
 	import Section from '$lib/components/Section.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import { getStepPropPicker } from '../previousResults'
+	import { SAME_WORKER_INCOMPATIBLE_MSG } from '../utils.svelte'
+	import { Alert } from '$lib/components/common'
 
 	interface Props {
 		flowModule: FlowModule
 		previousModuleId: string | undefined
+		isAgentTool?: boolean
 	}
 
-	let { flowModule = $bindable(), previousModuleId }: Props = $props()
+	let { flowModule = $bindable(), previousModuleId, isAgentTool = false }: Props = $props()
 
 	const { selectionManager, flowStore, flowStateStore, previewArgs } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -44,6 +47,8 @@
 	const result = flowStateStore.val[selectionManager.getSelectedId()]?.previewResult ?? {}
 
 	let isSleepEnabled = $derived(Boolean(flowModule.sleep))
+	// Agent tools never go through the flow scheduler, so `same_worker` doesn't apply to them.
+	let sameWorker = $derived(Boolean(!isAgentTool && flowStore.val.value.same_worker))
 </script>
 
 <Section label="Sleep" class="w-full">
@@ -54,8 +59,15 @@
 		</Tooltip>
 	{/snippet}
 
+	{#if sameWorker}
+		<Alert type="warning" size="xs" title="Disabled by the shared directory" class="mb-4">
+			{SAME_WORKER_INCOMPATIBLE_MSG} Disable `Same Worker` in the flow settings to use a sleep.
+		</Alert>
+	{/if}
+
 	<Toggle
 		checked={isSleepEnabled}
+		disabled={sameWorker}
 		class="mb-6"
 		on:change={() => {
 			if (isSleepEnabled && flowModule.sleep != undefined) {
@@ -72,7 +84,7 @@
 		}}
 	/>
 	<Label label="Sleep for duration">
-		{#if flowModule.sleep && schema.properties['sleep']}
+		{#if flowModule.sleep && schema.properties['sleep'] && !sameWorker}
 			<div class="border rounded-md overflow-auto">
 				<PropPickerWrapper
 					noFlowPlugConnect={true}

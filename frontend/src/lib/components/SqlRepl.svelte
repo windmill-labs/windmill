@@ -2,6 +2,7 @@
 	import { CornerDownLeft, Loader2 } from 'lucide-svelte'
 	import Button from './common/button/Button.svelte'
 	import { runScriptAndPollResult } from './jobs/utils'
+	import { writingJobOptions } from './jobs/writingJob'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { untrack } from 'svelte'
@@ -27,13 +28,16 @@
 		/** Workspace the REPL queries and DDL migrations run against; defaults to
 		 * the nav workspace. */
 		workspace?: string | undefined
+		/** Worker tag the queries run on instead of the language's native one. */
+		tag?: string | undefined
 	}
 	let {
 		input,
 		onData,
 		placeholderTableName,
 		onSchemaChange,
-		workspace = undefined
+		workspace = undefined,
+		tag = undefined
 	}: Props = $props()
 	let ws = $derived(workspace ?? $workspaceStore)
 	let dbType = $derived(getDbType(input))
@@ -120,10 +124,12 @@
 					requestBody: {
 						language: getLanguageByResourceType(dbType),
 						content: transformedCode,
-						args: dbArg
+						args: dbArg,
+						tag
 					}
 				},
-				{ withJobData: true }
+				// The user types arbitrary SQL here, so treat every run as a write.
+				{ withJobData: true, ...writingJobOptions }
 			)) as any
 			if (statements.length > 1) {
 				result = result[result.length - 1]

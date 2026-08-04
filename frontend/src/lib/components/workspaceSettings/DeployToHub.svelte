@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { base } from '$lib/base'
 	import { Badge, Button, Drawer, DrawerContent } from '$lib/components/common'
 	import WorkspaceDeployLayout from '$lib/components/WorkspaceDeployLayout.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
@@ -11,7 +10,7 @@
 	import {
 		useDeployToHubSession,
 		canRecord,
-		canShareAsIframe,
+		canRecordSession,
 		sanitizeSlug,
 		isValidSlug,
 		type DeployItem
@@ -20,17 +19,16 @@
 	import Toggle from '../Toggle.svelte'
 	import MigrationSqlEditor from './MigrationSqlEditor.svelte'
 	import PipelineRecordingReplay from '$lib/components/recording/PipelineRecordingReplay.svelte'
+	import RawAppRecordSession from './RawAppRecordSession.svelte'
 	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
 	import {
 		Check,
 		ChevronDown,
 		Cloud,
 		Code2,
-		Copy,
 		Database,
 		Eye,
 		ExternalLink,
-		Globe,
 		Image as ImageIcon,
 		Info,
 		LayoutDashboard,
@@ -57,11 +55,12 @@
 	})
 
 	let recordDrawer = $state<Drawer | undefined>()
+	let appRecordDrawer = $state<Drawer | undefined>()
+	let appRecordTarget = $state<DeployItem | undefined>(undefined)
 	let pipelinePreviewDrawer = $state<Drawer | undefined>()
 	// Inline pipeline graph above the item list, collapsed by default so the
 	// selection list stays the first thing in view.
 	let pipelineGraphOpen = $state(false)
-	let publishDrawer = $state<Drawer | undefined>()
 	let resourceDrawer = $state<Drawer | undefined>()
 	let triggerDrawer = $state<Drawer | undefined>()
 	let bundleDrawer = $state<Drawer | undefined>()
@@ -81,6 +80,11 @@
 	async function confirmBundle() {
 		await deployHub.session?.publishBundle(() => bundleDrawer?.closeDrawer())
 	}
+	function openAppRecord(it: DeployItem) {
+		appRecordTarget = it
+		appRecordDrawer?.openDrawer()
+	}
+
 	function openRecord(it: DeployItem) {
 		recordDrawer?.openDrawer()
 		void deployHub.session?.openRecord(it)
@@ -90,15 +94,6 @@
 	}
 	async function savePipelineRecording() {
 		await deployHub.session?.savePipelineRecording()
-	}
-	function openPublish(it: DeployItem) {
-		const s = deployHub.session
-		if (!s) return
-		s.publishTarget = it
-		publishDrawer?.openDrawer()
-	}
-	async function confirmPublish() {
-		if (await deployHub.session?.confirmPublish()) publishDrawer?.closeDrawer()
 	}
 	// Client-side mirror of the Hub's logo constraints (it re-validates server-side).
 	const MAX_LOGO_BYTES = 512 * 1024
@@ -150,15 +145,6 @@
 		await handleLogoFile(e.dataTransfer?.files?.[0])
 	}
 
-	async function copyIframeSnippet(url: string) {
-		const snippet = `<iframe src="${url}" width="100%" height="600" frameborder="0"></iframe>`
-		try {
-			await navigator.clipboard.writeText(snippet)
-			sendUserToast('Iframe snippet copied to clipboard')
-		} catch {
-			sendUserToast('Failed to copy snippet', true)
-		}
-	}
 </script>
 
 {#if deployHub.session}
@@ -201,9 +187,9 @@
 								class={stepNum === 2 ? 'text-primary' : stepNum > 2 ? 'opacity-60' : 'opacity-40'}
 							>
 								<span class="font-mono text-emphasis">{stepNum > 2 ? '✓' : '2.'}</span>
-								<span class="font-semibold text-primary">Generate iframes &amp; recordings</span> — share
-								public apps as iframes, capture one execution per script/flow, and record the whole data-pipeline
-								cascade as one interactive replay.
+								<span class="font-semibold text-primary">Record demos</span> — capture one execution
+								per script/flow, a session per raw app, and the whole data-pipeline cascade as one interactive
+								replay.
 							</li>
 							<li
 								class={stepNum === 3 ? 'text-primary' : stepNum > 3 ? 'opacity-60' : 'opacity-40'}
@@ -219,9 +205,7 @@
 									Step 1: Bundle your project
 								</span>
 							{:else if s.phase === 'draft'}
-								<span class="text-sm font-semibold text-primary">
-									Step 2: Generate iframes &amp; recordings
-								</span>
+								<span class="text-sm font-semibold text-primary"> Step 2: Record demos </span>
 							{:else if s.phase === 'under_review'}
 								<span class="text-sm font-semibold text-primary">Step 3: Awaiting review</span>
 							{:else}
@@ -303,8 +287,9 @@
 									{/if}
 									<Tooltip>
 										Resource types the selected items depend on (whether passed as inputs or
-										referenced by a hardcoded path). Synced to the Hub so a fork knows what
-										credentials it needs to fill.
+										referenced by a hardcoded path). A stub resource of each type is synced to the
+										Hub so a fork knows what credentials it needs to fill. Publishing a type's own
+										definition is opt-in — tick it in the details drawer.
 									</Tooltip>
 								</span>
 								{#if s.dependencyTypes.length === 0}
@@ -319,6 +304,9 @@
 												: 'bg-surface'}"
 										>
 											{r.resource_type}
+											{#if s.exportedResourceTypes.has(r.resource_type)}
+												<Badge color="blue" size="xs">exported</Badge>
+											{/if}
 										</span>
 									{/each}
 									<Button
@@ -327,7 +315,9 @@
 										wrapperClasses="ml-auto"
 										onclick={() => resourceDrawer?.openDrawer()}
 									>
-										View details
+										{s.exportedDependencyTypes.length > 0
+											? `View details (${s.exportedDependencyTypes.length} type definition${s.exportedDependencyTypes.length > 1 ? 's' : ''} exported)`
+											: 'View details'}
 									</Button>
 								{/if}
 							</div>
@@ -366,9 +356,9 @@
 						{#if s.phase === 'draft'}
 							<div class="flex flex-col gap-1 pb-3">
 								<span class="text-xs text-secondary">
-									A recording captures one real run of a script or flow — inputs, logs, step outputs
-									and result — replayable on the Hub so visitors see it work before forking. Public
-									apps can also be shared as live iframes. Optional, but recommended.
+									A recording captures one real run of a script or flow (inputs, logs, step outputs
+									and result), or one session of someone using a raw app, replayable on the Hub so
+									visitors see it work before forking. Optional, but recommended.
 								</span>
 							</div>
 						{/if}
@@ -631,52 +621,28 @@
 							<Badge color="yellow" size="xs">No recording</Badge>
 						{/if}
 					{/if}
-					{#if s.phase !== 'predeploy' && canShareAsIframe(it)}
-						{#if it.published}
+					{#if s.phase === 'draft' && canRecordSession(it)}
+						{#if it.rec === 'recorded'}
 							<Badge color="green" size="xs">
-								<Globe size={10} class="mr-0.5" />Public
+								<Check size={10} class="mr-0.5" />Recorded
 							</Badge>
-							{#if it.publicUrl}
-								<a
-									href={it.publicUrl}
-									target="_blank"
-									rel="noopener noreferrer"
-									class="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"
-								>
-									<ExternalLink size={12} /> Open
-								</a>
-								<Button
-									size="xs"
-									variant="subtle"
-									startIcon={{ icon: Copy }}
-									onclick={() => copyIframeSnippet(it.publicUrl!)}
-								>
-									Copy iframe
-								</Button>
-							{:else if s.phase !== 'under_review'}
-								<!-- Public but its URL didn't resolve: offer a retry, keep Unpublish. -->
-								<Button
-									size="xs"
-									variant="subtle"
-									startIcon={{ icon: RotateCcw }}
-									onclick={() => openPublish(it)}
-								>
-									Retry link
-								</Button>
-							{/if}
-							{#if s.phase !== 'under_review'}
-								<Button size="xs" variant="subtle" onclick={() => s.unpublishApp(it)}
-									>Unpublish</Button
-								>
-							{/if}
-						{:else if s.phase !== 'under_review'}
 							<Button
 								size="xs"
 								variant="subtle"
-								startIcon={{ icon: Globe }}
-								onclick={() => openPublish(it)}
+								startIcon={{ icon: RotateCcw }}
+								onclick={() => openAppRecord(it)}
 							>
-								Share as iframe
+								Re-record
+							</Button>
+						{:else}
+							<Badge color="yellow" size="xs">No recording</Badge>
+							<Button
+								size="xs"
+								variant="subtle"
+								startIcon={{ icon: Play }}
+								onclick={() => openAppRecord(it)}
+							>
+								Record demo
 							</Button>
 						{/if}
 					{/if}
@@ -822,6 +788,37 @@
 			</DrawerContent>
 		</Drawer>
 
+		<!-- Full screen on purpose: the demo is recorded at the size it will replay,
+		     and a recording driven in a narrow drawer replays as a narrow app. -->
+		<Drawer bind:this={appRecordDrawer} size="100vw">
+			<DrawerContent
+				title={appRecordTarget ? `Record demo — ${appRecordTarget.path}` : 'Record demo'}
+				on:close={() => appRecordDrawer?.closeDrawer()}
+			>
+				<span class="text-xs text-secondary">
+					Use the app the way a visitor would. Each interaction becomes a step, replayable on the
+					Hub page so people see what it does before forking it.
+				</span>
+				{#if appRecordTarget}
+					{#key appRecordTarget.key}
+						<div class="h-full min-h-[600px] pt-2">
+							<RawAppRecordSession
+								workspace={s.workspace}
+								path={appRecordTarget.path}
+								onsave={s.hubItemIds[appRecordTarget.key]
+									? async (recording) => {
+											const ok = await s.saveAppRecording(appRecordTarget!, recording)
+											if (ok) appRecordDrawer?.closeDrawer()
+											return ok
+										}
+									: undefined}
+							/>
+						</div>
+					{/key}
+				{/if}
+			</DrawerContent>
+		</Drawer>
+
 		<Drawer bind:this={pipelinePreviewDrawer} size="1100px">
 			<DrawerContent
 				title="Pipeline recording preview"
@@ -835,74 +832,22 @@
 			</DrawerContent>
 		</Drawer>
 
-		<Drawer bind:this={publishDrawer} size="600px">
-			<DrawerContent
-				title={s.publishTarget ? `Share as iframe — ${s.publishTarget.path}` : 'Share as iframe'}
-				on:close={() => publishDrawer?.closeDrawer()}
-			>
-				<div class="flex flex-col gap-4">
-					<p class="text-xs text-secondary">
-						Expose <span class="font-mono text-emphasis">{s.publishTarget?.path}</span> at a public URL
-						so it can be embedded as an iframe (e.g. on the Hub, a docs page, or your own site). Anyone
-						with the URL will be able to interact with it.
-					</p>
-
-					<div class="flex flex-col gap-2 rounded-md border bg-surface-secondary p-3">
-						<div class="flex items-center gap-2">
-							<TriangleAlert
-								size={14}
-								class={s.workspaceRateLimit
-									? 'text-secondary'
-									: 'text-orange-600 dark:text-orange-400'}
-							/>
-							<span class="text-sm font-semibold">Rate limit (workspace-wide)</span>
-							<Tooltip>
-								Caps public app executions per minute per server. Applies to all public apps in this
-								workspace.
-							</Tooltip>
-						</div>
-						{#if s.workspaceRateLimit && s.workspaceRateLimit > 0}
-							<span class="text-xs text-secondary">
-								Currently <span class="font-mono text-emphasis">{s.workspaceRateLimit}</span> executions
-								/ minute / server.
-							</span>
-						{:else}
-							<span class="text-xs text-orange-700 dark:text-orange-300">
-								No rate limit configured — anyone with the URL can hit this app at any rate.
-							</span>
-						{/if}
-						<a
-							href="{base}/workspace_settings?tab=default_app"
-							class="text-[11px] text-blue-600 underline"
-							onclick={() => publishDrawer?.closeDrawer()}
-						>
-							Edit in Workspace settings → Apps
-						</a>
-					</div>
-				</div>
-				{#snippet actions()}
-					<Button variant="default" onclick={() => publishDrawer?.closeDrawer()}>Cancel</Button>
-					<Button
-						variant="accent"
-						loading={s.publishing}
-						startIcon={{ icon: Globe }}
-						onclick={confirmPublish}
-					>
-						Generate iframe
-					</Button>
-				{/snippet}
-			</DrawerContent>
-		</Drawer>
-
 		<Drawer bind:this={resourceDrawer} size="640px">
 			<DrawerContent title="Resource dependencies" on:close={() => resourceDrawer?.closeDrawer()}>
 				<div class="flex flex-col gap-4">
 					<p class="text-xs text-secondary">
-						Resource types the selected items depend on. Each is synced to the Hub so a fork knows
-						what credentials it needs to fill. <span class="font-semibold">Input</span> means the
-						item takes the resource as a parameter;
+						Resource types the selected items depend on. A stub resource of each type is synced to
+						the Hub so a fork knows what credentials it needs to fill.
+						<span class="font-semibold">Input</span> means the item takes the resource as a
+						parameter;
 						<span class="font-semibold">hardcoded path</span> means the item pins a specific resource
 						path in its code.
+					</p>
+					<p class="text-xs text-secondary">
+						Publishing a type's own <span class="font-semibold">definition</span> (its schema and
+						description) is a separate, explicit choice: tick
+						<span class="font-semibold">Export type definition</span> only for custom types the Hub doesn't
+						already know. Standard types are already defined on the Hub and need no export.
 					</p>
 					{#if s.dependencyTypes.length === 0}
 						<span class="text-xs text-hint">No resource references in the current selection.</span>
@@ -920,6 +865,19 @@
 									<span class="text-[11px] text-hint">
 										{r.usages.length} usage{r.usages.length > 1 ? 's' : ''}
 									</span>
+									<div class="ml-auto shrink-0">
+										<Toggle
+											size="xs"
+											checked={s.exportedResourceTypes.has(r.resource_type)}
+											disabled={s.deploying}
+											on:change={() => s.toggleResourceTypeExport(r.resource_type)}
+											options={{
+												right: 'Export type definition',
+												rightTooltip:
+													'Publishes this resource type (name, schema, description) to the Hub project. Leave off if the Hub already defines it.'
+											}}
+										/>
+									</div>
 								</div>
 								<div class="flex flex-col gap-3">
 									{#each r.usages as u, ui (ui)}

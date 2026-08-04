@@ -11,6 +11,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
+	import type { RowSelection } from './rowSelection'
 	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
 	import Badge from '../badge/Badge.svelte'
 	import {
@@ -48,6 +49,7 @@
 		menuOpen?: boolean
 		showEditButton?: boolean
 		keyboardSelected?: boolean
+		rowSelection?: RowSelection
 	}
 
 	let {
@@ -60,7 +62,8 @@
 		depth = 0,
 		menuOpen = $bindable(false),
 		showEditButton = $bindable(true),
-		keyboardSelected = false
+		keyboardSelected = false,
+		rowSelection = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -112,6 +115,7 @@
 	canFavorite={!app.draft_only}
 	{depth}
 	{keyboardSelected}
+	{rowSelection}
 >
 	{#snippet badges()}
 		{#if app.execution_mode == 'anonymous'}

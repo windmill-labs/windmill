@@ -197,7 +197,15 @@
 			return { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
 		},
 
-		setFlowJson: async ({ modules, schema, preprocessorModule, failureModule, groups, notes }) => {
+		setFlowJson: async ({
+			modules,
+			schema,
+			preprocessorModule,
+			failureModule,
+			groups,
+			notes,
+			settings
+		}) => {
 			try {
 				if (
 					modules !== undefined ||
@@ -205,7 +213,8 @@
 					preprocessorModule !== undefined ||
 					failureModule !== undefined ||
 					groups !== undefined ||
-					notes !== undefined
+					notes !== undefined ||
+					settings !== undefined
 				) {
 					// Take snapshot of current flowStore and set as beforeFlow
 					if (!diffManager?.hasPendingChanges) {
@@ -221,7 +230,8 @@
 					preprocessorModule,
 					failureModule,
 					groups,
-					notes
+					notes,
+					settings
 				})
 
 				// Refresh the state store to update UI
