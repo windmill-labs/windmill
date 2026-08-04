@@ -107,7 +107,12 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 				iconOnly
 				title="AI Assistant"
 				btnClasses={twMerge(AIBtnClasses(), 'bg-surface overflow-clip flex p-0')}
-				wrapperClasses="h-5 w-8 p-0"
+				wrapperClasses={twMerge(
+					// Revealed by the row it sits in, like the connect plug beside it. A request in
+					// flight keeps it visible so its cancel affordance stays reachable.
+					'h-5 w-8 p-0 group-hover:opacity-100 transition-opacity',
+					loading ? '' : 'opacity-0'
+				)}
 				{loading}
 				clickableWhileLoading
 				on:click={loading ? () => abortController?.abort() : () => {}}
