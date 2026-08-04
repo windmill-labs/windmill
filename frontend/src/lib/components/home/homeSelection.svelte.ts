@@ -108,11 +108,10 @@ export class HomeSelection {
 	}
 
 	/**
-	 * Drop selections whose row was on screen before a reload and is gone after it:
-	 * the row was deleted or moved (a move changes its path, hence its key) from its
-	 * own menu, so its path is dead and a bulk action would address a stale one. A
-	 * row that was never on screen is left alone — a selection deliberately survives
-	 * narrowing the view, so absence alone doesn't mean the item is gone.
+	 * Drop selections whose row was on screen before a reload and is gone after it —
+	 * deleted, or moved to a new path and so a new key. A row that was never on
+	 * screen is left alone: a selection deliberately survives narrowing the view, so
+	 * absence there is not evidence the item is gone.
 	 */
 	dropVanished(renderedBefore: Set<string>): void {
 		for (const key of [...this.selected.keys()]) {

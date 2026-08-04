@@ -499,20 +499,21 @@
 		// force: the owners are still marked loaded, so re-fetch their first page and
 		// swap it in place (loadOwnerItems replaces each owner's rows atomically — the
 		// old rows stay visible until the new ones arrive, so nothing blanks mid-reorder).
-		for (const o of toReload) loadOwnerItems(o, false, true)
+		// Awaited so a caller reconciling against the rendered rows sees the reloaded
+		// tree rather than the pre-reload ones; the per-owner swap stays atomic either way.
+		await Promise.all(toReload.map((o) => loadOwnerItems(o, false, true)))
 	}
 
 	// For row mutations (create/delete/move/archive), which also change how many
 	// runnables an owner holds. A scope change (sort/archive/kind/…) doesn't go
 	// through here: the counts resource keys on those itself.
 	async function reloadItemsAndCounts(): Promise<void> {
-		// A row mutated from its own menu (or by a bulk action) can be gone or sit at
-		// a new path afterwards; snapshot what was on screen so the selection can drop
-		// what this reload removes rather than keep pointing at a dead path.
+		// A mutated row can be gone, or sit at a new path, afterwards: snapshot what
+		// was on screen so the selection can drop what this reload removes instead of
+		// keeping a dead path. `tick` lets the reloaded rows re-register first.
 		const renderedBefore = homeSelection.renderedKeys
 		void ownerCountsRes.refetch()
 		await reloadItems()
-		// Let the rows re-render so the registry reflects the reloaded list.
 		await tick()
 		homeSelection.dropVanished(renderedBefore)
 	}
@@ -1160,11 +1161,10 @@
 	}
 
 	function handleGlobalKeydown(e: KeyboardEvent) {
-		// An open dialog owns the keyboard. Testing only the focused element misses
-		// it — a modal opened from a button leaves focus on that button — and this
-		// capture listener is registered before the dialog's, so the list would act
-		// first: Enter would tick a row into the batch being confirmed. Dialogs are
-		// in the DOM only while open.
+		// An open dialog owns the keyboard. Testing the focused element alone misses it
+		// (a modal opened from a button leaves focus on that button), and this capture
+		// listener runs before the dialog's, so Enter would tick a row into the batch
+		// being confirmed. Dialogs are in the DOM only while open.
 		if (document.querySelector('[role="dialog"]')) return
 
 		const target = e.target as HTMLElement | null

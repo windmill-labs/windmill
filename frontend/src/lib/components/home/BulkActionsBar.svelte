@@ -71,6 +71,9 @@
 
 	function actionTitle(action: BulkAction): string {
 		const n = targets(action).length
+		// Selection mode is entered from the toolbar with nothing picked yet, so this
+		// is the state the primary entry point lands on — it has no blocked reason.
+		if (items.length === 0) return `Select items to ${ACTION_LABEL[action].toLowerCase()}`
 		if (n === 0) return `Cannot ${ACTION_LABEL[action].toLowerCase()}: ${blockedSummary(action)}`
 		if (n < items.length) return `${ACTION_LABEL[action]} ${n} of the ${items.length} selected`
 		return `${ACTION_LABEL[action]} ${n} item${plural(n)}`
@@ -119,28 +122,37 @@
 		progress = 0
 		outcomes = undefined
 		const batch = pendingItems
-		const res = await runBulk(action, batch, ctx, {
-			target: moveTarget,
-			onProgress: (done) => (progress = done)
-		})
-		running = false
-		if (action === 'discard') invalidateWorkspaceDrafts(workspace)
-		const failed = res.filter((o) => o.error != undefined)
-		await onDone()
-		// Only what the batch actually changed leaves the selection. The rows it
-		// skipped as ineligible stay ticked so the next action can still address
-		// them — a partial failure must not drop them along with the successes.
-		const untouched = items.filter((i) => !batch.some((b) => b.key === i.key)).map((i) => i.key)
-		if (failed.length === 0) {
-			sendUserToast(`${ACTION_LABEL[action]}: ${res.length} item${plural(res.length)}`)
-			selection.keepOnly(untouched)
-			close()
-			return
+		let finished = false
+		try {
+			const res = await runBulk(action, batch, ctx, {
+				target: moveTarget,
+				onProgress: (done) => (progress = done)
+			})
+			if (action === 'discard') invalidateWorkspaceDrafts(workspace)
+			const failed = res.filter((o) => o.error != undefined)
+			// `running` is still set across the refetch: it is what keeps the dialog's
+			// Enter from starting the same batch again over an untrimmed selection.
+			await onDone()
+			// Only what the batch actually changed leaves the selection. The rows it
+			// skipped as ineligible stay ticked so the next action can still address
+			// them — a partial failure must not drop them along with the successes.
+			const untouched = items.filter((i) => !batch.some((b) => b.key === i.key)).map((i) => i.key)
+			if (failed.length === 0) {
+				sendUserToast(`${ACTION_LABEL[action]}: ${res.length} item${plural(res.length)}`)
+				selection.keepOnly(untouched)
+				finished = true
+				return
+			}
+			// Keep the failures ticked too (and the modal open, listing them) so they
+			// can be retried without rebuilding the selection.
+			outcomes = res
+			selection.keepOnly([...untouched, ...failed.map((o) => o.item.key)])
+		} finally {
+			// Released here and nowhere else: while it is set, Escape can't dismiss the
+			// dialog and both its buttons are disabled, so a throw would wedge it shut.
+			running = false
+			if (finished) close()
 		}
-		// Keep the failures ticked too (and the modal open, listing them) so they can
-		// be retried without rebuilding the selection.
-		outcomes = res
-		selection.keepOnly([...untouched, ...failed.map((o) => o.item.key)])
 	}
 </script>
 
@@ -194,14 +206,18 @@
 				displayName: `Discard drafts${countSuffix('discard')}`,
 				icon: Trash,
 				action: () => open('discard'),
-				disabled: targets('discard').length === 0
+				disabled: targets('discard').length === 0,
+				// Only while blocked: a disabled entry can't open its modal, so the reason
+				// has to live here — and an enabled one would render a pointless ⓘ.
+				tooltip: targets('discard').length === 0 ? actionTitle('discard') : undefined
 			},
 			{
 				displayName: `Delete${countSuffix('delete')}`,
 				icon: Trash,
 				type: 'delete' as const,
 				action: () => open('delete'),
-				disabled: targets('delete').length === 0
+				disabled: targets('delete').length === 0,
+				tooltip: targets('delete').length === 0 ? actionTitle('delete') : undefined
 			}
 		]}
 	>
