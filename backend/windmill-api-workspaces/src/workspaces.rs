@@ -8917,10 +8917,11 @@ async fn ensure_dev_parent_is_root(db: &DB, parent_w_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// `dev_workspace_lock` is owned by the dev-workspace feature (attach/detach/archive/delete create and
-/// remove it by name). Reserve it from the public protection-rule API so a user-managed rule can't
-/// collide: otherwise the feature's name-based cleanup would clobber the user's rule, or a manual edit
-/// could weaken the feature's lock.
+/// `dev_workspace_lock` is owned by the dev-workspace feature, which creates and removes it by name
+/// (attach/detach/archive/delete). Reserve the name against creation and deletion so a user-managed
+/// rule can't collide with the feature's name-based cleanup, and so detach stays the way a pairing's
+/// lock is lifted. Updating it is deliberately allowed: relaxing the lock is an admin's call, and the
+/// name is immutable on update so no collision can arise.
 fn reject_reserved_rule_name(name: &str) -> Result<()> {
     if name == DEV_WORKSPACE_LOCK_RULE_NAME {
         return Err(Error::BadRequest(format!(
@@ -9014,7 +9015,6 @@ async fn update_protection_rule(
     Json(req): Json<UpdateProtectionRuleRequest>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
-    reject_reserved_rule_name(&rule_name)?;
 
     let mut tx = db.begin().await?;
 

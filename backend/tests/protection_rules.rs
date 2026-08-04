@@ -421,3 +421,88 @@ async fn test_restrict_deploy_to_deployers(db: Pool<Postgres>) -> anyhow::Result
 
     Ok(())
 }
+
+/// The dev-workspace pairing owns `dev_workspace_lock` by name: attaching creates it, detaching
+/// deletes it. Only those two ends of the name are reserved. Updating the rule has to stay open,
+/// since relaxing a restriction from the rulesets UI is the only way an admin can loosen a pairing's
+/// lock without detaching the dev workspace outright.
+///
+/// Reads the row directly rather than through `list_protection_rules`, which goes via the
+/// process-wide PROTECTION_RULES_CACHE that other tests in this file share.
+#[sqlx::test(fixtures("base"))]
+async fn test_dev_workspace_lock_rule_reservation(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+    let name = windmill_common::workspaces::DEV_WORKSPACE_LOCK_RULE_NAME;
+
+    let resp = authed(
+        client().post(format!("{base}/workspaces/protection_rules")),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({
+        "name": name,
+        "rules": ["DisableDirectDeployment"],
+        "bypass_users": [],
+        "bypass_groups": []
+    }))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        400,
+        "creating the reserved rule by hand should be refused"
+    );
+
+    // Stands in for an attach, which is what really creates the rule. 3 = DisableDirectDeployment |
+    // DisableWorkspaceForking, the pairing's default lock.
+    sqlx::query(
+        "INSERT INTO workspace_protection_rule (workspace_id, name, rules, bypass_groups, bypass_users)
+         VALUES ('test-workspace', $1, 3, '{}', '{}')",
+    )
+    .bind(name)
+    .execute(&db)
+    .await?;
+
+    let resp = authed(
+        client().post(format!("{base}/workspaces/protection_rules/{name}")),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({
+        "rules": ["DisableWorkspaceForking"],
+        "bypass_users": [],
+        "bypass_groups": []
+    }))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "an admin must be able to drop a restriction from the reserved rule: {}",
+        resp.text().await?
+    );
+
+    let rules: i32 = sqlx::query_scalar(
+        "SELECT rules FROM workspace_protection_rule WHERE workspace_id = 'test-workspace' AND name = $1",
+    )
+    .bind(name)
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(rules, 2, "only DisableWorkspaceForking should remain");
+
+    let resp = authed(
+        client().delete(format!("{base}/workspaces/protection_rules/{name}")),
+        "SECRET_TOKEN",
+    )
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        400,
+        "deleting the reserved rule should stay refused: detaching the dev workspace removes it"
+    );
+
+    Ok(())
+}

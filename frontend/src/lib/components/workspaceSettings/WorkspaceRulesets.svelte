@@ -11,6 +11,9 @@
 	import { Plus, Pen, Trash } from 'lucide-svelte'
 	import { untrack } from 'svelte'
 	import { WorkspaceService, type ProtectionRuleset } from '$lib/gen'
+	import { DEV_WORKSPACE_LOCK_RULE_NAME } from '$lib/workspaceProtectionRules.svelte'
+	import { page } from '$app/stores'
+	import { goto } from '$app/navigation'
 
 	let rules: ProtectionRuleset[] | undefined = $state<ProtectionRuleset[] | undefined>(undefined)
 	let selectedRule: ProtectionRuleset | undefined = $state(undefined)
@@ -32,6 +35,28 @@
 		if ($workspaceStore) {
 			untrack(() => loadRules())
 		}
+	})
+
+	// `?rule=<name>` deep-links straight into a rule's drawer, so the dev-workspace panel can point at
+	// the ruleset enforcing its locks instead of dropping the reader on the list. The param is consumed
+	// on open: leaving it set would re-open the drawer on every later save or tab switch, since the
+	// sidebar carries the whole query string across tabs.
+	$effect(() => {
+		const name = $page.url.searchParams.get('rule')
+		const loaded = rules
+		if (!name || !loaded) return
+		untrack(() => {
+			const match = loaded.find((r) => r.name === name)
+			if (match) {
+				selectedRule = match
+				ruleDrawer?.openDrawer()
+			} else {
+				sendUserToast(`Protection rule '${name}' not found in this workspace`, true)
+			}
+			const params = new URLSearchParams(window.location.search)
+			params.delete('rule')
+			goto(`?${params.toString()}`, { replaceState: true, noScroll: true, keepFocus: true })
+		})
 	})
 
 	async function deleteRule(name: string) {
@@ -145,6 +170,11 @@
 						<Cell first>
 							<div class="flex flex-col">
 								<span class="text-emphasis text-xs font-semibold">{rule.name}</span>
+								{#if rule.name === DEV_WORKSPACE_LOCK_RULE_NAME}
+									<span class="text-2xs text-secondary">
+										Applied by the dev workspace pairing. Detach the dev workspace to remove it.
+									</span>
+								{/if}
 							</div>
 						</Cell>
 						<Cell>
@@ -169,14 +199,20 @@
 											ruleDrawer?.openDrawer()
 										}
 									},
-									{
-										displayName: 'Delete',
-										icon: Trash,
-										type: 'delete',
-										action: async () => {
-											await deleteRule(rule.name)
-										}
-									}
+									// The reserved rule is removed by detaching the dev workspace; the API refuses
+									// to delete it by name, so offering the action here could only ever fail.
+									...(rule.name === DEV_WORKSPACE_LOCK_RULE_NAME
+										? []
+										: [
+												{
+													displayName: 'Delete',
+													icon: Trash,
+													type: 'delete' as const,
+													action: async () => {
+														await deleteRule(rule.name)
+													}
+												}
+											])
 								]}
 							/>
 						</Cell>
