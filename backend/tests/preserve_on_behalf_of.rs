@@ -2466,6 +2466,38 @@ async fn test_schedule_group_permissioned_as(db: Pool<Postgres>) -> anyhow::Resu
         "the schedule response derives the address from the principal, not from the column"
     );
 
+    // Toggling is not a change of identity. `set_enabled` used to stamp the column with whoever
+    // flipped it, which is how a row came to name someone other than its principal; the
+    // desynchronised value above doubles as the sentinel that nothing rewrote it.
+    let resp = authed(
+        client().post(format!(
+            "{base}/schedules/setenabled/u/test-user/schedule_group_perm"
+        )),
+        "EXTERNAL_SUPERADMIN_TOKEN",
+    )
+    .json(&json!({ "enabled": true }))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "Superadmin should toggle the schedule: {}",
+        resp.text().await?
+    );
+
+    let row = sqlx::query!(
+        "SELECT enabled, email FROM schedule WHERE path = $1 AND workspace_id = $2",
+        "u/test-user/schedule_group_perm",
+        "test-workspace"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert!(row.enabled, "the toggle should have taken effect");
+    assert_eq!(
+        row.email, "stale@windmill.dev",
+        "toggling must leave the stored address alone, not stamp the toggler's"
+    );
+
     Ok(())
 }
 
