@@ -2,11 +2,11 @@
 	import { untrack } from 'svelte'
 	import TreeView from './TreeView.svelte'
 	import { groupItems, type ItemType } from './treeViewUtils'
+	import { Button } from '$lib/components/common'
 
 	interface Props {
 		collapseAll: boolean
 		showCode: (path: string, summary: string) => void
-		nbDisplayed: number
 		items: ItemType[] | undefined
 		isSearching?: boolean
 		pipelineFolders?: Set<string>
@@ -33,7 +33,7 @@
 		selfUsername?: string
 		ownerLoad?: Record<
 			string,
-			{ cursor?: string; hasMore: boolean; loading: boolean; loaded: boolean; count: number }
+			{ cursor?: string; hasMore: boolean; loading: boolean; loaded: boolean }
 		>
 		onExpandOwner?: (owner: string, more?: boolean) => void
 		onCollapseOwner?: (owner: string) => void
@@ -42,7 +42,6 @@
 	let {
 		collapseAll,
 		showCode,
-		nbDisplayed = $bindable(),
 		items,
 		isSearching = false,
 		pipelineFolders,
@@ -58,6 +57,17 @@
 		onExpandOwner,
 		onCollapseOwner
 	}: Props = $props()
+
+	// How many root nodes render at once. A root node is a collapsed owner row that
+	// fetches nothing until expanded, so a large slice costs a row each and no request
+	// — and an owner sliced off the end is indistinguishable from one that doesn't
+	// exist, so keep it well above the number of folders a workspace typically has.
+	const ROOT_PAGE = 100
+	// Ceiling on what scrolling alone reveals: root rows aren't virtualized, so on a
+	// workspace with thousands of owners one long scroll gesture would otherwise mount
+	// every one of them. Past this the footer stays put and its button reveals the rest.
+	const AUTO_REVEAL_LIMIT = 500
+	let nbDisplayed = $state(ROOT_PAGE)
 
 	let groupedItems: ReturnType<typeof groupItems> | 'loading' = $state('loading')
 	$effect(() => {
@@ -140,6 +150,29 @@
 			groupedItems = grouped
 		})
 	})
+
+	let footerEl: HTMLDivElement | undefined = $state()
+	// Reveal the next slice of root nodes as the footer comes into view. Only the
+	// client-side slice auto-grows — those nodes are already grouped and render
+	// collapsed, so this issues no request; paging the server stays behind the button.
+	$effect(() => {
+		const el = footerEl
+		if (!el) return
+		const observer = new IntersectionObserver((entries) => {
+			if (!entries.some((e) => e.isIntersecting)) return
+			const grouped = groupedItems
+			if (!Array.isArray(grouped) || nbDisplayed >= grouped.length) return
+			if (nbDisplayed >= AUTO_REVEAL_LIMIT) return
+			nbDisplayed = Math.min(nbDisplayed + ROOT_PAGE, grouped.length)
+			// Revealing more doesn't change whether the footer intersects, so no further
+			// callback would fire and scrolling would stall with rows left unrevealed.
+			// Re-observing re-delivers the current intersection after the rows render.
+			observer.unobserve(el)
+			observer.observe(el)
+		})
+		observer.observe(el)
+		return () => observer.disconnect()
+	})
 </script>
 
 {#if groupedItems === 'loading'}
@@ -162,6 +195,7 @@
 					{item}
 					{pipelineFolders}
 					{ownerCounts}
+					ancestorHasMore={hasMoreServer}
 					{ownerLoad}
 					{onExpandOwner}
 					{onCollapseOwner}
@@ -174,19 +208,34 @@
 				/>
 			{/if}
 		{/each}
+		{#if nbDisplayed < groupedItems.length || hasMoreServer}
+			<!-- Last row of the tree's own frame, not a caption under it: what is missing
+			     has to read as part of the list to be noticed at all. -->
+			<div
+				bind:this={footerEl}
+				class="px-4 py-3 flex flex-row items-center justify-between gap-4 bg-surface-secondary"
+			>
+				<span class="text-xs text-secondary">
+					{#if nbDisplayed < groupedItems.length}
+						Showing {nbDisplayed} of {groupedItems.length} folders and users
+					{:else}
+						<!-- Scoped to one owner: the tree groups the paged browse stream, so what
+						     is missing is items, not root nodes. -->
+						Not all items are loaded yet
+					{/if}
+				</span>
+				<Button
+					unifiedSize="sm"
+					variant="subtle"
+					on:click={() => {
+						if (nbDisplayed < groupedItems.length)
+							nbDisplayed = Math.min(nbDisplayed + ROOT_PAGE, groupedItems.length)
+						else onLoadMore?.()
+					}}
+				>
+					{nbDisplayed < groupedItems.length ? 'Show more' : 'Load more'}
+				</Button>
+			</div>
+		{/if}
 	</div>
-	{#if nbDisplayed < groupedItems.length || hasMoreServer}
-		<span class="text-xs font-normal text-secondary"
-			>{Math.min(nbDisplayed, groupedItems.length)} root nodes{hasMoreServer
-				? ''
-				: ` out of ${groupedItems.length}`}
-			<button
-				class="ml-4 text-xs font-normal text-primary hover:text-emphasis"
-				onclick={() => {
-					if (nbDisplayed < groupedItems.length) nbDisplayed += 30
-					else onLoadMore?.()
-				}}>load 30 more</button
-			></span
-		>
-	{/if}
 {/if}

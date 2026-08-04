@@ -14,6 +14,7 @@
 	import { handleSelectTriggerFromKind, type Trigger } from '$lib/components/triggers/utils'
 	import { computeMissingInputWarnings } from '../missingInputWarnings'
 	import FlowResult from './FlowResult.svelte'
+	import ExpandedSubflowStep from './ExpandedSubflowStep.svelte'
 	import type { StateStore } from '$lib/utils'
 	import FlowSelectionPanel from './FlowSelectionPanel.svelte'
 	import {
@@ -176,9 +177,10 @@
 		{onDeployTrigger}
 	/>
 {:else if selectedId?.startsWith('subflow:')}
-	<div class="p-4"
-		>Selected step is witin an expanded subflow and is not directly editable in the flow editor</div
-	>
+	<ExpandedSubflowStep
+		{selectedId}
+		onSubflowUpdated={() => flowModuleSchemaMap?.reloadExpandedSubflows()}
+	/>
 {:else}
 	{@const dup = checkDup(flowStore.val.value.modules)}
 	{#if dup}
