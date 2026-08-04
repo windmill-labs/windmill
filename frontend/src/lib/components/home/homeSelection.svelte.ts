@@ -102,6 +102,25 @@ export class HomeSelection {
 		return this.selected.has(key)
 	}
 
+	/** Keys of the rows currently on screen. */
+	get renderedKeys(): Set<string> {
+		return new Set(this.registry.keys())
+	}
+
+	/**
+	 * Drop selections whose row was on screen before a reload and is gone after it:
+	 * the row was deleted or moved (a move changes its path, hence its key) from its
+	 * own menu, so its path is dead and a bulk action would address a stale one. A
+	 * row that was never on screen is left alone — a selection deliberately survives
+	 * narrowing the view, so absence alone doesn't mean the item is gone.
+	 */
+	dropVanished(renderedBefore: Set<string>): void {
+		for (const key of [...this.selected.keys()]) {
+			if (renderedBefore.has(key) && !this.registry.has(key)) this.selected.delete(key)
+		}
+		if (this.selected.size === 0) this.anchor = undefined
+	}
+
 	register(item: BulkItem): void {
 		this.registry.set(item.key, item)
 		// Refresh the snapshot of an already-selected row too: the per-row menu stays
@@ -151,8 +170,8 @@ export class HomeSelection {
 	 * Returns false when either end is off-screen, so the caller falls back to a
 	 * plain toggle rather than selecting an arbitrary span. */
 	private selectRange(from: string, to: string): boolean {
-		const keys = Array.from(document.querySelectorAll<HTMLElement>('[data-home-row-key]')).map(
-			(el) => el.dataset.homeRowKey ?? ''
+		const keys = Array.from(document.querySelectorAll<HTMLElement>('[data-row-selection-key]')).map(
+			(el) => el.dataset.rowSelectionKey ?? ''
 		)
 		const a = keys.indexOf(from)
 		const b = keys.indexOf(to)

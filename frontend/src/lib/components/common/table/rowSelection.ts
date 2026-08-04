@@ -5,8 +5,8 @@
  * column — this variant leaves the default row untouched until it is used.
  */
 export type RowSelection = {
-	/** Stable row identity; also emitted as `data-home-row-key` so a shift-click
-	 * range can read the rendered order back from the DOM. */
+	/** Stable row identity; also emitted as `data-row-selection-key` so a caller
+	 * can read the rendered order back from the DOM (for a shift-click range). */
 	key: string
 	selected: boolean
 	/** Selection mode is on: every row shows its checkbox, and clicking the row

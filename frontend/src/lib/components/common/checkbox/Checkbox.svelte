@@ -32,11 +32,9 @@
 
 	let inputEl: HTMLInputElement | undefined = $state()
 	let clicks = $state(0)
-	// A click flips the box before any handler runs, and flips it back when the
-	// handler prevents the default — both outside Svelte's diff. So a controlled
-	// checkbox whose value did not change across a click keeps the browser's
-	// guess. Re-assert the controlled value after every click, not only when it
-	// differs from the last rendered one.
+	// A click flips the box before any handler runs, outside Svelte's diff — so a
+	// controlled checkbox whose value does NOT change across a click would keep
+	// the browser's guess. Re-assert after every click, not only on a change.
 	$effect(() => {
 		clicks
 		if (inputEl) inputEl.checked = checked

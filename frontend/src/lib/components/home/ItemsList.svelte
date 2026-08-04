@@ -506,8 +506,15 @@
 	// runnables an owner holds. A scope change (sort/archive/kind/…) doesn't go
 	// through here: the counts resource keys on those itself.
 	async function reloadItemsAndCounts(): Promise<void> {
+		// A row mutated from its own menu (or by a bulk action) can be gone or sit at
+		// a new path afterwards; snapshot what was on screen so the selection can drop
+		// what this reload removes rather than keep pointing at a dead path.
+		const renderedBefore = homeSelection.renderedKeys
 		void ownerCountsRes.refetch()
 		await reloadItems()
+		// Let the rows re-render so the registry reflects the reloaded list.
+		await tick()
+		homeSelection.dropVanished(renderedBefore)
 	}
 
 	function filterItemsPathsBaseOnUserFilters(
@@ -1153,13 +1160,11 @@
 	}
 
 	function handleGlobalKeydown(e: KeyboardEvent) {
-		// An open dialog owns the keyboard, even when focus is still on the control
-		// that opened it (a modal opened from a button doesn't move focus). Checking
-		// only the focused element is not enough: this listener is registered on
-		// window in the capture phase before the dialog's own, so without this the
-		// list acts first — Enter would tick the highlighted row INTO the batch the
-		// dialog is confirming, and Escape would clear the whole selection instead of
-		// just dismissing the dialog. Dialogs are only in the DOM while open.
+		// An open dialog owns the keyboard. Testing only the focused element misses
+		// it — a modal opened from a button leaves focus on that button — and this
+		// capture listener is registered before the dialog's, so the list would act
+		// first: Enter would tick a row into the batch being confirmed. Dialogs are
+		// in the DOM only while open.
 		if (document.querySelector('[role="dialog"]')) return
 
 		const target = e.target as HTMLElement | null
@@ -1315,21 +1320,32 @@
 				selectedIndex = selectedIndex - 1
 			}
 		} else if (e.key === 'Enter') {
+			// Enter belongs to whatever control has focus — the action bar's buttons,
+			// a row's own actions, a link. Claiming it there would both suppress that
+			// control and act on the highlighted row instead.
+			if (target?.closest('button, a[href], [role="button"]')) return
 			// In selection mode the rows carry no link, so Enter ticks the highlighted
-			// row instead of opening it.
-			if (homeSelection.active && selectedIndex >= 0 && selectedIndex < displayedItems.length) {
-				const item = displayedItems[selectedIndex]
-				if (item.type !== 'raw_app') {
-					e.preventDefault()
-					homeSelection.toggle(toBulkItem(item, $userStore, $workspaceStore), e.shiftKey)
-				}
+			// row instead of opening it. Never for a legacy raw-app row, which carries
+			// no selection control — that falls through to opening it below.
+			if (
+				homeSelection.active &&
+				selectedIndex >= 0 &&
+				selectedIndex < displayedItems.length &&
+				displayedItems[selectedIndex].type !== 'raw_app'
+			) {
+				e.preventDefault()
+				homeSelection.toggle(
+					toBulkItem(displayedItems[selectedIndex], $userStore, $workspaceStore),
+					e.shiftKey
+				)
 			} else if (selectedIndex === loadMoreIndex && hasMore) {
 				e.preventDefault()
 				loadMoreAndPreselectFirstNew()
 			} else if (selectedIndex >= 0 && selectedIndex < displayedItems.length) {
-				// The row's title link is its first anchor (the action buttons follow it).
+				// Direct child only: that is the title link. Selection mode drops it, and
+				// a descendant match would find the row's Edit link and open the editor.
 				const anchor = document.querySelector<HTMLAnchorElement>(
-					'[data-row-keyboard-selected="true"] a[href]'
+					'[data-row-keyboard-selected="true"] > a[href]'
 				)
 				if (anchor) {
 					e.preventDefault()

@@ -102,10 +102,13 @@
 		moveTarget = action === 'move' ? moveTargets[0] : undefined
 	}
 
+	// The dialog's Escape fires this even while its Cancel button is disabled by
+	// `loading`. A batch in flight cannot be called off, and closing over it would
+	// hide the progress and drop the per-item failures it is about to report.
 	function close() {
+		if (running) return
 		pending = undefined
 		outcomes = undefined
-		running = false
 	}
 
 	async function confirm() {
@@ -158,18 +161,10 @@
 	>
 		Move{countSuffix('move')}
 	</Button>
-	{#if targets('unarchive').length > targets('archive').length}
-		<Button
-			variant="subtle"
-			unifiedSize="sm"
-			startIcon={{ icon: ArchiveRestore }}
-			disabled={targets('unarchive').length === 0}
-			title={actionTitle('unarchive')}
-			on:click={() => open('unarchive')}
-		>
-			Unarchive{countSuffix('unarchive')}
-		</Button>
-	{:else}
+	<!-- Both render when both have targets: a selection mixing archived and active
+	     rows would otherwise be a dead end for whichever action lost the toss. With
+	     no targets either way, Archive stands alone and disabled, explaining why. -->
+	{#if targets('archive').length > 0 || targets('unarchive').length === 0}
 		<Button
 			variant="subtle"
 			unifiedSize="sm"
@@ -179,6 +174,17 @@
 			on:click={() => open('archive')}
 		>
 			Archive{countSuffix('archive')}
+		</Button>
+	{/if}
+	{#if targets('unarchive').length > 0}
+		<Button
+			variant="subtle"
+			unifiedSize="sm"
+			startIcon={{ icon: ArchiveRestore }}
+			title={actionTitle('unarchive')}
+			on:click={() => open('unarchive')}
+		>
+			Unarchive{countSuffix('unarchive')}
 		</Button>
 	{/if}
 	<DropdownV2
