@@ -855,9 +855,13 @@ pub async fn set_global_setting_internal(
 
     // Tag reads are served from an in-memory cache that this process otherwise only
     // refreshes on the next global-settings poll, so without this a refetch right after
-    // the write still returns the pre-write list.
+    // the write still returns the pre-write list. The setting is already persisted at
+    // this point, so a failed refresh must not be reported as a failed write — the
+    // poller retries it.
     if key == CUSTOM_TAGS_SETTING {
-        reload_custom_tags_setting(db).await?;
+        if let Err(e) = reload_custom_tags_setting(db).await {
+            tracing::error!(error = %e, "Could not reload custom tags setting after write");
+        }
     }
 
     Ok(())
