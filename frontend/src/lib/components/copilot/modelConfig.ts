@@ -14,8 +14,9 @@ export type ParsedModelId = {
  * from the vendor-pinned `anthropic/claude-sonnet-5`) and appends `:variant`
  * suffixes (`:free`, `:thinking`). Match on the parsed parts, never on the raw id.
  *
- * `base` is the last `/` segment, so the deprecated `<model>/thinking` selection
- * resolves the same way it did before this parser existed.
+ * `base` is the last `/` segment: the deprecated `<model>/thinking` selection puts
+ * its marker where a gateway puts the model, so callers that must resolve one of
+ * those ids first run it through `stripLegacyThinkingSuffix`.
  */
 export function parseModelId(model: string): ParsedModelId {
 	const normalized = model.toLowerCase().replace(/^~/, '')
