@@ -71,8 +71,7 @@ export async function loadTableMetaData(
 export async function loadAllTablesMetaData(
 	workspace: string | undefined,
 	input: DbInput,
-	// Worker tag to run the introspection job on instead of the language's native
-	// one, for a database only reachable from a specific worker group.
+	// Overrides the language's native worker tag.
 	tag?: string
 ): Promise<Record<string, TableMetadata> | undefined> {
 	if (!input || !workspace) return undefined

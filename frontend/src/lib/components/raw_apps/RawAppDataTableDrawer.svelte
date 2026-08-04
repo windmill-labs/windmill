@@ -14,6 +14,7 @@
 	import type { SelectedTable } from '../DBManager.svelte'
 	import { getRawAppOperatingWorkspace } from './rawAppWorkspace'
 	import { useDbManagerTag } from '../dbManagerTag.svelte'
+	import DbWorkerTagButton from '../DbWorkerTagButton.svelte'
 
 	const getOpWs = getRawAppOperatingWorkspace()
 	let opWs = $derived(getOpWs?.() ?? $workspaceStore)
@@ -226,6 +227,14 @@
 					Add to app
 				{/if}
 			</Button>
+
+			{#if dbInput && opWs}
+				<DbWorkerTagButton
+					bind:tag={() => workerTag.tag, (v) => (workerTag.tag = v)}
+					input={dbInput}
+					workspace={opWs}
+				/>
+			{/if}
 
 			<Button
 				loading={dbManagerContent?.isLoading() ?? false}

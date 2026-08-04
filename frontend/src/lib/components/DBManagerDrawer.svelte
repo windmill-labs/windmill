@@ -13,7 +13,6 @@
 		LoaderCircle,
 		Minimize,
 		RefreshCcw,
-		Tag,
 		Upload
 	} from 'lucide-svelte'
 	import DBManagerContent from './DBManagerContent.svelte'
@@ -26,10 +25,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
 	import { useDbManagerTag } from './dbManagerTag.svelte'
-	import DbWorkerTagPicker from './DbWorkerTagPicker.svelte'
-	import Popover from './meltComponents/Popover.svelte'
-	import { getLanguageByResourceType } from './apps/components/display/dbtable/utils'
-	import { getDbType } from './dbOps'
+	import DbWorkerTagButton from './DbWorkerTagButton.svelte'
 
 	interface Props {
 		uriState: DbManagerUriState
@@ -91,11 +87,6 @@
 	const workerTag = useDbManagerTag(
 		() => ws,
 		() => uriState.effectiveInput
-	)
-	let defaultTag = $derived(
-		uriState.effectiveInput
-			? getLanguageByResourceType(getDbType(uriState.effectiveInput))
-			: undefined
 	)
 
 	let hasReplResult = $state(false)
@@ -241,28 +232,13 @@
 					Import
 				</Button>
 			{/if}
-			<Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}>
-				{#snippet trigger()}
-					<Button
-						size="xs"
-						color="light"
-						startIcon={{ icon: Tag }}
-						nonCaptureEvent
-						title="Worker tag the database jobs run on"
-					>
-						{workerTag.tag ?? 'Worker tag'}
-					</Button>
-				{/snippet}
-				{#snippet content()}
-					<div class="p-4 w-96">
-						<DbWorkerTagPicker
-							bind:tag={() => workerTag.tag, (v) => (workerTag.tag = v)}
-							{defaultTag}
-							workspace={ws}
-						/>
-					</div>
-				{/snippet}
-			</Popover>
+			{#if uriState.effectiveInput && ws}
+				<DbWorkerTagButton
+					bind:tag={() => workerTag.tag, (v) => (workerTag.tag = v)}
+					input={uriState.effectiveInput}
+					workspace={ws}
+				/>
+			{/if}
 
 			<Button
 				loading={dbManagerContent?.isLoading() ?? false}

@@ -64,8 +64,7 @@ export function dbTableOpsWithPreviewScripts({
 	// DuckLake time-travel: when set, reads are pinned to this catalog snapshot
 	// via `AT (VERSION => n)` (DuckDB/ducklake only). Read-only by nature.
 	version?: number
-	// Worker tag to run the jobs on instead of the language's native one, for a
-	// database only reachable from a specific worker group.
+	// Overrides the language's native worker tag.
 	tag?: string
 }): IDbTableOps {
 	const dbType = getDbType(input)
@@ -273,9 +272,9 @@ export function dbSchemaOpsWithPreviewScripts({
 	/** Asked before running a just-created migration ahead of `pendingCount`
 	 * still-pending earlier ones. Return false to abort (throws MigrationRunCancelled). */
 	confirmRunOutOfOrder?: (pendingCount: number) => Promise<boolean>
-	// Worker tag to run the jobs on instead of the language's native one, for a
-	// database only reachable from a specific worker group. Data table migrations
-	// are run by the server and keep their own tag.
+	// Overrides the language's native worker tag, for a database only reachable from
+	// a specific worker group. Data table migrations are run by the server, which
+	// picks their tag itself, so they are unaffected.
 	tag?: string
 }): IDbSchemaOps {
 	const dbType = getDbType(input)
@@ -587,6 +586,12 @@ export function getDbType(input: DbInput): DbType {
 		case 'ducklake':
 			return 'duckdb'
 	}
+}
+
+/** Tag the database's jobs carry with no override: for every DB the manager
+ * supports, the language of its queries is also the name of its native tag. */
+export function getDefaultDbTag(input: DbInput): string {
+	return getLanguageByResourceType(getDbType(input))
 }
 
 export function getDatabaseArg(input: DbInput | undefined) {

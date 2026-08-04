@@ -4,10 +4,7 @@
 	import { Loader2, RefreshCcw } from 'lucide-svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import Button from './common/button/Button.svelte'
-	import {
-		dbSupportsSchemas,
-		getLanguageByResourceType
-	} from './apps/components/display/dbtable/utils'
+	import { dbSupportsSchemas } from './apps/components/display/dbtable/utils'
 	import DbManager from './DBManager.svelte'
 	import DbWorkerTagPicker from './DbWorkerTagPicker.svelte'
 	import MissingWorkerTagAlert from './jobs/MissingWorkerTagAlert.svelte'
@@ -15,6 +12,7 @@
 		dbSchemaOpsWithPreviewScripts,
 		dbTableOpsWithPreviewScripts,
 		getDbType,
+		getDefaultDbTag,
 		getDucklakeSchema
 	} from './dbOps'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -107,14 +105,25 @@
 				: undefined
 	)
 
+	// A query already handed to the queue cannot be taken back: `resource` aborts its
+	// controller, but the poller behind these queries doesn't watch the signal, and a
+	// job left on a tag no worker serves only fails ~90s later. Stamp each run so a
+	// superseded one can neither report its failure nor overwrite what replaced it —
+	// picking a working tag from the hints below is exactly that race.
+	let colDefsRun = 0
+	let schemaRun = 0
+
 	let colDefs = resource(
 		() => [input, ws, workerTag],
 		async () => {
+			const run = ++colDefsRun
 			colDefsError = undefined
 			if (!input) return
 			try {
-				return await loadAllTablesMetaData(ws, input, workerTag)
+				const metadata = await loadAllTablesMetaData(ws, input, workerTag)
+				return run === colDefsRun ? metadata : colDefs.current
 			} catch (e) {
+				if (run !== colDefsRun) return colDefs.current
 				colDefsError = 'Error loading tables metadata: ' + ((e as Error)?.message || e)
 				return
 			}
@@ -124,30 +133,37 @@
 	let dbSchemasPromise = resource(
 		() => [input, ws, workerTag],
 		async () => {
+			const run = ++schemaRun
 			schemaError = undefined
 			if (!input) return
 			const dbSchemasPath = schemaCacheKey(input)
 			if (input.type == 'database') {
+				// Reported through a local, not `schemaError` directly, so a superseded
+				// run's callback can't fail a load that already succeeded.
+				let queryError: string | undefined
 				const schema = await getDbSchemas(
 					input.resourceType,
 					input.resourcePath,
 					ws,
-					(message: string) => (schemaError = message),
+					(message: string) => (queryError = message),
 					{ customTag: workerTag }
 				)
+				if (run !== schemaRun) return
 				if (!schema) {
-					schemaError ??= 'The schema query returned no schema'
+					schemaError = queryError ?? 'The schema query returned no schema'
 					return
 				}
 				$dbSchemas[dbSchemasPath] = schema
 			} else if (input.type == 'ducklake') {
 				try {
-					$dbSchemas[dbSchemasPath] = await getDucklakeSchema({
+					const schema = await getDucklakeSchema({
 						workspace: ws!,
 						ducklake: input.ducklake,
 						tag: workerTag
 					})
+					if (run === schemaRun) $dbSchemas[dbSchemasPath] = schema
 				} catch (e) {
+					if (run !== schemaRun) return
 					schemaError = 'Error fetching schema: ' + ((e as Error)?.message || e)
 				}
 			}
@@ -161,10 +177,9 @@
 		return colDefs.loading || dbSchemasPromise.loading
 	}
 
-	// Tag the schema/metadata jobs run on: for every DB the manager supports, the
-	// language name is the tag unless overridden, which is what makes the
-	// missing-worker hint below possible without waiting for the poller to give up.
-	let defaultTag = $derived(input ? getLanguageByResourceType(getDbType(input)) : undefined)
+	// Knowing the tag up front is what makes the missing-worker hint below possible
+	// without waiting for the poller to give up.
+	let defaultTag = $derived(input ? getDefaultDbTag(input) : undefined)
 	let jobTag = $derived(workerTag ?? defaultTag)
 
 	// A job queued behind busy workers still loads eventually, so this is a hint
