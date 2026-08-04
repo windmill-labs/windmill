@@ -374,6 +374,11 @@ pub struct EditApp {
     /// Transient — never persisted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skip_draft_deletion: Option<bool>,
+    /// Caller-intent flag: when true this deploy may switch the app between
+    /// low-code and raw (see `update_app_internal`). Transient — never
+    /// persisted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_kind_change: Option<bool>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -2692,6 +2697,47 @@ async fn update_app_internal<'a>(
     }
 
     let mut tx = user_db.clone().begin(&authed).await?;
+
+    // `app_version.raw_app` is set by whichever endpoint writes the version, so a
+    // value deployed through the wrong one converts the app and strands its bundle.
+    // `FOR UPDATE` holds the app row until this transaction appends its own version,
+    // so a concurrent deploy of the other kind can't land between check and append.
+    if ns.value.is_some() && !ns.allow_kind_change.unwrap_or(false) {
+        let deployed_version = sqlx::query_scalar!(
+            "SELECT versions[array_upper(versions, 1)] FROM app
+             WHERE path = $1 AND workspace_id = $2 FOR UPDATE",
+            path,
+            w_id
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten();
+        let deployed_raw_app = match deployed_version {
+            // A separate statement: it needs the head the lock above pinned, not
+            // the snapshot the locking statement started from.
+            Some(version) => {
+                sqlx::query_scalar!("SELECT raw_app FROM app_version WHERE id = $1", version)
+                    .fetch_optional(&mut *tx)
+                    .await?
+            }
+            None => None,
+        };
+        if deployed_raw_app.is_some_and(|deployed| deployed != raw_app) {
+            // Name the folder suffix too: a sync push picks the endpoint from the
+            // repo layout, so its operator has no endpoint to swap, only a folder.
+            let (kind, endpoint, folder) = if raw_app {
+                ("a low-code app", "/apps/update", ".app")
+            } else {
+                ("a raw app", "/apps/update_raw", ".raw_app")
+            };
+            return Err(Error::BadRequest(format!(
+                "App {path} is {kind}: deploying a value to it through the other kind's endpoint \
+                 would convert it and strand its bundle. Deploy it through {endpoint} instead \
+                 (from a synced repo, from a `{folder}` folder), or set allow_kind_change to \
+                 convert it on purpose."
+            )));
+        }
+    }
 
     let mut preserved_on_behalf_of: Option<String> = None;
     let npath = if ns.policy.is_some()

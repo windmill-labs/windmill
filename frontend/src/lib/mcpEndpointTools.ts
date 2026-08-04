@@ -1121,7 +1121,7 @@ export const mcpEndpointTools: EndpointTool[] = [
     {
         name: "updateApp",
         description: "update app",
-        instructions: "",
+        instructions: "Low-code apps only. An app whose `raw_app` field (from getAppByPath) is true is a raw (full-code) app: its value holds source files that must be compiled to a js/css bundle, which this tool cannot upload, so updating one here is refused. Edit a raw app in its editor at /apps_raw/edit/<path> instead.",
         path: "/w/{workspace}/apps/update/{path}",
         method: "POST",
         pathParamsSchema: {
@@ -1528,6 +1528,10 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "is_skipped": {
                         "type": "boolean",
                         "description": "is the job skipped"
+                },
+                "resolved": {
+                        "type": "boolean",
+                        "description": "filter on whether a failure has been marked as handled. true keeps only resolved failures, false hides them"
                 },
                 "is_flow_step": {
                         "type": "boolean",

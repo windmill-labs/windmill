@@ -335,3 +335,111 @@ async fn test_public_app_by_custom_path(db: Pool<Postgres>) -> anyhow::Result<()
 
     Ok(())
 }
+
+/// A raw app's kind lives on its version row, so a value deployed through the
+/// low-code endpoint used to convert the app in place and strand its bundle.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_raw_app_kind_is_not_flipped_by_update(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/apps");
+    let raw_path = "u/test-user/raw_app";
+    let low_code_path = "u/test-user/low_code_app";
+
+    let raw_app_form = |path: &str| {
+        reqwest::multipart::Form::new()
+            .text(
+                "app",
+                json!({
+                    "path": path,
+                    "summary": "Raw app",
+                    "value": { "files": { "index.ts": "export {}" }, "runnables": {} },
+                    "policy": { "execution_mode": "publisher", "triggerables_v2": {} }
+                })
+                .to_string(),
+            )
+            .part(
+                "js",
+                reqwest::multipart::Part::bytes(b"console.log(1)".to_vec()),
+            )
+    };
+
+    let resp = authed(client().post(format!("{base}/create_raw")))
+        .multipart(raw_app_form(raw_path))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 201, "create_raw: {}", resp.text().await?);
+
+    let resp = authed(client().post(format!("{base}/create")))
+        .json(&new_app(low_code_path, "Low code app"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 201, "create: {}", resp.text().await?);
+
+    let versions_of = |path: &'static str| async move {
+        let resp = authed_get(port, "get/p", path).await;
+        let body = resp.json::<serde_json::Value>().await.unwrap();
+        body["versions"].as_array().unwrap().len()
+    };
+    let raw_versions = versions_of(raw_path).await;
+
+    // Neither endpoint may deploy a value onto an app of the other kind.
+    let resp = authed(client().post(format!("{base}/update/{raw_path}")))
+        .json(&json!({ "value": { "grid": [] } }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+    assert!(
+        resp.text().await?.contains("is a raw app"),
+        "expected the low-code update of a raw app to be refused"
+    );
+    // The refusal has to land before the version insert, not roll one back.
+    assert_eq!(versions_of(raw_path).await, raw_versions);
+
+    let resp = authed(client().post(format!("{base}/update_raw/{low_code_path}")))
+        .multipart(raw_app_form(low_code_path))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+    assert!(
+        resp.text().await?.contains("is a low-code app"),
+        "expected the raw update of a low-code app to be refused"
+    );
+
+    // Metadata-only updates and same-kind deploys still go through.
+    let resp = authed(client().post(format!("{base}/update/{raw_path}")))
+        .json(&json!({ "summary": "Renamed" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "update summary: {}", resp.text().await?);
+
+    let resp = authed(client().post(format!("{base}/update_raw/{raw_path}")))
+        .multipart(raw_app_form(raw_path))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "update_raw: {}", resp.text().await?);
+
+    let resp = authed_get(port, "get/p", raw_path).await;
+    assert_eq!(resp.json::<serde_json::Value>().await?["raw_app"], true);
+
+    // A caller that means to convert says so, which is how an app converted by
+    // accident gets restored to what it was.
+    let resp = authed(client().post(format!("{base}/update/{raw_path}")))
+        .json(&json!({ "value": { "grid": [] }, "allow_kind_change": true }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "update: {}", resp.text().await?);
+
+    let resp = authed_get(port, "get/p", raw_path).await;
+    assert_eq!(resp.json::<serde_json::Value>().await?["raw_app"], false);
+
+    Ok(())
+}
