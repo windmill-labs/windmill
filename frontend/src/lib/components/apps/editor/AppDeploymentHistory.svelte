@@ -19,11 +19,10 @@
 
 	async function updateApp(app: any) {
 		if (app.raw_app) {
-			// A raw version restores through the raw endpoint, which rebuilds the
-			// bundle from its sources. `allowKindChange` so picking the last version
-			// from before an app was converted to low-code restores it as raw — the
-			// supported way to undo such a conversion. The low-code direction stays
-			// refused: it has no bundle to write, so it would only break the app.
+			// A raw version restores through the raw endpoint, which rebuilds its
+			// bundle. `allowKindChange` so the last version from before a conversion
+			// restores the app as raw — the way to undo one. The low-code direction
+			// stays refused: it has no bundle to write.
 			await deployRawAppValue({
 				workspace: $workspaceStore!,
 				path: app.path,
