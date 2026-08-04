@@ -8,6 +8,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { pluralize } from '$lib/utils'
 	import { base } from '$lib/base'
+	import { Button } from '$lib/components/common'
 
 	interface Props {
 		item: ItemType | FolderItem | UserItem
@@ -31,6 +32,9 @@
 		// Position of this node among the rendered root nodes; "expand all" only
 		// auto-loads the first EXPAND_ALL_LOAD_LIMIT of them (see the effect below).
 		rootIndex?: number
+		// The owner this node sits under still has unloaded server pages, so its own
+		// children are a partial view — its count renders as "N+" rather than "N".
+		ownerHasMore?: boolean
 	}
 
 	let {
@@ -44,7 +48,8 @@
 		ownerLoad,
 		onExpandOwner,
 		onCollapseOwner,
-		rootIndex = 0
+		rootIndex = 0,
+		ownerHasMore = false
 	}: Props = $props()
 
 	// Bounds the request burst from "expand all": however many root owners are rendered
@@ -92,8 +97,14 @@
 		if (ownerKey == undefined || ownerCounts == undefined) return undefined
 		return (ownerCounts[ownerKey] ?? 0) + (hasPipeline ? 1 : 0)
 	})
+	// The owner's runnable count alone (no pipeline row), so it lines up with the rows
+	// actually fetched for it — what the partial-load footer compares against.
+	let ownerTotal = $derived(ownerKey != undefined ? ownerCounts?.[ownerKey] : undefined)
 
-	let showMax = $state(15)
+	// How many children a node renders before "Show more". Kept well above a screenful
+	// so a subfolder's contents don't look truncated, but bounded: under "expand all"
+	// this applies to every open owner at once (see effectiveMax).
+	let showMax = $state(30)
 	// A lazy owner paginates server-side ("Load more"), so when opened on its own it
 	// shows all its already-loaded rows (no second, confusing client "Show more").
 	// EXCEPT under "expand all" (collapseAll=false), which opens every visible owner at
@@ -195,7 +206,9 @@
 							<!-- Lazy owner not expanded yet and no count for it: its true item count
 							     is unknown until loaded, so showing "(0 items)" would be misleading. -->
 							&nbsp;
-						{:else if isLazyOwner && ownerState?.hasMore}
+						{:else if (isLazyOwner && ownerState?.hasMore) || ownerHasMore}
+							<!-- Partial: this node's owner has pages left to load, so the rows
+							     grouped under it are only what has arrived so far. -->
 							({item.items.length}+ items)
 						{:else}
 							({pluralize(item.items.length, ' item')})
@@ -232,6 +245,7 @@
 						{collapseAll}
 						item={subItem}
 						{pipelineFolders}
+						ownerHasMore={isLazyOwner ? (ownerState?.hasMore ?? false) : ownerHasMore}
 						on:scriptChanged
 						on:flowChanged
 						on:appChanged
@@ -242,15 +256,22 @@
 					/>
 				{/each}
 				{#if effectiveMax < item.items.length}
-					<!-- svelte-ignore a11y_click_events_have_key_events -->
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
-						class="text-center text-xs py-2 text-secondary cursor-pointer hover:text-primary"
-						onclick={() => {
-							showMax += Math.min(30, item.items.length - showMax)
-						}}
+						class="px-4 py-2 border-b flex flex-row items-center justify-between gap-4 bg-surface-secondary"
+						style="padding-left: {(depth + 1) * 16}px;"
 					>
-						Show more ({showMax}/{item.items.length})
+						<span class="text-xs text-secondary">
+							Showing {effectiveMax} of {item.items.length} loaded items
+						</span>
+						<Button
+							unifiedSize="sm"
+							variant="subtle"
+							on:click={() => {
+								showMax += Math.min(30, item.items.length - showMax)
+							}}
+						>
+							Show more
+						</Button>
 					</div>
 				{/if}
 				{#if ownerKey != undefined}
@@ -259,16 +280,28 @@
 						     re-sort/re-filter re-fetch keeps the old rows visible and swaps them
 						     in place, so flashing "Loading…" under them would just be noise. -->
 						<div class="text-center text-xs py-2 text-secondary">Loading…</div>
-					{:else if !ownerState?.loading && ownerState?.hasMore && effectiveMax >= item.items.length}
+					{:else if ownerState?.hasMore && effectiveMax >= item.items.length}
 						<!-- Fetch the next server page only once every already-loaded row is shown
-						     (in "expand all" the client "Show more" above reveals those first). -->
-						<!-- svelte-ignore a11y_click_events_have_key_events -->
-						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						     (in "expand all" the client "Show more" above reveals those first).
+						     Spelling out both totals is the point: without them this reads as an
+						     optional extra rather than as rows still missing. -->
 						<div
-							class="text-center text-xs py-2 text-primary cursor-pointer hover:text-emphasis"
-							onclick={() => ownerKey != undefined && onExpandOwner?.(ownerKey, true)}
+							class="px-4 py-2 border-b flex flex-row items-center justify-between gap-4 bg-surface-secondary"
+							style="padding-left: {(depth + 1) * 16}px;"
 						>
-							Load more in {ownerKey} ({ownerState?.count ?? item.items.length} loaded)
+							<span class="text-xs text-secondary">
+								Showing {ownerState?.count ?? item.items.length}{ownerTotal != undefined
+									? ` of ${ownerTotal}`
+									: ''} items in {ownerKey}
+							</span>
+							<Button
+								unifiedSize="sm"
+								variant="subtle"
+								loading={ownerState?.loading}
+								on:click={() => ownerKey != undefined && onExpandOwner?.(ownerKey, true)}
+							>
+								Load more
+							</Button>
 						</div>
 					{/if}
 				{/if}

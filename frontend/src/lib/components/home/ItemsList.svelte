@@ -371,6 +371,10 @@
 		// node's own children count undercounts because rows nest into subfolders.
 		count: number
 	}
+	// Rows per request when expanding an owner in the tree. Larger than the flat list's
+	// page because a tree row is a single line and an owner is opened to see what it
+	// holds — most folders come in whole on the first click.
+	const OWNER_PAGE_SIZE = 300
 	let ownerLoad = $state<Record<string, OwnerLoadState>>({})
 	let treeOwnerItems = $state<ItemType[]>([])
 	let treeGen = 0
@@ -426,7 +430,7 @@
 				kinds: itemKind !== 'all' ? itemKind : undefined,
 				pathStart: `${owner}/`,
 				includeDraftOnly: true,
-				perPage: 100,
+				perPage: OWNER_PAGE_SIZE,
 				cursor: more ? st?.cursor : undefined
 			})
 		} catch (e: any) {
@@ -1673,7 +1677,6 @@
 			{#key treeKey}
 				<TreeViewRoot
 					items={treeSource}
-					{nbDisplayed}
 					{collapseAll}
 					sortCompare={compareItems}
 					groupDesc={sortOrder === 'name_desc'}
@@ -1682,7 +1685,7 @@
 					pipelineFolders={visiblePipelineFolders}
 					allFolders={treeInjectFolders}
 					allUsers={treeInjectUsers}
-					ownerCounts={treeLazyMode ? ownerCounts : undefined}
+					ownerCounts={!searching && labelFilter == undefined ? ownerCounts : undefined}
 					selfUsername={$userStore?.username}
 					ownerLoad={treeLazyMode ? ownerLoad : undefined}
 					onExpandOwner={treeLazyMode ? loadOwnerItems : undefined}
