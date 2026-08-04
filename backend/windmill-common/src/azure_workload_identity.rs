@@ -27,6 +27,10 @@ pub const AZURE_OSSRDBMS_SCOPE: &str = "https://ossrdbms-aad.database.windows.ne
 /// worker's identity instead of failing to log in, which is why it is deliberately less
 /// password-shaped than the instance's `entraid`: that one is set by whoever runs the
 /// instance, this one sits where users keep their own secrets.
+///
+/// Compare it trimmed. A near-miss is otherwise forwarded to the server as a real
+/// password, and the resulting rejection is indistinguishable from an ordinary bad
+/// login, so the mode having been intended at all leaves no trace.
 pub const WORKLOAD_IDENTITY_PASSWORD: &str = "ms_entraid";
 
 /// Renew an access token this long before it expires.
