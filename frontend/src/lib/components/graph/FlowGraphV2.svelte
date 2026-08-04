@@ -466,6 +466,10 @@
 		return newNodes
 	}
 
+	// Flow path each expanded subflow was loaded from, so its inlined steps can be refetched
+	// after the subflow is edited elsewhere. Keyed like `expandedSubflows`, by graph node id.
+	let expandedSubflowPaths: Record<string, string> = {}
+
 	let eventHandler = {
 		deleteBranch: (detail, label) => {
 			selectionManager.selectId(label)
@@ -508,10 +512,12 @@
 			const flow = await FlowService.getFlowByPath({ workspace: workspace, path })
 			expandedSubflows[id] = { modules: flow.value.modules, groups: flow.value.groups }
 			expandedSubflows = expandedSubflows
+			expandedSubflowPaths[id] = path
 		},
 		minimizeSubflow: (id: string) => {
 			delete expandedSubflows[id]
 			expandedSubflows = expandedSubflows
+			delete expandedSubflowPaths[id]
 		},
 		expandGroup: (groupId: string) => {
 			groupDisplayState.expandGroup(groupId)
@@ -1089,6 +1095,21 @@
 		if (!showNotes) {
 			showNotes = true
 		}
+	}
+
+	export async function reloadExpandedSubflows() {
+		const reloaded = await Promise.all(
+			Object.entries(expandedSubflowPaths).map(async ([id, path]) => {
+				const flow = await FlowService.getFlowByPath({ workspace: workspace, path })
+				return [id, { modules: flow.value.modules, groups: flow.value.groups }] as const
+			})
+		)
+		for (const [id, data] of reloaded) {
+			if (expandedSubflows[id] != undefined) {
+				expandedSubflows[id] = data
+			}
+		}
+		expandedSubflows = expandedSubflows
 	}
 
 	export function createGroupFromSelection(ids: string[]) {

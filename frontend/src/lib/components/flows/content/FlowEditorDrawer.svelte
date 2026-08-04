@@ -20,11 +20,12 @@
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
 	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
 
-	export async function openDrawer(path: string, cb: () => void): Promise<void> {
+	export async function openDrawer(path: string, cb: () => void, stepId?: string): Promise<void> {
 		flowPath = path
 		flow = undefined
 		loading = true
 		callback = cb
+		selectedStepId = stepId
 		flowEditorDrawer?.openDrawer?.()
 
 		try {
@@ -47,6 +48,7 @@
 
 	let callback: (() => void) | undefined = undefined
 	let flowPath: string = $state('')
+	let selectedStepId: string | undefined = $state(undefined)
 	let flow: Flow | undefined = $state(undefined)
 	let savedFlow: Flow | undefined = $state(undefined)
 	let loading = $state(true)
@@ -92,7 +94,7 @@
 				initialPath={flowPath}
 				autosaveWorkspace={opWs}
 				newFlow={false}
-				selectedId="settings-metadata"
+				selectedId={selectedStepId ?? 'settings-metadata'}
 				loading={false}
 				bind:savedFlow
 				{diffDrawer}
@@ -117,7 +119,8 @@
 			<Button
 				variant="default"
 				on:click={() => {
-					window.open(`/flows/edit/${flowPath}`, '_blank', 'noopener,noreferrer')
+					const selected = selectedStepId ? `?selected=${encodeURIComponent(selectedStepId)}` : ''
+					window.open(`/flows/edit/${flowPath}${selected}`, '_blank', 'noopener,noreferrer')
 					flowEditorDrawer?.closeDrawer()
 				}}
 				startIcon={{ icon: ExternalLink }}
