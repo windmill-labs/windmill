@@ -17,7 +17,7 @@ use crate::secret_backend_ext::{
     delete_secret_from_backend, get_secret_value, is_external_stored_value, is_vault_stored_value,
     rename_vault_secret, store_secret_value,
 };
-use windmill_common::utils::{escape_ilike_pattern, BulkDeleteRequest};
+use windmill_common::utils::{check_proper_path, escape_ilike_pattern, BulkDeleteRequest};
 use windmill_common::webhook::{WebhookMessage, WebhookShared};
 
 use axum::{
@@ -593,6 +593,7 @@ async fn create_variable(
     Json(variable): Json<CreateVariable>,
 ) -> Result<(StatusCode, String)> {
     check_scopes(&authed, || format!("variables:write:{}", variable.path))?;
+    check_proper_path(&variable.path)?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
         AuditAuthorable::username(&authed),
@@ -1095,6 +1096,7 @@ async fn update_variable(
     // source path.
     if let Some(npath) = ns.path.as_deref() {
         check_scopes(&authed, || format!("variables:write:{}", npath))?;
+        check_proper_path(npath)?;
     }
     let authed = maybe_refresh_folders(&path, &w_id, authed, &db).await;
 

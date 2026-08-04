@@ -222,6 +222,45 @@ pub fn escape_ilike_pattern(s: &str) -> String {
         .replace('_', "\\_")
 }
 
+lazy_static::lazy_static! {
+    /// Mirrors the `proper_id` CHECK shared by `script`, `flow`, `variable`,
+    /// `resource` and `schedule`. Rust's `\w` is a superset of Postgres', so a
+    /// path the database would accept is never rejected here.
+    static ref PROPER_PATH_RE: regex::Regex = regex::Regex::new(r"^[ufg](/[\w-]+){2,}$").unwrap();
+    /// Mirrors the `proper_name` CHECK on `resource_type.name`, which
+    /// `resource.resource_type` references without a foreign key of its own.
+    static ref PROPER_TYPE_NAME_RE: regex::Regex = regex::Regex::new(r"^[\w-]{1,50}$").unwrap();
+}
+
+/// Reject a path the `proper_id` constraint would reject anyway, so the caller
+/// gets a plain 400 instead of the raw Postgres constraint-violation string,
+/// which names the table and constraint and echoes the input back.
+pub fn check_proper_path(path: &str) -> Result<()> {
+    if !PROPER_PATH_RE.is_match(path) {
+        return Err(Error::BadRequest(
+            "Invalid path: it must be of the form u/<user>/<name>, f/<folder>/<name> or \
+             g/<group>/<name>, where every segment contains only alphanumeric characters, \
+             '_' or '-'"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Confine a resource type name to the charset `resource_type.name` already
+/// enforces. `resource.resource_type` has no such constraint of its own, so
+/// without this any string up to 50 chars can be stored and later rendered as
+/// the type of a resource everyone in the workspace sees.
+pub fn check_proper_type_name(name: &str) -> Result<()> {
+    if !PROPER_TYPE_NAME_RE.is_match(name) {
+        return Err(Error::BadRequest(
+            "Invalid resource type: it must be 1 to 50 alphanumeric characters, '_' or '-'"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
 pub fn require_admin(is_admin: bool, username: &str) -> Result<()> {
     if !is_admin {
         Err(Error::RequireAdmin(username.to_string()))
