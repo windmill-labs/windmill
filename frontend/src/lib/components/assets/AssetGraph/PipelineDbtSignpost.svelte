@@ -9,15 +9,15 @@
 	const DBT_DOCS = 'https://www.windmill.dev/docs/getting_started/scripts_quickstart/dbt'
 </script>
 
-<Alert type="info" title="Already using dbt? Bring the project as it is" size="xs">
+<Alert type="info" title="Windmill also runs dbt, and a dbt project is not a pipeline" size="xs">
 	<div class="flex flex-col gap-2">
 		<p>
-			An unmodified dbt project runs here as a script of its own, and its models land on this graph
-			as <span class="font-mono">dbt://</span> assets that native pipeline steps read and write like
-			any other, so you can move one model at a time instead of rewriting the project. All it needs
-			is a warehouse configured under
-			<a class="underline" href="{base}/workspace_settings?tab=dbt">Settings → dbt</a>, which the
-			project names by name.
+			A pipeline is Windmill's own abstraction; an existing dbt project stays a dbt project, and
+			runs here unchanged as its own kind of script, with dbt still owning its models, refs and
+			tests. All it needs is a warehouse configured under
+			<a class="underline" href="{base}/workspace_settings?tab=dbt">Settings → dbt</a>. Its models
+			do surface in the asset graph, so the two can sit side by side and you can adopt pipelines
+			later, or never.
 		</p>
 		<div class="flex flex-row flex-wrap items-center gap-2">
 			{#if !$userStore?.operator}
