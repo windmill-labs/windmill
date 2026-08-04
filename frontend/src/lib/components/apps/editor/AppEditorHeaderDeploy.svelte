@@ -21,6 +21,7 @@
 		type OnBehalfOfChoice
 	} from '$lib/components/OnBehalfOfSelector.svelte'
 	import { canUserBypassRuleKind, protectionRulesState } from '$lib/workspaceProtectionRules.svelte'
+	import { FRONTEND_SDK_SCOPES } from '$lib/components/raw_apps/sdkScopes'
 
 	const WM_DEPLOYERS_GROUP = 'wm_deployers'
 
@@ -299,6 +300,12 @@
 		checked={policy.sandbox == true}
 		on:change={(e) => {
 			policy.sandbox = e.detail || undefined
+			// Frontend API access exists only for a sandboxed app, so turning
+			// isolation off drops the declared scopes with it rather than leaving
+			// them set but inert.
+			if (!e.detail) {
+				policy.frontend_sdk_scopes = undefined
+			}
 			// A not-yet-deployed app has no row to PATCH — `setPublishState` (POST
 			// /apps/update) would 404. The flag rides along in the `policy` the first
 			// deploy sends (createApp), so here we only mutate it locally. Persist
@@ -328,6 +335,58 @@
 		</div>
 	{/if}
 </div>
+
+{#if rawApp && policy.sandbox == true}
+	<h2 class="text-xs font-semibold">Frontend API access</h2>
+	<div class="mb-6 mt-2">
+		<div class="text-xs text-secondary mb-3">
+			Let the app's frontend code call the Windmill API through the <code>windmill-client</code>
+			SDK, authenticated as <b>the viewer</b> (unlike runnables, which run on behalf of the
+			publisher). Each viewer is asked to approve the scopes below before the app runs. Grant only
+			what the app needs: its code — or an XSS bug in it — can use them as that viewer. Add
+			<code>windmill-client</code> to the app's dependencies to import it; it configures itself from
+			the token handed to the bundle.
+		</div>
+		{#each FRONTEND_SDK_SCOPES as scope (scope.value)}
+			<div class="mb-2">
+				<Toggle
+					size="xs"
+					options={{ right: scope.label }}
+					checked={policy.frontend_sdk_scopes?.includes(scope.value) ?? false}
+					on:change={(e) => {
+						const current: string[] = policy.frontend_sdk_scopes ?? []
+						const next = e.detail
+							? [...current, scope.value]
+							: current.filter((s) => s !== scope.value)
+						// Keep the curated order so the consent banner and the stored
+						// consent compare stably across deploys.
+						const ordered = FRONTEND_SDK_SCOPES.map((s) => s.value).filter((s) => next.includes(s))
+						policy.frontend_sdk_scopes = ordered.length > 0 ? ordered : undefined
+						// Same as sandbox: a not-yet-deployed app has no row to PATCH, so the
+						// scopes ride along in the first deploy's policy instead.
+						if (savedApp && !newApp) {
+							setPublishState('Frontend API access updated')
+						}
+					}}
+					disabled={!savedApp}
+				/>
+				<div class="text-xs text-hint ml-9">{scope.description}</div>
+			</div>
+		{/each}
+		{#if newApp}
+			<div class="text-xs text-tertiary mt-1">Takes effect when you first deploy this app.</div>
+		{/if}
+		{#if policy.frontend_sdk_scopes?.length}
+			<div class="mt-2">
+				<Alert type="info" title="Redeploy to use the SDK from a sandboxed app" size="xs">
+					A sandboxed app calls the API cross-origin, which older <code>windmill-client</code> versions
+					cannot do. An app bundled before this Windmill version fails with a CORS error until you deploy
+					it again, which re-bundles it against a current client.
+				</Alert>
+			</div>
+		{/if}
+	</div>
+{/if}
 
 {#if !hideSecretUrl}
 	<h2>Public URL</h2>

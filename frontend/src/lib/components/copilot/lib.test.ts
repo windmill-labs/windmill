@@ -217,7 +217,12 @@ describe('model context windows', () => {
 		expect(getKnownModelContextWindow('claude-sonnet-4-6')).toBe(1000000)
 		expect(getKnownModelContextWindow('claude-opus-4-6')).toBe(1000000)
 		expect(getKnownModelContextWindow('claude-opus-4-8')).toBe(1000000)
+		expect(getKnownModelContextWindow('claude-opus-5')).toBe(1000000)
+		expect(getKnownModelContextWindow('claude-sonnet-5')).toBe(1000000)
 		expect(getKnownModelContextWindow('anthropic.claude-sonnet-4-6-v1:0')).toBe(1000000)
+		// OpenRouter dot-versions the same models; both spellings must resolve
+		expect(getKnownModelContextWindow('anthropic/claude-sonnet-4.6')).toBe(1000000)
+		expect(getKnownModelContextWindow('anthropic/claude-opus-4.8')).toBe(1000000)
 	})
 
 	it('keeps Haiku and older Claude models at 200K', () => {
@@ -240,6 +245,17 @@ describe('model context windows', () => {
 		expect(getKnownModelContextWindow('gpt-5.2')).toBe(400000)
 		expect(getKnownModelContextWindow('gpt-5.4')).toBe(1000000)
 		expect(getKnownModelContextWindow('gpt-5.5')).toBe(1000000)
+	})
+
+	it('does not let a version entry claim a longer version number', () => {
+		// `gpt-4.1` and `gpt-4-1106-preview` collapse to the same prefix, but the
+		// latter is a 128K model and must stay unlisted
+		expect(getKnownModelContextWindow('gpt-4-1106-preview')).toBeUndefined()
+		expect(getKnownModelContextWindow('gpt-4.1-mini')).toBe(1000000)
+		// family fallbacks still catch a version welded onto the name (Ollama ids),
+		// which is what keeps compaction on for them
+		expect(getKnownModelContextWindow('llama3.1')).toBe(128000)
+		expect(getKnownModelContextWindow('llama3-70b-8192')).toBe(128000)
 	})
 
 	it('maps recent Gemini and DeepSeek models to the 1M window', () => {

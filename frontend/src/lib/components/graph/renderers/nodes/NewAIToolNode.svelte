@@ -3,6 +3,7 @@
 	import InsertModuleInner from '$lib/components/flows/map/InsertModuleInner.svelte'
 	import { Plus } from 'lucide-svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import { overlayPortalTarget } from '$lib/components/common/overlayHost.svelte'
 	import { Button } from '$lib/components/common'
 	import { getGraphContext } from '../../graphContext'
 
@@ -16,13 +17,14 @@
 	let isMoving = $derived(!!moveManager?.dragging || !!moveManager?.movingModuleId)
 
 	let open = $state(false)
+	const portalTarget = overlayPortalTarget('#flow-editor')
 </script>
 
 {#if !isMoving}
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <Popover
 	bind:isOpen={open}
-	portal="#flow-editor"
+	portal={portalTarget()}
 	contentClasses="p-2 max-w-lg h-[400px] bg-surface"
 	class="inline-block"
 	usePointerDownOutside

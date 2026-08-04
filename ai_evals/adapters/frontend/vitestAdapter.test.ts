@@ -13,7 +13,7 @@ const ORIGINAL_FETCH = globalThis.fetch
 globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
 	const url = typeof input === 'string' ? input : ((input as Request | URL | null)?.url ?? '')
 	if (typeof url === 'string' && hasBenchmarkApiHandler(url)) {
-		return handleBenchmarkApiFetch(url)
+		return handleBenchmarkApiFetch(url, init)
 	}
 	return ORIGINAL_FETCH(input as Parameters<typeof fetch>[0], init)
 }) as typeof fetch

@@ -1,6 +1,7 @@
 import { base } from '$lib/base'
 import { randomUUID } from '$lib/utils/uuid'
 import { editPathFor, type WorkspaceItem } from '$lib/components/workspacePicker'
+import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 import {
 	artifactUrl,
 	matchPreviewPage,
@@ -64,6 +65,7 @@ function retargetTab(tab: SessionPreviewTab, url: string): void {
 	tab.loc = url
 	tab.friendlyLabel = undefined
 	tab.friendlyPath = undefined
+	tab.editorNamed = undefined
 }
 
 // Strip the query params the sessions preview injects into iframe URLs
@@ -103,7 +105,8 @@ export function previewTargetForSessionTarget(
 	path: string
 ): PreviewTarget | undefined {
 	if (kind === 'pipeline') {
-		return { type: 'page', href: `${base}/pipeline/${encodeURIComponent(path)}`, label: path }
+		const folder = normalizePipelineFolder(path)
+		return { type: 'page', href: `${base}/pipeline/${encodeURIComponent(folder)}`, label: folder }
 	}
 	const item: WorkspaceItem =
 		kind === 'raw_app'
@@ -406,17 +409,23 @@ export class SessionPreviewTabs {
 
 	// Stamp the friendly display label (and full friendly path, which scopes the
 	// breadcrumb picker) for the editor tab hosting `target` (the live editor
-	// knows the item's typed/auto name once its cell loads, which the page can't
-	// read reactively from the runtime cell). Matched on the tab's commanded
+	// knows the item's summary / typed name once its cell loads, which the page
+	// can't read reactively from the runtime cell). Matched on the tab's commanded
 	// `url` — the stable per-(kind,path) editor identity. Transient, so no
-	// persist/flush: they're recomputed when the tab remounts.
+	// persist/flush: they're recomputed when the tab remounts. Callers must only
+	// call this once the item has loaded: it also marks the tab as named by its
+	// editor, which stops the page falling back to the workspace listing.
 	setEditorFriendlyLabel(
 		target: SessionTarget,
 		label: string | undefined,
 		friendlyPath?: string
 	): void {
 		const t = this.#tabs.find((x) => isEditorTabFor(x.url, target))
-		if (!t || (t.friendlyLabel === label && t.friendlyPath === friendlyPath)) return
+		if (!t) return
+		// Set before the no-change early return: an item with neither a summary nor
+		// a staged path leaves both fields undefined, and the editor still owns it.
+		t.editorNamed = true
+		if (t.friendlyLabel === label && t.friendlyPath === friendlyPath) return
 		t.friendlyLabel = label
 		t.friendlyPath = friendlyPath
 	}

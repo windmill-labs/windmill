@@ -355,10 +355,41 @@ pub async fn attempt_fetch_bytes(
     return Ok(bytes);
 }
 
+/// Whether an S3 resource carries static credentials. When it does not, the
+/// ambient AWS chain (env, profile, ECS/EC2 instance role) is used instead.
+/// Shared so callers that sign requests by hand resolve credentials on exactly the
+/// same condition as `build_s3_client`.
+#[cfg(feature = "parquet")]
+pub fn s3_resource_has_static_credentials(s3_resource: &S3Resource) -> bool {
+    s3_resource.access_key.as_ref().is_some_and(|x| x != "")
+        || s3_resource.secret_key.as_ref().is_some_and(|x| x != "")
+}
+
+/// Ambient AWS credentials from the shared, cached provider backing
+/// `build_s3_client`. Callers that sign their own requests must go through this
+/// rather than resolving the default chain themselves: the cache is what keeps a
+/// burst of requests from hitting the instance metadata service once each.
+///
+/// These are the **instance's own** credentials, not any caller's, and they are
+/// returned in the clear. A caller therefore MUST:
+/// - authorize the request target itself — reaching this function implies no
+///   permission check, and the credentials typically outrank the requesting user;
+/// - use them only to sign a request it has already authorized, never surface them
+///   in a response, log, or error message, and never hand them to a caller-supplied
+///   endpoint.
+///
+/// Prefer `build_s3_client`, which confines them to the object-store client; reach
+/// for this only where a request must be signed by hand.
+#[cfg(feature = "parquet")]
+pub async fn ambient_aws_credentials(
+    region: &str,
+) -> anyhow::Result<aws_sdk_sts::config::Credentials> {
+    ambient_aws_credentials_provider(region).await.get().await
+}
+
 #[cfg(feature = "parquet")]
 pub async fn build_s3_client(s3_resource_ref: &S3Resource) -> error::Result<Arc<dyn ObjectStore>> {
-    let static_creds = s3_resource_ref.access_key.as_ref().is_some_and(|x| x != "")
-        || s3_resource_ref.secret_key.as_ref().is_some_and(|x| x != "");
+    let static_creds = s3_resource_has_static_credentials(s3_resource_ref);
 
     let credentials_provider = if !static_creds {
         Some(ambient_aws_credentials_provider(&s3_resource_ref.region).await)

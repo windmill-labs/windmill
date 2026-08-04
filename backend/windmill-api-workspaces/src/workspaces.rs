@@ -247,6 +247,8 @@ struct Workspace {
     premium: bool,
     color: Option<String>,
     parent_workspace_id: Option<String>,
+    is_dev_workspace: bool,
+    dev_workspace_label: Option<String>,
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -749,7 +751,7 @@ async fn list_workspaces(
     let mut tx = user_db.begin(&authed).await?;
     let workspaces = sqlx::query_as!(
         Workspace,
-        "SELECT workspace.id, workspace.name, workspace.owner, workspace.deleted, workspace.premium, workspace_settings.color, workspace.parent_workspace_id
+        "SELECT workspace.id, workspace.name, workspace.owner, workspace.deleted, workspace.premium, workspace_settings.color, workspace.parent_workspace_id, workspace.is_dev_workspace, workspace.dev_workspace_label
          FROM workspace
          LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
          JOIN usr ON usr.workspace_id = workspace.id
@@ -4827,7 +4829,9 @@ async fn get_workspace_as_superadmin(
             workspace.deleted AS \"deleted!\",
             workspace.premium AS \"premium!\",
             workspace_settings.color AS \"color\",
-            workspace.parent_workspace_id AS \"parent_workspace_id\"
+            workspace.parent_workspace_id AS \"parent_workspace_id\",
+            workspace.is_dev_workspace AS \"is_dev_workspace!\",
+            workspace.dev_workspace_label AS \"dev_workspace_label\"
         FROM workspace
         LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
         WHERE workspace.id = $1",
@@ -4861,7 +4865,9 @@ async fn list_workspaces_as_super_admin(
             workspace.deleted AS \"deleted!\",
             workspace.premium AS \"premium!\",
             workspace_settings.color AS \"color\",
-            workspace.parent_workspace_id AS \"parent_workspace_id\"
+            workspace.parent_workspace_id AS \"parent_workspace_id\",
+            workspace.is_dev_workspace AS \"is_dev_workspace!\",
+            workspace.dev_workspace_label AS \"dev_workspace_label\"
         FROM workspace
         LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
          LIMIT $1 OFFSET $2",
@@ -5966,7 +5972,14 @@ async fn clone_scripts(
     .execute(&mut **tx)
     .await?;
 
-    clear_orphaned_compat_address(tx, "script", "hash", source_workspace_id, target_workspace_id).await?;
+    clear_orphaned_compat_address(
+        tx,
+        "script",
+        "hash",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .await?;
 
     Ok(())
 }
@@ -6204,7 +6217,8 @@ async fn clone_flows(
     .execute(&mut **tx)
     .await?;
 
-    clear_orphaned_compat_address(tx, "flow", "path", source_workspace_id, target_workspace_id).await?;
+    clear_orphaned_compat_address(tx, "flow", "path", source_workspace_id, target_workspace_id)
+        .await?;
 
     // Then clone flow versions
     let flow_versions = sqlx::query!(
@@ -8756,6 +8770,9 @@ struct CreateProtectionRuleRequest {
 
 #[derive(Deserialize)]
 struct UpdateProtectionRuleRequest {
+    /// Renames the rule when it differs from the path name. Absent means "leave the name alone",
+    /// which is what a client that never sends the field gets.
+    name: Option<String>,
     rules: Vec<ProtectionRuleKind>,
     bypass_groups: Vec<String>,
     bypass_users: Vec<String>,
@@ -8903,10 +8920,11 @@ async fn ensure_dev_parent_is_root(db: &DB, parent_w_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// `dev_workspace_lock` is owned by the dev-workspace feature (attach/detach/archive/delete create and
-/// remove it by name). Reserve it from the public protection-rule API so a user-managed rule can't
-/// collide: otherwise the feature's name-based cleanup would clobber the user's rule, or a manual edit
-/// could weaken the feature's lock.
+/// `dev_workspace_lock` is owned by the dev-workspace feature, which creates and removes it by name
+/// (attach/detach/archive/delete). Reserve the name against creation and deletion so a user-managed
+/// rule can't collide with the feature's name-based cleanup, and so detach stays the way a pairing's
+/// lock is lifted. Updating it is deliberately allowed: relaxing the lock is an admin's call, and the
+/// name is immutable on update so no collision can arise.
 fn reject_reserved_rule_name(name: &str) -> Result<()> {
     if name == DEV_WORKSPACE_LOCK_RULE_NAME {
         return Err(Error::BadRequest(format!(
@@ -9000,7 +9018,28 @@ async fn update_protection_rule(
     Json(req): Json<UpdateProtectionRuleRequest>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
-    reject_reserved_rule_name(&rule_name)?;
+
+    // A rename moves the row's primary key, so it needs the same name checks a create does. The
+    // reserved rule can be neither end of one: the dev-workspace feature finds it by name, so
+    // renaming it away would strand the lock and renaming onto it would collide with the feature.
+    // Names are stored verbatim, as creation stores them, so this comparison is raw: a rule called
+    // " prod-lock " survives an edit that submits its current name back untouched, and a name that
+    // differs only in surrounding whitespace is a real rename rather than a silent no-op.
+    let new_name = req.name.as_deref().filter(|n| *n != rule_name);
+    if let Some(new_name) = new_name {
+        if new_name.trim().is_empty() {
+            return Err(Error::BadRequest(
+                "Protection rule name cannot be empty".to_string(),
+            ));
+        }
+        if rule_name == DEV_WORKSPACE_LOCK_RULE_NAME {
+            return Err(Error::BadRequest(format!(
+                "'{}' cannot be renamed: the dev workspace feature locates it by name",
+                DEV_WORKSPACE_LOCK_RULE_NAME
+            )));
+        }
+        reject_reserved_rule_name(new_name)?;
+    }
 
     let mut tx = db.begin().await?;
 
@@ -9021,13 +9060,33 @@ async fn update_protection_rule(
         )));
     }
 
+    if let Some(new_name) = new_name {
+        let taken = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM workspace_protection_rule WHERE workspace_id = $1 AND name = $2)",
+            &w_id,
+            new_name
+        )
+        .fetch_one(&mut *tx)
+        .await?
+        .unwrap_or(false);
+        if taken {
+            return Err(Error::BadRequest(format!(
+                "Protection rule with name '{}' already exists",
+                new_name
+            )));
+        }
+    }
+
+    let final_name = new_name.unwrap_or(&rule_name);
+
     // Update the rule
     sqlx::query!(
         r#"
             UPDATE workspace_protection_rule
-            SET rules = $1, bypass_groups = $2, bypass_users = $3
-            WHERE workspace_id = $4 AND name = $5
+            SET name = $1, rules = $2, bypass_groups = $3, bypass_users = $4
+            WHERE workspace_id = $5 AND name = $6
         "#,
+        final_name,
         ProtectionRules::from(&req.rules).bits(),
         &req.bypass_groups,
         &req.bypass_users,
@@ -9037,14 +9096,18 @@ async fn update_protection_rule(
     .execute(&mut *tx)
     .await?;
 
+    let mut audit_args = std::collections::HashMap::from([("name", final_name)]);
+    if new_name.is_some() {
+        audit_args.insert("previous_name", &rule_name[..]);
+    }
     audit_log(
         &mut *tx,
         &authed,
         "workspaces.update_protection_rule",
         ActionKind::Update,
         &w_id,
-        Some(&rule_name),
-        Some([("name", &rule_name[..])].into()),
+        Some(final_name),
+        Some(audit_args),
     )
     .await?;
 
@@ -9058,14 +9121,14 @@ async fn update_protection_rule(
         &authed.username,
         &db,
         &w_id,
-        DeployedObject::Settings { setting_type: format!("protection_rule_{}", rule_name) },
+        DeployedObject::Settings { setting_type: format!("protection_rule_{}", final_name) },
         None,
         false,
         None,
     )
     .await?;
 
-    Ok(format!("Updated protection rule '{}'", rule_name))
+    Ok(format!("Updated protection rule '{}'", final_name))
 }
 
 /// Delete a protection rule
@@ -9219,6 +9282,24 @@ pub struct WorkspaceDiffRow {
     has_changes: Option<bool>,
     exists_in_source: Option<bool>,
     exists_in_fork: Option<bool>,
+    /// The last deploy event claimed on each side, per
+    /// `windmill_common::deploy_origin`. Omitted rather than null, as the schema
+    /// declares; absent means no evidence, which never justifies propagating a
+    /// removal.
+    ///
+    /// Only the fork half is consumed today, by the merge direction. The update
+    /// direction has the mirror shape (a parent-side removal it cannot attribute)
+    /// but writes to the fork rather than to prod, and gating it on evidence would
+    /// strand a row a legacy tally left without any — so the source half is
+    /// recorded and surfaced, unread, rather than left as a gap to backfill.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fork_last_event_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fork_last_event_origin: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_last_event_kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_last_event_origin: Option<String>,
 }
 
 async fn compare_workspaces(
@@ -9310,7 +9391,9 @@ async fn compare_workspaces(
     // is left intact, so unpinning resurfaces it without a re-tally.
     let diff_items = sqlx::query_as!(
         WorkspaceDiffRow,
-        "SELECT path, kind, ahead, behind, has_changes, exists_in_source, exists_in_fork FROM workspace_diff
+        "SELECT path, kind, ahead, behind, has_changes, exists_in_source, exists_in_fork,
+            fork_last_event_kind, fork_last_event_origin, source_last_event_kind, source_last_event_origin
+        FROM workspace_diff
         WHERE source_workspace_id = $1 AND fork_workspace_id = $2
         AND NOT EXISTS (
             SELECT 1 FROM ws_specific ws
@@ -9571,16 +9654,39 @@ async fn compare_workspaces(
             .count(),
     };
 
-    let all_ahead_items_visible = summary.total_ahead
-        == confirmed_diffs
-            .iter()
+    // Each direction accounts for what it carries (see the frontend's
+    // `diffActionableInDirection`): a lineage merge leaves out a row the fork lacks
+    // unless the fork's own last event says it deleted or renamed it away, while the
+    // update takes it whatever the counters say — and since it can carry
+    // `behind = 0`, that side counts rows rather than sums.
+    let source_only = |d: &WorkspaceDiffRow| {
+        d.exists_in_source.unwrap_or(false) && !d.exists_in_fork.unwrap_or(false)
+    };
+    // Through the enums rather than their wire values: renaming one otherwise
+    // compiles clean on both sides and silently makes this always false.
+    let fork_removed_it = |d: &WorkspaceDiffRow| {
+        use windmill_common::deploy_origin::{DeployEventKind, DeployOrigin};
+        d.fork_last_event_origin.as_deref() == Some(DeployOrigin::Authored.as_str())
+            && d.fork_last_event_kind.as_deref().is_some_and(|k| {
+                k == DeployEventKind::Delete.as_str() || k == DeployEventKind::RenameFrom.as_str()
+            })
+    };
+    let merge_carries =
+        |d: &WorkspaceDiffRow| !is_lineage_pair || !source_only(d) || fork_removed_it(d);
+    let ahead_sum = |rows: &[WorkspaceDiffRow]| {
+        rows.iter()
+            .filter(|d| merge_carries(d))
             .map(|s| s.ahead)
-            .fold(0, |acc, s| acc + s.try_into().unwrap_or(0));
+            .fold(0i64, |acc, s| acc + i64::from(s))
+    };
+    let all_ahead_items_visible = ahead_sum(&visible_diffs) == ahead_sum(&confirmed_diffs);
     let all_behind_items_visible = summary.total_behind
         == confirmed_diffs
             .iter()
             .map(|s| s.behind)
-            .fold(0, |acc, s| acc + s.try_into().unwrap_or(0));
+            .fold(0, |acc, s| acc + s.try_into().unwrap_or(0))
+        && visible_diffs.iter().filter(|d| source_only(d)).count()
+            == confirmed_diffs.iter().filter(|d| source_only(d)).count();
 
     // Blast-radius guard for the "changes not visible to your user" warning
     // (which hides the deploy button). The flag is a pure visibility guarantee —
@@ -9620,7 +9726,9 @@ async fn compare_workspaces(
         if visible_keys.contains(&(d.kind.as_str(), d.path.as_str())) {
             continue;
         }
-        if d.ahead > 0 {
+        // Both sides mirror the flags above: a row is only withheld from a direction
+        // that would have carried it.
+        if d.ahead > 0 && merge_carries(d) {
             hidden_ahead.total += 1;
             *hidden_ahead.by_kind.entry(d.kind.clone()).or_default() += 1;
             if sees_all_items {
@@ -9629,7 +9737,7 @@ async fn compare_workspaces(
                     .push(HiddenItem { kind: d.kind.clone(), path: d.path.clone() });
             }
         }
-        if d.behind > 0 {
+        if d.behind > 0 || source_only(d) {
             hidden_behind.total += 1;
             *hidden_behind.by_kind.entry(d.kind.clone()).or_default() += 1;
             if sees_all_items {

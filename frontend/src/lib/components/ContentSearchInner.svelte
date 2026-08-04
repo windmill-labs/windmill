@@ -68,15 +68,6 @@
 		return ` (${n})`
 	}
 
-	function escape(htmlStr) {
-		return htmlStr
-			.replace(/&/g, '&amp;')
-			.replace(/</g, '&lt;')
-			.replace(/>/g, '&gt;')
-			.replace(/"/g, '&quot;')
-			.replace(/'/g, '&#39;')
-	}
-
 	let showNbScripts = $state(10)
 	let showNbApps = $state(10)
 	let showNbResources = $state(10)
@@ -127,7 +118,7 @@
 	filter={search}
 	items={scripts}
 	f={(s) => {
-		return escape(s.content)
+		return s.content
 	}}
 	bind:filteredItems={filteredScriptItems}
 />
@@ -136,7 +127,7 @@
 	filter={search}
 	items={resources}
 	f={(s) => {
-		return escape(YAML.stringify(s.value))
+		return YAML.stringify(s.value)
 	}}
 	bind:filteredItems={filteredResourceItems}
 />
@@ -145,7 +136,7 @@
 	filter={search}
 	items={flows}
 	f={(s) => {
-		return escape(YAML.stringify(s.value, null, 4))
+		return YAML.stringify(s.value, null, 4)
 	}}
 	bind:filteredItems={filteredFlowItems}
 />
@@ -154,7 +145,7 @@
 	filter={search}
 	items={apps}
 	f={(s) => {
-		return escape(YAML.stringify(s.value, null, 4))
+		return YAML.stringify(s.value, null, 4)
 	}}
 	bind:filteredItems={filteredAppItems}
 />

@@ -3,6 +3,9 @@
 		/** Stable identifier; used as the `[key]` for dnd and the activeId equality check. */
 		id: string
 		label: string
+		/** Hover title. Labels truncate at 180px, so set this whenever the label can
+		 * be long enough that two tabs would truncate to the same visible text. */
+		title?: string
 		/** Optional lucide-svelte (or compatible) component rendered at 12px before the label. */
 		icon?: any
 		/** Optional class applied to the icon (e.g. `text-accent` to tint it). */
@@ -153,6 +156,7 @@
 	<div
 		role="tab"
 		data-tab-id={tab.id}
+		title={tab.title}
 		aria-selected={isActive}
 		tabindex={isActive ? 0 : -1}
 		class={twMerge(tabClasses(isActive), tab.closable !== false && 'pr-1')}

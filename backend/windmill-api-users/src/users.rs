@@ -58,7 +58,9 @@ use windmill_common::{
     auth::{get_folders_for_user, get_groups_for_user},
     db::UserDB,
     error::{self, Error, JsonResult, Result},
-    utils::{not_found_if_none, rd_string, require_admin, Pagination, StripPath},
+    utils::{
+        escape_ilike_pattern, not_found_if_none, rd_string, require_admin, Pagination, StripPath,
+    },
 };
 use windmill_common::{BASE_URL, HUB_BASE_URL};
 use windmill_git_sync::handle_deployment_metadata;
@@ -105,6 +107,7 @@ fn check_token_create_rate_limit(username: &str) -> Result<()> {
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_users))
+        .route("/list_addable", get(list_addable_instance_users))
         .route("/list_usage", get(list_user_usage))
         .route("/list_usernames", get(list_usernames))
         .route("/exists", post(exists_username))
@@ -416,6 +419,53 @@ async fn list_users(
     .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
+    Ok(Json(rows))
+}
+
+#[derive(Serialize)]
+struct AddableInstanceUser {
+    email: String,
+    username: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct AddableInstanceUsersQuery {
+    search: Option<String>,
+    per_page: Option<i64>,
+}
+
+/// Instance accounts that can still be added to `w_id`, for the member picker. Service accounts
+/// live in `usr` only, so selecting from `password` leaves them out.
+async fn list_addable_instance_users(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Query(AddableInstanceUsersQuery { search, per_page }): Query<AddableInstanceUsersQuery>,
+) -> JsonResult<Vec<AddableInstanceUser>> {
+    require_super_admin(&db, &authed.email).await?;
+    let per_page = per_page.unwrap_or(10).clamp(1, 100);
+    // An absent search yields '%%', which matches every row.
+    let search = format!(
+        "%{}%",
+        escape_ilike_pattern(search.as_deref().unwrap_or_default())
+    );
+
+    // Every exclusion is part of the query so that the limit counts addable accounts only.
+    let rows = sqlx::query_as!(
+        AddableInstanceUser,
+        "SELECT email, username FROM password
+         WHERE disabled IS false
+           AND (email ILIKE $2 OR username ILIKE $2)
+           AND NOT EXISTS (SELECT 1 FROM usr WHERE usr.workspace_id = $1 AND usr.email = password.email)
+         ORDER BY email
+         LIMIT $3",
+        w_id,
+        search,
+        per_page
+    )
+    .fetch_all(&db)
+    .await?;
+
     Ok(Json(rows))
 }
 

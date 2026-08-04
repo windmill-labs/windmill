@@ -69,7 +69,10 @@ export function setClient(token?: string, baseUrl?: string) {
   if (token === undefined) {
     token = getEnv("WM_TOKEN") ?? "no_token";
   }
-  OpenAPI.WITH_CREDENTIALS = true;
+  // Windmill's raw app wrapper sets WM_RAW_APP. A sandboxed one calls the API
+  // from an opaque origin, and the API answers `Access-Control-Allow-Origin: *`,
+  // which a credentialed request can never pair with.
+  OpenAPI.WITH_CREDENTIALS = !getEnv("WM_RAW_APP");
   OpenAPI.TOKEN = token;
   OpenAPI.BASE = baseUrl + "/api";
 }
@@ -80,8 +83,12 @@ function getPublicBaseUrl(): string {
 
 export const getEnv = (key: string) => {
   if (typeof window === "undefined") {
-    // node
-    return process?.env?.[key];
+    // `process` may be undeclared entirely (web worker, browser-like runtimes
+    // without a node shim), where `process?.env` still throws a ReferenceError.
+    if (typeof process !== "undefined") {
+      return process?.env?.[key];
+    }
+    return globalThis?.process?.env?.[key];
   }
   // browser
   return window?.process?.env?.[key];

@@ -9,15 +9,17 @@
 	} from './sessionState.svelte'
 	import type { SessionRuntime } from './sessionRuntime.svelte'
 	import { Loader2 } from 'lucide-svelte'
-	import { resolvePreviewTab, parsePreviewItemRoute } from './previewRouter'
+	import { resolvePreviewTab, parsePreviewItemRoute, parsePreviewSelectedId } from './previewRouter'
 	import { withMenuHidden } from './sessionMode.svelte'
 	import ArtifactViewer from '../copilot/chat/artifacts/ArtifactViewer.svelte'
+	import { setOverlayHost } from '../common/overlayHost.svelte'
 
 	let {
 		tab,
 		session,
 		runtime,
 		active,
+		collapsed = false,
 		mounted,
 		label,
 		darkMode,
@@ -30,6 +32,11 @@
 		runtime: SessionRuntime | undefined
 		/** Visible tab — only one is at a time; the rest stay mounted but hidden. */
 		active: boolean
+		/** Preview panel is not on screen — collapsed, and not overridden by full screen.
+		 * The panel is never unmounted, so this is the difference between the active tab
+		 * and a tab the user can actually see. Resolved by the page, which owns the
+		 * collapse/full-screen precedence. */
+		collapsed?: boolean
 		/** Preview panel is in full screen — forwarded to editor views so a script
 		 * editor reopens its test pane when there's room. */
 		fullscreen?: boolean
@@ -50,6 +57,10 @@
 	// any editable item (script/flow/raw app) or a pipeline folder mounts its own
 	// live editor.
 	const slot = $derived(resolvePreviewTab(tab.url))
+	// Where inside the editor the tab was opened on ("open this flow step in a
+	// session"). Only the in-process editors need it handed over — an iframe tab
+	// loads the URL whole, params included.
+	const selectedId = $derived(parsePreviewSelectedId(tab.url))
 	const workspaceId = $derived(
 		session ? (getEffectiveWorkspaceId(session) ?? $workspaceStore ?? '') : ''
 	)
@@ -116,6 +127,20 @@
 		active ? 'z-10 opacity-100 pointer-events-auto' : 'z-0 opacity-0 pointer-events-none'
 	)
 
+	// Overlays the editor opens (drawers, modals, popovers) anchor here rather than to the
+	// document, so they stay within this tab and hide with it when another tab takes over.
+	// The stack is per-tab for the same reason: this host stays mounted while hidden, and a
+	// shared stack would let its overlays arbitrate Escape for the tab the user is looking at.
+	let editorEl: HTMLDivElement | undefined = $state()
+	let hostDrawers = $state({ val: [] as string[] })
+	setOverlayHost({
+		el: () => editorEl,
+		drawers: hostDrawers,
+		// The panel is resized rather than unmounted, so the active tab of a panel that
+		// is off screen is as invisible as a background tab.
+		active: () => active && !collapsed
+	})
+
 	let flashing = $state(false)
 	let flashTimer: ReturnType<typeof setTimeout> | undefined
 	// Guard against the effect's non-pulse reruns (tab/runtime changes) firing a flash.
@@ -152,7 +177,11 @@
 {/snippet}
 
 {#if slot.kind === 'editor' && mounted && runtime}
-	<div class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}" aria-hidden={!active}>
+	<div
+		bind:this={editorEl}
+		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
+		aria-hidden={!active}
+	>
 		<!-- Dynamic imports: the live editors pull in the heaviest module graphs in
 		     the app (FlowBuilder, ScriptBuilder/Monaco, the raw-app editor, the
 		     pipeline graph). Loading them only when an editor tab first mounts keeps
@@ -168,6 +197,7 @@
 					{onNavigate}
 					{isActiveSession}
 					{active}
+					initialSelectedId={selectedId}
 				/>
 			{/await}
 		{:else if slot.editorKind === 'script'}

@@ -493,6 +493,25 @@ pub fn check_route_access(
         }
     }
 
+    // Each declared scope must grant what its prompt said and no more:
+    // `jobs:run` only deployed runnables, `users:read` only the viewer's identity.
+    if has_raw_app_sdk_sentinel(Some(token_scopes)) {
+        if let Some(suffix) = route_suffix.as_deref() {
+            if is_request_supplied_code_route(suffix) {
+                return Err(Error::PermissionDenied(
+                    "Access denied. A raw app frontend SDK token cannot run request-supplied code."
+                        .to_string(),
+                ));
+            }
+            if required_domain == ScopeDomain::Users && suffix != "users/whoami" {
+                return Err(Error::PermissionDenied(
+                    "Access denied. A raw app frontend SDK token can only read the viewer's own identity."
+                        .to_string(),
+                ));
+            }
+        }
+    }
+
     // MCP scopes (mcp:all, mcp:favorites, mcp:hub:*, etc.) use a custom format
     // that doesn't fit the standard domain:action model. Verify the token has at
     // least one mcp: scope; MCP handlers do their own fine-grained checking.
@@ -703,6 +722,34 @@ pub const APP_EMBED_SENTINEL: &str = "app_embed";
 /// so several handlers confine them to the app's own resources/runs.
 pub fn has_app_embed_sentinel(scopes: Option<&[String]>) -> bool {
     scopes.is_some_and(|s| s.iter().any(|x| x == APP_EMBED_SENTINEL))
+}
+
+/// Sentinel in raw-app SDK tokens. Grants nothing; `check_route_access` uses it
+/// to narrow the declared scopes to what the viewer's prompt promised.
+pub const RAW_APP_SDK_SENTINEL: &str = "raw_app_sdk";
+
+pub fn has_raw_app_sdk_sentinel(scopes: Option<&[String]>) -> bool {
+    scopes.is_some_and(|s| s.iter().any(|x| x == RAW_APP_SDK_SENTINEL))
+}
+
+/// Endpoints that run code the caller supplies or names by job id (the latter
+/// with no ownership check). Their jobs get an unscoped credential as the viewer,
+/// so reaching one would make a captured SDK token a full account takeover.
+fn is_request_supplied_code_route(suffix: &str) -> bool {
+    // Prefixes, so the `_async` variants are covered too.
+    const CODE_ROUTES: [&str; 10] = [
+        "jobs/run/preview",
+        "jobs/run_inline/preview",
+        "jobs/run_wait_result/preview",
+        "jobs/run/preview_bundle",
+        "jobs/run/preview_flow",
+        "jobs/run_wait_result/preview_flow",
+        "jobs/run/dependencies",
+        "jobs/run/flow_dependencies",
+        "jobs/run/workflow_as_code",
+        "jobs/restart/f",
+    ];
+    CODE_ROUTES.iter().any(|p| suffix.starts_with(p))
 }
 
 /// Routes an app embed token (sentinel) is denied. Its broad scopes (`apps:run`,
