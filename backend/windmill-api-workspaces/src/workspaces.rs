@@ -2642,7 +2642,7 @@ pub(crate) async fn pg_dump_database(
 
     let host = &pg_db.host;
     let port = pg_db.port.unwrap_or(5432).to_string();
-    let user = pg_db.user.as_deref().unwrap_or("postgres");
+    let user = pg_db.login_name();
     let dbname = &pg_db.dbname;
 
     let mut cmd = tokio::process::Command::new("pg_dump");
@@ -2686,7 +2686,7 @@ pub(crate) async fn pg_dump_database(
 async fn pg_import_dump(target_db: &PgDatabase, dump_file: &DumpFile) -> Result<()> {
     let host = &target_db.host;
     let port = target_db.port.unwrap_or(5432).to_string();
-    let user = target_db.user.as_deref().unwrap_or("postgres");
+    let user = target_db.login_name();
     let dbname = &target_db.dbname;
 
     let mut cmd = tokio::process::Command::new("psql");
