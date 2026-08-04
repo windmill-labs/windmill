@@ -535,7 +535,7 @@
 					>Administrator scope grants full access to all resources.</p
 				>
 			{:else}
-				<div class="flex flex-wrap gap-2">
+				<div class="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
 					{#each selectedScopes.slice(0, 10) as scope}
 						{@render scopeChip(scope, 'Remove scope', () => removeSelectedScope(scope))}
 					{/each}
@@ -593,7 +593,7 @@
 							</div>
 
 							<div class="flex-1 min-w-0 flex flex-col gap-1">
-								<div class="flex items-center gap-x-2 gap-y-1 flex-wrap">
+								<div class="flex items-center gap-x-2 gap-y-1 flex-wrap max-h-16 overflow-y-auto">
 									<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 									<label
 										for={`domain-${domain.name}`}
