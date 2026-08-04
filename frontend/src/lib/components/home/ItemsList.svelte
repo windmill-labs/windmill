@@ -1610,15 +1610,19 @@
 					</Button>
 				{/if}
 				{#if homeSelection.available && !homeSelection.active}
+					<!-- Last child of a flex-row-reverse row, so `mr-auto` absorbs the free
+					     space and pins it to the far left, away from the view/sort controls. -->
 					<Button
-						unifiedSize="sm"
-						variant="subtle"
+						wrapperClasses="mr-auto"
 						startIcon={{ icon: CheckSquare }}
-						title="Select several items to move, archive, delete or discard them at once"
+						iconOnly
+						size="xs"
+						color="light"
+						variant="default"
+						spacingSize="xs2"
+						title="Select items — move, archive, delete or discard several at once"
 						on:click={() => homeSelection.enter()}
-					>
-						Select items
-					</Button>
+					/>
 				{/if}
 			</div>
 		{/if}
