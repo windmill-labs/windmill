@@ -45,10 +45,11 @@ use windmill_common::workspaces::GitRepositorySettings;
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 use windmill_common::workspaces::{
     check_deploy_rules, check_user_against_rule, get_datatable_resource_from_db,
-    get_datatable_resource_from_db_unchecked, DatatableAccess,
-    validate_dev_workspace_id, validate_fork_workspace_id, validate_workspace_name, DataTable,
-    DataTableCatalogResourceType, DataTableForkBehavior, ProtectionRuleKind, ProtectionRules,
-    ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings, DEV_WORKSPACE_LOCK_RULE_NAME,
+    get_datatable_resource_from_db_unchecked, redact_datatable_settings_for_export,
+    validate_dev_workspace_id,
+    validate_fork_workspace_id, validate_workspace_name, DataTable, DataTableCatalogResourceType,
+    DataTableForkBehavior, DatatableAccess, ProtectionRuleKind, ProtectionRules, ProtectionRuleset,
+    RuleCheckResult, WorkspaceGitSyncSettings, DEV_WORKSPACE_LOCK_RULE_NAME,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::PgDatabase;
@@ -944,6 +945,7 @@ async fn get_settings(
     if let Some(git_sync) = settings.git_sync.as_mut() {
         redact_git_sync_webhook_secrets(git_sync);
     }
+    settings.datatable = redact_datatable_settings_for_export(settings.datatable);
 
     Ok(Json(settings))
 }

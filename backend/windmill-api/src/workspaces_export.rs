@@ -47,6 +47,7 @@ use windmill_common::runnable_settings::{ConcurrencySettings, DebouncingSettings
 use windmill_common::scripts::ScriptRunnableSettingsHandle;
 use windmill_common::utils::require_admin;
 use windmill_common::variables::decrypt;
+use windmill_common::workspaces::redact_datatable_settings_for_export;
 use windmill_common::worker::WINDMILL_DIR;
 use windmill_common::{
     db::UserDB,
@@ -1493,7 +1494,7 @@ pub(crate) async fn tarball_workspace(
                 mute_critical_alerts: row.mute_critical_alerts,
                 color: row.color.clone(),
                 operator_settings: row.operator_settings.clone(),
-                datatable: row.datatable.clone(),
+                datatable: redact_datatable_settings_for_export(row.datatable.clone()),
                 slack_team_id: row.slack_team_id.clone(),
                 slack_name: row.slack_name.clone(),
                 slack_command_script: row.slack_command_script.clone(),
@@ -1563,7 +1564,7 @@ pub(crate) async fn tarball_workspace(
                 mute_critical_alerts: row.mute_critical_alerts,
                 color: row.color,
                 operator_settings: row.operator_settings,
-                datatable: row.datatable,
+                datatable: redact_datatable_settings_for_export(row.datatable),
                 slack_team_id: row.slack_team_id,
                 slack_name: row.slack_name,
                 slack_command_script: row.slack_command_script,

@@ -217,7 +217,9 @@
 					datatable={uriState.selectedDatatable}
 					onSchemaChanged={refreshManager}
 				/>
-				<DataTablePermissionsButton workspace={ws} datatable={uriState.selectedDatatable} />
+				{#if $superadmin || $userStore?.is_admin}
+					<DataTablePermissionsButton workspace={ws} datatable={uriState.selectedDatatable} />
+				{/if}
 			{/if}
 			{#if enableImportExport}
 				<Button startIcon={{ icon: Download }} onClick={handleExportSchema}>Export</Button>

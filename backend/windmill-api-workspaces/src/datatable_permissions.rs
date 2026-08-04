@@ -258,7 +258,31 @@ fn plan_role_changes(
             )));
         }
     }
-    let renamed_away: HashSet<&str> = rename_src.values().copied().collect();
+
+    // Which old role each requested role continues: its rename source if it was
+    // renamed, else the old role of the same name. Matching on the requested name
+    // alone would spare an old role that a *different* role is being renamed onto,
+    // leaving the name occupied when the rename runs.
+    let claimed: HashSet<&str> = requested
+        .keys()
+        .map(|name| {
+            rename_src
+                .get(name.as_str())
+                .copied()
+                .unwrap_or(name.as_str())
+        })
+        .collect();
+
+    // Drops come first so a name freed in this save can be reused by a rename or
+    // a create in the same save: the other order aborts on "role already exists".
+    for (name, role) in old_roles.iter() {
+        if name == ROOT_DATATABLE_ROLE || claimed.contains(name.as_str()) {
+            continue;
+        }
+        if let Some(pg_role) = role.pg_rolename.as_deref() {
+            drop_role(&mut statements, pg_role);
+        }
+    }
 
     let mut roles: BTreeMap<String, DataTableRole> = BTreeMap::new();
 
@@ -355,18 +379,6 @@ fn plan_role_changes(
         }
     }
 
-    for (name, role) in old_roles.iter() {
-        if name == ROOT_DATATABLE_ROLE
-            || renamed_away.contains(name.as_str())
-            || requested.contains_key(name)
-        {
-            continue;
-        }
-        if let Some(pg_role) = role.pg_rolename.as_deref() {
-            drop_role(&mut statements, pg_role);
-        }
-    }
-
     Ok(RolePlan {
         statements,
         permissions: DataTablePermissions { enabled: true, roles },
@@ -395,12 +407,14 @@ fn create_role_statement(pg_rolename: &str, password: &str) -> PlannedStatement 
 /// unconditional: it stays a no-op in the common case instead of failing the
 /// whole transaction.
 fn grant_connect_statement(pg_rolename: &str, dbname: &str) -> PlannedStatement {
+    let role_lit = quote_literal(pg_rolename);
+    let db_lit = quote_literal(dbname);
+    // The names are passed to `format(%I)` rather than interpolated as quoted
+    // identifiers: this identifier sits inside a single-quoted EXECUTE string, so
+    // a `'` in the database name — which comes from a user-editable postgres
+    // resource — would otherwise close the literal and run as plpgsql of its own.
     PlannedStatement::plain(format!(
-        "DO $$ BEGIN\n  IF NOT has_database_privilege({}, {}, 'CONNECT') THEN\n    EXECUTE 'GRANT CONNECT ON DATABASE {} TO {}';\n  END IF;\nEND $$;",
-        quote_literal(pg_rolename),
-        quote_literal(dbname),
-        quote_ident(dbname),
-        quote_ident(pg_rolename)
+        "DO $$ BEGIN\n  IF NOT has_database_privilege({role_lit}, {db_lit}, 'CONNECT') THEN\n    EXECUTE format('GRANT CONNECT ON DATABASE %I TO %I', {db_lit}, {role_lit});\n  END IF;\nEND $$;"
     ))
 }
 
@@ -786,11 +800,54 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            sql(&plan).iter().filter(|s| s.starts_with("DROP ROLE")).count(),
+            sql(&plan)
+                .iter()
+                .filter(|s| s.starts_with("DROP ROLE"))
+                .count(),
             2
         );
         assert!(!plan.permissions.enabled);
         assert!(plan.permissions.roles.is_empty());
+    }
+
+    /// A name freed by a delete must be reusable by a rename in the same save,
+    /// which only holds if the drops are planned first.
+    #[test]
+    fn a_name_freed_in_the_same_save_can_be_reused() {
+        let old = enabled_with(&["analyst", "reader"]);
+        let existing: Vec<String> = ["analyst", "reader"]
+            .iter()
+            .map(|r| datatable_pg_role_name(W_ID, DT, r))
+            .collect();
+        // Delete `reader`, rename `analyst` into its place.
+        let req = SetDatatablePermissions {
+            enabled: true,
+            roles: vec![role("root", &[]), role("reader", &[])],
+            renames: vec![DatatableRoleRename {
+                from: "analyst".to_string(),
+                to: "reader".to_string(),
+            }],
+        };
+        let plan = plan(
+            Some(&old),
+            &req,
+            &existing.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+        )
+        .unwrap();
+
+        let statements = sql(&plan);
+        let drop_at = statements
+            .iter()
+            .position(|s| s.starts_with("DROP ROLE"))
+            .expect("the freed role is dropped");
+        let rename_at = statements
+            .iter()
+            .position(|s| s.starts_with("ALTER ROLE") && s.contains("RENAME TO"))
+            .expect("the surviving role is renamed");
+        assert!(
+            drop_at < rename_at,
+            "drop must precede the rename that reuses the name: {statements:?}"
+        );
     }
 
     #[test]
@@ -832,7 +889,10 @@ mod tests {
                 roles: vec![role("root", &[]), role(bad_role, &[])],
                 renames: vec![],
             };
-            assert!(plan(None, &req, &[]).is_err(), "{bad_role} should be rejected");
+            assert!(
+                plan(None, &req, &[]).is_err(),
+                "{bad_role} should be rejected"
+            );
         }
         for bad_tenant in ["alice", "x/alice", "u/", ""] {
             let req = SetDatatablePermissions {

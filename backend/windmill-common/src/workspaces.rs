@@ -1036,16 +1036,58 @@ pub struct DataTableRole {
     pub tenants: Vec<String>,
 }
 
+/// Strip the generated role passwords out of a `workspace_settings.datatable`
+/// value.
+///
+/// Those passwords are direct database logins: anything that hands the settings
+/// blob outside the server — the settings endpoint, the workspace tarball, a
+/// git-synced `settings.yaml` — must go through this first, or the credential
+/// lands somewhere far weaker than the role it protects (a repository's history,
+/// a non-admin's export).
+pub fn redact_datatable_settings_for_export(
+    datatable: Option<serde_json::Value>,
+) -> Option<serde_json::Value> {
+    let mut datatable = datatable?;
+    let Some(datatables) = datatable
+        .get_mut("datatables")
+        .and_then(|d| d.as_object_mut())
+    else {
+        return Some(datatable);
+    };
+    for (_, dt) in datatables.iter_mut() {
+        let Some(roles) = dt
+            .get_mut("permissions")
+            .and_then(|p| p.get_mut("roles"))
+            .and_then(|r| r.as_object_mut())
+        else {
+            continue;
+        };
+        for (_, role) in roles.iter_mut() {
+            if let Some(role) = role.as_object_mut() {
+                role.remove("pg_password");
+            }
+        }
+    }
+    Some(datatable)
+}
+
 /// Postgres caps identifiers at 63 bytes (NAMEDATALEN - 1) and silently
 /// truncates past it, which would collapse two distinct roles onto one.
 const PG_IDENTIFIER_MAX_LEN: usize = 63;
 
 /// The postgres role backing `role` on `w_id`'s `datatable`.
 ///
-/// Postgres roles are cluster-wide while data table names are per-workspace, so
-/// the workspace id has to be part of the name: without it two workspaces that
-/// both hold a `main` data table with an `analyst` role would silently share one
-/// role, and the second workspace's CREATE would fail.
+/// Postgres roles are cluster-wide while data table and role names are scoped to
+/// a workspace, so the name is `wm_<workspace>_<datatable>_<role>` plus a hash of
+/// the exact triple. Both halves are load-bearing:
+///
+/// - Without the workspace id, two workspaces that both hold a `main` data table
+///   with an `analyst` role would silently share one Postgres role.
+/// - Without the hash, the readable half would not identify the triple: it is
+///   sanitized (every character outside `[a-z0-9]` becomes `_`) and truncated to
+///   fit Postgres' 63-byte identifier limit, so `analyst-1` and `analyst_1` — and
+///   data table `sales_ro` + role `x` against data table `sales` + role `ro_x` —
+///   would collapse onto the same role and share its grants.
 pub fn datatable_pg_role_name(w_id: &str, datatable: &str, role: &str) -> String {
     fn sanitize(s: &str) -> String {
         s.chars()
@@ -1058,23 +1100,28 @@ pub fn datatable_pg_role_name(w_id: &str, datatable: &str, role: &str) -> String
             })
             .collect()
     }
-    let name = format!(
+    use sha2::{Digest, Sha256};
+    // NUL-joined so the digest cannot be replayed by moving characters across the
+    // field boundaries.
+    let mut hasher = Sha256::new();
+    for part in [w_id, datatable, role] {
+        hasher.update(part.as_bytes());
+        hasher.update([0u8]);
+    }
+    let digest = hasher.finalize();
+    let discriminator = u32::from_be_bytes([digest[0], digest[1], digest[2], digest[3]]);
+
+    let readable = format!(
         "wm_{}_{}_{}",
         sanitize(w_id),
         sanitize(datatable),
         sanitize(role)
     );
-    if name.len() <= PG_IDENTIFIER_MAX_LEN {
-        return name;
-    }
-    // Truncating alone would let two long names collapse into one role, so the
-    // discriminator is derived from the full name.
-    use sha2::{Digest, Sha256};
-    let hash = &Sha256::digest(name.as_bytes())[..4];
+    let max_readable = PG_IDENTIFIER_MAX_LEN - 9; // "_" + 8 hex digits
     format!(
         "{}_{:08x}",
-        &name[..PG_IDENTIFIER_MAX_LEN - 9],
-        u32::from_be_bytes([hash[0], hash[1], hash[2], hash[3]])
+        &readable[..readable.len().min(max_readable)],
+        discriminator
     )
 }
 
@@ -1217,14 +1264,17 @@ pub async fn get_datatable_replication_resource_from_db_unchecked(
 /// Returns the `(user, password)` to swap into the connection, or `None` when
 /// the data table's own credentials are to be used — which is every
 /// unpermissioned data table, and the `root` role of a permissioned one.
-async fn resolve_datatable_role(
-    db: &DB,
-    w_id: &str,
+/// Look up the role a resolution asks for, without authorizing it.
+///
+/// `Ok(None)` means the data table is unpermissioned and resolves through its own
+/// connection. On a permissioned one an unknown role is an error, and on an
+/// unpermissioned one so is naming any role other than `root` — silently ignoring
+/// it would run the script with more privileges than it asked for.
+fn datatable_role_entry<'a>(
+    datatable: &'a DataTable,
     name: &str,
-    datatable: &DataTable,
     role: Option<&str>,
-    access: DatatableAccess<'_>,
-) -> Result<Option<(String, String)>> {
+) -> Result<Option<(&'a str, &'a DataTableRole)>> {
     let Some(permissions) = datatable.permissions.as_ref().filter(|p| p.enabled) else {
         return match role {
             Some(role) if role != ROOT_DATATABLE_ROLE => Err(Error::BadRequest(format!(
@@ -1236,7 +1286,7 @@ async fn resolve_datatable_role(
     };
 
     let role_name = role.unwrap_or(ROOT_DATATABLE_ROLE);
-    let role_entry = permissions.roles.get(role_name).ok_or_else(|| {
+    let (role_name, role_entry) = permissions.roles.get_key_value(role_name).ok_or_else(|| {
         Error::NotFound(format!(
             "Role '{role_name}' is not defined on data table '{name}'. Defined roles: {}.",
             permissions
@@ -1247,6 +1297,20 @@ async fn resolve_datatable_role(
                 .join(", ")
         ))
     })?;
+    Ok(Some((role_name.as_str(), role_entry)))
+}
+
+async fn resolve_datatable_role(
+    db: &DB,
+    w_id: &str,
+    name: &str,
+    datatable: &DataTable,
+    role: Option<&str>,
+    access: DatatableAccess<'_>,
+) -> Result<Option<(String, String)>> {
+    let Some((role_name, role_entry)) = datatable_role_entry(datatable, name, role)? else {
+        return Ok(None);
+    };
 
     let allowed = match access {
         DatatableAccess::Unchecked => true,
@@ -2422,24 +2486,121 @@ mod tests {
     }
 
     #[test]
-    fn datatable_pg_role_names_are_workspace_scoped_and_fit_postgres() {
-        assert_eq!(
-            datatable_pg_role_name("acme", "main", "analyst"),
-            "wm_acme_main_analyst"
-        );
-        // Two workspaces must never land on the same cluster-wide role.
+    fn datatable_pg_role_names_are_readable_and_never_collide() {
+        assert!(datatable_pg_role_name("acme", "main", "analyst").starts_with("wm_acme_main_analyst_"));
+
+        // Every pair below sanitizes to the same readable half, so only the hash
+        // keeps them apart — and they must stay apart: two Windmill roles sharing
+        // one Postgres login would share its grants.
+        let collide = [
+            // different workspaces
+            (("acme", "main", "analyst"), ("globex", "main", "analyst")),
+            // '-' and '_' both sanitize to '_'
+            (("acme", "main", "analyst-1"), ("acme", "main", "analyst_1")),
+            // the field separator is itself '_', so the boundary can shift
+            (("acme", "sales_ro", "x"), ("acme", "sales", "ro_x")),
+            // case is folded
+            (("acme", "main", "Analyst"), ("acme", "main", "analyst")),
+        ];
+        for ((w1, d1, r1), (w2, d2, r2)) in collide {
+            assert_ne!(
+                datatable_pg_role_name(w1, d1, r1),
+                datatable_pg_role_name(w2, d2, r2),
+                "{w1}/{d1}/{r1} vs {w2}/{d2}/{r2}"
+            );
+        }
+
+        // Postgres silently truncates past 63 bytes, which would undo the above.
+        for name in [
+            datatable_pg_role_name(&"w".repeat(60), "main", "analyst"),
+            datatable_pg_role_name("acme", &"d".repeat(200), &"r".repeat(60)),
+        ] {
+            assert!(name.len() <= PG_IDENTIFIER_MAX_LEN, "{name}");
+        }
         assert_ne!(
-            datatable_pg_role_name("acme", "main", "analyst"),
-            datatable_pg_role_name("globex", "main", "analyst")
+            datatable_pg_role_name(&"w".repeat(60), "main", "analyst"),
+            datatable_pg_role_name(&"w".repeat(61), "main", "analyst")
         );
-        // Postgres truncates past 63 bytes, so long names are hashed rather than
-        // left to collide.
-        let long = datatable_pg_role_name("w".repeat(60).as_str(), "main", "analyst");
-        assert_eq!(long.len(), PG_IDENTIFIER_MAX_LEN);
-        assert_ne!(
-            long,
-            datatable_pg_role_name("w".repeat(61).as_str(), "main", "analyst")
-        );
+    }
+
+    fn permissioned(roles: &[(&str, &[&str])]) -> DataTable {
+        let mut map = std::collections::BTreeMap::new();
+        for (name, tenants) in roles {
+            map.insert(
+                name.to_string(),
+                DataTableRole {
+                    pg_rolename: (*name != ROOT_DATATABLE_ROLE)
+                        .then(|| format!("wm_{name}")),
+                    pg_password: (*name != ROOT_DATATABLE_ROLE).then(|| "pwd".to_string()),
+                    tenants: tenants.iter().map(|t| t.to_string()).collect(),
+                },
+            );
+        }
+        DataTable {
+            database: DataTableDatabase {
+                resource_type: DataTableCatalogResourceType::Instance,
+                resource_path: "db".to_string(),
+            },
+            forked_from: None,
+            migrations_enabled: None,
+            permissions: Some(DataTablePermissions { enabled: true, roles: map }),
+        }
+    }
+
+    #[test]
+    fn datatable_role_lookup_defaults_to_root_and_rejects_unknown_roles() {
+        let dt = permissioned(&[(ROOT_DATATABLE_ROLE, &[]), ("analyst", &["u/alice"])]);
+
+        // No role named -> root, which reuses the data table's own connection.
+        let (name, entry) = datatable_role_entry(&dt, "main", None).unwrap().unwrap();
+        assert_eq!(name, ROOT_DATATABLE_ROLE);
+        assert!(entry.pg_rolename.is_none());
+
+        let (name, entry) = datatable_role_entry(&dt, "main", Some("analyst"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(name, "analyst");
+        assert_eq!(entry.pg_rolename.as_deref(), Some("wm_analyst"));
+
+        assert!(datatable_role_entry(&dt, "main", Some("nope")).is_err());
+    }
+
+    #[test]
+    fn naming_a_role_on_an_unpermissioned_datatable_is_refused() {
+        let mut dt = permissioned(&[(ROOT_DATATABLE_ROLE, &[]), ("analyst", &["u/alice"])]);
+        dt.permissions.as_mut().unwrap().enabled = false;
+
+        // Silently ignoring the role would run the script as the data table's own
+        // connection — more privilege than it asked for.
+        assert!(datatable_role_entry(&dt, "main", Some("analyst")).is_err());
+        // root and "no role" both mean the existing connection, so they are fine.
+        assert!(datatable_role_entry(&dt, "main", None).unwrap().is_none());
+        assert!(datatable_role_entry(&dt, "main", Some(ROOT_DATATABLE_ROLE))
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn datatable_settings_export_drops_role_passwords() {
+        let settings = serde_json::json!({
+            "datatables": {
+                "main": {
+                    "database": { "resource_type": "instance", "resource_path": "db" },
+                    "permissions": { "enabled": true, "roles": {
+                        "root": { "tenants": [] },
+                        "analyst": { "pg_rolename": "wm_x", "pg_password": "s3cret", "tenants": ["u/alice"] }
+                    }}
+                },
+                "other": { "database": { "resource_type": "instance", "resource_path": "db2" } }
+            }
+        });
+        let redacted = redact_datatable_settings_for_export(Some(settings)).unwrap();
+        let analyst = &redacted["datatables"]["main"]["permissions"]["roles"]["analyst"];
+        assert!(analyst.get("pg_password").is_none());
+        // Everything else survives: the export is still a usable settings file.
+        assert_eq!(analyst["pg_rolename"], "wm_x");
+        assert_eq!(analyst["tenants"][0], "u/alice");
+        assert_eq!(redacted["datatables"]["other"]["database"]["resource_path"], "db2");
     }
 
     #[test]
