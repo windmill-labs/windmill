@@ -110,15 +110,17 @@ function normalizeVersionSeparators(model: string): string {
 	return model.replace(/\./g, '-')
 }
 
-// `(?!\d)` stops a collapsed entry from running into a longer version number:
-// `gpt-4.1` becomes `gpt-4-1`, which would otherwise claim the 128K
+// An entry that ends on a version digit must not run into a longer version:
+// `gpt-4.1` collapses to `gpt-4-1`, which would otherwise claim the 128K
 // `gpt-4-1106-preview` as a 1M model. Suffixes that continue with a separator
 // (`claude-opus-4-8` in `...-4-8-v1`, `gpt-5` in `gpt-5-mini`) still match.
+// Family fallbacks ending on a letter get no such guard — a version welded
+// straight onto the name (`llama3.1`) is exactly what they exist to catch.
 const MODEL_CONTEXT_WINDOW_MATCHERS: [matcher: RegExp, contextWindow: number][] =
-	MODEL_CONTEXT_WINDOWS.map(([name, contextWindow]) => [
-		new RegExp(`${normalizeVersionSeparators(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?!\\d)`),
-		contextWindow
-	])
+	MODEL_CONTEXT_WINDOWS.map(([name, contextWindow]) => {
+		const pattern = normalizeVersionSeparators(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+		return [new RegExp(/\d$/.test(pattern) ? `${pattern}(?!\\d)` : pattern), contextWindow]
+	})
 
 export function getKnownModelContextWindow(model: string): number | undefined {
 	const id = normalizeVersionSeparators(parseModelId(model).base)

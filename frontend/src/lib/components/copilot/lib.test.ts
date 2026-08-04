@@ -252,6 +252,10 @@ describe('model context windows', () => {
 		// latter is a 128K model and must stay unlisted
 		expect(getKnownModelContextWindow('gpt-4-1106-preview')).toBeUndefined()
 		expect(getKnownModelContextWindow('gpt-4.1-mini')).toBe(1000000)
+		// family fallbacks still catch a version welded onto the name (Ollama ids),
+		// which is what keeps compaction on for them
+		expect(getKnownModelContextWindow('llama3.1')).toBe(128000)
+		expect(getKnownModelContextWindow('llama3-70b-8192')).toBe(128000)
 	})
 
 	it('maps recent Gemini and DeepSeek models to the 1M window', () => {
