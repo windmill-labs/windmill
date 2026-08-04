@@ -843,9 +843,9 @@
 	// folder rows the tree ignores (folders come from the store and are all injected
 	// already) — so surfacing it there is confusing. Restrict it to scoped mode, where
 	// it pages within the selected owner. In lazy mode the footer instead reveals more
-	// root nodes purely client-side (nbDisplayed) when there are more than are shown,
-	// and each folder paginates within itself; users past the window are reached via
-	// their owner chip.
+	// root nodes purely client-side (the tree owns that window) when there are more than
+	// are shown, and each folder paginates within itself; users past the window are
+	// reached via their owner chip.
 	let treeGlobalHasMore = $derived(ownerFilter != undefined && !searching ? hasMoreServer : false)
 	$effect(() => {
 		if ($userStore && $workspaceStore) {
