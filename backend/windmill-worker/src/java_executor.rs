@@ -525,16 +525,19 @@ async fn move_to_repository(
         let (mut subdirs, mut holds_artifact) = (vec![], false);
         let mut entries = tokio::fs::read_dir(dir).await?;
         while let Some(entry) = entries.next_entry().await? {
+            let name = entry.file_name().to_string_lossy().into_owned();
             if entry.file_type().await?.is_dir() {
-                subdirs.push(entry);
+                subdirs.push((name, entry));
             } else {
-                holds_artifact = true;
+                // coursier's own bookkeeping (`.<name>.checked`, `.<name>.error`, checksums) is
+                // dot-prefixed; only a downloaded artifact is not
+                holds_artifact |= !name.starts_with('.');
             }
         }
-        // every repository coursier probed and got a 404 from is left with an empty directory at
-        // the coordinate, so the match only counts where the artifact itself landed: the first
-        // repository tried is a default one, and claiming its leftover would cache an empty
-        // directory as the installed artifact
+        // a repository coursier probed and did not get the artifact from keeps a directory at the
+        // coordinate holding nothing but that bookkeeping, and default repositories are probed
+        // before the configured ones, so claiming the first match would cache an empty directory
+        // as the installed artifact
         if holds_artifact {
             if let Some(w) = wanted
                 .iter_mut()
@@ -545,8 +548,8 @@ async fn move_to_repository(
                 return Ok(());
             }
         }
-        for entry in subdirs {
-            below.push(entry.file_name().to_string_lossy().into_owned());
+        for (name, entry) in subdirs {
+            below.push(name);
             find_and_copy(&entry.path(), below, wanted).await?;
             below.pop();
         }
@@ -1194,13 +1197,15 @@ mod tests {
         let central = format!("{fetch_dir}/https/repo1.maven.org/maven2");
         let nexus = format!("{fetch_dir}/https/nexus.local/repository/maven-public");
         touch(&format!("{central}/com/corp/public/1.0/public-1.0.jar")).await;
-        create_dir_all(format!("{nexus}/com/corp/public/1.0"))
-            .await
-            .unwrap();
+        touch(&format!(
+            "{nexus}/com/corp/public/1.0/.public-1.0.jar.error"
+        ))
+        .await;
         touch(&format!("{nexus}/com/corp/internal/1.0/internal-1.0.jar")).await;
-        create_dir_all(format!("{central}/com/corp/internal/1.0"))
-            .await
-            .unwrap();
+        touch(&format!(
+            "{central}/com/corp/internal/1.0/.internal-1.0.jar.error"
+        ))
+        .await;
 
         let deps = vec![
             dep(&repository_dir, "com/corp", "public", "1.0"),
