@@ -119,9 +119,9 @@
 					title="Open the subflow in a new tab"
 					startIcon={{ icon: ExternalLink }}
 					iconOnly
-					href={`${base}/flows/edit/${containingFlowPath}?workspace=${opWs}${
-						module ? `&selected=${encodeURIComponent(leafId)}` : ''
-					}`}
+					href={`${base}/flows/edit/${containingFlowPath}?workspace=${encodeURIComponent(
+						opWs ?? ''
+					)}${module ? `&selected=${encodeURIComponent(leafId)}` : ''}`}
 					target="_blank"
 				/>
 			</div>

@@ -1094,6 +1094,8 @@
 		}
 	}
 
+	let latestReload = 0
+
 	/** Flow an expanded subflow node stands for, read from the step it inlines: the edited
 	 * flow for a top-level expansion, the enclosing expansion's modules otherwise. */
 	function expandedSubflowPath(nodeId: string): string | undefined {
@@ -1109,12 +1111,17 @@
 	 * its refreshed parent: a step now pointing at another flow must not keep rendering the
 	 * one it pointed at when it was expanded. */
 	export async function reloadExpandedSubflows() {
+		const reload = ++latestReload
 		const ids = Object.keys(expandedSubflows).sort(
 			(a, b) =>
 				(parseExpandedSubflowId(a)?.subflowSteps.length ?? 0) -
 				(parseExpandedSubflowId(b)?.subflowSteps.length ?? 0)
 		)
 		for (const id of ids) {
+			// A later reload owns the state from here on, and an expansion the user collapsed
+			// while its request was in flight must not come back.
+			if (reload !== latestReload) return
+			if (expandedSubflows[id] == undefined) continue
 			const path = expandedSubflowPath(id)
 			if (path == undefined) {
 				delete expandedSubflows[id]
@@ -1122,6 +1129,8 @@
 			}
 			try {
 				const flow = await FlowService.getFlowByPath({ workspace: workspace, path })
+				if (reload !== latestReload) return
+				if (expandedSubflows[id] == undefined) continue
 				expandedSubflows[id] = { modules: flow.value.modules, groups: flow.value.groups }
 			} catch (err) {
 				sendUserToast(`Could not reload expanded subflow ${path}: ${err.body ?? err}`, true)
