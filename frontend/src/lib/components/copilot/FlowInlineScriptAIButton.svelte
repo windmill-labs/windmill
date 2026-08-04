@@ -8,7 +8,7 @@
 	import { aiChatManager, AIMode } from './chat/AIChatManager.svelte'
 	import { chatState } from './chat/sharedChatState.svelte'
 	import { copilotInfo } from '$lib/aiStore'
-	import { type ComponentProps } from 'svelte'
+	import type { ComponentProps } from 'svelte'
 
 	interface Props {
 		moduleId?: string
