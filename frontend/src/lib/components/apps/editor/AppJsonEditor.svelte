@@ -11,6 +11,7 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import { Globe, Loader2, Save } from 'lucide-svelte'
+	import { deployRawAppValue } from '$lib/rawAppDeploy'
 
 	let jsonViewerDrawer: Drawer | undefined = $state()
 
@@ -65,6 +66,21 @@
 			})
 			dispatch('change')
 			sendUserToast('Draft saved')
+		} else if (isRawApp) {
+			// A raw app's value holds its sources, not a renderable grid: it has to be
+			// re-bundled and written through the raw endpoint. `updateApp` would flag
+			// the new version low-code and leave the bundle on the old one.
+			await deployRawAppValue({
+				workspace: $workspaceStore!,
+				path,
+				value: parsed,
+				summary: app?.summary,
+				policy: app?.policy,
+				customPath: app?.custom_path
+			})
+			dispatch('change')
+			UserDraft.remove('raw_app', path)
+			sendUserToast('App deployed')
 		} else {
 			await AppService.updateApp({
 				workspace: $workspaceStore!,

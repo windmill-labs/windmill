@@ -1,7 +1,8 @@
 /**
- * Deploy a raw app (code-based app) from its server-side draft. Raw apps can't
- * be deployed through the normal AppService.updateApp/createApp path: their
- * source `files` must be bundled to js/css and saved via the raw-app endpoints.
+ * Deploy a raw app (code-based app), from its server-side draft or from an
+ * explicit value. Raw apps can't be deployed through the normal
+ * AppService.updateApp/createApp path: their source `files` must be bundled to
+ * js/css and saved via the raw-app endpoints.
  *
  * This mirrors how the global AI chat deploys raw apps
  * (`copilot/chat/global/core.ts` → deployDraft, case 'app'): read the item with
@@ -18,6 +19,70 @@ import type { AppDraftValue } from '$lib/components/copilot/chat/global/workspac
 import { updateRawAppPolicy } from '$lib/components/raw_apps/rawAppPolicy'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { appSourceToDraftValue } from '$lib/components/raw_apps/rawAppDraftValue'
+import { stateSnapshot } from '$lib/svelte5Utils.svelte'
+
+/**
+ * Deploy an explicit raw-app value — one the user edited as JSON, or one
+ * restored from a previous version — onto an already deployed raw app. Going
+ * through AppService.updateApp instead would write a version flagged low-code
+ * and leave the bundle behind on the old version, so the app stops rendering;
+ * the backend rejects that mismatch.
+ */
+export async function deployRawAppValue({
+	workspace,
+	path,
+	value,
+	summary,
+	policy: currentPolicy,
+	customPath,
+	deploymentMessage,
+	allowKindChange
+}: {
+	workspace: string
+	path: string
+	value: any
+	summary?: string
+	policy?: Policy
+	customPath?: string | null
+	deploymentMessage?: string
+	/** Let this deploy turn a low-code app into a raw one (restoring a version
+	 * from before an accidental conversion). Off for every ordinary deploy. */
+	allowKindChange?: boolean
+}): Promise<void> {
+	// The value often comes straight out of a `$state` field, and the bundler
+	// runs in an iframe: postMessage refuses to clone a state proxy.
+	const plainValue = stateSnapshot(value) as any
+	const files = (plainValue?.files ?? {}) as Record<string, string>
+	const runnables = plainValue?.runnables ?? {}
+	// The value carries the runnables, so the policy's triggerables have to be
+	// recomputed from it or the deployed app can't call what it now contains.
+	const policy = (await updateRawAppPolicy(runnables, currentPolicy)) as Policy
+	if (!policy.execution_mode) {
+		policy.execution_mode = 'publisher'
+	}
+
+	const bundle = await bundleRawAppDraft({ workspace, files })
+
+	const isAdmin = !!(get(userStore)?.is_admin || get(userStore)?.is_super_admin)
+	await AppService.updateAppRaw({
+		workspace,
+		path,
+		formData: {
+			app: {
+				value: { files, runnables, data: plainValue?.data ?? { ...DEFAULT_RAW_APP_DATA } },
+				summary: summary ?? '',
+				policy,
+				deployment_message: deploymentMessage,
+				// custom_path changes require admin (see deployRawAppDraft).
+				custom_path: isAdmin ? (customPath ?? '') : undefined,
+				preserve_on_behalf_of: policy.on_behalf_of ? true : undefined,
+				allow_kind_change: allowKindChange || undefined
+			},
+			js: bundle.js,
+			css: bundle.css
+		}
+	})
+}
 
 /**
  * Promote a raw app's draft to deployed. Throws on failure (caller wraps into a

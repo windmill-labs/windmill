@@ -365,6 +365,12 @@ pub struct EditApp {
     /// Transient — never persisted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skip_draft_deletion: Option<bool>,
+    /// Caller-intent flag: when true this deploy may switch the app between
+    /// low-code and raw. Only a deliberate conversion sets it (restoring a
+    /// version from the app's other-kind history); every other write is
+    /// refused rather than converted. Transient — never persisted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_kind_change: Option<bool>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -2418,6 +2424,36 @@ async fn update_app_internal<'a>(
     }
 
     let mut tx = user_db.clone().begin(&authed).await?;
+
+    // `app_version.raw_app` is whatever the endpoint that wrote the version says
+    // it is, so deploying a value through the wrong one converts the app in
+    // place: a raw app updated via /apps/update becomes a low-code app whose
+    // value no editor can render, and its js/css bundle (keyed on the previous
+    // version id) is orphaned. Refuse instead of letting the write land — the
+    // caller reached for the wrong endpoint, unless it says otherwise.
+    if ns.value.is_some() && !ns.allow_kind_change.unwrap_or(false) {
+        let deployed_raw_app = sqlx::query_scalar!(
+            "SELECT app_version.raw_app FROM app
+             JOIN app_version ON app_version.id = app.versions[array_upper(app.versions, 1)]
+             WHERE app.path = $1 AND app.workspace_id = $2",
+            path,
+            w_id
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        if deployed_raw_app.is_some_and(|deployed| deployed != raw_app) {
+            let (kind, endpoint) = if raw_app {
+                ("a low-code app", "/apps/update")
+            } else {
+                ("a raw app", "/apps/update_raw")
+            };
+            return Err(Error::BadRequest(format!(
+                "App {path} is {kind}: deploying a value to it through the other kind's endpoint \
+                 would convert it and strand its bundle. Use {endpoint} instead, or set \
+                 allow_kind_change to convert it on purpose."
+            )));
+        }
+    }
 
     let mut preserved_on_behalf_of: Option<String> = None;
     let npath = if ns.policy.is_some()

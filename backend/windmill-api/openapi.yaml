@@ -12302,6 +12302,9 @@ paths:
                 skip_draft_deletion:
                   type: boolean
                   description: "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
+                allow_kind_change:
+                  type: boolean
+                  description: "When true, this deploy may switch the app between low-code and raw. Without it, deploying a value to an app of the other kind is refused so an app is never converted by accident."
       responses:
         "200":
           description: app updated
@@ -12351,6 +12354,9 @@ paths:
                     skip_draft_deletion:
                       type: boolean
                       description: "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
+                    allow_kind_change:
+                      type: boolean
+                      description: "When true, this deploy may switch the app between low-code and raw. Without it, deploying a value to an app of the other kind is refused so an app is never converted by accident."
                 js:
                   type: string
                 css:
