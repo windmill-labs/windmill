@@ -36,34 +36,34 @@ export async function main(
 		await write('ui/' + p.replace(/^\/+/, ''), content)
 	}
 
-	if (files['/package.json']) {
+	// Either spelling: `write()` normalises the leading slash, so the check has to
+	// as well or a `package.json` key builds with no node_modules.
+	const hasPackageJson = Object.keys(files ?? {}).some(
+		(p) => p.replace(/^\/+/, '') === 'package.json'
+	)
+	// Piped rather than inherited so the output can go in the error too, then
+	// echoed either way — the job's log is where someone looks to see what the
+	// build did.
+	const run = (argv: string[], what: string) => {
+		const proc = Bun.spawnSync(argv, { cwd: dir, stdout: 'pipe', stderr: 'pipe' })
+		const output = proc.stdout.toString() + proc.stderr.toString()
+		console.log(output)
+		if (proc.exitCode !== 0) {
+			throw new Error(`${what} failed:\n${output}`)
+		}
+		return output
+	}
+
+	if (hasPackageJson) {
 		// Installed here rather than left to the CLI so it can be --ignore-scripts:
 		// the app's dependencies are compiled, never run, so a package's lifecycle
 		// script has no business executing on the worker. The CLI skips its own
 		// install once node_modules exists.
-		const install = Bun.spawnSync(['bun', 'install', '--ignore-scripts'], {
-			cwd: dir,
-			stdout: 'pipe',
-			stderr: 'pipe'
-		})
-		if (install.exitCode !== 0) {
-			throw new Error(
-				'bun install failed:\n' + install.stderr.toString() + install.stdout.toString()
-			)
-		}
+		run(['bun', 'install', '--ignore-scripts'], 'bun install')
 	}
 
 	const outDir = path.join(dir, 'dist')
-	const build = Bun.spawnSync([...cli_command, dir, '--out', outDir], {
-		cwd: dir,
-		stdout: 'pipe',
-		stderr: 'pipe'
-	})
-	if (build.exitCode !== 0) {
-		throw new Error(
-			'bundle failed:\n' + build.stdout.toString() + build.stderr.toString()
-		)
-	}
+	const buildOutput = run([...cli_command, dir, '--out', outDir], 'bundle')
 
 	const read = async (name: string) => {
 		try {
@@ -75,7 +75,7 @@ export async function main(
 	const js = await read('bundle.js')
 	const css = await read('bundle.css')
 	if (js === '') {
-		throw new Error('bundle produced no javascript:\n' + build.stdout.toString())
+		throw new Error('bundle produced no javascript:\n' + buildOutput)
 	}
 
 	// Gzipped so a large app's bundle stays well inside MAX_RESULT_SIZE_MB, which

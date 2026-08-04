@@ -551,7 +551,26 @@ fn jwt_scopes_for_proxied_route(
                 None,
             )
         })?;
-    Ok(Some(vec![scope]))
+    let mut scopes = vec![scope];
+    scopes.extend(
+        extra_scopes_for_route(route_path)
+            .into_iter()
+            .map(String::from),
+    );
+    Ok(Some(scopes))
+}
+
+/// Scopes a route needs beyond the one its own domain implies. `scope_for_route`
+/// derives a single scope from the path, and `ScopeDefinition::includes` never
+/// crosses domains, so a handler that also checks another domain's scope would
+/// reject every proxied call without this.
+fn extra_scopes_for_route(route_path: &str) -> &'static [&'static str] {
+    if route_path.contains("/apps/update_raw_source/") {
+        // Compiles the app's sources in a job on a worker.
+        &["jobs:run"]
+    } else {
+        &[]
+    }
 }
 
 /// Create HTTP request with authentication

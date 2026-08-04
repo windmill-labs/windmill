@@ -44,23 +44,27 @@ struct BundleResult {
 }
 
 /// The build command the job runs. The CLI is pinned to this server's own
-/// version, which is the release the CLI ships alongside — so a deploy is
-/// compiled by the bundler that belongs to it, and there is no pin to bump by
-/// hand. A build off a tag npm doesn't carry (a dev build) has no CLI to fetch:
-/// set `WM_RAW_APP_BUNDLER_CLI` to the whole command instead, e.g.
-/// `bun run /path/to/cli/src/main.ts app bundle`.
+/// release, which is the one the CLI ships alongside — so a deploy is compiled
+/// by the bundler that belongs to it, with no pin to bump by hand. The git
+/// describe suffix a build off-tag carries (`1.2.3-4-gabc`) is dropped, since
+/// npm only has the release itself; a dev server therefore builds with the last
+/// released CLI. To build with an unreleased one, set `WM_RAW_APP_BUNDLER_CLI`
+/// to the whole command, e.g. `bun run /path/to/cli/src/main.ts app bundle`.
 fn bundler_cli_command() -> Vec<String> {
     match std::env::var("WM_RAW_APP_BUNDLER_CLI") {
         Ok(cmd) if !cmd.trim().is_empty() => {
             cmd.split_whitespace().map(|s| s.to_string()).collect()
         }
+        // `bun x`, not `bunx`: the images copy the `bun` binary alone, so the
+        // `bunx` entry point isn't on a worker's PATH.
         _ => vec![
-            "bunx".to_string(),
+            "bun".to_string(),
+            "x".to_string(),
             "--bun".to_string(),
-            format!(
-                "windmill-cli@{}",
-                windmill_common::utils::GIT_SEM_VERSION.to_string()
-            ),
+            {
+                let v = &*windmill_common::utils::GIT_SEM_VERSION;
+                format!("windmill-cli@{}.{}.{}", v.major, v.minor, v.patch)
+            },
             "app".to_string(),
             "bundle".to_string(),
         ],
@@ -70,13 +74,19 @@ fn bundler_cli_command() -> Vec<String> {
 /// Compile `files` into the js/css a deployed raw app serves. Returns the
 /// build's own error when it fails, so the caller sees the compile error rather
 /// than a generic failure.
-pub async fn bundle_raw_app_sources(
+///
+/// This makes a worker run a build on caller-supplied sources, so it requires
+/// `jobs:run` here rather than trusting each caller to have checked: a token
+/// that can't run jobs must not gain that by writing an app.
+pub(crate) async fn bundle_raw_app_sources(
     db: &DB,
     user_db: &UserDB,
     authed: &ApiAuthed,
     w_id: &str,
     files: &HashMap<String, String>,
 ) -> Result<(String, String)> {
+    crate::utils::check_scopes(authed, || "jobs:run".to_string())?;
+
     if files.is_empty() {
         return Err(Error::BadRequest(
             "app value has no `files` to bundle".to_string(),
