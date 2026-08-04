@@ -64,6 +64,27 @@ lazy_static::lazy_static! {
     static ref RE_MSSQL_READONLY_INTENT: Regex = Regex::new(r#"(?mi)^-- ApplicationIntent=ReadOnly *(?:\r|\n|$)"#).unwrap();
 }
 
+/// A rejected login reports only the name it rejected, so a resource meant to reach the
+/// database as the worker's Azure identity, but whose password is not the sentinel, is
+/// indistinguishable from a wrong password. Point at the sentinel when the worker has an
+/// identity to offer, since that is the only case where the advice is actionable.
+fn login_error(e: tiberius::error::Error, sql_auth_user: Option<&str>) -> Error {
+    const LOGIN_FAILED: u32 = 18456;
+
+    let hint = sql_auth_user
+        .filter(|_| e.code() == Some(LOGIN_FAILED) && WorkloadIdentityConfig::resolve().is_ok())
+        .map(|user| {
+            format!(
+                "\n\nThis connected as SQL Server user `{user}`. This worker has an Azure workload \
+                 identity available: to authenticate as it instead, set the resource password to \
+                 `{WORKLOAD_IDENTITY_PASSWORD}` (`user` is then ignored)."
+            )
+        })
+        .unwrap_or_default();
+
+    Error::ExecutionErr(format!("{e}{hint}"))
+}
+
 pub async fn do_mssql(
     job: &MiniPulledJob,
     authed_client: &AuthedClient,
@@ -134,7 +155,10 @@ pub async fn do_mssql(
         append_logs(&job.id, &job.workspace_id, logs, conn).await;
     }
 
-    // Handle authentication based on available credentials
+    // Handle authentication based on available credentials. Every branch names the mode
+    // it picked: the server rejects a login the same way whichever mode produced it, so
+    // the job log is the only place the choice is visible.
+    let mut sql_auth_user = None;
     if database.integrated_auth.unwrap_or(false) {
         #[cfg(any(feature = "mssql-kerberos", feature = "mssql-winauth"))]
         {
@@ -151,7 +175,7 @@ pub async fn do_mssql(
                 "Integrated authentication is not available in this build. Requires mssql-kerberos (Linux) or mssql-winauth (Windows) feature.".to_string(),
             ));
         }
-    } else if database.password.as_deref() == Some(WORKLOAD_IDENTITY_PASSWORD) {
+    } else if database.password.as_deref().map(str::trim) == Some(WORKLOAD_IDENTITY_PASSWORD) {
         let workload_identity = WorkloadIdentityConfig::resolve()?;
         let logs = format!(
             "\nUsing Azure Workload Identity (client id {})",
@@ -162,6 +186,13 @@ pub async fn do_mssql(
         config.authentication(AuthMethod::aad_token(token));
     } else if let Some(token_value) = &database.aad_token {
         if let Some(token) = &token_value.token {
+            append_logs(
+                &job.id,
+                &job.workspace_id,
+                "\nUsing the AAD token set on the resource",
+                conn,
+            )
+            .await;
             config.authentication(AuthMethod::aad_token(token));
         } else {
             return Err(Error::BadRequest(
@@ -169,6 +200,9 @@ pub async fn do_mssql(
             ));
         }
     } else if let (Some(user), Some(password)) = (&database.user, &database.password) {
+        let logs = format!("\nUsing SQL Server authentication (user {user})");
+        append_logs(&job.id, &job.workspace_id, logs, conn).await;
+        sql_auth_user = Some(user.clone());
         config.authentication(AuthMethod::sql_server(user.clone(), password.clone()));
     } else {
         return Err(Error::BadRequest(
@@ -224,9 +258,9 @@ pub async fn do_mssql(
 
             Client::connect(config, tcp.compat_write())
                 .await
-                .map_err(to_anyhow)?
+                .map_err(|e| login_error(e, sql_auth_user.as_deref()))?
         }
-        Err(e) => return Err(to_anyhow(e).into()),
+        Err(e) => return Err(login_error(e, sql_auth_user.as_deref())),
     };
 
     let sig = parse_mssql_sig(&query)

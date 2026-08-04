@@ -80,7 +80,8 @@ enum PgAuthMode {
 
 impl PgAuthMode {
     fn of(database: &PgDatabase) -> error::Result<Self> {
-        let workload_identity = database.password.as_deref() == Some(WORKLOAD_IDENTITY_PASSWORD);
+        let workload_identity =
+            database.password.as_deref().map(str::trim) == Some(WORKLOAD_IDENTITY_PASSWORD);
         match (database.use_iam_auth == Some(true), workload_identity) {
             (true, true) => Err(Error::BadRequest(
                 "IAM RDS authentication cannot use the Azure workload identity password"
@@ -89,6 +90,17 @@ impl PgAuthMode {
             (true, false) => Ok(PgAuthMode::Iam),
             (false, true) => Ok(PgAuthMode::WorkloadIdentity),
             (false, false) => Ok(PgAuthMode::Password),
+        }
+    }
+
+    /// What to announce in the job log. Password auth is the unremarkable default and
+    /// stays silent; a token mode that was meant to be selected and was not is otherwise
+    /// indistinguishable from one that was.
+    fn log_name(&self) -> Option<&'static str> {
+        match self {
+            PgAuthMode::Password => None,
+            PgAuthMode::Iam => Some("IAM RDS authentication"),
+            PgAuthMode::WorkloadIdentity => Some("Azure Workload Identity"),
         }
     }
 
@@ -696,16 +708,11 @@ pub async fn do_postgresql(
 
     let auth_mode = PgAuthMode::of(&database)?;
 
-    // The sentinel password is easy to set by accident, so say in the job logs which
-    // identity the query actually ran as rather than only in the worker logs.
-    if matches!(auth_mode, PgAuthMode::WorkloadIdentity) {
-        windmill_queue::append_logs(
-            &job.id,
-            &job.workspace_id,
-            "Using Azure Workload Identity\n",
-            conn,
-        )
-        .await;
+    // Say in the job logs which identity the query actually ran as rather than only in
+    // the worker logs.
+    if let Some(mode) = auth_mode.log_name() {
+        windmill_queue::append_logs(&job.id, &job.workspace_id, format!("Using {mode}\n"), conn)
+            .await;
     }
 
     // Include the auth mode in the cache key to distinguish connections to the same host
