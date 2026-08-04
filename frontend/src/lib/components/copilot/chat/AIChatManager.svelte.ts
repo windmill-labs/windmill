@@ -453,11 +453,17 @@ export class AIChatManager {
 		}
 	}
 
-	private takeReasoningDuration(): number | undefined {
-		const duration = this.currentReasoningDurationMs
+	private resetReasoningTiming() {
 		this.reasoningStartedAt = undefined
 		this.reasoningEndedAt = undefined
 		this.currentReasoningDurationMs = undefined
+	}
+
+	/** Reads the duration and clears it, so the next reasoning pass of the same
+	 * turn (after a tool call) times itself from scratch. */
+	private takeReasoningDuration(): number | undefined {
+		const duration = this.currentReasoningDurationMs
+		this.resetReasoningTiming()
 		return duration
 	}
 
@@ -2963,7 +2969,7 @@ export class AIChatManager {
 			this.currentReply = ''
 			this.currentReasoning = ''
 			this.currentReasoningActive = false
-			this.takeReasoningDuration()
+			this.resetReasoningTiming()
 
 			// Compaction trigger. Without a known context window there is no limit
 			// to enforce, so compaction stays off rather than guessing one.
