@@ -579,10 +579,17 @@ fn extra_scopes_for_route(route_path: &str) -> Option<(&'static str, &'static [&
     // what its own request is minted.
     let mut segments = route_path.split('/').skip_while(|s| *s != "w");
     let (_, _ws) = (segments.next()?, segments.next()?);
-    // Compiling an app's sources runs the app's own dependencies on a worker, so
-    // a token reaches that capability only by naming this tool.
-    (segments.next() == Some("apps") && segments.next() == Some("update_raw_source"))
-        .then_some(("updateAppRawSource", &["jobs:run"]))
+    if segments.next() != Some("apps") {
+        return None;
+    }
+    // Both deploy an app by compiling its sources, which runs the app's own
+    // dependencies on a worker — a token reaches that only by naming the tool.
+    // The names are the ones agents see (`x-mcp-tool-name`), not the operation ids.
+    match segments.next() {
+        Some("create_raw_source") => Some(("createApp", &["jobs:run"])),
+        Some("update_raw_source") => Some(("updateApp", &["jobs:run"])),
+        _ => None,
+    }
 }
 
 /// Whether the token names `tool` rather than reaching it through a blanket
@@ -708,6 +715,22 @@ mod tests {
     }
 
     #[test]
+    fn proxy_jwt_raw_app_create_needs_the_tool_named() {
+        // Same as the update route: creating an app compiles its sources too.
+        let route = "/api/w/ws/apps/create_raw_source";
+        let named = scopes(&["mcp:endpoints:createApp"]);
+        assert_eq!(
+            jwt_scopes_for_proxied_route(Some(&named), "POST", route).unwrap(),
+            Some(scopes(&["apps:write", "jobs:run"]))
+        );
+        let implicit = scopes(&["mcp:all"]);
+        assert_eq!(
+            jwt_scopes_for_proxied_route(Some(&implicit), "POST", route).unwrap(),
+            Some(scopes(&["apps:write"]))
+        );
+    }
+
+    #[test]
     fn proxy_jwt_raw_app_source_deploy_needs_the_tool_named() {
         // The handler requires jobs:run as well: compiling an app's sources runs
         // its dependencies on a worker. It goes in the per-request JWT, not on the
@@ -716,7 +739,7 @@ mod tests {
         // on create, mcp:all through OAuth) reach every endpoint without naming
         // one, and must not carry a capability their consent screen never showed.
         let route = "/api/w/ws/apps/update_raw_source/u/admin/app";
-        let named = scopes(&["mcp:endpoints:listScripts,updateAppRawSource"]);
+        let named = scopes(&["mcp:endpoints:listScripts,updateApp"]);
         assert_eq!(
             jwt_scopes_for_proxied_route(Some(&named), "POST", route).unwrap(),
             Some(scopes(&["apps:write", "jobs:run"]))

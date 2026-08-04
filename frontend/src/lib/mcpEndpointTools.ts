@@ -1084,7 +1084,7 @@ export const mcpEndpointTools: EndpointTool[] = [
     {
         name: "listApps",
         description: "list all apps",
-        instructions: "Lists every app, low-code and full-code alike. `raw_app` tells them apart: true is a full-code app, which getAppByPath then reads and updateAppRawSource deploys. A low-code app can only be read here — editing one is a job for its editor in the UI.",
+        instructions: "Lists every app, low-code and full-code alike. `raw_app` tells them apart: true is a full-code app, which getAppByPath then reads and updateApp deploys. A low-code app can only be read here — editing one is a job for its editor in the UI.",
         path: "/w/{workspace}/apps/list",
         method: "GET",
         pathParamsSchema: undefined,
@@ -1105,7 +1105,7 @@ export const mcpEndpointTools: EndpointTool[] = [
     {
         name: "getAppByPath",
         description: "get app by path",
-        instructions: "Returns the app's whole `value`, which is what updateAppRawSource needs: it takes the whole thing, not a patch. `raw_app` says whether this is a full-code app (its value holds `files`/`runnables`) or a low-code one (a `grid`), and only a full-code app can be deployed through MCP.",
+        instructions: "Returns the app's whole `value`, which is what updateApp needs: it takes the whole thing, not a patch. `raw_app` says whether this is a full-code app (its value holds `files`/`runnables`) or a low-code one (a `grid`), and only a full-code app can be deployed through MCP.",
         path: "/w/{workspace}/apps/get/p/{path}",
         method: "GET",
         pathParamsSchema: {
@@ -1125,9 +1125,9 @@ export const mcpEndpointTools: EndpointTool[] = [
         bodyFieldRenames: undefined
     },
     {
-        name: "createAppRawSource",
+        name: "createApp",
         description: "create a raw app from its sources, compiling them on a worker (which runs the app's own dependencies to do so)",
-        instructions: "Creates a raw (full-code) app: `value.files` holds its sources, keyed by path (`/index.tsx`, `/App.tsx`, `/package.json`), and needs an entry point (`/index.tsx`, `/index.ts` or `/index.js`). The sources are compiled on a worker by the same build the editor and the CLI run, so a compile error comes back as the error of this call. Compiling runs the app's own dependencies on a worker, so this tool can execute code there. There is no MCP tool for creating a low-code app — those are built in their editor.",
+        instructions: "Creates a raw (full-code) app: `value.files` holds its sources, keyed by path (`/index.tsx`, `/App.tsx`, `/package.json`), and needs an entry point (`/index.tsx`, `/index.ts` or `/index.js`). The sources are compiled on a worker by the same build the editor and the CLI run, so a compile error comes back as the error of this call. Compiling runs the app's own dependencies on a worker, so this tool can execute code there. Low-code apps are legacy and have no MCP tool at all — they are built in their editor.",
         path: "/w/{workspace}/apps/create_raw_source",
         method: "POST",
         pathParamsSchema: undefined,
@@ -1232,9 +1232,9 @@ export const mcpEndpointTools: EndpointTool[] = [
         bodyFieldRenames: undefined
     },
     {
-        name: "updateAppRawSource",
+        name: "updateApp",
         description: "update a raw app from its sources, compiling them on a worker (which runs the app's own dependencies to do so)",
-        instructions: "Use this to change a raw (full-code) app — an app whose `raw_app` field is true. Send the whole `value` (`files`, `runnables`, `data`), not a patch: read the current one with getAppByPath first and edit it. The sources are compiled on a worker by the same build the editor and the CLI run, so a compile error comes back as the error of this call. Compiling runs the app's own dependencies on a worker, so this tool can execute code there. Low-code apps use updateApp instead.",
+        instructions: "Use this to change a raw (full-code) app — an app whose `raw_app` field is true. Send the whole `value` (`files`, `runnables`, `data`), not a patch: read the current one with getAppByPath first and edit it. The sources are compiled on a worker by the same build the editor and the CLI run, so a compile error comes back as the error of this call. Compiling runs the app's own dependencies on a worker, so this tool can execute code there. Low-code apps are legacy and have no MCP tool at all — they are edited in their editor.",
         path: "/w/{workspace}/apps/update_raw_source/{path}",
         method: "POST",
         pathParamsSchema: {

@@ -1076,7 +1076,7 @@ Creates a new version of an existing script when called with the same path and t
     EndpointTool {
         name: Cow::Borrowed("listApps"),
         description: Cow::Borrowed("list all apps"),
-        instructions: Cow::Borrowed("Lists every app, low-code and full-code alike. `raw_app` tells them apart: true is a full-code app, which getAppByPath then reads and updateAppRawSource deploys. A low-code app can only be read here — editing one is a job for its editor in the UI."),
+        instructions: Cow::Borrowed("Lists every app, low-code and full-code alike. `raw_app` tells them apart: true is a full-code app, which getAppByPath then reads and updateApp deploys. A low-code app can only be read here — editing one is a job for its editor in the UI."),
         path: Cow::Borrowed("/w/{workspace}/apps/list"),
         method: Cow::Borrowed("GET"),
         path_params_schema: None,
@@ -1097,7 +1097,7 @@ Creates a new version of an existing script when called with the same path and t
     EndpointTool {
         name: Cow::Borrowed("getAppByPath"),
         description: Cow::Borrowed("get app by path"),
-        instructions: Cow::Borrowed("Returns the app's whole `value`, which is what updateAppRawSource needs: it takes the whole thing, not a patch. `raw_app` says whether this is a full-code app (its value holds `files`/`runnables`) or a low-code one (a `grid`), and only a full-code app can be deployed through MCP."),
+        instructions: Cow::Borrowed("Returns the app's whole `value`, which is what updateApp needs: it takes the whole thing, not a patch. `raw_app` says whether this is a full-code app (its value holds `files`/`runnables`) or a low-code one (a `grid`), and only a full-code app can be deployed through MCP."),
         path: Cow::Borrowed("/w/{workspace}/apps/get/p/{path}"),
         method: Cow::Borrowed("GET"),
         path_params_schema: Some(serde_json::json!({
@@ -1117,9 +1117,9 @@ Creates a new version of an existing script when called with the same path and t
         body_field_renames: None,
     },
     EndpointTool {
-        name: Cow::Borrowed("createAppRawSource"),
+        name: Cow::Borrowed("createApp"),
         description: Cow::Borrowed("create a raw app from its sources, compiling them on a worker (which runs the app's own dependencies to do so)"),
-        instructions: Cow::Borrowed("Creates a raw (full-code) app: `value.files` holds its sources, keyed by path (`/index.tsx`, `/App.tsx`, `/package.json`), and needs an entry point (`/index.tsx`, `/index.ts` or `/index.js`). The sources are compiled on a worker by the same build the editor and the CLI run, so a compile error comes back as the error of this call. Compiling runs the app's own dependencies on a worker, so this tool can execute code there. There is no MCP tool for creating a low-code app — those are built in their editor."),
+        instructions: Cow::Borrowed("Creates a raw (full-code) app: `value.files` holds its sources, keyed by path (`/index.tsx`, `/App.tsx`, `/package.json`), and needs an entry point (`/index.tsx`, `/index.ts` or `/index.js`). The sources are compiled on a worker by the same build the editor and the CLI run, so a compile error comes back as the error of this call. Compiling runs the app's own dependencies on a worker, so this tool can execute code there. Low-code apps are legacy and have no MCP tool at all — they are built in their editor."),
         path: Cow::Borrowed("/w/{workspace}/apps/create_raw_source"),
         method: Cow::Borrowed("POST"),
         path_params_schema: None,
@@ -1224,9 +1224,9 @@ Creates a new version of an existing script when called with the same path and t
         body_field_renames: None,
     },
     EndpointTool {
-        name: Cow::Borrowed("updateAppRawSource"),
+        name: Cow::Borrowed("updateApp"),
         description: Cow::Borrowed("update a raw app from its sources, compiling them on a worker (which runs the app's own dependencies to do so)"),
-        instructions: Cow::Borrowed("Use this to change a raw (full-code) app — an app whose `raw_app` field is true. Send the whole `value` (`files`, `runnables`, `data`), not a patch: read the current one with getAppByPath first and edit it. The sources are compiled on a worker by the same build the editor and the CLI run, so a compile error comes back as the error of this call. Compiling runs the app's own dependencies on a worker, so this tool can execute code there. Low-code apps use updateApp instead."),
+        instructions: Cow::Borrowed("Use this to change a raw (full-code) app — an app whose `raw_app` field is true. Send the whole `value` (`files`, `runnables`, `data`), not a patch: read the current one with getAppByPath first and edit it. The sources are compiled on a worker by the same build the editor and the CLI run, so a compile error comes back as the error of this call. Compiling runs the app's own dependencies on a worker, so this tool can execute code there. Low-code apps are legacy and have no MCP tool at all — they are edited in their editor."),
         path: Cow::Borrowed("/w/{workspace}/apps/update_raw_source/{path}"),
         method: Cow::Borrowed("POST"),
         path_params_schema: Some(serde_json::json!({

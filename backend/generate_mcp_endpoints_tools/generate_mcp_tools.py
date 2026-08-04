@@ -426,7 +426,11 @@ def find_mcp_tools(spec: Dict[str, Any]) -> List[Dict[str, Any]]:
             if isinstance(operation, dict) and operation.get('x-mcp-tool') is True:
                 # Extract tool information
                 tool = {
-                    'name': operation.get('operationId', f"{method}_{path.replace('/', '_').replace('{', '').replace('}', '')}"),
+                    # The name an agent sees. Defaults to the operationId, which
+                    # every generated client is keyed on, so an endpoint whose
+                    # tool should read differently overrides it here rather than
+                    # by renaming the operation.
+                    'name': operation.get('x-mcp-tool-name') or operation.get('operationId', f"{method}_{path.replace('/', '_').replace('{', '').replace('}', '')}"),
                     'description': build_tool_description(operation, method, path),
                     'instructions': operation.get('x-mcp-instructions', ''),
                     'path': path,
