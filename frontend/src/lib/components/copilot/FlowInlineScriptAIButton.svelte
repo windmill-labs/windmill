@@ -6,6 +6,7 @@
 	import { base } from '$lib/base'
 	import { twMerge } from 'tailwind-merge'
 	import { aiChatManager, AIMode } from './chat/AIChatManager.svelte'
+	import { chatState } from './chat/sharedChatState.svelte'
 	import { copilotInfo } from '$lib/aiStore'
 	import type { ComponentProps } from 'svelte'
 
@@ -36,37 +37,49 @@
 	/>
 {/snippet}
 
-{#if $copilotInfo.enabled}
-	{@render button(() => {
-		aiChatManager.openChat()
-		const availableContext = aiChatManager.contextManager.getAvailableContext()
-		aiChatManager.contextManager.setSelectedModuleContext(moduleId, availableContext)
-	})}
-{:else}
-	<Popover
-		floatingConfig={{
-			middleware: [
-				autoPlacement({
-					allowedPlacements: ['bottom-start', 'bottom-end', 'top-start', 'top-end', 'top', 'bottom']
-				})
-			]
-		}}
-	>
-		{#snippet trigger()}
-			{@render button()}
-		{/snippet}
-		{#snippet content({ close })}
-			<div class="p-4">
-				<p class="text-sm">
-					Enable Windmill AI in the <a
-						href="{base}/workspace_settings?tab=ai"
-						target="_blank"
-						class="inline-flex flex-row items-center gap-1"
-					>
-						workspace settings <ExternalLink size={16} />
-					</a>
-				</p>
-			</div>
-		{/snippet}
-	</Popover>
+<!-- This button only opens the docked chat pane. Without one there is nothing to
+     open, so it hides rather than rendering a dead click — the flow and raw-app
+     toolbars carry the "open in AI session" entry point in that mode. -->
+{#if chatState.dockedChatAvailable}
+	{#if $copilotInfo.enabled}
+		{@render button(() => {
+			aiChatManager.openChat()
+			const availableContext = aiChatManager.contextManager.getAvailableContext()
+			aiChatManager.contextManager.setSelectedModuleContext(moduleId, availableContext)
+		})}
+	{:else}
+		<Popover
+			floatingConfig={{
+				middleware: [
+					autoPlacement({
+						allowedPlacements: [
+							'bottom-start',
+							'bottom-end',
+							'top-start',
+							'top-end',
+							'top',
+							'bottom'
+						]
+					})
+				]
+			}}
+		>
+			{#snippet trigger()}
+				{@render button()}
+			{/snippet}
+			{#snippet content({ close })}
+				<div class="p-4">
+					<p class="text-sm">
+						Enable Windmill AI in the <a
+							href="{base}/workspace_settings?tab=ai"
+							target="_blank"
+							class="inline-flex flex-row items-center gap-1"
+						>
+							workspace settings <ExternalLink size={16} />
+						</a>
+					</p>
+				</div>
+			{/snippet}
+		</Popover>
+	{/if}
 {/if}

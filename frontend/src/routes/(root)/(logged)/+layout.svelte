@@ -1375,6 +1375,7 @@
 				{children}
 				noPadding={devOnly || menuHidden}
 				disableAi={globalAiEnabled && !$userStore?.operator ? true : sessionMode}
+				loadAiConfig={!sessionMode}
 				showSessionsBetaBanner={!$userStore?.operator}
 				sidebarWidth={railWidth}
 				transitionClass={sidebarTransitionClass}
