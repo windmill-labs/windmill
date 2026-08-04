@@ -1,4 +1,8 @@
-use std::{collections::HashMap, path::PathBuf, process::Stdio};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    process::Stdio,
+};
 
 use crate::global_cache::save_cache;
 use anyhow::{anyhow, bail};
@@ -486,17 +490,26 @@ async fn move_to_repository(
     repository_dir: &str,
     deps: &[RequiredDependency<()>],
 ) -> anyhow::Result<()> {
+    struct Wanted {
+        coordinate: Vec<String>,
+        destination: String,
+        display_name: String,
+    }
+
     #[async_recursion]
     async fn find_and_copy(
-        dir: &str,
-        wanted: &mut HashMap<String, (String, String)>,
+        dir: &Path,
+        // components walked past below the fetch dir, compared against coordinates one component
+        // at a time so that windows' native separator cannot defeat the match
+        below: &mut Vec<String>,
+        wanted: &mut Vec<Wanted>,
     ) -> anyhow::Result<()> {
         if wanted.is_empty() {
             return Ok(());
         }
-        if let Some(suffix) = wanted.keys().find(|s| dir.ends_with(s.as_str())).cloned() {
-            let (destination, _) = wanted.remove(&suffix).expect("key was just found");
-            copy_dir_recursively(&PathBuf::from(dir), &PathBuf::from(&destination))?;
+        if let Some(i) = wanted.iter().position(|w| below.ends_with(&w.coordinate)) {
+            let Wanted { destination, .. } = wanted.remove(i);
+            copy_dir_recursively(dir, &PathBuf::from(destination))?;
             return Ok(());
         }
         let mut entries = tokio::fs::read_dir(dir).await?;
@@ -504,34 +517,44 @@ async fn move_to_repository(
             if !entry.file_type().await?.is_dir() {
                 continue;
             }
-            let path = entry
-                .path()
-                .to_str()
-                .ok_or(anyhow!("Internal Error: Cannot convert Path to Str"))?
-                .to_owned();
-            find_and_copy(&path, wanted).await?;
+            below.push(entry.file_name().to_string_lossy().into_owned());
+            find_and_copy(&entry.path(), below, wanted).await?;
+            below.pop();
         }
         Ok(())
     }
 
-    let mut wanted = HashMap::new();
-    for RequiredDependency { path, display_name, .. } in deps {
-        let suffix = path
-            .strip_prefix(repository_dir)
-            .filter(|suffix| suffix.starts_with('/'))
-            .ok_or_else(|| anyhow!("Internal Error: {path} is not under {repository_dir}"))?;
-        wanted.insert(suffix.to_owned(), (path.clone(), display_name.clone()));
-    }
+    let mut wanted = deps
+        .iter()
+        .map(|RequiredDependency { path, display_name, .. }| {
+            let suffix = path
+                .strip_prefix(repository_dir)
+                .filter(|suffix| suffix.starts_with('/'))
+                .ok_or_else(|| anyhow!("Internal Error: {path} is not under {repository_dir}"))?;
+            Ok(Wanted {
+                coordinate: suffix
+                    .split('/')
+                    .filter(|component| !component.is_empty())
+                    .map(str::to_owned)
+                    .collect(),
+                destination: path.clone(),
+                display_name: display_name.clone(),
+            })
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    // longest coordinate first: a group id ending in another one's coordinates (com.org.foo:bar
+    // over org.foo:bar) would otherwise be free to claim the shorter one's directory
+    wanted.sort_by_key(|w| std::cmp::Reverse(w.coordinate.len()));
 
-    find_and_copy(fetch_dir, &mut wanted).await?;
+    find_and_copy(&PathBuf::from(fetch_dir), &mut vec![], &mut wanted).await?;
 
     if !wanted.is_empty() {
         bail!(
             "the configured maven repositories did not serve: {}. \
             Coursier reported success but no artifact for them was found in its cache.",
             wanted
-                .values()
-                .map(|(_, display_name)| display_name.as_str())
+                .iter()
+                .map(|w| w.display_name.as_str())
                 .sorted()
                 .join(", ")
         );
@@ -1120,6 +1143,35 @@ mod tests {
         ]) {
             assert!(
                 metadata(format!("{}/{jar}", dep.path)).await.is_ok(),
+                "{} was not copied to {}",
+                dep.display_name,
+                dep.path
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_group_id_ending_in_another_coordinate_does_not_claim_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let fetch_dir = tmp.path().join("fetch").to_str().unwrap().to_owned();
+        let repository_dir = tmp.path().join("repository").to_str().unwrap().to_owned();
+        let root = format!("{fetch_dir}/https/nexus.local/repository/maven-public");
+
+        touch(&format!("{root}/org/foo/bar/1/bar-1.jar")).await;
+        touch(&format!("{root}/com/org/foo/bar/1/bar-1.jar")).await;
+
+        let deps = vec![
+            dep(&repository_dir, "org/foo", "bar", "1"),
+            dep(&repository_dir, "com/org/foo", "bar", "1"),
+        ];
+
+        move_to_repository(&fetch_dir, &repository_dir, &deps)
+            .await
+            .unwrap();
+
+        for dep in &deps {
+            assert!(
+                metadata(format!("{}/bar-1.jar", dep.path)).await.is_ok(),
                 "{} was not copied to {}",
                 dep.display_name,
                 dep.path
