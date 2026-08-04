@@ -619,6 +619,8 @@
 					<ExpressionPicker
 						id={argName}
 						pickableProperties={connectableProperties}
+						result={propPickerWrapperContext.result?.()}
+						extraResults={propPickerWrapperContext.extraResults?.()}
 						onSelect={(path) => {
 							connectProperty(path)
 							dispatch('change', { argName })

@@ -9,7 +9,6 @@
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import { inputBorderClass } from './text_input/TextInput.svelte'
 	import EEOnly from './EEOnly.svelte'
-	import { enterpriseLicense } from '$lib/stores'
 
 	interface Props {
 		options?: {
@@ -56,9 +55,11 @@
 
 	const dispatch = createEventDispatcher<{ change: boolean }>()
 	const bothOptions = Boolean(untrack(() => options).left) && Boolean(untrack(() => options).right)
-	// Same badge the labelled containers (Label, Section, Subsection) show, and on the
-	// same condition — `disabled` alone doesn't mean the license is what's missing.
-	const showEeBadge = $derived(eeOnly && !$enterpriseLicense)
+	// Same badge the labelled containers (Label, Section, Subsection) show. Gated on
+	// `disabled` rather than on the license: a caller can leave an EE-only toggle
+	// interactive on CE precisely because it is already on, and "EE only" beside a control
+	// that plainly works reads as a lie.
+	const showEeBadge = $derived(eeOnly && disabled)
 </script>
 
 {#snippet control()}

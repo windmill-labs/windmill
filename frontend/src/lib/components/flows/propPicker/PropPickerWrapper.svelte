@@ -19,6 +19,11 @@
 		pickerMode: () => 'pane' | 'popover'
 		/** The wrapper owns these; nested inputs receive none of their own. */
 		pickableProperties: () => PickableProperties | undefined
+		/** The step's own result, and anything extra worth offering beside it (a loop's
+		 *  `all_iters`). Only the pane renders them directly — in popover mode the picker
+		 *  hangs off each input, so it reads them from here instead. */
+		result: () => any
+		extraResults: () => any
 		exprBeingEdited: Writable<string[]>
 	}
 </script>
@@ -94,6 +99,8 @@
 		clearConnect: connect.disarm,
 		pickerMode: () => (popover ? 'popover' : 'pane'),
 		pickableProperties: () => pickableProperties,
+		result: () => result,
+		extraResults: () => extraResults,
 		exprBeingEdited: writable<string[]>([])
 	})
 

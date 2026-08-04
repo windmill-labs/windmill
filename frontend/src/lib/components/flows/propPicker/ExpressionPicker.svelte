@@ -42,7 +42,9 @@
 		connectProp: () => {},
 		clearConnect: () => connect.disarm(),
 		pickerMode: () => 'popover' as const,
-		pickableProperties: () => undefined
+		pickableProperties: () => undefined,
+		result: () => undefined,
+		extraResults: () => undefined
 	})
 
 	let open = $state(false)

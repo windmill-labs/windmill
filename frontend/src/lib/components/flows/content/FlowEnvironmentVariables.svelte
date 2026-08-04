@@ -236,6 +236,8 @@
 		clearConnect: () => {},
 		pickerMode: () => 'popover' as const,
 		pickableProperties: () => undefined,
+		result: () => undefined,
+		extraResults: () => undefined,
 		exprBeingEdited: writable([])
 	})
 </script>
