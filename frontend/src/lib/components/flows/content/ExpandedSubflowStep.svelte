@@ -70,14 +70,16 @@
 		{#if resolved}
 			{@const { containingFlowPath, module } = resolved}
 			<div class="flex items-center gap-1 shrink-0">
-				<Button
-					unifiedSize="sm"
-					variant="subtle"
-					startIcon={{ icon: Pen }}
-					on:click={() => editSubflow(containingFlowPath, module ? leafId : undefined)}
-				>
-					Edit
-				</Button>
+				{#if $flowEditorDrawer}
+					<Button
+						unifiedSize="sm"
+						variant="subtle"
+						startIcon={{ icon: Pen }}
+						on:click={() => editSubflow(containingFlowPath, module ? leafId : undefined)}
+					>
+						Edit
+					</Button>
+				{/if}
 				<Button
 					unifiedSize="sm"
 					variant="subtle"
