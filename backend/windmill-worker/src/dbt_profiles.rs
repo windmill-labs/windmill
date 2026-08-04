@@ -785,10 +785,15 @@ pub fn render_dbt_profile(
     for (k, v) in block {
         // A null is an optional field the resource form left unset, and dbt
         // validates several keys against a schema that rejects one.
-        // `sslrootcert` among them: a block carrying both a PEM and a path of its
-        // own would emit the key twice, and the file Windmill wrote is the one
-        // that exists.
-        if k == "type" || k == "root_certificate_pem" || k == "sslrootcert" || v.is_null() {
+        if k == "type" || k == "root_certificate_pem" || v.is_null() {
+            continue;
+        }
+        // Only when Windmill writes one of its own, which would otherwise be a
+        // second `sslrootcert` in the same block. A path with no PEM beside it
+        // is the block's own trust source — a CA baked into the image or mounted
+        // on the worker — and dropping it silently changes what the connection
+        // verifies against.
+        if k == "sslrootcert" && root_certificate_pem.is_some() {
             continue;
         }
         if (k == schema_key && schema_override.is_some()) || (k == "threads" && threads.is_some()) {
@@ -1067,6 +1072,45 @@ mod tests {
         assert!(stated.known().is_none());
         // A block with no adapter cannot be rendered, and says which key is missing.
         assert!(DbtAdapter::stated_by_dbt_profile(&json!({"host": "h"})).is_err());
+    }
+
+    // A block whose CA is a path on the worker keeps it: Windmill only takes the
+    // key over when it has a PEM of its own to point at.
+    #[test]
+    fn a_path_only_sslrootcert_survives() {
+        let r = json!({"type": "postgres", "host": "h", "sslmode": "verify-full",
+                       "sslrootcert": "/etc/ssl/certs/warehouse-ca.pem"});
+        let p = render_dbt_profile(
+            &KnownAdapter::Postgres.into(),
+            r.as_object().unwrap(),
+            "wm",
+            "prod",
+            None,
+            None,
+            std::path::Path::new("/tmp/p"),
+        )
+        .unwrap();
+        assert!(
+            p.yaml
+                .contains("\"sslrootcert\": \"/etc/ssl/certs/warehouse-ca.pem\"\n"),
+            "{}",
+            p.yaml
+        );
+        // And a PEM in the block still wins, exactly once.
+        let r = json!({"type": "postgres", "host": "h", "sslrootcert": "/ignored",
+                       "root_certificate_pem": "-----BEGIN CERTIFICATE-----\nx\n"});
+        let p = render_dbt_profile(
+            &KnownAdapter::Postgres.into(),
+            r.as_object().unwrap(),
+            "wm",
+            "prod",
+            None,
+            None,
+            std::path::Path::new("/tmp/p"),
+        )
+        .unwrap();
+        assert_eq!(p.yaml.matches("sslrootcert").count(), 1, "{}", p.yaml);
+        assert!(p.yaml.contains(ROOT_CERT_FILENAME), "{}", p.yaml);
     }
 
     // An unknown adapter's name becomes `dbt-<name>` in a pip requirement and a
