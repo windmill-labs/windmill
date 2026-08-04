@@ -12,6 +12,7 @@
 	import { initFlow } from '$lib/components/flows/flowStore.svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
 	import type { FlowEditorContext } from '../types'
+	import { base } from '$app/paths'
 
 	let flowEditorDrawer: Drawer | undefined = $state()
 
@@ -20,11 +21,12 @@
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
 	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
 
-	export async function openDrawer(path: string, cb: () => void): Promise<void> {
+	export async function openDrawer(path: string, cb: () => void, stepId?: string): Promise<void> {
 		flowPath = path
 		flow = undefined
 		loading = true
 		callback = cb
+		selectedStepId = stepId
 		flowEditorDrawer?.openDrawer?.()
 
 		try {
@@ -47,6 +49,7 @@
 
 	let callback: (() => void) | undefined = undefined
 	let flowPath: string = $state('')
+	let selectedStepId: string | undefined = $state(undefined)
 	let flow: Flow | undefined = $state(undefined)
 	let savedFlow: Flow | undefined = $state(undefined)
 	let loading = $state(true)
@@ -66,6 +69,7 @@
 	const flowStateStore: StateStore<FlowState> = $state({ val: {} })
 
 	let diffDrawer: DiffDrawer | undefined = $state()
+	let flowBuilder: FlowBuilder | undefined = $state(undefined)
 </script>
 
 <Drawer bind:this={flowEditorDrawer} size="100%">
@@ -87,12 +91,13 @@
 			</div>
 		{:else if flow}
 			<FlowBuilder
+				bind:this={flowBuilder}
 				{flowStore}
 				{flowStateStore}
 				initialPath={flowPath}
 				autosaveWorkspace={opWs}
 				newFlow={false}
-				selectedId="settings-metadata"
+				selectedId={selectedStepId ?? 'settings-metadata'}
 				loading={false}
 				bind:savedFlow
 				{diffDrawer}
@@ -117,7 +122,10 @@
 			<Button
 				variant="default"
 				on:click={() => {
-					window.open(`/flows/edit/${flowPath}`, '_blank', 'noopener,noreferrer')
+					// Follow the drawer's own selection, which the user may have moved since it opened.
+					const stepId = flowBuilder?.getSelectedId() ?? selectedStepId
+					const selected = stepId ? `?selected=${encodeURIComponent(stepId)}` : ''
+					window.open(`${base}/flows/edit/${flowPath}${selected}`, '_blank', 'noopener,noreferrer')
 					flowEditorDrawer?.closeDrawer()
 				}}
 				startIcon={{ icon: ExternalLink }}
