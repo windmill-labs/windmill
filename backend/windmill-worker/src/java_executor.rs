@@ -27,8 +27,8 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 use crate::{
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
-        read_result, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, start_child_process,
-        OccupancyMetrics,
+        read_result, resolve_job_timeout, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block,
+        start_child_process, OccupancyMetrics,
     },
     handle_child, is_sandboxing_enabled, read_ee_registry_bool_with_workspace_override,
     read_ee_registry_with_workspace_override,
@@ -299,11 +299,21 @@ pub async fn resolve<'a>(
                     std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
                 );
         }
-        // Resolution against a distant or slow registry can run for minutes, and the lockfile has to
-        // be read from a clean stdout, so it cannot go through handle_child's polling loop: without
-        // a ping of its own the job is reaped as a zombie and restarted mid-resolution.
+        // The lockfile has to be read from a clean stdout, so this cannot go through handle_child's
+        // polling loop. That leaves resolution with neither a ping nor a time bound of its own: it
+        // needs the heartbeat not to be reaped as a zombie mid-resolution, and the timeout so a
+        // wedged registry connection cannot park the job in `running` forever.
+        cmd.kill_on_drop(true);
+        let (timeout, ..) = resolve_job_timeout(conn, w_id, *job_id, None).await;
         let _heartbeat = JobPingHeartbeat::start(conn, *job_id, "java lockfile resolution");
-        let output = cmd.output().await?;
+        let output = tokio::time::timeout(timeout, cmd.output())
+            .await
+            .map_err(|_| {
+                Error::ExecutionErr(format!(
+                    "resolving the java lockfile timed out after {}s",
+                    timeout.as_secs()
+                ))
+            })??;
         // Check if the command was successful
         if output.status.success() {
             String::from_utf8(output.stdout).expect("Failed to convert output to String")
@@ -380,8 +390,8 @@ async fn install<'a>(
     );
     let job_dir = job_dir.to_owned();
     let fetch_dir = format!("{}/tmp-fetch-{}", *JAVA_CACHE_DIR, Uuid::new_v4());
-    let fetch_dir2 = fetch_dir.clone();
-    par_install_language_dependencies_all_at_once(
+    let (cmd_fetch_dir, postinstall_fetch_dir) = (fetch_dir.clone(), fetch_dir.clone());
+    let installed = par_install_language_dependencies_all_at_once(
         deps,
         "java",
         "java",
@@ -440,7 +450,7 @@ async fn install<'a>(
                 "--parallel",
                 &format!("{}", *JAVA_CONCURRENT_DOWNLOADS),
                 "--cache",
-                &fetch_dir,
+                &cmd_fetch_dir,
             ])
             .args(&repos)
             .arg("--intransitive")
@@ -460,11 +470,10 @@ async fn install<'a>(
             Ok(cmd)
         },
         async move |dependencies| {
-            let res = move_to_repository(&fetch_dir2, &*JAVA_REPOSITORY_DIR, &dependencies).await;
-            if let Err(e) = remove_dir_all(&fetch_dir2).await {
-                tracing::warn!("could not remove java fetch dir {fetch_dir2}: {e}");
-            }
-            Ok(res?)
+            Ok(
+                move_to_repository(&postinstall_fetch_dir, &*JAVA_REPOSITORY_DIR, &dependencies)
+                    .await?,
+            )
         },
         &job.id,
         &job.workspace_id,
@@ -472,19 +481,24 @@ async fn install<'a>(
         is_sandboxing_enabled(),
         conn,
     )
-    .await?;
+    .await;
+
+    // coursier failing against the registry bails before the postinstall step ever runs, so the
+    // cache it was writing into has to be reclaimed on every path out
+    match remove_dir_all(&fetch_dir).await {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+            tracing::warn!("could not remove java fetch dir {fetch_dir}: {e}")
+        }
+        _ => {}
+    }
+    installed?;
     Ok(classpath)
 }
 
-/// Copies every fetched artifact out of coursier's cache and into the shared repository, at the
-/// `<group as path>/<artifact>/<version>` location the classpath is built from.
-///
-/// Coursier lays its cache out as `<scheme>/<host>/<registry url path>/<group as path>/...`, so how
-/// deep the maven layout starts depends on the configured registry: one segment for Maven Central
-/// (`maven2`), two for a Nexus or Artifactory repository (`repository/maven-public`), none for a
-/// root-hosted mirror. Matching on the coordinate suffix rather than on a fixed depth is what keeps
-/// private registries working: copy the artifacts one level off and every classpath entry silently
-/// points at a directory that does not exist, since javac ignores missing entries without a word.
+/// Copies every fetched artifact out of coursier's cache into the `<group as path>/<artifact>/
+/// <version>` location the classpath is built from. Coursier's cache is laid out as
+/// `<scheme>/<host>/<registry url path>/<group as path>/...`, so the depth at which the maven
+/// layout starts varies with the registry url and only the coordinate can be matched on.
 async fn move_to_repository(
     fetch_dir: &str,
     repository_dir: &str,
@@ -494,6 +508,7 @@ async fn move_to_repository(
         coordinate: Vec<String>,
         destination: String,
         display_name: String,
+        found: bool,
     }
 
     #[async_recursion]
@@ -504,19 +519,33 @@ async fn move_to_repository(
         below: &mut Vec<String>,
         wanted: &mut Vec<Wanted>,
     ) -> anyhow::Result<()> {
-        if wanted.is_empty() {
+        if wanted.iter().all(|w| w.found) {
             return Ok(());
         }
-        if let Some(i) = wanted.iter().position(|w| below.ends_with(&w.coordinate)) {
-            let Wanted { destination, .. } = wanted.remove(i);
-            copy_dir_recursively(dir, &PathBuf::from(destination))?;
-            return Ok(());
-        }
+        let (mut subdirs, mut holds_artifact) = (vec![], false);
         let mut entries = tokio::fs::read_dir(dir).await?;
         while let Some(entry) = entries.next_entry().await? {
-            if !entry.file_type().await?.is_dir() {
-                continue;
+            if entry.file_type().await?.is_dir() {
+                subdirs.push(entry);
+            } else {
+                holds_artifact = true;
             }
+        }
+        // every repository coursier probed and got a 404 from is left with an empty directory at
+        // the coordinate, so the match only counts where the artifact itself landed: the first
+        // repository tried is a default one, and claiming its leftover would cache an empty
+        // directory as the installed artifact
+        if holds_artifact {
+            if let Some(w) = wanted
+                .iter_mut()
+                .find(|w| !w.found && below.ends_with(&w.coordinate))
+            {
+                copy_dir_recursively(dir, &PathBuf::from(&w.destination))?;
+                w.found = true;
+                return Ok(());
+            }
+        }
+        for entry in subdirs {
             below.push(entry.file_name().to_string_lossy().into_owned());
             find_and_copy(&entry.path(), below, wanted).await?;
             below.pop();
@@ -539,6 +568,7 @@ async fn move_to_repository(
                     .collect(),
                 destination: path.clone(),
                 display_name: display_name.clone(),
+                found: false,
             })
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
@@ -548,15 +578,17 @@ async fn move_to_repository(
 
     find_and_copy(&PathBuf::from(fetch_dir), &mut vec![], &mut wanted).await?;
 
-    if !wanted.is_empty() {
+    let missing = wanted
+        .iter()
+        .filter(|w| !w.found)
+        .map(|w| w.display_name.as_str())
+        .sorted()
+        .collect_vec();
+    if !missing.is_empty() {
         bail!(
             "the configured maven repositories did not serve: {}. \
             Coursier reported success but no artifact for them was found in its cache.",
-            wanted
-                .iter()
-                .map(|w| w.display_name.as_str())
-                .sorted()
-                .join(", ")
+            missing.join(", ")
         );
     }
     Ok(())
@@ -1141,6 +1173,45 @@ mod tests {
             "gson-2.8.9.jar",
             "commons-lang3-3.8.1.jar",
         ]) {
+            assert!(
+                metadata(format!("{}/{jar}", dep.path)).await.is_ok(),
+                "{} was not copied to {}",
+                dep.display_name,
+                dep.path
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn the_empty_directory_a_404_leaves_behind_does_not_claim_the_coordinate() {
+        let tmp = tempfile::tempdir().unwrap();
+        let fetch_dir = tmp.path().join("fetch").to_str().unwrap().to_owned();
+        let repository_dir = tmp.path().join("repository").to_str().unwrap().to_owned();
+
+        // a repository that 404s is left with an empty directory at the coordinate. Each artifact
+        // is served by one of the two repositories and left empty under the other, so whichever
+        // one the walk reaches first, an empty directory precedes an artifact.
+        let central = format!("{fetch_dir}/https/repo1.maven.org/maven2");
+        let nexus = format!("{fetch_dir}/https/nexus.local/repository/maven-public");
+        touch(&format!("{central}/com/corp/public/1.0/public-1.0.jar")).await;
+        create_dir_all(format!("{nexus}/com/corp/public/1.0"))
+            .await
+            .unwrap();
+        touch(&format!("{nexus}/com/corp/internal/1.0/internal-1.0.jar")).await;
+        create_dir_all(format!("{central}/com/corp/internal/1.0"))
+            .await
+            .unwrap();
+
+        let deps = vec![
+            dep(&repository_dir, "com/corp", "public", "1.0"),
+            dep(&repository_dir, "com/corp", "internal", "1.0"),
+        ];
+
+        move_to_repository(&fetch_dir, &repository_dir, &deps)
+            .await
+            .unwrap();
+
+        for (dep, jar) in deps.iter().zip(["public-1.0.jar", "internal-1.0.jar"]) {
             assert!(
                 metadata(format!("{}/{jar}", dep.path)).await.is_ok(),
                 "{} was not copied to {}",
