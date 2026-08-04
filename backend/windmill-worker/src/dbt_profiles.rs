@@ -796,34 +796,42 @@ pub fn render_dbt_profile(
 /// a mapping (bigquery's `keyfile_json`) or a list. Keys are quoted like values: one nothing
 /// here enumerates is as free-form as a password.
 fn emit_entry(out: &mut String, indent: usize, key: &str, v: &Value) {
-    let pad = " ".repeat(indent);
-    let qk = yaml_scalar(key);
+    out.push_str(&format!("{}{}:", " ".repeat(indent), yaml_scalar(key)));
+    emit_value(out, indent, v);
+}
+
+/// The value half, after `key:`. An empty collection is emitted INLINE: a block with no
+/// children reads back as `null`, so `extensions: []` would reach the adapter as a missing
+/// value rather than the empty list dbt was handed.
+fn emit_value(out: &mut String, indent: usize, v: &Value) {
     match v {
         Value::Object(m) => {
-            out.push_str(&format!("{pad}{qk}:\n"));
-            for (k, v) in m {
-                if !v.is_null() {
-                    emit_entry(out, indent + 2, k, v);
-                }
+            // A null is an optional field the resource form left unset, and dbt validates
+            // several keys against a schema that rejects one.
+            let kept: Vec<_> = m.iter().filter(|(_, v)| !v.is_null()).collect();
+            if kept.is_empty() {
+                out.push_str(" {}\n");
+                return;
+            }
+            out.push('\n');
+            for (k, v) in kept {
+                emit_entry(out, indent + 2, k, v);
             }
         }
         Value::Array(items) => {
-            out.push_str(&format!("{pad}{qk}:\n"));
+            if items.is_empty() {
+                out.push_str(" []\n");
+                return;
+            }
+            out.push('\n');
+            let pad = " ".repeat(indent + 2);
             for item in items {
-                match item {
-                    Value::Object(m) => {
-                        out.push_str(&format!("{pad}  -\n"));
-                        for (k, v) in m {
-                            if !v.is_null() {
-                                emit_entry(out, indent + 4, k, v);
-                            }
-                        }
-                    }
-                    _ => out.push_str(&format!("{pad}  - {}\n", yaml_value(item))),
-                }
+                out.push_str(&pad);
+                out.push('-');
+                emit_value(out, indent + 2, item);
             }
         }
-        _ => out.push_str(&format!("{pad}{qk}: {}\n", yaml_value(v))),
+        _ => out.push_str(&format!(" {}\n", yaml_value(v))),
     }
 }
 
@@ -1072,6 +1080,33 @@ mod tests {
         .unwrap();
         assert_eq!(p.yaml.matches("sslrootcert").count(), 1, "{}", p.yaml);
         assert!(p.yaml.contains(ROOT_CERT_FILENAME), "{}", p.yaml);
+    }
+
+    // dbt hands these to the adapter as it finds them, so a collection must survive the
+    // round trip: a block with no children reads back as `null`, not as `[]` or `{}`.
+    #[test]
+    fn collections_keep_their_type() {
+        let r = json!({"type": "duckdb", "extensions": [], "settings": {},
+                       "attach": [{"path": "raw.db", "read_only": true}],
+                       "matrix": [["a", 1], []], "plugins": ["excel", "json"]});
+        let p = render_dbt_profile(
+            &DbtAdapter::from_dbt_type("duckdb").unwrap(),
+            r.as_object().unwrap(),
+            "wm",
+            "prod",
+            None,
+            None,
+            std::path::Path::new("/tmp/p"),
+        )
+        .unwrap();
+        // Parsed back rather than string-matched: the point is what a YAML reader sees.
+        let y: serde_json::Value = serde_yml::from_str(&p.yaml).expect(&p.yaml);
+        let t = &y["wm"]["outputs"]["prod"];
+        assert_eq!(t["extensions"], json!([]), "{}", p.yaml);
+        assert_eq!(t["settings"], json!({}), "{}", p.yaml);
+        assert_eq!(t["attach"], json!([{"path": "raw.db", "read_only": true}]), "{}", p.yaml);
+        assert_eq!(t["matrix"], json!([["a", 1], []]), "{}", p.yaml);
+        assert_eq!(t["plugins"], json!(["excel", "json"]), "{}", p.yaml);
     }
 
     // An unknown adapter's name becomes `dbt-<name>` in a pip requirement and a
