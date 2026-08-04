@@ -411,6 +411,24 @@ async fn test_raw_app_kind_is_not_flipped_by_update(db: Pool<Postgres>) -> anyho
         "expected the raw update of a low-code app to be refused"
     );
 
+    // Nor may the source endpoints compile a value that isn't a raw app's: both
+    // refuse up front, without queueing a bundle job no worker would pick up here.
+    let resp = authed(client().post(format!("{base}/create_raw_source")))
+        .json(&json!({
+            "path": "u/test-user/from_source",
+            "summary": "",
+            "value": { "grid": [] },
+            "policy": { "execution_mode": "publisher" }
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+    assert!(
+        resp.text().await?.contains("no `files` to bundle"),
+        "expected a low-code value to be refused before bundling"
+    );
+
     // The source endpoint refuses the same mismatch up front — it must not queue
     // a bundle job (which no worker would pick up here) to find that out.
     let resp = authed(client().post(format!("{base}/update_raw_source/{low_code_path}")))

@@ -11795,6 +11795,9 @@ paths:
     get:
       summary: list all apps
       operationId: listApps
+      x-mcp-tool: true
+      x-mcp-instructions: "Lists every app, low-code and full-code alike. `raw_app` tells them apart: true is a full-code app, which getAppByPath then reads and updateAppRawSource deploys. A low-code app can only be read here — editing one is a job for its editor in the UI."
+      x-mcp-tool-include-query-params: [path_start]
       tags:
         - app
       parameters:
@@ -11854,16 +11857,6 @@ paths:
     post:
       summary: create app
       operationId: createApp
-      x-mcp-tool: true
-      x-mcp-tool-include-fields:
-        - path
-        - value
-        - summary
-        - policy
-        - deployment_message
-      x-mcp-tool-opaque-fields:
-        - value
-        - policy
       tags:
         - app
       parameters:
@@ -11988,6 +11981,9 @@ paths:
     get:
       summary: get app by path
       operationId: getAppByPath
+      x-mcp-tool: true
+      x-mcp-instructions: "Returns the app's whole `value`, which is what updateAppRawSource needs: it takes the whole thing, not a patch. `raw_app` says whether this is a full-code app (its value holds `files`/`runnables`) or a low-code one (a `grid`), and only a full-code app can be deployed through MCP."
+      x-mcp-tool-include-query-params: []
       tags:
         - app
       parameters:
@@ -12298,17 +12294,6 @@ paths:
     post:
       summary: update app
       operationId: updateApp
-      x-mcp-tool: true
-      x-mcp-instructions: "Low-code apps only. An app whose `raw_app` field (from getAppByPath) is true is a raw (full-code) app and is refused here; use updateAppRawSource for those."
-      x-mcp-tool-include-fields:
-        - path
-        - value
-        - summary
-        - policy
-        - deployment_message
-      x-mcp-tool-opaque-fields:
-        - value
-        - policy
       tags:
         - app
       parameters:
@@ -12349,6 +12334,67 @@ paths:
       responses:
         "200":
           description: app updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/apps/create_raw_source:
+    post:
+      # The summary is what the MCP token picker shows next to the tool, so it has
+      # to carry the consequence of granting it, not just what it does.
+      summary: create a raw app from its sources, compiling them on a worker (which runs the app's own dependencies to do so)
+      operationId: createAppRawSource
+      x-mcp-tool: true
+      x-mcp-instructions: "Creates a raw (full-code) app: `value.files` holds its sources, keyed by path (`/index.tsx`, `/App.tsx`, `/package.json`), and needs an entry point (`/index.tsx`, `/index.ts` or `/index.js`). The sources are compiled on a worker by the same build the editor and the CLI run, so a compile error comes back as the error of this call. Compiling runs the app's own dependencies on a worker, so this tool can execute code there. There is no MCP tool for creating a low-code app — those are built in their editor."
+      x-mcp-tool-include-fields:
+        - path
+        - value
+        - summary
+        - policy
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: raw app sources to bundle and deploy
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                summary:
+                  type: string
+                value:
+                  type: object
+                  description: "The raw app's value. `files` maps each source path to its content and must contain an entry point; `runnables` and `data` are carried through unchanged."
+                  properties:
+                    files:
+                      type: object
+                      additionalProperties:
+                        type: string
+                    runnables:
+                      type: object
+                    data:
+                      type: object
+                  required: [files]
+                policy:
+                  $ref: "#/components/schemas/Policy"
+                deployment_message:
+                  type: string
+                custom_path:
+                  type: string
+                labels:
+                  type: array
+                  items:
+                    type: string
+              required: [path, value, summary, policy]
+      responses:
+        "201":
+          description: app created
           content:
             text/plain:
               schema:

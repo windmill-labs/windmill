@@ -119,6 +119,11 @@ pub fn workspaced_service(raw_app_body_limit: usize) -> Router {
             post(update_app_raw).layer(axum::extract::DefaultBodyLimit::max(raw_app_body_limit)),
         )
         .route(
+            "/create_raw_source",
+            post(create_app_raw_source)
+                .layer(axum::extract::DefaultBodyLimit::max(raw_app_body_limit)),
+        )
+        .route(
             "/update_raw_source/{*path}",
             post(update_app_raw_source)
                 .layer(axum::extract::DefaultBodyLimit::max(raw_app_body_limit)),
@@ -2710,6 +2715,62 @@ async fn update_app_raw_source(
     );
 
     Ok(format!("app {} updated (npath: {:?})", opath, npath))
+}
+
+/// Create a raw app from its sources, compiling them on a worker. The counterpart
+/// of `update_app_raw_source`: `create_raw` takes a bundle the caller already
+/// built, which an API client has no way to produce.
+async fn create_app_raw_source(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Extension(webhook): Extension<WebhookShared>,
+    Path(w_id): Path<String>,
+    Json(app): Json<CreateApp>,
+) -> Result<(StatusCode, String)> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot create apps for security reasons".to_string(),
+        ));
+    }
+
+    let path = app.path.clone();
+    check_scopes(&authed, || format!("apps:write:{}", path))?;
+    // See update_app_raw_source: the compile runs caller-supplied sources on a
+    // worker, so writing an app must not be a way to gain that.
+    check_scopes(&authed, || "jobs:run".to_string())?;
+
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
+        &w_id,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
+    let files: RawAppSourceFiles = serde_json::from_str(app.value.0.get())
+        .map_err(|e| Error::BadRequest(format!("app value is not a raw app source: {e}")))?;
+    let (js, css) =
+        apps_raw_bundle::bundle_raw_app_sources(&db, &user_db, &authed, &w_id, &files.files).await?;
+
+    let (mut tx, npath, v_id) =
+        create_app_internal(authed, db, user_db, &w_id, true, app).await?;
+    store_raw_app_file(&w_id, &v_id, "js", bytes::Bytes::from(js), &mut tx).await?;
+    if !css.is_empty() {
+        store_raw_app_file(&w_id, &v_id, "css", bytes::Bytes::from(css), &mut tx).await?;
+    }
+    tx.commit().await?;
+
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::CreateApp { workspace: w_id, path: npath.clone() },
+    );
+
+    Ok((StatusCode::CREATED, npath))
 }
 
 /// The part of a raw app's value the bundler needs.
