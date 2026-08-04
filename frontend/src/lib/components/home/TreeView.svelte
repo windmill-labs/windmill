@@ -77,7 +77,11 @@
 			(pipelineFolders?.has(item.folderName) ?? false)
 	)
 
-	let opened: boolean = $state(true)
+	// Starts closed and is opened by the collapseAll effect below, which runs after the
+	// first render. Starting open instead would mount this node's whole loaded subtree for
+	// that one frame — thousands of rows once a few pages are in, since a node in lazy mode
+	// renders every loaded row — every time an ancestor opens or remounts.
+	let opened: boolean = $state(false)
 
 	// Full path prefix of this node when it's a top-level owner (folder or user).
 	let ownerKey = $derived(
@@ -110,6 +114,10 @@
 	// Whether rows under this node are still incomplete: its own pagination once it has
 	// been loaded directly, otherwise whatever its nearest loaded ancestor reports.
 	let nodeHasMore = $derived(nodeState?.loaded ? nodeState.hasMore : ancestorHasMore)
+	// Rows loaded under this node. Its children count a subfolder as one entry, which
+	// would label a folder holding 133 rows in one subfolder as "1 item"; every count this
+	// node shows (badge and pager alike) means leaves, so they can't contradict.
+	let loadedHere = $derived(isFolder(item) || isUser(item) ? countLeaves(item) : 0)
 	// The owner's runnable count alone (no pipeline row), so it lines up with the rows
 	// actually fetched for it — what the partial-load footer compares against. An owner
 	// missing from `ownerCounts` holds nothing (the response omits those), so it reads as
@@ -117,11 +125,11 @@
 	// can come in under that (it can miss an item shared individually out of a folder the
 	// viewer isn't in), and a total below the rows beneath it reads as a bug. The owner
 	// chips floor the same way.
-	let ownerTotal = $derived.by(() => {
-		if (ownerKey == undefined || ownerCounts == undefined) return undefined
-		const onScreen = isFolder(item) || isUser(item) ? countLeaves(item) : 0
-		return Math.max(ownerCounts[ownerKey] ?? 0, onScreen)
-	})
+	let ownerTotal = $derived(
+		ownerKey != undefined && ownerCounts != undefined
+			? Math.max(ownerCounts[ownerKey] ?? 0, loadedHere)
+			: undefined
+	)
 	// What this owner renders, known without expanding it. Preferred over the loaded
 	// rows, which are one page deep and count a subfolder as a single child. The pipeline
 	// entry is a row of its own and its member scripts are excluded from the count, so it
@@ -199,10 +207,14 @@
 		lastToggle = now
 		opened = !opened
 		if (opened) {
-			// Only a top-level owner loads on expand. A subfolder's rows come from an
-			// ancestor's pages, so opening one must not fire a request per subfolder —
-			// its own "Load more" is the explicit way to complete it.
-			if (ownerKey != undefined) onExpandOwner?.(ownerKey)
+			// A top-level owner loads on expand. A subfolder's rows come from an ancestor's
+			// pages, so opening one must not fire a request per subfolder — its own "Load
+			// more" is the explicit way to complete it. One exception, and it costs nothing:
+			// a subfolder that HAS paged itself re-registers so later reloads keep refreshing
+			// the rows it is showing (loadOwnerItems returns without fetching when a prefix
+			// is already loaded), instead of letting a parent refresh silently truncate them.
+			if (nodePrefix != undefined && (ownerKey != undefined || nodeState?.loaded))
+				onExpandOwner?.(nodePrefix)
 		} else if (nodePrefix != undefined) {
 			// Any depth: a closed node stays mounted, so without this a subfolder that
 			// had paged itself would keep being re-fetched by every later reload while
@@ -249,9 +261,9 @@
 							<!-- Partial: this node still has pages to load (its own once it has been
 							     loaded directly, otherwise its ancestor's), so what is grouped under
 							     it is only what has arrived so far. -->
-							({item.items.length}+ items)
+							({loadedHere}+ items)
 						{:else}
-							({pluralize(item.items.length, ' item')})
+							({pluralize(loadedHere, ' item')})
 						{/if}
 					</div>
 				</div>
@@ -304,8 +316,10 @@
 						class="px-4 py-2 border-b flex flex-row items-center justify-between gap-4 bg-surface-secondary"
 						style="padding-left: {(depth + 1) * 16}px;"
 					>
+						<!-- Rows, not items: this slices the node's own entries, where a subfolder
+						     is one row standing for everything under it. -->
 						<span class="text-xs text-secondary">
-							Showing {effectiveMax} of {item.items.length} loaded items
+							Showing {effectiveMax} of {item.items.length} loaded rows
 						</span>
 						<Button
 							unifiedSize="sm"
@@ -336,8 +350,7 @@
 							style="padding-left: {(depth + 1) * 16}px;"
 						>
 							<span class="text-xs text-secondary">
-								Showing {countLeaves(item)}{ownerTotal != undefined ? ` of ${ownerTotal}` : ''} items
-								in {nodePrefix}
+								Showing {loadedHere}{ownerTotal != undefined ? ` of ${ownerTotal}` : ''} items in {nodePrefix}
 							</span>
 							<Button
 								unifiedSize="sm"
