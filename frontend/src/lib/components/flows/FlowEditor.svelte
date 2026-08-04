@@ -225,7 +225,10 @@
 	})
 
 	onMount(() => {
-		if (modalPanel && (rootEl?.clientWidth ?? Infinity) < MODAL_PANEL_BREAKPOINT) {
+		// A zero width means the editor was mounted into a box that has not been laid out —
+		// that is not evidence of a narrow screen, so leave the mode alone.
+		const w = rootEl?.clientWidth ?? 0
+		if (modalPanel && w > 0 && w < MODAL_PANEL_BREAKPOINT) {
 			panelMode = 'modal'
 		}
 		if (modalPanel) {

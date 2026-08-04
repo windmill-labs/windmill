@@ -40,7 +40,7 @@
 		selectedId: string
 		/** Lay out for embedding inside another scroll container (no own scroll/padding). */
 		embedded?: boolean
-		/** For loop modules: keep only the subset of settings loops support
+		/** Container steps (loops and branches): keep only the subset of settings they support
 		 *  (Flow control rows + Lifetime), hiding the rest of Execution policy. */
 		loopSubset?: boolean
 		/** Loops render the per-iteration break next to their own settings, so they ask
