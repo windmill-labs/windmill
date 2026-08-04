@@ -9,7 +9,7 @@
 	import FlowStatusViewer from '../FlowStatusViewer.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import WorkflowTimeline from '../WorkflowTimeline.svelte'
-	import { isFlowPreview, isScriptPreview, type StateStore } from '$lib/utils'
+	import { isFlowPreview, isScriptPreview, jobDisplayDurationMs, type StateStore } from '$lib/utils'
 	import { setContext, untrack, createEventDispatcher } from 'svelte'
 	import { LoaderCircle } from 'lucide-svelte'
 	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from '../flows/FlowAssetsHandler.svelte'
@@ -240,7 +240,7 @@
 								>
 									<LogViewer
 										jobId={job.id}
-										duration={job?.['duration_ms']}
+										duration={jobDisplayDurationMs(job)}
 										mem={job?.['mem_peak']}
 										isLoading={job?.['running'] == false}
 										content={job?.logs}

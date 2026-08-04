@@ -10,7 +10,8 @@ import {
 	getQueryStmtCountHeuristic,
 	isJobResolvable,
 	parseDbInputFromAssetSyntax,
-	apiErrorMessage
+	apiErrorMessage,
+	jobDisplayDurationMs
 } from './utils'
 
 // Mirrors the backend invariant that only `status = 'failure'` rows can carry a
@@ -596,5 +597,54 @@ describe('apiErrorMessage', () => {
 
 	it('handles a plain Error', () => {
 		expect(apiErrorMessage(new Error('boom'))).toBe('boom')
+	})
+})
+
+// AI-agent jobs populate `workflow_as_code_status` too, so keying off the column
+// alone would swap their duration for wall-clock and count queue-free idle time.
+describe('jobDisplayDurationMs', () => {
+	const wac = { workflow_as_code_status: { _checkpoint: { completed_steps: {} } } }
+
+	it('reports wall-clock for a workflow-as-code job', () => {
+		expect(
+			jobDisplayDurationMs({
+				...wac,
+				started_at: '2026-08-03T15:21:04.863Z',
+				completed_at: '2026-08-03T15:21:19.612Z',
+				duration_ms: 2058
+			})
+		).toBe(14749)
+	})
+
+	it('keeps duration_ms for an AI-agent job and a plain script', () => {
+		expect(
+			jobDisplayDurationMs({
+				workflow_as_code_status: { 'step-1': { name: 'tool' } },
+				started_at: '2026-08-03T15:21:04.863Z',
+				completed_at: '2026-08-03T15:21:19.612Z',
+				duration_ms: 2058
+			})
+		).toBe(2058)
+		expect(
+			jobDisplayDurationMs({
+				started_at: '2026-08-03T15:21:00.809Z',
+				completed_at: '2026-08-03T15:21:04.858Z',
+				duration_ms: 4046
+			})
+		).toBe(4046)
+	})
+
+	it('falls back to duration_ms when the timestamps are missing or inverted', () => {
+		expect(
+			jobDisplayDurationMs({ ...wac, started_at: '2026-08-03T15:21:04.863Z', duration_ms: 7 })
+		).toBe(7)
+		expect(
+			jobDisplayDurationMs({
+				...wac,
+				started_at: '2026-08-03T15:21:19.612Z',
+				completed_at: '2026-08-03T15:21:04.863Z',
+				duration_ms: 7
+			})
+		).toBe(7)
 	})
 })
