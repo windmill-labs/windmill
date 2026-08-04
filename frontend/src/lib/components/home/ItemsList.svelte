@@ -19,6 +19,7 @@
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import {
 		ArrowDownUp,
+		CheckSquare,
 		ChevronsDownUp,
 		ChevronsUpDown,
 		Code2,
@@ -38,7 +39,7 @@
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from './FlowIcon.svelte'
-	import { canWrite, getLocalSetting, storeLocalSetting } from '$lib/utils'
+	import { canWrite, getLocalSetting, isOwner, storeLocalSetting } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import { page } from '$app/state'
 	import { setQuery } from '$lib/navigation'
@@ -54,6 +55,8 @@
 	import TextInput from '../text_input/TextInput.svelte'
 	import { NetworkIcon } from 'lucide-svelte'
 	import { base } from '$lib/base'
+	import BulkActionsBar from './BulkActionsBar.svelte'
+	import { HomeSelection, setHomeSelection, toBulkItem } from './homeSelection.svelte'
 	interface Props {
 		filter?: string
 		subtab?: 'flow' | 'script' | 'app'
@@ -1135,6 +1138,11 @@
 		selectedIndex = previousNbDisplayed
 	}
 
+	// Elements that own the keyboard themselves (menus, dialogs, comboboxes): the
+	// list's own shortcuts stand down while one of them has focus.
+	const SKIP_SELECTOR =
+		'[role="menu"], [role="menuitem"], [role="dialog"], [role="listbox"], [role="combobox"], [aria-expanded="true"], [data-menu], [data-chat-keyboard-scope]'
+
 	function getSelectedRowActionButtons(): HTMLElement[] {
 		const anchor = document.querySelector<HTMLElement>('a[data-row-keyboard-selected="true"]')
 		const actions = anchor?.parentElement?.querySelector<HTMLElement>('[data-row-actions]')
@@ -1142,8 +1150,19 @@
 	}
 
 	function handleGlobalKeydown(e: KeyboardEvent) {
-		if (treeView) return
 		const target = e.target as HTMLElement | null
+
+		// Escape leaves selection mode from either view (everything below is flat-list
+		// navigation) — unless a menu or dialog owns the key, which closes itself first.
+		if (e.key === 'Escape' && homeSelection.active) {
+			const active = document.activeElement as HTMLElement | null
+			if (!target?.closest(SKIP_SELECTOR) && !active?.closest(SKIP_SELECTOR)) {
+				e.preventDefault()
+				homeSelection.exit()
+				return
+			}
+		}
+		if (treeView) return
 
 		// When focus is inside a row's action buttons, handle arrow keys ourselves:
 		//  - Left/Right cycle between buttons (Left from the first returns to search).
@@ -1223,8 +1242,7 @@
 			return
 		}
 
-		const skipSelector =
-			'[role="menu"], [role="menuitem"], [role="dialog"], [role="listbox"], [role="combobox"], [aria-expanded="true"], [data-menu], [data-chat-keyboard-scope]'
+		const skipSelector = SKIP_SELECTOR
 		if (target) {
 			const tag = target.tagName
 			const isEditable =
@@ -1285,7 +1303,15 @@
 				selectedIndex = selectedIndex - 1
 			}
 		} else if (e.key === 'Enter') {
-			if (selectedIndex === loadMoreIndex && hasMore) {
+			// In selection mode the rows carry no link, so Enter ticks the highlighted
+			// row instead of opening it.
+			if (homeSelection.active && selectedIndex >= 0 && selectedIndex < displayedItems.length) {
+				const item = displayedItems[selectedIndex]
+				if (item.type !== 'raw_app') {
+					e.preventDefault()
+					homeSelection.toggle(toBulkItem(item, $userStore, $workspaceStore), e.shiftKey)
+				}
+			} else if (selectedIndex === loadMoreIndex && hasMore) {
 				e.preventDefault()
 				loadMoreAndPreselectFirstNew()
 			} else if (selectedIndex >= 0 && selectedIndex < displayedItems.length) {
@@ -1313,6 +1339,29 @@
 	$effect(() => {
 		storeLocalSetting(INCLUDE_WITHOUT_MAIN_SETTING_NAME, includeWithoutMain ? 'true' : undefined)
 	})
+
+	// Multi-selection + bulk actions. Published through context so the tree's
+	// nested levels don't have to carry it; `Item` is the only reader.
+	const homeSelection = new HomeSelection()
+	setHomeSelection(homeSelection)
+	$effect(() => {
+		homeSelection.available = showEditButtons && !!$userStore && !$userStore.operator
+	})
+	// A selected path means nothing in another workspace. Narrowing the view
+	// within one (kind, owner, label, search) keeps the selection instead, so
+	// items can be gathered across several filters; every action lists the paths
+	// it will touch, so nothing acts invisibly.
+	$effect(() => {
+		$workspaceStore
+		untrack(() => homeSelection.exit())
+	})
+	// Only folders/user spaces the user owns: a move into any other lands as a
+	// per-item permission error the user could have been spared.
+	let moveTargets = $derived(
+		[...allFolderOwners, ...($userStore?.username ? [`u/${$userStore.username}`] : [])].filter(
+			(o) => isOwner(`${o}/x`, $userStore, $workspaceStore)
+		)
+	)
 </script>
 
 <SearchItems
@@ -1547,6 +1596,17 @@
 						{/if}
 					</Button>
 				{/if}
+				{#if homeSelection.available && !homeSelection.active}
+					<Button
+						unifiedSize="sm"
+						variant="subtle"
+						startIcon={{ icon: CheckSquare }}
+						title="Select several items to move, archive, delete or discard them at once"
+						on:click={() => homeSelection.enter()}
+					>
+						Select items
+					</Button>
+				{/if}
 			</div>
 		{/if}
 	</div>
@@ -1660,5 +1720,20 @@
 				{/if}
 			</div>
 		{/if}
+		{#if homeSelection.active}
+			<!-- The bar floats over the page bottom; without this the last rows sit
+			     under it with no way to scroll them clear. -->
+			<div class="h-20"></div>
+		{/if}
 	</div>
 </CenteredPage>
+
+{#if homeSelection.active && $workspaceStore}
+	<BulkActionsBar
+		selection={homeSelection}
+		workspace={$workspaceStore}
+		isAdmin={!!($userStore?.is_admin || $userStore?.is_super_admin)}
+		{moveTargets}
+		onDone={reloadItemsAndCounts}
+	/>
+{/if}
