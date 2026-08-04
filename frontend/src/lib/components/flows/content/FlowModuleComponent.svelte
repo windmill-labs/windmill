@@ -338,6 +338,25 @@
 		}
 	}
 
+	// Reached from both headers: the card header owns the script-path actions, the module
+	// header the subflow ones.
+	async function reloadModule() {
+		if (flowModule.value.type == 'script') {
+			if (flowModule.value.hash != undefined) {
+				flowModule.value.hash = await getLatestHashForScript(flowModule.value.path, opWs)
+			}
+			forceReload++
+			// Keep the surfaced concurrency/cache values and badges in sync after a
+			// settings/code save from the header (path/hash may be unchanged).
+			await referencedScriptSettings.reload()
+			await reload(flowModule)
+		}
+		if (flowModule.value.type == 'flow') {
+			forceReload++
+			await reload(flowModule)
+		}
+	}
+
 	let leftPanelSize = $state(0)
 
 	function showDiffMode() {
@@ -786,16 +805,18 @@
 	<div class="h-full bg-surface" bind:clientWidth={width}>
 		<FlowCard
 			flowModuleValue={flowModule?.value}
-			on:reload={() => {
-				forceReload++
-				reload(flowModule)
-			}}
 			{noEditor}
 			on:setHash={(e) => {
 				if (flowModule.value.type == 'script') {
 					flowModule.value.hash = e.detail
 				}
 			}}
+			on:fork={async () => {
+				const [module, state] = await fork(flowModule, opWs)
+				flowModule = module
+				flowStateStore.val[module.id] = state
+			}}
+			on:reload={reloadModule}
 			bind:summary={flowModule.summary}
 			bind:description={toolDescription}
 			{isAgentTool}
@@ -813,27 +834,7 @@
 							flowModule.value.tag = e.detail
 						}
 					}}
-					on:fork={async () => {
-						const [module, state] = await fork(flowModule, opWs)
-						flowModule = module
-						flowStateStore.val[module.id] = state
-					}}
-					on:reload={async () => {
-						if (flowModule.value.type == 'script') {
-							if (flowModule.value.hash != undefined) {
-								flowModule.value.hash = await getLatestHashForScript(flowModule.value.path, opWs)
-							}
-							forceReload++
-							// Keep the surfaced concurrency/cache values and badges in sync after
-							// a settings/code save from the header (path/hash may be unchanged).
-							await referencedScriptSettings.reload()
-							await reload(flowModule)
-						}
-						if (flowModule.value.type == 'flow') {
-							forceReload++
-							await reload(flowModule)
-						}
-					}}
+					on:reload={reloadModule}
 					on:createScriptFromInlineScript={async () => {
 						const [module, state] = await createScriptFromInlineScript(
 							flowModule,

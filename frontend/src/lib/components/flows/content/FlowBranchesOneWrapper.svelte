@@ -6,6 +6,7 @@
 	import {
 		addBranch as addBranchOp,
 		removeBranch as removeBranchOp,
+		reorderBranches as reorderBranchesOp,
 		graphBranchIndex
 	} from '../branchOps'
 	import { refreshFlowStateStore } from '../flowStoreRefresh.svelte'
@@ -27,9 +28,16 @@
 		previousModule: FlowModule | undefined
 		parentModule: FlowModule | undefined
 		noEditor: boolean
+		enableAi?: boolean
 	}
 
-	let { flowModule = $bindable(), previousModule, parentModule, noEditor }: Props = $props()
+	let {
+		flowModule = $bindable(),
+		previousModule,
+		parentModule,
+		noEditor,
+		enableAi = false
+	}: Props = $props()
 
 	let value = $state(flowModule.value as BranchOne)
 	$effect(() => {
@@ -70,7 +78,11 @@
 	}
 	function handleFinalize(e: CustomEvent<{ items: typeof items }>) {
 		items = e.detail.items
-		value.branches = items.map((it) => it.branch)
+		reorderBranchesOp(
+			flowModule.id,
+			items.map((it) => it.branch),
+			{ flowStore, history }
+		)
 		dragging = false
 	}
 
@@ -169,6 +181,7 @@
 											branch={item.branch}
 											parentModule={flowModule}
 											{previousModule}
+											{enableAi}
 										/>
 									</div>
 								{/each}

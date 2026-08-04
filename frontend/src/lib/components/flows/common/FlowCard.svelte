@@ -41,6 +41,7 @@
 			<FlowCardHeader
 				on:setHash
 				on:reload
+				on:fork
 				{title}
 				bind:summary
 				bind:description

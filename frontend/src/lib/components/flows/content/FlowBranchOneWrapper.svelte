@@ -13,9 +13,10 @@
 		parentModule: FlowModule
 		previousModule: FlowModule | undefined
 		noEditor: boolean
+		enableAi?: boolean
 	}
 
-	let { branch, parentModule, previousModule, noEditor }: Props = $props()
+	let { branch, parentModule, previousModule, noEditor, enableAi = false }: Props = $props()
 </script>
 
 <div class="h-full flex flex-col">
@@ -26,7 +27,7 @@
 			</div>
 		{/snippet}
 		<div class="flex h-full min-h-0 flex-col overflow-auto p-4" style="scrollbar-gutter: stable">
-			<BranchPredicateEditor {branch} {parentModule} {previousModule} />
+			<BranchPredicateEditor {branch} {parentModule} {previousModule} {enableAi} />
 		</div>
 	</FlowCard>
 </div>

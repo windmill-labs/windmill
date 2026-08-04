@@ -1,6 +1,6 @@
 import { untrack } from 'svelte'
 import { randomUUID } from '$lib/utils/uuid'
-import { overlayStack } from '$lib/components/common/overlayHost.svelte'
+import { overlayHostActive, overlayStack } from '$lib/components/common/overlayHost.svelte'
 
 /**
  * Take a place on this subtree's overlay stack while open, and report whether this overlay
@@ -14,6 +14,7 @@ import { overlayStack } from '$lib/components/common/overlayHost.svelte'
 export function useOverlayStack(isOpen: () => boolean) {
 	const id = randomUUID()
 	const openedDrawers = overlayStack()
+	const hostActive = overlayHostActive()
 
 	$effect(() => {
 		if (isOpen()) {
@@ -27,6 +28,9 @@ export function useOverlayStack(isOpen: () => boolean) {
 	})
 
 	return {
-		isTopmost: () => openedDrawers.val.at(-1) === id
+		// The stack is per-host, so an overlay alone in a hidden pane is topmost of its own
+		// stack. Its `svelte:window` handler still fires, so being on screen is part of the
+		// question — without this it would answer Escape for the pane the user is looking at.
+		isTopmost: () => hostActive() && openedDrawers.val.at(-1) === id
 	}
 }

@@ -1,3 +1,4 @@
+import type { FlowModule } from '$lib/gen'
 import type { ExtendedOpenFlow } from './types'
 import type { FlowState } from './flowState'
 import type { StateStore } from '$lib/utils'
@@ -5,7 +6,8 @@ import type { History } from '$lib/history.svelte'
 import { push } from '$lib/history.svelte'
 import { dfs } from './dfs'
 import { findModuleInFlow } from './flowTree'
-import { deleteFlowStateById } from './flowStateUtils.svelte'
+
+type BranchList = Array<{ summary?: string; expr?: string; modules: FlowModule[] }>
 
 type Ctx = {
 	flowStore: StateStore<ExtendedOpenFlow>
@@ -46,11 +48,32 @@ export function removeBranch(
 
 		if (module.value.branches[at]?.modules) {
 			const leaves = dfs(module.value.branches[at].modules, (mod) => mod.id)
-			leaves.forEach((leafId: string) => deleteFlowStateById(leafId, flowStateStore))
+			leaves.forEach((leafId: string) => delete flowStateStore.val[leafId])
 		}
 
 		module.value.branches.splice(at, 1)
 	}
+}
+
+/**
+ * Commit a reordered branch list. Undoable like add/remove — a drag is a structural edit,
+ * and for a branchone it changes which predicate is evaluated first.
+ */
+export function reorderBranches(
+	moduleId: string,
+	ordered: BranchList,
+	{ flowStore, history }: Omit<Ctx, 'flowStateStore'>
+) {
+	const module = findModuleInFlow(flowStore.val.value, moduleId)
+	if (!module) throw new Error(`Node ${moduleId} not found`)
+	if (module.value.type !== 'branchone' && module.value.type !== 'branchall') return
+
+	const current = module.value.branches
+	// A drag that lands where it started must not spend an undo entry.
+	if (ordered.length === current.length && ordered.every((b, i) => b === current[i])) return
+
+	push(history, flowStore.val)
+	module.value.branches = ordered as typeof current
 }
 
 /** Slot a branch occupies in the graph's numbering, from its index in `value.branches`. */

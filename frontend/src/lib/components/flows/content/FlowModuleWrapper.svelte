@@ -1,10 +1,11 @@
 <script lang="ts">
-	import { moduleSlot } from '../moduleSlot'
+	import { moduleSlot, savedModuleById } from '../moduleSlot'
 	import FlowModuleWrapper from './FlowModuleWrapper.svelte'
 	import { type FlowModule } from '$lib/gen'
 	import { getContext } from 'svelte'
 
 	import { stepSettingDefaults } from '$lib/components/flows/flowStepSettings'
+	import { emptyString } from '$lib/utils'
 	import type { FlowEditorContext } from '../types'
 	import FlowLoop from './FlowLoop.svelte'
 	import FlowModuleComponent from './FlowModuleComponent.svelte'
@@ -127,7 +128,7 @@
 	{:else if flowModule.value.type === 'whileloopflow'}
 		<FlowWhileLoop {noEditor} bind:mod={flowModule} {previousModule} {parentModule} />
 	{:else if flowModule.value.type === 'branchone'}
-		<FlowBranchesOneWrapper {noEditor} {previousModule} {parentModule} bind:flowModule />
+		<FlowBranchesOneWrapper {noEditor} {previousModule} {parentModule} {enableAi} bind:flowModule />
 	{:else if flowModule.value.type === 'branchall'}
 		<FlowBranchesAllWrapper {noEditor} {previousModule} {parentModule} bind:flowModule />
 	{:else if flowModule.value.type === 'identity'}
@@ -169,7 +170,14 @@
 					selectedId == 'preprocessor'}
 				on:pick={async ({ detail }) => {
 					const { path, summary, kind, hash } = detail
-					createModuleFromScript(path, summary, kind, hash)
+					// The picked script's summary is a default: anything already typed on the step
+					// was the user's choice and outranks it.
+					createModuleFromScript(
+						path,
+						emptyString(flowModule.summary) ? summary : flowModule.summary,
+						kind,
+						hash
+					)
 				}}
 				on:new={async ({ detail }) => {
 					const { language, kind, subkind, summary } = detail
@@ -228,10 +236,7 @@
 			bind:flowModule={slot.get, slot.set}
 			bind:parentModule={flowModule}
 			previousModule={flowModule.value.modules[index - 1]}
-			savedModule={savedModule?.value.type === 'forloopflow' ||
-			savedModule?.value.type === 'whileloopflow'
-				? savedModule.value.modules[index]
-				: undefined}
+			savedModule={savedModuleById(savedModule, child.id)}
 			{enableAi}
 			{forceTestTab}
 			{highlightArg}
@@ -260,9 +265,7 @@
 				bind:flowModule={slot.get, slot.set}
 				bind:parentModule={flowModule}
 				previousModule={flowModule.value.default[index - 1]}
-				savedModule={savedModule?.value.type === 'branchone'
-					? savedModule.value.default[index]
-					: undefined}
+				savedModule={savedModuleById(savedModule, child.id)}
 				{enableAi}
 				{forceTestTab}
 				{highlightArg}
@@ -271,7 +274,13 @@
 	{/if}
 	{#each flowModule.value.branches as branch, branchIndex (branch)}
 		{#if selectedId === `${flowModule?.id}-branch-${branchIndex}`}
-			<FlowBranchOneWrapper {noEditor} {branch} parentModule={flowModule} {previousModule} />
+			<FlowBranchOneWrapper
+				{noEditor}
+				{branch}
+				parentModule={flowModule}
+				{previousModule}
+				{enableAi}
+			/>
 		{:else}
 			{#each branch.modules as child, index (child.id ?? index)}
 				{@const slot = moduleSlot(() => branch.modules, child.id, child)}
@@ -280,9 +289,7 @@
 					bind:flowModule={slot.get, slot.set}
 					bind:parentModule={flowModule}
 					previousModule={flowModule.value.branches[branchIndex].modules[index - 1]}
-					savedModule={savedModule?.value.type === 'branchone'
-						? savedModule.value.branches[branchIndex]?.modules[index]
-						: undefined}
+					savedModule={savedModuleById(savedModule, child.id)}
 					{enableAi}
 					{forceTestTab}
 					{highlightArg}
@@ -303,9 +310,7 @@
 					bind:parentModule={flowModule}
 					previousModule={flowModule.value.branches[branchIndex].modules[index - 1]}
 					{enableAi}
-					savedModule={savedModule?.value.type === 'branchall'
-						? savedModule.value.branches[branchIndex]?.modules[index]
-						: undefined}
+					savedModule={savedModuleById(savedModule, child.id)}
 					{forceTestTab}
 					{highlightArg}
 				/>

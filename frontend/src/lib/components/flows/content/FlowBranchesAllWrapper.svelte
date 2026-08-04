@@ -6,6 +6,7 @@
 	import {
 		addBranch as addBranchOp,
 		removeBranch as removeBranchOp,
+		reorderBranches as reorderBranchesOp,
 		graphBranchIndex
 	} from '../branchOps'
 	import { refreshFlowStateStore } from '../flowStoreRefresh.svelte'
@@ -70,7 +71,11 @@
 	}
 	function handleFinalize(e: CustomEvent<{ items: typeof items }>) {
 		items = e.detail.items
-		value.branches = items.map((it) => it.branch)
+		reorderBranchesOp(
+			flowModule.id,
+			items.map((it) => it.branch),
+			{ flowStore, history }
+		)
 		dragging = false
 	}
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { FlowModule } from '$lib/gen'
-import { moduleSlot } from './moduleSlot'
+import { moduleSlot, savedModuleById } from './moduleSlot'
 
 function mod(id: string, content = ''): FlowModule {
 	return {
@@ -40,5 +40,44 @@ describe('moduleSlot', () => {
 		modules.splice(1, 1)
 		slot.set(mod('replacement'))
 		expect(modules.map((m) => m.id)).toEqual(['a'])
+	})
+})
+
+describe('savedModuleById', () => {
+	function branchOne(id: string, branches: FlowModule[][]): FlowModule {
+		return {
+			id,
+			value: {
+				type: 'branchone',
+				default: [],
+				branches: branches.map((modules) => ({ expr: 'true', modules }))
+			}
+		} as unknown as FlowModule
+	}
+
+	it('finds a step whose branch has moved, where its old position now holds another step', () => {
+		// The deployed flow keeps the order it was deployed in. Matching by position would
+		// pair the step with the other branch's step and diff against the wrong code.
+		const deployed = branchOne('a', [[mod('x', 'code-x')], [mod('y', 'code-y')]])
+
+		const found = savedModuleById(deployed, 'y')
+
+		expect((found?.value as { content: string }).content).toBe('code-y')
+	})
+
+	it('reaches into a loop nested in a branch', () => {
+		const loop = {
+			id: 'l',
+			value: { type: 'forloopflow', modules: [mod('deep', 'code-deep')] }
+		} as unknown as FlowModule
+		const deployed = branchOne('a', [[loop]])
+
+		expect((savedModuleById(deployed, 'deep')?.value as { content: string }).content).toBe(
+			'code-deep'
+		)
+	})
+
+	it('returns undefined for a step that has no deployed counterpart yet', () => {
+		expect(savedModuleById(branchOne('a', [[mod('x')]]), 'brand-new')).toBeUndefined()
 	})
 })

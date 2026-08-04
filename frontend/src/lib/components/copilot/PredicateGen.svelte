@@ -15,6 +15,7 @@
 	import type { Flow } from '$lib/gen'
 	import { copilotInfo } from '$lib/aiStore'
 	import { AIBtnClasses } from './chat/AIButtonStyle'
+	import { twMerge } from 'tailwind-merge'
 
 	let loading = $state(false)
 	interface Props {
@@ -95,14 +96,18 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 		contentClasses="p-4 flex w-96"
 	>
 		{#snippet trigger()}
+			<!-- Sized to match FlowPlugConnect: the two sit side by side under every
+			     predicate input, so they have to read as one pair of controls. -->
 			<Button
+				variant="default"
+				size="xs3"
 				color={loading ? 'red' : 'light'}
-				unifiedSize="sm"
 				nonCaptureEvent={!loading}
 				startIcon={{ icon: Wand2 }}
 				iconOnly
 				title="AI Assistant"
-				btnClasses={AIBtnClasses()}
+				btnClasses={twMerge(AIBtnClasses(), 'bg-surface overflow-clip flex p-0')}
+				wrapperClasses="h-5 w-8 p-0"
 				{loading}
 				clickableWhileLoading
 				on:click={loading ? () => abortController?.abort() : () => {}}

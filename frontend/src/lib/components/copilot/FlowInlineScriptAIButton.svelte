@@ -16,8 +16,8 @@
 
 	const { moduleId, btnProps }: Props = $props()
 
-	// Inside a session pane the step's AI chat is driven by the session itself,
-	// so the per-step opener is shown but inert.
+	// Inside a session pane the step's AI chat is driven by the session's own chat, so a
+	// per-step opener would be a second entry point to the same thing.
 	const inSessionPane = !!getContext('aiChatManager')
 
 	const aiChatScriptModeClasses = $derived(
@@ -27,55 +27,59 @@
 	)
 </script>
 
-{#snippet button(onClick?: () => void, inert = false)}
+{#snippet button(onClick?: () => void)}
 	<Button
 		size="xs"
 		color="light"
 		btnClasses={twMerge('!px-2', aiChatScriptModeClasses)}
 		{onClick}
 		iconOnly
-		disabled={inert}
-		title={inert ? 'AI chat is driven by the session' : 'Open AI chat'}
+		title="Open AI chat"
 		startIcon={{ icon: WandSparkles, classes: 'text-ai' }}
 		{...btnProps}
 	/>
 {/snippet}
 
-{#if inSessionPane && $copilotInfo.enabled}
-	<!-- Inert: the session's own chat drives this step, so the per-step opener would be
-	     a second entry point to the same thing. -->
-	{@render button(undefined, true)}
-{:else if $copilotInfo.enabled}
-	{@render button(() => {
-		aiChatManager.openChat()
-		const availableContext = aiChatManager.contextManager.getAvailableContext()
-		aiChatManager.contextManager.setSelectedModuleContext(moduleId, availableContext)
-	})}
-{:else}
-	<Popover
-		floatingConfig={{
-			middleware: [
-				autoPlacement({
-					allowedPlacements: ['bottom-start', 'bottom-end', 'top-start', 'top-end', 'top', 'bottom']
-				})
-			]
-		}}
-	>
-		{#snippet trigger()}
-			{@render button()}
-		{/snippet}
-		{#snippet content({ close })}
-			<div class="p-4">
-				<p class="text-sm">
-					Enable Windmill AI in the <a
-						href="{base}/workspace_settings?tab=ai"
-						target="_blank"
-						class="inline-flex flex-row items-center gap-1"
-					>
-						workspace settings <ExternalLink size={16} />
-					</a>
-				</p>
-			</div>
-		{/snippet}
-	</Popover>
+{#if !inSessionPane}
+	{#if $copilotInfo.enabled}
+		{@render button(() => {
+			aiChatManager.openChat()
+			const availableContext = aiChatManager.contextManager.getAvailableContext()
+			aiChatManager.contextManager.setSelectedModuleContext(moduleId, availableContext)
+		})}
+	{:else}
+		<Popover
+			floatingConfig={{
+				middleware: [
+					autoPlacement({
+						allowedPlacements: [
+							'bottom-start',
+							'bottom-end',
+							'top-start',
+							'top-end',
+							'top',
+							'bottom'
+						]
+					})
+				]
+			}}
+		>
+			{#snippet trigger()}
+				{@render button()}
+			{/snippet}
+			{#snippet content({ close })}
+				<div class="p-4">
+					<p class="text-sm">
+						Enable Windmill AI in the <a
+							href="{base}/workspace_settings?tab=ai"
+							target="_blank"
+							class="inline-flex flex-row items-center gap-1"
+						>
+							workspace settings <ExternalLink size={16} />
+						</a>
+					</p>
+				</div>
+			{/snippet}
+		</Popover>
+	{/if}
 {/if}

@@ -4,6 +4,7 @@
 	import { getStepPropPicker } from '../previousResults'
 	import type { FlowEditorContext } from '../types'
 	import InputTransformForm from '$lib/components/InputTransformForm.svelte'
+	import PredicateGen from '$lib/components/copilot/PredicateGen.svelte'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import type SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { emptySchema } from '$lib/utils'
@@ -16,9 +17,10 @@
 		}
 		parentModule: FlowModule
 		previousModule: FlowModule | undefined
+		enableAi?: boolean
 	}
 
-	let { branch, parentModule, previousModule }: Props = $props()
+	let { branch, parentModule, previousModule, enableAi = false }: Props = $props()
 
 	let editor: SimpleEditor | undefined = $state(undefined)
 
@@ -68,5 +70,26 @@
 		pickableProperties={stepPropPicker.pickableProperties}
 		extraLib={stepPropPicker.extraLib}
 		bind:editor
-	/>
+	>
+		{#snippet aiGen()}
+			{#if enableAi}
+				<PredicateGen
+					on:setExpr={(e) => {
+						branch.expr = e.detail
+						// Monaco owns its buffer once mounted: writing the value alone leaves
+						// the visible code stale until the editor is torn down and rebuilt.
+						editor?.setCode(e.detail)
+					}}
+					on:updateSummary={(e) => {
+						// The prompt names the branch better than "Branch 2" does, but only
+						// when the user hasn't already named it themselves.
+						if (!branch.summary) {
+							branch.summary = e.detail
+						}
+					}}
+					pickableProperties={stepPropPicker.pickableProperties}
+				/>
+			{/if}
+		{/snippet}
+	</InputTransformForm>
 </PropPickerWrapper>

@@ -24,3 +24,38 @@ export function moduleSlot(
 		}
 	}
 }
+
+/**
+ * The deployed counterpart of a step, matched by id rather than by position.
+ *
+ * The saved flow keeps the order it was deployed in, so any structural edit since —
+ * reordering branches, inserting or deleting a step — shifts positions apart. Matching by
+ * index would then pair a step with a different step's deployed code, which surfaces as
+ * the wrong "last deployed" in the diff.
+ */
+export function savedModuleById(
+	saved: FlowModule | undefined,
+	id: string | undefined
+): FlowModule | undefined {
+	if (!saved || !id) return undefined
+	let found: FlowModule | undefined = undefined
+	const walk = (modules: FlowModule[]) => {
+		for (const m of modules) {
+			if (found) return
+			if (m.id === id) {
+				found = m
+				return
+			}
+			const v = m.value
+			if (v.type === 'forloopflow' || v.type === 'whileloopflow') walk(v.modules)
+			else if (v.type === 'branchone') {
+				walk(v.default)
+				for (const b of v.branches) walk(b.modules)
+			} else if (v.type === 'branchall') {
+				for (const b of v.branches) walk(b.modules)
+			}
+		}
+	}
+	walk([saved])
+	return found
+}

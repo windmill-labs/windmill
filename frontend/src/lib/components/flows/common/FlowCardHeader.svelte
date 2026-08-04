@@ -1,26 +1,33 @@
-<script lang="ts" module>
-	let cachedValues: Record<
-		string,
-		{
-			latestHash: string | undefined
-		}
-	> = {}
-</script>
-
 <script lang="ts">
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
 	import MetadataGen from '$lib/components/copilot/MetadataGen.svelte'
 	import IconedPath from '$lib/components/IconedPath.svelte'
-	import { ScriptService, type FlowModuleValue, type PathScript } from '$lib/gen'
-	import { hubBaseUrlStore, workspaceStore } from '$lib/stores'
-	import { Flag, Lock, PanelRight, PictureInPicture2, RefreshCw, Unlock, X } from 'lucide-svelte'
+	import { ScriptService, type FlowModuleValue } from '$lib/gen'
+	import {
+		ArrowUpCircle,
+		Flag,
+		GitFork,
+		Lock,
+		PanelRight,
+		Pen,
+		PictureInPicture2,
+		RefreshCw,
+		Settings,
+		Unlock,
+		X
+	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext, onMount, untrack } from 'svelte'
 	import type { FlowEditorContext, FlowPanelDetachContext } from '../types'
+	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import { hubBaseUrlStore, workspaceStore } from '$lib/stores'
+	import { DEFAULT_HUB_BASE_URL, PRIVATE_HUB_MIN_VERSION } from '$lib/hub'
+	import { getLatestHashForScript } from '$lib/scripts'
+	import { sendUserToast, type Item } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
 	import { getToolNameError } from '$lib/components/graph/renderers/nodes/AIToolNode.svelte'
-	import { DEFAULT_HUB_BASE_URL, PRIVATE_HUB_MIN_VERSION } from '$lib/hub'
 	import autosize from '$lib/autosize'
 
 	interface Props {
@@ -55,57 +62,132 @@
 		isAgentTool ? getToolNameError(summary ?? '', undefined, siblingToolNames) : undefined
 	)
 
-	let latestHash: string | undefined = $state(undefined)
-
+	const dispatch = createEventDispatcher()
+	const customUi: FlowBuilderWhitelabelCustomUi | undefined = getContext('customUi')
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+	const { scriptEditorDrawer, workspaceScriptSettingsDrawer } = flowEditorContext
+
 	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
+	const scriptPath = $derived(flowModuleValue?.type === 'script' ? flowModuleValue.path : undefined)
+	const pinnedHash = $derived(flowModuleValue?.type === 'script' ? flowModuleValue.hash : undefined)
+	const isHub = $derived(scriptPath?.startsWith('hub/') ?? false)
+	// Version id out of a hub path: hub/{version_id}/{app}/{summary}
+	const hubVersionId = $derived(isHub ? scriptPath?.split('/')[1] : undefined)
+
+	let latestHash: string | undefined = $state(undefined)
+	$effect(() => {
+		const path = scriptPath
+		if (!opWs || !path || isHub) return
+		untrack(async () => {
+			latestHash = (await ScriptService.getScriptByPath({ workspace: opWs, path })).hash
+		})
+	})
+
+	function reportIssue() {
+		const targetHubBaseUrl =
+			Number(hubVersionId) < PRIVATE_HUB_MIN_VERSION ? DEFAULT_HUB_BASE_URL : $hubBaseUrlStore
+		window.open(
+			`${targetHubBaseUrl}/from_version/${hubVersionId}?report_issue=${hubVersionId}`,
+			'_blank'
+		)
+	}
+
+	// Every one of these acts on the referenced script rather than the step, so they share
+	// a single menu instead of a row of icon buttons.
+	const scriptItems: Item[] = $derived.by(() => {
+		if (flowModuleValue?.type !== 'script') return []
+		const items: Item[] = []
+		if (!isHub && customUi?.scriptEdit != false) {
+			items.push({
+				displayName: "Edit the script's code",
+				icon: Pen,
+				disabled: pinnedHash != undefined,
+				tooltip: pinnedHash != undefined ? 'Unlock the hash to edit' : undefined,
+				action: async () => {
+					if (flowModuleValue?.type !== 'script') return
+					const hash =
+						flowModuleValue.hash ?? (await getLatestHashForScript(flowModuleValue.path, opWs))
+					$scriptEditorDrawer?.openDrawer(hash, () => {
+						dispatch('reload')
+						sendUserToast('Script has been updated')
+					})
+				}
+			})
+			// Only when the settings drawer is actually mounted (not in the local-dev
+			// editors, which provide the context store but never render it).
+			if ($workspaceScriptSettingsDrawer) {
+				items.push({
+					displayName: 'Runtime settings',
+					icon: Settings,
+					disabled: pinnedHash != undefined,
+					tooltip: 'Concurrency, cache, timeout, …',
+					action: () => {
+						if (flowModuleValue?.type !== 'script') return
+						$workspaceScriptSettingsDrawer?.openDrawer(
+							flowModuleValue.path,
+							flowModuleValue.hash,
+							() => dispatch('reload')
+						)
+					}
+				})
+			}
+		}
+		if (customUi?.scriptFork != false) {
+			items.push({
+				displayName: 'Fork into an inline script',
+				icon: GitFork,
+				action: () => dispatch('fork')
+			})
+		}
+		if (pinnedHash) {
+			if (latestHash && latestHash !== pinnedHash) {
+				items.push({
+					displayName: 'Update to latest hash',
+					icon: ArrowUpCircle,
+					separatorTop: items.length > 0,
+					action: () => {
+						dispatch('setHash', latestHash)
+						dispatch('reload')
+					}
+				})
+			}
+			items.push({
+				displayName: 'Unlock hash',
+				icon: Unlock,
+				tooltip: 'Always use the latest deployed version at that path',
+				separatorTop: items.length > 0 && !items.at(-1)?.separatorTop,
+				action: () => dispatch('setHash', undefined)
+			})
+		} else if (latestHash) {
+			items.push({
+				displayName: 'Lock hash',
+				icon: Lock,
+				tooltip: 'Always use this specific version',
+				separatorTop: items.length > 0,
+				action: () => dispatch('setHash', latestHash)
+			})
+			items.push({
+				displayName: 'Reload latest hash',
+				icon: RefreshCw,
+				action: () => dispatch('reload')
+			})
+		}
+		if (hubVersionId) {
+			items.push({
+				displayName: 'Report issue',
+				icon: Flag,
+				separatorTop: items.length > 0,
+				action: reportIssue
+			})
+		}
+		return items
+	})
 
 	const panelDetach = getContext<FlowPanelDetachContext | undefined>('flowPanelDetach')
 	// The detached modal draws no header of its own, so this row carries its chrome too.
 	// onMount, not $effect: claim() increments (reads+writes) the claim count, and
 	// a tracking effect would re-run on its own write.
 	onMount(() => panelDetach?.claim())
-
-	// Extract version_id from hub path (format: hub/{version_id}/{app}/{summary})
-	let hubVersionId = $derived(
-		flowModuleValue?.type === 'script' && flowModuleValue.path?.startsWith('hub/')
-			? flowModuleValue.path.split('/')[1]
-			: undefined
-	)
-
-	function getCachedKey(path: string) {
-		return `${opWs}-${path}`
-	}
-	function getCachedValues(path: string) {
-		const key = getCachedKey(path)
-		latestHash = cachedValues[key]?.latestHash
-	}
-	const untrackedFlowModuleValue = untrack(() => flowModuleValue)
-	if (untrackedFlowModuleValue?.type === 'script' && untrackedFlowModuleValue.path) {
-		getCachedValues(untrackedFlowModuleValue.path)
-	}
-
-	async function loadLatestHash(value: PathScript) {
-		let script = await ScriptService.getScriptByPath({
-			workspace: opWs!,
-			path: value.path
-		})
-		const key = getCachedKey(value.path)
-		cachedValues[key] = {
-			latestHash: script.hash
-		}
-		latestHash = script.hash
-	}
-
-	const dispatch = createEventDispatcher()
-
-	$effect.pre(() => {
-		$workspaceStore &&
-			flowModuleValue?.type === 'script' &&
-			flowModuleValue.path &&
-			!flowModuleValue.path.startsWith('hub/') &&
-			untrack(() => loadLatestHash(flowModuleValue))
-	})
 </script>
 
 <div class="flex flex-col gap-1 px-4 py-2">
@@ -113,8 +195,8 @@
 		class="overflow-x-auto scrollbar-hidden flex items-center justify-between flex-nowrap w-full"
 	>
 		{#if flowModuleValue}
-			<span class="text-sm w-full mr-4">
-				<div class="flex items-center space-x-2">
+			<span class="mr-4 min-w-0 flex-1 text-sm">
+				<div class="flex min-w-0 items-center space-x-2">
 					{#if flowModuleValue.type === 'identity'}
 						<span class="font-bold text-xs">Identity (input copied to output)</span>
 					{:else if flowModuleValue.type === 'rawscript'}
@@ -133,75 +215,16 @@
 							{siblingToolNames}
 						/>
 					{:else if flowModuleValue.type === 'script' && 'path' in flowModuleValue && flowModuleValue.path}
-						<IconedPath path={flowModuleValue.path} hash={flowModuleValue.hash} class="grow" />
-
-						{#if hubVersionId}
-							<Button
-								title="Report an issue with this hub script"
-								unifiedSize="sm"
-								variant="subtle"
-								on:click={() => {
-									const targetHubBaseUrl =
-										Number(hubVersionId) < PRIVATE_HUB_MIN_VERSION
-											? DEFAULT_HUB_BASE_URL
-											: $hubBaseUrlStore
-									window.open(
-										`${targetHubBaseUrl}/from_version/${hubVersionId}?report_issue=${hubVersionId}`,
-										'_blank'
-									)
-								}}
-							>
-								<Flag size={12} />Report issue
-							</Button>
+						<IconedPath
+							path={flowModuleValue.path}
+							hash={flowModuleValue.hash}
+							class="!w-auto shrink min-w-0"
+						/>
+						{#if scriptItems.length > 0}
+							<DropdownV2 size="sm" placement="bottom-end" items={scriptItems} />
 						{/if}
 
-						{#if flowModuleValue.hash}
-							{#if latestHash != flowModuleValue.hash}
-								<Button
-									size="xs"
-									variant="default"
-									on:click={() => {
-										if (flowModuleValue.type == 'script') {
-											dispatch('setHash', latestHash)
-										}
-										dispatch('reload')
-									}}>Update to latest hash</Button
-								>
-							{/if}
-							<Button
-								title="Unlock hash to always use latest deployed version at that path"
-								size="xs"
-								btnClasses="text-primary inline-flex gap-1 items-center"
-								color="light"
-								on:click={() => {
-									if (flowModuleValue.type == 'script') {
-										dispatch('setHash', undefined)
-									}
-								}}><Unlock size={12} />hash</Button
-							>
-						{:else if latestHash}
-							<div class="flex gap-2">
-								<Button
-									title="Lock hash to always use this specific version"
-									unifiedSize="sm"
-									variant="default"
-									on:click={() => {
-										if (flowModuleValue.type == 'script') {
-											dispatch('setHash', latestHash)
-										}
-									}}><Lock size={12} />hash</Button
-								>
-								<Button
-									title="Reload latest hash"
-									unifiedSize="sm"
-									variant="default"
-									on:click={() => dispatch('reload')}
-									startIcon={{ icon: RefreshCw }}
-									iconOnly
-								/>
-							</div>
-						{/if}
-						<div class="flex flex-col w-full grow">
+						<div class="flex min-w-[8rem] flex-1 flex-col">
 							<input
 								bind:value={summary}
 								placeholder={isAgentTool ? 'Tool name' : 'Summary'}
