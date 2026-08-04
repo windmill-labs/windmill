@@ -7,10 +7,10 @@ thing holding it in place.
 
 ## The gate
 
-`get_on_behalf_of` gained its derive-when-absent fallback in **1.777**. Every replica before that
+`get_on_behalf_of` gained its derive-when-absent fallback in **1.779**. Every replica before that
 *requires* the key and errors outright without it, so it would 400 every anonymous and publisher
 app saved by a newer one. A rolling deploy runs both versions at once, which is why the write
-stays until no replica older than 1.777 can be live — in practice, once `MIN_KEEP_ALIVE_VERSION`
+stays until no replica older than 1.779 can be live — in practice, once `MIN_KEEP_ALIVE_VERSION`
 (`windmill-common/src/min_version.rs`) has passed it.
 
 There is no `MIN_VERSION_*` constant for this and it does not need one: those exist to gate
