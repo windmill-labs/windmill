@@ -526,8 +526,9 @@ async fn test_dev_workspace_lock_rule_reservation(db: Pool<Postgres>) -> anyhow:
     Ok(())
 }
 
-/// Renaming used to be dropped silently: the handler took the name from the path and ignored the
-/// body, so the editor reported success while the row kept its old name.
+/// The name is half the row's primary key, so a rename has to move the row: the update applies the
+/// name from the body, not just the one in the path. Collisions and the reserved name are refused,
+/// and a name submitted unchanged is left exactly as stored.
 #[sqlx::test(fixtures("base"))]
 async fn test_protection_rule_rename(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -655,6 +656,33 @@ async fn test_protection_rule_rename(db: Pool<Postgres>) -> anyhow::Result<()> {
         still_there,
         "the padded name must not have been trimmed into a rename"
     );
+
+    // The mirror case: a name differing only in surrounding whitespace is a real rename, applied
+    // verbatim rather than collapsing into a success that changed nothing.
+    let resp = authed(
+        client().post(format!("{base}/workspaces/protection_rules/after-rename")),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({
+        "name": " after-rename ",
+        "rules": ["DisableWorkspaceForking"],
+        "bypass_users": [],
+        "bypass_groups": []
+    }))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "whitespace-only rename should apply: {}",
+        resp.text().await?
+    );
+    let renamed: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM workspace_protection_rule WHERE workspace_id = 'test-workspace' AND name = ' after-rename ')",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert!(renamed, "the padded form should now be the stored name");
 
     Ok(())
 }

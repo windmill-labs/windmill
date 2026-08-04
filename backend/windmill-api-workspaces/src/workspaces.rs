@@ -8771,7 +8771,7 @@ struct CreateProtectionRuleRequest {
 #[derive(Deserialize)]
 struct UpdateProtectionRuleRequest {
     /// Renames the rule when it differs from the path name. Absent means "leave the name alone",
-    /// so a client that predates renaming keeps working.
+    /// which is what a client that never sends the field gets.
     name: Option<String>,
     rules: Vec<ProtectionRuleKind>,
     bypass_groups: Vec<String>,
@@ -9022,15 +9022,12 @@ async fn update_protection_rule(
     // A rename moves the row's primary key, so it needs the same name checks a create does. The
     // reserved rule can be neither end of one: the dev-workspace feature finds it by name, so
     // renaming it away would strand the lock and renaming onto it would collide with the feature.
-    // Compare raw before trimming: names are stored verbatim, so a rule genuinely called
-    // " prod-lock " must survive an edit that submits its current name back untouched. Only a name
-    // that actually differs is normalized and applied.
-    let new_name = match req.name.as_deref() {
-        Some(n) if n != rule_name => Some(n.trim()).filter(|t| *t != rule_name),
-        _ => None,
-    };
+    // Names are stored verbatim, as creation stores them, so this comparison is raw: a rule called
+    // " prod-lock " survives an edit that submits its current name back untouched, and a name that
+    // differs only in surrounding whitespace is a real rename rather than a silent no-op.
+    let new_name = req.name.as_deref().filter(|n| *n != rule_name);
     if let Some(new_name) = new_name {
-        if new_name.is_empty() {
+        if new_name.trim().is_empty() {
             return Err(Error::BadRequest(
                 "Protection rule name cannot be empty".to_string(),
             ));
