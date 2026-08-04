@@ -56,6 +56,10 @@ export function useConnect(opts: {
 	}
 
 	function disarm() {
+		// `flowPropPickerConfig` is shared by every connect surface in the panel, so a component
+		// that holds nothing must not clear it — otherwise closing any picker cancels whichever
+		// input is actually armed, and the pick that follows has nowhere to land.
+		if (!armed) return
 		armed = undefined
 		opts.localConfig?.set(undefined)
 		opts.flowPropPickerConfig.set(undefined)

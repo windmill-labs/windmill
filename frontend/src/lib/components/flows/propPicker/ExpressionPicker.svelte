@@ -8,6 +8,7 @@
 	import type { PickableProperties } from '../previousResults'
 	import type { PropPickerWrapperContext } from './PropPickerWrapper.svelte'
 	import { useConnect } from './useConnect.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		/** Identifies this input within the panel; arming another one disarms it. */
@@ -55,11 +56,15 @@
 	})
 </script>
 
+<!-- excludeSelectors: a step's output picker in the graph is the other half of connecting, not
+     somewhere else to click. Reaching for it must not close this popover, which would disarm
+     the connect and leave the pick that follows with nowhere to land. -->
 <Popover
 	bind:isOpen={open}
 	class="flex"
 	placement="bottom-start"
 	closeOnOutsideClick
+	excludeSelectors="[data-prop-picker]"
 	contentClasses="rounded-md border bg-surface shadow-lg overflow-hidden"
 	on:openChange={({ detail }) => (detail ? connect.arm({ id, onSelect }) : connect.disarm())}
 >
@@ -68,6 +73,12 @@
 			connecting={connect.isArmed(id)}
 			{disabled}
 			title="Connect a property from a previous step"
+			wrapperClasses={twMerge(
+				// Revealed by the row it sits in, like the pane-mode plug. Armed or open, it stays
+				// put: the pointer has to be able to leave the row without the control vanishing.
+				'group-hover:opacity-100 transition-opacity',
+				connect.isArmed(id) || open ? '' : 'opacity-0'
+			)}
 		/>
 	{/snippet}
 	{#snippet content()}

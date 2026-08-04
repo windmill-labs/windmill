@@ -333,22 +333,26 @@
 											parallelismEditor?.focus()
 										}}
 									>
-										<InputTransformForm
-											bind:arg={
-												() => (mod.value as ForloopFlow).parallelism,
-												(v) => {
-													;(mod.value as ForloopFlow).parallelism = v
+										<!-- Keyed on the toggle: the form seeds its static/expression mode once, so re-enabling
+										     the cap would hand a fresh static value to a form still in expression mode. -->
+										{#key parallelismCapped}
+											<InputTransformForm
+												bind:arg={
+													() => (mod.value as ForloopFlow).parallelism,
+													(v) => {
+														;(mod.value as ForloopFlow).parallelism = v
+													}
 												}
-											}
-											argName="parallelism"
-											collapsed={!parallelismCapped}
-											header={parallelismToggle}
-											schema={parallelismSchema}
-											argExtra={{ min: 1, step: 1 }}
-											animateAppear
-											previousModuleId={previousModule?.id}
-											bind:editor={parallelismEditor}
-										/>
+												argName="parallelism"
+												collapsed={!parallelismCapped}
+												header={parallelismToggle}
+												schema={parallelismSchema}
+												argExtra={{ min: 1, step: 1 }}
+												animateAppear
+												previousModuleId={previousModule?.id}
+												bind:editor={parallelismEditor}
+											/>
+										{/key}
 									</PropPickerWrapper>
 								</div>
 							{/if}
