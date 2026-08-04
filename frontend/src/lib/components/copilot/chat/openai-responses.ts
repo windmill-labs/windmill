@@ -179,19 +179,32 @@ function convertMessagesToResponsesInput(messages: ChatCompletionMessageParam[])
 	}
 }
 
+/** OpenAI rejects a key over 64 characters, and an Azure deployment name is user-chosen. */
+const MAX_PROMPT_CACHE_KEY_LENGTH = 64
+
 /**
  * Routing key for the provider's prompt cache. Built only from what fixes the prompt
- * prefix (the surface, which pins the system prompt and tool set, plus the model) and
- * never from anything per-request, since requests sharing a prefix must reuse one key
- * to land on the same cache. Workspace splits traffic across the ~15 requests/minute
- * one key sustains before it starts missing again.
+ * prefix (the surface, plus the model) and never from anything per-request, since
+ * requests sharing a prefix must reuse one key to land on the same cache. Workspace
+ * splits traffic across the ~15 requests/minute one key sustains before it starts
+ * missing again.
  */
 export function buildPromptCacheKey(
 	surface: string,
 	modelProvider: { provider: string; model: string },
-	workspace?: string
+	workspace: string
 ): string {
-	return [workspace ?? '', modelProvider.provider, modelProvider.model, surface].join(':')
+	const key = [workspace, modelProvider.provider, modelProvider.model, surface].join(':')
+	if (key.length <= MAX_PROMPT_CACHE_KEY_LENGTH) {
+		return key
+	}
+	// Drop from the middle: the workspace keeps keys apart and the surface is what the
+	// prefix actually belongs to, so the model name is what can afford to be shortened.
+	const fixed = [workspace, modelProvider.provider, surface].join(':')
+	const room = MAX_PROMPT_CACHE_KEY_LENGTH - fixed.length - 1
+	return room > 0
+		? [workspace, modelProvider.provider, modelProvider.model.slice(0, room), surface].join(':')
+		: key.slice(0, MAX_PROMPT_CACHE_KEY_LENGTH)
 }
 
 function convertCompletionConfigToResponsesConfig(
@@ -312,11 +325,12 @@ export async function* getOpenAIResponsesCompletionStream(
 		forceModelProvider: options?.forceModelProvider
 	})
 	const { instructions, input } = convertMessagesToResponsesInput(messages)
+	// No prompt cache key here: a rejected key has to be retried without it, and this is
+	// an async generator, so the caller's try/catch never sees the failure (invoking a
+	// generator runs none of its body). One-shot generations have no repeated prefix to
+	// route anyway; the chat loop is the surface that does, and it can retry.
 	const responsesConfig = applyReasoningToConfig(
-		convertCompletionConfigToResponsesConfig(
-			config,
-			buildPromptCacheKey('completion', { provider, model: config.model })
-		),
+		convertCompletionConfigToResponsesConfig(config),
 		'responses',
 		options?.reasoningEffort
 	)
@@ -599,10 +613,8 @@ export async function getNonStreamingOpenAIResponsesCompletion(
 	})
 
 	const { instructions, input } = convertMessagesToResponsesInput(messages)
-	const responsesConfig = convertCompletionConfigToResponsesConfig(
-		config,
-		buildPromptCacheKey('completion', { provider, model: config.model }, options?.workspace)
-	)
+	// No prompt cache key, for the same reason as the streaming variant above.
+	const responsesConfig = convertCompletionConfigToResponsesConfig(config)
 
 	const fetchOptions: {
 		signal: AbortSignal

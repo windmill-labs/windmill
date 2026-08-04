@@ -150,6 +150,15 @@ function getReasoningSummaryCacheKey(
 	return [workspace, modelProvider.provider].join(':')
 }
 
+// Keyed without the model, like the reasoning-summary probe: a body-validation refusal
+// belongs to the endpoint, so switching models must not re-pay the failed round trip.
+function getPromptCacheKeySupportKey(
+	workspace: string,
+	modelProvider: ReasoningProviderModel
+): string {
+	return [workspace, modelProvider.provider].join(':')
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null
 }
@@ -392,7 +401,8 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 			// system prompt and tool definitions, and each one extends the previous
 			// iteration's prefix, so they all belong on the same cache.
 			const promptCacheKey = buildPromptCacheKey('chat', modelProvider, workspace)
-			let usePromptCacheKey = !unsupportedPromptCacheKeyCache.has(promptCacheKey)
+			const promptCacheSupportKey = getPromptCacheKeySupportKey(workspace, modelProvider)
+			let usePromptCacheKey = !unsupportedPromptCacheKeyCache.has(promptCacheSupportKey)
 
 			const runOpenAIResponses = async (useWebSearch: boolean): Promise<boolean> => {
 				const completion = await getOpenAIResponsesCompletion(
@@ -446,7 +456,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 							markWebSearchUnsupported(webSearchCacheKey, err, config.onWebSearchUnavailable)
 							useWebSearch = false
 						} else if (usePromptCacheKey && shouldRetryWithoutPromptCacheKey(err)) {
-							markPromptCacheKeyUnsupported(promptCacheKey, err)
+							markPromptCacheKeyUnsupported(promptCacheSupportKey, err)
 							usePromptCacheKey = false
 						} else {
 							fallbackError = err

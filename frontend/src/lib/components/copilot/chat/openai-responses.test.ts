@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+	buildPromptCacheKey,
 	getOpenAIResponsesCompletion,
 	openAIWebSearchDetails,
 	toResponsesContent
@@ -44,6 +45,29 @@ describe('toResponsesContent', () => {
 			{ type: 'input_text', text: 'describe this' },
 			{ type: 'input_image', image_url: 'data:image/png;base64,ZZZZ' }
 		])
+	})
+})
+
+describe('buildPromptCacheKey', () => {
+	it('composes workspace, provider, model and surface', () => {
+		expect(buildPromptCacheKey('chat', { provider: 'openai', model: 'gpt-5.6' }, 'admins')).toBe(
+			'admins:openai:gpt-5.6:chat'
+		)
+	})
+
+	// Over 64 characters OpenAI rejects the key outright, and an Azure deployment name
+	// is user-chosen, so the model segment can be arbitrarily long.
+	it('stays within the provider length bound for a long deployment name', () => {
+		const key = buildPromptCacheKey(
+			'chat',
+			{ provider: 'azure_openai', model: 'our-very-long-production-deployment-name-for-gpt-5-6' },
+			'some-customer-workspace'
+		)
+
+		expect(key.length).toBeLessThanOrEqual(64)
+		// The parts that keep distinct endpoints apart must survive the shortening.
+		expect(key.startsWith('some-customer-workspace:azure_openai:')).toBe(true)
+		expect(key.endsWith(':chat')).toBe(true)
 	})
 })
 

@@ -11,6 +11,7 @@ use crate::worker_flow::{get_previous_job_result, get_transform_context};
 use async_recursion::async_recursion;
 use regex::Regex;
 use serde_json::value::RawValue;
+use sha2::Digest;
 use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
 #[cfg(feature = "bedrock")]
@@ -799,6 +800,24 @@ pub async fn handle_ai_agent_job(
     }
 }
 
+/// OpenAI rejects a `prompt_cache_key` over 64 characters
+/// (`Invalid 'prompt_cache_key': string too long`), and a runnable path alone can pass
+/// that. Fold an over-long key into a digest of itself: same step still yields the same
+/// key across runs, which is the whole property that routes them to one cache.
+fn bounded_prompt_cache_key(raw: &str) -> String {
+    const MAX_LEN: usize = 64;
+    if raw.len() <= MAX_LEN {
+        return raw.to_string();
+    }
+    let suffix = hex::encode(&sha2::Sha256::digest(raw.as_bytes())[..16]);
+    // Keep a readable head so a key stays traceable to its workspace in provider logs.
+    let mut head = MAX_LEN - suffix.len() - 1;
+    while head > 0 && !raw.is_char_boundary(head) {
+        head -= 1;
+    }
+    format!("{}:{}", &raw[..head], suffix)
+}
+
 #[async_recursion]
 pub async fn run_agent(
     // connection
@@ -869,12 +888,12 @@ pub async fn run_agent(
     // prompt and tool definitions, and each agent-loop iteration extends the previous
     // one's prefix. Above ~15 requests/minute one key starts missing again, which is a
     // reason to split it further, never to make it per-run.
-    let prompt_cache_key = format!(
+    let prompt_cache_key = bounded_prompt_cache_key(&format!(
         "{}:{}:{}",
         job.workspace_id,
         job.runnable_path(),
         effective_flow_step_id.unwrap_or_default()
-    );
+    ));
 
     // Fetch flow context for input transforms context, chat and memory
     let mut flow_context = get_flow_context(db, job).await;
@@ -1692,6 +1711,41 @@ mod tests {
             content: Some(OpenAIContent::Text(content.to_string())),
             ..Default::default()
         }
+    }
+
+    /// Over 64 characters OpenAI rejects the key outright, which costs a wasted round
+    /// trip per run and silently leaves that step with no prompt caching at all.
+    #[test]
+    fn prompt_cache_key_stays_within_the_provider_bound() {
+        let long = format!("my-workspace:f/{}/agent:step_12", "nested_folder".repeat(8));
+        assert!(long.len() > 64);
+
+        let bounded = bounded_prompt_cache_key(&long);
+
+        assert!(
+            bounded.len() <= 64,
+            "got {} chars: {bounded}",
+            bounded.len()
+        );
+        // Stable for the same step, or every run would land on a different cache.
+        assert_eq!(bounded, bounded_prompt_cache_key(&long));
+        assert_ne!(
+            bounded,
+            bounded_prompt_cache_key(&long.replace("step_12", "step_13"))
+        );
+    }
+
+    #[test]
+    fn prompt_cache_key_passes_short_keys_through_unchanged() {
+        let short = "admins:f/agent/step:a";
+        assert_eq!(bounded_prompt_cache_key(short), short);
+    }
+
+    /// Truncation on a byte index would panic mid-character.
+    #[test]
+    fn prompt_cache_key_truncates_on_a_char_boundary() {
+        let long = format!("workspace:f/{}/agent:step", "é".repeat(80));
+        assert!(bounded_prompt_cache_key(&long).len() <= 64);
     }
 
     #[test]
