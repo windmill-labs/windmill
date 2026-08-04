@@ -985,6 +985,41 @@ pub struct SqlAnnotations {
     pub raw_output: bool,
 }
 
+impl SqlAnnotations {
+    /// If the script declares `-- role <name>`, returns the data table role the
+    /// query runs as. Only meaningful against a permissioned `datatable://`
+    /// database; absent means the `root` role.
+    ///
+    /// Mirrors `BashAnnotations::ssh_target`: only leading comment lines are
+    /// scanned, and an exact `-- role <name>` with a valid role name and nothing
+    /// else on the line is required, so prose like `-- role based access is
+    /// handled below` never matches.
+    pub fn datatable_role(code: &str) -> Option<String> {
+        for line in code.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if !line.starts_with("--") {
+                break;
+            }
+            let mut tokens = line[2..].split_whitespace();
+            if tokens.next() == Some("role") {
+                if let Some(role) = tokens.next() {
+                    let is_role_name = !role.is_empty()
+                        && role
+                            .chars()
+                            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+                    if is_role_name && tokens.next().is_none() {
+                        return Some(role.to_string());
+                    }
+                }
+            }
+        }
+        None
+    }
+}
+
 #[annotations("#")]
 pub struct BashAnnotations {
     pub docker: bool,
@@ -2427,6 +2462,35 @@ pub fn try_parse_locked_python_version_from_requirements<S: AsRef<str>>(
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[test]
+    fn datatable_role_annotation_is_read_from_the_leading_comment_block() {
+        assert_eq!(
+            SqlAnnotations::datatable_role("-- role analyst\nSELECT 1"),
+            Some("analyst".to_string())
+        );
+        // Argument declarations are comments too, so the annotation still parses
+        // after them.
+        assert_eq!(
+            SqlAnnotations::datatable_role("-- $1 name (text)\n-- role read-only_1\nSELECT 1"),
+            Some("read-only_1".to_string())
+        );
+        assert_eq!(SqlAnnotations::datatable_role("SELECT 1"), None);
+        // Scanning stops at the first non-comment line, so a `-- role` further
+        // down is prose about the query, not a directive.
+        assert_eq!(
+            SqlAnnotations::datatable_role("SELECT 1;\n-- role analyst"),
+            None
+        );
+        for prose in [
+            "-- role based access is handled below\nSELECT 1",
+            "-- role\nSELECT 1",
+            "-- roles analyst\nSELECT 1",
+            "-- role bad;name\nSELECT 1",
+        ] {
+            assert_eq!(SqlAnnotations::datatable_role(prose), None, "{prose}");
+        }
+    }
 
     fn matcher(id: &str) -> WorkspaceMatcher {
         WorkspaceMatcher { id: id.to_string(), include_forks: false }

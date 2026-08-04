@@ -17,6 +17,7 @@
 	} from 'lucide-svelte'
 	import DBManagerContent from './DBManagerContent.svelte'
 	import DataTableMigrationsButton from './workspaceSettings/DataTableMigrationsButton.svelte'
+	import DataTablePermissionsButton from './workspaceSettings/DataTablePermissionsButton.svelte'
 	import { resource } from 'runed'
 	import { untrack } from 'svelte'
 	import type { DbManagerUriState } from './dbManagerDrawerModel.svelte'
@@ -216,6 +217,7 @@
 					datatable={uriState.selectedDatatable}
 					onSchemaChanged={refreshManager}
 				/>
+				<DataTablePermissionsButton workspace={ws} datatable={uriState.selectedDatatable} />
 			{/if}
 			{#if enableImportExport}
 				<Button startIcon={{ icon: Download }} onClick={handleExportSchema}>Export</Button>

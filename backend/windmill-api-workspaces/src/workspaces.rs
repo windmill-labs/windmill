@@ -44,7 +44,8 @@ use windmill_common::workspaces::GitRepositorySettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 use windmill_common::workspaces::{
-    check_deploy_rules, check_user_against_rule, get_datatable_resource_from_db_unchecked,
+    check_deploy_rules, check_user_against_rule, get_datatable_resource_from_db,
+    get_datatable_resource_from_db_unchecked, DatatableAccess,
     validate_dev_workspace_id, validate_fork_workspace_id, validate_workspace_name, DataTable,
     DataTableCatalogResourceType, DataTableForkBehavior, ProtectionRuleKind, ProtectionRules,
     ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings, DEV_WORKSPACE_LOCK_RULE_NAME,
@@ -138,6 +139,7 @@ pub fn workspaced_service() -> Router {
             get(test_datatable_connection),
         )
         .merge(crate::datatable_migrations::routes())
+        .merge(crate::datatable_permissions::routes())
         .route("/git_sync_enabled", get(get_git_sync_enabled))
         .route("/git_sync_deploy_mode", get(get_git_sync_deploy_mode))
         .route("/edit_git_sync_config", post(edit_git_sync_config))
@@ -1946,7 +1948,7 @@ async fn test_datatable_connection(
 ) -> JsonResult<DataTableConnectionCheck> {
     require_admin(authed.is_admin, &authed.username)?;
 
-    let db_resource = get_datatable_resource_from_db_unchecked(&db, &w_id, &datatable_name).await?;
+    let db_resource = get_datatable_resource_as_root(&db, &authed, &w_id, &datatable_name).await?;
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
     let (client, connection) = pg_db.connect(Some(&db)).await?;
@@ -2032,7 +2034,7 @@ async fn test_datatable_connection(
 }
 
 async fn list_datatable_schemas(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<DataTableSchema>> {
@@ -2040,7 +2042,7 @@ async fn list_datatable_schemas(
     let mut results = Vec::new();
 
     for datatable_name in datatable_names {
-        let schema = match get_datatable_schema(&db, &w_id, &datatable_name).await {
+        let schema = match get_datatable_schema(&db, &authed, &w_id, &datatable_name).await {
             Ok(schemas) => DataTableSchema { datatable_name, schemas, error: None },
             Err(e) => DataTableSchema {
                 datatable_name,
@@ -2055,7 +2057,7 @@ async fn list_datatable_schemas(
 }
 
 async fn list_datatable_tables(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<DataTableTables>> {
@@ -2063,7 +2065,7 @@ async fn list_datatable_tables(
     let mut results = Vec::new();
 
     for datatable_name in datatable_names {
-        let tables = match get_datatable_tables(&db, &w_id, &datatable_name).await {
+        let tables = match get_datatable_tables(&db, &authed, &w_id, &datatable_name).await {
             Ok(schemas) => DataTableTables { datatable_name, schemas, error: None },
             Err(e) => DataTableTables {
                 datatable_name,
@@ -2078,13 +2080,14 @@ async fn list_datatable_tables(
 }
 
 async fn get_datatable_table_schema(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Query(query): Query<GetDataTableSchemaQuery>,
 ) -> JsonResult<DataTableTableSchema> {
     let columns = get_datatable_table_columns(
         &db,
+        &authed,
         &w_id,
         &query.datatable_name,
         &query.schema_name,
@@ -2098,6 +2101,25 @@ async fn get_datatable_table_schema(
         table_name: query.table_name,
         columns,
     }))
+}
+
+/// Resolve a data table for an API caller. Schema browsing and the database
+/// manager always connect as `root`, so a permissioned data table is reachable
+/// from the UI only by a tenant of its `root` role (and by admins).
+async fn get_datatable_resource_as_root(
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    datatable_name: &str,
+) -> Result<serde_json::Value> {
+    get_datatable_resource_from_db(
+        db,
+        w_id,
+        datatable_name,
+        None,
+        DatatableAccess::Authed(authed.to_authed_ref()),
+    )
+    .await
 }
 
 async fn list_datatable_names(db: &DB, w_id: &str) -> Result<Vec<String>> {
@@ -2116,9 +2138,14 @@ async fn list_datatable_names(db: &DB, w_id: &str) -> Result<Vec<String>> {
     .collect())
 }
 
-async fn get_datatable_schema(db: &DB, w_id: &str, datatable_name: &str) -> Result<SchemaMap> {
+async fn get_datatable_schema(
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    datatable_name: &str,
+) -> Result<SchemaMap> {
     // Get the datatable resource (connection credentials)
-    let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
+    let db_resource = get_datatable_resource_as_root(db, authed, w_id, datatable_name).await?;
 
     // Parse the resource as PgDatabase
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
@@ -2209,8 +2236,13 @@ async fn get_datatable_schema(db: &DB, w_id: &str, datatable_name: &str) -> Resu
     Ok(schema_map)
 }
 
-async fn get_datatable_tables(db: &DB, w_id: &str, datatable_name: &str) -> Result<TableListMap> {
-    let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
+async fn get_datatable_tables(
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    datatable_name: &str,
+) -> Result<TableListMap> {
+    let db_resource = get_datatable_resource_as_root(db, authed, w_id, datatable_name).await?;
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
     let (client, connection) = pg_db.connect(Some(db)).await?;
@@ -2276,6 +2308,7 @@ async fn get_datatable_tables(db: &DB, w_id: &str, datatable_name: &str) -> Resu
 
 async fn get_datatable_table_columns(
     db: &DB,
+    authed: &ApiAuthed,
     w_id: &str,
     datatable_name: &str,
     schema_name: &str,
@@ -2288,7 +2321,7 @@ async fn get_datatable_table_columns(
         )));
     }
 
-    let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
+    let db_resource = get_datatable_resource_as_root(db, authed, w_id, datatable_name).await?;
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
     let (client, connection) = pg_db.connect(Some(db)).await?;
@@ -2441,7 +2474,7 @@ pub(crate) async fn resolve_pg_source_checked(
     source: &str,
 ) -> Result<PgDatabase> {
     let db_resource = if let Some(name) = source.strip_prefix("datatable://") {
-        get_datatable_resource_from_db_unchecked(db, w_id, name).await?
+        get_datatable_resource_as_root(db, authed, w_id, name).await?
     } else if let Some(path) = source.strip_prefix("$res:") {
         let db_with_authed = windmill_common::db::DbWithOptAuthed::from_authed(
             authed,
@@ -2976,6 +3009,10 @@ async fn edit_datatable_config(
             Some(old) => old.migrations_enabled,
             None => Some(true),
         };
+        // Same for permissions, owned by the datatable_permissions endpoints.
+        dt.permissions = old_datatables
+            .get(lookup)
+            .and_then(|old| old.permissions.clone());
     }
 
     let args_for_audit = format!("{:?}", new_config.settings);
@@ -3007,6 +3044,12 @@ async fn edit_datatable_config(
                 }
             }
         }
+    }
+
+    // Before the config is overwritten, while the deleted data tables can still be
+    // resolved to a connection.
+    for deleted in &new_config.deleted_datatables {
+        crate::datatable_permissions::drop_roles_of_deleted_datatable(&db, &w_id, deleted).await;
     }
 
     let config: serde_json::Value = serde_json::to_value(new_config.settings)
@@ -6898,6 +6941,21 @@ async fn create_workspace_fork(
     for fdt in &nw.forked_datatables {
         apply_forked_datatable(&db, &mut tx, &parent_workspace_id, &forked_id, fdt).await?;
     }
+
+    // Postgres roles are cluster-wide but their grants are per-database, so the cloned
+    // `permissions` block would point the fork's roles at roles holding privileges on the
+    // parent's database. A fork therefore starts unpermissioned and is opted in on its own.
+    sqlx::query!(
+        r#"UPDATE workspace_settings
+           SET datatable = jsonb_set(datatable, '{datatables}', (
+               SELECT COALESCE(jsonb_object_agg(key, value - 'permissions'), '{}'::jsonb)
+               FROM jsonb_each(datatable->'datatables')
+           ))
+           WHERE workspace_id = $1 AND jsonb_typeof(datatable->'datatables') = 'object'"#,
+        &forked_id,
+    )
+    .execute(&mut *tx)
+    .await?;
 
     // The settings clone copies the source's ducklake config verbatim — including a parent
     // fork's own `fork_behavior` stamps. Sharing is a per-fork-creation choice, never

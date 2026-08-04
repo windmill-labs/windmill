@@ -25,9 +25,9 @@ use uuid::Uuid;
 use windmill_common::error::to_anyhow;
 use windmill_common::error::{self, Error};
 use windmill_common::worker::{
-    to_raw_value, Connection, SqlResultCollectionStrategy, CLOUD_HOSTED,
+    to_raw_value, Connection, SqlAnnotations, SqlResultCollectionStrategy, CLOUD_HOSTED,
 };
-use windmill_common::workspaces::get_datatable_resource_from_db_unchecked;
+use windmill_common::workspaces::{get_datatable_resource_from_db, DatatableAccess};
 use windmill_common::{PgDatabase, PrepareQueryColumnInfo, PrepareQueryResult, DB};
 use windmill_parser::{Arg, Typ};
 use windmill_parser_sql::{
@@ -593,14 +593,32 @@ pub async fn do_postgresql(
         match pg_args.get("database").cloned() {
             Some(Value::String(db_str)) if db_str.starts_with("datatable://") => {
                 let db_str = db_str.trim_start_matches("datatable://");
+                // `-- role <name>` rather than an argument: an argument named
+                // `role` would collide with a query parameter of that name.
+                let role = SqlAnnotations::datatable_role(query);
                 Some(match conn {
                     Connection::Http(client) => {
-                        get_datatable_resource_from_agent_http(client, &db_str, &job.workspace_id)
-                            .await?
+                        get_datatable_resource_from_agent_http(
+                            client,
+                            &db_str,
+                            &job.workspace_id,
+                            role.as_deref(),
+                            &job.id,
+                        )
+                        .await?
                     }
                     Connection::Sql(db) => {
-                        get_datatable_resource_from_db_unchecked(db, &job.workspace_id, &db_str)
-                            .await?
+                        get_datatable_resource_from_db(
+                            db,
+                            &job.workspace_id,
+                            &db_str,
+                            role.as_deref(),
+                            DatatableAccess::PermissionedAs {
+                                permissioned_as: &job.permissioned_as,
+                                email: &job.permissioned_as_email,
+                            },
+                        )
+                        .await?
                     }
                 })
             }

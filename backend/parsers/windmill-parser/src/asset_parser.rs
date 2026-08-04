@@ -715,13 +715,28 @@ pub fn asset_was_used(assets: &Vec<ParseAssetsResult>, (kind, path): (AssetKind,
 }
 
 pub fn parse_asset_syntax(s: &str, enable_default_syntax: bool) -> Option<(AssetKind, &str)> {
-    if enable_default_syntax && s == "datatable" {
-        return Some((AssetKind::DataTable, "main"));
-    } else if enable_default_syntax && s == "ducklake" {
-        return Some((AssetKind::Ducklake, "main"));
+    if enable_default_syntax {
+        // `datatable` and `datatable?role=<role>` both name the default data
+        // table; the role picks which postgres login the ATTACH connects as and
+        // is not part of the asset's identity.
+        if s.strip_prefix("datatable")
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('?'))
+        {
+            return Some((AssetKind::DataTable, "main"));
+        } else if s == "ducklake" {
+            return Some((AssetKind::Ducklake, "main"));
+        }
     }
     for (prefix, kind) in ASSET_KINDS.iter() {
         if s.starts_with(prefix) {
+            // Same for the explicit form: `datatable://<name>?role=<role>` is
+            // still the `<name>` data table. Only data tables take a query
+            // string — for a Resource, `?table=` is part of the path.
+            if *kind == AssetKind::DataTable {
+                if let Some((path, _)) = s[prefix.len()..].split_once('?') {
+                    return Some((*kind, path));
+                }
+            }
             // The suffix is kept verbatim. For S3 the path encodes the storage:
             // `s3://<storage>/<key>`, with an EMPTY storage segment for the
             // workspace default — so `s3:///key` yields `/key` (leading slash

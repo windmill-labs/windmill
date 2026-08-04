@@ -13,8 +13,8 @@ use windmill_common::error::{to_anyhow, Error, Result};
 use windmill_common::utils::sanitize_string_from_password;
 use windmill_common::worker::{get_memory, to_raw_value, Connection, SqlResultCollectionStrategy};
 use windmill_common::workspaces::{
-    get_datatable_resource_from_db_unchecked, get_ducklake_from_db_unchecked,
-    strip_fork_reserved_attach_args, DucklakeCatalogResourceType,
+    get_datatable_resource_from_db, get_ducklake_from_db_unchecked,
+    strip_fork_reserved_attach_args, DatatableAccess, DucklakeCatalogResourceType,
 };
 use windmill_common::PgDatabase;
 use windmill_object_store::S3_PROXY_LAST_ERRORS_CACHE;
@@ -1491,13 +1491,9 @@ pub async fn do_duckdb(
                 .await?
                 {
                     probe_blocks.extend(q);
-                } else if let Some(q) = transform_attach_datatable(
-                    &query_block,
-                    conn,
-                    &mut hidden_passwords,
-                    &job.workspace_id,
-                )
-                .await?
+                } else if let Some(q) =
+                    transform_attach_datatable(&query_block, conn, &mut hidden_passwords, job)
+                        .await?
                 {
                     probe_blocks.extend(q);
                 } else {
@@ -1568,13 +1564,9 @@ pub async fn do_duckdb(
                 .await?
                 {
                     v.extend(ducklake_query);
-                } else if let Some(datatable_query) = transform_attach_datatable(
-                    &query_block,
-                    conn,
-                    &mut hidden_passwords,
-                    &job.workspace_id,
-                )
-                .await?
+                } else if let Some(datatable_query) =
+                    transform_attach_datatable(&query_block, conn, &mut hidden_passwords, job)
+                        .await?
                 {
                     v.extend(datatable_query);
                 } else {
@@ -2550,26 +2542,56 @@ fn fork_defer_statements(
     Ok(stmts)
 }
 
+/// Split a `datatable://<name>?role=<role>` reference. The role rides in the
+/// reference rather than in a file-level annotation because one DuckDB script can
+/// attach several data tables, each under a different role.
+fn parse_datatable_ref(reference: &str) -> (&str, Option<&str>) {
+    let (name, query) = reference.split_once('?').unwrap_or((reference, ""));
+    let role = query
+        .split('&')
+        .find_map(|param| param.strip_prefix("role="))
+        .filter(|role| !role.is_empty());
+    (name, role)
+}
+
 async fn transform_attach_datatable(
     query: &str,
     conn: &Connection,
     hidden_passwords: &mut Arc<Mutex<Vec<String>>>,
-    w_id: &str,
+    job: &MiniPulledJob,
 ) -> Result<Option<Vec<String>>> {
     lazy_static::lazy_static! {
-        static ref RE: regex::Regex = regex::Regex::new(r"(?i)ATTACH\s*'datatable(://[^':]+)?'\s*AS\s+([^ ;]+)").unwrap();
+        static ref RE: regex::Regex = regex::Regex::new(r"(?i)ATTACH\s*'datatable(://[^':]+)?(\?[^':]*)?'\s*AS\s+([^ ;]+)").unwrap();
     }
     let Some(cap) = RE.captures(query) else {
         return Ok(None);
     };
-    let name = cap.get(1).map(|m| &m.as_str()[3..]).unwrap_or("main");
-    let alias_name = cap.get(2).map(|m| m.as_str()).unwrap_or("");
+    let reference = format!(
+        "{}{}",
+        cap.get(1).map(|m| &m.as_str()[3..]).unwrap_or("main"),
+        cap.get(2).map(|m| m.as_str()).unwrap_or("")
+    );
+    let (name, role) = parse_datatable_ref(&reference);
+    let alias_name = cap.get(3).map(|m| m.as_str()).unwrap_or("");
+    let w_id = job.workspace_id.as_str();
 
     let db_resource = match conn {
         Connection::Http(client) => {
-            get_datatable_resource_from_agent_http(client, name, w_id).await?
+            get_datatable_resource_from_agent_http(client, name, w_id, role, &job.id).await?
         }
-        Connection::Sql(db) => get_datatable_resource_from_db_unchecked(db, w_id, name).await?,
+        Connection::Sql(db) => {
+            get_datatable_resource_from_db(
+                db,
+                w_id,
+                name,
+                role,
+                DatatableAccess::PermissionedAs {
+                    permissioned_as: &job.permissioned_as,
+                    email: &job.permissioned_as_email,
+                },
+            )
+            .await?
+        }
     };
 
     if let Some(pwd) = db_resource.get("password").and_then(|p| p.as_str()) {
@@ -2693,6 +2715,47 @@ pub struct Arg {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Reproduce how `transform_attach_datatable` splits an ATTACH reference,
+    /// which is the syntax users type.
+    fn attach_ref(query: &str) -> Option<(String, Option<String>, String)> {
+        lazy_static::lazy_static! {
+            static ref RE: regex::Regex = regex::Regex::new(r"(?i)ATTACH\s*'datatable(://[^':]+)?(\?[^':]*)?'\s*AS\s+([^ ;]+)").unwrap();
+        }
+        let cap = RE.captures(query)?;
+        let reference = format!(
+            "{}{}",
+            cap.get(1).map(|m| &m.as_str()[3..]).unwrap_or("main"),
+            cap.get(2).map(|m| m.as_str()).unwrap_or("")
+        );
+        let (name, role) = parse_datatable_ref(&reference);
+        Some((
+            name.to_string(),
+            role.map(|r| r.to_string()),
+            cap.get(3).map(|m| m.as_str()).unwrap_or("").to_string(),
+        ))
+    }
+
+    #[test]
+    fn attach_datatable_parses_name_and_role() {
+        assert_eq!(
+            attach_ref("ATTACH 'datatable://sales?role=analyst' AS dt;"),
+            Some(("sales".into(), Some("analyst".into()), "dt".into()))
+        );
+        // Implicit name.
+        assert_eq!(
+            attach_ref("ATTACH 'datatable?role=analyst' AS dt;"),
+            Some(("main".into(), Some("analyst".into()), "dt".into()))
+        );
+        assert_eq!(
+            attach_ref("ATTACH 'datatable://sales' AS dt;"),
+            Some(("sales".into(), None, "dt".into()))
+        );
+        assert_eq!(
+            attach_ref("ATTACH 'datatable' AS dt;"),
+            Some(("main".into(), None, "dt".into()))
+        );
+    }
 
     #[test]
     fn decode_ffi_error_unescapes_multiline_and_strips_quotes() {

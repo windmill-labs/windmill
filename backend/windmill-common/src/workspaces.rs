@@ -1000,6 +1000,101 @@ pub struct DataTable {
     /// when migrations already exist (see `datatable_migrations_enabled`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub migrations_enabled: Option<bool>,
+    /// Role-based access control, opt-in per data table. Absent or
+    /// `enabled: false` means every workspace member reaches the database
+    /// through the single connection resolved below.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permissions: Option<DataTablePermissions>,
+}
+
+/// The role every permissioned data table has: it is the connection the data
+/// table resolves to without permissions (`custom_instance_user`, or the
+/// postgres resource's own user), so it owns every object created so far and
+/// cannot be created, renamed or dropped.
+pub const ROOT_DATATABLE_ROLE: &str = "root";
+
+#[derive(Deserialize, Serialize, Debug, Default, Clone)]
+pub struct DataTablePermissions {
+    pub enabled: bool,
+    /// Always contains `root`. Ordered so the SQL a config change plans out is
+    /// stable across saves.
+    #[serde(default)]
+    pub roles: std::collections::BTreeMap<String, DataTableRole>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Default, Clone)]
+pub struct DataTableRole {
+    /// The postgres role this data table role logs in as. `None` for `root`,
+    /// which reuses the data table's own connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pg_rolename: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pg_password: Option<String>,
+    /// Who may run as this role, in Windmill's owner syntax: `u/<user>`,
+    /// `g/<group>`, `f/<folder>`.
+    #[serde(default)]
+    pub tenants: Vec<String>,
+}
+
+/// Postgres caps identifiers at 63 bytes (NAMEDATALEN - 1) and silently
+/// truncates past it, which would collapse two distinct roles onto one.
+const PG_IDENTIFIER_MAX_LEN: usize = 63;
+
+/// The postgres role backing `role` on `w_id`'s `datatable`.
+///
+/// Postgres roles are cluster-wide while data table names are per-workspace, so
+/// the workspace id has to be part of the name: without it two workspaces that
+/// both hold a `main` data table with an `analyst` role would silently share one
+/// role, and the second workspace's CREATE would fail.
+pub fn datatable_pg_role_name(w_id: &str, datatable: &str, role: &str) -> String {
+    fn sanitize(s: &str) -> String {
+        s.chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() {
+                    c.to_ascii_lowercase()
+                } else {
+                    '_'
+                }
+            })
+            .collect()
+    }
+    let name = format!(
+        "wm_{}_{}_{}",
+        sanitize(w_id),
+        sanitize(datatable),
+        sanitize(role)
+    );
+    if name.len() <= PG_IDENTIFIER_MAX_LEN {
+        return name;
+    }
+    // Truncating alone would let two long names collapse into one role, so the
+    // discriminator is derived from the full name.
+    use sha2::{Digest, Sha256};
+    let hash = &Sha256::digest(name.as_bytes())[..4];
+    format!(
+        "{}_{:08x}",
+        &name[..PG_IDENTIFIER_MAX_LEN - 9],
+        u32::from_be_bytes([hash[0], hash[1], hash[2], hash[3]])
+    )
+}
+
+/// Whether `authed` may run the data table as `role`. Workspace admins and
+/// superadmins reach every role, consistent with the rest of Windmill's ACLs
+/// and so an admin cannot lock themselves out of their own data table.
+pub fn can_use_datatable_role(role: &DataTableRole, authed: &crate::db::AuthedRef<'_>) -> bool {
+    *authed.is_admin
+        || role.tenants.iter().any(|tenant| {
+            match tenant.split_once('/') {
+                Some(("u", user)) => authed.username == user,
+                Some(("g", group)) => authed.groups.iter().any(|g| g == group),
+                // A folder tenant grants the role to everyone holding perms on
+                // that folder, which is what `Authed::folders` already resolves
+                // to — for a user, for a group, and for a job permissioned as
+                // the folder itself.
+                Some(("f", folder)) => authed.folders.iter().any(|(f, _, _)| f == folder),
+                _ => false,
+            }
+        })
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -1051,12 +1146,52 @@ fn datatable_not_found_error(name: &str, datatables: Option<&serde_json::Value>)
     ))
 }
 
+/// Who a data table is being resolved for, when it is permissioned.
+pub enum DatatableAccess<'a> {
+    /// Internal callers that have already authorized the access (or for which
+    /// there is no user to authorize, such as trigger connections). Reaches
+    /// every role.
+    Unchecked,
+    Authed(crate::db::AuthedRef<'a>),
+    /// A job's owner. The identity is only fetched if the data table turns out
+    /// to be permissioned, so unpermissioned resolutions cost no extra query.
+    PermissionedAs {
+        permissioned_as: &'a str,
+        email: &'a str,
+    },
+    /// A job, identified by id: its owner is read from the job row. For callers
+    /// that authenticate as infrastructure rather than as the job's user, such
+    /// as agent workers.
+    Job(uuid::Uuid),
+    /// No identity could be established. Unpermissioned data tables resolve as
+    /// before; permissioned ones are refused rather than waved through, so a
+    /// caller that cannot name who it acts for fails closed.
+    NoIdentity,
+}
+
+/// Resolve a data table's connection credentials without authorizing the caller.
+/// Callers MUST have already authorized the access; anything running on behalf
+/// of a user should go through [`get_datatable_resource_from_db`] instead.
 pub async fn get_datatable_resource_from_db_unchecked(
     db: &DB,
     w_id: &str,
     name: &str,
 ) -> Result<serde_json::Value> {
-    get_datatable_resource_inner(db, w_id, name, false).await
+    get_datatable_resource_inner(db, w_id, name, false, None, DatatableAccess::Unchecked).await
+}
+
+/// Resolve a data table's connection credentials as `role` (default `root`),
+/// checking that `access` is allowed to use it when the data table is
+/// permissioned. On an unpermissioned data table only `root` is accepted, and
+/// the resolution is the same as the unchecked one.
+pub async fn get_datatable_resource_from_db(
+    db: &DB,
+    w_id: &str,
+    name: &str,
+    role: Option<&str>,
+    access: DatatableAccess<'_>,
+) -> Result<serde_json::Value> {
+    get_datatable_resource_inner(db, w_id, name, false, role, access).await
 }
 
 /// Same as [`get_datatable_resource_from_db_unchecked`] but for postgres trigger
@@ -1073,7 +1208,85 @@ pub async fn get_datatable_replication_resource_from_db_unchecked(
     w_id: &str,
     name: &str,
 ) -> Result<serde_json::Value> {
-    get_datatable_resource_inner(db, w_id, name, true).await
+    get_datatable_resource_inner(db, w_id, name, true, None, DatatableAccess::Unchecked).await
+}
+
+/// Resolve which postgres login the data table should be reached through, and
+/// authorize it.
+///
+/// Returns the `(user, password)` to swap into the connection, or `None` when
+/// the data table's own credentials are to be used — which is every
+/// unpermissioned data table, and the `root` role of a permissioned one.
+async fn resolve_datatable_role(
+    db: &DB,
+    w_id: &str,
+    name: &str,
+    datatable: &DataTable,
+    role: Option<&str>,
+    access: DatatableAccess<'_>,
+) -> Result<Option<(String, String)>> {
+    let Some(permissions) = datatable.permissions.as_ref().filter(|p| p.enabled) else {
+        return match role {
+            Some(role) if role != ROOT_DATATABLE_ROLE => Err(Error::BadRequest(format!(
+                "Cannot use role '{role}': permissions are not enabled on data table '{name}'. \
+                 Enable them in the data table's Permissions drawer."
+            ))),
+            _ => Ok(None),
+        };
+    };
+
+    let role_name = role.unwrap_or(ROOT_DATATABLE_ROLE);
+    let role_entry = permissions.roles.get(role_name).ok_or_else(|| {
+        Error::NotFound(format!(
+            "Role '{role_name}' is not defined on data table '{name}'. Defined roles: {}.",
+            permissions
+                .roles
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ))
+    })?;
+
+    let allowed = match access {
+        DatatableAccess::Unchecked => true,
+        DatatableAccess::NoIdentity => false,
+        DatatableAccess::Authed(ref authed) => can_use_datatable_role(role_entry, authed),
+        DatatableAccess::PermissionedAs { permissioned_as, email } => {
+            let authed =
+                crate::auth::fetch_authed_from_permissioned_as(permissioned_as, email, w_id, db)
+                    .await?;
+            can_use_datatable_role(role_entry, &authed.to_authed_ref())
+        }
+        DatatableAccess::Job(job_id) => {
+            let job = sqlx::query!(
+                "SELECT permissioned_as, permissioned_as_email FROM v2_job WHERE id = $1 AND workspace_id = $2",
+                job_id,
+                w_id,
+            )
+            .fetch_optional(db)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("job {job_id} not found in {w_id}")))?;
+            let authed = crate::auth::fetch_authed_from_permissioned_as(
+                &job.permissioned_as,
+                &job.permissioned_as_email,
+                w_id,
+                db,
+            )
+            .await?;
+            can_use_datatable_role(role_entry, &authed.to_authed_ref())
+        }
+    };
+    if !allowed {
+        return Err(Error::NotAuthorized(format!(
+            "Not allowed to use role '{role_name}' of data table '{name}'"
+        )));
+    }
+
+    Ok(role_entry
+        .pg_rolename
+        .clone()
+        .zip(role_entry.pg_password.clone()))
 }
 
 async fn get_datatable_resource_inner(
@@ -1081,6 +1294,8 @@ async fn get_datatable_resource_inner(
     w_id: &str,
     name: &str,
     replication: bool,
+    role: Option<&str>,
+    access: DatatableAccess<'_>,
 ) -> Result<serde_json::Value> {
     let datatables = sqlx::query_scalar!(
         r#"
@@ -1101,27 +1316,44 @@ async fn get_datatable_resource_inner(
         .ok_or_else(|| datatable_not_found_error(name, datatables.as_ref()))?;
     let datatable = serde_json::from_value::<DataTable>(datatable.clone())?;
 
-    let db_resource = if datatable.database.resource_type == DataTableCatalogResourceType::Instance
-    {
-        let mut pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
-        pg_creds.dbname = datatable.database.resource_path.clone();
-        if replication {
-            pg_creds.user = Some("custom_instance_replication_user".to_string());
-            pg_creds.password = Some(get_custom_pg_instance_replication_password(&db).await?);
+    let role_override = resolve_datatable_role(db, w_id, name, &datatable, role, access).await?;
+
+    let mut db_resource =
+        if datatable.database.resource_type == DataTableCatalogResourceType::Instance {
+            let mut pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
+            pg_creds.dbname = datatable.database.resource_path.clone();
+            if replication {
+                pg_creds.user = Some("custom_instance_replication_user".to_string());
+                pg_creds.password = Some(get_custom_pg_instance_replication_password(&db).await?);
+            } else {
+                pg_creds.user = Some("custom_instance_user".to_string());
+                pg_creds.password = Some(get_custom_pg_instance_password(&db).await?);
+            }
+            serde_json::to_value(&pg_creds)
+                .map_err(|e| Error::internal_err(format!("Error serializing pg creds: {}", e)))?
         } else {
-            pg_creds.user = Some("custom_instance_user".to_string());
-            pg_creds.password = Some(get_custom_pg_instance_password(&db).await?);
-        }
-        serde_json::to_value(&pg_creds)
-            .map_err(|e| Error::internal_err(format!("Error serializing pg creds: {}", e)))?
-    } else {
-        transform_json_unchecked(
-            &serde_json::Value::String(format!("$res:{}", datatable.database.resource_path)),
-            w_id,
-            db,
-        )
-        .await?
-    };
+            transform_json_unchecked(
+                &serde_json::Value::String(format!("$res:{}", datatable.database.resource_path)),
+                w_id,
+                db,
+            )
+            .await?
+        };
+
+    // The role logs in as itself rather than through `SET ROLE`, which a script
+    // could `RESET ROLE` its way back out of and regain root's privileges.
+    if let Some((pg_rolename, pg_password)) = role_override {
+        let creds = db_resource.as_object_mut().ok_or_else(|| {
+            Error::internal_err(format!(
+                "Data table '{name}' does not resolve to a postgres resource"
+            ))
+        })?;
+        creds.insert("user".to_string(), serde_json::Value::String(pg_rolename));
+        creds.insert(
+            "password".to_string(),
+            serde_json::Value::String(pg_password),
+        );
+    }
 
     Ok(db_resource)
 }
@@ -2138,6 +2370,77 @@ async fn transform_json_unchecked(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn authed(username: &str, groups: &[&str], folders: &[&str]) -> crate::db::Authed {
+        crate::db::Authed {
+            email: format!("{username}@windmill.dev"),
+            username: username.to_string(),
+            is_admin: false,
+            is_operator: false,
+            groups: groups.iter().map(|g| g.to_string()).collect(),
+            folders: folders
+                .iter()
+                .map(|f| (f.to_string(), true, false))
+                .collect(),
+            scopes: None,
+            token_prefix: None,
+        }
+    }
+
+    #[test]
+    fn datatable_role_tenants_match_users_groups_and_folders() {
+        let role = DataTableRole {
+            tenants: vec![
+                "u/alice".to_string(),
+                "g/devs".to_string(),
+                "f/finance".to_string(),
+            ],
+            ..Default::default()
+        };
+
+        let alice = authed("alice", &[], &[]);
+        let bob_in_group = authed("bob", &["devs"], &[]);
+        let bob_in_folder = authed("bob", &[], &["finance"]);
+        let stranger = authed("bob", &["ops"], &["hr"]);
+
+        assert!(can_use_datatable_role(&role, &alice.to_authed_ref()));
+        assert!(can_use_datatable_role(&role, &bob_in_group.to_authed_ref()));
+        assert!(can_use_datatable_role(
+            &role,
+            &bob_in_folder.to_authed_ref()
+        ));
+        assert!(!can_use_datatable_role(&role, &stranger.to_authed_ref()));
+
+        // A tenant list is a whitelist, so an empty one grants nobody...
+        let empty = DataTableRole::default();
+        assert!(!can_use_datatable_role(&empty, &alice.to_authed_ref()));
+        // ...except admins, who reach every role so they cannot lock themselves
+        // out of their own data table.
+        let mut admin = authed("alice", &[], &[]);
+        admin.is_admin = true;
+        assert!(can_use_datatable_role(&empty, &admin.to_authed_ref()));
+    }
+
+    #[test]
+    fn datatable_pg_role_names_are_workspace_scoped_and_fit_postgres() {
+        assert_eq!(
+            datatable_pg_role_name("acme", "main", "analyst"),
+            "wm_acme_main_analyst"
+        );
+        // Two workspaces must never land on the same cluster-wide role.
+        assert_ne!(
+            datatable_pg_role_name("acme", "main", "analyst"),
+            datatable_pg_role_name("globex", "main", "analyst")
+        );
+        // Postgres truncates past 63 bytes, so long names are hashed rather than
+        // left to collide.
+        let long = datatable_pg_role_name("w".repeat(60).as_str(), "main", "analyst");
+        assert_eq!(long.len(), PG_IDENTIFIER_MAX_LEN);
+        assert_ne!(
+            long,
+            datatable_pg_role_name("w".repeat(61).as_str(), "main", "analyst")
+        );
+    }
 
     #[test]
     fn test_parse_fork_branch() {

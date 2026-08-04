@@ -113,6 +113,9 @@ export interface DatatableSqlTemplateFunction extends SqlTemplateFunction {
 // ---------------------------------------------------------------------------
 
 interface SqlProvider {
+  /** Executor annotations, emitted before everything else: annotation parsing
+   * stops at the first non-comment line, so they cannot follow the preamble. */
+  annotations(): string;
   formatArgDecl(argNum: number, argType: string): string;
   formatArgUsage(
     argNum: number,
@@ -125,11 +128,16 @@ interface SqlProvider {
   providerName: string;
 }
 
-function datatableProvider(name: string, schema?: string): SqlProvider {
+function datatableProvider(
+  name: string,
+  schema?: string,
+  role?: string
+): SqlProvider {
   return {
     providerName: "datatable",
     language: "postgresql",
     extraArgs: { database: `datatable://${name}` },
+    annotations: () => (role ? `-- role ${role}\n` : ""),
     formatArgDecl: (argNum) => `-- $${argNum} arg${argNum}`,
     formatArgUsage: (argNum, explicitType, inferredType) =>
       explicitType !== undefined
@@ -144,6 +152,7 @@ function ducklakeProvider(name: string, schema?: string): SqlProvider {
     providerName: "ducklake",
     language: "duckdb",
     extraArgs: {},
+    annotations: () => "",
     formatArgDecl: (argNum, argType) => `-- $arg${argNum} (${argType})`,
     formatArgUsage: (argNum) => `$arg${argNum}`,
     // `USE dl."schema"` sets the active schema so unqualified tables resolve there.
@@ -272,7 +281,8 @@ function buildSqlTemplateFunction(provider: SqlProvider): SqlTemplateFunction {
         return provider.formatArgDecl(info.argNum, argType);
       });
 
-    let content = argDecls.length ? argDecls.join("\n") + "\n" : "";
+    let content = provider.annotations();
+    content += argDecls.length ? argDecls.join("\n") + "\n" : "";
     content += provider.preamble();
 
     // SQL body — inline raw values, reference params via provider syntax
@@ -322,6 +332,8 @@ function buildSqlTemplateFunction(provider: SqlProvider): SqlTemplateFunction {
 /**
  * Create a SQL template function for PostgreSQL/datatable queries
  * @param name - Database/datatable name (default: "main")
+ * @param role - Data table role to run as, on a datatable with permissions
+ *               enabled (default: the "root" role)
  * @returns SQL template function for building parameterized queries
  * @example
  * let sql = wmill.datatable()
@@ -332,9 +344,12 @@ function buildSqlTemplateFunction(provider: SqlProvider): SqlTemplateFunction {
  *     WHERE name = ${name} AND age = ${age}::int
  * `.fetch()
  */
-export function datatable(name: string = "main"): DatatableSqlTemplateFunction {
+export function datatable(
+  name: string = "main",
+  role?: string
+): DatatableSqlTemplateFunction {
   let { name: n, schema } = parseName(name);
-  let provider = datatableProvider(n, schema);
+  let provider = datatableProvider(n, schema, role);
   let sqlFn = buildSqlTemplateFunction(provider) as DatatableSqlTemplateFunction;
   // `.query(sql, ...params)` is for SQL strings that already contain
   // positional placeholders ($1, $2, ...). We DON'T go through the template
@@ -353,7 +368,10 @@ export function datatable(name: string = "main"): DatatableSqlTemplateFunction {
       .join("\n");
     let contentBody = sqlString;
     let content =
-      (argDecls ? argDecls + "\n" : "") + provider.preamble() + sqlString;
+      provider.annotations() +
+      (argDecls ? argDecls + "\n" : "") +
+      provider.preamble() +
+      sqlString;
     let args = {
       ...Object.fromEntries(
         params.map((v, i) => [`arg${i + 1}`, serializeArgValue(v)])

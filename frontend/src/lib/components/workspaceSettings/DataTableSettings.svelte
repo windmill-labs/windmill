@@ -83,6 +83,7 @@
 	import { Popover } from '../meltComponents'
 	import ExploreAssetButton from '../ExploreAssetButton.svelte'
 	import DataTableMigrationsButton from './DataTableMigrationsButton.svelte'
+	import DataTablePermissionsButton from './DataTablePermissionsButton.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { clone } from '$lib/utils'
 	import SettingsFooter from './SettingsFooter.svelte'
@@ -339,6 +340,11 @@
 				<Cell class="whitespace-nowrap">
 					<div class="flex gap-2">
 						<DataTableMigrationsButton
+							workspace={$workspaceStore ?? ''}
+							datatable={dataTable.name}
+							disabled={!!dirtyMap[dataTable.name]}
+						/>
+						<DataTablePermissionsButton
 							workspace={$workspaceStore ?? ''}
 							datatable={dataTable.name}
 							disabled={!!dirtyMap[dataTable.name]}

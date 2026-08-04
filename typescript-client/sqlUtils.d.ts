@@ -85,7 +85,7 @@ export interface DatatableSqlTemplateFunction extends SqlTemplateFunction {
   query<T = any>(sql: string, ...params: any[]): SqlStatement<T>;
 }
 
-export declare function datatable(name: string): DatatableSqlTemplateFunction;
+export declare function datatable(name?: string, role?: string): DatatableSqlTemplateFunction;
 export declare function ducklake(name: string): SqlTemplateFunction;
 
 export interface DucklakeMaterializeOptions {

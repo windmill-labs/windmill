@@ -4967,6 +4967,89 @@ paths:
                   error:
                     type: string
 
+  /w/{workspace}/workspaces/datatable_permissions/{datatable_name}:
+    get:
+      summary: get a datatable's role-based permissions (admins only)
+      operationId: getDatatablePermissions
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: datatable permissions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DatatablePermissions"
+    post:
+      summary: set a datatable's role-based permissions, running the corresponding role SQL (admins only)
+      operationId: setDatatablePermissions
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetDatatablePermissions"
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/datatable_permissions/{datatable_name}/preview:
+    post:
+      summary: preview the SQL a datatable permissions change would run (admins only)
+      operationId: previewDatatablePermissions
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetDatatablePermissions"
+      responses:
+        "200":
+          description: statements that would be run, in a single transaction
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [statements, warnings]
+                properties:
+                  statements:
+                    type: array
+                    items:
+                      type: string
+                  warnings:
+                    type: array
+                    items:
+                      type: string
+
   /w/{workspace}/workspaces/enable_datatable_migrations/{datatable_name}:
     post:
       summary: opt a datatable in to migrations (admins / super admins only)
@@ -31382,6 +31465,51 @@ components:
             - ran
             - not_run
             - unknown
+    DatatableRoleInfo:
+      type: object
+      required: [name, tenants]
+      properties:
+        name:
+          type: string
+        tenants:
+          description: who may run as this role, as u/<user>, g/<group> or f/<folder>
+          type: array
+          items:
+            type: string
+        pg_rolename:
+          description: the underlying postgres role, absent for root
+          type: string
+    DatatablePermissions:
+      type: object
+      required: [enabled, roles]
+      properties:
+        enabled:
+          type: boolean
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/DatatableRoleInfo"
+    SetDatatablePermissions:
+      type: object
+      required: [enabled, roles]
+      properties:
+        enabled:
+          type: boolean
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/DatatableRoleInfo"
+        renames:
+          description: role renames (old -> new), so a rename keeps the postgres role and its grants
+          type: array
+          items:
+            type: object
+            required: [from, to]
+            properties:
+              from:
+                type: string
+              to:
+                type: string
     DataTableSchema:
       type: object
       required: [datatable_name, schemas]
