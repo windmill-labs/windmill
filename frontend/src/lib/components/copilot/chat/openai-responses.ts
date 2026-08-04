@@ -182,13 +182,6 @@ function convertMessagesToResponsesInput(messages: ChatCompletionMessageParam[])
 /** OpenAI rejects a key over 64 characters, and an Azure deployment name is user-chosen. */
 const MAX_PROMPT_CACHE_KEY_LENGTH = 64
 
-/**
- * Routing key for the provider's prompt cache. Built only from what fixes the prompt
- * prefix (the surface, plus the model) and never from anything per-request, since
- * requests sharing a prefix must reuse one key to land on the same cache. Workspace
- * splits traffic across the ~15 requests/minute one key sustains before it starts
- * missing again.
- */
 /** FNV-1a. A routing key needs to be stable and distinct, not cryptographic. */
 function shortHash(value: string): string {
 	let h = 0x811c9dc5
@@ -199,6 +192,13 @@ function shortHash(value: string): string {
 	return h.toString(16).padStart(8, '0')
 }
 
+/**
+ * Routing key for the provider's prompt cache. Built only from what fixes the prompt
+ * prefix (the surface, plus the model) and never from anything per-request, since
+ * requests sharing a prefix must reuse one key to land on the same cache. Workspace
+ * splits traffic across the ~15 requests/minute one key sustains before it starts
+ * missing again.
+ */
 export function buildPromptCacheKey(
 	surface: string,
 	modelProvider: { provider: string; model: string },
