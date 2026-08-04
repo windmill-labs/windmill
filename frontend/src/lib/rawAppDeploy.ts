@@ -18,15 +18,15 @@ import { bundleRawAppDraft } from '$lib/components/copilot/chat/global/rawAppBun
 import type { AppDraftValue } from '$lib/components/copilot/chat/global/workspaceItems'
 import { updateRawAppPolicy } from '$lib/components/raw_apps/rawAppPolicy'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
-import { appSourceToDraftValue } from '$lib/components/raw_apps/rawAppDraftValue'
+import {
+	appSourceToDraftValue,
+	normalizeRawAppData
+} from '$lib/components/raw_apps/rawAppDraftValue'
 import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 
 /**
  * Deploy an explicit raw-app value — one the user edited as JSON, or one
- * restored from a previous version — onto an already deployed raw app. Going
- * through AppService.updateApp instead would write a version flagged low-code
- * and leave the bundle behind on the old version, so the app stops rendering;
- * the backend rejects that mismatch.
+ * restored from a previous version — onto a deployed app.
  */
 export async function deployRawAppValue({
 	workspace,
@@ -45,15 +45,15 @@ export async function deployRawAppValue({
 	policy?: Policy
 	customPath?: string | null
 	deploymentMessage?: string
-	/** Let this deploy turn a low-code app into a raw one (restoring a version
-	 * from before an accidental conversion). Off for every ordinary deploy. */
+	/** Let this deploy turn a low-code app into a raw one. Off for every ordinary
+	 * deploy — see the backend's `allow_kind_change`. */
 	allowKindChange?: boolean
 }): Promise<void> {
 	// The value often comes straight out of a `$state` field, and the bundler
 	// runs in an iframe: postMessage refuses to clone a state proxy.
-	const plainValue = stateSnapshot(value) as any
-	const files = (plainValue?.files ?? {}) as Record<string, string>
-	const runnables = plainValue?.runnables ?? {}
+	const plainValue = (stateSnapshot(value) ?? {}) as Record<string, any>
+	const files = (plainValue.files ?? {}) as Record<string, string>
+	const runnables = plainValue.runnables ?? {}
 	// The value carries the runnables, so the policy's triggerables have to be
 	// recomputed from it or the deployed app can't call what it now contains.
 	const policy = (await updateRawAppPolicy(runnables, currentPolicy)) as Policy
@@ -69,7 +69,9 @@ export async function deployRawAppValue({
 		path,
 		formData: {
 			app: {
-				value: { files, runnables, data: plainValue?.data ?? { ...DEFAULT_RAW_APP_DATA } },
+				// Through `normalizeRawAppData`, like every other deploy path: an old
+				// version can still carry the pre-`data` datatable shapes.
+				value: { files, runnables, data: normalizeRawAppData(plainValue) },
 				summary: summary ?? '',
 				policy,
 				deployment_message: deploymentMessage,

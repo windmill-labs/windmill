@@ -51,7 +51,17 @@
 		loading = false
 	}
 
+	// The button drops a rejection, so failures — invalid JSON, a raw app whose
+	// sources don't bundle — have to surface here or Deploy looks like a no-op.
 	export async function saveApp() {
+		try {
+			await deploy()
+		} catch (err: any) {
+			sendUserToast(`Could not save app: ${err.body ?? err.message}`, true)
+		}
+	}
+
+	async function deploy() {
 		const parsed = JSON.parse(code)
 		if (isDraftOnly) {
 			// No deployed row — `updateApp` would 404. Route through the syncer
@@ -67,9 +77,7 @@
 			dispatch('change')
 			sendUserToast('Draft saved')
 		} else if (isRawApp) {
-			// A raw app's value holds its sources, not a renderable grid: it has to be
-			// re-bundled and written through the raw endpoint. `updateApp` would flag
-			// the new version low-code and leave the bundle on the old one.
+			// A raw app's value holds its sources, so deploying it means re-bundling.
 			await deployRawAppValue({
 				workspace: $workspaceStore!,
 				path,

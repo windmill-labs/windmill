@@ -12259,6 +12259,7 @@ paths:
       summary: update app
       operationId: updateApp
       x-mcp-tool: true
+      x-mcp-instructions: "Low-code apps only. An app whose `raw_app` field (from getAppByPath) is true is a raw (full-code) app: its value holds source files that must be compiled to a js/css bundle, which this tool cannot upload, so updating one here is refused. Edit a raw app in its editor at /apps_raw/edit/<path> instead."
       x-mcp-tool-include-fields:
         - path
         - value

@@ -17,13 +17,13 @@
 		historyBrowserDrawerOpen = true
 	}
 
-	// Picking a version is an explicit choice of what the app should become, so a
-	// version from before the app changed kind is allowed to convert it back —
-	// that is the only supported way to undo an accidental conversion.
 	async function updateApp(app: any) {
 		if (app.raw_app) {
-			// Restoring a raw app version means re-bundling its sources: `updateApp`
-			// would write a low-code version and leave the bundle behind.
+			// A raw version restores through the raw endpoint, which rebuilds the
+			// bundle from its sources. `allowKindChange` so picking the last version
+			// from before an app was converted to low-code restores it as raw — the
+			// supported way to undo such a conversion. The low-code direction stays
+			// refused: it has no bundle to write, so it would only break the app.
 			await deployRawAppValue({
 				workspace: $workspaceStore!,
 				path: app.path,
@@ -38,8 +38,7 @@
 				workspace: $workspaceStore!,
 				path: app.path,
 				requestBody: {
-					...app,
-					allow_kind_change: true
+					...app
 				}
 			})
 		}

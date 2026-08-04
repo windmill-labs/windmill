@@ -379,6 +379,13 @@ async fn test_raw_app_kind_is_not_flipped_by_update(db: Pool<Postgres>) -> anyho
         .unwrap();
     assert_eq!(resp.status(), 201, "create: {}", resp.text().await?);
 
+    let versions_of = |path: &'static str| async move {
+        let resp = authed_get(port, "get/p", path).await;
+        let body = resp.json::<serde_json::Value>().await.unwrap();
+        body["versions"].as_array().unwrap().len()
+    };
+    let raw_versions = versions_of(raw_path).await;
+
     // Neither endpoint may deploy a value onto an app of the other kind.
     let resp = authed(client().post(format!("{base}/update/{raw_path}")))
         .json(&json!({ "value": { "grid": [] } }))
@@ -390,6 +397,8 @@ async fn test_raw_app_kind_is_not_flipped_by_update(db: Pool<Postgres>) -> anyho
         resp.text().await?.contains("is a raw app"),
         "expected the low-code update of a raw app to be refused"
     );
+    // The refusal has to land before the version insert, not roll one back.
+    assert_eq!(versions_of(raw_path).await, raw_versions);
 
     let resp = authed(client().post(format!("{base}/update_raw/{low_code_path}")))
         .multipart(raw_app_form(low_code_path))

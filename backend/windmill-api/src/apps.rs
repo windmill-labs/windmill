@@ -366,9 +366,8 @@ pub struct EditApp {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skip_draft_deletion: Option<bool>,
     /// Caller-intent flag: when true this deploy may switch the app between
-    /// low-code and raw. Only a deliberate conversion sets it (restoring a
-    /// version from the app's other-kind history); every other write is
-    /// refused rather than converted. Transient — never persisted.
+    /// low-code and raw (see `update_app_internal`). Transient — never
+    /// persisted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allow_kind_change: Option<bool>,
 }
@@ -2425,32 +2424,43 @@ async fn update_app_internal<'a>(
 
     let mut tx = user_db.clone().begin(&authed).await?;
 
-    // `app_version.raw_app` is whatever the endpoint that wrote the version says
-    // it is, so deploying a value through the wrong one converts the app in
-    // place: a raw app updated via /apps/update becomes a low-code app whose
-    // value no editor can render, and its js/css bundle (keyed on the previous
-    // version id) is orphaned. Refuse instead of letting the write land — the
-    // caller reached for the wrong endpoint, unless it says otherwise.
+    // `app_version.raw_app` is set by whichever endpoint writes the version, so a
+    // value deployed through the wrong one converts the app and strands its bundle.
+    // `FOR UPDATE` holds the app row until this transaction appends its own version,
+    // so a concurrent deploy of the other kind can't land between check and append.
     if ns.value.is_some() && !ns.allow_kind_change.unwrap_or(false) {
-        let deployed_raw_app = sqlx::query_scalar!(
-            "SELECT app_version.raw_app FROM app
-             JOIN app_version ON app_version.id = app.versions[array_upper(app.versions, 1)]
-             WHERE app.path = $1 AND app.workspace_id = $2",
+        let deployed_version = sqlx::query_scalar!(
+            "SELECT versions[array_upper(versions, 1)] FROM app
+             WHERE path = $1 AND workspace_id = $2 FOR UPDATE",
             path,
             w_id
         )
         .fetch_optional(&mut *tx)
-        .await?;
+        .await?
+        .flatten();
+        let deployed_raw_app = match deployed_version {
+            // A separate statement: it needs the head the lock above pinned, not
+            // the snapshot the locking statement started from.
+            Some(version) => {
+                sqlx::query_scalar!("SELECT raw_app FROM app_version WHERE id = $1", version)
+                    .fetch_optional(&mut *tx)
+                    .await?
+            }
+            None => None,
+        };
         if deployed_raw_app.is_some_and(|deployed| deployed != raw_app) {
-            let (kind, endpoint) = if raw_app {
-                ("a low-code app", "/apps/update")
+            // Name the folder suffix too: a sync push picks the endpoint from the
+            // repo layout, so its operator has no endpoint to swap, only a folder.
+            let (kind, endpoint, folder) = if raw_app {
+                ("a low-code app", "/apps/update", ".app")
             } else {
-                ("a raw app", "/apps/update_raw")
+                ("a raw app", "/apps/update_raw", ".raw_app")
             };
             return Err(Error::BadRequest(format!(
                 "App {path} is {kind}: deploying a value to it through the other kind's endpoint \
-                 would convert it and strand its bundle. Use {endpoint} instead, or set \
-                 allow_kind_change to convert it on purpose."
+                 would convert it and strand its bundle. Deploy it through {endpoint} instead \
+                 (from a synced repo, from a `{folder}` folder), or set allow_kind_change to \
+                 convert it on purpose."
             )));
         }
     }
