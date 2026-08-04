@@ -253,9 +253,16 @@ pub async fn get_email_from_permissioned_as<'c>(
 /// The eviction is delivered by the `notify_event` poller, not synchronously, so for a few
 /// seconds after a change a replica can still serve the old address. In a config row that is
 /// permanent: the row outlives the eviction, every later run trusts it, and nothing re-derives
-/// it, so a principal and an address that name different accounts stay that way. Use this for
-/// those, and for the lookups that validate a pair before it becomes one — see
-/// [`get_email_from_permissioned_as`] for the dispatch case that deliberately does not.
+/// it, so a principal and an address that name different accounts stay that way.
+///
+/// Use this for three cases, all of which end in a stored pair:
+/// - writing the address into a row;
+/// - the lookup that validates a pair before it is stored;
+/// - **reads whose result the client sends back** — a script or a workspace export hands over a
+///   principal and address together, and a redeploy validates that pair against a fresh
+///   resolution, so a stale one comes back as a rejected deploy rather than a stale display.
+///
+/// See [`get_email_from_permissioned_as`] for the dispatch case that deliberately does not.
 pub async fn get_email_from_permissioned_as_uncached<'c>(
     permissioned_as: &str,
     workspace_id: &str,
