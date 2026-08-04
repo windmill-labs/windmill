@@ -93,9 +93,7 @@ impl PgAuthMode {
         }
     }
 
-    /// What to announce in the job log. Password auth is the unremarkable default and
-    /// stays silent; a token mode that was meant to be selected and was not is otherwise
-    /// indistinguishable from one that was.
+    /// What to announce in the job log. Password auth is the default and stays silent.
     fn log_name(&self) -> Option<&'static str> {
         match self {
             PgAuthMode::Password => None,
@@ -106,8 +104,9 @@ impl PgAuthMode {
 
     fn cache_key_segment(&self) -> &'static str {
         match self {
-            // Workload identity needs no segment of its own: what selects it, the
-            // sentinel password, is already part of to_uri().
+            // Workload identity needs no segment of its own: to_uri() carries the raw
+            // password and the mode is a pure function of it, so two modes can never
+            // share a key even though the mode is selected on the trimmed value.
             PgAuthMode::Password | PgAuthMode::WorkloadIdentity => "",
             PgAuthMode::Iam => "&iam=true",
         }
@@ -708,8 +707,6 @@ pub async fn do_postgresql(
 
     let auth_mode = PgAuthMode::of(&database)?;
 
-    // Say in the job logs which identity the query actually ran as rather than only in
-    // the worker logs.
     if let Some(mode) = auth_mode.log_name() {
         windmill_queue::append_logs(&job.id, &job.workspace_id, format!("Using {mode}\n"), conn)
             .await;
@@ -2143,6 +2140,12 @@ mod tests {
         assert_eq!(
             PgAuthMode::of(&db("hunter2")).unwrap(),
             PgAuthMode::Password
+        );
+        // A pasted sentinel keeps its surrounding whitespace, and an unrecognized one is
+        // forwarded to the server as a real password instead of selecting the mode.
+        assert_eq!(
+            PgAuthMode::of(&db("%20ms_entraid%0A")).unwrap(),
+            PgAuthMode::WorkloadIdentity
         );
     }
 

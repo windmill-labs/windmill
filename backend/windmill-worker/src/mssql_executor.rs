@@ -64,20 +64,25 @@ lazy_static::lazy_static! {
     static ref RE_MSSQL_READONLY_INTENT: Regex = Regex::new(r#"(?mi)^-- ApplicationIntent=ReadOnly *(?:\r|\n|$)"#).unwrap();
 }
 
-/// A rejected login reports only the name it rejected, so a resource meant to reach the
-/// database as the worker's Azure identity, but whose password is not the sentinel, is
-/// indistinguishable from a wrong password. Point at the sentinel when the worker has an
-/// identity to offer, since that is the only case where the advice is actionable.
-fn login_error(e: tiberius::error::Error, sql_auth_user: Option<&str>) -> Error {
+/// Point a rejected login at the sentinel, but only where the advice is actionable: an
+/// Azure host, a worker that holds an identity, and a login the server rejected rather
+/// than a connection that never reached it.
+fn connect_error(e: tiberius::error::Error, host: &str, sql_auth_user: Option<&str>) -> Error {
     const LOGIN_FAILED: u32 = 18456;
+    // Matches the sovereign clouds as well as `.database.windows.net`.
+    let azure_host = host.to_ascii_lowercase().contains(".database.");
 
     let hint = sql_auth_user
-        .filter(|_| e.code() == Some(LOGIN_FAILED) && WorkloadIdentityConfig::resolve().is_ok())
+        .filter(|_| {
+            azure_host
+                && e.code() == Some(LOGIN_FAILED)
+                && WorkloadIdentityConfig::resolve().is_ok()
+        })
         .map(|user| {
             format!(
-                "\n\nThis connected as SQL Server user `{user}`. This worker has an Azure workload \
-                 identity available: to authenticate as it instead, set the resource password to \
-                 `{WORKLOAD_IDENTITY_PASSWORD}` (`user` is then ignored)."
+                "\n\nThis tried to authenticate as SQL Server user `{user}`. This worker has an \
+                 Azure workload identity available: to authenticate as it instead, set the \
+                 resource password to `{WORKLOAD_IDENTITY_PASSWORD}` (`user` is then ignored)."
             )
         })
         .unwrap_or_default();
@@ -155,9 +160,8 @@ pub async fn do_mssql(
         append_logs(&job.id, &job.workspace_id, logs, conn).await;
     }
 
-    // Handle authentication based on available credentials. Every branch names the mode
-    // it picked: the server rejects a login the same way whichever mode produced it, so
-    // the job log is the only place the choice is visible.
+    // Handle authentication based on available credentials. Every branch must name the
+    // mode it picked: the job log is the only place that choice is visible.
     let mut sql_auth_user = None;
     if database.integrated_auth.unwrap_or(false) {
         #[cfg(any(feature = "mssql-kerberos", feature = "mssql-winauth"))]
@@ -258,9 +262,9 @@ pub async fn do_mssql(
 
             Client::connect(config, tcp.compat_write())
                 .await
-                .map_err(|e| login_error(e, sql_auth_user.as_deref()))?
+                .map_err(|e| connect_error(e, host_ref, sql_auth_user.as_deref()))?
         }
-        Err(e) => return Err(login_error(e, sql_auth_user.as_deref())),
+        Err(e) => return Err(connect_error(e, host_ref, sql_auth_user.as_deref())),
     };
 
     let sig = parse_mssql_sig(&query)
