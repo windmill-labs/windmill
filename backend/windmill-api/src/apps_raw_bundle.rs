@@ -119,7 +119,6 @@ pub(crate) async fn bundle_raw_app_sources(
         "prefer_installed_cli".to_string(),
         to_raw_value(&!overridden),
     );
-    args.insert("server_version".to_string(), to_raw_value(&release_version()));
 
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
     let (uuid, tx) = push(
@@ -228,8 +227,10 @@ fn gunzip_b64(b64: &str, limit: usize) -> Result<String> {
         .read_to_end(&mut out)
         .map_err(|e| Error::internal_err(format!("raw app bundle is not valid gzip: {e}")))?;
     if out.len() > limit {
+        // `limit` is what is left of the budget, not the whole of it, so say so
+        // rather than report a nearly-exhausted budget as the limit itself.
         return Err(Error::BadRequest(format!(
-            "raw app bundle is larger than the {limit} byte limit"
+            "raw app bundle is too large: {limit} bytes left of the budget the js and css share"
         )));
     }
     String::from_utf8(out)

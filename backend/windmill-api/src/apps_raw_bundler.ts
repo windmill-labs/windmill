@@ -14,8 +14,7 @@ export async function main(
 	shared_ui: Record<string, string> | undefined,
 	cli_command: string[],
 	// Set unless the server was told to build with a specific command.
-	prefer_installed_cli: boolean | undefined,
-	server_version: string
+	prefer_installed_cli: boolean | undefined
 ): Promise<{ js_gz: string; css_gz: string }> {
 	const fs = await import('node:fs/promises')
 	const path = await import('node:path')
@@ -51,11 +50,15 @@ export async function main(
 	// Piped rather than inherited so the output can go in the error too, then
 	// echoed either way — the job's log is where someone looks to see what the
 	// build did.
-	const run = (argv: string[], what: string) => {
+	const spawn = (argv: string[]) => {
 		const proc = Bun.spawnSync(argv, { cwd: dir, stdout: 'pipe', stderr: 'pipe' })
 		const output = proc.stdout.toString() + proc.stderr.toString()
 		console.log(output)
-		if (proc.exitCode !== 0) {
+		return { ok: proc.exitCode === 0, output }
+	}
+	const run = (argv: string[], what: string) => {
+		const { ok, output } = spawn(argv)
+		if (!ok) {
 			throw new Error(`${what} failed:\n${output}`)
 		}
 		return output
@@ -74,20 +77,29 @@ export async function main(
 		await fs.mkdir(path.join(dir, 'node_modules'), { recursive: true })
 	}
 
-	// Prefer the CLI the image installed — no npm reachability needed at deploy
-	// time — but only when it is the release this server belongs to. An image
-	// whose CLI predates `app bundle` would otherwise fail with a usage message.
-	const installed = prefer_installed_cli ? Bun.which('wmill') : undefined
-	const installedUsable =
-		installed !== undefined &&
-		installed !== null &&
-		Bun.spawnSync([installed, '--version'], { stdout: 'pipe', stderr: 'pipe' })
-			.stdout.toString()
-			.includes(server_version)
-	const build = installedUsable ? [installed as string, 'app', 'bundle'] : cli_command
-
 	const outDir = path.join(dir, 'dist')
-	const buildOutput = run([...build, dir, '--out', outDir], 'bundle')
+	// Prefer the CLI the image installed: no npm reachability needed at deploy
+	// time. It can predate `app bundle` (the images install it unpinned), and a
+	// CLI without the command exits with cliffy's usage text before building
+	// anything — so that specific failure, and only it, falls back to fetching
+	// the one for this server's release. `wmill --version` isn't used to decide:
+	// it reports npm's latest release as well as its own, and it reaches out to
+	// npm to do so, which is the cost this branch exists to avoid.
+	const installed = prefer_installed_cli ? Bun.which('wmill') : null
+	let buildOutput: string | undefined
+	if (installed) {
+		const attempt = spawn([installed, 'app', 'bundle', dir, '--out', outDir])
+		// Colours sit between the words cliffy prints, so match on the stripped text.
+		const plain = attempt.output.replace(/\[[0-9;]*m/g, '')
+		if (attempt.ok) {
+			buildOutput = attempt.output
+		} else if (!/Unknown command|Usage:\s+wmill app\b/.test(plain)) {
+			throw new Error(`bundle failed:\n${attempt.output}`)
+		}
+	}
+	if (buildOutput === undefined) {
+		buildOutput = run([...cli_command, dir, '--out', outDir], 'bundle')
+	}
 
 	const read = async (name: string) => {
 		try {

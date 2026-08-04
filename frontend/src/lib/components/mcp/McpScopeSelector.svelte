@@ -32,6 +32,22 @@
 		readOnly ? mcpEndpointTools.filter((e) => e.method === 'GET') : mcpEndpointTools
 	)
 
+	// A few endpoint tools need a scope from another domain to work at all — the
+	// raw-app source deploy compiles on a worker and so checks `jobs:run`. The
+	// proxy deliberately doesn't mint those (that would hand out the grant for
+	// merely holding the tool), so the token has to carry them, and selecting the
+	// tool here is where the admin grants it.
+	function extraScopesFor(endpointNames: string[]): string[] {
+		const selected = new Set(endpointNames)
+		const extra = new Set<string>()
+		for (const tool of mcpEndpointTools) {
+			if (selected.has(tool.name)) {
+				for (const scope of tool.extraScopes ?? []) extra.add(scope)
+			}
+		}
+		return [...extra]
+	}
+
 	// When read-only flips on, prune already-selected non-GET endpoints so the
 	// scope string doesn't keep references to tools the server will reject.
 	$effect(() => {
@@ -193,10 +209,12 @@
 			if (selectedEndpoints.length > 0) {
 				scopeParts.push(`mcp:endpoints:${selectedEndpoints.join(',')}`)
 			}
+			scopeParts.push(...extraScopesFor(selectedEndpoints))
 		} else if (selectedMode === 'folder') {
 			const folderPaths = selectedFolders.map((f) => `f/${f}/*`).join(',')
 			if (selectedFolders.length > 0) {
 				scopeParts = [`mcp:scripts:${folderPaths}`, `mcp:flows:${folderPaths}`, `mcp:endpoints:*`]
+				scopeParts.push(...extraScopesFor(visibleEndpointTools.map((e) => e.name)))
 			}
 		} else {
 			scopeParts = [`mcp:${selectedMode}`]
