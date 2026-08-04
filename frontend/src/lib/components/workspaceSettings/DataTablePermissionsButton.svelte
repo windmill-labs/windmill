@@ -3,6 +3,7 @@
 	import Drawer from '../common/drawer/Drawer.svelte'
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
+	import Portal from '$lib/components/Portal.svelte'
 	import Alert from '../common/alert/Alert.svelte'
 	import Toggle from '../Toggle.svelte'
 	import Tooltip from '../Tooltip.svelte'
@@ -341,31 +342,36 @@
 	</DrawerContent>
 </Drawer>
 
-<ConfirmationModal
-	open={!!preview}
-	title="Apply permission changes"
-	confirmationText={preview?.statements.length ? 'Run and save' : 'Save'}
-	type="info"
-	loading={applying}
-	onConfirmed={apply}
-	onCanceled={() => (preview = undefined)}
->
-	<div class="flex flex-col gap-3">
-		{#each preview?.warnings ?? [] as warning}
-			<Alert type="warning" title="Warning" size="xs">{warning}</Alert>
-		{/each}
-		{#if !preview?.statements.length}
-			<span class="text-sm text-secondary">
-				No SQL to run — only the tenants of existing roles changed.
-			</span>
-		{:else}
-			<span class="text-sm text-secondary">
-				The following runs against <span class="font-mono">{datatable}</span> in a single transaction:
-			</span>
-			<pre
-				class="whitespace-pre-wrap overflow-y-auto text-xs bg-surface-secondary p-3 rounded select-all max-h-80"
-				>{preview.statements.join('\n')}</pre
-			>
-		{/if}
-	</div>
-</ConfirmationModal>
+<!-- Portalled to the body: this button is also mounted inside the database
+	manager's drawer, whose own stacking context would otherwise trap the modal
+	underneath the permissions drawer sitting next to it. -->
+<Portal>
+	<ConfirmationModal
+		open={!!preview}
+		title="Apply permission changes"
+		confirmationText={preview?.statements.length ? 'Run and save' : 'Save'}
+		type="info"
+		loading={applying}
+		onConfirmed={apply}
+		onCanceled={() => (preview = undefined)}
+	>
+		<div class="flex flex-col gap-3">
+			{#each preview?.warnings ?? [] as warning}
+				<Alert type="warning" title="Warning" size="xs">{warning}</Alert>
+			{/each}
+			{#if !preview?.statements.length}
+				<span class="text-sm text-secondary">
+					No SQL to run — only the tenants of existing roles changed.
+				</span>
+			{:else}
+				<span class="text-sm text-secondary">
+					The following runs against <span class="font-mono">{datatable}</span> in a single transaction:
+				</span>
+				<pre
+					class="whitespace-pre-wrap overflow-y-auto text-xs bg-surface-secondary p-3 rounded select-all max-h-80"
+					>{preview.statements.join('\n')}</pre
+				>
+			{/if}
+		</div>
+	</ConfirmationModal>
+</Portal>
