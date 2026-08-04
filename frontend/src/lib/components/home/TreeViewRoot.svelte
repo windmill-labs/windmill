@@ -33,7 +33,7 @@
 		selfUsername?: string
 		ownerLoad?: Record<
 			string,
-			{ cursor?: string; hasMore: boolean; loading: boolean; loaded: boolean; count: number }
+			{ cursor?: string; hasMore: boolean; loading: boolean; loaded: boolean }
 		>
 		onExpandOwner?: (owner: string, more?: boolean) => void
 		onCollapseOwner?: (owner: string) => void
@@ -63,6 +63,10 @@
 	// — and an owner sliced off the end is indistinguishable from one that doesn't
 	// exist, so keep it well above the number of folders a workspace typically has.
 	const ROOT_PAGE = 100
+	// Ceiling on what scrolling alone reveals: root rows aren't virtualized, so on a
+	// workspace with thousands of owners one long scroll gesture would otherwise mount
+	// every one of them. Past this the footer stays put and its button reveals the rest.
+	const AUTO_REVEAL_LIMIT = 500
 	let nbDisplayed = $state(ROOT_PAGE)
 
 	let groupedItems: ReturnType<typeof groupItems> | 'loading' = $state('loading')
@@ -158,6 +162,7 @@
 			if (!entries.some((e) => e.isIntersecting)) return
 			const grouped = groupedItems
 			if (!Array.isArray(grouped) || nbDisplayed >= grouped.length) return
+			if (nbDisplayed >= AUTO_REVEAL_LIMIT) return
 			nbDisplayed = Math.min(nbDisplayed + ROOT_PAGE, grouped.length)
 			// Revealing more doesn't change whether the footer intersects, so no further
 			// callback would fire and scrolling would stall with rows left unrevealed.
@@ -190,7 +195,7 @@
 					{item}
 					{pipelineFolders}
 					{ownerCounts}
-					ownerHasMore={hasMoreServer}
+					ancestorHasMore={hasMoreServer}
 					{ownerLoad}
 					{onExpandOwner}
 					{onCollapseOwner}

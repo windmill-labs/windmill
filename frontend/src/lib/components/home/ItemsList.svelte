@@ -346,14 +346,15 @@
 		}
 	}
 
-	// Per-top-level-folder lazy loading for tree view: expanding a folder loads its
-	// items on demand (server-scoped to that folder), paginated within the folder,
-	// instead of relying on the global browse window. Keyed by folder name (the
-	// `f/<name>` node).
+	// Per-folder lazy loading for tree view: expanding a folder loads its items on demand
+	// (server-scoped to that folder), paginated within it, instead of relying on the
+	// global browse window. Keyed by the full path prefix a node covers — a top-level
+	// owner (`f/<name>` / `u/<name>`) or any folder under one (`f/<name>/<sub>/…`), since
+	// the listing endpoint scopes on an arbitrary `path_start`. That is what lets a
+	// subfolder be completed on its own instead of only by paging its whole owner.
 	//
-	// Every top-level namespace — a folder (`f/<name>`) OR a user (`u/<name>`) — is a
-	// lazily-loaded owner, keyed here by its full path prefix. Its items live in their
-	// OWN store (`treeOwnerItems`), never merged into the global browse arrays: those
+	// Rows for every prefix live in ONE store (`treeOwnerItems`), never merged into the
+	// global browse arrays: those
 	// advance by a single `serverCursor`, so injecting out-of-window rows there would
 	// make the flat stream non-contiguous and, once pagination reached those rows,
 	// duplicate them. Loading users lazily too (rather than sourcing them from the
@@ -367,20 +368,17 @@
 		loading: boolean
 		loaded: boolean
 		gen: number
-		// Total rows fetched for this owner so far (leaves + subfolder rows) — the tree
-		// node's own children count undercounts because rows nest into subfolders.
-		count: number
 	}
-	// Rows per request when expanding an owner in the tree. Larger than the flat list's
-	// page because a tree row is a single line and an owner is opened to see what it
+	// Rows per request when loading a prefix in the tree. Larger than the flat list's
+	// page because a tree row is a single line and a folder is opened to see what it
 	// holds — most folders come in whole on the first click.
 	const OWNER_PAGE_SIZE = 300
 	let ownerLoad = $state<Record<string, OwnerLoadState>>({})
 	let treeOwnerItems = $state<ItemType[]>([])
 	let treeGen = 0
-	// Owners the user currently has expanded (full path prefixes). A reload re-fetches
-	// only these: ownerLoad also retains collapsed owners as a cache, so keying reloads
-	// off its entries would re-request every owner ever opened in this scope.
+	// Prefixes currently loaded and on screen. A reload re-fetches only these: ownerLoad
+	// also retains collapsed nodes as a cache, so keying reloads off its entries would
+	// re-request every folder ever opened in this scope.
 	let openOwners = new Set<string>()
 
 	// The endpoint returns a unified `edited_at` per row; combinedItems derives every
@@ -393,14 +391,14 @@
 		} as unknown as ItemType
 	}
 
-	// `owner` is the full prefix: `f/<folder>` or `u/<username>`.
-	// `force` re-fetches an owner's first page even if already loaded (a re-sort /
-	// re-filter reload uses it to refresh the loaded rows in place).
+	// `owner` is the full prefix a node covers: `f/<folder>`, `u/<username>`, or any
+	// folder under one. `force` re-fetches its first page even if already loaded (a
+	// re-sort / re-filter reload uses it to refresh the loaded rows in place).
 	async function loadOwnerItems(owner: string, more = false, force = false): Promise<void> {
 		const ws = $workspaceStore
 		if (!ws || !$userStore) return
-		// Track the owner as open first — even a no-op call (re-expanding a cached owner)
-		// means it's expanded, so later reloads must refresh it.
+		// Track the prefix as open first — even a no-op call (re-expanding a cached node)
+		// means it's on screen, so later reloads must refresh it.
 		openOwners.add(owner)
 		const st = ownerLoad[owner]
 		// Only a load for the CURRENT generation blocks a new one. A load left in flight
@@ -414,9 +412,7 @@
 			hasMore: st?.hasMore ?? false,
 			loading: true,
 			loaded: st?.loaded ?? false,
-			gen,
-			// A fresh (non-more) load replaces this owner's rows, so its count restarts.
-			count: more ? (st?.count ?? 0) : 0
+			gen
 		}
 		const { orderBy, orderDesc } = sortToParams(sortOrder)
 		let res: { items: RunnableItem[]; next_cursor?: string }
@@ -443,9 +439,10 @@
 		// workspace changed and reset the tree); drop the response so stale rows from
 		// another scope can't appear under the current one.
 		if (gen !== treeGen) return
-		// A fresh load REPLACES this owner's rows (drop its previous ones, keep every
-		// other owner's untouched) so a re-sort/re-filter swaps its items atomically
-		// without blanking the whole tree; load-more appends to what's already shown.
+		// A fresh load REPLACES the rows under this prefix (drop its previous ones, keep
+		// every other prefix's untouched) so a re-sort/re-filter swaps its items
+		// atomically without blanking the whole tree; load-more appends to what's
+		// already shown.
 		const prefix = `${owner}/`
 		const base = more
 			? treeOwnerItems
@@ -460,14 +457,18 @@
 			merged.push({ ...toTreeItem(it), ord: fetchOrd++ })
 		}
 		treeOwnerItems = merged
-		ownerLoad[owner] = {
-			cursor: res.next_cursor,
-			hasMore: !!res.next_cursor,
-			loading: false,
-			loaded: true,
-			gen,
-			count: merged.filter((x) => x.path.startsWith(prefix)).length
-		}
+		ownerLoad = Object.fromEntries([
+			// A fresh load dropped every row under this prefix, so a nested folder that had
+			// paged itself is back to whatever this page holds: its load state has to go
+			// with its rows. Left behind, a subfolder marked complete would keep an exact
+			// count and no "Load more" over rows this response truncated. Reloads re-fetch
+			// the ones still open (see reloadItems), which re-establishes their state.
+			...Object.entries(ownerLoad).filter(([p]) => more || !p.startsWith(prefix)),
+			[
+				owner,
+				{ cursor: res.next_cursor, hasMore: !!res.next_cursor, loading: false, loaded: true, gen }
+			]
+		])
 	}
 
 	function collapseOwner(owner: string): void {
@@ -500,12 +501,22 @@
 			ownerLoad = Object.fromEntries(Object.entries(ownerLoad).filter(([o]) => open.has(o)))
 		}
 		await loadRunnables(true)
-		// force: the owners are still marked loaded, so re-fetch their first page and
-		// swap it in place (loadOwnerItems replaces each owner's rows atomically — the
-		// old rows stay visible until the new ones arrive, so nothing blanks mid-reorder).
+		// force: the prefixes are still marked loaded, so re-fetch their first page and
+		// swap it in place (loadOwnerItems replaces a prefix's rows atomically — the old
+		// rows stay visible until the new ones arrive, so nothing blanks mid-reorder).
+		// Shallowest first, one depth at a time: a fresh load drops every row under its
+		// prefix, so a parent landing after a nested subfolder would wipe the rows that
+		// subfolder just re-fetched and leave it short until clicked again.
 		// Awaited so a caller reconciling against the rendered rows sees the reloaded
-		// tree rather than the pre-reload ones; the per-owner swap stays atomic either way.
-		await Promise.all(toReload.map((o) => loadOwnerItems(o, false, true)))
+		// tree rather than the pre-reload ones; each swap stays atomic either way.
+		const byDepth = new Map<number, string[]>()
+		for (const p of toReload) {
+			const d = p.split('/').length
+			byDepth.set(d, [...(byDepth.get(d) ?? []), p])
+		}
+		for (const d of [...byDepth.keys()].sort((a, b) => a - b)) {
+			await Promise.all((byDepth.get(d) ?? []).map((p) => loadOwnerItems(p, false, true)))
+		}
 	}
 
 	// For row mutations (create/delete/move/archive), which also change how many

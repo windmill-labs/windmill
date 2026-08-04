@@ -4,7 +4,7 @@
 
 	import { ChevronDown, ChevronUp, Folder, FolderTree, NetworkIcon, User } from 'lucide-svelte'
 	import Item from './Item.svelte'
-	import type { FolderItem, ItemType, UserItem } from './treeViewUtils'
+	import { countLeaves, type FolderItem, type ItemType, type UserItem } from './treeViewUtils'
 	import { twMerge } from 'tailwind-merge'
 	import { pluralize } from '$lib/utils'
 	import { base } from '$lib/base'
@@ -20,21 +20,26 @@
 		// How many runnables each `f/<folder>` / `u/<user>` holds for this user, keyed by
 		// full prefix. Known before an owner is expanded, unlike its loaded rows.
 		ownerCounts?: Record<string, number>
-		// Lazy per-owner loading (top-level folders and users only): expanding an owner
-		// loads its items on demand and paginates within it. `ownerLoad` keys are full
-		// path prefixes (`f/<name>` / `u/<name>`).
+		// Lazy loading state, keyed by the full path prefix a node covers: `f/<name>` /
+		// `u/<name>` for a top-level owner, `<parent>/<subfolder>` deeper. A node paginates
+		// within its own prefix, so a subfolder can be completed without paging everything
+		// its owner holds.
 		ownerLoad?: Record<
 			string,
-			{ cursor?: string; hasMore: boolean; loading: boolean; loaded: boolean; count: number }
+			{ cursor?: string; hasMore: boolean; loading: boolean; loaded: boolean }
 		>
-		onExpandOwner?: (owner: string, more?: boolean) => void
-		onCollapseOwner?: (owner: string) => void
+		onExpandOwner?: (prefix: string, more?: boolean) => void
+		onCollapseOwner?: (prefix: string) => void
 		// Position of this node among the rendered root nodes; "expand all" only
 		// auto-loads the first EXPAND_ALL_LOAD_LIMIT of them (see the effect below).
 		rootIndex?: number
-		// The owner this node sits under still has unloaded server pages, so its own
-		// children are a partial view — its count renders as "N+" rather than "N".
-		ownerHasMore?: boolean
+		// Path prefix of the parent node, so this one can name its own (`ownerLoad` and
+		// the listing endpoint are both keyed by full prefix). Unset at the top level.
+		parentPrefix?: string
+		// The nearest ancestor that was loaded directly still has unloaded pages, so what
+		// is grouped under this node is only part of it: counts render as "N+" and the
+		// node offers to load the rest of itself.
+		ancestorHasMore?: boolean
 	}
 
 	let {
@@ -49,12 +54,13 @@
 		onExpandOwner,
 		onCollapseOwner,
 		rootIndex = 0,
-		ownerHasMore = false
+		parentPrefix,
+		ancestorHasMore = false
 	}: Props = $props()
 
-	// Bounds the request burst from "expand all": however many root owners are rendered
-	// (nbDisplayed can grow via "load 30 more"), it fetches at most this many. Lazy
-	// owners past the cap stay collapsed and load on a single click (see the effect).
+	// Bounds the request burst from "expand all": however many root owners the tree
+	// renders (its slice grows as you scroll), it fetches at most this many. Lazy owners
+	// past the cap stay collapsed and load on a single click (see the effect).
 	const EXPAND_ALL_LOAD_LIMIT = 20
 
 	const isFolderItem = (i: typeof item): i is FolderItem => i && 'folderName' in i
@@ -83,35 +89,59 @@
 					: undefined
 			: undefined
 	)
+	// Full path prefix this node covers, at any depth: the owner at the top level, then
+	// the parent's prefix plus this folder's segment. It is what both `ownerLoad` and the
+	// listing endpoint's `pathStart` are keyed by.
+	let nodePrefix = $derived(
+		depth === 0
+			? ownerKey
+			: parentPrefix != undefined && isFolder(item)
+				? `${parentPrefix}/${item.folderName}`
+				: undefined
+	)
 	// A top-level owner in lazy mode: its items load on demand into a separate store
-	// (ownerLoad tracks per-owner state), so its count/pagination differ from a node
+	// (ownerLoad tracks per-prefix state), so its count/pagination differ from a node
 	// whose items are already grouped from the loaded window.
 	let isLazyOwner = $derived(ownerKey != undefined && ownerLoad != undefined)
 	let ownerState = $derived(ownerKey != undefined ? ownerLoad?.[ownerKey] : undefined)
-	// What this owner renders, known without expanding it. Preferred over the loaded
-	// rows, which are one page deep and count a subfolder as a single child. An owner
-	// missing from `ownerCounts` holds nothing (the response omits those), so it reads
-	// as 0 rather than unknown. The pipeline entry is a row of its own and its member
-	// scripts are excluded from the count, so it adds one where it renders.
-	let ownerCount = $derived.by(() => {
-		if (ownerKey == undefined || ownerCounts == undefined) return undefined
-		return (ownerCounts[ownerKey] ?? 0) + (hasPipeline ? 1 : 0)
-	})
+	// This node's own load state — set once it has been loaded directly (an owner on
+	// expand, a subfolder only when its "Load more" was used).
+	let nodeState = $derived(nodePrefix != undefined ? ownerLoad?.[nodePrefix] : undefined)
+	// Whether rows under this node are still incomplete: its own pagination once it has
+	// been loaded directly, otherwise whatever its nearest loaded ancestor reports.
+	let nodeHasMore = $derived(nodeState?.loaded ? nodeState.hasMore : ancestorHasMore)
 	// The owner's runnable count alone (no pipeline row), so it lines up with the rows
-	// actually fetched for it — what the partial-load footer compares against.
-	let ownerTotal = $derived(ownerKey != undefined ? ownerCounts?.[ownerKey] : undefined)
+	// actually fetched for it — what the partial-load footer compares against. An owner
+	// missing from `ownerCounts` holds nothing (the response omits those), so it reads as
+	// 0 rather than unknown. Floored by what is already rendered under the node: the count
+	// can come in under that (it can miss an item shared individually out of a folder the
+	// viewer isn't in), and a total below the rows beneath it reads as a bug. The owner
+	// chips floor the same way.
+	let ownerTotal = $derived.by(() => {
+		if (ownerKey == undefined || ownerCounts == undefined) return undefined
+		const onScreen = isFolder(item) || isUser(item) ? countLeaves(item) : 0
+		return Math.max(ownerCounts[ownerKey] ?? 0, onScreen)
+	})
+	// What this owner renders, known without expanding it. Preferred over the loaded
+	// rows, which are one page deep and count a subfolder as a single child. The pipeline
+	// entry is a row of its own and its member scripts are excluded from the count, so it
+	// adds one where it renders.
+	let ownerCount = $derived(
+		ownerTotal != undefined ? ownerTotal + (hasPipeline ? 1 : 0) : undefined
+	)
 
 	// How many children a node renders before "Show more". Kept well above a screenful
 	// so a subfolder's contents don't look truncated, but bounded: under "expand all"
 	// this applies to every open owner at once (see effectiveMax).
 	let showMax = $state(30)
-	// A lazy owner paginates server-side ("Load more"), so when opened on its own it
-	// shows all its already-loaded rows (no second, confusing client "Show more").
-	// EXCEPT under "expand all" (collapseAll=false), which opens every visible owner at
-	// once — rendering all of each would be thousands of rows and freeze the tab — so
-	// there we cap to the client slice and let "Show more" reveal the rest per owner.
+	// A node that paginates server-side ("Load more") shows all its already-loaded rows
+	// when opened on its own, so there is one control to reach the rest and not a second,
+	// confusing client "Show more" in front of it. EXCEPT under "expand all"
+	// (collapseAll=false), which opens every visible node at once — rendering all of each
+	// would be thousands of rows and freeze the tab — so there we cap to the client slice
+	// and let "Show more" reveal the rest per node.
 	let effectiveMax = $derived(
-		isLazyOwner && ownerState != undefined && (isFolder(item) || isUser(item))
+		ownerLoad != undefined && nodePrefix != undefined && (isFolder(item) || isUser(item))
 			? collapseAll
 				? item.items.length
 				: Math.min(item.items.length, showMax)
@@ -152,7 +182,9 @@
 	// stays registered and every later reload re-fetches it forever. Remounting
 	// re-registers it (see the collapseAll effect above).
 	onDestroy(() => {
-		const key = untrack(() => ownerKey)
+		// nodePrefix, not ownerKey: a subfolder that was loaded directly is tracked under
+		// its own prefix and has to be untracked the same way.
+		const key = untrack(() => nodePrefix)
 		if (key != undefined) onCollapseOwner?.(key)
 	})
 
@@ -166,9 +198,16 @@
 		if (now - lastToggle < 300) return
 		lastToggle = now
 		opened = !opened
-		if (ownerKey != undefined) {
-			if (opened) onExpandOwner?.(ownerKey)
-			else onCollapseOwner?.(ownerKey)
+		if (opened) {
+			// Only a top-level owner loads on expand. A subfolder's rows come from an
+			// ancestor's pages, so opening one must not fire a request per subfolder —
+			// its own "Load more" is the explicit way to complete it.
+			if (ownerKey != undefined) onExpandOwner?.(ownerKey)
+		} else if (nodePrefix != undefined) {
+			// Any depth: a closed node stays mounted, so without this a subfolder that
+			// had paged itself would keep being re-fetched by every later reload while
+			// none of its rows are on screen.
+			onCollapseOwner?.(nodePrefix)
 		}
 	}
 </script>
@@ -206,9 +245,10 @@
 							<!-- Lazy owner not expanded yet and no count for it: its true item count
 							     is unknown until loaded, so showing "(0 items)" would be misleading. -->
 							&nbsp;
-						{:else if (isLazyOwner && ownerState?.hasMore) || ownerHasMore}
-							<!-- Partial: this node's owner has pages left to load, so the rows
-							     grouped under it are only what has arrived so far. -->
+						{:else if nodeHasMore}
+							<!-- Partial: this node still has pages to load (its own once it has been
+							     loaded directly, otherwise its ancestor's), so what is grouped under
+							     it is only what has arrived so far. -->
 							({item.items.length}+ items)
 						{:else}
 							({pluralize(item.items.length, ' item')})
@@ -245,7 +285,11 @@
 						{collapseAll}
 						item={subItem}
 						{pipelineFolders}
-						ownerHasMore={isLazyOwner ? (ownerState?.hasMore ?? false) : ownerHasMore}
+						{ownerLoad}
+						{onExpandOwner}
+						{onCollapseOwner}
+						parentPrefix={nodePrefix}
+						ancestorHasMore={nodeHasMore}
 						on:scriptChanged
 						on:flowChanged
 						on:appChanged
@@ -274,31 +318,34 @@
 						</Button>
 					</div>
 				{/if}
-				{#if ownerKey != undefined}
-					{#if ownerState?.loading && item.items.length === 0}
+				{#if nodePrefix != undefined && ownerLoad != undefined}
+					{#if nodeState?.loading && item.items.length === 0}
 						<!-- Show the spinner only on the first load, when there's nothing yet. A
 						     re-sort/re-filter re-fetch keeps the old rows visible and swaps them
 						     in place, so flashing "Loading…" under them would just be noise. -->
 						<div class="text-center text-xs py-2 text-secondary">Loading…</div>
-					{:else if ownerState?.hasMore && effectiveMax >= item.items.length}
-						<!-- Fetch the next server page only once every already-loaded row is shown
-						     (in "expand all" the client "Show more" above reveals those first).
-						     Spelling out both totals is the point: without them this reads as an
-						     optional extra rather than as rows still missing. -->
+					{:else if nodeHasMore && effectiveMax >= item.items.length}
+						<!-- Every folder pages within its own prefix, so completing a subfolder
+						     doesn't mean paging everything its owner holds. Shown only once every
+						     already-loaded row is (in "expand all" the client "Show more" above
+						     reveals those first), and spelling out the counts is the point:
+						     without them this reads as an optional extra rather than as rows
+						     still missing. -->
 						<div
 							class="px-4 py-2 border-b flex flex-row items-center justify-between gap-4 bg-surface-secondary"
 							style="padding-left: {(depth + 1) * 16}px;"
 						>
 							<span class="text-xs text-secondary">
-								Showing {ownerState?.count ?? item.items.length}{ownerTotal != undefined
-									? ` of ${ownerTotal}`
-									: ''} items in {ownerKey}
+								Showing {countLeaves(item)}{ownerTotal != undefined ? ` of ${ownerTotal}` : ''} items
+								in {nodePrefix}
 							</span>
 							<Button
 								unifiedSize="sm"
 								variant="subtle"
-								loading={ownerState?.loading}
-								on:click={() => ownerKey != undefined && onExpandOwner?.(ownerKey, true)}
+								loading={nodeState?.loading}
+								on:click={() =>
+									nodePrefix != undefined &&
+									onExpandOwner?.(nodePrefix, nodeState?.loaded ?? false)}
 							>
 								Load more
 							</Button>
