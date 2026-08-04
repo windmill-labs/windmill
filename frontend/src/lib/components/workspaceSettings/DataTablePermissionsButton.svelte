@@ -9,6 +9,7 @@
 	import TextInput from '../text_input/TextInput.svelte'
 	import MultiSelect from '../select/MultiSelect.svelte'
 	import CloseButton from '../common/CloseButton.svelte'
+	import Checkbox from '../common/checkbox/Checkbox.svelte'
 	import Cell from '../table/Cell.svelte'
 	import DataTable from '../table/DataTable.svelte'
 	import Head from '../table/Head.svelte'
@@ -49,8 +50,13 @@
 
 	let enabled = $state(false)
 	let roles = $state<EditedRole[]>([])
+	/** Tracked by id, not name, so renaming the default role keeps it selected. */
+	let defaultRoleId = $state<string | undefined>(undefined)
 	/** The last loaded state, to diff renames and detect unsaved changes against. */
-	let saved = $state<{ enabled: boolean; roles: EditedRole[] }>({ enabled: false, roles: [] })
+	let saved = $state<{ enabled: boolean; roles: EditedRole[]; defaultRoleId?: string }>({
+		enabled: false,
+		roles: []
+	})
 
 	const tenantItems = resource([() => workspace], async ([ws]) => {
 		if (!ws) return []
@@ -95,7 +101,12 @@
 			}
 			enabled = res.enabled
 			roles = loaded
-			saved = { enabled: res.enabled, roles: structuredClone($state.snapshot(loaded)) }
+			defaultRoleId = loaded.find((r) => r.name === res.default_role)?.id ?? loaded[0]?.id
+			saved = {
+				enabled: res.enabled,
+				roles: structuredClone($state.snapshot(loaded)),
+				defaultRoleId
+			}
 		} catch (e) {
 			loadError = e?.body ?? e?.message ?? String(e)
 		} finally {
@@ -114,10 +125,19 @@
 
 	function removeRole(id: string) {
 		roles = roles.filter((r) => r.id !== id)
+		if (defaultRoleId === id) {
+			// Deleting the default falls back to root rather than leaving the save
+			// pointing at a role that no longer exists.
+			defaultRoleId = roles.find((r) => r.name === ROOT_ROLE)?.id
+		}
 	}
 
 	let hasUnsavedChanges = $derived(
-		!deepEqual(saved, { enabled, roles: $state.snapshot(roles) as EditedRole[] })
+		!deepEqual(saved, {
+			enabled,
+			roles: $state.snapshot(roles) as EditedRole[],
+			defaultRoleId
+		})
 	)
 
 	// The backend validates these too; catching them here keeps a half-typed row
@@ -137,6 +157,7 @@
 		return {
 			enabled,
 			roles: roles.map((r) => ({ name: r.name.trim(), tenants: $state.snapshot(r.tenants) })),
+			default_role: roles.find((r) => r.id === defaultRoleId)?.name.trim() ?? ROOT_ROLE,
 			renames: roles
 				.filter((r) => savedById.has(r.id) && savedById.get(r.id) !== r.name.trim())
 				.map((r) => ({ from: savedById.get(r.id)!, to: r.name.trim() }))
@@ -233,6 +254,13 @@
 										every role.
 									</Tooltip>
 								</Cell>
+								<Cell head>
+									Default
+									<Tooltip>
+										The role a script gets when it names none — no `-- role` annotation, no
+										`?role=` in an ATTACH. Callers still have to be one of its tenants.
+									</Tooltip>
+								</Cell>
 								<Cell head last />
 							</tr>
 						</Head>
@@ -261,6 +289,15 @@
 											placeholder="Everyone denied — add users, groups or folders"
 										/>
 									</Cell>
+									<Cell class="w-20 align-top">
+										<div class="flex justify-center pt-2">
+											<Checkbox
+												checked={defaultRoleId === role.id}
+												title="Use this role when a script names none"
+												onChange={() => (defaultRoleId = role.id)}
+											/>
+										</div>
+									</Cell>
 									<Cell last class="w-10 align-top">
 										{#if !isRoot}
 											<CloseButton small on:close={() => removeRole(role.id)} />
@@ -269,7 +306,7 @@
 								</Row>
 							{/each}
 							<Row class="!border-0">
-								<Cell colspan={3} class="pt-0 pb-2">
+								<Cell colspan={4} class="pt-0 pb-2">
 									<div class="flex justify-center">
 										<Button size="sm" btnClasses="max-w-fit" variant="default" on:click={addRole}>
 											<Plus /> New role

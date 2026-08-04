@@ -65,6 +65,8 @@ pub struct DatatableRoleInfo {
 pub struct DatatablePermissionsInfo {
     pub enabled: bool,
     pub roles: Vec<DatatableRoleInfo>,
+    /// The role a script gets when it names none.
+    pub default_role: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -72,6 +74,9 @@ pub struct SetDatatablePermissions {
     pub enabled: bool,
     #[serde(default)]
     pub roles: Vec<DatatableRoleInfo>,
+    /// The role a script gets when it names none. Absent means `root`.
+    #[serde(default)]
+    pub default_role: Option<String>,
     /// Role renames (old -> new), tracked client-side by a stable id so a rename
     /// plans an `ALTER ROLE ... RENAME` instead of a drop plus a create — which
     /// would destroy the grants the role had accumulated.
@@ -202,7 +207,11 @@ fn plan_role_changes(
         // the config describing roles that no longer exist.
         return Ok(RolePlan {
             statements,
-            permissions: DataTablePermissions { enabled: false, roles: BTreeMap::new() },
+            permissions: DataTablePermissions {
+                enabled: false,
+                roles: BTreeMap::new(),
+                default_role: None,
+            },
             warnings,
         });
     }
@@ -226,6 +235,15 @@ fn plan_role_changes(
     if !requested.contains_key(ROOT_DATATABLE_ROLE) {
         return Err(Error::BadRequest(format!(
             "The '{ROOT_DATATABLE_ROLE}' role cannot be removed"
+        )));
+    }
+
+    // A default naming a role that is not being saved would leave every script
+    // that names no role failing to resolve.
+    let default_role = req.default_role.as_deref().unwrap_or(ROOT_DATATABLE_ROLE);
+    if !requested.contains_key(default_role) {
+        return Err(Error::BadRequest(format!(
+            "Default role '{default_role}' is not one of the submitted roles"
         )));
     }
 
@@ -399,7 +417,12 @@ fn plan_role_changes(
 
     Ok(RolePlan {
         statements,
-        permissions: DataTablePermissions { enabled: true, roles },
+        permissions: DataTablePermissions {
+            enabled: true,
+            roles,
+            default_role: (default_role != ROOT_DATATABLE_ROLE)
+                .then(|| default_role.to_string()),
+        },
         warnings,
     })
 }
@@ -579,7 +602,12 @@ async fn build_plan(
 /// removable from the config, so a failure is logged rather than propagated. Any
 /// role that survives is reconciled by the next plan, which reads `pg_roles`.
 pub(crate) async fn drop_roles_of_deleted_datatable(db: &DB, w_id: &str, datatable_name: &str) {
-    let req = SetDatatablePermissions { enabled: false, roles: vec![], renames: vec![] };
+    let req = SetDatatablePermissions {
+        enabled: false,
+        roles: vec![],
+        default_role: None,
+        renames: vec![],
+    };
     let res = async {
         let datatable = read_datatable(db, w_id, datatable_name).await?;
         if !datatable
@@ -634,8 +662,10 @@ async fn get_datatable_permissions(
     require_admin(authed.is_admin, &authed.username)?;
     let datatable = read_datatable(&db, &w_id, &datatable_name).await?;
     let permissions = datatable.permissions.unwrap_or_default();
+    let default_role = permissions.default_role().to_string();
     Ok(Json(DatatablePermissionsInfo {
         enabled: permissions.enabled,
+        default_role,
         roles: permissions
             .roles
             .into_iter()
@@ -757,7 +787,7 @@ mod tests {
                 },
             );
         }
-        DataTablePermissions { enabled: true, roles: map }
+        DataTablePermissions { enabled: true, roles: map, default_role: None }
     }
 
     fn plan(
@@ -785,6 +815,7 @@ mod tests {
         let req = SetDatatablePermissions {
             enabled: true,
             roles: vec![role("root", &[]), role("analyst", &["u/alice", "g/devs"])],
+            default_role: None,
             renames: vec![],
         };
         let plan = plan(None, &req, &[]).unwrap();
@@ -810,6 +841,7 @@ mod tests {
         let req = SetDatatablePermissions {
             enabled: true,
             roles: vec![role("root", &[]), role("reader", &[])],
+            default_role: None,
             renames: vec![DatatableRoleRename {
                 from: "analyst".to_string(),
                 to: "reader".to_string(),
@@ -839,6 +871,7 @@ mod tests {
         let req = SetDatatablePermissions {
             enabled: true,
             roles: vec![role("root", &[])],
+            default_role: None,
             renames: vec![],
         };
         let plan = plan(Some(&old), &req, &[pg_role.as_str()]).unwrap();
@@ -861,7 +894,12 @@ mod tests {
             .iter()
             .map(|r| datatable_pg_role_name(W_ID, DT, r))
             .collect();
-        let req = SetDatatablePermissions { enabled: false, roles: vec![], renames: vec![] };
+        let req = SetDatatablePermissions {
+        enabled: false,
+        roles: vec![],
+        default_role: None,
+        renames: vec![],
+    };
         let plan = plan(
             Some(&old),
             &req,
@@ -893,6 +931,7 @@ mod tests {
         let req = SetDatatablePermissions {
             enabled: true,
             roles: vec![role("root", &[]), role("reader", &[])],
+            default_role: None,
             renames: vec![DatatableRoleRename {
                 from: "analyst".to_string(),
                 to: "reader".to_string(),
@@ -930,6 +969,7 @@ mod tests {
         let req = SetDatatablePermissions {
             enabled: true,
             roles: vec![role("root", &[]), role("reader", &[]), role("analyst", &[])],
+            default_role: None,
             renames: vec![DatatableRoleRename {
                 from: "analyst".to_string(),
                 to: "reader".to_string(),
@@ -973,6 +1013,7 @@ mod tests {
         let req = SetDatatablePermissions {
             enabled: true,
             roles: vec![role("root", &[]), role("a", &[]), role("b", &[])],
+            default_role: None,
             renames: vec![
                 DatatableRoleRename { from: "a".to_string(), to: "b".to_string() },
                 DatatableRoleRename { from: "b".to_string(), to: "a".to_string() },
@@ -991,7 +1032,12 @@ mod tests {
     #[test]
     fn a_role_the_config_lost_track_of_is_not_dropped() {
         let old = enabled_with(&["analyst"]);
-        let req = SetDatatablePermissions { enabled: false, roles: vec![], renames: vec![] };
+        let req = SetDatatablePermissions {
+        enabled: false,
+        roles: vec![],
+        default_role: None,
+        renames: vec![],
+    };
         // The Postgres role is already gone, so planning its drop would fail the
         // whole transaction and wedge the opt-out.
         let plan = plan(Some(&old), &req, &[]).unwrap();
@@ -999,10 +1045,34 @@ mod tests {
     }
 
     #[test]
+    fn the_default_role_must_be_one_of_the_saved_roles() {
+        let mut req = SetDatatablePermissions {
+            enabled: true,
+            roles: vec![role("root", &[]), role("analyst", &[])],
+            default_role: Some("analyst".to_string()),
+            renames: vec![],
+        };
+        let planned = plan(None, &req, &[]).unwrap();
+        assert_eq!(planned.permissions.default_role(), "analyst");
+
+        // A default naming a role that is not being saved would leave every
+        // script that names no role failing to resolve.
+        req.default_role = Some("ghost".to_string());
+        assert!(plan(None, &req, &[]).is_err());
+
+        // Absent means root, and is stored as absent rather than spelled out.
+        req.default_role = None;
+        let planned = plan(None, &req, &[]).unwrap();
+        assert_eq!(planned.permissions.default_role(), ROOT_DATATABLE_ROLE);
+        assert!(planned.permissions.default_role.is_none());
+    }
+
+    #[test]
     fn root_cannot_be_dropped_or_renamed() {
         let req = SetDatatablePermissions {
             enabled: true,
             roles: vec![role("analyst", &[])],
+            default_role: None,
             renames: vec![],
         };
         assert!(plan(None, &req, &[]).is_err());
@@ -1011,6 +1081,7 @@ mod tests {
         let req = SetDatatablePermissions {
             enabled: true,
             roles: vec![role("owner", &[])],
+            default_role: None,
             renames: vec![DatatableRoleRename {
                 from: ROOT_DATATABLE_ROLE.to_string(),
                 to: "owner".to_string(),
@@ -1025,6 +1096,7 @@ mod tests {
             let req = SetDatatablePermissions {
                 enabled: true,
                 roles: vec![role("root", &[]), role(bad_role, &[])],
+                default_role: None,
                 renames: vec![],
             };
             assert!(
@@ -1036,6 +1108,7 @@ mod tests {
             let req = SetDatatablePermissions {
                 enabled: true,
                 roles: vec![role("root", &[bad_tenant])],
+                default_role: None,
                 renames: vec![],
             };
             assert!(

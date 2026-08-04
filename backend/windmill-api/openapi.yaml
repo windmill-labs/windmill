@@ -31481,7 +31481,7 @@ components:
           type: string
     DatatablePermissions:
       type: object
-      required: [enabled, roles]
+      required: [enabled, roles, default_role]
       properties:
         enabled:
           type: boolean
@@ -31489,6 +31489,9 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/DatatableRoleInfo"
+        default_role:
+          description: the role a script gets when it names none
+          type: string
     SetDatatablePermissions:
       type: object
       required: [enabled, roles]
@@ -31499,6 +31502,9 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/DatatableRoleInfo"
+        default_role:
+          description: the role a script gets when it names none; absent means root
+          type: string
         renames:
           description: role renames (old -> new), so a rename keeps the postgres role and its grants
           type: array

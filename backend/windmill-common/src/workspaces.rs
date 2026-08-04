@@ -1020,6 +1020,15 @@ pub struct DataTablePermissions {
     /// stable across saves.
     #[serde(default)]
     pub roles: std::collections::BTreeMap<String, DataTableRole>,
+    /// The role a script gets when it names none. Absent means `root`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_role: Option<String>,
+}
+
+impl DataTablePermissions {
+    pub fn default_role(&self) -> &str {
+        self.default_role.as_deref().unwrap_or(ROOT_DATATABLE_ROLE)
+    }
 }
 
 #[derive(Deserialize, Serialize, Debug, Default, Clone)]
@@ -1267,9 +1276,10 @@ pub async fn get_datatable_replication_resource_from_db_unchecked(
 /// Look up the role a resolution asks for, without authorizing it.
 ///
 /// `Ok(None)` means the data table is unpermissioned and resolves through its own
-/// connection. On a permissioned one an unknown role is an error, and on an
-/// unpermissioned one so is naming any role other than `root` — silently ignoring
-/// it would run the script with more privileges than it asked for.
+/// connection. On a permissioned one, naming no role selects the configured
+/// default and an unknown role is an error; on an unpermissioned one, naming any
+/// role other than `root` is an error too — silently ignoring it would run the
+/// script with more privileges than it asked for.
 fn datatable_role_entry<'a>(
     datatable: &'a DataTable,
     name: &str,
@@ -1285,7 +1295,7 @@ fn datatable_role_entry<'a>(
         };
     };
 
-    let role_name = role.unwrap_or(ROOT_DATATABLE_ROLE);
+    let role_name = role.unwrap_or_else(|| permissions.default_role());
     let (role_name, role_entry) = permissions.roles.get_key_value(role_name).ok_or_else(|| {
         Error::NotFound(format!(
             "Role '{role_name}' is not defined on data table '{name}'. Defined roles: {}.",
@@ -2487,7 +2497,9 @@ mod tests {
 
     #[test]
     fn datatable_pg_role_names_are_readable_and_never_collide() {
-        assert!(datatable_pg_role_name("acme", "main", "analyst").starts_with("wm_acme_main_analyst_"));
+        assert!(
+            datatable_pg_role_name("acme", "main", "analyst").starts_with("wm_acme_main_analyst_")
+        );
 
         // Every pair below sanitizes to the same readable half, so only the hash
         // keeps them apart — and they must stay apart: two Windmill roles sharing
@@ -2529,8 +2541,7 @@ mod tests {
             map.insert(
                 name.to_string(),
                 DataTableRole {
-                    pg_rolename: (*name != ROOT_DATATABLE_ROLE)
-                        .then(|| format!("wm_{name}")),
+                    pg_rolename: (*name != ROOT_DATATABLE_ROLE).then(|| format!("wm_{name}")),
                     pg_password: (*name != ROOT_DATATABLE_ROLE).then(|| "pwd".to_string()),
                     tenants: tenants.iter().map(|t| t.to_string()).collect(),
                 },
@@ -2543,7 +2554,7 @@ mod tests {
             },
             forked_from: None,
             migrations_enabled: None,
-            permissions: Some(DataTablePermissions { enabled: true, roles: map }),
+            permissions: Some(DataTablePermissions { enabled: true, roles: map, default_role: None }),
         }
     }
 
@@ -2563,6 +2574,24 @@ mod tests {
         assert_eq!(entry.pg_rolename.as_deref(), Some("wm_analyst"));
 
         assert!(datatable_role_entry(&dt, "main", Some("nope")).is_err());
+    }
+
+    #[test]
+    fn naming_no_role_selects_the_configured_default() {
+        let mut dt = permissioned(&[(ROOT_DATATABLE_ROLE, &[]), ("analyst", &["u/alice"])]);
+        dt.permissions.as_mut().unwrap().default_role = Some("analyst".to_string());
+
+        // The point of a default: a script that names nothing gets the role the
+        // workspace chose, not root.
+        let (name, entry) = datatable_role_entry(&dt, "main", None).unwrap().unwrap();
+        assert_eq!(name, "analyst");
+        assert_eq!(entry.pg_rolename.as_deref(), Some("wm_analyst"));
+
+        // Naming root explicitly still reaches root.
+        let (name, _) = datatable_role_entry(&dt, "main", Some(ROOT_DATATABLE_ROLE))
+            .unwrap()
+            .unwrap();
+        assert_eq!(name, ROOT_DATATABLE_ROLE);
     }
 
     #[test]
@@ -2600,7 +2629,10 @@ mod tests {
         // Everything else survives: the export is still a usable settings file.
         assert_eq!(analyst["pg_rolename"], "wm_x");
         assert_eq!(analyst["tenants"][0], "u/alice");
-        assert_eq!(redacted["datatables"]["other"]["database"]["resource_path"], "db2");
+        assert_eq!(
+            redacted["datatables"]["other"]["database"]["resource_path"],
+            "db2"
+        );
     }
 
     #[test]
