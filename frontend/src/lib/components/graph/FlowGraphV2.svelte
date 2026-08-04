@@ -1118,10 +1118,10 @@
 				(parseExpandedSubflowId(b)?.subflowSteps.length ?? 0)
 		)
 		for (const id of ids) {
-			// A later reload owns the state from here on, and an expansion the user collapsed
-			// while its request was in flight must not come back.
+			// A later reload owns the state from here on.
 			if (reload !== latestReload) return
-			if (expandedSubflows[id] == undefined) continue
+			const expansion = expandedSubflows[id]
+			if (expansion == undefined) continue
 			const path = expandedSubflowPath(id)
 			if (path == undefined) {
 				delete expandedSubflows[id]
@@ -1130,7 +1130,10 @@
 			try {
 				const flow = await FlowService.getFlowByPath({ workspace: workspace, path })
 				if (reload !== latestReload) return
-				if (expandedSubflows[id] == undefined) continue
+				// While this request was in flight the user may have collapsed the expansion, or
+				// collapsed it and re-expanded onto another flow: only commit onto the very
+				// expansion this response was fetched for.
+				if (expandedSubflows[id] !== expansion) continue
 				expandedSubflows[id] = { modules: flow.value.modules, groups: flow.value.groups }
 			} catch (err) {
 				sendUserToast(`Could not reload expanded subflow ${path}: ${err.body ?? err}`, true)
