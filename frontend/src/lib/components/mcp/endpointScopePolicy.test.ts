@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { isEndpointExposed, parseMcpScopeState } from './endpointScopePolicy'
+import {
+	isEndpointExposed,
+	parseMcpScopeState,
+	pruneEndpointSelection
+} from './endpointScopePolicy'
 
 const state = (...scopes: string[]) => parseMcpScopeState(scopes)
 
@@ -28,5 +32,24 @@ describe('isEndpointExposed', () => {
 		expect(
 			isEndpointExposed(state('mcp:scripts:*', 'mcp:endpoints:*'), 'runScriptPreviewAndWaitResult')
 		).toBe(true)
+	})
+})
+
+describe('pruneEndpointSelection', () => {
+	it('keeps a `*` endpoint scope, which would otherwise revoke every endpoint tool', () => {
+		expect(pruneEndpointSelection(['*'], false)).toEqual(['*'])
+		expect(pruneEndpointSelection(['*'], true)).toEqual(['*'])
+	})
+
+	it('drops only names the endpoint scope cannot honor', () => {
+		expect(pruneEndpointSelection(['runScriptByPath', 'listScripts'], false)).toEqual([
+			'listScripts'
+		])
+		// Non-GET endpoints go only when the token is read-only.
+		expect(pruneEndpointSelection(['createScript', 'listScripts'], false)).toEqual([
+			'createScript',
+			'listScripts'
+		])
+		expect(pruneEndpointSelection(['createScript', 'listScripts'], true)).toEqual(['listScripts'])
 	})
 })

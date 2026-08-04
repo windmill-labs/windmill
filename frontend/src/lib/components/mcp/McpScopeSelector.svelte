@@ -11,7 +11,9 @@
 	import {
 		endpointPathPolicy,
 		isEndpointExposed,
-		parseMcpScopeState
+		matchesAnyPattern,
+		parseMcpScopeState,
+		pruneEndpointSelection
 	} from '$lib/components/mcp/endpointScopePolicy'
 	import InfoIcon from 'lucide-svelte/icons/info'
 	import { SvelteMap } from 'svelte/reactivity'
@@ -44,13 +46,9 @@
 		visibleEndpointTools.filter((e) => endpointPathPolicy(e.name)?.kind !== 'runByPath')
 	)
 
-	// Drop selections the list doesn't offer (non-GET endpoints once read-only
-	// flips on, run-by-path names carried over from an older scope string) so the
-	// scope doesn't keep references the server ignores or rejects.
 	$effect(() => {
 		if (selectedEndpoints.length === 0) return
-		const allowed = new Set(selectableEndpointTools.map((e) => e.name))
-		const filtered = selectedEndpoints.filter((n) => allowed.has(n))
+		const filtered = pruneEndpointSelection(selectedEndpoints, readOnly)
 		if (filtered.length !== selectedEndpoints.length) {
 			selectedEndpoints = filtered
 		}
@@ -465,19 +463,6 @@
 
 	// Mirror the backend's is_resource_allowed: `*`, an exact path, or an `x/*`
 	// subtree (matching the folder itself or anything beneath it).
-	function matchesAnyPattern(path: string, patterns: string[]): boolean {
-		for (const p of patterns) {
-			if (p === '*' || p === path) return true
-			if (p.endsWith('/*')) {
-				const prefix = p.slice(0, -2)
-				if (path === prefix || (path.startsWith(prefix) && path[prefix.length] === '/')) {
-					return true
-				}
-			}
-		}
-		return false
-	}
-
 	// Custom-mode counts are computed synchronously from the already-loaded
 	// allScripts/allFlows plus the current selections/patterns — no extra fetch.
 	$effect(() => {

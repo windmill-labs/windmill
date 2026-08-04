@@ -6,6 +6,8 @@
  * picker advertises tools the server will never list.
  */
 
+import { mcpEndpointTools } from '$lib/mcpEndpointTools'
+
 export type McpResourceKind = 'script' | 'flow'
 
 export type EndpointPathPolicy =
@@ -61,7 +63,9 @@ function parseResourceList(resources: string): string[] {
 }
 
 /** Mirrors `parse_mcp_scopes` so the picker can preview exactly what the server
- *  will make of the scope string it is about to emit. */
+ *  will make of the scope string it is about to emit. `mcp:hub:` is deliberately
+ *  ignored: hub apps select which hub scripts become tools and never affect
+ *  endpoint-tool exposure. */
 export function parseMcpScopeState(scopes: string[]): McpScopeState {
 	const state: McpScopeState = {
 		all: false,
@@ -119,16 +123,34 @@ function matchesPattern(name: string, pattern: string): boolean {
 	return name.length === prefix.length || name[prefix.length] === '/'
 }
 
-function isAllowed(name: string, allowed: string[]): boolean {
-	if (allowed.length === 0) return false
-	if (allowed.includes('*')) return true
-	return allowed.some((pattern) => matchesPattern(name, pattern))
+/** Mirrors `is_resource_allowed`: whether a path (or endpoint name) is granted by
+ *  any of these patterns, where a pattern is `*`, an exact path, or `<prefix>/*`. */
+export function matchesAnyPattern(path: string, patterns: string[]): boolean {
+	if (patterns.length === 0) return false
+	if (patterns.includes('*')) return true
+	return patterns.some((pattern) => matchesPattern(path, pattern))
+}
+
+const nonGetEndpoints = new Set(
+	mcpEndpointTools.filter((e) => e.method !== 'GET').map((e) => e.name)
+)
+
+/** Strip from an `mcp:endpoints:` selection only the names that scope cannot
+ *  honor: run-by-path tools, which `isEndpointExposed` gates on the script/flow
+ *  scope instead, and — for a read-only token — the non-GET endpoints the server
+ *  refuses. Every other entry is preserved, notably a `*` wildcard, which is a
+ *  valid endpoint scope that dropping would silently revoke every endpoint tool. */
+export function pruneEndpointSelection(selected: string[], readOnly: boolean): string[] {
+	return selected.filter(
+		(name) =>
+			endpointPathPolicy(name)?.kind !== 'runByPath' && !(readOnly && nonGetEndpoints.has(name))
+	)
 }
 
 /** Whether the server will list this endpoint tool for a token with these scopes. */
 export function isEndpointExposed(state: McpScopeState, name: string): boolean {
 	const granular = !state.all && !state.favorites
-	const endpointAllowed = !granular || isAllowed(name, state.endpoints)
+	const endpointAllowed = !granular || matchesAnyPattern(name, state.endpoints)
 	const policy = endpointPathPolicy(name)
 	switch (policy?.kind) {
 		case 'runByPath':
