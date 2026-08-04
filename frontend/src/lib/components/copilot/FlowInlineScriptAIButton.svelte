@@ -44,7 +44,7 @@
 	/>
 {/snippet}
 
-<OpenInSessionButton source={sessionSource}>
+<OpenInSessionButton source={sessionSource} {btnProps}>
 	{#snippet fallback()}
 		<!-- Legacy docked chat: this button only opens that pane, so without one there
 		     is nothing to open and it hides rather than rendering a dead click. -->

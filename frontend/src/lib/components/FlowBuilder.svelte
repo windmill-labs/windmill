@@ -172,9 +172,7 @@
 	// For preserve_on_behalf_of feature
 	let preserveOnBehalfOf = writable(false)
 	let savedOnBehalfOfEmail = writable<string | undefined>(savedFlow?.on_behalf_of_email)
-	let savedOnBehalfOfPermissionedAs = writable<string | undefined>(
-		savedFlow?.on_behalf_of
-	)
+	let savedOnBehalfOfPermissionedAs = writable<string | undefined>(savedFlow?.on_behalf_of)
 
 	// Keep savedOnBehalfOfEmail in sync when savedFlow is loaded asynchronously
 	$effect(() => {
@@ -715,12 +713,16 @@
 	// Reaches the AI entry point in a step's inline-editor toolbar, which the
 	// recursive module wrapper sits too deep under to be handed a prop. `selected`
 	// is the flow editor's own step param, so the session preview opens on the
-	// step whose code the user was editing.
+	// step whose code the user was editing. Withheld under `disableAi` (same gate
+	// as the graph toolbar's button): an embed that turned AI off must not get an
+	// entry point that navigates the host out to /sessions.
 	setOpenInSessionHandoff({
 		source: (opts) =>
-			sessionOpen && opts?.moduleId
-				? { ...sessionOpen, previewParams: { selected: opts.moduleId } }
-				: sessionOpen
+			disableAi || !sessionOpen
+				? undefined
+				: opts?.moduleId
+					? { ...sessionOpen, previewParams: { selected: opts.moduleId } }
+					: sessionOpen
 	})
 
 	$effect(() => {
