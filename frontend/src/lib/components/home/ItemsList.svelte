@@ -373,6 +373,9 @@
 	// page because a tree row is a single line and a folder is opened to see what it
 	// holds — most folders come in whole on the first click.
 	const OWNER_PAGE_SIZE = 300
+	// How far one "Load more" will page past rows it already has before giving up and
+	// leaving the rest to another click (see the catch-up loop in loadOwnerItems).
+	const OWNER_CATCH_UP_PAGES = 5
 	let ownerLoad = $state<Record<string, OwnerLoadState>>({})
 	let treeOwnerItems = $state<ItemType[]>([])
 	let treeGen = 0
@@ -415,59 +418,82 @@
 			gen
 		}
 		const { orderBy, orderDesc } = sortToParams(sortOrder)
-		let res: { items: RunnableItem[]; next_cursor?: string }
-		try {
-			res = await ScriptService.listRunnables({
-				workspace: ws,
-				orderBy,
-				orderDesc,
-				showArchived: archived ? true : undefined,
-				includeWithoutMain: includeWithoutMain ? true : undefined,
-				kinds: itemKind !== 'all' ? itemKind : undefined,
-				pathStart: `${owner}/`,
-				includeDraftOnly: true,
-				perPage: OWNER_PAGE_SIZE,
-				cursor: more ? st?.cursor : undefined
-			})
-		} catch (e: any) {
-			if (gen !== treeGen) return
-			ownerLoad[owner] = { ...ownerLoad[owner], loading: false }
-			sendUserToast(`Failed to load ${owner}: ${e?.body ?? e?.message ?? e}`, true)
-			return
-		}
-		// The scope moved on while this was in flight (order/archive/library/kind/
-		// workspace changed and reset the tree); drop the response so stale rows from
-		// another scope can't appear under the current one.
-		if (gen !== treeGen) return
-		// A fresh load REPLACES the rows under this prefix (drop its previous ones, keep
-		// every other prefix's untouched) so a re-sort/re-filter swaps its items
-		// atomically without blanking the whole tree; load-more appends to what's
-		// already shown.
 		const prefix = `${owner}/`
-		const base = more
-			? treeOwnerItems
-			: treeOwnerItems.filter((x) => !effectivePath(x).startsWith(prefix))
-		const have = new Set(base.map(itemKey))
-		const merged = [...base]
-		for (const it of res.items ?? []) {
-			// Pipeline-member scripts are folded into their folder's Pipeline entry, so
-			// they never render as their own tree leaf (visiblePipelineFolders drives it).
-			if (it.type === 'script' && it.auto_kind === 'pipeline') continue
-			if (have.has(itemKey(it))) continue
-			merged.push({ ...toTreeItem(it), ord: fetchOrd++ })
+		// Only a forced refresh REPLACES the rows under this prefix (drop the previous ones,
+		// keep every other prefix's untouched), so a re-sort/re-filter swaps them atomically
+		// without blanking the tree. Every other load MERGES, and that is load-bearing for a
+		// nested prefix: the rows under it arrived with an ancestor's pages, and one page of
+		// its own can cover fewer of them than are already on screen — replacing would make
+		// rows vanish and the count run backwards on the very click meant to add more.
+		const replacing = !more && force
+		// Merges a page and answers how many rows it actually added. Reads the live store
+		// each time rather than a snapshot, so a page landing while another prefix loads
+		// doesn't drop that prefix's rows.
+		let firstMerge = true
+		const mergePage = (items: RunnableItem[] | undefined): number => {
+			const current =
+				replacing && firstMerge
+					? treeOwnerItems.filter((x) => !effectivePath(x).startsWith(prefix))
+					: treeOwnerItems
+			firstMerge = false
+			const have = new Set(current.map(itemKey))
+			const merged = [...current]
+			let added = 0
+			for (const it of items ?? []) {
+				// Pipeline-member scripts are folded into their folder's Pipeline entry, so
+				// they never render as their own tree leaf (visiblePipelineFolders drives it).
+				if (it.type === 'script' && it.auto_kind === 'pipeline') continue
+				if (have.has(itemKey(it))) continue
+				merged.push({ ...toTreeItem(it), ord: fetchOrd++ })
+				added++
+			}
+			treeOwnerItems = merged
+			return added
 		}
-		treeOwnerItems = merged
+		let cursor = more ? st?.cursor : undefined
+		let nextCursor: string | undefined
+		// A nested prefix's own stream restarts at its first row, which an ancestor's pages
+		// may already have brought in — that page then adds nothing and the click would read
+		// as broken. Keep paging until one adds something or the stream ends, bounded so a
+		// single click can't turn into an unbounded fetch loop.
+		for (let page = 0; page < OWNER_CATCH_UP_PAGES; page++) {
+			let res: { items: RunnableItem[]; next_cursor?: string }
+			try {
+				res = await ScriptService.listRunnables({
+					workspace: ws,
+					orderBy,
+					orderDesc,
+					showArchived: archived ? true : undefined,
+					includeWithoutMain: includeWithoutMain ? true : undefined,
+					kinds: itemKind !== 'all' ? itemKind : undefined,
+					pathStart: prefix,
+					includeDraftOnly: true,
+					perPage: OWNER_PAGE_SIZE,
+					cursor
+				})
+			} catch (e: any) {
+				if (gen !== treeGen) return
+				ownerLoad[owner] = { ...ownerLoad[owner], loading: false }
+				sendUserToast(`Failed to load ${owner}: ${e?.body ?? e?.message ?? e}`, true)
+				return
+			}
+			// The scope moved on while this was in flight (order/archive/library/kind/
+			// workspace changed and reset the tree); drop the response so stale rows from
+			// another scope can't appear under the current one.
+			if (gen !== treeGen) return
+			const added = mergePage(res.items)
+			nextCursor = res.next_cursor
+			cursor = nextCursor
+			if (added > 0 || nextCursor == undefined) break
+		}
 		ownerLoad = Object.fromEntries([
-			// A fresh load dropped every row under this prefix, so a nested folder that had
-			// paged itself is back to whatever this page holds: its load state has to go
+			// A replacing load dropped every row under this prefix, so a nested folder that
+			// had paged itself is back to whatever this page holds: its load state has to go
 			// with its rows. Left behind, a subfolder marked complete would keep an exact
 			// count and no "Load more" over rows this response truncated. Reloads re-fetch
 			// the ones still open (see reloadItems), which re-establishes their state.
-			...Object.entries(ownerLoad).filter(([p]) => more || !p.startsWith(prefix)),
-			[
-				owner,
-				{ cursor: res.next_cursor, hasMore: !!res.next_cursor, loading: false, loaded: true, gen }
-			]
+			...Object.entries(ownerLoad).filter(([p]) => !replacing || !p.startsWith(prefix)),
+			[owner, { cursor: nextCursor, hasMore: !!nextCursor, loading: false, loaded: true, gen }]
 		])
 	}
 

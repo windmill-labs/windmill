@@ -210,10 +210,11 @@
 			// A top-level owner loads on expand. A subfolder's rows come from an ancestor's
 			// pages, so opening one must not fire a request per subfolder — its own "Load
 			// more" is the explicit way to complete it. One exception, and it costs nothing:
-			// a subfolder that HAS paged itself re-registers so later reloads keep refreshing
-			// the rows it is showing (loadOwnerItems returns without fetching when a prefix
-			// is already loaded), instead of letting a parent refresh silently truncate them.
-			if (nodePrefix != undefined && (ownerKey != undefined || nodeState?.loaded))
+			// a subfolder that has paged itself — `nodeState` exists once it has, including
+			// while that first load is still in flight — re-registers so later reloads keep
+			// refreshing the rows it is showing, instead of letting a parent refresh silently
+			// truncate them. loadOwnerItems starts no second request for either state.
+			if (nodePrefix != undefined && (ownerKey != undefined || nodeState != undefined))
 				onExpandOwner?.(nodePrefix)
 		} else if (nodePrefix != undefined) {
 			// Any depth: a closed node stays mounted, so without this a subfolder that
