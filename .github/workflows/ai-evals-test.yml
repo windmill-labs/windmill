@@ -118,6 +118,12 @@ jobs:
           npm ci
           npm run generate-backend-client
 
+      - name: Run harness unit tests
+        working-directory: ./ai_evals
+        run: |
+          bun install
+          bun test adapters/
+
       - name: Run global AI evals
         timeout-minutes: 20
         working-directory: ./ai_evals
