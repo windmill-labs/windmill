@@ -346,22 +346,17 @@
 		}
 	}
 
-	// Per-folder lazy loading for tree view: expanding a folder loads its items on demand
-	// (server-scoped to that folder), paginated within it, instead of relying on the
-	// global browse window. Keyed by the full path prefix a node covers — a top-level
-	// owner (`f/<name>` / `u/<name>`) or any folder under one (`f/<name>/<sub>/…`), since
-	// the listing endpoint scopes on an arbitrary `path_start`. That is what lets a
-	// subfolder be completed on its own instead of only by paging its whole owner.
+	// Per-folder lazy loading for tree view, keyed by the full path prefix a node covers —
+	// an owner (`f/<name>` / `u/<name>`) or any folder under one — since the listing
+	// endpoint scopes on an arbitrary `path_start`. That is what lets a subfolder be
+	// completed on its own instead of only by paging its whole owner.
 	//
-	// Rows for every prefix live in ONE store (`treeOwnerItems`), never merged into the
-	// global browse arrays: those
-	// advance by a single `serverCursor`, so injecting out-of-window rows there would
-	// make the flat stream non-contiguous and, once pagination reached those rows,
-	// duplicate them. Loading users lazily too (rather than sourcing them from the
-	// loaded window) is why a user node no longer vanishes under a name sort whose
-	// first page happens to be all folder rows. `treeGen` ties every request to the
-	// active scope (order/archived/library/kind/workspace); a reset bumps it so an
-	// in-flight response from a stale scope is discarded.
+	// Rows for every prefix live in ONE store (`treeOwnerItems`), never in the global
+	// browse arrays: those advance by a single `serverCursor`, so out-of-window rows there
+	// would make the flat stream non-contiguous and duplicate once pagination reached them.
+	//
+	// `treeGen` ties every request to the active scope (order/archived/library/kind/
+	// workspace); a reset bumps it so an in-flight response from a stale scope is dropped.
 	type OwnerLoadState = {
 		cursor?: string
 		hasMore: boolean
@@ -419,12 +414,10 @@
 		}
 		const { orderBy, orderDesc } = sortToParams(sortOrder)
 		const prefix = `${owner}/`
-		// Only a forced refresh REPLACES the rows under this prefix (drop the previous ones,
-		// keep every other prefix's untouched), so a re-sort/re-filter swaps them atomically
-		// without blanking the tree. Every other load MERGES, and that is load-bearing for a
-		// nested prefix: the rows under it arrived with an ancestor's pages, and one page of
-		// its own can cover fewer of them than are already on screen — replacing would make
-		// rows vanish and the count run backwards on the very click meant to add more.
+		// Only a forced refresh replaces this prefix's rows, so a re-sort swaps them without
+		// blanking the tree. Everything else merges: a nested prefix inherits rows from an
+		// ancestor's pages, and one page of its own can cover fewer of them than are shown —
+		// replacing would delete rows on the click meant to add them.
 		const replacing = !more && force
 		// Merges a page and answers how many rows it actually added. Reads the live store
 		// each time rather than a snapshot, so a page landing while another prefix loads
