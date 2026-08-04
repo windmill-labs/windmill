@@ -8770,6 +8770,9 @@ struct CreateProtectionRuleRequest {
 
 #[derive(Deserialize)]
 struct UpdateProtectionRuleRequest {
+    /// Renames the rule when it differs from the path name. Absent means "leave the name alone",
+    /// which is what a client that never sends the field gets.
+    name: Option<String>,
     rules: Vec<ProtectionRuleKind>,
     bypass_groups: Vec<String>,
     bypass_users: Vec<String>,
@@ -8917,10 +8920,11 @@ async fn ensure_dev_parent_is_root(db: &DB, parent_w_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// `dev_workspace_lock` is owned by the dev-workspace feature (attach/detach/archive/delete create and
-/// remove it by name). Reserve it from the public protection-rule API so a user-managed rule can't
-/// collide: otherwise the feature's name-based cleanup would clobber the user's rule, or a manual edit
-/// could weaken the feature's lock.
+/// `dev_workspace_lock` is owned by the dev-workspace feature, which creates and removes it by name
+/// (attach/detach/archive/delete). Reserve the name against creation and deletion so a user-managed
+/// rule can't collide with the feature's name-based cleanup, and so detach stays the way a pairing's
+/// lock is lifted. Updating it is deliberately allowed: relaxing the lock is an admin's call, and the
+/// name is immutable on update so no collision can arise.
 fn reject_reserved_rule_name(name: &str) -> Result<()> {
     if name == DEV_WORKSPACE_LOCK_RULE_NAME {
         return Err(Error::BadRequest(format!(
@@ -9014,7 +9018,28 @@ async fn update_protection_rule(
     Json(req): Json<UpdateProtectionRuleRequest>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
-    reject_reserved_rule_name(&rule_name)?;
+
+    // A rename moves the row's primary key, so it needs the same name checks a create does. The
+    // reserved rule can be neither end of one: the dev-workspace feature finds it by name, so
+    // renaming it away would strand the lock and renaming onto it would collide with the feature.
+    // Names are stored verbatim, as creation stores them, so this comparison is raw: a rule called
+    // " prod-lock " survives an edit that submits its current name back untouched, and a name that
+    // differs only in surrounding whitespace is a real rename rather than a silent no-op.
+    let new_name = req.name.as_deref().filter(|n| *n != rule_name);
+    if let Some(new_name) = new_name {
+        if new_name.trim().is_empty() {
+            return Err(Error::BadRequest(
+                "Protection rule name cannot be empty".to_string(),
+            ));
+        }
+        if rule_name == DEV_WORKSPACE_LOCK_RULE_NAME {
+            return Err(Error::BadRequest(format!(
+                "'{}' cannot be renamed: the dev workspace feature locates it by name",
+                DEV_WORKSPACE_LOCK_RULE_NAME
+            )));
+        }
+        reject_reserved_rule_name(new_name)?;
+    }
 
     let mut tx = db.begin().await?;
 
@@ -9035,13 +9060,33 @@ async fn update_protection_rule(
         )));
     }
 
+    if let Some(new_name) = new_name {
+        let taken = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM workspace_protection_rule WHERE workspace_id = $1 AND name = $2)",
+            &w_id,
+            new_name
+        )
+        .fetch_one(&mut *tx)
+        .await?
+        .unwrap_or(false);
+        if taken {
+            return Err(Error::BadRequest(format!(
+                "Protection rule with name '{}' already exists",
+                new_name
+            )));
+        }
+    }
+
+    let final_name = new_name.unwrap_or(&rule_name);
+
     // Update the rule
     sqlx::query!(
         r#"
             UPDATE workspace_protection_rule
-            SET rules = $1, bypass_groups = $2, bypass_users = $3
-            WHERE workspace_id = $4 AND name = $5
+            SET name = $1, rules = $2, bypass_groups = $3, bypass_users = $4
+            WHERE workspace_id = $5 AND name = $6
         "#,
+        final_name,
         ProtectionRules::from(&req.rules).bits(),
         &req.bypass_groups,
         &req.bypass_users,
@@ -9051,14 +9096,18 @@ async fn update_protection_rule(
     .execute(&mut *tx)
     .await?;
 
+    let mut audit_args = std::collections::HashMap::from([("name", final_name)]);
+    if new_name.is_some() {
+        audit_args.insert("previous_name", &rule_name[..]);
+    }
     audit_log(
         &mut *tx,
         &authed,
         "workspaces.update_protection_rule",
         ActionKind::Update,
         &w_id,
-        Some(&rule_name),
-        Some([("name", &rule_name[..])].into()),
+        Some(final_name),
+        Some(audit_args),
     )
     .await?;
 
@@ -9072,14 +9121,14 @@ async fn update_protection_rule(
         &authed.username,
         &db,
         &w_id,
-        DeployedObject::Settings { setting_type: format!("protection_rule_{}", rule_name) },
+        DeployedObject::Settings { setting_type: format!("protection_rule_{}", final_name) },
         None,
         false,
         None,
     )
     .await?;
 
-    Ok(format!("Updated protection rule '{}'", rule_name))
+    Ok(format!("Updated protection rule '{}'", final_name))
 }
 
 /// Delete a protection rule
