@@ -12,7 +12,11 @@
 export async function main(
 	files: Record<string, string>,
 	shared_ui: Record<string, string> | undefined,
-	cli_command: string[]
+	cli_command: string[],
+	// Set unless the server was told to build with a specific command: the images
+	// install the CLI, and using the one that is there needs no npm reachability
+	// at deploy time and is the release this server ships with.
+	prefer_installed_cli: boolean | undefined
 ): Promise<{ js_gz: string; css_gz: string }> {
 	const fs = await import('node:fs/promises')
 	const path = await import('node:path')
@@ -36,10 +40,10 @@ export async function main(
 		await write('ui/' + p.replace(/^\/+/, ''), content)
 	}
 
-	// Either spelling: `write()` normalises the leading slash, so the check has to
-	// as well or a `package.json` key builds with no node_modules.
+	// However the caller spelled the key: `write()` normalises it, so the check
+	// has to as well or the app builds with no node_modules.
 	const hasPackageJson = Object.keys(files ?? {}).some(
-		(p) => p.replace(/^\/+/, '') === 'package.json'
+		(p) => p.replace(/^[./]+/, '') === 'package.json'
 	)
 	// Piped rather than inherited so the output can go in the error too, then
 	// echoed either way — the job's log is where someone looks to see what the
@@ -60,10 +64,18 @@ export async function main(
 		// script has no business executing on the worker. The CLI skips its own
 		// install once node_modules exists.
 		run(['bun', 'install', '--ignore-scripts'], 'bun install')
+	} else {
+		// The CLI installs when node_modules is missing, and it shells out to npm,
+		// which the slim images don't ship. An app with no manifest has nothing to
+		// install, so hand it the empty directory it would have produced.
+		await fs.mkdir(path.join(dir, 'node_modules'), { recursive: true })
 	}
 
+	const installed = prefer_installed_cli ? Bun.which('wmill') : undefined
+	const build = installed ? [installed, 'app', 'bundle'] : cli_command
+
 	const outDir = path.join(dir, 'dist')
-	const buildOutput = run([...cli_command, dir, '--out', outDir], 'bundle')
+	const buildOutput = run([...build, dir, '--out', outDir], 'bundle')
 
 	const read = async (name: string) => {
 		try {

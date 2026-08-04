@@ -554,8 +554,8 @@ fn jwt_scopes_for_proxied_route(
     let mut scopes = vec![scope];
     scopes.extend(
         extra_scopes_for_route(route_path)
-            .into_iter()
-            .map(String::from),
+            .iter()
+            .map(|s| s.to_string()),
     );
     Ok(Some(scopes))
 }
@@ -684,6 +684,23 @@ mod tests {
             jwt_scopes_for_proxied_route(Some(&s), "GET", "/api/w/ws/variables/get/u/admin/secret")
                 .unwrap(),
             Some(scopes(&["variables:read"]))
+        );
+    }
+
+    #[test]
+    fn proxy_jwt_raw_app_source_deploy_also_gets_jobs_run() {
+        // The handler compiles the sources in a job, so it checks jobs:run on top
+        // of the route's own apps:write. Scope matching never crosses domains, so
+        // without minting both the tool would 403 on every call.
+        let s = scopes(&["mcp:endpoints:updateAppRawSource"]);
+        assert_eq!(
+            jwt_scopes_for_proxied_route(
+                Some(&s),
+                "POST",
+                "/api/w/ws/apps/update_raw_source/u/admin/app"
+            )
+            .unwrap(),
+            Some(scopes(&["apps:write", "jobs:run"]))
         );
     }
 
