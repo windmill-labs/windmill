@@ -342,7 +342,10 @@
 			</div>
 		</Pane>
 		{#if panelMode === 'docked'}
-			<Pane class="relative z-10" size={50} minSize={20}>
+			<!-- Panels manage their own scrolling, so the pane must not scroll as well or a second
+			     scrollbar appears beside theirs. `!` because splitpanes' own `overflow: auto` rule
+			     has equal specificity and wins on cascade order. -->
+			<Pane class="relative z-10 !overflow-hidden" size={50} minSize={20}>
 				{#if loading}
 					<div class="w-full h-full">
 						<div class="block m-auto pt-40 w-10">
