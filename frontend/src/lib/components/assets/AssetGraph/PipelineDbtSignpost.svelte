@@ -8,7 +8,7 @@
 	const DBT_DOCS = 'https://www.windmill.dev/docs/getting_started/scripts_quickstart/dbt'
 </script>
 
-<Alert type="info" title="Windmill also runs dbt, and a dbt project is not a pipeline" size="xs">
+<Alert type="info" title="Prefer using dbt? Windmill also runs dbt" size="xs">
 	<div class="flex flex-col gap-2">
 		<p>
 			A pipeline is Windmill's own abstraction; an existing dbt project stays a dbt project, and
