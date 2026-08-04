@@ -748,6 +748,18 @@ const BENCHMARK_MCP_TOOLS: EndpointTool[] = [
 		}
 	},
 	{
+		name: 'getJob',
+		description: 'Get a job by id',
+		instructions: '',
+		path: '/w/{workspace}/jobs_u/get/{id}',
+		method: 'GET',
+		path_params_schema: {
+			type: 'object',
+			properties: { workspace: { type: 'string' }, id: { type: 'string', format: 'uuid' } },
+			required: ['workspace', 'id']
+		}
+	},
+	{
 		name: 'runScriptByPath',
 		description: 'Run the deployed version of a script by path',
 		instructions: '',
@@ -968,6 +980,8 @@ const BENCHMARK_WORKERS = [
 	}
 ]
 
+const BENCHMARK_JOB_GET_PATH = /^\/api\/w\/([^/]+)\/jobs_u\/get\/([^/]+)$/
+
 /** True when `handleBenchmarkApiFetch` has an answer for this `/api/...` url.
  * Any other relative fetch must keep its normal (non-benchmark) behavior —
  * intercepting it with a synthetic 404 sends the model into retry loops. */
@@ -975,6 +989,7 @@ export function hasBenchmarkApiHandler(url: string): boolean {
 	const path = url.split('?')[0]
 	return (
 		path === '/api/workers/list' ||
+		BENCHMARK_JOB_GET_PATH.test(path) ||
 		/^\/api\/w\/[^/]+\/jobs\/queue\/list$/.test(path) ||
 		path === '/api/embeddings/query_hub_scripts' ||
 		path.startsWith('/api/scripts/hub/get_full/')
@@ -990,6 +1005,17 @@ export function handleBenchmarkApiFetch(url: string): Response {
 	}
 	if (/^\/api\/w\/[^/]+\/jobs\/queue\/list$/.test(path)) {
 		return Response.json([])
+	}
+	const jobGet = BENCHMARK_JOB_GET_PATH.exec(path)
+	if (jobGet) {
+		const job = getBenchmarkCompletedJob(
+			decodeURIComponent(jobGet[1]),
+			decodeURIComponent(jobGet[2])
+		)
+		if (!job) {
+			return Response.json({ error: `Job not found for "${jobGet[2]}"` }, { status: 404 })
+		}
+		return Response.json(job)
 	}
 	if (path === '/api/embeddings/query_hub_scripts') {
 		const text = new URLSearchParams(url.split('?')[1] ?? '').get('text') ?? ''
