@@ -94,11 +94,17 @@ impl PgAuthMode {
     }
 
     /// What to announce in the job log. Password auth is the default and stays silent.
-    fn log_name(&self) -> Option<&'static str> {
+    /// The token modes name the login they present: the token itself says nothing about
+    /// which role the server is asked for, so a rejection is otherwise indistinguishable
+    /// from an ordinary bad password.
+    fn log_name(&self, database: &PgDatabase) -> Option<String> {
+        let login = database.login_name();
         match self {
             PgAuthMode::Password => None,
-            PgAuthMode::Iam => Some("IAM RDS authentication"),
-            PgAuthMode::WorkloadIdentity => Some("Azure Workload Identity"),
+            PgAuthMode::Iam => Some(format!("IAM RDS authentication (login {login})")),
+            PgAuthMode::WorkloadIdentity => {
+                Some(format!("Azure Workload Identity (login {login})"))
+            }
         }
     }
 
@@ -707,7 +713,7 @@ pub async fn do_postgresql(
 
     let auth_mode = PgAuthMode::of(&database)?;
 
-    if let Some(mode) = auth_mode.log_name() {
+    if let Some(mode) = auth_mode.log_name(&database) {
         windmill_queue::append_logs(&job.id, &job.workspace_id, format!("Using {mode}\n"), conn)
             .await;
     }
