@@ -13,6 +13,12 @@ function tagKey(workspace: string | undefined, input: DbInput | undefined): stri
 	return `dbManagerWorkerTag:${workspace}:${path}`
 }
 
+/** Tags set this session, shared by every caller: local storage is not reactive, so a
+ * per-instance cache would leave a second drawer open on the same database deriving —
+ * and running its jobs on — the tag the first one just replaced. `null` is an explicit
+ * clear, absent means "not set here, read local storage". */
+const overrides = $state<Record<string, string | null>>({})
+
 export interface DbManagerTagState {
 	/** Tag override for this database's jobs; undefined runs them on the language default. */
 	tag: string | undefined
@@ -23,12 +29,10 @@ export function useDbManagerTag(
 	getInput: () => DbInput | undefined
 ): DbManagerTagState {
 	let key = $derived(tagKey(getWorkspace(), getInput()))
-	// Local storage is not reactive, so a tag set here is remembered separately to
-	// re-run the readers that depend on it.
-	let written = $state<Record<string, string | undefined>>({})
 	let tag = $derived.by(() => {
 		if (!key) return undefined
-		return (key in written ? written[key] : getLocalSetting(key)) ?? undefined
+		const set = overrides[key]
+		return (set === undefined ? getLocalSetting(key) : set) ?? undefined
 	})
 	return {
 		get tag() {
@@ -38,7 +42,7 @@ export function useDbManagerTag(
 			const k = key
 			if (!k) return
 			const value = v ? v : undefined
-			written = { ...written, [k]: value }
+			overrides[k] = value ?? null
 			storeLocalSetting(k, value)
 		}
 	}
