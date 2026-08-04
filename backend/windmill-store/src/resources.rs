@@ -19,7 +19,8 @@ use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
 use crate::secret_backend_ext::rename_vault_secret;
 use crate::var_resource_cache::{auth_identity, cache_resource, get_cached_resource};
 use windmill_common::utils::{
-    check_proper_path, check_proper_type_name, escape_ilike_pattern, BulkDeleteRequest,
+    check_proper_path, check_proper_type_name, escape_ilike_pattern, sanitize_db_error,
+    BulkDeleteRequest,
 };
 use windmill_common::webhook::{WebhookMessage, WebhookShared};
 
@@ -1104,7 +1105,8 @@ async fn create_resource(
             resource.labels.as_deref() as Option<&[String]>
         )
         .execute(&mut *tx)
-        .await?;
+        .await
+        .map_err(sanitize_db_error)?;
     } else {
         // Create-only (the default): DO NOTHING + a row-count guard, so a path that appears between
         // check_path_conflict above and this insert is rejected rather than overwritten. A plain
@@ -1123,7 +1125,8 @@ async fn create_resource(
             resource.labels.as_deref() as Option<&[String]>
         )
         .execute(&mut *tx)
-        .await?;
+        .await
+        .map_err(sanitize_db_error)?;
         if inserted.rows_affected() == 0 {
             return Err(Error::BadRequest(format!(
                 "Resource {} already exists",
@@ -1818,7 +1821,10 @@ async fn update_resource(
     }
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
-    let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut *tx).await?;
+    let npath_o: Option<String> = sqlx::query_scalar(&sql)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(sanitize_db_error)?;
 
     let npath = not_found_if_none(npath_o, "Resource", path)?;
 

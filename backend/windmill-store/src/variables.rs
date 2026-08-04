@@ -17,7 +17,9 @@ use crate::secret_backend_ext::{
     delete_secret_from_backend, get_secret_value, is_external_stored_value, is_vault_stored_value,
     rename_vault_secret, store_secret_value,
 };
-use windmill_common::utils::{check_proper_path, escape_ilike_pattern, BulkDeleteRequest};
+use windmill_common::utils::{
+    check_proper_path, escape_ilike_pattern, sanitize_db_error, BulkDeleteRequest,
+};
 use windmill_common::webhook::{WebhookMessage, WebhookShared};
 
 use axum::{
@@ -660,7 +662,8 @@ async fn create_variable(
         &authed.username
     )
     .execute(&mut *tx)
-    .await?;
+    .await
+    .map_err(sanitize_db_error)?;
 
     if variable.ws_specific.unwrap_or(false) {
         sqlx::query!(
@@ -1291,7 +1294,10 @@ async fn update_variable(
         sqlb.set_str("edited_by", &authed.username);
         sqlb.returning("path");
         let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
-        let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut *tx).await?;
+        let npath_o: Option<String> = sqlx::query_scalar(&sql)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(sanitize_db_error)?;
         not_found_if_none(npath_o, "Variable", path)?
     } else {
         // `has_sql_updates` is guaranteed true whenever `ns.path` is provided

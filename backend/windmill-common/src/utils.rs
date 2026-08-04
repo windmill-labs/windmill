@@ -263,6 +263,34 @@ pub fn check_proper_path(path: &str) -> Result<()> {
     Ok(())
 }
 
+/// Replace a Postgres rejection with a message that says what the caller did
+/// wrong and nothing about the schema. The raw error names the table and the
+/// constraint and echoes the input back.
+///
+/// This, not `check_proper_path`, is what makes the leak unreachable: Postgres
+/// classifies `\w` by the database's `LC_CTYPE`, so no fixed Rust charset can
+/// mirror `proper_id` across deployments (`u/usér/nom` is valid under a UTF-8
+/// locale and rejected under `C`). The pre-checks exist to give the common cases
+/// a precise message; this catches whatever they let through.
+pub fn sanitize_db_error(e: sqlx::Error) -> Error {
+    let Some(db_err) = e.as_database_error() else {
+        return Error::from(e);
+    };
+    match db_err.code().as_deref() {
+        // check_violation — `proper_id` / `proper_name` and friends
+        Some("23514") => Error::BadRequest(
+            "Invalid path or name: it does not match the required format".to_string(),
+        ),
+        // string_data_right_truncation
+        Some("22001") => Error::BadRequest("A field exceeds its maximum length".to_string()),
+        // insufficient_privilege — row-level security rejected the row
+        Some("42501") => {
+            Error::NotAuthorized("You don't have write permission at this path".to_string())
+        }
+        _ => Error::from(e),
+    }
+}
+
 /// Confine a resource type name to the charset `resource_type.name` already
 /// enforces. `resource.resource_type` has no such constraint of its own, so
 /// without this any string up to 50 chars can be stored and later rendered as
