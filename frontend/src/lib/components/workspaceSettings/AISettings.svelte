@@ -57,7 +57,7 @@
 		usesInstanceAiConfig?: boolean
 		instanceAiSummary?: InstanceAISummary
 		customSave?: (config: AIConfig) => Promise<void>
-		onSave?: (info?: GetCopilotSettingsStateResponse) => void | Promise<void>
+		onSave?: (savedConfig: AIConfig, info?: GetCopilotSettingsStateResponse) => void | Promise<void>
 		title?: string
 		description?: string
 		link?: string
@@ -332,7 +332,14 @@
 			sendUserToast('AI settings updated')
 		}
 		storeInitialState()
-		await onSave?.(settingsState)
+		// Hand the parent what was persisted: it owns `initialConfig`, and this component is
+		// destroyed on a settings tab switch, so a stale prop returns as editor state on remount
+		// and is written back by the next save. Clone it, since `providers` aliases our `$state`
+		// and the `lastLoadedConfigKey` guard would then track our own edits; pre-arm that guard
+		// so the prop update does not re-apply the config over what the editor now shows.
+		const savedConfig = clone(config)
+		lastLoadedConfigKey = JSON.stringify(savedConfig)
+		await onSave?.(savedConfig, settingsState)
 	}
 
 	async function onAiProviderChange(provider: AIProvider) {
