@@ -901,7 +901,10 @@ pub async fn fetch_api_authed_from_permissioned_as(
 
             let api_authed = ApiAuthed {
                 username: authed.username,
-                email,
+                // The resolved one, not the address we were handed: that is the point of
+                // `fetch_authed_from_permissioned_as` validating it against the principal's live
+                // binding, and this value goes on to the job row, `job_perms` and the JWT.
+                email: authed.email,
                 is_admin: authed.is_admin,
                 is_operator: authed.is_operator,
                 groups: authed.groups,

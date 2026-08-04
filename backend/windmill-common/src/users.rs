@@ -237,12 +237,12 @@ pub async fn permissioned_as_from_email(
 /// also stores its answer, and the worker reads it back to build that run's authed, but it
 /// governs one job and dies with it, so it stays here.
 ///
-/// What makes a stale dispatch address harmless is not that bound, though — it is that nothing is
-/// authorized from the address itself. `fetch_authed_from_permissioned_as` re-reads
-/// `password.super_admin` and `email_to_igroup` live, keyed on it, and `change_user_email` moves
-/// both onto the new address, so a stale one matches nothing and grants nothing: the direction is
-/// de-privileging, never escalation. Memoize an `Authed` beside the address, or grant from this
-/// string without that live re-read, and dispatch has to move to the uncached variant.
+/// What makes a stale dispatch address harmless is not that bound, though — it is that nothing
+/// trusts the address as given. `fetch_authed_from_permissioned_as` re-resolves it from the
+/// principal's live binding before granting anything, so a value this cache handed over after a
+/// username was reassigned is corrected rather than believed. Route an address into an `Authed`,
+/// a job row or a token without going through that function, and this cache stops being safe to
+/// read at dispatch.
 ///
 /// Reads through the non-RLS pool and authorizes nothing — callers must already be authorized
 /// for `workspace_id`.
