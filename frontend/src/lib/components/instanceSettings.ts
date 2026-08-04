@@ -1291,6 +1291,13 @@ export function extractMarkedLabel(marked: string | undefined, labelLength: numb
 		if (marked[markedIdx] === '<') {
 			while (markedIdx < marked.length && marked[markedIdx] !== '>') markedIdx++
 			markedIdx++
+		} else if (marked[markedIdx] === '&') {
+			// SearchItems escapes the haystack, so one plain character can arrive
+			// as an entity. Skipping the whole entity keeps this offset walk in
+			// step with `labelLength`, which counts unescaped characters.
+			const end = marked.indexOf(';', markedIdx)
+			markedIdx = end === -1 ? markedIdx + 1 : end + 1
+			plainIdx++
 		} else {
 			plainIdx++
 			markedIdx++
