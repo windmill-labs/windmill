@@ -1,16 +1,15 @@
 <script lang="ts">
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { useOverlayStack } from './overlayStack.svelte'
+	import Disposable from '$lib/components/common/drawer/Disposable.svelte'
 	import FlowEditorPanel from './content/FlowEditorPanel.svelte'
 	import FlowModuleSchemaMap from './map/FlowModuleSchemaMap.svelte'
 	import type { OpenInSessionSource } from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import WindmillIcon from '../icons/WindmillIcon.svelte'
 	import { Skeleton } from '../common'
-	import { getContext, onDestroy, onMount, setContext } from 'svelte'
+	import { getContext, onDestroy, onMount, setContext, untrack } from 'svelte'
 	import type { FlowEditorContext, FlowPanelDetachContext } from './types'
 	import { getOverlayHost } from '$lib/components/common/overlayHost.svelte'
 	import Portal from '$lib/components/Portal.svelte'
-	import { zIndexes } from '$lib/zIndexes'
 	import { isFlowLevelPanelTarget } from '$lib/components/graph/selectionUtils.svelte'
 
 	import { writable } from 'svelte/store'
@@ -132,7 +131,15 @@
 	let panelMode: 'docked' | 'modal' = $state('docked')
 	let panelModalOpen = $state(false)
 
-	const panelOverlay = useOverlayStack(() => panelMode === 'modal' && panelModalOpen)
+	let panelDisposable: Disposable | undefined = $state(undefined)
+	// Disposable joins the stack through its methods, not by watching `open` — same sync
+	// as Drawer and Modal, so setting `panelModalOpen` anywhere still registers the overlay.
+	$effect(() => {
+		panelModalOpen
+		untrack(() => {
+			panelModalOpen ? panelDisposable?.openDrawer() : panelDisposable?.closeDrawer()
+		})
+	})
 
 	const overlayHost = getOverlayHost()
 	const modalHost = $derived(overlayHost?.el())
@@ -401,59 +408,56 @@
      (sidebar, top bar) rather than only the editor's own box. A host that embeds the
      editor in its own box provides an anchor element instead, keeping the modal inside
      it — one flow editor's modal must never cover a sibling's tab. -->
-{#if panelMode === 'modal' && panelModalOpen}
-	<Portal target={modalHost ?? 'body'} class="contents">
-		<!-- svelte-ignore a11y_click_events_have_key_events -->
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div
-			class="{modalHost ? 'absolute' : 'fixed'} inset-0 flex justify-center px-2 py-6"
-			style="z-index: {zIndexes.disposables}"
-			role="dialog"
-		>
-			<div class="absolute inset-0 bg-black/20" onclick={() => (panelModalOpen = false)}></div>
-			<div
-				class="relative flex w-full max-w-4xl flex-col overflow-hidden rounded-md border bg-surface shadow-xl"
-			>
-				<!-- Same fallback as the docked strip: a panel whose body has a card header
-				     hosts the id, dock and close inline, so this bar would double it. -->
-				{#if detachClaims === 0}
-					<div class="flex items-center justify-end gap-2 border-b px-2 py-1">
-						<div class="flex items-center gap-0.5">
-							<Button
-								size="xs2"
-								variant="subtle"
-								iconOnly
-								startIcon={{ icon: PanelRight }}
-								title="Dock to the right"
-								on:click={() => {
-									panelMode = 'docked'
-									panelModalOpen = false
-								}}
-							/>
-							<Button
-								size="xs2"
-								variant="subtle"
-								iconOnly
-								startIcon={{ icon: X }}
-								title="Close"
-								on:click={() => (panelModalOpen = false)}
-							/>
+<!-- Disposable owns the overlay stack: it takes a place while open, arbitrates Escape against
+     whatever else is open in this pane, and stays quiet while the pane is hidden. -->
+<Disposable bind:open={panelModalOpen} bind:this={panelDisposable}>
+	{#snippet children({ zIndex })}
+		{#if panelMode === 'modal' && panelModalOpen}
+			<Portal target={modalHost ?? 'body'} class="contents">
+				<!-- svelte-ignore a11y_click_events_have_key_events -->
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div
+					class="{modalHost ? 'absolute' : 'fixed'} inset-0 flex justify-center px-2 py-6"
+					style="z-index: {zIndex}"
+					role="dialog"
+				>
+					<div class="absolute inset-0 bg-black/20" onclick={() => (panelModalOpen = false)}></div>
+					<div
+						class="relative flex w-full max-w-4xl flex-col overflow-hidden rounded-md border bg-surface shadow-xl"
+					>
+						<!-- Same fallback as the docked strip: a panel whose body has a card header
+						     hosts the id, dock and close inline, so this bar would double it. -->
+						{#if detachClaims === 0}
+							<div class="flex items-center justify-end gap-2 border-b px-2 py-1">
+								<div class="flex items-center gap-0.5">
+									<Button
+										size="xs2"
+										variant="subtle"
+										iconOnly
+										startIcon={{ icon: PanelRight }}
+										title="Dock to the right"
+										on:click={() => {
+											panelMode = 'docked'
+											panelModalOpen = false
+										}}
+									/>
+									<Button
+										size="xs2"
+										variant="subtle"
+										iconOnly
+										startIcon={{ icon: X }}
+										title="Close"
+										on:click={() => (panelModalOpen = false)}
+									/>
+								</div>
+							</div>
+						{/if}
+						<div class="min-h-0 flex-1 overflow-auto">
+							{@render panelBody()}
 						</div>
 					</div>
-				{/if}
-				<div class="min-h-0 flex-1 overflow-auto">
-					{@render panelBody()}
 				</div>
-			</div>
-		</div>
-	</Portal>
-{/if}
-
-<svelte:window
-	onkeydown={(e) => {
-		if (panelMode === 'modal' && panelModalOpen && e.key === 'Escape') {
-			if (!panelOverlay.isTopmost()) return
-			panelModalOpen = false
-		}
-	}}
-/>
+			</Portal>
+		{/if}
+	{/snippet}
+</Disposable>

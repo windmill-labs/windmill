@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { useOverlayStack } from '$lib/components/flows/overlayStack.svelte'
+	import Disposable from '$lib/components/common/drawer/Disposable.svelte'
 	import { NODE, type FlowNodeColorClasses } from '../../util'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import type { TriggerType } from '$lib/components/triggers/utils'
 	import TriggersBadge from './TriggersBadge.svelte'
 	import { Plus } from 'lucide-svelte'
@@ -40,7 +40,15 @@
 
 	let showTriggerScriptPicker = $state(false)
 
-	const pickerOverlay = useOverlayStack(() => showTriggerScriptPicker)
+	let pickerDisposable: Disposable | undefined = $state(undefined)
+	// Disposable joins the stack through its methods rather than by watching `open` — the
+	// menu item that opens the picker sets the flag directly, so mirror it across.
+	$effect(() => {
+		showTriggerScriptPicker
+		untrack(() => {
+			showTriggerScriptPicker ? pickerDisposable?.openDrawer() : pickerDisposable?.closeDrawer()
+		})
+	})
 	let numberOfTriggers = $state(0)
 
 	const dispatch = createEventDispatcher()
@@ -105,38 +113,35 @@
 	</button>
 </div>
 
-<svelte:window
-	onkeydown={(e) => {
-		if (showTriggerScriptPicker && e.key === 'Escape') {
-			if (!pickerOverlay.isTopmost()) return
-			showTriggerScriptPicker = false
-		}
-	}}
-/>
-
-{#if showTriggerScriptPicker}
-	<Portal target={pickerTarget()}>
-		<!-- Not a Popover: this opens from a menu item inside AddTriggersButton, which
-		     closes before the picker renders, so there is no trigger element to bind to.
-		     Same box and dismiss behaviour as the other module pickers. -->
-		<div
-			class="border rounded-lg shadow-lg bg-surface z5000 p-2 h-[400px]"
-			use:floatingContent
-			use:clickOutside={{ onClickOutside: () => (showTriggerScriptPicker = false) }}
-		>
-			<InsertModuleInner
-				small
-				{disableAi}
-				on:new={(e) => {
-					showTriggerScriptPicker = false
-					dispatch('new', e.detail)
-				}}
-				on:pickScript={(e) => {
-					showTriggerScriptPicker = false
-					dispatch('pickScript', e.detail)
-				}}
-				kind="trigger"
-			/>
-		</div>
-	</Portal>
-{/if}
+<!-- Disposable owns the overlay stack: it takes a place while open and answers Escape only
+     when it is the topmost overlay in a pane that is on screen. -->
+<Disposable bind:open={showTriggerScriptPicker} bind:this={pickerDisposable}>
+	{#snippet children()}
+		{#if showTriggerScriptPicker}
+			<Portal target={pickerTarget()}>
+				<!-- Not a Popover: this opens from a menu item inside AddTriggersButton, which
+				     closes before the picker renders, so there is no trigger element to bind to.
+				     Same box and dismiss behaviour as the other module pickers. -->
+				<div
+					class="border rounded-lg shadow-lg bg-surface z5000 p-2 h-[400px]"
+					use:floatingContent
+					use:clickOutside={{ onClickOutside: () => (showTriggerScriptPicker = false) }}
+				>
+					<InsertModuleInner
+						small
+						{disableAi}
+						on:new={(e) => {
+							showTriggerScriptPicker = false
+							dispatch('new', e.detail)
+						}}
+						on:pickScript={(e) => {
+							showTriggerScriptPicker = false
+							dispatch('pickScript', e.detail)
+						}}
+						kind="trigger"
+					/>
+				</div>
+			</Portal>
+		{/if}
+	{/snippet}
+</Disposable>
