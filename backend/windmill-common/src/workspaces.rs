@@ -1090,29 +1090,13 @@ const PG_IDENTIFIER_MAX_LEN: usize = 63;
 
 /// The postgres role backing `role` on `w_id`'s `datatable`.
 ///
-/// Postgres roles are cluster-wide while data table and role names are scoped to
-/// a workspace, so the name is `wm_<workspace>_<datatable>_<role>` plus a hash of
-/// the exact triple. Both halves are load-bearing:
-///
-/// - Without the workspace id, two workspaces that both hold a `main` data table
-///   with an `analyst` role would silently share one Postgres role.
-/// - Without the hash, the readable half would not identify the triple: it is
-///   sanitized (every character outside `[a-z0-9]` becomes `_`) and truncated to
-///   fit Postgres' 63-byte identifier limit, so `analyst-1` and `analyst_1` — and
-///   data table `sales_ro` + role `x` against data table `sales` + role `ro_x` —
-///   would collapse onto the same role and share its grants.
+/// Postgres roles are cluster-wide while data table and role names are scoped to a
+/// workspace, so uniqueness comes from a hash of the whole `(workspace, data
+/// table, role)` triple. The readable `wm_<role>` prefix is only there to make the
+/// role recognizable in `\du` and in grant statements written by hand — it is
+/// sanitized and truncated, so it identifies nothing on its own and two data
+/// tables may well share it.
 pub fn datatable_pg_role_name(w_id: &str, datatable: &str, role: &str) -> String {
-    fn sanitize(s: &str) -> String {
-        s.chars()
-            .map(|c| {
-                if c.is_ascii_alphanumeric() {
-                    c.to_ascii_lowercase()
-                } else {
-                    '_'
-                }
-            })
-            .collect()
-    }
     use sha2::{Digest, Sha256};
     // NUL-joined so the digest cannot be replayed by moving characters across the
     // field boundaries.
@@ -1124,12 +1108,16 @@ pub fn datatable_pg_role_name(w_id: &str, datatable: &str, role: &str) -> String
     let digest = hasher.finalize();
     let discriminator = u32::from_be_bytes([digest[0], digest[1], digest[2], digest[3]]);
 
-    let readable = format!(
-        "wm_{}_{}_{}",
-        sanitize(w_id),
-        sanitize(datatable),
-        sanitize(role)
-    );
+    let readable: String = format!("wm_{role}")
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect();
     let max_readable = PG_IDENTIFIER_MAX_LEN - 9; // "_" + 8 hex digits
     format!(
         "{}_{:08x}",
@@ -2547,13 +2535,11 @@ mod tests {
 
     #[test]
     fn datatable_pg_role_names_are_readable_and_never_collide() {
-        assert!(
-            datatable_pg_role_name("acme", "main", "analyst").starts_with("wm_acme_main_analyst_")
-        );
+        assert!(datatable_pg_role_name("acme", "main", "analyst").starts_with("wm_analyst_"));
 
-        // Every pair below sanitizes to the same readable half, so only the hash
-        // keeps them apart — and they must stay apart: two Windmill roles sharing
-        // one Postgres login would share its grants.
+        // The readable half identifies nothing — every pair below shares it, or
+        // could — so only the hash keeps them apart. They must stay apart: two
+        // Windmill roles sharing one Postgres login would share its grants.
         let collide = [
             // different workspaces
             (("acme", "main", "analyst"), ("globex", "main", "analyst")),
