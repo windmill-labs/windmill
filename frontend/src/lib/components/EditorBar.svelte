@@ -1309,7 +1309,11 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 
 			{#if customUi?.aiGen != false}
 				{#if openAiChat}
-					<FlowInlineScriptAiButton {moduleId} btnProps={{ variant: 'subtle' }} />
+					<FlowInlineScriptAiButton
+						{moduleId}
+						flushEditor={() => editor?.flushPendingChanges()}
+						btnProps={{ variant: 'subtle' }}
+					/>
 				{/if}
 			{/if}
 
