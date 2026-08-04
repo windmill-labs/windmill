@@ -2,11 +2,11 @@
 
 A schedule's identity is its `permissioned_as`; the address beside it is a function of that
 principal. `schedule.email` is no longer read for the identity, but it is still written, because
-workers before **1.777** select it in `get_schedule_opt` — inside the same transaction as the job
+workers before **1.779** select it in `get_schedule_opt` — inside the same transaction as the job
 completion, so a missing column rolls that completion back and the occurrence runs again. That is
 the failure to keep in mind throughout: not a wrong address, a schedule that runs twice.
 
-The column can go once no worker older than 1.777 can be live, in practice once
+The column can go once no worker older than 1.779 can be live, in practice once
 `MIN_KEEP_ALIVE_VERSION` (`windmill-common/src/min_version.rs`) has passed it. There is no
 `MIN_VERSION_*` constant for this and it does not need one: those gate behavior at runtime, and
 nothing here does — the write is unconditional, so no worker meets the column's absence until
