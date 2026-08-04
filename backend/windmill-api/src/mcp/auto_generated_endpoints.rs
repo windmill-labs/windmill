@@ -1076,7 +1076,7 @@ Creates a new version of an existing script when called with the same path and t
     EndpointTool {
         name: Cow::Borrowed("listApps"),
         description: Cow::Borrowed("list all apps"),
-        instructions: Cow::Borrowed("Lists every app, low-code and full-code alike. `raw_app` tells them apart: true is a full-code app, which getAppByPath then reads and updateApp deploys. A low-code app can only be read here — editing one is a job for its editor in the UI."),
+        instructions: Cow::Borrowed("Lists every app, low-code and full-code alike. `raw_app` tells them apart: true is a full-code app, which getAppByPath then reads and updateApp deploys. An app with no `raw_app` field is low-code — the field is omitted rather than sent as false. A low-code app can only be read here — editing one is a job for its editor in the UI."),
         path: Cow::Borrowed("/w/{workspace}/apps/list"),
         method: Cow::Borrowed("GET"),
         path_params_schema: None,

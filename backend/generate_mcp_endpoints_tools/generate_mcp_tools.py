@@ -443,7 +443,16 @@ def find_mcp_tools(spec: Dict[str, Any]) -> List[Dict[str, Any]]:
                     'include_query_params': operation.get('x-mcp-tool-include-query-params'),
                 }
                 tools.append(tool)
-    
+
+    # A tool name used to be an operationId, which OpenAPI already keeps unique.
+    # `x-mcp-tool-name` gives that up, and a duplicate would be silent: a token's
+    # `mcp:endpoints:<name>` resolves by first match, so which endpoint it reaches
+    # would depend on the order of this file.
+    names = [t['name'] for t in tools]
+    duplicates = sorted({n for n in names if names.count(n) > 1})
+    if duplicates:
+        raise ValueError(f"duplicate MCP tool name(s): {', '.join(duplicates)}")
+
     return tools
 
 def generate_typescript_code(tools: List[Dict[str, Any]], spec: Dict[str, Any], base_path: str = "") -> str:

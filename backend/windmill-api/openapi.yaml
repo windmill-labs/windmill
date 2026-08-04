@@ -11796,7 +11796,7 @@ paths:
       summary: list all apps
       operationId: listApps
       x-mcp-tool: true
-      x-mcp-instructions: "Lists every app, low-code and full-code alike. `raw_app` tells them apart: true is a full-code app, which getAppByPath then reads and updateApp deploys. A low-code app can only be read here — editing one is a job for its editor in the UI."
+      x-mcp-instructions: "Lists every app, low-code and full-code alike. `raw_app` tells them apart: true is a full-code app, which getAppByPath then reads and updateApp deploys. An app with no `raw_app` field is low-code — the field is omitted rather than sent as false. A low-code app can only be read here — editing one is a job for its editor in the UI."
       x-mcp-tool-include-query-params: [path_start, page, per_page]
       tags:
         - app
@@ -12390,10 +12390,16 @@ paths:
                   type: string
                 custom_path:
                   type: string
+                preserve_on_behalf_of:
+                  type: boolean
+                  description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it."
                 labels:
                   type: array
                   items:
                     type: string
+                skip_draft_deletion:
+                  type: boolean
+                  description: "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
               required: [path, value, summary, policy]
       responses:
         "201":

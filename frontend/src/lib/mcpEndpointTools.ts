@@ -1084,7 +1084,7 @@ export const mcpEndpointTools: EndpointTool[] = [
     {
         name: "listApps",
         description: "list all apps",
-        instructions: "Lists every app, low-code and full-code alike. `raw_app` tells them apart: true is a full-code app, which getAppByPath then reads and updateApp deploys. A low-code app can only be read here — editing one is a job for its editor in the UI.",
+        instructions: "Lists every app, low-code and full-code alike. `raw_app` tells them apart: true is a full-code app, which getAppByPath then reads and updateApp deploys. An app with no `raw_app` field is low-code — the field is omitted rather than sent as false. A low-code app can only be read here — editing one is a job for its editor in the UI.",
         path: "/w/{workspace}/apps/list",
         method: "GET",
         pathParamsSchema: undefined,
