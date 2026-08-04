@@ -51,8 +51,12 @@
 	let contentPadLeft = $derived(noBorder || $userStore?.operator || isMobile ? 0 : sidebarWidth)
 
 	$effect(() => {
+		chatState.dockedChatAvailable = !disableAi
 		if (disableAi) {
 			chatState.size = 0
+		}
+		return () => {
+			chatState.dockedChatAvailable = false
 		}
 	})
 
