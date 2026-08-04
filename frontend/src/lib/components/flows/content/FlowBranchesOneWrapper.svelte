@@ -147,16 +147,20 @@
 								onfinalize={handleFinalize}
 							>
 								{#each items as item, i (item.id)}
-									<div class="flex flex-col gap-2 rounded-md bg-surface-tertiary p-3 shadow-sm">
-										<div class="flex items-center gap-2">
-											<!-- svelte-ignore a11y_no_static_element_interactions -->
-											<div
-												class="shrink-0 cursor-move text-tertiary hover:text-primary"
-												use:dragHandle
-												aria-label="Reorder branch"
-											>
-												<GripVertical size={16} />
-											</div>
+									<!-- The handle and the delete button each own a column, so the predicate
+									     below lines up with the summary instead of running under them. -->
+									<div
+										class="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-0 rounded-md bg-surface-tertiary p-3 shadow-sm"
+									>
+										<!-- svelte-ignore a11y_no_static_element_interactions -->
+										<div
+											class="cursor-move text-tertiary hover:text-primary"
+											use:dragHandle
+											aria-label="Reorder branch"
+										>
+											<GripVertical size={16} />
+										</div>
+										<div class="flex min-w-0 items-center gap-2">
 											<Badge color="blue" class="text-xs">Branch {i + 1}</Badge>
 											<TextInput
 												size="sm"
@@ -166,23 +170,24 @@
 												}
 												inputProps={{ placeholder: 'Summary' }}
 											/>
-											<Button
-												unifiedSize="sm"
-												variant="subtle"
-												destructive
-												iconOnly
-												startIcon={{ icon: Trash2 }}
-												title="Delete branch"
-												wrapperClasses="shrink-0"
-												on:click={() => removeBranch(i)}
+										</div>
+										<Button
+											unifiedSize="sm"
+											variant="subtle"
+											destructive
+											iconOnly
+											startIcon={{ icon: Trash2 }}
+											title="Delete branch"
+											on:click={() => removeBranch(i)}
+										/>
+										<div class="col-start-2 py-2">
+											<BranchPredicateEditor
+												branch={item.branch}
+												parentModule={flowModule}
+												{previousModule}
+												{enableAi}
 											/>
 										</div>
-										<BranchPredicateEditor
-											branch={item.branch}
-											parentModule={flowModule}
-											{previousModule}
-											{enableAi}
-										/>
 									</div>
 								{/each}
 							</section>
