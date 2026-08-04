@@ -13,6 +13,7 @@ use crate::job_helpers_oss::{
     spawn_storage_usage_recount_floored,
 };
 use crate::{
+    apps_raw_bundle,
     auth::{get_end_user_email, OptTokened},
     db::{ApiAuthed, DB},
     jobs::RunJobQuery,
@@ -112,6 +113,11 @@ pub fn workspaced_service(raw_app_body_limit: usize) -> Router {
         .route(
             "/update_raw/{*path}",
             post(update_app_raw).layer(axum::extract::DefaultBodyLimit::max(raw_app_body_limit)),
+        )
+        .route(
+            "/update_raw_source/{*path}",
+            post(update_app_raw_source)
+                .layer(axum::extract::DefaultBodyLimit::max(raw_app_body_limit)),
         )
         .route("/delete/{*path}", delete(delete_app))
         .route("/create", post(create_app))
@@ -2346,6 +2352,127 @@ async fn update_app(
     Ok(format!("app {} updated (npath: {:?})", opath, npath))
 }
 
+/// Deploy a raw app from its sources, compiling them on a worker. `update_raw`
+/// takes the bundle the caller already built (the editor and the CLI both
+/// bundle before calling it); an API client has nothing to build with, so this
+/// is the raw-app deploy an MCP agent or a script can actually reach.
+async fn update_app_raw_source(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Extension(webhook): Extension<WebhookShared>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+    Json(ns): Json<EditApp>,
+) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot update apps for security reasons".to_string(),
+        ));
+    }
+
+    let path = path.to_path();
+    check_scopes(&authed, || format!("apps:write:{}", path))?;
+
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
+        &w_id,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
+    let Some(value) = ns.value.as_ref() else {
+        return Err(Error::BadRequest(
+            "value with the app's `files` is required to deploy a raw app".to_string(),
+        ));
+    };
+    let files: RawAppSourceFiles = serde_json::from_str(value.0.get())
+        .map_err(|e| Error::BadRequest(format!("app value is not a raw app source: {e}")))?;
+
+    // Before the compile, which costs a job: an app of the other kind is refused
+    // by update_app_internal anyway, and the caller shouldn't wait to find out.
+    ensure_deployed_kind_matches(&db, &w_id, path, true, ns.allow_kind_change).await?;
+
+    let (js, css) =
+        apps_raw_bundle::bundle_raw_app_sources(&db, &user_db, &authed, &w_id, &files.files)
+            .await?;
+
+    let opath = path.to_string();
+    let (mut tx, npath, id) =
+        update_app_internal(authed, db, user_db, &w_id, path, true, ns).await?;
+    store_raw_app_file(&w_id, &id, "js", bytes::Bytes::from(js), &mut tx).await?;
+    if !css.is_empty() {
+        store_raw_app_file(&w_id, &id, "css", bytes::Bytes::from(css), &mut tx).await?;
+    }
+    tx.commit().await?;
+
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::UpdateApp {
+            workspace: w_id.clone(),
+            old_path: opath.clone(),
+            new_path: npath.clone(),
+        },
+    );
+
+    Ok(format!("app {} updated (npath: {:?})", opath, npath))
+}
+
+/// The part of a raw app's value the bundler needs.
+#[derive(Deserialize)]
+struct RawAppSourceFiles {
+    #[serde(default)]
+    files: HashMap<String, String>,
+}
+
+fn reject_kind_change(path: &str, raw_app: bool, deployed_raw_app: Option<bool>) -> Result<()> {
+    if !deployed_raw_app.is_some_and(|deployed| deployed != raw_app) {
+        return Ok(());
+    }
+    // Name the folder suffix too: a sync push picks the endpoint from the repo
+    // layout, so its operator has no endpoint to swap, only a folder.
+    let (kind, endpoint, folder) = if raw_app {
+        ("a low-code app", "/apps/update", ".app")
+    } else {
+        ("a raw app", "/apps/update_raw", ".raw_app")
+    };
+    Err(Error::BadRequest(format!(
+        "App {path} is {kind}: deploying a value to it through the other kind's endpoint \
+         would convert it and strand its bundle. Deploy it through {endpoint} instead \
+         (from a synced repo, from a `{folder}` folder), or set allow_kind_change to \
+         convert it on purpose."
+    )))
+}
+
+/// The same refusal `update_app_internal` makes, run before the caller pays for
+/// a compile. Advisory only — the locked check inside the transaction is what
+/// actually holds the invariant.
+async fn ensure_deployed_kind_matches(
+    db: &DB,
+    w_id: &str,
+    path: &str,
+    raw_app: bool,
+    allow_kind_change: Option<bool>,
+) -> Result<()> {
+    if allow_kind_change.unwrap_or(false) {
+        return Ok(());
+    }
+    let deployed_raw_app = sqlx::query_scalar!(
+        "SELECT app_version.raw_app FROM app
+         JOIN app_version ON app_version.id = app.versions[array_upper(app.versions, 1)]
+         WHERE app.path = $1 AND app.workspace_id = $2",
+        path,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?;
+    reject_kind_change(path, raw_app, deployed_raw_app)
+}
+
 async fn update_app_raw<'a>(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -2448,21 +2575,7 @@ async fn update_app_internal<'a>(
             }
             None => None,
         };
-        if deployed_raw_app.is_some_and(|deployed| deployed != raw_app) {
-            // Name the folder suffix too: a sync push picks the endpoint from the
-            // repo layout, so its operator has no endpoint to swap, only a folder.
-            let (kind, endpoint, folder) = if raw_app {
-                ("a low-code app", "/apps/update", ".app")
-            } else {
-                ("a raw app", "/apps/update_raw", ".raw_app")
-            };
-            return Err(Error::BadRequest(format!(
-                "App {path} is {kind}: deploying a value to it through the other kind's endpoint \
-                 would convert it and strand its bundle. Deploy it through {endpoint} instead \
-                 (from a synced repo, from a `{folder}` folder), or set allow_kind_change to \
-                 convert it on purpose."
-            )));
-        }
+        reject_kind_change(path, raw_app, deployed_raw_app)?;
     }
 
     let mut preserved_on_behalf_of: Option<String> = None;
