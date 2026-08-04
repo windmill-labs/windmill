@@ -48,8 +48,9 @@
 	}: Props = $props()
 
 	// Bounds the request burst from "expand all": however many root owners are rendered
-	// (nbDisplayed can grow via "load 30 more"), it fetches at most this many. Lazy
-	// owners past the cap stay collapsed and load on a single click (see the effect).
+	// (the tree's root window grows via its own "load more"), it fetches at most this
+	// many. Lazy owners past the cap stay collapsed and load on a single click (see the
+	// effect).
 	const EXPAND_ALL_LOAD_LIMIT = 20
 
 	const isFolderItem = (i: typeof item): i is FolderItem => i && 'folderName' in i
