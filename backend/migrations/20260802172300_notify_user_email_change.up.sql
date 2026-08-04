@@ -36,13 +36,27 @@ WHEN (OLD.email IS DISTINCT FROM NEW.email OR OLD.username IS DISTINCT FROM NEW.
 EXECUTE FUNCTION notify_usr_email_change();
 
 -- A superadmin acting outside their workspaces resolves through `password` instead, and that row
--- names no workspace, so there is no key to target: clear the whole cache. The empty payload is
--- the wildcard. Confined to superadmins because they are the only accounts the `usr` triggers
--- above cannot cover.
+-- names no workspace of its own. The `*:` payload says so: the reader drops that name's entry in
+-- every workspace rather than the whole cache, which would undo the caching on an instance that
+-- rewrites these rows in bulk. `COALESCE(username, email)` is the name a principal can hold,
+-- matching `permissioned_as_from_email`. Confined to superadmins because they are the only
+-- accounts the `usr` triggers above cannot cover.
 CREATE OR REPLACE FUNCTION notify_superadmin_identity_change()
 RETURNS TRIGGER AS $$
+DECLARE
+    new_name TEXT;
+    old_name TEXT;
 BEGIN
-    INSERT INTO notify_event (channel, payload) VALUES ('notify_user_email_change', '');
+    IF TG_OP <> 'DELETE' THEN new_name := COALESCE(NEW.username, NEW.email); END IF;
+    IF TG_OP <> 'INSERT' THEN old_name := COALESCE(OLD.username, OLD.email); END IF;
+    IF new_name IS NOT NULL THEN
+        INSERT INTO notify_event (channel, payload)
+        VALUES ('notify_user_email_change', '*:' || new_name);
+    END IF;
+    IF old_name IS NOT NULL AND old_name IS DISTINCT FROM new_name THEN
+        INSERT INTO notify_event (channel, payload)
+        VALUES ('notify_user_email_change', '*:' || old_name);
+    END IF;
     RETURN COALESCE(NEW, OLD);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

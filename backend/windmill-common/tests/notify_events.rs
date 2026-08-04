@@ -411,10 +411,9 @@ async fn test_trigger_notify_user_email_change(db: Pool<Postgres>) {
             .await
             .expect("Should poll events");
         assert!(
-            events
-                .iter()
-                .any(|e| e.channel == "notify_user_email_change" && e.payload.is_empty()),
-            "superadmin {label} should emit the wildcard"
+            events.iter().any(|e| e.channel == "notify_user_email_change"
+                && e.payload.starts_with("*:")),
+            "superadmin {label} should emit a workspace-wildcard eviction for that name"
         );
     }
 }
