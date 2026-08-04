@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { type ScopeDomain, type ScopeDefinition, TokenService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { ChevronRight, Loader2, X } from 'lucide-svelte'
+	import { ChevronRight, Loader2, Plus, X } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import Popover from '../meltComponents/Popover.svelte'
 	import Tooltip from '../Tooltip.svelte'
@@ -490,6 +490,25 @@
 	fetchScopeDomains()
 </script>
 
+<!-- The label can be a long comma-joined path list: it has to truncate rather than widen its
+     container, which would push the per-scope "Restrict paths" buttons out of the panel. -->
+{#snippet scopeChip(label: string, removeTitle: string, onRemove: (e: MouseEvent) => void)}
+	<span
+		class="inline-flex items-center gap-1 min-w-0 max-w-full px-1.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 rounded font-mono"
+	>
+		<span class="truncate" title={label}>{label}</span>
+		<button
+			type="button"
+			onclick={onRemove}
+			class="text-blue-600 hover:text-blue-800 flex-shrink-0"
+			title={removeTitle}
+			{disabled}
+		>
+			<X size={10} />
+		</button>
+	</span>
+{/snippet}
+
 <div class="w-full {className} p-2">
 	{#if loading}
 		<div class="flex items-center justify-center py-12">
@@ -518,20 +537,7 @@
 			{:else}
 				<div class="flex flex-wrap gap-2">
 					{#each selectedScopes.slice(0, 10) as scope}
-						<span
-							class="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 rounded font-mono"
-						>
-							{scope}
-							<button
-								type="button"
-								onclick={() => removeSelectedScope(scope)}
-								class="text-blue-600 hover:text-blue-800 flex-shrink-0"
-								title="Remove scope"
-								{disabled}
-							>
-								<X size={10} />
-							</button>
-						</span>
+						{@render scopeChip(scope, 'Remove scope', () => removeSelectedScope(scope))}
 					{/each}
 					{#if selectedScopes.length > 10}
 						<span
@@ -597,23 +603,10 @@
 										{domain.name}
 									</label>
 									{#each selectedScopes as scope}
-										<span
-											class="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 rounded font-mono"
-										>
-											{scope}
-											<button
-												type="button"
-												onclick={(e) => {
-													e.stopPropagation()
-													removeSelectedScope(scope)
-												}}
-												class="text-blue-600 hover:text-blue-800 flex-shrink-0"
-												title="Remove scope"
-												{disabled}
-											>
-												<X size={10} />
-											</button>
-										</span>
+										{@render scopeChip(scope, 'Remove scope', (e) => {
+											e.stopPropagation()
+											removeSelectedScope(scope)
+										})}
 									{/each}
 								</div>
 								{#if domain.description}
@@ -672,8 +665,15 @@
 														contentClasses="p-3"
 													>
 														{#snippet trigger()}
-															<Button size="xs" disabled={isDisabled} variant="default">
-																Restrict paths
+															<Button
+																size="xs"
+																disabled={isDisabled}
+																variant="default"
+																startIcon={resourcePathArray.length > 0
+																	? { icon: Plus }
+																	: undefined}
+															>
+																{resourcePathArray.length > 0 ? 'Add path' : 'Restrict paths'}
 																<Tooltip light>
 																	Restrict this scope to specific resource paths. If no paths are
 																	specified, the scope gives full access.
@@ -724,19 +724,9 @@
 										{#if scope.requires_resource_path && resourcePathArray.length > 0}
 											<div class="flex flex-wrap gap-1 mt-2">
 												{#each resourcePathArray as path}
-													<span
-														class="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 rounded font-mono"
-													>
-														{path}
-														<button
-															type="button"
-															onclick={() => removeResourcePath(scope.value, path)}
-															class="text-blue-600 hover:text-blue-800 flex-shrink-0"
-															title="Remove path"
-														>
-															<X size={10} />
-														</button>
-													</span>
+													{@render scopeChip(path, 'Remove path', () =>
+														removeResourcePath(scope.value, path)
+													)}
 												{/each}
 											</div>
 										{/if}
