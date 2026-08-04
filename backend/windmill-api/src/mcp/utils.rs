@@ -551,26 +551,7 @@ fn jwt_scopes_for_proxied_route(
                 None,
             )
         })?;
-    let mut scopes = vec![scope];
-    scopes.extend(
-        extra_scopes_for_route(route_path)
-            .iter()
-            .map(|s| s.to_string()),
-    );
-    Ok(Some(scopes))
-}
-
-/// Scopes a route needs beyond the one its own domain implies. `scope_for_route`
-/// derives a single scope from the path, and `ScopeDefinition::includes` never
-/// crosses domains, so a handler that also checks another domain's scope would
-/// reject every proxied call without this.
-fn extra_scopes_for_route(route_path: &str) -> &'static [&'static str] {
-    if route_path.contains("/apps/update_raw_source/") {
-        // Compiles the app's sources in a job on a worker.
-        &["jobs:run"]
-    } else {
-        &[]
-    }
+    Ok(Some(vec![scope]))
 }
 
 /// Create HTTP request with authentication
@@ -688,10 +669,11 @@ mod tests {
     }
 
     #[test]
-    fn proxy_jwt_raw_app_source_deploy_also_gets_jobs_run() {
-        // The handler compiles the sources in a job, so it checks jobs:run on top
-        // of the route's own apps:write. Scope matching never crosses domains, so
-        // without minting both the tool would 403 on every call.
+    fn proxy_jwt_raw_app_source_deploy_mints_only_its_route_scope() {
+        // That handler also requires jobs:run, because compiling an app's sources
+        // imports the app's own dependencies and so runs its code on a worker.
+        // Minting it here would hand that to a token for merely holding the tool;
+        // a scope-restricted caller has to carry jobs:run itself.
         let s = scopes(&["mcp:endpoints:updateAppRawSource"]);
         assert_eq!(
             jwt_scopes_for_proxied_route(
@@ -700,7 +682,7 @@ mod tests {
                 "/api/w/ws/apps/update_raw_source/u/admin/app"
             )
             .unwrap(),
-            Some(scopes(&["apps:write", "jobs:run"]))
+            Some(scopes(&["apps:write"]))
         );
     }
 

@@ -1165,7 +1165,7 @@ export const mcpEndpointTools: EndpointTool[] = [
     {
         name: "updateAppRawSource",
         description: "update a raw app from its sources, bundling them server-side",
-        instructions: "Use this to change a raw (full-code) app — an app whose `raw_app` field is true. Send the whole `value` (`files`, `runnables`, `data`), not a patch: read the current one with getAppByPath first and edit it. The sources are compiled on a worker by the same build the editor and the CLI run, so a compile error comes back as the error of this call. Low-code apps use updateApp instead.",
+        instructions: "Use this to change a raw (full-code) app — an app whose `raw_app` field is true. Send the whole `value` (`files`, `runnables`, `data`), not a patch: read the current one with getAppByPath first and edit it. The sources are compiled on a worker by the same build the editor and the CLI run, so a compile error comes back as the error of this call. Compiling runs the apps own dependencies, so this needs a token with `jobs:run` as well as `apps:write`. Low-code apps use updateApp instead.",
         path: "/w/{workspace}/apps/update_raw_source/{path}",
         method: "POST",
         pathParamsSchema: {

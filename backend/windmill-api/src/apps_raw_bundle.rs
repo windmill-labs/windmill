@@ -43,15 +43,20 @@ struct BundleResult {
     css_gz: String,
 }
 
-/// The build command the job falls back to when the worker has no `wmill`
-/// installed. The CLI is pinned to this server's own release, which is the one
-/// the CLI ships alongside — so a deploy is compiled by the bundler that belongs
-/// to it, with no pin to bump by hand. The git describe suffix a build off-tag
-/// carries (`1.2.3-4-gabc`) is dropped, since npm only has the release itself; a
-/// dev server therefore builds with the last released CLI. To build with an
-/// unreleased one, set `WM_RAW_APP_BUNDLER_CLI` to the whole command, e.g.
+/// This server's release, without the git describe suffix an off-tag build
+/// carries — the CLI is published per release, so that is the version to ask npm
+/// for, and the one an installed CLI must report to be used instead.
+fn release_version() -> String {
+    let v = &*windmill_common::utils::GIT_SEM_VERSION;
+    format!("{}.{}.{}", v.major, v.minor, v.patch)
+}
+
+/// The build command the job falls back to when the worker has no usable `wmill`
+/// installed: the CLI for this server's release, fetched on the spot. A dev
+/// server is off-tag and so asks for the last release; to build with an
+/// unreleased CLI set `WM_RAW_APP_BUNDLER_CLI` to the whole command, e.g.
 /// `bun run /path/to/cli/src/main.ts app bundle` — which also stops the job from
-/// preferring the installed `wmill`.
+/// preferring an installed `wmill`.
 fn bundler_cli_command() -> Vec<String> {
     match std::env::var("WM_RAW_APP_BUNDLER_CLI") {
         Ok(cmd) if !cmd.trim().is_empty() => {
@@ -63,10 +68,7 @@ fn bundler_cli_command() -> Vec<String> {
             "bun".to_string(),
             "x".to_string(),
             "--bun".to_string(),
-            {
-                let v = &*windmill_common::utils::GIT_SEM_VERSION;
-                format!("windmill-cli@{}.{}.{}", v.major, v.minor, v.patch)
-            },
+            format!("windmill-cli@{}", release_version()),
             "app".to_string(),
             "bundle".to_string(),
         ],
@@ -117,6 +119,7 @@ pub(crate) async fn bundle_raw_app_sources(
         "prefer_installed_cli".to_string(),
         to_raw_value(&!overridden),
     );
+    args.insert("server_version".to_string(), to_raw_value(&release_version()));
 
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
     let (uuid, tx) = push(
@@ -201,33 +204,36 @@ async fn wait_for_bundle(
             "unexpected raw app bundler result (job {uuid}): {e}"
         ))
     })?;
+    // One budget across both, so the pair can't hold twice the limit in memory.
     let limit = *crate::REQUEST_SIZE_LIMIT.read().await * 5;
-    Ok((
-        gunzip_b64(&bundle.js_gz, limit)?,
-        gunzip_b64(&bundle.css_gz, limit)?,
-    ))
+    let js = gunzip_b64(&bundle.js_gz, limit)?;
+    let css = gunzip_b64(&bundle.css_gz, limit - js.len())?;
+    Ok((js, css))
 }
 
 /// Bounded: what the job returns is compressed, so the result-size cap says
 /// nothing about what it expands to, and the sources that produced it came from
-/// the caller. `limit` matches what `/apps/update_raw` accepts as a whole body.
+/// the caller. The budget is shared by the js and css of one bundle, and matches
+/// what `/apps/update_raw` accepts as a whole body.
 fn gunzip_b64(b64: &str, limit: usize) -> Result<String> {
     let compressed = base64::engine::general_purpose::STANDARD
         .decode(b64)
         .map_err(|e| Error::internal_err(format!("raw app bundle is not valid base64: {e}")))?;
-    let mut out = String::new();
-    // One byte past the limit, so a bundle that just fits is told from one that
-    // was cut short.
+    // Bytes, not a String: over the limit the read stops mid-stream, and
+    // read_to_string would report that as invalid utf-8 rather than as the size
+    // it is. One byte past, so a bundle that just fits is told from one cut short.
+    let mut out = Vec::new();
     flate2::read::GzDecoder::new(&compressed[..])
         .take(limit as u64 + 1)
-        .read_to_string(&mut out)
+        .read_to_end(&mut out)
         .map_err(|e| Error::internal_err(format!("raw app bundle is not valid gzip: {e}")))?;
     if out.len() > limit {
         return Err(Error::BadRequest(format!(
             "raw app bundle is larger than the {limit} byte limit"
         )));
     }
-    Ok(out)
+    String::from_utf8(out)
+        .map_err(|e| Error::internal_err(format!("raw app bundle is not valid utf-8: {e}")))
 }
 
 async fn shared_ui_files(

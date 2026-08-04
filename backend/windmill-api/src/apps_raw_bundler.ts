@@ -13,10 +13,9 @@ export async function main(
 	files: Record<string, string>,
 	shared_ui: Record<string, string> | undefined,
 	cli_command: string[],
-	// Set unless the server was told to build with a specific command: the images
-	// install the CLI, and using the one that is there needs no npm reachability
-	// at deploy time and is the release this server ships with.
-	prefer_installed_cli: boolean | undefined
+	// Set unless the server was told to build with a specific command.
+	prefer_installed_cli: boolean | undefined,
+	server_version: string
 ): Promise<{ js_gz: string; css_gz: string }> {
 	const fs = await import('node:fs/promises')
 	const path = await import('node:path')
@@ -24,11 +23,18 @@ export async function main(
 	const dir = path.join(process.cwd(), 'wm_raw_app')
 	await fs.rm(dir, { recursive: true, force: true })
 
-	const write = async (rel: string, content: string) => {
+	// Where a key lands, `path.join` normalising `./` and `..` away. Everything
+	// that reasons about a file goes through this, so nothing disagrees with what
+	// was actually written.
+	const target = (rel: string) => {
 		const abs = path.join(dir, rel.replace(/^\/+/, ''))
 		if (!abs.startsWith(dir + path.sep)) {
 			throw new Error(`file path escapes the build directory: ${rel}`)
 		}
+		return abs
+	}
+	const write = async (rel: string, content: string) => {
+		const abs = target(rel)
 		await fs.mkdir(path.dirname(abs), { recursive: true })
 		await fs.writeFile(abs, content)
 	}
@@ -40,11 +46,8 @@ export async function main(
 		await write('ui/' + p.replace(/^\/+/, ''), content)
 	}
 
-	// However the caller spelled the key: `write()` normalises it, so the check
-	// has to as well or the app builds with no node_modules.
-	const hasPackageJson = Object.keys(files ?? {}).some(
-		(p) => p.replace(/^[./]+/, '') === 'package.json'
-	)
+	const manifest = path.join(dir, 'package.json')
+	const hasPackageJson = Object.keys(files ?? {}).some((p) => target(p) === manifest)
 	// Piped rather than inherited so the output can go in the error too, then
 	// echoed either way — the job's log is where someone looks to see what the
 	// build did.
@@ -71,8 +74,17 @@ export async function main(
 		await fs.mkdir(path.join(dir, 'node_modules'), { recursive: true })
 	}
 
+	// Prefer the CLI the image installed — no npm reachability needed at deploy
+	// time — but only when it is the release this server belongs to. An image
+	// whose CLI predates `app bundle` would otherwise fail with a usage message.
 	const installed = prefer_installed_cli ? Bun.which('wmill') : undefined
-	const build = installed ? [installed, 'app', 'bundle'] : cli_command
+	const installedUsable =
+		installed !== undefined &&
+		installed !== null &&
+		Bun.spawnSync([installed, '--version'], { stdout: 'pipe', stderr: 'pipe' })
+			.stdout.toString()
+			.includes(server_version)
+	const build = installedUsable ? [installed as string, 'app', 'bundle'] : cli_command
 
 	const outDir = path.join(dir, 'dist')
 	const buildOutput = run([...build, dir, '--out', outDir], 'bundle')
