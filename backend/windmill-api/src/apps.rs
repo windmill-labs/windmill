@@ -119,6 +119,11 @@ pub fn workspaced_service(raw_app_body_limit: usize) -> Router {
             post(update_app_raw).layer(axum::extract::DefaultBodyLimit::max(raw_app_body_limit)),
         )
         .route(
+            "/create_raw_source",
+            post(create_app_raw_source)
+                .layer(axum::extract::DefaultBodyLimit::max(raw_app_body_limit)),
+        )
+        .route(
             "/update_raw_source/{*path}",
             post(update_app_raw_source)
                 .layer(axum::extract::DefaultBodyLimit::max(raw_app_body_limit)),
@@ -2710,6 +2715,124 @@ async fn update_app_raw_source(
     );
 
     Ok(format!("app {} updated (npath: {:?})", opath, npath))
+}
+
+/// Whether the caller may create an app at `path` — asked of the database rather
+/// than restated here, like `can_write_app`: the app's RLS grants group members
+/// write on a `g/<group>/…` path, which a hand-written check misses. The probe is
+/// the insert itself, rolled back; `app` has no insert trigger, so the only trace
+/// is a consumed sequence value.
+async fn can_create_app(
+    user_db: &UserDB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    path: &str,
+) -> Result<bool> {
+    let mut tx = user_db.clone().begin(authed).await?;
+    let allowed = sqlx::query_scalar!(
+        "INSERT INTO app (workspace_id, path, summary, policy, versions)
+         VALUES ($1, $2, '', '{}'::jsonb, '{}') RETURNING 1",
+        w_id,
+        path
+    )
+    .fetch_optional(&mut *tx)
+    .await;
+    tx.rollback().await?;
+    match allowed {
+        Ok(row) => Ok(row.is_some()),
+        Err(sqlx::Error::Database(e)) => match e.code().as_deref() {
+            // RLS refuses an insert outright rather than filtering it out.
+            Some("42501") => Ok(false),
+            // The path was taken between the existence check and this probe.
+            // Permission is not what is wrong, so let the real insert say so.
+            Some("23505") => Ok(true),
+            _ => Err(sqlx::Error::Database(e).into()),
+        },
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// Whether a deployed app already occupies `path`. Through the privileged pool
+/// on purpose: a path taken by an app the caller can't see is still taken, and
+/// `create_app_internal` would fail on the unique index either way.
+async fn app_exists(db: &DB, w_id: &str, path: &str) -> Result<bool> {
+    Ok(sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM app WHERE path = $1 AND workspace_id = $2)",
+        path,
+        w_id
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false))
+}
+
+/// Create a raw app from its sources, compiling them on a worker. The counterpart
+/// of `update_app_raw_source`: `create_raw` takes a bundle the caller already
+/// built, which an API client has no way to produce.
+async fn create_app_raw_source(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Extension(webhook): Extension<WebhookShared>,
+    Path(w_id): Path<String>,
+    Json(app): Json<CreateApp>,
+) -> Result<(StatusCode, String)> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot create apps for security reasons".to_string(),
+        ));
+    }
+
+    let path = app.path.clone();
+    check_scopes(&authed, || format!("apps:write:{}", path))?;
+    // See update_app_raw_source: the compile runs caller-supplied sources on a
+    // worker, so writing an app must not be a way to gain that.
+    check_scopes(&authed, || "jobs:run".to_string())?;
+
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
+        &w_id,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
+    let files: RawAppSourceFiles = serde_json::from_str(app.value.0.get())
+        .map_err(|e| Error::BadRequest(format!("app value is not a raw app source: {e}")))?;
+
+    // Before the compile, which costs a job on a worker: it must not run for a
+    // path already taken, nor for one the caller can't write. `create_app_internal`
+    // rejects both, but only after the sources have been built.
+    if app_exists(&db, &w_id, &path).await? {
+        return Err(Error::BadRequest(format!("App {path} already exists")));
+    }
+    if !can_create_app(&user_db, &authed, &w_id, &path).await? {
+        return Err(Error::PermissionDenied(format!(
+            "You do not have permission to create app {path}"
+        )));
+    }
+
+    let (js, css) =
+        apps_raw_bundle::bundle_raw_app_sources(&db, &user_db, &authed, &w_id, &files.files)
+            .await?;
+
+    let (mut tx, npath, v_id) = create_app_internal(authed, db, user_db, &w_id, true, app).await?;
+    store_raw_app_file(&w_id, &v_id, "js", bytes::Bytes::from(js), &mut tx).await?;
+    if !css.is_empty() {
+        store_raw_app_file(&w_id, &v_id, "css", bytes::Bytes::from(css), &mut tx).await?;
+    }
+    tx.commit().await?;
+
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::CreateApp { workspace: w_id, path: npath.clone() },
+    );
+
+    Ok((StatusCode::CREATED, npath))
 }
 
 /// The part of a raw app's value the bundler needs.
