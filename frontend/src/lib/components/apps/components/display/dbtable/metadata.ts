@@ -70,7 +70,10 @@ export async function loadTableMetaData(
  * own pane, so toasting here would double-report it. */
 export async function loadAllTablesMetaData(
 	workspace: string | undefined,
-	input: DbInput
+	input: DbInput,
+	// Worker tag to run the introspection job on instead of the language's native
+	// one, for a database only reachable from a specific worker group.
+	tag?: string
 ): Promise<Record<string, TableMetadata> | undefined> {
 	if (!input || !workspace) return undefined
 
@@ -86,7 +89,7 @@ export async function loadAllTablesMetaData(
 
 		let result = (await runScriptAndPollResult({
 			workspace,
-			requestBody: { language, content, args: dbArg }
+			requestBody: { language, content, args: dbArg, tag }
 		})) as ({ table_name: string; schema_name?: string } & object)[]
 		const map: Record<string, TableMetadata> = {}
 
@@ -97,7 +100,7 @@ export async function loadAllTablesMetaData(
 			map[tableKey].push(col)
 		}
 
-		await fetchAndAddSnowflakePrimaryKeysInMap(map, input, workspace)
+		await fetchAndAddSnowflakePrimaryKeysInMap(map, input, workspace, undefined, tag)
 
 		return map
 	} catch (e) {
@@ -118,13 +121,14 @@ async function fetchAndAddSnowflakePrimaryKeysInMap(
 	map: Record<string, TableMetadata>,
 	input: DbInput,
 	workspace: string,
-	tableKey?: string
+	tableKey?: string,
+	tag?: string
 ) {
 	if (
 		input.type == 'database' &&
 		(input.resourceType === 'snowflake' || (input.resourceType as any) === 'snowflake_oauth')
 	) {
-		let pkResult = await fetchSnowflakePrimaryKeys(workspace, getDatabaseArg(input), tableKey)
+		let pkResult = await fetchSnowflakePrimaryKeys(workspace, getDatabaseArg(input), tableKey, tag)
 		for (const pk of pkResult) {
 			const pkTableKey = `${pk.schema_name}.${pk.table_name}`.toUpperCase()
 			// Also check the original casing and the provided tableKey
@@ -147,7 +151,8 @@ async function fetchAndAddSnowflakePrimaryKeysInMap(
 async function fetchSnowflakePrimaryKeys(
 	workspace: string,
 	dbArg: any,
-	tableKey?: string
+	tableKey?: string,
+	tag?: string
 ): Promise<SnowflakeShowPrimaryKeysResult[]> {
 	const payload: Record<string, unknown> = {}
 	if (tableKey) payload.table = tableKey
@@ -157,7 +162,8 @@ async function fetchSnowflakePrimaryKeys(
 		requestBody: {
 			language: 'snowflake',
 			args: dbArg,
-			content
+			content,
+			tag
 		}
 	})) as SnowflakeShowPrimaryKeysResult[]
 }

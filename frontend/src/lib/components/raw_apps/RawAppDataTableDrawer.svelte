@@ -13,6 +13,7 @@
 	import type { DbInput } from '../dbTypes'
 	import type { SelectedTable } from '../DBManager.svelte'
 	import { getRawAppOperatingWorkspace } from './rawAppWorkspace'
+	import { useDbManagerTag } from '../dbManagerTag.svelte'
 
 	const getOpWs = getRawAppOperatingWorkspace()
 	let opWs = $derived(getOpWs?.() ?? $workspaceStore)
@@ -148,6 +149,13 @@
 
 	// Can add: has tables selected
 	const canAdd = $derived(selectedDatatable && selectedTables.length > 0)
+
+	// Shares the drawer-set override with the Database Manager: same data table,
+	// same worker group needed to reach it.
+	const workerTag = useDbManagerTag(
+		() => opWs,
+		() => dbInput
+	)
 </script>
 
 <svelte:window bind:innerWidth={windowWidth} />
@@ -171,6 +179,7 @@
 					bind:this={dbManagerContent}
 					input={dbInput}
 					workspace={opWs}
+					bind:workerTag={() => workerTag.tag, (v) => (workerTag.tag = v)}
 					bind:hasReplResult
 					bind:selectedSchemaKey
 					bind:selectedTableKey

@@ -9,6 +9,7 @@
 		getLanguageByResourceType
 	} from './apps/components/display/dbtable/utils'
 	import DbManager from './DBManager.svelte'
+	import DbWorkerTagPicker from './DbWorkerTagPicker.svelte'
 	import MissingWorkerTagAlert from './jobs/MissingWorkerTagAlert.svelte'
 	import {
 		dbSchemaOpsWithPreviewScripts,
@@ -49,6 +50,9 @@
 		 *  navigation `$workspaceStore`; pass the acting workspace when embedded in
 		 *  a session preview whose workspace differs from the top nav. */
 		workspace?: string
+		/** Worker tag every job of this manager runs on, overriding the database
+		 *  language's native tag. Bound so the hints below can offer to set it. */
+		workerTag?: string
 	}
 
 	let {
@@ -62,7 +66,8 @@
 		selectedTables = $bindable([]),
 		disabledTables = [],
 		onImport,
-		workspace = undefined
+		workspace = undefined,
+		workerTag = $bindable()
 	}: Props = $props()
 
 	let ws = $derived(workspace ?? $workspaceStore)
@@ -103,12 +108,12 @@
 	)
 
 	let colDefs = resource(
-		() => [input, ws],
+		() => [input, ws, workerTag],
 		async () => {
 			colDefsError = undefined
 			if (!input) return
 			try {
-				return await loadAllTablesMetaData(ws, input)
+				return await loadAllTablesMetaData(ws, input, workerTag)
 			} catch (e) {
 				colDefsError = 'Error loading tables metadata: ' + ((e as Error)?.message || e)
 				return
@@ -117,7 +122,7 @@
 	)
 
 	let dbSchemasPromise = resource(
-		() => [input, ws],
+		() => [input, ws, workerTag],
 		async () => {
 			schemaError = undefined
 			if (!input) return
@@ -127,7 +132,8 @@
 					input.resourceType,
 					input.resourcePath,
 					ws,
-					(message: string) => (schemaError = message)
+					(message: string) => (schemaError = message),
+					{ customTag: workerTag }
 				)
 				if (!schema) {
 					schemaError ??= 'The schema query returned no schema'
@@ -138,7 +144,8 @@
 				try {
 					$dbSchemas[dbSchemasPath] = await getDucklakeSchema({
 						workspace: ws!,
-						ducklake: input.ducklake
+						ducklake: input.ducklake,
+						tag: workerTag
 					})
 				} catch (e) {
 					schemaError = 'Error fetching schema: ' + ((e as Error)?.message || e)
@@ -155,9 +162,10 @@
 	}
 
 	// Tag the schema/metadata jobs run on: for every DB the manager supports, the
-	// language name is the tag, which is what makes the missing-worker hint below
-	// possible without waiting for the poller to give up.
-	let jobTag = $derived(input ? getLanguageByResourceType(getDbType(input)) : undefined)
+	// language name is the tag unless overridden, which is what makes the
+	// missing-worker hint below possible without waiting for the poller to give up.
+	let defaultTag = $derived(input ? getLanguageByResourceType(getDbType(input)) : undefined)
+	let jobTag = $derived(workerTag ?? defaultTag)
 
 	// A job queued behind busy workers still loads eventually, so this is a hint
 	// rather than an error. The no-worker-at-all case fails outright instead.
@@ -214,6 +222,14 @@
 					Retry
 				</Button>
 			</div>
+			<!-- A database that no default worker can reach fails here rather than in the
+				missing-worker path below, so the same override is offered on any load error. -->
+			<DbWorkerTagPicker
+				bind:tag={workerTag}
+				{defaultTag}
+				workspace={ws}
+				class="border-t pt-3 max-w-md"
+			/>
 		</div>
 	</div>
 {:else if dbSchema && ws && input}
@@ -251,11 +267,13 @@
 						colDefs,
 						tableKey,
 						input: _input,
-						workspace: ws
+						workspace: ws,
+						tag: workerTag
 					})}
 				dbSchemaOps={dbSchemaOpsWithPreviewScripts({
 					input: _input,
 					workspace: ws,
+					tag: workerTag,
 					confirmRunOutOfOrder: (pending) =>
 						outOfOrderModal.ask({
 							title: 'Run migration out of order',
@@ -288,6 +306,7 @@
 				<SqlRepl
 					{input}
 					{workspace}
+					tag={workerTag}
 					onData={(data) => {
 						replResultData = data
 					}}
@@ -324,6 +343,12 @@
 						class="max-w-2xl w-full"
 					/>
 				{/if}
+				<DbWorkerTagPicker
+					bind:tag={workerTag}
+					{defaultTag}
+					workspace={ws}
+					class="max-w-md w-full"
+				/>
 			{/if}
 		</Pane>
 	</Splitpanes>

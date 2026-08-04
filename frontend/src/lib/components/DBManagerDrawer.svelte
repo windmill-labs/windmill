@@ -13,6 +13,7 @@
 		LoaderCircle,
 		Minimize,
 		RefreshCcw,
+		Tag,
 		Upload
 	} from 'lucide-svelte'
 	import DBManagerContent from './DBManagerContent.svelte'
@@ -24,6 +25,11 @@
 	import Alert from './common/alert/Alert.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
+	import { useDbManagerTag } from './dbManagerTag.svelte'
+	import DbWorkerTagPicker from './DbWorkerTagPicker.svelte'
+	import Popover from './meltComponents/Popover.svelte'
+	import { getLanguageByResourceType } from './apps/components/display/dbtable/utils'
+	import { getDbType } from './dbOps'
 
 	interface Props {
 		uriState: DbManagerUriState
@@ -80,6 +86,17 @@
 	})
 
 	let dbManagerContent: DBManagerContent | undefined = $state()
+
+	// Per-database worker tag override, remembered across drawer opens.
+	const workerTag = useDbManagerTag(
+		() => ws,
+		() => uriState.effectiveInput
+	)
+	let defaultTag = $derived(
+		uriState.effectiveInput
+			? getLanguageByResourceType(getDbType(uriState.effectiveInput))
+			: undefined
+	)
 
 	let hasReplResult = $state(false)
 
@@ -181,6 +198,7 @@
 					bind:this={dbManagerContent}
 					input={uriState.effectiveInput}
 					workspace={uriState.workspace}
+					bind:workerTag={() => workerTag.tag, (v) => (workerTag.tag = v)}
 					bind:hasReplResult
 					bind:selectedSchemaKey={uriState.selectedSchema}
 					bind:selectedTableKey={uriState.selectedTable}
@@ -223,6 +241,29 @@
 					Import
 				</Button>
 			{/if}
+			<Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}>
+				{#snippet trigger()}
+					<Button
+						size="xs"
+						color="light"
+						startIcon={{ icon: Tag }}
+						nonCaptureEvent
+						title="Worker tag the database jobs run on"
+					>
+						{workerTag.tag ?? 'Worker tag'}
+					</Button>
+				{/snippet}
+				{#snippet content()}
+					<div class="p-4 w-96">
+						<DbWorkerTagPicker
+							bind:tag={() => workerTag.tag, (v) => (workerTag.tag = v)}
+							{defaultTag}
+							workspace={ws}
+						/>
+					</div>
+				{/snippet}
+			</Popover>
+
 			<Button
 				loading={dbManagerContent?.isLoading() ?? false}
 				on:click={refreshManager}
