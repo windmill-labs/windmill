@@ -104,6 +104,11 @@
 	}
 
 	let rightPaneHeight: number = $state(0)
+
+	// Collapsed, the picker pane is gone rather than narrow: a modal panel is barely wider
+	// than the picker's own minimum, so leaving it in would cost the inputs most of their
+	// room. The connect button on every input row is what brings it back.
+	const pickerVisible = $derived(!inModalPanel || $propPickerConfig != undefined)
 </script>
 
 {#snippet pickerBody()}
@@ -164,14 +169,21 @@
 		{@render children?.()}
 	{:else}
 		<Splitpanes class={$propPickerConfig ? 'splitpanes-remove-splitter' : ''}>
-			<Pane minSize={20} size={60} class={'relative !transition-none'}>
-				<div style="height: {rightPaneHeight}px;" class={noPadding ? '' : 'p-2'}>
+			<Pane minSize={20} size={pickerVisible ? 60 : 100} class={'relative !transition-none'}>
+				<!-- Sized from the picker pane so the two columns stay level. With no picker
+				     there is nothing to level against, so it takes the height it is given. -->
+				<div
+					style={pickerVisible ? `height: ${rightPaneHeight}px;` : ''}
+					class="{noPadding ? '' : 'p-2'} {pickerVisible ? '' : 'h-full'}"
+				>
 					{@render children?.()}
 				</div>
 			</Pane>
-			<Pane minSize={20} size={40} class="!transition-none z-1000 relative {paneClass}">
-				{@render pickerBody()}
-			</Pane>
+			{#if pickerVisible}
+				<Pane minSize={20} size={40} class="!transition-none z-1000 relative {paneClass}">
+					{@render pickerBody()}
+				</Pane>
+			{/if}
 		</Splitpanes>
 	{/if}
 </div>
