@@ -844,9 +844,10 @@ pub async fn run_agent(
     {
         query_builder = create_chat_completions_query_builder(&credentials);
     }
-    // Both outlive the iteration that discovers them: a request shape or a route the
+    // These outlive the iteration that discovers them: a request shape or a route the
     // endpoint rejected once stays rejected for the whole step.
     let mut include_usage = true;
+    let mut include_prompt_cache_key = true;
 
     // Initialize messages
     let mut messages =
@@ -863,6 +864,17 @@ pub async fn run_agent(
     // Effective flow_step_id: override for nested agents, otherwise from job
     let effective_flow_step_id: Option<&str> =
         flow_step_id_override.or(job.flow_step_id.as_deref());
+
+    // Keyed on the step, not the run: every run of this step opens with the same system
+    // prompt and tool definitions, and each agent-loop iteration extends the previous
+    // one's prefix. Above ~15 requests/minute one key starts missing again, which is a
+    // reason to split it further, never to make it per-run.
+    let prompt_cache_key = format!(
+        "{}:{}:{}",
+        job.workspace_id,
+        job.runnable_path(),
+        effective_flow_step_id.unwrap_or_default()
+    );
 
     // Fetch flow context for input transforms context, chat and memory
     let mut flow_context = get_flow_context(db, job).await;
@@ -1146,7 +1158,7 @@ pub async fn run_agent(
             }
         } else {
             // For all other providers, use the HTTP client approach
-            let build_args = BuildRequestArgs {
+            let mut build_args = BuildRequestArgs {
                 messages: &messages,
                 tools: tool_defs.as_deref(),
                 model: args.provider.get_model(),
@@ -1159,6 +1171,7 @@ pub async fn run_agent(
                 user_message: args.user_message.as_deref().unwrap_or(""),
                 attachments: args.user_attachments.as_deref(),
                 has_websearch,
+                prompt_cache_key: include_prompt_cache_key.then_some(prompt_cache_key.as_str()),
             };
 
             // A worker cannot run the client credentials exchange, so an OAuth resource
@@ -1208,9 +1221,10 @@ pub async fn run_agent(
                 };
 
             // An endpoint can reject the request shape rather than the model:
-            // `stream_options`, which not every OpenAI-compatible provider accepts, and
-            // the route itself, when an Azure resource is outside the Responses API's
-            // model/region matrix. Each is retried once with that part dropped.
+            // `stream_options` and `prompt_cache_key`, which not every OpenAI-compatible
+            // gateway accepts, and the route itself, when an Azure resource is outside
+            // the Responses API's model/region matrix. Each is retried once with that
+            // part dropped.
             // Set where the route is found to be absent, and read once the fallback has
             // answered: a rejection it did not resolve says nothing about the deployment.
             let mut rerouted_by_a_route_rejection = false;
@@ -1258,6 +1272,13 @@ pub async fn run_agent(
                                 || text.contains("include_usage")
                                 || text.contains("Additional properties are not allowed"));
 
+                        // An OpenAI-compatible gateway that validates the body strictly
+                        // names the offending field, whether it calls it an unrecognized
+                        // argument or an unexpected additional property.
+                        let rejects_prompt_cache_key = build_args.prompt_cache_key.is_some()
+                            && status.as_u16() == 400
+                            && text.contains("prompt_cache_key");
+
                         // Only the first call of the step may re-route: an endpoint that
                         // does not serve this API rejects that one already, whereas a
                         // rejection once the conversation is under way is about the
@@ -1272,6 +1293,15 @@ pub async fn run_agent(
                                 "Retrying request without stream_options due to provider incompatibility"
                             );
                             include_usage = false;
+                        } else if rejects_prompt_cache_key {
+                            // Checked before the route fallback: the endpoint serves this
+                            // route, it just refuses one optional field, and re-routing
+                            // the whole step over that would give up far more.
+                            tracing::info!(
+                                "Retrying request without prompt_cache_key due to provider incompatibility"
+                            );
+                            include_prompt_cache_key = false;
+                            build_args.prompt_cache_key = None;
                         } else if route_unserved {
                             tracing::info!(
                                 "Endpoint rejected the request ({}), falling back to chat/completions",

@@ -179,11 +179,31 @@ function convertMessagesToResponsesInput(messages: ChatCompletionMessageParam[])
 	}
 }
 
+/**
+ * Routing key for the provider's prompt cache. Built only from what fixes the prompt
+ * prefix (the surface, which pins the system prompt and tool set, plus the model) and
+ * never from anything per-request, since requests sharing a prefix must reuse one key
+ * to land on the same cache. Workspace splits traffic across the ~15 requests/minute
+ * one key sustains before it starts missing again.
+ */
+export function buildPromptCacheKey(
+	surface: string,
+	modelProvider: { provider: string; model: string },
+	workspace?: string
+): string {
+	return [workspace ?? '', modelProvider.provider, modelProvider.model, surface].join(':')
+}
+
 function convertCompletionConfigToResponsesConfig(
-	config: ChatCompletionCreateParams
+	config: ChatCompletionCreateParams,
+	promptCacheKey?: string
 ): Record<string, any> {
 	const responsesConfig: Record<string, any> = {
 		model: config.model
+	}
+
+	if (promptCacheKey) {
+		responsesConfig.prompt_cache_key = promptCacheKey
 	}
 
 	// Map max_tokens or max_completion_tokens to max_output_tokens
@@ -223,6 +243,7 @@ export async function getOpenAIResponsesCompletion(
 		webSearch?: boolean
 		reasoningEffort?: string
 		reasoningSummary?: boolean
+		promptCacheKey?: string
 	}
 ) {
 	const { provider, config } = getProviderAndCompletionConfig({
@@ -233,7 +254,7 @@ export async function getOpenAIResponsesCompletion(
 	})
 	const { instructions, input } = convertMessagesToResponsesInput(messages)
 	const responsesConfig = applyReasoningToConfig(
-		convertCompletionConfigToResponsesConfig(config),
+		convertCompletionConfigToResponsesConfig(config, options?.promptCacheKey),
 		'responses',
 		options?.reasoningEffort
 	)
@@ -292,7 +313,10 @@ export async function* getOpenAIResponsesCompletionStream(
 	})
 	const { instructions, input } = convertMessagesToResponsesInput(messages)
 	const responsesConfig = applyReasoningToConfig(
-		convertCompletionConfigToResponsesConfig(config),
+		convertCompletionConfigToResponsesConfig(
+			config,
+			buildPromptCacheKey('completion', { provider, model: config.model })
+		),
 		'responses',
 		options?.reasoningEffort
 	)
@@ -575,7 +599,10 @@ export async function getNonStreamingOpenAIResponsesCompletion(
 	})
 
 	const { instructions, input } = convertMessagesToResponsesInput(messages)
-	const responsesConfig = convertCompletionConfigToResponsesConfig(config)
+	const responsesConfig = convertCompletionConfigToResponsesConfig(
+		config,
+		buildPromptCacheKey('completion', { provider, model: config.model }, options?.workspace)
+	)
 
 	const fetchOptions: {
 		signal: AbortSignal

@@ -14,7 +14,11 @@ import {
 import { getAnthropicCompletion, parseAnthropicCompletion } from './anthropic'
 import { modelSupportsVision, usesAnthropicMessagesApi } from '../modelConfig'
 import { boundImagePartBytes, stripImagePartsFromMessages } from './imageUtils'
-import { getOpenAIResponsesCompletion, parseOpenAIResponsesCompletion } from './openai-responses'
+import {
+	buildPromptCacheKey,
+	getOpenAIResponsesCompletion,
+	parseOpenAIResponsesCompletion
+} from './openai-responses'
 import type { Tool, ToolCallbacks } from './shared'
 import { sanitizeToolCallArguments } from './toolCallArguments'
 import { addChatTokenUsage, emptyChatTokenUsage, type ChatTokenUsage } from './tokenUsage'
@@ -129,6 +133,11 @@ const WEB_SEARCH_UNAVAILABLE_STATUS_CODES = new Set([400, 403, 404])
 // freshly verified organization starts getting summaries again.
 const unsupportedReasoningSummaryCache = new Set<string>()
 const REASONING_SUMMARY_UNAVAILABLE_STATUS_CODES = new Set([400, 403])
+
+// A gateway that validates the request body strictly rejects `prompt_cache_key`
+// outright, so it is a property of the endpoint the credentials point at, not of the
+// model. Same in-memory reasoning as above: a reload re-probes.
+const unsupportedPromptCacheKeyCache = new Set<string>()
 
 function getWebSearchCacheKey(workspace: string, modelProvider: ReasoningProviderModel): string {
 	return [workspace, modelProvider.provider, modelProvider.model].join(':')
@@ -251,6 +260,25 @@ function shouldRetryWithoutReasoningSummary(err: unknown): boolean {
 	)
 }
 
+// An OpenAI-compatible gateway that validates the body strictly names the offending
+// field, whether it calls it an unrecognized argument or an unexpected additional
+// property.
+function shouldRetryWithoutPromptCacheKey(err: unknown): boolean {
+	const status = getErrorStatus(err)
+	if (status !== undefined && status !== 400) {
+		return false
+	}
+	if (getErrorParam(err) === 'prompt_cache_key') {
+		return true
+	}
+	return getErrorText(err).includes('prompt_cache_key')
+}
+
+function markPromptCacheKeyUnsupported(cacheKey: string, err: unknown) {
+	unsupportedPromptCacheKeyCache.add(cacheKey)
+	console.warn('prompt_cache_key rejected; retrying without prompt caching hints:', err)
+}
+
 function markReasoningSummaryUnsupported(
 	cacheKey: string,
 	err: unknown,
@@ -360,6 +388,12 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 				resolveEffectiveReasoning(modelProvider) !== undefined &&
 				!unsupportedReasoningSummaryCache.has(reasoningSummaryCacheKey)
 
+			// One key for the whole chat surface: every iteration opens with the same
+			// system prompt and tool definitions, and each one extends the previous
+			// iteration's prefix, so they all belong on the same cache.
+			const promptCacheKey = buildPromptCacheKey('chat', modelProvider, workspace)
+			let usePromptCacheKey = !unsupportedPromptCacheKeyCache.has(promptCacheKey)
+
 			const runOpenAIResponses = async (useWebSearch: boolean): Promise<boolean> => {
 				const completion = await getOpenAIResponsesCompletion(
 					messageParams,
@@ -370,7 +404,8 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 						openaiClient: clients.openai,
 						webSearch: useWebSearch,
 						reasoningEffort,
-						reasoningSummary
+						reasoningSummary,
+						promptCacheKey: usePromptCacheKey ? promptCacheKey : undefined
 					}
 				)
 				const continueCompletion = await parseOpenAIResponsesCompletion(
@@ -389,9 +424,10 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 			let useCompletionsApi = skipResponsesApi
 			if (!skipResponsesApi) {
 				// Retry the Responses call disabling whichever optional feature the
-				// provider rejected (reasoning summary, web search) in the order the
-				// errors arrive — a turn can hit both, either one first. Each retry
-				// permanently disables one feature, so this loops at most twice.
+				// provider rejected (reasoning summary, web search, prompt cache key) in
+				// the order the errors arrive — a turn can hit several, any one first.
+				// Each retry permanently disables one feature, so this loops at most
+				// once per feature.
 				let useWebSearch = webSearch
 				let outcome: 'break' | 'continue' | undefined
 				let fallbackError: unknown
@@ -409,6 +445,9 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 						} else if (useWebSearch && shouldRetryWithoutWebSearch(err)) {
 							markWebSearchUnsupported(webSearchCacheKey, err, config.onWebSearchUnavailable)
 							useWebSearch = false
+						} else if (usePromptCacheKey && shouldRetryWithoutPromptCacheKey(err)) {
+							markPromptCacheKeyUnsupported(promptCacheKey, err)
+							usePromptCacheKey = false
 						} else {
 							fallbackError = err
 							break
