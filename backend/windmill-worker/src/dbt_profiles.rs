@@ -295,13 +295,6 @@ pub struct DbtAdapter {
 }
 
 impl DbtAdapter {
-    /// The adapter a Windmill resource type renders as, or `None` when that type
-    /// names no adapter at all. Resource type names, not dbt's — the two agree
-    /// for most, and `KnownAdapter::from_resource_type` carries the rest.
-    pub fn from_resource_type(rt: &str) -> Option<Self> {
-        KnownAdapter::from_resource_type(rt).map(Self::from)
-    }
-
     /// An adapter as dbt spells it, known or not.
     ///
     /// The name reaches a pip requirement and a venv path, so it is confined to
