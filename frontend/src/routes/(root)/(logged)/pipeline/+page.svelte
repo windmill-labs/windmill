@@ -3,6 +3,7 @@
 	import PipelineFolderList from '$lib/components/assets/AssetGraph/PipelineFolderList.svelte'
 	import PipelineSetupSignpost from '$lib/components/assets/AssetGraph/PipelineSetupSignpost.svelte'
 	import PipelineAlphaAckModal from '$lib/components/assets/AssetGraph/PipelineAlphaAckModal.svelte'
+	import PipelineDbtSignpost from '$lib/components/assets/AssetGraph/PipelineDbtSignpost.svelte'
 	import { BookOpen, NetworkIcon } from 'lucide-svelte'
 	import { onMount } from 'svelte'
 
@@ -73,6 +74,8 @@
 					Pipelines documentation
 				</a>
 			</div>
+
+			<PipelineDbtSignpost />
 
 			{#if !$userStore?.operator && $workspaceStore}
 				<PipelineSetupSignpost workspace={$workspaceStore} />
