@@ -22,6 +22,13 @@
 		children: any
 		onMenuOpen?: () => void
 		disableAi?: boolean
+		// Whether this layout loads the workspace AI config. It gates far more than
+		// the docked pane (code completion, metadata generation, the "open in AI
+		// session" buttons), so it must not be tied to `disableAi`. Pass false where
+		// another component owns the load for a different workspace — on the sessions
+		// route SessionWrapper loads the session's acting workspace, and both writing
+		// the global store would race.
+		loadAiConfig?: boolean
 		// Only the root layout's docked chat is the "legacy" counterpart of AI
 		// Sessions — SDK wrappers reuse this layout for script/flow chats where
 		// the sessions beta banner would make no sense.
@@ -35,6 +42,7 @@
 		children,
 		onMenuOpen,
 		disableAi,
+		loadAiConfig = true,
 		showSessionsBetaBanner = false
 	}: Props = $props()
 
@@ -49,7 +57,7 @@
 	})
 
 	$effect(() => {
-		if ($workspaceStore && !disableAi) {
+		if ($workspaceStore && loadAiConfig) {
 			loadCopilot($workspaceStore)
 		}
 	})
