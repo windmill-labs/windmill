@@ -17,9 +17,7 @@ use crate::{
     auth::{get_end_user_email, AuthCache, OptTokened},
     db::{ApiAuthed, DB},
     jobs::RunJobQuery,
-    users::{
-        require_is_writer, require_owner_of_path, require_path_read_access_for_preview, OptAuthed,
-    },
+    users::{require_owner_of_path, require_path_read_access_for_preview, OptAuthed},
     utils::{build_scope_path_predicate, check_scopes},
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
@@ -2719,6 +2717,41 @@ async fn update_app_raw_source(
     Ok(format!("app {} updated (npath: {:?})", opath, npath))
 }
 
+/// Whether the caller may create an app at `path` — asked of the database rather
+/// than restated here, like `can_write_app`: the app's RLS grants group members
+/// write on a `g/<group>/…` path, which a hand-written check misses. The probe is
+/// the insert itself, rolled back; `app` has no insert trigger, so the only trace
+/// is a consumed sequence value.
+async fn can_create_app(
+    user_db: &UserDB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    path: &str,
+) -> Result<bool> {
+    let mut tx = user_db.clone().begin(authed).await?;
+    let allowed = sqlx::query_scalar!(
+        "INSERT INTO app (workspace_id, path, summary, policy, versions)
+         VALUES ($1, $2, '', '{}'::jsonb, '{}') RETURNING 1",
+        w_id,
+        path
+    )
+    .fetch_optional(&mut *tx)
+    .await;
+    tx.rollback().await?;
+    match allowed {
+        Ok(row) => Ok(row.is_some()),
+        Err(sqlx::Error::Database(e)) => match e.code().as_deref() {
+            // RLS refuses an insert outright rather than filtering it out.
+            Some("42501") => Ok(false),
+            // The path was taken between the existence check and this probe.
+            // Permission is not what is wrong, so let the real insert say so.
+            Some("23505") => Ok(true),
+            _ => Err(sqlx::Error::Database(e).into()),
+        },
+        Err(e) => Err(e.into()),
+    }
+}
+
 /// Whether a deployed app already occupies `path`. Through the privileged pool
 /// on purpose: a path taken by an app the caller can't see is still taken, and
 /// `create_app_internal` would fail on the unique index either way.
@@ -2777,21 +2810,17 @@ async fn create_app_raw_source(
     if app_exists(&db, &w_id, &path).await? {
         return Err(Error::BadRequest(format!("App {path} already exists")));
     }
-    require_is_writer(
-        &authed,
-        &path,
-        &w_id,
-        db.clone(),
-        "SELECT extra_perms FROM app WHERE path = $1 AND workspace_id = $2",
-        "app",
-    )
-    .await?;
+    if !can_create_app(&user_db, &authed, &w_id, &path).await? {
+        return Err(Error::PermissionDenied(format!(
+            "You do not have permission to create app {path}"
+        )));
+    }
 
     let (js, css) =
-        apps_raw_bundle::bundle_raw_app_sources(&db, &user_db, &authed, &w_id, &files.files).await?;
+        apps_raw_bundle::bundle_raw_app_sources(&db, &user_db, &authed, &w_id, &files.files)
+            .await?;
 
-    let (mut tx, npath, v_id) =
-        create_app_internal(authed, db, user_db, &w_id, true, app).await?;
+    let (mut tx, npath, v_id) = create_app_internal(authed, db, user_db, &w_id, true, app).await?;
     store_raw_app_file(&w_id, &v_id, "js", bytes::Bytes::from(js), &mut tx).await?;
     if !css.is_empty() {
         store_raw_app_file(&w_id, &v_id, "css", bytes::Bytes::from(css), &mut tx).await?;

@@ -474,3 +474,53 @@ async fn test_raw_app_kind_is_not_flipped_by_update(db: Pool<Postgres>) -> anyho
 
     Ok(())
 }
+
+/// Who may create at a path is the app table's answer, not a rule restated in the
+/// handler: a non-admin member of `g/<group>` writes there, and nowhere a
+/// non-member does. Both are decided before the sources are compiled, so an empty
+/// `files` is enough to say which side of that check the request reached.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_create_raw_source_write_check_follows_app_rls(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    sqlx::query(
+        "INSERT INTO usr_to_group (workspace_id, usr, group_) VALUES
+         ('test-workspace', 'test-user-2', 'all')",
+    )
+    .execute(&db)
+    .await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/apps");
+    let create_as_member = |path: &'static str| {
+        client()
+            .post(format!("{base}/create_raw_source"))
+            .header("Authorization", "Bearer SECRET_TOKEN_2")
+            .json(&json!({
+                "path": path,
+                "summary": "",
+                "value": { "files": {} },
+                "policy": { "execution_mode": "publisher" }
+            }))
+            .send()
+    };
+
+    let resp = create_as_member("g/all/from_source").await.unwrap();
+    assert_eq!(
+        resp.status(),
+        400,
+        "a group member must reach the compile: {}",
+        resp.text().await?
+    );
+
+    let resp = create_as_member("u/test-user/from_source").await.unwrap();
+    assert_eq!(
+        resp.status(),
+        403,
+        "expected another user's path to be refused"
+    );
+
+    Ok(())
+}
