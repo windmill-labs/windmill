@@ -58,7 +58,10 @@ import { isChromiumBrowser } from '$lib/utils'
 import {
 	applyEditableFlowJsonToFlow,
 	buildEditableFlowJson,
+	EDITABLE_FLOW_STRUCTURAL_KEYS,
 	type EditableFlowJson,
+	FLOW_VALUE_SETTINGS_KEYS,
+	pickFlowValueSettings,
 	finalizeUnresolvedInlineScripts,
 	restoreSpecialRawscriptModule,
 	validateEditableFlowJson
@@ -82,11 +85,18 @@ import type {
 } from 'openai/resources/chat/completions.mjs'
 import { z } from 'zod'
 import {
+	advancedScheduleShape,
+	buildScheduleToolSchema,
+	describeDroppedScheduleOptions
+} from '../scheduleToolSchema'
+import {
 	createToolDef,
+	droppedOptionKeys,
 	createSearchHubScriptsTool,
 	executeFlowStepTestRun,
 	executeTestRun,
 	findAndReplace,
+	isHubPath,
 	type CreatedResourceTriggerKind,
 	type PreviewCardKind,
 	type Tool,
@@ -137,6 +147,7 @@ import {
 	getDraftDiffValues
 } from '$lib/utils_draft_deploy'
 import { changedLineIndices, draftDeployedPatch, windowPatch } from './draftDiff'
+import { getFlowRunDetails } from './flowRunTree'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { invalidateWorkspaceComparison } from '$lib/workspaceComparison'
 import type { UserDraftItemKind } from '$lib/gen'
@@ -359,7 +370,11 @@ const listWorkspaceItemsSchema = z.object({
 
 const readWorkspaceItemSchema = z.object({
 	type: itemTypeSchema,
-	path: z.string().describe('Workspace path of the item to read.'),
+	path: z
+		.string()
+		.describe(
+			'Workspace path of the item to read, or a hub/<version>/<app>/<name> path from search_hub_scripts to read a hub script.'
+		),
 	trigger_kind: triggerKindSchema
 		.optional()
 		.describe('Required when type is trigger. Identifies which trigger service to call.'),
@@ -521,6 +536,7 @@ function appendEmptyInlineScriptWarning(result: string, editable: EditableFlowJs
 
 function editableFlowToDraftValue(editable: EditableFlowJson): FlowDraftValue {
 	const value: FlowValue = {
+		...pickFlowValueSettings(editable),
 		modules: editable.modules,
 		preprocessor_module: editable.preprocessor_module ?? undefined,
 		failure_module: editable.failure_module ?? undefined,
@@ -549,27 +565,32 @@ function flowDraftAsEditableInput(flowDraft: FlowDraftValue): {
 
 const writeScheduleSchema = scheduleRequestSchema.extend({ override: draftOverrideField })
 
+const writeScheduleToolSchema = buildScheduleToolSchema().extend({ override: draftOverrideField })
+
+// The tool definition keeps `config` open-ended on purpose. Inlining the eleven
+// per-kind request schemas serializes to ~44k characters of JSON Schema, on its own
+// more than a third of every chat request, resent on every iteration whether or not
+// triggers ever come up. The model fetches the single schema it needs through
+// get_trigger_schema, and the call is validated against that same schema below.
 const writeTriggerSchema = z.object({
 	kind: triggerKindSchema.describe('Trigger kind. Determines which fields are valid in config.'),
 	config: z
-		.union([
-			triggerRequestSchemas.http,
-			triggerRequestSchemas.websocket,
-			triggerRequestSchemas.kafka,
-			triggerRequestSchemas.nats,
-			triggerRequestSchemas.postgres,
-			triggerRequestSchemas.mqtt,
-			triggerRequestSchemas.amqp,
-			triggerRequestSchemas.sqs,
-			triggerRequestSchemas.gcp,
-			triggerRequestSchemas.azure,
-			triggerRequestSchemas.email
-		])
+		.record(z.string(), z.any())
 		.describe(
-			'Full trigger configuration. Must include path, script_path, is_flow plus the kind-specific fields.'
+			'Full trigger configuration: path, script_path, is_flow plus the kind-specific fields. Call get_trigger_schema with the same kind first to get its exact fields.'
 		),
 	override: draftOverrideField
 })
+
+const getTriggerSchemaSchema = z.object({
+	kind: triggerKindSchema.describe('Trigger kind whose configuration schema to return.')
+})
+
+function triggerConfigJsonSchema(kind: TriggerKind): string {
+	const schema = z.toJSONSchema(triggerRequestSchemas[kind]) as Record<string, unknown>
+	delete schema.$schema
+	return JSON.stringify(schema, null, 2)
+}
 
 const writeResourceSchema = resourceRequestSchema.extend({ override: draftOverrideField })
 
@@ -592,6 +613,16 @@ const searchResourceTypesSchema = z.object({
 
 const getJobLogsSchema = z.object({
 	id: z.string().describe('The UUID of the job to fetch logs for.')
+})
+
+const getFlowRunDetailsSchema = z.object({
+	id: z.string().describe('The UUID of the flow run to inspect.'),
+	step: z
+		.string()
+		.optional()
+		.describe(
+			'Step to drill into for its result (returned in full up to 12k chars), addressed by the step ids shown in the tree: "b" for a top-level step, "b/c" for a step inside a subflow, "b[12]" for iteration 12 of a loop or attempt 12 of a retried step (1-based), composable as "b[12]/c". Omit to get the whole per-step tree.'
+		)
 })
 
 const cancelJobSchema = z.object({
@@ -1161,16 +1192,18 @@ Rules:
 - Use list_workspace_items to find items and read_workspace_item before changing an existing item. For triggers, pass trigger_kind.
 - If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".
 - Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a draft to the workspace.
-- Use discard_local_draft to remove a draft, including the matching open editor draft. Use delete_workspace_item only to delete a deployed workspace item.
+- To undo something you created or changed in this chat, use discard_local_draft: everything you write is a draft until it is explicitly deployed, so "delete it" / "never mind" / "remove that" about your own work means discarding the draft (it also clears the matching open editor draft). Use delete_workspace_item only to remove an item that is already deployed in the workspace; it mutates the workspace and fails if nothing is deployed at that path.
 - Use diff to review changes — before deploying, or when the user asks what changed. It is read-only: without arguments it lists every draft in the workspace with its change status; with type+path it returns that item's unified diff (for multi-file apps, pass file to read one file's diff). In a fork, pass against="parent_workspace" to compare the deployed fork with its parent workspace instead. Pass search to grep changed lines across all diffs.
 - Variable values are never readable. For secrets, create a secret variable and reference it from resources as "$var:path/to/variable".
-- Use search_resource_types before write_resource.
+- Use search_resource_types before write_resource, and get_trigger_schema before write_trigger: the trigger config fields differ per kind and are not listed in the write_trigger definition.
 - When script or raw app code needs an external npm package you are not fully familiar with, use search_npm_packages to find it and get its documentation and type definitions. Link the package documentation in your answer when you rely on it.
+- Hub scripts are prebuilt integrations for third-party services, hosted outside the workspace under \`hub/<version>/<app>/<name>\` paths. Use search_hub_scripts to find one before hand-writing an integration, then read_workspace_item with type "script" and the returned hub path to get its code, language, and input schema.
 - Use get_db_schema with a database resource path to fetch its tables and columns before writing SQL (or a script querying that database).
 - Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
 ${pipelineBullet}
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
+- To see what a flow run actually did per step — statuses and results across the whole execution tree, subflow steps and loop iterations included — use get_flow_run_details with the run id (it also works while the flow is still running). Pass step to read one step's result in full (capped at 12k chars). Prefer it over get_job_logs when you need step results rather than logs.
 - Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
 - Whenever you ask the user to perform a manual step in the UI — fill in a resource's credentials, set a secret variable's value, adjust a schedule or setting — call open_page in the same message, targeted at that item (pass open with its path to land in its edit drawer, or the page's filters otherwise). Never just describe where to click.
 - When the user is happy with the changes and wants to review or deploy them, use open_page with page "compare" — it opens the Compare & Deploy review page.${
@@ -1178,7 +1211,7 @@ ${pipelineBullet}
 			? ' By default it preselects the items this chat modified; pass items ("<kind>:<path>" entries) to control the selection'
 			: ' Pass items ("<kind>:<path>" entries naming the items you changed) so the review is scoped to them — omitting items preselects every pending change in the workspace'
 	}, or mode ("draft" or "fork") to force which comparison is shown. Prefer offering this review page over calling deploy_workspace_item directly when several items changed.
-- For a Windmill operation no other tool covers (workers, queue state, a run's result or args, ...), use search_api_endpoints to find a REST endpoint, then call_api_get for reads or call_api_endpoint for mutations (the user is asked to confirm those). Always prefer a dedicated tool when one exists; endpoints for authoring or deleting scripts, flows, apps, schedules, resources, or variables are not available through the API catalog tools — use the draft tools and delete_workspace_item instead.
+- For a Windmill operation no other tool covers (workers, queue state, a run's args, ...), use search_api_endpoints to find a REST endpoint, then call_api_get for reads or call_api_endpoint for mutations (the user is asked to confirm those). Always prefer a dedicated tool when one exists; endpoints for authoring or deleting scripts, flows, apps, schedules, resources, or variables are not available through the API catalog tools — use the draft tools and delete_workspace_item instead.
 - runScriptByPath / runFlowByPath from the API catalog run the DEPLOYED version of an item. Use them only when the user explicitly asks to run the deployed version, and read the item with read_workspace_item version: "deployed" first so the arguments match the deployed input schema (a draft may have different inputs). To test something you are editing or just wrote, always use test_run_script, test_run_flow, or test_run_step — they run the draft.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit. Set multiSelect: true only when the answers can genuinely co-apply and the user may pick several (not mutually exclusive).
 - When the user asks you to remember a lasting preference, always/never do something, or change/stop a behavior going forward, call update_user_instructions to persist it. It edits only the USER INSTRUCTIONS block (not WORKSPACE INSTRUCTIONS). Keep each instruction concise; do not use it for one-off requests scoped to the current task.
@@ -1774,6 +1807,20 @@ async function readWorkspaceItem(
 ): Promise<WorkspaceItem> {
 	switch (type) {
 		case 'script': {
+			// Hub scripts are not workspace items: search_hub_scripts hands back
+			// `hub/<version>/<app>/<slug>` paths, which getScriptByPath cannot resolve.
+			if (isHubPath(path)) {
+				const hub = await ScriptService.getHubScriptByPath({ path })
+				return {
+					type: 'script',
+					path,
+					summary: hub.summary,
+					language: hub.language as ScriptLang,
+					value: hub.content,
+					schema: hub.schema,
+					isDraft: false
+				}
+			}
 			// Prefer the DB draft (newer than the deployed version) when one exists,
 			// unless the caller explicitly asked for the deployed state.
 			const script = await ScriptService.getScriptByPath({
@@ -1947,8 +1994,9 @@ function getFlowInstructions(): string {
 
 - Global mode writes complete draft payloads only; it does not save, deploy, run, scaffold local files, or generate metadata.
 - Paths follow the conventions in the system prompt: default to \`u/<current-user>/<name>\` when the user gave a bare name; only use \`f/<folder>/<name>\` when the folder is known to exist. Never invent a folder.
-- \`write_flow\` mirrors flow mode's \`set_flow_json\`: pass \`path\`, optional \`summary\`, optional \`description\`, required \`modules\`, and optional \`schema\`, \`preprocessor_module\`, \`failure_module\`, \`groups\`, and \`notes\`. \`summary\` and \`description\` are top-level flow metadata (not part of the compact value \`patch_flow_json\` edits); the flow-structure arguments are JSON strings, matching the tool schema descriptions.
-- \`read_workspace_item\` returns a compact flow \`value\` object with \`modules\`, \`schema\`, \`preprocessor_module\`, \`failure_module\`, \`groups\`, and \`notes\`.
+- \`write_flow\` mirrors flow mode's \`set_flow_json\`: pass \`path\`, optional \`summary\`, optional \`description\`, required \`modules\`, and optional \`schema\`, \`preprocessor_module\`, \`failure_module\`, \`groups\`, and \`notes\`. \`summary\` and \`description\` are top-level flow metadata (not part of the compact value \`patch_flow_json\` edits); the flow-structure arguments are JSON strings, matching the tool schema descriptions. When overwriting an existing flow, top-level flow settings (see below) are preserved from the current flow — use \`patch_flow_json\` to change them.
+- \`read_workspace_item\` returns a compact flow \`value\` object with \`modules\`, \`schema\`, \`preprocessor_module\`, \`failure_module\`, \`groups\`, \`notes\`, and any top-level flow settings that are set.
+- Top-level flow settings appear as top-level keys of the compact flow value and can be added, edited, or removed with \`patch_flow_json\`: ${FLOW_VALUE_SETTINGS_KEYS.join(', ')}. For example, \`chat_input_enabled: true\` marks a flow as chat-style (flow-as-chat); keep it intact when restructuring such a flow.
 - \`modules\` contains normal sequential modules. Use top-level \`preprocessor_module\` and \`failure_module\` for special modules; do not put \`preprocessor\` or \`failure\` in \`modules\`.
 - Every module needs a stable unique \`id\` and a useful \`summary\` when the schema supports it.
 - Prefer path/script/flow modules when composing existing workspace logic. Use rawscript modules only when new inline code is needed.
@@ -2780,7 +2828,7 @@ export const globalTools: Tool<{}>[] = [
 				return JSON.stringify({ success: false, error: message })
 			}
 			const draft =
-				parsed.version === 'deployed'
+				parsed.version === 'deployed' || isHubPath(parsed.path)
 					? null
 					: await getGlobalDraft(workspace, parsed.type, parsed.path, parsed.trigger_kind)
 			if (draft) {
@@ -2878,7 +2926,8 @@ export const globalTools: Tool<{}>[] = [
 					path: parsed.path,
 					summary: parsed.summary,
 					description: parsed.description,
-					flow: editableFlowToDraftValue(resolved)
+					flow: editableFlowToDraftValue(resolved),
+					preserveBaseValueSettings: true
 				},
 				ctx
 			)
@@ -2887,7 +2936,7 @@ export const globalTools: Tool<{}>[] = [
 	},
 	{
 		def: createToolDef(
-			writeScheduleSchema,
+			writeScheduleToolSchema,
 			'write_schedule',
 			'Create or overwrite a draft schedule.',
 			{ strict: false }
@@ -2896,7 +2945,19 @@ export const globalTools: Tool<{}>[] = [
 		streamArguments: true,
 		showFade: true,
 		fn: async (ctx) => {
-			const parsed = writeScheduleSchema.parse(ctx.args)
+			const { advanced, ...rest } = (ctx.args ?? {}) as Record<string, unknown>
+			// `advanced` carries what the definition does not list, so a named argument
+			// outranks a duplicate of the same key inside the bag. The whole merged object
+			// is checked for stripped keys, not just the bag: an advanced option passed at
+			// the top level instead would otherwise be dropped without a word.
+			const merged = { ...((advanced as Record<string, unknown>) ?? {}), ...rest }
+			const parsed = writeScheduleSchema.parse(merged)
+			const dropped = droppedOptionKeys(merged, parsed)
+			if (dropped.length) {
+				throw new Error(
+					describeDroppedScheduleOptions(dropped)
+				)
+			}
 			return writeScheduleDraft(parsed, ctx)
 		}
 	},
@@ -2912,8 +2973,39 @@ export const globalTools: Tool<{}>[] = [
 		showFade: true,
 		fn: async (ctx) => {
 			const parsed = writeTriggerSchema.parse(ctx.args)
-			return writeTriggerDraft(parsed, ctx)
+			// writeTriggerDraft dispatches on `kind`, so a config belonging to another kind
+			// has to be rejected here rather than reaching the API as a corrupt draft. The
+			// recovery instruction leads because formatToolError caps the message at 2k and
+			// a long issue list would otherwise push it out of what the model receives.
+			const config = triggerRequestSchemas[parsed.kind].safeParse(parsed.config)
+			if (!config.success) {
+				throw new Error(
+					`Invalid config for a "${parsed.kind}" trigger. Call get_trigger_schema with kind "${parsed.kind}" for its exact fields. Issues: ${config.error.issues
+						.map((i) => `${i.path.join('.') || '<root>'}: ${i.message}`)
+						.join('; ')}`
+				)
+			}
+			return writeTriggerDraft({ ...parsed, config: config.data }, ctx)
 		}
+	},
+	{
+		def: createToolDef(
+			getTriggerSchemaSchema,
+			'get_trigger_schema',
+			'Get the configuration schema for one trigger kind. Call before write_trigger.'
+		),
+		fn: async (ctx) => {
+			const { kind } = getTriggerSchemaSchema.parse(ctx.args)
+			return triggerConfigJsonSchema(kind)
+		}
+	},
+	{
+		def: createToolDef(
+			z.object({}),
+			'get_schedule_schema',
+			"Get the shape of write_schedule's `advanced` object: retry, pausing, tags, and error-handler tuning."
+		),
+		fn: async () => JSON.stringify(advancedScheduleShape(), null, 2)
 	},
 	{
 		def: createToolDef(
@@ -2951,6 +3043,7 @@ export const globalTools: Tool<{}>[] = [
 		},
 		requiresConfirmation: true,
 		confirmationMessage: (args) => `Run a test of ${pathLeaf(args?.path, 'the script')}`,
+		queuedLabel: (args) => `Test ${args?.path ?? 'the script'}`,
 		showDetails: true,
 		autoCollapseDetails: false
 	},
@@ -2962,6 +3055,7 @@ export const globalTools: Tool<{}>[] = [
 		},
 		requiresConfirmation: true,
 		confirmationMessage: (args) => `Run a test of ${pathLeaf(args?.path, 'the flow')}`,
+		queuedLabel: (args) => `Test ${args?.path ?? 'the flow'}`,
 		showDetails: true,
 		autoCollapseDetails: false
 	},
@@ -2974,6 +3068,7 @@ export const globalTools: Tool<{}>[] = [
 		requiresConfirmation: true,
 		confirmationMessage: (args) =>
 			`Run a test of step "${args?.stepId ?? ''}" in ${pathLeaf(args?.path, 'the flow')}`,
+		queuedLabel: (args) => `Test step "${args?.stepId ?? ''}" of ${args?.path ?? 'the flow'}`,
 		showDetails: true,
 		autoCollapseDetails: false
 	},
@@ -3000,6 +3095,30 @@ export const globalTools: Tool<{}>[] = [
 			const result = JSON.stringify(runs, null, 2)
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Listed ${runs.length} run(s)`,
+				result
+			})
+			return result
+		}
+	},
+	{
+		def: createToolDef(
+			getFlowRunDetailsSchema,
+			'get_flow_run_details',
+			"Inspect a flow run's execution tree: per-step statuses and truncated results, including subflow steps, loop iterations, branches, and retries. Works on running flows too. Pass step to fetch one step's result in full (up to 12k chars)."
+		),
+		showDetails: true,
+		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
+			const parsed = getFlowRunDetailsSchema.parse(args)
+			toolCallbacks.setToolStatus(toolId, {
+				content: parsed.step
+					? `Fetching result of step ${parsed.step} in run ${parsed.id}...`
+					: `Inspecting flow run ${parsed.id}...`
+			})
+			const result = await getFlowRunDetails(workspace, parsed.id, parsed.step)
+			toolCallbacks.setToolStatus(toolId, {
+				content: parsed.step
+					? `Fetched result of step ${parsed.step} in run ${parsed.id}`
+					: `Inspected flow run ${parsed.id}`,
 				result
 			})
 			return result
@@ -3117,12 +3236,13 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			deleteWorkspaceItemSchema,
 			'delete_workspace_item',
-			'Delete a deployed workspace item. Mutates the workspace.'
+			'Delete an item that is already deployed in the workspace. Mutates the workspace. FAILS if the path has no deployed item, so never call it to undo something you created in this chat — that is a draft; use discard_local_draft instead.'
 		),
 		showDetails: true,
 		showFade: true,
 		requiresConfirmation: true,
 		confirmationMessage: 'Delete workspace item',
+		validateBeforeConfirmation: validateDeleteWorkspaceItemTarget,
 		fn: async (ctx) => {
 			const parsed = deleteWorkspaceItemSchema.parse(ctx.args)
 			return deleteWorkspaceItem(parsed, ctx)
@@ -3132,7 +3252,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			discardLocalDraftSchema,
 			'discard_local_draft',
-			'Discard a draft only. Does not mutate deployed workspace items, but clears the matching open editor draft if one is mounted.'
+			'Discard a draft only — the tool to undo an item you created or edited in this chat and have not deployed. Does not mutate deployed workspace items, but clears the matching open editor draft if one is mounted.'
 		),
 		showDetails: true,
 		showFade: true,
@@ -4169,7 +4289,13 @@ type FlowDraftArgs = {
 	description?: string
 	flow: FlowDraftValue
 	override?: boolean
+	/** Carry over the base value's non-structural fields (chat_input_enabled,
+	 * same_worker, ...) into the new value. Set by write_flow, whose arguments
+	 * cannot express them; patch_flow_json passes the full value state instead. */
+	preserveBaseValueSettings?: boolean
 }
+
+const FLOW_STRUCTURAL_VALUE_KEYS = new Set<string>(EDITABLE_FLOW_STRUCTURAL_KEYS)
 
 const FLOW_SPEC: WriteSpec<Flow, FlowDraftArgs> = {
 	probe: (workspace, path) => FlowService.existsFlowByPath({ workspace, path }),
@@ -4178,6 +4304,16 @@ const FLOW_SPEC: WriteSpec<Flow, FlowDraftArgs> = {
 		const value = structuredClone(args.flow.value)
 		if (args.flow.groups !== undefined && args.flow.groups !== null) {
 			value.groups = structuredClone(args.flow.groups)
+		}
+		if (args.preserveBaseValueSettings && base?.value) {
+			for (const [key, fieldValue] of Object.entries(base.value)) {
+				if (
+					!FLOW_STRUCTURAL_VALUE_KEYS.has(key) &&
+					(value as Record<string, unknown>)[key] === undefined
+				) {
+					;(value as Record<string, unknown>)[key] = structuredClone(fieldValue)
+				}
+			}
 		}
 		return base
 			? {
@@ -5933,8 +6069,8 @@ function formatForkIndexEntry(e: ForkDiffEntryView): string {
 	switch (e.status) {
 		case 'only_in_fork':
 			return `- ${name} — only in fork (${e.patchLineCount} lines)${draftFlag}`
-		case 'deleted_in_fork':
-			return `- ${name} — deleted in fork, still in parent${draftFlag}`
+		case 'only_in_parent':
+			return `- ${name} — only in parent, not in fork${draftFlag}`
 		case 'modified':
 			return `- ${name} — differs (${aheadBehind}; ${e.patchLineCount} diff lines)${draftFlag}`
 		case 'unchanged':
@@ -6112,8 +6248,8 @@ function renderForkEntrySection(
 	const header =
 		entry.status === 'only_in_fork'
 			? `${entry.kind} "${path}" exists only in the fork — not in parent "${parent}". Full content:\n\n`
-			: entry.status === 'deleted_in_fork'
-				? `${entry.kind} "${path}" was deleted in the fork but still exists in parent "${parent}". Removed content:\n\n`
+			: entry.status === 'only_in_parent'
+				? `${entry.kind} "${path}" exists only in parent "${parent}" — not in the fork. Parent content:\n\n`
 				: `Fork changes vs parent "${parent}" for ${entry.kind} "${path}":\n\n`
 	if (args.file !== undefined && !entry.files) {
 		throw new Error(
@@ -6639,6 +6775,67 @@ async function deployDraft(
 		null,
 		2
 	)
+}
+
+// Undoing something created in this chat means discarding a draft, not deleting a
+// deploy. Must stay in validateBeforeConfirmation, not the tool body: otherwise the
+// user is asked to confirm a workspace mutation that cannot apply, and the delete
+// API 404s before the draft cleanup runs, leaving the draft they wanted gone.
+async function validateDeleteWorkspaceItemTarget(args: {
+	args: unknown
+	workspace: string
+}): Promise<string | undefined> {
+	// These are the raw tool arguments; the schema parse runs later in the tool body.
+	// Wave a malformed call through so it still fails with the canonical schema error.
+	const parsed = deleteWorkspaceItemSchema.safeParse(args.args)
+	if (!parsed.success) return undefined
+	const { type, path, trigger_kind: triggerKind } = parsed.data
+	if (type === 'trigger' && !triggerKind) return undefined
+
+	const { workspace } = args
+	if (await deployedItemExists(workspace, type, path, triggerKind)) return undefined
+
+	const draft = await getGlobalDraft(workspace, type, path, triggerKind)
+	return draft
+		? `No deployed ${type} at "${path}" — it only exists as a draft, so there is nothing to delete ` +
+				`from the workspace. Call discard_local_draft with the same arguments to remove the draft.`
+		: `No ${type} at "${path}": neither a deployed item nor a draft. Nothing to delete.`
+}
+
+async function deployedItemExists(
+	workspace: string,
+	type: WorkspaceItemType,
+	path: string,
+	triggerKind: TriggerKind | undefined
+): Promise<boolean> {
+	switch (type) {
+		case 'script':
+			// existsScriptByPath is the only probe that filters archived=false, while
+			// deleteScriptByPath removes every row at the path. Fall back to the
+			// archived-inclusive read so an archived script stays deletable.
+			if (await ScriptService.existsScriptByPath({ workspace, path })) return true
+			try {
+				await ScriptService.getScriptByPath({ workspace, path })
+				return true
+			} catch (e) {
+				// Only a 404 means "no script here". Let any other failure propagate rather
+				// than reporting a transient error as a missing item.
+				if ((e as { status?: number } | null | undefined)?.status === 404) return false
+				throw e
+			}
+		case 'flow':
+			return FlowService.existsFlowByPath({ workspace, path })
+		case 'schedule':
+			return ScheduleService.existsSchedule({ workspace, path })
+		case 'trigger':
+			return triggerServices[triggerKind!].exists({ workspace, path })
+		case 'resource':
+			return ResourceService.existsResource({ workspace, path })
+		case 'variable':
+			return VariableService.existsVariable({ workspace, path })
+		case 'app':
+			return AppService.existsApp({ workspace, path })
+	}
 }
 
 async function deleteWorkspaceItem(

@@ -80,7 +80,7 @@
 	const compareHref = $derived(
 		pending
 			? `${base}/forks/compare?workspace_id=${encodeURIComponent(pending.devWorkspaceId)}` +
-					`&mode=fork&direction=update` +
+					`&mode=fork&dir=update` +
 					`&${COMPARE_ITEMS_PARAM}=${encodeURIComponent(`${pending.itemType}:${pending.itemPath}`)}`
 			: ''
 	)
@@ -210,7 +210,7 @@
 				workspaceFrom: req.prodWorkspaceId,
 				workspaceTo: req.devWorkspaceId,
 				onBehalfOf: chosenIdentity?.email,
-				onBehalfOfPermissionedAs: chosenIdentity?.permissionedAs
+				onBehalfOfPrincipal: chosenIdentity?.permissionedAs
 			})
 		}
 		updating = false

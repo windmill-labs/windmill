@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(*) FROM dbt_graph_snapshot\n          WHERE workspace_id = $1 AND script_path = $2 AND script_hash IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "5deb93bef71327582d997f3681b60e79b82f57c9c15c0870539ff057931c8f0a"
+}

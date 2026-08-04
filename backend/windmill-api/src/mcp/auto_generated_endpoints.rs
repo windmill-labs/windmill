@@ -701,7 +701,7 @@ Creates a new version of an existing script when called with the same path and t
                 },
                 "language": {
                         "type": "string",
-                        "description": "Possible values: python3, deno, go, bash, powershell, postgresql, mysql, bigquery, snowflake, mssql, oracledb, graphql, nativets, bun, php, rust, ansible, csharp, nu, java, ruby, rlang, duckdb, bunnative"
+                        "description": "Possible values: python3, deno, go, bash, powershell, postgresql, mysql, bigquery, snowflake, mssql, oracledb, graphql, nativets, bun, php, rust, ansible, csharp, nu, java, ruby, rlang, duckdb, bunnative, dbt"
                 },
                 "kind": {
                         "type": "string",
@@ -1113,7 +1113,7 @@ Creates a new version of an existing script when called with the same path and t
     EndpointTool {
         name: Cow::Borrowed("updateApp"),
         description: Cow::Borrowed("update app"),
-        instructions: Cow::Borrowed(""),
+        instructions: Cow::Borrowed("Low-code apps only. An app whose `raw_app` field (from getAppByPath) is true is a raw (full-code) app: its value holds source files that must be compiled to a js/css bundle, which this tool cannot upload, so updating one here is refused. Edit a raw app in its editor at /apps_raw/edit/<path> instead."),
         path: Cow::Borrowed("/w/{workspace}/apps/update/{path}"),
         method: Cow::Borrowed("POST"),
         path_params_schema: Some(serde_json::json!({
@@ -1210,7 +1210,7 @@ Creates a new version of an existing script when called with the same path and t
                 },
                 "language": {
                         "type": "string",
-                        "description": "Possible values: python3, deno, go, bash, powershell, postgresql, mysql, bigquery, snowflake, mssql, oracledb, graphql, nativets, bun, php, rust, ansible, csharp, nu, java, ruby, rlang, duckdb, bunnative"
+                        "description": "Possible values: python3, deno, go, bash, powershell, postgresql, mysql, bigquery, snowflake, mssql, oracledb, graphql, nativets, bun, php, rust, ansible, csharp, nu, java, ruby, rlang, duckdb, bunnative, dbt"
                 },
                 "tag": {
                         "type": "string"
@@ -1242,7 +1242,7 @@ Creates a new version of an existing script when called with the same path and t
                                         },
                                         "language": {
                                                 "type": "string",
-                                                "description": "Possible values: python3, deno, go, bash, powershell, postgresql, mysql, bigquery, snowflake, mssql, oracledb, graphql, nativets, bun, php, rust, ansible, csharp, nu, java, ruby, rlang, duckdb, bunnative"
+                                                "description": "Possible values: python3, deno, go, bash, powershell, postgresql, mysql, bigquery, snowflake, mssql, oracledb, graphql, nativets, bun, php, rust, ansible, csharp, nu, java, ruby, rlang, duckdb, bunnative, dbt"
                                         },
                                         "lock": {
                                                 "type": "string",
@@ -1520,6 +1520,10 @@ Creates a new version of an existing script when called with the same path and t
                 "is_skipped": {
                         "type": "boolean",
                         "description": "is the job skipped"
+                },
+                "resolved": {
+                        "type": "boolean",
+                        "description": "filter on whether a failure has been marked as handled. true keeps only resolved failures, false hides them"
                 },
                 "is_flow_step": {
                         "type": "boolean",

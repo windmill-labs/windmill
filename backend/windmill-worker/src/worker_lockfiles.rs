@@ -6,7 +6,6 @@ use std::fs::{create_dir_all, remove_dir_all};
 use crate::ansible_executor::{get_git_repos_lock, AnsibleDependencyLocks};
 use async_recursion::async_recursion;
 use itertools::Itertools;
-use serde::Serialize;
 use serde_json::value::RawValue;
 use serde_json::{from_value, json, Value};
 use sha2::Digest;
@@ -18,6 +17,7 @@ use windmill_common::assets::{
 use windmill_common::error::Error;
 use windmill_common::error::Result;
 use windmill_common::flows::{FlowModule, FlowModuleValue, FlowNodeId};
+use windmill_common::jobs::JobKind;
 use windmill_common::min_version::MIN_VERSION_SUPPORTS_DEBOUNCING_V2;
 use windmill_common::scripts::ScriptHash;
 #[cfg(feature = "python")]
@@ -33,7 +33,7 @@ use windmill_parser_yaml::AnsibleRequirements;
 use windmill_common::{
     apps::AppScriptId,
     cache::{self, RawData},
-    error::{self, to_anyhow},
+    error,
     flows::{add_virtual_items_if_necessary, FlowValue},
     scripts::ScriptLang,
     DB,
@@ -41,7 +41,9 @@ use windmill_common::{
 pub use windmill_dep_map::{
     extract_referenced_paths, extract_relative_imports, process_relative_imports,
 };
-use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
+use windmill_git_sync::{
+    handle_deployment_metadata, tally_deployed_object_changes, DeployedObject,
+};
 use windmill_queue::{
     append_logs, CanceledBy, MiniPulledJob, WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT,
 };
@@ -91,6 +93,7 @@ pub async fn handle_dependency_job(
     token: &str,
     occupancy_metrics: &mut OccupancyMetrics,
     raw_workspace_dependencies_o: Option<RawWorkspaceDependencies>,
+    deployment_tallied: &mut bool,
 ) -> error::Result<Box<RawValue>> {
     // Processing a dependency job - these jobs handle lockfile generation and dependency updates
     // for scripts, flows, and apps when their dependencies or imported scripts change
@@ -166,6 +169,7 @@ pub async fn handle_dependency_job(
         base_internal_url,
         token,
         script_path,
+        script_data.modules.as_ref(),
         occupancy_metrics,
         &raw_workspace_dependencies_o,
         None,
@@ -192,52 +196,63 @@ pub async fn handle_dependency_job(
             let (deployment_message, parent_path) =
                 get_deployment_msg_and_parent_path_from_args(job.args.clone());
 
-            // Generate lockfiles for module files (if any)
-            let updated_modules = if let Some(modules) = &script_data.modules {
-                let mut updated = modules.clone();
-                for (module_path, module) in updated.iter_mut() {
-                    if module.content.is_empty() {
-                        continue;
-                    }
-                    match capture_dependency_job(
-                        &job.id,
-                        &module.language,
-                        &module.content,
-                        mem_peak,
-                        canceled_by,
-                        job_dir,
-                        db,
-                        worker_name,
-                        &job.workspace_id,
-                        worker_dir,
-                        base_internal_url,
-                        token,
-                        script_path,
-                        occupancy_metrics,
-                        &raw_workspace_dependencies_o,
-                        module.lock.as_deref(),
-                        triggered_by_relative_import,
-                        script_path,
-                        None,
-                        "script",
-                        &None,
-                    )
-                    .await
-                    {
-                        Ok(lock) => {
-                            module.lock = Some(lock);
+            // Generate lockfiles for module files (if any).
+            //
+            // Not for dbt: a dbt script's modules are its dbt project, not
+            // helper code with dependencies of its own. The parent lock above
+            // already ran `dbt deps` and `dbt parse` over the whole project,
+            // which is the one dependency pass it has. Locking each file
+            // separately would re-materialise the bundle and re-invoke dbt once
+            // per file, so a project of N files pays N project-sized passes and
+            // a large one times the deploy out.
+            let per_module_locks = job.script_lang != Some(ScriptLang::Dbt);
+            let updated_modules =
+                if let Some(modules) = script_data.modules.as_ref().filter(|_| per_module_locks) {
+                    let mut updated = modules.clone();
+                    for (module_path, module) in updated.iter_mut() {
+                        if module.content.is_empty() {
+                            continue;
                         }
-                        Err(e) => {
-                            tracing::warn!(
-                                "Failed to generate lockfile for module {module_path}: {e}"
-                            );
+                        match capture_dependency_job(
+                            &job.id,
+                            &module.language,
+                            &module.content,
+                            mem_peak,
+                            canceled_by,
+                            job_dir,
+                            db,
+                            worker_name,
+                            &job.workspace_id,
+                            worker_dir,
+                            base_internal_url,
+                            token,
+                            script_path,
+                            script_data.modules.as_ref(),
+                            occupancy_metrics,
+                            &raw_workspace_dependencies_o,
+                            module.lock.as_deref(),
+                            triggered_by_relative_import,
+                            script_path,
+                            None,
+                            "script",
+                            &None,
+                        )
+                        .await
+                        {
+                            Ok(lock) => {
+                                module.lock = Some(lock);
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    "Failed to generate lockfile for module {module_path}: {e}"
+                                );
+                            }
                         }
                     }
-                }
-                Some(updated)
-            } else {
-                None
-            };
+                    Some(updated)
+                } else {
+                    None
+                };
 
             // We do not create new row for this update
             // That means we can keep current hash and just update lock
@@ -280,12 +295,17 @@ pub async fn handle_dependency_job(
                 },
                 deployment_message.clone(),
                 false,
-                None,
+                // As the flow and app dependency handlers do — it names the rename
+                // in the git-sync commit. The tally ignores it off a request task.
+                parent_path.as_deref(),
             )
             .await
             {
                 tracing::error!(%e, "error handling deployment metadata");
             }
+            // The tally is part of what `handle_deployment_metadata` does; anything
+            // that fails below must not make the caller record it a second time.
+            *deployment_tallied = true;
 
             process_relative_imports(
                 db,
@@ -379,6 +399,7 @@ pub async fn handle_flow_dependency_job(
     token: &str,
     occupancy_metrics: &mut OccupancyMetrics,
     raw_workspace_dependencies_o: Option<RawWorkspaceDependencies>,
+    deployment_tallied: &mut bool,
 ) -> error::Result<Box<serde_json::value::RawValue>> {
     tracing::debug!("Processing flow dependency job");
     tracing::trace!("Job details: {:?}", &job);
@@ -647,26 +668,7 @@ pub async fn handle_flow_dependency_job(
         .await?;
     }
 
-    #[derive(Debug, Clone, Serialize)]
-    struct FlowValueWithExtras<'a> {
-        #[serde(flatten)]
-        value: &'a FlowValue,
-
-        #[serde(skip_serializing_if = "Option::is_none")]
-        notes: Option<Box<RawValue>>,
-
-        #[serde(skip_serializing_if = "Option::is_none")]
-        groups: Option<Box<RawValue>>,
-    }
-
-    let new_flow_value = Json(
-        serde_json::value::to_raw_value(&FlowValueWithExtras {
-            value: &flow,
-            notes: extras.as_ref().and_then(|e| e.notes.clone()),
-            groups: extras.as_ref().and_then(|e| e.groups.clone()),
-        })
-        .map_err(to_anyhow)?,
-    );
+    let new_flow_value = Json(extras.reattach(&flow)?);
 
     // Re-check cancellation to ensure we don't accidentally override a flow.
     if sqlx::query_scalar!(
@@ -682,6 +684,7 @@ pub async fn handle_flow_dependency_job(
     }) {
         // Skip phase 3. Phase 1's deletes are committed; flow is left with no
         // deps and the previous `flow.value`. Self-healing on next dep job.
+        tally_unfinished_dependency_deploy(db, &job, deployment_tallied).await;
         return Ok(to_raw_value_owned(json!({
             "status": "Flow lock generation was canceled",
         })));
@@ -758,14 +761,7 @@ pub async fn handle_flow_dependency_job(
             )
             .await?;
 
-            let value_lite_with_extras = Json(
-                serde_json::value::to_raw_value(&FlowValueWithExtras {
-                    value: &value_lite,
-                    notes: extras.as_ref().and_then(|e| e.notes.clone()),
-                    groups: extras.as_ref().and_then(|e| e.groups.clone()),
-                })
-                .map_err(to_anyhow)?,
-            );
+            let value_lite_with_extras = Json(extras.reattach(&value_lite)?);
             sqlx::query!(
                 "INSERT INTO flow_version_lite (id, value) VALUES ($1, $2)
                  ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value",
@@ -838,6 +834,7 @@ pub async fn handle_flow_dependency_job(
         {
             tracing::error!(%e, "error handling deployment metadata");
         }
+        *deployment_tallied = true;
     }
 
     Ok(to_raw_value_owned(json!({
@@ -870,6 +867,76 @@ fn get_deployment_msg_and_parent_path_from_args(
         })
         .flatten();
     (deployment_message, parent_path)
+}
+
+/// Record the fork/parent change tally for a dependency job that did not reach its
+/// success path.
+///
+/// The new script/flow/app version is committed before the dependency job is even
+/// pushed, so a failed or cancelled lock generation still leaves a deployed item in
+/// the workspace. The tally otherwise only runs from `handle_deployment_metadata` on
+/// the success path, and nothing ever re-scans `workspace_diff` — so without this the
+/// change stays invisible in the fork's "Compare & Deploy" list forever, with no way
+/// to surface it short of redeploying the item.
+///
+/// Sets `tallied` so the caller does not tally the same deploy twice: the tally
+/// increments `ahead`, and a dependency handler can fail *after* having reached
+/// `handle_deployment_metadata`.
+pub(crate) async fn tally_unfinished_dependency_deploy(
+    db: &DB,
+    job: &MiniPulledJob,
+    tallied: &mut bool,
+) {
+    if *tallied {
+        return;
+    }
+    *tallied = true;
+
+    // `runnable_id` is what distinguishes a deploy from a one-off preview lock job,
+    // which has nothing saved to tally.
+    let (Some(path), Some(version)) = (job.runnable_path.clone(), job.runnable_id.map(|h| h.0))
+    else {
+        return;
+    };
+    let (_, parent_path) = get_deployment_msg_and_parent_path_from_args(job.args.clone());
+    let renamed_from = parent_path.clone();
+
+    let obj = match job.kind {
+        JobKind::Dependencies => {
+            DeployedObject::Script { hash: ScriptHash(version), path, parent_path }
+        }
+        JobKind::FlowDependencies => DeployedObject::Flow { path, parent_path, version },
+        JobKind::AppDependencies => {
+            // `raw_app` decides the diff kind ("app" vs "raw_app"), so it has to be
+            // read back rather than guessed — a wrong kind writes a row nothing reads.
+            let raw_app = match sqlx::query_scalar!(
+                "SELECT raw_app FROM app_version WHERE id = $1",
+                version
+            )
+            .fetch_optional(db)
+            .await
+            {
+                Ok(v) => v.unwrap_or(false),
+                Err(e) => {
+                    tracing::error!(%e, "could not read app_version {version} to tally fork changes");
+                    return;
+                }
+            };
+            if raw_app {
+                DeployedObject::RawApp { path, version, parent_path }
+            } else {
+                DeployedObject::App { path, version, parent_path }
+            }
+        }
+        _ => return,
+    };
+
+    if let Err(e) =
+        tally_deployed_object_changes(&job.workspace_id, &obj, db, renamed_from.as_deref(), None)
+            .await
+    {
+        tracing::error!(%e, "error tallying fork changes for unfinished dependency job {}", job.id);
+    }
 }
 
 struct LockModuleError {
@@ -1296,7 +1363,7 @@ async fn lock_modules(
                         let locked = locked_iter.next().ok_or_else(|| {
                             Error::internal_err("locked tool module should exist".to_string())
                         })?;
-                        tools[idx] = locked.into();
+                        tools[idx].update_from_module(locked);
                     }
 
                     e.value = FlowModuleValue::AIAgent {
@@ -1384,6 +1451,8 @@ async fn lock_modules(
                 "{}/flow",
                 &path.clone().unwrap_or_else(|| job_path.to_string())
             ),
+            // An inline flow step has no module bundle of its own.
+            None,
             occupancy_metrics,
             raw_workspace_dependencies_o,
             lock.as_deref(),
@@ -1903,6 +1972,7 @@ async fn lock_modules_app(
                                 base_internal_url,
                                 token,
                                 &format!("{}/app", job.runnable_path()),
+                                None,
                                 occupancy_metrics,
                                 &None,
                                 existing_lock,
@@ -2040,6 +2110,7 @@ pub async fn handle_app_dependency_job(
     token: &str,
     occupancy_metrics: &mut OccupancyMetrics,
     raw_workspace_dependencies_o: Option<RawWorkspaceDependencies>,
+    deployment_tallied: &mut bool,
 ) -> error::Result<()> {
     let job_path = job.runnable_path.clone().ok_or_else(|| {
         error::Error::internal_err(
@@ -2188,6 +2259,7 @@ pub async fn handle_app_dependency_job(
             tracing::error!(%job.id, %err, "error checking cancelation for job {0}: {err}", job.id);
             false
         }) {
+            tally_unfinished_dependency_deploy(db, &job, deployment_tallied).await;
             return Ok(());
         }
 
@@ -2233,6 +2305,7 @@ pub async fn handle_app_dependency_job(
         {
             tracing::error!(%e, "error handling deployment metadata");
         }
+        *deployment_tallied = true;
 
         // tx = PushIsolationLevel::Transaction(new_tx);
         // tx = handle_deployment_metadata(
@@ -2640,6 +2713,9 @@ async fn capture_dependency_job(
     base_internal_url: &str,
     token: &str,
     script_path: &str,
+    // A dbt script's project rides in its modules; the dbt dependency job
+    // materialises them itself, having no generic module-writing step.
+    modules: Option<&std::collections::HashMap<String, windmill_common::scripts::ScriptModule>>,
     occupancy_metrics: &mut OccupancyMetrics,
     raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
     existing_lock: Option<&str>,
@@ -2785,6 +2861,24 @@ async fn capture_dependency_job(
                 )
                 .await?
             }
+        }
+        ScriptLang::Dbt => {
+            crate::dbt_executor::dbt_dep(
+                job_raw_code,
+                modules,
+                job_id,
+                mem_peak,
+                canceled_by,
+                job_dir,
+                db,
+                worker_name,
+                w_id,
+                script_path,
+                occupancy_metrics,
+                token,
+                base_internal_url,
+            )
+            .await?
         }
         ScriptLang::Go => {
             install_go_dependencies(

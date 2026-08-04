@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO workspace_diff (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes)\n        SELECT $1, $2, path, kind, 1, 0, NULL\n        FROM unnest($3::varchar[], $4::varchar[]) AS t(kind, path)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "VarcharArray",
+        "VarcharArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c12d7865400f91bfb4e5b3077672b5bf3ca91f9d9bed76d2a70c454e468c5c62"
+}

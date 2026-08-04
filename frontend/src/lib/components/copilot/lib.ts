@@ -14,12 +14,17 @@ import Anthropic from '@anthropic-ai/sdk'
 import { get, type Writable } from 'svelte/store'
 import { OpenAPI, ResourceService, type Script } from '../../gen'
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
-import { requiresMaxCompletionTokens, usesAnthropicMessagesApi } from './modelConfig'
+import {
+	requiresMaxCompletionTokens,
+	usesAnthropicMessagesApi,
+	usesOpenRouterPromptCaching
+} from './modelConfig'
 import { applyReasoningToConfig } from './reasoningRegistry'
 import { formatResourceTypes } from './utils'
 import {
 	appendPendingToolImages,
 	processToolCall,
+	queuedToolStatus,
 	type Tool,
 	type ToolCallbacks
 } from './chat/shared'
@@ -358,7 +363,68 @@ function getModelSpecificConfig(
 	}
 }
 
-function prepareMessages(aiProvider: AIProvider, messages: ChatCompletionMessageParam[]) {
+const EPHEMERAL_CACHE_CONTROL = { type: 'ephemeral' } as const
+
+// Returns a copy carrying a cache breakpoint on its last text part. The message objects
+// are the live chat history and are also replayed through the Anthropic path, so they
+// must not be mutated. Parts other than text (images) are left alone: only text blocks
+// are documented to carry the field over the OpenAI-compatible surface.
+function withCacheBreakpoint(message: ChatCompletionMessageParam): ChatCompletionMessageParam {
+	const content = message.content
+	if (typeof content === 'string') {
+		if (!content) return message
+		return {
+			...message,
+			// `cache_control` is an OpenRouter passthrough field, absent from the OpenAI types.
+			content: [{ type: 'text', text: content, cache_control: EPHEMERAL_CACHE_CONTROL } as any]
+		} as ChatCompletionMessageParam
+	}
+	if (!Array.isArray(content)) return message
+	let last = -1
+	for (let i = content.length - 1; i >= 0; i--) {
+		if ((content[i] as { type?: string }).type === 'text') {
+			last = i
+			break
+		}
+	}
+	if (last < 0) return message
+	return {
+		...message,
+		content: content.map((part, i) =>
+			i === last ? { ...part, cache_control: EPHEMERAL_CACHE_CONTROL } : part
+		)
+	} as ChatCompletionMessageParam
+}
+
+// Anthropic caches the whole prefix up to a breakpoint, ordered tools -> system ->
+// messages, so the one on the system message also covers the tool definitions, by far
+// the largest static block of a chat request. The second covers the settled conversation
+// up to the newest user turn. Tool results appended after it inside an agent loop stay
+// outside the cached prefix: reaching those needs a breakpoint on a `tool` message, and
+// OpenRouter documents the field on text content blocks only. Two of a budget of four.
+function withOpenRouterCacheBreakpoints(
+	messages: ChatCompletionMessageParam[]
+): ChatCompletionMessageParam[] {
+	const prepared = [...messages]
+	const system = prepared.findIndex((m) => m.role === 'system')
+	if (system >= 0) prepared[system] = withCacheBreakpoint(prepared[system])
+	for (let i = prepared.length - 1; i > system; i--) {
+		if (prepared[i].role === 'user') {
+			prepared[i] = withCacheBreakpoint(prepared[i])
+			break
+		}
+	}
+	return prepared
+}
+
+function prepareMessages(
+	aiProvider: AIProvider,
+	messages: ChatCompletionMessageParam[],
+	{ model, promptCaching }: { model: string; promptCaching?: boolean }
+) {
+	if (promptCaching && usesOpenRouterPromptCaching(aiProvider, model)) {
+		return withOpenRouterCacheBreakpoints(messages)
+	}
 	switch (aiProvider) {
 		case 'googleai':
 			// system messages are not supported by gemini
@@ -797,13 +863,17 @@ export function getProviderAndCompletionConfig<K extends boolean>({
 	stream,
 	tools,
 	forceModelProvider,
-	maxTokensCap
+	maxTokensCap,
+	promptCaching
 }: {
 	messages: ChatCompletionMessageParam[]
 	stream: K
 	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
 	forceModelProvider?: AIProviderModel
 	maxTokensCap?: number
+	// Opt-in: a cache write costs more than an uncached read, so it only pays off where
+	// the same prefix is sent again. True for the chat loop, false for one-shot calls.
+	promptCaching?: boolean
 }): {
 	provider: AIProvider
 	config: K extends true
@@ -812,7 +882,10 @@ export function getProviderAndCompletionConfig<K extends boolean>({
 } {
 	const modelProvider = forceModelProvider ?? getCurrentModel()
 	const providerConfig = PROVIDER_COMPLETION_CONFIG_MAP[modelProvider.provider]
-	const processedMessages = prepareMessages(modelProvider.provider, messages)
+	const processedMessages = prepareMessages(modelProvider.provider, messages, {
+		model: modelProvider.model,
+		promptCaching
+	})
 	return {
 		provider: modelProvider.provider,
 		config: {
@@ -992,6 +1065,7 @@ export async function getCompletion(
 		forceModelProvider?: AIProviderModel
 		openaiClient?: OpenAI
 		reasoningEffort?: string
+		promptCaching?: boolean
 	}
 ): Promise<Stream<ChatCompletionChunk>> {
 	const modelProvider = options?.forceModelProvider ?? getCurrentModel()
@@ -1004,7 +1078,8 @@ export async function getCompletion(
 		messages,
 		stream: true,
 		tools,
-		forceModelProvider: options?.forceModelProvider
+		forceModelProvider: options?.forceModelProvider,
+		promptCaching: options?.promptCaching
 	})
 
 	// Use Responses API for OpenAI and Azure OpenAI
@@ -1073,6 +1148,9 @@ export async function parseOpenAICompletion(
 	options?: { workspace?: string; provider?: string }
 ): Promise<{ shouldContinue: boolean; tokenUsage: ChatTokenUsage }> {
 	const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
+	// The tool call currently receiving argument deltas; when the stream moves on
+	// to the next call, the previous one is demoted to queued.
+	let streamingToolCallId: string | undefined = undefined
 	let malformedFunctionCallError = false
 	let tokenUsage = emptyChatTokenUsage()
 
@@ -1163,10 +1241,17 @@ export async function parseOpenAICompletion(
 					id: toolCallId
 				} = finalToolCall
 				if (funcName && toolCallId) {
-					const tool = tools.find((t) => t.def.function.name === funcName)
-					if (tool && tool.preAction) {
-						tool.preAction({ toolCallbacks: callbacks, toolId: toolCallId })
+					if (streamingToolCallId !== undefined && streamingToolCallId !== toolCallId) {
+						const previous = Object.values(finalToolCalls).find(
+							(tc) => tc.id === streamingToolCallId
+						)
+						callbacks.setToolStatus(
+							streamingToolCallId,
+							queuedToolStatus(tools, previous?.function?.name ?? '', previous?.function?.arguments)
+						)
 					}
+					streamingToolCallId = toolCallId
+					const tool = tools.find((t) => t.def.function.name === funcName)
 
 					const shouldStream = tool?.streamArguments ?? false
 					const accumulatedArgs = finalToolCall.function.arguments
@@ -1179,10 +1264,13 @@ export async function parseOpenAICompletion(
 						}
 					}
 
-					// Display tool call with streaming parameters if enabled
+					// Display tool call with streaming parameters if enabled. isQueued is
+					// cleared explicitly: a provider may interleave deltas of parallel
+					// calls, re-promoting a call that was already demoted to queued.
 					callbacks.setToolStatus(toolCallId, {
 						isLoading: true,
-						content: tool?.streamingLabel ?? `Calling ${funcName}...`,
+						isQueued: false,
+						content: tool?.streamingLabel ?? `Preparing ${funcName}...`,
 						toolName: funcName,
 						isStreamingArguments: shouldStream,
 						showFade: tool?.showFade,
@@ -1207,10 +1295,13 @@ export async function parseOpenAICompletion(
 
 	callbacks.onMessageEnd()
 
-	// Clear streaming state for all tool calls
+	// Stream over: every parsed call is queued until its turn in processToolCall.
 	for (const toolCall of Object.values(finalToolCalls)) {
 		if (toolCall.id) {
-			callbacks.setToolStatus(toolCall.id, { isStreamingArguments: false })
+			callbacks.setToolStatus(
+				toolCall.id,
+				queuedToolStatus(tools, toolCall.function?.name ?? '', toolCall.function?.arguments)
+			)
 		}
 	}
 
@@ -1240,6 +1331,7 @@ export async function parseOpenAICompletion(
 			if (invalidToolCallIds.has(toolCall.id)) {
 				callbacks.setToolStatus(toolCall.id, {
 					isLoading: false,
+					isQueued: false,
 					isStreamingArguments: false,
 					error: 'Tool call arguments were invalid or truncated'
 				})

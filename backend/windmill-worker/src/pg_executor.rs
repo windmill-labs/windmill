@@ -22,6 +22,7 @@ use tokio_postgres::{
     Column,
 };
 use uuid::Uuid;
+use windmill_common::azure_workload_identity::WORKLOAD_IDENTITY_PASSWORD;
 use windmill_common::error::to_anyhow;
 use windmill_common::error::{self, Error};
 use windmill_common::worker::{
@@ -65,24 +66,85 @@ pub async fn clear_pg_cache() {
     CONNECTION_COUNTER.write().await.clear();
 }
 
+/// How the connection authenticates, which also keys the connection cache: a
+/// connection established under one mode must never be handed to a request asking
+/// for another.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum PgAuthMode {
+    Password,
+    /// AWS RDS IAM.
+    Iam,
+    /// Azure Entra ID, via the worker's federated identity.
+    WorkloadIdentity,
+}
+
+impl PgAuthMode {
+    fn of(database: &PgDatabase) -> error::Result<Self> {
+        let workload_identity =
+            database.password.as_deref().map(str::trim) == Some(WORKLOAD_IDENTITY_PASSWORD);
+        match (database.use_iam_auth == Some(true), workload_identity) {
+            (true, true) => Err(Error::BadRequest(
+                "IAM RDS authentication cannot use the Azure workload identity password"
+                    .to_string(),
+            )),
+            (true, false) => Ok(PgAuthMode::Iam),
+            (false, true) => Ok(PgAuthMode::WorkloadIdentity),
+            (false, false) => Ok(PgAuthMode::Password),
+        }
+    }
+
+    /// What to announce in the job log. Password auth is the default and stays silent.
+    fn log_name(&self) -> Option<&'static str> {
+        match self {
+            PgAuthMode::Password => None,
+            PgAuthMode::Iam => Some("IAM RDS authentication"),
+            PgAuthMode::WorkloadIdentity => Some("Azure Workload Identity"),
+        }
+    }
+
+    fn cache_key_segment(&self) -> &'static str {
+        match self {
+            // Workload identity needs no segment of its own: to_uri() carries the raw
+            // password and the mode is a pure function of it, so two modes can never
+            // share a key even though the mode is selected on the trimmed value.
+            PgAuthMode::Password | PgAuthMode::WorkloadIdentity => "",
+            PgAuthMode::Iam => "&iam=true",
+        }
+    }
+}
+
 async fn new_pg_connection(
     database: &PgDatabase,
-    _use_iam_auth: bool,
+    auth_mode: PgAuthMode,
     main_db: Option<&DB>,
 ) -> error::Result<(tokio_postgres::Client, tokio::task::JoinHandle<()>)> {
-    let (client, connection) = if _use_iam_auth {
-        #[cfg(all(feature = "enterprise", feature = "private"))]
-        {
-            database.connect_with_iam().await?
+    let (client, connection) = match auth_mode {
+        PgAuthMode::Iam => {
+            #[cfg(all(feature = "enterprise", feature = "private"))]
+            {
+                database.connect_with_iam().await?
+            }
+            #[cfg(not(all(feature = "enterprise", feature = "private")))]
+            {
+                return Err(Error::ExecutionErr(
+                    "IAM RDS authentication requires Windmill Enterprise Edition".to_string(),
+                ));
+            }
         }
-        #[cfg(not(all(feature = "enterprise", feature = "private")))]
-        {
-            return Err(Error::ExecutionErr(
-                "IAM RDS authentication requires Windmill Enterprise Edition".to_string(),
-            ));
+        PgAuthMode::WorkloadIdentity => {
+            #[cfg(feature = "enterprise")]
+            {
+                database.connect_with_workload_identity().await?
+            }
+            #[cfg(not(feature = "enterprise"))]
+            {
+                return Err(Error::ExecutionErr(
+                    "Azure workload identity authentication requires Windmill Enterprise Edition"
+                        .to_string(),
+                ));
+            }
         }
-    } else {
-        database.connect(main_db).await?
+        PgAuthMode::Password => database.connect(main_db).await?,
     };
     let handle = tokio::spawn(async move {
         if let Err(e) = connection.await {
@@ -643,11 +705,17 @@ pub async fn do_postgresql(
         annotations.result_collection
     };
 
-    let use_iam_auth = database.use_iam_auth == Some(true);
+    let auth_mode = PgAuthMode::of(&database)?;
 
-    // Include use_iam_auth in cache key to distinguish IAM vs non-IAM connections to the same host.
-    // The cache key is static (doesn't include the token), which is correct because PostgreSQL
-    // connections remain valid after initial auth — fresh tokens are generated on cache miss.
+    if let Some(mode) = auth_mode.log_name() {
+        windmill_queue::append_logs(&job.id, &job.workspace_id, format!("Using {mode}\n"), conn)
+            .await;
+    }
+
+    // Include the auth mode in the cache key to distinguish connections to the same host
+    // authenticated differently. The cache key is static (doesn't include the token), which
+    // is correct because PostgreSQL connections remain valid after initial auth — fresh
+    // tokens are generated on cache miss.
     //
     // to_uri() collapses require/verify-ca/verify-full to the same string, so the TLS verification
     // inputs are folded into the key separately. Without this a connection established under a
@@ -664,11 +732,11 @@ pub async fn do_postgresql(
     // to_uri() already ends with `?sslmode=...`, so append further key segments
     // with `&` to keep database_string a well-formed URI (it is only ever a cache
     // key, but a malformed one would mislead anyone who later logs or parses it).
-    let database_string = if use_iam_auth {
-        format!("{}&iam=true&tls={tls_disc:x}", database.to_uri())
-    } else {
-        format!("{}&tls={tls_disc:x}", database.to_uri())
-    };
+    let database_string = format!(
+        "{}{}&tls={tls_disc:x}",
+        database.to_uri(),
+        auth_mode.cache_key_segment()
+    );
     let database_string_clone = database_string.clone();
 
     let cached_client;
@@ -748,18 +816,18 @@ pub async fn do_postgresql(
                 }
                 drop(guard);
                 cached_client = None;
-                new_client = Some(new_pg_connection(&database, use_iam_auth, conn.as_sql()).await?);
+                new_client = Some(new_pg_connection(&database, auth_mode, conn.as_sql()).await?);
             }
         } else {
             // Release the lock before connecting so the post-query caching
             // code can re-acquire it.
             drop(guard);
             cached_client = None;
-            new_client = Some(new_pg_connection(&database, use_iam_auth, conn.as_sql()).await?);
+            new_client = Some(new_pg_connection(&database, auth_mode, conn.as_sql()).await?);
         }
     } else {
         cached_client = None;
-        new_client = Some(new_pg_connection(&database, use_iam_auth, conn.as_sql()).await?);
+        new_client = Some(new_pg_connection(&database, auth_mode, conn.as_sql()).await?);
     }
 
     let (mut sig, _) = parse_pgsql_sig_with_typed_schema(&query)
@@ -2057,6 +2125,29 @@ impl FromSql<'_> for StringCollector {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The sentinel password is the whole opt-in: nothing else marks the resource, so a
+    /// resource carrying it must not fall through to password auth.
+    #[test]
+    fn test_workload_identity_password_selects_the_auth_mode() {
+        let db = |password: &str| {
+            PgDatabase::parse_uri(&format!("postgres://someuser:{password}@host:5432/db")).unwrap()
+        };
+        assert_eq!(
+            PgAuthMode::of(&db(WORKLOAD_IDENTITY_PASSWORD)).unwrap(),
+            PgAuthMode::WorkloadIdentity
+        );
+        assert_eq!(
+            PgAuthMode::of(&db("hunter2")).unwrap(),
+            PgAuthMode::Password
+        );
+        // A pasted sentinel keeps its surrounding whitespace, and an unrecognized one is
+        // forwarded to the server as a real password instead of selecting the mode.
+        assert_eq!(
+            PgAuthMode::of(&db("%20ms_entraid%0A")).unwrap(),
+            PgAuthMode::WorkloadIdentity
+        );
+    }
 
     #[test]
     fn test_map_s3object_jsonb_overflow() {

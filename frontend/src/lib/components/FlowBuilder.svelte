@@ -114,6 +114,7 @@
 	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { setOpenInSessionHandoff } from './sessions/openInSessionContext'
 
 	let {
 		initialPath = $bindable(''),
@@ -171,11 +172,13 @@
 	// For preserve_on_behalf_of feature
 	let preserveOnBehalfOf = writable(false)
 	let savedOnBehalfOfEmail = writable<string | undefined>(savedFlow?.on_behalf_of_email)
+	let savedOnBehalfOfPermissionedAs = writable<string | undefined>(savedFlow?.on_behalf_of)
 
 	// Keep savedOnBehalfOfEmail in sync when savedFlow is loaded asynchronously
 	$effect(() => {
 		if (savedFlow?.on_behalf_of_email !== undefined) {
 			savedOnBehalfOfEmail.set(savedFlow.on_behalf_of_email)
+			savedOnBehalfOfPermissionedAs.set(savedFlow.on_behalf_of)
 		}
 	})
 
@@ -461,6 +464,7 @@
 						dedicated_worker: flow.dedicated_worker,
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
+						on_behalf_of: flow.on_behalf_of,
 						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
 						deployment_message: deploymentMsg || undefined,
 						labels: (flow as any).labels
@@ -509,6 +513,7 @@
 						ws_error_handler_muted: flow.ws_error_handler_muted,
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
+						on_behalf_of: flow.on_behalf_of,
 						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
 						deployment_message: deploymentMsg || undefined,
 						labels: (flow as any).labels
@@ -695,6 +700,31 @@
 	// falling back to `$pathStore` in drawer mounts that carry no storage path.
 	const sessionTargetPath = $derived(liveEditorDraftStoragePath || $pathStore)
 
+	const sessionOpen = $derived(
+		sessionTargetPath
+			? {
+					target: { kind: 'flow' as const, path: sessionTargetPath },
+					workspaceId: opWorkspace ?? undefined,
+					beforeOpen: persistDraftForSession
+				}
+			: undefined
+	)
+
+	// Reaches the AI entry point in a step's inline-editor toolbar, which the
+	// recursive module wrapper sits too deep under to be handed a prop. `selected`
+	// is the flow editor's own step param, so the session preview opens on the
+	// step whose code the user was editing. Withheld under `disableAi` (same gate
+	// as the graph toolbar's button): an embed that turned AI off must not get an
+	// entry point that navigates the host out to /sessions.
+	setOpenInSessionHandoff({
+		source: (opts) =>
+			disableAi || !sessionOpen
+				? undefined
+				: opts?.moduleId
+					? { ...sessionOpen, previewParams: { selected: opts.moduleId } }
+					: sessionOpen
+	})
+
 	$effect(() => {
 		if (liveEditorDraftStoragePath === undefined || !opWorkspace) return
 		const workspace = opWorkspace
@@ -754,6 +784,7 @@
 		outputPickerOpenFns,
 		preserveOnBehalfOf,
 		savedOnBehalfOfEmail,
+		savedOnBehalfOfPermissionedAs,
 		opWorkspace: () => opWorkspace
 	})
 
@@ -1448,13 +1479,7 @@
 					aiChatOpen={aiChatManager.open}
 					showFlowAiButton={!disableAi && customUi?.topBar?.aiBuilder != false}
 					toggleAiChat={() => aiChatManager.toggleOpen()}
-					sessionOpen={sessionTargetPath
-						? {
-								target: { kind: 'flow', path: sessionTargetPath },
-								workspaceId: opWorkspace ?? undefined,
-								beforeOpen: persistDraftForSession
-							}
-						: undefined}
+					{sessionOpen}
 					onOpenPreview={flowPreviewButtons?.openPreview}
 					localModuleStates={showJobStatus ? localModuleStates : {}}
 					{showJobStatus}

@@ -21,21 +21,25 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
 use std::collections::{HashMap, HashSet};
+use tokio_postgres::error::SqlState;
 
 use windmill_api_auth::{require_super_admin, ApiAuthed};
 use windmill_api_jobs::run_wait_result_internal;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
-use windmill_common::error::{Error, JsonResult, Result};
+use windmill_common::error::{pg_error_message, Error, JsonResult, Result};
 use windmill_common::jobs::{JobPayload, RawCode};
+use windmill_common::query_builders::{render_db_quoted_identifier, DbType};
 use windmill_common::runnable_settings::{ConcurrencySettingsWithCustom, DebouncingSettings};
 use windmill_common::scripts::ScriptLang;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::worker::to_raw_value;
 use windmill_common::workspaces::get_datatable_resource_from_db_unchecked;
 use windmill_common::{PgDatabase, DB};
-use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
+use windmill_git_sync::{
+    handle_deployment_metadata, handle_deployment_metadata_batch, DeployedObject,
+};
 use windmill_queue::{push, PushArgs, PushIsolationLevel};
 
 pub(crate) fn routes() -> Router {
@@ -162,6 +166,7 @@ async fn run_datatable_migration_job(
         &authed.email,
         username_to_permissioned_as(&authed.username),
         authed.token_prefix.as_deref(),
+        authed.username_override.as_deref(),
         None,
         None,
         None,
@@ -222,7 +227,31 @@ async fn run_datatable_migration_job(
 /// key would let one data table's migration mark another's same-version
 /// migration as already applied (and rollback could touch the wrong row).
 async fn ensure_wm_migrations_schema(client: &tokio_postgres::Client) -> Result<()> {
-    client
+    // `CREATE TABLE IF NOT EXISTS` checks CREATE on the schema before it checks
+    // existence, so probing first is what lets a data table whose role only holds
+    // DML grants keep migrating against an already-created bookkeeping table.
+    // `to_regclass` resolves through search_path, like the unqualified statements
+    // the rest of this module runs against it. Takes no parameters, so it goes
+    // through the simple protocol: a named prepared statement is what stalls
+    // behind a transaction-pooling proxy (see `pg_get_full_schema`).
+    let rows = client
+        .simple_query("SELECT to_regclass('_wm_migrations') IS NOT NULL AS present")
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to look up _wm_migrations table: {}",
+                pg_error_message(&e)
+            ))
+        })?;
+    let exists = rows.iter().any(|msg| match msg {
+        tokio_postgres::SimpleQueryMessage::Row(row) => row.get("present") == Some("t"),
+        _ => false,
+    });
+    if exists {
+        return Ok(());
+    }
+
+    let Err(e) = client
         .batch_execute(
             "CREATE TABLE IF NOT EXISTS _wm_migrations (\
                 datatable TEXT NOT NULL, \
@@ -231,10 +260,53 @@ async fn ensure_wm_migrations_schema(client: &tokio_postgres::Client) -> Result<
                 PRIMARY KEY (datatable, version))",
         )
         .await
-        .map_err(|e| {
-            Error::internal_err(format!("Failed to ensure _wm_migrations table: {}", e))
-        })?;
-    Ok(())
+    else {
+        return Ok(());
+    };
+
+    let mut msg = format!(
+        "Failed to ensure _wm_migrations table: {}",
+        pg_error_message(&e)
+    );
+    // A role with only table-level grants cannot create it: since Postgres 15 the
+    // `public` schema no longer grants CREATE to PUBLIC, so this is the usual
+    // failure on a bring-your-own database.
+    if e.code() == Some(&SqlState::INSUFFICIENT_PRIVILEGE) {
+        // Windmill connects as the role that lacks the privilege, so it cannot
+        // grant it: hand over the statement a schema owner has to run instead.
+        // Keep it ahead of the explanation below — the UI collapses everything
+        // past the first couple of lines behind a "Show more".
+        if let Some((user, schema)) = connection_identity(client).await {
+            // Both come back unquoted, so a mixed-case or hyphenated name would
+            // otherwise render a statement that targets a different schema.
+            msg.push_str(&format!(
+                ". Run: GRANT CREATE ON SCHEMA {} TO {}",
+                render_db_quoted_identifier(&schema, DbType::Postgresql),
+                render_db_quoted_identifier(&user, DbType::Postgresql),
+            ));
+        }
+        msg.push_str(
+            ". Applied migrations are recorded in a `_wm_migrations` table in the data \
+             table's own database, so its user needs to be able to create it",
+        );
+    }
+    Err(Error::internal_err(msg))
+}
+
+/// The role and default schema of a data table connection, for grant hints.
+/// Both come from the server so the statement we suggest names what the
+/// connection actually resolves to, not what the resource happens to say.
+async fn connection_identity(client: &tokio_postgres::Client) -> Option<(String, String)> {
+    let rows = client
+        .simple_query("SELECT current_user AS usr, current_schema() AS sch")
+        .await
+        .ok()?;
+    rows.iter().find_map(|msg| match msg {
+        tokio_postgres::SimpleQueryMessage::Row(row) => {
+            Some((row.get("usr")?.to_string(), row.get("sch")?.to_string()))
+        }
+        _ => None,
+    })
 }
 
 /// Open a connection to a data table's own database and hold the session-level
@@ -265,7 +337,12 @@ async fn lock_datatable_migration_runs(
     client
         .batch_execute("SELECT pg_advisory_lock(hashtext('windmill_datatable_migrations')::int8)")
         .await
-        .map_err(|e| Error::internal_err(format!("Failed to acquire migration lock: {}", e)))?;
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to acquire migration lock: {}",
+                pg_error_message(&e)
+            ))
+        })?;
     Ok(client)
 }
 
@@ -287,7 +364,7 @@ async fn read_applied_versions_on_client(
         Err(e) if e.as_db_error().map(|d| d.code().code()) == Some("42P01") => Ok(HashSet::new()),
         Err(e) => Err(Error::internal_err(format!(
             "Failed to read _wm_migrations: {}",
-            e
+            pg_error_message(&e)
         ))),
     }
 }
@@ -366,7 +443,12 @@ async fn run_datatable_migrations(
                 &[&datatable_name, &m.timestamp],
             )
             .await
-            .map_err(|e| Error::internal_err(format!("Failed to record migration: {}", e)))?;
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "Failed to record migration: {}",
+                    pg_error_message(&e)
+                ))
+            })?;
         applied.push(AppliedMigration { version: m.timestamp, name: m.name });
     }
 
@@ -433,7 +515,12 @@ async fn rollback_datatable_migrations(
                 &[&datatable_name, &only],
             )
             .await
-            .map_err(|e| Error::internal_err(format!("Failed to read _wm_migrations: {}", e)))?,
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "Failed to read _wm_migrations: {}",
+                    pg_error_message(&e)
+                ))
+            })?,
         None => client
             .query_opt(
                 "SELECT version FROM _wm_migrations WHERE datatable = $1 \
@@ -441,7 +528,12 @@ async fn rollback_datatable_migrations(
                 &[&datatable_name],
             )
             .await
-            .map_err(|e| Error::internal_err(format!("Failed to read _wm_migrations: {}", e)))?,
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "Failed to read _wm_migrations: {}",
+                    pg_error_message(&e)
+                ))
+            })?,
     };
 
     let version: i64 = match target {
@@ -492,7 +584,12 @@ async fn rollback_datatable_migrations(
             &[&datatable_name, &version],
         )
         .await
-        .map_err(|e| Error::internal_err(format!("Failed to drop migration record: {}", e)))?;
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to drop migration record: {}",
+                pg_error_message(&e)
+            ))
+        })?;
 
     Ok(Json(RollbackDatatableMigrationsResult {
         rolled_back: vec![RolledBackMigration { version, name: definition.name }],
@@ -835,6 +932,37 @@ pub(crate) fn validate_datatable_path_segment(datatable: &str) -> Result<()> {
     Ok(())
 }
 
+/// A data table's name is a path segment of every migration it owns, and git sync
+/// carries that path through three matchers that all speak the same restricted
+/// charset: `transform_regexp` expands a repo's `**` filter to `[a-zA-Z0-9_\-./]*`,
+/// the CLI reuses the path as a minimatch pattern (where a leading `.` also needs
+/// `dot: true`, which the CLI does not set), and the deploy stages it as a
+/// `git add` pathspec. A name outside the charset matches nothing in all three, so
+/// its migrations would silently never reach the repo.
+///
+/// Only names being introduced are held to this — an existing data table keeps
+/// saving (and can be renamed to a syncable name) instead of locking its workspace
+/// out of the settings form.
+pub(crate) fn validate_new_datatable_name(datatable: &str) -> Result<()> {
+    validate_datatable_path_segment(datatable)?;
+    let starts_alphanumeric = datatable
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphanumeric());
+    if !starts_alphanumeric
+        || !datatable
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+    {
+        return Err(Error::BadRequest(format!(
+            "Invalid data table name '{datatable}': start with a letter or digit and use only \
+             letters, digits, '_', '-' and '.' so its SQL migrations can be synced to a git \
+             repository"
+        )));
+    }
+    Ok(())
+}
+
 /// Record a data table migration change as a deployed object so it is tallied
 /// into `workspace_diff` and shows up as a `datatable_migration` item in the
 /// workspace-merge diff. The diff path is `<datatable>/<timestamp>_<name>`,
@@ -847,6 +975,15 @@ async fn record_datatable_migration_deployment(
     timestamp: i64,
     name: &str,
 ) -> Result<()> {
+    // A data table predating `validate_new_datatable_name` can carry a name no
+    // repo filter can match; say so once per change instead of letting the deploy
+    // vanish inside the path filter.
+    if validate_new_datatable_name(datatable).is_err() {
+        tracing::warn!(
+            "Data table '{datatable}' has a name git sync cannot match, so its SQL migrations \
+             will not reach a linked repository. Rename it to letters, digits, '_', '-' and '.'."
+        );
+    }
     handle_deployment_metadata(
         &authed.email,
         &authed.username,
@@ -940,7 +1077,10 @@ async fn mark_datatable_version_installed(
         )
         .await
         .map_err(|e| {
-            Error::internal_err(format!("Failed to mark initial migration installed: {}", e))
+            Error::internal_err(format!(
+                "Failed to mark initial migration installed: {}",
+                pg_error_message(&e)
+            ))
         })?;
     Ok(())
 }
@@ -1302,7 +1442,7 @@ async fn generate_initial_datatable_migration(
 
 /// A datatable migration diff item has path `<datatable>/<timestamp>_<name>`.
 /// Parse out the (datatable, timestamp) needed to look it up.
-fn parse_datatable_migration_diff_path(path: &str) -> Option<(String, i64)> {
+pub(crate) fn parse_datatable_migration_diff_path(path: &str) -> Option<(String, i64)> {
     let (datatable, file) = path.split_once('/')?;
     let ts_str: String = file.chars().take_while(|c| c.is_ascii_digit()).collect();
     let timestamp = ts_str.parse::<i64>().ok()?;
@@ -1378,7 +1518,7 @@ fn ignore_missing_wm_migrations(e: tokio_postgres::Error) -> Result<()> {
         Some("42P01") => Ok(()),
         _ => Err(Error::internal_err(format!(
             "Failed to update _wm_migrations: {}",
-            e
+            pg_error_message(&e)
         ))),
     }
 }
@@ -1439,21 +1579,33 @@ async fn remote_rename_datatable_migrations(
 /// temporarily unreachable data-table database is logged rather than failing the
 /// whole config edit. If one is missed, the next run re-applies its migrations
 /// against the existing schema.
+///
+/// Returns every migration path the cascade moved or removed, so the caller can
+/// deploy them once `tx` commits — otherwise a linked git repo keeps the files of
+/// a deleted or pre-rename data table forever.
 pub(crate) async fn cascade_datatable_migration_renames_and_deletes(
     db: &DB,
     tx: &mut Transaction<'_, Postgres>,
     w_id: &str,
     renames: &[DatatableRename],
     deleted_datatables: &[String],
-) -> Result<()> {
+) -> Result<Vec<String>> {
+    let mut changed_paths: Vec<String> = vec![];
+
     if !deleted_datatables.is_empty() {
-        sqlx::query!(
-            "DELETE FROM datatable_migrations WHERE workspace_id = $1 AND datatable = ANY($2::text[])",
+        let deleted = sqlx::query!(
+            "DELETE FROM datatable_migrations WHERE workspace_id = $1 AND datatable = ANY($2::text[]) \
+             RETURNING datatable, timestamp, name",
             w_id,
             deleted_datatables
         )
-        .execute(&mut **tx)
+        .fetch_all(&mut **tx)
         .await?;
+        changed_paths.extend(
+            deleted
+                .into_iter()
+                .map(|m| format!("{}/{}_{}", m.datatable, m.timestamp, m.name)),
+        );
     }
 
     for (i, r) in renames.iter().enumerate() {
@@ -1469,14 +1621,21 @@ pub(crate) async fn cascade_datatable_migration_renames_and_deletes(
     }
     for (i, r) in renames.iter().enumerate() {
         let tmp = format!("__wm_rename_tmp/{i}");
-        sqlx::query!(
-            "UPDATE datatable_migrations SET datatable = $3 WHERE workspace_id = $1 AND datatable = $2",
+        let moved = sqlx::query!(
+            "UPDATE datatable_migrations SET datatable = $3 WHERE workspace_id = $1 AND datatable = $2 \
+             RETURNING timestamp, name",
             w_id,
             &tmp,
             &r.to
         )
-        .execute(&mut **tx)
+        .fetch_all(&mut **tx)
         .await?;
+        for m in moved {
+            // Both ends: the old path so its files are dropped from the repo, the
+            // new one so they reappear under the renamed data table.
+            changed_paths.push(format!("{}/{}_{}", r.from, m.timestamp, m.name));
+            changed_paths.push(format!("{}/{}_{}", r.to, m.timestamp, m.name));
+        }
     }
 
     for name in deleted_datatables {
@@ -1505,7 +1664,34 @@ pub(crate) async fn cascade_datatable_migration_renames_and_deletes(
         }
     }
 
-    Ok(())
+    Ok(changed_paths)
+}
+
+/// Deploy the migration paths a data table rename/delete moved or removed, so a
+/// linked git repo drops the stale files and picks up the renamed ones. Call
+/// after the config transaction commits — the deploy reads the workspace export.
+pub(crate) async fn record_datatable_cascade_deployments(
+    authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
+    changed_paths: Vec<String>,
+) -> Result<()> {
+    if changed_paths.is_empty() {
+        return Ok(());
+    }
+    let objs = changed_paths
+        .into_iter()
+        .map(|path| DeployedObject::DatatableMigration { path })
+        .collect();
+    handle_deployment_metadata_batch(
+        &authed.email,
+        &authed.username,
+        db,
+        w_id,
+        objs,
+        Some("Data table migrations updated by a data table rename or deletion".to_string()),
+    )
+    .await
 }
 
 /// Copy a workspace's migration definitions to another workspace, so a fork
@@ -1576,6 +1762,30 @@ mod tests {
         }
     }
 
+    // A new name must survive the git-sync path matchers; an existing one is only
+    // held to the escape rule, so a workspace carrying a legacy name can still save
+    // its settings and rename its way out.
+    #[test]
+    fn validate_new_datatable_name_requires_a_sync_safe_charset() {
+        for ok in ["mydt", "my-dt", "my_dt.v2", "main"] {
+            assert!(validate_new_datatable_name(ok).is_ok(), "{ok} should be ok");
+        }
+        for bad in [
+            "a b", "a*b", "a[b]", "a{b}", "a?b", "café", ".staging", "-dt", "a/b", "",
+        ] {
+            assert!(
+                validate_new_datatable_name(bad).is_err(),
+                "{bad} should be rejected"
+            );
+            if bad != "a/b" && !bad.is_empty() {
+                assert!(
+                    validate_datatable_path_segment(bad).is_ok(),
+                    "{bad} should still be storable once persisted"
+                );
+            }
+        }
+    }
+
     #[test]
     fn parse_datatable_migration_diff_path_roundtrips() {
         assert_eq!(
@@ -1633,8 +1843,9 @@ mod tests {
     }
 
     // The cascade keeps each data table's migrations attached to its name when a
-    // data table is renamed, drops them when it is deleted, and survives a swap
-    // (A->B, B->A) at a shared timestamp without a primary-key collision.
+    // data table is renamed, drops them when it is deleted, survives a swap
+    // (A->B, B->A) at a shared timestamp without a primary-key collision, and
+    // reports both ends of every move so git sync drops the stale files.
     #[sqlx::test(migrations = "../migrations")]
     async fn cascade_renames_and_deletes_datatable_migrations(pool: DB) {
         let w_id = format!("dtmig{}", uuid::Uuid::new_v4().simple());
@@ -1651,7 +1862,7 @@ mod tests {
         seed_migration(&pool, &w_id, "sb", 5000, "sb_mig").await;
 
         let mut tx = pool.begin().await.unwrap();
-        cascade_datatable_migration_renames_and_deletes(
+        let mut changed = cascade_datatable_migration_renames_and_deletes(
             &pool,
             &mut tx,
             &w_id,
@@ -1672,6 +1883,20 @@ mod tests {
                 ("a2".to_string(), "a_mig".to_string()),
                 ("sa".to_string(), "sb_mig".to_string()),
                 ("sb".to_string(), "sa_mig".to_string()),
+            ]
+        );
+
+        changed.sort();
+        assert_eq!(
+            changed,
+            vec![
+                "a/1_a_mig".to_string(),
+                "a2/1_a_mig".to_string(),
+                "d/1_d_mig".to_string(),
+                "sa/5000_sa_mig".to_string(),
+                "sa/5000_sb_mig".to_string(),
+                "sb/5000_sa_mig".to_string(),
+                "sb/5000_sb_mig".to_string(),
             ]
         );
     }

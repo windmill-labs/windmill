@@ -2,6 +2,11 @@
 
 Import: import wmill
 
+To know who is running the script, read the contextual variables rather than calling the API:
+`os.environ.get("WM_END_USER_EMAIL") or os.environ.get("WM_EMAIL")`. WM_END_USER_EMAIL is the app
+viewer when the run was triggered from an app and empty otherwise (both variables are always
+defined), WM_EMAIL is the user the job is permissioned as. WM_USERNAME is the matching username.
+
 def worker_has_internal_server() -> bool
 
 def get_mocked_api() -> Optional[dict]
@@ -43,11 +48,6 @@ def post(endpoint, raise_for_status = True, **kwargs) -> httpx.Response
 #     New authentication token string
 def create_token(duration = dt.timedelta(days=1)) -> str
 
-# Create a script job and return its job id.
-# 
-# .. deprecated:: Use run_script_by_path_async or run_script_by_hash_async instead.
-def run_script_async(path: str = None, hash_: str = None, args: dict = None, scheduled_in_secs: int = None, tag: str = None) -> str
-
 # Create a script job by path and return its job id.
 def run_script_by_path_async(path: str, args: dict = None, scheduled_in_secs: int = None, tag: str = None) -> str
 
@@ -56,11 +56,6 @@ def run_script_by_hash_async(hash_: str, args: dict = None, scheduled_in_secs: i
 
 # Create a flow job and return its job id.
 def run_flow_async(path: str, args: dict = None, scheduled_in_secs: int = None, do_not_track_in_parent: bool = True, tag: str = None) -> str
-
-# Run script synchronously and return its result.
-# 
-# .. deprecated:: Use run_script_by_path or run_script_by_hash instead.
-def run_script(path: str = None, hash_: str = None, args: dict = None, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False, tag: str = None) -> Any
 
 # Run script by path synchronously and return its result.
 def run_script_by_path(path: str, args: dict = None, timeout: dt.timedelta | int | float | None = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False, tag: str = None) -> Any
@@ -448,11 +443,6 @@ def get_approval_urls(step_key: str = 'approval', approver: str = None) -> dict
 # - The function checks for required environment variables (`WM_FLOW_JOB_ID`, `WM_FLOW_STEP_ID`) to ensure it is run in the appropriate context.
 def request_interactive_slack_approval(slack_resource_path: str, channel_id: str, message: str = None, approver: str = None, default_args_json: dict = None, dynamic_enums_json: dict = None) -> None
 
-# Get email from workspace username
-# This method is particularly useful for apps that require the email address of the viewer.
-# Indeed, in the viewer context WM_USERNAME is set to the username of the viewer but WM_EMAIL is set to the email of the creator of the app.
-def username_to_email(username: str) -> str
-
 # Send a message to a Microsoft Teams conversation with conversation_id, where success is used to style the message
 def send_teams_message(conversation_id: str, text: str, success: bool = True, card_block: dict = None)
 
@@ -485,6 +475,18 @@ def deprecate(in_favor_of: str)
 def get_workspace() -> str
 
 def get_version() -> str
+
+# Create a script job and return its job ID.
+# 
+# Args:
+#     hash_or_path: Script hash or path (determined by presence of '/')
+#     args: Script arguments
+#     scheduled_in_secs: Delay before execution in seconds
+#     tag: Override the worker tag the job runs on
+# 
+# Returns:
+#     Job ID string
+def run_script_async(hash_or_path: str, args: Dict[str, Any] = None, scheduled_in_secs: int = None, tag: str = None) -> str
 
 # Run a script synchronously by hash and return its result.
 # 
@@ -631,6 +633,10 @@ def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]
 # - **v1 (WM_JOB_ID set, no @workflow)**: dispatches via HTTP API.
 # - **Standalone**: executes the function body directly.
 # 
+# A task runs as its own job, so its result is always encoded as JSON and
+# decoded back before the caller sees it: a ``datetime`` comes back as a
+# string, a tuple as a list.
+# 
 # Usage::
 # 
 #     @task
@@ -676,6 +682,10 @@ def workflow(func)
 # On replay the cached value is returned without re-executing ``fn``.
 # Use for lightweight deterministic operations (timestamps, random IDs,
 # config reads) that should not incur the overhead of a child job.
+# 
+# ``fn``'s result is encoded as JSON and decoded back before it is returned,
+# so the round that runs the body sees the same types every replay sees:
+# a ``datetime`` comes back as a string, a tuple as a list.
 async def step(name: str, fn)
 
 # Server-side sleep — suspend the workflow for the given duration without holding a worker.

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { scimSamlSetting, settings, settingsKeys } from './instanceSettings'
+	import { scimSamlSetting, settings, settingsKeys, instanceSettingsSaved } from './instanceSettings'
 	import { Alert, Button, Tab, TabContent, Tabs } from '$lib/components/common'
 	import { SettingService, SettingsService } from '$lib/gen'
 	import type { TeamsChannel } from '$lib/gen/types.gen'
@@ -244,6 +244,7 @@
 
 			initialValues = JSON.parse(JSON.stringify($values))
 			initialOauths = JSON.parse(JSON.stringify(oauths))
+			instanceSettingsSaved.update((n) => n + 1)
 			initialRequirePreexistingUserForOauth = requirePreexistingUserForOauth
 			baseUrlIsFallback = false
 
@@ -625,6 +626,7 @@
 			const v = $values[s.key]
 			initialValues[s.key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
 		}
+		instanceSettingsSaved.update((n) => n + 1)
 		if (categorySettings.some((s) => s.key === 'base_url')) {
 			baseUrlIsFallback = false
 		}

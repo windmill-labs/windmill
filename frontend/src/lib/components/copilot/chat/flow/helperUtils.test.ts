@@ -53,6 +53,39 @@ function makeAiAgentWithTool(agentId: string, toolId: string, toolContent: strin
 }
 
 describe('applyFlowJsonUpdate', () => {
+	it('leaves top-level flow settings untouched when settings is not provided', () => {
+		const flow = {
+			value: {
+				modules: [makeRawScriptModule('step_a', 'code a')],
+				chat_input_enabled: true,
+				same_worker: true
+			}
+		}
+
+		applyFlowJsonUpdate(flow as any, createInlineScriptSession(), {
+			modules: [makeRawScriptModule('step_b', 'code b')]
+		})
+
+		expect((flow.value as any).chat_input_enabled).toBe(true)
+		expect((flow.value as any).same_worker).toBe(true)
+	})
+
+	it('applies full-state settings: sets provided keys and removes absent ones', () => {
+		const flow = {
+			value: {
+				modules: [makeRawScriptModule('step_a', 'code a')],
+				chat_input_enabled: true
+			}
+		}
+
+		applyFlowJsonUpdate(flow as any, createInlineScriptSession(), {
+			settings: { same_worker: true }
+		})
+
+		expect((flow.value as any).same_worker).toBe(true)
+		expect('chat_input_enabled' in flow.value).toBe(false)
+	})
+
 	it('accepts new self-referenced inline scripts and initializes them as empty', () => {
 		const flow = {
 			value: {

@@ -6,13 +6,16 @@ import {
 	type Job,
 	type RestartedFrom,
 	type OpenFlow,
-	type MemoryConfig
+	type MemoryConfig,
+	type FlowValue,
+	type Retry
 } from '$lib/gen'
 import { workspaceStore } from '$lib/stores'
 import { cleanExpr, emptySchema } from '$lib/utils'
 import { get } from 'svelte/store'
 import type { FlowModuleState } from './flowState'
 import { type PickableProperties, dfs } from './previousResults'
+import { forEachFlowModule } from './dfs'
 import { NEVER_TESTED_THIS_FAR } from './models'
 import { sendUserToast } from '$lib/toast'
 import type { ExtendedOpenFlow } from './types'
@@ -94,6 +97,9 @@ export function filteredContentForExport(flow: ExtendedOpenFlow) {
 	if (flow.on_behalf_of_email) {
 		o['on_behalf_of_email'] = flow.on_behalf_of_email
 	}
+	if (flow.on_behalf_of) {
+		o['on_behalf_of'] = flow.on_behalf_of
+	}
 	if (flow.ws_error_handler_muted) {
 		o['ws_error_handler_muted'] = flow.ws_error_handler_muted
 	}
@@ -112,6 +118,7 @@ export function cleanFlow(flow: OpenFlow | any): OpenFlow & {
 	dedicated_worker?: boolean
 	visible_to_runner_only?: boolean
 	on_behalf_of_email?: string
+	on_behalf_of?: string
 } {
 	const newFlow: Flow = $state.snapshot(flow)
 
@@ -225,6 +232,37 @@ export function emptyFlowModuleState(): FlowModuleState {
 		schema: emptySchema(),
 		previewResult: NEVER_TESTED_THIS_FAR
 	}
+}
+
+// `same_worker` hands the next step directly to the worker holding `./shared`, bypassing
+// `scheduled_for`: a retry delay is silently ignored, and a sleep breaks the hand-off so the
+// next step can land on another worker without `./shared`. Keep the two mutually exclusive.
+export const SAME_WORKER_INCOMPATIBLE_MSG =
+	'Retries and sleeps are not compatible with the shared directory (`Same Worker`): retry delays would be ignored and a sleep would lose the `./shared` folder.'
+
+// Mirrors the backend's `Retry::has_attempts`: a retry with no attempt never runs, and the
+// retries tab renders it as "Disabled", so it must not block anything.
+function hasRetryAttempts(retry: Retry | undefined): boolean {
+	return (retry?.constant?.attempts ?? 0) > 0 || (retry?.exponential?.attempts ?? 0) > 0
+}
+
+export function modulesWithRetryOrSleep(flow: FlowValue): string[] {
+	// The failure and preprocessor modules live outside `modules` but run as regular steps on
+	// the same-worker hand-off. Agent tools don't: they never go through the flow scheduler.
+	const roots = [flow.modules, flow.failure_module, flow.preprocessor_module]
+		.flat()
+		.filter((m) => m != undefined)
+	const ids: string[] = []
+	forEachFlowModule(
+		roots,
+		(m) => {
+			if (hasRetryAttempts(m.retry) || m.sleep != undefined) {
+				ids.push(m.id)
+			}
+		},
+		{ skipToolNodes: true }
+	)
+	return ids
 }
 
 export function checkIfParentLoop(

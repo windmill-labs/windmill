@@ -51,7 +51,7 @@
 </script>
 
 <script lang="ts">
-	import { Plus } from 'lucide-svelte'
+	import { Plus, PlugZap } from 'lucide-svelte'
 
 	import Button from '../common/button/Button.svelte'
 
@@ -69,7 +69,12 @@
 	import { isCustomInstanceDbEnabled, getUnusedInstanceDbName } from './utils.svelte'
 	import { random_adj } from '../random_positive_adjetive'
 	import { sendUserToast } from '$lib/toast'
-	import { SettingService, WorkspaceService, type GetSettingsResponse } from '$lib/gen'
+	import {
+		SettingService,
+		WorkspaceService,
+		type GetSettingsResponse,
+		type TestDataTableConnectionResponse
+	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
@@ -82,6 +87,7 @@
 	import { clone } from '$lib/utils'
 	import SettingsFooter from './SettingsFooter.svelte'
 	import Alert from '../common/alert/Alert.svelte'
+	import MissingWorkerTagAlert from '../jobs/MissingWorkerTagAlert.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 
 	type Props = {
@@ -89,6 +95,39 @@
 	}
 
 	let { dataTableSettings = $bindable() }: Props = $props()
+
+	// Result of the last "Test connection", shown under the table: the grant
+	// statements have to stay selectable, which rules out a toast.
+	let connectionCheck = $state<
+		| {
+				name: string
+				loading: boolean
+				report?: TestDataTableConnectionResponse
+				error?: string
+		  }
+		| undefined
+	>(undefined)
+
+	// Identifies the request the single result slot is waiting on. The data table
+	// name is not enough: A -> B -> A leaves two A requests in flight, and the
+	// first to be issued can be the last to land.
+	let latestCheck = 0
+
+	async function testConnection(name: string) {
+		const check = ++latestCheck
+		connectionCheck = { name, loading: true }
+		try {
+			const report = await WorkspaceService.testDataTableConnection({
+				workspace: $workspaceStore ?? '',
+				datatableName: name
+			})
+			if (check !== latestCheck) return
+			connectionCheck = { name, loading: false, report }
+		} catch (err) {
+			if (check !== latestCheck) return
+			connectionCheck = { name, loading: false, error: err?.body ?? err?.message ?? String(err) }
+		}
+	}
 
 	let tableHeadNames = ['Name', 'Database', '', ''] as const
 	let tableHeadTooltips: Partial<Record<(typeof tableHeadNames)[number], string | undefined>> = {
@@ -214,6 +253,8 @@
 	</Alert>
 {/if}
 
+<MissingWorkerTagAlert tag="postgresql" subject="Browsing and querying data tables" class="mb-4" />
+
 <DataTable>
 	<Head>
 		<tr>
@@ -305,6 +346,17 @@
 							datatable={dataTable.name}
 							disabled={!!dirtyMap[dataTable.name]}
 						/>
+						<Button
+							size="xs"
+							color="light"
+							variant="border"
+							startIcon={{ icon: PlugZap }}
+							iconOnly
+							disabled={!!dirtyMap[dataTable.name]}
+							loading={connectionCheck?.name === dataTable.name && connectionCheck.loading}
+							title="Test connection: check the database is reachable and its user can create tables"
+							on:click={() => testConnection(dataTable.name)}
+						/>
 						{#if dirtyMap[dataTable.name]}
 							<Popover
 								openOnHover
@@ -342,6 +394,69 @@
 		</Row>
 	</tbody>
 </DataTable>
+
+{#if connectionCheck && !connectionCheck.loading}
+	{@const report = connectionCheck.report}
+	{#if connectionCheck.error}
+		<Alert type="error" title="Could not connect to {connectionCheck.name}" class="mt-4" size="xs">
+			{connectionCheck.error}
+		</Alert>
+	{:else if report}
+		{@const fullyPrivileged = report.can_create_table && report.can_create_schema}
+		<Alert
+			type={fullyPrivileged ? 'success' : 'warning'}
+			title={fullyPrivileged
+				? `${connectionCheck.name} is reachable and its user can create tables and schemas`
+				: `${connectionCheck.name} is reachable but its user is missing privileges`}
+			class="mt-4"
+			size="xs"
+		>
+			<div class="flex flex-col gap-2">
+				<div>
+					Connects as <span class="font-mono">{report.user}</span>{#if report.schema}, resolving
+						unqualified statements to schema <span class="font-mono">{report.schema}</span>{/if}.
+				</div>
+				{#if report.suggested_search_path}
+					<div>
+						Its search_path resolves to no schema, so unqualified statements fail with
+						<span class="font-mono">no schema has been selected to create in</span> whatever
+						privileges the role holds. Point it at one, e.g.
+						<span class="font-mono select-all">{report.suggested_search_path}</span>.
+					</div>
+				{/if}
+				<ul class="list-disc list-inside">
+					<li>
+						Create tables{report.schema ? ` in ${report.schema}` : ''}:
+						<span class="font-semibold">{report.can_create_table ? 'yes' : 'no'}</span>
+					</li>
+					<li>
+						Create schemas:
+						<span class="font-semibold">{report.can_create_schema ? 'yes' : 'no'}</span>
+					</li>
+					<li>
+						Migration bookkeeping table exists:
+						<span class="font-semibold">{report.migrations_table_exists ? 'yes' : 'no'}</span>
+					</li>
+				</ul>
+				{#if report.suggested_grants.length > 0}
+					<div>
+						Windmill connects as the role that lacks these privileges, so it cannot grant them
+						itself. Run as a schema owner or superuser on that database:
+					</div>
+					<pre class="whitespace-pre-wrap select-all text-xs"
+						>{report.suggested_grants.map((g) => `${g};`).join('\n')}</pre
+					>
+					{#if report.schema && !report.can_create_table && !report.migrations_table_exists}
+						<div>
+							Alternatively, create the <span class="font-mono">_wm_migrations</span> bookkeeping table
+							yourself and grant only SELECT, INSERT, UPDATE, DELETE on it.
+						</div>
+					{/if}
+				{/if}
+			</div>
+		</Alert>
+	{/if}
+{/if}
 
 <SettingsFooter
 	class="mt-8"

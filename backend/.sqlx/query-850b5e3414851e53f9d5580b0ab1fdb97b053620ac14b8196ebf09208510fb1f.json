@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE dbt_graph_snapshot SET relation_root_at_last_ingest = $4\n          WHERE workspace_id = $1 AND script_path = $2 AND script_hash = $3\n            AND job_id = '00000000-0000-0000-0000-000000000000'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "850b5e3414851e53f9d5580b0ab1fdb97b053620ac14b8196ebf09208510fb1f"
+}

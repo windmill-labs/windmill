@@ -169,6 +169,31 @@ export function findCanonicalDevWorkspace(
 }
 
 /**
+ * The workspace a new fork should branch from by default. Inside a dev workspace's subtree the base is
+ * that dev workspace, not the family root: the dev workspace carries the changes being worked on, and
+ * a prod locked against forking (`lock_prod_forking`) rejects a root-based fork outright. Anywhere
+ * else it is the family root, so an ad-hoc fork branches from prod rather than from whichever
+ * throwaway fork happens to be open. A dev workspace the user is disabled in is skipped — forking from
+ * it would fail — and the walk continues upwards.
+ */
+export function findDefaultForkBase(
+	currentWorkspaceId: string | undefined,
+	allWorkspaces: UserWorkspace[]
+): UserWorkspace | undefined {
+	let current = allWorkspaces.find((w) => w.id === currentWorkspaceId)
+	while (current) {
+		if (current.is_dev_workspace && !current.disabled) return current
+		if (!current.parent_workspace_id) break
+		const parent: UserWorkspace | undefined = allWorkspaces.find(
+			(w) => w.id === current!.parent_workspace_id
+		)
+		if (!parent) break
+		current = parent
+	}
+	return findWorkspaceRoot(currentWorkspaceId, allWorkspaces)
+}
+
+/**
  * Helper function to find all descendants of a workspace
  */
 export function findWorkspaceDescendants(

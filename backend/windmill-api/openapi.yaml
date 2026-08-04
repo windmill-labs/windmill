@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.773.0
+  version: 1.778.0
   title: Windmill API
 
   contact:
@@ -2233,6 +2233,33 @@ paths:
                 items:
                   $ref: "#/components/schemas/GlobalSetting"
 
+  /settings/github_app_stale_webhooks:
+    get:
+      summary: list git-sync repositories whose webhook still points at a previous receiver
+      operationId: githubAppStaleWebhooks
+      tags:
+        - setting
+      responses:
+        "200":
+          description: repositories needing their git sync settings re-saved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    workspace_id:
+                      type: string
+                    git_repo_resource_path:
+                      type: string
+                    registered_url:
+                      type: string
+                      nullable: true
+                  required:
+                    - workspace_id
+                    - git_repo_resource_path
+
   /settings/instance_config:
     get:
       summary: get full instance config (global settings + worker configs)
@@ -3446,6 +3473,39 @@ paths:
               schema:
                 $ref: "#/components/schemas/WorkspaceComparison"
 
+  /w/{workspace}/workspaces/seed_full_diff/{target_workspace_id}:
+    post:
+      operationId: seedFullDiffScan
+      summary: Seed the diff candidate set against an arbitrary workspace
+      description: Enumerates every item of both workspaces as an undecided diff candidate so `compareWorkspaces` can compare a pair the fork lineage does not track. Requires being an admin of both workspaces, and is rejected for a pair already linked by the lineage (whose diff is tallied continuously). The comparison itself is what compares the candidates, and is the expensive step.
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: target_workspace_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The ID of the workspace to compare with
+      responses:
+        "200":
+          description: Scan seeded
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - candidates
+                  - scanned_at
+                properties:
+                  candidates:
+                    type: integer
+                    description: Number of candidate items the comparison will evaluate
+                  scanned_at:
+                    type: string
+                    format: date-time
+
   /w/{workspace}/workspaces/reset_diff_tally/{fork_workspace_id}:
     post:
       operationId: resetDiffTally
@@ -3618,8 +3678,6 @@ paths:
                     type: string
                   webhook:
                     type: string
-                  deploy_to:
-                    type: string
                   ai_config:
                     $ref: "#/components/schemas/AIConfig"
                   error_handler:
@@ -3630,6 +3688,8 @@ paths:
                     $ref: "#/components/schemas/LargeFileStorage"
                   ducklake:
                     $ref: "#/components/schemas/DucklakeSettings"
+                  dbt_warehouses:
+                    $ref: "#/components/schemas/DbtWarehouses"
                   datatable:
                     $ref: "#/components/schemas/DataTableSettings"
                   git_sync:
@@ -3655,7 +3715,7 @@ paths:
 
   /w/{workspace}/workspaces/get_deploy_to:
     get:
-      summary: get deploy to
+      summary: get the workspace this one deploys into (its fork parent)
       operationId: getDeployTo
       tags:
         - workspace
@@ -4214,32 +4274,6 @@ paths:
                   job_uuid:
                     type: string
 
-  /w/{workspace}/workspaces/edit_deploy_to:
-    post:
-      summary: edit deploy to
-      operationId: editDeployTo
-      tags:
-        - workspace
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                deploy_to:
-                  type: string
-
-      responses:
-        "200":
-          description: status
-          content:
-            text/plain:
-              schema:
-                type: string
-
   /w/{workspace}/workspaces/edit_auto_invite:
     post:
       summary: edit auto invite
@@ -4482,6 +4516,112 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/workspaces/edit_dbt_warehouses:
+    post:
+      summary: edit the workspace's dbt warehouses
+      operationId: editDbtWarehouses
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: dbt warehouses, by name
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dbt_warehouses:
+                  $ref: "#/components/schemas/DbtWarehouses"
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema: {}
+
+  /w/{workspace}/dbt/run_progress:
+    post:
+      summary: record the running job's settled dbt nodes
+      description: >-
+        Job-scoped: needs a job token, and the job is taken from the token rather
+        than the body. For workers with no database access.
+      operationId: recordDbtRunProgress
+      tags:
+        - dbt
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: object
+                properties:
+                  asset_path:
+                    type: string
+                  status:
+                    type: string
+                  row_count:
+                    type: integer
+                  error:
+                    type: string
+                required:
+                  - asset_path
+                  - status
+      responses:
+        "200":
+          description: recorded
+
+  /w/{workspace}/dbt/warehouse/{name}:
+    get:
+      summary: resolve a dbt warehouse to the connection it names
+      description: >-
+        Job-scoped: needs a job token, because the response carries the
+        warehouse's credentials. dbt is unpermissioned by design, so a running
+        job reaches any warehouse the workspace configures.
+      operationId: getDbtWarehouse
+      tags:
+        - dbt
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: the connection the warehouse names
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DbtWarehouseConnection"
+
+  /w/{workspace}/dbt/warehouse_exists/{name}:
+    get:
+      summary: check that a dbt warehouse is configured, without resolving it
+      description: >-
+        Job-scoped: needs a job token. For a project bringing its own
+        `profiles.yml`, which names a warehouse only to say where its assets
+        belong and never opens the connection.
+      operationId: dbtWarehouseExists
+      tags:
+        - dbt
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: the warehouse is configured
+
   /w/{workspace}/workspaces/list_ducklakes:
     get:
       summary: list ducklakes
@@ -4632,6 +4772,52 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/DataTableSchema"
+
+  /w/{workspace}/workspaces/test_datatable_connection/{datatable_name}:
+    get:
+      summary: check what the data table's database lets its role do
+      operationId: testDataTableConnection
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: connection and privilege report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    type: string
+                  schema:
+                    type: string
+                    nullable: true
+                  can_create_table:
+                    type: boolean
+                  can_create_schema:
+                    type: boolean
+                  migrations_table_exists:
+                    type: boolean
+                  suggested_grants:
+                    type: array
+                    items:
+                      type: string
+                  suggested_search_path:
+                    type: string
+                required:
+                  - user
+                  - schema
+                  - can_create_table
+                  - can_create_schema
+                  - migrations_table_exists
+                  - suggested_grants
 
   /w/{workspace}/workspaces/list_datatable_tables:
     get:
@@ -8313,6 +8499,7 @@ paths:
         - app
       parameters:
         - $ref: "#/components/parameters/CustomPath"
+        - $ref: "#/components/parameters/SdkConsent"
       responses:
         "200":
           description: embed token
@@ -11829,6 +12016,43 @@ paths:
                   - $ref: "#/components/schemas/AppWithLastVersion"
                   - $ref: "#/components/schemas/UserDraftOverlay"
 
+  /w/{workspace}/apps/preview_sdk_token:
+    post:
+      summary: mint a frontend SDK token for the raw app editor's preview
+      operationId: mintPreviewSdkToken
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                  description: App being edited; may not be deployed yet.
+                scopes:
+                  type: array
+                  items:
+                    type: string
+                  description: >
+                    Scopes from the policy being edited. Capped by the curated
+                    allowlist and by the caller's own scopes, and minted as the
+                    caller, so it grants nothing they could not mint themselves.
+              required:
+                - path
+                - scopes
+      responses:
+        "200":
+          description: the token
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/apps/embed_token/p/{path}:
     get:
       summary: get app embed token by path
@@ -11838,6 +12062,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
+        - $ref: "#/components/parameters/SdkConsent"
       responses:
         "200":
           description: embed token
@@ -11976,6 +12201,7 @@ paths:
           required: true
           schema:
             type: string
+        - $ref: "#/components/parameters/SdkConsent"
       responses:
         "200":
           description: embed token
@@ -12073,6 +12299,7 @@ paths:
       summary: update app
       operationId: updateApp
       x-mcp-tool: true
+      x-mcp-instructions: "Low-code apps only. An app whose `raw_app` field (from getAppByPath) is true is a raw (full-code) app: its value holds source files that must be compiled to a js/css bundle, which this tool cannot upload, so updating one here is refused. Edit a raw app in its editor at /apps_raw/edit/<path> instead."
       x-mcp-tool-include-fields:
         - path
         - value
@@ -12116,6 +12343,9 @@ paths:
                 skip_draft_deletion:
                   type: boolean
                   description: "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
+                allow_kind_change:
+                  type: boolean
+                  description: "When true, this deploy may switch the app between low-code and raw. Without it, deploying a value to an app of the other kind is refused so an app is never converted by accident."
       responses:
         "200":
           description: app updated
@@ -12165,6 +12395,9 @@ paths:
                     skip_draft_deletion:
                       type: boolean
                       description: "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
+                    allow_kind_change:
+                      type: boolean
+                      description: "When true, this deploy may switch the app between low-code and raw. Without it, deploying a value to an app of the other kind is refused so an app is never converted by accident."
                 js:
                   type: string
                 css:
@@ -14212,6 +14445,116 @@ paths:
                     - sibling_count
                     - logs
 
+  /w/{workspace}/jobs_u/get_flow_all_results/{id}:
+    get:
+      summary: get statuses and truncated results for all jobs of a flow job's execution tree
+      operationId: getFlowAllResults
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: max_result_len
+          in: query
+          description: per-entry cap (in characters of JSON text) on result_prefix (default 2000, max 30000)
+          schema:
+            type: integer
+        - name: step
+          in: query
+          description: 'step address to resolve to a single job instead of enumerating the tree: "b", "b/c", "b[12]" (1-based iteration/branch), composable as "b[12]/c"'
+          schema:
+            type: string
+      responses:
+        "200":
+          description: per-job statuses and truncated results of the flow's execution tree, or the single resolved entry when step is provided
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enclosing_job:
+                    type: string
+                    format: uuid
+                    description: set when the requested job is itself a step of a larger flow run; id of the flow run directly enclosing it
+                  entries:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        job_id:
+                          type: string
+                        label:
+                          type: string
+                          description: human-readable label describing the job's position in the flow tree
+                        kind:
+                          type: string
+                          description: job kind (script, flow, forloopflow, ...)
+                        flow_step_id:
+                          type: string
+                          nullable: true
+                        step_path:
+                          type: string
+                          nullable: true
+                          description: materialized step path (e.g. "a/b")
+                        depth:
+                          type: integer
+                          description: depth in the flow tree (0 for the root flow job)
+                        parent_module_type:
+                          type: string
+                          nullable: true
+                          description: parent module type (forloopflow, branchall, ...)
+                        sibling_index:
+                          type: integer
+                          description: 1-based index of this job among siblings sharing the same step
+                        sibling_count:
+                          type: integer
+                          description: total number of siblings sharing the same step
+                        status:
+                          type: string
+                          enum:
+                            [
+                              success,
+                              failure,
+                              canceled,
+                              skipped,
+                              suspended,
+                              running,
+                              queued,
+                            ]
+                        success:
+                          type: boolean
+                        duration_ms:
+                          type: integer
+                          format: int64
+                        started_at:
+                          type: string
+                          format: date-time
+                        result_prefix:
+                          type: string
+                          description: result JSON text truncated to the per-entry budget; absent until the job has completed
+                        result_length:
+                          type: integer
+                          description: full length in characters of the result JSON text (greater than the prefix length when truncated)
+                      required:
+                        - job_id
+                        - label
+                        - kind
+                        - depth
+                        - sibling_index
+                        - sibling_count
+                        - status
+                  truncated:
+                    type: boolean
+                    description: true when the tree has more jobs than the entry cap; entries then hold the depth-first prefix
+                  scope_filtered:
+                    type: boolean
+                    description: true when the caller's token is tag-scoped; steps running on other tags are omitted
+                  step_error:
+                    type: string
+                    description: set when step was provided but could not be resolved; a diagnostic listing available step ids or iteration statuses
+                required:
+                  - entries
+
   /w/{workspace}/jobs_u/get_completed_logs_tail/{id}:
     get:
       summary: get completed job logs tail
@@ -14560,6 +14903,7 @@ paths:
                         - ducklake
                         - datatable
                         - volume
+                        - dbt
                     asset_path:
                       type: string
                     outcome:
@@ -14650,6 +14994,7 @@ paths:
                         - ducklake
                         - datatable
                         - volume
+                        - dbt
                     asset_path:
                       type: string
                     created_at:
@@ -21268,6 +21613,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: search
+          in: query
+          description: Match keys by path prefix, case-sensitively, on the raw key rather than per path segment (so "a/file1" matches "a/file1000"). Pushed down to the storage provider as a seek; resume with the returned next_marker.
+          schema:
+            type: string
         - name: storage
           in: query
           schema:
@@ -21295,6 +21645,67 @@ paths:
                     type: boolean
                 required:
                   - windmill_large_files
+
+  /w/{workspace}/job_helpers/list_stored_files_paged:
+    get:
+      summary: List one page of a single folder level in a workspace object storage
+      operationId: listStoredFilesPaged
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: prefix
+          in: query
+          description: Folder to list; empty for the bucket root, otherwise must end with '/'
+          schema:
+            type: string
+        - name: max_keys
+          in: query
+          description: Maximum number of folders and files combined
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+        - name: page_token
+          in: query
+          description: Opaque token from a previous response, to continue listing the same folder
+          schema:
+            type: string
+        - name: storage
+          in: query
+          schema:
+            type: string
+        - name: s3_resource_path
+          in: query
+          description: When set, list the files of this object storage resource instead of the workspace storage
+          schema:
+            type: string
+      responses:
+        "200":
+          description: One page of folders and files at this level
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  folders:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/StorageFolder"
+                  files:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/StorageFile"
+                  next_page_token:
+                    type: string
+                    description: When set, more entries remain at this level
+                  restricted_access:
+                    type: boolean
+                required:
+                  - folders
+                  - files
+                  - restricted_access
 
   /w/{workspace}/job_helpers/load_file_metadata:
     get:
@@ -22730,170 +23141,22 @@ paths:
           description: Scope the graph to runnables in a single folder
           schema:
             type: string
+        - name: dbt_script_hash
+          in: query
+          description: >
+            Render the dbt half of the graph as one version of a dbt script had
+            it, rather than as the currently deployed one. Given this, `folder`
+            no longer scopes the dbt nodes: the pinned version's own models and
+            lineage are the answer, including models a later deploy removed.
+          schema:
+            type: string
       responses:
         "200":
           description: asset graph nodes, lineage edges and trigger edges
           content:
             application/json:
               schema:
-                type: object
-                required: [assets, runnables, edges, triggers]
-                properties:
-                  assets:
-                    type: array
-                    items:
-                      type: object
-                      required: [kind, path]
-                      properties:
-                        kind:
-                          $ref: "#/components/schemas/AssetKind"
-                        path:
-                          type: string
-                        fork_materialization:
-                          type: string
-                          enum: [fork, deferred]
-                          description: Fork workspaces only — 'fork' when this ducklake asset was materialized in the fork itself, 'deferred' when reads fall back to the parent workspace's current table via a defer view. Omitted otherwise.
-                  runnables:
-                    type: array
-                    items:
-                      type: object
-                      required: [path, usage_kind]
-                      properties:
-                        path:
-                          type: string
-                        usage_kind:
-                          $ref: "#/components/schemas/AssetUsageKind"
-                        in_pipeline:
-                          type: boolean
-                          description: True iff the script is a pipeline member (deployed with `// pipeline`). Omitted when false.
-                        macros:
-                          type: array
-                          description: Macros this script provides to the workspace registry (deployed `// macros` library). Omitted when empty.
-                          items:
-                            type: object
-                            required: [name, params, is_table]
-                            properties:
-                              name:
-                                type: string
-                              params:
-                                type: string
-                                description: verbatim parameter list
-                              is_table:
-                                type: boolean
-                  edges:
-                    type: array
-                    items:
-                      type: object
-                      required:
-                        [runnable_path, runnable_kind, asset_kind, asset_path]
-                      properties:
-                        runnable_path:
-                          type: string
-                        runnable_kind:
-                          $ref: "#/components/schemas/AssetUsageKind"
-                        asset_kind:
-                          $ref: "#/components/schemas/AssetKind"
-                        asset_path:
-                          type: string
-                        access_type:
-                          $ref: "#/components/schemas/AssetUsageAccessType"
-                  triggers:
-                    type: array
-                    items:
-                      oneOf:
-                        - type: object
-                          description: Asset trigger edge (`// on <asset>`)
-                          required:
-                            [
-                              trigger_kind,
-                              asset_kind,
-                              asset_path,
-                              runnable_kind,
-                              runnable_path,
-                            ]
-                          properties:
-                            trigger_kind:
-                              type: string
-                              enum: [asset]
-                            asset_kind:
-                              $ref: "#/components/schemas/AssetKind"
-                            asset_path:
-                              type: string
-                            runnable_kind:
-                              $ref: "#/components/schemas/AssetUsageKind"
-                            runnable_path:
-                              type: string
-                        - type: object
-                          description: Native trigger edge (schedule, email, kafka, ...). `path` is the trigger row's path.
-                          required:
-                            [trigger_kind, path, runnable_kind, runnable_path]
-                          properties:
-                            trigger_kind:
-                              type: string
-                              enum:
-                                - schedule
-                                - email
-                                - kafka
-                                - mqtt
-                                - nats
-                                - postgres
-                                - sqs
-                                - gcp
-                            path:
-                              type: string
-                            runnable_kind:
-                              $ref: "#/components/schemas/AssetUsageKind"
-                            runnable_path:
-                              type: string
-                  macro_edges:
-                    type: array
-                    description: Macro-library → consumer edges (deploy-recorded call detection plus `// use`). Omitted when empty.
-                    items:
-                      type: object
-                      required: [lib_path, consumer_path, macro_names, via_use]
-                      properties:
-                        lib_path:
-                          type: string
-                        consumer_path:
-                          type: string
-                        macro_names:
-                          type: array
-                          items:
-                            type: string
-                        via_use:
-                          type: boolean
-                  test_edges:
-                    type: array
-                    description: >-
-                      Ordering-only "must-run-after" edges — a `// data_test relationships`
-                      (or custom test reading a pipeline asset) requires the referenced
-                      asset's producer to run before the tested script. Not a data-consumption
-                      edge; fed into the cascade topo-sort so cold runs order correctly.
-                      Omitted when empty.
-                    items:
-                      type: object
-                      required:
-                        [
-                          producer_kind,
-                          producer_path,
-                          runnable_kind,
-                          runnable_path,
-                          asset_kind,
-                          asset_path,
-                        ]
-                      properties:
-                        producer_kind:
-                          $ref: "#/components/schemas/AssetUsageKind"
-                        producer_path:
-                          type: string
-                        runnable_kind:
-                          $ref: "#/components/schemas/AssetUsageKind"
-                        runnable_path:
-                          type: string
-                        asset_kind:
-                          $ref: "#/components/schemas/AssetKind"
-                        asset_path:
-                          type: string
+                $ref: "#/components/schemas/AssetGraph"
 
   /w/{workspace}/assets/macros:
     get:
@@ -22978,6 +23241,144 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/MaterializedPartition"
+
+  /w/{workspace}/jobs/dbt_resumable/{id}:
+    get:
+      summary: Whether a dbt retry by this caller would resume this run
+      description: >
+        One failed run is saved per script per execution principal, so a `retry`
+        resumes that one — not necessarily the run being looked at. Answers about
+        THIS run alone: its own id when a retry submitted by this caller would
+        resume it, null otherwise (a later run holds the state, the run left
+        nothing to rebuild, or the caller's runs execute as another principal).
+        Authorized through the job, like `run_progress`.
+      operationId: getDbtResumable
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          description: The job whose script and principal decide the saved failure
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: this job's id when a retry would resume it, or null
+          content:
+            application/json:
+              schema:
+                type: string
+                format: uuid
+                nullable: true
+
+  /w/{workspace}/jobs/dbt_resumable_script/p/{path}:
+    get:
+      summary: Which run a dbt retry of this script would resume for the caller
+      description: >
+        A `retry` requires `dbt_retry_job`, and the run form has no job id to
+        hand. Returns the one the caller's own retry would land on — the saved
+        failure for the principal the run would execute as, which is the script's
+        author for an `on_behalf_of` script and the caller otherwise — and only
+        when that run is one the caller may read. Null when there is nothing to
+        resume, or nothing this caller may be told about.
+      operationId: getDbtResumableForScript
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: the job id a retry would resume, or null
+          content:
+            application/json:
+              schema:
+                type: string
+                format: uuid
+                nullable: true
+
+  /w/{workspace}/jobs/dbt_graph/{id}:
+    get:
+      summary: Get the asset graph as one run saw it
+      description: >
+        The workspace asset graph with its dbt half pinned to what a single run
+        built. Only a dynamic descriptor (a `{{ }}` placeholder in `vars`) leaves a
+        per-run snapshot; without one for this job the pinned version's own graph
+        answers, so a run page may use this route unconditionally. Authorized
+        through the job, the same gate as `run_progress` — pinning to a run is
+        job-scoped, which is why `assets/graph` cannot do it.
+      operationId: getDbtRunGraph
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          description: The job whose graph to render
+          schema:
+            type: string
+            format: uuid
+        - name: asset_kinds
+          in: query
+          description: Filter by asset kinds (comma-separated list)
+          schema:
+            type: string
+        - name: folder
+          in: query
+          description: Scope the graph to runnables in a single folder
+          schema:
+            type: string
+        - name: dbt_script_hash
+          in: query
+          description: >
+            Fallback only, for a job that names no deployed script — a preview or
+            a flow. For a script job the version comes from the job row itself,
+            so this is ignored: which deploy's models, SQL and `ref()` lineage
+            are shown is not the caller's to choose.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: asset graph nodes, lineage edges and trigger edges
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssetGraph"
+
+  /w/{workspace}/jobs/run_progress/{id}:
+    get:
+      summary: List the per-relation progress one job has recorded so far
+      description: >
+        Live materialization state for the relations a single job writes, keyed by
+        relation. Polled while a run is in flight so a graph can move a node as its
+        model completes. Authorized through the job, so a caller who may not read it
+        is refused rather than told the run has no progress. An empty list means the
+        job exists and has recorded nothing yet, or is unknown to this workspace.
+      operationId: getRunProgress
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          description: The job whose per-relation progress to read
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: per-relation status for this run
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AssetProgress"
 
   /w/{workspace}/assets/partitions_in_range:
     get:
@@ -23866,6 +24267,16 @@ components:
       required: true
       schema:
         type: string
+    SdkConsent:
+      name: sdk_consent
+      in: query
+      required: false
+      description: >
+        Raw apps: the viewer confirmed the frontend-SDK permissions consent
+        banner, so the viewer-scoped SDK token may actually be minted. Without
+        it the response only advertises the declared sdk_scopes.
+      schema:
+        type: boolean
     PathId:
       name: id
       in: path
@@ -24212,6 +24623,266 @@ components:
         enum: [script, flow]
 
   schemas:
+    AssetGraph:
+      type: object
+      required: [assets, runnables, edges, triggers]
+      properties:
+        assets:
+          type: array
+          items:
+            type: object
+            required: [kind, path]
+            properties:
+              kind:
+                $ref: "#/components/schemas/AssetKind"
+              path:
+                type: string
+              fork_materialization:
+                type: string
+                enum: [fork, deferred]
+                description: Fork workspaces only — 'fork' when this ducklake asset was materialized in the fork itself, 'deferred' when reads fall back to the parent workspace's current table via a defer view. Omitted otherwise.
+              dbt:
+                $ref: "#/components/schemas/DbtAssetProvenance"
+        runnables:
+          type: array
+          items:
+            type: object
+            required: [path, usage_kind]
+            properties:
+              path:
+                type: string
+              usage_kind:
+                $ref: "#/components/schemas/AssetUsageKind"
+              in_pipeline:
+                type: boolean
+                description: True iff the script is a pipeline member (deployed with `// pipeline`). Omitted when false.
+              macros:
+                type: array
+                description: Macros this script provides to the workspace registry (deployed `// macros` library). Omitted when empty.
+                items:
+                  type: object
+                  required: [name, params, is_table]
+                  properties:
+                    name:
+                      type: string
+                    params:
+                      type: string
+                      description: verbatim parameter list
+                    is_table:
+                      type: boolean
+              dbt:
+                type: object
+                description: Set on a `dbt` script, which owns a whole project rather than a single output. Omitted otherwise.
+                required: [model_count]
+                properties:
+                  model_count:
+                    type: integer
+        edges:
+          type: array
+          items:
+            type: object
+            required:
+              [runnable_path, runnable_kind, asset_kind, asset_path]
+            properties:
+              runnable_path:
+                type: string
+              runnable_kind:
+                $ref: "#/components/schemas/AssetUsageKind"
+              asset_kind:
+                $ref: "#/components/schemas/AssetKind"
+              asset_path:
+                type: string
+              access_type:
+                $ref: "#/components/schemas/AssetUsageAccessType"
+        triggers:
+          type: array
+          items:
+            oneOf:
+              - type: object
+                description: Asset trigger edge (`// on <asset>`)
+                required:
+                  [
+                    trigger_kind,
+                    asset_kind,
+                    asset_path,
+                    runnable_kind,
+                    runnable_path,
+                  ]
+                properties:
+                  trigger_kind:
+                    type: string
+                    enum: [asset]
+                  asset_kind:
+                    $ref: "#/components/schemas/AssetKind"
+                  asset_path:
+                    type: string
+                  runnable_kind:
+                    $ref: "#/components/schemas/AssetUsageKind"
+                  runnable_path:
+                    type: string
+              - type: object
+                description: Native trigger edge (schedule, email, kafka, ...). `path` is the trigger row's path.
+                required:
+                  [trigger_kind, path, runnable_kind, runnable_path]
+                properties:
+                  trigger_kind:
+                    type: string
+                    enum:
+                      - schedule
+                      - email
+                      - kafka
+                      - mqtt
+                      - nats
+                      - postgres
+                      - sqs
+                      - gcp
+                  path:
+                    type: string
+                  runnable_kind:
+                    $ref: "#/components/schemas/AssetUsageKind"
+                  runnable_path:
+                    type: string
+        macro_edges:
+          type: array
+          description: Macro-library → consumer edges (deploy-recorded call detection plus `// use`). Omitted when empty.
+          items:
+            type: object
+            required: [lib_path, consumer_path, macro_names, via_use]
+            properties:
+              lib_path:
+                type: string
+              consumer_path:
+                type: string
+              macro_names:
+                type: array
+                items:
+                  type: string
+              via_use:
+                type: boolean
+        test_edges:
+          type: array
+          description: >-
+            Ordering-only "must-run-after" edges — a `// data_test relationships`
+            (or custom test reading a pipeline asset) requires the referenced
+            asset's producer to run before the tested script. Not a data-consumption
+            edge; fed into the cascade topo-sort so cold runs order correctly.
+            Omitted when empty.
+          items:
+            type: object
+            required:
+              [
+                producer_kind,
+                producer_path,
+                runnable_kind,
+                runnable_path,
+                asset_kind,
+                asset_path,
+              ]
+            properties:
+              producer_kind:
+                $ref: "#/components/schemas/AssetUsageKind"
+              producer_path:
+                type: string
+              runnable_kind:
+                $ref: "#/components/schemas/AssetUsageKind"
+              runnable_path:
+                type: string
+              asset_kind:
+                $ref: "#/components/schemas/AssetKind"
+              asset_path:
+                type: string
+        dbt_edges:
+          type: array
+          description: >-
+            `ref()` lineage BETWEEN two dbt models, in the terms the canvas draws
+            — the relations, not dbt's node ids. Without it every model hangs off
+            the one dbt runnable and the project reads as a flat fan-out.
+            Omitted when empty.
+          items:
+            type: object
+            required: [from_asset_path, to_asset_path]
+            properties:
+              from_asset_path:
+                type: string
+              to_asset_path:
+                type: string
+        dbt_snapshot_job:
+          type: string
+          format: uuid
+          description: >-
+            The job whose own snapshot the dbt half was resolved from, when one
+            was asked for and found. A run page polls the graph while its job
+            runs, because a dynamic descriptor's snapshot is written mid-run, and
+            this is what tells it to stop. Omitted when the answer came from the
+            version's deployed graph.
+        dbt_graph_ingested_at:
+          type: string
+          format: date-time
+          description: >-
+            When the dbt half on screen was parsed, for a graph pinned to a job.
+            What the dbt editor labels its provenance with — "parsed from the
+            editor at 14:32" against "as of last deploy" — since the two are
+            drawn identically and the ambiguity would otherwise just move into
+            the editor. Omitted for the unpinned workspace graph, which spans
+            every project and so has no one time.
+    DbtAssetProvenance:
+      type: object
+      description: >-
+        What dbt says about the model, snapshot, seed or source that produces (or,
+        for a source, is read at) this relation. A dbt project is one runnable
+        node with many model assets, so per-model metadata belongs here rather
+        than on the script.
+      required: [unique_id, resource_type]
+      properties:
+        unique_id:
+          type: string
+          description: dbt's own node id, e.g. `model.jaffle_shop.customers`.
+        resource_type:
+          type: string
+          enum: [model, snapshot, seed, source]
+        materialized:
+          type: string
+          description: dbt's own word (`table`, `view`, `incremental`, `snapshot`).
+        materialize_strategy:
+          type: string
+          description: The Windmill write strategy it maps to, absent for `view` and `ephemeral`, which have none.
+        tags:
+          type: array
+          items:
+            type: string
+        description:
+          type: string
+        data_tests:
+          type: array
+          items:
+            type: object
+            required: [kind]
+            properties:
+              kind:
+                type: string
+                description: One of the four generic tests, or a package test's namespaced name (`dbt_utils.accepted_range`).
+              column:
+                type: string
+              args:
+                type: object
+                additionalProperties: true
+              severity:
+                type: string
+                description: Lowercased. dbt's severity decides whether a failure fails the run.
+        columns:
+          type: object
+          additionalProperties: true
+          description: Declared column metadata (name -> description). NOT column lineage — `manifest.json` carries none.
+        freshness:
+          type: object
+          additionalProperties: true
+          description: A source's declared freshness policy, for the staleness chip.
+        raw_code:
+          type: string
+          description: The model's SQL as written, at the deploy this graph belongs to. Omitted when the caller cannot read the script.
+        original_file_path:
+          type: string
+          description: Its path inside the dbt project, e.g. `models/staging/stg_orders.sql`.
     # NOTE: Not so many generators and validators support this format:
     # $ref: "../../openflow.openapi.yaml#/components/schemas"
     # This is why it is better to inline each of schemas for better compat
@@ -24919,6 +25590,7 @@ components:
         - settings
         - key
         - workspacedependencies
+        - datatablemigration
 
     AIProviderModel:
       type: object
@@ -25256,6 +25928,9 @@ components:
           type: boolean
         on_behalf_of_email:
           type: string
+        on_behalf_of:
+          type: string
+          description: "Authorization identity the runnable runs as: u/{username}, g/{group}, or a bare email when the username is itself email-shaped. The only stored half of the identity; on_behalf_of_email is derived from it."
         modules:
           type: object
           nullable: true
@@ -25377,9 +26052,12 @@ components:
           type: boolean
         on_behalf_of_email:
           type: string
+        on_behalf_of:
+          type: string
+          description: "Authorization identity to run as: u/{username}, g/{group}, or a bare email when the username is itself email-shaped. Supply this or on_behalf_of_email; when only the address is given it is resolved to the account it names, and an address naming nobody is rejected. A pair that disagrees is rejected."
         preserve_on_behalf_of:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email / on_behalf_of pair instead of overwriting it with the caller's own identity."
         assets:
           type: array
           items:
@@ -25590,6 +26268,8 @@ components:
           type: boolean
         is_retry:
           type: boolean
+        trigger_kind:
+          $ref: "#/components/schemas/JobTriggerKind"
         worker:
           type: string
       required:
@@ -25731,6 +26411,8 @@ components:
             true when a succeeding retry resolved this rather than a person. Explicit rather
             than inferred from an absent resolved_by, which is also absent for a manual
             resolution outside enterprise
+        trigger_kind:
+          $ref: "#/components/schemas/JobTriggerKind"
         worker:
           type: string
       required:
@@ -26893,6 +27575,7 @@ components:
           rlang,
           duckdb,
           bunnative,
+          dbt,
           # for related places search: ADD_NEW_LANG
         ]
 
@@ -27588,6 +28271,7 @@ components:
         - asset
         - freshness
         - app
+        - ui
 
     TriggerMode:
       description: job trigger mode
@@ -29180,6 +29864,10 @@ components:
           $ref: "#/components/schemas/LoggedWizardStatus"
         grant_permissions:
           $ref: "#/components/schemas/LoggedWizardStatus"
+        replication_user:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+        replication_user_error:
+          type: string
 
     CustomInstanceDbTag:
       type: string
@@ -30358,6 +31046,15 @@ components:
         parent_workspace_id:
           type: string
           nullable: true
+        deleted:
+          type: boolean
+          description: "Archived (soft-deleted) workspace"
+        is_dev_workspace:
+          type: boolean
+        dev_workspace_label:
+          type: string
+          nullable: true
+          description: "Cosmetic display label of the dev workspace ('dev' | 'staging'); null defaults to 'dev'"
       required:
         - id
         - name
@@ -30529,6 +31226,9 @@ components:
           type: boolean
         on_behalf_of_email:
           type: string
+        on_behalf_of:
+          type: string
+          description: "Authorization identity the runnable runs as: u/{username}, g/{group}, or a bare email when the username is itself email-shaped. The only stored half of the identity; on_behalf_of_email is derived from it."
         labels:
           type: array
           items:
@@ -30570,9 +31270,12 @@ components:
               type: boolean
             on_behalf_of_email:
               type: string
+            on_behalf_of:
+              type: string
+              description: "Authorization identity to run as: u/{username}, g/{group}, or a bare email when the username is itself email-shaped. Supply this or on_behalf_of_email; when only the address is given it is resolved to the account it names, and an address naming nobody is rejected. A pair that disagrees is rejected."
             preserve_on_behalf_of:
               type: boolean
-              description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email value instead of overwriting it."
+              description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email / on_behalf_of pair instead of overwriting it with the caller's own identity."
             labels:
               type: array
               items:
@@ -30603,9 +31306,12 @@ components:
               type: boolean
             on_behalf_of_email:
               type: string
+            on_behalf_of:
+              type: string
+              description: "Authorization identity to run as: u/{username}, g/{group}, or a bare email when the username is itself email-shaped. Supply this or on_behalf_of_email; when only the address is given it is resolved to the account it names, and an address naming nobody is rejected. A pair that disagrees is rejected."
             preserve_on_behalf_of:
               type: boolean
-              description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email value instead of overwriting it."
+              description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email / on_behalf_of pair instead of overwriting it with the caller's own identity."
             labels:
               type: array
               items:
@@ -30700,6 +31406,20 @@ components:
             is isolated from each viewer's Windmill session. When false/absent
             the app runs same-origin with the viewer's full session (the
             default, pre-isolation behavior).
+        frontend_sdk_scopes:
+          type: array
+          items:
+            type: string
+          description: >
+            Raw apps: author-declared scopes for the frontend SDK token. Takes
+            effect only when `sandbox` is also true — an unsandboxed bundle runs
+            with the viewer's own session, so no token is advertised or minted
+            for it and this list stays inert. On a sandboxed app a non-empty
+            list lets viewers mint (after consenting) a short-lived token
+            carrying their own identity restricted to these scopes, handed to
+            the app bundle so `windmill-client` calls run as the viewer. Must
+            be a subset of the server's curated allowlist (jobs:run, jobs:read,
+            users:read, resources:read, variables:read).
 
     ListableApp:
       type: object
@@ -30925,7 +31645,13 @@ components:
         token:
           type: string
           nullable: true
-          description: Narrowly-scoped embed token for the iframe. Absent for fully anonymous or raw apps, which load without a scoped token.
+          description: >
+            Scoped token for the app. For sandboxed low-code apps this is the
+            embed token handed to the opaque iframe. For a raw app it is the
+            viewer-scoped frontend SDK token, returned only when the app is
+            sandboxed, its policy declares frontend_sdk_scopes, and the request
+            carries sdk_consent=true. Absent for anonymous viewers and whenever
+            no token is needed.
         expiration:
           type: string
           format: date-time
@@ -30933,7 +31659,11 @@ components:
           description: Expiration of the embed token.
         raw_app:
           type: boolean
-          description: Raw apps render single-iframe and skip the opaque-viewer indirection and the embed token entirely.
+          description: >
+            Raw apps render single-iframe and skip the opaque-viewer
+            indirection and the embed token entirely. A sandboxed one may still
+            carry a token here: the viewer-scoped frontend SDK token, which is
+            a different credential from the low-code embed token.
         sandbox:
           type: boolean
           description: Publisher opted this app into sandbox isolation. When false the viewer runs the app same-origin with its full session.
@@ -30945,6 +31675,22 @@ components:
           type: string
           nullable: true
           description: The resolved workspace; pairs with app_path so apps at the same path in different workspaces don't share a localStorage store.
+        sdk_scopes:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: >
+            Sandboxed raw apps: scopes the app policy declares for the frontend
+            SDK token. Null when the app is unsandboxed, however the policy
+            reads. The viewer renders these in the permission prompt; token
+            stays absent until the endpoint is re-called with sdk_consent=true.
+        viewer_email:
+          type: string
+          nullable: true
+          description: >
+            The caller's own email, returned alongside sdk_scopes so the viewer
+            can key its stored "do not ask again" per person.
       required:
         - raw_app
         - sandbox
@@ -31011,6 +31757,32 @@ components:
           type: string
       required:
         - region_name
+
+    DbtWarehouses:
+      type: object
+      description: >-
+        Warehouses a dbt project may run against, by name. `main` is the one a
+        project gets when its descriptor names none. Each entry points at a
+        resource; it never holds credentials.
+      additionalProperties:
+        type: object
+        properties:
+          resource_path:
+            type: string
+          target:
+            type: string
+        required:
+          - resource_path
+
+    DbtWarehouseConnection:
+      type: object
+      properties:
+        value:
+          description: the resolved resource, rendered into profiles.yml
+        target:
+          type: string
+      required:
+        - value
 
     LargeFileStorage:
       type: object
@@ -31295,6 +32067,34 @@ components:
       required:
         - s3
 
+    StorageFolder:
+      type: object
+      properties:
+        prefix:
+          type: string
+          description: Full key prefix of the folder, ending with '/'
+        name:
+          type: string
+          description: Last path segment, without the trailing '/'
+      required:
+        - prefix
+        - name
+
+    StorageFile:
+      type: object
+      properties:
+        key:
+          type: string
+        name:
+          type: string
+        size:
+          type: integer
+        last_modified:
+          type: string
+      required:
+        - key
+        - name
+
     WindmillFileMetadata:
       type: object
       properties:
@@ -31481,6 +32281,8 @@ components:
           type: integer
           format: int64
         webhook_secret:
+          type: string
+        webhook_url:
           type: string
         webhook_error:
           type: string
@@ -31859,6 +32661,10 @@ components:
         hidden_behind:
           $ref: "#/components/schemas/HiddenItemsSummary"
           description: Behind items excluded from `diffs` because they are not visible to the caller
+        full_scan_at:
+          type: string
+          format: date-time
+          description: For a pair outside the fork lineage, when its candidate set was last seeded by an explicit full scan. Absent when the pair has never been scanned (an empty `diffs` then says nothing about whether the workspaces agree) or when the pair is a lineage pair, which the tally keeps current.
 
     HiddenItemsSummary:
       type: object
@@ -31949,6 +32755,32 @@ components:
         exists_in_fork:
           type: boolean
           description: If the item exists in the fork workspace
+        fork_last_event_kind:
+          $ref: "#/components/schemas/DeployEventKind"
+        fork_last_event_origin:
+          $ref: "#/components/schemas/DeployEventOrigin"
+        source_last_event_kind:
+          $ref: "#/components/schemas/DeployEventKind"
+        source_last_event_origin:
+          $ref: "#/components/schemas/DeployEventOrigin"
+
+    DeployEventKind:
+      type: string
+      enum: ["write", "delete", "rename_from"]
+      description: |
+        What a deploy event did to the path it is recorded against: `write` (the path holds an item
+        after the event), `delete` (it does not), or `rename_from` (the path was vacated by a rename
+        to another path). Create and update are not distinguished. Omitted when no such event has
+        been recorded for that side, which counts as no evidence.
+
+    DeployEventOrigin:
+      type: string
+      enum: ["authored", "sync"]
+      description: |
+        Who caused a deploy event: `authored` (written in that workspace by the requester) or `sync`
+        (applied there by a git-sync pull or a workspace-to-workspace deploy). Only an authored
+        removal is evidence that the workspace dropped the item on purpose. Omitted when no such
+        event has been recorded for that side.
 
     CompareSummary:
       type: object
@@ -32169,6 +33001,26 @@ components:
         - ducklake
         - datatable
         - volume
+        - dbt
+    AssetProgress:
+      type: object
+      required: [asset_kind, asset_path, status]
+      properties:
+        asset_kind:
+          $ref: "#/components/schemas/AssetKind"
+        asset_path:
+          type: string
+        status:
+          type: string
+          enum: [running, materialized, failed]
+        row_count:
+          type: integer
+          format: int64
+          nullable: true
+        error:
+          type: string
+          nullable: true
+
     MaterializedPartition:
       type: object
       required: [asset_kind, asset_path, partition, status, materialized_at]
@@ -32576,8 +33428,17 @@ components:
           description: Short summary to be displayed when listed
         external_data:
           type: object
-          description: Configuration data from the external service
+          nullable: true
+          description: >-
+            Configuration data from the external service. Null when the service has no
+            such API, or when it could not be read — see external_error.
           additionalProperties: true
+        external_error:
+          type: string
+          nullable: true
+          description: >-
+            Why the external service configuration could not be read. When set,
+            external_data is null and the configuration Windmill stored is returned instead.
       required:
         - external_id
         - workspace_id

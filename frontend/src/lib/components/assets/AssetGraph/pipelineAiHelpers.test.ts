@@ -7,12 +7,13 @@ import type { AssetGraphResponse } from './types'
 // wires it. `getFolder` returns the bare folder name (as the route/session do).
 function makeHandle(
 	initial: Array<[string, PipelineDraft]> = [],
-	runnables: Array<{ path: string }> = []
+	runnables: Array<{ path: string }> = [],
+	folder = 'x'
 ) {
 	let drafts = new Map(initial)
 	let forgotten: string[] = []
 	const handle = createPipelineAiHelpers({
-		getFolder: () => 'x',
+		getFolder: () => folder,
 		getWorkspace: () => 'w',
 		getResolvedGraph: () =>
 			({ assets: [], runnables, edges: [], triggers: [] }) as unknown as AssetGraphResponse,
@@ -65,6 +66,15 @@ describe('pipeline AI direct-draft helpers', () => {
 				requestBody: expect.objectContaining({ _wmill_skip_asset_dispatch: true, foo: 1 })
 			})
 		)
+	})
+
+	it('scopes nodes to the folder name even when the caller passes the owner path', async () => {
+		// A caller holding `f/x` must not turn every node path into `f/f/x/…`.
+		vi.spyOn(ScriptService, 'getScriptByPath').mockRejectedValue(new Error('404'))
+		const { handle, drafts } = makeHandle([], [], 'f/x')
+		expect(handle.getPipelineContext().folder).toBe('x')
+		await handle.proposeNode({ path: 'f/x/n', language: 'duckdb' as any, content: '-- pipeline' })
+		expect([...drafts().keys()]).toEqual(['f/x/n'])
 	})
 
 	it('proposeNode rejects a path outside the open folder', async () => {

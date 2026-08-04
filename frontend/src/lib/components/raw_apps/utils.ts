@@ -172,7 +172,7 @@ export function unsandboxedRawAppHtml(
 	<title>App</title>
 	<link rel="stylesheet" href="${baseUrl}/api/w/${workspace}/apps_u/get_data/v/${secret}.css" />
 	<script>
-		window.ctx = ${ctx ? JSON.stringify(ctx) : 'undefined'};
+		window.ctx = ${ctx ? JSON.stringify(ctx).replace(/</g, '\\u003c') : 'undefined'};
 		(function () {
 			// Keep the parent URL hash in sync for shareable URLs.
 			function notifyParent() {

@@ -153,6 +153,72 @@ async fn create_raw_app_with_inline_script(port: u16, path: &str) -> anyhow::Res
     Ok(())
 }
 
+/// Create an app whose policy allows triggering the fixture flow
+async fn create_app_triggering_flow(port: u16, path: &str, flow_path: &str) -> anyhow::Result<()> {
+    let url = format!("http://localhost:{}/api/w/test-workspace/apps/create", port);
+    let resp = authed(client().post(&url), SAME_WS_TOKEN)
+        .json(&json!({
+            "path": path,
+            "summary": "Test app running a flow for WM_END_USER_EMAIL",
+            "value": {
+                "type": "app",
+                "grid": [],
+                "subgrids": {},
+                "hiddenInlineScripts": []
+            },
+            "policy": {
+                "execution_mode": "anonymous",
+                "on_behalf_of": null,
+                "on_behalf_of_email": null,
+                "triggerables_v2": {
+                    flow_path: {
+                        "static_inputs": {},
+                        "one_of_inputs": {}
+                    }
+                }
+            }
+        }))
+        .send()
+        .await?;
+    if !resp.status().is_success() {
+        anyhow::bail!(
+            "create app failed: {} - {}",
+            resp.status(),
+            resp.text().await?
+        );
+    }
+    Ok(())
+}
+
+async fn run_app_flow(
+    port: u16,
+    token: &str,
+    app_path: &str,
+    flow_path: &str,
+) -> anyhow::Result<String> {
+    let url = format!(
+        "http://localhost:{}/api/w/test-workspace/apps_u/execute_component/{}",
+        port, app_path
+    );
+    let resp = authed(client().post(&url), token)
+        .json(&json!({
+            "args": {},
+            "component": "run_flow",
+            "path": flow_path
+        }))
+        .send()
+        .await?;
+    if !resp.status().is_success() {
+        anyhow::bail!(
+            "app flow run failed: {} - {}",
+            resp.status(),
+            resp.text().await?
+        );
+    }
+    let job_id = resp.text().await?;
+    wait_for_job_result(port, token, &job_id).await
+}
+
 async fn run_app_inline_script(
     port: u16,
     token: &str,
@@ -317,6 +383,42 @@ async fn test_app_wm_end_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
             assert_eq!(
                 result, NO_WS_EMAIL,
                 "no workspace user should get their email"
+            );
+
+            Ok::<(), anyhow::Error>(())
+        },
+        port,
+    )
+    .await?;
+
+    Ok(())
+}
+
+/// Every flow step must see the same end user as the flow itself: `end_user_email` is only
+/// stamped on the job the app pushes, so it has to be forwarded down to each step. The
+/// fixture flow has two steps on purpose - the first one is pushed from the freshly pulled
+/// flow job, every later one from a flow job re-fetched without its `job_perms`.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base", "end_user_email"))]
+async fn test_app_flow_step_wm_end_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    set_jwt_secret().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let app_path = "f/test/email_flow_app";
+    let flow_path = "flow/f/test/get_end_user_email_flow";
+
+    in_test_worker(
+        Connection::Sql(db.clone()),
+        async move {
+            create_app_triggering_flow(port, app_path, flow_path).await?;
+
+            // The flow result is its last step's result.
+            let result = run_app_flow(port, OTHER_WS_TOKEN, app_path, flow_path).await?;
+            assert_eq!(
+                result, OTHER_WS_EMAIL,
+                "every flow step should see the end user email, not the app publisher's"
             );
 
             Ok::<(), anyhow::Error>(())

@@ -152,6 +152,16 @@ describe('previewTargetForSessionTarget', () => {
 			label: 'my_folder'
 		})
 	})
+	it('maps a pipeline owner path to the same folder target as the bare name', () => {
+		// open_preview is routinely called with `f/<folder>`; keeping the prefix
+		// would scope the editor to the folder "f/<folder>" and make every node
+		// path `f/f/<folder>/…`.
+		expect(previewTargetForSessionTarget('pipeline', 'f/my_folder')).toEqual({
+			type: 'page',
+			href: `${base}/pipeline/my_folder`,
+			label: 'my_folder'
+		})
+	})
 })
 
 describe('SessionPreviewTabs.open', () => {
@@ -370,6 +380,18 @@ describe('SessionPreviewTabs.navigate', () => {
 		o.navigate(pageTarget)
 		expect(o.tabs[0].friendlyLabel).toBeUndefined()
 		expect(o.tabs[0].friendlyPath).toBeUndefined()
+		expect(o.tabs[0].editorNamed).toBeUndefined()
+	})
+
+	it('claims the tab for its editor even when the editor names nothing', () => {
+		const o = owner()
+		o.open(flowTarget)
+		// A deployed item with no summary reports neither a label nor a staged path
+		// — the same values a never-stamped tab already holds. It must still count
+		// as named, or the sessions page keeps falling back to the workspace
+		// listing and resurrects a summary the user just cleared.
+		o.setEditorFriendlyLabel({ kind: 'flow', path: 'u/me/bar' }, undefined, undefined)
+		expect(o.tabs[0].editorNamed).toBe(true)
 	})
 })
 

@@ -143,14 +143,8 @@ fn build_standard_scope_domains() -> Vec<ScopeDomain> {
 
     STANDARD_DOMAINS
         .iter()
-        .map(|(key, name, desc, req)| ScopeDomain {
-            name: name.to_string(),
-            description: if desc.is_empty() {
-                None
-            } else {
-                Some(desc.to_string())
-            },
-            scopes: vec![
+        .map(|(key, name, desc, req)| {
+            let mut scopes = vec![
                 ScopeOption {
                     value: format!("{key}:read"),
                     label: "Read".to_string(),
@@ -161,7 +155,26 @@ fn build_standard_scope_domains() -> Vec<ScopeDomain> {
                     label: "Write".to_string(),
                     requires_resource_path: *req,
                 },
-            ],
+            ];
+            // `apps_u/execute_component` and `apps_u/upload_s3_file` are classified as
+            // Run actions, so running a deployed app's components needs `apps:run`:
+            // without it here no supported token can be granted that access.
+            if *key == "apps" {
+                scopes.push(ScopeOption {
+                    value: "apps:run".to_string(),
+                    label: "Run".to_string(),
+                    requires_resource_path: *req,
+                });
+            }
+            ScopeDomain {
+                name: name.to_string(),
+                description: if desc.is_empty() {
+                    None
+                } else {
+                    Some(desc.to_string())
+                },
+                scopes,
+            }
         })
         .collect()
 }
@@ -256,6 +269,22 @@ mod tests {
             "docs:read must be selectable"
         );
         assert!(!values.contains(&"docs:write"), "docs has no write surface");
+    }
+
+    /// Running a deployed app's components is enforced as a Run action, so `apps:run`
+    /// must be selectable here or no supported token can be granted that access.
+    #[test]
+    fn apps_run_scope_is_exposed_and_path_selectable() {
+        let apps = ALL_SCOPES
+            .iter()
+            .find(|d| d.name == "Apps")
+            .expect("Apps domain must exist");
+        let opt = apps
+            .scopes
+            .iter()
+            .find(|s| s.value == "apps:run")
+            .expect("apps:run must be selectable");
+        assert!(opt.requires_resource_path, "apps:run is path-scoped");
     }
 
     /// The `data_metrics` route enforces its own scope domain, so `data_metrics:read`

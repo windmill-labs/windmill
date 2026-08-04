@@ -6,8 +6,10 @@
     "wmill": "src/main.ts"
   },
   "scripts": {
+    "preinstall": "node ./prepare-yaml-validator.mjs",
     "dev": "bun run src/main.ts",
     "build": "./build.sh",
+    "gen:dev-recorder": "bun run generate-dev-recorder.ts",
     "test": "bun test test/",
     "test:unit": "UNIT_ONLY=1 bun test test/*_unit*",
     "check": "bunx tsc --noEmit",
@@ -26,7 +28,7 @@
     "minimatch": "^10.0.0",
     "open": "^10.0.0",
     "pg-gateway": "0.3.0-beta.4",
-    "svelte": "^5.45.2",
+    "svelte": "^5.56.8",
     "tar-stream": "^3.1.7",
     "windmill-parser-wasm-asset": "1.753.0",
     "windmill-parser-wasm-csharp": "1.510.1",
@@ -41,7 +43,7 @@
     "windmill-parser-wasm-ruby": "1.526.1",
     "windmill-parser-wasm-rust": "1.647.1",
     "windmill-parser-wasm-ts": "1.695.0",
-    "windmill-parser-wasm-yaml": "1.593.0",
+    "windmill-parser-wasm-yaml": "1.770.0",
     "windmill-yaml-validator": "1.1.1",
     "ws": "8.18.0",
     "yaml": "^2.7.0"
@@ -52,6 +54,7 @@
     "@types/node": "^22.0.0",
     "@types/tar-stream": "^3.1.4",
     "@types/ws": "^8.5.0",
+    "ajv": "^8.17.1",
     "typescript": "^5.7.0"
   }
 }

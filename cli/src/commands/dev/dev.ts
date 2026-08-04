@@ -20,7 +20,19 @@ import {
   SyncOptions,
   mergeConfigWithConfigFile,
 } from "../../core/conf.ts";
-import { exts, removeExtensionToPath } from "../script/script.ts";
+import {
+  exts,
+  hasScriptExt,
+  readModulesFromDisk,
+  removeExtensionToPath,
+} from "../script/script.ts";
+import type { ScriptModule } from "../../../gen/types.gen.ts";
+import {
+  DBT_DESCRIPTOR_NAME,
+  DBT_MODULE_SUFFIX,
+  getScriptBasePathFromModulePath,
+  isDbtModulePath,
+} from "../../utils/resource_folders.ts";
 import { inferContentTypeFromFilePath } from "../../utils/script_common.ts";
 import { OpenFlow } from "../../../gen/types.gen.ts";
 import { FlowFile } from "../flow/flow.ts";
@@ -108,7 +120,7 @@ function findFlowFolderPrefix(cpath: string): string | undefined {
   return undefined;
 }
 
-async function listWorkspacePaths(): Promise<WmPathItem[]> {
+export async function listWorkspacePaths(): Promise<WmPathItem[]> {
   // Walk first, capturing each item's metadata file path. Then read summaries in
   // parallel — one tree pass plus N file reads is faster than a serialized walk.
   const items: (WmPathItem & { _metaPath?: string })[] = [];
@@ -134,6 +146,19 @@ async function listWorkspacePaths(): Promise<WmPathItem[]> {
         }
         if (APP_SUFFIXES.some((s) => entry.name.endsWith(s))) {
           items.push({ path: stripFolderSuffix(childRel, APP_SUFFIXES), kind: "raw_app" });
+          continue;
+        }
+        // A dbt script IS the project directory: its descriptor is optional, so
+        // there may be no file here to recognize it by. Not descended into
+        // either — the project's own `.sql` models would otherwise each be
+        // listed as a script of their own.
+        if (entry.name.endsWith(DBT_MODULE_SUFFIX)) {
+          const base = childRel.slice(0, -DBT_MODULE_SUFFIX.length);
+          items.push({
+            path: base,
+            kind: "script",
+            _metaPath: childAbs.slice(0, -DBT_MODULE_SUFFIX.length) + ".script.yaml",
+          });
           continue;
         }
         await walk(childAbs, childRel);
@@ -282,12 +307,40 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
 
   const flowMetadataFile = getMetadataFileName("flow", "yaml");
   async function loadPaths(pathsToLoad: string[]) {
-    const paths = pathsToLoad.filter((p) =>
-      exts.some(
-        (ext) => p.endsWith(ext)
-          || p.endsWith(".flow/" + flowMetadataFile)
-          || p.endsWith("__flow/" + flowMetadataFile)
-      )
+    // A change ANYWHERE inside a dbt project is a change to that script: the
+    // bundle is the project, so the whole thing is re-read and rebroadcast.
+    // Treating the file as a script of its own would drop the edit — a bare
+    // `.sql` has no language to infer, and a `.yml` or `.csv` is filtered out
+    // below — leaving the browser previewing the snapshot taken at startup.
+    const rest: string[] = [];
+    const dbtProjects = new Set<string>();
+    for (const raw of pathsToLoad) {
+      const rel = (await realpath(raw).catch(() => raw))
+        .replace(base + SEP, "")
+        .replaceAll("\\", "/");
+      const wmPath = isDbtModulePath(rel)
+        ? getScriptBasePathFromModulePath(rel)
+        : undefined;
+      // Every project in the batch, and each only once: a save-all or a
+      // `git checkout` touches many files at once, and returning on the first
+      // would drop both the other projects and whatever else changed with them.
+      if (wmPath) dbtProjects.add(wmPath);
+      else rest.push(raw);
+    }
+    for (const wmPath of dbtProjects) {
+      const edit = await loadWmPath(wmPath);
+      if (edit) {
+        log.info("Updated " + wmPath + " (dbt project)");
+        broadcastChanges(edit);
+      }
+    }
+    if (rest.length === 0) return;
+    pathsToLoad = rest;
+    const paths = pathsToLoad.filter(
+      (p) =>
+        hasScriptExt(p) ||
+        p.endsWith(".flow/" + flowMetadataFile) ||
+        p.endsWith("__flow/" + flowMetadataFile)
     );
     if (paths.length == 0) {
       return;
@@ -380,6 +433,10 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
     tag?: string;
     lock?: string;
     temp_script_refs?: Record<string, string>;
+    /** The bundle the dev page forwards to a preview run. A dbt project cannot
+     *  run without it: the worker looks for `dbt_project.yml` in the bundle and
+     *  refuses the job when it is not there. */
+    modules?: Record<string, ScriptModule>;
   };
 
   type LastEditFlow = {
@@ -441,8 +498,23 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
     for (const ext of exts) {
       const filePath = wmPath + ext;
       try {
-        await access(filePath);
-        const content = await readTextFile(filePath);
+        // A dbt project's descriptor is optional, so what says "this is a dbt
+        // script" is the project beside it. Requiring the descriptor to exist
+        // would list such a project in the picker and then refuse to load it.
+        const isAbsentDbtDescriptor =
+          ext === "__dbt/" + DBT_DESCRIPTOR_NAME &&
+          !(await access(filePath).then(
+            () => true,
+            () => false
+          )) &&
+          (await access(wmPath + DBT_MODULE_SUFFIX + "/dbt_project.yml").then(
+            () => true,
+            () => false
+          ));
+        if (!isAbsentDbtDescriptor) {
+          await access(filePath);
+        }
+        const content = isAbsentDbtDescriptor ? "" : await readTextFile(filePath);
         const lang = inferContentTypeFromFilePath(filePath, opts.defaultTs);
         const typed = (await parseMetadataFile(removeExtensionToPath(filePath), undefined))?.payload;
         const edit: LastEditScript = {
@@ -453,6 +525,18 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
           tag: typed?.tag,
           lock: typed?.lock,
           temp_script_refs: tempScriptRefs,
+          // Read VERBATIM for dbt, the way push does: the project's `.sql` and
+          // `.yml` files are dbt's, and inferring a language for each would
+          // drop the ones that are not Windmill scripts.
+          modules:
+            lang === "dbt"
+              ? await readModulesFromDisk(
+                  wmPath + DBT_MODULE_SUFFIX,
+                  opts.defaultTs,
+                  true,
+                  true
+                )
+              : undefined,
         };
         currentLastEdit = edit;
         return edit;

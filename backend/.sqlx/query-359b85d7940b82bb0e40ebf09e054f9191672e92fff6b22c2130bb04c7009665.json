@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT path, on_behalf_of, on_behalf_of_email FROM script WHERE workspace_id = 'wm-fork-obo' ORDER BY path",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "on_behalf_of",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "on_behalf_of_email",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "359b85d7940b82bb0e40ebf09e054f9191672e92fff6b22c2130bb04c7009665"
+}
