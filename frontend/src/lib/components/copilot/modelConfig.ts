@@ -1,5 +1,33 @@
 import type { AIProvider } from '$lib/gen'
 
+export type ParsedModelId = {
+	/** Vendor namespace when the id carries one (`anthropic/claude-sonnet-5`). */
+	vendor: string | undefined
+	/** Bare model id: no vendor prefix, no variant suffix. */
+	base: string
+	/** Gateway variant suffix (`free`, `thinking`, ...) when present. */
+	variant: string | undefined
+}
+
+/**
+ * Split a model id into the parts the predicates below match on. Gateways decorate
+ * the vendor's id in ways a raw substring check misses: OpenRouter marks its own
+ * floating aliases with a `~` prefix (`~anthropic/claude-sonnet-latest`, distinct
+ * from the vendor-pinned `anthropic/claude-sonnet-5`) and appends `:variant`
+ * suffixes (`:free`, `:thinking`). Match on the parsed parts, never on the raw id.
+ */
+export function parseModelId(model: string): ParsedModelId {
+	const normalized = model.toLowerCase().replace(/^~/, '')
+	const slash = normalized.indexOf('/')
+	const rest = slash > 0 ? normalized.slice(slash + 1) : normalized
+	const colon = rest.indexOf(':')
+	return {
+		vendor: slash > 0 ? normalized.slice(0, slash) : undefined,
+		base: colon > 0 ? rest.slice(0, colon) : rest,
+		variant: colon > 0 ? rest.slice(colon + 1) : undefined
+	}
+}
+
 // Azure AI Foundry fronts multiple model families under one resource. Claude
 // deployments are served only through the Anthropic Messages API, so the chat must
 // route them like the native Anthropic provider (Anthropic SDK, message format)
@@ -19,18 +47,16 @@ export function usesAnthropicMessagesApi(provider: AIProvider, model: string): b
 // but only documents them for Anthropic-backed models, so the gate is on the routed
 // model rather than the provider alone.
 export function usesOpenRouterPromptCaching(provider: AIProvider, model: string): boolean {
-	return provider === 'openrouter' && model.toLowerCase().startsWith('anthropic/')
+	return provider === 'openrouter' && parseModelId(model).vendor === 'anthropic'
 }
 
 // gpt-5+ and o-series reasoning models reject the legacy `max_tokens` field on
 // the OpenAI/Azure Chat Completions API and require `max_completion_tokens`
-// instead. The check strips any provider prefix (e.g. OpenRouter's "openai/o3")
-// so it matches the bare model id, and the o-series match requires a digit after
-// the "o" (o1/o3/o4-mini) so it does not catch unrelated ids like Mistral's
-// "open-mistral-*" or "optimus-*".
+// instead. The check runs on the bare model id (so OpenRouter's "openai/o3"
+// matches), and the o-series match requires a digit after the "o" (o1/o3/o4-mini)
+// so it does not catch unrelated ids like Mistral's "open-mistral-*" or "optimus-*".
 export function requiresMaxCompletionTokens(model: string) {
-	const normalizedModel = model.toLowerCase()
-	const baseModel = normalizedModel.split('/').pop() ?? normalizedModel
+	const baseModel = parseModelId(model).base
 	return baseModel.startsWith('gpt-5') || /^o\d/.test(baseModel)
 }
 
@@ -45,6 +71,8 @@ const MODEL_CONTEXT_WINDOWS: [name: string, contextWindow: number][] = [
 	// Haiku, older Claude models (3.x, 4.0, 4.1, 4.5) and date-suffixed Claude 4
 	// base ids (claude-sonnet-4-20250514) fall through to 200K
 	['claude-fable-5', 1_000_000],
+	['claude-opus-5', 1_000_000],
+	['claude-sonnet-5', 1_000_000],
 	['claude-opus-4-8', 1_000_000],
 	['claude-opus-4-7', 1_000_000],
 	['claude-opus-4-6', 1_000_000],
@@ -74,8 +102,17 @@ const MODEL_CONTEXT_WINDOWS: [name: string, contextWindow: number][] = [
 	['codestral', 32_000]
 ]
 
+// Version separators differ by route to the same model: Anthropic writes
+// `claude-opus-4-8`, OpenRouter writes `anthropic/claude-opus-4.8`. Collapsing
+// dots to dashes on both sides keeps one table entry covering every route —
+// without it a dot-versioned id falls through to a coarser family entry.
+function normalizeVersionSeparators(model: string): string {
+	return model.replace(/\./g, '-')
+}
+
 export function getKnownModelContextWindow(model: string): number | undefined {
-	return MODEL_CONTEXT_WINDOWS.find(([name]) => model.includes(name))?.[1]
+	const id = normalizeVersionSeparators(parseModelId(model).base)
+	return MODEL_CONTEXT_WINDOWS.find(([name]) => id.includes(normalizeVersionSeparators(name)))?.[1]
 }
 
 export function getModelContextWindow(model: string) {

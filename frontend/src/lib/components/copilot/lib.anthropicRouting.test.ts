@@ -259,25 +259,31 @@ describe('OpenRouter prompt caching', () => {
 		{ role: 'tool', tool_call_id: 't1', content: 'tool output' }
 	]
 
-	it('breaks on the system prompt and the newest user turn for Anthropic models', async () => {
-		const { getCompletion } = await import('./lib')
-		h.currentModel = { provider: 'openrouter', model: 'anthropic/claude-sonnet-5' }
+	// The `~` form is OpenRouter's own floating alias for the same vendor, so it has
+	// to reach the same gate — a prefix match on the raw id silently misses it and
+	// puts the chat back on full price every turn.
+	it.each(['anthropic/claude-sonnet-5', '~anthropic/claude-sonnet-latest'])(
+		'breaks on the system prompt and the newest user turn for %s',
+		async (model) => {
+			const { getCompletion } = await import('./lib')
+			h.currentModel = { provider: 'openrouter', model }
 
-		await getCompletion([...conversation], new AbortController(), undefined, {
-			promptCaching: true
-		})
+			await getCompletion([...conversation], new AbortController(), undefined, {
+				promptCaching: true
+			})
 
-		const sent = openaiCreate.mock.calls[0][0].messages
-		const ephemeral = { type: 'ephemeral' }
-		expect(sent[0].content).toEqual([
-			{ type: 'text', text: 'system prompt', cache_control: ephemeral }
-		])
-		expect(sent[1].content).toEqual([{ type: 'text', text: 'first', cache_control: ephemeral }])
-		expect(sent[3].content).toBe('tool output')
-		// The chat replays this same history through the Anthropic path, which rejects
-		// unknown fields on its own blocks, so the originals must come back untouched.
-		expect(conversation[0].content).toBe('system prompt')
-	})
+			const sent = openaiCreate.mock.calls[0][0].messages
+			const ephemeral = { type: 'ephemeral' }
+			expect(sent[0].content).toEqual([
+				{ type: 'text', text: 'system prompt', cache_control: ephemeral }
+			])
+			expect(sent[1].content).toEqual([{ type: 'text', text: 'first', cache_control: ephemeral }])
+			expect(sent[3].content).toBe('tool output')
+			// The chat replays this same history through the Anthropic path, which rejects
+			// unknown fields on its own blocks, so the originals must come back untouched.
+			expect(conversation[0].content).toBe('system prompt')
+		}
+	)
 
 	it('leaves other OpenRouter upstreams alone', async () => {
 		const { getCompletion } = await import('./lib')

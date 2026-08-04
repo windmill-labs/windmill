@@ -217,7 +217,12 @@ describe('model context windows', () => {
 		expect(getKnownModelContextWindow('claude-sonnet-4-6')).toBe(1000000)
 		expect(getKnownModelContextWindow('claude-opus-4-6')).toBe(1000000)
 		expect(getKnownModelContextWindow('claude-opus-4-8')).toBe(1000000)
+		expect(getKnownModelContextWindow('claude-opus-5')).toBe(1000000)
+		expect(getKnownModelContextWindow('claude-sonnet-5')).toBe(1000000)
 		expect(getKnownModelContextWindow('anthropic.claude-sonnet-4-6-v1:0')).toBe(1000000)
+		// OpenRouter dot-versions the same models; both spellings must resolve
+		expect(getKnownModelContextWindow('anthropic/claude-sonnet-4.6')).toBe(1000000)
+		expect(getKnownModelContextWindow('anthropic/claude-opus-4.8')).toBe(1000000)
 	})
 
 	it('keeps Haiku and older Claude models at 200K', () => {
