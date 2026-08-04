@@ -58,6 +58,8 @@
 	import { RawAppHistoryManager } from './RawAppHistoryManager.svelte'
 	import { sendUserToast } from '$lib/utils'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import { UserDraft } from '$lib/userDraft.svelte'
+	import { setOpenInSessionHandoff } from '$lib/components/sessions/openInSessionContext'
 	import {
 		buildDataTableWhitelist,
 		parseDataTableRef,
@@ -207,6 +209,40 @@
 	// Expose it to the sidebar sub-components (inline scripts, datatable/shared-UI
 	// drawers, DB selector) so their lookups target the app's workspace too.
 	setRawAppOperatingWorkspace(() => opWorkspace)
+
+	// The path autosaves land on, which is what the session preview loads the app by.
+	const draftStoragePath = $derived(autosavePath ?? liveEditorDraftStoragePath)
+
+	// Materialize a brand-new app's draft before the session preview loads it by
+	// path — an untouched new app never autosaved, so forcePersist is the only
+	// thing that creates the row. Gated to never-deployed: forcePersist skips the
+	// discardIf baseline, safe only when there is none.
+	async function persistDraftForSession(): Promise<void> {
+		if (!opWorkspace || draftStoragePath === undefined) return
+		await UserDraftDbSyncer.flush({
+			workspace: opWorkspace,
+			itemKind: 'raw_app',
+			path: draftStoragePath
+		})
+		if (newApp) {
+			await UserDraft.forcePersist('raw_app', draftStoragePath, { workspace: opWorkspace })
+		}
+	}
+
+	const sessionOpen = $derived(
+		path
+			? {
+					target: { kind: 'raw_app' as const, path },
+					workspaceId: opWorkspace ?? undefined,
+					beforeOpen: persistDraftForSession
+				}
+			: undefined
+	)
+
+	// Reaches the AI entry point in an inline script's toolbar, which sits too deep
+	// in the sidebar to be handed a prop. A raw app has no addressable sub-editor,
+	// so the preview just opens the app.
+	setOpenInSessionHandoff({ source: () => sessionOpen })
 
 	// Convert to object format for child components
 	let dataTableRefsObjects = $derived(data.tables.map(parseDataTableRef))
@@ -2201,6 +2237,7 @@
 		{newPath}
 		{labels}
 		appPath={path}
+		{sessionOpen}
 		{liveEditorDraftStoragePath}
 		{autosaveWorkspace}
 		{autosavePath}
