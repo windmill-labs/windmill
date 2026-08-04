@@ -2466,9 +2466,9 @@ async fn test_schedule_group_permissioned_as(db: Pool<Postgres>) -> anyhow::Resu
         "the schedule response derives the address from the principal, not from the column"
     );
 
-    // Toggling is not a change of identity. `set_enabled` used to stamp the column with whoever
-    // flipped it, which is how a row came to name someone other than its principal; the
-    // desynchronised value above doubles as the sentinel that nothing rewrote it.
+    // Toggling is not a change of identity: it must leave the address column alone, or the row
+    // ends up naming whoever flipped the switch rather than its principal. The desynchronised
+    // value above doubles as the sentinel that nothing rewrote it.
     let resp = authed(
         client().post(format!(
             "{base}/schedules/setenabled/u/test-user/schedule_group_perm"
