@@ -866,6 +866,7 @@ mod tests {
             user_message: "hello",
             attachments: None,
             has_websearch: false,
+            prompt_cache_key: None,
         };
 
         AnthropicQueryBuilder::new(AIProvider::Anthropic, AIPlatform::Standard)

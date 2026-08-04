@@ -8,11 +8,14 @@
 		target: SessionTarget
 		workspaceId?: string
 		beforeOpen?: () => void | Promise<void>
+		/** Where inside the item the preview should open (a flow's `selected`
+		 * step). Steers the editor only — tab identity is (kind, path). */
+		previewParams?: Record<string, string>
 	}
 </script>
 
 <script lang="ts">
-	import { getContext, type Snippet } from 'svelte'
+	import { getContext, type ComponentProps, type Snippet } from 'svelte'
 	import { BROWSER } from 'esm-env'
 	import AIButton from '$lib/components/copilot/chat/AIButton.svelte'
 	import { AIBtnClasses } from '$lib/components/copilot/chat/AIButtonStyle'
@@ -22,11 +25,15 @@
 	let {
 		source,
 		btnClasses,
+		btnProps,
 		fallback
 	}: {
 		/** Undefined (e.g. an item without a path yet) renders the fallback. */
 		source?: OpenInSessionSource
 		btnClasses?: string
+		/** Button styling overrides for hosts with their own conventions (an
+		 * editor toolbar). */
+		btnProps?: ComponentProps<typeof AIButton>['btnProps']
 		/** Rendered instead when the user opted out of the sessions beta
 		 * (typically the editor's inline-chat toggle). Never rendered inside
 		 * the session panel. */
@@ -48,7 +55,7 @@
 		opening = true
 		try {
 			await source.beforeOpen?.()
-			await openEditorInSession(source.target, source.workspaceId)
+			await openEditorInSession(source.target, source.workspaceId, source.previewParams)
 		} finally {
 			opening = false
 		}
@@ -56,7 +63,7 @@
 </script>
 
 {#if show}
-	<AIButton togglePanel={open} btnClasses={btnClasses ?? AIBtnClasses('default')} />
+	<AIButton togglePanel={open} btnClasses={btnClasses ?? AIBtnClasses('default')} {btnProps} />
 {:else if !inSessionPanel}
 	{@render fallback?.()}
 {/if}
