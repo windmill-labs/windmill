@@ -84,7 +84,9 @@
 			<!-- Below the pipeline content on purpose: dbt is a separate runtime, not a
 			     way of building a pipeline, and reads as one when it sits in the flow
 			     that defines what a pipeline is. -->
-			<PipelineDbtSignpost />
+			{#if !$userStore?.operator}
+				<PipelineDbtSignpost />
+			{/if}
 		</div>
 	</div>
 </div>
