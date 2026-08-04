@@ -60,11 +60,11 @@
 		font-display: swap;
 	}
 
-	/* Firefox rasterizes the macOS bitmap emoji font (Apple Color Emoji, sbix) at a
-	   size that ignores an ancestor's `transform: scale()`, so emoji keep their
-	   unzoomed size inside the flow graph canvas. Noto's COLR glyphs are vectors and
-	   scale like any other text. Split by unicode-range as Google Fonts serves it, so
-	   a chunk is only fetched when a page actually renders an emoji in that range. */
+	/* Firefox rasterizes the macOS bitmap emoji font (Apple Color Emoji, sbix) at a size
+	   that ignores an ancestor's `transform: scale()`, so emoji keep their unzoomed size
+	   inside the flow graph canvas. Noto's COLR glyphs are vectors and scale like any
+	   other text. unicode-range split verbatim from Google Fonts so pages fetch only the
+	   chunks they render — keep the ranges as served; editing them breaks that gating. */
 	@font-face {
 		font-family: 'Noto Color Emoji';
 		src: url('/fonts/noto-color-emoji.0.woff2') format('woff2');
