@@ -143,20 +143,21 @@
 	// superadmin can enter any workspace, member or not (mirrors the paired view's switch button).
 	let canReachParent = $derived($superadmin || $userWorkspaces.some((w) => w.id === parentId))
 
-	function rulesetHref(name: string): string {
-		return `${base}/workspace_settings?tab=rulesets&rule=${encodeURIComponent(name)}`
+	// With a name, deep-links into that rule's drawer; without one, the rulesets list. Built from
+	// scratch rather than from the current query so no stale `?workspace=<dev>` survives a switch.
+	function rulesetsHref(name?: string): string {
+		const rule = name ? `&rule=${encodeURIComponent(name)}` : ''
+		return `${base}/workspace_settings?tab=rulesets${rule}`
 	}
 
-	function openRuleset(name: string) {
-		goto(rulesetHref(name))
+	function openRulesets(name?: string) {
+		goto(rulesetsHref(name))
 	}
 
-	// Built from scratch rather than from the current query so no stale `?workspace=<dev>` survives to
-	// undo the switch.
-	function openRulesetInParent(name: string) {
+	function openRulesetsInParent(name?: string) {
 		if (!parentId) return
 		switchWorkspace(parentId)
-		goto(rulesetHref(name))
+		goto(rulesetsHref(name))
 	}
 
 	// A standalone root workspace, or an existing fork of this prod (same family), can be attached.
@@ -242,9 +243,10 @@
 </script>
 
 <!-- The locks are protection rules, so being paired does not imply them: a pairing that came from the
-     deploy_to migration rather than from an attach carries neither. `onEdit` is undefined when the
-     reader cannot reach the rules (a dev-workspace member who is not a member of prod). -->
-{#snippet protectionsPanel(title: string, onEdit: ((name: string) => void) | undefined)}
+     deploy_to migration rather than from an attach carries neither. `onOpen` navigates to the rules
+     of the workspace this panel describes, which is not the active one on the dev side; it is
+     undefined when the reader cannot reach them (a dev member who is not a member of prod). -->
+{#snippet protectionsPanel(title: string, onOpen: ((name?: string) => void) | undefined)}
 	<div class="flex flex-col gap-1 rounded-md border bg-surface-secondary p-3">
 		<span class="text-xs font-semibold text-emphasis">{title}</span>
 		{#if enforcementUnknown}
@@ -282,12 +284,12 @@
 									<span class="text-2xs text-secondary">Applied by this pairing</span>
 								{/if}
 							</div>
-							{#if onEdit}
+							{#if onOpen}
 								<Button
 									variant="subtle"
 									unifiedSize="2xs"
 									startIcon={{ icon: Pen }}
-									onclick={() => onEdit(ruleset.name)}
+									onclick={() => onOpen(ruleset.name)}
 								>
 									Edit
 								</Button>
@@ -297,13 +299,9 @@
 				</div>
 			{/if}
 		{/if}
-		{#if onEdit && enforcingRulesets.length === 0}
+		{#if onOpen && enforcingRulesets.length === 0}
 			<div class="self-start mt-1">
-				<Button
-					variant="subtle"
-					unifiedSize="2xs"
-					onclick={() => goto(`${base}/workspace_settings?tab=rulesets`)}
-				>
+				<Button variant="subtle" unifiedSize="2xs" onclick={() => onOpen()}>
 					Manage in Rulesets
 				</Button>
 			</div>
@@ -326,7 +324,7 @@
 		</div>
 		{@render protectionsPanel(
 			`Protections in force on ${parentId}`,
-			canReachParent ? openRulesetInParent : undefined
+			canReachParent ? openRulesetsInParent : undefined
 		)}
 		<div>
 			<Button
@@ -344,7 +342,7 @@
 			This workspace's {devLabelNoun(pairedDev.label)} is <b>{pairedDev.name}</b> ({pairedDev.id}).
 			Edits to this workspace are redirected there.
 		</p>
-		{@render protectionsPanel('Protections in force on this workspace', openRuleset)}
+		{@render protectionsPanel('Protections in force on this workspace', openRulesets)}
 		<div class="flex gap-2">
 			{#if pairedDev.isMember || $superadmin}
 				<Button
