@@ -186,7 +186,9 @@
 						unifiedSize="sm"
 						btnClasses="justify-start transition-all h-auto min-h-7 py-1 {selected === index
 							? 'bg-surface-hover'
-							: 'hover:bg-transparent'}"
+							: onHover
+								? 'hover:bg-transparent'
+								: ''}"
 						onmousemove={() => onHover?.(index)}
 						onClick={() => {
 							if (kind == 'flow') {

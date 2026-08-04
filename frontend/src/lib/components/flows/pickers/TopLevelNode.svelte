@@ -69,7 +69,6 @@
 	variant="subtle"
 	unifiedSize="sm"
 	startIcon={{ icon: config?.icon }}
-	title={label}
 	btnClasses={neutral ? (selected ? 'bg-surface-hover' : 'hover:bg-transparent') : ''}
 >
 	<span class="grow min-w-0 flex items-center gap-2">

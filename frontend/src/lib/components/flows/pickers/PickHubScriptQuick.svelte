@@ -222,9 +222,11 @@
 					<Button
 						variant="subtle"
 						unifiedSize="sm"
-						btnClasses="justify-start {selected === index
+						btnClasses="justify-start h-auto min-h-7 py-1 {selected === index
 							? 'bg-surface-hover'
-							: 'hover:bg-transparent'}"
+							: onHover
+								? 'hover:bg-transparent'
+								: ''}"
 						onmousemove={() => onHover?.(index)}
 						onClick={() => handlePickScript(item)}
 					>
@@ -240,11 +242,11 @@
 						</div>
 
 						<div class="flex flex-col grow min-w-0">
-							<div class="grow truncate text-left font-normal leading-tight py-0.5"
+							<div class="min-w-0 truncate text-left font-normal leading-tight"
 								>{item.summary ?? ''}</div
 							>
 							{#if displayPath && item.path}
-								<div class="grow truncate text-left text-2xs font-thin">
+								<div class="min-w-0 truncate text-left text-2xs font-thin leading-tight">
 									{item.path}
 								</div>
 							{/if}

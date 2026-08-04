@@ -45,9 +45,9 @@
 
 	let height = $state(0)
 	let owners = $state([])
-	// Paths only appear once the user drags the popover taller than its default height, so this
-	// must track h-[480px] in InsertModulePopover.svelte. Width is pinned by w-[650px] below and
-	// so can never be the trigger.
+	// Only the content-sized host (TriggersWrapper) grows past this. The fixed-height hosts top out
+	// at 464px and must stay under the threshold, or every workspace row goes two-line in the step
+	// picker.
 	let displayPath = $derived(height > 480)
 </script>
 
