@@ -247,6 +247,13 @@ describe('model context windows', () => {
 		expect(getKnownModelContextWindow('gpt-5.5')).toBe(1000000)
 	})
 
+	it('does not let a version entry claim a longer version number', () => {
+		// `gpt-4.1` and `gpt-4-1106-preview` collapse to the same prefix, but the
+		// latter is a 128K model and must stay unlisted
+		expect(getKnownModelContextWindow('gpt-4-1106-preview')).toBeUndefined()
+		expect(getKnownModelContextWindow('gpt-4.1-mini')).toBe(1000000)
+	})
+
 	it('maps recent Gemini and DeepSeek models to the 1M window', () => {
 		expect(getKnownModelContextWindow('gemini-3.1-pro')).toBe(1000000)
 		expect(getKnownModelContextWindow('gemini-3-flash')).toBe(1000000)

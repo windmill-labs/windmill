@@ -5,8 +5,6 @@ export type ParsedModelId = {
 	vendor: string | undefined
 	/** Bare model id: no vendor prefix, no variant suffix. */
 	base: string
-	/** Gateway variant suffix (`free`, `thinking`, ...) when present. */
-	variant: string | undefined
 }
 
 /**
@@ -15,16 +13,18 @@ export type ParsedModelId = {
  * floating aliases with a `~` prefix (`~anthropic/claude-sonnet-latest`, distinct
  * from the vendor-pinned `anthropic/claude-sonnet-5`) and appends `:variant`
  * suffixes (`:free`, `:thinking`). Match on the parsed parts, never on the raw id.
+ *
+ * `base` is the last `/` segment, so the deprecated `<model>/thinking` selection
+ * resolves the same way it did before this parser existed.
  */
 export function parseModelId(model: string): ParsedModelId {
 	const normalized = model.toLowerCase().replace(/^~/, '')
-	const slash = normalized.indexOf('/')
-	const rest = slash > 0 ? normalized.slice(slash + 1) : normalized
-	const colon = rest.indexOf(':')
+	const segments = normalized.split('/')
+	const last = segments[segments.length - 1]
+	const colon = last.indexOf(':')
 	return {
-		vendor: slash > 0 ? normalized.slice(0, slash) : undefined,
-		base: colon > 0 ? rest.slice(0, colon) : rest,
-		variant: colon > 0 ? rest.slice(colon + 1) : undefined
+		vendor: segments.length > 1 ? segments[0] : undefined,
+		base: colon > 0 ? last.slice(0, colon) : last
 	}
 }
 
@@ -61,7 +61,7 @@ export function requiresMaxCompletionTokens(model: string) {
 }
 
 // Context windows of the models we know, most specific entry first — the first
-// name included in the model id wins, so provider-prefixed and date-suffixed
+// name found in the bare model id wins, so vendor-namespaced and date-suffixed
 // ids (anthropic.claude-sonnet-4-6-...-v1:0, gpt-5.2-2026-01-01) still resolve.
 // Conservative family fallbacks sit below the explicit entries; models not
 // listed at all resolve to undefined, which disables auto-trimming and the
@@ -110,9 +110,19 @@ function normalizeVersionSeparators(model: string): string {
 	return model.replace(/\./g, '-')
 }
 
+// `(?!\d)` stops a collapsed entry from running into a longer version number:
+// `gpt-4.1` becomes `gpt-4-1`, which would otherwise claim the 128K
+// `gpt-4-1106-preview` as a 1M model. Suffixes that continue with a separator
+// (`claude-opus-4-8` in `...-4-8-v1`, `gpt-5` in `gpt-5-mini`) still match.
+const MODEL_CONTEXT_WINDOW_MATCHERS: [matcher: RegExp, contextWindow: number][] =
+	MODEL_CONTEXT_WINDOWS.map(([name, contextWindow]) => [
+		new RegExp(`${normalizeVersionSeparators(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?!\\d)`),
+		contextWindow
+	])
+
 export function getKnownModelContextWindow(model: string): number | undefined {
 	const id = normalizeVersionSeparators(parseModelId(model).base)
-	return MODEL_CONTEXT_WINDOWS.find(([name]) => id.includes(normalizeVersionSeparators(name)))?.[1]
+	return MODEL_CONTEXT_WINDOW_MATCHERS.find(([matcher]) => matcher.test(id))?.[1]
 }
 
 export function getModelContextWindow(model: string) {
