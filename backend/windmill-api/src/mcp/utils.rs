@@ -551,7 +551,31 @@ fn jwt_scopes_for_proxied_route(
                 None,
             )
         })?;
-    Ok(Some(vec![scope]))
+    let mut scopes = vec![scope];
+    // Some handlers check a scope from another domain, which the route scope can
+    // never cover. Carry one over only when the caller already holds it: minting
+    // it would hand out the grant, dropping it makes the tool unusable for a
+    // token that was deliberately given it.
+    if let Some(caller) = caller_scopes {
+        for extra in extra_scopes_for_route(route_path) {
+            if caller.iter().any(|s| s == extra) {
+                scopes.push((*extra).to_string());
+            }
+        }
+    }
+    Ok(Some(scopes))
+}
+
+/// Scopes a route's handler requires beyond the one its own domain implies.
+/// Mirrors `x-mcp-extra-scopes` in the openapi spec, which is what puts them on
+/// the token in the first place.
+fn extra_scopes_for_route(route_path: &str) -> &'static [&'static str] {
+    if route_path.contains("/apps/update_raw_source/") {
+        // Compiles the app's sources — its own dependencies — on a worker.
+        &["jobs:run"]
+    } else {
+        &[]
+    }
 }
 
 /// Create HTTP request with authentication
@@ -669,20 +693,21 @@ mod tests {
     }
 
     #[test]
-    fn proxy_jwt_raw_app_source_deploy_mints_only_its_route_scope() {
+    fn proxy_jwt_raw_app_source_deploy_carries_jobs_run_only_when_held() {
         // That handler also requires jobs:run, because compiling an app's sources
         // imports the app's own dependencies and so runs its code on a worker.
-        // Minting it here would hand that to a token for merely holding the tool;
-        // a scope-restricted caller has to carry jobs:run itself.
-        let s = scopes(&["mcp:endpoints:updateAppRawSource"]);
+        // Minting it regardless would hand that to a token for merely holding the
+        // tool, so it is carried over only when the token was granted it.
+        let route = "/api/w/ws/apps/update_raw_source/u/admin/app";
+        let bare = scopes(&["mcp:endpoints:updateAppRawSource"]);
         assert_eq!(
-            jwt_scopes_for_proxied_route(
-                Some(&s),
-                "POST",
-                "/api/w/ws/apps/update_raw_source/u/admin/app"
-            )
-            .unwrap(),
+            jwt_scopes_for_proxied_route(Some(&bare), "POST", route).unwrap(),
             Some(scopes(&["apps:write"]))
+        );
+        let granted = scopes(&["mcp:endpoints:updateAppRawSource", "jobs:run"]);
+        assert_eq!(
+            jwt_scopes_for_proxied_route(Some(&granted), "POST", route).unwrap(),
+            Some(scopes(&["apps:write", "jobs:run"]))
         );
     }
 

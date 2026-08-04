@@ -217,7 +217,9 @@
 				scopeParts.push(...extraScopesFor(visibleEndpointTools.map((e) => e.name)))
 			}
 		} else {
+			// favorites / all expose every endpoint tool, so grant what they need.
 			scopeParts = [`mcp:${selectedMode}`]
+			scopeParts.push(...extraScopesFor(visibleEndpointTools.map((e) => e.name)))
 		}
 
 		if (newMcpApps.length > 0) {
