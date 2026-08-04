@@ -598,7 +598,10 @@
 							</div>
 
 							<div class="flex-1 min-w-0 flex flex-col gap-1">
-								<div class="flex items-center gap-x-2 gap-y-1 flex-wrap max-h-16 overflow-y-auto">
+								<!-- No height cap here: truncation holds every chip to one row and a domain has a
+								     handful of scopes, so this row cannot run away. Capping it would nest a scroller
+								     inside the domain list, which then swallows wheel events crossing this row. -->
+								<div class="flex items-center gap-x-2 gap-y-1 flex-wrap">
 									<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 									<label
 										for={`domain-${domain.name}`}
@@ -680,9 +683,9 @@
 															>
 																{resourcePathArray.length > 0 ? 'Add path' : 'Restrict paths'}
 																<Tooltip light>
-																	Restrict this scope to specific resource paths. Each path you add
-																	widens what the scope reaches. If no paths are specified, the
-																	scope gives full access.
+																	Restrict this scope to specific resource paths. With no paths
+																	listed it reaches everything; with paths listed it reaches exactly
+																	those.
 																</Tooltip>
 															</Button>
 														{/snippet}
