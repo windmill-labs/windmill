@@ -5013,6 +5013,37 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/workspaces/datatable_usable_roles/{datatable_name}:
+    get:
+      summary: list the datatable roles the caller may run as
+      operationId: listUsableDatatableRoles
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: usable roles
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [enabled, roles, default_role]
+                properties:
+                  enabled:
+                    type: boolean
+                  roles:
+                    type: array
+                    items:
+                      type: string
+                  default_role:
+                    type: string
+
   /w/{workspace}/workspaces/datatable_permissions/{datatable_name}/preview:
     post:
       summary: preview the SQL a datatable permissions change would run (admins only)
@@ -31472,7 +31503,7 @@ components:
         name:
           type: string
         tenants:
-          description: who may run as this role, as u/<user>, g/<group> or f/<folder>
+          description: who may run as this role, as '*' (everyone), u/<user>, g/<group> or f/<folder>
           type: array
           items:
             type: string

@@ -27,7 +27,9 @@ use windmill_common::error::{self, Error};
 use windmill_common::worker::{
     to_raw_value, Connection, SqlAnnotations, SqlResultCollectionStrategy, CLOUD_HOSTED,
 };
-use windmill_common::workspaces::{get_datatable_resource_from_db, DatatableAccess};
+use windmill_common::workspaces::{
+    get_datatable_resource_from_db, parse_datatable_ref, DatatableAccess,
+};
 use windmill_common::{PgDatabase, PrepareQueryColumnInfo, PrepareQueryResult, DB};
 use windmill_parser::{Arg, Typ};
 use windmill_parser_sql::{
@@ -592,10 +594,14 @@ pub async fn do_postgresql(
     } else {
         match pg_args.get("database").cloned() {
             Some(Value::String(db_str)) if db_str.starts_with("datatable://") => {
-                let db_str = db_str.trim_start_matches("datatable://");
+                let reference = db_str.trim_start_matches("datatable://");
+                let (db_str, uri_role) = parse_datatable_ref(reference);
                 // `-- role <name>` rather than an argument: an argument named
-                // `role` would collide with a query parameter of that name.
-                let role = SqlAnnotations::datatable_role(query);
+                // `role` would collide with a query parameter of that name. It
+                // wins over a role carried by the reference, which is how
+                // generated SQL (the database manager's) selects one.
+                let role = SqlAnnotations::datatable_role(query)
+                    .or_else(|| uri_role.map(|r| r.to_string()));
                 Some(match conn {
                     Connection::Http(client) => {
                         get_datatable_resource_from_agent_http(

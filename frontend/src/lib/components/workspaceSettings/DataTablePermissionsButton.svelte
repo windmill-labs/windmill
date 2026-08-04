@@ -38,6 +38,9 @@
 	} = $props()
 
 	const ROOT_ROLE = 'root'
+	// Matches every workspace member, unlike the `all` group whose membership is
+	// bookkeeping that can drift.
+	const WILDCARD_TENANT = '*'
 
 	// Stable client-side id so a rename (A -> B) is sent as a rename rather than
 	// read as a delete plus an add, which would drop the role's grants.
@@ -66,6 +69,7 @@
 			FolderService.listFolderNames({ workspace: ws })
 		])
 		return [
+			{ value: WILDCARD_TENANT, label: 'Everyone', group: 'Anyone in the workspace' },
 			...users.map((u) => ({ value: `u/${u}`, label: u, group: 'Users' })),
 			...groups.map((g) => ({ value: `g/${g}`, label: g, group: 'Groups' })),
 			...folders.map((f) => ({ value: `f/${f}`, label: f, group: 'Folders' }))
@@ -257,8 +261,8 @@
 								<Cell head>
 									Default
 									<Tooltip>
-										The role a script gets when it names none — no `-- role` annotation, no
-										`?role=` in an ATTACH. Callers still have to be one of its tenants.
+										The role a script gets when it names none — no `-- role` annotation, no `?role=`
+										in an ATTACH. Callers still have to be one of its tenants.
 									</Tooltip>
 								</Cell>
 								<Cell head last />
@@ -286,7 +290,7 @@
 											items={tenantItems.current ?? []}
 											bind:value={role.tenants}
 											groupBy={(item) => item.group}
-											placeholder="Everyone denied — add users, groups or folders"
+											placeholder="Nobody — add Everyone, users, groups or folders"
 										/>
 									</Cell>
 									<Cell class="w-20 align-top">

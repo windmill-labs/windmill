@@ -572,7 +572,9 @@ export function getDbType(input: DbInput): DbType {
 export function getDatabaseArg(input: DbInput | undefined) {
 	if (input?.type === 'database') {
 		if (input.resourcePath.startsWith('datatable://')) {
-			return { database: input.resourcePath }
+			// The role rides in the reference: generated SQL has no natural place
+			// for the `-- role` annotation a hand-written script would use.
+			return { database: input.resourcePath + (input.role ? `?role=${input.role}` : '') }
 		} else {
 			return { database: '$res:' + input.resourcePath }
 		}

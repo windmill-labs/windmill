@@ -58,6 +58,54 @@
 		}))
 	)
 
+	// Roles the *caller* may use, so the picker never offers one that would be
+	// refused. Absent/disabled permissions yield no roles and hide the picker.
+	const usableRoles = resource(
+		() => [ws, uriState.selectedDatatable] as const,
+		async ([workspace, datatable]) => {
+			if (!workspace || !datatable) return undefined
+			try {
+				return await WorkspaceService.listUsableDatatableRoles({ workspace, datatableName: datatable })
+			} catch (e) {
+				// Never leave the drawer waiting on this: fall back to the
+				// unpermissioned shape so it opens and the server picks the role.
+				console.error('Failed to load datatable roles:', e)
+				return { enabled: false, roles: [], default_role: 'root' }
+			}
+		}
+	)
+
+	// The content must not mount until the role is settled: mounting is what fires
+	// the schema and metadata queries, and a first round sent without a role would
+	// run — and cache — as whatever the server defaults to.
+	const roleSettled = $derived(
+		!uriState.isDatatableInput ||
+			(usableRoles.current !== undefined &&
+				(!usableRoles.current.enabled ||
+					usableRoles.current.roles.length === 0 ||
+					uriState.selectedRole !== undefined))
+	)
+
+	const roleItems = $derived(
+		(usableRoles.current?.roles ?? []).map((r) => ({
+			value: r,
+			label: r === usableRoles.current?.default_role ? `${r} (default)` : r
+		}))
+	)
+
+	// Settle the role before anything queries the data table: the schema and
+	// metadata fetches run as whatever role the input carries, so leaving it unset
+	// until the user touches the picker would send the first — and cached — round
+	// of queries as a role they may not be allowed to use.
+	$effect(() => {
+		const roles = usableRoles.current
+		if (!roles?.enabled || uriState.selectedRole !== undefined) return
+		const effective = roles.roles.includes(roles.default_role)
+			? roles.default_role
+			: roles.roles[0]
+		if (effective) untrack(() => (uriState.selectedRole = effective))
+	})
+
 	// Refetch datatables when switching to a datatable input
 	$effect(() => {
 		if (uriState.isDatatableInput) {
@@ -176,8 +224,8 @@
 		noPadding
 		id="db-manager-drawer"
 	>
-		{#if uriState.effectiveInput && ws}
-			{#key uriState.selectedDatatable}
+		{#if uriState.effectiveInput && ws && roleSettled}
+			{#key `${uriState.selectedDatatable}~${uriState.selectedRole ?? ''}`}
 				<DBManagerContent
 					bind:this={dbManagerContent}
 					input={uriState.effectiveInput}
@@ -202,6 +250,15 @@
 									items={datatableItems}
 									bind:value={uriState.selectedDatatable}
 									placeholder="Select data table"
+									size="md"
+								/>
+							{/if}
+							{#if usableRoles.current?.enabled && roleItems.length > 0}
+								<Select
+									transformInputSelectedText={(s) => `Role: ${s}`}
+									items={roleItems}
+									bind:value={uriState.selectedRole}
+									placeholder="Role"
 									size="md"
 								/>
 							{/if}

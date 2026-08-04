@@ -31,8 +31,8 @@ use windmill_common::error::{pg_error_message, Error, JsonResult, Result};
 use windmill_common::query_builders::{render_db_quoted_identifier, DbType};
 use windmill_common::utils::{rd_string, require_admin};
 use windmill_common::workspaces::{
-    datatable_pg_role_name, get_datatable_resource_from_db_unchecked, DataTable,
-    DataTablePermissions, DataTableRole, ROOT_DATATABLE_ROLE,
+    can_use_datatable_role, datatable_pg_role_name, get_datatable_resource_from_db_unchecked,
+    DataTable, DataTablePermissions, DataTableRole, DATATABLE_TENANT_WILDCARD, ROOT_DATATABLE_ROLE,
 };
 use windmill_common::{PgDatabase, DB};
 
@@ -45,6 +45,10 @@ pub(crate) fn routes() -> Router {
         .route(
             "/datatable_permissions/{datatable_name}/preview",
             post(preview_datatable_permissions),
+        )
+        .route(
+            "/datatable_usable_roles/{datatable_name}",
+            get(list_usable_datatable_roles),
         )
 }
 
@@ -88,6 +92,15 @@ pub struct SetDatatablePermissions {
 pub struct DatatableRoleRename {
     pub from: String,
     pub to: String,
+}
+
+/// The roles the caller may actually run as, for pickers. Unlike the admin-only
+/// permissions view this exposes no tenant lists — only what the caller can use.
+#[derive(Serialize, Debug)]
+pub struct UsableDatatableRoles {
+    pub enabled: bool,
+    pub roles: Vec<String>,
+    pub default_role: String,
 }
 
 #[derive(Serialize, Debug)]
@@ -141,10 +154,13 @@ fn validate_role_name(name: &str) -> Result<()> {
 }
 
 fn validate_tenant(tenant: &str) -> Result<()> {
+    if tenant == DATATABLE_TENANT_WILDCARD {
+        return Ok(());
+    }
     match tenant.split_once('/') {
         Some(("u" | "g" | "f", rest)) if !rest.is_empty() => Ok(()),
         _ => Err(Error::BadRequest(format!(
-            "Invalid tenant '{tenant}': expected u/<user>, g/<group> or f/<folder>"
+            "Invalid tenant '{tenant}': expected '*', u/<user>, g/<group> or f/<folder>"
         ))),
     }
 }
@@ -175,24 +191,23 @@ fn plan_role_changes(
     let mut warnings = Vec::new();
 
     let mut dropped_pg_roles: HashSet<String> = HashSet::new();
-    let drop_role = |statements: &mut Vec<PlannedStatement>,
-                     dropped: &mut HashSet<String>,
-                     pg_role: &str| {
-        if !existing_pg_roles.contains(pg_role) {
-            return;
-        }
-        dropped.insert(pg_role.to_string());
-        let q = quote_ident(pg_role);
-        // Give the objects back to root before dropping, else the DROP fails on
-        // anything the role still owns. DROP OWNED then clears what is left:
-        // privileges granted to it and its default-privilege entries.
-        statements.push(PlannedStatement::plain(format!(
-            "REASSIGN OWNED BY {q} TO {};",
-            quote_ident(root_pg_role)
-        )));
-        statements.push(PlannedStatement::plain(format!("DROP OWNED BY {q};")));
-        statements.push(PlannedStatement::plain(format!("DROP ROLE {q};")));
-    };
+    let drop_role =
+        |statements: &mut Vec<PlannedStatement>, dropped: &mut HashSet<String>, pg_role: &str| {
+            if !existing_pg_roles.contains(pg_role) {
+                return;
+            }
+            dropped.insert(pg_role.to_string());
+            let q = quote_ident(pg_role);
+            // Give the objects back to root before dropping, else the DROP fails on
+            // anything the role still owns. DROP OWNED then clears what is left:
+            // privileges granted to it and its default-privilege entries.
+            statements.push(PlannedStatement::plain(format!(
+                "REASSIGN OWNED BY {q} TO {};",
+                quote_ident(root_pg_role)
+            )));
+            statements.push(PlannedStatement::plain(format!("DROP OWNED BY {q};")));
+            statements.push(PlannedStatement::plain(format!("DROP ROLE {q};")));
+        };
 
     if !req.enabled {
         for (name, role) in old_roles.iter() {
@@ -359,7 +374,11 @@ fn plan_role_changes(
                     .unwrap_or_else(|| rd_string(32));
                 if old_pg != pg_rolename {
                     if existing_pg_roles.contains(&old_pg) {
-                        pending_renames.push((old_pg.clone(), pg_rolename.clone(), password.clone()));
+                        pending_renames.push((
+                            old_pg.clone(),
+                            pg_rolename.clone(),
+                            password.clone(),
+                        ));
                     } else {
                         warnings.push(format!(
                             "Role '{from}' was expected to exist in the database as '{old_pg}' but does not; it will be created as '{pg_rolename}'."
@@ -412,7 +431,11 @@ fn plan_role_changes(
         }
     }
 
-    statements.extend(order_renames(pending_renames, existing_pg_roles, &dropped_pg_roles)?);
+    statements.extend(order_renames(
+        pending_renames,
+        existing_pg_roles,
+        &dropped_pg_roles,
+    )?);
     statements.extend(creates_sql);
 
     Ok(RolePlan {
@@ -420,8 +443,7 @@ fn plan_role_changes(
         permissions: DataTablePermissions {
             enabled: true,
             roles,
-            default_role: (default_role != ROOT_DATATABLE_ROLE)
-                .then(|| default_role.to_string()),
+            default_role: (default_role != ROOT_DATATABLE_ROLE).then(|| default_role.to_string()),
         },
         warnings,
     })
@@ -678,6 +700,34 @@ async fn get_datatable_permissions(
     }))
 }
 
+/// List the roles `authed` may run this data table as. An unpermissioned data
+/// table reports `enabled: false` and no roles, so a picker can hide itself.
+async fn list_usable_datatable_roles(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, datatable_name)): Path<(String, String)>,
+) -> JsonResult<UsableDatatableRoles> {
+    let datatable = read_datatable(&db, &w_id, &datatable_name).await?;
+    let Some(permissions) = datatable.permissions.filter(|p| p.enabled) else {
+        return Ok(Json(UsableDatatableRoles {
+            enabled: false,
+            roles: vec![],
+            default_role: ROOT_DATATABLE_ROLE.to_string(),
+        }));
+    };
+    let authed_ref = authed.to_authed_ref();
+    Ok(Json(UsableDatatableRoles {
+        enabled: true,
+        default_role: permissions.default_role().to_string(),
+        roles: permissions
+            .roles
+            .iter()
+            .filter(|(_, role)| can_use_datatable_role(role, &authed_ref))
+            .map(|(name, _)| name.clone())
+            .collect(),
+    }))
+}
+
 async fn preview_datatable_permissions(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -895,11 +945,11 @@ mod tests {
             .map(|r| datatable_pg_role_name(W_ID, DT, r))
             .collect();
         let req = SetDatatablePermissions {
-        enabled: false,
-        roles: vec![],
-        default_role: None,
-        renames: vec![],
-    };
+            enabled: false,
+            roles: vec![],
+            default_role: None,
+            renames: vec![],
+        };
         let plan = plan(
             Some(&old),
             &req,
@@ -1033,11 +1083,11 @@ mod tests {
     fn a_role_the_config_lost_track_of_is_not_dropped() {
         let old = enabled_with(&["analyst"]);
         let req = SetDatatablePermissions {
-        enabled: false,
-        roles: vec![],
-        default_role: None,
-        renames: vec![],
-    };
+            enabled: false,
+            roles: vec![],
+            default_role: None,
+            renames: vec![],
+        };
         // The Postgres role is already gone, so planning its drop would fail the
         // whole transaction and wedge the opt-out.
         let plan = plan(Some(&old), &req, &[]).unwrap();
@@ -1104,7 +1154,16 @@ mod tests {
                 "{bad_role} should be rejected"
             );
         }
-        for bad_tenant in ["alice", "x/alice", "u/", ""] {
+        // The wildcard is the one tenant with no prefix.
+        let req = SetDatatablePermissions {
+            enabled: true,
+            roles: vec![role("root", &["*"])],
+            default_role: None,
+            renames: vec![],
+        };
+        assert!(plan(None, &req, &[]).is_ok());
+
+        for bad_tenant in ["alice", "x/alice", "u/", "", "*/alice", "**"] {
             let req = SetDatatablePermissions {
                 enabled: true,
                 roles: vec![role("root", &[bad_tenant])],

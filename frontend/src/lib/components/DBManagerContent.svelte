@@ -68,7 +68,10 @@
 	function getDbSchemasPath(input: DbInput): string {
 		switch (input.type) {
 			case 'database':
-				return input.resourcePath
+				// The role is part of the identity: two roles on the same data table
+				// may see different tables, so their schemas cannot share a cache
+				// entry — and the same string is what selects the role downstream.
+				return input.resourcePath + (input.role ? `?role=${input.role}` : '')
 			case 'ducklake':
 				return 'ducklake://' + input.ducklake
 		}
@@ -97,7 +100,7 @@
 			if (input.type == 'database') {
 				$dbSchemas[dbSchemasPath] = await getDbSchemas(
 					input.resourceType,
-					input.resourcePath,
+					getDbSchemasPath(input),
 					ws,
 					(message: string) => sendUserToast(message, true)
 				)

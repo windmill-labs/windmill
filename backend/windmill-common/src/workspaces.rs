@@ -1013,6 +1013,10 @@ pub struct DataTable {
 /// cannot be created, renamed or dropped.
 pub const ROOT_DATATABLE_ROLE: &str = "root";
 
+/// Tenant matching every workspace member. Distinct from listing the `all` group,
+/// whose membership is bookkeeping that can drift; this one cannot.
+pub const DATATABLE_TENANT_WILDCARD: &str = "*";
+
 #[derive(Deserialize, Serialize, Debug, Default, Clone)]
 pub struct DataTablePermissions {
     pub enabled: bool,
@@ -1140,6 +1144,9 @@ pub fn datatable_pg_role_name(w_id: &str, datatable: &str, role: &str) -> String
 pub fn can_use_datatable_role(role: &DataTableRole, authed: &crate::db::AuthedRef<'_>) -> bool {
     *authed.is_admin
         || role.tenants.iter().any(|tenant| {
+            if tenant == DATATABLE_TENANT_WILDCARD {
+                return true;
+            }
             match tenant.split_once('/') {
                 Some(("u", user)) => authed.username == user,
                 Some(("g", group)) => authed.groups.iter().any(|g| g == group),
@@ -1202,6 +1209,22 @@ fn datatable_not_found_error(name: &str, datatables: Option<&serde_json::Value>)
     ))
 }
 
+/// Split a `<name>?role=<role>` data table reference (the part after
+/// `datatable://`, or the whole thing for the implicit `datatable` form).
+///
+/// The role rides in the reference rather than only in a `-- role` annotation
+/// because a DuckDB script can attach several data tables under different roles,
+/// and because generated SQL — the database manager's, for instance — has no
+/// natural place to put a file-level annotation.
+pub fn parse_datatable_ref(reference: &str) -> (&str, Option<&str>) {
+    let (name, query) = reference.split_once('?').unwrap_or((reference, ""));
+    let role = query
+        .split('&')
+        .find_map(|param| param.strip_prefix("role="))
+        .filter(|role| !role.is_empty());
+    (name, role)
+}
+
 /// Who a data table is being resolved for, when it is permissioned.
 pub enum DatatableAccess<'a> {
     /// Internal callers that have already authorized the access (or for which
@@ -1225,15 +1248,28 @@ pub enum DatatableAccess<'a> {
     NoIdentity,
 }
 
-/// Resolve a data table's connection credentials without authorizing the caller.
-/// Callers MUST have already authorized the access; anything running on behalf
-/// of a user should go through [`get_datatable_resource_from_db`] instead.
+/// Resolve a data table's connection credentials as `root`, without authorizing
+/// the caller.
+///
+/// Always `root`, never the configured default role: this is the connection that
+/// owns every object, and the internal machinery built on it — role DDL, migration
+/// bookkeeping, fork snapshots — needs those privileges. Callers MUST have already
+/// authorized the access; anything running on behalf of a user should go through
+/// [`get_datatable_resource_from_db`] instead.
 pub async fn get_datatable_resource_from_db_unchecked(
     db: &DB,
     w_id: &str,
     name: &str,
 ) -> Result<serde_json::Value> {
-    get_datatable_resource_inner(db, w_id, name, false, None, DatatableAccess::Unchecked).await
+    get_datatable_resource_inner(
+        db,
+        w_id,
+        name,
+        false,
+        Some(ROOT_DATATABLE_ROLE),
+        DatatableAccess::Unchecked,
+    )
+    .await
 }
 
 /// Resolve a data table's connection credentials as `role` (default `root`),
@@ -1264,7 +1300,15 @@ pub async fn get_datatable_replication_resource_from_db_unchecked(
     w_id: &str,
     name: &str,
 ) -> Result<serde_json::Value> {
-    get_datatable_resource_inner(db, w_id, name, true, None, DatatableAccess::Unchecked).await
+    get_datatable_resource_inner(
+        db,
+        w_id,
+        name,
+        true,
+        Some(ROOT_DATATABLE_ROLE),
+        DatatableAccess::Unchecked,
+    )
+    .await
 }
 
 /// Resolve which postgres login the data table should be reached through, and
@@ -2488,6 +2532,12 @@ mod tests {
         // A tenant list is a whitelist, so an empty one grants nobody...
         let empty = DataTableRole::default();
         assert!(!can_use_datatable_role(&empty, &alice.to_authed_ref()));
+        // ...while the wildcard grants everyone, whatever they belong to.
+        let wildcard = DataTableRole {
+            tenants: vec![DATATABLE_TENANT_WILDCARD.to_string()],
+            ..Default::default()
+        };
+        assert!(can_use_datatable_role(&wildcard, &stranger.to_authed_ref()));
         // ...except admins, who reach every role so they cannot lock themselves
         // out of their own data table.
         let mut admin = authed("alice", &[], &[]);
@@ -2554,7 +2604,11 @@ mod tests {
             },
             forked_from: None,
             migrations_enabled: None,
-            permissions: Some(DataTablePermissions { enabled: true, roles: map, default_role: None }),
+            permissions: Some(DataTablePermissions {
+                enabled: true,
+                roles: map,
+                default_role: None,
+            }),
         }
     }
 
@@ -2592,6 +2646,22 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(name, ROOT_DATATABLE_ROLE);
+    }
+
+    /// The internal machinery — role DDL, migration bookkeeping, fork snapshots —
+    /// is built on the unchecked resolution and needs root's privileges, so a
+    /// configured default role must not divert it.
+    #[test]
+    fn the_unchecked_resolution_is_root_even_when_another_role_is_default() {
+        let mut dt = permissioned(&[(ROOT_DATATABLE_ROLE, &[]), ("analyst", &[])]);
+        dt.permissions.as_mut().unwrap().default_role = Some("analyst".to_string());
+
+        let (name, entry) = datatable_role_entry(&dt, "main", Some(ROOT_DATATABLE_ROLE))
+            .unwrap()
+            .unwrap();
+        assert_eq!(name, ROOT_DATATABLE_ROLE);
+        // root reuses the data table's own connection rather than a created login.
+        assert!(entry.pg_rolename.is_none());
     }
 
     #[test]

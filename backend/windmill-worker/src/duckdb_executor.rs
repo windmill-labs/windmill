@@ -13,7 +13,7 @@ use windmill_common::error::{to_anyhow, Error, Result};
 use windmill_common::utils::sanitize_string_from_password;
 use windmill_common::worker::{get_memory, to_raw_value, Connection, SqlResultCollectionStrategy};
 use windmill_common::workspaces::{
-    get_datatable_resource_from_db, get_ducklake_from_db_unchecked,
+    get_datatable_resource_from_db, get_ducklake_from_db_unchecked, parse_datatable_ref,
     strip_fork_reserved_attach_args, DatatableAccess, DucklakeCatalogResourceType,
 };
 use windmill_common::PgDatabase;
@@ -2540,18 +2540,6 @@ fn fork_defer_statements(
         }
     }
     Ok(stmts)
-}
-
-/// Split a `datatable://<name>?role=<role>` reference. The role rides in the
-/// reference rather than in a file-level annotation because one DuckDB script can
-/// attach several data tables, each under a different role.
-fn parse_datatable_ref(reference: &str) -> (&str, Option<&str>) {
-    let (name, query) = reference.split_once('?').unwrap_or((reference, ""));
-    let role = query
-        .split('&')
-        .find_map(|param| param.strip_prefix("role="))
-        .filter(|role| !role.is_empty());
-    (name, role)
 }
 
 async fn transform_attach_datatable(

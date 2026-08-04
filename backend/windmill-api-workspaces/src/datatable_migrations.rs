@@ -123,7 +123,12 @@ async fn datatable_database_arg(
     .await?
     .ok_or_else(|| Error::internal_err(format!("datatable {datatable_name} not found")))?;
 
-    Ok(to_raw_value(&format!("datatable://{datatable_name}")))
+    // Migrations change the schema and are recorded against objects root owns, so
+    // they run as root rather than the data table's default role.
+    Ok(to_raw_value(&format!(
+        "datatable://{datatable_name}?role={}",
+        windmill_common::workspaces::ROOT_DATATABLE_ROLE
+    )))
 }
 
 /// Run a migration's SQL as a normal Windmill `postgresql` job, permissioned as

@@ -3,6 +3,9 @@ export type DbInput =
 			type: 'database'
 			resourceType: DbType
 			resourcePath: string
+			/** Data table role to connect as. Only meaningful for a `datatable://`
+			 * resourcePath; absent means the data table's default role. */
+			role?: string
 			specificSchema?: string
 			specificTable?: string
 	  }
