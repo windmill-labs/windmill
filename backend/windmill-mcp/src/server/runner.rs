@@ -127,7 +127,9 @@ impl<B: McpBackend> Runner<B> {
 }
 
 /// How an endpoint tool interacts with the token's `mcp:scripts:` / `mcp:flows:`
-/// path scopes.
+/// path scopes. Mirrored in
+/// `frontend/src/lib/components/mcp/endpointScopePolicy.ts` so the scope picker
+/// only advertises tools this policy will actually list — keep the two in sync.
 enum EndpointPathPolicy {
     /// Executes the script/flow named by the `path` argument. Gated by the
     /// script/flow scope alone (an endpoint scope is not enough to run things):
