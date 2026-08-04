@@ -17,9 +17,7 @@ use crate::{
     auth::{get_end_user_email, AuthCache, OptTokened},
     db::{ApiAuthed, DB},
     jobs::RunJobQuery,
-    users::{
-        require_is_writer, require_owner_of_path, require_path_read_access_for_preview, OptAuthed,
-    },
+    users::{require_owner_of_path, require_path_read_access_for_preview, OptAuthed},
     utils::{build_scope_path_predicate, check_scopes},
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
@@ -2678,15 +2676,11 @@ async fn update_app_raw_source(
     let deployed_raw_app = deployed_app_kind(&user_db, &authed, &w_id, path)
         .await?
         .ok_or_else(|| Error::NotFound(format!("App {path} not found")))?;
-    require_is_writer(
-        &authed,
-        path,
-        &w_id,
-        db.clone(),
-        "SELECT extra_perms FROM app WHERE path = $1 AND workspace_id = $2",
-        "app",
-    )
-    .await?;
+    if !can_write_app(&user_db, &authed, &w_id, path).await? {
+        return Err(Error::NotAuthorized(format!(
+            "You do not have permission to update app {path}"
+        )));
+    }
     if !ns.allow_kind_change.unwrap_or(false) {
         reject_kind_change(path, true, Some(deployed_raw_app))?;
     }
@@ -2742,6 +2736,30 @@ fn reject_kind_change(path: &str, raw_app: bool, deployed_raw_app: Option<bool>)
          (from a synced repo, from a `{folder}` folder), or set allow_kind_change to \
          convert it on purpose."
     )))
+}
+
+/// Whether the caller may write the app — decided by the database rather than by
+/// restating its policies here, which is how a hand-written check came to miss
+/// that the app's RLS grants group members write on a `g/<group>/…` path. The
+/// probe is the write itself, rolled back; `path = path` touches no column any
+/// trigger watches.
+async fn can_write_app(
+    user_db: &UserDB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    path: &str,
+) -> Result<bool> {
+    let mut tx = user_db.clone().begin(authed).await?;
+    let allowed = sqlx::query_scalar!(
+        "UPDATE app SET path = path WHERE path = $1 AND workspace_id = $2 RETURNING 1",
+        path,
+        w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .is_some();
+    tx.rollback().await?;
+    Ok(allowed)
 }
 
 /// Whether the app deployed at `path` is raw, or None when there is none the
