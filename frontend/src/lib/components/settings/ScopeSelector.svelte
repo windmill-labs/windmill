@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { type ScopeDomain, type ScopeDefinition, TokenService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { ChevronRight, Loader2, X } from 'lucide-svelte'
+	import { ChevronRight, Loader2, Plus, X } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import Popover from '../meltComponents/Popover.svelte'
 	import Tooltip from '../Tooltip.svelte'
@@ -665,8 +665,15 @@
 														contentClasses="p-3"
 													>
 														{#snippet trigger()}
-															<Button size="xs" disabled={isDisabled} variant="default">
-																Restrict paths
+															<Button
+																size="xs"
+																disabled={isDisabled}
+																variant="default"
+																startIcon={resourcePathArray.length > 0
+																	? { icon: Plus }
+																	: undefined}
+															>
+																{resourcePathArray.length > 0 ? 'Add path' : 'Restrict paths'}
 																<Tooltip light>
 																	Restrict this scope to specific resource paths. If no paths are
 																	specified, the scope gives full access.
