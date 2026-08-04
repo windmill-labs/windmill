@@ -1950,7 +1950,7 @@ async fn test_datatable_connection(
 ) -> JsonResult<DataTableConnectionCheck> {
     require_admin(authed.is_admin, &authed.username)?;
 
-    let db_resource = get_datatable_resource_as_root(&db, &authed, &w_id, &datatable_name).await?;
+    let db_resource = get_datatable_resource_as_admin(&db, &authed, &w_id, &datatable_name).await?;
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
     let (client, connection) = pg_db.connect(Some(&db)).await?;
@@ -2108,7 +2108,7 @@ async fn get_datatable_table_schema(
 /// Resolve a data table for an API caller. Schema browsing and the database
 /// manager always connect as `root`, so a permissioned data table is reachable
 /// from the UI only by a tenant of its `root` role (and by admins).
-async fn get_datatable_resource_as_root(
+async fn get_datatable_resource_as_admin(
     db: &DB,
     authed: &ApiAuthed,
     w_id: &str,
@@ -2147,7 +2147,7 @@ async fn get_datatable_schema(
     datatable_name: &str,
 ) -> Result<SchemaMap> {
     // Get the datatable resource (connection credentials)
-    let db_resource = get_datatable_resource_as_root(db, authed, w_id, datatable_name).await?;
+    let db_resource = get_datatable_resource_as_admin(db, authed, w_id, datatable_name).await?;
 
     // Parse the resource as PgDatabase
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
@@ -2244,7 +2244,7 @@ async fn get_datatable_tables(
     w_id: &str,
     datatable_name: &str,
 ) -> Result<TableListMap> {
-    let db_resource = get_datatable_resource_as_root(db, authed, w_id, datatable_name).await?;
+    let db_resource = get_datatable_resource_as_admin(db, authed, w_id, datatable_name).await?;
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
     let (client, connection) = pg_db.connect(Some(db)).await?;
@@ -2323,7 +2323,7 @@ async fn get_datatable_table_columns(
         )));
     }
 
-    let db_resource = get_datatable_resource_as_root(db, authed, w_id, datatable_name).await?;
+    let db_resource = get_datatable_resource_as_admin(db, authed, w_id, datatable_name).await?;
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
     let (client, connection) = pg_db.connect(Some(db)).await?;
@@ -2476,7 +2476,7 @@ pub(crate) async fn resolve_pg_source_checked(
     source: &str,
 ) -> Result<PgDatabase> {
     let db_resource = if let Some(name) = source.strip_prefix("datatable://") {
-        get_datatable_resource_as_root(db, authed, w_id, name).await?
+        get_datatable_resource_as_admin(db, authed, w_id, name).await?
     } else if let Some(path) = source.strip_prefix("$res:") {
         let db_with_authed = windmill_common::db::DbWithOptAuthed::from_authed(
             authed,

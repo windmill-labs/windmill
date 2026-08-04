@@ -70,7 +70,7 @@
 				// Never leave the drawer waiting on this: fall back to the
 				// unpermissioned shape so it opens and the server picks the role.
 				console.error('Failed to load datatable roles:', e)
-				return { enabled: false, roles: [], default_role: 'root' }
+				return { enabled: false, roles: [], default_role: 'admin' }
 			}
 		}
 	)

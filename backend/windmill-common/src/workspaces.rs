@@ -1011,7 +1011,7 @@ pub struct DataTable {
 /// table resolves to without permissions (`custom_instance_user`, or the
 /// postgres resource's own user), so it owns every object created so far and
 /// cannot be created, renamed or dropped.
-pub const ROOT_DATATABLE_ROLE: &str = "root";
+pub const ADMIN_DATATABLE_ROLE: &str = "admin";
 
 /// Tenant matching every workspace member. Distinct from listing the `all` group,
 /// whose membership is bookkeeping that can drift; this one cannot.
@@ -1020,24 +1020,24 @@ pub const DATATABLE_TENANT_WILDCARD: &str = "*";
 #[derive(Deserialize, Serialize, Debug, Default, Clone)]
 pub struct DataTablePermissions {
     pub enabled: bool,
-    /// Always contains `root`. Ordered so the SQL a config change plans out is
+    /// Always contains `admin`. Ordered so the SQL a config change plans out is
     /// stable across saves.
     #[serde(default)]
     pub roles: std::collections::BTreeMap<String, DataTableRole>,
-    /// The role a script gets when it names none. Absent means `root`.
+    /// The role a script gets when it names none. Absent means `admin`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_role: Option<String>,
 }
 
 impl DataTablePermissions {
     pub fn default_role(&self) -> &str {
-        self.default_role.as_deref().unwrap_or(ROOT_DATATABLE_ROLE)
+        self.default_role.as_deref().unwrap_or(ADMIN_DATATABLE_ROLE)
     }
 }
 
 #[derive(Deserialize, Serialize, Debug, Default, Clone)]
 pub struct DataTableRole {
-    /// The postgres role this data table role logs in as. `None` for `root`,
+    /// The postgres role this data table role logs in as. `None` for `admin`,
     /// which reuses the data table's own connection.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pg_rolename: Option<String>,
@@ -1248,10 +1248,10 @@ pub enum DatatableAccess<'a> {
     NoIdentity,
 }
 
-/// Resolve a data table's connection credentials as `root`, without authorizing
+/// Resolve a data table's connection credentials as `admin`, without authorizing
 /// the caller.
 ///
-/// Always `root`, never the configured default role: this is the connection that
+/// Always `admin`, never the configured default role: this is the connection that
 /// owns every object, and the internal machinery built on it — role DDL, migration
 /// bookkeeping, fork snapshots — needs those privileges. Callers MUST have already
 /// authorized the access; anything running on behalf of a user should go through
@@ -1266,15 +1266,15 @@ pub async fn get_datatable_resource_from_db_unchecked(
         w_id,
         name,
         false,
-        Some(ROOT_DATATABLE_ROLE),
+        Some(ADMIN_DATATABLE_ROLE),
         DatatableAccess::Unchecked,
     )
     .await
 }
 
-/// Resolve a data table's connection credentials as `role` (default `root`),
+/// Resolve a data table's connection credentials as `role` (default `admin`),
 /// checking that `access` is allowed to use it when the data table is
-/// permissioned. On an unpermissioned data table only `root` is accepted, and
+/// permissioned. On an unpermissioned data table only `admin` is accepted, and
 /// the resolution is the same as the unchecked one.
 pub async fn get_datatable_resource_from_db(
     db: &DB,
@@ -1305,7 +1305,7 @@ pub async fn get_datatable_replication_resource_from_db_unchecked(
         w_id,
         name,
         true,
-        Some(ROOT_DATATABLE_ROLE),
+        Some(ADMIN_DATATABLE_ROLE),
         DatatableAccess::Unchecked,
     )
     .await
@@ -1316,13 +1316,13 @@ pub async fn get_datatable_replication_resource_from_db_unchecked(
 ///
 /// Returns the `(user, password)` to swap into the connection, or `None` when
 /// the data table's own credentials are to be used — which is every
-/// unpermissioned data table, and the `root` role of a permissioned one.
+/// unpermissioned data table, and the `admin` role of a permissioned one.
 /// Look up the role a resolution asks for, without authorizing it.
 ///
 /// `Ok(None)` means the data table is unpermissioned and resolves through its own
 /// connection. On a permissioned one, naming no role selects the configured
 /// default and an unknown role is an error; on an unpermissioned one, naming any
-/// role other than `root` is an error too — silently ignoring it would run the
+/// role other than `admin` is an error too — silently ignoring it would run the
 /// script with more privileges than it asked for.
 fn datatable_role_entry<'a>(
     datatable: &'a DataTable,
@@ -1331,7 +1331,7 @@ fn datatable_role_entry<'a>(
 ) -> Result<Option<(&'a str, &'a DataTableRole)>> {
     let Some(permissions) = datatable.permissions.as_ref().filter(|p| p.enabled) else {
         return match role {
-            Some(role) if role != ROOT_DATATABLE_ROLE => Err(Error::BadRequest(format!(
+            Some(role) if role != ADMIN_DATATABLE_ROLE => Err(Error::BadRequest(format!(
                 "Cannot use role '{role}': permissions are not enabled on data table '{name}'. \
                  Enable them in the data table's Permissions drawer."
             ))),
@@ -2591,8 +2591,8 @@ mod tests {
             map.insert(
                 name.to_string(),
                 DataTableRole {
-                    pg_rolename: (*name != ROOT_DATATABLE_ROLE).then(|| format!("wm_{name}")),
-                    pg_password: (*name != ROOT_DATATABLE_ROLE).then(|| "pwd".to_string()),
+                    pg_rolename: (*name != ADMIN_DATATABLE_ROLE).then(|| format!("wm_{name}")),
+                    pg_password: (*name != ADMIN_DATATABLE_ROLE).then(|| "pwd".to_string()),
                     tenants: tenants.iter().map(|t| t.to_string()).collect(),
                 },
             );
@@ -2613,12 +2613,12 @@ mod tests {
     }
 
     #[test]
-    fn datatable_role_lookup_defaults_to_root_and_rejects_unknown_roles() {
-        let dt = permissioned(&[(ROOT_DATATABLE_ROLE, &[]), ("analyst", &["u/alice"])]);
+    fn datatable_role_lookup_defaults_to_admin_and_rejects_unknown_roles() {
+        let dt = permissioned(&[(ADMIN_DATATABLE_ROLE, &[]), ("analyst", &["u/alice"])]);
 
-        // No role named -> root, which reuses the data table's own connection.
+        // No role named -> admin, which reuses the data table's own connection.
         let (name, entry) = datatable_role_entry(&dt, "main", None).unwrap().unwrap();
-        assert_eq!(name, ROOT_DATATABLE_ROLE);
+        assert_eq!(name, ADMIN_DATATABLE_ROLE);
         assert!(entry.pg_rolename.is_none());
 
         let (name, entry) = datatable_role_entry(&dt, "main", Some("analyst"))
@@ -2632,49 +2632,49 @@ mod tests {
 
     #[test]
     fn naming_no_role_selects_the_configured_default() {
-        let mut dt = permissioned(&[(ROOT_DATATABLE_ROLE, &[]), ("analyst", &["u/alice"])]);
+        let mut dt = permissioned(&[(ADMIN_DATATABLE_ROLE, &[]), ("analyst", &["u/alice"])]);
         dt.permissions.as_mut().unwrap().default_role = Some("analyst".to_string());
 
         // The point of a default: a script that names nothing gets the role the
-        // workspace chose, not root.
+        // workspace chose, not admin.
         let (name, entry) = datatable_role_entry(&dt, "main", None).unwrap().unwrap();
         assert_eq!(name, "analyst");
         assert_eq!(entry.pg_rolename.as_deref(), Some("wm_analyst"));
 
-        // Naming root explicitly still reaches root.
-        let (name, _) = datatable_role_entry(&dt, "main", Some(ROOT_DATATABLE_ROLE))
+        // Naming admin explicitly still reaches admin.
+        let (name, _) = datatable_role_entry(&dt, "main", Some(ADMIN_DATATABLE_ROLE))
             .unwrap()
             .unwrap();
-        assert_eq!(name, ROOT_DATATABLE_ROLE);
+        assert_eq!(name, ADMIN_DATATABLE_ROLE);
     }
 
     /// The internal machinery — role DDL, migration bookkeeping, fork snapshots —
-    /// is built on the unchecked resolution and needs root's privileges, so a
+    /// is built on the unchecked resolution and needs admin's privileges, so a
     /// configured default role must not divert it.
     #[test]
-    fn the_unchecked_resolution_is_root_even_when_another_role_is_default() {
-        let mut dt = permissioned(&[(ROOT_DATATABLE_ROLE, &[]), ("analyst", &[])]);
+    fn the_unchecked_resolution_is_admin_even_when_another_role_is_default() {
+        let mut dt = permissioned(&[(ADMIN_DATATABLE_ROLE, &[]), ("analyst", &[])]);
         dt.permissions.as_mut().unwrap().default_role = Some("analyst".to_string());
 
-        let (name, entry) = datatable_role_entry(&dt, "main", Some(ROOT_DATATABLE_ROLE))
+        let (name, entry) = datatable_role_entry(&dt, "main", Some(ADMIN_DATATABLE_ROLE))
             .unwrap()
             .unwrap();
-        assert_eq!(name, ROOT_DATATABLE_ROLE);
-        // root reuses the data table's own connection rather than a created login.
+        assert_eq!(name, ADMIN_DATATABLE_ROLE);
+        // admin reuses the data table's own connection rather than a created login.
         assert!(entry.pg_rolename.is_none());
     }
 
     #[test]
     fn naming_a_role_on_an_unpermissioned_datatable_is_refused() {
-        let mut dt = permissioned(&[(ROOT_DATATABLE_ROLE, &[]), ("analyst", &["u/alice"])]);
+        let mut dt = permissioned(&[(ADMIN_DATATABLE_ROLE, &[]), ("analyst", &["u/alice"])]);
         dt.permissions.as_mut().unwrap().enabled = false;
 
         // Silently ignoring the role would run the script as the data table's own
         // connection — more privilege than it asked for.
         assert!(datatable_role_entry(&dt, "main", Some("analyst")).is_err());
-        // root and "no role" both mean the existing connection, so they are fine.
+        // admin and "no role" both mean the existing connection, so they are fine.
         assert!(datatable_role_entry(&dt, "main", None).unwrap().is_none());
-        assert!(datatable_role_entry(&dt, "main", Some(ROOT_DATATABLE_ROLE))
+        assert!(datatable_role_entry(&dt, "main", Some(ADMIN_DATATABLE_ROLE))
             .unwrap()
             .is_none());
     }
@@ -2686,7 +2686,7 @@ mod tests {
                 "main": {
                     "database": { "resource_type": "instance", "resource_path": "db" },
                     "permissions": { "enabled": true, "roles": {
-                        "root": { "tenants": [] },
+                        "admin": { "tenants": [] },
                         "analyst": { "pg_rolename": "wm_x", "pg_password": "s3cret", "tenants": ["u/alice"] }
                     }}
                 },

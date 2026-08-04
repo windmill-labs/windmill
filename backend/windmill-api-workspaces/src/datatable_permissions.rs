@@ -11,7 +11,7 @@
 //!
 //! A permissioned data table maps each Windmill role onto a real Postgres login
 //! role, so a script that runs as `analyst` connects as `analyst` and the
-//! database — not Windmill — enforces what it may touch. `root` is the exception:
+//! database — not Windmill — enforces what it may touch. `admin` is the exception:
 //! it is the connection the data table already resolved to before permissions
 //! were turned on, so it owns every existing object and is never created,
 //! renamed or dropped.
@@ -32,7 +32,7 @@ use windmill_common::query_builders::{render_db_quoted_identifier, DbType};
 use windmill_common::utils::{rd_string, require_admin};
 use windmill_common::workspaces::{
     can_use_datatable_role, datatable_pg_role_name, get_datatable_resource_from_db_unchecked,
-    DataTable, DataTablePermissions, DataTableRole, DATATABLE_TENANT_WILDCARD, ROOT_DATATABLE_ROLE,
+    DataTable, DataTablePermissions, DataTableRole, DATATABLE_TENANT_WILDCARD, ADMIN_DATATABLE_ROLE,
 };
 use windmill_common::{PgDatabase, DB};
 
@@ -60,7 +60,7 @@ pub struct DatatableRoleInfo {
     #[serde(default)]
     pub tenants: Vec<String>,
     /// The underlying Postgres role, so grants can be written by hand against it.
-    /// Absent for `root`, which reuses the data table's own connection.
+    /// Absent for `admin`, which reuses the data table's own connection.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pg_rolename: Option<String>,
 }
@@ -78,7 +78,7 @@ pub struct SetDatatablePermissions {
     pub enabled: bool,
     #[serde(default)]
     pub roles: Vec<DatatableRoleInfo>,
-    /// The role a script gets when it names none. Absent means `root`.
+    /// The role a script gets when it names none. Absent means `admin`.
     #[serde(default)]
     pub default_role: Option<String>,
     /// Role renames (old -> new), tracked client-side by a stable id so a rename
@@ -175,7 +175,7 @@ fn plan_role_changes(
     w_id: &str,
     datatable: &str,
     dbname: &str,
-    root_pg_role: &str,
+    admin_pg_role: &str,
     old: Option<&DataTablePermissions>,
     req: &SetDatatablePermissions,
     existing_pg_roles: &HashSet<String>,
@@ -201,13 +201,13 @@ fn plan_role_changes(
             let q = quote_ident(pg_role);
             // Repeated here rather than assumed: a role created before this grant
             // existed would otherwise be impossible to drop without a superuser.
-            statements.push(grant_role_to_root_statement(pg_role, root_pg_role));
-            // Give the objects back to root before dropping, else the DROP fails on
+            statements.push(grant_role_to_admin_statement(pg_role, admin_pg_role));
+            // Give the objects back to admin before dropping, else the DROP fails on
             // anything the role still owns. DROP OWNED then clears what is left:
             // privileges granted to it and its default-privilege entries.
             statements.push(PlannedStatement::plain(format!(
                 "REASSIGN OWNED BY {q} TO {};",
-                quote_ident(root_pg_role)
+                quote_ident(admin_pg_role)
             )));
             statements.push(PlannedStatement::plain(format!("DROP OWNED BY {q};")));
             statements.push(PlannedStatement::plain(format!("DROP ROLE {q};")));
@@ -215,7 +215,7 @@ fn plan_role_changes(
 
     if !req.enabled {
         for (name, role) in old_roles.iter() {
-            if name == ROOT_DATATABLE_ROLE {
+            if name == ADMIN_DATATABLE_ROLE {
                 continue;
             }
             if let Some(pg_role) = role.pg_rolename.as_deref() {
@@ -251,15 +251,15 @@ fn plan_role_changes(
             )));
         }
     }
-    if !requested.contains_key(ROOT_DATATABLE_ROLE) {
+    if !requested.contains_key(ADMIN_DATATABLE_ROLE) {
         return Err(Error::BadRequest(format!(
-            "The '{ROOT_DATATABLE_ROLE}' role cannot be removed"
+            "The '{ADMIN_DATATABLE_ROLE}' role cannot be removed"
         )));
     }
 
     // A default naming a role that is not being saved would leave every script
     // that names no role failing to resolve.
-    let default_role = req.default_role.as_deref().unwrap_or(ROOT_DATATABLE_ROLE);
+    let default_role = req.default_role.as_deref().unwrap_or(ADMIN_DATATABLE_ROLE);
     if !requested.contains_key(default_role) {
         return Err(Error::BadRequest(format!(
             "Default role '{default_role}' is not one of the submitted roles"
@@ -272,9 +272,9 @@ fn plan_role_changes(
     for r in req.renames.iter() {
         validate_role_name(&r.from)?;
         validate_role_name(&r.to)?;
-        if r.from == ROOT_DATATABLE_ROLE || r.to == ROOT_DATATABLE_ROLE {
+        if r.from == ADMIN_DATATABLE_ROLE || r.to == ADMIN_DATATABLE_ROLE {
             return Err(Error::BadRequest(format!(
-                "The '{ROOT_DATATABLE_ROLE}' role cannot be renamed"
+                "The '{ADMIN_DATATABLE_ROLE}' role cannot be renamed"
             )));
         }
         if r.from == r.to {
@@ -319,7 +319,7 @@ fn plan_role_changes(
     // Drops come first so a name freed in this save can be reused by a rename or
     // a create in the same save: the other order aborts on "role already exists".
     for (name, role) in old_roles.iter() {
-        if name == ROOT_DATATABLE_ROLE || claimed.contains(name.as_str()) {
+        if name == ADMIN_DATATABLE_ROLE || claimed.contains(name.as_str()) {
             continue;
         }
         if let Some(pg_role) = role.pg_rolename.as_deref() {
@@ -348,7 +348,7 @@ fn plan_role_changes(
     let mut creates_sql: Vec<PlannedStatement> = Vec::new();
 
     for (name, tenants) in requested.iter() {
-        if name == ROOT_DATATABLE_ROLE {
+        if name == ADMIN_DATATABLE_ROLE {
             roles.insert(
                 name.clone(),
                 DataTableRole { pg_rolename: None, pg_password: None, tenants: tenants.clone() },
@@ -388,7 +388,7 @@ fn plan_role_changes(
                             "Role '{from}' was expected to exist in the database as '{old_pg}' but does not; it will be created as '{pg_rolename}'."
                         ));
                         creates_sql.push(create_role_statement(&pg_rolename, &password));
-                        creates_sql.push(grant_role_to_root_statement(&pg_rolename, root_pg_role));
+                        creates_sql.push(grant_role_to_admin_statement(&pg_rolename, admin_pg_role));
                         creates_sql.push(revoke_public_create_statement(&pg_rolename));
                         creates_sql.push(grant_connect_statement(&pg_rolename, dbname));
                     }
@@ -424,7 +424,7 @@ fn plan_role_changes(
                 } else {
                     creates_sql.push(create_role_statement(&pg_rolename, &password));
                 }
-                creates_sql.push(grant_role_to_root_statement(&pg_rolename, root_pg_role));
+                creates_sql.push(grant_role_to_admin_statement(&pg_rolename, admin_pg_role));
                 creates_sql.push(revoke_public_create_statement(&pg_rolename));
                 creates_sql.push(grant_connect_statement(&pg_rolename, dbname));
                 roles.insert(
@@ -464,7 +464,7 @@ fn plan_role_changes(
         permissions: DataTablePermissions {
             enabled: true,
             roles,
-            default_role: (default_role != ROOT_DATATABLE_ROLE).then(|| default_role.to_string()),
+            default_role: (default_role != ADMIN_DATATABLE_ROLE).then(|| default_role.to_string()),
         },
         warnings,
     })
@@ -522,14 +522,14 @@ fn order_renames(
     Ok(statements)
 }
 
-/// Give `root` the privileges of a role it created.
+/// Give `admin` the privileges of a role it created.
 ///
 /// Postgres does not do this implicitly: a CREATEROLE non-superuser that creates a
 /// role gets ADMIN OPTION on it but neither INHERIT nor SET, so
 /// `has_privs_of_role` stays false. Without this grant, `REASSIGN OWNED BY <role>
-/// TO <root>` is refused ("Only roles with privileges of role X may reassign
+/// TO <admin>` is refused ("Only roles with privileges of role X may reassign
 /// objects owned by it") and the role can then never be dropped — wedging opt-out
-/// on exactly the data tables whose root is `custom_instance_user` rather than a
+/// on exactly the data tables whose admin is `custom_instance_user` rather than a
 /// superuser. A plain GRANT is used rather than `WITH INHERIT TRUE` so the
 /// statement also parses on Postgres before 16.
 /// Keep a created role out of the `public` schema.
@@ -545,11 +545,11 @@ fn revoke_public_create_statement(pg_rolename: &str) -> PlannedStatement {
     ))
 }
 
-fn grant_role_to_root_statement(pg_rolename: &str, root_pg_role: &str) -> PlannedStatement {
+fn grant_role_to_admin_statement(pg_rolename: &str, admin_pg_role: &str) -> PlannedStatement {
     PlannedStatement::plain(format!(
         "GRANT {} TO {};",
         quote_ident(pg_rolename),
-        quote_ident(root_pg_role)
+        quote_ident(admin_pg_role)
     ))
 }
 
@@ -599,25 +599,25 @@ async fn read_datatable(db: &DB, w_id: &str, datatable_name: &str) -> Result<Dat
         .map_err(|e| Error::internal_err(format!("Invalid data table config: {e}")))
 }
 
-/// Connect to the data table's own database as `root` and report the identity
+/// Connect to the data table's own database as `admin` and report the identity
 /// the plan has to be built against: the database name, the role that owns the
 /// existing objects, and the roles that actually exist in the cluster.
 /// What the plan has to be built against, probed from the data table's own
 /// database rather than assumed from its config.
-struct RootConnection {
+struct AdminConnection {
     dbname: String,
-    root_pg_role: String,
+    admin_pg_role: String,
     existing_pg_roles: HashSet<String>,
     /// Whether `PUBLIC` holds CREATE on schema `public`, i.e. every role in this
     /// database — including the ones created here — can make objects in it.
     public_schema_is_open: bool,
 }
 
-async fn connect_as_root(
+async fn connect_as_admin(
     db: &DB,
     w_id: &str,
     datatable_name: &str,
-) -> Result<(tokio_postgres::Client, RootConnection)> {
+) -> Result<(tokio_postgres::Client, AdminConnection)> {
     let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {e}")))?;
@@ -629,7 +629,7 @@ async fn connect_as_root(
         }
     });
 
-    let root_pg_role: String = client
+    let admin_pg_role: String = client
         .query_one("SELECT current_user", &[])
         .await
         .map_err(|e| {
@@ -679,7 +679,7 @@ async fn connect_as_root(
 
     Ok((
         client,
-        RootConnection { dbname, root_pg_role, existing_pg_roles, public_schema_is_open },
+        AdminConnection { dbname, admin_pg_role, existing_pg_roles, public_schema_is_open },
     ))
 }
 
@@ -690,12 +690,12 @@ async fn build_plan(
     req: &SetDatatablePermissions,
 ) -> Result<(tokio_postgres::Client, RolePlan)> {
     let datatable = read_datatable(db, w_id, datatable_name).await?;
-    let (client, conn) = connect_as_root(db, w_id, datatable_name).await?;
+    let (client, conn) = connect_as_admin(db, w_id, datatable_name).await?;
     let plan = plan_role_changes(
         w_id,
         datatable_name,
         &conn.dbname,
-        &conn.root_pg_role,
+        &conn.admin_pg_role,
         datatable.permissions.as_ref(),
         req,
         &conn.existing_pg_roles,
@@ -705,7 +705,7 @@ async fn build_plan(
 }
 
 /// Drop the Postgres roles a data table leaves behind when it is removed from the
-/// workspace config, giving its objects back to root first.
+/// workspace config, giving its objects back to admin first.
 ///
 /// Best-effort: a data table whose database is already unreachable must still be
 /// removable from the config, so a failure is logged rather than propagated. Any
@@ -799,7 +799,7 @@ async fn list_usable_datatable_roles(
         return Ok(Json(UsableDatatableRoles {
             enabled: false,
             roles: vec![],
-            default_role: ROOT_DATATABLE_ROLE.to_string(),
+            default_role: ADMIN_DATATABLE_ROLE.to_string(),
         }));
     };
     let authed_ref = authed.to_authed_ref();
@@ -901,7 +901,7 @@ mod tests {
     const W_ID: &str = "acme";
     const DT: &str = "main";
     const DB_NAME: &str = "wm_acme_main";
-    const ROOT_PG: &str = "custom_instance_user";
+    const ADMIN_PG: &str = "custom_instance_user";
 
     fn role(name: &str, tenants: &[&str]) -> DatatableRoleInfo {
         DatatableRoleInfo {
@@ -913,7 +913,7 @@ mod tests {
 
     fn enabled_with(roles: &[&str]) -> DataTablePermissions {
         let mut map = BTreeMap::new();
-        map.insert(ROOT_DATATABLE_ROLE.to_string(), DataTableRole::default());
+        map.insert(ADMIN_DATATABLE_ROLE.to_string(), DataTableRole::default());
         for name in roles {
             map.insert(
                 name.to_string(),
@@ -945,7 +945,7 @@ mod tests {
             W_ID,
             DT,
             DB_NAME,
-            ROOT_PG,
+            ADMIN_PG,
             old,
             req,
             &existing.iter().map(|r| r.to_string()).collect(),
@@ -961,7 +961,7 @@ mod tests {
     fn adding_a_role_creates_it_and_stores_its_credentials() {
         let req = SetDatatablePermissions {
             enabled: true,
-            roles: vec![role("root", &[]), role("analyst", &["u/alice", "g/devs"])],
+            roles: vec![role("admin", &[]), role("analyst", &["u/alice", "g/devs"])],
             default_role: None,
             renames: vec![],
         };
@@ -969,11 +969,11 @@ mod tests {
 
         let pg_role = datatable_pg_role_name(W_ID, DT, "analyst");
         assert!(sql(&plan)[0].starts_with(&format!("CREATE ROLE \"{pg_role}\" LOGIN PASSWORD ")));
-        // root must end up with the new role's privileges, or it can never
+        // admin must end up with the new role's privileges, or it can never
         // reassign its objects and drop it later.
         assert_eq!(
             sql(&plan)[1],
-            format!("GRANT \"{pg_role}\" TO \"{ROOT_PG}\";")
+            format!("GRANT \"{pg_role}\" TO \"{ADMIN_PG}\";")
         );
         // Created bare: it must not be able to make objects in `public`.
         assert_eq!(
@@ -986,8 +986,8 @@ mod tests {
         assert_eq!(stored.pg_rolename.as_deref(), Some(pg_role.as_str()));
         assert!(stored.pg_password.as_ref().is_some_and(|p| p.len() == 32));
         assert_eq!(stored.tenants, vec!["u/alice", "g/devs"]);
-        // root reuses the data table's own connection, so it never gets one.
-        assert!(plan.permissions.roles[ROOT_DATATABLE_ROLE]
+        // admin reuses the data table's own connection, so it never gets one.
+        assert!(plan.permissions.roles[ADMIN_DATATABLE_ROLE]
             .pg_rolename
             .is_none());
     }
@@ -998,7 +998,7 @@ mod tests {
     fn an_open_public_schema_is_warned_about_not_silently_revoked() {
         let req = SetDatatablePermissions {
             enabled: true,
-            roles: vec![role("root", &[]), role("analyst", &[])],
+            roles: vec![role("admin", &[]), role("analyst", &[])],
             default_role: None,
             renames: vec![],
         };
@@ -1026,7 +1026,7 @@ mod tests {
         let old_pg = datatable_pg_role_name(W_ID, DT, "analyst");
         let req = SetDatatablePermissions {
             enabled: true,
-            roles: vec![role("root", &[]), role("reader", &[])],
+            roles: vec![role("admin", &[]), role("reader", &[])],
             default_role: None,
             renames: vec![DatatableRoleRename {
                 from: "analyst".to_string(),
@@ -1051,12 +1051,12 @@ mod tests {
     }
 
     #[test]
-    fn removing_a_role_gives_its_objects_back_to_root_before_dropping_it() {
+    fn removing_a_role_gives_its_objects_back_to_admin_before_dropping_it() {
         let old = enabled_with(&["analyst"]);
         let pg_role = datatable_pg_role_name(W_ID, DT, "analyst");
         let req = SetDatatablePermissions {
             enabled: true,
-            roles: vec![role("root", &[])],
+            roles: vec![role("admin", &[])],
             default_role: None,
             renames: vec![],
         };
@@ -1068,8 +1068,8 @@ mod tests {
                 // Postgres only lets a role reassign objects it has the privileges
                 // of, and creating a role does not confer those — so the grant has
                 // to be (re-)established before the reassign.
-                format!("GRANT \"{pg_role}\" TO \"{ROOT_PG}\";"),
-                format!("REASSIGN OWNED BY \"{pg_role}\" TO \"{ROOT_PG}\";"),
+                format!("GRANT \"{pg_role}\" TO \"{ADMIN_PG}\";"),
+                format!("REASSIGN OWNED BY \"{pg_role}\" TO \"{ADMIN_PG}\";"),
                 format!("DROP OWNED BY \"{pg_role}\";"),
                 format!("DROP ROLE \"{pg_role}\";"),
             ]
@@ -1120,7 +1120,7 @@ mod tests {
         // Delete `reader`, rename `analyst` into its place.
         let req = SetDatatablePermissions {
             enabled: true,
-            roles: vec![role("root", &[]), role("reader", &[])],
+            roles: vec![role("admin", &[]), role("reader", &[])],
             default_role: None,
             renames: vec![DatatableRoleRename {
                 from: "analyst".to_string(),
@@ -1158,7 +1158,7 @@ mod tests {
         let old_pg = datatable_pg_role_name(W_ID, DT, "analyst");
         let req = SetDatatablePermissions {
             enabled: true,
-            roles: vec![role("root", &[]), role("reader", &[]), role("analyst", &[])],
+            roles: vec![role("admin", &[]), role("reader", &[]), role("analyst", &[])],
             default_role: None,
             renames: vec![DatatableRoleRename {
                 from: "analyst".to_string(),
@@ -1202,7 +1202,7 @@ mod tests {
             .collect();
         let req = SetDatatablePermissions {
             enabled: true,
-            roles: vec![role("root", &[]), role("a", &[]), role("b", &[])],
+            roles: vec![role("admin", &[]), role("a", &[]), role("b", &[])],
             default_role: None,
             renames: vec![
                 DatatableRoleRename { from: "a".to_string(), to: "b".to_string() },
@@ -1238,7 +1238,7 @@ mod tests {
     fn the_default_role_must_be_one_of_the_saved_roles() {
         let mut req = SetDatatablePermissions {
             enabled: true,
-            roles: vec![role("root", &[]), role("analyst", &[])],
+            roles: vec![role("admin", &[]), role("analyst", &[])],
             default_role: Some("analyst".to_string()),
             renames: vec![],
         };
@@ -1250,15 +1250,15 @@ mod tests {
         req.default_role = Some("ghost".to_string());
         assert!(plan(None, &req, &[]).is_err());
 
-        // Absent means root, and is stored as absent rather than spelled out.
+        // Absent means admin, and is stored as absent rather than spelled out.
         req.default_role = None;
         let planned = plan(None, &req, &[]).unwrap();
-        assert_eq!(planned.permissions.default_role(), ROOT_DATATABLE_ROLE);
+        assert_eq!(planned.permissions.default_role(), ADMIN_DATATABLE_ROLE);
         assert!(planned.permissions.default_role.is_none());
     }
 
     #[test]
-    fn root_cannot_be_dropped_or_renamed() {
+    fn admin_cannot_be_dropped_or_renamed() {
         let req = SetDatatablePermissions {
             enabled: true,
             roles: vec![role("analyst", &[])],
@@ -1273,7 +1273,7 @@ mod tests {
             roles: vec![role("owner", &[])],
             default_role: None,
             renames: vec![DatatableRoleRename {
-                from: ROOT_DATATABLE_ROLE.to_string(),
+                from: ADMIN_DATATABLE_ROLE.to_string(),
                 to: "owner".to_string(),
             }],
         };
@@ -1285,7 +1285,7 @@ mod tests {
         for bad_role in ["", "bad name", "a;b", "drop\"role"] {
             let req = SetDatatablePermissions {
                 enabled: true,
-                roles: vec![role("root", &[]), role(bad_role, &[])],
+                roles: vec![role("admin", &[]), role(bad_role, &[])],
                 default_role: None,
                 renames: vec![],
             };
@@ -1297,7 +1297,7 @@ mod tests {
         // The wildcard is the one tenant with no prefix.
         let req = SetDatatablePermissions {
             enabled: true,
-            roles: vec![role("root", &["*"])],
+            roles: vec![role("admin", &["*"])],
             default_role: None,
             renames: vec![],
         };
@@ -1306,7 +1306,7 @@ mod tests {
         for bad_tenant in ["alice", "x/alice", "u/", "", "*/alice", "**"] {
             let req = SetDatatablePermissions {
                 enabled: true,
-                roles: vec![role("root", &[bad_tenant])],
+                roles: vec![role("admin", &[bad_tenant])],
                 default_role: None,
                 renames: vec![],
             };

@@ -38,7 +38,7 @@
 		disabled?: boolean
 	} = $props()
 
-	const ROOT_ROLE = 'root'
+	const ADMIN_ROLE = 'admin'
 	// Matches every workspace member, unlike the `all` group whose membership is
 	// bookkeeping that can drift.
 	const WILDCARD_TENANT = '*'
@@ -94,15 +94,15 @@
 				workspace,
 				datatableName: datatable
 			})
-			// The backend returns roles in name order; root leads the list instead,
+			// The backend returns roles in name order; admin leads the list instead,
 			// since it is the one every other role is defined against.
 			const loaded = res.roles
 				.map(toEdited)
-				.sort((a, b) => Number(b.name === ROOT_ROLE) - Number(a.name === ROOT_ROLE))
+				.sort((a, b) => Number(b.name === ADMIN_ROLE) - Number(a.name === ADMIN_ROLE))
 			// A data table that has never been opted in comes back with no roles;
-			// showing root straight away is what the toggle is about to create.
-			if (!loaded.some((r) => r.name === ROOT_ROLE)) {
-				loaded.unshift({ id: randomUUID(), name: ROOT_ROLE, tenants: [] })
+			// showing admin straight away is what the toggle is about to create.
+			if (!loaded.some((r) => r.name === ADMIN_ROLE)) {
+				loaded.unshift({ id: randomUUID(), name: ADMIN_ROLE, tenants: [] })
 			}
 			enabled = res.enabled
 			roles = loaded
@@ -131,9 +131,9 @@
 	function removeRole(id: string) {
 		roles = roles.filter((r) => r.id !== id)
 		if (defaultRoleId === id) {
-			// Deleting the default falls back to root rather than leaving the save
+			// Deleting the default falls back to admin rather than leaving the save
 			// pointing at a role that no longer exists.
-			defaultRoleId = roles.find((r) => r.name === ROOT_ROLE)?.id
+			defaultRoleId = roles.find((r) => r.name === ADMIN_ROLE)?.id
 		}
 	}
 
@@ -162,7 +162,7 @@
 		return {
 			enabled,
 			roles: roles.map((r) => ({ name: r.name.trim(), tenants: $state.snapshot(r.tenants) })),
-			default_role: roles.find((r) => r.id === defaultRoleId)?.name.trim() ?? ROOT_ROLE,
+			default_role: roles.find((r) => r.id === defaultRoleId)?.name.trim() ?? ADMIN_ROLE,
 			renames: roles
 				.filter((r) => savedById.has(r.id) && savedById.get(r.id) !== r.name.trim())
 				.map((r) => ({ from: savedById.get(r.id)!, to: r.name.trim() }))
@@ -236,7 +236,7 @@
 					options={{
 						right: 'Enable permissions',
 						rightTooltip:
-							'While off, every workspace member reaches this data table through its single connection. Turning it off again drops the roles created here, after giving their objects back to root.'
+							'While off, every workspace member reaches this data table through its single connection. Turning it off again drops the roles created here, after giving their objects back to admin.'
 					}}
 				/>
 
@@ -247,9 +247,9 @@
 								<Cell head first>
 									Role
 									<Tooltip>
-										root is the connection the data table already used, so it owns every existing
+										admin is the connection the data table already used, so it owns every existing
 										object and cannot be renamed or removed. Every other role gets its own Postgres
-										login, created with no privileges — grant it what it needs from root.
+										login, created with no privileges — grant it what it needs from admin.
 									</Tooltip>
 								</Cell>
 								<Cell head>
@@ -271,7 +271,7 @@
 						</Head>
 						<tbody class="divide-y bg-surface-tertiary">
 							{#each roles as role (role.id)}
-								{@const isRoot = role.name === ROOT_ROLE}
+								{@const isRoot = role.name === ADMIN_ROLE}
 								<Row>
 									<Cell first class="w-56 align-top">
 										<div class="flex flex-col gap-1">

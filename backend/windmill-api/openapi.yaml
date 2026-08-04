@@ -31508,7 +31508,7 @@ components:
           items:
             type: string
         pg_rolename:
-          description: the underlying postgres role, absent for root
+          description: the underlying postgres role, absent for admin
           type: string
     DatatablePermissions:
       type: object
@@ -31534,7 +31534,7 @@ components:
           items:
             $ref: "#/components/schemas/DatatableRoleInfo"
         default_role:
-          description: the role a script gets when it names none; absent means root
+          description: the role a script gets when it names none; absent means admin
           type: string
         renames:
           description: role renames (old -> new), so a rename keeps the postgres role and its grants

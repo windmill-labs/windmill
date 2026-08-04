@@ -123,11 +123,11 @@ async fn datatable_database_arg(
     .await?
     .ok_or_else(|| Error::internal_err(format!("datatable {datatable_name} not found")))?;
 
-    // Migrations change the schema and are recorded against objects root owns, so
-    // they run as root rather than the data table's default role.
+    // Migrations change the schema and are recorded against objects admin owns, so
+    // they run as admin rather than the data table's default role.
     Ok(to_raw_value(&format!(
         "datatable://{datatable_name}?role={}",
-        windmill_common::workspaces::ROOT_DATATABLE_ROLE
+        windmill_common::workspaces::ADMIN_DATATABLE_ROLE
     )))
 }
 
