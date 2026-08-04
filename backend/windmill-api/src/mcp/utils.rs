@@ -552,30 +552,46 @@ fn jwt_scopes_for_proxied_route(
             )
         })?;
     let mut scopes = vec![scope];
-    scopes.extend(
-        extra_scopes_for_route(route_path)
-            .iter()
-            .map(|s| (*s).to_string()),
-    );
+    if let Some((tool, extras)) = extra_scopes_for_route(route_path) {
+        // Only when the token names this tool. `mcp:all` and `mcp:favorites` reach
+        // every endpoint without naming any, and they are the create-token and
+        // OAuth defaults — a token whose consent screen talks about scripts and
+        // flows must not come with this.
+        if caller_scopes.is_some_and(|s| selects_endpoint_tool(s, tool)) {
+            scopes.extend(extras.iter().map(|s| (*s).to_string()));
+        }
+    }
     Ok(Some(scopes))
 }
 
-/// Scopes a route's handler requires beyond the one its own domain implies,
-/// added to the JWT minted for that one proxied request.
+/// The tool a route belongs to and the scopes its handler requires beyond the
+/// one the route's own domain implies, added to the JWT minted for that single
+/// proxied request.
 ///
-/// Minting is what keeps the grant *confined*: the JWT never leaves the server
-/// and authorizes only this call, so the MCP token itself stays `mcp:`-only and
-/// can't reach `/jobs/run/preview`. Putting the scope on the token instead would
-/// widen every request it makes, which is a far larger grant than the tool needs.
-/// What the admin consents to by ticking a tool is what that tool does — and
-/// compiling an app's sources runs the app's own dependencies on a worker, which
-/// the tool's description states.
-fn extra_scopes_for_route(route_path: &str) -> &'static [&'static str] {
-    if route_path.contains("/apps/update_raw_source/") {
-        &["jobs:run"]
-    } else {
-        &[]
-    }
+/// Minting is what keeps the grant *confined*: the JWT is built here and handed
+/// to the internal request, never to the client, so the MCP token itself stays
+/// `mcp:`-only and can't reach `/jobs/run/preview`. Putting the scope on the
+/// token instead would widen every request it makes, which is a far larger grant
+/// than the tool needs.
+fn extra_scopes_for_route(route_path: &str) -> Option<(&'static str, &'static [&'static str])> {
+    // Matched on segments: a runnable path is caller-chosen and can contain
+    // anything, so a script called `f/apps/update_raw_source/x` must not decide
+    // what its own request is minted.
+    let mut segments = route_path.split('/').skip_while(|s| *s != "w");
+    let (_, _ws) = (segments.next()?, segments.next()?);
+    // Compiling an app's sources runs the app's own dependencies on a worker, so
+    // a token reaches that capability only by naming this tool.
+    (segments.next() == Some("apps") && segments.next() == Some("update_raw_source"))
+        .then_some(("updateAppRawSource", &["jobs:run"]))
+}
+
+/// Whether the token names `tool` in an `mcp:endpoints:` list. A `*` there is
+/// "every endpoint", which names nothing.
+fn selects_endpoint_tool(caller_scopes: &[String], tool: &str) -> bool {
+    caller_scopes.iter().any(|s| {
+        s.strip_prefix("mcp:endpoints:")
+            .is_some_and(|list| list.split(',').any(|t| t.trim() == tool))
+    })
 }
 
 /// Create HTTP request with authentication
@@ -693,19 +709,40 @@ mod tests {
     }
 
     #[test]
-    fn proxy_jwt_raw_app_source_deploy_mints_jobs_run_for_that_request() {
+    fn proxy_jwt_raw_app_source_deploy_needs_the_tool_named() {
         // The handler requires jobs:run as well: compiling an app's sources runs
         // its dependencies on a worker. It goes in the per-request JWT, not on the
-        // token — the token stays mcp:-only and so can't reach /jobs/run/preview.
-        let s = scopes(&["mcp:endpoints:updateAppRawSource"]);
+        // token — the token stays mcp:-only and so can't reach /jobs/run/preview —
+        // and only for a token that named this tool. The defaults (mcp:favorites
+        // on create, mcp:all through OAuth) reach every endpoint without naming
+        // one, and must not carry a capability their consent screen never showed.
+        let route = "/api/w/ws/apps/update_raw_source/u/admin/app";
+        let named = scopes(&["mcp:endpoints:listScripts,updateAppRawSource"]);
+        assert_eq!(
+            jwt_scopes_for_proxied_route(Some(&named), "POST", route).unwrap(),
+            Some(scopes(&["apps:write", "jobs:run"]))
+        );
+        for implicit in [
+            scopes(&["mcp:all"]),
+            scopes(&["mcp:favorites"]),
+            scopes(&["mcp:endpoints:*"]),
+        ] {
+            assert_eq!(
+                jwt_scopes_for_proxied_route(Some(&implicit), "POST", route).unwrap(),
+                Some(scopes(&["apps:write"])),
+                "a token that never named the tool must not get jobs:run"
+            );
+        }
+        // A runnable path is caller-chosen, so it must not select the extras of a
+        // route it merely spells out.
         assert_eq!(
             jwt_scopes_for_proxied_route(
-                Some(&s),
+                Some(&named),
                 "POST",
-                "/api/w/ws/apps/update_raw_source/u/admin/app"
+                "/api/w/ws/jobs/run/p/f/apps/update_raw_source/x"
             )
             .unwrap(),
-            Some(scopes(&["apps:write", "jobs:run"]))
+            Some(scopes(&["jobs:run:scripts"]))
         );
     }
 
