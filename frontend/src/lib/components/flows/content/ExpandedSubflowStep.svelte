@@ -56,7 +56,10 @@
 			let modules = modulesCache.get(key)
 			if (!modules) {
 				modules = (await FlowService.getFlowByPath({ workspace: ws!, path })).value.modules
-				modulesCache.set(key, modules)
+				// A response from before the last deploy must not repopulate the cache it cleared.
+				if (gen === cachedGeneration) {
+					modulesCache.set(key, modules)
+				}
 			}
 			return modules
 		})
