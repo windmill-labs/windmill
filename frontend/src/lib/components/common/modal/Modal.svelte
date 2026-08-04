@@ -138,7 +138,9 @@
 									>
 								{/if}
 								<div class="flex">
-									<div class="text-left flex-1">
+									<!-- min-w-0: without it this flex item takes its content's min-content width and
+									     stretches the modal past its max-width instead of letting content shrink. -->
+									<div class="text-left flex-1 min-w-0">
 										<div class="flex flex-row items-center justify-between">
 											<h3 class="text-emphasis text-lg font-semibold">{title}</h3>
 											{@render settings?.()}

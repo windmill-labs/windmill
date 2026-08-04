@@ -68,7 +68,7 @@
 <style>
 	.wrap {
 		display: flex;
-		font-family: 'Inter', sans-serif;
+		font-family: 'Inter', 'Noto Color Emoji', sans-serif;
 		width: 100%;
 		height: 100%;
 		justify-content: center;
