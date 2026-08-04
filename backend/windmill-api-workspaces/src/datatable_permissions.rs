@@ -198,6 +198,9 @@ fn plan_role_changes(
             }
             dropped.insert(pg_role.to_string());
             let q = quote_ident(pg_role);
+            // Repeated here rather than assumed: a role created before this grant
+            // existed would otherwise be impossible to drop without a superuser.
+            statements.push(grant_role_to_root_statement(pg_role, root_pg_role));
             // Give the objects back to root before dropping, else the DROP fails on
             // anything the role still owns. DROP OWNED then clears what is left:
             // privileges granted to it and its default-privilege entries.
@@ -384,6 +387,7 @@ fn plan_role_changes(
                             "Role '{from}' was expected to exist in the database as '{old_pg}' but does not; it will be created as '{pg_rolename}'."
                         ));
                         creates_sql.push(create_role_statement(&pg_rolename, &password));
+                        creates_sql.push(grant_role_to_root_statement(&pg_rolename, root_pg_role));
                         creates_sql.push(grant_connect_statement(&pg_rolename, dbname));
                     }
                 }
@@ -418,6 +422,7 @@ fn plan_role_changes(
                 } else {
                     creates_sql.push(create_role_statement(&pg_rolename, &password));
                 }
+                creates_sql.push(grant_role_to_root_statement(&pg_rolename, root_pg_role));
                 creates_sql.push(grant_connect_statement(&pg_rolename, dbname));
                 roles.insert(
                     name.clone(),
@@ -499,6 +504,24 @@ fn order_renames(
         vacated.insert(from);
     }
     Ok(statements)
+}
+
+/// Give `root` the privileges of a role it created.
+///
+/// Postgres does not do this implicitly: a CREATEROLE non-superuser that creates a
+/// role gets ADMIN OPTION on it but neither INHERIT nor SET, so
+/// `has_privs_of_role` stays false. Without this grant, `REASSIGN OWNED BY <role>
+/// TO <root>` is refused ("Only roles with privileges of role X may reassign
+/// objects owned by it") and the role can then never be dropped — wedging opt-out
+/// on exactly the data tables whose root is `custom_instance_user` rather than a
+/// superuser. A plain GRANT is used rather than `WITH INHERIT TRUE` so the
+/// statement also parses on Postgres before 16.
+fn grant_role_to_root_statement(pg_rolename: &str, root_pg_role: &str) -> PlannedStatement {
+    PlannedStatement::plain(format!(
+        "GRANT {} TO {};",
+        quote_ident(pg_rolename),
+        quote_ident(root_pg_role)
+    ))
 }
 
 fn create_role_statement(pg_rolename: &str, password: &str) -> PlannedStatement {
@@ -872,7 +895,13 @@ mod tests {
 
         let pg_role = datatable_pg_role_name(W_ID, DT, "analyst");
         assert!(sql(&plan)[0].starts_with(&format!("CREATE ROLE \"{pg_role}\" LOGIN PASSWORD ")));
-        assert!(sql(&plan)[1].contains("has_database_privilege"));
+        // root must end up with the new role's privileges, or it can never
+        // reassign its objects and drop it later.
+        assert_eq!(
+            sql(&plan)[1],
+            format!("GRANT \"{pg_role}\" TO \"{ROOT_PG}\";")
+        );
+        assert!(sql(&plan)[2].contains("has_database_privilege"));
 
         let stored = &plan.permissions.roles["analyst"];
         assert_eq!(stored.pg_rolename.as_deref(), Some(pg_role.as_str()));
@@ -929,6 +958,10 @@ mod tests {
         assert_eq!(
             sql(&plan),
             vec![
+                // Postgres only lets a role reassign objects it has the privileges
+                // of, and creating a role does not confer those — so the grant has
+                // to be (re-)established before the reassign.
+                format!("GRANT \"{pg_role}\" TO \"{ROOT_PG}\";"),
                 format!("REASSIGN OWNED BY \"{pg_role}\" TO \"{ROOT_PG}\";"),
                 format!("DROP OWNED BY \"{pg_role}\";"),
                 format!("DROP ROLE \"{pg_role}\";"),
