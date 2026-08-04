@@ -2677,7 +2677,7 @@ async fn update_app_raw_source(
         .await?
         .ok_or_else(|| Error::NotFound(format!("App {path} not found")))?;
     if !can_write_app(&user_db, &authed, &w_id, path).await? {
-        return Err(Error::NotAuthorized(format!(
+        return Err(Error::PermissionDenied(format!(
             "You do not have permission to update app {path}"
         )));
     }
