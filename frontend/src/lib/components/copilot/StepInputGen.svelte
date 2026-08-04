@@ -1,10 +1,8 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import { getNonStreamingMetadataCompletion } from './lib'
 	import { sendUserToast } from '$lib/toast'
-	import type { Flow, InputTransform } from '$lib/gen'
-	import { createEventDispatcher, getContext, untrack } from 'svelte'
+	import type { Flow } from '$lib/gen'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
 	import type { PickableProperties } from '../flows/previousResults'
 	import YAML from 'yaml'
@@ -16,32 +14,27 @@
 	import type { SchemaProperty } from '$lib/common'
 	import FlowCopilotInputsModal from './FlowCopilotInputsModal.svelte'
 	import { copilotInfo } from '$lib/aiStore'
+	import Button from '../common/button/Button.svelte'
+	import { AIBtnClasses } from './chat/AIButtonStyle'
+	import { Check, Wand2 } from 'lucide-svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	let generatedContent = $state('')
 	let loading = $state(false)
 	interface Props {
+		/** Whether the input this belongs to has focus — a suggestion is only worth keeping
+		 *  while the user is still on that input. */
 		focused?: boolean
-		arg: InputTransform | any
 		schemaProperty: SchemaProperty
 		pickableProperties?: PickableProperties | undefined
 		argName: string
 	}
 
-	let {
-		focused = false,
-		arg,
-		schemaProperty,
-		pickableProperties = undefined,
-		argName
-	}: Props = $props()
+	let { focused = false, schemaProperty, pickableProperties = undefined, argName }: Props = $props()
 
-	let empty = $state(false)
-	run(() => {
-		empty =
-			Object.keys(arg ?? {}).length === 0 ||
-			(arg.type === 'static' && !arg.value) ||
-			(arg.type === 'javascript' && !arg.expr)
-	})
+	/** The button takes focus when clicked, which blurs the input — without tracking that,
+	 *  asking for a suggestion would immediately look like leaving the field. */
+	let btnFocused = $state(false)
 
 	let abortController = new AbortController()
 	let newFlowInput = $state('')
@@ -168,34 +161,18 @@ Only return the expression without any wrapper.`
 		generatedContent = ''
 	}
 
-	function automaticGeneration() {
-		if (empty) {
-			generateStepInput()
-		}
-	}
-
-	function cancelOnOutOfFocus() {
-		setTimeout(() => {
-			if (!focused) {
+	// Drop a suggestion once the user has moved on, so the accept button can't sit there armed
+	// against an input nobody is editing. Deferred because focus moves through nothing on its
+	// way from the input to the button, and left alone while loading: the click that asked for
+	// the suggestion is itself what blurred the input.
+	$effect(() => {
+		if (focused || btnFocused) return
+		const timer = setTimeout(() => {
+			if (!focused && !btnFocused && !loading) {
 				cancel()
 			}
 		}, 150)
-	}
-
-	$effect(() => {
-		if (!focused) {
-			untrack(() => {
-				cancelOnOutOfFocus()
-			})
-		}
-	})
-
-	$effect(() => {
-		if ($copilotInfo.enabled && $stepInputCompletionEnabled && focused) {
-			untrack(() => {
-				automaticGeneration()
-			})
-		}
+		return () => clearTimeout(timer)
 	})
 
 	$effect(() => {
@@ -207,16 +184,57 @@ Only return the expression without any wrapper.`
 	})
 
 	let openInputsModal = $state(false)
+
+	/** A suggestion is waiting to be accepted, rather than waiting to be asked for. */
+	let ready = $derived(!loading && generatedContent.length > 0)
+
+	function accept() {
+		dispatch('setExpr', generatedContent)
+		if (newFlowInput) {
+			openInputsModal = true
+		}
+		generatedContent = ''
+	}
+
+	// A suggestion costs a model call, so nothing generates on its own — this button is the
+	// only trigger, and the same control then accepts what it produced. Blur must not cancel:
+	// clicking here takes focus out of the input, which is the gesture that started the call.
+	function onClick() {
+		if (loading) cancel()
+		else if (ready) accept()
+		else generateStepInput()
+	}
 </script>
 
 {#if $copilotInfo.enabled && $stepInputCompletionEnabled}
-	<!-- Headless: the focus effect generates the ghost-text suggestion and
-	     `onKeyUp` accepts it with Tab. There is no on-screen trigger. -->
 	<FlowCopilotInputsModal
 		on:confirmed={async () => {
 			createFlowInput()
 		}}
 		bind:open={openInputsModal}
 		inputs={[newFlowInput]}
+	/>
+	<!-- Sized to match FlowPlugConnect: it shares the control row with the connect plug. -->
+	<Button
+		variant="default"
+		size="xs3"
+		iconOnly
+		{loading}
+		clickableWhileLoading
+		title={loading ? 'Cancel' : ready ? 'Accept the suggestion' : 'Suggest an expression with AI'}
+		startIcon={{ icon: ready ? Check : Wand2 }}
+		btnClasses={twMerge(
+			AIBtnClasses(ready ? 'green' : 'default'),
+			'bg-surface overflow-clip flex p-0'
+		)}
+		wrapperClasses={twMerge(
+			'h-5 w-8 p-0 group-hover:opacity-100 transition-opacity',
+			// Same reveal-on-hover as the connect plug beside it, but a request in flight or a
+			// suggestion waiting to be accepted has to stay reachable once the pointer leaves.
+			loading || ready ? '' : 'opacity-0'
+		)}
+		on:click={onClick}
+		on:focus={() => (btnFocused = true)}
+		on:blur={() => (btnFocused = false)}
 	/>
 {/if}

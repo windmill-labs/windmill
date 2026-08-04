@@ -600,7 +600,6 @@
 					<StepInputGen
 						bind:this={stepInputGen}
 						{focused}
-						{arg}
 						schemaProperty={schema?.properties?.[argName]}
 						on:showExpr={(e) => (suggestion = e.detail || undefined)}
 						on:setExpr={(e) => {
@@ -786,22 +785,28 @@
 			{propertyType} -->
 				<div class="relative flex flex-row items-top gap-1 justify-between">
 					<div class="min-w-0 grow">
-						{#if suggestion}
+						<!-- The ghost text covers the input and only the input: it has to stay mounted
+						     (Monaco, focus, Tab) and keep its height, or what follows slides up
+						     underneath it — and the overlay must not reach the rows below, which is
+						     what would bury the Help dropdown. -->
+						<div class="relative">
+							{#if suggestion}
+								<div
+									class={`absolute inset-0 z-10 bg-surface-input rounded-md pl-2 overflow-auto ${inputBorderClass({ forceFocus: true })}`}
+								>
+									<FakeMonacoPlaceHolder autoheight code={suggestion} fontSize={12} />
+								</div>
+							{/if}
 							<div
-								class={`bg-surface-input rounded-md pl-2 overflow-auto ${inputBorderClass({ forceFocus: true })}`}
+								class={suggestion ? 'opacity-0' : ''}
+								onkeydowncapture={(e) => {
+									if (e.key === 'Tab' && suggestion) {
+										e.preventDefault()
+									}
+								}}
 							>
-								<FakeMonacoPlaceHolder autoheight code={suggestion} fontSize={12} />
+								{@render innerInput()}
 							</div>
-						{/if}
-						<div
-							class={suggestion ? 'opacity-0 absolute' : ''}
-							onkeydowncapture={(e) => {
-								if (e.key === 'Tab' && suggestion) {
-									e.preventDefault()
-								}
-							}}
-						>
-							{@render innerInput()}
 						</div>
 
 						<InputError {error} />
