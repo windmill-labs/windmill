@@ -76,8 +76,8 @@
 	const { flowPropPickerConfig } = propPickerContext
 	flowPropPickerConfig.set(undefined)
 
-	// Collapse-until-connect mode (sessions modal panel): the picker stays hidden and
-	// slides in only while a connect is active. Elsewhere it's always the split pane.
+	// The modal panel covers the graph, so a connect armed there could never be resolved by
+	// clicking a step — this pane is the only picker in that mode. See `graphParticipates`.
 	const inModalPanel = $derived(propPickerContext.inModalPanel?.() ?? false)
 
 	const connect = useConnect({
@@ -104,11 +104,6 @@
 	}
 
 	let rightPaneHeight: number = $state(0)
-
-	// Collapsed, the picker pane is gone rather than narrow: a modal panel is barely wider
-	// than the picker's own minimum, so leaving it in would cost the inputs most of their
-	// room. The connect button on every input row is what brings it back.
-	const pickerVisible = $derived(!inModalPanel || $propPickerConfig != undefined)
 </script>
 
 {#snippet pickerBody()}
@@ -169,21 +164,14 @@
 		{@render children?.()}
 	{:else}
 		<Splitpanes class={$propPickerConfig ? 'splitpanes-remove-splitter' : ''}>
-			<Pane minSize={20} size={pickerVisible ? 60 : 100} class={'relative !transition-none'}>
-				<!-- Sized from the picker pane so the two columns stay level. With no picker
-				     there is nothing to level against, so it takes the height it is given. -->
-				<div
-					style={pickerVisible ? `height: ${rightPaneHeight}px;` : ''}
-					class="{noPadding ? '' : 'p-2'} {pickerVisible ? '' : 'h-full'}"
-				>
+			<Pane minSize={20} size={60} class={'relative !transition-none'}>
+				<div style="height: {rightPaneHeight}px;" class={noPadding ? '' : 'p-2'}>
 					{@render children?.()}
 				</div>
 			</Pane>
-			{#if pickerVisible}
-				<Pane minSize={20} size={40} class="!transition-none z-1000 relative {paneClass}">
-					{@render pickerBody()}
-				</Pane>
-			{/if}
+			<Pane minSize={20} size={40} class="!transition-none z-1000 relative {paneClass}">
+				{@render pickerBody()}
+			</Pane>
 		</Splitpanes>
 	{/if}
 </div>
