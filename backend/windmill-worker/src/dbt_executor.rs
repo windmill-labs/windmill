@@ -1624,15 +1624,12 @@ async fn write_profiles(
     let resolved = resolve_warehouse(warehouse, client).await?;
     let workspace_target = resolved.target;
     let value = resolved.value;
-    // What the value is, taken from the resource's TYPE rather than its shape: a
-    // `dbt_profile`'s value is an output block dbt reads as it stands, and every
-    // other type's is a connection to translate. Both are objects with a `type`
-    // — Windmill's bigquery resource is a service-account JSON, which says
-    // `type: service_account` — so nothing in the value itself tells them apart.
+    // From the resource's TYPE, not its shape: both kinds are objects with a `type`
+    // (Windmill's bigquery resource is a service-account JSON), so the value cannot
+    // say which it is.
     let is_dbt_profile = resolved.resource_type == DBT_PROFILE_RESOURCE_TYPE;
-    // The block is written for the adapter it names, so a descriptor claiming
-    // another is a mistake worth naming rather than a profile rendered under the
-    // wrong type.
+    // The block is written for the adapter it names, so a descriptor claiming another
+    // is a mistake worth naming rather than a profile rendered under the wrong type.
     let stated = is_dbt_profile
         .then(|| DbtAdapter::stated_by_dbt_profile(&value))
         .transpose()?;
@@ -1648,10 +1645,8 @@ async fn write_profiles(
     }
     let adapter = declared
         .or(stated)
-        // The resource TYPE, which decision 9 makes the authority — now that the
-        // warehouse carries it, that is literally true rather than aspirational.
-        // Inference reads connection details and is the fallback for a workspace
-        // whose warehouse points at a resource type of its own making.
+        // The resource TYPE: decision 9's authority, which the warehouse now carries.
+        // Inference reads connection details and covers a workspace's own type.
         .or_else(|| KnownAdapter::from_resource_type(&resolved.resource_type).map(DbtAdapter::from))
         .or_else(|| KnownAdapter::infer_from_resource(&value).map(DbtAdapter::from))
         .ok_or_else(|| {

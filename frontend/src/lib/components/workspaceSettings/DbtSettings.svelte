@@ -8,17 +8,10 @@
 	export const DEFAULT_WAREHOUSE = 'main'
 
 	/**
-	 * The resource types a warehouse may point at.
-	 *
-	 * `dbt_profile` is the general one: it carries a `profiles.yml` target verbatim, so it
-	 * reaches any adapter. The rest are Windmill's own connection types, which are NOT
-	 * profile targets — `render_profile` (backend/windmill-worker/src/dbt_profiles.rs)
-	 * translates the fields each carries into the keys dbt reads, and only these have such
-	 * an arm. A type outside this set has no way to become a target at all.
-	 *
-	 * `KnownAdapter::from_resource_type` additionally accepts aliases (`postgres`, `mssql`,
-	 * `sqlserver`, `fabric`, `oracle`) that name no Windmill resource type; listing one here
-	 * would offer "add a <type> resource" for a type that does not exist.
+	 * The resource types a warehouse may point at: `dbt_profile`, which carries a
+	 * `profiles.yml` block verbatim and so reaches any adapter, plus the connection types
+	 * `render_profile` (backend/windmill-worker/src/dbt_profiles.rs) translates. Anything
+	 * else has no way to become a dbt target at all.
 	 */
 	export const WAREHOUSE_RESOURCE_TYPES = [
 		'dbt_profile',

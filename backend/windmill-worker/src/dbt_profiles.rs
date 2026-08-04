@@ -43,15 +43,10 @@ impl AdapterSpec {
     };
 }
 
-/// The adapters Windmill has facts about (decision 9): a field mapping from one of its own
-/// resource types, a pip package, the license gate. dbt has many more, which `DbtAdapter`
-/// carries by name — this enum is what a warehouse resource type can *translate* into, not
-/// the set of adapters dbt projects may use.
-///
-/// The resource type name is the authority — connection details are never sniffed. The
-/// warehouse picker offers the resource types that reach an adapter at all
-/// (`WAREHOUSE_RESOURCE_TYPES` in `frontend/.../workspaceSettings/DbtSettings.svelte`), so
-/// an arm gaining or losing a field mapping belongs there too.
+/// The adapters Windmill has facts about (decision 9): a field mapping, a pip package, the
+/// license gate. NOT the adapters dbt projects may use — `DbtAdapter` carries those by name.
+/// The picker offers what reaches one (`WAREHOUSE_RESOURCE_TYPES` in
+/// `frontend/.../workspaceSettings/DbtSettings.svelte`), so a mapping change belongs there.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KnownAdapter {
     Postgres,
@@ -68,20 +63,10 @@ pub enum KnownAdapter {
 }
 
 impl KnownAdapter {
-    /// An adapter from dbt's OWN `type:` spelling — a different vocabulary from
-    /// the resource types below, and not a superset of them.
-    ///
-    /// `fabric` is why they cannot share a table: Windmill's `fabric` resource is
-    /// a SQL Server one, but `fabric` is also a distinct dbt adapter with its own
-    /// `dbt-fabric` package. Resolving a dbt `type: fabric` through the resource
-    /// table would install dbt-sqlserver, emit `type: sqlserver`, gate it as
-    /// enterprise, and then fail on an ODBC driver the images do not carry —
-    /// without ever naming Fabric. Left out here, it falls through to the open
-    /// path and gets the adapter it asked for.
-    ///
-    /// The two Windmill spellings that ARE accepted (`postgresql`, `mssql`) are
-    /// the resource-type names a user reads off their own warehouse settings, and
-    /// neither names another adapter.
+    /// dbt's OWN `type:` spelling — a separate vocabulary from the resource types
+    /// below, deliberately. `fabric` is why: Windmill's `fabric` RESOURCE is a SQL
+    /// Server one, while dbt's `fabric` ADAPTER is its own `dbt-fabric`. Absent
+    /// here, it falls through to the open path and gets what it asked for.
     pub fn from_dbt_type(t: &str) -> Option<Self> {
         match t {
             "postgres" | "postgresql" => Some(KnownAdapter::Postgres),
@@ -314,20 +299,10 @@ impl KnownAdapter {
     }
 }
 
-/// The adapter a profile connects with: dbt's own `type:`, plus whatever
-/// Windmill happens to know about it.
-///
-/// Open by construction, because dbt's adapter set is open and Windmill's
-/// knowledge of it is not. The eleven above are the ones it has facts about — a
-/// field mapping from a resource, a pip package, a license gate — but a
-/// `dbt_profile` resource carries an output block Windmill never has to
-/// understand, so any other adapter is carried by name — rendered, licensed and
-/// identified without Windmill knowing anything about it. That is what makes
-/// "whatever dbt supports" true rather than "whatever this enum lists".
-///
-/// Using one and INSTALLING one are separate: the dbt-core 1.x venv fetches
-/// `dbt-<name>` from PyPI, which `ensure_adapter_installable` gates on what the
-/// instance trusts. Nothing here is that gate.
+/// The adapter a profile connects with: dbt's own `type:`, plus whatever Windmill knows.
+/// Open by construction — a `dbt_profile` carries a block Windmill never has to understand,
+/// so an unknown adapter is still rendered, licensed and identified. INSTALLING one is a
+/// separate question, gated by `ensure_adapter_installable`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DbtAdapter {
     known: Option<KnownAdapter>,
@@ -336,11 +311,9 @@ pub struct DbtAdapter {
 }
 
 impl DbtAdapter {
-    /// An adapter as dbt spells it, known or not.
-    ///
-    /// The name reaches a pip requirement and a venv path, so it is confined to
-    /// what an adapter name can be rather than escaped at each use: a leading
-    /// `-` would be a pip flag, and a `/` or `..` a path segment.
+    /// An adapter as dbt spells it, known or not. The name reaches a pip requirement
+    /// and a venv path, so it is confined to what an adapter name can be rather than
+    /// escaped at each use: a leading `-` is a pip flag, a `/` or `..` a path segment.
     pub fn from_dbt_type(t: &str) -> error::Result<Self> {
         let name = t.trim().to_ascii_lowercase();
         let shaped = name.len() <= 40
@@ -363,12 +336,9 @@ impl DbtAdapter {
         Ok(Self { known, name })
     }
 
-    /// The adapter a `dbt_profile` resource states, in the `type` of the output
-    /// block its value is.
-    ///
-    /// Called only for that resource type, never sniffed from a value: Windmill's
-    /// bigquery resource is a service-account JSON and says
-    /// `type: service_account`, which is not an adapter and does not mean to be.
+    /// The adapter a `dbt_profile` states, from the `type` of the block its value is.
+    /// Called only for that resource TYPE, never sniffed: Windmill's bigquery resource
+    /// is a service-account JSON and says `type: service_account`.
     pub fn stated_by_dbt_profile(v: &Value) -> error::Result<Self> {
         let stated = v.get("type").and_then(|t| t.as_str()).ok_or_else(|| {
             Error::BadRequest(
@@ -748,16 +718,10 @@ pub fn render_profile(
     })
 }
 
-/// Render a `dbt_profile` resource: its value IS one entry of `profiles.yml`'s
-/// `outputs` map, so it is emitted as it stands.
-///
-/// Nothing is lifted out or renamed, which is the whole point of the type — a
-/// block is copied from a working `profiles.yml` and pasted in. Its keys are
-/// dbt's, not Windmill's, so an adapter Windmill has never heard of connects
-/// just as well as one it has. Only what dbt cannot take literally is handled
-/// here: the adapter's own `type` (re-emitted in dbt's spelling), a certificate
-/// that is a PEM body rather than the path dbt hands the driver, and the two
-/// keys a descriptor may override.
+/// Render a `dbt_profile`: its value IS one entry of `profiles.yml`'s `outputs` map, so it
+/// is emitted as it stands — nothing lifted out or renamed, which is the point of the type.
+/// Only what dbt cannot take literally is handled: the adapter's `type`, a certificate that
+/// is a PEM body rather than a path, and the two keys a descriptor may override.
 pub fn render_dbt_profile(
     adapter: &DbtAdapter,
     block: &serde_json::Map<String, Value>,
@@ -788,11 +752,10 @@ pub fn render_dbt_profile(
         if k == "type" || k == "root_certificate_pem" || v.is_null() {
             continue;
         }
-        // Only when Windmill writes one of its own, which would otherwise be a
-        // second `sslrootcert` in the same block. A path with no PEM beside it
-        // is the block's own trust source — a CA baked into the image or mounted
-        // on the worker — and dropping it silently changes what the connection
-        // verifies against.
+        // Only when Windmill writes one of its own, which would otherwise be a second
+        // `sslrootcert`. A path with no PEM beside it is the block's own trust source —
+        // a CA baked into the image or mounted on the worker — and dropping it changes
+        // what the connection verifies against.
         if k == "sslrootcert" && root_certificate_pem.is_some() {
             continue;
         }
@@ -829,11 +792,9 @@ pub fn render_dbt_profile(
     })
 }
 
-/// Emit one target key, nesting as deep as the value goes: an adapter's
-/// credential can be a mapping of its own (bigquery's `keyfile_json`) or a list.
-///
-/// Keys are quoted like values, because both come from the resource: an
-/// adapter-specific key nothing here enumerates is as free-form as a password.
+/// Emit one target key, nesting as deep as the value goes — an adapter's credential can be
+/// a mapping (bigquery's `keyfile_json`) or a list. Keys are quoted like values: one nothing
+/// here enumerates is as free-form as a password.
 fn emit_entry(out: &mut String, indent: usize, key: &str, v: &Value) {
     let pad = " ".repeat(indent);
     let qk = yaml_scalar(key);

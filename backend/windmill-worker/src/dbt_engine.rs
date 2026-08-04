@@ -28,10 +28,8 @@ use crate::handle_child::{get_mem_peak, run_future_with_polling_update_job_polle
 
 lazy_static::lazy_static! {
     pub static ref DBT_CACHE_DIR: String = format!("{}dbt", *ROOT_CACHE_NOMOUNT_DIR);
-    /// Adapters an operator vouches for beyond the list below, comma-separated.
-    /// The escape hatch that keeps a brand-new adapter from needing a Windmill
-    /// release: an admin adds the name, having decided the package is one they
-    /// trust.
+    /// Adapters an operator vouches for beyond `PUBLISHED_ADAPTERS`, comma-separated — so a
+    /// brand-new adapter needs an admin's decision, not a Windmill release.
     static ref DBT_EXTRA_ADAPTERS: Vec<String> = std::env::var("DBT_EXTRA_ADAPTERS")
         .unwrap_or_default()
         .split(',')
@@ -151,12 +149,9 @@ fn checked_version<'a>(v: Option<&'a str>, field: &str) -> error::Result<Option<
     Ok(v)
 }
 
-/// dbt adapters whose package this worker installs unasked.
-///
-/// A PUBLISHED-PACKAGE list, not a capability list: an adapter absent from it
-/// still renders a profile and still runs under an engine that carries its
-/// adapter already. What it gates is `uv pip install dbt-<name>` — see
-/// `ensure_adapter_installable`.
+/// dbt adapters whose package this worker installs unasked. A PUBLISHED-PACKAGE list, not a
+/// capability one: an adapter absent from it still renders a profile and still runs under an
+/// engine that already carries it. See `ensure_adapter_installable`.
 const PUBLISHED_ADAPTERS: &[&str] = &[
     "athena", "clickhouse", "databricks", "decodable", "doris", "dremio", "duckdb", "exasol",
     "extrica", "fabric", "fabricspark", "firebolt", "glue", "greenplum", "hive", "ibmdb2",
@@ -165,20 +160,10 @@ const PUBLISHED_ADAPTERS: &[&str] = &[
     "tidb", "trino", "vertica", "yellowbrick",
 ];
 
-/// Refuse to install a package nobody vouched for.
-///
-/// `dbt-<name>` is built from an adapter name a SCRIPT AUTHOR chooses — a
-/// `dbt_profile` resource's `type`, or the `type:` in a project's own
-/// `profiles.yml` — and `dbt-` is not a reserved prefix on PyPI. The install
-/// runs through `run_tool`, outside the nsjail that ordinary Python dependency
-/// installation uses, and uv builds a source distribution by executing its PEP
-/// 517 backend. So an unbounded name would let an author register `dbt-<x>` and
-/// run code as the worker, on the one path in dependency installation that is
-/// not sandboxed.
-///
-/// The open adapter set survives it: what an author picks is which of these to
-/// use, and an operator adds names through `DBT_EXTRA_ADAPTERS`. Trust is the
-/// admin's call, which is the one thing an author must not make for them.
+/// Refuse to install a package nobody vouched for. `dbt-<name>` comes from an adapter name a
+/// SCRIPT AUTHOR chooses, `dbt-` is not a reserved PyPI prefix, and this install runs outside
+/// the nsjail ordinary dependency installation uses — so an unbounded name would run a PEP
+/// 517 backend as the worker. The admin decides what is trusted, via `DBT_EXTRA_ADAPTERS`.
 fn ensure_adapter_installable(adapter: &DbtAdapter) -> error::Result<()> {
     let name = adapter.name();
     if adapter.known().is_some()
