@@ -479,7 +479,17 @@
 				})
 			} catch (e: any) {
 				if (gen !== treeGen) return
-				ownerLoad[owner] = { ...ownerLoad[owner], loading: false }
+				// Keep the cursor the pages that did land reached, so the next click resumes
+				// there. Left at where this run started, it would re-read every page already
+				// merged — and each of those dedups to nothing, so a "Load more" after a run
+				// that failed deep in the stream would spend its whole budget adding no rows.
+				const prev = ownerLoad[owner]
+				ownerLoad[owner] = {
+					...prev,
+					cursor: nextCursor ?? prev?.cursor,
+					hasMore: nextCursor != undefined || (prev?.hasMore ?? false),
+					loading: false
+				}
 				sendUserToast(`Failed to load ${owner}: ${e?.body ?? e?.message ?? e}`, true)
 				return
 			}
@@ -490,7 +500,10 @@
 			const added = mergePage(res.items)
 			nextCursor = res.next_cursor
 			cursor = nextCursor
-			if (nextCursor == undefined || (!all && added > 0)) break
+			// Collapsing the node is the only way to stop a run that spans many pages;
+			// without this it would keep paging a folder that is no longer on screen. What
+			// it reached is committed below, so its footer resumes from there.
+			if (nextCursor == undefined || !openOwners.has(owner) || (!all && added > 0)) break
 		}
 		ownerLoad = Object.fromEntries([
 			// A replacing load dropped every row under this prefix, so a nested folder that

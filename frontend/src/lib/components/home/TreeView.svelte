@@ -145,6 +145,10 @@
 	// so a subfolder's contents don't look truncated, but bounded: under "expand all"
 	// this applies to every open owner at once (see effectiveMax).
 	let showMax = $state(30)
+	// Ceiling on what one node mounts at once. Comfortably past a server page, so the
+	// usual node still shows everything it loaded, but "Load all" can leave thousands of
+	// rows under one prefix and mounting all of them locks up the tab.
+	const LAZY_RENDER_MAX = 500
 	// A node that paginates server-side ("Load more") shows all its already-loaded rows
 	// when opened on its own, so there is one control to reach the rest and not a second,
 	// confusing client "Show more" in front of it. EXCEPT under "expand all"
@@ -152,12 +156,15 @@
 	// would be thousands of rows and freeze the tab — so there we cap to the client slice
 	// and let "Show more" reveal the rest per node.
 	let effectiveMax = $derived(
-		ownerLoad != undefined && nodePrefix != undefined && (isFolder(item) || isUser(item))
-			? collapseAll
-				? item.items.length
+		isFolder(item) || isUser(item)
+			? ownerLoad != undefined && nodePrefix != undefined && collapseAll
+				? Math.min(item.items.length, Math.max(showMax, LAZY_RENDER_MAX))
 				: Math.min(item.items.length, showMax)
 			: showMax
 	)
+	// One "Show more" reveals another slice the size of the one already on screen, so a
+	// node holding thousands of loaded rows doesn't take hundreds of clicks to unfold.
+	let showMoreStep = $derived(effectiveMax >= LAZY_RENDER_MAX ? LAZY_RENDER_MAX : 30)
 
 	$effect(() => {
 		const expandAll = !collapseAll
@@ -330,7 +337,10 @@
 							unifiedSize="sm"
 							variant="subtle"
 							on:click={() => {
-								showMax += Math.min(30, item.items.length - showMax)
+								// Grown from what is rendered, not from showMax: the lazy ceiling can
+								// already be showing more than showMax, and stepping that would take
+								// several clicks to change anything on screen.
+								showMax = Math.min(item.items.length, effectiveMax + showMoreStep)
 							}}
 						>
 							Show more
@@ -343,13 +353,15 @@
 						     re-sort/re-filter re-fetch keeps the old rows visible and swaps them
 						     in place, so flashing "Loading…" under them would just be noise. -->
 						<div class="text-center text-xs py-2 text-secondary">Loading…</div>
-					{:else if nodeHasMore && effectiveMax >= item.items.length}
+					{:else if nodeHasMore && (collapseAll || effectiveMax >= item.items.length)}
 						<!-- Every folder pages within its own prefix, so completing a subfolder
-						     doesn't mean paging everything its owner holds. Shown only once every
-						     already-loaded row is (in "expand all" the client "Show more" above
-						     reveals those first), and spelling out the counts is the point:
-						     without them this reads as an optional extra rather than as rows
-						     still missing. -->
+						     doesn't mean paging everything its owner holds. Under "expand all" it
+						     waits until the client "Show more" above has revealed every loaded row,
+						     so the two pagers don't stack under every open node at once; a node
+						     opened on its own shows both, one bounding what is rendered and the
+						     other what is fetched. Spelling out the counts is the point: without
+						     them this reads as an optional extra rather than as rows still
+						     missing. -->
 						<div
 							class="px-4 py-2 border-b flex flex-row items-center justify-between gap-4 bg-surface-secondary"
 							style="padding-left: {(depth + 1) * 16}px;"
