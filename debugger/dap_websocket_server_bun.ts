@@ -1592,6 +1592,8 @@ export class DebugSession {
 				output: `Still preparing dependencies... (${waited}s)\n`
 			})
 		}, 5000)
+		let killTimer: ReturnType<typeof setTimeout> | undefined
+		let timedOut = false
 
 		try {
 			const input = JSON.stringify({ code, language }) + '\n'
@@ -1607,7 +1609,8 @@ export class DebugSession {
 
 			// Bound the wait: the only other ceiling is the DAP client's launch timeout,
 			// which is minutes, so a wedged installer would hang the session that long.
-			const killTimer = setTimeout(() => {
+			killTimer = setTimeout(() => {
+				timedOut = true
 				logger.error(`prepare-deps timed out after ${PREPARE_DEPS_TIMEOUT_MS}ms`)
 				proc.kill()
 			}, PREPARE_DEPS_TIMEOUT_MS)
@@ -1615,7 +1618,16 @@ export class DebugSession {
 			// Wait for completion
 			const output = await new Response(proc.stdout).text()
 			const stderr = await new Response(proc.stderr).text()
-			clearTimeout(killTimer)
+
+			if (timedOut) {
+				const errorMsg = `prepare-deps timed out after ${PREPARE_DEPS_TIMEOUT_MS / 1000}s`
+				this.sendEvent('output', {
+					category: 'console',
+					output: `Warning: Failed to prepare dependencies: ${errorMsg}\n`
+				})
+				return null
+			}
+
 			logger.info(`prepare-deps output: ${output.substring(0, 200)}`)
 			logger.info(`prepare-deps stderr: ${stderr.substring(0, 200)}`)
 
@@ -1672,6 +1684,7 @@ export class DebugSession {
 			return null
 		} finally {
 			clearInterval(progress)
+			clearTimeout(killTimer)
 		}
 	}
 

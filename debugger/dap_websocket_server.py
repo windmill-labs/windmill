@@ -312,19 +312,36 @@ def _prepare_error_detail(response: dict) -> str:
     return "\n".join(parts) or "unknown error"
 
 
-def _installer_error_detail(stderr: str) -> str:
-    """
-    Extract an installer's error report from its stderr.
+# Prefixes uv uses for routine resolve/install progress, which it writes to stderr on a
+# perfectly successful run. The `+`/`-` forms are the per-package change list.
+_INSTALLER_PROGRESS_PREFIXES = (
+    "resolved ",
+    "prepared ",
+    "installed ",
+    "uninstalled ",
+    "downloaded ",
+    "audited ",
+    "using ",
+    "creating ",
+    "+ ",
+    "- ",
+)
 
-    uv writes routine resolve/install progress to stderr as well, so output alone does not
-    mean the install failed; only an `error:` line does, along with the `Caused by:` lines
-    that follow it. Anything less selective warns on every successful install.
+
+def _installer_diagnostics(stderr: str) -> str:
     """
-    lines = stderr.splitlines()
-    start = next(
-        (i for i, line in enumerate(lines) if line.strip().lower().startswith("error")), None
-    )
-    return "\n".join(lines[start:]).strip() if start is not None else ""
+    Strip an installer's routine progress from its stderr, keeping anything unexplained.
+
+    uv renders failures several ways (`error:`, `× No solution found` with tree glyphs), so
+    matching failure shapes misses some of them. Matching progress instead errs toward a
+    spurious warning rather than toward the silence this exists to prevent.
+    """
+    kept = [
+        line
+        for line in stderr.splitlines()
+        if line.strip() and not line.strip().lower().startswith(_INSTALLER_PROGRESS_PREFIXES)
+    ]
+    return "\n".join(kept).strip()
 
 
 def _first_line(detail: str, limit: int = 300) -> str:
@@ -439,7 +456,7 @@ class DebugSession:
             # `uv pip install` failing for individual packages does not fail the whole
             # response, so a "successful" preparation can still carry the reason an import
             # is about to fail.
-            installer_error = _installer_error_detail(str(response.get("stderr") or ""))
+            installer_error = _installer_diagnostics(str(response.get("stderr") or ""))
             if installer_error:
                 logger.warning(f"prepare-deps reported an installer error: {installer_error}")
 
