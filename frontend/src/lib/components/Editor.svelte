@@ -10,7 +10,7 @@
 	import { buildWsUrl } from '$lib/wsUrl'
 	import { sendUserToast } from '$lib/toast'
 
-	import { createEventDispatcher, onDestroy, onMount, untrack } from 'svelte'
+	import { createEventDispatcher, onDestroy, onMount, tick, untrack } from 'svelte'
 
 	// import libStdContent from '$lib/es6.d.ts.txt?raw'
 	// import domContent from '$lib/dom.d.ts.txt?raw'
@@ -1670,9 +1670,11 @@
 				// Monaco swallows the keydown (addCommand prevents default and
 				// stops propagation), so page-level Ctrl/Cmd+S handlers never
 				// see it. Re-broadcast as a window event so editors that flush
-				// a draft on the shortcut (raw apps) can react regardless of
-				// which Monaco has focus.
-				window.dispatchEvent(new CustomEvent('wm-monaco-save-shortcut'))
+				// a draft on the shortcut can react regardless of which Monaco
+				// has focus. Only after `tick()`: the autosave payload is parked
+				// by a `$effect`, so dispatching synchronously would make every
+				// listener flush the state from before `updateCode()`.
+				void tick().then(() => window.dispatchEvent(new CustomEvent('wm-monaco-save-shortcut')))
 			})
 
 			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.Enter, function () {

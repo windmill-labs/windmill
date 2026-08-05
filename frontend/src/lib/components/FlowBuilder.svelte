@@ -351,6 +351,15 @@
 		})
 	}
 
+	// Monaco swallows the keydown, so an editor with focus never reaches the
+	// window handler; Editor/SimpleEditor/TemplateEditor re-broadcast it
+	// (untyped event, hence the manual listener). A step's code editor also
+	// flushes through its `formatAction`, and a redundant flush is a no-op.
+	$effect(() => {
+		window.addEventListener('wm-monaco-save-shortcut', saveDraft)
+		return () => window.removeEventListener('wm-monaco-save-shortcut', saveDraft)
+	})
+
 	// Materialize a brand-new flow's draft before the session preview loads it by
 	// path — an untouched new flow never autosaved, so forcePersist is the only
 	// thing that creates the row. Gated to never-deployed: forcePersist skips the
@@ -928,7 +937,9 @@
 				}
 				break
 			case 's':
-				if (event.ctrlKey || event.metaKey) {
+				// Shift excluded: the switch lowercases so Ctrl+Shift+S lands here
+				// too, and swallowing it would steal the browser/OS shortcut.
+				if ((event.ctrlKey || event.metaKey) && !event.shiftKey) {
 					saveDraft()
 					event.preventDefault()
 				}
