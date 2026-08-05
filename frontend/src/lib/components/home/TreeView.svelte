@@ -162,9 +162,13 @@
 				: Math.min(item.items.length, showMax)
 			: showMax
 	)
-	// One "Show more" reveals another slice the size of the one already on screen, so a
-	// node holding thousands of loaded rows doesn't take hundreds of clicks to unfold.
-	let showMoreStep = $derived(effectiveMax >= LAZY_RENDER_MAX ? LAZY_RENDER_MAX : 30)
+	// One "Show more" reveals a slice the size of the ceiling once a node holds more than
+	// that, so thousands of loaded rows don't take hundreds of clicks to unfold. Keyed off
+	// what the node holds rather than what it renders: under "expand all" only the small
+	// client slice is on screen however many rows arrived.
+	let showMoreStep = $derived(
+		(isFolder(item) || isUser(item)) && item.items.length >= LAZY_RENDER_MAX ? LAZY_RENDER_MAX : 30
+	)
 
 	$effect(() => {
 		const expandAll = !collapseAll
