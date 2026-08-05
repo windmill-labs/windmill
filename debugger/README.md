@@ -86,14 +86,19 @@ proxy, a custom CA, or a private package index:
   `PY_INDEX_CERT`, `PIP_TRUSTED_HOST`, `PY_TRUSTED_HOST`, `UV_NATIVE_TLS`, `PY_NATIVE_CERT`,
   `UV_HTTP_TIMEOUT`
 
-`prepare-deps` translates the index and certificate settings into uv's own spellings
-(`UV_INDEX_URL`, `UV_EXTRA_INDEX_URL`, `UV_INSECURE_HOST`, `SSL_CERT_FILE`) before invoking it —
-uv does not read pip's variables.
+`prepare-deps` translates these into the spellings uv and bun actually read (`UV_INDEX_URL`,
+`UV_EXTRA_INDEX_URL`, `UV_INSECURE_HOST`, `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`) before invoking
+them, since uv reads none of pip's variables. The index settings apply to Python only; a private
+npm registry for TypeScript sessions is not configurable here. `prepare-deps` runs without a
+database, so a `pip_index_url` set under instance settings is invisible to it: for the debugger,
+these have to be set in the container's environment.
 
-In the `windmill-extra` container, set `INIT_SCRIPT` to prepare the host before the services start
-(e.g. `INIT_SCRIPT=update-ca-certificates` to install a mounted CA bundle). Note that uv does not
-use the system trust store unless `PY_NATIVE_CERT`/`UV_NATIVE_TLS` is `true`, so a CA installed
-that way also needs one of those set.
+To install through a TLS-intercepting proxy, `PY_NATIVE_CERT` (or `UV_NATIVE_TLS`) must be `true`:
+uv otherwise verifies against its own bundled roots and ignores both `SSL_CERT_FILE` and the
+system trust store. With it set, point `PY_INDEX_CERT`/`SSL_CERT_FILE` at a bundle containing the
+proxy's CA. That file *replaces* the system roots, so it has to be a full bundle, not just the
+extra CA. Alternatively, add the CA to the system store with the container's `INIT_SCRIPT`
+(e.g. `INIT_SCRIPT=update-ca-certificates`) and leave `SSL_CERT_FILE` unset.
 
 ### Frontend Integration
 

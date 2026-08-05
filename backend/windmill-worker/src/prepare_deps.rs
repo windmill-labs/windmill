@@ -88,22 +88,33 @@ lazy_static::lazy_static! {
     /// UV binary path
     static ref UV_PATH: String = std::env::var("UV_PATH").unwrap_or_else(|_| "/usr/local/bin/uv".to_string());
 
-    /// Trust store and package index the host is configured with, in uv's own spellings. The uv
-    /// invocations below clear their environment, so anything absent here is invisible to them:
-    /// behind a MITM proxy or a private index, dependency preparation fails with nothing a
-    /// deployment can set to fix it. Variable names mirror the worker's Python executor, which
-    /// reads the same settings for regular jobs.
+    /// Trust store and package index the host is configured with, translated into the spellings uv
+    /// and bun actually read. The subprocesses below clear their environment, so anything absent
+    /// here is invisible to them: behind a MITM proxy or a private index, dependency preparation
+    /// fails with nothing a deployment can set to fix it. The variables read mirror the worker's
+    /// Python executor, which takes the same settings for regular jobs.
     static ref NETWORK_ENVS: Vec<(&'static str, String)> = {
         let mut envs = Vec::new();
-        for key in ["SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"] {
-            if let Some(value) = non_empty_var(key) {
-                envs.push((key, value));
-            }
-        }
-        // uv has no --cert yet (astral-sh/uv#6715), so the index certificate has to go through the
-        // trust store, same workaround as the Python executor.
-        if let Some(cert) = non_empty_var("PY_INDEX_CERT").or_else(|| non_empty_var("PIP_INDEX_CERT")) {
+        // uv has no --cert flag, so a custom CA can only reach it as a trust store, and of the
+        // spellings a host may use it reads only SSL_CERT_FILE/SSL_CERT_DIR. Collapse the rest
+        // into one value, most specific first, rather than forwarding them inertly. None of it
+        // takes effect unless native TLS is on: uv otherwise verifies against its own bundled
+        // roots and ignores the trust store entirely.
+        if let Some(cert) = non_empty_var("PY_INDEX_CERT")
+            .or_else(|| non_empty_var("PIP_INDEX_CERT"))
+            .or_else(|| non_empty_var("SSL_CERT_FILE"))
+            .or_else(|| non_empty_var("REQUESTS_CA_BUNDLE"))
+            .or_else(|| non_empty_var("CURL_CA_BUNDLE"))
+        {
             envs.push(("SSL_CERT_FILE", cert));
+        }
+        if let Some(dir) = non_empty_var("SSL_CERT_DIR") {
+            envs.push(("SSL_CERT_DIR", dir));
+        }
+        // `bun install` below runs with the same cleared environment, and Bun reads its own
+        // variable rather than any of the above.
+        if let Some(cert) = non_empty_var("NODE_EXTRA_CA_CERTS") {
+            envs.push(("NODE_EXTRA_CA_CERTS", cert));
         }
         if let Some(url) = non_empty_var("PY_INDEX_URL").or_else(|| non_empty_var("PIP_INDEX_URL")) {
             envs.push(("UV_INDEX_URL", url));
