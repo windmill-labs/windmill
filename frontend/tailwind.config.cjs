@@ -451,7 +451,9 @@ const config = {
 		},
 		fontFamily: {
 			// add double quotes if there is space in font name
-			main: ['Inter', 'sans-serif'],
+			// 'Noto Color Emoji' sits after Inter so it only ever picks up codepoints Inter
+			// lacks. See the @font-face block in src/lib/assets/app.css for why it is bundled.
+			main: ['Inter', '"Noto Color Emoji"', 'sans-serif'],
 			mono: [
 				'ui-monospace',
 				'SFMono-Regular',

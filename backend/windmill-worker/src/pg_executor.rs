@@ -94,11 +94,20 @@ impl PgAuthMode {
     }
 
     /// What to announce in the job log. Password auth is the default and stays silent.
-    fn log_name(&self) -> Option<&'static str> {
+    /// The token modes name the login they present, which is the one thing the token
+    /// itself does not carry.
+    fn log_name(&self, database: &PgDatabase) -> Option<String> {
         match self {
             PgAuthMode::Password => None,
-            PgAuthMode::Iam => Some("IAM RDS authentication"),
-            PgAuthMode::WorkloadIdentity => Some("Azure Workload Identity"),
+            PgAuthMode::Iam => Some(format!(
+                "IAM RDS authentication (login {})",
+                database.login_name()
+            )),
+            PgAuthMode::WorkloadIdentity => Some(match database.entra_login() {
+                Ok(login) => format!("Azure Workload Identity (login {login})"),
+                // Connecting rejects a missing login; do not invent one here.
+                Err(_) => "Azure Workload Identity".to_string(),
+            }),
         }
     }
 
@@ -707,7 +716,7 @@ pub async fn do_postgresql(
 
     let auth_mode = PgAuthMode::of(&database)?;
 
-    if let Some(mode) = auth_mode.log_name() {
+    if let Some(mode) = auth_mode.log_name(&database) {
         windmill_queue::append_logs(&job.id, &job.workspace_id, format!("Using {mode}\n"), conn)
             .await;
     }
@@ -2146,6 +2155,36 @@ mod tests {
         assert_eq!(
             PgAuthMode::of(&db("%20ms_entraid%0A")).unwrap(),
             PgAuthMode::WorkloadIdentity
+        );
+    }
+
+    /// The job log is the only place the presented login is visible, and the two token
+    /// modes differ on whether a missing one has a default at all.
+    #[test]
+    fn test_log_name_reports_the_presented_login() {
+        let db = |user: &str| {
+            PgDatabase::parse_uri(&format!("postgres://{user}:pw@host:5432/db")).unwrap()
+        };
+
+        assert_eq!(PgAuthMode::Password.log_name(&db("someuser")), None);
+        assert_eq!(
+            PgAuthMode::Iam.log_name(&db("someuser")).unwrap(),
+            "IAM RDS authentication (login someuser)"
+        );
+        assert_eq!(
+            PgAuthMode::Iam.log_name(&db("")).unwrap(),
+            "IAM RDS authentication (login postgres)"
+        );
+        assert_eq!(
+            PgAuthMode::WorkloadIdentity
+                .log_name(&db("someuser"))
+                .unwrap(),
+            "Azure Workload Identity (login someuser)"
+        );
+        // Entra has no default login, so none is named rather than implying `postgres`.
+        assert_eq!(
+            PgAuthMode::WorkloadIdentity.log_name(&db("")).unwrap(),
+            "Azure Workload Identity"
         );
     }
 

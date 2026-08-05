@@ -24,6 +24,8 @@
 	import Alert from './common/alert/Alert.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
+	import { useDbManagerTag } from './dbManagerTag.svelte'
+	import DbWorkerTagButton from './DbWorkerTagButton.svelte'
 
 	interface Props {
 		uriState: DbManagerUriState
@@ -80,6 +82,12 @@
 	})
 
 	let dbManagerContent: DBManagerContent | undefined = $state()
+
+	// Per-database worker tag override, remembered across drawer opens.
+	const workerTag = useDbManagerTag(
+		() => ws,
+		() => uriState.effectiveInput
+	)
 
 	let hasReplResult = $state(false)
 
@@ -181,6 +189,7 @@
 					bind:this={dbManagerContent}
 					input={uriState.effectiveInput}
 					workspace={uriState.workspace}
+					bind:workerTag={() => workerTag.tag, (v) => (workerTag.tag = v)}
 					bind:hasReplResult
 					bind:selectedSchemaKey={uriState.selectedSchema}
 					bind:selectedTableKey={uriState.selectedTable}
@@ -223,6 +232,14 @@
 					Import
 				</Button>
 			{/if}
+			{#if uriState.effectiveInput && ws}
+				<DbWorkerTagButton
+					bind:tag={() => workerTag.tag, (v) => (workerTag.tag = v)}
+					input={uriState.effectiveInput}
+					workspace={ws}
+				/>
+			{/if}
+
 			<Button
 				loading={dbManagerContent?.isLoading() ?? false}
 				on:click={refreshManager}

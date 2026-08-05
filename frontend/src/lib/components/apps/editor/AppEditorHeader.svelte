@@ -465,6 +465,28 @@
 		}
 	}
 
+	/** Flush the pending autosave (also covers the toggle-off parked case).
+	 * Returns whether there was a draft to flush — false in the AI session pane,
+	 * which owns no handle. */
+	function flushDraft(): boolean {
+		if (inSessionPane || !$workspaceStore || !userDraftPath) return false
+		void UserDraftDbSyncer.flush({
+			workspace: $workspaceStore,
+			itemKind: 'app',
+			path: userDraftPath
+		})
+		return true
+	}
+
+	// Monaco swallows the keydown, so an inline script or template editor with
+	// focus never reaches the window handler below; Editor/SimpleEditor/
+	// TemplateEditor re-broadcast it (untyped event, hence the manual listener).
+	$effect(() => {
+		const onMonacoSave = () => void flushDraft()
+		window.addEventListener('wm-monaco-save-shortcut', onMonacoSave)
+		return () => window.removeEventListener('wm-monaco-save-shortcut', onMonacoSave)
+	})
+
 	let lock = false
 	function onKeyDown(event: KeyboardEvent) {
 		if (lock) return
@@ -492,17 +514,12 @@
 				}
 				break
 			case 's':
-				if (event.ctrlKey || event.metaKey) {
+				// Shift excluded: the switch lowercases so Ctrl+Shift+S lands here
+				// too, and swallowing it would steal the browser/OS shortcut.
+				// Swallowed only when there is a draft to flush, so the contexts
+				// that can't act on it (AI session pane) leave the key alone.
+				if ((event.ctrlKey || event.metaKey) && !event.shiftKey && flushDraft()) {
 					event.preventDefault()
-					// Flush the pending autosave (also covers the toggle-off parked
-					// case); no-op in the AI session pane (no handle there).
-					if (!inSessionPane && $workspaceStore && userDraftPath) {
-						void UserDraftDbSyncer.flush({
-							workspace: $workspaceStore,
-							itemKind: 'app',
-							path: userDraftPath
-						})
-					}
 				}
 				break
 			// case 'ArrowDown': {

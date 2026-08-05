@@ -80,6 +80,7 @@
 			| { kind: 'inline' | 'owner' | 'integrations'; name: string | undefined }
 			| undefined
 		refreshCount?: number
+		onHover?: (index: number) => void
 	}
 
 	let {
@@ -91,7 +92,8 @@
 		filter = '',
 		owners = $bindable([]),
 		ownerFilter = $bindable(undefined),
-		refreshCount = 0
+		refreshCount = 0,
+		onHover = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -108,9 +110,14 @@
 			e.preventDefault()
 			let item = filteredWithOwner[selected]
 			if (kind == 'flow') {
-				dispatch('pickFlow', { path: item.path })
+				dispatch('pickFlow', { path: item.path, summary: item.summary })
 			} else {
-				dispatch('pickScript', { path: item.path, hash: lockHash ? item.hash : undefined, kind })
+				dispatch('pickScript', {
+					path: item.path,
+					hash: lockHash ? item.hash : undefined,
+					summary: item.summary,
+					kind
+				})
 			}
 		}
 	}
@@ -163,7 +170,14 @@
 	<ul class="gap-1 flex flex-col">
 		{#each filteredWithOwner ?? [] as { path, hash, summary, marked }, index}
 			<li class="w-full">
-				<Popover class="w-full " placement="right" forceOpen={index === selected}>
+				<!-- Only the selected row may show a tooltip: the Popover opens on its own hover too, and a
+				     row scrolled under a stationary cursor would otherwise open a second one. -->
+				<Popover
+					class="w-full "
+					placement="right"
+					forceOpen={index === selected}
+					disablePopup={index !== selected}
+				>
 					{#snippet text()}
 						<div class="flex flex-col">
 							<div class="text-left text-xs font-normal leading-tight py-0">{summary ?? ''}</div>
@@ -173,15 +187,19 @@
 						</div>
 					{/snippet}
 					<Button
-						selected={selected === index}
 						variant="subtle"
 						unifiedSize="sm"
-						btnClasses="justify-start transition-all"
+						btnClasses="justify-start transition-all h-auto min-h-7 py-1 {selected === index
+							? 'bg-surface-hover'
+							: onHover
+								? 'hover:bg-transparent'
+								: ''}"
+						onmousemove={() => onHover?.(index)}
 						onClick={() => {
 							if (kind == 'flow') {
-								dispatch('pickFlow', { path: path })
+								dispatch('pickFlow', { path, summary })
 							} else {
-								dispatch('pickScript', { path: path, hash: lockHash ? hash : undefined, kind })
+								dispatch('pickScript', { path, hash: lockHash ? hash : undefined, summary, kind })
 							}
 						}}
 						startIcon={{
@@ -189,7 +207,7 @@
 						}}
 					>
 						<div class="flex flex-col grow min-w-0">
-							<div class="grow min-w-0 truncate text-left">
+							<div class="min-w-0 truncate text-left leading-tight">
 								{#if marked}
 									{@html marked}
 								{:else}
@@ -197,7 +215,7 @@
 								{/if}
 							</div>
 							{#if displayPath && path}
-								<div class="grow min-w-0 truncate text-left text-2xs font-thin">
+								<div class="min-w-0 truncate text-left text-2xs font-thin leading-tight">
 									{path}
 								</div>
 							{/if}

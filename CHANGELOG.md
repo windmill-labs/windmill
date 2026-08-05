@@ -1,5 +1,46 @@
 # Changelog
 
+## [1.780.0](https://github.com/windmill-labs/windmill/compare/v1.779.0...v1.780.0) (2026-08-04)
+
+
+### Features
+
+* **dbt:** reach any dbt adapter through a dbt_profile resource, and constrain the warehouse picker ([#10525](https://github.com/windmill-labs/windmill/issues/10525)) ([340d3cd](https://github.com/windmill-labs/windmill/commit/340d3cd5653fb7f23ba349517c1ab9a2a74bba58))
+
+
+### Bug Fixes
+
+* reflect custom tag add/remove in the manage-tags drawer immediately ([#10526](https://github.com/windmill-labs/windmill/issues/10526)) ([552ad9c](https://github.com/windmill-labs/windmill/commit/552ad9c859497d3b2d6d20ecf3103b06758cada7))
+
+## [1.779.0](https://github.com/windmill-labs/windmill/compare/v1.778.0...v1.779.0) (2026-08-04)
+
+
+### Features
+
+* add multi-select and bulk actions to the Home page ([#10499](https://github.com/windmill-labs/windmill/issues/10499)) ([c57045d](https://github.com/windmill-labs/windmill/commit/c57045dbb30aa40a212a9ee179f5da78c0f1a405))
+* deploy a raw app from its sources, bundling them on a worker ([#10500](https://github.com/windmill-labs/windmill/issues/10500)) ([81ba961](https://github.com/windmill-labs/windmill/commit/81ba9611eb7cdbb67a285337d2069c3909d10b69))
+* **frontend:** pick workspace members from a searchable instance user list ([#10474](https://github.com/windmill-labs/windmill/issues/10474)) ([d63315e](https://github.com/windmill-labs/windmill/commit/d63315ed356afaedc60e3fcf8427cd2c2e822ba0))
+* let the database manager run its jobs on a custom worker tag ([#10516](https://github.com/windmill-labs/windmill/issues/10516)) ([221566d](https://github.com/windmill-labs/windmill/commit/221566d2824efbb3f1ac6f3c543633a5783c085a))
+* make createApp and updateApp the full-code app tools over MCP ([#10510](https://github.com/windmill-labs/windmill/issues/10510)) ([f3e73fb](https://github.com/windmill-labs/windmill/commit/f3e73fb006ab316c422a6b318fe21946bff34d13))
+* preview and edit steps inside expanded subflows ([#10520](https://github.com/windmill-labs/windmill/issues/10520)) ([0d1cb81](https://github.com/windmill-labs/windmill/commit/0d1cb818eec35de9f1af8963b0f9138dc89b0192))
+* send prompt_cache_key on the openai responses api ([#10507](https://github.com/windmill-labs/windmill/issues/10507)) ([8364dd9](https://github.com/windmill-labs/windmill/commit/8364dd96ef355aa01516aa53aac1a9f01fadaa80))
+* show far more in the home tree view and say what is not loaded ([#10519](https://github.com/windmill-labs/windmill/issues/10519)) ([4254686](https://github.com/windmill-labs/windmill/commit/425468675808d12b71f5fefde3bccce38e74869d))
+
+
+### Bug Fixes
+
+* bound ScopeSelector badge heights and correct three scope-chip defects ([#10523](https://github.com/windmill-labs/windmill/issues/10523)) ([6d21d30](https://github.com/windmill-labs/windmill/commit/6d21d30242632549a1698b3e82ed4f55895ea51e))
+* bundle a vector emoji font so emoji scale with flow graph zoom ([#10498](https://github.com/windmill-labs/windmill/issues/10498)) ([62b2f4b](https://github.com/windmill-labs/windmill/commit/62b2f4b06768b5559b59761760899076476b1e47))
+* keep the token scope builder inside its panel when scopes get long ([#10517](https://github.com/windmill-labs/windmill/issues/10517)) ([ae2f584](https://github.com/windmill-labs/windmill/commit/ae2f584de88f0b0eb34ec270c9dfb109cab54938))
+* let admins edit the dev workspace lock ruleset ([#10512](https://github.com/windmill-labs/windmill/issues/10512)) ([ecae932](https://github.com/windmill-labs/windmill/commit/ecae9320d0f752d01af12da1834e15d741b443d0))
+* load the workspace AI config even when the docked chat is disabled ([#10493](https://github.com/windmill-labs/windmill/issues/10493)) ([99e7661](https://github.com/windmill-labs/windmill/commit/99e7661a1b1b24a148a07f7dd37d44e3ae963ba2))
+* locate coursier artifacts by coordinate so private maven registries work ([#10501](https://github.com/windmill-labs/windmill/issues/10501)) ([56d53d3](https://github.com/windmill-labs/windmill/commit/56d53d3f328cc5a7002dbc1d31e2a90821590663))
+* log the db auth mode used and hint at the ms_entraid sentinel ([#10508](https://github.com/windmill-labs/windmill/issues/10508)) ([9f3d155](https://github.com/windmill-labs/windmill/commit/9f3d15583a863c50d60925e97fe98f35f9e4c9e2))
+* match openrouter model ids by parsed vendor, not raw prefix ([#10497](https://github.com/windmill-labs/windmill/issues/10497)) ([546b8d0](https://github.com/windmill-labs/windmill/commit/546b8d076961398a40e7e53fb1e3e561a39a135b))
+* open an AI session from the editor bar's AI button, on the step ([#10504](https://github.com/windmill-labs/windmill/issues/10504)) ([ea4f3ec](https://github.com/windmill-labs/windmill/commit/ea4f3ecc6e54f24a0899470c2efb9850d3ed2d48))
+* show which MCP endpoint tools a token scope will actually expose ([#10514](https://github.com/windmill-labs/windmill/issues/10514)) ([71e68e8](https://github.com/windmill-labs/windmill/commit/71e68e87dcc34939f9262d3fdf2e0e5495332491))
+* stop app updates from silently converting an app between raw and low-code ([#10495](https://github.com/windmill-labs/windmill/issues/10495)) ([d9dd036](https://github.com/windmill-labs/windmill/commit/d9dd036edc88124f2424f13e0ed3697cf03bdf99))
+
 ## [1.778.0](https://github.com/windmill-labs/windmill/compare/v1.777.1...v1.778.0) (2026-08-03)
 
 

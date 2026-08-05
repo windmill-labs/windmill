@@ -1,6 +1,13 @@
 <script lang="ts">
+	import GraphZoomControls from './GraphZoomControls.svelte'
+	import FlowPanelPlacementPicker from '$lib/components/flows/common/FlowPanelPlacementPicker.svelte'
+	import { overlayStack } from '$lib/components/common/overlayHost.svelte'
 	import { FlowService, type FlowModule, type FlowNote, type Job, type OpenFlow } from '../../gen'
+	import { findStepPath, parseExpandedSubflowId } from '$lib/components/restartFromStepPath'
+	import { expandedSubflowParentId } from '../flows/expandedSubflowStep'
+	import { sendUserToast } from '$lib/utils'
 	import { AI_OR_ASSET_NODE_TYPES, NODE, type GraphModuleState } from '.'
+	import { isTriggerStep } from '$lib/components/flows/flowStepSettings'
 	import { getContext, onDestroy, onMount, tick, untrack, type Snippet } from 'svelte'
 	import { createFlowDiffManager } from '../flows/flowDiffManager.svelte'
 
@@ -19,7 +26,6 @@
 	} from '@xyflow/svelte'
 	import {
 		graphBuilder,
-		isTriggerStep,
 		type InlineScript,
 		type InsertKind,
 		type NodeLayout,
@@ -85,7 +91,7 @@
 	import { getAllModules } from '../flows/flowExplorer'
 	import SelectionTool from './SelectionTool.svelte'
 	import PaneContextMenu from './PaneContextMenu.svelte'
-	import { SelectionManager } from './selectionUtils.svelte'
+	import { SelectionManager, isFlowLevelPanelTarget } from './selectionUtils.svelte'
 	import { ChangeTracker } from '$lib/svelte5Utils.svelte'
 	import { NoteManager } from './noteManager.svelte'
 	import type { MoveManager } from './moveManager.svelte'
@@ -111,6 +117,7 @@
 	let showNotes = $state(true)
 
 	const triggerContext = getContext<TriggerContext>('TriggerContext')
+	const overlays = overlayStack()
 
 	// Create diffManager instance for this FlowGraphV2
 	const diffManager = createFlowDiffManager()
@@ -474,10 +481,15 @@
 		insert: (detail) => {
 			onInsert?.(detail)
 		},
-		select: (modId) => {
+		select: (modId, opts) => {
 			// AI tools are not selectable by the flow. Selection has to be refactored to be simplier.
-			if (nodes.find((n) => n.data?.moduleId === modId)?.type === 'aiTool' || modId === 'Trigger') {
-				selectionManager.selectId(modId)
+			// Flow-level panels reach selection only through here, so they must go through
+			// selectId or their intent (and the modal panel) never fires.
+			if (
+				nodes.find((n) => n.data?.moduleId === modId)?.type === 'aiTool' ||
+				isFlowLevelPanelTarget(modId)
+			) {
+				selectionManager.selectId(modId, opts)
 			}
 			if (!notSelectable) {
 				onSelect?.(modId)
@@ -644,6 +656,12 @@
 
 	// Keyboard event handling
 	function handleKeyDown(event: KeyboardEvent) {
+		// Escape belongs to the topmost overlay. This listener is on `document` and theirs
+		// are on `window`, so this one always runs first — without the guard, dismissing a
+		// modal or picker would also clear the selection under it and lose the user's step.
+		if (event.key === 'Escape' && overlays.val.length > 0) {
+			return
+		}
 		selectionManager.handleKeyDown(event)
 		noteManager.handleKeyDown(event)
 		if (event.key === 'Escape') {
@@ -1091,6 +1109,54 @@
 		}
 	}
 
+	let latestReload = 0
+
+	/** Flow an expanded subflow node stands for, read from the step it inlines: the edited
+	 * flow for a top-level expansion, the enclosing expansion's modules otherwise. */
+	function expandedSubflowPath(nodeId: string): string | undefined {
+		const parentId = expandedSubflowParentId(nodeId)
+		const parentModules = parentId == undefined ? modules : expandedSubflows[parentId]?.modules
+		const stepId = parseExpandedSubflowId(nodeId)?.leaf ?? nodeId
+		const value = parentModules && findStepPath(parentModules, stepId)?.target.value
+		return value && value.type === 'flow' ? value.path : undefined
+	}
+
+	/** Refetch the steps inlined by every expanded subflow, e.g. after one was deployed from
+	 * the flow editor drawer. Outermost first, so a nested expansion resolves its path from
+	 * its refreshed parent: a step now pointing at another flow must not keep rendering the
+	 * one it pointed at when it was expanded. */
+	export async function reloadExpandedSubflows() {
+		const reload = ++latestReload
+		const ids = Object.keys(expandedSubflows).sort(
+			(a, b) =>
+				(parseExpandedSubflowId(a)?.subflowSteps.length ?? 0) -
+				(parseExpandedSubflowId(b)?.subflowSteps.length ?? 0)
+		)
+		for (const id of ids) {
+			// A later reload owns the state from here on.
+			if (reload !== latestReload) return
+			const expansion = expandedSubflows[id]
+			if (expansion == undefined) continue
+			const path = expandedSubflowPath(id)
+			if (path == undefined) {
+				delete expandedSubflows[id]
+				continue
+			}
+			try {
+				const flow = await FlowService.getFlowByPath({ workspace: workspace, path })
+				if (reload !== latestReload) return
+				// While this request was in flight the user may have collapsed the expansion, or
+				// collapsed it and re-expanded onto another flow: only commit onto the very
+				// expansion this response was fetched for.
+				if (expandedSubflows[id] !== expansion) continue
+				expandedSubflows[id] = { modules: flow.value.modules, groups: flow.value.groups }
+			} catch (err) {
+				sendUserToast(`Could not reload expanded subflow ${path}: ${err.body ?? err}`, true)
+			}
+		}
+		expandedSubflows = expandedSubflows
+	}
+
 	export function createGroupFromSelection(ids: string[]) {
 		if (groupEditorCtx?.groupEditor) {
 			groupEditorCtx.groupEditor.createGroup(ids, currentGraphNodeDeps)
@@ -1230,12 +1296,17 @@
 						{@render leftHeader()}
 					</div>
 				{:else}
+					<!-- Their built-in glyphs are fill-based and sized differently from every other
+					     icon in the editor, so the bar is built from lucide throughout. -->
 					<Controls
+						class="wm-flow-controls"
 						position={controlsPosition === 'bottom' ? 'bottom-right' : 'top-right'}
 						orientation="horizontal"
+						showZoom={false}
+						showFitView={false}
 						showLock={false}
-						fitViewOptions={{ nodes: nodes.filter((n) => n.type !== 'note') }}
 					>
+						<GraphZoomControls fitViewNodes={nodes.filter((n) => n.type !== 'note')} />
 						{#if multiSelectEnabled}
 							<div class="flex items-center gap-2">
 								<Tooltip>
@@ -1291,6 +1362,7 @@
 								<Expand size="14" />
 							</ControlButton>
 						{/if}
+						<FlowPanelPlacementPicker variant="control" placement="top-end" />
 					</Controls>
 
 					<Controls
@@ -1323,11 +1395,36 @@
 		opacity: 0;
 	}
 
-	:global(.svelte-flow__controls-button) {
-		@apply bg-surface border-0;
+	/* xy-flow's own rules are nested, so `.svelte-flow__controls-button svg` and the like
+	   match ours exactly and load order decides. Scoping by the class we pass to <Controls>
+	   outranks them instead of racing them. */
+	:global(.svelte-flow__controls.wm-flow-controls) {
+		@apply overflow-hidden rounded-md border;
+		box-shadow: none;
 	}
-	:global(.svelte-flow__controls-button:hover) {
+	:global(.wm-flow-controls .svelte-flow__controls-button) {
+		@apply bg-surface text-primary;
+		width: 32px;
+		height: 30px;
+		padding: 8px;
+	}
+	:global(.wm-flow-controls .svelte-flow__controls-button:hover) {
 		@apply bg-surface-hover;
+	}
+	:global(.wm-flow-controls.horizontal .svelte-flow__controls-button) {
+		@apply border-r border-gray-200 dark:border-gray-700;
+	}
+	:global(.wm-flow-controls.horizontal .svelte-flow__controls-button:last-child) {
+		@apply border-r-0;
+	}
+	/* Every glyph in this bar is lucide, so undo their base `fill: currentColor` — it beats
+	   lucide's inline fill="none" and would flood the stroke icons solid — and lift the
+	   12px cap that keeps them off the editor's icon scale. */
+	:global(.wm-flow-controls .svelte-flow__controls-button svg) {
+		max-width: 16px;
+		max-height: 16px;
+		fill: none;
+		stroke: currentColor;
 	}
 
 	:global(.svelte-flow__edgelabel-renderer) {

@@ -255,7 +255,6 @@
 						{#if job}
 							<FlowExecutionStatus
 								{job}
-								workspaceId={$workspaceStore}
 								isOwner={false}
 								innerModules={job?.flow_status?.modules}
 								suspendStatus={{ val: {} }}

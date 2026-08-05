@@ -75,6 +75,48 @@ Options:
 | `DAP_NSJAIL_PATH` | nsjail binary path | nsjail |
 | `DAP_NSJAIL_CONFIG` | nsjail config file path | - |
 
+### Python dependency preparation
+
+Before debugging a Python script, its imports are installed through `windmill prepare-deps`, which
+runs `uv` without a database connection. It cannot read the instance settings, so it takes its
+registry configuration from the environment of the debug service instead, and the Python server is
+handed the resulting venv with `--venv-path`. The install runs in the service rather than in the
+session because a private index URL usually embeds credentials and the Python server executes the
+debugged script inside its own interpreter, where anything it holds is readable by that script.
+
+Set these on the debug service. Where two names are listed the first wins; a worker reads the
+`PIP_*` / `PY_*` names in the same way, except for the index URLs, whose worker env fallbacks are
+only `PIP_INDEX_URL` / `PIP_EXTRA_INDEX_URL` (the `PY_*` spellings are accepted here for symmetry
+with the other settings):
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PY_INDEX_URL` / `PIP_INDEX_URL` | Package index (`--index-url`) | PyPI |
+| `PY_EXTRA_INDEX_URL` / `PIP_EXTRA_INDEX_URL` | Extra indexes, comma-separated (`--extra-index-url`) | - |
+| `PY_TRUSTED_HOST` / `PIP_TRUSTED_HOST` | Hosts to trust, whitespace-separated (`--trusted-host`) | - |
+| `PY_INDEX_CERT` / `PIP_INDEX_CERT` | CA bundle for the index, passed to uv as `SSL_CERT_FILE` | - |
+| `PY_NATIVE_CERT` / `UV_NATIVE_TLS` | `true` to also trust the platform certificate store (`--native-tls`) | false |
+| `UV_INDEX_STRATEGY` | uv index strategy | unsafe-best-match |
+| `UV_HTTP_TIMEOUT` | uv HTTP request timeout, in seconds | uv's own default |
+| `DAP_PREPARE_DEPS_TIMEOUT_MS` | How long to wait for the install before starting the session without it | 120000 |
+
+When the install fails, the CLI answers `success: false` and carries the installer's stderr in both
+`error` and `install_stderr`; the service reports it to the client as an `output` event, so the
+reason (unreachable mirror, untrusted certificate, unknown package) reaches the user instead of a
+bare `ModuleNotFoundError` at the first import.
+
+Proxy variables (`HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`, in either case) are forwarded from the
+service into each session, since the debugged script needs them for its own outbound calls, exactly
+as a job's script does on a worker. When a proxy is set without a bypass list, `NO_PROXY` defaults
+to `localhost,127.0.0.1` so calls to `BASE_INTERNAL_URL` are not proxied.
+
+Keeping the settings out of the session's environment only bounds what the debugged script can read
+from itself. An unsandboxed session runs under the same user as the service and can still read the
+service's environment through `/proc`, the same way a job can read a worker's when the worker runs
+unsandboxed. Isolating sessions from the service takes `--nsjail --nsjail-config
+nsjail.debug.config.proto`: it is that config's PID namespace and `mount_proc` that put the service
+out of reach, not the flag on its own.
+
 ### Frontend Integration
 
 ```svelte

@@ -6,7 +6,6 @@
 	import { NoteColor, NOTE_COLORS } from '../../noteColors'
 	import { NODE } from '../../util'
 	import { Hourglass } from 'lucide-svelte'
-	import { workspaceStore } from '$lib/stores'
 	import FlowStatusWaitingForEvents from '$lib/components/FlowStatusWaitingForEvents.svelte'
 	import { dfs } from '$lib/components/flows/dfs'
 
@@ -83,7 +82,7 @@
 					{#if data.flowJob.flow_status?.modules?.[data.flowJob.flow_status?.step]?.type === 'WaitingForEvents'}
 						<FlowStatusWaitingForEvents
 							job={data.flowJob}
-							workspaceId={$workspaceStore!}
+							workspaceId={data.flowJob.workspace_id}
 							isOwner={data.isOwner}
 							light
 						/>
@@ -92,7 +91,7 @@
 							{#each Object.values(data.suspendStatus) as suspendCount (suspendCount.job.id)}
 								<FlowStatusWaitingForEvents
 									job={suspendCount.job}
-									workspaceId={$workspaceStore!}
+									workspaceId={suspendCount.job.workspace_id}
 									isOwner={data.isOwner}
 									light
 								/>

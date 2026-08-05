@@ -2548,7 +2548,17 @@ pub struct DbtWarehouseConnection {
     /// schema generated clients validate against.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
+    /// What the value IS, which its shape cannot say: a `dbt_profile`'s value is a
+    /// `profiles.yml` output block and every other type's is a connection to translate,
+    /// and both are objects carrying a `type`. Defaulted so a worker still resolves
+    /// against a server predating the field — which serves no `dbt_profile` anyway.
+    #[serde(default)]
+    pub resource_type: String,
 }
+
+/// The resource type whose value is a `profiles.yml` output block, taken as it
+/// is rather than translated.
+pub const DBT_PROFILE_RESOURCE_TYPE: &str = "dbt_profile";
 
 /// The warehouse a dbt project runs against, by name — `main` when the
 /// descriptor names none.
