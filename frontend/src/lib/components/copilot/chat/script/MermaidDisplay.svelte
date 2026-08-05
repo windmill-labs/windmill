@@ -62,6 +62,16 @@
 	// Past this, render with whatever metrics are available rather than sit on the raw source.
 	const FONT_LOAD_TIMEOUT_MS = 2000
 
+	// Mermaid draws `#NNN;` / `#xHHH;` as the character they name, so a label written that way is
+	// pure ASCII in source yet renders an emoji. Decode before sampling or those diagrams skip
+	// the preload below. Affects the font sample only — the source mermaid parses is untouched.
+	function decodeEntityCodes(source: string): string {
+		return source.replace(/#(x[0-9a-f]+|\d+);/gi, (whole, code: string) => {
+			const point = code[0].toLowerCase() === 'x' ? parseInt(code.slice(1), 16) : Number(code)
+			return point <= 0x10ffff ? String.fromCodePoint(point) : whole
+		})
+	}
+
 	/**
 	 * Mermaid sizes every node by measuring its rendered label, so the fonts that label will be
 	 * drawn in must be loaded first: measured against fallback metrics the boxes come out too
@@ -75,7 +85,7 @@
 	 */
 	async function loadLabelFonts(source: string): Promise<void> {
 		// eslint-disable-next-line no-control-regex
-		const nonAscii = source.replace(/[\x00-\x7F]/g, '')
+		const nonAscii = decodeEntityCodes(source).replace(/[\x00-\x7F]/g, '')
 		const loads = [document.fonts?.load('16px Inter', source)]
 		if (nonAscii) loads.push(document.fonts?.load('16px "Noto Color Emoji"', nonAscii))
 		let timer: ReturnType<typeof setTimeout> | undefined
