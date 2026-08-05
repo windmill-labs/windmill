@@ -46,6 +46,32 @@ except ImportError:
     sys.exit(1)
 
 
+# Registry settings for `windmill prepare-deps`. The debugged script runs inside this
+# process, and these values commonly carry private-registry credentials, so they are moved
+# out of os.environ at import time and handed to the CLI subprocess only. Proxy variables
+# are deliberately left in place: a job's script sees those on a worker too.
+_PREPARE_DEPS_ENV_VARS = (
+    "PY_INDEX_URL",
+    "PIP_INDEX_URL",
+    "PY_EXTRA_INDEX_URL",
+    "PIP_EXTRA_INDEX_URL",
+    "PY_TRUSTED_HOST",
+    "PIP_TRUSTED_HOST",
+    "PY_INDEX_CERT",
+    "PIP_INDEX_CERT",
+    "PY_NATIVE_CERT",
+    "UV_NATIVE_TLS",
+    "UV_INDEX_STRATEGY",
+    "UV_HTTP_TIMEOUT",
+)
+
+_prepare_deps_env: dict[str, str] = {
+    key: value
+    for key, value in ((key, os.environ.pop(key, None)) for key in _PREPARE_DEPS_ENV_VARS)
+    if value
+}
+
+
 class DAPMessageType(Enum):
     REQUEST = "request"
     RESPONSE = "response"
@@ -329,6 +355,7 @@ class DebugSession:
                 capture_output=True,
                 text=True,
                 timeout=120,  # 2 minute timeout for dependency installation
+                env={**os.environ, **_prepare_deps_env},
             )
 
             elapsed = time.time() - start_time

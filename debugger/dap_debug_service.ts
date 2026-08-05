@@ -374,7 +374,11 @@ const PYTHON_REGISTRY_ENV_VARS = [
 	'UV_HTTP_TIMEOUT',
 	'HTTP_PROXY',
 	'HTTPS_PROXY',
-	'NO_PROXY'
+	'NO_PROXY',
+	// The lowercase spellings take precedence in the worker, so forward both.
+	'http_proxy',
+	'https_proxy',
+	'no_proxy'
 ]
 
 function pythonRegistryEnv(): Record<string, string> {

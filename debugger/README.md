@@ -80,8 +80,12 @@ Options:
 Before debugging a Python script, the server installs its imports through `windmill prepare-deps`,
 which runs `uv` without a database connection. It therefore cannot read the instance settings, and
 takes its registry configuration from the environment instead. The debug service forwards these
-variables (plus `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`) from its own environment to each Python
-session, so setting them on the service is enough. Where two names are listed the first wins; a
+variables (plus `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`, in either case) from its own environment
+to each Python session, so setting them on the service is enough, unless nsjail is enabled: nsjail
+passes only the variables its config lists under `envar`, so they have to be added there too.
+Within a session the registry settings are scoped to the `prepare-deps` subprocess and removed from
+the environment the debugged script runs in, since a private index URL usually embeds credentials.
+Where two names are listed the first wins; a
 worker reads the `PIP_*` / `PY_*` names in the same way, except for the index URLs, whose worker
 env fallbacks are only `PIP_INDEX_URL` / `PIP_EXTRA_INDEX_URL` (the `PY_*` spellings are accepted
 here for symmetry with the other settings):
