@@ -1114,9 +1114,11 @@ sys.stdout.flush()
 
 			// Installing takes long enough for the client to give up meanwhile, and cleanup() has
 			// then already run: starting the debuggee now would leave a process nothing owns
-			// executing the script for a session that is gone.
+			// executing the script for a session that is gone. Clean up again on the way out,
+			// since a teardown that landed before the script was written left it behind.
 			if (this.disposed) {
 				logger.info('Session torn down during dependency preparation, not starting Python')
+				await this.cleanup()
 				return
 			}
 
