@@ -2815,14 +2815,13 @@ async fn test_schedule_permissions_superadmin_not_in_workspace(
 // Forged-superadmin on_behalf_of guard (GHSA-hfh4-cx4h-3fcr)
 // ============================================================================
 
-/// A `wm_deployers` member must not be able to deploy a runnable whose preserved
-/// on_behalf_of resolves to a superadmin identity it does not genuinely name:
-/// the reserved internal sentinels, or a superadmin's email pinned onto an
-/// unrelated principal. Deploying on behalf of a *consistently named* real user —
-/// even a real superadmin, e.g. a git-sync round-trip of superadmin-authored
-/// content — stays allowed; that is the intended deployer capability.
+/// Reserved internal sentinel identities are rejected by name at deploy time on
+/// every entity that stores a preserved on_behalf_of. Real identities stay
+/// deployable by a `wm_deployers` member — including a real superadmin, and even
+/// their email pinned onto an unrelated principal — because that escalation is
+/// closed at execution by the job-token cap, not by restricting what is stored.
 #[sqlx::test(fixtures("preserve_on_behalf_of"))]
-async fn test_reject_forged_superadmin_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_reject_reserved_sentinel_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
 
     let server = ApiServer::start(db.clone()).await?;
