@@ -62,6 +62,12 @@
 	// Past this, render with whatever metrics are available rather than sit on the raw source.
 	const FONT_LOAD_TIMEOUT_MS = 2000
 
+	// Variation selectors and the ZWJ carry no glyph but sit in nine of the ten emoji subsets,
+	// so sampling them makes one `❤️` start ~1.3 MB of downloads. The base characters on their
+	// own select the right subset. U+20E3 is deliberately not here: it lives in a single subset
+	// and is what makes a keycap resolve.
+	const EMOJI_FORMAT_CHARS = /[\uFE0E\uFE0F\u200D]/g
+
 	// Mermaid draws `#NNN;` as the character that code names (decimal only — its own test is
 	// /^\+?\d+$/), so a label written that way is pure ASCII in source yet renders an emoji.
 	// Decode before sampling or those diagrams skip the preload below. Feeds the font sample
@@ -88,7 +94,7 @@
 	async function loadLabelFonts(source: string): Promise<void> {
 		const decoded = decodeEntityCodes(source)
 		// eslint-disable-next-line no-control-regex
-		const nonAscii = decoded.replace(/[\x00-\x7F]/g, '')
+		const nonAscii = decoded.replace(/[\x00-\x7F]/g, '').replace(EMOJI_FORMAT_CHARS, '')
 		const loads = [document.fonts?.load('16px Inter', decoded)]
 		if (nonAscii) loads.push(document.fonts?.load('16px "Noto Color Emoji"', nonAscii))
 		let timer: ReturnType<typeof setTimeout> | undefined
