@@ -9,6 +9,7 @@
 	import {
 		checkItemDeployAccess,
 		checkItemExists,
+		createFolderIfAbsent,
 		deployItem,
 		getOnBehalfOfOrThrow,
 		type DeployResult,
@@ -150,12 +151,9 @@
 			// the orphaning above, and nothing downstream would catch it.
 			return { success: false, error: `could not check whether ${folderPath} exists (${e})` }
 		}
-		return await deployItem({
-			kind: 'folder',
-			path: folderPath,
-			workspaceFrom: req.prodWorkspaceId,
-			workspaceTo: req.devWorkspaceId
-		})
+		// Create-only: nobody asked for this folder to be deployed, so it must never overwrite one
+		// that appeared meanwhile. See `createFolderIfAbsent`.
+		return await createFolderIfAbsent(folder, req.prodWorkspaceId, req.devWorkspaceId)
 	}
 
 	async function presenceInDev(

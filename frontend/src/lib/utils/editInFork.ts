@@ -208,7 +208,9 @@ export async function openEditInFork(
 	const target = currentDevWorkspace(prodWorkspace)
 	if (!target) {
 		// No dev workspace to probe for: the destination is the fork-creation flow.
-		window.open(forkWorkspaceUrl(itemType, itemPath))
+		if (!window.open(forkWorkspaceUrl(itemType, itemPath))) {
+			sendUserToast('Allow popups to fork this workspace', true)
+		}
 		return
 	}
 	// Navigating in place would throw away whatever this editor is holding — the whole reason this

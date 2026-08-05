@@ -528,6 +528,50 @@ export async function getOnBehalfOfOrThrow(
 	return (await provider.getAppByPath({ workspace, path })).policy?.on_behalf_of_email
 }
 
+/**
+ * Copy a folder into `workspaceTo`, creating it and never updating it.
+ *
+ * `deployItem` re-probes and switches to `updateFolder` when the folder turns out to exist, which
+ * would replace its owners and ACL with the source's. For a folder the user asked to deploy that is
+ * the point; for one created on their behalf to give an item somewhere to land it would silently
+ * rewrite the permissions of a folder someone else just created. Losing that race is success here —
+ * the folder exists, which is all the caller needed.
+ *
+ * Also carries `default_permissioned_as` and `labels`, which the shared folder deploy drops. Without
+ * the former a copied folder applies no create-time identity rules, so an item deployed into it with
+ * no on_behalf_of of its own resolves to the deploying user rather than to whoever the source folder
+ * would have chosen. Principals are copied verbatim, as owners and `extra_perms` already are, and
+ * the server is left to judge them.
+ */
+export async function createFolderIfAbsent(
+	name: string,
+	workspaceFrom: string,
+	workspaceTo: string
+): Promise<DeployResult> {
+	try {
+		const folder = await FolderService.getFolder({ workspace: workspaceFrom, name })
+		await FolderService.createFolder({
+			workspace: workspaceTo,
+			requestBody: {
+				name,
+				owners: folder.owners,
+				extra_perms: folder.extra_perms,
+				summary: folder.summary ?? undefined,
+				default_permissioned_as: folder.default_permissioned_as,
+				labels: folder.labels
+			}
+		})
+		return { success: true }
+	} catch (e) {
+		// The name conflict a concurrent create produces is not part of the API contract, so ask
+		// again rather than matching its message.
+		try {
+			if (await checkItemExists('folder', `f/${name}`, workspaceTo)) return { success: true }
+		} catch {}
+		return { success: false, error: `${e}` }
+	}
+}
+
 export type DeployPermission = { ok: boolean; reason?: string }
 
 /**
