@@ -638,7 +638,6 @@
 				<div class="w-full my-6">
 					<FlowExecutionStatus
 						{job}
-						workspaceId={opWs}
 						{isOwner}
 						innerModules={job?.flow_status?.modules}
 						{suspendStatus}

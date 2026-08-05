@@ -67,7 +67,8 @@
 	// merged toggle (CompareModeToggle, rendered inside each card) reports its
 	// selection here; the page only swaps which comparison component is shown.
 	// `?dir=update` opens on the other one, for callers that already know which
-	// direction has something in it (the fork banner's CTA).
+	// direction has something in it (the fork banner's CTA, the "not in the dev
+	// workspace yet" prompt).
 	let forkDirection = $state<'deploy_to' | 'update'>(
 		page.url.searchParams.get('dir') === 'update' ? 'update' : 'deploy_to'
 	)
@@ -458,6 +459,7 @@
 				{draftKeys}
 				{chatMask}
 				{chatMaskReady}
+				maskAppliesToUpdate={urlItemsMask !== undefined}
 				onChanged={refreshCounts}
 				onModeSelected={selectMode}
 			/>

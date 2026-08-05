@@ -105,8 +105,10 @@
 	}
 
 	function selectModule(mod: FlowModule) {
-		selectionManager.selectId(mod.id)
-		eventHandlers?.select(mod.id)
+		// These icons stand in for nodes the graph marks unselectable, so there is no
+		// node to double-click — the click itself has to open the panel.
+		selectionManager.selectId(mod.id, { openPanel: true })
+		eventHandlers?.select(mod.id, { openPanel: true })
 	}
 </script>
 

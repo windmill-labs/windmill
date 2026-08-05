@@ -4,6 +4,7 @@ import { getAllModules, getDependeeAndDependentComponents } from '../flows/flowE
 import { dfsByModule } from '../flows/previousResults'
 import { defaultIfEmptyString } from '$lib/utils'
 import type { GraphModuleState } from './model'
+import type { SelectIntentOptions } from './selectionUtils.svelte'
 import { getFlowModuleAssets, type AssetWithAltAccessType } from '../assets/lib'
 import { assetDisplaysAsOutputInFlowGraph } from './renderers/nodes/AssetNode.svelte'
 import type { ModulesTestStates, ModuleTestState } from '../modulesTest.svelte'
@@ -60,7 +61,7 @@ export type GraphEventHandlers = {
 		isPreprocessor?: boolean
 	}) => void
 	deleteBranch: (detail: { id: string; index: number }, label: string) => void
-	select: (mod: string | FlowModule) => void
+	select: (mod: string | FlowModule, opts?: SelectIntentOptions) => void
 	delete: (detail: { id: string }, label: string) => void
 	/** Drop a node that only mirrors run state (the error handler marker). Never edits the flow. */
 	dismissRunNode: (id: string) => void
@@ -83,14 +84,6 @@ export type GraphEventHandlers = {
 }
 
 export type SimplifiableFlow = { simplifiedFlow: boolean }
-
-export function isTriggerStep(module: FlowModule | undefined): boolean {
-	return (
-		module?.value != undefined &&
-		(module.value.type === 'script' || module.value.type === 'rawscript') &&
-		module.value.is_trigger === true
-	)
-}
 
 export function buildPrefix(prefix: string | undefined, id: string): string {
 	return (prefix ?? '') + id + ':'

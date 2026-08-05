@@ -1727,6 +1727,7 @@
 					on:rawAppChanged={reloadItemsAndCounts}
 					on:reload={reloadItemsAndCounts}
 					{showCode}
+					showEditButton={showEditButtons}
 				/>
 			{/key}
 		{:else}

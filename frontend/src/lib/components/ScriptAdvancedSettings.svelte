@@ -214,7 +214,7 @@
 		{/if}
 	</Section>
 
-	<Section label="Delete after completion">
+	<Section label="Delete after completion" eeOnly>
 		{#snippet header()}
 			<Tooltip
 				documentationLink="https://www.windmill.dev/docs/script_editor/settings#delete-after-use"
@@ -223,9 +223,6 @@
 				the specified delay once it is complete. Set to 0 for immediate deletion. The deletion is
 				irreversible. This settings ONLY applies when the script is used within a flow or triggered
 				synchronously.
-				{#if !$enterpriseLicense}
-					This option is only available on Windmill Enterprise Edition.
-				{/if}
 			</Tooltip>
 		{/snippet}
 		<div class="flex gap-2 shrink flex-col">

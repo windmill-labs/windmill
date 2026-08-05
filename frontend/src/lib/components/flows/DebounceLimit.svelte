@@ -5,6 +5,7 @@
 	import { enterpriseLicense } from '$lib/stores'
 	import Label from '../Label.svelte'
 	import type { Schema } from '$lib/common'
+	import { slideDynamic } from '$lib/transitions'
 
 	let {
 		debounce_delay_s = $bindable(),
@@ -16,7 +17,8 @@
 		placeholder,
 		size = 'xs',
 		color = undefined,
-		fontClass = 'font-normal'
+		fontClass = 'font-normal',
+		indentContent = false
 	}: {
 		debounce_delay_s: number | undefined
 		debounce_key: string | undefined
@@ -28,6 +30,8 @@
 		size: 'xs' | 'sm'
 		color?: 'nord' | undefined
 		fontClass?: string
+		/** Align the fields under the toggle's label, as the flow step settings do. */
+		indentContent?: boolean
 	} = $props()
 
 	// Check if an originalType like "string | string[]" is a top-level
@@ -85,6 +89,10 @@
 			max_total_debounces_amount = undefined
 		}
 	})
+
+	// Presence, not truthiness: a single backspace takes the seeded 1s to 0 while the
+	// user is still typing, and reading that as off would disable the field mid-edit.
+	let off = $derived(!$enterpriseLicense || debounce_delay_s === undefined)
 </script>
 
 <div>
@@ -94,9 +102,9 @@
 			{color}
 			{size}
 			disabled={!$enterpriseLicense}
-			checked={Boolean(debounce_delay_s)}
+			checked={debounce_delay_s !== undefined}
 			on:change={() => {
-				if (debounce_delay_s) {
+				if (debounce_delay_s !== undefined) {
 					debounce_delay_s = undefined
 					debounce_key = undefined
 				} else {
@@ -113,10 +121,10 @@
 		/>
 	</div>
 
-	{#if debounce_delay_s}
-		<div class="flex flex-col gap-4 mt-2">
+	{#if !off}
+		<div class="flex flex-col gap-4 mt-2 {indentContent ? 'pl-9' : ''}" transition:slideDynamic>
 			<Label label="Delay in seconds">
-				<SecondsInput disabled={!$enterpriseLicense} bind:seconds={debounce_delay_s} />
+				<SecondsInput disabled={off} bind:seconds={debounce_delay_s} />
 			</Label>
 			<Label label="Custom debounce key (optional)">
 				{#snippet header()}
@@ -125,14 +133,7 @@
 						`$workspace`. You can also use an argument's value using `$args[name_of_arg]`</Tooltip
 					>
 				{/snippet}
-				<!-- svelte-ignore a11y_autofocus -->
-				<input
-					type="text"
-					autofocus
-					disabled={!$enterpriseLicense}
-					bind:value={debounce_key}
-					{placeholder}
-				/>
+				<input type="text" disabled={off} bind:value={debounce_key} {placeholder} />
 			</Label>
 			<Label label="Argument to accumulate (optional)">
 				{#snippet header()}
@@ -141,7 +142,7 @@
 						debounced execution will be appended together.</Tooltip
 					>
 				{/snippet}
-				<select disabled={!$enterpriseLicense} bind:value={selectedArg}>
+				<select disabled={off} bind:value={selectedArg}>
 					<option value="">None</option>
 					{#each arrayArgs as arg}
 						<option value={arg}>{arg}</option>
@@ -161,7 +162,7 @@
 						this time is reached, the job will run regardless of ongoing debouncing.</Tooltip
 					>
 				{/snippet}
-				<SecondsInput disabled={!$enterpriseLicense} bind:seconds={max_total_debouncing_time} />
+				<SecondsInput disabled={off} bind:seconds={max_total_debouncing_time} />
 			</Label>
 			<Label label="Max total debounces amount (optional)">
 				{#snippet header()}
@@ -170,12 +171,7 @@
 						is reached, the job will run regardless of ongoing debouncing.</Tooltip
 					>
 				{/snippet}
-				<input
-					type="number"
-					disabled={!$enterpriseLicense}
-					bind:value={max_total_debounces_amount}
-					min="0"
-				/>
+				<input type="number" disabled={off} bind:value={max_total_debounces_amount} min="0" />
 			</Label>
 		</div>
 	{/if}

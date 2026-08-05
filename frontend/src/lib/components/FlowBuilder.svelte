@@ -111,7 +111,7 @@
 	import type { FlowBuilderProps } from './flow_builder'
 	import { ModulesTestStates } from './modulesTest.svelte'
 	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from './flows/FlowAssetsHandler.svelte'
-	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
+	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { setOpenInSessionHandoff } from './sessions/openInSessionContext'
@@ -199,6 +199,30 @@
 	// (session pane, drawer, etc.) where the viewport stays wide.
 	let topbarWidth = $state(0)
 	const compactTopbar = $derived(topbarWidth > 0 && topbarWidth < 720)
+
+	const diffEnabled = $derived(customUi?.topBar?.diff != false)
+	// Nothing to compare against until a deployed version exists.
+	const diffDisabled = $derived(!savedFlow || newFlow || savedFlow?.no_deployed === true)
+	const diffTitle = $derived(
+		diffDisabled ? 'Deploy this flow once to compare against the deployed version' : 'Diff'
+	)
+	// The narrow bar (sessions) and the width-collapsed one have no room for a Diff
+	// button, so it moves into the menu ahead of Deployment History instead of
+	// dropping out of reach.
+	const diffInMenu = $derived(condensedHeader || compactTopbar)
+	const diffMenuItems: Item[] = $derived(
+		diffEnabled && diffInMenu
+			? [
+					{
+						displayName: 'Diff',
+						icon: DiffIcon,
+						action: () => openDiffDrawer(),
+						disabled: diffDisabled,
+						tooltip: diffDisabled ? diffTitle : undefined
+					}
+				]
+			: []
+	)
 	let confirmDeploymentCallback: (triggersToDeploy: Trigger[]) => void = () => {}
 
 	// AI changes warning modal
@@ -326,6 +350,15 @@
 			path: liveEditorDraftStoragePath
 		})
 	}
+
+	// Monaco swallows the keydown, so an editor with focus never reaches the
+	// window handler; Editor/SimpleEditor/TemplateEditor re-broadcast it
+	// (untyped event, hence the manual listener). A step's code editor also
+	// flushes through its `formatAction`, and a redundant flush is a no-op.
+	$effect(() => {
+		window.addEventListener('wm-monaco-save-shortcut', saveDraft)
+		return () => window.removeEventListener('wm-monaco-save-shortcut', saveDraft)
+	})
 
 	// Materialize a brand-new flow's draft before the session preview loads it by
 	// path — an untouched new flow never autosaved, so forcePersist is the only
@@ -751,8 +784,10 @@
 
 	const stepsInputArgs = new StepsInputArgs()
 
+	// Every caller is a deliberate "show me that panel" action (a toolbar button, the
+	// preview's trigger shortcut), so the panel must open even in modal mode.
 	function select(selectedId: string) {
-		selectionManager.selectId(selectedId)
+		selectionManager.selectId(selectedId, { openPanel: true })
 	}
 
 	let insertButtonOpen = writable<boolean>(false)
@@ -863,7 +898,8 @@
 				}
 			}
 		}
-		selectionManager.selectId('Input')
+		// Undo restores a selection as a side effect; it is not a request to see Input.
+		selectionManager.selectId('Input', { openPanel: false })
 	}
 
 	function handleRedo() {
@@ -901,7 +937,9 @@
 				}
 				break
 			case 's':
-				if (event.ctrlKey || event.metaKey) {
+				// Shift excluded: the switch lowercases so Ctrl+Shift+S lands here
+				// too, and swallowing it would steal the browser/OS shortcut.
+				if ((event.ctrlKey || event.metaKey) && !event.shiftKey) {
 					saveDraft()
 					event.preventDefault()
 				}
@@ -911,7 +949,9 @@
 					let ids = generateIds()
 					let idx = ids.indexOf(selectedIdStore!)
 					if (idx > -1 && idx < ids.length - 1) {
-						selectionManager.selectId(ids[idx + 1])
+						// Traversal, not a request to see any one panel: the ids list starts with
+						// flow-level entries, and opening the modal mid-walk swallows the arrows.
+						selectionManager.selectId(ids[idx + 1], { openPanel: false })
 						event.preventDefault()
 					}
 				}
@@ -922,7 +962,7 @@
 					let ids = generateIds()
 					let idx = ids.indexOf(selectedIdStore!)
 					if (idx > 0 && idx < ids.length) {
-						selectionManager.selectId(ids[idx - 1])
+						selectionManager.selectId(ids[idx - 1], { openPanel: false })
 						event.preventDefault()
 					}
 				}
@@ -945,7 +985,9 @@
 		onClick: () => void
 	}> = []
 
-	if (untrack(() => customUi).topBar?.extraDeployOptions != false) {
+	// In a session pane every one of these leaves the session (details page, new
+	// tab), so the deploy button carries no dropdown there — as in ScriptBuilder.
+	if (untrack(() => customUi).topBar?.extraDeployOptions != false && !inSessionPane) {
 		if (!newFlow) {
 			dropdownItems.push({
 				label: 'Exit & see details',
@@ -970,7 +1012,7 @@
 		) {
 			dropdownItems.push({
 				label: editInForkLabel(opWorkspace, $userWorkspaces),
-				onClick: () => window.open(buildForkEditUrl('flow', initialPath))
+				onClick: () => openEditInFork('flow', initialPath, opWorkspace)
 			})
 		}
 	}
@@ -1028,15 +1070,16 @@
 	const mod = isMac() ? '⌘' : 'Ctrl+'
 
 	function getMoreItems(): Item[] {
+		const leadingItems = [...diffMenuItems, ...baseMenuItems]
 		return [
-			...baseMenuItems,
+			...leadingItems,
 			{
 				displayName: 'Undo',
 				icon: Undo,
 				action: () => handleUndo(),
 				disabled: $history.index === 0,
 				shortcut: `${mod}Z`,
-				separatorTop: baseMenuItems.length > 0
+				separatorTop: leadingItems.length > 0
 			},
 			{
 				displayName: 'Redo',
@@ -1369,13 +1412,7 @@
 							></span>
 						{/if}
 					</div>
-					{#if customUi?.topBar?.diff != false}
-						{@const isDraftOnly = savedFlow?.no_deployed === true}
-						{@const diffDisabled = !savedFlow || newFlow || isDraftOnly}
-						{@const diffTitle =
-							newFlow || isDraftOnly
-								? 'Deploy this flow once to compare against the deployed version'
-								: 'Diff'}
+					{#if diffEnabled && !diffInMenu}
 						<!-- A disabled <button> fires no pointer events, so a title/tooltip on
 						     it never shows on hover. pointer-events-none on the button lets the
 						     hover reach this titled wrapper instead. -->
@@ -1386,7 +1423,6 @@
 								on:click={() => openDiffDrawer()}
 								disabled={diffDisabled}
 								btnClasses={diffDisabled ? 'pointer-events-none' : undefined}
-								iconOnly={compactTopbar}
 								title={diffTitle}
 								startIcon={{ icon: DiffIcon }}
 							>
@@ -1443,6 +1479,7 @@
 					{disabledFlowInputs}
 					disableAi={disableAi || customUi?.stepInputs?.ai == false}
 					disableSettings={customUi?.settingsPanel === false}
+					modalPanel={customUi?.modalPanel != false}
 					{loading}
 					on:reload={() => {
 						renderCount += 1
@@ -1464,7 +1501,7 @@
 					{savedFlow}
 					onDeployTrigger={handleDeployTrigger}
 					onEditInput={(moduleId, key) => {
-						selectionManager.selectId(moduleId)
+						selectionManager.selectId(moduleId, { openPanel: true })
 						// Use new prop-based system
 						forceTestTab[moduleId] = true
 						highlightArg[moduleId] = key
