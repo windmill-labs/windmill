@@ -110,23 +110,41 @@ async fn test_nested_dev_workspace_attach_guards(db: Pool<Postgres>) -> anyhow::
     Ok(())
 }
 
+async fn archive(port: u16, w_id: &str) -> (reqwest::StatusCode, String) {
+    let resp = reqwest::Client::new()
+        .post(format!(
+            "http://localhost:{port}/api/w/{w_id}/workspaces/archive"
+        ))
+        .header("Authorization", format!("Bearer {ADMIN_TOKEN}"))
+        .send()
+        .await
+        .unwrap();
+    let status = resp.status();
+    (status, resp.text().await.unwrap())
+}
+
 #[sqlx::test(migrations = "../migrations", fixtures("base", "nested_dev_workspace"))]
-async fn test_detach_refuses_to_strand_a_nested_dev(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_teardown_refuses_to_strand_a_nested_dev(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 
-    // A `wm-fork-` workspace keeps its parent through a detach, so it returns to being a throwaway
-    // fork — which hosts no pairing, leaving `redev-dev` attached with no way to reach it.
+    // A `wm-fork-` workspace keeps its parent when it stops being a dev workspace, so it returns to
+    // being a throwaway fork — which hosts no pairing, leaving `redev-dev` attached with no way to
+    // reach it. Detach and archive both clear the flag, so both have to refuse.
     let (status, body) = detach(port, "prod-b", "wm-fork-redev").await;
     assert!(
         status.is_client_error(),
         "stranding detach returned {status}: {body}"
     );
+    assert!(body.contains("redev-dev"), "unexpected error: {body}");
+
+    let (status, body) = archive(port, "wm-fork-redev").await;
     assert!(
-        body.contains("redev-dev") || body.contains("dev workspace of its own"),
-        "unexpected error: {body}"
+        status.is_client_error(),
+        "stranding archive returned {status}: {body}"
     );
+    assert!(body.contains("redev-dev"), "unexpected error: {body}");
 
     // Detaching from the bottom up is the supported order.
     let (status, body) = detach(port, "wm-fork-redev", "redev-dev").await;

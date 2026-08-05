@@ -7620,28 +7620,7 @@ async fn detach_dev_workspace(
         )));
     }
 
-    // A `wm-fork-` workspace keeps its parent through the detach below, so it returns to being a
-    // throwaway fork — a shape that hosts no pairing. A dev workspace of its own would stay attached
-    // to it with no settings tab left to detach it from, and workspace deletion refuses a workspace
-    // that still has a dev child, so it could not be cleaned up either. A prefix-less workspace
-    // detaches to standalone and goes on hosting its dev, so only the fork case is rejected.
-    if dev_w_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX) {
-        let has_own_dev = sqlx::query_scalar!(
-            r#"SELECT EXISTS(
-                SELECT 1 FROM workspace
-                WHERE parent_workspace_id = $1 AND is_dev_workspace AND NOT deleted
-            ) AS "exists!""#,
-            &dev_w_id
-        )
-        .fetch_one(&db)
-        .await?;
-        if has_own_dev {
-            return Err(Error::BadRequest(format!(
-                "{dev_w_id} has a dev workspace of its own and would return to being a throwaway \
-                 fork, which cannot host one. Detach its dev workspace first."
-            )));
-        }
-    }
+    reject_stranding_nested_dev(&db, &dev_w_id, "Detaching").await?;
 
     let mut tx = db.begin().await?;
     // A wm-fork- workspace re-designated as dev returns to being a plain fork
@@ -7889,6 +7868,10 @@ async fn archive_workspace(
             )));
         }
     }
+
+    // Archiving tears the pairing down the same way a detach does — it clears `is_dev_workspace` and
+    // keeps the parent — so it must not strand a nested dev either.
+    reject_stranding_nested_dev(&db, &w_id, "Archiving").await?;
 
     // The dev pairing teardown (clear is_dev + drop the prod lock) runs inside archive_workspace_impl's
     // transaction, atomically with `deleted = true`.
@@ -8978,6 +8961,33 @@ async fn ensure_dev_parent_can_host_dev(db: &DB, parent_w_id: &str) -> Result<()
         return Err(Error::BadRequest(format!(
             "Cannot create a dev workspace of '{}' because it is a throwaway fork.",
             parent_w_id
+        )));
+    }
+    Ok(())
+}
+
+/// A `wm-fork-` workspace keeps its `parent_workspace_id` when it stops being a dev workspace —
+/// detach and archive both only clear the flag — so it returns to being a throwaway fork, a shape
+/// that hosts no pairing. A dev workspace of its own would stay attached to it with no settings tab
+/// left to detach it from, and `delete_workspace` refuses a workspace that still has a dev child, so
+/// it could not be cleaned up either. A prefix-less workspace becomes standalone and goes on hosting
+/// its dev, so only the fork case is rejected. `action` names what the caller is about to do,
+/// capitalized ("Detaching", "Archiving").
+async fn reject_stranding_nested_dev(db: &DB, w_id: &str, action: &str) -> Result<()> {
+    if !w_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX) {
+        return Ok(());
+    }
+    let nested = sqlx::query_scalar!(
+        "SELECT id FROM workspace
+         WHERE parent_workspace_id = $1 AND is_dev_workspace AND NOT deleted",
+        w_id
+    )
+    .fetch_optional(db)
+    .await?;
+    if let Some(nested) = nested {
+        return Err(Error::BadRequest(format!(
+            "{action} {w_id} would return it to being a throwaway fork, which cannot host a \
+             pairing, but it is the prod workspace of '{nested}'. Detach '{nested}' first."
         )));
     }
     Ok(())
