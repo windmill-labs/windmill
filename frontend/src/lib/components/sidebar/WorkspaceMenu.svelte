@@ -161,9 +161,11 @@
 		findWorkspaceRoot($workspaceStore ?? undefined, $userWorkspaces ?? [])
 	)
 
-	// The list groups by true lineage (`buildWorkspaceHierarchy` roots only at a parentless
-	// workspace), so the row mechanics below — which family to expand, which collapsed row carries
-	// the tick — key on that root and not on the displayed head, which may sit mid-tree.
+	// The row mechanics below — which family to expand, which collapsed row carries the tick — key on
+	// a depth-0 row of the list, which `buildWorkspaceHierarchy` puts at the highest workspace the
+	// caller can see: parentless, or with a parent absent from their list. `findWorkspaceAncestors`
+	// stops at that same visibility boundary, so it lands on the same row. The head displayed above
+	// can sit below it, hence the second resolution.
 	const lineageRoot = $derived.by(() => {
 		const id = $workspaceStore ?? undefined
 		if (!id) return undefined
