@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.781.0](https://github.com/windmill-labs/windmill/compare/v1.780.0...v1.781.0) (2026-08-05)
+
+
+### Features
+
+* add a load all to the tree view's per-folder pager ([#10548](https://github.com/windmill-labs/windmill/issues/10548)) ([a3b79d7](https://github.com/windmill-labs/windmill/commit/a3b79d7732deba54fd6344229d5b91a80a3e0dd6))
+* allow a dev workspace to have its own dev workspace ([#10534](https://github.com/windmill-labs/windmill/issues/10534)) ([e203ab0](https://github.com/windmill-labs/windmill/commit/e203ab087a4ce885a1d424267f96db861207a0e6))
+* **debugger:** install debug session deps from the instance registry settings ([#10550](https://github.com/windmill-labs/windmill/issues/10550)) ([154f8f4](https://github.com/windmill-labs/windmill/commit/154f8f461ef01d60da73f9633d76bed45381a035))
+* **mcp:** serve the 2026-07-28 spec alongside the legacy protocol ([#10535](https://github.com/windmill-labs/windmill/issues/10535)) ([4fe4fac](https://github.com/windmill-labs/windmill/commit/4fe4fac358e67ee6e20dbff8bfa1de0e92e5f3c7))
+* redesign flow step, loop and branch settings panels ([#10026](https://github.com/windmill-labs/windmill/issues/10026)) ([09c8f3b](https://github.com/windmill-labs/windmill/commit/09c8f3b1f3eef2409e212cdb26c7bd2f830dae89))
+* register mounted CA certificates in windmill_extra at startup ([#10545](https://github.com/windmill-labs/windmill/issues/10545)) ([d9d6ec8](https://github.com/windmill-labs/windmill/commit/d9d6ec82ab7ad5279ba8ebc059f58bd663bad87f))
+
+
+### Bug Fixes
+
+* **ai:** collapse thinking to a status row with a thought-for duration ([#10515](https://github.com/windmill-labs/windmill/issues/10515)) ([d9b10e7](https://github.com/windmill-labs/windmill/commit/d9b10e7b0a1ba6702ecf05f64b80ac8bb7c79326))
+* **debugger:** confine prepare-deps under nsjail in both language paths ([#10546](https://github.com/windmill-labs/windmill/issues/10546)) ([a5423a8](https://github.com/windmill-labs/windmill/commit/a5423a81ca5d7c1e88ebed4573952e858ef1546c))
+* **debugger:** pass python index settings to prepare-deps and report failures ([#10533](https://github.com/windmill-labs/windmill/issues/10533)) ([7d153d5](https://github.com/windmill-labs/windmill/commit/7d153d5750db0ea17812d6b1f9a63ceaefddc2b9))
+* **debugger:** report python debugger dependency install failures instead of timing out ([#10531](https://github.com/windmill-labs/windmill/issues/10531)) ([29e179f](https://github.com/windmill-labs/windmill/commit/29e179f7879845f01c6813ad5dfbb19d08dc030e))
+* edit-in-dev-workspace dead-ends, wraps, and misses the tree view ([#10354](https://github.com/windmill-labs/windmill/issues/10354)) ([616d4fe](https://github.com/windmill-labs/windmill/commit/616d4fe167e1c99f8f5104c7b66dbc5fd502e0be))
+* flow step picker layout and single hover/keyboard highlight ([#10488](https://github.com/windmill-labs/windmill/issues/10488)) ([aa91619](https://github.com/windmill-labs/windmill/commit/aa91619bb67b7ae0cbd3a3848b6171d36967bd1f))
+* forward TLS trust roots to debug sessions and honor INIT_SCRIPT on windmill_extra ([#10532](https://github.com/windmill-labs/windmill/issues/10532)) ([74c4185](https://github.com/windmill-labs/windmill/commit/74c418570bb5bf1af54f367cfecae3e8b4ede764))
+* **frontend:** draw the tab strip's scroll bar instead of the native one ([#10547](https://github.com/windmill-labs/windmill/issues/10547)) ([2c189fe](https://github.com/windmill-labs/windmill/commit/2c189fea14749b8bb4604b1363eef907abc3b129))
+* **frontend:** filter the AI Sandbox entry by the flow insert search ([#10529](https://github.com/windmill-labs/windmill/issues/10529)) ([1dcb6bb](https://github.com/windmill-labs/windmill/commit/1dcb6bb9005c1e97f1fca6470eb2d2105a973918))
+* keep the same_worker pin across a flow module that spawns no job ([#10551](https://github.com/windmill-labs/windmill/issues/10551)) ([1aee222](https://github.com/windmill-labs/windmill/commit/1aee22296e228c54d4ca7251e9ae7e04229adb34))
+* keep the same_worker pin when a suspend ends without approval ([#10552](https://github.com/windmill-labs/windmill/issues/10552)) ([c59b60c](https://github.com/windmill-labs/windmill/commit/c59b60c729b03c5be66738b1f4cbf0d989a7b438))
+* point re-opened previews at the tab already showing them ([#10538](https://github.com/windmill-labs/windmill/issues/10538)) ([f11e883](https://github.com/windmill-labs/windmill/commit/f11e8835fdc762fccb521de48049ea43838d7f3c))
+* **triggers:** stop one failing trigger count from zeroing the rest ([#10549](https://github.com/windmill-labs/windmill/issues/10549)) ([0e42381](https://github.com/windmill-labs/windmill/commit/0e42381df086d4463e5914d8a194fe5141793bd1))
+
 ## [1.780.0](https://github.com/windmill-labs/windmill/compare/v1.779.0...v1.780.0) (2026-08-04)
 
 
