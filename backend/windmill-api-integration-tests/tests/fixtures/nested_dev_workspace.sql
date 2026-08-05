@@ -1,4 +1,4 @@
--- Two families for the nested dev-workspace (dev of a dev) guards.
+-- Three families for the nested dev-workspace (dev of a dev) guards.
 --
 -- Family A is rooted at `test-workspace` (base fixture) and is the one a nested dev is attached to:
 --   test-workspace -> tw-dev ('dev')
