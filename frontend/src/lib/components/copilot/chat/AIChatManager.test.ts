@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FlowAIChatHelpers } from './flow/core'
 import type { PipelineAIChatHelpers } from './pipeline/core'
 import type { CurrentEditor } from '$lib/components/flows/types'
@@ -3010,6 +3010,15 @@ describe('AIChatManager reasoning duration', () => {
 		mocks.getCurrentModel.mockReturnValue({ model: 'test-model', provider: 'openai' })
 	})
 
+	// The file-level hook only clears call records, so the clock spy below would
+	// stay installed and freeze time for anything that runs after it.
+	afterEach(() => {
+		nowSpy?.mockRestore()
+		nowSpy = undefined
+	})
+
+	let nowSpy: ReturnType<typeof vi.spyOn> | undefined
+
 	function assistantDurations(manager: AIChatManager): (number | undefined)[] {
 		return manager.displayMessages
 			.filter((m) => m.role === 'assistant')
@@ -3022,7 +3031,7 @@ describe('AIChatManager reasoning duration', () => {
 		manager.setAiChatInput({ restoreInstructions: vi.fn(), focusInput: vi.fn() } as any)
 
 		let now = 1_000
-		vi.spyOn(Date, 'now').mockImplementation(() => now)
+		nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now)
 
 		vi.mocked(runChatLoop).mockImplementation(async (config) => {
 			config.callbacks.onReasoningStart?.()
@@ -3053,7 +3062,7 @@ describe('AIChatManager reasoning duration', () => {
 		manager.setAiChatInput({ restoreInstructions: vi.fn(), focusInput: vi.fn() } as any)
 
 		let now = 1_000
-		vi.spyOn(Date, 'now').mockImplementation(() => now)
+		nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now)
 
 		vi.mocked(runChatLoop).mockImplementation(async (config) => {
 			// First pass reasons straight into a tool call — no answer token, so the
