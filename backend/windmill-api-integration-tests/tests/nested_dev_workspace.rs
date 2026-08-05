@@ -401,10 +401,10 @@ async fn test_pairing_lock_does_not_span_unrelated_families(
     Ok(())
 }
 
-/// Archive resolves the workspace's pairing state before its transaction, and that value used to
-/// decide whether to take the pairing lock at all — so a standalone workspace was archived without
-/// it, free to race an attach that was busy making it a dev. `h-cand` is standalone, the case that
-/// skipped the lock: with the lock held elsewhere, its archive must wait rather than proceed.
+/// Archive resolves the workspace's pairing state before its transaction, so it takes the pairing
+/// lock before reading that state again rather than on the strength of it — an attach can be turning
+/// the workspace into a dev in the meantime. `h-cand` is standalone, the shape whose resolved state
+/// says no pairing is involved: its archive must wait on the lock all the same.
 #[sqlx::test(migrations = "../migrations", fixtures("base", "nested_dev_workspace"))]
 async fn test_archive_takes_the_pairing_lock_for_a_standalone_workspace(
     db: Pool<Postgres>,

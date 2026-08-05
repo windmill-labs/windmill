@@ -24,9 +24,9 @@
 -- their labels only collide once both land, three dev workspaces deep:
 --   prod-g (root), g-mid -> g-sub ('dev'), and the standalone `g-leaf`
 --
--- Family H is a standalone that already owns a dev, so archiving it and attaching it under a prod
--- read its pairing state differently — archive sees a standalone, attach makes it a dev:
---   prod-h (root), and standalone h-cand -> h-sub ('dev')
+-- Family H is a standalone that already owns a dev: archiving it resolves as "no pairing involved"
+-- while still being an operation the pairing lock has to cover:
+--   h-cand -> h-sub ('dev')
 
 
 INSERT INTO workspace (id, name, owner, parent_workspace_id, is_dev_workspace, dev_workspace_label) VALUES
@@ -50,7 +50,6 @@ INSERT INTO workspace (id, name, owner, parent_workspace_id, is_dev_workspace, d
 	('g-mid', 'standalone with a dev of its own', 'test@windmill.dev', NULL, false, NULL),
 	('g-sub', 'dev of g-mid', 'test@windmill.dev', 'g-mid', true, 'dev'),
 	('g-leaf', 'leaf attach candidate', 'test@windmill.dev', NULL, false, NULL),
-	('prod-h', 'prod h', 'test@windmill.dev', NULL, false, NULL),
 	('h-cand', 'standalone owning a dev', 'test@windmill.dev', NULL, false, NULL),
 	('h-sub', 'dev of h-cand', 'test@windmill.dev', 'h-cand', true, 'dev');
 
@@ -58,7 +57,7 @@ CREATE TEMP VIEW new_workspaces AS SELECT unnest(ARRAY[
 	'tw-dev', 'standalone', 'standalone-dev', 'spare', 'prod-b', 'wm-fork-redev', 'redev-dev',
 	'prod-c', 'c-dev', 'c-dev-dev', 'prod-e', 'wm-fork-edev', 'e-cand',
 	'prod-f', 'f-mid', 'f-leaf', 'prod-g', 'g-mid', 'g-sub', 'g-leaf',
-	'prod-h', 'h-cand', 'h-sub'
+	'h-cand', 'h-sub'
 ]) AS id;
 
 INSERT INTO workspace_settings (workspace_id)
