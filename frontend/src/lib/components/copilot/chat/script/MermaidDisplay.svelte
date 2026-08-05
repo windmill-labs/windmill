@@ -59,57 +59,6 @@
 	let availableHeight = $derived(hostHeight ?? windowHeight)
 	let chromeRem = $derived(windowWidth >= SM_BREAKPOINT_PX ? CHROME_REM.fromSm : CHROME_REM.belowSm)
 
-	// Past this, render with whatever metrics are available rather than sit on the raw source.
-	const FONT_LOAD_TIMEOUT_MS = 2000
-
-	// Variation selectors and the ZWJ carry no glyph yet repeat across up to nine of the ten
-	// emoji subsets, so sampling them makes one `❤️` start ~1.3 MB of downloads. The base
-	// characters alone select the right subset. Skin-tone modifiers and U+20E3 are deliberately
-	// kept: each is what selects the subset holding its ligature.
-	const EMOJI_FORMAT_CHARS = /[\uFE0E\uFE0F\u200D]/g
-
-	// Mermaid draws `#NNN;` as the character that code names (decimal only — its own test is
-	// /^\+?\d+$/), so a label written that way is pure ASCII in source yet renders an emoji.
-	// Decode before sampling or those diagrams skip the preload below. Feeds the font sample
-	// only, never the source mermaid parses, so over-matching a colour like `fill:#123;` costs
-	// at most one spurious subset and can never drop a character the sample needs.
-	function decodeEntityCodes(source: string): string {
-		return source.replace(/#(\+?\d+);/g, (whole, code: string) => {
-			const point = Number(code)
-			return point <= 0x10ffff ? String.fromCodePoint(point) : whole
-		})
-	}
-
-	/**
-	 * Mermaid sizes every node by measuring its rendered label, so the fonts that label will be
-	 * drawn in must be loaded first: measured against fallback metrics the boxes come out too
-	 * narrow and the labels overflow them once the real font swaps in.
-	 *
-	 * Only the non-ASCII of the source is offered to the emoji font. Its subsets cover digits,
-	 * `#` and `*`, so passing the whole source would pull 64 KB for any diagram carrying a
-	 * number. Keycaps still resolve: their U+20E3 is non-ASCII and shares a subset with the
-	 * digit bases, and every other emoji class — flags, skin tones, ZWJ sequences — is
-	 * non-ASCII by construction, so this needs no emoji grammar to keep up to date.
-	 */
-	async function loadLabelFonts(source: string): Promise<void> {
-		const decoded = decodeEntityCodes(source)
-		// eslint-disable-next-line no-control-regex
-		const nonAscii = decoded.replace(/[\x00-\x7F]/g, '').replace(EMOJI_FORMAT_CHARS, '')
-		const loads = [document.fonts?.load('16px Inter', decoded)]
-		if (nonAscii) loads.push(document.fonts?.load('16px "Noto Color Emoji"', nonAscii))
-		let timer: ReturnType<typeof setTimeout> | undefined
-		try {
-			// Neither a rejection nor a stalled fetch may reach the caller's catch, which reads any
-			// throw as a parse failure and drops the diagram to raw source.
-			await Promise.race([
-				Promise.all(loads).catch(() => {}),
-				new Promise((resolve) => (timer = setTimeout(resolve, FONT_LOAD_TIMEOUT_MS)))
-			])
-		} finally {
-			clearTimeout(timer)
-		}
-	}
-
 	async function render(source: string, dark: boolean) {
 		const seq = ++renderSeq
 		if (!source?.trim()) {
@@ -133,13 +82,20 @@
 				// Throw on parse errors instead of injecting an orphan error diagram into the DOM.
 				suppressErrorRendering: true
 			})
-			await loadLabelFonts(source)
-			if (seq !== renderSeq) return
 			// mermaid.render needs a fresh element id per attempt to avoid id collisions.
 			const result = await mermaid.render(`mermaid-${randomUUID()}`, source)
 			if (seq !== renderSeq) return
 			svg = result.svg
 			renderedCode = source
+			// Mermaid sizes each node by measuring its label, so a font still in flight yields
+			// boxes cut to fallback metrics that the real glyphs then overflow. Drawing the
+			// diagram is itself what asks for the fonts its glyphs need — including the emoji
+			// subsets — so let them settle and lay it out again against the true metrics.
+			if (document.fonts?.status === 'loading') {
+				await document.fonts.ready
+				if (seq !== renderSeq) return
+				svg = (await mermaid.render(`mermaid-${randomUUID()}`, source)).svg
+			}
 		} catch {
 			// Parse failure (often a partial block still streaming in): fall back to the
 			// raw source. `showSvg` already hides any previous diagram since `renderedCode`
