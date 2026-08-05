@@ -62,6 +62,9 @@ const provider: DeployProvider = {
   createFolder: wmill.createFolder,
   updateFolder: wmill.updateFolder,
   deleteFolder: wmill.deleteFolder,
+  // Users and groups
+  listUsers: wmill.listUsers,
+  listGroups: wmill.listGroups,
   // Triggers — per-kind dispatch on the new TriggerDeployKind union.
   existsTriggerByKind: (kind, p) => triggerService(kind).exists(p),
   getTriggerForDeploy: async (kind, p) => {
@@ -592,6 +595,13 @@ async function mergeWorkspaces(
 
     if (result.success) {
       log.info(colors.green(`  ✓ ${label}`));
+      if (result.droppedAccess?.length) {
+        log.info(
+          colors.yellow(
+            `    dropped access for ${result.droppedAccess.join(", ")} — no account in ${workspaceTo}`
+          )
+        );
+      }
       successCount++;
       if (
         !itemDeletedInSource &&
