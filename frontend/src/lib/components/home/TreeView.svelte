@@ -162,6 +162,12 @@
 				: Math.min(item.items.length, showMax)
 			: showMax
 	)
+	// Which of the two footer buttons started the run in flight, so only that one spins: a
+	// "Load all" can take minutes where a "Load more" takes one request.
+	let loadingAll = $state(false)
+	$effect(() => {
+		if (!nodeState?.loading) loadingAll = false
+	})
 	// One "Show more" reveals a slice the size of the ceiling once a node holds more than
 	// that, so thousands of loaded rows don't take hundreds of clicks to unfold. Keyed off
 	// what the node holds rather than what it renders: under "expand all" only the small
@@ -357,15 +363,14 @@
 						     re-sort/re-filter re-fetch keeps the old rows visible and swaps them
 						     in place, so flashing "Loading…" under them would just be noise. -->
 						<div class="text-center text-xs py-2 text-secondary">Loading…</div>
-					{:else if nodeHasMore && (collapseAll || effectiveMax >= item.items.length)}
+					{:else if nodeHasMore && (collapseAll || nodeState?.loading || effectiveMax >= item.items.length)}
 						<!-- Every folder pages within its own prefix, so completing a subfolder
-						     doesn't mean paging everything its owner holds. Under "expand all" it
-						     waits until the client "Show more" above has revealed every loaded row,
-						     so the two pagers don't stack under every open node at once; a node
-						     opened on its own shows both, one bounding what is rendered and the
-						     other what is fetched. Spelling out the counts is the point: without
-						     them this reads as an optional extra rather than as rows still
-						     missing. -->
+						     doesn't mean paging everything its owner holds. Under "expand all" this
+						     waits for the client "Show more" above, so the two pagers don't stack
+						     under every open node at once — but never while loading, or a long run
+						     would unmount its own spinner on its first page. Spelling out the counts
+						     is the point: without them this reads as an optional extra rather than
+						     as rows still missing. -->
 						<div
 							class="px-4 py-2 border-b flex flex-row items-center justify-between gap-4 bg-surface-secondary"
 							style="padding-left: {(depth + 1) * 16}px;"
@@ -377,7 +382,8 @@
 								<Button
 									unifiedSize="sm"
 									variant="subtle"
-									loading={nodeState?.loading}
+									loading={nodeState?.loading && !loadingAll}
+									disabled={nodeState?.loading}
 									on:click={() =>
 										nodePrefix != undefined &&
 										onExpandOwner?.(nodePrefix, nodeState?.loaded ?? false)}
@@ -389,10 +395,13 @@
 								<Button
 									unifiedSize="sm"
 									variant="subtle"
-									loading={nodeState?.loading}
-									on:click={() =>
-										nodePrefix != undefined &&
-										onExpandOwner?.(nodePrefix, nodeState?.loaded ?? false, { all: true })}
+									loading={nodeState?.loading && loadingAll}
+									disabled={nodeState?.loading}
+									on:click={() => {
+										if (nodePrefix == undefined) return
+										loadingAll = true
+										onExpandOwner?.(nodePrefix, nodeState?.loaded ?? false, { all: true })
+									}}
 								>
 									Load all
 								</Button>
