@@ -34,7 +34,7 @@ fi
 export HOME
 
 # INIT_SCRIPT is the documented hook for preparing the host before anything reaches the network
-# (CA certificates, proxies, mounts), matching MODE=worker/server. It must therefore complete
+# (CA certificates, proxies, mounts), matching the worker's INIT_SCRIPT. It must therefore complete
 # before any service starts, and a failure has to abort: services that come up with an unprepared
 # trust store fail every TLS handshake instead, which is far harder to diagnose.
 if [ -n "$INIT_SCRIPT" ]; then

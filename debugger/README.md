@@ -76,9 +76,9 @@ Options:
 | `DAP_NSJAIL_CONFIG` | nsjail config file path | - |
 
 The service does not inherit its whole environment into debug subprocesses. Beyond `PATH` and
-`HOME`, only the network configuration below is forwarded, so that dependency installation
-(`windmill prepare-deps`, which runs `uv venv` / `uv pip install`) works behind a proxy, a custom
-CA, or a private package index:
+`HOME`, only the network configuration below is forwarded, so that debugged scripts and dependency
+installation (`windmill prepare-deps`, which runs `uv venv` / `uv pip install`) work behind a
+proxy, a custom CA, or a private package index:
 
 - `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` (and their lowercase spellings)
 - `SSL_CERT_FILE`, `SSL_CERT_DIR`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `NODE_EXTRA_CA_CERTS`
@@ -86,8 +86,14 @@ CA, or a private package index:
   `PY_INDEX_CERT`, `PIP_TRUSTED_HOST`, `PY_TRUSTED_HOST`, `UV_NATIVE_TLS`, `PY_NATIVE_CERT`,
   `UV_HTTP_TIMEOUT`
 
-In the `windmill-extra` container, set `INIT_SCRIPT` to prepare the host before the services
-start (e.g. `INIT_SCRIPT=update-ca-certificates` to install a mounted CA bundle).
+`prepare-deps` translates the index and certificate settings into uv's own spellings
+(`UV_INDEX_URL`, `UV_EXTRA_INDEX_URL`, `UV_INSECURE_HOST`, `SSL_CERT_FILE`) before invoking it —
+uv does not read pip's variables.
+
+In the `windmill-extra` container, set `INIT_SCRIPT` to prepare the host before the services start
+(e.g. `INIT_SCRIPT=update-ca-certificates` to install a mounted CA bundle). Note that uv does not
+use the system trust store unless `PY_NATIVE_CERT`/`UV_NATIVE_TLS` is `true`, so a CA installed
+that way also needs one of those set.
 
 ### Frontend Integration
 

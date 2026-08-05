@@ -87,6 +87,48 @@ lazy_static::lazy_static! {
 
     /// UV binary path
     static ref UV_PATH: String = std::env::var("UV_PATH").unwrap_or_else(|_| "/usr/local/bin/uv".to_string());
+
+    /// Trust store and package index the host is configured with, in uv's own spellings. The uv
+    /// invocations below clear their environment, so anything absent here is invisible to them:
+    /// behind a MITM proxy or a private index, dependency preparation fails with nothing a
+    /// deployment can set to fix it. Variable names mirror the worker's Python executor, which
+    /// reads the same settings for regular jobs.
+    static ref NETWORK_ENVS: Vec<(&'static str, String)> = {
+        let mut envs = Vec::new();
+        for key in ["SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE"] {
+            if let Some(value) = non_empty_var(key) {
+                envs.push((key, value));
+            }
+        }
+        // uv has no --cert yet (astral-sh/uv#6715), so the index certificate has to go through the
+        // trust store, same workaround as the Python executor.
+        if let Some(cert) = non_empty_var("PY_INDEX_CERT").or_else(|| non_empty_var("PIP_INDEX_CERT")) {
+            envs.push(("SSL_CERT_FILE", cert));
+        }
+        if let Some(url) = non_empty_var("PY_INDEX_URL").or_else(|| non_empty_var("PIP_INDEX_URL")) {
+            envs.push(("UV_INDEX_URL", url));
+        }
+        if let Some(url) = non_empty_var("PY_EXTRA_INDEX_URL").or_else(|| non_empty_var("PIP_EXTRA_INDEX_URL")) {
+            // Windmill takes this list comma-separated; uv splits it on whitespace and would
+            // otherwise treat the whole thing as one malformed URL.
+            envs.push(("UV_EXTRA_INDEX_URL", url.split(',').collect::<Vec<_>>().join(" ")));
+        }
+        if let Some(host) = non_empty_var("PY_TRUSTED_HOST").or_else(|| non_empty_var("PIP_TRUSTED_HOST")) {
+            // Already whitespace-separated, which is what uv expects.
+            envs.push(("UV_INSECURE_HOST", host));
+        }
+        if non_empty_var("PY_NATIVE_CERT").or_else(|| non_empty_var("UV_NATIVE_TLS")).as_deref() == Some("true") {
+            envs.push(("UV_NATIVE_TLS", "true".to_string()));
+        }
+        if let Some(timeout) = non_empty_var("UV_HTTP_TIMEOUT") {
+            envs.push(("UV_HTTP_TIMEOUT", timeout));
+        }
+        envs
+    };
+}
+
+fn non_empty_var(key: &str) -> Option<String> {
+    std::env::var(key).ok().filter(|v| !v.is_empty())
 }
 
 /// Simple loader that doesn't require Windmill API for relative imports
@@ -154,6 +196,10 @@ fn get_proc_envs(cache_env: Option<(&str, &str)>) -> HashMap<String, String> {
 
     // Add proxy envs
     for (k, v) in PROXY_ENVS.iter() {
+        envs.insert(k.to_string(), v.clone());
+    }
+
+    for (k, v) in NETWORK_ENVS.iter() {
         envs.insert(k.to_string(), v.clone());
     }
 

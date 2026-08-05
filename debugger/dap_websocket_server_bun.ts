@@ -25,6 +25,7 @@ import { spawn, type Subprocess } from 'bun'
 import { mkdtemp, writeFile, unlink, rmdir, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { passthroughEnv } from './env_passthrough'
 
 // Types for V8 Inspector Protocol
 interface V8Message {
@@ -1698,12 +1699,15 @@ export class DebugSession {
 			}, 10000)
 		})
 
-		// Only include essential env vars + client-provided ones
+		// Only include essential env vars + the network-config allowlist + client-provided ones.
 		// Don't inherit all of process.env to keep debugger environment clean
 		const envVars: Record<string, string | undefined> = {
 			// Essential system vars
 			PATH: process.env.PATH || '/usr/bin:/bin',
 			HOME: process.env.HOME,
+			// Proxy / TLS / package-index settings inherited from the container, before the
+			// client's env so an explicit override still wins
+			...passthroughEnv(),
 			// Client-provided env vars (WM_WORKSPACE, WM_TOKEN, etc.)
 			// Note: WM_BASE_URL is already overridden by BASE_INTERNAL_URL if set
 			...this.envVars
