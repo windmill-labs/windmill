@@ -154,13 +154,12 @@
 		// Create-only: nobody asked for this folder to be deployed, so it must never overwrite one
 		// that appeared meanwhile. See `createFolderIfAbsent`.
 		const result = await createFolderIfAbsent(folder, req.prodWorkspaceId, req.devWorkspaceId)
-		if (result.droppedRules?.length) {
-			// The folder is now less restrictive than its source, which is not something to discover
-			// later from an item running as the wrong user.
+		if (result.droppedAccess?.length) {
+			// Narrower than the source rather than wider, so it doesn't block the deploy — but it is
+			// still not what the folder looked like where it came from.
 			sendUserToast(
-				`${folderPath} was created without its "run on behalf of" rule for ` +
-					`${result.droppedRules.join(', ')} — no such user or group in ${req.devWorkspaceName}`,
-				true
+				`${folderPath} was created without access for ${result.droppedAccess.join(', ')} — ` +
+					`no such user or group in ${req.devWorkspaceName}`
 			)
 		}
 		return result
@@ -206,10 +205,9 @@
 		// Folders carry no on_behalf_of, so only the item itself takes one.
 		let result = await ensureFolder(req)
 		if (result.success) {
-			// As late as possible before the write: the prompt is only up because the item was absent,
-			// and the shared deploy silently switches to an update once it isn't, overwriting whoever
-			// landed it. Narrows the window to this one request rather than closing it — only a
-			// create-only write on the server can do that.
+			// The prompt is only up because the item was absent, so this asks once more before writing
+			// and the write itself refuses to become an update (`createOnly` below). Between them,
+			// whoever landed it meanwhile is opened rather than overwritten.
 			const presence = await presenceInDev(req)
 			if (presence === 'present') {
 				updating = false
@@ -232,14 +230,28 @@
 				)
 				return
 			}
-			result = await deployItem({
+			const deployed = await deployItem({
 				kind: req.itemType,
 				path: req.itemPath,
 				workspaceFrom: req.prodWorkspaceId,
 				workspaceTo: req.devWorkspaceId,
 				onBehalfOf: chosenIdentity?.email,
-				onBehalfOfPrincipal: chosenIdentity?.permissionedAs
+				onBehalfOfPrincipal: chosenIdentity?.permissionedAs,
+				createOnly: true
 			})
+			if (deployed.conflict) {
+				// Landed between the probe above and the write, and `createOnly` refused rather than
+				// replacing it. Their version stands; open it, as the probe's own branch does.
+				updating = false
+				close()
+				sendUserToast(`${req.itemPath} is already in ${req.devWorkspaceName}, opening it`)
+				await leaveTo(
+					devWorkspaceEditUrl(req.itemType, req.itemPath, req.devWorkspaceId),
+					itemInDev
+				)
+				return
+			}
+			result = deployed
 		}
 		updating = false
 		if (!result.success) {
