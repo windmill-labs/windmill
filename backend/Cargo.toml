@@ -568,7 +568,12 @@ dashmap = "6.1.0"
 gosyn = "0.2.6"
 bytes = "1.4.0"
 gethostname = "0.4.3"
-wasm-bindgen = "=0.2.108"
+# Not pinned exactly: the excluded `parsers/windmill-parser-wasm` workspace pins
+# =0.2.103 to match its vendored `cli/wasm/*` artifacts, yet path-depends on
+# sibling parser crates that inherit this requirement from here. Two exact pins
+# on the same semver range cannot both resolve, so keep this a range and let each
+# workspace's lockfile settle it (here, js-sys forces 0.2.108).
+wasm-bindgen = "0.2"
 serde-wasm-bindgen = "^0"
 wasm-bindgen-test = "^0"
 convert_case = "0.6.0"

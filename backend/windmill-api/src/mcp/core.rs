@@ -578,11 +578,16 @@ pub async fn setup_mcp_server(
         // there is no session to bind. This also makes legacy `initialize` clients
         // take the same stateless path as 2026-07-28 ones.
         .with_legacy_session_mode(false)
-        // Host/Origin checks belong to the deployment's proxy, not here: Windmill is
-        // reached under whatever hostname the instance is served on, and rmcp's own
-        // default (localhost only) would reject every remote MCP client.
+        // rmcp's Host allowlist defaults to localhost, which guards an unauthenticated
+        // locally-bound server against DNS rebinding. This endpoint instead sits behind
+        // Windmill's own authentication, and is reached under whatever hostname the
+        // instance is served on, so keeping that default would reject every remote MCP
+        // client while adding nothing.
         .disable_allowed_hosts()
-        .disable_allowed_origins();
+        // MCP bodies are ordinary API payloads — `createApp`/`updateApp` carry whole app
+        // sources — so they follow the instance's request size limit rather than rmcp's
+        // much smaller default, which would 413 them with no way to raise it.
+        .with_max_request_body_bytes(*crate::REQUEST_SIZE_LIMIT.read().await);
 
     let service =
         StreamableHttpService::new(move || Ok(runner.clone()), session_manager, service_config);

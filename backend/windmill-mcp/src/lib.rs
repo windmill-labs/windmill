@@ -40,9 +40,29 @@ pub mod oauth {
 
     use std::time::Duration;
 
-    pub use rmcp::transport::auth::AuthorizationManager;
+    use rmcp::transport::auth::AuthorizationMetadataSource;
+    pub use rmcp::transport::auth::{AuthorizationManager, AuthorizationMetadata};
 
     const DEFAULT_OAUTH_HTTP_TIMEOUT: Duration = Duration::from_secs(30);
+
+    /// Discover the MCP server's OAuth metadata, refusing endpoints the server
+    /// never advertised.
+    ///
+    /// When a server publishes no metadata at all, rmcp's `resolve_metadata`
+    /// falls back to inventing `/authorize`, `/token` and `/register` on the
+    /// server's own host. Dynamic client registration and the token exchange
+    /// both carry secrets, so they must only ever reach endpoints the server
+    /// actually published — a guessed path would send them somewhere the
+    /// operator never designated as an authorization server.
+    pub async fn discover_authorization_metadata(
+        manager: &AuthorizationManager,
+    ) -> anyhow::Result<AuthorizationMetadata> {
+        let resolution = manager.resolve_metadata().await?;
+        if resolution.source == AuthorizationMetadataSource::LegacyEndpointFallback {
+            anyhow::bail!("MCP server does not publish OAuth authorization metadata");
+        }
+        Ok(resolution.metadata)
+    }
 
     pub fn no_redirect_http_client() -> Result<reqwest::Client, reqwest::Error> {
         no_redirect_http_client_with_timeout(DEFAULT_OAUTH_HTTP_TIMEOUT)
@@ -120,6 +140,42 @@ pub mod oauth {
             );
 
             handle.join().unwrap();
+        }
+
+        /// A server publishing no OAuth metadata must be rejected, not have its
+        /// endpoints guessed: rmcp's own fallback would invent `/authorize`,
+        /// `/token` and `/register` on that host, and DCR and the token exchange
+        /// send secrets to whatever comes back.
+        #[tokio::test]
+        async fn discovery_refuses_endpoints_the_server_never_published() {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let addr = listener.local_addr().unwrap();
+
+            let handle = thread::spawn(move || {
+                // Every discovery probe 404s, which is what a plain MCP server
+                // with no authorization server looks like.
+                while let Ok((mut stream, _)) = listener.accept() {
+                    let mut buffer = [0u8; 2048];
+                    let _ = stream.read(&mut buffer);
+                    let _ = std::io::Write::write_all(
+                        &mut stream,
+                        b"HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+                    );
+                }
+            });
+
+            let manager = AuthorizationManager::new(format!("http://{addr}/mcp"))
+                .await
+                .expect("manager should construct");
+            let err = discover_authorization_metadata(&manager)
+                .await
+                .expect_err("must not fall back to guessed endpoints");
+            assert!(
+                err.to_string().contains("does not publish OAuth"),
+                "unexpected error: {err}"
+            );
+
+            drop(handle);
         }
     }
 }

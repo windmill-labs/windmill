@@ -181,11 +181,9 @@ pub async fn get_or_refresh_mcp_client(
         .with_client(discovery_client)
         .map_err(|e| error::Error::BadRequest(format!("Failed to configure auth manager: {e}")))?;
 
-    let metadata = manager
-        .resolve_metadata()
+    let metadata = crate::oauth::discover_authorization_metadata(&manager)
         .await
-        .map_err(|e| error::Error::BadRequest(format!("OAuth discovery failed: {e}")))?
-        .metadata;
+        .map_err(|e| error::Error::BadRequest(format!("OAuth discovery failed: {e}")))?;
 
     windmill_common::ssrf::validate_mcp_server_url_for_bad_request(
         &metadata.token_endpoint,
