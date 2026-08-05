@@ -22,6 +22,7 @@
 	import { badgeCounts, badgeOf, buildDeployItems, type DeployItem } from './sessionDeployModel'
 	import { useExistingMaskKeys } from './sessionDeployModel.svelte'
 	import { previewTargetForDeployKind } from './sessionPreviewTabs.svelte'
+	import { pipelineFolderFromBundlePath } from '$lib/pipelinePaths'
 	import type { PreviewTarget } from './previewRouter'
 	import JobsSegment from '$lib/components/copilot/chat/JobsSegment.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
@@ -216,8 +217,18 @@
 		const owner = runtime?.previewTabs
 		const target = previewTargetFor(item)
 		if (!owner || !target) return
-		editsOpen = false
 		owner.openAndPulse(target)
+	}
+
+	// A pipeline's bundle path (`f/<folder>/data_pipeline`) is an implementation
+	// detail — name the folder, which is what its editor opens. Same call the
+	// compare page makes.
+	function rowLabel(item: DeployItem): string {
+		if (item.deployKind === 'data_pipeline') {
+			const folder = pipelineFolderFromBundlePath(item.path)
+			if (folder) return `f/${folder}`
+		}
+		return item.displayPath
 	}
 
 	// Only draft-vs-deployed drives the color: stale/failed live in the drawer's
@@ -299,7 +310,7 @@
 					items={dockItems}
 					itemKey={(item) => item.key}
 					rowTitle={(item) =>
-						previewTargetFor(item) ? `Open ${item.displayPath} in preview` : item.displayPath}
+						previewTargetFor(item) ? `Open ${rowLabel(item)} in preview` : rowLabel(item)}
 					onPick={openRow}
 					triggerClass={`${TOKEN_TRIGGER_CLASS} ${editsColorClass}`}
 					widthClass="w-96"
@@ -308,7 +319,7 @@
 					{#snippet row(item)}
 						<RowIcon kind={item.deployKind} path={item.path} size={14} />
 						<span class="min-w-0 flex-1 truncate font-mono font-normal text-primary">
-							{item.displayPath}
+							{rowLabel(item)}
 						</span>
 						{#if badgeOf(item) === 'draft'}
 							<Badge small color="indigo">

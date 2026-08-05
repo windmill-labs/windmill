@@ -9,8 +9,9 @@ export function pipelineBundlePath(folder: string): string {
 	return `f/${folder}/${PIPELINE_DRAFT_KIND}`
 }
 
+const BUNDLE_PATH_RE = new RegExp(`^f/([^/]+)/${PIPELINE_DRAFT_KIND}$`)
+
 /** The folder a pipeline bundle belongs to, or `undefined` if the path isn't one. */
 export function pipelineFolderFromBundlePath(path: string): string | undefined {
-	const m = path.match(/^f\/([^/]+)\/data_pipeline$/)
-	return m ? m[1] : undefined
+	return path.match(BUNDLE_PATH_RE)?.[1]
 }
