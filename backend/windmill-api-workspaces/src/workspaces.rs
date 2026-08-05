@@ -7397,29 +7397,7 @@ async fn attach_dev_workspace(
     // Prod may be a root workspace or another dev workspace (a dev of a dev); a throwaway fork
     // can't host one.
     ensure_dev_parent_can_host_dev(&db, &prod_w_id).await?;
-    // Prod may be a dev workspace, so the candidate can sit ABOVE it in the tree — reparenting it
-    // below prod would close a parent<->child cycle and hang every hierarchy walk. Prod itself is at
-    // depth 0 of the chain, but `dev_w_id == prod_w_id` is already rejected above.
-    let would_cycle = sqlx::query_scalar!(
-        r#"WITH RECURSIVE chain AS (
-               SELECT id, parent_workspace_id, 0 AS depth FROM workspace WHERE id = $1
-               UNION ALL
-               SELECT w.id, w.parent_workspace_id, chain.depth + 1 FROM workspace w
-               JOIN chain ON w.id = chain.parent_workspace_id
-               WHERE chain.depth < 20
-           )
-           SELECT EXISTS(SELECT 1 FROM chain WHERE id = $2) AS "cycle!""#,
-        &prod_w_id,
-        &dev_w_id,
-    )
-    .fetch_one(&db)
-    .await?;
-    if would_cycle {
-        return Err(Error::BadRequest(format!(
-            "Workspace {} is an ancestor of {} and cannot become its dev workspace",
-            dev_w_id, prod_w_id
-        )));
-    }
+    reject_attach_cycle(&db, &prod_w_id, &dev_w_id).await?;
 
     // Label checks come after the shape checks: on a cyclic pairing the candidate is its own
     // ancestor, so the chain below would report a workspace as clashing with itself.
@@ -7462,6 +7440,7 @@ async fn attach_dev_workspace(
     // have changed under us: re-decide both here, under the pairing lock.
     lock_dev_pairing(&mut tx, &[&prod_w_id, &dev_w_id]).await?;
     ensure_dev_parent_can_host_dev(&mut *tx, &prod_w_id).await?;
+    reject_attach_cycle(&mut *tx, &prod_w_id, &dev_w_id).await?;
     ensure_no_existing_dev_workspace(&mut *tx, &prod_w_id).await?;
     reject_dev_label_taken_in_chain(
         &mut *tx,
@@ -9026,6 +9005,37 @@ async fn ensure_dev_parent_can_host_dev<'e, E: sqlx::Executor<'e, Database = Pos
     Ok(())
 }
 
+/// Prod may be a dev workspace, so the candidate can sit ABOVE it in the tree — reparenting it below
+/// prod would close a parent<->child cycle and hang every hierarchy walk. Prod itself is at depth 0
+/// of the chain, so callers must have rejected `dev_w_id == prod_w_id` first.
+async fn reject_attach_cycle<'e, E: sqlx::Executor<'e, Database = Postgres>>(
+    db: E,
+    prod_w_id: &str,
+    dev_w_id: &str,
+) -> Result<()> {
+    let would_cycle = sqlx::query_scalar!(
+        r#"WITH RECURSIVE chain AS (
+               SELECT id, parent_workspace_id, 0 AS depth FROM workspace WHERE id = $1
+               UNION ALL
+               SELECT w.id, w.parent_workspace_id, chain.depth + 1 FROM workspace w
+               JOIN chain ON w.id = chain.parent_workspace_id
+               WHERE chain.depth < 20
+           )
+           SELECT EXISTS(SELECT 1 FROM chain WHERE id = $2) AS "cycle!""#,
+        prod_w_id,
+        dev_w_id,
+    )
+    .fetch_one(db)
+    .await?;
+    if would_cycle {
+        return Err(Error::BadRequest(format!(
+            "Workspace {} is an ancestor of {} and cannot become its dev workspace",
+            dev_w_id, prod_w_id
+        )));
+    }
+    Ok(())
+}
+
 /// Serialize everything that makes or breaks a dev pairing: giving a workspace a dev workspace
 /// (create, attach) and clearing one's dev flag (detach, archive). Each decides on state the others
 /// mutate — whether a workspace already has a dev, still has one, or leaves a label free — so
@@ -9042,7 +9052,7 @@ async fn ensure_dev_parent_can_host_dev<'e, E: sqlx::Executor<'e, Database = Pos
 ///
 /// Recomputed inside the transaction, but from a set that may already be stale — harmless, because
 /// whoever made it stale is the operation holding the node this one is missing.
-async fn lock_dev_pairing(tx: &mut Transaction<'_, Postgres>, seeds: &[&str]) -> Result<()> {
+pub(crate) async fn lock_dev_pairing(tx: &mut Transaction<'_, Postgres>, seeds: &[&str]) -> Result<()> {
     let seeds: Vec<String> = seeds.iter().map(|s| s.to_string()).collect();
     // Depth bounds are the cycle-safety backstop used by every other hierarchy walk.
     let nodes = sqlx::query_scalar!(

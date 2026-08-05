@@ -239,7 +239,9 @@ async fn test_nested_attach_and_detach_cannot_both_commit(
 /// puts two `dev` workspaces in one chain, deploying to the same branch. Repeated for the same
 /// reason as the detach race above.
 #[sqlx::test(migrations = "../migrations", fixtures("base", "nested_dev_workspace"))]
-async fn test_adjacent_attaches_cannot_both_claim_a_label(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_adjacent_attaches_cannot_both_claim_a_label(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
@@ -362,7 +364,9 @@ async fn test_attaches_two_hops_apart_cannot_both_claim_a_label(
 /// obvious way to make the races above safe — one key for the whole operation class — would serialize
 /// dev-workspace creation database-wide, and creation holds its transaction across a full clone.
 #[sqlx::test(migrations = "../migrations", fixtures("base", "nested_dev_workspace"))]
-async fn test_pairing_lock_does_not_span_unrelated_families(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_pairing_lock_does_not_span_unrelated_families(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
@@ -375,6 +379,12 @@ async fn test_pairing_lock_does_not_span_unrelated_families(db: Pool<Postgres>) 
             .execute(&mut *held)
             .await?;
     }
+    // Also the un-suffixed key. Nothing takes it today, so holding it costs the passing case
+    // nothing — but a lock narrowed back to one key for every family would take it, and without
+    // this the test would sail through that exact regression.
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('dev_workspace_pairing'))")
+        .execute(&mut *held)
+        .await?;
 
     let (status, body) = tokio::time::timeout(
         std::time::Duration::from_secs(20),
@@ -382,7 +392,10 @@ async fn test_pairing_lock_does_not_span_unrelated_families(db: Pool<Postgres>) 
     )
     .await
     .map_err(|_| anyhow::anyhow!("an unrelated family's pairing blocked on family F's locks"))?;
-    assert!(status.is_success(), "unrelated detach returned {status}: {body}");
+    assert!(
+        status.is_success(),
+        "unrelated detach returned {status}: {body}"
+    );
 
     held.rollback().await?;
     Ok(())
