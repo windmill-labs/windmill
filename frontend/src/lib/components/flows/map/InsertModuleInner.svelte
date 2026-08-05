@@ -19,6 +19,9 @@
 		kind?: 'script' | 'trigger' | 'preprocessor' | 'failure'
 		allowTrigger?: boolean
 		toolMode?: boolean
+		/** Narrow layout (450px instead of 650px). Defaults on for the preprocessor
+		 *  and failure pickers; set it when the container cannot fit the wide one. */
+		small?: boolean
 	}
 
 	let {
@@ -27,7 +30,8 @@
 		disableAi = false,
 		kind = 'script',
 		allowTrigger = true,
-		toolMode = false
+		toolMode = false,
+		small: smallProp = undefined
 	}: Props = $props()
 
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
@@ -41,24 +45,23 @@
 		| 'aisandbox' = $state(untrack(() => kind))
 	let preFilter: 'all' | 'workspace' | 'hub' = $state('all')
 	let loading = $state(false)
-	let small = $derived(kind === 'preprocessor' || kind === 'failure')
+	let small = $derived(smallProp ?? (kind === 'preprocessor' || kind === 'failure'))
 
-	let width = $state(0)
 	let height = $state(0)
 	let owners = $state([])
-	let displayPath = $derived(width > 650 || height > 400)
+	// Only the content-sized host (TriggersWrapper) grows past this. The fixed-height hosts top out
+	// at 464px and must stay under the threshold, or every workspace row goes two-line in the step
+	// picker.
+	let displayPath = $derived(height > 480)
 </script>
 
 <div
 	id="flow-editor-insert-module"
-	class="flex flex-col h-full {small ? 'w-[450px]' : 'w-[650px]'} gap-2 {small
-		? 'min-w-[450px]'
-		: 'min-w-[650px]'}"
+	class="flex flex-col h-full gap-2 max-w-full {small ? 'w-[450px]' : 'w-[650px]'}"
 	onwheel={(e) => {
 		e.stopPropagation()
 	}}
 	role="none"
-	bind:clientWidth={width}
 	bind:clientHeight={height}
 >
 	<div class="flex flex-row items-center gap-2">
@@ -84,7 +87,7 @@
 
 	<div class="flex flex-row grow min-h-0 gap-2">
 		{#if kind === 'script'}
-			<div class="flex-none flex flex-col text-xs text-primary overflow-auto gap-1">
+			<div class="flex-none w-40 flex flex-col text-xs text-primary overflow-auto gap-1">
 				<TopLevelNode
 					label="Action"
 					selected={selectedKind === 'script'}
@@ -188,14 +191,14 @@
 						/>
 					{/if}
 					{#if customUi?.aiSandbox != false}
-					<TopLevelNode
-						label="AI Sandbox"
-						selected={selectedKind === 'aisandbox'}
-						onSelect={() => {
-							selectedKind = 'aisandbox'
-						}}
-					/>
-				{/if}
+						<TopLevelNode
+							label="AI Sandbox"
+							selected={selectedKind === 'aisandbox'}
+							onSelect={() => {
+								selectedKind = 'aisandbox'
+							}}
+						/>
+					{/if}
 				{/if}
 			</div>
 		{/if}

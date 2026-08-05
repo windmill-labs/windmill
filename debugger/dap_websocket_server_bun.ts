@@ -25,7 +25,7 @@ import { spawn, type Subprocess } from 'bun'
 import { mkdtemp, writeFile, unlink, rmdir, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { runtimeEnv } from './env_passthrough'
+import { sessionEnv } from './env_passthrough'
 
 // Types for V8 Inspector Protocol
 interface V8Message {
@@ -222,6 +222,8 @@ function generateMainCallArgs(code: string, args: Record<string, unknown>): stri
 // The debugger fetches the public key from the Windmill backend's JWKS endpoint
 const WINDMILL_BASE_URL = process.env.WINDMILL_BASE_URL || process.env.BASE_INTERNAL_URL // e.g., http://localhost:8000
 const REQUIRE_SIGNED_REQUESTS = process.env.REQUIRE_SIGNED_DEBUG_REQUESTS !== 'false'
+
+const PREPARE_DEPS_TIMEOUT_MS = 120_000
 
 // Opt-in cross-origin protection (CSWSH defense-in-depth); see
 // dap_debug_service.ts for the rationale. Only enforced for this file's
@@ -1580,6 +1582,20 @@ export class DebugSession {
 
 		logger.info(`Preparing dependencies using ${this.windmillPath}`)
 
+		// The launch response is only sent once this returns, so without progress a cold
+		// cache looks like a frozen debugger for as long as the install takes.
+		this.sendEvent('output', { category: 'console', output: 'Preparing dependencies...\n' })
+		let waited = 0
+		const progress = setInterval(() => {
+			waited += 5
+			this.sendEvent('output', {
+				category: 'console',
+				output: `Still preparing dependencies... (${waited}s)\n`
+			})
+		}, 5000)
+		let killTimer: ReturnType<typeof setTimeout> | undefined
+		let timedOut = false
+
 		try {
 			const input = JSON.stringify({ code, language }) + '\n'
 			logger.info(`prepare-deps input length: ${input.length}`)
@@ -1595,9 +1611,27 @@ export class DebugSession {
 				stderr: 'pipe'
 			})
 
+			// Bound the wait: the only other ceiling is the DAP client's launch timeout,
+			// which is minutes, so a wedged installer would hang the session that long.
+			killTimer = setTimeout(() => {
+				timedOut = true
+				logger.error(`prepare-deps timed out after ${PREPARE_DEPS_TIMEOUT_MS}ms`)
+				proc.kill()
+			}, PREPARE_DEPS_TIMEOUT_MS)
+
 			// Wait for completion
 			const output = await new Response(proc.stdout).text()
 			const stderr = await new Response(proc.stderr).text()
+
+			if (timedOut) {
+				const errorMsg = `prepare-deps timed out after ${PREPARE_DEPS_TIMEOUT_MS / 1000}s`
+				this.sendEvent('output', {
+					category: 'console',
+					output: `Warning: Failed to prepare dependencies: ${errorMsg}\n`
+				})
+				return null
+			}
+
 			logger.info(`prepare-deps output: ${output.substring(0, 200)}`)
 			logger.info(`prepare-deps stderr: ${stderr.substring(0, 200)}`)
 
@@ -1652,6 +1686,9 @@ export class DebugSession {
 				output: `Warning: Failed to prepare dependencies: ${error}\n`
 			})
 			return null
+		} finally {
+			clearInterval(progress)
+			clearTimeout(killTimer)
 		}
 	}
 
@@ -1711,7 +1748,7 @@ export class DebugSession {
 			// Proxy / TLS settings inherited from the container, before the client's env so an
 			// explicit override still wins. Package-index settings are deliberately absent: this
 			// runs user-supplied code and index URLs carry registry credentials.
-			...runtimeEnv(),
+			...sessionEnv(),
 			// Client-provided env vars (WM_WORKSPACE, WM_TOKEN, etc.)
 			// Note: WM_BASE_URL is already overridden by BASE_INTERNAL_URL if set
 			...this.envVars

@@ -75,44 +75,58 @@ Options:
 | `DAP_NSJAIL_PATH` | nsjail binary path | nsjail |
 | `DAP_NSJAIL_CONFIG` | nsjail config file path | - |
 
-The service does not inherit its whole environment into debug subprocesses. Beyond `PATH` and
-`HOME`, only the network configuration below is forwarded, so that debugged scripts and dependency
-installation (`windmill prepare-deps`, which runs `uv venv` / `uv pip install`) work behind a
-proxy, a custom CA, or a private package index.
+### Python dependency preparation
 
-Reaching the debugged script, matching what the worker gives a regular job:
+Before debugging a Python script, its imports are installed through `windmill prepare-deps`, which
+runs `uv` without a database connection. It cannot read the instance settings, so it takes its
+registry configuration from the environment of the debug service instead, and the Python server is
+handed the resulting venv with `--venv-path`. The install runs in the service rather than in the
+session because a private index URL usually embeds credentials and the Python server executes the
+debugged script inside its own interpreter, where anything it holds is readable by that script.
 
-- `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` (and their lowercase spellings)
-- `SSL_CERT_FILE`, `SSL_CERT_DIR`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `NODE_EXTRA_CA_CERTS`
+Set these on the debug service. Where two names are listed the first wins; a worker reads the
+`PIP_*` / `PY_*` names in the same way, except for the index URLs, whose worker env fallbacks are
+only `PIP_INDEX_URL` / `PIP_EXTRA_INDEX_URL` (the `PY_*` spellings are accepted here for symmetry
+with the other settings):
 
-Reaching `prepare-deps` only, since index URLs routinely embed registry credentials and a debug
-session runs user-supplied code:
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PY_INDEX_URL` / `PIP_INDEX_URL` | Package index (`--index-url`) | PyPI |
+| `PY_EXTRA_INDEX_URL` / `PIP_EXTRA_INDEX_URL` | Extra indexes, comma-separated (`--extra-index-url`) | - |
+| `PY_TRUSTED_HOST` / `PIP_TRUSTED_HOST` | Hosts to trust, whitespace-separated (`--trusted-host`) | - |
+| `PY_INDEX_CERT` / `PIP_INDEX_CERT` | CA bundle for the index, passed to uv as `SSL_CERT_FILE`. Falls back to `SSL_CERT_FILE`, then `REQUESTS_CA_BUNDLE`, then `CURL_CA_BUNDLE`, so a host that configures its CA under any of those names is picked up. `bun install` gets the same bundle as `NODE_EXTRA_CA_CERTS`, which is the only spelling Bun reads | - |
+| `PY_NATIVE_CERT` / `UV_NATIVE_TLS` | `true` to also trust the platform certificate store (`--native-tls`) | false |
+| `UV_INDEX_STRATEGY` | uv index strategy | unsafe-best-match |
+| `UV_HTTP_TIMEOUT` | uv HTTP request timeout, in seconds | uv's own default |
+| `DAP_PREPARE_DEPS_TIMEOUT_MS` | How long to wait for the install before starting the session without it | 120000 |
 
-- `PIP_INDEX_URL`, `PY_INDEX_URL`, `PIP_EXTRA_INDEX_URL`, `PY_EXTRA_INDEX_URL`, `PIP_INDEX_CERT`,
-  `PY_INDEX_CERT`, `PIP_TRUSTED_HOST`, `PY_TRUSTED_HOST`, `UV_NATIVE_TLS`, `PY_NATIVE_CERT`,
-  `UV_HTTP_TIMEOUT`
+When the install fails, the CLI answers `success: false` and carries the installer's stderr in both
+`error` and `install_stderr`; the service reports it to the client as an `output` event, so the
+reason (unreachable mirror, untrusted certificate, unknown package) reaches the user instead of a
+bare `ModuleNotFoundError` at the first import.
 
-Keeping that second set out of a debug runtime is why `dap_debug_service.ts` runs `prepare-deps`
-itself and passes the Python DAP server only the resulting venv (`--venv-path`). A secret held by
-an interpreter that also executes user code is readable from that code no matter where it is
-stashed, so the service, which never runs user code, is the only process that holds them.
+Proxy variables (`HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`, in either case) are forwarded from the
+service into each session, since the debugged script needs them for its own outbound calls, exactly
+as a job's script does on a worker. When a proxy is set without a bypass list, `NO_PROXY` defaults
+to `localhost,127.0.0.1` so calls to `BASE_INTERNAL_URL` are not proxied.
 
-`prepare-deps` translates these into the spellings uv and bun actually read (`UV_INDEX_URL`,
-`UV_EXTRA_INDEX_URL`, `UV_INSECURE_HOST`, `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`) before invoking
-them, since uv reads none of pip's variables. The index settings apply to Python only; a private
-npm registry for TypeScript sessions is not configurable here. `prepare-deps` runs without a
-database, so a `pip_index_url` set under instance settings is invisible to it: for the debugger,
-these have to be set in the container's environment.
+Trust roots are forwarded alongside them: `SSL_CERT_FILE`, `SSL_CERT_DIR`, `REQUESTS_CA_BUNDLE`,
+`CURL_CA_BUNDLE` and `NODE_EXTRA_CA_CERTS`. Behind a TLS-intercepting proxy these are what let the
+debugged script's own HTTPS calls verify, and installing the CA in the container's system store is
+not enough on its own, since `requests` carries its own bundle and Node reads only
+`NODE_EXTRA_CA_CERTS`. Registry settings are deliberately not forwarded: they carry credentials and
+only the service needs them.
 
-To install through a TLS-intercepting proxy, uv needs the proxy's CA by one of two routes:
+To install that CA into the container's system store in the first place, set `INIT_SCRIPT` on the
+`windmill_extra` container (e.g. `INIT_SCRIPT=update-ca-certificates`). It runs before any service
+starts and aborts startup if it fails, the same hook a worker offers.
 
-- Point `PY_INDEX_CERT`/`SSL_CERT_FILE` at a bundle containing it. This works on its own, but the
-  file *replaces* uv's roots rather than adding to them, so it must be a complete bundle and not
-  just the extra CA, or every public index becomes untrusted.
-- Or install the CA into the system trust store with the container's `INIT_SCRIPT` (e.g.
-  `INIT_SCRIPT=update-ca-certificates`) **and** set `PY_NATIVE_CERT`/`UV_NATIVE_TLS` to `true`. uv
-  verifies against its own bundled roots by default and reads the system store only when that is
-  set, so the `INIT_SCRIPT` alone is not enough.
+Keeping the settings out of the session's environment only bounds what the debugged script can read
+from itself. An unsandboxed session runs under the same user as the service and can still read the
+service's environment through `/proc`, the same way a job can read a worker's when the worker runs
+unsandboxed. Isolating sessions from the service takes `--nsjail --nsjail-config
+nsjail.debug.config.proto`: it is that config's PID namespace and `mount_proc` that put the service
+out of reach, not the flag on its own.
 
 ### Frontend Integration
 

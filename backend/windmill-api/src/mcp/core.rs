@@ -570,12 +570,24 @@ pub async fn setup_mcp_server(
     let backend = WindmillBackend::new(db, user_db, base_internal_url, auth_cache);
     let runner = Runner::new(backend);
 
-    let service_config = StreamableHttpServerConfig {
-        sse_keep_alive: Some(Duration::from_secs(15)),
-        stateful_mode: false,
-        cancellation_token: cancellation_token.clone(),
-        sse_retry: Some(Duration::from_secs(15)),
-    };
+    let service_config = StreamableHttpServerConfig::default()
+        .with_sse_keep_alive(Some(Duration::from_secs(15)))
+        .with_sse_retry(Some(Duration::from_secs(15)))
+        .with_cancellation_token(cancellation_token.clone())
+        // Sessionless: every request re-resolves auth from its own bearer token, so
+        // there is no session to bind. This also makes legacy `initialize` clients
+        // take the same stateless path as 2026-07-28 ones.
+        .with_legacy_session_mode(false)
+        // rmcp's Host allowlist defaults to localhost, which guards an unauthenticated
+        // locally-bound server against DNS rebinding. This endpoint instead sits behind
+        // Windmill's own authentication, and is reached under whatever hostname the
+        // instance is served on, so keeping that default would reject every remote MCP
+        // client while adding nothing.
+        .disable_allowed_hosts()
+        // MCP bodies are ordinary API payloads — `createApp`/`updateApp` carry whole app
+        // sources — so they follow the instance's request size limit rather than rmcp's
+        // much smaller default, which would 413 them with no way to raise it.
+        .with_max_request_body_bytes(*crate::REQUEST_SIZE_LIMIT.read().await);
 
     let service =
         StreamableHttpService::new(move || Ok(runner.clone()), session_manager, service_config);

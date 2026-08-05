@@ -190,21 +190,17 @@ pub fn create_tool_from_item<T: ToolableItem, B: McpBackend>(
         }
     };
 
-    Tool {
-        name: Cow::Owned(path),
-        description: Some(Cow::Owned(description)),
-        input_schema: Arc::new(input_schema_map),
-        title: Some(title.clone()),
-        output_schema: None,
-        icons: None,
-        annotations: Some(ToolAnnotations {
-            title: Some(title),
-            read_only_hint: Some(false),  // Can modify environment
-            destructive_hint: Some(true), // Can potentially be destructive
-            idempotent_hint: Some(false), // Are not guaranteed to be idempotent
-            open_world_hint: Some(true),  // Can interact with external services
-        }),
-        meta: None,
-        execution: None,
-    }
+    Tool::new(
+        Cow::Owned(path),
+        Cow::Owned(description),
+        Arc::new(input_schema_map),
+    )
+    .with_title(title.clone())
+    .with_annotations(
+        ToolAnnotations::with_title(title)
+            .read_only(false) // Can modify environment
+            .destructive(true) // Can potentially be destructive
+            .idempotent(false) // Are not guaranteed to be idempotent
+            .open_world(true), // Can interact with external services
+    )
 }

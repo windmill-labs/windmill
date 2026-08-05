@@ -29,7 +29,7 @@
 
 	import { allClasses } from './apps/editor/componentsPanel/cssUtils'
 
-	import { createEventDispatcher, onDestroy, onMount, untrack } from 'svelte'
+	import { createEventDispatcher, onDestroy, onMount, tick, untrack } from 'svelte'
 
 	import libStdContent from '$lib/es6.d.ts.txt?raw'
 	import domContent from '$lib/dom.d.ts.txt?raw'
@@ -458,8 +458,9 @@
 				updateCode()
 				shouldBindKey && format && format()
 				// See Editor.svelte — re-broadcast the swallowed shortcut for
-				// page-level draft-flush handlers.
-				window.dispatchEvent(new CustomEvent('wm-monaco-save-shortcut'))
+				// page-level draft-flush handlers, after `tick()` so they see
+				// the value `updateCode()` just materialized.
+				void tick().then(() => window.dispatchEvent(new CustomEvent('wm-monaco-save-shortcut')))
 			})
 
 			editor.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Digit7, function () {
@@ -490,8 +491,9 @@
 				updateCode()
 				shouldBindKey && format && format()
 				// See Editor.svelte — re-broadcast the swallowed shortcut for
-				// page-level draft-flush handlers.
-				window.dispatchEvent(new CustomEvent('wm-monaco-save-shortcut'))
+				// page-level draft-flush handlers, after `tick()` so they see
+				// the value `updateCode()` just materialized.
+				void tick().then(() => window.dispatchEvent(new CustomEvent('wm-monaco-save-shortcut')))
 			})
 
 			editor.addCommand(KeyMod.CtrlCmd | KeyCode.Enter, function () {
@@ -650,8 +652,12 @@
 
 	onDestroy(() => {
 		try {
-			valueAfterDispose = getCode()
+			// Same guards as Editor: only a pending keystroke debounce is ours to flush.
+			if (editor && changeTimeoutId !== undefined) {
+				updateCode()
+			}
 			cancelPendingChanges()
+			valueAfterDispose = getCode()
 			pasteListenerCleanup?.()
 			vimDisposable?.dispose()
 			model && model.dispose()

@@ -12,7 +12,11 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 
-use crate::{BUN_CACHE_DIR, BUN_PATH, HOME_ENV, PATH_ENV, PROXY_ENVS, UV_CACHE_DIR};
+use crate::worker::non_empty_env;
+use crate::{
+    BUN_CACHE_DIR, BUN_PATH, HOME_ENV, INDEX_CERT, NATIVE_CERT, PATH_ENV, PROXY_ENVS, TRUSTED_HOST,
+    UV_CACHE_DIR, UV_HTTP_TIMEOUT,
+};
 use windmill_common::worker::write_file;
 
 const LOADER_BUILDER_CONTENT: &str = include_str!("../loader_builder.bun.js");
@@ -88,57 +92,14 @@ lazy_static::lazy_static! {
     /// UV binary path
     static ref UV_PATH: String = std::env::var("UV_PATH").unwrap_or_else(|_| "/usr/local/bin/uv".to_string());
 
-    /// Trust store and package index the host is configured with, translated into the spellings uv
-    /// and bun actually read. The subprocesses below clear their environment, so anything absent
-    /// here is invisible to them: behind a MITM proxy or a private index, dependency preparation
-    /// fails with nothing a deployment can set to fix it. The variables read mirror the worker's
-    /// Python executor, which takes the same settings for regular jobs.
-    static ref NETWORK_ENVS: Vec<(&'static str, String)> = {
-        let mut envs = Vec::new();
-        // Neither `uv venv` nor `uv pip install` takes --cert (only `uv pip compile` does), so a
-        // custom CA can only reach the commands below as a trust store, and of the spellings a
-        // host may use they read only SSL_CERT_FILE/SSL_CERT_DIR. Collapse the rest into one
-        // value, most specific first, rather than forwarding them inertly.
-        if let Some(cert) = non_empty_var("PY_INDEX_CERT")
-            .or_else(|| non_empty_var("PIP_INDEX_CERT"))
-            .or_else(|| non_empty_var("SSL_CERT_FILE"))
-            .or_else(|| non_empty_var("REQUESTS_CA_BUNDLE"))
-            .or_else(|| non_empty_var("CURL_CA_BUNDLE"))
-        {
-            envs.push(("SSL_CERT_FILE", cert));
-        }
-        if let Some(dir) = non_empty_var("SSL_CERT_DIR") {
-            envs.push(("SSL_CERT_DIR", dir));
-        }
-        // `bun install` below runs with the same cleared environment, and Bun reads its own
-        // variable rather than any of the above.
-        if let Some(cert) = non_empty_var("NODE_EXTRA_CA_CERTS") {
-            envs.push(("NODE_EXTRA_CA_CERTS", cert));
-        }
-        if let Some(url) = non_empty_var("PY_INDEX_URL").or_else(|| non_empty_var("PIP_INDEX_URL")) {
-            envs.push(("UV_INDEX_URL", url));
-        }
-        if let Some(url) = non_empty_var("PY_EXTRA_INDEX_URL").or_else(|| non_empty_var("PIP_EXTRA_INDEX_URL")) {
-            // Windmill takes this list comma-separated; uv splits it on whitespace and would
-            // otherwise treat the whole thing as one malformed URL.
-            envs.push(("UV_EXTRA_INDEX_URL", url.split(',').collect::<Vec<_>>().join(" ")));
-        }
-        if let Some(host) = non_empty_var("PY_TRUSTED_HOST").or_else(|| non_empty_var("PIP_TRUSTED_HOST")) {
-            // Already whitespace-separated, which is what uv expects.
-            envs.push(("UV_INSECURE_HOST", host));
-        }
-        if non_empty_var("PY_NATIVE_CERT").or_else(|| non_empty_var("UV_NATIVE_TLS")).as_deref() == Some("true") {
-            envs.push(("UV_NATIVE_TLS", "true".to_string()));
-        }
-        if let Some(timeout) = non_empty_var("UV_HTTP_TIMEOUT") {
-            envs.push(("UV_HTTP_TIMEOUT", timeout));
-        }
-        envs
-    };
-}
-
-fn non_empty_var(key: &str) -> Option<String> {
-    std::env::var(key).ok().filter(|v| !v.is_empty())
+    /// This process has no database, so the `pip_index_url` / `pip_extra_index_url` instance
+    /// settings the job path resolves are unreachable here: their env-var equivalents are the
+    /// only registry configuration the debugger can see.
+    static ref PY_INDEX_URL: Option<String> = non_empty_env("PY_INDEX_URL").or_else(|| non_empty_env("PIP_INDEX_URL"));
+    static ref PY_EXTRA_INDEX_URL: Option<String> = non_empty_env("PY_EXTRA_INDEX_URL").or_else(|| non_empty_env("PIP_EXTRA_INDEX_URL"));
+    /// uv defaults to `first-index`; the job path overrides it so a package missing from the
+    /// first index is still resolved from the others. Same default here.
+    static ref PY_INDEX_STRATEGY: String = non_empty_env("UV_INDEX_STRATEGY").unwrap_or_else(|| "unsafe-best-match".to_string());
 }
 
 /// Simple loader that doesn't require Windmill API for relative imports
@@ -166,6 +127,11 @@ pub struct PrepareResponse {
     pub job_dir: String,
     pub success: bool,
     pub error: Option<String>,
+    /// Raw stderr of the dependency installer when it exited non-zero, so a caller can show the
+    /// registry/TLS failure verbatim instead of the bare ModuleNotFoundError that follows.
+    /// Omitted from the JSON when absent, so callers that only know `success`/`error` are unaffected.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub install_stderr: Option<String>,
 }
 
 /// Parse Python imports and return a list of package names that need to be installed.
@@ -209,11 +175,40 @@ fn get_proc_envs(cache_env: Option<(&str, &str)>) -> HashMap<String, String> {
         envs.insert(k.to_string(), v.clone());
     }
 
-    for (k, v) in NETWORK_ENVS.iter() {
-        envs.insert(k.to_string(), v.clone());
-    }
-
     envs
+}
+
+/// CA bundle for the package index, most specific spelling first. A host behind a TLS-intercepting
+/// proxy configures it under whichever name its other tooling uses, and the environment is cleared
+/// below, so falling back past `PY_INDEX_CERT` is what makes those hosts work at all.
+fn index_ca_bundle() -> Option<String> {
+    INDEX_CERT
+        .clone()
+        .or_else(|| non_empty_env("SSL_CERT_FILE"))
+        .or_else(|| non_empty_env("REQUESTS_CA_BUNDLE"))
+        .or_else(|| non_empty_env("CURL_CA_BUNDLE"))
+}
+
+/// uv registry arguments, mirroring what the job path passes in `python_executor`.
+fn uv_registry_args() -> Vec<String> {
+    let mut args: Vec<String> = vec![];
+    if let Some(urls) = PY_EXTRA_INDEX_URL.as_ref() {
+        for url in urls.split(',') {
+            args.extend(["--extra-index-url".to_string(), url.to_string()]);
+        }
+    }
+    if let Some(url) = PY_INDEX_URL.as_ref() {
+        args.extend(["--index-url".to_string(), url.to_string()]);
+    }
+    if let Some(hosts) = TRUSTED_HOST.as_ref() {
+        for host in hosts.split_whitespace() {
+            args.extend(["--trusted-host".to_string(), host.to_string()]);
+        }
+    }
+    if *NATIVE_CERT {
+        args.push("--native-tls".to_string());
+    }
+    args
 }
 
 /// Prepare Python dependencies using uv
@@ -228,6 +223,7 @@ async fn prepare_python_deps_standalone(code: &str) -> PrepareResponse {
             job_dir: String::new(),
             success: true,
             error: None,
+            install_stderr: None,
         };
     }
 
@@ -245,17 +241,37 @@ async fn prepare_python_deps_standalone(code: &str) -> PrepareResponse {
             job_dir: job_dir.clone(),
             success: false,
             error: Some(format!("Failed to create job directory: {}", e)),
+            install_stderr: None,
         };
     }
 
-    let common_uv_envs = get_proc_envs(Some(("UV_CACHE_DIR", &UV_CACHE_DIR)));
+    let mut common_uv_envs = get_proc_envs(Some(("UV_CACHE_DIR", &UV_CACHE_DIR)));
+    common_uv_envs.insert(
+        "UV_INDEX_STRATEGY".to_string(),
+        PY_INDEX_STRATEGY.to_string(),
+    );
+    if let Some(timeout) = UV_HTTP_TIMEOUT.as_ref() {
+        common_uv_envs.insert("UV_HTTP_TIMEOUT".to_string(), timeout.to_string());
+    }
+    if let Some(cert_path) = index_ca_bundle() {
+        // uv has no `--cert` on `venv`/`pip install` (astral-sh/uv#6715), so a custom CA bundle
+        // reaches it through SSL_CERT_FILE, as in the job path.
+        common_uv_envs.insert("SSL_CERT_FILE".to_string(), cert_path);
+    }
+
+    let registry_args = uv_registry_args();
 
     // Step 1: Create virtual environment using uv
+    // `--seed` resolves pip/setuptools from the index, so the venv also needs the registry
+    // arguments: on a network that only reaches a private mirror it fails without them.
+    let mut venv_args = vec!["venv".to_string(), venv_dir.clone(), "--seed".to_string()];
+    venv_args.extend(registry_args.iter().cloned());
+
     let output = Command::new(UV_PATH.as_str())
         .current_dir(&job_dir)
         .env_clear()
         .envs(common_uv_envs.clone())
-        .args(["venv", &venv_dir, "--seed"])
+        .args(&venv_args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
@@ -268,26 +284,33 @@ async fn prepare_python_deps_standalone(code: &str) -> PrepareResponse {
             job_dir: job_dir.clone(),
             success: false,
             error: Some(format!("Failed to create venv: {}", e)),
+            install_stderr: None,
         };
     }
 
     let out = output.unwrap();
     if !out.status.success() {
-        let stderr = String::from_utf8_lossy(&out.stderr);
+        let stderr = String::from_utf8_lossy(&out.stderr).to_string();
         return PrepareResponse {
             node_modules_path: None,
             venv_path: None,
             job_dir: job_dir.clone(),
             success: false,
             error: Some(format!("uv venv failed: {}", stderr)),
+            install_stderr: Some(stderr),
         };
     }
 
     // Step 2: Install packages using uv pip install
     let python_path = format!("{}/bin/python", venv_dir);
-    let mut args = vec!["pip", "install", "--python", &python_path];
-    let package_refs: Vec<&str> = packages.iter().map(|s| s.as_str()).collect();
-    args.extend(package_refs.iter());
+    let mut args = vec![
+        "pip".to_string(),
+        "install".to_string(),
+        "--python".to_string(),
+        python_path,
+    ];
+    args.extend(packages.iter().cloned());
+    args.extend(registry_args);
 
     let output = Command::new(UV_PATH.as_str())
         .current_dir(&job_dir)
@@ -302,11 +325,19 @@ async fn prepare_python_deps_standalone(code: &str) -> PrepareResponse {
     match output {
         Ok(out) => {
             if !out.status.success() {
-                let stderr = String::from_utf8_lossy(&out.stderr);
-                // Installation might fail for some packages (e.g., wrong package name)
-                // Log the error but continue - the script might still work if the
-                // package is actually installed elsewhere or the import is optional
-                tracing::warn!("uv pip install warning: {}", stderr);
+                // uv installs the whole set atomically, so a failure here means an empty venv:
+                // returning success would leave the caller with a bare ModuleNotFoundError and
+                // no way to see the registry/TLS/package-name error that caused it.
+                let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+                tracing::warn!("uv pip install failed: {}", stderr);
+                return PrepareResponse {
+                    node_modules_path: None,
+                    venv_path: None,
+                    job_dir: job_dir.clone(),
+                    success: false,
+                    error: Some(format!("uv pip install failed: {}", stderr)),
+                    install_stderr: Some(stderr),
+                };
             }
         }
         Err(e) => {
@@ -316,6 +347,7 @@ async fn prepare_python_deps_standalone(code: &str) -> PrepareResponse {
                 job_dir: job_dir.clone(),
                 success: false,
                 error: Some(format!("Failed to run uv pip install: {}", e)),
+                install_stderr: None,
             };
         }
     }
@@ -348,12 +380,18 @@ async fn prepare_python_deps_standalone(code: &str) -> PrepareResponse {
         job_dir,
         success: true,
         error: None,
+        install_stderr: None,
     }
 }
 
 /// Get common environment variables for Bun processes
 pub fn get_simple_bun_proc_envs() -> HashMap<String, String> {
-    get_proc_envs(Some(("BUN_INSTALL_CACHE_DIR", &BUN_CACHE_DIR)))
+    let mut envs = get_proc_envs(Some(("BUN_INSTALL_CACHE_DIR", &BUN_CACHE_DIR)));
+    // Bun reads none of the spellings uv does, so a custom CA reaches `bun install` only here.
+    if let Some(cert_path) = non_empty_env("NODE_EXTRA_CA_CERTS").or_else(index_ca_bundle) {
+        envs.insert("NODE_EXTRA_CA_CERTS".to_string(), cert_path);
+    }
+    envs
 }
 
 /// Prepare dependencies for a script without requiring database access.
@@ -377,6 +415,7 @@ pub async fn prepare_deps_standalone(code: &str, language: &str) -> PrepareRespo
                     "Unsupported language for dependency preparation: {}",
                     language
                 )),
+                install_stderr: None,
             };
         }
     }
@@ -392,6 +431,7 @@ pub async fn prepare_deps_standalone(code: &str, language: &str) -> PrepareRespo
             job_dir: job_dir.clone(),
             success: false,
             error: Some(format!("Failed to create job directory: {}", e)),
+            install_stderr: None,
         };
     }
 
@@ -403,6 +443,7 @@ pub async fn prepare_deps_standalone(code: &str, language: &str) -> PrepareRespo
             job_dir: job_dir.clone(),
             success: false,
             error: Some(format!("Failed to write main.ts: {}", e)),
+            install_stderr: None,
         };
     }
 
@@ -422,6 +463,7 @@ pub async fn prepare_deps_standalone(code: &str, language: &str) -> PrepareRespo
             job_dir: job_dir.clone(),
             success: false,
             error: Some(format!("Failed to write build.js: {}", e)),
+            install_stderr: None,
         };
     }
 
@@ -454,6 +496,7 @@ pub async fn prepare_deps_standalone(code: &str, language: &str) -> PrepareRespo
                             job_dir: job_dir.clone(),
                             success: false,
                             error: Some(format!("Failed to write empty package.json: {}", e)),
+                            install_stderr: None,
                         };
                     }
                 }
@@ -467,6 +510,7 @@ pub async fn prepare_deps_standalone(code: &str, language: &str) -> PrepareRespo
                 job_dir: job_dir.clone(),
                 success: false,
                 error: Some(format!("Failed to run build.js: {}", e)),
+                install_stderr: None,
             };
         }
     }
@@ -483,6 +527,7 @@ pub async fn prepare_deps_standalone(code: &str, language: &str) -> PrepareRespo
                 job_dir: job_dir.clone(),
                 success: true,
                 error: None,
+                install_stderr: None,
             };
         }
     };
@@ -497,6 +542,7 @@ pub async fn prepare_deps_standalone(code: &str, language: &str) -> PrepareRespo
                 job_dir: job_dir.clone(),
                 success: false,
                 error: Some(format!("Failed to parse package.json: {}", e)),
+                install_stderr: None,
             };
         }
     };
@@ -510,6 +556,7 @@ pub async fn prepare_deps_standalone(code: &str, language: &str) -> PrepareRespo
             job_dir: job_dir.clone(),
             success: true,
             error: None,
+            install_stderr: None,
         };
     }
 
@@ -527,13 +574,14 @@ pub async fn prepare_deps_standalone(code: &str, language: &str) -> PrepareRespo
     match output {
         Ok(out) => {
             if !out.status.success() {
-                let stderr = String::from_utf8_lossy(&out.stderr);
+                let stderr = String::from_utf8_lossy(&out.stderr).to_string();
                 return PrepareResponse {
                     node_modules_path: None,
                     venv_path: None,
                     job_dir: job_dir.clone(),
                     success: false,
                     error: Some(format!("bun install failed: {}", stderr)),
+                    install_stderr: Some(stderr),
                 };
             }
         }
@@ -544,6 +592,7 @@ pub async fn prepare_deps_standalone(code: &str, language: &str) -> PrepareRespo
                 job_dir: job_dir.clone(),
                 success: false,
                 error: Some(format!("Failed to run bun install: {}", e)),
+                install_stderr: None,
             };
         }
     }
@@ -556,6 +605,7 @@ pub async fn prepare_deps_standalone(code: &str, language: &str) -> PrepareRespo
             job_dir,
             success: true,
             error: None,
+            install_stderr: None,
         }
     } else {
         PrepareResponse {
@@ -564,6 +614,7 @@ pub async fn prepare_deps_standalone(code: &str, language: &str) -> PrepareRespo
             job_dir,
             success: true,
             error: None,
+            install_stderr: None,
         }
     }
 }
@@ -587,6 +638,7 @@ pub async fn run_prepare_deps_cli() -> anyhow::Result<()> {
                     job_dir: String::new(),
                     success: false,
                     error: Some(format!("Failed to read stdin: {}", e)),
+                    install_stderr: None,
                 };
                 println!("{}", serde_json::to_string(&response)?);
                 return Ok(());
@@ -606,6 +658,7 @@ pub async fn run_prepare_deps_cli() -> anyhow::Result<()> {
                     "Failed to parse JSON input: {}. Expected {{\"code\": \"...\", \"language\": \"bun\" or \"python3\"}}",
                     e
                 )),
+                install_stderr: None,
             };
             println!("{}", serde_json::to_string(&response)?);
             return Ok(());
@@ -616,4 +669,44 @@ pub async fn run_prepare_deps_cli() -> anyhow::Result<()> {
     println!("{}", serde_json::to_string(&response)?);
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PrepareResponse;
+
+    /// The debugger (`debugger/dap_websocket_server.py`) parses this JSON out of the CLI's
+    /// stdout, so `install_stderr` has to stay additive: a response without an install failure
+    /// must serialize to the shape callers already know.
+    #[test]
+    fn test_install_stderr_is_additive() {
+        let ok = PrepareResponse {
+            node_modules_path: None,
+            venv_path: Some("/tmp/windmill-deps/x/venv".to_string()),
+            job_dir: "/tmp/windmill-deps/x".to_string(),
+            success: true,
+            error: None,
+            install_stderr: None,
+        };
+        assert_eq!(
+            serde_json::to_value(&ok).unwrap(),
+            serde_json::json!({
+                "node_modules_path": null,
+                "venv_path": "/tmp/windmill-deps/x/venv",
+                "job_dir": "/tmp/windmill-deps/x",
+                "success": true,
+                "error": null,
+            })
+        );
+
+        let failed = PrepareResponse {
+            install_stderr: Some("error: no such package".to_string()),
+            success: false,
+            error: Some("uv pip install failed: error: no such package".to_string()),
+            ..ok
+        };
+        let failed = serde_json::to_value(&failed).unwrap();
+        assert_eq!(failed["install_stderr"], "error: no such package");
+        assert_eq!(failed["success"], false);
+    }
 }

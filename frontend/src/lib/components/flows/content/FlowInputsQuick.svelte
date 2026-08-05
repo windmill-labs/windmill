@@ -200,12 +200,7 @@
 
 	let scrollable: HTMLElement | undefined = $state()
 	function onKeyDown(e: KeyboardEvent) {
-		let length =
-			topLevelNodes?.length +
-			inlineScripts.length +
-			aiLength +
-			filteredWorkspaceItems.length +
-			hubCompletions.length
+		let length = hubOffset + (hubCompletions?.length ?? 0)
 		if (e.key === 'ArrowDown') {
 			selectedByKeyboard = (selectedByKeyboard + 1) % length
 			scrollable?.scrollTo({ top: selectedByKeyboard * 32, behavior: 'smooth' })
@@ -215,6 +210,13 @@
 			scrollable?.scrollTo({ top: selectedByKeyboard * 32, behavior: 'smooth' })
 			e.preventDefault()
 		}
+	}
+
+	// Mouse and keyboard share this one index, so rows report hover on mousemove rather than
+	// mouseenter: arrow keys scroll the list, which slides a row under a stationary cursor and
+	// fires mouseenter, which would otherwise hijack the selection mid-navigation.
+	function hover(index: number) {
+		selectedByKeyboard = index
 	}
 
 	onMount(() => {
@@ -247,9 +249,48 @@
 		preFilter
 		untrack(() => onPrefilterChange(preFilter))
 	})
-	let aiLength = $derived(
-		funcDesc?.length > 0 && !disableAi && selectedKind != 'flow' && preFilter == 'all' ? 2 : 0
+	// Gates the two AI rows and their slots in the index space; both must agree or arrow keys land
+	// on indices that render nothing.
+	let showAiRows = $derived(
+		!disableAi &&
+			funcDesc?.length > 0 &&
+			kind != 'failure' &&
+			kind != 'preprocessor' &&
+			(selectedKind == 'script' || selectedKind == 'trigger') &&
+			preFilter == 'all'
 	)
+	let aiLength = $derived(showAiRows ? 2 : 0)
+
+	// Must match the heading and label rendered for the AI Sandbox section
+	const aiSandboxHeading = 'AI Sandbox'
+	const aiSandboxLabel = 'Claude Code'
+	let matchesAiSandbox = $derived.by(() => {
+		const query = funcDesc?.trim().toLowerCase() ?? ''
+		if (query.length == 0) {
+			return true
+		}
+		return [aiSandboxHeading, aiSandboxLabel].some((term) => {
+			const lowered = term.toLowerCase()
+			return lowered.startsWith(query) || lowered.split(' ').some((w) => w.startsWith(query))
+		})
+	})
+	// Gates the AI Sandbox row and its slot in the index space; both must agree or arrow keys land
+	// on an index that renders nothing.
+	let showAiSandbox = $derived(
+		selectedKind === 'script' &&
+			preFilter === 'all' &&
+			!selected &&
+			customUi?.aiSandbox != false &&
+			matchesAiSandbox
+	)
+
+	// Every result row lives in one keyboard index space, and hovering a row moves that index, so
+	// mouse and keyboard can never highlight two different rows. Offsets follow the render order.
+	let inlineOffset = $derived(topLevelNodes.length)
+	let aiOffset = $derived(inlineOffset + (inlineScripts?.length ?? 0))
+	let workspaceOffset = $derived(aiOffset + aiLength)
+	let aiSandboxOffset = $derived(workspaceOffset + (filteredWorkspaceItems?.length ?? 0))
+	let hubOffset = $derived(aiSandboxOffset + (showAiSandbox ? 1 : 0))
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -281,8 +322,9 @@
 										icon: owner.startsWith('f/') ? Folder : User,
 										props: { width: 14, height: 14 }
 									}}
+									title={owner.slice(2)}
 								>
-									{owner.slice(2)}
+									<span class="truncate">{owner.slice(2)}</span>
 								</Button>
 							</div>
 						{/each}
@@ -355,6 +397,7 @@
 					}}
 					{label}
 					selected={selectedByKeyboard === i}
+					onHover={() => hover(i)}
 				/>
 			{/each}
 		{/if}
@@ -395,7 +438,8 @@
 			{#each inlineScripts as [label, lang], i (lang)}
 				<FlowScriptPickerQuick
 					eeRestricted={!$enterpriseLicense && enterpriseLangs.includes(lang)}
-					selected={selectedByKeyboard === i + topLevelNodes.length}
+					selected={selectedByKeyboard === i + inlineOffset}
+					onHover={() => hover(i + inlineOffset)}
 					{enterpriseLangs}
 					{label}
 					lang={lang == 'docker' ? 'bash' : lang}
@@ -419,13 +463,14 @@
 			{/each}
 		{/if}
 
-		{#if !disableAi && funcDesc?.length > 0 && kind != 'failure' && kind != 'preprocessor' && (selectedKind == 'script' || selectedKind == 'trigger') && preFilter == 'all'}
+		{#if showAiRows}
 			<ul class="transition-all">
 				<li
 					><GenAiQuick
 						{funcDesc}
 						lang="TypeScript"
-						selected={selectedByKeyboard === inlineScripts?.length + topLevelNodes.length}
+						selected={selectedByKeyboard === aiOffset}
+						onHover={() => hover(aiOffset)}
 						on:click={() => {
 							lang = 'bun'
 							onGenerate()
@@ -436,7 +481,8 @@
 					<GenAiQuick
 						{funcDesc}
 						lang="Python"
-						selected={selectedByKeyboard === inlineScripts?.length + topLevelNodes.length + 1}
+						selected={selectedByKeyboard === aiOffset + 1}
+						onHover={() => hover(aiOffset + 1)}
 						on:click={() => {
 							lang = 'python3'
 							onGenerate()
@@ -463,22 +509,24 @@
 					bind:filteredWithOwner={filteredWorkspaceItems}
 					{filter}
 					kind={selectedKind}
-					selected={selectedByKeyboard - inlineScripts?.length - aiLength - topLevelNodes.length}
+					selected={selectedByKeyboard - workspaceOffset}
 					on:pickScript
 					on:pickFlow
 					{displayPath}
 					{refreshCount}
+					onHover={(i) => hover(workspaceOffset + i)}
 				/>
 			{/await}
 			<div class="pb-1"></div>
 		{/if}
-		{#if selectedKind === 'script' && preFilter === 'all' && !selected && customUi?.aiSandbox != false}
-			<div class="pb-0 text-2xs font-normal text-secondary ml-2">AI Sandbox</div>
+		{#if showAiSandbox}
+			<div class="pb-0 text-2xs font-normal text-secondary ml-2">{aiSandboxHeading}</div>
 			<FlowScriptPickerQuick
 				eeRestricted={false}
-				selected={false}
+				selected={selectedByKeyboard === aiSandboxOffset}
+				onHover={() => hover(aiSandboxOffset)}
 				enterpriseLangs={[]}
-				label="Claude Code"
+				label={aiSandboxLabel}
 				lang="claudesandbox"
 				on:click={() => {
 					dispatch('new', {
@@ -511,15 +559,12 @@
 						}
 						appFilter={selected?.name}
 						kind={selectedKind}
-						selected={selectedByKeyboard -
-							inlineScripts?.length -
-							aiLength -
-							filteredWorkspaceItems?.length -
-							topLevelNodes.length}
+						selected={selectedByKeyboard - hubOffset}
 						on:pickScript
 						bind:loading
 						{displayPath}
 						{refreshCount}
+						onHover={(i) => hover(hubOffset + i)}
 					/>
 				{/await}
 			{/if}

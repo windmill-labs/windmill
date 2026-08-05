@@ -719,7 +719,8 @@
 							onkeydown: () => (ignoreValueUndefined = true),
 							placeholder: placeholder ?? defaultValue ?? '',
 							min: extra['min'],
-							max: extra['max']
+							max: extra['max'],
+							step: extra['step']
 						}}
 						{error}
 						bind:value

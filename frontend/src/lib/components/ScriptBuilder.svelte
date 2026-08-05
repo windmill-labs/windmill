@@ -108,7 +108,7 @@
 	import WorkerTagSelect from './WorkerTagSelect.svelte'
 	import type { ButtonType } from './common/button/model'
 	import DebounceLimit from './flows/DebounceLimit.svelte'
-	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
+	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
 	import OnBehalfOfSelector, { type OnBehalfOfChoice } from './OnBehalfOfSelector.svelte'
 	import WacExportDrawer from './scripts/WacExportDrawer.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
@@ -866,7 +866,7 @@
 												{
 													label: editInForkLabel(opWorkspace, $userWorkspaces),
 													onClick: () => {
-														window.open(buildForkEditUrl('script', initialPath))
+														openEditInFork('script', initialPath, opWorkspace)
 													}
 												}
 											]
@@ -918,15 +918,25 @@
 	}
 
 	function onKeyDown(event: KeyboardEvent) {
-		switch (event.key) {
+		// Lowercased so Caps Lock (which yields `S`) still saves. Shift excluded:
+		// Ctrl+Shift+S must reach the browser/OS.
+		switch (event.key.length === 1 ? event.key.toLowerCase() : event.key) {
 			case 's':
-				if (event.ctrlKey || event.metaKey) {
+				if ((event.ctrlKey || event.metaKey) && !event.shiftKey) {
 					saveDraft()
 					event.preventDefault()
 				}
 				break
 		}
 	}
+
+	// Monaco swallows the keydown, so a code editor with focus never reaches the
+	// window handler above; Editor/SimpleEditor/TemplateEditor re-broadcast it
+	// (untyped event, hence the manual listener).
+	$effect(() => {
+		window.addEventListener('wm-monaco-save-shortcut', saveDraft)
+		return () => window.removeEventListener('wm-monaco-save-shortcut', saveDraft)
+	})
 
 	let path: Path | undefined = $state(undefined)
 	// Seed "path is already chosen" so the summary→path auto-slug (which only
@@ -1445,7 +1455,7 @@
 									<!-- Not for dbt: each kind tags a script for a role in a flow that a project
 										     bundle cannot fill (approval, trigger, preprocessor), and the runtime only
 										     ever runs it as an action. -->
-										{#if customUi?.settingsPanel?.metadata?.disableScriptKind !== true && !isDbt}
+									{#if customUi?.settingsPanel?.metadata?.disableScriptKind !== true && !isDbt}
 										<Section label="Script kind">
 											{#snippet header()}
 												<Tooltip
@@ -1904,8 +1914,7 @@
 																// Keep the saved pair. A script that has no recorded principal yet
 																// sends the email alone and the backend derives one from it.
 																script.on_behalf_of_email = originalOnBehalfOfEmail
-																script.on_behalf_of =
-																	originalOnBehalfOfPermissionedAs
+																script.on_behalf_of = originalOnBehalfOfPermissionedAs
 																customOnBehalfOfEmail = ''
 																preserveOnBehalfOf = true
 															} else if (choice === 'custom' && details) {

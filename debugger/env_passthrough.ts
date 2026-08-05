@@ -1,25 +1,24 @@
 /**
- * Container-level network configuration forwarded to the processes the debugger spawns.
+ * Container network configuration forwarded to a debug session, matching what a worker gives a
+ * job's script. The session environment is built from an allowlist rather than inherited, so an
+ * outbound proxy or a private CA is unreachable from a session unless these are passed
+ * explicitly. Registry settings are deliberately absent: they carry credentials and are consumed
+ * by the service itself (see PythonDebugSession.prepareDependencies).
  *
- * Debug subprocesses get an allowlisted environment rather than the service's own, but nothing
- * reaches the network behind a corporate proxy, a MITM CA or a private package index unless these
- * are handed down, and the service environment is the only channel a deployment can set them
- * through.
- *
- * The split mirrors what the worker gives regular jobs: proxy settings and TLS trust roots reach
- * the debugged script, package-index settings do not. Index URLs routinely embed registry
- * credentials, and debug sessions run user-supplied code, so those are routed to the dependency
- * installer alone.
+ * Lives in its own module because both session kinds build their own environment, and
+ * dap_debug_service.ts already imports from dap_websocket_server_bun.ts.
  */
-export const RUNTIME_ENV_VARS = [
-	// Proxy
+export const SESSION_ENV_VARS = [
 	'HTTP_PROXY',
 	'HTTPS_PROXY',
 	'NO_PROXY',
+	// The lowercase spellings take precedence in the worker, so forward both.
 	'http_proxy',
 	'https_proxy',
 	'no_proxy',
-	// TLS trust roots (custom/MITM CAs)
+	// Trust roots for a TLS-intercepting proxy. Installing the CA in the container's system
+	// store is not enough on its own: requests carries its own bundle and Node reads only
+	// NODE_EXTRA_CA_CERTS, so a debugged script's own HTTPS calls fail without these.
 	'SSL_CERT_FILE',
 	'SSL_CERT_DIR',
 	'REQUESTS_CA_BUNDLE',
@@ -27,48 +26,18 @@ export const RUNTIME_ENV_VARS = [
 	'NODE_EXTRA_CA_CERTS'
 ]
 
-/**
- * Read by `windmill prepare-deps` only. These must never be added to the list above: index URLs
- * routinely embed registry credentials, and a debug runtime executes user-supplied code, which can
- * read anything its process holds. `prepare-deps` is spawned from the service process, which never
- * runs user code and so already has them from the container.
- */
-export const INSTALLER_ENV_VARS = [
-	'PIP_INDEX_URL',
-	'PY_INDEX_URL',
-	'PIP_EXTRA_INDEX_URL',
-	'PY_EXTRA_INDEX_URL',
-	'PIP_INDEX_CERT',
-	'PY_INDEX_CERT',
-	'PIP_TRUSTED_HOST',
-	'PY_TRUSTED_HOST',
-	'UV_NATIVE_TLS',
-	'PY_NATIVE_CERT',
-	'UV_HTTP_TIMEOUT'
-]
-
-function collect(keys: string[]): Record<string, string> {
+export function sessionEnv(): Record<string, string> {
 	const env: Record<string, string> = {}
-	for (const key of keys) {
+	for (const key of SESSION_ENV_VARS) {
 		const value = process.env[key]
-		// An unset var and an empty one are equivalent here, and forwarding "" would shadow a
-		// default the child would otherwise pick up.
-		if (value !== undefined && value !== '') {
+		if (value) {
 			env[key] = value
 		}
 	}
+	// A proxy without a bypass list would send the script's calls to BASE_INTERNAL_URL through it;
+	// the worker defaults the same way (PROXY_ENVS in windmill-worker).
+	if (!env.NO_PROXY && !env.no_proxy && (env.HTTP_PROXY || env.http_proxy || env.HTTPS_PROXY || env.https_proxy)) {
+		env.NO_PROXY = 'localhost,127.0.0.1'
+	}
 	return env
-}
-
-/** Safe to expose to debugged user code. */
-export function runtimeEnv(): Record<string, string> {
-	return collect(RUNTIME_ENV_VARS)
-}
-
-/**
- * The extra settings only the dependency installer may see. Spread over a spawn that already
- * carries {@link runtimeEnv}, and only for a process that never executes user code.
- */
-export function installerEnv(): Record<string, string> {
-	return collect(INSTALLER_ENV_VARS)
 }

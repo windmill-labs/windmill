@@ -364,7 +364,7 @@
 			</Alert>
 		</div>
 	{/if}
-	<FlowCard {noEditor} noHeader>
+	<FlowCard {noEditor} title="Triggers">
 		<Splitpanes horizontal>
 			<Pane>
 				<div class="flex flex-row h-full" bind:clientWidth={leftPaneWidth}>
