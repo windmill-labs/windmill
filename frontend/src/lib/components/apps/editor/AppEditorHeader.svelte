@@ -492,7 +492,9 @@
 				}
 				break
 			case 's':
-				if (event.ctrlKey || event.metaKey) {
+				// Shift excluded: the switch lowercases so Ctrl+Shift+S lands here
+				// too, and swallowing it would steal the browser/OS shortcut.
+				if ((event.ctrlKey || event.metaKey) && !event.shiftKey) {
 					event.preventDefault()
 					// Flush the pending autosave (also covers the toggle-off parked
 					// case); no-op in the AI session pane (no handle there).
