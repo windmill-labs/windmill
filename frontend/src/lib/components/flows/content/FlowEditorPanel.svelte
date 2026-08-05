@@ -2,6 +2,7 @@
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import FlowModuleWrapper from './FlowModuleWrapper.svelte'
+	import { moduleSlot, savedModuleById } from '../moduleSlot'
 	import FlowSettings from './FlowSettings.svelte'
 	import FlowInput from './FlowInput.svelte'
 	import FlowFailureModule from './FlowFailureModule.svelte'
@@ -124,7 +125,7 @@
 		{noEditor}
 		disabled={disabledFlowInputs}
 		on:openTriggers={(ev) => {
-			selectionManager.selectId('Trigger')
+			selectionManager.selectId('Trigger', { openPanel: true })
 			handleSelectTriggerFromKind(triggersState, triggersCount, savedFlow?.path, ev.detail.kind)
 			showCaptureHint.set(true)
 		}}
@@ -188,12 +189,13 @@
 	{:else}
 		{#key selectedId}
 			{#each flowStore.val.value.modules as flowModule, index (flowModule.id ?? index)}
+				{@const slot = moduleSlot(() => flowStore.val.value.modules, flowModule.id, flowModule)}
 				<FlowModuleWrapper
 					{noEditor}
-					bind:flowModule={flowStore.val.value.modules[index]}
+					bind:flowModule={slot.get, slot.set}
 					previousModule={flowStore.val.value.modules[index - 1]}
 					{enableAi}
-					savedModule={savedFlow?.value.modules[index]}
+					savedModule={savedModuleById(savedFlow?.value.modules, flowModule.id)}
 					{forceTestTab}
 					{highlightArg}
 				/>

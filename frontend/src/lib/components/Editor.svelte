@@ -1971,7 +1971,13 @@
 	})
 
 	onDestroy(() => {
-		console.log('destroying editor')
+		// Flush a pending keystroke debounce, or unmounting discards the last
+		// `changeTimeout` ms of typing. Both guards are load-bearing: without a pending
+		// timer Monaco isn't the newer side (an external write may be), and before init
+		// `getCode()` is '' — flushing either case overwrites real content.
+		if (editor && timeoutModel !== undefined) {
+			updateCode()
+		}
 		valueAfterDispose = getCode()
 		pasteCleanup?.()
 		destroyed = true

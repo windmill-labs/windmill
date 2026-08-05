@@ -1,12 +1,17 @@
 <script lang="ts">
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import Disposable from '$lib/components/common/drawer/Disposable.svelte'
 	import FlowEditorPanel from './content/FlowEditorPanel.svelte'
 	import FlowModuleSchemaMap from './map/FlowModuleSchemaMap.svelte'
 	import type { OpenInSessionSource } from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import WindmillIcon from '../icons/WindmillIcon.svelte'
 	import { Skeleton } from '../common'
-	import { getContext, onDestroy, onMount, setContext } from 'svelte'
-	import type { FlowEditorContext } from './types'
+	import { getContext, onDestroy, onMount, setContext, untrack } from 'svelte'
+	import type { FlowEditorContext, FlowPanelDetachContext } from './types'
+	import { getOverlayHost } from '$lib/components/common/overlayHost.svelte'
+	import Portal from '$lib/components/Portal.svelte'
+	import { isFlowLevelPanelTarget } from '$lib/components/graph/selectionUtils.svelte'
+	import { useFlowPanelMode } from './flowPanelMode.svelte'
 
 	import { writable } from 'svelte/store'
 	import type { PropPickerContext, FlowPropPickerConfig } from '$lib/components/prop_picker'
@@ -26,7 +31,10 @@
 	import type { FlowOptions } from '../copilot/chat/ContextManager.svelte'
 	import { extractAllModules } from '../copilot/chat/shared'
 	import type { Snippet } from 'svelte'
-	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	import { Button } from '../common'
+	import { MousePointerClick, X } from 'lucide-svelte'
+	import FlowPanelPlacementPicker from './common/FlowPanelPlacementPicker.svelte'
+	const { flowStore, selectionManager } = getContext<FlowEditorContext>('FlowEditorContext')
 	const sessionScopedManager = getContext<AIChatManager>('aiChatManager')
 	const aiChatManager = sessionScopedManager ?? singletonAiChatManager
 
@@ -69,6 +77,9 @@
 		flowHasChanged?: boolean
 		previewOpen: boolean
 		graphOverlay?: Snippet
+		/** Allow the step-details pane to open as a modal. Whitelabel embeds turn this off
+		 *  to keep the classic always-docked pane. */
+		modalPanel?: boolean
 	}
 
 	let {
@@ -105,10 +116,83 @@
 		onDelete,
 		flowHasChanged,
 		previewOpen,
-		graphOverlay
+		graphOverlay,
+		modalPanel = true
 	}: Props = $props()
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
+
+	// 'docked' = normal split pane; 'modal' = graph full-width, panel in a modal opened by
+	// double-clicking a node. The controller resolves it from the user's Auto/Attached/
+	// Detached preference and the width measured below.
+	const panelController = useFlowPanelMode({ enabled: () => modalPanel })
+	const panelMode = $derived(panelController.mode)
+	let panelModalOpen = $state(false)
+
+	// Auto can move the panel back into the pane under a modal that is open — leaving it
+	// open would keep an overlay registered for a modal nothing renders, swallowing Escape.
+	$effect(() => {
+		if (panelMode === 'docked' && untrack(() => panelModalOpen)) {
+			panelModalOpen = false
+		}
+	})
+
+	let panelDisposable: Disposable | undefined = $state(undefined)
+	// Disposable joins the stack through its methods, not by watching `open` — same sync
+	// as Drawer and Modal, so setting `panelModalOpen` anywhere still registers the overlay.
+	$effect(() => {
+		panelModalOpen
+		untrack(() => {
+			panelModalOpen ? panelDisposable?.openDrawer() : panelDisposable?.closeDrawer()
+		})
+	})
+
+	const overlayHost = getOverlayHost()
+	const modalHost = $derived(overlayHost?.el())
+
+	// Only nodes that can take the selection, or the modal would open on whatever was
+	// selected before — asset and note nodes are deliberately unselectable.
+	//
+	// The In/Out bar sits inside the node but is a picker of its own: it toggles open and
+	// shut on click, so opening then closing it is a double-click the graph must not read
+	// as "show me this step".
+	function selectableNodeAt(e: MouseEvent): HTMLElement | null {
+		const target = e.target as HTMLElement | null
+		if (target?.closest('[data-prop-picker]')) return null
+		return target?.closest('.svelte-flow__node.selectable') ?? null
+	}
+
+	function openPanelModalFromGraph(e: MouseEvent) {
+		if (selectableNodeAt(e)) {
+			panelModalOpen = true
+		}
+	}
+
+	// A click on the step that is already selected is the second half of "select it, then
+	// show it". Read in the capture phase: by the time the click bubbles here the graph has
+	// applied its own selection, so a first click would look indistinguishable from this.
+	let clickStartedOnSelected = false
+	function noteSelectionBeforeClick(e: MouseEvent) {
+		const node = selectableNodeAt(e)
+		clickStartedOnSelected =
+			Boolean(node?.classList.contains('selected')) && selectionManager.selectedIds.length === 1
+	}
+
+	function openPanelModalIfReselected(e: MouseEvent) {
+		if (clickStartedOnSelected && selectableNodeAt(e)) {
+			panelModalOpen = true
+		}
+	}
+
+	// In modal mode a step's editor is a click or two away but invisible until then —
+	// keep a standing hint whenever the graph is showing (modal closed).
+	const showStepHint = $derived.by(() => panelMode === 'modal' && !panelModalOpen)
+	const stepHintText = $derived.by(() => {
+		const ids = selectionManager.selectedIds
+		return ids.length === 1 && !isFlowLevelPanelTarget(ids[0])
+			? 'Click the selected step to explore its content'
+			: 'Double click a step to explore its content'
+	})
 
 	// When the graph pane is narrow, fall back to a top-centered overlay so the
 	// preview buttons don't overlap the rightmost node ports (matches the dev
@@ -124,9 +208,46 @@
 		flowModuleSchemaMap?.enableNotes?.()
 	}
 
+	const flowPropPickerConfig = writable<FlowPropPickerConfig | undefined>(undefined)
+	// Closing the modal unmounts the panel that started a graph connect, but the config
+	// outlives it — a later pick would run a closure over a step nobody is editing.
+	$effect(() => {
+		if (!panelModalOpen) {
+			flowPropPickerConfig.set(undefined)
+		}
+	})
+
 	setContext<PropPickerContext>('PropPickerContext', {
-		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
-		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined)
+		flowPropPickerConfig,
+		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined),
+		inModalPanel: () => panelMode === 'modal'
+	})
+
+	// Read by graph step items (VirtualItem) to show a per-step "explore" hint on hover,
+	// since in modal mode a step's editor is hidden until a double-click, or a click on the
+	// step that is already selected.
+	setContext<() => boolean>('flowGraphStepExploreHint', () => panelMode === 'modal')
+
+	// The panel's chrome lives inline in its card header (no dedicated row); panels without
+	// a card header get FlowEditor's fallback strip instead, driven by the claim count.
+	let detachClaims = $state(0)
+	setContext<FlowPanelDetachContext>('flowPanelDetach', {
+		claim: () => {
+			detachClaims++
+			return () => detachClaims--
+		},
+		modalOpen: () => modalPanel && panelMode === 'modal' && panelModalOpen,
+		close: () => (panelModalOpen = false),
+		enabled: () => modalPanel,
+		preference: () => panelController.preference,
+		setPreference: (preference) => {
+			// Moving the panel must not lose what it was showing: docked, it is always on
+			// screen, so the modal it becomes has to open on arrival. The reverse is handled
+			// by the effect above, which closes a modal that is no longer rendered.
+			const wasVisible = panelMode === 'docked' || panelModalOpen
+			panelController.preference = preference
+			panelModalOpen = panelController.mode === 'modal' && wasVisible
+		}
 	})
 
 	$effect(() => {
@@ -141,6 +262,14 @@
 	})
 
 	onMount(() => {
+		if (modalPanel) {
+			selectionManager.setOnSelectIntent((id, opts) => {
+				if (opts?.openPanel === false) return
+				if (panelMode === 'modal' && (opts?.openPanel || isFlowLevelPanelTarget(id))) {
+					panelModalOpen = true
+				}
+			})
+		}
 		if (!sessionScopedManager) {
 			aiChatManager.saveAndClear()
 			aiChatManager.changeMode(AIMode.FLOW)
@@ -149,6 +278,9 @@
 
 	onDestroy(() => {
 		aiChatManager.flowOptions = undefined
+		if (modalPanel) {
+			selectionManager.setOnSelectIntent(undefined)
+		}
 		if (!sessionScopedManager) {
 			aiChatManager.saveAndClear()
 			aiChatManager.changeMode(AIMode.NAVIGATOR)
@@ -156,18 +288,44 @@
 	})
 </script>
 
+{#snippet panelBody()}
+	<FlowEditorPanel
+		{disabledFlowInputs}
+		{newFlow}
+		{savedFlow}
+		enableAi={!disableAi}
+		on:applyArgs
+		on:testWithArgs
+		{onDeployTrigger}
+		{forceTestTab}
+		{highlightArg}
+		{onTestFlow}
+		{job}
+		{isOwner}
+		{suspendStatus}
+		onOpenDetails={onOpenPreview}
+		{previewOpen}
+		{flowModuleSchemaMap}
+	/>
+{/snippet}
+
 <div
+	bind:clientWidth={null, (w) => panelController.measure(w)}
 	id="flow-editor"
-	class={'h-full overflow-hidden transition-colors duration-[400ms] ease-linear border-t'}
+	class={'relative h-full overflow-hidden transition-colors duration-[400ms] ease-linear border-t'}
 	use:triggerableByAI={{
 		id: 'flow-editor',
 		description: 'Component to edit a flow'
 	}}
 >
 	<Splitpanes>
-		<Pane size={50} minSize={15} class="h-full relative z-0">
+		<Pane size={panelMode === 'docked' ? 50 : 100} minSize={15} class="h-full relative z-0">
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
 				bind:clientWidth={graphPaneWidth}
+				ondblclick={panelMode === 'modal' ? openPanelModalFromGraph : undefined}
+				onpointerdowncapture={panelMode === 'modal' ? noteSelectionBeforeClick : undefined}
+				onclick={panelMode === 'modal' ? openPanelModalIfReselected : undefined}
 				class="grow overflow-hidden bg-gray h-full bg-surface-secondary relative"
 			>
 				{#if graphOverlay}
@@ -226,36 +384,96 @@
 				{/if}
 			</div>
 		</Pane>
-		<Pane class="relative z-10" size={50} minSize={20}>
-			{#if loading}
-				<div class="w-full h-full">
-					<div class="block m-auto pt-40 w-10">
-						<WindmillIcon height="40px" width="40px" spin="fast" />
+		{#if panelMode === 'docked'}
+			<!-- Panels manage their own scrolling, so the pane must not scroll as well or a second
+			     scrollbar appears beside theirs. `!` because splitpanes' own `overflow: auto` rule
+			     has equal specificity and wins on cascade order. -->
+			<Pane class="relative z-10 !overflow-hidden" size={50} minSize={20}>
+				{#if loading}
+					<div class="w-full h-full">
+						<div class="block m-auto pt-40 w-10">
+							<WindmillIcon height="40px" width="40px" spin="fast" />
+						</div>
 					</div>
-				</div>
-			{:else}
-				<FlowEditorPanel
-					{disabledFlowInputs}
-					{newFlow}
-					{savedFlow}
-					enableAi={!disableAi}
-					on:applyArgs
-					on:testWithArgs
-					{onDeployTrigger}
-					{forceTestTab}
-					{highlightArg}
-					{onTestFlow}
-					{job}
-					{isOwner}
-					{suspendStatus}
-					onOpenDetails={onOpenPreview}
-					{previewOpen}
-					{flowModuleSchemaMap}
-				/>
-			{/if}
-		</Pane>
+				{:else if modalPanel}
+					<div class="flex h-full flex-col">
+						<!-- Fallback for panels without a card header hosting the placement
+						     picker: a slim strip so moving the panel stays reachable. Toggled
+						     around a stable panelBody — re-parenting it would re-mount
+						     the claiming header and loop. -->
+						{#if detachClaims === 0}
+							<div class="flex items-center justify-end border-b px-1">
+								<FlowPanelPlacementPicker variant="header" />
+							</div>
+						{/if}
+						<div class="min-h-0 flex-1">
+							{@render panelBody()}
+						</div>
+					</div>
+				{:else}
+					{@render panelBody()}
+				{/if}
+			</Pane>
+		{/if}
 		{#if !disableAi}
 			<FlowAIChat {flowModuleSchemaMap} {onTestFlow} />
 		{/if}
 	</Splitpanes>
+
+	{#if showStepHint}
+		<div
+			class="pointer-events-none absolute bottom-2 left-3 z-30 flex items-center gap-1.5 text-xs text-hint"
+		>
+			<MousePointerClick size={13} />
+			{stepHintText}
+		</div>
+	{/if}
 </div>
+
+<!-- Portalled out of `#flow-editor` so the modal covers the chrome around the editor
+     (sidebar, top bar) rather than only the editor's own box. A host that embeds the
+     editor in its own box provides an anchor element instead, keeping the modal inside
+     it — one flow editor's modal must never cover a sibling's tab. -->
+<!-- Disposable owns the overlay stack: it takes a place while open, arbitrates Escape against
+     whatever else is open in this pane, and stays quiet while the pane is hidden. -->
+<Disposable bind:open={panelModalOpen} bind:this={panelDisposable}>
+	{#snippet children({ zIndex })}
+		{#if panelMode === 'modal' && panelModalOpen}
+			<Portal target={modalHost ?? 'body'} class="contents">
+				<!-- svelte-ignore a11y_click_events_have_key_events -->
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div
+					class="{modalHost ? 'absolute' : 'fixed'} inset-0 flex justify-center px-2 py-6"
+					style="z-index: {zIndex}"
+					role="dialog"
+				>
+					<div class="absolute inset-0 bg-black/20" onclick={() => (panelModalOpen = false)}></div>
+					<div
+						class="relative flex w-full max-w-4xl flex-col overflow-hidden rounded-md border bg-surface shadow-xl"
+					>
+						<!-- Same fallback as the docked strip: a panel whose body has a card header
+						     hosts the id, placement and close inline, so this bar would double it. -->
+						{#if detachClaims === 0}
+							<div class="flex items-center justify-end gap-2 border-b px-2 py-1">
+								<div class="flex items-center gap-0.5">
+									<FlowPanelPlacementPicker variant="header" />
+									<Button
+										size="xs2"
+										variant="subtle"
+										iconOnly
+										startIcon={{ icon: X }}
+										title="Close"
+										on:click={() => (panelModalOpen = false)}
+									/>
+								</div>
+							</div>
+						{/if}
+						<div class="min-h-0 flex-1 overflow-auto">
+							{@render panelBody()}
+						</div>
+					</div>
+				</div>
+			</Portal>
+		{/if}
+	{/snippet}
+</Disposable>

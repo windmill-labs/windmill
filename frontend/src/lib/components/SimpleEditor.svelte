@@ -650,8 +650,12 @@
 
 	onDestroy(() => {
 		try {
-			valueAfterDispose = getCode()
+			// Same guards as Editor: only a pending keystroke debounce is ours to flush.
+			if (editor && changeTimeoutId !== undefined) {
+				updateCode()
+			}
 			cancelPendingChanges()
+			valueAfterDispose = getCode()
 			pasteListenerCleanup?.()
 			vimDisposable?.dispose()
 			model && model.dispose()
