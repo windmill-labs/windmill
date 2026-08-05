@@ -23,14 +23,13 @@
 
 	let expanded = $state(false)
 
-	// The dialog fills the enclosing pane when there is one (see overlayHost) and the viewport
-	// otherwise, so a viewport-relative canvas height overflows it in any pane shorter than the
-	// window. Size against whichever box it actually fills, less the chrome Modal.svelte wraps
-	// the canvas in — read off that component, and only correct while it stays in step:
-	// scroll wrapper p-4, box px-4/pt-5/pb-4 (sm:p-6) + sm:my-8, title row, and the body's mt-4.
-	const CHROME_PX = { belowSm: 112, fromSm: 188 }
+	// The dialog fills the enclosing pane when there is one (see overlayHost), the viewport
+	// otherwise. Size against that box less the chrome Modal.svelte wraps the canvas in — its
+	// scroll wrapper p-4, box px-4/pt-5/pb-4 (sm:p-6) + sm:my-8, title row and body mt-4. Held
+	// in rem, not px: those are all rem utilities and :root scales to 18px past 1760px.
+	const CHROME_REM = { belowSm: 7, fromSm: 11.75 }
 	const SM_BREAKPOINT_PX = 640
-	const MIN_CANVAS_PX = 240
+	const MIN_CANVAS_REM = 15
 	const overlayHost = getOverlayHost()
 	let windowWidth = $state(0)
 	let windowHeight = $state(0)
@@ -41,27 +40,24 @@
 	$effect(() => {
 		if (!expanded) return
 		const host = overlayHost?.el()
-		if (!host) return
+		// Reset here rather than in the teardown: `expanded` is tracked, so a teardown reset would
+		// resize the canvas mid fade-out, while the dialog is still on screen.
+		if (!host) {
+			hostHeight = undefined
+			return
+		}
 		// Seed synchronously so the first frame isn't sized off the window while the observer's
 		// initial callback is still pending.
 		hostHeight = host.clientHeight
 		const observer = new ResizeObserver(() => (hostHeight = host.clientHeight))
 		observer.observe(host)
-		return () => {
-			observer.disconnect()
-			hostHeight = undefined
-		}
+		return () => observer.disconnect()
 	})
 
 	// windowHeight covers the un-hosted case: documentElement's box is content-driven on a
 	// scrollable page, so observing it would miss a purely vertical window resize.
-	let canvasHeight = $derived(
-		Math.max(
-			MIN_CANVAS_PX,
-			(hostHeight ?? windowHeight) -
-				(windowWidth >= SM_BREAKPOINT_PX ? CHROME_PX.fromSm : CHROME_PX.belowSm)
-		)
-	)
+	let availableHeight = $derived(hostHeight ?? windowHeight)
+	let chromeRem = $derived(windowWidth >= SM_BREAKPOINT_PX ? CHROME_REM.fromSm : CHROME_REM.belowSm)
 
 	// Past this, render with whatever metrics are available rather than sit on the raw source.
 	const FONT_LOAD_TIMEOUT_MS = 2000
@@ -268,7 +264,7 @@
 		{/snippet}
 		<div
 			class="relative w-full overflow-hidden rounded border cursor-grab bg-surface-secondary"
-			style="height: {canvasHeight}px"
+			style="height: max({MIN_CANVAS_REM}rem, {availableHeight}px - {chromeRem}rem)"
 		>
 			{#if expanded}
 				<div use:panzoomAction class="w-full h-full flex items-center justify-center">
