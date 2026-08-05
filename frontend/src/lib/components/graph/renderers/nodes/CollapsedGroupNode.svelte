@@ -8,6 +8,7 @@
 	import { Hourglass } from 'lucide-svelte'
 	import FlowStatusWaitingForEvents from '$lib/components/FlowStatusWaitingForEvents.svelte'
 	import { dfs } from '$lib/components/flows/dfs'
+	import { getFlowRunStatusContext } from '../../flowRunStatus.svelte'
 
 	interface Props {
 		data: CollapsedGroupN['data']
@@ -15,6 +16,8 @@
 	}
 
 	let { data, id }: Props = $props()
+
+	const flowRunStatus = getFlowRunStatusContext()
 
 	let outlineColorClass = $derived(
 		(NOTE_COLORS[(data.color as NoteColor) ?? NoteColor.BLUE] ?? NOTE_COLORS[NoteColor.BLUE])
@@ -31,8 +34,8 @@
 	let waitingForEvents = $derived(
 		allModuleIds.some(
 			(mid) =>
-				data.flowModuleStates?.[mid]?.type === 'WaitingForEvents' ||
-				data.flowModuleStates?.[`${mid}-v`]?.type === 'WaitingForEvents'
+				flowRunStatus?.getModuleState(mid)?.type === 'WaitingForEvents' ||
+				flowRunStatus?.getModuleState(`${mid}-v`)?.type === 'WaitingForEvents'
 		)
 	)
 </script>
@@ -57,14 +60,14 @@
 				<div class="flex items-center justify-center w-full gap-1.5 px-2 h-[34px] overflow-hidden">
 					<GroupModuleIcons
 						modules={data.modules}
-						flowModuleStates={data.flowModuleStates}
+						
 						eventHandlers={data.eventHandlers}
 					/>
 				</div>
 			{/if}
 		</div>
 
-		{#if waitingForEvents && data.flowJob && data.flowJob.type === 'QueuedJob'}
+		{#if waitingForEvents && flowRunStatus?.flowJob && flowRunStatus.flowJob.type === 'QueuedJob'}
 			<div
 				class="absolute top-1/2 -translate-y-1/2 left-full ml-2 flex items-center gap-2 nodrag nowheel"
 			>
@@ -79,16 +82,16 @@
 					</div>
 				</div>
 				<div class="rounded-md bg-surface flex items-center justify-center p-2 shadow-md">
-					{#if data.flowJob.flow_status?.modules?.[data.flowJob.flow_status?.step]?.type === 'WaitingForEvents'}
+					{#if flowRunStatus?.flowJob?.flow_status?.modules?.[flowRunStatus.flowJob.flow_status?.step]?.type === 'WaitingForEvents'}
 						<FlowStatusWaitingForEvents
-							job={data.flowJob}
-							workspaceId={data.flowJob.workspace_id}
+							job={flowRunStatus.flowJob}
+							workspaceId={flowRunStatus.flowJob.workspace_id}
 							isOwner={data.isOwner}
 							light
 						/>
-					{:else if data.suspendStatus && Object.keys(data.suspendStatus).length > 0}
+					{:else if flowRunStatus?.suspendStatus && Object.keys(flowRunStatus.suspendStatus).length > 0}
 						<div class="flex gap-2 flex-col">
-							{#each Object.values(data.suspendStatus) as suspendCount (suspendCount.job.id)}
+							{#each Object.values(flowRunStatus.suspendStatus) as suspendCount (suspendCount.job.id)}
 								<FlowStatusWaitingForEvents
 									job={suspendCount.job}
 									workspaceId={suspendCount.job.workspace_id}

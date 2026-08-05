@@ -1,4 +1,4 @@
-import type { FlowModule, Job, PathScript, RawScript, Script } from '$lib/gen'
+import type { FlowModule, PathScript, RawScript, Script } from '$lib/gen'
 import { type Edge } from '@xyflow/svelte'
 import { getAllModules, getDependeeAndDependentComponents } from '../flows/flowExplorer'
 import { dfsByModule } from '../flows/previousResults'
@@ -132,7 +132,6 @@ export type InputN = {
 		editMode: boolean
 		isRunning: boolean
 		individualStepTests: boolean
-		flowJob: Job | undefined
 		showJobStatus: boolean
 		flowHasChanged: boolean
 		chatInputEnabled: boolean
@@ -148,11 +147,9 @@ export type ModuleN = {
 		id: string
 		parentIds: string[]
 		eventHandlers: GraphEventHandlers
-		flowModuleState: GraphModuleState | undefined
 		testModuleState: ModuleTestState | undefined
 		insertable: boolean
 		editMode: boolean
-		flowJob: Job | undefined
 		isOwner: boolean
 		assets: AssetWithAltAccessType[] | undefined
 		moduleAction: ModuleActionInfo | undefined
@@ -167,7 +164,6 @@ export type FailureModuleN = {
 		id: string
 		module: FlowModule
 		eventHandlers: GraphEventHandlers
-		flowModuleState: GraphModuleState | undefined
 	}
 }
 
@@ -178,7 +174,6 @@ export type BranchAllStartN = {
 		id: string
 		branchIndex: number
 		eventHandlers: GraphEventHandlers
-		flowModuleState: GraphModuleState | undefined
 		insertable: boolean
 		branchOne: boolean
 	}
@@ -189,7 +184,6 @@ export type BranchAllEndN = {
 	data: {
 		id: string
 		eventHandlers: GraphEventHandlers
-		flowModuleState: GraphModuleState | undefined
 	}
 }
 
@@ -199,7 +193,6 @@ export type ForLoopEndN = {
 		id: string
 		eventHandlers: GraphEventHandlers
 		simplifiedTriggerView: boolean
-		flowModuleState: GraphModuleState | undefined
 	}
 }
 
@@ -208,7 +201,6 @@ export type ForLoopStartN = {
 	data: {
 		id: string
 		eventHandlers: GraphEventHandlers
-		flowModuleState: GraphModuleState | undefined
 		selectedId: string | undefined
 		editMode: boolean
 		simplifiedTriggerView: boolean
@@ -222,7 +214,6 @@ export type ResultN = {
 		success: boolean | undefined
 		eventHandlers: GraphEventHandlers
 		editMode: boolean
-		job: Job | undefined
 		showJobStatus: boolean
 	}
 }
@@ -244,7 +235,6 @@ export type BranchOneStartN = {
 	data: {
 		id: string
 		eventHandlers: GraphEventHandlers
-		flowModuleState: GraphModuleState | undefined
 		selected: boolean
 		insertable: boolean
 		label: string
@@ -259,7 +249,6 @@ export type BranchOneEndN = {
 	data: {
 		id: string
 		eventHandlers: GraphEventHandlers
-		flowModuleState: GraphModuleState | undefined
 	}
 }
 
@@ -280,7 +269,6 @@ export type NoBranchN = {
 	data: {
 		id: string
 		eventHandlers: GraphEventHandlers
-		flowModuleState: GraphModuleState | undefined
 		branchOne: boolean
 		label: string
 		branchIndex: number
@@ -330,7 +318,6 @@ export type AiToolN = {
 		// Tool of a linked agent: its inputs are editable but its structure comes from the resource,
 		// so it can't be deleted here.
 		readOnly?: boolean
-		flowModuleStates: Record<string, GraphModuleState> | undefined
 	}
 }
 
@@ -352,10 +339,7 @@ export type CollapsedGroupN = {
 		autocollapse: boolean | undefined
 		stepCount: number
 		modules: FlowModule[]
-		flowModuleStates: Record<string, GraphModuleState> | undefined
-		flowJob: Job | undefined
 		isOwner: boolean
-		suspendStatus: Record<string, { job: Job; nb: number }>
 		showNotes: boolean
 		editMode: boolean
 		eventHandlers: GraphEventHandlers
@@ -416,6 +400,9 @@ export function graphBuilder(
 	extra: {
 		disableAi: boolean
 		insertable: boolean
+		// Only for the parts of the graph's shape a run decides: which loop iteration is
+		// expanded and where the error-handler marker attaches. Everything a step merely
+		// displays comes from FlowRunStatus, never from here.
 		flowModuleStates: Record<string, GraphModuleState> | undefined
 		testModuleStates: ModulesTestStates | undefined
 		moduleActions?: Record<string, ModuleActionInfo>
@@ -428,9 +415,7 @@ export function graphBuilder(
 		isOwner: boolean
 		isRunning: boolean
 		individualStepTests: boolean
-		flowJob: Job | undefined
 		showJobStatus: boolean
-		suspendStatus: Record<string, { job: Job; nb: number }>
 		flowHasChanged: boolean
 		chatInputEnabled: boolean
 		additionalAssetsMap?: Record<string, AssetWithAltAccessType[]>
@@ -481,12 +466,10 @@ export function graphBuilder(
 					id: module.id,
 					parentIds: [],
 					eventHandlers: eventHandlers,
-					flowModuleState: extra.flowModuleStates?.[module.id],
 					testModuleState: extra.testModuleStates?.states?.[module.id],
 					insertable: extra.insertable && !module.id.startsWith('subflow:'),
 					editMode: extra.editMode,
 					isOwner: extra.isOwner,
-					flowJob: extra.flowJob,
 					assets: getFlowModuleAssets(module, extra.additionalAssetsMap),
 					moduleAction: extra.moduleActions?.[module.id],
 					...extraData
@@ -511,8 +494,7 @@ export function graphBuilder(
 				data: {
 					id: module.id,
 					module,
-					eventHandlers: eventHandlers,
-					flowModuleState: extra.flowModuleStates?.[module.id]
+					eventHandlers: eventHandlers
 				},
 				type: 'failureModule',
 				selectable: false
@@ -609,7 +591,11 @@ export function graphBuilder(
 					disableMoveIds: options?.disableMoveIds,
 					enableTrigger: sourceId === 'Input',
 					index,
-					...extra,
+					// Only what the edge renderer reads. Spreading all of `extra` here put
+					// per-tick run state on every edge, so one status poll invalidated the whole
+					// edge set and Svelte re-created each one.
+					disableAi: extra.disableAi,
+					isOwner: extra.isOwner,
 					insertable: extra.insertable && !options?.disableInsert && prefix == undefined,
 					shouldOffsetInsertBtnDueToAssetNode: nodeIdsWithOutputAssets.has(sourceId)
 				},
@@ -631,7 +617,6 @@ export function graphBuilder(
 				editMode: extra.editMode,
 				isRunning: extra.isRunning,
 				individualStepTests: extra.individualStepTests,
-				flowJob: extra.flowJob,
 				showJobStatus: extra.showJobStatus,
 				flowHasChanged: extra.flowHasChanged,
 				chatInputEnabled: extra.chatInputEnabled,
@@ -672,7 +657,6 @@ export function graphBuilder(
 				eventHandlers: eventHandlers,
 				success: success,
 				editMode: extra.editMode,
-				job: extra.flowJob,
 				showJobStatus: extra.showJobStatus
 			},
 			type: 'result'
@@ -741,10 +725,7 @@ export function graphBuilder(
 									modules: leafIds
 										.map((id) => moduleMap.get(id))
 										.filter((m): m is FlowModule => !!m),
-									flowModuleStates: extra.flowModuleStates,
-									flowJob: extra.flowJob,
 									isOwner: extra.isOwner,
-									suspendStatus: extra.suspendStatus,
 									showNotes,
 									editMode: prefix == undefined && extra.editMode,
 									eventHandlers
@@ -866,8 +847,7 @@ export function graphBuilder(
 							id: `${module.id}-end`,
 							data: {
 								id: module.id,
-								eventHandlers: eventHandlers,
-								flowModuleState: extra.flowModuleStates?.[module.id]
+								eventHandlers: eventHandlers
 							},
 							type: 'branchAllEnd'
 						}
@@ -882,7 +862,6 @@ export function graphBuilder(
 									id: module.id,
 									branchIndex: -1,
 									eventHandlers: eventHandlers,
-									flowModuleState: extra.flowModuleStates?.[module.id],
 									branchOne: false,
 									label: 'No branches'
 								},
@@ -908,7 +887,6 @@ export function graphBuilder(
 										id: module.id,
 										branchIndex: branchIndex,
 										eventHandlers: eventHandlers,
-										flowModuleState: extra.flowModuleStates?.[module.id],
 										insertable: extra.insertable,
 										branchOne: false
 									},
@@ -954,7 +932,6 @@ export function graphBuilder(
 								simplifiedTriggerView,
 								eventHandlers: eventHandlers,
 								editMode: extra.editMode,
-								flowModuleState: extra.flowModuleStates?.[module.id],
 								selectedId: extra.selectedId
 							},
 							type: 'forLoopStart'
@@ -975,8 +952,7 @@ export function graphBuilder(
 							data: {
 								id: module.id,
 								eventHandlers: eventHandlers,
-								simplifiedTriggerView,
-								flowModuleState: extra.flowModuleStates?.[module.id]
+								simplifiedTriggerView
 							},
 							type: 'forLoopEnd'
 						}
@@ -1046,7 +1022,6 @@ export function graphBuilder(
 							id: `${module.id}-end`,
 							data: {
 								eventHandlers: eventHandlers,
-								flowModuleState: extra.flowModuleStates?.[module.id],
 								id: module.id
 							},
 							type: 'branchOneEnd'
@@ -1062,7 +1037,6 @@ export function graphBuilder(
 								eventHandlers: eventHandlers,
 								insertable: extra.insertable,
 								preLabel: undefined,
-								flowModuleState: extra.flowModuleStates?.[module.id],
 								selected: false,
 								modules: module.value.default
 							},
@@ -1098,7 +1072,6 @@ export function graphBuilder(
 									branchIndex: branchIndex,
 									eventHandlers: eventHandlers,
 									insertable: extra.insertable,
-									flowModuleState: extra.flowModuleStates?.[module.id],
 									selected: false,
 									modules: branch.modules
 								},

@@ -277,6 +277,7 @@
 	import { getNodeColorClasses } from '../../util'
 	import { deepEqual } from 'fast-equals'
 	import { getGraphContext } from '../../graphContext'
+	import { getFlowRunStatusContext } from '../../flowRunStatus.svelte'
 
 	let hover = $state(false)
 
@@ -286,10 +287,11 @@
 	}
 
 	let { data, id }: Props = $props()
+	const flowRunStatus = getFlowRunStatusContext()
 
 	const { selectionManager } = getGraphContext()
 
-	const flowModuleState = $derived(data.flowModuleStates?.[data.moduleId])
+	const flowModuleState = $derived(flowRunStatus?.getModuleState(data.moduleId))
 	let colorClasses = $derived(
 		getNodeColorClasses(
 			data.nameError ? 'Failure' : flowModuleState?.type,

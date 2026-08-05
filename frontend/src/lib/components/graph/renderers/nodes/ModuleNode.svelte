@@ -8,6 +8,7 @@
 	import { isMac, type Item } from '$lib/utils'
 	import { getContext } from 'svelte'
 	import { getGraphContext } from '../../graphContext'
+	import { getFlowRunStatusContext } from '../../flowRunStatus.svelte'
 
 	interface Props {
 		data: ModuleN['data']
@@ -20,8 +21,8 @@
 
 	let state = $derived.by(() => {
 		return data.testModuleState
-			? (jobToGraphModuleState(data.testModuleState) ?? data.flowModuleState)
-			: data.flowModuleState
+			? (jobToGraphModuleState(data.testModuleState) ?? flowRunStatus?.getModuleState(data.id))
+			: flowRunStatus?.getModuleState(data.id)
 	})
 
 	let flowJobs = $derived(
@@ -56,6 +57,7 @@
 	// that works from any state as its shortcut.
 	const stepExploreHint = getContext<(() => boolean) | undefined>('flowGraphStepExploreHint')
 	const selectionManager = getGraphContext()?.selectionManager
+	const flowRunStatus = getFlowRunStatusContext()
 
 	const menuItems: Item[] = $derived(
 		data.editMode
@@ -152,7 +154,7 @@
 				data.eventHandlers.updateMock(detail)
 			}}
 			onEditInput={data.eventHandlers.editInput}
-			flowJob={data.flowJob}
+			flowJob={flowRunStatus?.flowJob}
 			isOwner={data.isOwner}
 			maximizeSubflow={data.module?.value?.type == 'flow' && 'path' in data.module.value
 				? () => {

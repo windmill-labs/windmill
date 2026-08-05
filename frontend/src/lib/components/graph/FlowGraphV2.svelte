@@ -103,6 +103,7 @@
 	import { computeNodeExtraSpace } from './nodeExtraSpace'
 	import type { ModuleActionInfo } from '$lib/components/flows/flowDiff'
 	import { setGraphContext } from './graphContext'
+	import { setFlowRunStatusContext } from './flowRunStatus.svelte'
 	import { computeNoteNodes } from './noteUtils.svelte'
 	import { Tooltip } from '../meltComponents'
 	import { getNoteEditorContext } from './noteEditor.svelte'
@@ -371,6 +372,18 @@
 		groupDisplayState
 	} as any)
 
+	const flowRunStatus = setFlowRunStatusContext()
+	$effect(() => {
+		flowRunStatus.flowJob = flowJob
+	})
+	$effect(() => {
+		flowRunStatus.suspendStatus = suspendStatus
+	})
+	$effect(() => {
+		readFieldsRecursively(flowModuleStates)
+		untrack(() => flowRunStatus.setModuleStates(flowModuleStates))
+	})
+
 	if (triggerContext && untrack(() => allowSimplifiedPoll)) {
 		if (isSimplifiable(untrack(() => modules))) {
 			triggerContext?.simplifiedPoll?.set(true)
@@ -613,20 +626,58 @@
 
 	let height = $state(0)
 
+	/**
+	 * A run only changes what the steps display, never the shape of the graph, but every
+	 * status poll rebuilds these arrays from scratch. xyflow re-measures every node it is
+	 * handed a new object for, and Svelte destroys and re-creates every edge, so handing
+	 * back fresh identities re-renders a graph that did not change. Reuse the previous
+	 * object wherever it still deep-equals the new one.
+	 */
+	function reuseUnchanged<T extends { id: string }>(previous: T[], next: T[]): T[] {
+		const previousById = new Map(previous.map((item) => [item.id, item]))
+		let changed = previous.length !== next.length
+		const reconciled = next.map((item, index) => {
+			const before = previousById.get(item.id)
+			if (before && deepEqual(before, item)) {
+				changed ||= previous[index] !== before
+				return before
+			}
+			changed = true
+			return item
+		})
+		return changed ? reconciled : previous
+	}
+
+	// Keyed by the source node, so a node that survived reconciliation keeps its offset
+	// object too — remapping every node would undo the identity reuse above.
+	let offsetNodeCache = new WeakMap<Node, Node>()
+	let offsetCacheKey: string | undefined = undefined
+
 	// Derived nodes with yOffset applied to all nodes uniformly and selectable flag set to false if notSelectable is true
 	const nodesWithOffset = $derived.by(() => {
+		const cacheKey = `${yOffset}:${notSelectable}`
+		if (cacheKey !== offsetCacheKey) {
+			offsetNodeCache = new WeakMap<Node, Node>()
+			offsetCacheKey = cacheKey
+		}
 		return nodes.map((node) => {
-			if (node.type && !AI_OR_ASSET_NODE_TYPES.includes(node.type)) {
-				return {
-					...node,
-					position: { ...node.position, y: node.position.y + yOffset },
-					selectable: notSelectable ? false : node.selectable
-				}
+			const cached = offsetNodeCache.get(node)
+			if (cached) {
+				return cached
 			}
-			return {
-				...node,
-				selectable: notSelectable ? false : node.selectable
-			}
+			const mapped =
+				node.type && !AI_OR_ASSET_NODE_TYPES.includes(node.type)
+					? {
+							...node,
+							position: { ...node.position, y: node.position.y + yOffset },
+							selectable: notSelectable ? false : node.selectable
+						}
+					: {
+							...node,
+							selectable: notSelectable ? false : node.selectable
+						}
+			offsetNodeCache.set(node, mapped)
+			return mapped
 		})
 	})
 
@@ -797,13 +848,13 @@
 			: undefined
 
 		// update nodes
-		nodes = [...finalNodes, ...(noteNodesResult?.noteNodes ?? [])]
+		nodes = reuseUnchanged(nodes, [...finalNodes, ...(noteNodesResult?.noteNodes ?? [])])
 
-		edges = [
+		edges = reuseUnchanged(edges, [
 			...(assetNodesResult?.newAssetEdges ?? []),
 			...aiToolNodesResult.toolEdges,
 			...graph.edges
-		]
+		])
 
 		await tick()
 		updateHeight()
@@ -889,6 +940,13 @@
 		moduleTracker.counter
 		effectiveModuleActions
 		currentGroups
+		// The poll replaces `flowJob` on every tick and is what makes the untracked
+		// `flowModuleStates` above get re-read, so it stays a dependency. It is deliberately
+		// not handed to graphBuilder: anything put there lands in every node and edge's data,
+		// and a per-tick value there re-creates the whole graph. Renderers read it from
+		// FlowRunStatus instead.
+		flowJob
+		suspendStatus
 
 		const collapsedGroupIds = new Set(
 			allGroups
@@ -939,9 +997,7 @@
 				isOwner,
 				isRunning,
 				individualStepTests,
-				flowJob,
 				showJobStatus,
-				suspendStatus,
 				flowHasChanged,
 				chatInputEnabled,
 				additionalAssetsMap: flowGraphAssetsCtx?.val.additionalAssetsMap

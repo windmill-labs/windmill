@@ -3,6 +3,7 @@
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { ResultN } from '../../graphBuilder.svelte'
 	import { getGraphContext } from '../../graphContext'
+	import { getFlowRunStatusContext } from '../../flowRunStatus.svelte'
 
 	interface Props {
 		data: ResultN['data']
@@ -12,6 +13,7 @@
 	let { data, id }: Props = $props()
 
 	const { selectionManager } = getGraphContext()
+	const flowRunStatus = getFlowRunStatusContext()
 </script>
 
 <NodeWrapper enableSourceHandle={false}>
@@ -27,7 +29,7 @@
 			}}
 			nodeKind="result"
 			editMode={data.editMode}
-			job={data.job}
+			job={flowRunStatus?.flowJob}
 			showJobStatus={data.showJobStatus}
 		/>
 	{/snippet}
