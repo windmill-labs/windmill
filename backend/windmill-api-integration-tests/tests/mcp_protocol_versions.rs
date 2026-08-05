@@ -102,6 +102,12 @@ async fn test_mcp_legacy_initialize_negotiates_requested_version(
             body["result"]["protocolVersion"], *version,
             "initialize {version} negotiated the wrong revision: {body}"
         );
+        // `Implementation::from_build_env()` expands its `env!` inside rmcp, so
+        // the obvious constructor makes the server introduce itself as the SDK.
+        assert_eq!(
+            body["result"]["serverInfo"]["name"], "windmill",
+            "server must identify itself, not the SDK: {body}"
+        );
     }
 
     Ok(())
