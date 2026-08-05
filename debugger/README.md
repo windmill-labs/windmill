@@ -78,10 +78,16 @@ Options:
 The service does not inherit its whole environment into debug subprocesses. Beyond `PATH` and
 `HOME`, only the network configuration below is forwarded, so that debugged scripts and dependency
 installation (`windmill prepare-deps`, which runs `uv venv` / `uv pip install`) work behind a
-proxy, a custom CA, or a private package index:
+proxy, a custom CA, or a private package index.
+
+Reaching the debugged script, matching what the worker gives a regular job:
 
 - `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` (and their lowercase spellings)
 - `SSL_CERT_FILE`, `SSL_CERT_DIR`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `NODE_EXTRA_CA_CERTS`
+
+Reaching `prepare-deps` only, since index URLs routinely embed registry credentials and a debug
+session runs user-supplied code:
+
 - `PIP_INDEX_URL`, `PY_INDEX_URL`, `PIP_EXTRA_INDEX_URL`, `PY_EXTRA_INDEX_URL`, `PIP_INDEX_CERT`,
   `PY_INDEX_CERT`, `PIP_TRUSTED_HOST`, `PY_TRUSTED_HOST`, `UV_NATIVE_TLS`, `PY_NATIVE_CERT`,
   `UV_HTTP_TIMEOUT`
@@ -93,12 +99,15 @@ npm registry for TypeScript sessions is not configurable here. `prepare-deps` ru
 database, so a `pip_index_url` set under instance settings is invisible to it: for the debugger,
 these have to be set in the container's environment.
 
-To install through a TLS-intercepting proxy, `PY_NATIVE_CERT` (or `UV_NATIVE_TLS`) must be `true`:
-uv otherwise verifies against its own bundled roots and ignores both `SSL_CERT_FILE` and the
-system trust store. With it set, point `PY_INDEX_CERT`/`SSL_CERT_FILE` at a bundle containing the
-proxy's CA. That file *replaces* the system roots, so it has to be a full bundle, not just the
-extra CA. Alternatively, add the CA to the system store with the container's `INIT_SCRIPT`
-(e.g. `INIT_SCRIPT=update-ca-certificates`) and leave `SSL_CERT_FILE` unset.
+To install through a TLS-intercepting proxy, uv needs the proxy's CA by one of two routes:
+
+- Point `PY_INDEX_CERT`/`SSL_CERT_FILE` at a bundle containing it. This works on its own, but the
+  file *replaces* uv's roots rather than adding to them, so it must be a complete bundle and not
+  just the extra CA, or every public index becomes untrusted.
+- Or install the CA into the system trust store with the container's `INIT_SCRIPT` (e.g.
+  `INIT_SCRIPT=update-ca-certificates`) **and** set `PY_NATIVE_CERT`/`UV_NATIVE_TLS` to `true`. uv
+  verifies against its own bundled roots by default and reads the system store only when that is
+  set, so the `INIT_SCRIPT` alone is not enough.
 
 ### Frontend Integration
 

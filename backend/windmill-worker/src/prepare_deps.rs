@@ -97,9 +97,7 @@ lazy_static::lazy_static! {
         let mut envs = Vec::new();
         // uv has no --cert flag, so a custom CA can only reach it as a trust store, and of the
         // spellings a host may use it reads only SSL_CERT_FILE/SSL_CERT_DIR. Collapse the rest
-        // into one value, most specific first, rather than forwarding them inertly. None of it
-        // takes effect unless native TLS is on: uv otherwise verifies against its own bundled
-        // roots and ignores the trust store entirely.
+        // into one value, most specific first, rather than forwarding them inertly.
         if let Some(cert) = non_empty_var("PY_INDEX_CERT")
             .or_else(|| non_empty_var("PIP_INDEX_CERT"))
             .or_else(|| non_empty_var("SSL_CERT_FILE"))

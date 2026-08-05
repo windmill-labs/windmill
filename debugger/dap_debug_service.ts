@@ -41,7 +41,7 @@ import { join } from 'node:path'
 
 // Import the working Bun debug session from the standalone server
 import { DebugSession as BunDebugSessionWorking, type NsjailConfig } from './dap_websocket_server_bun'
-import { passthroughEnv } from './env_passthrough'
+import { prefixedInstallerEnv, runtimeEnv } from './env_passthrough'
 
 // ============================================================================
 // Configuration
@@ -398,9 +398,11 @@ function spawnProcess(options: SpawnOptions): Subprocess {
 			// Essential system vars
 			PATH: process.env.PATH || '/usr/bin:/bin',
 			HOME: process.env.HOME,
-			// Proxy / TLS / package-index settings inherited from the container, before the
-			// caller's env so an explicit override still wins
-			...passthroughEnv(),
+			// Proxy / TLS settings inherited from the container, before the caller's env so an
+			// explicit override still wins. Package-index settings travel prefixed: this env is
+			// also the debugged script's, and index URLs carry registry credentials.
+			...runtimeEnv(),
+			...prefixedInstallerEnv(),
 			// Caller-provided env vars
 			// Note: WM_BASE_URL is already overridden by BASE_INTERNAL_URL if set
 			...options.env

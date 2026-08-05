@@ -25,7 +25,7 @@ import { spawn, type Subprocess } from 'bun'
 import { mkdtemp, writeFile, unlink, rmdir, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { passthroughEnv } from './env_passthrough'
+import { runtimeEnv } from './env_passthrough'
 
 // Types for V8 Inspector Protocol
 interface V8Message {
@@ -1584,7 +1584,10 @@ export class DebugSession {
 			const input = JSON.stringify({ code, language }) + '\n'
 			logger.info(`prepare-deps input length: ${input.length}`)
 
-			// Spawn the windmill binary with prepare-deps command
+			// Spawn the windmill binary with prepare-deps command. This runs in the service
+			// process, so inheriting its environment is what gives prepare-deps the container's
+			// index and certificate settings; the allowlist above is what keeps them from the
+			// debugged script.
 			const proc = spawn({
 				cmd: [this.windmillPath, 'prepare-deps'],
 				stdin: new Blob([input]),  // Use Blob for complete stdin data
@@ -1705,9 +1708,10 @@ export class DebugSession {
 			// Essential system vars
 			PATH: process.env.PATH || '/usr/bin:/bin',
 			HOME: process.env.HOME,
-			// Proxy / TLS / package-index settings inherited from the container, before the
-			// client's env so an explicit override still wins
-			...passthroughEnv(),
+			// Proxy / TLS settings inherited from the container, before the client's env so an
+			// explicit override still wins. Package-index settings are deliberately absent: this
+			// runs user-supplied code and index URLs carry registry credentials.
+			...runtimeEnv(),
 			// Client-provided env vars (WM_WORKSPACE, WM_TOKEN, etc.)
 			// Note: WM_BASE_URL is already overridden by BASE_INTERNAL_URL if set
 			...this.envVars

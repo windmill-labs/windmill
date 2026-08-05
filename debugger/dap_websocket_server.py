@@ -38,6 +38,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger("dap_server")
 
+# Package-index settings arrive under this prefix because debugged code runs inside this very
+# process: index URLs carry registry credentials, so they are moved out of os.environ here, before
+# any user code can read them, and handed only to the prepare-deps subprocess. Keep in sync with
+# INSTALLER_ENV_PREFIX in env_passthrough.ts.
+INSTALLER_ENV_PREFIX = "WM_DAP_INSTALLER_"
+INSTALLER_ENV = {
+    key[len(INSTALLER_ENV_PREFIX) :]: os.environ.pop(key)
+    for key in list(os.environ)
+    if key.startswith(INSTALLER_ENV_PREFIX)
+}
+
 try:
     import websockets
     from websockets.server import serve
@@ -329,6 +340,7 @@ class DebugSession:
                 capture_output=True,
                 text=True,
                 timeout=120,  # 2 minute timeout for dependency installation
+                env={**os.environ, **INSTALLER_ENV},
             )
 
             elapsed = time.time() - start_time
