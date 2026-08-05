@@ -380,7 +380,10 @@
 		flowRunStatus.suspendStatus = suspendStatus
 	})
 	$effect(() => {
-		readFieldsRecursively(flowModuleStates)
+		// Each step's state object is replaced rather than mutated, so reading the top level
+		// catches every status change. Walking deeper would subscribe to every step's args and
+		// result on the hottest path in the graph.
+		Object.values(flowModuleStates ?? {})
 		untrack(() => flowRunStatus.setModuleStates(flowModuleStates))
 	})
 

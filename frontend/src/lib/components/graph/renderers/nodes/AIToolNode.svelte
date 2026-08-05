@@ -43,7 +43,7 @@
 	let computeAIToolNodesCache:
 		| {
 				nodes: (Node & NodeLayout)[]
-				hasFlowModuleStates: boolean
+				agentActions: Record<string, unknown>
 				linkedAgentTools: Record<string, AgentTool[]> | undefined
 				ret: ReturnType<typeof computeAIToolNodes>
 		  }
@@ -69,6 +69,18 @@
 		}
 	}
 
+	function agentActionsOf(
+		nodes: (Node & NodeLayout)[],
+		flowModuleStates: Record<string, GraphModuleState> | undefined
+	): Record<string, unknown> {
+		const actions: Record<string, unknown> = {}
+		for (const node of nodes) {
+			if (node.type !== 'module' || node.data.module.value.type !== 'aiagent') continue
+			actions[node.id] = $state.snapshot(flowModuleStates?.[node.id]?.agent_actions)
+		}
+		return actions
+	}
+
 	export function computeAIToolNodes(
 		nodes: (Node & NodeLayout)[],
 		eventHandlers: GraphEventHandlers,
@@ -83,7 +95,7 @@
 	} {
 		if (
 			computeAIToolNodesCache &&
-			!!flowModuleStates === computeAIToolNodesCache.hasFlowModuleStates &&
+			deepEqual(agentActionsOf(nodes, flowModuleStates), computeAIToolNodesCache.agentActions) &&
 			deepEqual(nodes.map(getComparableNode), computeAIToolNodesCache.nodes) &&
 			deepEqual(linkedAgentTools, computeAIToolNodesCache.linkedAgentTools)
 		) {
@@ -191,8 +203,7 @@
 						// misroute agent-node clicks into the graph's manual aiTool selection path.
 						selectTarget: isLinkedAgent && !agentActions ? node.id : undefined,
 						insertable,
-						readOnly: isLinkedAgent,
-						flowModuleStates
+						readOnly: isLinkedAgent
 					},
 					id: `${node.id}-tool-${tool.id}`,
 					width: inputToolWidth,
@@ -253,7 +264,7 @@
 
 		computeAIToolNodesCache = {
 			nodes: nodes.map(getComparableNode),
-			hasFlowModuleStates: !!flowModuleStates,
+			agentActions: agentActionsOf(nodes, flowModuleStates),
 			linkedAgentTools: $state.snapshot(linkedAgentTools),
 			ret
 		}

@@ -58,11 +58,7 @@
 			/>
 			{#if data.modules && data.modules.length > 0}
 				<div class="flex items-center justify-center w-full gap-1.5 px-2 h-[34px] overflow-hidden">
-					<GroupModuleIcons
-						modules={data.modules}
-						
-						eventHandlers={data.eventHandlers}
-					/>
+					<GroupModuleIcons modules={data.modules} eventHandlers={data.eventHandlers} />
 				</div>
 			{/if}
 		</div>
