@@ -32,6 +32,7 @@ pub enum JobTriggerKind {
     Email,
     Nats,
     Mqtt,
+    Amqp,
     Sqs,
     Postgres,
     Schedule,
@@ -54,11 +55,17 @@ pub enum JobTriggerKind {
     // direct `/jobs/run` cannot set it, so it distinguishes files an app actually
     // produced from files a viewer forged by running a declared runnable directly.
     App,
+    // A run started from the browser (the `/jobs/run*` request carried the session token
+    // minted at login). Nothing writes this yet — it exists so every binary from this release
+    // can decode it, which is what a later release needs before it can start stamping it.
+    // When that happens: attribution, not authority, unlike `App` — a member can have a
+    // session token minted for a script (`/users/refresh_token`), so nothing may gate on it.
+    Ui,
 }
 
-impl std::fmt::Display for JobTriggerKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let kind = match self {
+impl JobTriggerKind {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
             JobTriggerKind::Webhook => "webhook",
             JobTriggerKind::Http => "http",
             JobTriggerKind::Websocket => "websocket",
@@ -66,6 +73,7 @@ impl std::fmt::Display for JobTriggerKind {
             JobTriggerKind::Email => "email",
             JobTriggerKind::Nats => "nats",
             JobTriggerKind::Mqtt => "mqtt",
+            JobTriggerKind::Amqp => "amqp",
             JobTriggerKind::Sqs => "sqs",
             JobTriggerKind::Postgres => "postgres",
             JobTriggerKind::Schedule => "schedule",
@@ -78,8 +86,52 @@ impl std::fmt::Display for JobTriggerKind {
             JobTriggerKind::Asset => "asset",
             JobTriggerKind::Freshness => "freshness",
             JobTriggerKind::App => "app",
-        };
-        write!(f, "{}", kind)
+            JobTriggerKind::Ui => "ui",
+        }
+    }
+}
+
+impl std::fmt::Display for JobTriggerKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+/// `v2_job.trigger_kind` as a worker reads it back, kept as the raw label rather than as
+/// [`JobTriggerKind`]. A worker has to keep running jobs stamped with a kind added after it was
+/// built, and decoding into the enum turns an unfamiliar label into a hard error — sqlx on the
+/// pull query, serde on the agent-worker payload — which strands the job instead of running it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct TriggerKindLabel(pub String);
+
+impl TriggerKindLabel {
+    pub fn is(&self, kind: JobTriggerKind) -> bool {
+        self.0 == kind.as_str()
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<JobTriggerKind> for TriggerKindLabel {
+    fn from(kind: JobTriggerKind) -> Self {
+        Self(kind.as_str().to_string())
+    }
+}
+
+impl sqlx::Type<sqlx::Postgres> for TriggerKindLabel {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name("JOB_TRIGGER_KIND")
+    }
+}
+
+impl<'r> sqlx::Decode<'r, sqlx::Postgres> for TriggerKindLabel {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+        Ok(Self(
+            <&str as sqlx::Decode<sqlx::Postgres>>::decode(value)?.to_owned(),
+        ))
     }
 }
 
@@ -250,6 +302,13 @@ pub struct QueuedJob {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub is_retry: Option<bool>,
+    // How the run was started. NULL on every job pushed before the API began stamping it, and
+    // on the paths that still don't, so the run page treats it as "unknown" rather than
+    // "manual". `#[sqlx(default)]` lets the queries that don't select it omit the column, and
+    // the label type keeps a kind added after this binary was built readable instead of fatal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub trigger_kind: Option<TriggerKindLabel>,
 }
 
 impl QueuedJob {
@@ -326,6 +385,7 @@ impl Default for QueuedJob {
             runnable_settings_handle: None,
             labels: None,
             is_retry: None,
+            trigger_kind: None,
         }
     }
 }
@@ -389,6 +449,37 @@ pub struct CompletedJob {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub is_retry: Option<bool>,
+    // True when this failure has been marked handled (has a job_resolution row), so
+    // triage surfaces stop rendering it red. `status` stays 'failure' either way.
+    // The details are only selected by the single-job GET; the runs list carries
+    // `resolved` alone to keep its payload small.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub resolved: Option<bool>,
+    // None does NOT imply automatic: attribution is enterprise-only, so a manual resolution in
+    // CE is also None, and list responses omit it deliberately. Use `resolved_automatically`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub resolved_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub resolved_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub resolution_note: Option<String>,
+    // True when a succeeding retry resolved this, rather than a person. Explicit rather than
+    // inferred from a NULL `resolved_by`, which is also NULL for a manual resolution outside
+    // enterprise (attribution is an EE feature).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub resolved_automatically: Option<bool>,
+    // How the run was started. NULL on every job pushed before the API began stamping it, and
+    // on the paths that still don't, so the run page treats it as "unknown" rather than
+    // "manual". `#[sqlx(default)]` lets the queries that don't select it omit the column, and
+    // the label type keeps a kind added after this binary was built readable instead of fatal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub trigger_kind: Option<TriggerKindLabel>,
 }
 
 impl CompletedJob {
@@ -634,7 +725,7 @@ pub fn generate_dynamic_input_key(workspace_id: &str, path: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::is_valid_entrypoint_name;
+    use super::{is_valid_entrypoint_name, JobTriggerKind, TriggerKindLabel};
 
     #[test]
     fn valid_entrypoint_names_are_accepted() {
@@ -678,5 +769,23 @@ mod tests {
         }
         // Over-long names are rejected.
         assert!(!is_valid_entrypoint_name(&"a".repeat(256)));
+    }
+
+    /// The point of [`TriggerKindLabel`]: a worker built before a trigger kind existed must
+    /// still be able to read — and therefore run — a job stamped with it. Decoding into
+    /// [`JobTriggerKind`] instead makes an unfamiliar label a hard error and strands the job.
+    #[test]
+    fn an_unknown_trigger_kind_label_survives_deserialization() {
+        #[derive(serde::Deserialize)]
+        struct Job {
+            trigger_kind: Option<TriggerKindLabel>,
+        }
+
+        let job: Job = serde_json::from_str(r#"{"trigger_kind":"a_kind_from_the_future"}"#).unwrap();
+        assert_eq!(job.trigger_kind.as_ref().map(|k| k.as_str()), Some("a_kind_from_the_future"));
+        assert!(!job.trigger_kind.unwrap().is(JobTriggerKind::Schedule));
+
+        let job: Job = serde_json::from_str(r#"{"trigger_kind":"schedule"}"#).unwrap();
+        assert!(job.trigger_kind.unwrap().is(JobTriggerKind::Schedule));
     }
 }

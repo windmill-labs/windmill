@@ -212,7 +212,7 @@ async fn process_jc(
         span.record("root_job", root_job.to_string().as_str());
     }
     if let Some(trigger_kind) = jc.job.trigger_kind.as_ref() {
-        span.record("trigger_kind", trigger_kind.to_string().as_str());
+        span.record("trigger_kind", trigger_kind.as_str());
     }
     if let Some(trigger) = jc.job.trigger.as_ref() {
         span.record("trigger", trigger.as_str());
@@ -408,6 +408,14 @@ pub fn start_background_processor(
                     )
                     .warn_after_seconds(10)
                     .await;
+
+                    // Resolved here rather than from the main loop's outcome because `wm_failure`
+                    // can flip an exit-zero init script to a failure, and dedicated workers must
+                    // not install against a host it failed to prepare. An agent server relays other
+                    // workers' init scripts, so it has no say over its own gate.
+                    if is_init_script && !is_agent_server {
+                        crate::worker::init_script_finished(final_success);
+                    }
 
                     if is_init_script && !final_success {
                         if is_agent_server {
@@ -681,8 +689,66 @@ pub async fn handle_receive_completed_job(
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> Option<Arc<MiniPulledJob>> {
-    let token = jc.token.clone();
     let workspace = jc.job.workspace_id.clone();
+    // This client drives post-completion orchestration (the next step's input transforms fetch
+    // prior results) and outlives the finished step, so the step's own token can already be near
+    // expiry. Refresh it — but only from the server-written job_perms row, never from the
+    // completion payload's owner fields, which are untrusted on the agent-worker path.
+    let token = if jc.job.is_flow_step()
+        && windmill_common::auth::job_token_remaining_lifetime_secs(&jc.token)
+            .is_some_and(|r| r < windmill_common::auth::JOB_TOKEN_REFRESH_MARGIN_SECS)
+    {
+        let label = windmill_common::auth::ephemeral_script_token_label(
+            &jc.job.permissioned_as,
+            &jc.job.created_by,
+        );
+        match windmill_common::auth::get_job_perms(db, &jc.job.id, &jc.job.workspace_id).await {
+            Ok(Some(perms)) => windmill_common::auth::create_token_for_owner(
+                db,
+                &jc.job.workspace_id,
+                &jc.job.permissioned_as,
+                &label,
+                *windmill_common::worker::SCRIPT_TOKEN_EXPIRY,
+                &jc.job.permissioned_as_email,
+                &jc.job.id,
+                Some(perms),
+                Some(format!(
+                    "job-span-{}",
+                    jc.job.flow_innermost_root_job.unwrap_or(jc.job.id)
+                )),
+            )
+            .warn_after_seconds(5)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!(
+                    "could not mint fresh flow-orchestration token for job {}, reusing step token: {e:#}",
+                    jc.job.id
+                );
+                jc.token.clone()
+            }),
+            // No perms row (e.g. a zombie replay after the queue row was reaped): keep the step
+            // token rather than minting an identity from untrusted payload fields. The token is
+            // near expiry, so trace it — the downstream fetch may hit the original failure.
+            Ok(None) => {
+                tracing::warn!(
+                    "no job_perms row to refresh flow-orchestration token for job {}, reusing step token",
+                    jc.job.id
+                );
+                jc.token.clone()
+            }
+            // A transient DB error must not silently reuse the near-expired token without a trace,
+            // or the very failure this guards against recurs invisibly.
+            Err(e) => {
+                tracing::warn!(
+                    "could not load job_perms to refresh flow-orchestration token for job {}, reusing step token: {e:#}",
+                    jc.job.id
+                );
+                jc.token.clone()
+            }
+        }
+    } else {
+        jc.token.clone()
+    };
     let client = AuthedClient::new(base_internal_url.to_string(), workspace, token, None);
     let job = jc.job.clone();
     let mem_peak = jc.mem_peak.clone();
@@ -908,8 +974,10 @@ async fn maybe_reconcile_git_sync_auto_pull(
 /// derivation: a dev workspace deploys to its environment-label branch
 /// (`dev`/`staging`), other fork workspaces to `wm-fork/<base>/<id-suffix>`,
 /// else the promotion `wm_deploy/**` formula (per-folder or per-item form).
-/// `None` when the deploy stays on the base branch (workspace-wide mode) and
-/// has no PR to open.
+/// A dev workspace in promotion mode is the exception: it takes the promotion
+/// `wm_deploy/**` formula (per-item PRs into the parent) instead of its label
+/// branch. `None` when the deploy stays on the base branch (workspace-wide
+/// mode) and has no PR to open.
 #[cfg(all(feature = "enterprise", feature = "private"))]
 fn git_sync_deploy_pr_head_branch(
     workspace_id: &str,
@@ -922,18 +990,23 @@ fn git_sync_deploy_pr_head_branch(
     item_parent_path: &str,
     path_type: &str,
 ) -> Option<String> {
-    if dev_workspace_label.is_some() {
-        return Some(windmill_common::workspaces::dev_workspace_branch(
-            dev_workspace_label,
-        ));
-    }
-    let is_fork = parent_workspace_id.is_some()
-        || workspace_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX);
-    if is_fork {
-        let suffix = workspace_id
-            .strip_prefix(windmill_common::workspaces::WM_FORK_PREFIX)
-            .unwrap_or(workspace_id);
-        return Some(format!("wm-fork/{base}/{suffix}"));
+    let is_dev = dev_workspace_label.is_some();
+    // A dev workspace with promotion on falls through to the wm_deploy/**
+    // formula below; the label/fork branches only apply when promotion is off.
+    if !(is_dev && use_individual_branch) {
+        if is_dev {
+            return Some(windmill_common::workspaces::dev_workspace_branch(
+                dev_workspace_label,
+            ));
+        }
+        let is_fork = parent_workspace_id.is_some()
+            || workspace_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX);
+        if is_fork {
+            let suffix = workspace_id
+                .strip_prefix(windmill_common::workspaces::WM_FORK_PREFIX)
+                .unwrap_or(workspace_id);
+            return Some(format!("wm-fork/{base}/{suffix}"));
+        }
     }
     if !use_individual_branch {
         return None;
@@ -1074,14 +1147,19 @@ async fn maybe_open_git_sync_deploy_pr(
         return;
     };
 
-    let repo_url =
-        match windmill_common::git_sync_ee::resolve_repo_url(db, workspace_id, &repo_path).await {
-            Ok(url) => url,
-            Err(e) => {
-                tracing::warn!("git sync PR: could not resolve repo url for {repo_path}: {e:#}");
-                return;
-            }
-        };
+    let repo_url = match windmill_common::git_sync_ee::resolve_repo_url_interpolated(
+        db,
+        workspace_id,
+        &repo_path,
+    )
+    .await
+    {
+        Ok(url) => url,
+        Err(e) => {
+            tracing::warn!("git sync PR: could not resolve repo url for {repo_path}: {e:#}");
+            return;
+        }
+    };
     // A fork of a dev workspace diverged from the dev's label branch, so its PR
     // merges back there; everything else targets the tracked branch.
     let pr_base = row.parent_dev_workspace_label.as_deref().unwrap_or(&base);
@@ -1245,9 +1323,22 @@ async fn maybe_post_git_sync_check(
         (None, Some(deploy)) => (true, deploy),
         (None, None) => return,
     };
-    let Ok(check) = serde_json::from_value::<GitSyncCheck>(marker) else {
+    let Ok(mut check) = serde_json::from_value::<GitSyncCheck>(marker) else {
         return;
     };
+    // Markers carry the literal resource URL (job args are persisted, so a
+    // `$var:`-resolved URL must not land there); interpolate before calling
+    // GitHub.
+    check.repo_url =
+        match windmill_common::variables::get_variable_or_self(check.repo_url, db, workspace_id)
+            .await
+        {
+            Ok(u) => u,
+            Err(e) => {
+                tracing::error!("git sync-check: cannot interpolate repo url: {e:#}");
+                return;
+            }
+        };
     // "In sync" on a PR that visibly changes files reads as a bug when those
     // files are outside the repo's sync filters — say what the scope is.
     let scope_note = if !is_deploy && success {
@@ -1766,13 +1857,11 @@ pub(crate) async fn handle_wac_child_completion(
             step_key = %step_key,
             "WAC v2 child job failed, storing error for workflow try/catch"
         );
-        json!({
-            "__wmill_error": true,
-            "message": format!("WAC task '{}' failed (child job {})", step_key, child_job_id),
-            "child_job_id": child_job_id.to_string(),
-            "step_key": step_key,
-            "result": child_err,
-        })
+        windmill_common::wac::wac_failure_record(
+            &step_key,
+            Some(&child_job_id.to_string()),
+            &child_err,
+        )
     };
 
     tracing::info!(
@@ -2219,5 +2308,78 @@ mod git_sync_pr_tests {
             ),
             Some("dev".to_string())
         );
+    }
+
+    #[test]
+    fn dev_workspace_promotion_uses_wm_deploy_branch() {
+        // Promotion on: a dev workspace gets per-item wm_deploy/** branches
+        // (namespaced by its own id), not its env-label branch.
+        assert_eq!(
+            git_sync_deploy_pr_head_branch(
+                "dev",
+                Some("prod"),
+                Some("dev"),
+                "main",
+                true,
+                false,
+                "f/folder/my_script",
+                "",
+                "script"
+            ),
+            Some("wm_deploy/dev/script/f__folder__my_script".to_string())
+        );
+        // Per-folder form still honored for a promotion dev workspace.
+        assert_eq!(
+            git_sync_deploy_pr_head_branch(
+                "dev",
+                Some("prod"),
+                Some("dev"),
+                "main",
+                true,
+                true,
+                "f/folder/my_script",
+                "",
+                "script"
+            ),
+            Some("wm_deploy/dev/f__folder".to_string())
+        );
+        // Promotion off: the env-label branch still wins.
+        assert_eq!(
+            git_sync_deploy_pr_head_branch(
+                "dev",
+                Some("prod"),
+                Some("dev"),
+                "main",
+                false,
+                false,
+                "f/x/y",
+                "",
+                "script"
+            ),
+            Some("dev".to_string())
+        );
+    }
+
+    #[test]
+    fn dev_promotion_user_group_items_open_no_pr() {
+        // User/group objects get no wm_deploy branch even on a dev workspace; the
+        // CLI isolates them to the env-label branch, so the backend opens no PR
+        // (never a PR from the env-label branch into the parent for these).
+        for path_type in ["user", "group"] {
+            assert_eq!(
+                git_sync_deploy_pr_head_branch(
+                    "dev",
+                    Some("prod"),
+                    Some("dev"),
+                    "main",
+                    true,
+                    false,
+                    "u/alice",
+                    "",
+                    path_type
+                ),
+                None
+            );
+        }
     }
 }

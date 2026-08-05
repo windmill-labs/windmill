@@ -50,6 +50,7 @@ use windmill_common::{
     flows::{EditFlow, Flow, FlowWithStarred, ListFlowQuery, ListableFlow, NewFlow},
     jobs::JobPayload,
     schedule::Schedule,
+    triggers::MovedNativeTrigger,
     utils::{http_get_from_hub, not_found_if_none, paginate, Pagination, RunnableKind, StripPath},
 };
 use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
@@ -101,11 +102,7 @@ async fn list_search_flows(
     Path(w_id): Path<String>,
     Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<Vec<SearchFlow>> {
-    #[cfg(feature = "enterprise")]
     let n = 1000;
-
-    #[cfg(not(feature = "enterprise"))]
-    let n = 3;
     let mut tx = user_db.begin(&authed).await?;
 
     let allowed = build_scope_path_predicate(&authed, "flows", "read");
@@ -531,6 +528,11 @@ async fn create_flow(
     }
     check_scopes(&authed, || format!("flows:write:{}", nf.path))?;
 
+    // A `<= 0` flow timeout is "unset", not a 0-second limit that kills every run instantly.
+    // (The concurrency settings inside the flow value are normalized on deserialization; see
+    // ConcurrencySettings.) Runtime guards also protect already-stored rows.
+    nf.timeout = windmill_common::runnable_settings::none_if_non_positive(nf.timeout);
+
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
         AuditAuthorable::username(&authed),
@@ -576,32 +578,18 @@ async fn create_flow(
 
     // Apply folder default_permissioned_as on create when the caller did not
     // explicitly preserve a value and the user can preserve.
-    let explicit_preserve = nf.on_behalf_of_email.is_some()
+    let explicit_preserve = (nf.on_behalf_of_email.is_some() || nf.on_behalf_of.is_some())
         && nf.preserve_on_behalf_of.unwrap_or(false)
         && windmill_common::can_preserve_on_behalf_of(&authed);
     if !explicit_preserve && windmill_common::can_preserve_on_behalf_of(&authed) {
-        if let Some(default_email) =
-            windmill_common::folders::resolve_folder_default_on_behalf_of_email(
-                &db, &w_id, &nf.path,
-            )
-            .await?
+        if let Some((default_email, default_permissioned_as)) =
+            windmill_common::folders::resolve_folder_default_on_behalf_of(&db, &w_id, &nf.path)
+                .await?
         {
             nf.on_behalf_of_email = Some(default_email);
+            nf.on_behalf_of = Some(default_permissioned_as);
             nf.preserve_on_behalf_of = Some(true);
         }
-    }
-
-    // Reject a forged superadmin run identity: only a preserved value is
-    // caller-controlled (otherwise `resolve_on_behalf_of_email` stores the
-    // deployer's own email below). A flow stores no permissioned_as, so this is
-    // the sentinel guard.
-    if nf.preserve_on_behalf_of.unwrap_or(false)
-        && windmill_common::can_preserve_on_behalf_of(&authed)
-    {
-        windmill_common::auth::validate_on_behalf_of(
-            None,
-            nf.on_behalf_of_email.as_deref(),
-        )?;
     }
 
     let mut tx = user_db.clone().begin(&authed).await?;
@@ -610,19 +598,34 @@ async fn create_flow(
     check_schedule_conflict(&mut tx, &w_id, &nf.path).await?;
 
     let schema_str = nf.schema.and_then(|x| serde_json::to_string(&x.0).ok());
+    let resolved_on_behalf_of = windmill_common::resolve_on_behalf_of(
+        nf.on_behalf_of_email.as_deref(),
+        nf.on_behalf_of.as_deref(),
+        nf.preserve_on_behalf_of.unwrap_or(false),
+        &authed,
+        &w_id,
+        &db,
+    )
+    .await?;
+    // Written beside the principal only while a worker that still reads it may be live.
+    let legacy_on_behalf_of_email =
+        windmill_common::legacy_on_behalf_of_email(resolved_on_behalf_of.as_deref(), &w_id, &db)
+            .await?;
     sqlx::query!(
         r#"INSERT INTO flow (
         workspace_id, path, summary, description,
         dependency_job, lock_error_logs, tag,
-        dedicated_worker, visible_to_runner_only, on_behalf_of_email,
+        dedicated_worker, visible_to_runner_only,
         ws_error_handler_muted,
-        value, schema, edited_by, edited_at, labels
+        value, schema, edited_by, edited_at, labels,
+        on_behalf_of, on_behalf_of_email
     ) VALUES (
         $1, $2, $3, $4,
         NULL, '', $5,
-        $6, $7, $8,
-        $9,
-        $10, $11::text::json, $12, now(), $13
+        $6, $7,
+        $8,
+        $9, $10::text::json, $11, now(), $12,
+        $13, $14
     )"#,
         w_id,
         nf.path,
@@ -631,16 +634,13 @@ async fn create_flow(
         nf.tag,
         nf.dedicated_worker,
         nf.visible_to_runner_only.unwrap_or(false),
-        windmill_common::resolve_on_behalf_of_email(
-            nf.on_behalf_of_email.as_deref(),
-            nf.preserve_on_behalf_of.unwrap_or(false),
-            &authed,
-        ),
         nf.ws_error_handler_muted.unwrap_or(false),
         sqlx::types::Json(&nf.value) as _,
         schema_str,
         &authed.username,
         nf.labels.as_deref() as Option<&[String]>,
+        resolved_on_behalf_of,
+        legacy_on_behalf_of_email,
     )
     .execute(&mut *tx)
     .await?;
@@ -696,10 +696,10 @@ async fn create_flow(
     )
     .await?;
     if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
-        nf.on_behalf_of_email.as_deref(),
+        resolved_on_behalf_of.as_deref(),
         nf.preserve_on_behalf_of.unwrap_or(false),
         &authed,
-        &authed.email,
+        &windmill_common::users::username_to_permissioned_as(&authed.username),
     ) {
         audit_log(
             &mut *tx,
@@ -740,6 +740,7 @@ async fn create_flow(
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
         authed.token_prefix.as_deref(),
+        authed.username_override.as_deref(),
         None,
         None,
         None,
@@ -875,8 +876,27 @@ async fn get_latest_version(
     Ok(Json(version))
 }
 
+/// `on_behalf_of_email` is derived rather than selected: the read paths fill it from the
+/// principal so clients written against the address keep working. The column itself still
+/// exists for the workers that read it — see `legacy_on_behalf_of_email`.
+async fn derived_on_behalf_of_email(
+    db: &DB,
+    w_id: &str,
+    flow: &Flow,
+) -> error::Result<Option<String>> {
+    let Some(permissioned_as) = flow.on_behalf_of.as_deref() else {
+        return Ok(None);
+    };
+    // Uncached, for the reason given on `prefetch_cached_script`: this pair is round-tripped.
+    Ok(Some(
+        windmill_common::users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db)
+            .await?,
+    ))
+}
+
 async fn get_flow_version(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, version, path)): Path<(String, i64, StripPath)>,
 ) -> JsonResult<Flow> {
@@ -885,26 +905,28 @@ async fn get_flow_version(
     let mut tx = user_db.begin(&authed).await?;
 
     let flow = sqlx::query_as::<_, Flow>(
-        "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow.labels, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
+        "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of, flow.labels, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
         FROM flow
         LEFT JOIN flow_version ON flow_version.path = flow.path AND flow_version.workspace_id = flow.workspace_id
         WHERE flow.path = $1 AND flow.workspace_id = $2 AND flow_version.id = $3",
     )
     .bind(path)
-    .bind(w_id)
+    .bind(&w_id)
     .bind(version)
     .fetch_optional(&mut *tx)
     .await?;
 
     tx.commit().await?;
 
-    let flow = not_found_if_none(flow, "Flow version", version.to_string())?;
+    let mut flow = not_found_if_none(flow, "Flow version", version.to_string())?;
+    flow.on_behalf_of_email = derived_on_behalf_of_email(&db, &w_id, &flow).await?;
 
     Ok(Json(flow))
 }
 
 async fn get_flow_version_by_id(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, version)): Path<(String, i64)>,
 ) -> JsonResult<Flow> {
@@ -941,7 +963,7 @@ async fn get_flow_version_by_id(
             flow.ws_error_handler_muted,
             flow.timeout,
             flow.visible_to_runner_only,
-            flow.on_behalf_of_email,
+            flow.on_behalf_of,
             flow.labels,
             flow_version.schema,
             flow_version.value,
@@ -960,11 +982,12 @@ async fn get_flow_version_by_id(
 
     tx.commit().await?;
 
-    let flow = not_found_if_none(
+    let mut flow = not_found_if_none(
         flow,
         "Flow",
         format!("for version {} (flow may have been deleted)", version),
     )?;
+    flow.on_behalf_of_email = derived_on_behalf_of_email(&db, &w_id, &flow).await?;
 
     Ok(Json(flow))
 }
@@ -1014,6 +1037,35 @@ async fn update_flow_history(
     Ok(())
 }
 
+/// Re-point the webhooks of the native triggers a rename carried onto the new path.
+///
+/// Runs after the deploy transaction commits — repointing a webhook is not undoable — and off the
+/// request, because it waits on a third-party service that may be slow or gone, and a deploy that
+/// already committed must not look like it failed. The rename itself marked these rows
+/// `REREGISTRATION_PENDING`, so nothing is lost silently if this never finishes.
+fn reregister_moved_native_triggers(
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    moved: Vec<MovedNativeTrigger>,
+) {
+    if moved.is_empty() {
+        return;
+    }
+    #[cfg(feature = "native_trigger")]
+    {
+        let (db, authed, w_id) = (db.clone(), authed.clone(), w_id.to_string());
+        tokio::spawn(async move {
+            windmill_native_triggers::rename::reregister_triggers_after_rename(
+                &db, &authed, &w_id, &moved,
+            )
+            .await;
+        });
+    }
+    #[cfg(not(feature = "native_trigger"))]
+    let _ = (db, authed, w_id, moved);
+}
+
 async fn update_flow(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -1029,8 +1081,17 @@ async fn update_flow(
     }
     let flow_path = flow_path.to_path();
     // The URL identifies the flow being updated; the body path is only needed to rename.
-    let nf = ef.into_new_flow(flow_path);
+    let mut nf = ef.into_new_flow(flow_path);
+    // A `<= 0` flow timeout is "unset", not a 0-second limit (see create_flow).
+    nf.timeout = windmill_common::runnable_settings::none_if_non_positive(nf.timeout);
     check_scopes(&authed, || format!("flows:write:{}", flow_path))?;
+    // A rename writes the destination as much as the source, so a path-scoped token needs both.
+    // Checking only the source would let it move a flow onto a path it has no say over — and
+    // everything that follows the rename, native triggers included, is then acting on a path this
+    // caller was never authorized for. `create_script` already scopes against its destination.
+    if nf.path != flow_path {
+        check_scopes(&authed, || format!("flows:write:{}", nf.path))?;
+    }
 
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
@@ -1045,17 +1106,6 @@ async fn update_flow(
     }
 
     validate_flow(&nf).await?;
-
-    // Reject a forged superadmin run identity in a preserved value (otherwise
-    // `resolve_on_behalf_of_email` stores the deployer's own email below).
-    if nf.preserve_on_behalf_of.unwrap_or(false)
-        && windmill_common::can_preserve_on_behalf_of(&authed)
-    {
-        windmill_common::auth::validate_on_behalf_of(
-            None,
-            nf.on_behalf_of_email.as_deref(),
-        )?;
-    }
 
     let authed = maybe_refresh_folders(&flow_path, &w_id, authed, &db).await;
     let mut tx = user_db.clone().begin(&authed).await?;
@@ -1074,6 +1124,19 @@ async fn update_flow(
     let old_dep_job = not_found_if_none(old_dep_job, "Flow", flow_path)?;
     let is_new_path = nf.path != flow_path;
     let schema_str = schema.and_then(|x| serde_json::to_string(&x).ok());
+    let resolved_on_behalf_of = windmill_common::resolve_on_behalf_of(
+        nf.on_behalf_of_email.as_deref(),
+        nf.on_behalf_of.as_deref(),
+        nf.preserve_on_behalf_of.unwrap_or(false),
+        &authed,
+        &w_id,
+        &db,
+    )
+    .await?;
+    // Written beside the principal only while a worker that still reads it may be live.
+    let legacy_on_behalf_of_email =
+        windmill_common::legacy_on_behalf_of_email(resolved_on_behalf_of.as_deref(), &w_id, &db)
+            .await?;
 
     sqlx::query!(
         "
@@ -1088,26 +1151,22 @@ async fn update_flow(
             tag = $4,
             dedicated_worker = $5,
             visible_to_runner_only = $6,
-            on_behalf_of_email = $7,
-            ws_error_handler_muted = $8,
-            value = $9,
-            schema = $10::text::json,
-            edited_by = $11,
+            ws_error_handler_muted = $7,
+            value = $8,
+            schema = $9::text::json,
+            edited_by = $10,
             edited_at = now(),
-            labels = COALESCE($14, labels)
+            labels = COALESCE($13, labels),
+            on_behalf_of = $14,
+            on_behalf_of_email = $15
         WHERE
-            path = $12 AND workspace_id = $13",
+            path = $11 AND workspace_id = $12",
         if is_new_path { flow_path } else { &nf.path },
         nf.summary,
         nf.description.as_deref().unwrap_or(""),
         nf.tag,
         nf.dedicated_worker,
         nf.visible_to_runner_only.unwrap_or(false),
-        windmill_common::resolve_on_behalf_of_email(
-            nf.on_behalf_of_email.as_deref(),
-            nf.preserve_on_behalf_of.unwrap_or(false),
-            &authed,
-        ),
         nf.ws_error_handler_muted.unwrap_or(false),
         sqlx::types::Json(&nf.value) as _,
         schema_str,
@@ -1115,6 +1174,8 @@ async fn update_flow(
         flow_path,
         w_id,
         nf.labels.as_deref() as Option<&[String]>,
+        resolved_on_behalf_of,
+        legacy_on_behalf_of_email,
     )
     .execute(&mut *tx)
     .await
@@ -1126,8 +1187,8 @@ async fn update_flow(
         // if new path, must clone flow to new path and delete old flow for flow_version foreign key constraint
         sqlx::query!(
             "INSERT INTO flow
-                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels)
-            SELECT workspace_id, $1, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels
+                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels)
+            SELECT workspace_id, $1, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels
                 FROM flow
                 WHERE path = $2 AND workspace_id = $3",
             nf.path,
@@ -1258,8 +1319,9 @@ async fn update_flow(
         }
     }
 
+    let mut moved_native_triggers = Vec::new();
     if is_new_path {
-        windmill_common::triggers::update_triggers_script_path(
+        moved_native_triggers = windmill_common::triggers::update_triggers_script_path(
             &mut tx, &nf.path, &flow_path, &w_id, true,
         )
         .await
@@ -1301,10 +1363,10 @@ async fn update_flow(
     )
     .await?;
     if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
-        nf.on_behalf_of_email.as_deref(),
+        resolved_on_behalf_of.as_deref(),
         nf.preserve_on_behalf_of.unwrap_or(false),
         &authed,
-        &authed.email,
+        &windmill_common::users::username_to_permissioned_as(&authed.username),
     ) {
         audit_log(
             &mut *tx,
@@ -1356,6 +1418,7 @@ async fn update_flow(
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
         authed.token_prefix.as_deref(),
+        authed.username_override.as_deref(),
         None,
         None,
         None,
@@ -1430,6 +1493,21 @@ async fn update_flow(
     }
 
     new_tx.commit().await?;
+
+    // See `tally_rename_vacated_path`.
+    if flow_path != nf.path {
+        if let Err(e) = windmill_git_sync::tally_rename_vacated_path(
+            &db,
+            &w_id,
+            DeployedObject::Flow { path: flow_path.to_string(), parent_path: None, version },
+        )
+        .await
+        {
+            tracing::error!(%e, "error tallying the path renamed away from");
+        }
+    }
+
+    reregister_moved_native_triggers(&db, &authed, &w_id, moved_native_triggers);
 
     // Trigger CI tests for items that reference this flow
     {
@@ -1533,7 +1611,7 @@ async fn get_flow_by_path(
             flow.ws_error_handler_muted, 
             flow.timeout, 
             flow.visible_to_runner_only, 
-            flow.on_behalf_of_email,
+            flow.on_behalf_of,
             flow.labels,
             folder_labels(flow.workspace_id, flow.path) AS inherited_labels,
             flow_version.id AS version_id,
@@ -1574,7 +1652,7 @@ async fn get_flow_by_path(
             flow.ws_error_handler_muted, 
             flow.timeout, 
             flow.visible_to_runner_only, 
-            flow.on_behalf_of_email,
+            flow.on_behalf_of,
             flow.labels,
             folder_labels(flow.workspace_id, flow.path) AS inherited_labels,
             flow_version.id AS version_id,
@@ -1596,6 +1674,13 @@ async fn get_flow_by_path(
     };
 
     tx.commit().await?;
+
+    // The primary GET is what the CLI reads before a preserving push, so it must carry the
+    // derived address: without it the push sends neither half and the identity is cleared.
+    let mut flow_o = flow_o;
+    if let Some(fws) = flow_o.as_mut() {
+        fws.flow.on_behalf_of_email = derived_on_behalf_of_email(&db, &w_id, &fws.flow).await?;
+    }
 
     // No deployed row + `get_draft`: fall back to the draft table; see scripts.rs.
     let overlay = overlay_or_draft_only(
@@ -1643,6 +1728,11 @@ async fn archive_flow_by_path(
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(archived): Json<Archived>,
 ) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot archive flows for security reasons".to_string(),
+        ));
+    }
     let path = path.to_path();
     check_scopes(&authed, || format!("flows:write:{}", path))?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
@@ -1783,6 +1873,11 @@ async fn delete_flow_by_path(
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<DeleteFlowQuery>,
 ) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot delete flows for security reasons".to_string(),
+        ));
+    }
     let path = path.to_path();
     check_scopes(&authed, || format!("flows:write:{}", path))?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(

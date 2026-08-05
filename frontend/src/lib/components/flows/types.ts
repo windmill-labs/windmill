@@ -2,6 +2,7 @@ import type { Job, OpenFlow } from '$lib/gen'
 import type { History } from '$lib/history.svelte'
 import type { Writable } from 'svelte/store'
 import type ScriptEditorDrawer from './content/ScriptEditorDrawer.svelte'
+import type WorkspaceScriptSettingsDrawer from './content/WorkspaceScriptSettingsDrawer.svelte'
 import type FlowEditorDrawer from './content/FlowEditorDrawer.svelte'
 import type { FlowState } from './flowState'
 import type { FlowBuilderWhitelabelCustomUi } from '../custom_ui'
@@ -38,6 +39,7 @@ export type ExtendedOpenFlow = OpenFlow & {
 	dedicated_worker?: boolean
 	visible_to_runner_only?: boolean
 	on_behalf_of_email?: string
+	on_behalf_of?: string
 }
 
 export type FlowInputEditorState = {
@@ -76,6 +78,7 @@ export type FlowEditorContext = {
 	currentEditor: Writable<CurrentEditor>
 	previewArgs: StateStore<Record<string, any>>
 	scriptEditorDrawer: Writable<ScriptEditorDrawer | undefined>
+	workspaceScriptSettingsDrawer: Writable<WorkspaceScriptSettingsDrawer | undefined>
 	flowEditorDrawer: Writable<FlowEditorDrawer | undefined>
 	history: History<OpenFlow>
 	pathStore: Writable<string>
@@ -94,6 +97,7 @@ export type FlowEditorContext = {
 	outputPickerOpenFns: Record<string, () => void>
 	preserveOnBehalfOf: Writable<boolean>
 	savedOnBehalfOfEmail: Writable<string | undefined>
+	savedOnBehalfOfPermissionedAs: Writable<string | undefined>
 	// Only set by the local dev page (Dev.svelte): path -> temp-storage hash of
 	// locally-edited workspace scripts, passed as temp_script_refs on preview
 	// runs so relative imports resolve from local (not-yet-deployed) content

@@ -218,6 +218,12 @@ pub struct ResponsesApiRequest<'a> {
     pub max_output_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<ResponsesApiTextFormat>,
+    /// From `gpt-5.6` on, the prefix hash alone no longer reliably matches a cached
+    /// prefix: the key is combined with it to route the request. Omitting it costs the
+    /// read discount and, since these models bill cache writes, pays to re-write the
+    /// prefix on every miss.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_key: Option<&'a str>,
 }
 
 #[derive(Serialize, Debug)]
@@ -229,7 +235,6 @@ pub enum ToolChoice {
 }
 
 pub struct OpenAIQueryBuilder {
-    #[allow(dead_code)]
     provider_kind: AIProvider,
 }
 
@@ -435,6 +440,7 @@ impl OpenAIQueryBuilder {
                 .map(|effort| ResponsesApiReasoning { effort: effort.to_string() }),
             max_output_tokens: args.max_tokens,
             text,
+            prompt_cache_key: args.prompt_cache_key,
         };
 
         serde_json::to_string(&request)
@@ -491,6 +497,8 @@ impl OpenAIQueryBuilder {
             reasoning: None, // Image generation models don't take a reasoning effort
             max_output_tokens: args.max_tokens,
             text: None, // No structured output for image generation
+            // A one-shot image prompt has no reusable prefix to route to a cache
+            prompt_cache_key: None,
         };
 
         serde_json::to_string(&request)
@@ -509,6 +517,10 @@ impl QueryBuilder for OpenAIQueryBuilder {
         build_openai_compatible_proxy_request(args)
     }
 
+    fn supports_chat_completions_fallback(&self, base_url: &str) -> bool {
+        self.provider_kind.is_azure(base_url)
+    }
+
     async fn parse_streaming_response(
         &self,
         response: reqwest::Response,
@@ -518,9 +530,7 @@ impl QueryBuilder for OpenAIQueryBuilder {
         parser.parse_events(response).await?;
 
         // Convert OpenAI Responses usage to TokenUsage
-        let usage = parser
-            .usage
-            .map(|u| TokenUsage::new(u.input_tokens, u.output_tokens, u.total_tokens));
+        let usage = parser.usage.map(|u| u.to_token_usage());
 
         Ok(ParsedResponse::Text {
             content: if parser.accumulated_content.is_empty() {
@@ -580,16 +590,25 @@ impl QueryBuilder for OpenAIQueryBuilder {
     }
 
     fn get_endpoint(&self, base_url: &str, _model: &str, _output_type: &OutputType) -> String {
-        format!("{}/responses", base_url)
+        let base_url = base_url.trim_end_matches('/');
+        if self.provider_kind.is_azure(base_url) {
+            AIProvider::build_azure_openai_url(base_url, "responses")
+        } else {
+            format!("{}/responses", base_url)
+        }
     }
 
     fn get_auth_headers(
         &self,
         api_key: &str,
-        _base_url: &str,
+        base_url: &str,
         _output_type: &OutputType,
     ) -> Vec<(&'static str, String)> {
-        vec![("Authorization", format!("Bearer {}", api_key))]
+        if self.provider_kind.is_azure(base_url) {
+            vec![("api-key", api_key.to_string())]
+        } else {
+            vec![("Authorization", format!("Bearer {}", api_key))]
+        }
     }
 }
 
@@ -599,6 +618,7 @@ mod tests {
     use crate::query_builder::QueryBuilder;
 
     const SYSTEM_PROMPT: &str = "You are a helpful assistant";
+    const PROMPT_CACHE_KEY: &str = "test-workspace:f/agent:step_1";
 
     fn client() -> AuthedClient {
         AuthedClient::new(
@@ -631,6 +651,7 @@ mod tests {
             user_message: "hello",
             attachments: None,
             has_websearch: false,
+            prompt_cache_key: Some(PROMPT_CACHE_KEY),
         };
 
         OpenAIQueryBuilder::new(AIProvider::OpenAI)
@@ -701,5 +722,17 @@ mod tests {
         let request: serde_json::Value = serde_json::from_str(&body).unwrap();
 
         assert!(request.get("instructions").is_none());
+    }
+
+    /// `gpt-5.6` and later only match a cached prefix reliably when the request carries
+    /// the routing key, so dropping it from the body silently forfeits the cache.
+    #[tokio::test]
+    async fn sends_the_prompt_cache_key() {
+        let messages = vec![message("user", "hi")];
+
+        let body = build_text_body(&messages, None).await;
+        let request: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+        assert_eq!(request["prompt_cache_key"], PROMPT_CACHE_KEY);
     }
 }

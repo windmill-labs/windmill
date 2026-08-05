@@ -487,11 +487,15 @@ export default class HistoryManager {
 			const existingTitle = this.savedChats[this.currentChatId]?.title
 			const titleSource = displayMessages.find((m) => m.role !== 'summary') ?? displayMessages[0]
 			const derivedTitle = expanded(messageDraft(titleSource)).slice(0, 50)
-			// An image-only first turn has no text to derive from — fall back to the
-			// attachment's filename so the History menu entry isn't blank.
+			// An attachment-only first turn has no text to derive from — fall back to
+			// the attachment's filename so the History menu entry isn't blank.
 			const imageFallback =
-				titleSource.role === 'user' && titleSource.images?.length
-					? (titleSource.images[0].name ?? 'Image attachment')
+				titleSource.role === 'user'
+					? titleSource.images?.length
+						? (titleSource.images[0].name ?? 'Image attachment')
+						: titleSource.files?.length
+							? titleSource.files[0].name
+							: ''
 					: ''
 			// A hydrated omission marker is not user text — deriving from it would
 			// overwrite the filename title an evicted image-only chat was given.

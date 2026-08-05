@@ -9,16 +9,15 @@ import {
 // The seeded draft asset (`autoOutputAsset`, stored as `outputAssets` and used
 // by resolveGraph for inactive-draft node identity) must match the asset
 // identity the deploy-time / wasm parser infers from the generated body. The
-// parser canonicalizes any S3 URI by stripping the `s3://` prefix and all
-// leading slashes (see backend `parse_asset_syntax`); if the seed carried a
-// leading slash while the body wrote `s3:///key`, the preview would render a
-// duplicate `/key` node and a phantom post-deploy drift. This pins the two in
-// lockstep so that class of drift can't regress.
+// parser keeps the suffix after `s3://` verbatim (see backend
+// `parse_asset_syntax`), so a default-storage object's path carries a leading
+// slash (`s3:///key` → `/key`). If the seed and the body's write URI disagree,
+// the preview renders a duplicate node and a phantom post-deploy drift. This
+// pins the two in lockstep so that class of drift can't regress.
 
-// Mirror of the parser's S3 canonicalization for a raw `s3://…` URI.
+// Mirror of the parser's S3 path extraction for a raw `s3://…` URI.
 function canonicalS3Key(uri: string): string {
-	const rest = uri.replace(/^s3:\/\//, '')
-	return rest.replace(/^\/+/, '')
+	return uri.replace(/^s3:\/\//, '')
 }
 
 const S3_KINDS: PipelineOutputKind[] = ['s3_parquet', 's3_object']
@@ -32,10 +31,10 @@ describe('pipelineTemplates S3 seed/body parity', () => {
 				expect(output).toBeDefined()
 				const asset = output!
 
-				// The seed must be a canonical slashless key so it matches the
-				// identity the parser infers from the generated body.
+				// The seed must carry the default-storage leading slash so it
+				// matches the identity the parser infers from the generated body.
 				expect(asset.kind).toBe('s3object')
-				expect(asset.path.startsWith('/')).toBe(false)
+				expect(asset.path.startsWith('/')).toBe(true)
 
 				const body = generatePipelineDraft({
 					language,

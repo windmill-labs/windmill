@@ -1,5 +1,5 @@
 import { BROWSER } from 'esm-env'
-import { derived, type Readable, writable } from 'svelte/store'
+import { derived, get, type Readable, writable } from 'svelte/store'
 
 import type { IntrospectionQuery } from 'graphql'
 import {
@@ -93,25 +93,70 @@ export const lspTokenStore = writable<string | undefined>(undefined)
 export const hubBaseUrlStore = writable<string>(DEFAULT_HUB_BASE_URL)
 export const wsBaseUrlStore = writable<string | undefined>(undefined)
 export const disableHubStore = writable<boolean>(false)
+// What a superadmin standing in a workspace they are not a member of needs to see it as a
+// fork: the workspace itself and its parent. `listUserWorkspaces` is membership-gated, so
+// `$userWorkspaces` would miss them and every fork lookup would read the workspace as a
+// parentless root. Owned by exactly one workspace (`forWorkspace`) — held past a switch,
+// these would go on presenting themselves as memberships (picker, workspace-family lookups).
+export const nonMemberWorkspaces = writable<
+	{ forWorkspace: string; workspaces: UserWorkspace[] } | undefined
+>(undefined)
+
+/**
+ * Records what was resolved for `forWorkspace`, dropping archived workspaces —
+ * `userWorkspaces` must never offer one. An archived workspace therefore resolves to an
+ * empty set, which still marks it as resolved and stops it being fetched again.
+ */
+export function setNonMemberWorkspaces(forWorkspace: string, workspaces: Workspace[]): void {
+	nonMemberWorkspaces.set({
+		forWorkspace,
+		workspaces: workspaces
+			.filter((w) => !w.deleted)
+			.map((w) => ({
+				id: w.id,
+				name: w.name,
+				// No `usr` row here, hence no per-workspace username — same stand-in as the
+				// synthetic `admins` entry below.
+				username: 'superadmin',
+				color: w.color,
+				parent_workspace_id: w.parent_workspace_id,
+				is_dev_workspace: w.is_dev_workspace,
+				dev_workspace_label: w.dev_workspace_label,
+				disabled: false
+			}))
+	})
+}
+
+export function clearNonMemberWorkspaces(): void {
+	// A Svelte store notifies on every write of an object value, so clearing an already
+	// empty store is not free: the layout effect that fills this one also reads it, and
+	// would re-run itself forever.
+	if (get(nonMemberWorkspaces) != undefined) {
+		nonMemberWorkspaces.set(undefined)
+	}
+}
+
 export const userWorkspaces: Readable<Array<UserWorkspace>> = derived(
-	[usersWorkspaceStore, superadmin],
-	([store, superadmin]) => {
+	[usersWorkspaceStore, superadmin, nonMemberWorkspaces],
+	([store, superadmin, nonMember]) => {
 		const originalWorkspaces = store?.workspaces ?? []
-		if (superadmin) {
-			return [
-				...originalWorkspaces.filter((x) => x.id != 'admins'),
-				{
-					id: 'admins',
-					name: 'Admins',
-					username: 'superadmin',
-					color: undefined,
-					operator_settings: undefined,
-					disabled: false
-				}
-			]
-		} else {
-			return originalWorkspaces
-		}
+		const workspaces = superadmin
+			? [
+					...originalWorkspaces.filter((x) => x.id != 'admins'),
+					{
+						id: 'admins',
+						name: 'Admins',
+						username: 'superadmin',
+						color: undefined,
+						operator_settings: undefined,
+						disabled: false
+					}
+				]
+			: originalWorkspaces
+		const extra = (nonMember?.workspaces ?? []).filter(
+			(w) => !workspaces.some((x) => x.id === w.id)
+		)
+		return extra.length > 0 ? [...workspaces, ...extra] : workspaces
 	}
 )
 
@@ -146,6 +191,15 @@ export const aiUserDisabled = writable<boolean>(
 export const usedTriggerKinds = writable<string[]>([])
 
 export let globalDbManagerDrawer: StateStore<DbManagerUriState | undefined> = { val: undefined }
+/** Read-only S3 file browser (S3FilePicker instance) mounted in the logged
+ * layout, used by Explore buttons in contexts that don't wire their own picker
+ * instance. Typed loosely because the component instance type resolves
+ * differently in .ts and .svelte contexts. */
+export let globalS3FilePickerExplorer: StateStore<
+	{ open: (fileKey?: any, opts?: { s3ResourcePath?: string }) => Promise<void> } | undefined
+> = createState({
+	val: undefined
+})
 export let globalForkModal: StateStore<GlobalForkModalState | undefined> = createState({
 	val: undefined
 })

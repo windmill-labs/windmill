@@ -210,6 +210,40 @@ impl SpecificTagType {
 pub const DEFAULT_CLOUD_TIMEOUT: u64 = 900;
 pub const DEFAULT_SELFHOSTED_TIMEOUT: u64 = 604800; // 7 days
 pub const MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS: u64 = 60;
+/// Default for [`CONCURRENCY_KEY_MAX_QUEUED`]; also the value the setting loader restores when
+/// the setting is cleared or malformed.
+pub const CONCURRENCY_KEY_MAX_QUEUED_DEFAULT: u32 = 10_000;
+/// Default for [`WORKSPACE_MAX_QUEUED_JOBS`]; also the value the setting loader restores when
+/// the setting is cleared or malformed. A workspace spans many keys, so this sits well above
+/// the per-key cap.
+pub const WORKSPACE_MAX_QUEUED_JOBS_DEFAULT: u32 = 20_000;
+/// Default for [`JOB_OOM_SCORE_ADJ`]; also the value used when the env var is out of range or
+/// unparseable.
+pub const JOB_OOM_SCORE_ADJ_DEFAULT: i32 = 1000;
+
+/// procfs accepts -1000..=1000, but a job must never be *less* killable than the worker that
+/// supervises it, so negative adjustments are rejected rather than clamped.
+fn parse_job_oom_score_adj(raw: Option<&str>) -> i32 {
+    let Some(raw) = raw else {
+        return JOB_OOM_SCORE_ADJ_DEFAULT;
+    };
+    match raw.trim().parse::<i32>() {
+        Ok(v) if (0..=1000).contains(&v) => v,
+        Ok(v) => {
+            tracing::warn!(
+                "JOB_OOM_SCORE_ADJ={v} is outside the accepted 0..=1000 range, \
+                using {JOB_OOM_SCORE_ADJ_DEFAULT}"
+            );
+            JOB_OOM_SCORE_ADJ_DEFAULT
+        }
+        Err(e) => {
+            tracing::warn!(
+                "Could not parse JOB_OOM_SCORE_ADJ='{raw}': {e}, using {JOB_OOM_SCORE_ADJ_DEFAULT}"
+            );
+            JOB_OOM_SCORE_ADJ_DEFAULT
+        }
+    }
+}
 lazy_static::lazy_static! {
     pub static ref WORKER_GROUP: String = std::env::var("WORKER_GROUP").unwrap_or_else(|_| {
         #[cfg(not(feature = "enterprise"))]
@@ -232,6 +266,15 @@ lazy_static::lazy_static! {
     pub static ref NATIVE_MODE: bool = std::env::var("NATIVE_MODE").ok().is_some_and(|x| x == "1" || x == "true");
 
     pub static ref LIMIT_WINDOWS_TO_1CU: bool = std::env::var("LIMIT_WINDOWS_TO_1CU").ok().is_some_and(|x| x == "1" || x == "true");
+
+    /// `oom_score_adj` applied to job subprocesses. The kernel adds it to the process's memory
+    /// use expressed in permille of host RAM, so the job only reliably outranks the worker once
+    /// the gap between their two adjustments exceeds the worker's own footprint in permille; the
+    /// default maximizes that margin. Userspace OOM daemons (earlyoom, systemd-oomd, nohang) rank
+    /// every process on the host by the same score, so at 1000 a tiny job outranks multi-GB
+    /// processes and gets killed first. Lowering this trades margin over the worker for a fairer
+    /// ranking against everything else on the host.
+    pub static ref JOB_OOM_SCORE_ADJ: i32 = parse_job_oom_score_adj(std::env::var("JOB_OOM_SCORE_ADJ").ok().as_deref());
 
     pub static ref CGROUP_V2_PATH_RE: Regex = Regex::new(r#"(?m)^0::(/.*)$"#).unwrap();
     pub static ref CGROUP_V2_CPU_RE: Regex = Regex::new(r#"(?m)^(\d+) \S+$"#).unwrap();
@@ -262,6 +305,7 @@ lazy_static::lazy_static! {
         "ruby".to_string(),
         "rlang".to_string(),
         "duckdb".to_string(),
+        "dbt".to_string(),
         // for related places search: ADD_NEW_LANG
         "dependency".to_string(),
         "flow".to_string(),
@@ -336,6 +380,19 @@ lazy_static::lazy_static! {
     /// classifies an overloaded set — before that, no workspace is capped so
     /// `should_admit_capped` is moot and "admit all" is the correct no-op.
     pub static ref WORKSPACE_FAIRNESS_ADMISSION_PPM: AtomicU32 = AtomicU32::new(10_000);
+
+    /// Cloud-only ceiling on the number of jobs queued behind a single concurrency key.
+    /// A concurrency-limited key drains at most `concurrent_limit` jobs per window, so a
+    /// producer pushing faster than that grows an unbounded backlog that no amount of
+    /// spare worker capacity can absorb. `0` disables the cap.
+    pub static ref CONCURRENCY_KEY_MAX_QUEUED: AtomicU32 =
+        AtomicU32::new(CONCURRENCY_KEY_MAX_QUEUED_DEFAULT);
+
+    /// Cloud-only ceiling on the total number of jobs a workspace may have queued at once,
+    /// across every concurrency key and script. Guards against a workspace flooding the queue
+    /// generally (not just behind one key), including from parallel for-loops. `0` disables it.
+    pub static ref WORKSPACE_MAX_QUEUED_JOBS: AtomicU32 =
+        AtomicU32::new(WORKSPACE_MAX_QUEUED_JOBS_DEFAULT);
 
 
     pub static ref SMTP_CONFIG: arc_swap::ArcSwap<Option<Smtp>> = arc_swap::ArcSwap::from_pointee(None);
@@ -2419,6 +2476,26 @@ mod tests {
     /// A workspace id chain: the workspace itself, then its fork ancestors nearest-first.
     fn chain(ids: &[&str]) -> Vec<String> {
         ids.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn test_parse_job_oom_score_adj() {
+        assert_eq!(parse_job_oom_score_adj(Some("300")), 300);
+        assert_eq!(parse_job_oom_score_adj(Some(" 0\n")), 0);
+        assert_eq!(parse_job_oom_score_adj(None), JOB_OOM_SCORE_ADJ_DEFAULT);
+        // Out of range and unparseable both fall back rather than weaken the worker's protection.
+        assert_eq!(
+            parse_job_oom_score_adj(Some("-500")),
+            JOB_OOM_SCORE_ADJ_DEFAULT
+        );
+        assert_eq!(
+            parse_job_oom_score_adj(Some("1001")),
+            JOB_OOM_SCORE_ADJ_DEFAULT
+        );
+        assert_eq!(
+            parse_job_oom_score_adj(Some("high")),
+            JOB_OOM_SCORE_ADJ_DEFAULT
+        );
     }
 
     #[test]

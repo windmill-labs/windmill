@@ -46,6 +46,7 @@ SCHEMA_MAPPINGS = {
         ('NatsTrigger', 'nats_trigger'),
         ('PostgresTrigger', 'postgres_trigger'),
         ('MqttTrigger', 'mqtt_trigger'),
+        ('AmqpTrigger', 'amqp_trigger'),
         ('SqsTrigger', 'sqs_trigger'),
         ('GcpTrigger', 'gcp_trigger'),
         ('AzureTrigger', 'azure_trigger'),
@@ -70,12 +71,15 @@ CLI_COMMANDS_DIR = CLI_DIR / "src" / "commands"
 
 # Fields stripped by CLI/sync format (to_string_without_metadata equivalent)
 # These are server-managed fields that don't appear in YAML/JSON files pulled via CLI
+# Keep in sync with CLI_EXCLUDED_FIELDS in
+# windmill-yaml-validator/scripts/generate-resource-schemas.js, which drives `wmill lint`
+# and carries the rationale for each entry.
 CLI_EXCLUDED_FIELDS = [
     'workspace_id', 'path', 'name', 'versions', 'id',
     'created_at', 'updated_at', 'created_by', 'updated_by',
     'edited_at', 'edited_by', 'archived', 'has_draft',
     'error', 'last_server_ping', 'server_id',
-    'extra_perms', 'email', 'mode'
+    'extra_perms', 'email', 'mode', 'permissioned_as'
 ]
 
 # =============================================================================
@@ -86,13 +90,13 @@ CLI_EXCLUDED_FIELDS = [
 LANGUAGE_METADATA = {
     'bun': {
         'name': 'TypeScript (Bun)',
-        'description': 'MUST use when writing Bun/TypeScript scripts.',
-        'use_cases': 'TypeScript automation, npm packages, data processing, API integrations'
+        'description': 'MUST use when writing TypeScript scripts. Bun is the default and preferred TypeScript runtime — pick it for TypeScript unless the script specifically needs Deno.',
+        'use_cases': 'TypeScript automation, npm packages, data processing, API integrations — the default choice for TypeScript'
     },
     'deno': {
         'name': 'TypeScript (Deno)',
-        'description': 'MUST use when writing Deno/TypeScript scripts.',
-        'use_cases': 'TypeScript with Deno stdlib, secure sandboxed execution'
+        'description': 'Use ONLY when a TypeScript script specifically requires the Deno runtime (Deno stdlib or deno.land URL imports). For all other TypeScript, use write-script-bun instead.',
+        'use_cases': 'TypeScript that specifically needs the Deno runtime (Deno stdlib or deno.land imports); prefer Bun otherwise'
     },
     # 'nativets' is intentionally omitted: it is a legacy duplicate of
     # 'bunnative' (a Bun script with a leading //native marker). No

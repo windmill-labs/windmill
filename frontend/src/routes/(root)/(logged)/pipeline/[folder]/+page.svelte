@@ -36,6 +36,8 @@
 		type ColumnLineageGraph
 	} from '$lib/components/assets/AssetGraph/columnLineageGraph'
 	import { resolveGraph } from '$lib/components/assets/AssetGraph/resolveGraph'
+	import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
+	import { hideDbtRunnables } from '$lib/components/assets/AssetGraph/hideDbtRunnables'
 	import { buildSchemaContractContext } from '$lib/components/assets/AssetGraph/schemaContracts'
 	import {
 		computeDownstreamClosure,
@@ -43,6 +45,7 @@
 		assetProducers
 	} from '$lib/components/assets/AssetGraph/graphTraversal'
 	import { runCascade, runSelection } from '$lib/components/assets/AssetGraph/cascadeOrchestrator'
+	import { DATA_ASSET_KINDS } from '$lib/components/assets/AssetGraph/cascadeRun'
 	import {
 		boundedSet,
 		buildLineageDag,
@@ -72,6 +75,11 @@
 		type PipelineDraft
 	} from '$lib/components/assets/AssetGraph/pipelineAiHelpers'
 	import { PipelineEditorState } from '$lib/components/assets/AssetGraph/pipelineEditorState.svelte'
+	import {
+		createPipelineRecording,
+		finalizePipelineRecording
+	} from '$lib/components/recording/pipelineRecording.svelte'
+	import type { PipelineRecording } from '$lib/components/recording/types'
 	import AutosaveIndicator from '$lib/components/AutosaveIndicator.svelte'
 	import { onMount, tick, untrack } from 'svelte'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
@@ -79,6 +87,8 @@
 		AlertTriangle,
 		ArrowLeft,
 		ChevronDown,
+		Circle,
+		Download,
 		Folder,
 		FolderSearch,
 		History,
@@ -101,7 +111,7 @@
 		type ScriptLang
 	} from '$lib/gen'
 	import { resource } from 'runed'
-	import { emptySchema, sendUserToast } from '$lib/utils'
+	import { emptySchema, sendUserToast, type Item } from '$lib/utils'
 	import type { Schema } from '$lib/common'
 	import { beforeNavigate, goto } from '$app/navigation'
 	import { fade } from 'svelte/transition'
@@ -113,9 +123,9 @@
 	// Variables and resources are declarative config, not pipeline assets —
 	// they're hub-shaped (referenced by most runnables) and would swamp the
 	// layout without adding lineage information.
-	const DATA_KINDS = ['s3object', 'ducklake', 'datatable', 'volume']
+	const DATA_KINDS = DATA_ASSET_KINDS
 
-	let folder = $derived(page.params.folder as string)
+	let folder = $derived(normalizePipelineFolder(page.params.folder as string))
 
 	// Externalized editor state (drafts, live overlays, selection), shared with
 	// the in-session pipeline preview via PipelineEditorState. Referenced as
@@ -180,7 +190,8 @@
 		resource: '$res:',
 		ducklake: 'ducklake://',
 		datatable: 'datatable://',
-		volume: 'volume://'
+		volume: 'volume://',
+		dbt: 'dbt://'
 	}
 
 	// Path-input split for the insert menu: a read-only `f/<folder>/` chip
@@ -1404,6 +1415,61 @@
 	// other's storage writes.
 	let cascadeRunningRoot = $state<string | undefined>(undefined)
 
+	// Recorder: when armed, the next cascade run captures the resolved graph, the
+	// per-node status timeline and each node's job stream into a downloadable
+	// recording that the /pipeline_replay player can rerun offline (parity with the
+	// flow/script recorders). Job capture (`watchJob`) and status capture
+	// (`recordStatuses`) no-op unless the store is active, so the cascade run
+	// paths call them unconditionally.
+	let pipelineRecording = createPipelineRecording()
+	let recordingMode = $state(false)
+	let lastPipelineRecording = $state<PipelineRecording | undefined>(undefined)
+
+	// Shared by the overflow-menu Record item and the inline armed pill so their
+	// wording can't drift — both describe the same armed recorder.
+	const RECORDING_ARMED_HINT =
+		'Recording armed — the next pipeline run will be captured. Click to disarm.'
+
+	function downloadPipelineRecording() {
+		if (lastPipelineRecording) {
+			pipelineRecording.download(lastPipelineRecording)
+		}
+	}
+
+	// Secondary top-bar controls (recorder, macros) collapse into a single
+	// overflow (⋮) menu so the bar stays legible on small screens; only primary
+	// actions stay inline. Recording lives here rather than on the bar at all
+	// times — while armed it surfaces a compact inline pill (below) instead.
+	let overflowMenuItems = $derived.by<Item[]>(() => {
+		const items: Item[] = []
+		if (!isOperator && allPipelineScripts.length > 0) {
+			items.push({
+				displayName: recordingMode ? 'Disarm recorder' : 'Record next run',
+				icon: Circle,
+				iconColor: recordingMode ? 'rgb(220 38 38)' : undefined,
+				disabled: !!cascadeRunningRoot,
+				tooltip: recordingMode
+					? RECORDING_ARMED_HINT
+					: 'Arm the recorder so the next pipeline run is captured for offline replay',
+				action: () => (recordingMode = !recordingMode)
+			})
+			if (lastPipelineRecording && !cascadeRunningRoot) {
+				items.push({
+					displayName: 'Download last recording',
+					icon: Download,
+					action: () => downloadPipelineRecording()
+				})
+			}
+		}
+		items.push({
+			displayName: 'Macros',
+			icon: SquareFunction,
+			tooltip: "Browse the workspace's DuckDB macros (deployed // macros libraries)",
+			action: () => macroDrawer?.openDrawer()
+		})
+		return items
+	})
+
 	// Script path → its schedule's configured args, so a manual "Run pipeline"
 	// launches a schedule-triggered script with the same payload a real tick
 	// would (rather than empty args). Schedule is the only trigger that stores a
@@ -1711,6 +1777,10 @@
 		// Claim the running-guard BEFORE the first await so a rapid second click
 		// (which reads `cascadeRunningRoot`) can't slip through and double-launch.
 		cascadeRunningRoot = schedule.roots[0] ?? scripts[0]
+		if (recordingMode) {
+			lastPipelineRecording = undefined
+			pipelineRecording.start(folder, displayGraph)
+		}
 		let firstJobId: string | undefined
 		try {
 			// Seed schedule-triggered roots with their configured payload.
@@ -1720,6 +1790,8 @@
 				launch: async (path) => {
 					const jobId = await launchCascadeScript(path)
 					activeRunnables.arm(`script:${path}`)
+					// No-op unless a recording is active; captures the node's stream.
+					if ($workspaceStore) pipelineRecording.watchJob(jobId, $workspaceStore)
 					if (firstJobId === undefined) {
 						firstJobId = jobId
 						runsPendingJobId = jobId
@@ -1727,7 +1799,8 @@
 					}
 					return jobId
 				},
-				waitTerminal: waitJobTerminal
+				waitTerminal: waitJobTerminal,
+				onUpdate: (statuses) => pipelineRecording.recordStatuses(statuses)
 			})
 			const n = res.statuses.size
 			if (res.ok) {
@@ -1750,7 +1823,21 @@
 				)
 			}
 		} finally {
-			cascadeRunningRoot = undefined
+			// Hold the run guard until finalization finishes: finalize keeps writing
+			// jobs/samples/code through the recorder store, and a second run's
+			// `start()` would reset those maps mid-write, corrupting both recordings.
+			// The nested finally still clears the guard if finalize ever rejects, so
+			// Run can't wedge permanently.
+			try {
+				if (pipelineRecording.active) {
+					lastPipelineRecording = await finalizePipelineRecording(
+						pipelineRecording,
+						$workspaceStore
+					)
+				}
+			} finally {
+				cascadeRunningRoot = undefined
+			}
 		}
 	}
 
@@ -1880,6 +1967,15 @@
 	// running a draft via runScriptPreview creates a `preview`-kind job at
 	// the same path, which the panel's listing query picks up.
 	let selectionProducers = $derived(assetProducers(graphWithDraft, pe.selection))
+	// dbt provenance of the selected relation: the details pane renders the
+	// model's own SQL from it. Looked up on the asset, not the producer — a
+	// relation carries one description whichever script materializes it.
+	let selectionDbt = $derived.by(() => {
+		const sel = pe.selection
+		if (sel?.kind !== 'asset') return undefined
+		return graphWithDraft?.assets?.find((a) => a.kind === sel.asset_kind && a.path === sel.path)
+			?.dbt
+	})
 
 	// Empty graph reused when the trace isn't shown (no ducklake-asset selection,
 	// or a draft is actively edited) so the pane blanks out like the other
@@ -2137,7 +2233,7 @@
 				signal
 			})
 			if (!res.ok) throw new Error(`GET /assets/graph → ${res.status}`)
-			return (await res.json()) as AssetGraphResponse
+			return hideDbtRunnables((await res.json()) as AssetGraphResponse)
 		}
 	)
 
@@ -2326,6 +2422,20 @@
 		{/if}
 		<div class="flex flex-row items-center gap-2 flex-1 justify-end">
 			{#if !isOperator && allPipelineScripts.length > 0}
+				<!-- Only the armed state surfaces on the bar (arming lives in the ⋮
+				     menu) — a compact disarm pill. -->
+				{#if recordingMode}
+					<button
+						type="button"
+						onclick={() => (recordingMode = false)}
+						disabled={!!cascadeRunningRoot}
+						class="flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-medium transition-colors disabled:opacity-50 bg-red-50 dark:bg-red-900/30 border-red-300 dark:border-red-700 text-red-700 dark:text-red-400"
+						title={RECORDING_ARMED_HINT}
+					>
+						<Circle size={12} class="fill-red-600 text-red-600 animate-pulse" />
+						Recording
+					</button>
+				{/if}
 				<!-- Pipeline-level run: always visible in both View and Edit so a
 				     run never requires hunting for a specific node's play button
 				     (dbt `build` / Dagster "Materialize all"). Runs every script in
@@ -2423,21 +2533,13 @@
 			<Button
 				variant="subtle"
 				unifiedSize="sm"
-				startIcon={{ icon: SquareFunction }}
-				onclick={() => macroDrawer?.openDrawer()}
-				title="Browse the workspace's DuckDB macros (deployed // macros libraries)"
-			>
-				Macros
-			</Button>
-			<Button
-				variant="subtle"
-				unifiedSize="sm"
 				startIcon={{ icon: RefreshCw }}
 				onclick={() => graphRes.refetch()}
 				disabled={graphRes.loading}
 				iconOnly
 				title="Refresh"
 			/>
+			<DropdownV2 size="sm" items={overflowMenuItems} />
 		</div>
 	</div>
 
@@ -2495,6 +2597,7 @@
 				canRunByPath={openScriptHasDataUpload}
 				onRunByPath={runByPathLegit}
 				{selectionProducers}
+				{selectionDbt}
 				selectionColumnGraph={pe.activeDraft ? EMPTY_COLUMN_GRAPH : columnGraph}
 				{schemaCanEvolve}
 				{selectionForkMaterialization}

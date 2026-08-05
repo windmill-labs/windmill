@@ -139,6 +139,21 @@ export function workspaceIsFork(
 }
 
 /**
+ * Whether `userEmail` is the creator of a fork workspace. The fork creator gets workspace-settings
+ * access (the fork members screen) even when they are not an admin of it: forking as an ordinary
+ * developer copies their parent `usr` row, leaving them otherwise unable to bring collaborators in.
+ * Mirrors the backend `authorize_fork_owner_add_user` grant.
+ */
+export function isForkOwner(
+	workspace: UserWorkspace | undefined,
+	userEmail: string | null | undefined
+): boolean {
+	return (
+		Boolean(workspace?.parent_workspace_id) && !!userEmail && workspace?.created_by === userEmail
+	)
+}
+
+/**
  * The canonical dev workspace of a prod workspace, if any (at most one per prod). Used to redirect
  * edits from a locked prod workspace into its dev workspace. Disabled dev workspaces are excluded:
  * redirecting edits to one the user can't select would be a dead end.
@@ -151,6 +166,31 @@ export function findCanonicalDevWorkspace(
 	return allWorkspaces.find(
 		(w) => w.parent_workspace_id === prodWorkspaceId && w.is_dev_workspace && !w.disabled
 	)
+}
+
+/**
+ * The workspace a new fork should branch from by default. Inside a dev workspace's subtree the base is
+ * that dev workspace, not the family root: the dev workspace carries the changes being worked on, and
+ * a prod locked against forking (`lock_prod_forking`) rejects a root-based fork outright. Anywhere
+ * else it is the family root, so an ad-hoc fork branches from prod rather than from whichever
+ * throwaway fork happens to be open. A dev workspace the user is disabled in is skipped — forking from
+ * it would fail — and the walk continues upwards.
+ */
+export function findDefaultForkBase(
+	currentWorkspaceId: string | undefined,
+	allWorkspaces: UserWorkspace[]
+): UserWorkspace | undefined {
+	let current = allWorkspaces.find((w) => w.id === currentWorkspaceId)
+	while (current) {
+		if (current.is_dev_workspace && !current.disabled) return current
+		if (!current.parent_workspace_id) break
+		const parent: UserWorkspace | undefined = allWorkspaces.find(
+			(w) => w.id === current!.parent_workspace_id
+		)
+		if (!parent) break
+		current = parent
+	}
+	return findWorkspaceRoot(currentWorkspaceId, allWorkspaces)
 }
 
 /**

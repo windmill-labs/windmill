@@ -10,7 +10,7 @@ use windmill_common::{
 use windmill_api_auth::ApiAuthed;
 
 use crate::{
-    get_workspace_integration,
+    get_workspace_integration, map_external_error,
     nextcloud::{NextCloudEventType, OcsResponse},
     require_native_integration_use, External, ServiceName,
 };
@@ -47,7 +47,8 @@ async fn list_available_events<T: External>(
             Some(headers),
             None,
         )
-        .await?;
+        .await
+        .map_err(map_external_error)?;
 
     let events = serde_json::from_str(&ocs_response.ocs.data)
         .map_err(|e| Error::InternalErr(format!("Failed to parse NextCloud events data: {}", e)))?;

@@ -51,7 +51,6 @@ use windmill_common::runnable_settings::{
     ConcurrencySettingsWithCustom, DebouncingSettings, RunnableSettingsTrait,
 };
 use windmill_common::scripts::{ScriptHash, ScriptRunnableSettingsInline};
-use windmill_common::users::username_to_permissioned_as;
 use windmill_common::utils::WarnAfterExt;
 use windmill_common::worker::{error_to_value, to_raw_value, Connection};
 use windmill_common::{
@@ -70,7 +69,7 @@ use windmill_common::{
 use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
     add_completed_job, add_completed_job_error, append_logs, get_mini_pulled_job,
-    insert_concurrency_key, interpolate_args,
+    insert_concurrency_key_capped, interpolate_args,
     report_error_to_workspace_handler_or_critical_side_channel, try_schedule_next_job, CanceledBy,
     FlowRunners, MiniCompletedJob, MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload,
     WrappedError,
@@ -107,17 +106,6 @@ lazy_static::lazy_static! {
     static ref RESOLVED_FLOW_ENV_CACHE: quick_cache::sync::Cache<Uuid, Arc<HashMap<String, Box<RawValue>>>> =
         quick_cache::sync::Cache::new(1024);
 }
-
-#[derive(Debug)]
-pub struct SchedulePushZombieError(pub String);
-
-impl std::fmt::Display for SchedulePushZombieError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl std::error::Error for SchedulePushZombieError {}
 
 /// Helper function to write itered data to separate table
 /// Returns None if data was written to separate table, Some(itered) if it should be stored in JSONB
@@ -1533,12 +1521,25 @@ pub async fn update_flow_status_after_job_completion_internal(
             });
             let require_args = concurrency_requires_args || has_debouncing;
             let mut tag = tag_and_concurrency_key.as_ref().and_then(|x| x.tag.clone());
+            // `$workspace` does not depend on the preprocessor's output, so it has to resolve even
+            // when nothing forced us to fetch args. Leaving it to the `$args` branch below writes a
+            // `$workspace`-only tag back verbatim, naming a queue no worker serves.
+            if let Some(t) = tag.as_ref().filter(|t| t.contains("$workspace")) {
+                let tag_ws =
+                    windmill_queue::tags::tag_workspace_id(&flow_job.workspace_id, db).await;
+                tag = Some(t.replace("$workspace", &tag_ws));
+            }
             let concurrency_key = tag_and_concurrency_key
                 .as_ref()
                 .and_then(|x| x.concurrency_key.clone());
-            let concurrent_limit = tag_and_concurrency_key
-                .as_ref()
-                .and_then(|x| x.concurrent_limit);
+            // `concurrent_limit` here can come straight from the raw flow JSON (see
+            // get_tag_and_concurrency), bypassing the ConcurrencySettings deserialization guard,
+            // so a stored `0` must still be coerced to disabled before we register a key for it.
+            let concurrent_limit = windmill_common::runnable_settings::none_if_non_positive(
+                tag_and_concurrency_key
+                    .as_ref()
+                    .and_then(|x| x.concurrent_limit),
+            );
             let concurrency_time_window_s = tag_and_concurrency_key
                 .as_ref()
                 .and_then(|x| x.concurrency_time_window_s);
@@ -1563,27 +1564,30 @@ pub async fn update_flow_status_after_job_completion_internal(
             if concurrency_requires_args {
                 let args = PushArgs::from(fetched_args.as_ref().unwrap());
                 if let Some(ck) = concurrency_key {
-                    insert_concurrency_key(
+                    insert_concurrency_key_capped(
                         &flow_job.workspace_id,
                         &args,
                         &flow_job.runnable_path,
                         JobKind::Flow,
                         Some(ck),
+                        concurrent_limit,
                         db,
                         flow,
                     )
                     .await?;
                 }
                 if let Some(t) = tag {
+                    // `$workspace` is already resolved above; this fills in `$args`.
                     tag = Some(interpolate_args(t, &args, &flow_job.workspace_id));
                 }
             } else if concurrent_limit.is_some() {
-                insert_concurrency_key(
+                insert_concurrency_key_capped(
                     &flow_job.workspace_id,
                     &PushArgs::from(&HashMap::new()),
                     &flow_job.runnable_path,
                     JobKind::Flow,
                     concurrency_key,
+                    concurrent_limit,
                     db,
                     flow,
                 )
@@ -2913,38 +2917,46 @@ pub async fn handle_flow(
             .sleep(tokio::time::sleep)
             .await;
 
-            // Non-retryable errors (QuotaExceeded, NotFound) are handled inside
-            // try_schedule_next_job (schedule disabled, returns None), so they never
-            // reach here. This handles only transient errors after retry exhaustion.
             if let Err(err) = schedule_push_result {
-                tracing::error!(
-                    "Could not push next scheduled job for {} after retries: {err}. Disabling schedule.",
-                    schedule.path
-                );
-                if let Err(disable_err) = sqlx::query!(
-                    "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
-                    err.to_string(),
-                    &flow_job.workspace_id,
-                    &schedule.path
-                )
-                .execute(db)
-                .await
-                {
+                if matches!(err, Error::QuotaExceeded(_) | Error::NotFound(_)) {
+                    // try_schedule_next_job disables on these, so reaching here means
+                    // its own disable write failed. Retry it: rearm_schedule turns
+                    // these into NoOp, so without disabling here the schedule would
+                    // stay enabled yet never run.
+                    if let Err(disable_err) = sqlx::query!(
+                        "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
+                        err.to_string(),
+                        &flow_job.workspace_id,
+                        &schedule.path
+                    )
+                    .execute(db)
+                    .await
+                    {
+                        report_error_to_workspace_handler_or_critical_side_channel(
+                            &mini_job,
+                            db,
+                            format!(
+                                "Could not push next scheduled job for {} and could not disable schedule: {disable_err}",
+                                schedule.path,
+                            ),
+                        )
+                        .await;
+                    }
+                } else {
+                    // Transient error (DB contention, timeout) after retry exhaustion:
+                    // not the schedule's fault. Report it but leave the schedule
+                    // enabled; the current occurrence runs to completion and the
+                    // unarmed-schedule reconciler re-arms the next one. Do not
+                    // fail/requeue: a same-worker zombie would be canceled, losing it.
                     report_error_to_workspace_handler_or_critical_side_channel(
                         &mini_job,
                         db,
                         format!(
-                            "Could not push next scheduled job for {} and could not disable schedule: {disable_err}",
+                            "Could not push next scheduled job for {} after retries: {err}. Leaving it enabled for the unarmed-schedule reconciler to re-arm.",
                             schedule.path,
                         ),
                     )
                     .await;
-                    return Err(SchedulePushZombieError(
-                        format!(
-                            "Could not push or disable schedule {} after retries",
-                            schedule.path
-                        ),
-                    ).into());
                 }
             }
         } else {
@@ -3399,10 +3411,16 @@ async fn push_next_flow_job(
             // Persist approval user groups conditions, if any. Requires runnning the InputTransform
             let required_events = suspend.required_events.unwrap() as u16;
             let user_auth_required = suspend.user_auth_required.unwrap_or(false);
-            if user_auth_required {
-                let self_approval_disabled = suspend.self_approval_disabled.unwrap_or(false);
+            let self_approval_disabled = suspend.self_approval_disabled.unwrap_or(false);
+            // self_approval_disabled must be persisted even without user_auth_required, otherwise
+            // the resume boundary sees no approval_conditions and the restriction is silently
+            // dropped. user_groups_required only applies together with user_auth_required.
+            if user_auth_required || self_approval_disabled {
                 let user_groups_required: Vec<String>;
-                if let Some(user_groups_required_as_input_transform) = suspend.user_groups_required
+                if !user_auth_required {
+                    user_groups_required = Vec::new();
+                } else if let Some(user_groups_required_as_input_transform) =
+                    suspend.user_groups_required
                 {
                     match user_groups_required_as_input_transform {
                         InputTransform::Static { value } => {
@@ -3567,7 +3585,7 @@ async fn push_next_flow_job(
                         count: required_events,
                         job: last
                     }),
-                    (required_events - resume_messages.len() as u16) as i32,
+                    (required_events.saturating_sub(resume_messages.len() as u16)) as i32,
                     Duration::from_secs(
                         suspend.timeout.map(|t| t.into()).unwrap_or_else(|| 30 * 60)
                     ) as Duration,
@@ -4325,10 +4343,17 @@ async fn push_next_flow_job(
         let flow_root_job = get_root_job_id(&flow_job);
 
         // forward root job permissions to the new job
-        let job_perms: Option<Authed> =
-            get_job_perms(&mut *tx, &flow_root_job, &flow_job.workspace_id)
-                .await?
-                .map(|x| x.into());
+        let root_job_perms =
+            get_job_perms(&mut *tx, &flow_root_job, &flow_job.workspace_id).await?;
+        // The end user is a property of whoever triggered the root run, so every step (and
+        // transitively every subflow's step) must see the same WM_END_USER_EMAIL as the run.
+        // It is read from the root's `job_perms` rather than off `flow_job`: only a freshly
+        // pulled job carries `permissioned_as_end_user_email`, and every step past the first
+        // is pushed from a flow job re-fetched by `get_mini_pulled_job`, which does not.
+        let end_user_email = root_job_perms
+            .as_ref()
+            .and_then(|x| x.end_user_email.clone());
+        let job_perms: Option<Authed> = root_job_perms.map(|x| x.into());
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "computed perms for job {i} of {len}");
         let tag = resolve_flow_step_tag(
@@ -4386,13 +4411,10 @@ async fn push_next_flow_job(
             )
             .await?;
 
-            if timeout_value < 0 {
-                return Err(Error::ExecutionErr(
-                    "Timeout value cannot be negative".to_string(),
-                ));
-            }
-
-            Some(timeout_value)
+            // A `<= 0` step timeout (including a negative eval) means "no override": fall back
+            // to the referenced runnable's own timeout rather than a 0-second/negative timeout
+            // that would kill the step instantly.
+            effective_flow_step_timeout(Some(timeout_value), payload_tag.timeout)
         } else {
             payload_tag.timeout
         };
@@ -4411,6 +4433,7 @@ async fn push_next_flow_job(
                 "job-span-{}",
                 flow_job.flow_innermost_root_job.unwrap_or(flow_job.id)
             )),
+            None,
             scheduled_for_o,
             flow_job.schedule_path(),
             Some(flow_job.id),
@@ -4427,7 +4450,7 @@ async fn push_next_flow_job(
             new_job_priority_override,
             job_perms.as_ref(),
             continue_with_runners,
-            None,
+            end_user_email,
             None,
             None,
         )
@@ -6021,13 +6044,9 @@ async fn flow_to_payload(
     w_id: &str,
     db: &DB,
 ) -> Result<JobPayloadWithTag, Error> {
-    let FlowVersionInfo { version, on_behalf_of_email, edited_by, tag, .. } =
-        get_latest_flow_version_info_for_path(None, &db, w_id, &path, true).await?;
-    let on_behalf_of = if let Some(email) = on_behalf_of_email {
-        Some(OnBehalfOf { email, permissioned_as: username_to_permissioned_as(&edited_by) })
-    } else {
-        None
-    };
+    let flow_info = get_latest_flow_version_info_for_path(None, &db, w_id, &path, true).await?;
+    let on_behalf_of = flow_info.on_behalf_of(w_id, &db).await?;
+    let FlowVersionInfo { version, tag, .. } = flow_info;
     let payload = JobPayload::Flow {
         path,
         dedicated_worker: None,
@@ -6043,6 +6062,18 @@ async fn flow_to_payload(
         timeout: None,
         on_behalf_of,
     })
+}
+
+/// Effective timeout for a flow step given the module's (already-evaluated) timeout override and
+/// the timeout inherited from the referenced runnable. A `<= 0` override — or none — means "no
+/// override": fall back to the inherited value (which is itself `None` when unset, i.e. the
+/// instance default). A positive override wins. This keeps a step `timeout: 0` equivalent to an
+/// omitted one rather than a 0-second, instant-kill timeout.
+pub(crate) fn effective_flow_step_timeout(
+    module_override: Option<i32>,
+    inherited: Option<i32>,
+) -> Option<i32> {
+    windmill_common::runnable_settings::none_if_non_positive(module_override).or(inherited)
 }
 
 pub async fn script_to_payload(
@@ -6081,6 +6112,13 @@ pub async fn script_to_payload(
         } else {
             let hash = script_hash.unwrap();
 
+            let script_info = get_script_info_for_hash(None, db, &flow_job.workspace_id, hash.0)
+                .await?
+                .prefetch_cached(&db)
+                .await?;
+            let on_behalf_of = script_info
+                .on_behalf_of(&flow_job.workspace_id, db)
+                .await?;
             let ScriptHashInfo {
                 tag,
                 cache_ttl,
@@ -6090,24 +6128,10 @@ pub async fn script_to_payload(
                 delete_after_use,
                 delete_after_secs,
                 timeout,
-                on_behalf_of_email,
-                created_by,
                 runnable_settings:
                     ScriptRunnableSettingsInline { concurrency_settings, debouncing_settings },
                 ..
-            } = get_script_info_for_hash(None, db, &flow_job.workspace_id, hash.0)
-                .await?
-                .prefetch_cached(&db)
-                .await?;
-
-            let on_behalf_of = if let Some(email) = on_behalf_of_email {
-                Some(OnBehalfOf {
-                    email,
-                    permissioned_as: username_to_permissioned_as(&created_by),
-                })
-            } else {
-                None
-            };
+            } = script_info;
             (
                 JobPayload::ScriptHash {
                     hash,
@@ -6134,11 +6158,13 @@ pub async fn script_to_payload(
         module.delete_after_use.unwrap_or(false) || delete_after_use.unwrap_or(false);
     let final_delete_after_secs = module.delete_after_secs.or(delete_after_secs);
 
-    let flow_step_timeout = if module.timeout.is_some() {
-        None
-    } else {
-        script_timeout
-    };
+    // Always carry the referenced script's own timeout as the inherited fallback. The module's
+    // timeout override (if any) is selected at the push site, where a `<= 0` override is treated
+    // as "no override" and falls back to this value — so `timeout: 0` on a step means "use the
+    // script's timeout", not a 0-second (immediate-kill) timeout. Normalize the inherited value
+    // too, so a legacy `0` script timeout resolves to the default rather than a zero-second kill.
+    let flow_step_timeout =
+        windmill_common::runnable_settings::none_if_non_positive(script_timeout);
     Ok(JobPayloadWithTag {
         payload,
         tag,
@@ -6263,8 +6289,24 @@ pub async fn get_previous_job_result(
 
 #[cfg(test)]
 mod tests {
-    use super::extract_chat_message_from_flow_result;
+    use super::{effective_flow_step_timeout, extract_chat_message_from_flow_result};
     use serde_json::{json, value::to_raw_value};
+
+    // A `<= 0` step timeout override must behave as "no override" and inherit the referenced
+    // script's timeout, not collapse to a 0-second (instant-kill) timeout. A positive override
+    // still wins. Guards the flow-step timeout footgun.
+    #[test]
+    fn flow_step_timeout_zero_or_negative_inherits_script_timeout() {
+        // zero / negative override -> inherited script timeout
+        assert_eq!(effective_flow_step_timeout(Some(0), Some(300)), Some(300));
+        assert_eq!(effective_flow_step_timeout(Some(-5), Some(300)), Some(300));
+        // no inherited timeout either -> None (falls through to the instance default)
+        assert_eq!(effective_flow_step_timeout(Some(0), None), None);
+        // positive override wins over the inherited value
+        assert_eq!(effective_flow_step_timeout(Some(120), Some(300)), Some(120));
+        // no override -> inherited
+        assert_eq!(effective_flow_step_timeout(None, Some(300)), Some(300));
+    }
 
     #[test]
     fn pretty_prints_full_result_when_no_override_is_present() {

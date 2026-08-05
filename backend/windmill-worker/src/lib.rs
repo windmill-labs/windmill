@@ -1,8 +1,8 @@
-#[cfg(all(feature = "enterprise", feature = "bigquery"))]
+#[cfg(feature = "bigquery")]
 mod bigquery_executor;
 #[cfg(all(feature = "enterprise", feature = "mssql"))]
 mod mssql_executor;
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "snowflake")]
 mod snowflake_executor;
 
 mod agent_workers;
@@ -33,6 +33,9 @@ pub mod common;
 mod config;
 mod csharp_executor;
 
+mod dbt_engine;
+mod dbt_executor;
+mod dbt_profiles;
 #[cfg(feature = "private")]
 mod dedicated_worker_ee;
 mod dedicated_worker_oss;

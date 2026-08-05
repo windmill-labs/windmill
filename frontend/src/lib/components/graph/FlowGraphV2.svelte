@@ -1,5 +1,8 @@
 <script lang="ts">
 	import { FlowService, type FlowModule, type FlowNote, type Job, type OpenFlow } from '../../gen'
+	import { findStepPath, parseExpandedSubflowId } from '$lib/components/restartFromStepPath'
+	import { expandedSubflowParentId } from '../flows/expandedSubflowStep'
+	import { sendUserToast } from '$lib/utils'
 	import { AI_OR_ASSET_NODE_TYPES, NODE, type GraphModuleState } from '.'
 	import { getContext, onDestroy, onMount, tick, untrack, type Snippet } from 'svelte'
 	import { createFlowDiffManager } from '../flows/flowDiffManager.svelte'
@@ -27,6 +30,7 @@
 		type SimplifiableFlow
 	} from './graphBuilder.svelte'
 	import ModuleNode from './renderers/nodes/ModuleNode.svelte'
+	import FailureModuleNode from './renderers/nodes/FailureModuleNode.svelte'
 	import InputNode from './renderers/nodes/InputNode.svelte'
 	import BranchAllStart from './renderers/nodes/BranchAllStart.svelte'
 	import BranchAllEndNode from './renderers/nodes/BranchAllEndNode.svelte'
@@ -57,6 +61,13 @@
 	import AssetsOverflowedNode from './renderers/nodes/AssetsOverflowedNode.svelte'
 	import type { FlowGraphAssetContext } from '../flows/types'
 	import AiToolNode, { computeAIToolNodes } from './renderers/nodes/AIToolNode.svelte'
+	import {
+		linkedAgentToolsForScope,
+		linkedAgentToolsVersion,
+		linkedToolsScope,
+		releaseLinkedToolsScope,
+		retainLinkedToolsScope
+	} from '$lib/components/flows/linkedAgentToolsStore.svelte'
 	import NewAiToolNode from './renderers/nodes/NewAIToolNode.svelte'
 	import NoteNode from './renderers/nodes/NoteNode.svelte'
 	import CollapsedGroupNode from './renderers/nodes/CollapsedGroupNode.svelte'
@@ -127,6 +138,9 @@
 		moduleActions?: Record<string, ModuleActionInfo>
 		selectionManager?: SelectionManager
 		path?: string | undefined
+		// Flow path for the linked-agent tools bucket. Separate from `path` because that one also
+		// drives the Trigger node, which read-only viewers must not render.
+		linkedToolsPath?: string | undefined
 		newFlow?: boolean
 		insertable?: boolean
 		earlyStop?: boolean
@@ -159,6 +173,9 @@
 		onMoveMultiple?: (ids: string[]) => void
 		movingIds?: string[]
 		onDelete?: (id: string) => void
+		/** Forget the run state of a node that only mirrors a run (the error handler marker), so it
+		 * stops being rendered. Must not touch the flow itself. */
+		onDismissRunNode?: (id: string) => void
 		onInsert?: (detail: {
 			sourceId?: string
 			targetId?: string
@@ -208,6 +225,7 @@
 	let {
 		onInsert = undefined,
 		onDelete = undefined,
+		onDismissRunNode = undefined,
 		onMove = undefined,
 		onDuplicate = undefined,
 		onDeleteBranch = undefined,
@@ -230,6 +248,7 @@
 		moduleActions = undefined,
 		selectionManager: selectionManagerProp = undefined,
 		path = undefined,
+		linkedToolsPath = undefined,
 		newFlow = false,
 		insertable = false,
 		earlyStop = false,
@@ -279,6 +298,14 @@
 		outerDivClass = '',
 		onHeight = undefined
 	}: Props = $props()
+
+	// Hold the scope this graph draws from while it is mounted: the store's cap must never drop a
+	// bucket that something on screen is reading, and nothing would refetch it afterwards.
+	$effect(() => {
+		const scope = linkedToolsScope(workspace, linkedToolsPath ?? path)
+		retainLinkedToolsScope(scope)
+		return () => releaseLinkedToolsScope(scope)
+	})
 
 	// Initialize note manager with fine-grained reactivity
 	const noteManager = new NoteManager(
@@ -512,6 +539,9 @@
 		},
 		hideJobStatus: () => {
 			onHideJobStatus?.()
+		},
+		dismissRunNode: (id: string) => {
+			onDismissRunNode?.(id)
 		}
 	}
 
@@ -664,6 +694,9 @@
 		currentGraphNodeDeps = graphNodeDeps
 
 		// Pre-compute extra space per node for assets, AI tools, group notes, group headers
+		const resolvedLinkedTools = linkedAgentToolsForScope(
+			linkedToolsScope(workspace, linkedToolsPath ?? path)
+		)
 		const nodeExtraSpace = computeNodeExtraSpace(graphNodeDeps, {
 			showAssets: $showAssets ?? true,
 			showNotes,
@@ -671,7 +704,8 @@
 			noteTextHeights,
 			groupDisplayState,
 			insertable,
-			flowModuleStates
+			flowModuleStates,
+			linkedAgentTools: resolvedLinkedTools
 		})
 
 		// Layout with extra space baked into sugiyama
@@ -698,7 +732,13 @@
 			: undefined
 
 		// Compute AI tool visual nodes (no position remapping)
-		let aiToolNodesResult = computeAIToolNodes(newNodes, eventHandler, insertable, flowModuleStates)
+		let aiToolNodesResult = computeAIToolNodes(
+			newNodes,
+			eventHandler,
+			insertable,
+			flowModuleStates,
+			resolvedLinkedTools
+		)
 
 		let finalNodes: (Node & NodeLayout)[] = [
 			...newNodes,
@@ -777,6 +817,7 @@
 	const nodeTypes = {
 		input2: InputNode,
 		module: ModuleNode,
+		failureModule: FailureModuleNode,
 		branchAllStart: BranchAllStart,
 		branchAllEnd: BranchAllEndNode,
 		forLoopEnd: ForLoopEndNode,
@@ -933,7 +974,9 @@
 			showNotes,
 			noteManager.renderCount,
 			currentGroups,
-			groupDisplayState.renderCount
+			groupDisplayState.renderCount,
+			// A linked step's tools resolve asynchronously; recompute tool nodes when they land.
+			linkedAgentToolsVersion()
 		]
 		untrack(async () => {
 			await updateStores()
@@ -1049,6 +1092,54 @@
 		if (!showNotes) {
 			showNotes = true
 		}
+	}
+
+	let latestReload = 0
+
+	/** Flow an expanded subflow node stands for, read from the step it inlines: the edited
+	 * flow for a top-level expansion, the enclosing expansion's modules otherwise. */
+	function expandedSubflowPath(nodeId: string): string | undefined {
+		const parentId = expandedSubflowParentId(nodeId)
+		const parentModules = parentId == undefined ? modules : expandedSubflows[parentId]?.modules
+		const stepId = parseExpandedSubflowId(nodeId)?.leaf ?? nodeId
+		const value = parentModules && findStepPath(parentModules, stepId)?.target.value
+		return value && value.type === 'flow' ? value.path : undefined
+	}
+
+	/** Refetch the steps inlined by every expanded subflow, e.g. after one was deployed from
+	 * the flow editor drawer. Outermost first, so a nested expansion resolves its path from
+	 * its refreshed parent: a step now pointing at another flow must not keep rendering the
+	 * one it pointed at when it was expanded. */
+	export async function reloadExpandedSubflows() {
+		const reload = ++latestReload
+		const ids = Object.keys(expandedSubflows).sort(
+			(a, b) =>
+				(parseExpandedSubflowId(a)?.subflowSteps.length ?? 0) -
+				(parseExpandedSubflowId(b)?.subflowSteps.length ?? 0)
+		)
+		for (const id of ids) {
+			// A later reload owns the state from here on.
+			if (reload !== latestReload) return
+			const expansion = expandedSubflows[id]
+			if (expansion == undefined) continue
+			const path = expandedSubflowPath(id)
+			if (path == undefined) {
+				delete expandedSubflows[id]
+				continue
+			}
+			try {
+				const flow = await FlowService.getFlowByPath({ workspace: workspace, path })
+				if (reload !== latestReload) return
+				// While this request was in flight the user may have collapsed the expansion, or
+				// collapsed it and re-expanded onto another flow: only commit onto the very
+				// expansion this response was fetched for.
+				if (expandedSubflows[id] !== expansion) continue
+				expandedSubflows[id] = { modules: flow.value.modules, groups: flow.value.groups }
+			} catch (err) {
+				sendUserToast(`Could not reload expanded subflow ${path}: ${err.body ?? err}`, true)
+			}
+		}
+		expandedSubflows = expandedSubflows
 	}
 
 	export function createGroupFromSelection(ids: string[]) {

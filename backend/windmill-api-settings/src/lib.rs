@@ -32,11 +32,9 @@ use windmill_common::DB;
 use ee_oss::validate_license_key;
 use windmill_common::usernames::generate_instance_username_for_all_users;
 
-#[cfg(feature = "enterprise")]
-use axum::extract::Query;
 use axum::{
     body::Body,
-    extract::{Extension, Path},
+    extract::{Extension, Path, Query},
     response::Response,
     routing::{get, post},
     Json, Router,
@@ -54,12 +52,13 @@ use windmill_common::secret_backend::{
 use windmill_common::{
     ee_oss::{get_license_plan, LicensePlan},
     email_oss::send_email_plain_text,
-    error::{self, JsonResult, Result},
+    error::{self, pg_error_message, JsonResult, Result},
     get_database_url,
     global_settings::{
         AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
-        CRITICAL_ALERT_MUTE_UI_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_HUB_SETTING,
-        EMAIL_DOMAIN_SETTING, ENV_SETTINGS, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
+        CRITICAL_ALERT_MUTE_UI_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
+        DISABLE_HUB_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
+        GITHUB_APP_WEBHOOK_BASE_URL_SETTING, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
         HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING, MAX_RETENTION_OVERRIDE_WORKSPACES,
         RETENTION_PERIOD_SECS_OVERRIDES_SETTING, RUFF_CONFIG_SETTING,
         WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
@@ -69,7 +68,11 @@ use windmill_common::{
     instance_config::{self, ApplyMode, InstanceConfig},
     server::Smtp,
 };
-use windmill_common::{error::to_anyhow, worker::CLOUD_HOSTED, PgDatabase};
+use windmill_common::{
+    error::to_anyhow,
+    worker::{reload_custom_tags_setting, CLOUD_HOSTED},
+    PgDatabase,
+};
 
 /// Unauthenticated settings routes.
 ///
@@ -116,6 +119,7 @@ pub fn global_service() -> Router {
             post(set_global_setting).get(get_global_setting),
         )
         .route("/list_global", get(list_global_settings))
+        .route("/github_app_stale_webhooks", get(github_app_stale_webhooks))
         .route(
             "/instance_config",
             get(get_instance_config).put(set_instance_config),
@@ -282,15 +286,15 @@ pub async fn test_s3_bucket(
         let mut list = client.list(Some(
             &windmill_object_store::object_store_reexports::Path::from("".to_string()),
         ));
-        let first_file = list.next().await;
-        if first_file.is_some() {
-            if let Err(e) = first_file.as_ref().unwrap() {
+        match list.next().await {
+            Some(Err(e)) => {
                 tracing::error!("error listing bucket: {e:#}");
-                error::Error::internal_err(format!("Failed to list files in blob storage: {e:#}"));
+                return Err(error::Error::internal_err(format!(
+                    "Failed to list files in blob storage: {e:#}"
+                )));
             }
-            tracing::info!("Listed files: {:?}", first_file.unwrap());
-        } else {
-            tracing::info!("No files in blob storage");
+            Some(Ok(first_file)) => tracing::info!("Listed files: {:?}", first_file),
+            None => tracing::info!("No files in blob storage"),
         }
 
         let path = windmill_object_store::object_store_reexports::Path::from(format!(
@@ -848,6 +852,17 @@ pub async fn set_global_setting_internal(
         bump_instance_ai_config_revision();
     }
 
+    // Tag reads are served from an in-memory cache that this process otherwise only
+    // refreshes on the next global-settings poll, so without this a refetch right after
+    // the write still returns the pre-write list. The setting is already persisted at
+    // this point, so a failed refresh must not be reported as a failed write — the
+    // poller retries it.
+    if key == CUSTOM_TAGS_SETTING {
+        if let Err(e) = reload_custom_tags_setting(db).await {
+            tracing::error!(error = %e, "Could not reload custom tags setting after write");
+        }
+    }
+
     Ok(())
 }
 
@@ -1079,6 +1094,30 @@ async fn run_setting_pre_write_hook(
                 }
             }
         }
+        GITHUB_APP_WEBHOOK_BASE_URL_SETTING => {
+            // A bad value here yields a webhook GitHub can never deliver to, and the
+            // failure only shows up much later as "falling back to polling" on a
+            // repository — so reject it at the boundary instead.
+            match value {
+                // Clearing (delete row) is handled by the caller; allow it through.
+                serde_json::Value::Null => {}
+                serde_json::Value::String(s) if s.trim().is_empty() => {}
+                serde_json::Value::String(s) => {
+                    windmill_common::global_settings::validate_webhook_base_url(s).map_err(
+                        |e| {
+                            error::Error::BadRequest(format!(
+                                "{GITHUB_APP_WEBHOOK_BASE_URL_SETTING}: {e}"
+                            ))
+                        },
+                    )?;
+                }
+                _ => {
+                    return Err(error::Error::BadRequest(format!(
+                        "{GITHUB_APP_WEBHOOK_BASE_URL_SETTING} must be a URL string"
+                    )));
+                }
+            }
+        }
         _ => {}
     }
     Ok(())
@@ -1235,6 +1274,25 @@ pub async fn get_global_setting(
 struct GlobalSetting {
     name: String,
     value: serde_json::Value,
+}
+
+/// Repositories whose registered webhook still points at a receiver the instance no
+/// longer uses — what an admin has to re-save after changing the webhook base URL.
+/// Read-only; changing the setting never moves a live hook on its own.
+async fn github_app_stale_webhooks(
+    Extension(_db): Extension<DB>,
+    authed: ApiAuthed,
+) -> JsonResult<serde_json::Value> {
+    require_super_admin(&_db, &authed).await?;
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    {
+        let stale = windmill_common::git_sync_ee::stale_webhook_repos(&_db).await?;
+        return Ok(Json(serde_json::to_value(stale).map_err(|e| {
+            error::Error::internal_err(format!("Failed to serialize stale webhooks: {e}"))
+        })?));
+    }
+    #[cfg(not(all(feature = "enterprise", feature = "private")))]
+    Ok(Json(serde_json::json!([])))
 }
 
 #[cfg(feature = "enterprise")]
@@ -1507,6 +1565,10 @@ struct CustomInstanceDbLogs {
     db_connect: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     grant_permissions: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    replication_user: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    replication_user_error: Option<String>,
 }
 
 async fn list_custom_instance_pg_databases(
@@ -1579,6 +1641,7 @@ async fn refresh_custom_instance_user_pwd(
 ) -> JsonResult<()> {
     require_super_admin(&db, &authed).await?;
     windmill_common::utils::refresh_custom_instance_user_pwd(&db).await?;
+    windmill_common::utils::refresh_custom_instance_replication_user_pwd(&db).await?;
     Ok(Json(()))
 }
 
@@ -1701,26 +1764,27 @@ async fn setup_custom_instance_pg_database_inner(
         .map_err(|e| {
             error::Error::ExecutionErr(format!(
                 "Failed to grant permissions to custom_instance_user: {}",
-                e.to_string(),
+                pg_error_message(&e),
             ))
         })?;
-
-    if let Err(e) = client
-        .batch_execute(&format!("ALTER ROLE custom_instance_user REPLICATION;"))
-        .await
-    {
-        tracing::error!("Failed to grant replication permission to custom_instance_user: {e:#}");
-    }
 
     logs.grant_permissions = "OK".to_string();
 
     drop(client); // /!\ Drop before joining to avoid deadlock
-    join_handle
-        .await
-        .map_err(|e| error::Error::ExecutionErr(format!("join error: {}", e.to_string())))?
-        .map_err(|e| {
-            error::Error::ExecutionErr(format!("tokio_postgres error: {}", e.to_string()))
-        })?;
+    windmill_common::shutdown_pg_connection(join_handle).await?;
+
+    // Roles are cluster-wide, so the dedicated role used by postgres trigger connections is
+    // provisioned on the main pool rather than on the new database. Reported as its own step
+    // rather than failing the setup: without the role the database still serves datatables, only
+    // postgres triggers on them break.
+    match windmill_common::utils::ensure_custom_instance_replication_user(db).await {
+        Ok(()) => logs.replication_user = "OK".to_string(),
+        Err(e) => {
+            tracing::error!("Failed to provision custom_instance_replication_user: {e:#}");
+            logs.replication_user = "FAIL".to_string();
+            logs.replication_user_error = Some(e.to_string());
+        }
+    }
 
     Ok(())
 }
@@ -1971,25 +2035,53 @@ async fn fetch_resource_types_from_hub() -> error::Result<Vec<CachedResourceType
         .collect())
 }
 
+#[derive(serde::Deserialize)]
+struct SyncResourceTypesQuery {
+    name: Option<String>,
+}
+
 async fn sync_cached_resource_types(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
+    Query(SyncResourceTypesQuery { name }): Query<SyncResourceTypesQuery>,
 ) -> error::Result<String> {
     require_super_admin(&db, &authed).await?;
 
     use windmill_common::worker::HUB_RT_CACHE_DIR;
     let cache_path = format!("{}/resource_types.json", *HUB_RT_CACHE_DIR);
 
-    let cached_types = match tokio::fs::read_to_string(&cache_path).await {
-        Ok(content) => serde_json::from_str::<Vec<CachedResourceType>>(&content).map_err(|e| {
-            error::Error::InternalErr(format!("Failed to parse cached resource types: {}", e))
-        })?,
-        Err(_) => fetch_resource_types_from_hub().await?,
+    // Manual sync is hub-first so it lands newly-published hub types on demand. The
+    // on-disk cache is only a fallback for when the hub is unreachable (airgapped
+    // installs / network error); refreshing it is left to the daily cache-rt cron and
+    // the startup sync in main.rs, which own the offline path.
+    let (resource_types, from_hub) = match fetch_resource_types_from_hub().await {
+        Ok(types) => {
+            tracing::info!("Fetched {} resource types live from the hub", types.len());
+            (types, true)
+        }
+        Err(hub_err) => {
+            tracing::warn!(
+                "Live hub fetch failed ({hub_err}), falling back to on-disk cache at {cache_path}"
+            );
+            match tokio::fs::read_to_string(&cache_path).await {
+                Ok(content) => {
+                    let parsed = serde_json::from_str::<Vec<CachedResourceType>>(&content)
+                        .map_err(|e| {
+                            error::Error::InternalErr(format!(
+                                "Failed to parse cached resource types: {}",
+                                e
+                            ))
+                        })?;
+                    (parsed, false)
+                }
+                Err(_) => return Err(hub_err),
+            }
+        }
     };
 
     let mut synced_count = 0;
 
-    for rt in &cached_types {
+    for rt in &resource_types {
         let exists: Option<bool> = sqlx::query_scalar!(
             "SELECT EXISTS(SELECT 1 FROM resource_type WHERE workspace_id = 'admins' AND name = $1 AND schema IS NOT DISTINCT FROM $2 AND description IS NOT DISTINCT FROM $3)",
             &rt.name,
@@ -2018,10 +2110,27 @@ async fn sync_cached_resource_types(
         synced_count += 1;
     }
 
+    // If a specific type was requested and is still absent after syncing, surface an
+    // explicit not-found instead of a silent "Synced 0". Word it by source so the
+    // cache-fallback path does not claim it checked the hub.
+    if let Some(name) = name.as_deref() {
+        if !resource_types.iter().any(|rt| rt.name == name) {
+            let source = if from_hub {
+                "on the hub"
+            } else {
+                "in the cached resource types (hub unreachable)"
+            };
+            return Err(error::Error::NotFound(format!(
+                "resource type '{}' not found {}",
+                name, source
+            )));
+        }
+    }
+
     Ok(format!(
         "Synced {} resource types ({} unchanged)",
         synced_count,
-        cached_types.len() - synced_count
+        resource_types.len() - synced_count
     ))
 }
 

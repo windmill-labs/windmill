@@ -18,6 +18,7 @@
 		XCircle,
 		Zap
 	} from 'lucide-svelte'
+	import DbtIcon from '$lib/components/icons/DbtIcon.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { preventDefault, stopPropagation } from 'svelte/legacy'
 	import type { GraphUsageKind } from './types'
@@ -45,9 +46,19 @@
 			// Macros this script provides (deployed/drafted `// macros` library).
 			// Non-empty renders the ƒ chip marking the node as a macro library.
 			macros?: { name: string; params: string; is_table: boolean }[]
+			// Set on a dbt script: the number of models the project materializes.
+			// One runnable node stands for the whole project, so the count is what
+			// tells it apart from a single-output script.
+			dbt?: { model_count: number }
+			/** Hovering the project badge emphasizes every model it
+			 *  materializes — the fan-out the graph deliberately omits. */
+			onDbtHover?: (on: boolean) => void
 			// Last-run status + run count observed this session (from the
 			// folder queue poll). Undefined until the first observed run.
 			runState?: RunnableRunState
+			// Opt-in (replay player): when this node is the transform actively
+			// running, tint its whole surface amber so the compute is unmissable.
+			highlightRunning?: boolean
 			// True for nodes synthesized from local drafts (script not yet
 			// persisted). Same convention as `unsaved` on triggers/edges.
 			unsaved?: boolean
@@ -103,6 +114,9 @@
 	let hover = $state(false)
 	let menuOpen = $state(false)
 	let running = $state(false)
+
+	// Amber "computing now" surface, gated so only the replay player lights it up.
+	let computingNow = $derived(data.highlightRunning === true && data.runState?.status === 'running')
 	// Popover state for the on-node Run-button caret. Sticky while open so
 	// `showRun` (which gates the whole pill) stays true even after the
 	// pointer leaves the node — otherwise picking an option would unmount
@@ -182,7 +196,19 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="relative" onmouseenter={() => (hover = true)} onmouseleave={() => (hover = false)}>
+<!-- Hovering anywhere on a dbt project node highlights the models it
+     materializes: the association the graph does not draw as edges. -->
+<div
+	class="relative"
+	onmouseenter={() => {
+		hover = true
+		data.onDbtHover?.(true)
+	}}
+	onmouseleave={() => {
+		hover = false
+		data.onDbtHover?.(false)
+	}}
+>
 	<!--
 		Mirrors the flow editor's step styling (getNodeColorClasses): muted
 		surface-tertiary fill with a quiet gray border, accent only for the
@@ -195,7 +221,9 @@
 			'flex items-center rounded-md drop-shadow-sm overflow-hidden border transition-colors',
 			'bg-surface border-gray-400 dark:border-gray-600 hover:border-gray-500 dark:hover:border-gray-500',
 			selected && 'bg-surface-accent-selected border-border-selected',
-			data.unsaved && 'border-2 border-dashed border-gray-400 dark:border-gray-500'
+			data.unsaved && 'border-2 border-dashed border-gray-400 dark:border-gray-500',
+			computingNow &&
+				'bg-amber-50 dark:bg-amber-900/30 border-amber-400 dark:border-amber-600 animate-pulse'
 		)}
 		style="width: {NODE.width}px; min-height: {NODE.height}px;"
 		title={nodeTooltip}
@@ -266,6 +294,15 @@
 			>
 				<SquareFunction size={10} />
 				<span class="text-3xs leading-none">×{data.macros.length}</span>
+			</div>
+		{/if}
+		{#if data.dbt}
+			<div
+				class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300"
+				title={`dbt project — materializes ${data.dbt.model_count} model${data.dbt.model_count === 1 ? '' : 's'}`}
+			>
+				<DbtIcon width={10} height={10} />
+				<span class="text-3xs leading-none">×{data.dbt.model_count}</span>
 			</div>
 		{/if}
 		{#if data.runState}

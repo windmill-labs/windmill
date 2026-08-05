@@ -22,6 +22,7 @@ use tokio_postgres::{
     Column,
 };
 use uuid::Uuid;
+use windmill_common::azure_workload_identity::WORKLOAD_IDENTITY_PASSWORD;
 use windmill_common::error::to_anyhow;
 use windmill_common::error::{self, Error};
 use windmill_common::worker::{
@@ -65,24 +66,94 @@ pub async fn clear_pg_cache() {
     CONNECTION_COUNTER.write().await.clear();
 }
 
+/// How the connection authenticates, which also keys the connection cache: a
+/// connection established under one mode must never be handed to a request asking
+/// for another.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum PgAuthMode {
+    Password,
+    /// AWS RDS IAM.
+    Iam,
+    /// Azure Entra ID, via the worker's federated identity.
+    WorkloadIdentity,
+}
+
+impl PgAuthMode {
+    fn of(database: &PgDatabase) -> error::Result<Self> {
+        let workload_identity =
+            database.password.as_deref().map(str::trim) == Some(WORKLOAD_IDENTITY_PASSWORD);
+        match (database.use_iam_auth == Some(true), workload_identity) {
+            (true, true) => Err(Error::BadRequest(
+                "IAM RDS authentication cannot use the Azure workload identity password"
+                    .to_string(),
+            )),
+            (true, false) => Ok(PgAuthMode::Iam),
+            (false, true) => Ok(PgAuthMode::WorkloadIdentity),
+            (false, false) => Ok(PgAuthMode::Password),
+        }
+    }
+
+    /// What to announce in the job log. Password auth is the default and stays silent.
+    /// The token modes name the login they present, which is the one thing the token
+    /// itself does not carry.
+    fn log_name(&self, database: &PgDatabase) -> Option<String> {
+        match self {
+            PgAuthMode::Password => None,
+            PgAuthMode::Iam => Some(format!(
+                "IAM RDS authentication (login {})",
+                database.login_name()
+            )),
+            PgAuthMode::WorkloadIdentity => Some(match database.entra_login() {
+                Ok(login) => format!("Azure Workload Identity (login {login})"),
+                // Connecting rejects a missing login; do not invent one here.
+                Err(_) => "Azure Workload Identity".to_string(),
+            }),
+        }
+    }
+
+    fn cache_key_segment(&self) -> &'static str {
+        match self {
+            // Workload identity needs no segment of its own: to_uri() carries the raw
+            // password and the mode is a pure function of it, so two modes can never
+            // share a key even though the mode is selected on the trimmed value.
+            PgAuthMode::Password | PgAuthMode::WorkloadIdentity => "",
+            PgAuthMode::Iam => "&iam=true",
+        }
+    }
+}
+
 async fn new_pg_connection(
     database: &PgDatabase,
-    _use_iam_auth: bool,
+    auth_mode: PgAuthMode,
     main_db: Option<&DB>,
 ) -> error::Result<(tokio_postgres::Client, tokio::task::JoinHandle<()>)> {
-    let (client, connection) = if _use_iam_auth {
-        #[cfg(all(feature = "enterprise", feature = "private"))]
-        {
-            database.connect_with_iam().await?
+    let (client, connection) = match auth_mode {
+        PgAuthMode::Iam => {
+            #[cfg(all(feature = "enterprise", feature = "private"))]
+            {
+                database.connect_with_iam().await?
+            }
+            #[cfg(not(all(feature = "enterprise", feature = "private")))]
+            {
+                return Err(Error::ExecutionErr(
+                    "IAM RDS authentication requires Windmill Enterprise Edition".to_string(),
+                ));
+            }
         }
-        #[cfg(not(all(feature = "enterprise", feature = "private")))]
-        {
-            return Err(Error::ExecutionErr(
-                "IAM RDS authentication requires Windmill Enterprise Edition".to_string(),
-            ));
+        PgAuthMode::WorkloadIdentity => {
+            #[cfg(feature = "enterprise")]
+            {
+                database.connect_with_workload_identity().await?
+            }
+            #[cfg(not(feature = "enterprise"))]
+            {
+                return Err(Error::ExecutionErr(
+                    "Azure workload identity authentication requires Windmill Enterprise Edition"
+                        .to_string(),
+                ));
+            }
         }
-    } else {
-        database.connect(main_db).await?
+        PgAuthMode::Password => database.connect(main_db).await?,
     };
     let handle = tokio::spawn(async move {
         if let Err(e) = connection.await {
@@ -643,11 +714,17 @@ pub async fn do_postgresql(
         annotations.result_collection
     };
 
-    let use_iam_auth = database.use_iam_auth == Some(true);
+    let auth_mode = PgAuthMode::of(&database)?;
 
-    // Include use_iam_auth in cache key to distinguish IAM vs non-IAM connections to the same host.
-    // The cache key is static (doesn't include the token), which is correct because PostgreSQL
-    // connections remain valid after initial auth — fresh tokens are generated on cache miss.
+    if let Some(mode) = auth_mode.log_name(&database) {
+        windmill_queue::append_logs(&job.id, &job.workspace_id, format!("Using {mode}\n"), conn)
+            .await;
+    }
+
+    // Include the auth mode in the cache key to distinguish connections to the same host
+    // authenticated differently. The cache key is static (doesn't include the token), which
+    // is correct because PostgreSQL connections remain valid after initial auth — fresh
+    // tokens are generated on cache miss.
     //
     // to_uri() collapses require/verify-ca/verify-full to the same string, so the TLS verification
     // inputs are folded into the key separately. Without this a connection established under a
@@ -664,11 +741,11 @@ pub async fn do_postgresql(
     // to_uri() already ends with `?sslmode=...`, so append further key segments
     // with `&` to keep database_string a well-formed URI (it is only ever a cache
     // key, but a malformed one would mislead anyone who later logs or parses it).
-    let database_string = if use_iam_auth {
-        format!("{}&iam=true&tls={tls_disc:x}", database.to_uri())
-    } else {
-        format!("{}&tls={tls_disc:x}", database.to_uri())
-    };
+    let database_string = format!(
+        "{}{}&tls={tls_disc:x}",
+        database.to_uri(),
+        auth_mode.cache_key_segment()
+    );
     let database_string_clone = database_string.clone();
 
     let cached_client;
@@ -748,18 +825,18 @@ pub async fn do_postgresql(
                 }
                 drop(guard);
                 cached_client = None;
-                new_client = Some(new_pg_connection(&database, use_iam_auth, conn.as_sql()).await?);
+                new_client = Some(new_pg_connection(&database, auth_mode, conn.as_sql()).await?);
             }
         } else {
             // Release the lock before connecting so the post-query caching
             // code can re-acquire it.
             drop(guard);
             cached_client = None;
-            new_client = Some(new_pg_connection(&database, use_iam_auth, conn.as_sql()).await?);
+            new_client = Some(new_pg_connection(&database, auth_mode, conn.as_sql()).await?);
         }
     } else {
         cached_client = None;
-        new_client = Some(new_pg_connection(&database, use_iam_auth, conn.as_sql()).await?);
+        new_client = Some(new_pg_connection(&database, auth_mode, conn.as_sql()).await?);
     }
 
     let (mut sig, _) = parse_pgsql_sig_with_typed_schema(&query)
@@ -768,7 +845,7 @@ pub async fn do_postgresql(
     // Materialize any `(s3object)` args into JSON text and rebind them as `jsonb` so
     // `otyp_to_pg_type` picks the right binding. Must run before the param map is
     // built below.
-    materialize_s3object_args(
+    let had_s3object_input = materialize_s3object_args(
         &mut sig.args,
         &mut pg_args,
         client,
@@ -875,7 +952,7 @@ pub async fn do_postgresql(
     };
 
     let result = if run_inline {
-        result_f.await?
+        result_f.await
     } else {
         run_future_with_polling_update_job_poller(
             job.id,
@@ -889,8 +966,9 @@ pub async fn do_postgresql(
             &mut Some(occupancy_metrics),
             Box::pin(futures::stream::once(async { 0 })),
         )
-        .await?
-    };
+        .await
+    }
+    .map_err(|e| map_s3object_jsonb_overflow(e, had_s3object_input))?;
 
     // Release the cache lock now that we have the result — allows the
     // post-query caching code below to re-acquire it if needed.
@@ -985,7 +1063,8 @@ async fn increment_connection_counter(database_string: &str) {
 
 /// For each `(s3object)` arg in `sig_args`: download the referenced file, decode it
 /// to JSON text, then rewrite the arg to bind as `jsonb`. Mutates `args_map` in place
-/// so the existing bind path picks up the materialized payload.
+/// so the existing bind path picks up the materialized payload. Returns whether any
+/// `(s3object)` arg was materialized, so the jsonb-cap error can be rewritten.
 async fn materialize_s3object_args(
     sig_args: &mut [Arg],
     args_map: &mut HashMap<String, Value>,
@@ -993,7 +1072,8 @@ async fn materialize_s3object_args(
     conn: &Connection,
     job_id: Uuid,
     workspace_id: &str,
-) -> error::Result<()> {
+) -> error::Result<bool> {
+    let mut materialized_any = false;
     for arg in sig_args.iter_mut() {
         if arg.otyp.as_deref() != Some("s3object") {
             continue;
@@ -1016,6 +1096,7 @@ async fn materialize_s3object_args(
                     arg.name
                 ))
             })?;
+        materialized_any = true;
         // Parse to a Value so `convert_val`'s Array/Object → JSONB branches bind it
         // correctly. A bare String would mismatch the JSONB param type.
         let parsed: Value = serde_json::from_str(&json_text).map_err(|e| {
@@ -1028,7 +1109,38 @@ async fn materialize_s3object_args(
         arg.otyp = Some("jsonb".to_string());
         arg.typ = Typ::Object(windmill_parser::ObjectType::new(None, Some(vec![])));
     }
-    Ok(())
+    Ok(materialized_any)
+}
+
+/// A `(s3object)` input materializes the whole file into a single jsonb parameter, which
+/// PostgreSQL caps at ~256MB (`total size of jsonb {array,object} elements exceeds the
+/// maximum of 268435455 bytes`). A large input trips this with an opaque server error;
+/// rewrite it into guidance pointing at DuckDB, which reads S3 natively and streams.
+///
+/// The attribution is hedged: the same error can also come from SQL constructing an
+/// oversized jsonb at execution time, and with several inputs we can't tell which one
+/// overflowed, so we point at `(s3object)` inputs as the likely cause rather than naming
+/// a specific file. The DuckDB remediation is the same either way.
+fn map_s3object_jsonb_overflow(e: Error, had_s3object_input: bool) -> Error {
+    if !had_s3object_input {
+        return e;
+    }
+    let msg = e.to_string();
+    // Match only the jsonb byte-size cap ("total size of jsonb ... elements exceeds the
+    // maximum of 268435455 bytes"), so the ~256 MB wording stays accurate. Excludes the
+    // element-count cap and unrelated caps like "array size exceeds the maximum allowed".
+    if !msg.contains("total size of jsonb") {
+        return e;
+    }
+    Error::ExecutionErr(format!(
+        "This query hit PostgreSQL's ~256 MB size limit for a single jsonb value. This is a \
+         server-side database limit, not a worker-memory limit, so a larger worker will not raise \
+         it. If a large `(s3object)` input is the cause: native SQL `(s3object)` inputs load the \
+         whole file into one jsonb parameter and do not stream, so they only fit small files. For \
+         large Parquet/CSV files, use a DuckDB script instead: it reads the file directly from S3 \
+         and streams (e.g. `read_parquet(...)` / `read_csv_auto(...)`) rather than materializing \
+         it.\n\nUnderlying error: {msg}",
+    ))
 }
 
 /// Parse a date string in formats produced by chrono's Display or JS frontends.
@@ -2022,6 +2134,102 @@ impl FromSql<'_> for StringCollector {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The sentinel password is the whole opt-in: nothing else marks the resource, so a
+    /// resource carrying it must not fall through to password auth.
+    #[test]
+    fn test_workload_identity_password_selects_the_auth_mode() {
+        let db = |password: &str| {
+            PgDatabase::parse_uri(&format!("postgres://someuser:{password}@host:5432/db")).unwrap()
+        };
+        assert_eq!(
+            PgAuthMode::of(&db(WORKLOAD_IDENTITY_PASSWORD)).unwrap(),
+            PgAuthMode::WorkloadIdentity
+        );
+        assert_eq!(
+            PgAuthMode::of(&db("hunter2")).unwrap(),
+            PgAuthMode::Password
+        );
+        // A pasted sentinel keeps its surrounding whitespace, and an unrecognized one is
+        // forwarded to the server as a real password instead of selecting the mode.
+        assert_eq!(
+            PgAuthMode::of(&db("%20ms_entraid%0A")).unwrap(),
+            PgAuthMode::WorkloadIdentity
+        );
+    }
+
+    /// The job log is the only place the presented login is visible, and the two token
+    /// modes differ on whether a missing one has a default at all.
+    #[test]
+    fn test_log_name_reports_the_presented_login() {
+        let db = |user: &str| {
+            PgDatabase::parse_uri(&format!("postgres://{user}:pw@host:5432/db")).unwrap()
+        };
+
+        assert_eq!(PgAuthMode::Password.log_name(&db("someuser")), None);
+        assert_eq!(
+            PgAuthMode::Iam.log_name(&db("someuser")).unwrap(),
+            "IAM RDS authentication (login someuser)"
+        );
+        assert_eq!(
+            PgAuthMode::Iam.log_name(&db("")).unwrap(),
+            "IAM RDS authentication (login postgres)"
+        );
+        assert_eq!(
+            PgAuthMode::WorkloadIdentity
+                .log_name(&db("someuser"))
+                .unwrap(),
+            "Azure Workload Identity (login someuser)"
+        );
+        // Entra has no default login, so none is named rather than implying `postgres`.
+        assert_eq!(
+            PgAuthMode::WorkloadIdentity.log_name(&db("")).unwrap(),
+            "Azure Workload Identity"
+        );
+    }
+
+    #[test]
+    fn test_map_s3object_jsonb_overflow() {
+        let pg_err = Error::ExecutionErr(
+            "db error: ERROR: total size of jsonb array elements exceeds the maximum of 268435455 bytes".to_string(),
+        );
+        let mapped = map_s3object_jsonb_overflow(pg_err, true).to_string();
+        assert!(mapped.contains("256 MB"));
+        assert!(mapped.contains("larger worker will not"));
+        assert!(mapped.contains("read_csv_auto"));
+        assert!(mapped.contains("Underlying error"));
+
+        // The element-count cap is not the byte-size cap, so the "256 MB" message would
+        // mislabel it — it must pass through unchanged.
+        let count_err = Error::ExecutionErr(
+            "number of jsonb array elements exceeds the maximum of 268435455".to_string(),
+        );
+        assert_eq!(
+            map_s3object_jsonb_overflow(count_err, true).to_string(),
+            "number of jsonb array elements exceeds the maximum of 268435455",
+        );
+
+        // A different "exceeds the maximum" error must NOT be reclassified as jsonb overflow.
+        let array_err =
+            Error::ExecutionErr("array size exceeds the maximum allowed (134217727)".to_string());
+        assert_eq!(
+            map_s3object_jsonb_overflow(array_err, true).to_string(),
+            "array size exceeds the maximum allowed (134217727)",
+        );
+
+        let other = Error::ExecutionErr("syntax error at or near \"SELCT\"".to_string());
+        assert_eq!(
+            map_s3object_jsonb_overflow(other, true).to_string(),
+            "syntax error at or near \"SELCT\"",
+        );
+
+        // No `(s3object)` input → even a matching error is left alone.
+        let pg_err2 = Error::ExecutionErr("jsonb array elements exceeds the maximum".to_string());
+        assert_eq!(
+            map_s3object_jsonb_overflow(pg_err2, false).to_string(),
+            "jsonb array elements exceeds the maximum",
+        );
+    }
 
     #[test]
     fn test_parse_naive_date() {

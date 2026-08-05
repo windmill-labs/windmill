@@ -23,6 +23,7 @@
 	import { push } from '$lib/history.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Portal from '$lib/components/Portal.svelte'
+	import { overlayPortalTarget } from '$lib/components/common/overlayHost.svelte'
 
 	import { locateModules, groupByParent } from '../multiSelectUtils'
 	import { workspaceStore } from '$lib/stores'
@@ -36,7 +37,7 @@
 	import { findModuleInFlow } from '../flowTree'
 	import type { InlineScript, InsertKind } from '$lib/components/graph/graphBuilder.svelte'
 	import { MoveManager } from '$lib/components/graph/moveManager.svelte'
-	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
+	import { refreshFlowStateStore } from '../flowStoreRefresh.svelte'
 	import type { GraphModuleState } from '$lib/components/graph'
 	import FlowStickyNode from './FlowStickyNode.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
@@ -45,7 +46,7 @@
 	import {
 		type AgentTool,
 		type SpecialToolKind,
-		flowModuleToAgentTool,
+		newFlowModuleAgentTool,
 		createMcpTool,
 		createWebsearchTool,
 		createAiAgentTool,
@@ -76,7 +77,6 @@
 		disableSettings?: boolean
 		newFlow?: boolean
 		smallErrorHandler?: boolean
-		workspace?: string | undefined
 		onTestUpTo?: ((id: string) => void) | undefined
 		onEditInput?: (moduleId: string, key: string) => void
 		localModuleStates?: Record<string, GraphModuleState>
@@ -108,7 +108,6 @@
 		disableSettings = false,
 		newFlow = false,
 		smallErrorHandler = false,
-		workspace = $workspaceStore,
 		onTestUpTo,
 		onEditInput,
 		localModuleStates = {},
@@ -252,8 +251,7 @@
 			;(modules as AgentTool[]).splice(index, 0, aiAgentTool)
 			return modules as AgentTool[]
 		} else if (toolKind === 'flowmoduleTool') {
-			// Create AgentTool from FlowModule
-			const agentTool = flowModuleToAgentTool(module)
+			const agentTool = newFlowModuleAgentTool(module)
 			;(modules as AgentTool[]).splice(index, 0, agentTool)
 			return modules as AgentTool[]
 		} else {
@@ -310,19 +308,33 @@
 		}
 	}
 
-	type PendingDeleteConfirmation = {
-		plan: DeletePlan
-	}
-
-	type PendingGroupAction = {
-		groups: FlowGroup[]
+	// A single delete can have several consequences at once (emptied groups *and*
+	// dependent steps); they are confirmed together so one user action never raises
+	// more than one dialog.
+	type PendingModuleAction = {
 		label: 'delete' | 'move'
+		stepCount: number
+		groups: FlowGroup[]
+		dependents: Record<string, string[]>
 		confirm: () => void
 		cancel?: () => void
 	}
 
-	let pendingDeleteConfirmation: PendingDeleteConfirmation | undefined = $state(undefined)
-	let pendingGroupAction: PendingGroupAction | undefined = $state(undefined)
+	// The modal keeps rendering `pendingModuleAction` while it fades out, so visibility is
+	// driven by `moduleActionOpen` rather than by clearing the value — clearing it would
+	// blank the dialog mid-transition. `moduleActionOpen` also makes confirm/cancel
+	// one-shot: the buttons stay clickable until the fade ends.
+	let pendingModuleAction: PendingModuleAction | undefined = $state(undefined)
+	let moduleActionOpen = $state(false)
+
+	function askModuleAction(action: PendingModuleAction) {
+		pendingModuleAction = action
+		moduleActionOpen = true
+	}
+
+	function stepNoun(action: PendingModuleAction | undefined) {
+		return (action?.stepCount ?? 1) > 1 ? 'steps' : 'step'
+	}
 
 	let graph: FlowGraphV2 | undefined = $state(undefined)
 	let noteMode = $state(false)
@@ -337,6 +349,10 @@
 
 	export function enableNotes(): void {
 		graph?.enableNotes?.()
+	}
+
+	export function reloadExpandedSubflows(): void {
+		graph?.reloadExpandedSubflows?.()
 	}
 
 	function toggleNoteMode() {
@@ -365,23 +381,20 @@
 			return
 		}
 
-		const proceed = () => {
-			if (request.needsDependencyConfirmation) {
-				pendingDeleteConfirmation = { plan: request.plan }
-			} else {
-				applyDeletePlan(request.plan)
-			}
+		const affectedGroups = request.plan.structureDelete?.affectedGroups ?? []
+
+		if (affectedGroups.length === 0 && !request.needsDependencyConfirmation) {
+			applyDeletePlan(request.plan)
+			return
 		}
 
-		if ((request.plan.structureDelete?.affectedGroups.length ?? 0) > 0) {
-			pendingGroupAction = {
-				groups: request.plan.structureDelete!.affectedGroups,
-				label: 'delete',
-				confirm: proceed
-			}
-		} else {
-			proceed()
-		}
+		askModuleAction({
+			label: 'delete',
+			stepCount: request.plan.targets.length,
+			groups: affectedGroups,
+			dependents: request.plan.dependents,
+			confirm: () => applyDeletePlan(request.plan)
+		})
 	}
 
 	export function deleteMultiple(ids: string[]) {
@@ -426,7 +439,7 @@
 			parentArr.splice(lastIndex + 1, 0, ...clones)
 		}
 
-		refreshStateStore(flowStore)
+		refreshFlowStateStore(flowStore)
 		selectionManager.selectByIds(allCloneIds)
 	}
 
@@ -491,65 +504,64 @@
 	$effect(() => {
 		sidebarMode == 'graph' ? (sidebarSize = 40) : (sidebarSize = 20)
 	})
+
+	const portalTarget = overlayPortalTarget('body')
 </script>
 
-<Portal name="flow-module">
+<Portal name="flow-module" target={portalTarget()}>
 	<ConfirmationModal
-		title="Confirm deleting step with dependents"
-		confirmationText="Delete step"
-		open={Boolean(pendingDeleteConfirmation)}
+		title={`${pendingModuleAction?.label === 'move' ? 'Move' : 'Delete'} ${stepNoun(
+			pendingModuleAction
+		)}?`}
+		confirmationText={`${pendingModuleAction?.label === 'move' ? 'Move' : 'Delete'} ${stepNoun(
+			pendingModuleAction
+		)}`}
+		open={moduleActionOpen}
 		on:confirmed={() => {
-			if (pendingDeleteConfirmation) {
-				applyDeletePlan(pendingDeleteConfirmation.plan)
-				pendingDeleteConfirmation = undefined
-			}
+			if (!moduleActionOpen) return
+			moduleActionOpen = false
+			pendingModuleAction?.confirm()
 		}}
 		on:canceled={() => {
-			pendingDeleteConfirmation = undefined
+			if (!moduleActionOpen) return
+			moduleActionOpen = false
+			pendingModuleAction?.cancel?.()
 		}}
 	>
-		<div class="text-primary pb-2"
-			>Found the following steps that will require changes after this step is deleted:</div
-		>
-		{#each Object.entries(pendingDeleteConfirmation?.plan.dependents ?? {}) as [k, v]}
-			<div class="pb-3">
-				<h3 class="text-secondary font-semibold">{k}</h3>
-				<ul class="text-sm">
-					{#each v as dep}
-						<li>{dep}</li>
+		{#if pendingModuleAction}
+			{@const action = pendingModuleAction}
+			{@const dependents = Object.entries(action.dependents)}
+			{#if action.groups.length === 1}
+				{@const group = action.groups[0]}
+				<p
+					>The group{group.summary ? ` "${group.summary}"` : ''} will be removed (empty or duplicate).</p
+				>
+			{:else if action.groups.length > 1}
+				<p>The following groups will be removed (empty or duplicate):</p>
+				<ul class="list-disc pl-4 mt-1">
+					{#each action.groups as group}
+						<li>{group.summary || `${group.start_id} → ${group.end_id}`}</li>
 					{/each}
 				</ul>
-			</div>
-		{/each}
-	</ConfirmationModal>
-
-	<ConfirmationModal
-		title={pendingGroupAction?.groups.length === 1 ? 'Remove group?' : 'Remove groups?'}
-		confirmationText={pendingGroupAction?.label === 'delete' ? 'Delete step' : 'Move step'}
-		open={Boolean(pendingGroupAction)}
-		on:confirmed={() => {
-			pendingGroupAction?.confirm()
-			pendingGroupAction = undefined
-		}}
-		on:canceled={() => {
-			pendingGroupAction?.cancel?.()
-			pendingGroupAction = undefined
-		}}
-	>
-		{#if pendingGroupAction?.groups.length === 1}
-			{@const group = pendingGroupAction.groups[0]}
-			<p
-				>The group{group.summary ? ` "${group.summary}"` : ''} will be removed (empty or duplicate).
-				Are you sure you want to {pendingGroupAction.label} the step?</p
-			>
-		{:else}
-			<p>The following groups will be removed (empty or duplicate):</p>
-			<ul class="list-disc pl-4 mt-1">
-				{#each pendingGroupAction?.groups ?? [] as group}
-					<li>{group.summary || `${group.start_id} → ${group.end_id}`}</li>
-				{/each}
-			</ul>
-			<p class="mt-2">Are you sure you want to {pendingGroupAction?.label} the step?</p>
+			{/if}
+			{#if dependents.length > 0}
+				<p class={action.groups.length > 0 ? 'mt-3' : ''}
+					>The following steps will require changes afterwards:</p
+				>
+				<div class="mt-1">
+					{#each dependents as [k, v]}
+						<div class="pb-2">
+							<h3 class="text-secondary font-semibold">{k}</h3>
+							<ul class="text-sm">
+								{#each v as dep}
+									<li>{dep}</li>
+								{/each}
+							</ul>
+						</div>
+					{/each}
+				</div>
+			{/if}
+			<p class="mt-2">Are you sure you want to {action.label} the {stepNoun(action)}?</p>
 		{/if}
 	</ConfirmationModal>
 </Portal>
@@ -599,7 +611,7 @@
 			failureModule={flowStore.val.value?.failure_module}
 			currentInputSchema={flowStore.val.schema}
 			{selectionManager}
-			{workspace}
+			workspace={opWs}
 			editMode
 			{onTestUpTo}
 			{onEditInput}
@@ -613,6 +625,7 @@
 			{flowHasChanged}
 			chatInputEnabled={Boolean(flowStore.val.value?.chat_input_enabled)}
 			onDelete={(id) => requestDelete([id])}
+			onDismissRunNode={(id) => onDelete?.(id)}
 			onInsert={async (detail) => {
 				if (!flowStore.val.value.modules || !Array.isArray(flowStore.val.value.modules)) return
 				await tick()
@@ -686,17 +699,19 @@
 							selectionManager.selectId(movingId)
 						}
 						moveManager.clearMoving()
-						refreshStateStore(flowStore)
+						refreshFlowStateStore(flowStore)
 						dispatch('change')
 					}
 
 					if (affectedGroups.length > 0) {
-						pendingGroupAction = {
-							groups: affectedGroups,
+						askModuleAction({
 							label: 'move',
+							stepCount: movedIds.length,
+							groups: affectedGroups,
+							dependents: {},
 							confirm: doMove,
 							cancel: () => moveManager.clearMoving()
-						}
+						})
 					} else {
 						doMove()
 					}
@@ -720,7 +735,7 @@
 							instructions: detail.inlineScript?.instructions
 						})
 					}
-					refreshStateStore(flowStore)
+					refreshFlowStateStore(flowStore)
 					dispatch('change')
 					return
 				}
@@ -737,8 +752,12 @@
 				// Agent tool inserts operate on the FlowModule's tools array directly
 				if (isAgentInsert) {
 					const agentMod = findModuleInFlow(flowStore.val.value, detail.agentId!)
-					if (agentMod && (agentMod.value as any).tools) {
-						const tools = (agentMod.value as any).tools as AgentTool[]
+					const agentValue = agentMod?.value as { tools?: AgentTool[] } | undefined
+					if (agentValue) {
+						// `tools` is optional, so a module authored without it starts undefined here and
+						// would silently swallow its first tool.
+						agentValue.tools ??= []
+						const tools = agentValue.tools
 						await insertNewModuleAtIndex(
 							tools,
 							tools.length,
@@ -751,7 +770,7 @@
 						const id = tools[tools.length - 1].id
 						selectionManager.selectId(id)
 					}
-					refreshStateStore(flowStore)
+					refreshFlowStateStore(flowStore)
 					dispatch('change')
 					return
 				}
@@ -829,13 +848,13 @@
 				if (['branchone', 'branchall'].includes(detail.kind)) {
 					await addBranch(module.id)
 				}
-				refreshStateStore(flowStore)
+				refreshFlowStateStore(flowStore)
 				dispatch('change')
 			}}
 			onNewBranch={async (id) => {
 				if (id) {
 					await addBranch(id)
-					refreshStateStore(flowStore)
+					refreshFlowStateStore(flowStore)
 				}
 			}}
 			onSelect={(id) => {
@@ -889,13 +908,13 @@
 				}
 				flowStateStore.val[newId] = flowStateStore.val[id]
 				delete flowStateStore.val[id]
-				refreshStateStore(flowStore)
+				refreshFlowStateStore(flowStore)
 				selectionManager.selectId(newId)
 			}}
 			onDeleteBranch={async ({ id, index }) => {
 				if (id) {
 					await removeBranch(id, index)
-					refreshStateStore(flowStore)
+					refreshFlowStateStore(flowStore)
 					selectionManager.selectId(id)
 				}
 			}}
@@ -934,7 +953,7 @@
 				})
 
 				targetModules.splice(targetIndex + 1, 0, clone)
-				refreshStateStore(flowStore)
+				refreshFlowStateStore(flowStore)
 				selectionManager.selectId(clone.id)
 			}}
 			onUpdateMock={(detail) => {
@@ -943,7 +962,7 @@
 					throw new Error(`Node ${detail.id} not found`)
 				}
 				module.mock = $state.snapshot(detail.mock)
-				refreshStateStore(flowStore)
+				refreshFlowStateStore(flowStore)
 			}}
 			{onTestFlow}
 			{isRunning}

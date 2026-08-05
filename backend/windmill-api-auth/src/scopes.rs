@@ -120,6 +120,10 @@ impl ScopeDefinition {
 
         match (self.action.as_str(), other.action.as_str()) {
             (a, b) if (a == "write" && b == "read") || (a == b) => {}
+            // Apps only: `write` can rewrite the app and its policy, so it also covers
+            // running its components. Not general — `jobs:write` must not grant
+            // `jobs:run`. The resource check below still confines it to the same app.
+            ("write", "run") if self.domain == "apps" => {}
             _ => return false,
         }
 
@@ -240,6 +244,10 @@ pub enum ScopeDomain {
     // Core resource domains
     Jobs,
     Scripts,
+    /// The `/data_metrics` catalog. Its own domain, NOT an alias of `Scripts`: a
+    /// `data_metrics:read` token must reach only this route, never the broader
+    /// `/scripts` routes (some of which do no further scope check).
+    DataMetrics,
     Flows,
     FlowConversations,
     Apps,
@@ -257,6 +265,7 @@ pub enum ScopeDomain {
     KafkaTriggers,
     NatsTriggers,
     MqttTriggers,
+    AmqpTriggers,
     SqsTriggers,
     GcpTriggers,
     AzureTriggers,
@@ -303,6 +312,7 @@ impl ScopeDomain {
         match self {
             Self::Jobs => "jobs",
             Self::Scripts => "scripts",
+            Self::DataMetrics => "data_metrics",
             Self::Flows => "flows",
             Self::FlowConversations => "flow_conversations",
             Self::Apps => "apps",
@@ -318,6 +328,7 @@ impl ScopeDomain {
             Self::KafkaTriggers => "kafka_triggers",
             Self::NatsTriggers => "nats_triggers",
             Self::MqttTriggers => "mqtt_triggers",
+            Self::AmqpTriggers => "amqp_triggers",
             Self::SqsTriggers => "sqs_triggers",
             Self::GcpTriggers => "gcp_triggers",
             Self::AzureTriggers => "azure_triggers",
@@ -355,6 +366,9 @@ impl ScopeDomain {
         match s {
             "jobs" | "jobs_u" => Some(Self::Jobs),
             "scripts" => Some(Self::Scripts),
+            // A distinct domain, not an alias of `scripts` (see the enum variant):
+            // a `data_metrics:read` token must not reach the broader /scripts routes.
+            "data_metrics" => Some(Self::DataMetrics),
             "flows" => Some(Self::Flows),
             "flow_conversations" => Some(Self::FlowConversations),
             "apps" | "apps_u" => Some(Self::Apps),
@@ -370,6 +384,7 @@ impl ScopeDomain {
             "kafka_triggers" => Some(Self::KafkaTriggers),
             "nats_triggers" => Some(Self::NatsTriggers),
             "mqtt_triggers" => Some(Self::MqttTriggers),
+            "amqp_triggers" => Some(Self::AmqpTriggers),
             "sqs_triggers" => Some(Self::SqsTriggers),
             "gcp_triggers" => Some(Self::GcpTriggers),
             "azure_triggers" => Some(Self::AzureTriggers),
@@ -474,6 +489,25 @@ pub fn check_route_access(
             // separate read-only check.
             if suffix.starts_with("jobs_u/queue/cancel/") {
                 return Ok(());
+            }
+        }
+    }
+
+    // Each declared scope must grant what its prompt said and no more:
+    // `jobs:run` only deployed runnables, `users:read` only the viewer's identity.
+    if has_raw_app_sdk_sentinel(Some(token_scopes)) {
+        if let Some(suffix) = route_suffix.as_deref() {
+            if is_request_supplied_code_route(suffix) {
+                return Err(Error::PermissionDenied(
+                    "Access denied. A raw app frontend SDK token cannot run request-supplied code."
+                        .to_string(),
+                ));
+            }
+            if required_domain == ScopeDomain::Users && suffix != "users/whoami" {
+                return Err(Error::PermissionDenied(
+                    "Access denied. A raw app frontend SDK token can only read the viewer's own identity."
+                        .to_string(),
+                ));
             }
         }
     }
@@ -690,6 +724,34 @@ pub fn has_app_embed_sentinel(scopes: Option<&[String]>) -> bool {
     scopes.is_some_and(|s| s.iter().any(|x| x == APP_EMBED_SENTINEL))
 }
 
+/// Sentinel in raw-app SDK tokens. Grants nothing; `check_route_access` uses it
+/// to narrow the declared scopes to what the viewer's prompt promised.
+pub const RAW_APP_SDK_SENTINEL: &str = "raw_app_sdk";
+
+pub fn has_raw_app_sdk_sentinel(scopes: Option<&[String]>) -> bool {
+    scopes.is_some_and(|s| s.iter().any(|x| x == RAW_APP_SDK_SENTINEL))
+}
+
+/// Endpoints that run code the caller supplies or names by job id (the latter
+/// with no ownership check). Their jobs get an unscoped credential as the viewer,
+/// so reaching one would make a captured SDK token a full account takeover.
+fn is_request_supplied_code_route(suffix: &str) -> bool {
+    // Prefixes, so the `_async` variants are covered too.
+    const CODE_ROUTES: [&str; 10] = [
+        "jobs/run/preview",
+        "jobs/run_inline/preview",
+        "jobs/run_wait_result/preview",
+        "jobs/run/preview_bundle",
+        "jobs/run/preview_flow",
+        "jobs/run_wait_result/preview_flow",
+        "jobs/run/dependencies",
+        "jobs/run/flow_dependencies",
+        "jobs/run/workflow_as_code",
+        "jobs/restart/f",
+    ];
+    CODE_ROUTES.iter().any(|p| suffix.starts_with(p))
+}
+
 /// Routes an app embed token (sentinel) is denied. Its broad scopes (`apps:run`,
 /// `jobs:read`, `users:read`, `folders:read`) exist only for a fixed set of routes a
 /// running app uses, but the whole `/apps`, `/jobs`, `/users`, `/folders` routers are
@@ -789,6 +851,15 @@ fn scope_grants_access(
     if scope_domain == ScopeDomain::Resources && scope_action == ScopeAction::Run {
         return Ok(required_action == ScopeAction::Read
             && route_path.is_some_and(resource_metadata_route_allowed));
+    }
+
+    // Apps `write` covers `run` (see `ScopeDefinition::includes`). Like every domain
+    // here this layer is resource-blind; the Run handlers path-check the app.
+    if scope_domain == ScopeDomain::Apps
+        && scope_action == ScopeAction::Write
+        && required_action == ScopeAction::Run
+    {
+        return Ok(true);
     }
 
     if !scope_action.includes(&required_action)
@@ -985,6 +1056,47 @@ mod tests {
 
         // DELETE now requires write permission, so it should still fail with read-only scope
         assert!(check_route_access(&scopes, "/api/w/test_workspace/jobs/123", "DELETE").is_err());
+    }
+
+    #[test]
+    fn data_metrics_is_its_own_domain_not_a_scripts_alias() {
+        // `data_metrics` must be a distinct domain: a token scoped to it must reach
+        // only the data_metrics route, never the broader /scripts routes (some of
+        // which do no further scope check). Regression for a privilege escalation.
+        assert_eq!(
+            ScopeDomain::from_str("data_metrics"),
+            Some(ScopeDomain::DataMetrics)
+        );
+        let dm = vec!["data_metrics:read".to_string()];
+        assert!(check_route_access(&dm, "/api/w/test/data_metrics/list", "GET").is_ok());
+        assert!(check_route_access(&dm, "/api/w/test/scripts/list", "GET").is_err());
+        assert!(check_route_access(&dm, "/api/w/test/scripts/raw/h/abc.ts", "GET").is_err());
+        // Conversely a scripts token does not reach the data_metrics route.
+        let sc = vec!["scripts:read".to_string()];
+        assert!(check_route_access(&sc, "/api/w/test/data_metrics/list", "GET").is_err());
+    }
+
+    /// `apps_u/execute_component` (and the S3 upload the same components drive) is a
+    /// Run action, so a scoped token needs `apps:run`. `apps:write` must keep reaching
+    /// it too: it can rewrite the app and its policy, so withholding execution from it
+    /// protects nothing while breaking every app-scoped token.
+    #[test]
+    fn apps_run_routes_accept_run_and_write_scopes() {
+        let execute = "/api/w/test/apps_u/execute_component/u/admin/app";
+        for scope in ["apps:run", "apps:write"] {
+            assert!(
+                check_route_access(&[scope.to_string()], execute, "POST").is_ok(),
+                "{scope} must reach execute_component"
+            );
+        }
+        assert!(check_route_access(&["apps:read".to_string()], execute, "POST").is_err());
+        // The write-satisfies-run allowance is confined to the apps domain.
+        assert!(check_route_access(
+            &["jobs:write".to_string()],
+            "/api/w/test/jobs/run/p/u/admin/script",
+            "POST"
+        )
+        .is_err());
     }
 
     #[test]

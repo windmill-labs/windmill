@@ -18,7 +18,10 @@ use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
 
 use crate::secret_backend_ext::rename_vault_secret;
 use crate::var_resource_cache::{auth_identity, cache_resource, get_cached_resource};
-use windmill_common::utils::{escape_ilike_pattern, BulkDeleteRequest};
+use windmill_common::utils::{
+    check_proper_path, check_proper_type_name, escape_ilike_pattern, sanitize_db_error,
+    BulkDeleteRequest,
+};
 use windmill_common::webhook::{WebhookMessage, WebhookShared};
 
 use axum::{
@@ -184,6 +187,7 @@ struct EditResource {
     path: Option<String>,
     description: Option<String>,
     value: Option<Box<RawValue>>,
+    resource_type: Option<String>,
     labels: Option<Vec<String>>,
     ws_specific: Option<bool>,
 }
@@ -242,11 +246,7 @@ async fn list_search_resources(
     Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<Vec<SearchResource>> {
     let mut tx = user_db.begin(&authed).await?;
-    #[cfg(feature = "enterprise")]
     let n = 1000;
-
-    #[cfg(not(feature = "enterprise"))]
-    let n = 3;
 
     let allowed = build_scope_path_predicate(&authed, "resources", "read");
     let rows = sqlx::query_as!(
@@ -1035,6 +1035,8 @@ async fn create_resource(
     Json(resource): Json<CreateResource>,
 ) -> Result<(StatusCode, String)> {
     check_scopes(&authed, || format!("resources:write:{}", resource.path))?;
+    check_proper_path(&resource.path)?;
+    check_proper_type_name(&resource.resource_type)?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
         AuditAuthorable::username(&authed),
@@ -1112,7 +1114,8 @@ async fn create_resource(
             resource.labels.as_deref() as Option<&[String]>
         )
         .execute(&mut *tx)
-        .await?;
+        .await
+        .map_err(sanitize_db_error)?;
     } else {
         // Create-only (the default): DO NOTHING + a row-count guard, so a path that appears between
         // check_path_conflict above and this insert is rejected rather than overwritten. A plain
@@ -1131,7 +1134,8 @@ async fn create_resource(
             resource.labels.as_deref() as Option<&[String]>
         )
         .execute(&mut *tx)
-        .await?;
+        .await
+        .map_err(sanitize_db_error)?;
         if inserted.rows_affected() == 0 {
             return Err(Error::BadRequest(format!(
                 "Resource {} already exists",
@@ -1703,6 +1707,10 @@ async fn update_resource(
     // source path.
     if let Some(npath) = ns.path.as_deref() {
         check_scopes(&authed, || format!("resources:write:{}", npath))?;
+        check_proper_path(npath)?;
+    }
+    if let Some(nrt) = ns.resource_type.as_deref() {
+        check_proper_type_name(nrt)?;
     }
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
@@ -1725,6 +1733,9 @@ async fn update_resource(
     }
     if let Some(nvalue) = &ns.value {
         sqlb.set_str("value", nvalue.to_string());
+    }
+    if let Some(nrt) = &ns.resource_type {
+        sqlb.set_str("resource_type", nrt);
     }
     if let Some(ndesc) = ns.description {
         sqlb.set_str("description", ndesc);
@@ -1819,7 +1830,10 @@ async fn update_resource(
     }
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
-    let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut *tx).await?;
+    let npath_o: Option<String> = sqlx::query_scalar(&sql)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(sanitize_db_error)?;
 
     let npath = not_found_if_none(npath_o, "Resource", path)?;
 
@@ -2170,6 +2184,8 @@ async fn create_resource_type(
         return Err(Error::PermissionDenied(msg));
     }
 
+    check_proper_type_name(&resource_type.name)?;
+
     let mut tx = user_db.begin(&authed).await?;
 
     check_rt_path_conflict(&mut tx, &w_id, &resource_type.name).await?;
@@ -2395,6 +2411,7 @@ async fn update_resource_type(
     feature = "http_trigger",
     feature = "postgres_trigger",
     feature = "mqtt_trigger",
+    feature = "amqp_trigger",
     all(
         feature = "enterprise",
         any(
@@ -2876,20 +2893,24 @@ async fn get_repo_latest_commit_hash(
     Ok(commit_hash)
 }
 
-/// Resolve a workspace git-sync repository and return its current head commit
-/// for the tracked branch, for background auto-pull polling (no authed user).
+/// Load a git-sync repository resource's value with `$var:`/`$res:` references
+/// resolved. Shared by the auto-pull poller (`get_git_repo_head_for_autopull`)
+/// and deploy-mode detection so the interpolation lives in exactly one place.
 ///
-/// Returns `Ok(Some((ref_spec, sha)))` for a pollable repo, or `Ok(None)` for
-/// repos that cannot be polled in-process — currently GitHub-App-backed repos,
-/// which authenticate via an installation token at clone time and sync via
-/// webhooks instead. Credentials embedded in the resource URL (including
-/// `$var:` references) are resolved with the system identity, bypassing
-/// per-user ACLs, since the poller runs without an authenticated request.
-pub async fn get_git_repo_head_for_autopull(
+/// SECURITY: reads under the system identity (`SUPERADMIN_SYNC_EMAIL`), so it
+/// **bypasses resource RLS** and returns fully-interpolated JSON that **may
+/// contain credentials** (an embedded `$var:` token in the URL). Callers must
+/// have already authorized access to `w_id`, must use it only for git-sync
+/// `git_repository` resources, and must **not** return the resolved value to a
+/// client — derive and return only non-sensitive facts. Pass `allow_cache=true`
+/// for the poller (avoids re-decrypting/re-auditing a `$var:` secret every tick);
+/// pass `false` for on-demand reads that must reflect the current resource.
+pub async fn resolve_git_repository_resource(
     db: &DB,
     w_id: &str,
     git_repo_resource_path: &str,
-) -> Result<Option<(String, String)>> {
+    allow_cache: bool,
+) -> Result<Option<serde_json::Value>> {
     use windmill_common::db::DbWithOptAuthed;
 
     let resource_path = git_repo_resource_path
@@ -2906,18 +2927,29 @@ pub async fn get_git_repo_head_for_autopull(
         },
     };
 
-    // allow_cache=true so repeated polls reuse the interpolated value instead of
-    // re-decrypting any `$var:` secret in the URL (and writing an audit row) on
-    // every tick.
-    let value =
-        get_resource_value_interpolated_internal(&dba, w_id, resource_path, None, None, true)
-            .await?
-            .ok_or_else(|| {
-                Error::BadRequest(format!(
-                    "Git repository resource '{}' not found",
-                    resource_path
-                ))
-            })?;
+    get_resource_value_interpolated_internal(&dba, w_id, resource_path, None, None, allow_cache)
+        .await
+}
+
+/// Resolve a workspace git-sync repository and return its current head commit
+/// `(ref_spec, sha)` for the tracked branch, for background auto-pull polling.
+/// Returns `Ok(None)` for repos that cannot be polled in-process (GitHub-App
+/// repos, which sync via webhooks instead).
+pub async fn get_git_repo_head_for_autopull(
+    db: &DB,
+    w_id: &str,
+    git_repo_resource_path: &str,
+) -> Result<Option<(String, String)>> {
+    let value = resolve_git_repository_resource(db, w_id, git_repo_resource_path, true)
+        .await?
+        .ok_or_else(|| {
+            Error::BadRequest(format!(
+                "Git repository resource '{}' not found",
+                git_repo_resource_path
+                    .strip_prefix("$res:")
+                    .unwrap_or(git_repo_resource_path)
+            ))
+        })?;
 
     if value
         .get("is_github_app")

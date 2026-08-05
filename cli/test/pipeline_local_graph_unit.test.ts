@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import {
   buildLocalPipelineGraph,
+  hideDbtRunnables,
   parseMuteAnnotations,
 } from "../src/commands/pipeline/localGraph.ts";
 
@@ -381,18 +382,19 @@ test("derived triggers dedup against explicit `// on` and never self-trigger a m
 
 test("parseMuteAnnotations mirrors the canonical annotation grammar", () => {
   // Any comment prefix regardless of language, header-only scan, complete-word
-  // keyword, s3 leading-slash canonicalization — in lockstep with the Rust
+  // keyword, verbatim s3 paths — in lockstep with the Rust
   // `parse_pipeline_annotations` / frontend parsePipelineAnnotations.ts.
   const all3 = parseMuteAnnotations(
     `// mute ducklake://main/a\n-- mute datatable://main/b\n# mute s3:///lead/slash\nSELECT 1;\n// mute ducklake://main/body\n`,
   );
   expect(all3.muteAll).toBe(false);
-  // all three prefixes accepted; s3 triple-slash canonicalizes to the bare key;
-  // the line PAST the first non-comment line is ignored (header-only)
+  // all three prefixes accepted; the s3 triple-slash default-storage path keeps
+  // its leading slash; the line PAST the first non-comment line is ignored
+  // (header-only)
   expect([...all3.muted].sort()).toEqual([
     "datatable:main/b",
     "ducklake:main/a",
-    "s3object:lead/slash",
+    "s3object:/lead/slash",
   ]);
 
   // `mute` must be a complete word, and prose args are not asset URIs
@@ -478,11 +480,11 @@ test("go/bash fallback: leading-header `// on` only, options stripped, no body p
   );
 });
 
-test("go/bash fallback: `// on s3:///key` canonicalizes to the slashless key", async () => {
-  // Mirror of the Rust/wasm `parse_asset_syntax` S3 strip: a fallback consumer's
-  // triple-slash default-storage trigger must resolve to the bare key `exports/x`
-  // — the same identity a wasm-inferred SDK/DuckDB producer uses — or the local
-  // graph shows a disconnected `/exports/x` node. Explicit storage is untouched.
+test("go/bash fallback: `// on s3:///key` keeps its default-storage leading slash", async () => {
+  // Mirror of the Rust/wasm `parse_asset_syntax`: the suffix is kept verbatim.
+  // A triple-slash default-storage trigger resolves to `/exports/x` — the same
+  // identity a wasm-inferred SDK write of `{ s3: "exports/x" }` uses — while the
+  // bare `s3://exports/x` names storage `exports` (a different object/node).
   await withFolder(
     {
       "triple.go": `// pipeline\n// on s3:///exports/x\npackage inner\nfunc main() {}\n`,
@@ -495,10 +497,8 @@ test("go/bash fallback: `// on s3:///key` canonicalizes to the slashless key", a
         graph.triggers.find(
           (t) => t.trigger_kind === "asset" && t.runnable_path === p
         ) as Extract<(typeof graph.triggers)[number], { trigger_kind: "asset" }> | undefined;
-      // triple-slash and bare both canonicalize to `exports/x` → same node
-      expect(pathFor("f/mypipe/triple")?.asset_path).toBe("exports/x");
+      expect(pathFor("f/mypipe/triple")?.asset_path).toBe("/exports/x");
       expect(pathFor("f/mypipe/bare")?.asset_path).toBe("exports/x");
-      // explicit storage keeps its `storage/key` path (no leading slash to strip)
       expect(pathFor("f/mypipe/storage")?.asset_path).toBe("mybucket/exports/x");
     },
   );
@@ -915,4 +915,97 @@ test("pipeline docs renders a `Macro libraries` section (call + `// use`)", asyn
       expect(md).not.toContain("### `f/mypipe/macros_finance`\n\n- **");
     },
   );
+});
+
+test("a dbt script is not a pipeline node — a dbt-only folder has no graph", async () => {
+  await withFolder(
+    {
+      "warehouse.dbt.yaml": `engine: dbt-core-1x\nprofile:\n  resource: $res:u/admin/wh\n`,
+    },
+    async (root, folder) => {
+      const { graph, scripts } = await buildLocalPipelineGraph({
+        root,
+        folder,
+        defaultTs: "bun",
+      });
+      // A dbt project is authored and run as itself, never as a pipeline member;
+      // the deploy leaves its `auto_kind` unset, so the local graph must agree.
+      expect(graph.runnables).toEqual([]);
+      expect(scripts).toEqual([]);
+    },
+  );
+});
+
+test("a folder mixing dbt and a pipeline keeps only the pipeline member", async () => {
+  await withFolder(
+    {
+      "warehouse.dbt.yaml": `engine: dbt-core-1x\nprofile:\n  resource: $res:u/admin/wh\n`,
+      "report.bun.ts": `// pipeline\nexport async function main() {}\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({
+        root,
+        folder,
+        defaultTs: "bun",
+      });
+      expect(graph.runnables.map((r) => r.path)).toEqual(["f/mypipe/report"]);
+    },
+  );
+});
+
+test("hideDbtRunnables drops the dbt node from a deployed graph, keeping its relations", () => {
+  // `/assets/graph` is asset-usage driven, so it returns the dbt script as a
+  // producer. The CLI's deployed views must not render it as a pipeline script.
+  const deployed = {
+    runnables: [
+      { path: "f/x/dbtproj", usage_kind: "script" as const, dbt: { model_count: 2 } },
+      { path: "f/x/report", usage_kind: "script" as const, in_pipeline: true },
+    ],
+    assets: [
+      { kind: "table", path: "u/a/wh/s/stg_orders" },
+      { kind: "table", path: "u/a/wh/s/fct_orders" },
+    ],
+    edges: [
+      { runnable_kind: "script", runnable_path: "f/x/dbtproj", asset_kind: "table", asset_path: "u/a/wh/s/stg_orders", access_type: "w" as const },
+      { runnable_kind: "script", runnable_path: "f/x/dbtproj", asset_kind: "table", asset_path: "u/a/wh/s/fct_orders", access_type: "w" as const },
+      { runnable_kind: "script", runnable_path: "f/x/report", asset_kind: "table", asset_path: "u/a/wh/s/fct_orders", access_type: "r" as const },
+    ],
+    triggers: [
+      { trigger_kind: "asset" as const, asset_kind: "table", asset_path: "u/a/wh/s/fct_orders", runnable_kind: "script", runnable_path: "f/x/report" },
+    ],
+  };
+  const g = hideDbtRunnables(deployed);
+  expect(g.runnables.map((r) => r.path)).toEqual(["f/x/report"]);
+  expect(g.edges.map((e) => e.runnable_path)).toEqual(["f/x/report"]);
+  // The relations stay: they are what the downstream pipeline script reads.
+  expect(g.assets).toHaveLength(2);
+  expect(g.triggers).toHaveLength(1);
+});
+
+test("hideDbtRunnables keeps a flow sharing a path with the dbt script", () => {
+  // Runnable identity in the graph is `(usage_kind, path)`; a script and a flow
+  // may share a path, so only the dbt script may be removed.
+  const g = hideDbtRunnables({
+    runnables: [
+      { path: "f/x/proj", usage_kind: "script", dbt: { model_count: 1 } },
+      { path: "f/x/proj", usage_kind: "flow" },
+    ],
+    edges: [
+      { runnable_kind: "flow", runnable_path: "f/x/proj" },
+      { runnable_kind: "script", runnable_path: "f/x/proj" },
+    ],
+    triggers: [{ runnable_kind: "flow", runnable_path: "f/x/proj" }],
+  });
+  expect(g.runnables.map((r) => r.usage_kind)).toEqual(["flow"]);
+  expect(g.edges.map((e) => e.runnable_kind)).toEqual(["flow"]);
+  expect(g.triggers).toHaveLength(1);
+});
+
+test("hideDbtRunnables is a no-op when the folder has no dbt project", () => {
+  const g = {
+    runnables: [{ path: "f/x/a", usage_kind: "script" }],
+    edges: [],
+    triggers: [],
+  };
+  expect(hideDbtRunnables(g)).toBe(g);
 });

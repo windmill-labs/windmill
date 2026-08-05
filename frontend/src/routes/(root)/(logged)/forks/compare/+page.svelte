@@ -2,12 +2,15 @@
 	import CompareWorkspaces from '$lib/components/CompareWorkspaces.svelte'
 	import CompareDrafts from '$lib/components/CompareDrafts.svelte'
 	import { WorkspaceService, type WorkspaceComparison } from '$lib/gen'
+	import { fetchWorkspaceComparison, invalidateWorkspaceComparison } from '$lib/workspaceComparison'
+	import CompareTargetPicker from '$lib/components/CompareTargetPicker.svelte'
 	import {
 		archiveSessionsForWorkspace,
 		deleteSessionsForWorkspace,
 		reconcileAfterWorkspaceChange
 	} from '$lib/components/sessions/sessionState.svelte'
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
+	import { diffActionableInDirection } from '$lib/utils_workspace_deploy'
 	import { page } from '$app/state'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 	import { onDestroy, untrack } from 'svelte'
@@ -20,6 +23,11 @@
 	import { switchWorkspace } from '$lib/storeUtils'
 	import { goto } from '$lib/navigation'
 	import { readChatModifiedItems } from '$lib/components/copilot/chat/HistoryManager.svelte'
+	import {
+		COMPARE_ITEMS_PARAM,
+		maskHasDraftRow,
+		parseItemsMaskParam
+	} from '$lib/components/sessions/modifiedItemsMask'
 
 	type CompareMode = 'fork' | 'draft'
 
@@ -31,8 +39,19 @@
 
 	let currentWorkspaceData = $derived($userWorkspaces.find((w) => w.id === currentWorkspaceId))
 	let parentWorkspaceId = $derived(currentWorkspaceData?.parent_workspace_id)
-	// Fork/dev workspaces are identified by their parent link, not the `wm-fork-` id prefix.
+
+	// `?target=` overrides the destination with an arbitrary workspace, for the
+	// one-off migration the lineage cannot express. It is one-way (current →
+	// target): nothing tallies such a pair, so a cold diff has no deploy history
+	// telling which side a change came from.
+	const targetParam = $derived(page.url.searchParams.get('target') ?? undefined)
+	const compareTargetId = $derived(targetParam ?? parentWorkspaceId ?? undefined)
+	const isArbitraryTarget = $derived(!!compareTargetId && compareTargetId !== parentWorkspaceId)
+	// Fork/dev workspaces are identified by their parent link, not the `wm-fork-` id
+	// prefix. Distinct from having a compare target: a root workspace has no parent
+	// yet can still be pointed at an arbitrary one.
 	const isFork = $derived(!!parentWorkspaceId)
+	const hasCompareTarget = $derived(!!compareTargetId)
 
 	// Mode is seeded from the URL (?mode=draft|fork). `draft` is valid for any
 	// workspace, so it resolves immediately. `fork` is only valid for an actual
@@ -47,7 +66,20 @@
 	// Which fork direction to restore when switching back from draft mode. The
 	// merged toggle (CompareModeToggle, rendered inside each card) reports its
 	// selection here; the page only swaps which comparison component is shown.
-	let forkDirection = $state<'deploy_to' | 'update'>('deploy_to')
+	// `?dir=update` opens on the other one, for callers that already know which
+	// direction has something in it (the fork banner's CTA).
+	let forkDirection = $state<'deploy_to' | 'update'>(
+		page.url.searchParams.get('dir') === 'update' ? 'update' : 'deploy_to'
+	)
+
+	// Explicit preselection via `?items=<kind:path,...>` (built by the chat's
+	// open_page tool). Parsed synchronously from the live URL so it can never race
+	// the children's select-all default. Present-but-empty means "preselect
+	// nothing", distinct from absent (undefined → no mask).
+	const urlItemsMask = $derived.by(() => {
+		const v = page.url.searchParams.get(COMPARE_ITEMS_PARAM)
+		return v === null ? undefined : parseItemsMaskParam(v)
+	})
 
 	// When reached via a session's Review button (`from_session=<chatId>`), preselect
 	// only the items that chat modified. The mask is the chat's stored
@@ -56,29 +88,32 @@
 	// Derived from the live URL: an in-app navigation to this route with a
 	// different from_session must reload the mask, not keep the first one.
 	const fromChatId = $derived(page.url.searchParams.get('from_session'))
-	let chatMask = $state<Set<string> | undefined>(undefined)
+	let sessionMask = $state<Set<string> | undefined>(undefined)
 	// The mask loads asynchronously, while the resolved value can legitimately be
 	// undefined (legacy chat). The children must not run their select-all default
 	// until the mask is known, else they'd race it and select everything. Ready
 	// immediately when there's no session to read from.
-	let chatMaskReady = $state(!page.url.searchParams.get('from_session'))
+	let sessionMaskReady = $state(!page.url.searchParams.get('from_session'))
 	$effect(() => {
 		const id = fromChatId
-		chatMask = undefined
-		chatMaskReady = !id
+		sessionMask = undefined
+		sessionMaskReady = !id
 		if (!id) return
 		untrack(() => {
 			void readChatModifiedItems(id)
 				.then((arr) => {
 					// A slower read for a superseded chat id must not win.
 					if (id !== untrack(() => fromChatId)) return
-					chatMask = arr ? new Set(arr) : undefined
+					sessionMask = arr ? new Set(arr) : undefined
 				})
 				.finally(() => {
-					if (id === untrack(() => fromChatId)) chatMaskReady = true
+					if (id === untrack(() => fromChatId)) sessionMaskReady = true
 				})
 		})
 	})
+
+	const chatMask = $derived(urlItemsMask ?? sessionMask)
+	const chatMaskReady = $derived(urlItemsMask !== undefined || sessionMaskReady)
 
 	function selectMode(v: 'deploy_to' | 'update' | 'draft') {
 		if (v === 'draft') {
@@ -119,48 +154,148 @@
 	)
 
 	// Per-direction counts for the merged toggle badges. Deployable = items ahead
-	// (fork has changes the parent lacks); updateable = items behind. Computed
-	// here so they show on the toggle in draft mode too (where CompareDrafts has
-	// no comparison data of its own). Typed helpers avoid a $state `never`
-	// inference quirk on `comparison` inside $derived. A conflict (ahead AND
-	// behind) is intentionally counted in both directions — it's actionable either
-	// way.
-	function countDir(c: WorkspaceComparison | undefined, dir: 'ahead' | 'behind'): number {
-		return c?.diffs.filter((d) => d[dir] > 0).length ?? 0
+	// (fork has changes the parent lacks); updateable = items behind, plus what the
+	// parent has and the fork does not. Same predicate as the deploy list, so the
+	// badge never counts rows the list won't show. Computed here so they show on the
+	// toggle in draft mode too (where CompareDrafts has no comparison data of its
+	// own). Typed helpers avoid a $state `never` inference quirk on `comparison`
+	// inside $derived. A conflict (ahead AND behind) is intentionally counted in both
+	// directions — it's actionable either way.
+	function countDir(c: WorkspaceComparison | undefined, mergeIntoParent: boolean): number {
+		return (
+			c?.diffs.filter((d) => diffActionableInDirection(d, mergeIntoParent, isArbitraryTarget))
+				.length ?? 0
+		)
 	}
-	const deployCount = $derived(countDir(comparison, 'ahead'))
-	const updateCount = $derived(countDir(comparison, 'behind'))
+	const deployCount = $derived(countDir(comparison, true))
+	const updateCount = $derived(countDir(comparison, false))
 
 	$effect(() => {
 		if (modeResolved || !currentWorkspaceData) return
+		if (!hasCompareTarget) {
+			untrack(() => {
+				// An explicit ?mode=fork with nothing to compare against is how the dev
+				// workspace settings send a root workspace here to pick an arbitrary
+				// target; the fork view renders that prompt. Anything else falls back to
+				// drafts, the only view a workspace with no destination can fill.
+				mode = urlMode === 'fork' ? 'fork' : 'draft'
+				modeResolved = true
+			})
+			return
+		}
+		// An explicit ?mode=fork is only deferred (not latched at init) so the
+		// non-fork fallback above can veto it — on a real fork, honor it as is.
+		if (urlMode === 'fork') {
+			untrack(() => {
+				mode = 'fork'
+				modeResolved = true
+			})
+			return
+		}
+		// A fork reached with a preselection mask but no ?mode= must land on the
+		// view where the masked items actually are: a chat's pending drafts have no
+		// fork-diff row, so fork mode would open with none of them selected. Defer
+		// until the mask and the draft list are known, then prefer the draft view
+		// when any masked item is a pending draft; else keep the fork comparison.
+		if (!chatMaskReady) return
+		const mask = chatMask
+		if (mask?.size) {
+			if (drafts.loading) return
+			const masksDraft = drafts.items.some((d) => maskHasDraftRow(mask, d))
+			untrack(() => {
+				mode = masksDraft ? 'draft' : 'fork'
+				modeResolved = true
+			})
+			return
+		}
 		untrack(() => {
-			mode = isFork ? 'fork' : 'draft'
+			mode = 'fork'
 			modeResolved = true
 		})
 	})
 
+	// Several requests can be in flight at once — a retarget, a navigation, and the
+	// post-deploy catch-up polls all issue their own. Only the most recently issued
+	// may land: an older one carries the previous target's comparison, or an error
+	// that has nothing to do with the pair now on screen.
+	let comparisonReq = 0
 	async function checkForChanges() {
-		if (!currentWorkspaceId || !parentWorkspaceId) {
+		if (!currentWorkspaceId || !compareTargetId) {
 			return
 		}
+		const seq = ++comparisonReq
 
 		try {
-			const result = await WorkspaceService.compareWorkspaces({
-				workspace: parentWorkspaceId,
-				targetWorkspaceId: currentWorkspaceId
-			})
-
+			const result = await fetchWorkspaceComparison(compareTargetId, currentWorkspaceId)
+			if (seq !== comparisonReq) return
 			comparison = result
-		} catch (e) {
+			comparisonError = undefined
+		} catch (e: any) {
+			if (seq !== comparisonReq) return
+			comparisonError = e?.body ?? e?.message ?? String(e)
 			console.error('Failed to compare workspaces:', e)
 		}
 	}
 
-	$effect(() => {
-		;[currentWorkspaceId, parentWorkspaceId]
+	let comparisonError = $state<string | undefined>(undefined)
 
-		untrack(() => checkForChanges())
+	$effect(() => {
+		;[currentWorkspaceId, compareTargetId]
+
+		untrack(() => {
+			comparison = undefined
+			comparisonError = undefined
+			checkForChanges()
+		})
 	})
+
+	// Seeding the candidate set is what makes an arbitrary pair comparable at all;
+	// the comparison that follows is the expensive part, since it evaluates every
+	// candidate. Both are driven from here so the button reports the whole wait.
+	let scanning = $state(false)
+	async function computeFullScan() {
+		if (!currentWorkspaceId || !compareTargetId) return
+		scanning = true
+		comparisonError = undefined
+		try {
+			const res = await WorkspaceService.seedFullDiffScan({
+				workspace: currentWorkspaceId,
+				targetWorkspaceId: compareTargetId
+			})
+			invalidateWorkspaceComparison(compareTargetId)
+			await checkForChanges()
+			// The seed succeeded but the comparison that reads it may not have. Saying
+			// "compared" then would be a lie, and the seeded candidates are still there
+			// for the retry the card offers.
+			if (comparisonError) {
+				sendUserToast(
+					`Seeded ${res.candidates} items but the comparison failed: ${comparisonError}`,
+					true
+				)
+			} else {
+				sendUserToast(`Compared ${res.candidates} items with ${compareTargetId}`)
+			}
+		} catch (e: any) {
+			sendUserToast(`Failed to compute the diff: ${e?.body ?? e}`, true)
+		} finally {
+			scanning = false
+		}
+	}
+
+	function selectTarget(target: string) {
+		const url = new URL(page.url)
+		if (target === parentWorkspaceId) {
+			url.searchParams.delete('target')
+		} else {
+			url.searchParams.set('target', target)
+		}
+		url.searchParams.set('mode', 'fork')
+		// The mode is seeded from the URL at init only, so picking a target from the
+		// draft view (or from the no-target prompt) has to switch the view itself.
+		mode = 'fork'
+		modeResolved = true
+		goto(`${url.pathname}${url.search}`)
+	}
 
 	// Refresh the *fork comparison* after a child mutates state (deploy / update /
 	// discard). The Draft Count refreshes itself (the mutation invalidates the
@@ -290,6 +425,8 @@
 			onChanged={refreshCounts}
 			{isFork}
 			parentWorkspaceId={parentWorkspaceId ?? undefined}
+			{compareTargetId}
+			oneWayCompare={isArbitraryTarget}
 			{deployCount}
 			{updateCount}
 			{draftCount}
@@ -297,23 +434,43 @@
 			{chatMaskReady}
 			onModeSelected={selectMode}
 		/>
-	{:else if parentWorkspaceId}
-		<CompareWorkspaces
-			{currentWorkspaceId}
-			{parentWorkspaceId}
-			{comparison}
-			initialMergeIntoParent={forkDirection === 'deploy_to'}
-			{deployCount}
-			{updateCount}
-			{draftCount}
-			{draftKeys}
-			{chatMask}
-			{chatMaskReady}
-			onChanged={refreshCounts}
-			onModeSelected={selectMode}
-		/>
+	{:else if compareTargetId}
+		<!-- Remount on a target change: the merge card owns a selection, a deploy
+		     direction and per-item deployment statuses, none of which carry over to a
+		     different destination. -->
+		{#key compareTargetId}
+			<CompareWorkspaces
+				{currentWorkspaceId}
+				parentWorkspaceId={compareTargetId}
+				lineageParentId={parentWorkspaceId ?? undefined}
+				{isArbitraryTarget}
+				fullScanAt={comparison?.full_scan_at}
+				{scanning}
+				onScan={computeFullScan}
+				onRetry={checkForChanges}
+				onSelectTarget={selectTarget}
+				{comparison}
+				{comparisonError}
+				initialMergeIntoParent={forkDirection === 'deploy_to'}
+				{deployCount}
+				{updateCount}
+				{draftCount}
+				{draftKeys}
+				{chatMask}
+				{chatMaskReady}
+				onChanged={refreshCounts}
+				onModeSelected={selectMode}
+			/>
+		{/key}
 	{:else}
-		workspace {currentWorkspaceId} has no parent workspace
+		<div class="flex flex-col gap-3 items-start border rounded-md bg-surface p-4 mt-2">
+			<p class="text-sm text-secondary max-w-2xl">
+				Workspace <span class="font-mono text-primary">{currentWorkspaceId}</span> has no parent workspace
+				to merge into. Pick any workspace you administer to compare against it instead — this is meant
+				for one-off migrations, and computes a full diff over both workspaces.
+			</p>
+			<CompareTargetPicker {currentWorkspaceId} targetWorkspaceId="" onSelected={selectTarget} />
+		</div>
 	{/if}
 </CenteredPage>
 

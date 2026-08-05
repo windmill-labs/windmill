@@ -167,7 +167,20 @@ function legacyTriggerKind(kind: TriggerDeployKind) {
 	return map[kind]
 }
 
-function makeProvider(): DeployProvider {
+/**
+ * `deployItem` overrides only the email half of the identity, while the body it builds
+ * spreads the *source* item — which carries the source workspace's permissioned_as, valid
+ * nowhere else since usernames are per-workspace. The key is therefore always overwritten:
+ * with the picked user's principal for a custom choice, and cleared otherwise so the
+ * backend derives the target's own from the email it is given. The shared `deployItem`
+ * clears it too, but this app consumes the published package, so the clear has to exist
+ * on both sides until that version ships.
+ */
+function makeProvider(onBehalfOfPrincipal?: string): DeployProvider {
+	const withPermissionedAs = <T extends Record<string, any>>(requestBody: T): T => ({
+		...requestBody,
+		on_behalf_of: onBehalfOfPrincipal
+	})
 	return {
 		existsFlowByPath: (p) => FlowService.existsFlowByPath(p),
 		existsScriptByPath: (p) => ScriptService.existsScriptByPath(p),
@@ -177,11 +190,14 @@ function makeProvider(): DeployProvider {
 		existsResourceType: (p) => ResourceService.existsResourceType(p),
 		existsFolder: (p) => FolderService.existsFolder(p),
 		getFlowByPath: (p) => FlowService.getFlowByPath(p),
-		createFlow: (p) => FlowService.createFlow(p),
-		updateFlow: (p) => FlowService.updateFlow(p),
+		createFlow: (p) =>
+			FlowService.createFlow({ ...p, requestBody: withPermissionedAs(p.requestBody) }),
+		updateFlow: (p) =>
+			FlowService.updateFlow({ ...p, requestBody: withPermissionedAs(p.requestBody) }),
 		archiveFlowByPath: (p) => FlowService.archiveFlowByPath(p),
 		getScriptByPath: (p) => ScriptService.getScriptByPath(p),
-		createScript: (p) => ScriptService.createScript(p),
+		createScript: (p) =>
+			ScriptService.createScript({ ...p, requestBody: withPermissionedAs(p.requestBody) }),
 		archiveScriptByPath: (p) => ScriptService.archiveScriptByPath(p),
 		getAppByPath: (p) => AppService.getAppByPath(p),
 		createApp: (p) => AppService.createApp(p),
@@ -267,6 +283,13 @@ export interface DeployItemParams {
 	 * If undefined, the deploying user's identity is used.
 	 */
 	onBehalfOf?: string
+	/**
+	 * Authorization half of `onBehalfOf` for flows/scripts (u/username or g/group).
+	 * Must name the same identity as `onBehalfOf`. Set it only when the user picked a
+	 * specific user; undefined clears the key, leaving the backend to derive the target
+	 * workspace's own principal from `onBehalfOf`.
+	 */
+	onBehalfOfPrincipal?: string
 }
 
 /**
@@ -275,7 +298,15 @@ export interface DeployItemParams {
  * which carries its sub-kind in `additionalInformation`.
  */
 export async function deployItem(params: DeployItemParams): Promise<DeployResult> {
-	const { kind, path, workspaceFrom, workspaceTo, additionalInformation, onBehalfOf } = params
+	const {
+		kind,
+		path,
+		workspaceFrom,
+		workspaceTo,
+		additionalInformation,
+		onBehalfOf,
+		onBehalfOfPrincipal
+	} = params
 
 	if (kind === 'trigger') {
 		// Legacy path: `DeployWorkspace.svelte` doesn't know the per-kind trigger
@@ -314,13 +345,77 @@ export async function deployItem(params: DeployItemParams): Promise<DeployResult
 	}
 
 	return sharedDeployItem(
-		makeProvider(),
+		makeProvider(onBehalfOfPrincipal),
 		kind as DeployKind,
 		path,
 		workspaceFrom,
 		workspaceTo,
 		onBehalfOf
 	)
+}
+
+/**
+ * The two sides of a `workspace_diff` row a deploy direction reads:
+ * `exists_in_source` is the parent (or arbitrary target) side, `exists_in_fork`
+ * the current workspace. `fork_last_event_*` is what the tally recorded for the
+ * fork's last write at this path, absent on a row that predates the recording.
+ */
+type WorkspaceDiffSides = {
+	ahead: number
+	behind: number
+	exists_in_source: boolean
+	exists_in_fork: boolean
+	fork_last_event_kind?: 'write' | 'delete' | 'rename_from'
+	fork_last_event_origin?: 'authored' | 'sync'
+}
+
+/** Deploying this row creates the item in the target, which does not have it. */
+export function diffCreatesInTarget(diff: WorkspaceDiffSides, mergeIntoParent: boolean): boolean {
+	return mergeIntoParent ? diff.exists_in_source === false : diff.exists_in_fork === false
+}
+
+/**
+ * Deploying this row removes the item in the target, the only side that has it.
+ * A removal is always opt-in (never bulk-selected): the row states what deploying
+ * does, and for the merge direction `diffForkDroppedItem` is what justifies
+ * offering it at all.
+ */
+export function diffRemovesInTarget(diff: WorkspaceDiffSides, mergeIntoParent: boolean): boolean {
+	return mergeIntoParent ? diff.exists_in_fork === false : diff.exists_in_source === false
+}
+
+/**
+ * The fork dropped the item on purpose — someone deleted it, or renamed it away.
+ * The counters cannot show this (they count writes on a side without saying what
+ * they were), so only the recorded event does: a sync-origin removal is a git-sync
+ * revert rather than a fork decision, and an unrecorded one is no evidence at all.
+ */
+export function diffForkDroppedItem(diff: WorkspaceDiffSides): boolean {
+	return (
+		diff.fork_last_event_origin === 'authored' &&
+		(diff.fork_last_event_kind === 'delete' || diff.fork_last_event_kind === 'rename_from')
+	)
+}
+
+/**
+ * Rows a deploy in this direction can act on. A merge carries what the fork *has*,
+ * plus what it can show it dropped; an item the fork merely never received is no
+ * fork change. The update direction takes a parent-only row whatever the counters
+ * say. An arbitrary target merges one unconditionally — that one-way sync has no
+ * tally, so target-only does mean "remove".
+ */
+export function diffActionableInDirection(
+	diff: WorkspaceDiffSides,
+	mergeIntoParent: boolean,
+	isArbitraryTarget: boolean = false
+): boolean {
+	if (mergeIntoParent) {
+		if (!isArbitraryTarget && diff.exists_in_fork === false && !diffForkDroppedItem(diff)) {
+			return false
+		}
+		return diff.ahead > 0
+	}
+	return diff.behind > 0 || diffCreatesInTarget(diff, mergeIntoParent)
 }
 
 /**

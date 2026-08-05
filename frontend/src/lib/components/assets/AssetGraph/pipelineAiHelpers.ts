@@ -6,8 +6,9 @@ import {
 	extractWrites,
 	type AssetWithAltAccessType
 } from '$lib/components/assets/lib'
+import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 import { assetUri, autoOutputAsset, type PipelineOutputKind } from './pipelineTemplates'
-import { parsePipelineAnnotations } from './parsePipelineAnnotations'
+import { parsePipelineAnnotations, scd2CurrentTargetPath } from './parsePipelineAnnotations'
 import type { AssetGraphResponse } from './types'
 import type {
 	PipelineAIChatHelpers,
@@ -107,15 +108,47 @@ async function inferDraftAssets(
 	}
 }
 
+// `inferAssets` returns body reads/writes but NOT the `// materialize` target,
+// which the parser surfaces separately (resolveGraph adds it the same way).
+// A managed materialize node's output is real and deployable, so fold its
+// target(s) into the detected writes.
+function materializeWrites(content: string): Array<{ kind: AssetKind; path: string }> {
+	const m = parsePipelineAnnotations(content).materialize
+	if (!m) return []
+	const out = [{ kind: m.targetKind, path: m.targetPath }]
+	const current = scd2CurrentTargetPath(m)
+	if (current) out.push({ kind: m.targetKind, path: current })
+	return out
+}
+
+function dedupeAssets(
+	assets: Array<{ kind: AssetKind; path: string }>
+): Array<{ kind: AssetKind; path: string }> {
+	const seen = new Set<string>()
+	return assets.filter((a) => {
+		const key = `${a.kind}:${a.path}`
+		if (seen.has(key)) return false
+		seen.add(key)
+		return true
+	})
+}
+
 export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIChatHelpers {
+	const folderName = () => normalizePipelineFolder(deps.getFolder())
+
 	// A staged draft is always persisted into the OPEN folder's data_pipeline
 	// bundle, so a path outside the folder would silently land an unrelated script
 	// there. Both build and edit must stay scoped to the folder.
 	function assertInFolder(path: string) {
-		const folder = deps.getFolder()
+		const folder = folderName()
 		if (folder && !path.startsWith(`f/${folder}/`)) {
+			// Name the corrected path rather than only the required prefix: the model
+			// otherwise re-sends variants of the same wrong path. A path that is the
+			// folder itself has no node leaf to reuse.
+			const leaf = path.split('/').filter(Boolean).pop()
+			const node = !leaf || leaf === folder ? '<node_name>' : leaf
 			throw new Error(
-				`Pipeline nodes must be in the open folder — use a path under 'f/${folder}/' (got '${path}').`
+				`Pipeline nodes must be in the open folder — use 'f/${folder}/${node}' (got '${path}').`
 			)
 		}
 	}
@@ -173,7 +206,7 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 				}
 			})
 		return {
-			folder: deps.getFolder(),
+			folder: folderName(),
 			mode: 'edit',
 			nodes,
 			assets: graph.assets.map((a) => assetUri({ kind: a.kind, path: a.path }))
@@ -238,19 +271,32 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 			const seeded =
 				inferred.writes[0] ??
 				(outputKind
-					? autoOutputAsset(outputKind as PipelineOutputKind, deps.getFolder(), language)
+					? autoOutputAsset(outputKind as PipelineOutputKind, folderName(), language)
 					: undefined)
+			// Effective outputs = what actually becomes an output edge on the canvas:
+			// body/annotation-inferred writes, or the output_kind seed as a fallback.
+			const outputAssets =
+				inferred.writes.length > 0 ? inferred.writes : seeded ? [seeded] : undefined
 			const next = new Map(drafts)
 			next.set(path, {
 				localId: deps.newDraftLocalId(),
 				script: makePipelineScript(language, path, content, new Date().toISOString()),
-				outputAssets: inferred.writes.length > 0 ? inferred.writes : seeded ? [seeded] : undefined,
+				outputAssets,
 				inputAssets: inferred.reads
 			})
 			deps.setDrafts(next)
 			deps.onShowDrafts?.()
 			deps.onProposeNode?.(path)
-			return { path }
+			// Report deployable lineage only (body writes + `// materialize` target),
+			// never the random `seeded` placeholder — else a dynamic/unwritten output
+			// reads as wired when the deployed script has no such edge.
+			return {
+				path,
+				detectedReads: inferred.reads.map(assetUri),
+				detectedWrites: dedupeAssets([...inferred.writes, ...materializeWrites(content)]).map(
+					assetUri
+				)
+			}
 		},
 		editNode: async (path, content) => {
 			deps.ensureEditable?.()
@@ -273,16 +319,24 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 				baseScript = await ScriptService.getScriptByPath({ workspace, path })
 			}
 			const inferred = await inferDraftAssets(baseScript.language, content)
+			const outputAssets = inferred.writes.length > 0 ? inferred.writes : existing?.outputAssets
 			const next = new Map(drafts)
 			next.set(path, {
 				localId: existing?.localId ?? deps.newDraftLocalId(),
 				script: { ...baseScript, content },
-				outputAssets: inferred.writes.length > 0 ? inferred.writes : existing?.outputAssets,
+				outputAssets,
 				inputAssets: inferred.reads
 			})
 			deps.setDrafts(next)
 			deps.onShowDrafts?.()
 			deps.onProposeNode?.(path)
+			// Deployable lineage only (see proposeNode): body writes + materialize target.
+			return {
+				detectedReads: inferred.reads.map(assetUri),
+				detectedWrites: dedupeAssets([...inferred.writes, ...materializeWrites(content)]).map(
+					assetUri
+				)
+			}
 		},
 		removeProposedNode: async (path) => {
 			if (!deps.getDrafts().has(path)) {

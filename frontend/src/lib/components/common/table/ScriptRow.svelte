@@ -9,13 +9,14 @@
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 
 	import { ScriptService, type Script } from '$lib/gen'
-	import { hubBaseUrlStore, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 
 	import { createEventDispatcher } from 'svelte'
 	import Badge from '../badge/Badge.svelte'
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
+	import type { RowSelection } from './rowSelection'
 	import { sendUserToast } from '$lib/toast'
 	import { capitalize, copyToClipboard, isOwner } from '$lib/utils'
 	import { isDeployable } from '$lib/utils_deployable'
@@ -36,7 +37,6 @@
 		Shield,
 		Trash,
 		History,
-		Globe2,
 		FileText
 	} from 'lucide-svelte'
 	import ScriptVersionHistory from '$lib/components/ScriptVersionHistory.svelte'
@@ -47,7 +47,6 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
-	import { scriptToHubUrl } from '$lib/hub'
 	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 
@@ -70,6 +69,7 @@
 		menuOpen?: boolean
 		showEditButton?: boolean
 		keyboardSelected?: boolean
+		rowSelection?: RowSelection
 	}
 
 	let {
@@ -84,7 +84,8 @@
 		depth = 0,
 		menuOpen = $bindable(false),
 		showEditButton = $bindable(true),
-		keyboardSelected = false
+		keyboardSelected = false,
+		rowSelection = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -155,6 +156,7 @@
 	canFavorite={!script.draft_only}
 	{depth}
 	{keyboardSelected}
+	{rowSelection}
 >
 	{#snippet badges()}
 		{#if script.lock_error_logs}
@@ -404,29 +406,6 @@
 						icon: Copy,
 						action: () => {
 							copyToClipboard(script.path)
-						}
-					},
-					{
-						displayName: 'Publish to Hub',
-						icon: Globe2,
-						action: async () => {
-							const scriptData = await ScriptService.getScriptByPath({
-								workspace: $workspaceStore!,
-								path: script.path
-							})
-							window.open(
-								scriptToHubUrl(
-									scriptData.content,
-									scriptData.summary,
-									scriptData.description ?? '',
-									scriptData.kind,
-									scriptData.language,
-									scriptData.schema,
-									scriptData.lock ?? '',
-									$hubBaseUrlStore
-								).toString(),
-								'_blank'
-							)
 						}
 					},
 					{

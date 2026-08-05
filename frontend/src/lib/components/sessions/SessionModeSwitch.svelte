@@ -1,8 +1,11 @@
 <script lang="ts">
-	import { House, MessagesSquare } from 'lucide-svelte'
+	import { Building, MessagesSquare } from 'lucide-svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { enterSessionMode, exitSessionMode } from './sessionSwitch.svelte'
+	import { goto } from '$lib/navigation'
+	import { page } from '$app/state'
+	import { base } from '$lib/base'
 
 	// Which side of the switch is active. `nav` = workspace navigation (the classic
 	// app), `session` = the sessions sidebar + chat + preview.
@@ -20,6 +23,18 @@
 		if (next === 'session') void enterSessionMode()
 		else void exitSessionMode()
 	}
+
+	// Pressing the already-active "Workspace" side goes home, so the toggle doubles
+	// as the home button when there is no mode to switch to. `onToggle` is
+	// deliberately not fired: this is a plain in-mode navigation, so the mobile menu
+	// drawer should dismiss like it does for any other nav link.
+	function onNavActivate() {
+		if (mode !== 'nav') return
+		// `goto` has no same-URL short-circuit, so navigating from home would push a
+		// duplicate history entry and make the next Back press look broken.
+		if (page.url.pathname === `${base}/`) return
+		void goto('/')
+	}
 </script>
 
 <!-- Each ToggleButton renders inside a Tooltip wrapper, which is the actual flex
@@ -34,12 +49,13 @@
 		<ToggleButton
 			{item}
 			value="nav"
-			icon={isCollapsed ? House : undefined}
+			icon={isCollapsed ? Building : undefined}
 			label="Workspace"
 			iconOnly={isCollapsed}
 			tooltip={isCollapsed ? 'Workspace' : undefined}
 			size="sm"
 			class="w-full justify-center"
+			onActivate={onNavActivate}
 		/>
 		<ToggleButton
 			{item}
@@ -47,7 +63,7 @@
 			icon={isCollapsed ? MessagesSquare : undefined}
 			label="AI Sessions"
 			iconOnly={isCollapsed}
-			tooltip={isCollapsed ? 'AI Sessions' : undefined}
+			tooltip={isCollapsed ? 'AI Sessions (beta)' : undefined}
 			size="sm"
 			class="w-full justify-center"
 		/>

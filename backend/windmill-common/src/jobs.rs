@@ -16,7 +16,6 @@ use crate::{
     flows::get_full_hub_flow_by_path,
     get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
-    users::username_to_permissioned_as,
     utils::{StripPath, HTTP_CLIENT},
     worker::{to_raw_value, CUSTOM_TAGS_PER_WORKSPACE, WINDMILL_DIR},
     workspaces::workspace_with_fork_ancestors,
@@ -113,6 +112,12 @@ pub async fn script_path_to_payload<'e>(
                 None,
             )
         } else {
+            let script_info =
+                get_latest_deployed_hash_for_path(db_authed, db.clone(), w_id, script_path)
+                    .await?
+                    .prefetch_cached(&db)
+                    .await?;
+            let on_behalf_of = script_info.on_behalf_of(w_id, &db).await?;
             let ScriptHashInfo {
                 hash,
                 tag,
@@ -130,23 +135,9 @@ pub async fn script_path_to_payload<'e>(
                 delete_after_secs,
                 timeout,
                 has_preprocessor,
-                on_behalf_of_email,
-                created_by,
                 labels,
                 ..
-            } = get_latest_deployed_hash_for_path(db_authed, db.clone(), w_id, script_path)
-                .await?
-                .prefetch_cached(&db)
-                .await?;
-
-            let on_behalf_of = if let Some(email) = on_behalf_of_email {
-                Some(OnBehalfOf {
-                    email,
-                    permissioned_as: username_to_permissioned_as(created_by.as_str()),
-                })
-            } else {
-                None
-            };
+            } = script_info;
 
             (
                 JobPayload::ScriptHash {
@@ -501,6 +492,9 @@ pub async fn delete_jobs(conn: &mut sqlx::PgConnection, ids: &[uuid::Uuid]) -> e
     .execute(&mut *conn)
     .await?;
     sqlx::query!("DELETE FROM zombie_job_counter WHERE job_id = ANY($1)", ids)
+        .execute(&mut *conn)
+        .await?;
+    sqlx::query!("DELETE FROM job_resolution WHERE job_id = ANY($1)", ids)
         .execute(&mut *conn)
         .await?;
     sqlx::query!("DELETE FROM v2_job WHERE id = ANY($1)", ids)

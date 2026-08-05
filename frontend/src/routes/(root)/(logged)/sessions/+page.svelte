@@ -35,18 +35,24 @@
 	import { withWorkspaceParam } from '$lib/components/sessions/sessionMode.svelte'
 	import { enterSessionMode } from '$lib/components/sessions/sessionSwitch.svelte'
 	import type { SessionPreviewTabs } from '$lib/components/sessions/sessionPreviewTabs.svelte'
-	import { userWorkspaces, workspaceStore } from '$lib/stores'
+	import { userStore, userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import {
 		getOrCreateRuntime,
 		getRuntime,
 		listRuntimes
 	} from '$lib/components/sessions/sessionRuntime.svelte'
 	import { markSessionSeen } from '$lib/components/sessions/sessionUnread.svelte'
-	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
+	import {
+		isGlobalAiEnabled,
+		setSessionsBetaOptOut
+	} from '$lib/components/copilot/chat/global/gate'
 	import { setToolCompletionListener } from '$lib/components/copilot/chat/shared'
+	import { registerToolDisplayActionHandler } from '$lib/components/copilot/chat/createdResourceActions.svelte'
+	import { previewTargetForSessionTarget } from '$lib/components/sessions/sessionPreviewTabs.svelte'
 	import { base } from '$lib/base'
 	import {
 		artifactKey,
+		itemDisplayName,
 		matchPreviewPage,
 		pageKey,
 		parseArtifactRoute,
@@ -55,7 +61,12 @@
 		type PreviewTarget
 	} from '$lib/components/sessions/previewRouter'
 	import { toolReloadEffect, tabsToReload } from '$lib/components/sessions/previewReload'
-	import { leafKeyFor, type WorkspaceItem } from '$lib/components/workspacePicker'
+	import {
+		leafKeyFor,
+		loadKind,
+		type WorkspaceItem,
+		type WorkspaceItemKind
+	} from '$lib/components/workspacePicker'
 	import { splitterPointerCapture } from '$lib/utils/splitterPointerCapture'
 
 	const globalEnabled = isGlobalAiEnabled()
@@ -130,6 +141,11 @@
 	// not-found UI below.
 	$effect(() => {
 		if (embedded || !sessionState.hydrated) return
+		// Family membership can't be judged before the workspace list arrives:
+		// workspaceRootId falls back to the raw id for workspaces it can't find,
+		// which makes a same-family session look foreign on a hard reload and
+		// would bounce the URL to another (or a brand-new) session.
+		if ($usersWorkspaceStore === undefined) return
 		// sessionInCurrentFamily reads these via get(), so track them explicitly.
 		$workspaceStore
 		$userWorkspaces
@@ -289,7 +305,11 @@
 	// Adapt the session tab model to DraggableTabs items (labels derived from the
 	// observed location; every tab closable, none pinned).
 	const previewTabItems = $derived<TabItem[]>(
-		(owner?.tabs ?? []).map((t) => ({ id: t.id, label: tabLabelFor(t) }))
+		(owner?.tabs ?? []).map((t) => ({
+			id: t.id,
+			label: tabLabelFor(t, previewWorkspace ?? ''),
+			title: tabTitleFor(t, previewWorkspace ?? '')
+		}))
 	)
 	let newTabOpen = $state(false)
 	// Separate open flag for the empty-state launcher: it can be mounted at the
@@ -453,6 +473,24 @@
 		}
 	})
 
+	// Preview cards on create/update tool calls dispatch here. Open
+	// (or focus, if already shown) the item's preview in the active session's panel —
+	// the visible chat is always the active session, so `owner` is its panel. Read
+	// `owner` lazily inside the handler (not in the effect body) so this registers
+	// once, not on every session switch. A 'focused' open leaves the tab where it is,
+	// so pulse it to make the click visibly land.
+	$effect(() => {
+		return registerToolDisplayActionHandler('open_item_preview', (action) => {
+			if (action.type !== 'open_item_preview') return
+			const o = owner
+			if (!o) return
+			const target = previewTargetForSessionTarget(action.previewKind, action.path)
+			if (!target) return
+			const { status } = o.open(target)
+			if (status === 'focused') o.pulseFocus(o.activeId)
+		})
+	})
+
 	// Editor-style breadcrumb over the previewed page. We only render clickable
 	// segments when the preview is sitting on a script/flow/app route — for any
 	// other page (home, runs, …) there's no item to drill into, so we fall back
@@ -519,12 +557,76 @@
 		owner?.navigate(target)
 	}
 
-	// Short tab label. A never-deployed item parked at `…/draft_<uuid>` carries a
-	// `friendlyLabel` its live editor stamped (the page can't read the runtime cell
-	// reactively; the editor mirrors the typed/auto name onto the tab model). Falls
-	// back to the plain location label for deployed items and non-item pages.
-	function tabLabelFor(tab: SessionPreviewTab): string {
-		return tab.friendlyLabel ?? previewLocationLabel(tab.loc)
+	// Names for the active session's item tabs, read from the same workspace
+	// listing the pickers use (module-cached, so an opened picker makes this free).
+	// The mounted editor's stamp is the live source, but it only fires for a tab
+	// the user has visited — without this, restoring a session shows a path leaf on
+	// every unvisited tab, each popping to its real name when first clicked.
+	// Requested keys are tracked outside the state so filling the map can't re-run
+	// the effect that fills it, and a key is released again on failure so a
+	// transient network error doesn't strand every unvisited tab on its path leaf
+	// for the lifetime of the page.
+	const listedItemsRequested = new Set<string>()
+	let listedItems = $state<Record<string, WorkspaceItem[]>>({})
+	const listedKey = (workspace: string, kind: WorkspaceItemKind) => `${workspace}:${kind}`
+	$effect(() => {
+		const ws = previewWorkspace
+		if (!ws) return
+		for (const tab of owner?.tabs ?? []) {
+			const route = parsePreviewItemRoute(tab.loc)
+			if (!route) continue
+			const key = listedKey(ws, route.kind)
+			if (listedItemsRequested.has(key)) continue
+			listedItemsRequested.add(key)
+			void loadKind(ws, route.kind)
+				.then((items) => {
+					listedItems = { ...listedItems, [key]: items }
+				})
+				.catch((e) => {
+					listedItemsRequested.delete(key)
+					console.error(`Failed to load workspace ${route.kind}s`, e)
+				})
+		}
+	})
+
+	// Keyed by the tab's OWN session workspace, never the active one: every warm
+	// session's tabs are labelled here, and two sessions on different forks can
+	// hold the same item path.
+	function listedItemFor(tab: SessionPreviewTab, workspace: string): WorkspaceItem | undefined {
+		// A loaded editor supersedes the listing for good — including when it names
+		// nothing, else clearing a summary would resurrect the listing's copy of it.
+		if (tab.editorNamed) return undefined
+		const route = parsePreviewItemRoute(tab.loc)
+		if (!route) return undefined
+		return listedItems[listedKey(workspace, route.kind)]?.find((i) => i.path === route.itemPath)
+	}
+
+	// Short tab label. An item whose live editor has loaded carries a
+	// `friendlyLabel` that editor stamped — its summary, or the typed/auto name of
+	// an item still parked at `…/draft_<uuid>` (the page can't read the runtime
+	// cell reactively, so the editor mirrors the name onto the tab model). Before
+	// that, the workspace listing names it. Falls back to the plain location label
+	// for summary-less items and non-item pages.
+	function tabLabelFor(tab: SessionPreviewTab, workspace: string): string {
+		const listed = listedItemFor(tab, workspace)
+		return (
+			tab.friendlyLabel ??
+			(listed && itemDisplayName(listed.path, listed.draftPath, listed.summary)) ??
+			previewLocationLabel(tab.loc)
+		)
+	}
+
+	// Hover title for a tab. A summary label is free text the strip truncates, and
+	// it hides the path entirely, so the tooltip carries both. The path shown is
+	// the item's staged one when it has one — a draft's `…/draft_<uuid>` storage
+	// path names nothing to the reader.
+	function tabTitleFor(tab: SessionPreviewTab, workspace: string): string {
+		const label = tabLabelFor(tab, workspace)
+		const path =
+			tab.friendlyPath ??
+			listedItemFor(tab, workspace)?.draftPath ??
+			parsePreviewItemRoute(tab.loc)?.itemPath
+		return path && path !== label ? `${label}\n${path}` : label
 	}
 
 	// A link click inside a live editor (e.g. a subflow reference) re-points the
@@ -606,10 +708,33 @@
 				}}>Open sessions</Button
 			>
 		</div>
+	{:else if $userStore?.operator}
+		<!-- Operators are exempt from the sessions beta (the layout keeps their
+		     legacy docked chat); a direct URL must not bypass that. -->
+		<div class="p-8 flex flex-col items-start gap-3 text-secondary text-sm">
+			<p class="text-primary font-medium">AI Sessions are not available for operators</p>
+			<p>Use the Ask AI chat instead.</p>
+			<Button
+				size="xs"
+				onclick={() => {
+					try {
+						localStorage.setItem('ai-chat-open', 'true')
+					} catch {}
+					window.location.href = `${base}/`
+				}}
+			>
+				Open Ask AI chat
+			</Button>
+		</div>
 	{:else if !globalEnabled}
-		<div class="p-8 text-secondary text-sm">
-			Sessions are gated on the global-AI dev flag. Enable with
-			<code class="text-2xs font-mono">localStorage.setItem('wm_dev_global_ai', '1')</code> and reload.
+		<!-- Direct navigation (bookmark, shared link) while the user has opted out
+		     of the beta: offer the way back in instead of a dead end. -->
+		<div class="p-8 flex flex-col items-start gap-3 text-secondary text-sm">
+			<p class="text-primary font-medium">AI Sessions are deactivated</p>
+			<p>You switched back to the legacy chat. Activate AI Sessions (beta) to open this page.</p>
+			<Button size="xs" onclick={() => setSessionsBetaOptOut(false, `${base}/sessions`)}>
+				Activate AI Sessions
+			</Button>
 		</div>
 	{:else if !sessionState.hydrated}
 		<!-- Sessions hydrate from IndexedDB after the user resolves; until then an
@@ -839,8 +964,9 @@
 											session={s}
 											runtime={rt}
 											active={s.id === activeSession?.id && tab.id === tabs?.activeId}
+											collapsed={(tabs?.collapsed ?? false) && !fullscreen}
 											mounted={mountedTabKeys.has(tabKey(s.id, tab.id))}
-											label={tabLabelFor(tab)}
+											label={tabLabelFor(tab, s.workspace_id ?? '')}
 											darkMode={isDarkMode.val}
 											{fullscreen}
 											onNavigate={navigateEditorTo}

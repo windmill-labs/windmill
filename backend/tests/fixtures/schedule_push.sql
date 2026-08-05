@@ -22,13 +22,13 @@ VALUES (
     'Test script', '', 'f/system/test_script', 100001, 'deno', '', 'script'
 );
 
--- A script with on_behalf_of_email
-INSERT INTO script (workspace_id, created_by, content, schema, summary, description, path, hash, language, lock, kind, on_behalf_of_email)
+-- A script with an on-behalf-of identity
+INSERT INTO script (workspace_id, created_by, content, schema, summary, description, path, hash, language, lock, kind, on_behalf_of)
 VALUES (
     'test-workspace', 'test-user',
     'export async function main() { return "obo"; }',
     '{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{},"required":[],"type":"object"}',
-    'OBO script', '', 'f/system/obo_script', 100002, 'deno', '', 'script', 'obo@windmill.dev'
+    'OBO script', '', 'f/system/obo_script', 100002, 'deno', '', 'script', 'u/obo-user'
 );
 
 -- A script with a tag
@@ -66,13 +66,13 @@ VALUES (
     'test-user'
 );
 
--- A flow with on_behalf_of_email
-INSERT INTO flow (workspace_id, summary, description, path, versions, schema, value, edited_by, on_behalf_of_email)
+-- A flow with an on-behalf-of identity
+INSERT INTO flow (workspace_id, summary, description, path, versions, schema, value, edited_by, on_behalf_of)
 VALUES (
     'test-workspace', 'OBO flow', '', 'f/system/obo_flow', '{200002}',
     '{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{},"required":[],"type":"object"}',
     '{"modules": [{"id": "a", "value": {"path": "f/system/test_script", "type": "script", "input_transforms": {}}}]}',
-    'test-user', 'obo@windmill.dev'
+    'test-user', 'u/obo-user'
 );
 
 INSERT INTO flow_version (id, workspace_id, path, schema, value, created_by)

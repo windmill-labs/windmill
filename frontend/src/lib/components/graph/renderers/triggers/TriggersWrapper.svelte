@@ -8,6 +8,7 @@
 	import AddTriggersButton from '$lib/components/triggers/AddTriggersButton.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import Portal from '$lib/components/Portal.svelte'
+	import { overlayPortalTarget } from '$lib/components/common/overlayHost.svelte'
 	import { flip, offset } from 'svelte-floating-ui/dom'
 	import { createFloatingActions, type ComputeConfig } from 'svelte-floating-ui'
 
@@ -36,6 +37,8 @@
 	}: Props = $props()
 
 	let showTriggerScriptPicker = $state(false)
+
+	const pickerTarget = overlayPortalTarget('#flow-editor')
 	let numberOfTriggers = $state(0)
 
 	const dispatch = createEventDispatcher()
@@ -99,7 +102,7 @@
 </div>
 
 {#if showTriggerScriptPicker}
-	<Portal target="#flow-editor">
+	<Portal target={pickerTarget()}>
 		<div
 			class="border rounded-lg shadow-lg bg-surface z5000"
 			style="position:absolute"

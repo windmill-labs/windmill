@@ -28,6 +28,8 @@
 		workspaceUsageStore,
 		userStore,
 		workspaceStore,
+		userWorkspaces,
+		usersWorkspaceStore,
 		type UserExt,
 		defaultScripts,
 		hubBaseUrlStore,
@@ -37,7 +39,12 @@
 		devopsRole,
 		whitelabelNameStore,
 		globalDbManagerDrawer,
-		globalForkModal
+		globalForkModal,
+		globalS3FilePickerExplorer,
+		nonMemberWorkspaces,
+		setNonMemberWorkspaces,
+		clearNonMemberWorkspaces,
+		type UserWorkspace
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { afterNavigate, beforeNavigate } from '$app/navigation'
@@ -82,10 +89,12 @@
 	import WorkspaceScopeHeader from '$lib/components/sidebar/WorkspaceScopeHeader.svelte'
 	import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
 	import DBManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
+	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
 	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
 	import { useDbManagerUriState } from '$lib/components/dbManagerDrawerModel.svelte'
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
 	import CreateWorkspaceInner from '$lib/components/workspaceSettings/CreateWorkspaceInner.svelte'
+	import { recordForkParent, rememberForkParent } from '$lib/forkParentMemory'
 	interface Props {
 		children?: import('svelte').Snippet
 	}
@@ -226,10 +235,10 @@
 	// nest the whole experience. Hide it when embedded.
 	const embedded = BROWSER && window.self !== window.top
 
-	// AI sessions are still dev-gated (localStorage wm_dev_global_ai=1), same as
-	// the global chat. The Workspace ⇄ Sessions switch is the only entry point, so
-	// gate it on the flag too — otherwise it would ship the unfinished experience
-	// to prod. The /sessions page has its own gate for direct navigation.
+	// AI sessions (beta) are on unless the user opted out from the banner under
+	// the session chat. The Workspace ⇄ Sessions switch is the only entry point,
+	// so it follows the gate; opted-out users get the legacy Ask-AI pane instead.
+	// The /sessions page has its own gate for direct navigation.
 	const globalAiEnabled = isGlobalAiEnabled()
 
 	if (page.status == 404) {
@@ -411,8 +420,10 @@
 		// This ensures the cross-origin isolation headers are fetched from the server
 		// which are required for SharedArrayBuffer and TypeScript workers to work correctly
 		const toPath = navigation.to?.url.pathname
-		if (toPath && (toPath.startsWith('/apps_raw/add') || toPath.startsWith('/apps_raw/edit'))) {
-			const currentPath = navigation.from?.url.pathname
+		const currentPath = navigation.from?.url.pathname
+		const isEditorPath = (p: string | undefined) =>
+			!!p && (p.startsWith('/apps_raw/add') || p.startsWith('/apps_raw/edit'))
+		if (isEditorPath(toPath)) {
 			// Reload if we're not on an apps_raw path, or if we're on the raw app viewer
 			// (/apps_raw/get/): the viewer doesn't have cross-origin isolation headers, so
 			// we need a full reload to fetch them for the editor.
@@ -420,6 +431,20 @@
 				navigation.cancel()
 				window.location.href = navigation.to!.url.href
 			}
+		} else if (toPath && isEditorPath(currentPath)) {
+			// Reverse of the guard above: leaving the isolated editor document must
+			// also fully reload, or its COEP header sticks for the rest of the SPA
+			// session and blocks CORP-less cross-origin subresources (e.g. images in
+			// a viewed app — see needs_cross_origin_isolation in static_assets.rs).
+			// Key off the path, never `window.crossOriginIsolated`: a deployment may
+			// isolate the whole site (frontend/static/_headers does, for Cloudflare
+			// Pages), and there the flag is true on every page — turning every
+			// navigation into a full page load, while the reload it forces cannot
+			// clear an isolation the next document asserts too. Among the routes this
+			// layout governs, only the editor is served the headers, so entering it is
+			// the only way into an isolated document here.
+			navigation.cancel()
+			window.location.href = navigation.to!.url.href
 		}
 	})
 
@@ -518,6 +543,7 @@
 			nats_used,
 			sqs_used,
 			mqtt_used,
+			amqp_used,
 			gcp_used,
 			azure_used,
 			email_used,
@@ -544,6 +570,9 @@
 		}
 		if (mqtt_used) {
 			usedKinds.push('mqtt')
+		}
+		if (amqp_used) {
+			usedKinds.push('amqp')
 		}
 		if (sqs_used) {
 			usedKinds.push('sqs')
@@ -672,6 +701,76 @@
 		$workspaceStore
 		untrack(() => updateUserStore($workspaceStore))
 	})
+	// While a fork is reachable, mirror its parent linkage to localStorage so a
+	// later reload landing on a now-deleted fork can return to the parent (see
+	// forkParentMemory + the deleted-fork recovery in the root layout).
+	$effect(() => {
+		const ws = $workspaceStore
+		const list = $userWorkspaces
+		const memberships = $usersWorkspaceStore?.workspaces
+		const resolvedFor = $nonMemberWorkspaces?.forWorkspace
+		const isSuperadmin = $superadmin
+		untrack(() => void resolveCurrentWorkspace(ws, list, memberships, resolvedFor, isSuperadmin))
+	})
+
+	// A superadmin can open a fork they aren't a member of, including a prefixless dev
+	// workspace, and only `getWorkspaceAsSuperAdmin` will hand back its lineage (see
+	// `nonMemberWorkspaces`). Membership is decided against the raw list, not
+	// `$userWorkspaces`: that one already carries what this resolves, so checking it
+	// would clear and re-fetch the entry on every pass.
+	async function resolveCurrentWorkspace(
+		ws: string | undefined,
+		list: typeof $userWorkspaces,
+		memberships: UserWorkspace[] | undefined,
+		resolvedFor: string | undefined,
+		isSuperadmin: string | false | undefined
+	): Promise<void> {
+		// Leaving every workspace (deleting the one you were in) has to drop the cache too:
+		// the other two paths below only fire once another workspace is open, and until then
+		// the workspace picker would keep offering the one that just went away.
+		if (!ws) {
+			clearNonMemberWorkspaces()
+			return
+		}
+		if (list.some((w) => w.id === ws)) {
+			recordForkParent(ws, list)
+		}
+		// Absence from a list that hasn't arrived yet says nothing about membership.
+		if (memberships == undefined || resolvedFor === ws) return
+		if (memberships.some((w) => w.id === ws)) {
+			clearNonMemberWorkspaces()
+			return
+		}
+		// This effect re-runs while a fetch is in flight, and no such pass can see the
+		// result yet.
+		if (!isSuperadmin || resolvingWorkspace === ws) return
+		resolvingWorkspace = ws
+		try {
+			const workspace = await WorkspaceService.getWorkspaceAsSuperAdmin({ workspace: ws })
+			const parentId = workspace.parent_workspace_id
+			// The fork UI names the parent, which a superadmin is just as likely not to be
+			// a member of. One hop only: nothing above the parent is displayed.
+			const parent =
+				parentId && !memberships.some((w) => w.id === parentId)
+					? await WorkspaceService.getWorkspaceAsSuperAdmin({ workspace: parentId })
+					: undefined
+			// A switch during the fetch already resolved (or cleared) the store for the
+			// workspace now open; this answer describes the one we left.
+			if ($workspaceStore !== ws) return
+			setNonMemberWorkspaces(ws, parent ? [workspace, parent] : [workspace])
+			if (parentId) {
+				rememberForkParent(ws, parentId)
+			}
+		} catch {
+			// Best-effort: if we can't resolve the workspace, recovery falls back to the
+			// workspace picker rather than the parent redirect.
+		} finally {
+			if (resolvingWorkspace === ws) {
+				resolvingWorkspace = undefined
+			}
+		}
+	}
+	let resolvingWorkspace: string | undefined = undefined
 	$effect(() => {
 		$workspaceStore && untrack(() => onLoad())
 	})
@@ -738,6 +837,13 @@
 	})
 
 	globalDbManagerDrawer.val = useDbManagerUriState()
+
+	let globalS3FilePicker: S3FilePicker | undefined = $state()
+	$effect(() => {
+		// `as any`: the component instance type is opaque in svelte2tsx context
+		// and does not match the store's structural type.
+		globalS3FilePickerExplorer.val = globalS3FilePicker as any
+	})
 </script>
 
 <svelte:window bind:innerWidth />
@@ -935,8 +1041,8 @@
 													shortcut={`${getModifierKey()}k`}
 												/>
 												{#if !globalAiEnabled}
-													<!-- Global Ask-AI pane. When the sessions dev flag is on it is
-													     replaced by SessionModeSwitch, so it only shows in prod. -->
+													<!-- Legacy Ask-AI pane, shown only when the user opted out of the
+													     AI Sessions beta (otherwise SessionModeSwitch replaces it). -->
 													<MenuButton
 														stopPropagationOnClick={true}
 														on:click={() => aiChatManager.toggleOpen()}
@@ -987,7 +1093,7 @@
 						style:width="{railWidth}rem"
 					>
 						<div
-							class="flex-1 flex flex-col min-h-0 h-screen shadow-[inset_-1px_0_0_0_rgb(var(--color-border-light))] dark:shadow-[inset_-1px_0_0_0_#374151]"
+							class="flex-1 flex flex-col min-h-0 h-screen shadow-[inset_-1px_0_0_0_rgb(var(--color-border-light))] dark:shadow-[inset_-1px_0_0_0_#374151] [html.github-dark_&]:shadow-[inset_-1px_0_0_0_rgb(var(--color-border-light))]"
 							style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}
 						>
 							{#if !isCollapsed}
@@ -1068,8 +1174,8 @@
 											shortcut={`${getModifierKey()}k`}
 										/>
 										{#if !globalAiEnabled}
-											<!-- Global Ask-AI pane. When the sessions dev flag is on it is
-											     replaced by SessionModeSwitch, so it only shows in prod. -->
+											<!-- Legacy Ask-AI pane, shown only when the user opted out of the
+											     AI Sessions beta (otherwise SessionModeSwitch replaces it). -->
 											<MenuButton
 												stopPropagationOnClick={true}
 												on:click={() => aiChatManager.toggleOpen()}
@@ -1262,10 +1368,15 @@
 					</button>
 				</div>
 			{/if}
+			<!-- Operators are exempt from the sessions beta: their minimal sidebar has
+			     no Workspace ⇄ Sessions switch, so disabling the docked chat would leave
+			     their "Ask AI" button toggling an unmounted pane. -->
 			<AiChatLayout
 				{children}
 				noPadding={devOnly || menuHidden}
-				disableAi={globalAiEnabled ? true : sessionMode}
+				disableAi={globalAiEnabled && !$userStore?.operator ? true : sessionMode}
+				loadAiConfig={!sessionMode}
+				showSessionsBetaBanner={!$userStore?.operator}
 				sidebarWidth={railWidth}
 				transitionClass={sidebarTransitionClass}
 				isMobile={innerWidth < 768}
@@ -1281,6 +1392,10 @@
 
 {#if $workspaceStore && globalDbManagerDrawer.val}
 	<DBManagerDrawer uriState={globalDbManagerDrawer.val} />
+{/if}
+
+{#if $workspaceStore}
+	<S3FilePicker bind:this={globalS3FilePicker} readOnlyMode allowDelete />
 {/if}
 
 <ForkConflictModal />

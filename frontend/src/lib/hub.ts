@@ -1,6 +1,4 @@
-import type { Schema } from './common'
-import { AppService, FlowService, type Flow, type Script } from './gen'
-import { encodeState } from './utils'
+import { AppService, FlowService } from './gen'
 import hubPathsData from './hubPaths.json'
 import {
 	replacePlaceholderForSignatureScriptTemplate,
@@ -10,22 +8,6 @@ import {
 
 export const DEFAULT_HUB_BASE_URL = 'https://hub.windmill.dev'
 export const PRIVATE_HUB_MIN_VERSION = 10_000_000
-
-export function scriptToHubUrl(
-	content: string,
-	summary: string,
-	description: string,
-	kind: Script['kind'],
-	language: Script['language'],
-	schema: Schema | any,
-	lock: string | undefined,
-	hubBaseUrl: string
-): URL {
-	const url = new URL(hubBaseUrl + '/scripts/add')
-	url.hash = encodeState({ content, summary, description, kind, language, schema, lock })
-
-	return url
-}
 
 export const HubScript = {
 	SIGNATURE_TEMPLATE: SIGNATURE_TEMPLATE_SCRIPT_HUB_PATH
@@ -63,32 +45,6 @@ export async function loadHubApps() {
 	} catch {
 		console.error('Hub is not available')
 	}
-}
-
-export function flowToHubUrl(flow: Flow, hubBaseUrl: string): URL {
-	const url = new URL(hubBaseUrl + '/flows/add')
-	const openFlow = {
-		value: flow.value,
-		summary: flow.summary,
-		description: flow.description,
-		schema: flow.schema
-	}
-	url.searchParams.append('flow', encodeState(openFlow))
-	return url
-}
-
-export function appToHubUrl(staticApp: any, hubBaseUrl: string): URL {
-	const url = new URL(hubBaseUrl + '/apps/add')
-	url.searchParams.append('app', encodeState(staticApp))
-	return url
-}
-
-export function rawAppToHubUrl(hubBaseUrl: string, summary?: string): URL {
-	const url = new URL(hubBaseUrl + '/raw_apps/add')
-	if (summary) {
-		url.searchParams.append('summary', summary)
-	}
-	return url
 }
 
 type HubPaths = {

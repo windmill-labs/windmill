@@ -11,13 +11,21 @@
 use serde_json::json;
 use sqlx::{Pool, Postgres};
 
+use axum::http::StatusCode;
 use windmill_api_auth::ApiAuthed;
-use windmill_common::variables::{build_crypt, encrypt};
+use windmill_common::{
+    error::Error,
+    variables::{build_crypt, encrypt},
+};
 use windmill_native_triggers::{
-    decrypt_oauth_data, delete_native_trigger, delete_workspace_integration,
-    get_workspace_integration,
+    classify_read_failure, decrypt_oauth_data, delete_native_trigger,
+    delete_workspace_integration, get_workspace_integration,
+    github::GitHub,
     google::{parse_stop_channel_params, should_renew_channel},
-    require_native_integration_use, store_native_trigger, store_workspace_integration,
+    http_error_status, list_native_triggers, map_external_error,
+    nextcloud::NextCloud,
+    grant_refused, require_native_integration_use, store_native_trigger,
+    store_workspace_integration, External, ExternalReadFailure, HttpRequestError,
     NativeTriggerConfig, OAuthConfig, ServiceName,
 };
 
@@ -50,6 +58,8 @@ fn test_authed() -> ApiAuthed {
         folders: vec![],
         scopes: None,
         username_override: None,
+        username_override_is_token_label: false,
+        is_session_token: false,
         token_prefix: None,
         read_only: false,
         job_id: None,
@@ -570,6 +580,92 @@ async fn test_cleanup_preserves_triggers(db: Pool<Postgres>) -> anyhow::Result<(
     Ok(())
 }
 
+// ============================================================================
+// 5. Runnable rename
+// ============================================================================
+
+/// A rename has to carry the trigger row onto the new path and report it as moved: listings only
+/// return rows whose runnable still exists, so one left behind on the old path disappears from the
+/// UI for good, and one not reported keeps a webhook aimed at the old path.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_rename_moves_native_trigger(db: Pool<Postgres>) -> anyhow::Result<()> {
+    insert_test_script(&db, "f/test/before").await?;
+    store_native_trigger(
+        &db,
+        "test-workspace",
+        ServiceName::Nextcloud,
+        "ext-1",
+        &NativeTriggerConfig {
+            script_path: "f/test/before".to_string(),
+            is_flow: false,
+            webhook_token: "abcdefghij1234567890".to_string(),
+        },
+        json!({"event": "OCP\\Files\\Events\\Node\\NodeCreatedEvent"}),
+        None,
+    )
+    .await?;
+    // An unrelated trigger already sitting on the target path must not be reported as moved.
+    insert_test_script(&db, "f/test/after").await?;
+    store_native_trigger(
+        &db,
+        "test-workspace",
+        ServiceName::Nextcloud,
+        "ext-2",
+        &NativeTriggerConfig {
+            script_path: "f/test/after".to_string(),
+            is_flow: false,
+            webhook_token: "0987654321jihgfedcba".to_string(),
+        },
+        json!({"event": "OCP\\Files\\Events\\Node\\NodeCreatedEvent"}),
+        None,
+    )
+    .await?;
+
+    let mut tx = db.begin().await?;
+    sqlx::query!(
+        "UPDATE script SET path = $1 WHERE workspace_id = 'test-workspace' AND path = $2",
+        "f/test/after",
+        "f/test/before",
+    )
+    .execute(&mut *tx)
+    .await?;
+    let moved = windmill_common::triggers::update_triggers_script_path(
+        &mut tx,
+        "f/test/after",
+        "f/test/before",
+        "test-workspace",
+        false,
+    )
+    .await?;
+    tx.commit().await?;
+
+    assert_eq!(
+        moved
+            .iter()
+            .map(|t| (t.service_name.as_str(), t.external_id.as_str()))
+            .collect::<Vec<_>>(),
+        vec![("nextcloud", "ext-1")]
+    );
+
+    let triggers = list_native_triggers(
+        &db,
+        "test-workspace",
+        ServiceName::Nextcloud,
+        None,
+        None,
+        Some("f/test/after"),
+        Some(false),
+    )
+    .await?;
+    assert_eq!(
+        triggers.len(),
+        2,
+        "the moved trigger should be listed under the new path"
+    );
+
+    Ok(())
+}
+
 // --- parse_stop_channel_params ---
 
 #[test]
@@ -622,4 +718,134 @@ fn test_parse_stop_channel_params_missing_resource_id() {
     let (channel_id, resource_id, _url) = parse_stop_channel_params(&config);
     assert!(channel_id.is_none());
     assert_eq!(resource_id, "");
+}
+
+// --- provider error reporting ---
+
+fn nextcloud_error(status: StatusCode, body: &str) -> Error {
+    NextCloud.external_api_error(HttpRequestError::ApiError { status, body: body.to_string() })
+}
+
+/// A rejection has to reach the user as the service's own sentence plus what to do about it,
+/// never as an internal error carrying the raw envelope.
+#[test]
+fn test_provider_rejection_is_readable_and_not_internal() {
+    let err = nextcloud_error(
+        StatusCode::FORBIDDEN,
+        r#"{"ocs":{"meta":{"status":"failure","statuscode":403,"message":"Logged in account must be an admin, a sub admin or gotten special right to access this setting"},"data":[]}}"#,
+    );
+
+    let message = map_external_error(err).to_string();
+    assert!(
+        message.contains("Logged in account must be an admin"),
+        "message={message}"
+    );
+    assert!(
+        !message.contains("\"ocs\""),
+        "the envelope should not reach the user: {message}"
+    );
+    assert!(
+        message.contains("Workspace settings > Integrations"),
+        "the hint should say what to do: {message}"
+    );
+}
+
+/// Both the "trigger is gone on the service" path and the delete that tolerates an
+/// already-removed webhook branch on this status.
+#[test]
+fn test_provider_404_is_recognized() {
+    let err = nextcloud_error(StatusCode::NOT_FOUND, "{}");
+    assert_eq!(http_error_status(&err), Some(StatusCode::NOT_FOUND));
+    assert!(
+        matches!(map_external_error(err), Error::NotFound(_)),
+        "a missing external trigger must map to NotFound"
+    );
+    assert!(matches!(
+        classify_read_failure(nextcloud_error(StatusCode::NOT_FOUND, "{}")),
+        ExternalReadFailure::Missing
+    ));
+}
+
+/// Sending a user to reconnect their integration is only right when the token endpoint refused
+/// the grant; a busy or broken endpoint has them fix credentials that are fine.
+#[test]
+fn test_refresh_failures_blame_only_the_grant_they_refuse() {
+    let refused = |code: u16| grant_refused(Some(StatusCode::from_u16(code).unwrap()), "");
+    for code in [400, 401, 403] {
+        assert!(refused(code), "{code} refuses the grant");
+    }
+    for code in [404, 408, 429, 500, 503] {
+        assert!(!refused(code), "{code} says nothing about the grant");
+    }
+    assert!(!grant_refused(None, ""));
+
+    // GitHub answers `bad_refresh_token` with HTTP 200, so the body is the only tell.
+    let ok = Some(StatusCode::OK);
+    assert!(grant_refused(ok, r#"{"error":"bad_refresh_token"}"#));
+    assert!(grant_refused(ok, r#"{"error":"invalid_grant"}"#));
+    assert!(!grant_refused(ok, r#"{"access_token":"t","token_type":"bearer"}"#));
+}
+
+/// A service that is busy or broken has not refused anything, and callers react differently to
+/// the two. GitHub and Google spend a 403 on throttling, where advice about permissions sends
+/// the reader after a problem they do not have.
+#[test]
+fn test_transient_service_failures_are_not_refusals() {
+    for transient in [408, 429, 503] {
+        let err = nextcloud_error(StatusCode::from_u16(transient).unwrap(), "{}");
+        assert!(
+            matches!(map_external_error(err), Error::BadGateway(_)),
+            "{transient} should read as the service failing to serve, not refusing"
+        );
+    }
+
+    // GitHub words its throttle two ways, and neither is a permission problem.
+    for wording in [
+        "API rate limit exceeded for user ID 1.",
+        "You have exceeded a secondary rate limit.",
+        "You have triggered an abuse detection mechanism.",
+    ] {
+        let throttled = GitHub.external_api_error(HttpRequestError::ApiError {
+            status: StatusCode::FORBIDDEN,
+            body: format!(r#"{{"message":"{wording}"}}"#),
+        });
+        let throttled = map_external_error(throttled);
+        assert!(
+            matches!(throttled, Error::BadGateway(_)),
+            "a throttled 403 is the service failing to serve: {throttled:?}"
+        );
+        assert!(
+            !throttled.to_string().contains("admin rights"),
+            "a throttled 403 must not advise about permissions: {throttled}"
+        );
+    }
+
+    let refused = GitHub.external_api_error(HttpRequestError::ApiError {
+        status: StatusCode::FORBIDDEN,
+        body: r#"{"message":"Must have admin rights to Repository."}"#.to_string(),
+    });
+    assert!(
+        map_external_error(refused).to_string().contains("admin rights"),
+        "a real 403 keeps its guidance"
+    );
+}
+
+/// A service read degrades to the stored configuration, but only for the service's own
+/// failures: `External::get` also runs queries, and reporting one of those as the service's
+/// word would hide a Windmill outage behind a 200.
+#[test]
+fn test_only_service_failures_degrade_the_read() {
+    assert!(matches!(
+        classify_read_failure(nextcloud_error(StatusCode::FORBIDDEN, "{}")),
+        ExternalReadFailure::Unreadable(_)
+    ));
+    assert!(matches!(
+        classify_read_failure(Error::internal_err("connection pool timed out")),
+        ExternalReadFailure::Internal(_)
+    ));
+    let internal = Error::internal_err("connection pool timed out");
+    assert!(
+        matches!(map_external_error(internal), Error::InternalErrLoc { .. }),
+        "a non-provider error must pass through unmapped"
+    );
 }

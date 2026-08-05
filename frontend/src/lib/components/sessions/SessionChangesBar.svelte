@@ -15,6 +15,7 @@
 	import { badgeCounts, badgeOf, buildDeployItems } from './sessionDeployModel'
 	import { useExistingMaskKeys } from './sessionDeployModel.svelte'
 	import JobsSegment from '$lib/components/copilot/chat/JobsSegment.svelte'
+	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import ArtifactsSegment from '$lib/components/copilot/chat/artifacts/ArtifactsSegment.svelte'
 
 	// Unified session bar: surfaces what the CURRENT chat changed — pending
@@ -173,8 +174,13 @@
 	const hasJobs = $derived((runtime?.manager.backgroundJobs.length ?? 0) > 0)
 	const hasArtifacts = $derived((runtime?.manager.artifacts.artifacts.length ?? 0) > 0)
 
-	const editsCount = $derived(dockCounts.draft + dockCounts.deployed)
-	const editsLabel = $derived(`${editsCount} edit${editsCount === 1 ? '' : 's'}`)
+	// Drafts are what still needs action, so the token counts only them while any
+	// are pending; once none are left it turns green and counts the deployed.
+	const editsLabel = $derived(
+		dockCounts.draft > 0
+			? `${dockCounts.draft} draft${dockCounts.draft === 1 ? '' : 's'}`
+			: `${dockCounts.deployed} deployed`
+	)
 	let editsOpen = $state(false)
 
 	// Only draft-vs-deployed drives the color: stale/failed live in the drawer's
@@ -262,6 +268,7 @@
 					maxHeightClass="max-h-[min(9rem,50vh)]"
 				>
 					{#snippet row(item)}
+						<RowIcon kind={item.deployKind} path={item.path} size={14} />
 						<span class="min-w-0 flex-1 truncate font-mono font-normal text-primary">
 							{item.displayPath}
 						</span>

@@ -68,6 +68,7 @@ use windmill_common::error::AppError;
 mod ai;
 mod ai_skills;
 mod apps;
+mod apps_raw_bundle;
 pub use apps::invalidate_app_policy_cache;
 pub mod args;
 mod audit;
@@ -79,6 +80,7 @@ mod capture;
 mod concurrency_groups;
 mod db;
 mod db_health;
+mod dbt;
 mod docs;
 mod drafts;
 
@@ -94,15 +96,21 @@ mod granular_acls;
 mod group_history;
 mod groups;
 mod health;
+mod hub_publish;
 #[cfg(feature = "private")]
 pub mod indexer_ee;
 mod indexer_oss;
 mod integration;
 mod internal_db;
 mod live_migrations;
+mod runnables;
 #[cfg(all(feature = "private", feature = "parquet"))]
 pub mod s3_proxy_ee;
 mod s3_proxy_oss;
+#[cfg(all(feature = "private", feature = "parquet"))]
+pub mod storage_list_ee;
+#[cfg(feature = "parquet")]
+mod storage_list_oss;
 mod workspace_dependencies;
 
 mod approvals;
@@ -254,6 +262,24 @@ pub async fn add_webhook_allowed_origin(
     next.run(req).await
 }
 
+/// Scope the request in the deploy origin it declares, so the fork tally can tell
+/// a write applied by a sync from one authored in the workspace. Entered for
+/// every request, including unmarked ones: `deploy_origin::current` reads the
+/// scope's presence as "the caller is serving this write", which is what
+/// separates a request from a worker that tallies someone else's.
+async fn set_deploy_origin(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let origin = req
+        .headers()
+        .get(windmill_common::deploy_origin::DEPLOY_ORIGIN_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(windmill_common::deploy_origin::DeployOrigin::from_header_value)
+        .unwrap_or(windmill_common::deploy_origin::DeployOrigin::Authored);
+    windmill_common::deploy_origin::scope(origin, next.run(req)).await
+}
+
 #[cfg(not(feature = "tantivy"))]
 type IndexReader = ();
 
@@ -326,6 +352,8 @@ async fn inject_agent_authed(
                 folders: Vec::new(),
                 scopes: None,
                 username_override: None,
+                username_override_is_token_label: false,
+                is_session_token: false,
                 token_prefix: None,
                 read_only: false,
                 job_id: None,
@@ -567,10 +595,12 @@ pub async fn run_server(
                             "/concurrency_groups",
                             concurrency_groups::workspaced_service(),
                         )
+                        .nest("/dbt", dbt::workspaced_service())
                         .nest("/drafts", drafts::workspaced_service())
                         .nest("/embeddings", embeddings::workspaced_service())
                         .nest("/favorites", favorite::workspaced_service())
                         .nest("/flows", flows::workspaced_service())
+                        .nest("/runnables", runnables::workspaced_service())
                         .nest(
                             "/workspace_dependencies",
                             workspace_dependencies::workspaced_service(),
@@ -653,10 +683,22 @@ pub async fn run_server(
                                 .layer(Extension(argon2.clone()))
                                 .layer(cors.clone()),
                         )
-                        .nest("/variables", variables::workspaced_service())
+                        // CORS so a sandboxed raw app's opaque-origin bundle can
+                        // read variables with its frontend SDK token. Bearer-only:
+                        // the layer never allows credentials, so no cookie can ride
+                        // a cross-origin call. Consistent with resources/users.
+                        .nest(
+                            "/variables",
+                            variables::workspaced_service().layer(cors.clone()),
+                        )
                         .nest("/volumes", volumes_oss::workspaced_service())
                         .nest("/workers", windmill_api_workers::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
+                        .nest("/hub", hub_publish::workspaced_service())
+                        .nest(
+                            "/data_metrics",
+                            windmill_api_workspaces::data_metrics::workspaced_service(),
+                        )
                         .nest(
                             "/deployment_request",
                             windmill_api_workspaces::deployment_requests::workspaced_service(),
@@ -1071,6 +1113,8 @@ pub async fn run_server(
     let app = app.layer(axum::middleware::from_fn(
         tracing_init::log_context_middleware,
     ));
+
+    let app = app.layer(axum::middleware::from_fn(set_deploy_origin));
 
     let app = app.layer(CatchPanicLayer::custom(|err| {
         tracing::error!("panic in handler, returning 500: {:?}", err);

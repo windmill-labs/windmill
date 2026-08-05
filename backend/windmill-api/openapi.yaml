@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.761.0
+  version: 1.780.0
   title: Windmill API
 
   contact:
@@ -732,6 +732,38 @@ paths:
               schema:
                 type: string
 
+  /users/change_email/{email}:
+    post:
+      summary: global change user email (require super admin)
+      operationId: globalUserChangeEmail
+      tags:
+        - user
+      parameters:
+        - name: email
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: new email
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                new_email:
+                  type: string
+              required:
+                - new_email
+      responses:
+        "200":
+          description: user email changed
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /users/delete/{email}:
     delete:
       summary: global delete user (require super admin)
@@ -1330,7 +1362,7 @@ paths:
 
   /settings/refresh_custom_instance_user_pwd:
     post:
-      summary: Refreshes the password for the custom_instance_user
+      summary: Refreshes the passwords for the custom_instance_user and the custom_instance_replication_user (used by postgres triggers)
       operationId: refreshCustomInstanceUserPwd
       tags:
         - setting
@@ -2200,6 +2232,33 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/GlobalSetting"
+
+  /settings/github_app_stale_webhooks:
+    get:
+      summary: list git-sync repositories whose webhook still points at a previous receiver
+      operationId: githubAppStaleWebhooks
+      tags:
+        - setting
+      responses:
+        "200":
+          description: repositories needing their git sync settings re-saved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    workspace_id:
+                      type: string
+                    git_repo_resource_path:
+                      type: string
+                    registered_url:
+                      type: string
+                      nullable: true
+                  required:
+                    - workspace_id
+                    - git_repo_resource_path
 
   /settings/instance_config:
     get:
@@ -3414,6 +3473,39 @@ paths:
               schema:
                 $ref: "#/components/schemas/WorkspaceComparison"
 
+  /w/{workspace}/workspaces/seed_full_diff/{target_workspace_id}:
+    post:
+      operationId: seedFullDiffScan
+      summary: Seed the diff candidate set against an arbitrary workspace
+      description: Enumerates every item of both workspaces as an undecided diff candidate so `compareWorkspaces` can compare a pair the fork lineage does not track. Requires being an admin of both workspaces, and is rejected for a pair already linked by the lineage (whose diff is tallied continuously). The comparison itself is what compares the candidates, and is the expensive step.
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: target_workspace_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The ID of the workspace to compare with
+      responses:
+        "200":
+          description: Scan seeded
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - candidates
+                  - scanned_at
+                properties:
+                  candidates:
+                    type: integer
+                    description: Number of candidate items the comparison will evaluate
+                  scanned_at:
+                    type: string
+                    format: date-time
+
   /w/{workspace}/workspaces/reset_diff_tally/{fork_workspace_id}:
     post:
       operationId: resetDiffTally
@@ -3586,8 +3678,6 @@ paths:
                     type: string
                   webhook:
                     type: string
-                  deploy_to:
-                    type: string
                   ai_config:
                     $ref: "#/components/schemas/AIConfig"
                   error_handler:
@@ -3598,6 +3688,8 @@ paths:
                     $ref: "#/components/schemas/LargeFileStorage"
                   ducklake:
                     $ref: "#/components/schemas/DucklakeSettings"
+                  dbt_warehouses:
+                    $ref: "#/components/schemas/DbtWarehouses"
                   datatable:
                     $ref: "#/components/schemas/DataTableSettings"
                   git_sync:
@@ -3617,10 +3709,13 @@ paths:
                   public_app_execution_limit_per_minute:
                     type: integer
                     description: Rate limit for public app executions per minute per server. NULL or 0 means disabled.
+                  error_handler_fallback_to_instance_alerts:
+                    type: boolean
+                    description: Report failed jobs to the instance critical alert channels when no workspace error handler is set.
 
   /w/{workspace}/workspaces/get_deploy_to:
     get:
-      summary: get deploy to
+      summary: get the workspace this one deploys into (its fork parent)
       operationId: getDeployTo
       tags:
         - workspace
@@ -4179,32 +4274,6 @@ paths:
                   job_uuid:
                     type: string
 
-  /w/{workspace}/workspaces/edit_deploy_to:
-    post:
-      summary: edit deploy to
-      operationId: editDeployTo
-      tags:
-        - workspace
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                deploy_to:
-                  type: string
-
-      responses:
-        "200":
-          description: status
-          content:
-            text/plain:
-              schema:
-                type: string
-
   /w/{workspace}/workspaces/edit_auto_invite:
     post:
       summary: edit auto invite
@@ -4447,6 +4516,112 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/workspaces/edit_dbt_warehouses:
+    post:
+      summary: edit the workspace's dbt warehouses
+      operationId: editDbtWarehouses
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: dbt warehouses, by name
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dbt_warehouses:
+                  $ref: "#/components/schemas/DbtWarehouses"
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema: {}
+
+  /w/{workspace}/dbt/run_progress:
+    post:
+      summary: record the running job's settled dbt nodes
+      description: >-
+        Job-scoped: needs a job token, and the job is taken from the token rather
+        than the body. For workers with no database access.
+      operationId: recordDbtRunProgress
+      tags:
+        - dbt
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: object
+                properties:
+                  asset_path:
+                    type: string
+                  status:
+                    type: string
+                  row_count:
+                    type: integer
+                  error:
+                    type: string
+                required:
+                  - asset_path
+                  - status
+      responses:
+        "200":
+          description: recorded
+
+  /w/{workspace}/dbt/warehouse/{name}:
+    get:
+      summary: resolve a dbt warehouse to the connection it names
+      description: >-
+        Job-scoped: needs a job token, because the response carries the
+        warehouse's credentials. dbt is unpermissioned by design, so a running
+        job reaches any warehouse the workspace configures.
+      operationId: getDbtWarehouse
+      tags:
+        - dbt
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: the connection the warehouse names
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DbtWarehouseConnection"
+
+  /w/{workspace}/dbt/warehouse_exists/{name}:
+    get:
+      summary: check that a dbt warehouse is configured, without resolving it
+      description: >-
+        Job-scoped: needs a job token. For a project bringing its own
+        `profiles.yml`, which names a warehouse only to say where its assets
+        belong and never opens the connection.
+      operationId: dbtWarehouseExists
+      tags:
+        - dbt
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: the warehouse is configured
+
   /w/{workspace}/workspaces/list_ducklakes:
     get:
       summary: list ducklakes
@@ -4464,6 +4639,94 @@ paths:
                 type: array
                 items:
                   type: string
+
+  /w/{workspace}/data_metrics/list:
+    get:
+      summary: list declared measures and dimensions on DuckLake tables
+      description: >
+        Call this before writing any aggregate query over a DuckLake table. A
+        declared measure is the canonical definition of that number, and
+        reproducing it yourself will silently disagree with it (a `revenue`
+        measure typically excludes refunds or test rows). Filter by `table` for
+        one table's declarations, or by `path_prefix` (e.g. `f/analytics`) for
+        everything declared under a folder; omit both to browse the whole
+        catalog. Results are keyset-paged: a full page may mean more remain, so
+        continue with the `cursor_*` params rather than assuming a measure does not exist. Use each returned `expr` verbatim, and when a measure has a
+        `filter` write it as
+        `expr FILTER (WHERE filter)` so measures with different predicates can
+        share one GROUP BY. If a number you need has no declared measure, write
+        your own aggregate as usual. Results are limited to declarations whose
+        producing script the caller can read.
+      operationId: listDataMetrics
+      x-mcp-tool: true
+      tags:
+        - data_metric
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: table
+          in: query
+          description: DuckLake table path, with or without the `ducklake://` scheme
+          schema:
+            type: string
+        - name: path_prefix
+          in: query
+          description: Producing script path prefix, e.g. `f/analytics`
+          schema:
+            type: string
+        - name: per_page
+          in: query
+          description: Results per page, capped at 1000 (default 1000)
+          schema:
+            type: integer
+        - name: cursor_table
+          in: query
+          description: >
+            Keyset cursor. To page, pass the previous response's `next_cursor` fields
+            back as `cursor_*`; all four move together, and are omitted for the first
+            page. Continue whenever `next_cursor` is present. Every returned row is one
+            the caller may read, so the cursor never names a hidden row.
+          schema:
+            type: string
+        - name: cursor_kind
+          in: query
+          schema:
+            type: string
+        - name: cursor_name
+          in: query
+          schema:
+            type: string
+        - name: cursor_script
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: declared measures and dimensions
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [metrics]
+                properties:
+                  metrics:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DataMetric"
+                  next_cursor:
+                    description: >
+                      Present when more rows may follow: pass its fields back as the
+                      `cursor_*` params. Absent means the catalog is exhausted.
+                    type: object
+                    required: [table_path, kind, name, script_path]
+                    properties:
+                      table_path:
+                        type: string
+                      kind:
+                        type: string
+                      name:
+                        type: string
+                      script_path:
+                        type: string
 
   /w/{workspace}/workspaces/list_datatables:
     get:
@@ -4509,6 +4772,52 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/DataTableSchema"
+
+  /w/{workspace}/workspaces/test_datatable_connection/{datatable_name}:
+    get:
+      summary: check what the data table's database lets its role do
+      operationId: testDataTableConnection
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: datatable_name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: connection and privilege report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    type: string
+                  schema:
+                    type: string
+                    nullable: true
+                  can_create_table:
+                    type: boolean
+                  can_create_schema:
+                    type: boolean
+                  migrations_table_exists:
+                    type: boolean
+                  suggested_grants:
+                    type: array
+                    items:
+                      type: string
+                  suggested_search_path:
+                    type: string
+                required:
+                  - user
+                  - schema
+                  - can_create_table
+                  - can_create_schema
+                  - migrations_table_exists
+                  - suggested_grants
 
   /w/{workspace}/workspaces/list_datatable_tables:
     get:
@@ -5183,6 +5492,45 @@ paths:
                     type: integer
                     nullable: true
 
+  /w/{workspace}/workspaces/git_sync_deploy_mode:
+    get:
+      summary: Get how local changes deploy to this workspace via git sync
+      operationId: getGitSyncDeployMode
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: branch
+          in: query
+          required: false
+          description: The branch the caller would push.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Git sync deploy mode
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - configured
+                  - deploy_on_push
+                properties:
+                  configured:
+                    type: boolean
+                    description: At least one git-sync repository is configured.
+                  deploy_on_push:
+                    type: boolean
+                    description: >-
+                      True means a `git push` is confirmed to deploy via
+                      auto-pull: exactly one licensed, deliverable repository
+                      tracks the branch. False is *not confirmed* rather than a
+                      definite no — it also covers unlicensed, ambiguous
+                      (several repos track it), and conservative false-negatives;
+                      determine the deploy path another way (CI `git push`, or
+                      `wmill sync push`).
+
   /w/{workspace}/workspaces/edit_git_sync_config:
     post:
       summary: edit workspace git sync settings
@@ -5502,6 +5850,8 @@ paths:
                     type: boolean
                   mqtt_used:
                     type: boolean
+                  amqp_used:
+                    type: boolean
                   gcp_used:
                     type: boolean
                   azure_used:
@@ -5523,6 +5873,7 @@ paths:
                   - nats_used
                   - postgres_used
                   - mqtt_used
+                  - amqp_used
                   - gcp_used
                   - azure_used
                   - sqs_used
@@ -5547,6 +5898,41 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/User"
+
+  /w/{workspace}/users/list_addable:
+    get:
+      summary: list instance users that can still be added to this workspace (require to be super admin)
+      operationId: listAddableInstanceUsers
+      tags:
+        - user
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: search
+          in: query
+          description: filter users whose email or username contains this string
+          schema:
+            type: string
+        - name: per_page
+          in: query
+          description: number of users to return (default 10, max 100)
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: addable instance users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    email:
+                      type: string
+                    username:
+                      type: string
+                  required:
+                    - email
 
   /w/{workspace}/users/list_usage:
     get:
@@ -6306,6 +6692,12 @@ paths:
                 - bypass_groups
                 - bypass_users
               properties:
+                name:
+                  type: string
+                  description: >-
+                    New name for the rule. Omit, or pass the current name, to leave it unchanged.
+                    The reserved `dev_workspace_lock` rule cannot be renamed, nor can another rule
+                    be renamed onto it.
                 rules:
                   $ref: "#/components/schemas/ProtectionRules"
                 bypass_groups:
@@ -6505,10 +6897,10 @@ paths:
         "400":
           description: invalid input or request closed
 
-  /w/{workspace}/workspaces/log_chat:
+  /w/{workspace}/workspaces/log_feature_usage:
     post:
-      summary: log AI chat message
-      operationId: logAiChat
+      summary: log anonymous feature usage telemetry events
+      operationId: logFeatureUsage
       tags:
         - workspace
       parameters:
@@ -6520,19 +6912,26 @@ paths:
             schema:
               type: object
               required:
-                - session_id
-                - provider
-                - model
-                - mode
+                - events
               properties:
-                session_id:
-                  type: string
-                provider:
-                  type: string
-                model:
-                  type: string
-                mode:
-                  type: string
+                events:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - feature
+                      - kind
+                    properties:
+                      feature:
+                        type: string
+                      kind:
+                        type: string
+                      key:
+                        type: string
+                      entity_id:
+                        type: string
+                      value:
+                        type: integer
       responses:
         "204":
           description: logged
@@ -8141,6 +8540,7 @@ paths:
         - app
       parameters:
         - $ref: "#/components/parameters/CustomPath"
+        - $ref: "#/components/parameters/SdkConsent"
       responses:
         "200":
           description: embed token
@@ -10341,6 +10741,124 @@ paths:
                     - path
                     - value
 
+  /w/{workspace}/runnables/list:
+    get:
+      summary: list runnables (scripts, flows, apps) merged, ordered and keyset-paginated
+      operationId: listRunnables
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: order_by
+          in: query
+          description: "sort key: 'updated' (default) or 'name'"
+          schema:
+            type: string
+            enum:
+              - updated
+              - name
+        - $ref: "#/components/parameters/OrderDesc"
+        - name: kinds
+          in: query
+          description: comma-separated subset of script,flow,app (default all)
+          schema:
+            type: string
+        - name: show_archived
+          in: query
+          schema:
+            type: boolean
+        - name: include_without_main
+          in: query
+          description: include library scripts (no runnable main)
+          schema:
+            type: boolean
+        - name: path_start
+          in: query
+          description: restrict to paths under this prefix
+          schema:
+            type: string
+        - name: label
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          description: case-insensitive substring match on summary or path
+          schema:
+            type: string
+        - $ref: "#/components/parameters/PerPage"
+        - name: cursor
+          in: query
+          description: opaque keyset cursor from a previous page's next_cursor
+          schema:
+            type: string
+        - name: include_draft_only
+          in: query
+          description: >-
+            also list the caller's drafts at paths with no deployed row, sorted
+            and paginated with the deployed ones. Ignored for operators, in the
+            archived view, and under a label filter (a draft carries no labels).
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: a page of merged, ordered runnables
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RunnableItem"
+                  next_cursor:
+                    type: string
+  /w/{workspace}/runnables/counts:
+    get:
+      summary: count runnables per owner (folder or user space)
+      operationId: countRunnablesByOwner
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: kinds
+          in: query
+          description: comma-separated subset of script,flow,app (default all)
+          schema:
+            type: string
+        - name: include_without_main
+          in: query
+          description: include library scripts (no runnable main)
+          schema:
+            type: boolean
+        - name: include_draft_only
+          in: query
+          description: >-
+            also count the caller's drafts at paths with no deployed row,
+            matching the same flag on /runnables/list
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: >-
+            number of runnables per owner prefix, empty owners omitted. Excludes
+            data-pipeline member scripts, which are listed as their folder's
+            single pipeline entry rather than as runnables.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - counts
+                properties:
+                  counts:
+                    type: object
+                    description: owner prefix (f/<folder> or u/<user>) to count
+                    additionalProperties:
+                      type: integer
   /w/{workspace}/flows/list:
     get:
       summary: list all flows
@@ -11318,6 +11836,9 @@ paths:
     get:
       summary: list all apps
       operationId: listApps
+      x-mcp-tool: true
+      x-mcp-instructions: "Lists every app, low-code and full-code alike. `raw_app` tells them apart: true is a full-code app, which getAppByPath then reads and updateApp deploys. An app with no `raw_app` field is low-code — the field is omitted rather than sent as false. A low-code app can only be read here — editing one is a job for its editor in the UI."
+      x-mcp-tool-include-query-params: [path_start, page, per_page]
       tags:
         - app
       parameters:
@@ -11377,16 +11898,6 @@ paths:
     post:
       summary: create app
       operationId: createApp
-      x-mcp-tool: true
-      x-mcp-tool-include-fields:
-        - path
-        - value
-        - summary
-        - policy
-        - deployment_message
-      x-mcp-tool-opaque-fields:
-        - value
-        - policy
       tags:
         - app
       parameters:
@@ -11511,6 +12022,9 @@ paths:
     get:
       summary: get app by path
       operationId: getAppByPath
+      x-mcp-tool: true
+      x-mcp-instructions: "Returns the app's whole `value`, which is what updateApp needs: it takes the whole thing, not a patch. A big enough app is truncated by the tool-result limit; sending that back fails the build rather than deploying something partial, so edit those in the app editor or with the CLI. `raw_app` says whether this is a full-code app (its value holds `files`/`runnables`) or a low-code one (a `grid`), and only a full-code app can be deployed through MCP."
+      x-mcp-tool-include-query-params: []
       tags:
         - app
       parameters:
@@ -11539,6 +12053,43 @@ paths:
                   - $ref: "#/components/schemas/AppWithLastVersion"
                   - $ref: "#/components/schemas/UserDraftOverlay"
 
+  /w/{workspace}/apps/preview_sdk_token:
+    post:
+      summary: mint a frontend SDK token for the raw app editor's preview
+      operationId: mintPreviewSdkToken
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                  description: App being edited; may not be deployed yet.
+                scopes:
+                  type: array
+                  items:
+                    type: string
+                  description: >
+                    Scopes from the policy being edited. Capped by the curated
+                    allowlist and by the caller's own scopes, and minted as the
+                    caller, so it grants nothing they could not mint themselves.
+              required:
+                - path
+                - scopes
+      responses:
+        "200":
+          description: the token
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/apps/embed_token/p/{path}:
     get:
       summary: get app embed token by path
@@ -11548,6 +12099,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
+        - $ref: "#/components/parameters/SdkConsent"
       responses:
         "200":
           description: embed token
@@ -11686,6 +12238,7 @@ paths:
           required: true
           schema:
             type: string
+        - $ref: "#/components/parameters/SdkConsent"
       responses:
         "200":
           description: embed token
@@ -11782,16 +12335,6 @@ paths:
     post:
       summary: update app
       operationId: updateApp
-      x-mcp-tool: true
-      x-mcp-tool-include-fields:
-        - path
-        - value
-        - summary
-        - policy
-        - deployment_message
-      x-mcp-tool-opaque-fields:
-        - value
-        - policy
       tags:
         - app
       parameters:
@@ -11826,6 +12369,151 @@ paths:
                 skip_draft_deletion:
                   type: boolean
                   description: "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
+                allow_kind_change:
+                  type: boolean
+                  description: "When true, this deploy may switch the app between low-code and raw. Without it, deploying a value to an app of the other kind is refused so an app is never converted by accident."
+      responses:
+        "200":
+          description: app updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/apps/create_raw_source:
+    post:
+      # The summary is what the MCP token picker shows next to the tool, so it has
+      # to carry the consequence of granting it, not just what it does.
+      summary: create a raw app from its sources, compiling them on a worker (which runs the app's own dependencies to do so)
+      operationId: createAppRawSource
+      x-mcp-tool: true
+      # Creating an app through MCP means creating a full-code one; low-code apps
+      # are legacy and aren't exposed there at all.
+      x-mcp-tool-name: createApp
+      x-mcp-instructions: "Creates a raw (full-code) app: `value.files` holds its sources, keyed by path (`/index.tsx`, `/App.tsx`, `/package.json`), and needs an entry point (`/index.tsx`, `/index.ts` or `/index.js`). The sources are compiled on a worker by the same build the editor and the CLI run, so a compile error comes back as the error of this call. Compiling runs the app's own dependencies on a worker, so this tool can execute code there. Low-code apps are legacy and have no MCP tool at all — they are built in their editor."
+      x-mcp-tool-include-fields:
+        - path
+        - value
+        - summary
+        - policy
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: raw app sources to bundle and deploy
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                summary:
+                  type: string
+                value:
+                  type: object
+                  description: "The raw app's value. `files` maps each source path to its content and must contain an entry point; `runnables` and `data` are carried through unchanged."
+                  properties:
+                    files:
+                      type: object
+                      additionalProperties:
+                        type: string
+                    runnables:
+                      type: object
+                    data:
+                      type: object
+                  required: [files]
+                policy:
+                  $ref: "#/components/schemas/Policy"
+                deployment_message:
+                  type: string
+                custom_path:
+                  type: string
+                preserve_on_behalf_of:
+                  type: boolean
+                  description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it."
+                labels:
+                  type: array
+                  items:
+                    type: string
+                skip_draft_deletion:
+                  type: boolean
+                  description: "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
+              required: [path, value, summary, policy]
+      responses:
+        "201":
+          description: app created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/apps/update_raw_source/{path}:
+    post:
+      # The summary is what the MCP token picker shows next to the tool, so it has
+      # to carry the consequence of granting it, not just what it does.
+      summary: update a raw app from its sources, compiling them on a worker (which runs the app's own dependencies to do so)
+      operationId: updateAppRawSource
+      x-mcp-tool: true
+      x-mcp-tool-name: updateApp
+      x-mcp-instructions: "Use this to change a raw (full-code) app — an app whose `raw_app` field is true. Send the whole `value` (`files`, `runnables`, `data`), not a patch: read the current one with getAppByPath first and edit it. The sources are compiled on a worker by the same build the editor and the CLI run, so a compile error comes back as the error of this call. Compiling runs the app's own dependencies on a worker, so this tool can execute code there. Low-code apps are legacy and have no MCP tool at all — they are edited in their editor."
+      x-mcp-tool-include-fields:
+        - path
+        - value
+        - summary
+        - policy
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      requestBody:
+        description: raw app sources to bundle and deploy
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                summary:
+                  type: string
+                value:
+                  type: object
+                  description: "The raw app's value. `files` maps each source path (e.g. `/index.tsx`, `/App.tsx`, `/package.json`) to its content and must contain an entry point (`/index.tsx`, `/index.ts` or `/index.js`); `runnables` and `data` are carried through unchanged."
+                  properties:
+                    files:
+                      type: object
+                      additionalProperties:
+                        type: string
+                    runnables:
+                      type: object
+                    data:
+                      type: object
+                  required: [files]
+                policy:
+                  $ref: "#/components/schemas/Policy"
+                deployment_message:
+                  type: string
+                custom_path:
+                  type: string
+                preserve_on_behalf_of:
+                  type: boolean
+                  description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it."
+                labels:
+                  type: array
+                  items:
+                    type: string
+                skip_draft_deletion:
+                  type: boolean
+                  description: "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
+                allow_kind_change:
+                  type: boolean
+                  description: "When true, this deploy may switch the app between low-code and raw. Without it, deploying a value to an app of the other kind is refused so an app is never converted by accident."
+              required: [value]
       responses:
         "200":
           description: app updated
@@ -11875,6 +12563,9 @@ paths:
                     skip_draft_deletion:
                       type: boolean
                       description: "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
+                    allow_kind_change:
+                      type: boolean
+                      description: "When true, this deploy may switch the app between low-code and raw. Without it, deploying a value to an app of the other kind is refused so an app is never converted by accident."
                 js:
                   type: string
                 css:
@@ -13188,6 +13879,13 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: resolved
+          description: >-
+            filter on whether a failure has been marked as handled. true keeps only
+            resolved failures, false hides them
+          in: query
+          schema:
+            type: boolean
         - name: is_flow_step
           description: is the job a flow step
           in: query
@@ -13470,6 +14168,13 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: resolved
+          description: >-
+            filter on whether a failure has been marked as handled. true keeps only
+            resolved failures, false hides them
+          in: query
+          schema:
+            type: boolean
         - name: is_flow_step
           description: is the job a flow step
           in: query
@@ -13647,6 +14352,13 @@ paths:
         - $ref: "#/components/parameters/JobTriggerKind"
         - name: is_skipped
           description: is the job skipped
+          in: query
+          schema:
+            type: boolean
+        - name: resolved
+          description: >-
+            filter on whether a failure has been marked as handled. true keeps only
+            resolved failures, false hides them
           in: query
           schema:
             type: boolean
@@ -13900,6 +14612,116 @@ paths:
                     - sibling_index
                     - sibling_count
                     - logs
+
+  /w/{workspace}/jobs_u/get_flow_all_results/{id}:
+    get:
+      summary: get statuses and truncated results for all jobs of a flow job's execution tree
+      operationId: getFlowAllResults
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: max_result_len
+          in: query
+          description: per-entry cap (in characters of JSON text) on result_prefix (default 2000, max 30000)
+          schema:
+            type: integer
+        - name: step
+          in: query
+          description: 'step address to resolve to a single job instead of enumerating the tree: "b", "b/c", "b[12]" (1-based iteration/branch), composable as "b[12]/c"'
+          schema:
+            type: string
+      responses:
+        "200":
+          description: per-job statuses and truncated results of the flow's execution tree, or the single resolved entry when step is provided
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enclosing_job:
+                    type: string
+                    format: uuid
+                    description: set when the requested job is itself a step of a larger flow run; id of the flow run directly enclosing it
+                  entries:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        job_id:
+                          type: string
+                        label:
+                          type: string
+                          description: human-readable label describing the job's position in the flow tree
+                        kind:
+                          type: string
+                          description: job kind (script, flow, forloopflow, ...)
+                        flow_step_id:
+                          type: string
+                          nullable: true
+                        step_path:
+                          type: string
+                          nullable: true
+                          description: materialized step path (e.g. "a/b")
+                        depth:
+                          type: integer
+                          description: depth in the flow tree (0 for the root flow job)
+                        parent_module_type:
+                          type: string
+                          nullable: true
+                          description: parent module type (forloopflow, branchall, ...)
+                        sibling_index:
+                          type: integer
+                          description: 1-based index of this job among siblings sharing the same step
+                        sibling_count:
+                          type: integer
+                          description: total number of siblings sharing the same step
+                        status:
+                          type: string
+                          enum:
+                            [
+                              success,
+                              failure,
+                              canceled,
+                              skipped,
+                              suspended,
+                              running,
+                              queued,
+                            ]
+                        success:
+                          type: boolean
+                        duration_ms:
+                          type: integer
+                          format: int64
+                        started_at:
+                          type: string
+                          format: date-time
+                        result_prefix:
+                          type: string
+                          description: result JSON text truncated to the per-entry budget; absent until the job has completed
+                        result_length:
+                          type: integer
+                          description: full length in characters of the result JSON text (greater than the prefix length when truncated)
+                      required:
+                        - job_id
+                        - label
+                        - kind
+                        - depth
+                        - sibling_index
+                        - sibling_count
+                        - status
+                  truncated:
+                    type: boolean
+                    description: true when the tree has more jobs than the entry cap; entries then hold the depth-first prefix
+                  scope_filtered:
+                    type: boolean
+                    description: true when the caller's token is tag-scoped; steps running on other tags are omitted
+                  step_error:
+                    type: string
+                    description: set when step was provided but could not be resolved; a diagnostic listing available step ids or iteration statuses
+                required:
+                  - entries
 
   /w/{workspace}/jobs_u/get_completed_logs_tail/{id}:
     get:
@@ -14249,6 +15071,7 @@ paths:
                         - ducklake
                         - datatable
                         - volume
+                        - dbt
                     asset_path:
                       type: string
                     outcome:
@@ -14339,6 +15162,7 @@ paths:
                         - ducklake
                         - datatable
                         - volume
+                        - dbt
                     asset_path:
                       type: string
                     created_at:
@@ -14368,6 +15192,92 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CompletedJob"
+
+  /w/{workspace}/jobs/completed/resolve:
+    post:
+      summary: mark failed jobs as resolved
+      description: >-
+        Marks failed jobs as handled so triage surfaces stop showing them as failures.
+        The job status itself is unchanged. Returns the ids actually resolved: ids that
+        are not visible to the caller or did not fail are silently skipped.
+      operationId: resolveCompletedJobs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                job_ids:
+                  type: array
+                  maxItems: 1000
+                  items:
+                    type: string
+                    format: uuid
+                note:
+                  type: string
+                  maxLength: 2000
+                  description: >-
+                    a person's explanation of why the failure is considered handled.
+                    Enterprise-only: ignored outside enterprise
+                superseded_by:
+                  type: string
+                  format: uuid
+                  description: >-
+                    id of a later successful run of the same runnable that supersedes the
+                    failure. Verified server-side, and the resulting note is the server's own
+                    wording, so it is recorded regardless of licence. A claim that cannot be
+                    verified resolves nothing
+              required:
+                - job_ids
+      responses:
+        "200":
+          description: ids of the jobs that were resolved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  format: uuid
+
+  /w/{workspace}/jobs/completed/unresolve:
+    post:
+      summary: remove the resolution of failed jobs
+      operationId: unresolveCompletedJobs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                job_ids:
+                  type: array
+                  maxItems: 1000
+                  items:
+                    type: string
+                    format: uuid
+              required:
+                - job_ids
+      responses:
+        "200":
+          description: ids of the jobs that were unresolved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  format: uuid
 
   /w/{workspace}/jobs_u/queue/cancel/{id}:
     post:
@@ -14545,6 +15455,44 @@ paths:
           description: If true, generate resume URLs for the parent flow instead of the specific step. This allows pre-approvals that can be consumed by any later suspend step in the same flow.
           schema:
             type: boolean
+      responses:
+        "200":
+          description: url endpoints
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  approvalPage:
+                    type: string
+                  resume:
+                    type: string
+                  cancel:
+                    type: string
+                required:
+                  - approvalPage
+                  - resume
+                  - cancel
+
+  /w/{workspace}/jobs/wac_approval_urls/{id}/{step_key}:
+    get:
+      summary: get the resume urls bound to a specific wait_for_approval step of a workflow-as-code job
+      operationId: getWacApprovalUrls
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: step_key
+          in: path
+          required: true
+          description: checkpoint key of the wait_for_approval step, as passed to `wait_for_approval(key=...)`
+          schema:
+            type: string
+        - name: approver
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: url endpoints
@@ -17323,6 +18271,211 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/amqp_triggers/create:
+    post:
+      summary: create amqp trigger
+      operationId: createAmqpTrigger
+      tags:
+        - amqp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new amqp trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewAmqpTrigger"
+      responses:
+        "201":
+          description: amqp trigger created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/amqp_triggers/update/{path}:
+    post:
+      summary: update amqp trigger
+      operationId: updateAmqpTrigger
+      tags:
+        - amqp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditAmqpTrigger"
+      responses:
+        "200":
+          description: amqp trigger updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/amqp_triggers/delete/{path}:
+    delete:
+      summary: delete amqp trigger
+      operationId: deleteAmqpTrigger
+      tags:
+        - amqp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: amqp trigger deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/amqp_triggers/get/{path}:
+    get:
+      summary: get amqp trigger
+      operationId: getAmqpTrigger
+      tags:
+        - amqp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - $ref: "#/components/parameters/GetDraft"
+      responses:
+        "200":
+          description: amqp trigger retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/AmqpTrigger"
+                  - $ref: "#/components/schemas/UserDraftOverlay"
+
+  /w/{workspace}/amqp_triggers/list:
+    get:
+      summary: list amqp triggers
+      operationId: listAmqpTriggers
+      tags:
+        - amqp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+          required: true
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: path
+          description: filter by path
+          in: query
+          schema:
+            type: string
+        - name: is_flow
+          in: query
+          schema:
+            type: boolean
+        - name: path_start
+          in: query
+          schema:
+            type: string
+        - name: label
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by label
+        - $ref: "#/components/parameters/IncludeDraftOnly"
+      responses:
+        "200":
+          description: amqp trigger list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AmqpTrigger"
+
+  /w/{workspace}/amqp_triggers/exists/{path}:
+    get:
+      summary: does amqp trigger exists
+      operationId: existsAmqpTrigger
+      tags:
+        - amqp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: amqp trigger exists
+          content:
+            application/json:
+              schema:
+                type: boolean
+
+  /w/{workspace}/amqp_triggers/setmode/{path}:
+    post:
+      summary: set enabled amqp trigger
+      operationId: setAmqpTriggerMode
+      tags:
+        - amqp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated amqp trigger enable
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mode:
+                  $ref: "#/components/schemas/TriggerMode"
+                force:
+                  type: boolean
+                  description: >
+                    Bypass the parent-state conflict warning when enabling a
+                    trigger in a fork whose parent has the same path enabled.
+              required:
+                - mode
+      responses:
+        "200":
+          description: amqp trigger enabled set
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/amqp_triggers/test:
+    post:
+      summary: test amqp connection
+      operationId: testAmqpConnection
+      tags:
+        - amqp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: test amqp connection
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amqp_resource_path:
+                  type: string
+                  description: Path to the AMQP resource containing broker connection configuration
+              required:
+                - amqp_resource_path
+      responses:
+        "200":
+          description: successfully connected to amqp
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/gcp_triggers/create:
     post:
       summary: create gcp trigger
@@ -19019,6 +20172,8 @@ paths:
         - folder
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
         - name: only_member_of
           in: query
           description: only list the folders the user is member of (default false)
@@ -19832,6 +20987,7 @@ paths:
                 nats_trigger,
                 postgres_trigger,
                 mqtt_trigger,
+                amqp_trigger,
                 gcp_trigger,
                 azure_trigger,
                 sqs_trigger,
@@ -19879,6 +21035,7 @@ paths:
                 nats_trigger,
                 postgres_trigger,
                 mqtt_trigger,
+                amqp_trigger,
                 gcp_trigger,
                 azure_trigger,
                 sqs_trigger,
@@ -19937,6 +21094,7 @@ paths:
                 nats_trigger,
                 postgres_trigger,
                 mqtt_trigger,
+                amqp_trigger,
                 gcp_trigger,
                 azure_trigger,
                 sqs_trigger,
@@ -20541,6 +21699,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: s3_resource_path
+          in: query
+          description: When set, test the connection of this object storage resource instead of the workspace storage
+          schema:
+            type: string
       responses:
         "200":
           description: Connection settings
@@ -20618,8 +21781,18 @@ paths:
           in: query
           schema:
             type: string
+        - name: search
+          in: query
+          description: Match keys by path prefix, case-sensitively, on the raw key rather than per path segment (so "a/file1" matches "a/file1000"). Pushed down to the storage provider as a seek; resume with the returned next_marker.
+          schema:
+            type: string
         - name: storage
           in: query
+          schema:
+            type: string
+        - name: s3_resource_path
+          in: query
+          description: When set, list the files of this object storage resource instead of the workspace storage
           schema:
             type: string
       responses:
@@ -20641,6 +21814,67 @@ paths:
                 required:
                   - windmill_large_files
 
+  /w/{workspace}/job_helpers/list_stored_files_paged:
+    get:
+      summary: List one page of a single folder level in a workspace object storage
+      operationId: listStoredFilesPaged
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: prefix
+          in: query
+          description: Folder to list; empty for the bucket root, otherwise must end with '/'
+          schema:
+            type: string
+        - name: max_keys
+          in: query
+          description: Maximum number of folders and files combined
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+        - name: page_token
+          in: query
+          description: Opaque token from a previous response, to continue listing the same folder
+          schema:
+            type: string
+        - name: storage
+          in: query
+          schema:
+            type: string
+        - name: s3_resource_path
+          in: query
+          description: When set, list the files of this object storage resource instead of the workspace storage
+          schema:
+            type: string
+      responses:
+        "200":
+          description: One page of folders and files at this level
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  folders:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/StorageFolder"
+                  files:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/StorageFile"
+                  next_page_token:
+                    type: string
+                    description: When set, more entries remain at this level
+                  restricted_access:
+                    type: boolean
+                required:
+                  - folders
+                  - files
+                  - restricted_access
+
   /w/{workspace}/job_helpers/load_file_metadata:
     get:
       summary: Load metadata of the file
@@ -20656,6 +21890,11 @@ paths:
             type: string
         - name: storage
           in: query
+          schema:
+            type: string
+        - name: s3_resource_path
+          in: query
+          description: When set, load the file metadata from this object storage resource instead of the workspace storage
           schema:
             type: string
       responses:
@@ -20705,6 +21944,11 @@ paths:
             type: integer
         - name: storage
           in: query
+          schema:
+            type: string
+        - name: s3_resource_path
+          in: query
+          description: When set, load the file preview from this object storage resource instead of the workspace storage
           schema:
             type: string
       responses:
@@ -21017,6 +22261,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: s3_resource_path
+          in: query
+          description: When set, delete the file from this object storage resource instead of the workspace storage
+          schema:
+            type: string
       responses:
         "200":
           description: Confirmation
@@ -21044,6 +22293,11 @@ paths:
             type: string
         - name: storage
           in: query
+          schema:
+            type: string
+        - name: s3_resource_path
+          in: query
+          description: When set, move the file within this object storage resource instead of the workspace storage
           schema:
             type: string
       responses:
@@ -21488,6 +22742,13 @@ paths:
         - $ref: "#/components/parameters/JobTriggerKind"
         - name: is_skipped
           description: is the job skipped
+          in: query
+          schema:
+            type: boolean
+        - name: resolved
+          description: >-
+            filter on whether a failure has been marked as handled. true keeps only
+            resolved failures, false hides them
           in: query
           schema:
             type: boolean
@@ -22048,170 +23309,22 @@ paths:
           description: Scope the graph to runnables in a single folder
           schema:
             type: string
+        - name: dbt_script_hash
+          in: query
+          description: >
+            Render the dbt half of the graph as one version of a dbt script had
+            it, rather than as the currently deployed one. Given this, `folder`
+            no longer scopes the dbt nodes: the pinned version's own models and
+            lineage are the answer, including models a later deploy removed.
+          schema:
+            type: string
       responses:
         "200":
           description: asset graph nodes, lineage edges and trigger edges
           content:
             application/json:
               schema:
-                type: object
-                required: [assets, runnables, edges, triggers]
-                properties:
-                  assets:
-                    type: array
-                    items:
-                      type: object
-                      required: [kind, path]
-                      properties:
-                        kind:
-                          $ref: "#/components/schemas/AssetKind"
-                        path:
-                          type: string
-                        fork_materialization:
-                          type: string
-                          enum: [fork, deferred]
-                          description: Fork workspaces only — 'fork' when this ducklake asset was materialized in the fork itself, 'deferred' when reads fall back to the parent workspace's current table via a defer view. Omitted otherwise.
-                  runnables:
-                    type: array
-                    items:
-                      type: object
-                      required: [path, usage_kind]
-                      properties:
-                        path:
-                          type: string
-                        usage_kind:
-                          $ref: "#/components/schemas/AssetUsageKind"
-                        in_pipeline:
-                          type: boolean
-                          description: True iff the script is a pipeline member (deployed with `// pipeline`). Omitted when false.
-                        macros:
-                          type: array
-                          description: Macros this script provides to the workspace registry (deployed `// macros` library). Omitted when empty.
-                          items:
-                            type: object
-                            required: [name, params, is_table]
-                            properties:
-                              name:
-                                type: string
-                              params:
-                                type: string
-                                description: verbatim parameter list
-                              is_table:
-                                type: boolean
-                  edges:
-                    type: array
-                    items:
-                      type: object
-                      required:
-                        [runnable_path, runnable_kind, asset_kind, asset_path]
-                      properties:
-                        runnable_path:
-                          type: string
-                        runnable_kind:
-                          $ref: "#/components/schemas/AssetUsageKind"
-                        asset_kind:
-                          $ref: "#/components/schemas/AssetKind"
-                        asset_path:
-                          type: string
-                        access_type:
-                          $ref: "#/components/schemas/AssetUsageAccessType"
-                  triggers:
-                    type: array
-                    items:
-                      oneOf:
-                        - type: object
-                          description: Asset trigger edge (`// on <asset>`)
-                          required:
-                            [
-                              trigger_kind,
-                              asset_kind,
-                              asset_path,
-                              runnable_kind,
-                              runnable_path,
-                            ]
-                          properties:
-                            trigger_kind:
-                              type: string
-                              enum: [asset]
-                            asset_kind:
-                              $ref: "#/components/schemas/AssetKind"
-                            asset_path:
-                              type: string
-                            runnable_kind:
-                              $ref: "#/components/schemas/AssetUsageKind"
-                            runnable_path:
-                              type: string
-                        - type: object
-                          description: Native trigger edge (schedule, email, kafka, ...). `path` is the trigger row's path.
-                          required:
-                            [trigger_kind, path, runnable_kind, runnable_path]
-                          properties:
-                            trigger_kind:
-                              type: string
-                              enum:
-                                - schedule
-                                - email
-                                - kafka
-                                - mqtt
-                                - nats
-                                - postgres
-                                - sqs
-                                - gcp
-                            path:
-                              type: string
-                            runnable_kind:
-                              $ref: "#/components/schemas/AssetUsageKind"
-                            runnable_path:
-                              type: string
-                  macro_edges:
-                    type: array
-                    description: Macro-library → consumer edges (deploy-recorded call detection plus `// use`). Omitted when empty.
-                    items:
-                      type: object
-                      required: [lib_path, consumer_path, macro_names, via_use]
-                      properties:
-                        lib_path:
-                          type: string
-                        consumer_path:
-                          type: string
-                        macro_names:
-                          type: array
-                          items:
-                            type: string
-                        via_use:
-                          type: boolean
-                  test_edges:
-                    type: array
-                    description: >-
-                      Ordering-only "must-run-after" edges — a `// data_test relationships`
-                      (or custom test reading a pipeline asset) requires the referenced
-                      asset's producer to run before the tested script. Not a data-consumption
-                      edge; fed into the cascade topo-sort so cold runs order correctly.
-                      Omitted when empty.
-                    items:
-                      type: object
-                      required:
-                        [
-                          producer_kind,
-                          producer_path,
-                          runnable_kind,
-                          runnable_path,
-                          asset_kind,
-                          asset_path,
-                        ]
-                      properties:
-                        producer_kind:
-                          $ref: "#/components/schemas/AssetUsageKind"
-                        producer_path:
-                          type: string
-                        runnable_kind:
-                          $ref: "#/components/schemas/AssetUsageKind"
-                        runnable_path:
-                          type: string
-                        asset_kind:
-                          $ref: "#/components/schemas/AssetKind"
-                        asset_path:
-                          type: string
+                $ref: "#/components/schemas/AssetGraph"
 
   /w/{workspace}/assets/macros:
     get:
@@ -22296,6 +23409,144 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/MaterializedPartition"
+
+  /w/{workspace}/jobs/dbt_resumable/{id}:
+    get:
+      summary: Whether a dbt retry by this caller would resume this run
+      description: >
+        One failed run is saved per script per execution principal, so a `retry`
+        resumes that one — not necessarily the run being looked at. Answers about
+        THIS run alone: its own id when a retry submitted by this caller would
+        resume it, null otherwise (a later run holds the state, the run left
+        nothing to rebuild, or the caller's runs execute as another principal).
+        Authorized through the job, like `run_progress`.
+      operationId: getDbtResumable
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          description: The job whose script and principal decide the saved failure
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: this job's id when a retry would resume it, or null
+          content:
+            application/json:
+              schema:
+                type: string
+                format: uuid
+                nullable: true
+
+  /w/{workspace}/jobs/dbt_resumable_script/p/{path}:
+    get:
+      summary: Which run a dbt retry of this script would resume for the caller
+      description: >
+        A `retry` requires `dbt_retry_job`, and the run form has no job id to
+        hand. Returns the one the caller's own retry would land on — the saved
+        failure for the principal the run would execute as, which is the script's
+        author for an `on_behalf_of` script and the caller otherwise — and only
+        when that run is one the caller may read. Null when there is nothing to
+        resume, or nothing this caller may be told about.
+      operationId: getDbtResumableForScript
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: the job id a retry would resume, or null
+          content:
+            application/json:
+              schema:
+                type: string
+                format: uuid
+                nullable: true
+
+  /w/{workspace}/jobs/dbt_graph/{id}:
+    get:
+      summary: Get the asset graph as one run saw it
+      description: >
+        The workspace asset graph with its dbt half pinned to what a single run
+        built. Only a dynamic descriptor (a `{{ }}` placeholder in `vars`) leaves a
+        per-run snapshot; without one for this job the pinned version's own graph
+        answers, so a run page may use this route unconditionally. Authorized
+        through the job, the same gate as `run_progress` — pinning to a run is
+        job-scoped, which is why `assets/graph` cannot do it.
+      operationId: getDbtRunGraph
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          description: The job whose graph to render
+          schema:
+            type: string
+            format: uuid
+        - name: asset_kinds
+          in: query
+          description: Filter by asset kinds (comma-separated list)
+          schema:
+            type: string
+        - name: folder
+          in: query
+          description: Scope the graph to runnables in a single folder
+          schema:
+            type: string
+        - name: dbt_script_hash
+          in: query
+          description: >
+            Fallback only, for a job that names no deployed script — a preview or
+            a flow. For a script job the version comes from the job row itself,
+            so this is ignored: which deploy's models, SQL and `ref()` lineage
+            are shown is not the caller's to choose.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: asset graph nodes, lineage edges and trigger edges
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssetGraph"
+
+  /w/{workspace}/jobs/run_progress/{id}:
+    get:
+      summary: List the per-relation progress one job has recorded so far
+      description: >
+        Live materialization state for the relations a single job writes, keyed by
+        relation. Polled while a run is in flight so a graph can move a node as its
+        model completes. Authorized through the job, so a caller who may not read it
+        is refused rather than told the run has no progress. An empty list means the
+        job exists and has recorded nothing yet, or is unknown to this workspace.
+      operationId: getRunProgress
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          description: The job whose per-relation progress to read
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: per-relation status for this run
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AssetProgress"
 
   /w/{workspace}/assets/partitions_in_range:
     get:
@@ -22550,6 +23801,508 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/hub/publish_draft:
+    post:
+      summary: create or update a hub project draft
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubDraft
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishDraftBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/scripts:
+    post:
+      summary: publish a script to a hub project
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubScript
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishScriptBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/flows:
+    post:
+      summary: publish a flow to a hub project
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubFlow
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishFlowBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/apps:
+    post:
+      summary: publish an app to a hub project
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubApp
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishAppBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/raw_apps:
+    post:
+      summary: publish a raw app to a hub project
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubRawApp
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishRawAppBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/raw_apps/{id}/recording:
+    post:
+      summary: attach a recorded session to a hub raw app
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubRawAppRecording
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          description: hub id of the raw app
+          schema:
+            type: integer
+            format: int64
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordingBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/scripts/{ask_id}/recording:
+    post:
+      summary: attach a recording to a hub script
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubScriptRecording
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: ask_id
+          in: path
+          required: true
+          description: hub ask id of the script
+          schema:
+            type: integer
+            format: int64
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordingBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/flows/{flow_id}/recording:
+    post:
+      summary: attach a recording to a hub flow
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubFlowRecording
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: flow_id
+          in: path
+          required: true
+          description: hub id of the flow
+          schema:
+            type: integer
+            format: int64
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordingBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/projects/{slug}/pipeline_recording:
+    post:
+      summary: attach a data-pipeline recording to a hub project
+      description: |
+        Requires the caller to be a workspace admin. A data-pipeline recording is
+        scoped to the whole project (a folder cascade), not a single item. Forwards
+        the request to the configured Hub scoped to the `{workspace}:{folder}`
+        source and returns the Hub's status code and raw response body.
+      operationId: publishHubPipelineRecording
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: slug
+          in: path
+          required: true
+          description: hub project slug
+          schema:
+            $ref: "#/components/schemas/HubProjectSlug"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PipelineRecordingBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/resource_types:
+    post:
+      summary: publish a resource type to a hub project
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubResourceType
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishResourceTypeBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/resources:
+    post:
+      summary: publish resource placeholders to a hub project
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubResources
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishResourcesBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/triggers:
+    post:
+      summary: publish triggers to a hub project
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubTriggers
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishTriggersBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/migrations:
+    post:
+      summary: publish data table migrations to a hub project
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: publishHubMigrations
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishMigrationsBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/projects/{slug}/export:
+    get:
+      summary: export a hub project
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub and returns the Hub's status code and raw response body.
+        The folder scope is only needed to re-export the caller's own draft;
+        approved projects are public, so it is optional here.
+      operationId: getHubProjectExport
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: slug
+          in: path
+          required: true
+          description: hub project slug (3-50 chars, lowercase alphanumeric and hyphens, no leading/trailing hyphen)
+          schema:
+            type: string
+            minLength: 3
+            maxLength: 50
+            pattern: "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
+        - name: folder
+          in: query
+          required: false
+          description: folder scoping the Hub project source (`{workspace}:{folder}`)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/projects/{slug}/logo:
+    post:
+      summary: set or clear a hub project's custom logo
+      description: |
+        Requires the caller to be a workspace admin. Sets the project's custom
+        logo (base64 png/svg, decoded size max 512KB) or clears it when `logo`
+        is null; the `logo` field itself is required so an empty body cannot
+        clear the logo by accident. Forwards the request to the configured Hub
+        scoped to the `{workspace}:{folder}` source and returns the Hub's
+        status code and raw response body.
+      operationId: publishHubProjectLogo
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: slug
+          in: path
+          required: true
+          description: hub project slug
+          schema:
+            $ref: "#/components/schemas/HubProjectSlug"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectLogoBody"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/projects/{slug}/submit:
+    post:
+      summary: submit a hub project draft for review
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: submitHubProject
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: slug
+          in: path
+          required: true
+          description: hub project slug (3-50 chars, lowercase alphanumeric and hyphens, no leading/trailing hyphen)
+          schema:
+            type: string
+            minLength: 3
+            maxLength: 50
+            pattern: "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/project:
+    get:
+      summary: get the hub project linked to a workspace folder
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body.
+      operationId: getHubProjectBySource
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
 components:
   securitySchemes:
     bearerAuth:
@@ -22596,6 +24349,16 @@ components:
       name: workspace
       in: path
       required: true
+      schema:
+        type: string
+    HubPublishFolder:
+      name: folder
+      in: query
+      required: true
+      description: |
+        workspace folder scoping the Hub publication: a workspace can publish
+        one Hub project per folder and the Hub-side source key is
+        `{workspace}:{folder}`
       schema:
         type: string
     PublicationName:
@@ -22672,6 +24435,16 @@ components:
       required: true
       schema:
         type: string
+    SdkConsent:
+      name: sdk_consent
+      in: query
+      required: false
+      description: >
+        Raw apps: the viewer confirmed the frontend-SDK permissions consent
+        banner, so the viewer-scoped SDK token may actually be minted. Without
+        it the response only advertises the declared sdk_scopes.
+      schema:
+        type: boolean
     PathId:
       name: id
       in: path
@@ -23018,6 +24791,266 @@ components:
         enum: [script, flow]
 
   schemas:
+    AssetGraph:
+      type: object
+      required: [assets, runnables, edges, triggers]
+      properties:
+        assets:
+          type: array
+          items:
+            type: object
+            required: [kind, path]
+            properties:
+              kind:
+                $ref: "#/components/schemas/AssetKind"
+              path:
+                type: string
+              fork_materialization:
+                type: string
+                enum: [fork, deferred]
+                description: Fork workspaces only — 'fork' when this ducklake asset was materialized in the fork itself, 'deferred' when reads fall back to the parent workspace's current table via a defer view. Omitted otherwise.
+              dbt:
+                $ref: "#/components/schemas/DbtAssetProvenance"
+        runnables:
+          type: array
+          items:
+            type: object
+            required: [path, usage_kind]
+            properties:
+              path:
+                type: string
+              usage_kind:
+                $ref: "#/components/schemas/AssetUsageKind"
+              in_pipeline:
+                type: boolean
+                description: True iff the script is a pipeline member (deployed with `// pipeline`). Omitted when false.
+              macros:
+                type: array
+                description: Macros this script provides to the workspace registry (deployed `// macros` library). Omitted when empty.
+                items:
+                  type: object
+                  required: [name, params, is_table]
+                  properties:
+                    name:
+                      type: string
+                    params:
+                      type: string
+                      description: verbatim parameter list
+                    is_table:
+                      type: boolean
+              dbt:
+                type: object
+                description: Set on a `dbt` script, which owns a whole project rather than a single output. Omitted otherwise.
+                required: [model_count]
+                properties:
+                  model_count:
+                    type: integer
+        edges:
+          type: array
+          items:
+            type: object
+            required:
+              [runnable_path, runnable_kind, asset_kind, asset_path]
+            properties:
+              runnable_path:
+                type: string
+              runnable_kind:
+                $ref: "#/components/schemas/AssetUsageKind"
+              asset_kind:
+                $ref: "#/components/schemas/AssetKind"
+              asset_path:
+                type: string
+              access_type:
+                $ref: "#/components/schemas/AssetUsageAccessType"
+        triggers:
+          type: array
+          items:
+            oneOf:
+              - type: object
+                description: Asset trigger edge (`// on <asset>`)
+                required:
+                  [
+                    trigger_kind,
+                    asset_kind,
+                    asset_path,
+                    runnable_kind,
+                    runnable_path,
+                  ]
+                properties:
+                  trigger_kind:
+                    type: string
+                    enum: [asset]
+                  asset_kind:
+                    $ref: "#/components/schemas/AssetKind"
+                  asset_path:
+                    type: string
+                  runnable_kind:
+                    $ref: "#/components/schemas/AssetUsageKind"
+                  runnable_path:
+                    type: string
+              - type: object
+                description: Native trigger edge (schedule, email, kafka, ...). `path` is the trigger row's path.
+                required:
+                  [trigger_kind, path, runnable_kind, runnable_path]
+                properties:
+                  trigger_kind:
+                    type: string
+                    enum:
+                      - schedule
+                      - email
+                      - kafka
+                      - mqtt
+                      - nats
+                      - postgres
+                      - sqs
+                      - gcp
+                  path:
+                    type: string
+                  runnable_kind:
+                    $ref: "#/components/schemas/AssetUsageKind"
+                  runnable_path:
+                    type: string
+        macro_edges:
+          type: array
+          description: Macro-library → consumer edges (deploy-recorded call detection plus `// use`). Omitted when empty.
+          items:
+            type: object
+            required: [lib_path, consumer_path, macro_names, via_use]
+            properties:
+              lib_path:
+                type: string
+              consumer_path:
+                type: string
+              macro_names:
+                type: array
+                items:
+                  type: string
+              via_use:
+                type: boolean
+        test_edges:
+          type: array
+          description: >-
+            Ordering-only "must-run-after" edges — a `// data_test relationships`
+            (or custom test reading a pipeline asset) requires the referenced
+            asset's producer to run before the tested script. Not a data-consumption
+            edge; fed into the cascade topo-sort so cold runs order correctly.
+            Omitted when empty.
+          items:
+            type: object
+            required:
+              [
+                producer_kind,
+                producer_path,
+                runnable_kind,
+                runnable_path,
+                asset_kind,
+                asset_path,
+              ]
+            properties:
+              producer_kind:
+                $ref: "#/components/schemas/AssetUsageKind"
+              producer_path:
+                type: string
+              runnable_kind:
+                $ref: "#/components/schemas/AssetUsageKind"
+              runnable_path:
+                type: string
+              asset_kind:
+                $ref: "#/components/schemas/AssetKind"
+              asset_path:
+                type: string
+        dbt_edges:
+          type: array
+          description: >-
+            `ref()` lineage BETWEEN two dbt models, in the terms the canvas draws
+            — the relations, not dbt's node ids. Without it every model hangs off
+            the one dbt runnable and the project reads as a flat fan-out.
+            Omitted when empty.
+          items:
+            type: object
+            required: [from_asset_path, to_asset_path]
+            properties:
+              from_asset_path:
+                type: string
+              to_asset_path:
+                type: string
+        dbt_snapshot_job:
+          type: string
+          format: uuid
+          description: >-
+            The job whose own snapshot the dbt half was resolved from, when one
+            was asked for and found. A run page polls the graph while its job
+            runs, because a dynamic descriptor's snapshot is written mid-run, and
+            this is what tells it to stop. Omitted when the answer came from the
+            version's deployed graph.
+        dbt_graph_ingested_at:
+          type: string
+          format: date-time
+          description: >-
+            When the dbt half on screen was parsed, for a graph pinned to a job.
+            What the dbt editor labels its provenance with — "parsed from the
+            editor at 14:32" against "as of last deploy" — since the two are
+            drawn identically and the ambiguity would otherwise just move into
+            the editor. Omitted for the unpinned workspace graph, which spans
+            every project and so has no one time.
+    DbtAssetProvenance:
+      type: object
+      description: >-
+        What dbt says about the model, snapshot, seed or source that produces (or,
+        for a source, is read at) this relation. A dbt project is one runnable
+        node with many model assets, so per-model metadata belongs here rather
+        than on the script.
+      required: [unique_id, resource_type]
+      properties:
+        unique_id:
+          type: string
+          description: dbt's own node id, e.g. `model.jaffle_shop.customers`.
+        resource_type:
+          type: string
+          enum: [model, snapshot, seed, source]
+        materialized:
+          type: string
+          description: dbt's own word (`table`, `view`, `incremental`, `snapshot`).
+        materialize_strategy:
+          type: string
+          description: The Windmill write strategy it maps to, absent for `view` and `ephemeral`, which have none.
+        tags:
+          type: array
+          items:
+            type: string
+        description:
+          type: string
+        data_tests:
+          type: array
+          items:
+            type: object
+            required: [kind]
+            properties:
+              kind:
+                type: string
+                description: One of the four generic tests, or a package test's namespaced name (`dbt_utils.accepted_range`).
+              column:
+                type: string
+              args:
+                type: object
+                additionalProperties: true
+              severity:
+                type: string
+                description: Lowercased. dbt's severity decides whether a failure fails the run.
+        columns:
+          type: object
+          additionalProperties: true
+          description: Declared column metadata (name -> description). NOT column lineage — `manifest.json` carries none.
+        freshness:
+          type: object
+          additionalProperties: true
+          description: A source's declared freshness policy, for the staleness chip.
+        raw_code:
+          type: string
+          description: The model's SQL as written, at the deploy this graph belongs to. Omitted when the caller cannot read the script.
+        original_file_path:
+          type: string
+          description: Its path inside the dbt project, e.g. `models/staging/stg_orders.sql`.
     # NOTE: Not so many generators and validators support this format:
     # $ref: "../../openflow.openapi.yaml#/components/schemas"
     # This is why it is better to inline each of schemas for better compat
@@ -23095,6 +25128,7 @@ components:
         - trigger_kafka
         - trigger_nats
         - trigger_mqtt
+        - trigger_amqp
         - trigger_sqs
         - trigger_gcp
         - trigger_azure
@@ -23410,6 +25444,9 @@ components:
         muted_on_user_path:
           type: boolean
           default: false
+        fallback_to_instance_alerts:
+          type: boolean
+          description: Report failed jobs to the instance critical alert channels when no workspace error handler is set. Omit to leave the stored value untouched.
 
     EditErrorHandlerLegacy:
       type: object
@@ -23721,6 +25758,7 @@ components:
         - settings
         - key
         - workspacedependencies
+        - datatablemigration
 
     AIProviderModel:
       type: object
@@ -23878,6 +25916,86 @@ components:
         - language
         - content
 
+    RunnableItem:
+      type: object
+      description: |
+        A row in the merged runnables listing. `type` is the discriminator;
+        kind-specific fields (hash/language/kind for scripts, execution_mode/
+        version for apps) are present only for that kind. `edited_at` is the
+        unified last-updated time (a script's created_at, a flow/app's edit
+        time).
+      properties:
+        type:
+          type: string
+          enum:
+            - script
+            - flow
+            - app
+        path:
+          type: string
+        summary:
+          type: string
+        workspace_id:
+          type: string
+        extra_perms:
+          type: object
+          additionalProperties:
+            type: boolean
+        starred:
+          type: boolean
+        archived:
+          type: boolean
+        is_draft:
+          type: boolean
+        draft_only:
+          type: boolean
+          nullable: true
+        draft_path:
+          type: string
+        draft_users:
+          type: array
+          items:
+            type: object
+        labels:
+          type: array
+          items:
+            type: string
+        inherited_labels:
+          type: array
+          items:
+            type: string
+        ws_error_handler_muted:
+          type: boolean
+        edited_at:
+          type: string
+          format: date-time
+        hash:
+          type: string
+          description: script version hash as a 16-char hex string
+        language:
+          type: string
+        kind:
+          type: string
+        auto_kind:
+          type: string
+        use_codebase:
+          type: boolean
+        has_deploy_errors:
+          type: boolean
+        raw_app:
+          type: boolean
+        execution_mode:
+          type: string
+        id:
+          type: integer
+          format: int64
+        version:
+          type: integer
+          format: int64
+      required:
+        - type
+        - path
+
     Script:
       type: object
       properties:
@@ -23978,6 +26096,9 @@ components:
           type: boolean
         on_behalf_of_email:
           type: string
+        on_behalf_of:
+          type: string
+          description: "Authorization identity the runnable runs as: u/{username}, g/{group}, or a bare email when the username is itself email-shaped. The only stored half of the identity; on_behalf_of_email is derived from it."
         modules:
           type: object
           nullable: true
@@ -24099,9 +26220,12 @@ components:
           type: boolean
         on_behalf_of_email:
           type: string
+        on_behalf_of:
+          type: string
+          description: "Authorization identity to run as: u/{username}, g/{group}, or a bare email when the username is itself email-shaped. Supply this or on_behalf_of_email; when only the address is given it is resolved to the account it names, and an address naming nobody is rejected. A pair that disagrees is rejected."
         preserve_on_behalf_of:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email value instead of overwriting it."
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email / on_behalf_of pair instead of overwriting it with the caller's own identity."
         assets:
           type: array
           items:
@@ -24312,6 +26436,8 @@ components:
           type: boolean
         is_retry:
           type: boolean
+        trigger_kind:
+          $ref: "#/components/schemas/JobTriggerKind"
         worker:
           type: string
       required:
@@ -24434,6 +26560,27 @@ components:
           type: boolean
         is_retry:
           type: boolean
+        resolved:
+          type: boolean
+          description: whether this failure has been marked as handled
+        resolved_by:
+          type: string
+          description: >-
+            who resolved the failure. Enterprise-only, so also absent for a manual resolution
+            outside enterprise; use resolved_automatically to tell the two apart
+        resolved_at:
+          type: string
+          format: date-time
+        resolution_note:
+          type: string
+        resolved_automatically:
+          type: boolean
+          description: >-
+            true when a succeeding retry resolved this rather than a person. Explicit rather
+            than inferred from an absent resolved_by, which is also absent for a manual
+            resolution outside enterprise
+        trigger_kind:
+          $ref: "#/components/schemas/JobTriggerKind"
         worker:
           type: string
       required:
@@ -25596,6 +27743,7 @@ components:
           rlang,
           duckdb,
           bunnative,
+          dbt,
           # for related places search: ADD_NEW_LANG
         ]
 
@@ -26061,6 +28209,7 @@ components:
         - slack
         - teams
         - email
+        - instance_alerts
 
     NewSchedule:
       type: object
@@ -26281,6 +28430,7 @@ components:
         - kafka
         - nats
         - mqtt
+        - amqp
         - sqs
         - gcp
         - azure
@@ -26289,6 +28439,7 @@ components:
         - asset
         - freshness
         - app
+        - ui
 
     TriggerMode:
       description: job trigger mode
@@ -26784,6 +28935,8 @@ components:
         nats_count:
           type: number
         mqtt_count:
+          type: number
+        amqp_count:
           type: number
         gcp_count:
           type: number
@@ -27301,6 +29454,183 @@ components:
         - subscribe_topics
         - mqtt_resource_path
 
+    AmqpExchange:
+      type: object
+      properties:
+        exchange_name:
+          type: string
+          description: Name of the exchange to bind the consumed queue to
+        routing_keys:
+          type: array
+          items:
+            type: string
+          description: Routing keys used to bind the queue to the exchange
+      required:
+        - exchange_name
+
+    AmqpOptions:
+      type: object
+      properties:
+        declare_queue:
+          type: boolean
+          description: Declare the queue (durable) before consuming; when false the queue is declared passively and must already exist
+        prefetch_count:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 65535
+          description: Maximum number of unacknowledged messages the broker delivers at once (1-65535)
+
+    AmqpTrigger:
+      allOf:
+        - $ref: "#/components/schemas/TriggerExtraProperty"
+      type: object
+      properties:
+        amqp_resource_path:
+          type: string
+          description: Path to the AMQP resource containing broker connection configuration
+        queue_name:
+          type: string
+          description: Name of the queue to consume messages from
+        exchange:
+          $ref: "#/components/schemas/AmqpExchange"
+          nullable: true
+          description: Optional exchange binding for the consumed queue
+        options:
+          $ref: "#/components/schemas/AmqpOptions"
+          nullable: true
+          description: Optional consumer options (queue declaration, prefetch)
+        server_id:
+          type: string
+          description: ID of the server currently handling this trigger (internal)
+        last_server_ping:
+          type: string
+          format: date-time
+          description: Timestamp of last server heartbeat (internal)
+        error:
+          type: string
+          description: Last error message if the trigger failed
+        error_handler_path:
+          type: string
+          description: Path to a script or flow to run when the triggered job fails
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+          description: Arguments to pass to the error handler
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: Retry configuration for failed executions
+      required:
+        - amqp_resource_path
+        - queue_name
+
+    NewAmqpTrigger:
+      type: object
+      properties:
+        amqp_resource_path:
+          type: string
+          description: Path to the AMQP resource containing broker connection configuration
+        queue_name:
+          type: string
+          description: Name of the queue to consume messages from
+        exchange:
+          nullable: true
+          $ref: "#/components/schemas/AmqpExchange"
+          description: Optional exchange binding for the consumed queue
+        options:
+          nullable: true
+          $ref: "#/components/schemas/AmqpOptions"
+          description: Optional consumer options (queue declaration, prefetch)
+        path:
+          type: string
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`.
+        script_path:
+          type: string
+          description: Path to the script or flow to execute when a message is received
+        is_flow:
+          type: boolean
+          description: True if script_path points to a flow, false if it points to a script
+        mode:
+          $ref: "#/components/schemas/TriggerMode"
+        error_handler_path:
+          type: string
+          description: Path to a script or flow to run when the triggered job fails
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+          description: Arguments to pass to the error handler
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: Retry configuration for failed executions
+        permissioned_as:
+          type: string
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
+          type: boolean
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
+      required:
+        - path
+        - script_path
+        - is_flow
+        - amqp_resource_path
+        - queue_name
+
+    EditAmqpTrigger:
+      type: object
+      properties:
+        amqp_resource_path:
+          type: string
+          description: Path to the AMQP resource containing broker connection configuration
+        queue_name:
+          type: string
+          description: Name of the queue to consume messages from
+        exchange:
+          nullable: true
+          $ref: "#/components/schemas/AmqpExchange"
+          description: Optional exchange binding for the consumed queue
+        options:
+          nullable: true
+          $ref: "#/components/schemas/AmqpOptions"
+          description: Optional consumer options (queue declaration, prefetch)
+        path:
+          type: string
+          description: The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`.
+        script_path:
+          type: string
+          description: Path to the script or flow to execute when a message is received
+        is_flow:
+          type: boolean
+          description: True if script_path points to a flow, false if it points to a script
+        mode:
+          $ref: "#/components/schemas/TriggerMode"
+        error_handler_path:
+          type: string
+          description: Path to a script or flow to run when the triggered job fails
+        error_handler_args:
+          $ref: "#/components/schemas/ScriptArgs"
+          description: Arguments to pass to the error handler
+        retry:
+          $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
+          description: Retry configuration for failed executions
+        permissioned_as:
+          type: string
+          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+        preserve_permissioned_as:
+          type: boolean
+          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+        labels:
+          type: array
+          items:
+            type: string
+      required:
+        - path
+        - script_path
+        - is_flow
+        - amqp_resource_path
+        - queue_name
+
     DeliveryType:
       type: string
       enum:
@@ -27702,6 +30032,10 @@ components:
           $ref: "#/components/schemas/LoggedWizardStatus"
         grant_permissions:
           $ref: "#/components/schemas/LoggedWizardStatus"
+        replication_user:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+        replication_user_error:
+          type: string
 
     CustomInstanceDbTag:
       type: string
@@ -28809,6 +31143,10 @@ components:
           type: string
         color:
           type: string
+        error_handler_fallback_to_instance_alerts:
+          type: boolean
+          default: false
+          description: Report failed jobs to the instance critical alert channels when no workspace error handler is set. Not available on cloud or on fork workspaces.
       required:
         - id
         - name
@@ -28876,6 +31214,15 @@ components:
         parent_workspace_id:
           type: string
           nullable: true
+        deleted:
+          type: boolean
+          description: "Archived (soft-deleted) workspace"
+        is_dev_workspace:
+          type: boolean
+        dev_workspace_label:
+          type: string
+          nullable: true
+          description: "Cosmetic display label of the dev workspace ('dev' | 'staging'); null defaults to 'dev'"
       required:
         - id
         - name
@@ -29047,6 +31394,9 @@ components:
           type: boolean
         on_behalf_of_email:
           type: string
+        on_behalf_of:
+          type: string
+          description: "Authorization identity the runnable runs as: u/{username}, g/{group}, or a bare email when the username is itself email-shaped. The only stored half of the identity; on_behalf_of_email is derived from it."
         labels:
           type: array
           items:
@@ -29088,9 +31438,12 @@ components:
               type: boolean
             on_behalf_of_email:
               type: string
+            on_behalf_of:
+              type: string
+              description: "Authorization identity to run as: u/{username}, g/{group}, or a bare email when the username is itself email-shaped. Supply this or on_behalf_of_email; when only the address is given it is resolved to the account it names, and an address naming nobody is rejected. A pair that disagrees is rejected."
             preserve_on_behalf_of:
               type: boolean
-              description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email value instead of overwriting it."
+              description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email / on_behalf_of pair instead of overwriting it with the caller's own identity."
             labels:
               type: array
               items:
@@ -29121,9 +31474,12 @@ components:
               type: boolean
             on_behalf_of_email:
               type: string
+            on_behalf_of:
+              type: string
+              description: "Authorization identity to run as: u/{username}, g/{group}, or a bare email when the username is itself email-shaped. Supply this or on_behalf_of_email; when only the address is given it is resolved to the account it names, and an address naming nobody is rejected. A pair that disagrees is rejected."
             preserve_on_behalf_of:
               type: boolean
-              description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email value instead of overwriting it."
+              description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email / on_behalf_of pair instead of overwriting it with the caller's own identity."
             labels:
               type: array
               items:
@@ -29218,6 +31574,20 @@ components:
             is isolated from each viewer's Windmill session. When false/absent
             the app runs same-origin with the viewer's full session (the
             default, pre-isolation behavior).
+        frontend_sdk_scopes:
+          type: array
+          items:
+            type: string
+          description: >
+            Raw apps: author-declared scopes for the frontend SDK token. Takes
+            effect only when `sandbox` is also true — an unsandboxed bundle runs
+            with the viewer's own session, so no token is advertised or minted
+            for it and this list stays inert. On a sandboxed app a non-empty
+            list lets viewers mint (after consenting) a short-lived token
+            carrying their own identity restricted to these scopes, handed to
+            the app bundle so `windmill-client` calls run as the viewer. Must
+            be a subset of the server's curated allowlist (jobs:run, jobs:read,
+            users:read, resources:read, variables:read).
 
     ListableApp:
       type: object
@@ -29443,7 +31813,13 @@ components:
         token:
           type: string
           nullable: true
-          description: Narrowly-scoped embed token for the iframe. Absent for fully anonymous or raw apps, which load without a scoped token.
+          description: >
+            Scoped token for the app. For sandboxed low-code apps this is the
+            embed token handed to the opaque iframe. For a raw app it is the
+            viewer-scoped frontend SDK token, returned only when the app is
+            sandboxed, its policy declares frontend_sdk_scopes, and the request
+            carries sdk_consent=true. Absent for anonymous viewers and whenever
+            no token is needed.
         expiration:
           type: string
           format: date-time
@@ -29451,7 +31827,11 @@ components:
           description: Expiration of the embed token.
         raw_app:
           type: boolean
-          description: Raw apps render single-iframe and skip the opaque-viewer indirection and the embed token entirely.
+          description: >
+            Raw apps render single-iframe and skip the opaque-viewer
+            indirection and the embed token entirely. A sandboxed one may still
+            carry a token here: the viewer-scoped frontend SDK token, which is
+            a different credential from the low-code embed token.
         sandbox:
           type: boolean
           description: Publisher opted this app into sandbox isolation. When false the viewer runs the app same-origin with its full session.
@@ -29463,6 +31843,22 @@ components:
           type: string
           nullable: true
           description: The resolved workspace; pairs with app_path so apps at the same path in different workspaces don't share a localStorage store.
+        sdk_scopes:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: >
+            Sandboxed raw apps: scopes the app policy declares for the frontend
+            SDK token. Null when the app is unsandboxed, however the policy
+            reads. The viewer renders these in the permission prompt; token
+            stays absent until the endpoint is re-called with sdk_consent=true.
+        viewer_email:
+          type: string
+          nullable: true
+          description: >
+            The caller's own email, returned alongside sdk_scopes so the viewer
+            can key its stored "do not ask again" per person.
       required:
         - raw_app
         - sandbox
@@ -29529,6 +31925,35 @@ components:
           type: string
       required:
         - region_name
+
+    DbtWarehouses:
+      type: object
+      description: >-
+        Warehouses a dbt project may run against, by name. `main` is the one a
+        project gets when its descriptor names none. Each entry points at a
+        resource; it never holds credentials.
+      additionalProperties:
+        type: object
+        properties:
+          resource_path:
+            type: string
+          target:
+            type: string
+        required:
+          - resource_path
+
+    DbtWarehouseConnection:
+      type: object
+      properties:
+        value:
+          description: the resolved resource, rendered into profiles.yml
+        target:
+          type: string
+        resource_type:
+          type: string
+          description: decides whether the value is translated into a profiles.yml target or already is one
+      required:
+        - value
 
     LargeFileStorage:
       type: object
@@ -29813,6 +32238,34 @@ components:
       required:
         - s3
 
+    StorageFolder:
+      type: object
+      properties:
+        prefix:
+          type: string
+          description: Full key prefix of the folder, ending with '/'
+        name:
+          type: string
+          description: Last path segment, without the trailing '/'
+      required:
+        - prefix
+        - name
+
+    StorageFile:
+      type: object
+      properties:
+        key:
+          type: string
+        name:
+          type: string
+        size:
+          type: integer
+        last_modified:
+          type: string
+      required:
+        - key
+        - name
+
     WindmillFileMetadata:
       type: object
       properties:
@@ -29999,6 +32452,8 @@ components:
           type: integer
           format: int64
         webhook_secret:
+          type: string
+        webhook_url:
           type: string
         webhook_error:
           type: string
@@ -30259,6 +32714,7 @@ components:
           postgres,
           sqs,
           mqtt,
+          amqp,
           gcp,
           azure,
           email,
@@ -30376,6 +32832,10 @@ components:
         hidden_behind:
           $ref: "#/components/schemas/HiddenItemsSummary"
           description: Behind items excluded from `diffs` because they are not visible to the caller
+        full_scan_at:
+          type: string
+          format: date-time
+          description: For a pair outside the fork lineage, when its candidate set was last seeded by an explicit full scan. Absent when the pair has never been scanned (an empty `diffs` then says nothing about whether the workspaces agree) or when the pair is a lineage pair, which the tally keeps current.
 
     HiddenItemsSummary:
       type: object
@@ -30441,6 +32901,7 @@ components:
               "nats_trigger",
               "postgres_trigger",
               "mqtt_trigger",
+              "amqp_trigger",
               "sqs_trigger",
               "gcp_trigger",
               "azure_trigger",
@@ -30465,6 +32926,32 @@ components:
         exists_in_fork:
           type: boolean
           description: If the item exists in the fork workspace
+        fork_last_event_kind:
+          $ref: "#/components/schemas/DeployEventKind"
+        fork_last_event_origin:
+          $ref: "#/components/schemas/DeployEventOrigin"
+        source_last_event_kind:
+          $ref: "#/components/schemas/DeployEventKind"
+        source_last_event_origin:
+          $ref: "#/components/schemas/DeployEventOrigin"
+
+    DeployEventKind:
+      type: string
+      enum: ["write", "delete", "rename_from"]
+      description: |
+        What a deploy event did to the path it is recorded against: `write` (the path holds an item
+        after the event), `delete` (it does not), or `rename_from` (the path was vacated by a rename
+        to another path). Create and update are not distinguished. Omitted when no such event has
+        been recorded for that side, which counts as no evidence.
+
+    DeployEventOrigin:
+      type: string
+      enum: ["authored", "sync"]
+      description: |
+        Who caused a deploy event: `authored` (written in that workspace by the requester) or `sync`
+        (applied there by a git-sync pull or a workspace-to-workspace deploy). Only an authored
+        removal is evidence that the workspace dropped the item on purpose. Omitted when no such
+        event has been recorded for that side.
 
     CompareSummary:
       type: object
@@ -30685,6 +33172,26 @@ components:
         - ducklake
         - datatable
         - volume
+        - dbt
+    AssetProgress:
+      type: object
+      required: [asset_kind, asset_path, status]
+      properties:
+        asset_kind:
+          $ref: "#/components/schemas/AssetKind"
+        asset_path:
+          type: string
+        status:
+          type: string
+          enum: [running, materialized, failed]
+        row_count:
+          type: integer
+          format: int64
+          nullable: true
+        error:
+          type: string
+          nullable: true
+
     MaterializedPartition:
       type: object
       required: [asset_kind, asset_path, partition, status, materialized_at]
@@ -30773,6 +33280,33 @@ components:
         kind:
           $ref: "#/components/schemas/AssetKind"
       required: [path, kind]
+    DataMetric:
+      description: |
+        One `// measure` or `// dimension` declaration, as catalogued from the
+        script that materializes the table. `expr` and `filter` are the author's
+        own SQL: a reader renders a measure as `expr` plus, when `filter` is set,
+        a trailing `FILTER (WHERE filter)`.
+      type: object
+      required: [script_path, table_path, kind, name, expr]
+      properties:
+        script_path:
+          type: string
+          description: The declaring script, and the path reads are authorized against
+        table_path:
+          type: string
+          description: Canonical scheme-less DuckLake path, `<lake>/<schema>.<table>` (schema defaults to `main`)
+        kind:
+          type: string
+          enum:
+            - measure
+            - dimension
+        name:
+          type: string
+        expr:
+          type: string
+        filter:
+          type: string
+          description: Row predicate from a measure's trailing `where`
     ContractWarning:
       description: |
         One save-time schema-contract warning: a consumer reference that does
@@ -30789,6 +33323,9 @@ components:
             - missing_lineage_source
             - missing_relationship_column
             - relationship_type_mismatch
+            - missing_measure_column
+            - missing_dimension_column
+            - non_aggregate_measure
             - suppressed
         asset_path:
           type: string
@@ -31062,8 +33599,17 @@ components:
           description: Short summary to be displayed when listed
         external_data:
           type: object
-          description: Configuration data from the external service
+          nullable: true
+          description: >-
+            Configuration data from the external service. Null when the service has no
+            such API, or when it could not be read — see external_error.
           additionalProperties: true
+        external_error:
+          type: string
+          nullable: true
+          description: >-
+            Why the external service configuration could not be read. When set,
+            external_data is null and the configuration Windmill stored is returned instead.
       required:
         - external_id
         - workspace_id
@@ -31281,3 +33827,290 @@ components:
         - name
         - owner
         - private
+
+    HubProjectSlug:
+      type: string
+      description: hub project slug (3-50 chars, lowercase alphanumeric and hyphens, no leading/trailing hyphen)
+      minLength: 3
+      maxLength: 50
+      pattern: "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
+
+    PublishDraftBody:
+      type: object
+      properties:
+        slug:
+          $ref: "#/components/schemas/HubProjectSlug"
+        name:
+          type: string
+        summary:
+          type: string
+        readme:
+          type: string
+      required:
+        - slug
+        - name
+        - summary
+
+    PublishScriptBody:
+      type: object
+      properties:
+        summary:
+          type: string
+        app:
+          type: string
+        description:
+          type: string
+        kind:
+          type: string
+        content:
+          type: string
+        language:
+          type: string
+        schema:
+          type: object
+        lockfile:
+          type: string
+        path:
+          type: string
+        source_path:
+          type: string
+        project_slug:
+          $ref: "#/components/schemas/HubProjectSlug"
+      required:
+        - summary
+        - app
+        - content
+        - language
+        - project_slug
+
+    PublishFlowInner:
+      type: object
+      properties:
+        summary:
+          type: string
+        description:
+          type: string
+        value:
+          type: object
+        schema:
+          type: object
+      required:
+        - summary
+        - value
+
+    PublishFlowBody:
+      type: object
+      properties:
+        flow:
+          $ref: "#/components/schemas/PublishFlowInner"
+        apps:
+          type: array
+          items:
+            type: string
+        path:
+          type: string
+        source_path:
+          type: string
+        project_slug:
+          $ref: "#/components/schemas/HubProjectSlug"
+      required:
+        - flow
+        - apps
+        - project_slug
+
+    PublishAppBody:
+      type: object
+      properties:
+        app:
+          type: object
+        apps:
+          type: array
+          items:
+            type: string
+        description:
+          type: string
+        summary:
+          type: string
+        path:
+          type: string
+        source_path:
+          type: string
+        project_slug:
+          $ref: "#/components/schemas/HubProjectSlug"
+      required:
+        - app
+        - apps
+        - summary
+        - project_slug
+
+    PublishRawAppBody:
+      type: object
+      properties:
+        raw:
+          type: string
+        apps:
+          type: array
+          items:
+            type: string
+        description:
+          type: string
+        summary:
+          type: string
+        path:
+          type: string
+        source_path:
+          type: string
+        project_slug:
+          $ref: "#/components/schemas/HubProjectSlug"
+      required:
+        - raw
+        - apps
+        - summary
+        - project_slug
+
+    RecordingBody:
+      type: object
+      properties:
+        recording:
+          type: object
+        project_slug:
+          $ref: "#/components/schemas/HubProjectSlug"
+      required:
+        - project_slug
+
+    PipelineRecordingBody:
+      type: object
+      properties:
+        recording:
+          type: object
+
+    ProjectLogoBody:
+      type: object
+      properties:
+        logo:
+          description: the logo to set, or null to clear the project's current logo
+          nullable: true
+          type: object
+          properties:
+            b64:
+              description: base64-encoded image bytes (decoded size max 512KB)
+              type: string
+            mime:
+              type: string
+              enum: [image/png, image/svg+xml]
+          required:
+            - b64
+            - mime
+      required:
+        - logo
+
+    PublishResourceTypeBody:
+      type: object
+      properties:
+        name:
+          type: string
+        schema:
+          type: object
+        description:
+          type: string
+        project_slug:
+          $ref: "#/components/schemas/HubProjectSlug"
+      required:
+        - name
+        - project_slug
+
+    PublishResourceBody:
+      type: object
+      properties:
+        path:
+          type: string
+        resource_type:
+          type: string
+      required:
+        - path
+        - resource_type
+
+    PublishResourcesBody:
+      type: object
+      properties:
+        resources:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublishResourceBody"
+        project_slug:
+          $ref: "#/components/schemas/HubProjectSlug"
+      required:
+        - resources
+        - project_slug
+
+    PublishTriggerBody:
+      type: object
+      properties:
+        path:
+          type: string
+        kind:
+          type: string
+        summary:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        config:
+          type: object
+        script_ask_id:
+          type: integer
+          format: int64
+          nullable: true
+        flow_id:
+          type: integer
+          format: int64
+          nullable: true
+      required:
+        - path
+        - kind
+        - config
+
+    PublishTriggersBody:
+      type: object
+      properties:
+        triggers:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublishTriggerBody"
+        project_slug:
+          $ref: "#/components/schemas/HubProjectSlug"
+      required:
+        - triggers
+        - project_slug
+
+    PublishMigrationBody:
+      type: object
+      description: one best-effort data table migration attached to a project (per data table)
+      properties:
+        datatable_name:
+          type: string
+        sql:
+          type: string
+        sql_down:
+          type: string
+          description: defaults to an empty string when omitted
+        enabled:
+          type: boolean
+      required:
+        - datatable_name
+        - sql
+        - enabled
+
+    PublishMigrationsBody:
+      type: object
+      properties:
+        migrations:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublishMigrationBody"
+        project_slug:
+          $ref: "#/components/schemas/HubProjectSlug"
+      required:
+        - migrations
+        - project_slug

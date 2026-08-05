@@ -36,7 +36,7 @@ mod native_retry {
             script_lang: Some(ScriptLang::Deno),
             permissioned_as_email: "test@windmill.dev".to_string(),
             flow_step_id: None,
-            trigger_kind: Some(JobTriggerKind::Schedule),
+            trigger_kind: Some(JobTriggerKind::Schedule.into()),
             trigger: Some(SCHED.to_string()),
             priority: None,
             concurrent_limit: None,
@@ -372,5 +372,158 @@ mod native_retry {
             status[&f], false,
             "WAC inline child success must NOT count as a recovery"
         );
+    }
+
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn succeeding_retry_resolves_the_attempts_it_superseded(db: Pool<Postgres>) {
+        // a: root fails, its marked retry succeeds -> both resolve, status stays 'failure'
+        // a_sibling: an unmarked child of the SAME root that failed on its own (a WAC
+        //   inline job or an SDK-launched child) -> must stay unresolved. `root` is
+        //   `parent_job.unwrap_or(id)`, so sharing a parent proves nothing about chain
+        //   membership; resolving this would hide an unhandled failure.
+        // b: an unrelated failure -> must stay unresolved
+        // f: root fails, an unmarked child succeeds -> must not trigger any resolution
+        let (a, a_retry, a_sibling, b, f, f_child) = (
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+        );
+        seed_job(&db, a, None, false, "failure").await;
+        seed_job(&db, a_retry, Some(a), true, "failure").await;
+        seed_job(&db, a_sibling, Some(a), false, "failure").await;
+        seed_job(&db, b, None, false, "failure").await;
+        seed_job(&db, f, None, false, "failure").await;
+        seed_job(&db, f_child, Some(f), false, "success").await;
+
+        // A human resolved the first attempt already: the automatic pass must not
+        // overwrite their note.
+        sqlx::query("INSERT INTO job_resolution (job_id, workspace_id, resolved_by, note) VALUES ($1, $2, 'ruben', 'flaky upstream')")
+            .bind(a)
+            .bind(WS)
+            .execute(&db)
+            .await
+            .unwrap();
+
+        let succeeded = Uuid::new_v4();
+        seed_job(&db, succeeded, Some(a), true, "success").await;
+        windmill_queue::jobs::resolve_retry_chain_if_succeeded(&db, a, WS, None)
+            .await
+            .unwrap();
+        // The unmarked child must not be able to resolve its own chain.
+        windmill_queue::jobs::resolve_retry_chain_if_succeeded(&db, f, WS, None)
+            .await
+            .unwrap();
+
+        let resolutions = sqlx::query_as::<_, (Uuid, Option<String>, Option<String>)>(
+            "SELECT job_id, resolved_by, note FROM job_resolution WHERE workspace_id = $1",
+        )
+        .bind(WS)
+        .fetch_all(&db)
+        .await
+        .unwrap();
+        let by_id: std::collections::HashMap<_, _> = resolutions
+            .into_iter()
+            .map(|(id, by, note)| (id, (by, note)))
+            .collect();
+
+        assert_eq!(
+            by_id.get(&a),
+            Some(&(
+                Some("ruben".to_string()),
+                Some("flaky upstream".to_string())
+            )),
+            "an existing human resolution must survive the automatic pass"
+        );
+        assert_eq!(
+            by_id.get(&a_retry),
+            Some(&(None, None)),
+            "the superseded attempt resolves with no attribution"
+        );
+        let auto: bool =
+            sqlx::query_scalar("SELECT automatic FROM job_resolution WHERE job_id = $1")
+                .bind(a_retry)
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        assert!(
+            auto,
+            "automatic must be set explicitly: a manual CE resolution also has resolved_by NULL"
+        );
+        assert!(
+            !by_id.contains_key(&a_sibling),
+            "an unmarked failed child sharing the root is not part of the chain"
+        );
+        assert!(
+            !by_id.contains_key(&b),
+            "an unrelated failure must not be resolved"
+        );
+        assert!(
+            !by_id.contains_key(&f),
+            "an unmarked child succeeding must not resolve its parent"
+        );
+
+        // A retry is enqueued before its predecessor's failure row is committed, so with a
+        // zero delay the success can land first and the success-side sweep finds nothing.
+        // The failure-side call must then close the chain: seed the success first, resolve
+        // (nothing to do yet), then make the failure visible and resolve again.
+        let (h, h_attempt) = (Uuid::new_v4(), Uuid::new_v4());
+        seed_job(&db, h_attempt, Some(h), true, "success").await;
+        windmill_queue::jobs::resolve_retry_chain_if_succeeded(&db, h, WS, None)
+            .await
+            .unwrap();
+        let h_early: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM job_resolution WHERE job_id = $1")
+                .bind(h)
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        assert_eq!(
+            h_early, 0,
+            "nothing to resolve while the failure is not visible"
+        );
+        seed_job(&db, h, None, false, "failure").await;
+        windmill_queue::jobs::resolve_retry_chain_if_succeeded(&db, h, WS, None)
+            .await
+            .unwrap();
+        let h_resolved: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM job_resolution WHERE job_id = $1")
+                .bind(h)
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        assert_eq!(
+            h_resolved, 1,
+            "a retry that succeeded before its predecessor's failure was visible must still \
+             resolve it once that failure commits"
+        );
+
+        // The helper trusts nothing of its caller: a chain whose attempts all failed
+        // resolves nothing.
+        let (g, g_attempt) = (Uuid::new_v4(), Uuid::new_v4());
+        seed_job(&db, g, None, false, "failure").await;
+        seed_job(&db, g_attempt, Some(g), true, "failure").await;
+        windmill_queue::jobs::resolve_retry_chain_if_succeeded(&db, g, WS, None)
+            .await
+            .unwrap();
+        let g_resolved: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM job_resolution WHERE job_id IN ($1, $2)")
+                .bind(g)
+                .bind(g_attempt)
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        assert_eq!(g_resolved, 0, "a failed attempt must not resolve its chain");
+
+        // Resolution is orthogonal: the run is still recorded as a failure.
+        let status: String =
+            sqlx::query_scalar("SELECT status::text FROM v2_job_completed WHERE id = $1")
+                .bind(a_retry)
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        assert_eq!(status, "failure", "resolving must not change job status");
     }
 }

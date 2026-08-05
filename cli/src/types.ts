@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { sep as SEP } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 import { yamlParseContent } from "./utils/yaml.ts";
+import { isDbtDescriptorPath } from "./utils/resource_folders.ts";
 import { pushApp } from "./commands/app/app.ts";
 import { pushFolder } from "./commands/folder/folder.ts";
 import { pushFlow } from "./commands/flow/flow.ts";
@@ -63,6 +64,7 @@ export const TRIGGER_TYPES = [
   "nats",
   "postgres",
   "mqtt",
+  "amqp",
   "sqs",
   "gcp",
   "azure",
@@ -173,6 +175,21 @@ function redactString(s: string): string {
   return s.slice(0, 5) + "*".repeat(s.length - 5);
 }
 
+export interface PushObjOptions {
+  /** Optional commit/update message */
+  message?: string;
+  /** The original local file path (used for branch-specific resource file resolution) */
+  originalLocalPath?: string;
+  /** Identity to attribute the push to, for the types that carry one */
+  permissionedAsContext?: PermissionedAsContext;
+  /** Whether the item is workspace-specific */
+  wsSpecific?: boolean;
+  /** encryption_key push: non-interactive flag and explicit re-encryption choice */
+  keyPushOpts?: PushWorkspaceKeyOptions;
+  /** TypeScript runtime a bare `.ts` denotes, for raw-app runnables */
+  defaultTs?: "bun" | "deno";
+}
+
 /**
  * Pushes an object to the workspace server based on its type
  * @param workspace - The workspace ID to push to
@@ -181,9 +198,7 @@ function redactString(s: string): string {
  * @param newObj - The new object state to push
  * @param plainSecrets - Whether to store secrets in plain text
  * @param alreadySynced - Array to track already synced items
- * @param message - Optional commit/update message
- * @param originalLocalPath - The original local file path (used for branch-specific resource file resolution)
- * @param keyPushOpts - Options for the encryption_key push: non-interactive flag and explicit re-encryption choice
+ * @param opts - Per-type extras; see PushObjOptions
  */
 export async function pushObj(
   workspace: string,
@@ -192,12 +207,16 @@ export async function pushObj(
   newObj: any,
   plainSecrets: boolean,
   alreadySynced: string[],
-  message?: string,
-  originalLocalPath?: string,
-  permissionedAsContext?: PermissionedAsContext,
-  wsSpecific?: boolean,
-  keyPushOpts?: PushWorkspaceKeyOptions,
+  opts: PushObjOptions = {},
 ) {
+  const {
+    message,
+    originalLocalPath,
+    permissionedAsContext,
+    wsSpecific,
+    keyPushOpts,
+    defaultTs,
+  } = opts;
   const typeEnding = getTypeStrFromPath(p);
 
   if (typeEnding === "app") {
@@ -211,7 +230,7 @@ export async function pushObj(
     if (!rawAppName) {
       throw new Error(`Could not extract raw app name from path: ${p}`);
     }
-    await pushRawApp(workspace, rawAppName, buildFolderPath(rawAppName, "raw_app"), message);
+    await pushRawApp(workspace, rawAppName, buildFolderPath(rawAppName, "raw_app"), message, defaultTs);
   } else if (typeEnding === "folder") {
     await pushFolder(workspace, p, befObj, newObj);
   } else if (typeEnding === "variable") {
@@ -243,6 +262,8 @@ export async function pushObj(
     await pushTrigger("postgres", workspace, p, befObj, newObj, permissionedAsContext);
   } else if (typeEnding === "mqtt_trigger") {
     await pushTrigger("mqtt", workspace, p, befObj, newObj, permissionedAsContext);
+  } else if (typeEnding === "amqp_trigger") {
+    await pushTrigger("amqp", workspace, p, befObj, newObj, permissionedAsContext);
   } else if (typeEnding === "sqs_trigger") {
     await pushTrigger("sqs", workspace, p, befObj, newObj, permissionedAsContext);
   } else if (typeEnding === "gcp_trigger") {
@@ -335,6 +356,7 @@ export function getTypeStrFromPath(
   | "nats_trigger"
   | "postgres_trigger"
   | "mqtt_trigger"
+  | "amqp_trigger"
   | "sqs_trigger"
   | "gcp_trigger"
   | "azure_trigger"
@@ -384,7 +406,11 @@ export function getTypeStrFromPath(
     parsed.ext == ".rb" ||
     parsed.ext == ".r" ||
     // for related places search: ADD_NEW_LANG
-    (parsed.ext == ".yml" && parsed.name.split(".").pop() == "playbook")
+    (parsed.ext == ".yml" && parsed.name.split(".").pop() == "playbook") ||
+    // A dbt descriptor is `<project>__dbt/wm_dbt.yaml`. Without this it reads
+    // as one of the CLI's own `.yaml` metadata files and a pull writes the
+    // script's metadata and lock but never its content.
+    isDbtDescriptorPath(p)
   ) {
     return "script";
   }
@@ -419,6 +445,7 @@ export function getTypeStrFromPath(
     typeEnding === "nats_trigger" ||
     typeEnding === "postgres_trigger" ||
     typeEnding === "mqtt_trigger" ||
+    typeEnding === "amqp_trigger" ||
     typeEnding === "sqs_trigger" ||
     typeEnding === "gcp_trigger" ||
     typeEnding === "azure_trigger" ||

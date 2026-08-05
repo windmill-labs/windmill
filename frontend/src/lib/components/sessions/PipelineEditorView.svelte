@@ -392,14 +392,13 @@
 
 <!-- Native trigger editor drawers (schedule/kafka/webhook/…), shared with the
      route page; opened imperatively from the canvas via the handlers above.
-     KNOWN LIMITATION: the whole native-trigger editor subsystem reads the global
-     `$workspaceStore` and exposes no workspace override, so trigger create/edit/
-     delete here targets the nav workspace — NOT this view's `workspaceId`.
-     SessionPicker intentionally does not switch `$workspaceStore` on activation,
-     so for a forked-workspace session these writes go to the wrong workspace.
-     Fixing it means threading a workspace override through the trigger editors. -->
+     `workspace={workspaceId}` scopes every trigger backend call to THIS
+     session's (possibly forked) workspace — a session never switches the global
+     `$workspaceStore` (SessionPicker), so without this the editors would write
+     to the nav workspace. -->
 <PipelineTriggerEditors
 	bind:this={triggerEditors}
 	mountTriggerEditors
+	workspace={workspaceId}
 	onUpdate={() => graphRes.refetch()}
 />

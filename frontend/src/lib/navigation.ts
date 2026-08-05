@@ -36,19 +36,27 @@ export function buildFilterUrl(
 	return qs ? `${pathname}?${qs}${hash}` : `${pathname}${hash}`
 }
 
+/**
+ * Set (or, with an undefined value, drop) one query param on the current page and
+ * navigate, leaving every other param untouched.
+ *
+ * The starting query must come from `window.location`, never from a URL held
+ * elsewhere — above all `page.url`, which SvelteKit refreshes only on router-driven
+ * navigations. Params written with shallow routing (a workspace switch's
+ * `?workspace=`, anything `useSearchParams` writes) never reach `page.url`, so
+ * rebuilding the query from it navigates back to their pre-write values.
+ */
 export async function setQuery(
-	url: URL,
 	key: string,
 	value: string | undefined,
 	currentHash: string | undefined = undefined
 ): Promise<void> {
+	const searchParams = new URLSearchParams(window.location.search)
 	if (value !== undefined) {
-		url.searchParams.set(key, value)
+		searchParams.set(key, value)
 	} else {
-		url.searchParams.delete(key)
+		searchParams.delete(key)
 	}
-
-	let searchParams = url.searchParams.toString()
 
 	await goto(currentHash ? `?${searchParams}${currentHash}` : `?${searchParams}`)
 }

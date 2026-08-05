@@ -15,12 +15,15 @@
 		path: string
 		noSide?: boolean
 		fillAvailableHeight?: boolean
+		/** Explicit workspace override; takes precedence over the flow-editor
+		 * `opWorkspace` context and the nav `$workspaceStore`. */
+		workspace?: string
 	}
 
-	let { path, noSide = false, fillAvailableHeight = false }: Props = $props()
+	let { path, noSide = false, fillAvailableHeight = false, workspace = undefined }: Props = $props()
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
-	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
+	let opWs = $derived(workspace ?? flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
 
 	let flow: Flow | undefined = $state(undefined)
 
@@ -44,7 +47,7 @@
 
 <div class="flex flex-col flex-1 h-full overflow-auto">
 	{#if flow}
-		<FlowGraphViewer triggerNode={true} {noSide} {flow} {fillAvailableHeight} />
+		<FlowGraphViewer triggerNode={true} {noSide} {flow} {fillAvailableHeight} workspace={opWs} />
 	{:else}
 		<Skeleton layout={[[40]]} />
 	{/if}

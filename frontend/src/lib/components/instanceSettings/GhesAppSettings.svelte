@@ -184,11 +184,15 @@
 						<strong>Homepage URL</strong>: your Windmill instance URL
 					</li>
 					<li>
-						<strong>Callback URL</strong>: <code>&lt;your-windmill-url&gt;/gh_success</code>
+						<strong>Setup URL</strong> (under "Post installation"):
+						<code>&lt;your-windmill-url&gt;/gh_success</code> with "Redirect on update" checked.
+						Required for installing the app from workspace Git sync settings — GitHub redirects
+						here after installation to link it to the workspace. Without it, installations can
+						still be linked manually from the Workspace assignments table that appears below
+						once the app details are saved.
 					</li>
 					<li>
-						<strong>Setup URL</strong> (optional):
-						<code>&lt;your-windmill-url&gt;/gh_success</code> with "Redirect on update" checked
+						<strong>Callback URL</strong>: <code>&lt;your-windmill-url&gt;/gh_success</code>
 					</li>
 					<li>Uncheck <strong>Active</strong> under Webhook (not needed)</li>
 				</ul>

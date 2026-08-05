@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE dbt_run_state SET script_path = $3 WHERE workspace_id = $1 AND script_path = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b546a7a68143a3b0de1d900e5f635b8a1e4d1ba18298ace1602defacb9e67f0c"
+}

@@ -149,9 +149,10 @@ use crate::{
     pwsh_executor::handle_powershell_job,
     result_processor::{handle_job_error, process_result, start_background_processor},
     schema::schema_validator_from_main_arg_sig,
-    worker_flow::{handle_flow, SchedulePushZombieError},
+    worker_flow::handle_flow,
     worker_lockfiles::{
         handle_app_dependency_job, handle_dependency_job, handle_flow_dependency_job,
+        tally_unfinished_dependency_deploy,
     },
     worker_utils::{insert_ping, queue_vacuum, update_worker_ping_full},
 };
@@ -194,13 +195,13 @@ use crate::oracledb_executor::do_oracledb;
 #[cfg(all(feature = "private", feature = "enterprise"))]
 use crate::dedicated_worker_oss::create_dedicated_worker_map;
 
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "snowflake")]
 use crate::snowflake_executor::do_snowflake;
 
 #[cfg(all(feature = "enterprise", feature = "mssql"))]
 use crate::mssql_executor::do_mssql;
 
-#[cfg(all(feature = "enterprise", feature = "bigquery"))]
+#[cfg(feature = "bigquery")]
 use crate::bigquery_executor::do_bigquery;
 
 #[cfg(feature = "benchmark")]
@@ -360,6 +361,8 @@ lazy_static::lazy_static! {
         std::env::var("NSJAIL_PY_RLIMIT_AS_MB").ok();
     pub static ref NSJAIL_ANSIBLE_RLIMIT_AS_MB: Option<String> =
         std::env::var("NSJAIL_ANSIBLE_RLIMIT_AS_MB").ok();
+    pub static ref NSJAIL_DBT_RLIMIT_AS_MB: Option<String> =
+        std::env::var("NSJAIL_DBT_RLIMIT_AS_MB").ok();
 
     // pub static ref DISABLE_NSJAIL: bool = false;
     pub static ref DISABLE_NSJAIL: bool = std::env::var("DISABLE_NSJAIL")
@@ -1575,7 +1578,7 @@ pub fn create_span_with_name(
         span.record("hostname", hostname);
     }
     if let Some(trigger_kind) = arc_job.trigger_kind.as_ref() {
-        span.record("trigger_kind", trigger_kind.to_string().as_str());
+        span.record("trigger_kind", trigger_kind.as_str());
     }
     if let Some(trigger) = arc_job.trigger.as_ref() {
         span.record("trigger", trigger.as_str());
@@ -1602,7 +1605,7 @@ const STATUS_DESCRIPTION_MAX_LEN: usize = 512;
 #[derive(Debug)]
 pub enum JobOutcome {
     /// Job ran cleanly, was forwarded as a flow, was a no-op (test workspace),
-    /// or was suspended waiting for child jobs (WAC v2 / schedule zombie).
+    /// or was suspended waiting for child jobs (WAC v2).
     /// All of these leave the span `Status` `Unset`.
     Completed,
     /// Job was attempted but its execution returned an error; the failure has
@@ -1685,7 +1688,7 @@ pub fn log_context_for_job(
         flow_step_id: arc_job.flow_step_id.clone(),
         parent_job: arc_job.parent_job.map(|id| id.to_string()),
         root_job: arc_job.flow_innermost_root_job.map(|id| id.to_string()),
-        trigger_kind: arc_job.trigger_kind.as_ref().map(|k| k.to_string()),
+        trigger_kind: arc_job.trigger_kind.as_ref().map(|k| k.as_str().to_string()),
         trigger: arc_job.trigger.clone(),
         hostname: hostname.map(|h| h.to_string()),
         inbound_traceparent: job_inbound_traceparent(arc_job),
@@ -2349,6 +2352,27 @@ pub async fn run_worker(
         );
     }
 
+    // Dedicated workers wait for the init script before installing their dependencies, so it has to
+    // be queued before they are spawned.
+    if i_worker == 1 {
+        // Initialize runtime asset inserter for batched database inserts
+        if let Connection::Sql(db) = conn {
+            init_runtime_asset_loop(db.clone(), killpill_rx.resubscribe());
+        }
+        if let Err(e) = queue_init_bash_maybe(conn, same_worker_tx.clone(), &worker_name).await {
+            resolve_init_script(InitScriptState::Aborted);
+            killpill_tx.send();
+            tracing::error!(worker = %worker_name, hostname = %hostname, "Error queuing init bash script for worker {worker_name}: {e:#}");
+            return;
+        }
+        spawn_periodic_script_task(
+            worker_name.clone(),
+            conn.clone(),
+            same_worker_tx.clone(),
+            killpill_rx.resubscribe(),
+        );
+    }
+
     // (dedi_path, dedicated_worker_tx, dedicated_worker_handle)
     // Option<Sender<Arc<QueuedJob>>>,
     // Option<JoinHandle<()>>,
@@ -2378,24 +2402,6 @@ pub async fn run_worker(
         HashMap<String, Sender<DedicatedWorkerJob>>,
         Vec<JoinHandle<()>>,
     ) = (HashMap::new(), vec![]);
-
-    if i_worker == 1 {
-        // Initialize runtime asset inserter for batched database inserts
-        if let Connection::Sql(db) = conn {
-            init_runtime_asset_loop(db.clone(), killpill_rx.resubscribe());
-        }
-        if let Err(e) = queue_init_bash_maybe(conn, same_worker_tx.clone(), &worker_name).await {
-            killpill_tx.send();
-            tracing::error!(worker = %worker_name, hostname = %hostname, "Error queuing init bash script for worker {worker_name}: {e:#}");
-            return;
-        }
-        spawn_periodic_script_task(
-            worker_name.clone(),
-            conn.clone(),
-            same_worker_tx.clone(),
-            killpill_rx.resubscribe(),
-        );
-    }
 
     #[cfg(feature = "prometheus")]
     let _worker_dedicated_channel_queue_send_duration = {
@@ -3314,6 +3320,12 @@ pub async fn run_worker(
 
     tracing::info!(worker = %worker_name, hostname = %hostname, "worker {} exiting", worker_name);
 
+    // Only this worker runs the init job, so if its loop exited before doing so, nothing ever will:
+    // release whoever waits on it, otherwise joining the dedicated worker handles below hangs.
+    if i_worker == 1 {
+        resolve_init_script(InitScriptState::Aborted);
+    }
+
     #[cfg(feature = "enterprise")]
     {
         let valid_key = LICENSE_KEY_VALID.load(std::sync::atomic::Ordering::Relaxed);
@@ -3371,6 +3383,81 @@ pub async fn run_worker(
     tracing::info!(worker = %worker_name, hostname = %hostname, "number of jobs executed: {}", jobs_executed);
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum InitScriptState {
+    Pending,
+    Completed,
+    Aborted,
+}
+
+lazy_static::lazy_static! {
+    /// State of the INIT_SCRIPT job, which is the documented hook to prepare the host (CA
+    /// certificates, proxies, mounts), so anything reaching the network at startup waits on it. The
+    /// init job is executed by the main loop, which only starts once dedicated workers have been
+    /// spawned, hence a gate rather than plain ordering. Every path that gives up on running it
+    /// MUST resolve the gate, or waiters park forever and worker teardown hangs joining them.
+    static ref INIT_SCRIPT_STATE: tokio::sync::watch::Sender<InitScriptState> =
+        tokio::sync::watch::channel(InitScriptState::Pending).0;
+}
+
+/// Called with the post-processing verdict, which is the only one that accounts for `wm_failure`.
+pub(crate) fn init_script_finished(success: bool) {
+    resolve_init_script(if success {
+        InitScriptState::Completed
+    } else {
+        InitScriptState::Aborted
+    });
+}
+
+fn resolve_init_script(state: InitScriptState) {
+    INIT_SCRIPT_STATE.send_if_modified(|current| {
+        if *current == InitScriptState::Pending {
+            *current = state;
+            true
+        } else {
+            false
+        }
+    });
+}
+
+/// Returns false when the init script will never succeed (it failed, or the worker is shutting
+/// down), in which case the caller must give up instead of preparing anything.
+// Only called from the dedicated worker paths, which are gated behind the `private` feature.
+#[allow(dead_code)]
+pub(crate) async fn wait_for_init_script_completed(
+    killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
+) -> bool {
+    let mut rx = INIT_SCRIPT_STATE.subscribe();
+    let state = *rx.borrow_and_update();
+    if state != InitScriptState::Pending {
+        return state == InitScriptState::Completed;
+    }
+    tracing::info!("waiting for init script to complete before installing dependencies");
+    // recv() is cancel-safe, so losing the select does not consume the killpill the caller still
+    // needs.
+    tokio::select! {
+        _ = rx.changed() => *rx.borrow_and_update() == InitScriptState::Completed,
+        _ = killpill_rx.recv() => false,
+    }
+}
+
+#[cfg(test)]
+mod init_script_gate_tests {
+    use super::*;
+
+    // The gate is a process-global whose first resolution wins, so this must stay the only test
+    // that resolves it.
+    #[tokio::test]
+    async fn aborting_the_init_script_releases_waiters_for_good() {
+        let (_killpill_tx, mut killpill_rx) = tokio::sync::broadcast::channel(1);
+        resolve_init_script(InitScriptState::Aborted);
+        // Parking here instead would hang worker teardown on the dedicated worker handles.
+        assert!(!wait_for_init_script_completed(&mut killpill_rx).await);
+        resolve_init_script(InitScriptState::Completed);
+        assert!(!wait_for_init_script_completed(&mut killpill_rx).await);
+    }
+}
+
 async fn queue_init_bash_maybe<'c>(
     conn: &Connection,
     same_worker_tx: SameWorkerSender,
@@ -3383,6 +3470,7 @@ async fn queue_init_bash_maybe<'c>(
         };
         Some((uuid, content))
     } else {
+        resolve_init_script(InitScriptState::Completed);
         None
     };
     if let Some((uuid, content)) = uuid_content {
@@ -3819,7 +3907,7 @@ pub async fn handle_queued_job(
                 // Not a preview: fetch from the cache or the database.
                 _ => cache::job::fetch_flow(db, &job.kind, job.runnable_id).await?,
             };
-            match Box::pin(handle_flow(
+            Box::pin(handle_flow(
                 job,
                 &flow_data,
                 db,
@@ -3836,19 +3924,8 @@ pub async fn handle_queued_job(
                 false,
             ))
             .warn_after_seconds(10)
-            .await
-            {
-                Err(err) if err.downcast_ref::<SchedulePushZombieError>().is_some() => {
-                    tracing::error!(
-                        "Schedule push zombie: {err}. Leaving flow job in queue for zombie detection to restart."
-                    );
-                    Ok(JobOutcome::Completed)
-                }
-                other => {
-                    other?;
-                    Ok(JobOutcome::Completed)
-                }
-            }
+            .await?;
+            Ok(JobOutcome::Completed)
         } else {
             return Err(Error::internal_err(
                 "Could not handle flow job with agent worker".to_string(),
@@ -3903,15 +3980,16 @@ pub async fn handle_queued_job(
 
         #[cfg(not(feature = "enterprise"))]
         if let Connection::Sql(db) = conn {
-            if (job.concurrent_limit.is_some()
-                || windmill_common::runnable_settings::prefetch_cached_from_handle(
-                    job.runnable_settings_handle,
-                    db,
-                )
-                .await?
-                .1
-                .concurrent_limit
-                .is_some())
+            if (windmill_queue::jobs::has_active_concurrency_limit(job.concurrent_limit)
+                || windmill_queue::jobs::has_active_concurrency_limit(
+                    windmill_common::runnable_settings::prefetch_cached_from_handle(
+                        job.runnable_settings_handle,
+                        db,
+                    )
+                    .await?
+                    .1
+                    .concurrent_limit,
+                ))
                 && !job.kind.is_dependency()
             {
                 logs.push_str("---\n");
@@ -3968,6 +4046,9 @@ pub async fn handle_queued_job(
         } else {
             None
         };
+        // Set by the dependency handlers once they reach `handle_deployment_metadata`,
+        // so the fallback tally below never counts the same deploy twice.
+        let mut deployment_tallied = false;
         // Box::pin all async branches to prevent large match enum on stack
         let result = match job.kind {
             JobKind::Dependencies => match conn {
@@ -3985,6 +4066,7 @@ pub async fn handle_queued_job(
                         &client.token,
                         occupancy_metrics,
                         raw_workspace_dependencies_o,
+                        &mut deployment_tallied,
                     ))
                     .await
                 }
@@ -4009,6 +4091,7 @@ pub async fn handle_queued_job(
                         &client.token,
                         occupancy_metrics,
                         raw_workspace_dependencies_o,
+                        &mut deployment_tallied,
                     ))
                     .await
                 }
@@ -4031,6 +4114,7 @@ pub async fn handle_queued_job(
                     &client.token,
                     occupancy_metrics,
                     raw_workspace_dependencies_o,
+                    &mut deployment_tallied,
                 ))
                 .await
                 .map(|()| serde_json::from_str("{}").unwrap()),
@@ -4116,6 +4200,20 @@ pub async fn handle_queued_job(
                 r
             }
         };
+
+        // A lock generation that failed or was cancelled still leaves the deployed
+        // version live in the workspace, so its fork/parent change must be tallied.
+        // `AlreadyCompleted` is not such a failure — another worker owns the job.
+        if job.kind.is_dependency()
+            && (result
+                .as_ref()
+                .is_err_and(|err| !matches!(err, &Error::AlreadyCompleted(_)))
+                || canceled_by.is_some())
+        {
+            if let Connection::Sql(db) = conn {
+                tally_unfinished_dependency_deploy(db, job.as_ref(), &mut deployment_tallied).await;
+            }
+        }
 
         let cjob = MiniCompletedJob::from(job.to_owned());
         drop(job);
@@ -4919,14 +5017,6 @@ pub async fn run_language_executor(
             .await;
         }
     } else if language == Some(ScriptLang::Bigquery) {
-        #[cfg(not(feature = "enterprise"))]
-        {
-            return Err(Error::ExecutionErr(
-                "Bigquery is only available with an enterprise license".to_string(),
-            ));
-        }
-
-        #[allow(unreachable_code)]
         #[cfg(not(feature = "bigquery"))]
         {
             return Err(Error::internal_err(
@@ -4934,7 +5024,7 @@ pub async fn run_language_executor(
             ));
         }
 
-        #[cfg(all(feature = "enterprise", feature = "bigquery"))]
+        #[cfg(feature = "bigquery")]
         {
             if run_inline {
                 return Err(Error::internal_err(
@@ -4956,14 +5046,14 @@ pub async fn run_language_executor(
             .await;
         }
     } else if language == Some(ScriptLang::Snowflake) {
-        #[cfg(not(feature = "enterprise"))]
+        #[cfg(not(feature = "snowflake"))]
         {
-            return Err(Error::ExecutionErr(
-                "Snowflake is only available with an enterprise license".to_string(),
+            return Err(Error::internal_err(
+                "Snowflake requires the snowflake feature to be enabled".to_string(),
             ));
         }
 
-        #[cfg(feature = "enterprise")]
+        #[cfg(feature = "snowflake")]
         {
             if run_inline {
                 return Err(Error::internal_err(
@@ -5777,6 +5867,30 @@ mount {{
                 .await
             }
         }
+        ScriptLang::Dbt => {
+            if run_inline {
+                return Err(Error::internal_err(
+                    "Inline execution is not yet supported for this language".to_string(),
+                ));
+            }
+            Box::pin(crate::dbt_executor::handle_dbt_job(
+                lock.as_ref(),
+                job_dir,
+                worker_name,
+                job,
+                mem_peak,
+                canceled_by,
+                conn,
+                client,
+                &code,
+                envs,
+                occupancy_metrics,
+                // The project's identity is derived from these, so the dbt
+                // executor needs them even though they are already on disk.
+                modules.as_ref(),
+            ))
+            .await
+        }
         // for related places search: ADD_NEW_LANG
         _ => panic!("unreachable, language is not supported: {language:#?}"),
     };
@@ -5914,6 +6028,7 @@ pub fn parse_sig_of_lang(
             ScriptLang::Rlang => Some(windmill_parser_r::parse_r_signature(code)?),
             #[cfg(not(feature = "rlang"))]
             ScriptLang::Rlang => None,
+            ScriptLang::Dbt => Some(windmill_parser_yaml::parse_dbt_sig(code)?),
             // for related places search: ADD_NEW_LANG
         }
     } else {

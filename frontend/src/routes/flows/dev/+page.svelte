@@ -77,6 +77,7 @@
 
 	const previewArgsStore = $state({ val: {} })
 	const scriptEditorDrawer = writable(undefined)
+	const workspaceScriptSettingsDrawer = writable(undefined)
 	const history = initHistory(flowStore.val)
 
 	const stepsInputArgs = new StepsInputArgs()
@@ -94,6 +95,7 @@
 		selectionManager,
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
+		workspaceScriptSettingsDrawer,
 		flowEditorDrawer: writable(undefined),
 		history,
 		pathStore: writable(''),
@@ -116,7 +118,8 @@
 		modulesTestStates: new ModulesTestStates(),
 		outputPickerOpenFns: {},
 		preserveOnBehalfOf: writable(false),
-		savedOnBehalfOfEmail: writable<string | undefined>(undefined)
+		savedOnBehalfOfEmail: writable<string | undefined>(undefined),
+		savedOnBehalfOfPermissionedAs: writable<string | undefined>(undefined)
 	})
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
@@ -252,7 +255,7 @@
 	const selectedId = $derived(selectionManager.getSelectedId())
 	const selectedModule = $derived(
 		selectedId && flowStore.val?.value
-			? findModuleInFlow(flowStore.val.value, selectedId) ?? undefined
+			? (findModuleInFlow(flowStore.val.value, selectedId) ?? undefined)
 			: undefined
 	)
 
@@ -293,7 +296,11 @@
 				{/if}
 			</div>
 
-			<div class="flex justify-center pt-1 z-50 absolute gap-2 {compactPreview ? 'left-1/2 -translate-x-1/2 top-14' : 'right-2 top-2'}">
+			<div
+				class="flex justify-center pt-1 z-50 absolute gap-2 {compactPreview
+					? 'left-1/2 -translate-x-1/2 top-14'
+					: 'right-2 top-2'}"
+			>
 				<FlowPreviewButtons bind:this={flowPreviewButtons} {suspendStatus} />
 			</div>
 			<Splitpanes horizontal class="max-h-screen grow min-h-0">

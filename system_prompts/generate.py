@@ -107,6 +107,14 @@ def extract_ts_functions(content: str) -> list[dict]:
         if not return_type:
             return_type = 'Promise<void>' if is_async else 'void'
 
+        # `@internal` marks an export that exists for another module or for a
+        # test to reach, not for a user to call. The SDK reference these prompts
+        # become is a user-facing API list, so it must not advertise them.
+        # `@deprecated` exports stay callable for existing scripts but must not be
+        # suggested for new ones.
+        if jsdoc_raw and ('@internal' in jsdoc_raw or '@deprecated' in jsdoc_raw):
+            continue
+
         docstring = clean_jsdoc(jsdoc_raw) if jsdoc_raw else ''
         seen_names.add(name)
         functions.append({
@@ -183,6 +191,12 @@ def extract_py_functions(content: str) -> list[dict]:
 
         # Get docstring
         docstring = ast.get_docstring(node) or ''
+
+        # Same rule as the TypeScript SDK: a deprecated member stays callable for existing
+        # scripts but must not be suggested for new ones. The Python SDK marks them with the
+        # Sphinx `.. deprecated::` directive.
+        if '.. deprecated::' in docstring:
+            return
 
         # Build parameter list
         params = []
@@ -699,10 +713,24 @@ def generate_cli_commands_markdown(cli_data: dict) -> str:
     return md
 
 
+# Who is running the script is answered by contextual variables, not by an SDK call, so the
+# SDK reference has to say so: it is where an agent looks for a `usernameToEmail`-style helper.
+IDENTITY_OF_THE_RUN_TS = """To know who is running the script, read the contextual variables rather than calling the API:
+`process.env.WM_END_USER_EMAIL || process.env.WM_EMAIL`. WM_END_USER_EMAIL is the app viewer when
+the run was triggered from an app and empty otherwise (both variables are always defined), WM_EMAIL
+is the user the job is permissioned as. WM_USERNAME is the matching username."""
+
+IDENTITY_OF_THE_RUN_PY = """To know who is running the script, read the contextual variables rather than calling the API:
+`os.environ.get("WM_END_USER_EMAIL") or os.environ.get("WM_EMAIL")`. WM_END_USER_EMAIL is the app
+viewer when the run was triggered from an app and empty otherwise (both variables are always
+defined), WM_EMAIL is the user the job is permissioned as. WM_USERNAME is the matching username."""
+
+
 def generate_ts_sdk_markdown(functions: list[dict], _types: list[dict]) -> str:
     """Generate compact documentation for TypeScript SDK."""
     md = "# TypeScript SDK (windmill-client)\n\n"
     md += "Import: import * as wmill from 'windmill-client'\n\n"
+    md += IDENTITY_OF_THE_RUN_TS + "\n\n"
 
     for i, func in enumerate(functions):
         if func.get('docstring'):
@@ -725,6 +753,7 @@ def generate_py_sdk_markdown(functions: list[dict], _classes: list[dict]) -> str
     """Generate compact documentation for Python SDK."""
     md = "# Python SDK (wmill)\n\n"
     md += "Import: import wmill\n\n"
+    md += IDENTITY_OF_THE_RUN_PY + "\n\n"
 
     for func in functions:
         # Skip private functions
@@ -828,9 +857,11 @@ WORKSPACE_TOOL_ZOD_SCHEMAS = [
     ('NewNatsTrigger', 'natsTriggerRequestSchema'),
     ('NewPostgresTrigger', 'postgresTriggerRequestSchema'),
     ('NewMqttTrigger', 'mqttTriggerRequestSchema'),
+    ('NewAmqpTrigger', 'amqpTriggerRequestSchema'),
     ('NewSqsTrigger', 'sqsTriggerRequestSchema'),
     ('GcpTriggerData', 'gcpTriggerRequestSchema'),
     ('AzureTriggerData', 'azureTriggerRequestSchema'),
+    ('NewEmailTrigger', 'emailTriggerRequestSchema'),
     ('CreateVariable', 'variableRequestSchema'),
     ('CreateResource', 'resourceRequestSchema'),
 ]
@@ -842,9 +873,11 @@ WORKSPACE_TOOL_TRIGGER_SCHEMAS = [
     ('nats', 'natsTriggerRequestSchema'),
     ('postgres', 'postgresTriggerRequestSchema'),
     ('mqtt', 'mqttTriggerRequestSchema'),
+    ('amqp', 'amqpTriggerRequestSchema'),
     ('sqs', 'sqsTriggerRequestSchema'),
     ('gcp', 'gcpTriggerRequestSchema'),
     ('azure', 'azureTriggerRequestSchema'),
+    ('email', 'emailTriggerRequestSchema'),
 ]
 
 WORKSPACE_TOOL_ZOD_OUTPUT_PATH = (
@@ -1013,6 +1046,17 @@ def generate_workspace_tool_zod_schemas(backend_schemas: dict, openflow_schemas:
         "",
         f"const triggerPathSchema = z.string().min(1).describe({_ts_string(trigger_path_description)})",
         "",
+        "// The kind-specific fields of a trigger config, with the three the tool supplies",
+        "// itself removed. Fetched one at a time through get_trigger_schema rather than",
+        "// inlined into create_trigger: as a union of all eleven this serialized to ~39k",
+        "// characters of JSON Schema, resent on every request of every chat.",
+        "export const triggerConfigSchemas = {",
+        *[
+            f"\t{kind}: {schema_name}.omit({{ path: true, script_path: true, is_flow: true }}),"
+            for kind, schema_name in WORKSPACE_TOOL_TRIGGER_SCHEMAS
+        ],
+        "} as const",
+        "",
         "export const createTriggerToolSchema = z.object({",
         "\tkind: z.enum([",
         *[
@@ -1021,12 +1065,11 @@ def generate_workspace_tool_zod_schemas(backend_schemas: dict, openflow_schemas:
         ],
         "\t]),",
         "\tpath: triggerPathSchema,",
-        "\tconfig: z.union([",
-    ])
-    for kind, schema_name in WORKSPACE_TOOL_TRIGGER_SCHEMAS:
-        lines.append(f"\t\t{schema_name}.omit({{ path: true, script_path: true, is_flow: true }}),")
-    lines.extend([
-        "\t])",
+        "\tconfig: z",
+        "\t\t.record(z.string(), z.any())",
+        "\t\t.describe(",
+        "\t\t\t'The kind-specific trigger configuration. Call get_trigger_schema with the same kind first to get its exact fields.'",
+        "\t\t)",
         "})",
     ])
     lines.append("")
@@ -1245,6 +1288,7 @@ WAC_TS_FUNCTIONS = [
     'step',
     'sleep',
     'waitForApproval',
+    'getApprovalUrls',
     'parallel',
 ]
 
@@ -1257,6 +1301,7 @@ WAC_PY_FUNCTIONS = [
     'step',
     'sleep',
     'wait_for_approval',
+    'get_approval_urls',
     'parallel',
 ]
 
@@ -1402,7 +1447,7 @@ def extract_wac_ts_sdk(ts_content: str) -> str:
         return ''
 
     md = "## TypeScript Workflow-as-Code API (windmill-client)\n\n"
-    md += 'Import: `import { workflow, task, taskScript, taskFlow, step, sleep, waitForApproval, getResumeUrls, parallel } from "windmill-client"`\n\n'
+    md += 'Import: `import { workflow, task, taskScript, taskFlow, step, sleep, waitForApproval, getApprovalUrls, getResumeUrls, parallel } from "windmill-client"`\n\n'
     md += "```typescript\n"
     md += "\n\n".join(declarations)
     md += "\n```\n"
@@ -1524,7 +1569,7 @@ def extract_wac_py_sdk(py_content: str) -> str:
         return ''
 
     md = "## Python Workflow-as-Code API (wmill)\n\n"
-    md += "Import: `from wmill import workflow, task, task_script, task_flow, step, sleep, wait_for_approval, get_resume_urls, parallel, TaskError`\n\n"
+    md += "Import: `from wmill import workflow, task, task_script, task_flow, step, sleep, wait_for_approval, get_approval_urls, get_resume_urls, parallel, TaskError`\n\n"
     md += "```python\n"
     md += "\n\n".join(declarations)
     md += "\n```\n"
@@ -1582,6 +1627,7 @@ SKILL_DEFINITIONS = [
             ('NatsTrigger', 'nats_trigger'),
             ('PostgresTrigger', 'postgres_trigger'),
             ('MqttTrigger', 'mqtt_trigger'),
+            ('AmqpTrigger', 'amqp_trigger'),
             ('SqsTrigger', 'sqs_trigger'),
             ('GcpTrigger', 'gcp_trigger'),
             ('AzureTrigger', 'azure_trigger'),
@@ -1668,7 +1714,7 @@ After writing, tell the user which command fits what they want to do:
 - `wmill script preview <script_path>` — **default when iterating on a local script.** Runs the local file without deploying.
 - `wmill script run <path>` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
 - `wmill generate-metadata` — regenerate the local `.script.yaml` (input schema) and `.lock` (resolved dependencies) for scripts you changed, and refresh their content hashes in `wmill-lock.yaml`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
-- `wmill sync push` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+- Deploy local changes to the workspace — via `git push` or `wmill sync push` depending on how the repo is wired (see the **Deploying** section in `AGENTS.wmill.md`). Only suggest/run a deploy when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
 
@@ -1698,7 +1744,7 @@ If the user hasn't already told you to run/test/preview the script, offer it as 
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute `wmill script preview <path> -d '<args>'` directly — pick plausible args from the script's declared parameters. The shape varies by language: `main(...)` for code languages, the SQL dialect's own placeholder syntax (`$1` for PostgreSQL, `?` for MySQL/Snowflake, `@P1` for MSSQL, `@name` for BigQuery, etc.), positional `$1`, `$2`, … for Bash, `param(...)` for PowerShell.
 
-`wmill script preview` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). `wmill generate-metadata` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's `AGENTS.md` opts in), per "Keep metadata in sync" above. Only `wmill sync push` deploys to the workspace — run it only when the user explicitly asks to deploy/publish/push.
+`wmill script preview` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). `wmill generate-metadata` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's `AGENTS.md` opts in), per "Keep metadata in sync" above. Deploying to the workspace (`git push` or `wmill sync push` depending on how the repo is wired — see the **Deploying** section) is the only step that mutates remote state — do it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than `script preview`'s run-and-print-result), use the `preview` skill.
 
@@ -2478,6 +2524,7 @@ def main():
             'NatsTrigger', 'NewNatsTrigger',
             'PostgresTrigger', 'NewPostgresTrigger',
             'MqttTrigger', 'NewMqttTrigger',
+            'AmqpTrigger', 'NewAmqpTrigger',
             'SqsTrigger', 'NewSqsTrigger',
             'GcpTrigger',
             'AzureTrigger',

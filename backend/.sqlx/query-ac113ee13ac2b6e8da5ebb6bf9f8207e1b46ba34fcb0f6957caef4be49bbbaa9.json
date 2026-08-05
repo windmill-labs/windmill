@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT hash FROM script WHERE workspace_id = $1 AND path = $2 AND deleted = false AND archived = false ORDER BY created_at DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "hash",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ac113ee13ac2b6e8da5ebb6bf9f8207e1b46ba34fcb0f6957caef4be49bbbaa9"
+}

@@ -12,6 +12,7 @@ import {
   KafkaTriggerService,
 } from "./services.gen";
 import { OpenAPI } from "./core/OpenAPI";
+import { isSuspendSignal, stepErrorMarker, taskErrorFromMarker } from "./wacError";
 // import type { DenoS3LightClientSettings } from "./index";
 import {
   DenoS3LightClientSettings,
@@ -68,7 +69,10 @@ export function setClient(token?: string, baseUrl?: string) {
   if (token === undefined) {
     token = getEnv("WM_TOKEN") ?? "no_token";
   }
-  OpenAPI.WITH_CREDENTIALS = true;
+  // Windmill's raw app wrapper sets WM_RAW_APP. A sandboxed one calls the API
+  // from an opaque origin, and the API answers `Access-Control-Allow-Origin: *`,
+  // which a credentialed request can never pair with.
+  OpenAPI.WITH_CREDENTIALS = !getEnv("WM_RAW_APP");
   OpenAPI.TOKEN = token;
   OpenAPI.BASE = baseUrl + "/api";
 }
@@ -79,8 +83,12 @@ function getPublicBaseUrl(): string {
 
 export const getEnv = (key: string) => {
   if (typeof window === "undefined") {
-    // node
-    return process?.env?.[key];
+    // `process` may be undeclared entirely (web worker, browser-like runtimes
+    // without a node shim), where `process?.env` still throws a ReferenceError.
+    if (typeof process !== "undefined") {
+      return process?.env?.[key];
+    }
+    return globalThis?.process?.env?.[key];
   }
   // browser
   return window?.process?.env?.[key];
@@ -1225,8 +1233,11 @@ export function uint8ArrayToBase64(arrayBuffer: Uint8Array): string {
 
 /**
  * Get email from workspace username
- * This method is particularly useful for apps that require the email address of the viewer.
- * Indeed, in the viewer context, WM_USERNAME is set to the username of the viewer but WM_EMAIL is set to the email of the creator of the app.
+ * @deprecated Read the contextual variables instead: `process.env.WM_END_USER_EMAIL || process.env.WM_EMAIL`.
+ * WM_END_USER_EMAIL is the email of whoever triggered the run when it came from an app, so the fallback
+ * yields the app viewer inside an app and the executing user everywhere else - without an extra API call,
+ * and unlike this function it also resolves viewers who are not workspace members. An app viewed
+ * anonymously has no identity to report: the variable is then empty and the fallback yields the publisher.
  * @param username
  * @returns email address
  */
@@ -1520,6 +1531,123 @@ export class StepSuspend extends Error {
   }
 }
 
+/** Values `JSON.stringify` cannot represent: it omits the property holding one.
+ *  The type-level half of `checkpointableResult`, which nulls them at the top
+ *  level, where there is no key to omit. */
+type JsonDropped =
+  | ((...args: any[]) => any)
+  // A class is a function too, but its type has only a construct signature.
+  | (abstract new (...args: any[]) => any)
+  | symbol;
+
+/**
+ * What a value looks like after the JSON round trip a checkpoint performs:
+ * `Date` → string, `Map`/`Set` → `{}`, `undefined` → null, methods gone.
+ * `NaN` and the infinities decode as null too, deliberately still typed
+ * `number`: `number | null` everywhere costs more than that case is worth.
+ *
+ * Mirrors `encodeCheckpointPayload` below — keep the two in step, or `step()`
+ * starts describing a value it does not return.
+ */
+export type Jsonified<T> =
+  // `any` in, `any` out: distributing over it yields a useless union.
+  0 extends 1 & T
+    ? any
+    : // `unknown` is the idiomatic annotation for a JSON blob, and it matches
+      // no branch below — without this it would reach `never`, which is
+      // assignable to everything and so hides real mismatches.
+      unknown extends T
+      ? unknown
+      : T extends string | number | boolean | null
+        ? T
+        : T extends undefined | void | symbol | ((...args: any[]) => any)
+          ? null
+          : T extends bigint
+            ? string
+            : T extends { toJSON(): infer R }
+              ? Jsonified<R>
+              : // Neither has own enumerable entries, so both serialize to `{}`.
+                T extends ReadonlyMap<any, any> | ReadonlySet<any>
+                ? Record<string, never>
+                : // Arrays before objects, and without an `as` clause: key
+                  // remapping would drop the array/tuple shape.
+                  T extends readonly any[]
+                  ? { [K in keyof T]: Jsonified<T[K]> }
+                  : T extends object
+                    ? JsonifiedObject<T>
+                    : never;
+
+/**
+ * `JSON.stringify` keeps own enumerable string keys whose value it can
+ * represent. A key that can only hold an unrepresentable value is gone; one
+ * that merely might becomes optional, because it can come back missing —
+ * `| undefined` alone would still demand the key be there.
+ */
+type JsonifiedObject<T> = Flatten<
+  {
+    [K in keyof T as K extends symbol
+      ? never
+      : [Exclude<T[K], JsonDropped>] extends [never]
+        ? never
+        : [T[K]] extends [Exclude<T[K], JsonDropped>]
+          ? K
+          : never]: Jsonified<T[K]>;
+  } & {
+    [K in keyof T as K extends symbol
+      ? never
+      : [Exclude<T[K], JsonDropped>] extends [never]
+        ? never
+        : [T[K]] extends [Exclude<T[K], JsonDropped>]
+          ? never
+          : K]?: Jsonified<Exclude<T[K], JsonDropped>>;
+  }
+>;
+
+/** Collapse the two halves above into one object, so hovering `Jsonified` shows
+ *  a shape rather than an intersection. */
+type Flatten<T> = { [K in keyof T]: T[K] };
+
+/** Encode a checkpoint payload the way the worker wrapper does on the suspend
+ *  path, so both arms record the same value for the same step. `undefined` maps
+ *  to null; a bigint to its digits, which the wrapper gets instead from the
+ *  `BigInt.prototype.toJSON` it installs and the SDK cannot count on. */
+function encodeCheckpointPayload(payload: Record<string, any>): string {
+  return JSON.stringify(payload, (_key, value) =>
+    typeof value === "undefined"
+      ? null
+      : typeof value === "bigint"
+        ? value.toString()
+        : value,
+  );
+}
+
+/** A whole result that `JSON.stringify` drops the key for leaves a checkpoint
+ *  with no `result`, which neither the endpoint nor `WacOutput` accepts. Only
+ *  the top level: nested, a dropped key is what every other bun path does. */
+function checkpointableResult(value: any): any {
+  return typeof value === "function" || typeof value === "symbol" ? null : value;
+}
+
+/** Put a value through the checkpoint's encoding without checkpointing it, so
+ *  the paths that never persist anything still hand back the shape the ones
+ *  that do would. */
+function jsonRoundTrip<T>(value: T): Jsonified<T> {
+  return JSON.parse(encodeCheckpointPayload({ value: checkpointableResult(value) })).value;
+}
+
+/**
+ * A task function as its callers see it. A task's result always crosses a JSON
+ * boundary — the child job's result is read back from the checkpoint, and the
+ * v1 path reads it back from the API — so only {@link Jsonified} of it survives.
+ *
+ * Rebuilding the signature costs some precision TypeScript cannot preserve: a
+ * generic task's type parameters instantiate at their constraints, and an
+ * overloaded one keeps only its last signature. Neither survives JSON anyway.
+ */
+export type JsonifiedFn<T extends (...args: any[]) => Promise<any>> = (
+  ...args: Parameters<T>
+) => Promise<Jsonified<Awaited<ReturnType<T>>>>;
+
 export interface TaskOptions {
   timeout?: number;
   tag?: string;
@@ -1528,6 +1656,16 @@ export interface TaskOptions {
   concurrency_limit?: number;
   concurrency_key?: string;
   concurrency_time_window_s?: number;
+}
+
+/** A step key travels as one path segment when its URLs are minted, so it must be
+ *  non-empty and free of `/` and dot segments — otherwise `waitForApproval` would
+ *  accept a key `getApprovalUrls` can never address. */
+function assertUsableStepKey(key: string, what: string): void {
+  const k = key.trim();
+  if (k === "" || k === "." || k === ".." || key.includes("/") || key.includes("\\")) {
+    throw new Error(`${what} must be a non-empty step name without \`/\` or dot segments`);
+  }
 }
 
 export let _workflowCtx: WorkflowCtx | null = null;
@@ -1539,7 +1677,11 @@ export function setWorkflowCtx(ctx: WorkflowCtx | null) {
 
 export class WorkflowCtx {
   private completed: Record<string, any>;
-  private counters: Record<string, number> = {};
+  /** Null-prototype: step keys are caller-supplied, and a plain object would
+   *  resolve `toString`/`constructor`/`__proto__` off `Object.prototype`. */
+  private counters: Record<string, number> = Object.create(null);
+  /** Every key handed out by `_allocKey`, so distinct names can't alias one key. */
+  private _usedKeys = new Set<string>();
   private pending: Array<{
     name: string;
     script: string;
@@ -1549,6 +1691,16 @@ export class WorkflowCtx {
     [k: string]: any;
   }> = [];
   private _suspended = false;
+  /** The last suspend this ctx raised. `StepSuspend` is an `Error`, so any
+   *  `catch` in the workflow body swallows it and the run would report a
+   *  `complete` whose step never reached `completed_steps`. Python is immune:
+   *  `_StepSuspend` derives from `BaseException`. */
+  private _pendingSuspend: StepSuspend | null = null;
+  /** The failure raised by the step this child round is executing. That exception
+   *  *is* the round's result, so a `catch` in the body must not be able to turn it
+   *  into a `complete` — the parent would then record the caught branch's value as
+   *  a successful step. Boxed: the thrown value may be any falsy value. */
+  private _pendingStepFailure: { error: unknown } | null = null;
   /** When set, the task matching this key executes its inner function directly */
   _executingKey: string | null;
   /** Serializes fast-path POSTs across concurrent step() calls within one
@@ -1563,15 +1715,24 @@ export class WorkflowCtx {
   private _inlineChain: Promise<void> = Promise.resolve();
 
   constructor(checkpoint: Record<string, any> = {}) {
-    this.completed = checkpoint?.completed_steps ?? {};
+    this.completed = Object.assign(Object.create(null), checkpoint?.completed_steps ?? {});
     this._executingKey = checkpoint?._executing_key ?? null;
   }
 
-  /** Name-based key: `double` for first call, `double_2`, `double_3` for subsequent. */
+  /** Name-based key: `double` for first call, `double_2`, `double_3` for subsequent.
+   *  Suffixing alone can alias — a second `step("x")` and a first `step("x_2")` both
+   *  want `x_2` — so keep bumping past keys already handed out. Allocation order is
+   *  fixed by the workflow body, so replays reproduce the same keys. */
   _allocKey(name: string): string {
-    const n = (this.counters[name] ?? 0) + 1;
+    let n = (this.counters[name] ?? 0) + 1;
+    let key = n === 1 ? name : `${name}_${n}`;
+    while (this._usedKeys.has(key)) {
+      n++;
+      key = `${name}_${n}`;
+    }
     this.counters[name] = n;
-    return n === 1 ? name : `${name}_${n}`;
+    this._usedKeys.add(key);
+    return key;
   }
 
   _nextStep(
@@ -1581,15 +1742,13 @@ export class WorkflowCtx {
     dispatch_type: string = "inline",
     options?: TaskOptions,
   ): PromiseLike<any> {
+    this._rethrowSwallowed();
     const key = this._allocKey(name || script || "step");
 
     if (key in this.completed) {
       const value = this.completed[key];
       if (value && typeof value === "object" && (value as any).__wmill_error) {
-        const err = new Error((value as any).message || `Task '${name}' failed`);
-        (err as any).result = (value as any).result;
-        (err as any).step_key = (value as any).step_key;
-        (err as any).child_job_id = (value as any).child_job_id;
+        const err = taskErrorFromMarker(value, `Task '${name}' failed`);
         return { then: (_resolve: any, reject?: any) => { if (reject) reject(err); else throw err; } } as PromiseLike<any>;
       }
       return { then: (resolve: any) => resolve(value) };
@@ -1631,7 +1790,7 @@ export class WorkflowCtx {
         this.pending = [];
         const names = steps.map(s => s.name).join(", ");
         console.log(`\n--- WAC: ${names} ---`);
-        throw new StepSuspend({
+        this._raiseSuspend({
           mode: steps.length > 1 ? "parallel" : "sequential",
           steps,
         });
@@ -1649,8 +1808,22 @@ export class WorkflowCtx {
     timeout?: number;
     form?: object;
     selfApproval?: boolean;
+    key?: string;
   }): PromiseLike<{ value: any; approver: string; approved: boolean }> {
-    const key = this._allocKey("approval");
+    this._rethrowSwallowed();
+    if (options?.key !== undefined) assertUsableStepKey(options.key, "waitForApproval key");
+    const key = this._allocKey(options?.key || "approval");
+
+    // An explicit key is an identifier callers mint URLs against, so silently
+    // renaming a duplicate to `<key>_2` would hand them a URL for the *first*
+    // step — which then fails with "resume request already sent" and parks the
+    // workflow until timeout. Unnamed approvals keep auto-numbering.
+    if (options?.key && key !== options.key) {
+      throw new Error(
+        `WAC step key "${options.key}" is already used in this workflow. ` +
+          `Give each waitForApproval() its own key so getApprovalUrls() can address it.`,
+      );
+    }
 
     if (key in this.completed) {
       const value = this.completed[key];
@@ -1664,7 +1837,7 @@ export class WorkflowCtx {
 
     // Throw immediately — approval is always a blocking step
     console.log(`\n--- WAC: approval(${key}) ---`);
-    throw new StepSuspend({
+    this._raiseSuspend({
       mode: "approval",
       key,
       timeout: options?.timeout ?? 1800,
@@ -1675,6 +1848,7 @@ export class WorkflowCtx {
   }
 
   _sleep(seconds: number): PromiseLike<void> {
+    this._rethrowSwallowed();
     const key = this._allocKey("sleep");
 
     if (key in this.completed) {
@@ -1686,7 +1860,7 @@ export class WorkflowCtx {
     }
 
     console.log(`\n--- WAC: sleep(${key}, ${seconds}s) ---`);
-    throw new StepSuspend({
+    this._raiseSuspend({
       mode: "sleep",
       key,
       seconds: Math.max(1, Math.round(seconds)),
@@ -1695,16 +1869,13 @@ export class WorkflowCtx {
   }
 
   async _runInlineStep<T>(name: string, fn: () => T | Promise<T>): Promise<T> {
+    this._rethrowSwallowed();
     const key = this._allocKey(name || "step");
 
     if (key in this.completed) {
       const value = this.completed[key];
       if (value && typeof value === "object" && (value as any).__wmill_error) {
-        const err = new Error((value as any).message || `Step '${name}' failed`);
-        (err as any).result = (value as any).result;
-        (err as any).step_key = (value as any).step_key;
-        (err as any).child_job_id = (value as any).child_job_id;
-        throw err;
+        throw taskErrorFromMarker(value, `Step '${name}' failed`);
       }
       return value as T;
     }
@@ -1717,7 +1888,30 @@ export class WorkflowCtx {
     const startedAt = new Date().toISOString();
     console.log(`WM_WAC_STEP: ${JSON.stringify({ key, started_at: startedAt })}`);
     const t0 = Date.now();
-    const result = await fn();
+    // A thrown step still has to reach `completed_steps`, or a replay with
+    // `_executingKey` set finds nothing recorded and parks forever on the
+    // never-resolving promise above. A nested StepSuspend is control flow,
+    // not a step failure.
+    let result: T;
+    let errored = false;
+    try {
+      result = await fn();
+    } catch (e) {
+      if (isSuspendSignal(e, StepSuspend)) throw e;
+      errored = true;
+      result = stepErrorMarker(key, e) as any;
+      // The failure is reported as a value from here on, so nothing else prints
+      // the stack. Without this a step that throws and is never caught leaves a
+      // job log whose deepest frame is inside this client.
+      console.log(`--- WAC: ${key} failed ---`);
+      // Only from the marker, which already coerced the thrown value once and
+      // survived it. Reaching for `e` again here would re-run the coercion that
+      // `stepErrorMarker` guards, and throw out of this catch before the failure
+      // is ever checkpointed.
+      console.log(
+        (result as any)?.result?.error?.stack ?? (result as any)?.message ?? "step failed",
+      );
+    }
     const durationMs = Date.now() - t0;
 
     // Fast path: POST the delta to the new per-job API endpoint and return the
@@ -1743,7 +1937,28 @@ export class WorkflowCtx {
       fastPathFlagRaw !== "no";
     const jobId = getEnv("WM_JOB_ID");
     const workspace = getEnv("WM_WORKSPACE");
+    let payload: string | undefined;
+    let checkpointed: any;
     if (fastPathEnabled && jobId && workspace && OpenAPI.BASE && OpenAPI.TOKEN) {
+      try {
+        payload = encodeCheckpointPayload({
+          key,
+          result: checkpointableResult(result),
+          started_at: startedAt,
+          duration_ms: durationMs,
+        });
+        checkpointed = JSON.parse(payload).result;
+      } catch (e) {
+        // Circular reference or a throwing toJSON. The wrapper on the suspend
+        // path uses the same replacer and fails the same way, so falling
+        // through keeps the failure where it was before the fast path existed.
+        console.log(
+          `WAC v2 inline fast path could not serialize key ${key}, falling back to suspend: ${e}`,
+        );
+      }
+    }
+    if (payload !== undefined) {
+      const body = payload;
       const chainTail = this._inlineChain.then(async () => {
         const ctrl = new AbortController();
         const t = setTimeout(() => ctrl.abort(), 10_000);
@@ -1756,36 +1971,107 @@ export class WorkflowCtx {
                 "Content-Type": "application/json",
                 Authorization: `Bearer ${OpenAPI.TOKEN}`,
               },
-              body: JSON.stringify({
-                key,
-                result,
-                started_at: startedAt,
-                duration_ms: durationMs,
-              }),
+              body,
               signal: ctrl.signal,
             },
           );
           if (!resp.ok) {
             throw new Error(`inline_checkpoint API ${resp.status}`);
           }
+          if (!errored) return undefined;
+          // The backend normalizes the failure before storing it, and hands
+          // back what it stored. Throwing from that, not from the marker posted
+          // above, is what makes this round and every replay read the same
+          // record even if the two sides ever disagree about how to build one.
+          //
+          // A backend predating the echo answers without a JSON body; the
+          // caller then falls back to the round trip of what it posted. A JSON
+          // body we cannot read is different: the normalized record may already
+          // be committed and we do not know what it says, so let this reject
+          // and take the suspend path, where the next round reads whatever the
+          // backend actually stored.
+          if (!(resp.headers.get("content-type") ?? "").includes("json")) {
+            return undefined;
+          }
+          return (await resp.json())?.failure;
         } finally {
           clearTimeout(t);
         }
       });
       // Swallow chain errors so a past failure does not poison future awaits.
       this._inlineChain = chainTail.catch(() => {});
+      let fastPathOk = false;
+      let storedFailure: any;
       try {
-        await chainTail;
-        return result as T;
+        storedFailure = await chainTail;
+        fastPathOk = true;
       } catch (e) {
         console.log(
           `WAC v2 inline fast path failed for key ${key}, falling back to suspend: ${e}`,
         );
         // fall through to the legacy suspend path below
       }
+      if (fastPathOk) {
+        // Throw what a replay would rebuild from the record, never the
+        // original: a replay cannot reconstruct the original type, so throwing
+        // it here would match `e instanceof TypeError` on this run and miss on
+        // the next. Nothing is attached to `cause` for the same reason — the
+        // stack a replay can still show is in `result.error.stack`.
+        if (errored) {
+          // `checkpointed`, not `result`: against a backend with no echo the
+          // fallback still has to be what the checkpoint holds, or an `extra`
+          // carrying a Date reads as a Date now and as its ISO string on every
+          // replay — the divergence the success path below already avoids.
+          throw taskErrorFromMarker(storedFailure ?? checkpointed, `Step '${name}' failed`);
+        }
+        // Return the round trip of what was checkpointed, never the in-memory
+        // value: handing back the live object would let the round that ran the
+        // body branch on a type — Date, Map — that no replay of it ever sees.
+        return checkpointed as T;
+      }
     }
 
-    throw new StepSuspend({ mode: "inline_checkpoint", steps: [], key, result, started_at: startedAt, duration_ms: durationMs });
+    this._raiseSuspend({ mode: "inline_checkpoint", steps: [], key, result: checkpointableResult(result), started_at: startedAt, duration_ms: durationMs });
+  }
+
+  /** Raise a suspend, parking it so a body that catches it cannot make it
+   *  vanish. Every suspend raised for this ctx must go through here. */
+  _raiseSuspend(dispatchInfo: Record<string, any>): never {
+    const suspend = new StepSuspend(dispatchInfo);
+    this._pendingSuspend = suspend;
+    throw suspend;
+  }
+
+  /** Park then raise the executing step's failure. Child mode only — in a parent
+   *  round a task failure is an ordinary `TaskError` the body may handle. */
+  _raiseStepFailure(error: unknown): never {
+    this._pendingStepFailure = { error };
+    throw error;
+  }
+
+  /** Re-throw a swallowed suspend or step failure at the next SDK call. It
+   *  happened before whatever the body is doing now, so it wins: the run is
+   *  unwinding either way and everything after it re-runs on the replay. Left
+   *  set, so a body that catches in a loop can't swallow it a second time. */
+  private _rethrowSwallowed(): void {
+    if (this._pendingStepFailure) throw this._pendingStepFailure.error;
+    if (this._pendingSuspend) throw this._pendingSuspend;
+  }
+
+  /** Hand the runner a suspend the workflow body caught and swallowed, so it is
+   *  honoured instead of silently turning into a `complete`. Returns null when
+   *  the suspend propagated normally. */
+  _takePendingSuspend(): StepSuspend | null {
+    const s = this._pendingSuspend;
+    this._pendingSuspend = null;
+    return s;
+  }
+
+  /** Same for the executing step's failure, so the runner can fail the child job. */
+  _takePendingStepFailure(): { error: unknown } | null {
+    const f = this._pendingStepFailure;
+    this._pendingStepFailure = null;
+    return f;
   }
 }
 
@@ -1798,12 +2084,25 @@ export async function sleep(seconds: number): Promise<void> {
   await new Promise((r) => setTimeout(r, seconds * 1000));
 }
 
-export async function step<T>(name: string, fn: () => T | Promise<T>): Promise<T> {
+/**
+ * Execute `fn` inline and checkpoint the result. On replay the cached value is
+ * returned without re-executing `fn`.
+ *
+ * `fn`'s result is encoded as JSON and decoded back before it is returned, so
+ * the round that runs the body sees the same types every replay sees: a `Date`
+ * comes back as a string, a `Map` as `{}`. {@link Jsonified} is that shape.
+ */
+export async function step<T>(
+  name: string,
+  fn: () => T | Promise<T>,
+): Promise<Jsonified<Awaited<T>>> {
   const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
   if (ctx) {
-    return ctx._runInlineStep(name, fn);
+    return ctx._runInlineStep(name, fn) as Promise<Jsonified<Awaited<T>>>;
   }
-  return fn();
+  // Outside a workflow nothing is checkpointed, but round-trip anyway: running
+  // the script locally must not hand back a shape a deployed run never sees.
+  return jsonRoundTrip(await fn());
 }
 
 /**
@@ -1815,12 +2114,16 @@ export async function step<T>(name: string, fn: () => T | Promise<T>): Promise<T
  *
  * Inside a `workflow()`, calling a task dispatches it as a step.
  * Outside a workflow, the function body executes directly.
+ *
+ * A task runs as its own job, so its result is always encoded as JSON and
+ * decoded back before the caller sees it: a `Date` comes back as a string, a
+ * `Map` as `{}`. {@link JsonifiedFn} is that shape.
  */
 export function task<T extends (...args: any[]) => Promise<any>>(
   fnOrPath: T | string,
   maybeFnOrOptions?: T | TaskOptions,
   maybeOptions?: TaskOptions,
-): T {
+): JsonifiedFn<T> {
   let fn: T;
   let taskPath: string | undefined;
   let taskOptions: TaskOptions | undefined;
@@ -1860,8 +2163,14 @@ export function task<T extends (...args: any[]) => Promise<any>>(
       // and throw StepSuspend with mode "step_complete" to signal that we're done
       if ((stepResult as any)?._execute_directly) {
         return (async () => {
-          const result = await fn(...args);
-          throw new StepSuspend({ mode: "step_complete", steps: [], result });
+          let result: any;
+          try {
+            result = await fn(...args);
+          } catch (e) {
+            if (isSuspendSignal(e, StepSuspend)) throw e;
+            ctx._raiseStepFailure(e);
+          }
+          ctx._raiseSuspend({ mode: "step_complete", steps: [], result: checkpointableResult(result) });
         })();
       }
       return stepResult;
@@ -1892,10 +2201,11 @@ export function task<T extends (...args: any[]) => Promise<any>>(
         return r;
       })();
     } else {
-      // Standalone — execute directly
-      return fn(...args);
+      // Standalone — execute directly, but round-trip the result: a task's
+      // value crosses JSON in every other path, so a local run must agree.
+      return Promise.resolve(fn(...args)).then(jsonRoundTrip);
     }
-  } as unknown as T;
+  } as unknown as JsonifiedFn<T>;
 
   Object.defineProperty(wrapper, "name", { value: taskName });
   (wrapper as any)._is_task = true;
@@ -1970,24 +2280,65 @@ export function workflow<T>(fn: (...args: any[]) => Promise<T>) {
 /**
  * Suspend the workflow and wait for an external approval.
  *
- * Use `getResumeUrls()` (wrapped in `step()`) to obtain resume/cancel/approvalPage
- * URLs before calling this function.
+ * Pass `key` to name the step, then `getApprovalUrls(key)` yields the URLs that
+ * resume exactly this approval — route them through your own channel. Without a
+ * key the steps are named `approval`, `approval_2`, ...
  *
  * @example
- * const urls = await step("urls", () => getResumeUrls());
- * await step("notify", () => sendEmail(urls.approvalPage));
- * const { value, approver } = await waitForApproval({ timeout: 3600 });
+ * const urls = await step("urls", () => getApprovalUrls("manager"));
+ * await step("notify", () => sendEmail(urls.resume, urls.cancel));
+ * const { value, approver } = await waitForApproval({ key: "manager", timeout: 3600 });
  */
 export function waitForApproval(options?: {
   timeout?: number;
   form?: object;
   selfApproval?: boolean;
+  key?: string;
 }): PromiseLike<{ value: any; approver: string; approved: boolean }> {
   const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
   if (!ctx) {
     throw new Error("waitForApproval can only be called inside a workflow()");
   }
   return ctx._waitForApproval(options);
+}
+
+/**
+ * Resume/cancel/approval-page URLs bound to one `waitForApproval` step.
+ *
+ * Unlike `getResumeUrls()`, which signs a random nonce, these address the very
+ * `resume_job` record the step's built-in approval buttons use, so they are
+ * stable across replays and safe to embed in a custom notification.
+ *
+ * `stepKey` must match the `key` given to `waitForApproval`. Keys must be unique
+ * within a workflow; reusing one throws rather than silently renaming it. The URL
+ * only resumes while that step is awaiting approval; used at any other moment it is
+ * rejected rather than banking a row a different approval would consume. Send it
+ * ahead of time — approvers just cannot act before the workflow reaches the step.
+ *
+ * `resume` and `cancel` are step-bound; `approvalPage` is not — it opens the job's
+ * approval page, which acts on whichever approval is pending when it is used.
+ *
+ * @example
+ * const urls = await step("urls", () => getApprovalUrls("manager"));
+ * await step("notify", () => sendEmail(urls.resume, urls.cancel));
+ * await waitForApproval({ key: "manager" });
+ */
+export async function getApprovalUrls(
+  stepKey: string = "approval",
+  approver?: string
+): Promise<{
+  approvalPage: string;
+  resume: string;
+  cancel: string;
+}> {
+  assertUsableStepKey(stepKey, "getApprovalUrls stepKey");
+  const workspace = getWorkspace();
+  return await JobService.getWacApprovalUrls({
+    workspace,
+    stepKey,
+    approver,
+    id: getEnv("WM_JOB_ID") ?? "NO_JOB_ID",
+  });
 }
 
 /**

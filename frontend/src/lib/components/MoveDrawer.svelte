@@ -48,6 +48,7 @@
 		push('schedule', c.schedule_count)
 		push('kafka', c.kafka_count)
 		push('mqtt', c.mqtt_count)
+		push('amqp', c.amqp_count)
 		push('nats', c.nats_count)
 		push('postgres', c.postgres_count)
 		push('sqs', c.sqs_count)

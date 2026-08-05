@@ -24,6 +24,7 @@ fn build_trigger_scope_domains() -> Vec<ScopeDomain> {
         ("kafka_triggers", "Kafka"),
         ("nats_triggers", "NATS"),
         ("mqtt_triggers", "MQTT"),
+        ("amqp_triggers", "AMQP"),
         ("sqs_triggers", "AWS SQS"),
         ("gcp_triggers", "GCP Pub/Sub"),
         ("azure_triggers", "Azure Event Grid"),
@@ -142,14 +143,8 @@ fn build_standard_scope_domains() -> Vec<ScopeDomain> {
 
     STANDARD_DOMAINS
         .iter()
-        .map(|(key, name, desc, req)| ScopeDomain {
-            name: name.to_string(),
-            description: if desc.is_empty() {
-                None
-            } else {
-                Some(desc.to_string())
-            },
-            scopes: vec![
+        .map(|(key, name, desc, req)| {
+            let mut scopes = vec![
                 ScopeOption {
                     value: format!("{key}:read"),
                     label: "Read".to_string(),
@@ -160,7 +155,26 @@ fn build_standard_scope_domains() -> Vec<ScopeDomain> {
                     label: "Write".to_string(),
                     requires_resource_path: *req,
                 },
-            ],
+            ];
+            // `apps_u/execute_component` and `apps_u/upload_s3_file` are classified as
+            // Run actions, so running a deployed app's components needs `apps:run`:
+            // without it here no supported token can be granted that access.
+            if *key == "apps" {
+                scopes.push(ScopeOption {
+                    value: "apps:run".to_string(),
+                    label: "Run".to_string(),
+                    requires_resource_path: *req,
+                });
+            }
+            ScopeDomain {
+                name: name.to_string(),
+                description: if desc.is_empty() {
+                    None
+                } else {
+                    Some(desc.to_string())
+                },
+                scopes,
+            }
         })
         .collect()
 }
@@ -207,6 +221,21 @@ lazy_static! {
             }],
         });
 
+        // Read-only: the `data_metrics/list` route is the only surface and the
+        // catalog is written at deploy, never through a token. Path-selectable
+        // because the route filters rows by the caller's `data_metrics:read` path
+        // grants. Its own domain, not a `scripts` alias, so a metrics token can't
+        // reach `/scripts` routes.
+        groups.push(ScopeDomain {
+            name: "Data Metrics".to_string(),
+            description: Some("Read-only access to declared measures and dimensions".to_string()),
+            scopes: vec![ScopeOption {
+                value: "data_metrics:read".to_string(),
+                label: "Read".to_string(),
+                requires_resource_path: true,
+            }],
+        });
+
         groups.extend(build_standard_scope_domains());
         groups.extend(build_trigger_scope_domains());
 
@@ -235,7 +264,49 @@ mod tests {
             .flat_map(|d| d.scopes.iter())
             .map(|s| s.value.as_str())
             .collect();
-        assert!(values.contains(&"docs:read"), "docs:read must be selectable");
+        assert!(
+            values.contains(&"docs:read"),
+            "docs:read must be selectable"
+        );
         assert!(!values.contains(&"docs:write"), "docs has no write surface");
+    }
+
+    /// Running a deployed app's components is enforced as a Run action, so `apps:run`
+    /// must be selectable here or no supported token can be granted that access.
+    #[test]
+    fn apps_run_scope_is_exposed_and_path_selectable() {
+        let apps = ALL_SCOPES
+            .iter()
+            .find(|d| d.name == "Apps")
+            .expect("Apps domain must exist");
+        let opt = apps
+            .scopes
+            .iter()
+            .find(|s| s.value == "apps:run")
+            .expect("apps:run must be selectable");
+        assert!(opt.requires_resource_path, "apps:run is path-scoped");
+    }
+
+    /// The `data_metrics` route enforces its own scope domain, so `data_metrics:read`
+    /// must be grantable here or no token can ever reach it. It is read-only (the
+    /// catalog is written at deploy) and path-selectable.
+    #[test]
+    fn data_metrics_read_scope_is_exposed_read_only_and_path_selectable() {
+        let opt = ALL_SCOPES
+            .iter()
+            .flat_map(|d| d.scopes.iter())
+            .find(|s| s.value == "data_metrics:read")
+            .expect("data_metrics:read must be selectable");
+        assert!(
+            opt.requires_resource_path,
+            "data_metrics:read is path-scoped"
+        );
+        assert!(
+            !ALL_SCOPES
+                .iter()
+                .flat_map(|d| d.scopes.iter())
+                .any(|s| s.value == "data_metrics:write"),
+            "data_metrics has no write surface"
+        );
     }
 }

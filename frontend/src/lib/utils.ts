@@ -10,7 +10,7 @@ import { deepEqual } from 'fast-equals'
 import YAML from 'yaml'
 import { type UserExt } from './stores'
 import { sendUserToast } from './toast'
-import type { Job, RunnableKind, Script, ScriptLang, Retry } from './gen'
+import type { CompletedJob, Job, RunnableKind, Script, ScriptLang, Retry } from './gen'
 import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
 export { sendUserToast }
@@ -83,6 +83,20 @@ export function isJobCancelable(j: Job): boolean {
 export function isJobReRunnable(j: Job): boolean {
 	return (j.job_kind === 'script' || j.job_kind === 'flow') && j.parent_job === undefined
 }
+
+// Only a top-level failure can carry a resolution: cancellations and skipped steps are not
+// failures, and a flow step resolved on its own would render orange inside a flow whose status
+// is still red. The resolve endpoint enforces the same three conditions.
+// Runs obscured from another workspace stand in with `id: '-'`; they look like failures but
+// address nothing, and one reaching the endpoint fails the whole batch on UUID parsing.
+export function isJobResolvable(j: Job): j is CompletedJob {
+	return j.type === 'CompletedJob' && !j.success && !j.canceled && !j.is_flow_step && j.id !== '-'
+}
+
+// Mirror the caps enforced by /jobs/completed/resolve, so the UI can chunk and validate
+// before the API rejects a whole action.
+export const MAX_RESOLUTION_BATCH = 1000
+export const MAX_RESOLUTION_NOTE_LEN = 2000
 
 export const WORKER_NAME_PREFIX = 'wk'
 
@@ -2015,6 +2029,8 @@ export function validateRetryConfig(retry: Retry | undefined): string | null {
 }
 export type CssColor = keyof (typeof tokensFile)['tokens']['light']
 import tokensFile from './assets/tokens/tokens.json'
+// Hand-authored variant kept out of the Figma-generated tokens.json.
+import githubDarkTokens from './assets/tokens/githubDark.json'
 import { darkModeName, lightModeName } from './assets/tokens/colorTokensConfig'
 import BarsStaggered from './components/icons/BarsStaggered.svelte'
 import { GitIcon } from './components/icons'
@@ -2027,7 +2043,7 @@ export function getCssColor(
 		format = 'css-var'
 	}: {
 		alpha?: number
-		format?: 'css-var' | 'hex-dark' | 'hex-light'
+		format?: 'css-var' | 'hex-dark' | 'hex-light' | 'hex-github-dark'
 	}
 ): string {
 	if (format === 'hex-light') {
@@ -2035,6 +2051,9 @@ export function getCssColor(
 	}
 	if (format === 'hex-dark') {
 		return tokensFile.tokens[darkModeName][color]
+	}
+	if (format === 'hex-github-dark') {
+		return githubDarkTokens[color]
 	}
 	return `rgb(var(--color-${color}) / ${alpha})`
 }
@@ -2444,4 +2463,15 @@ export function parsePrettyDate(text: string): Date | null {
 	// Fallback to standard Date parsing (e.g., ISO strings)
 	const date = new Date(text)
 	return isNaN(date.getTime()) ? null : date
+}
+
+// Surface the backend's explanation: API errors carry the real message in
+// `.body` (plain text for Windmill 4xx), while `.message` is only the generic
+// status text ("Bad Request") the generated client fills in per status code.
+export function apiErrorMessage(e: any): string {
+	const body = e?.body
+	if (typeof body === 'string' && body.trim() !== '') return body
+	if (body && typeof body === 'object')
+		return body.error?.message ?? body.message ?? JSON.stringify(body)
+	return e?.message ?? String(e)
 }

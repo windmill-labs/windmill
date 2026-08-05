@@ -18,6 +18,7 @@ import {
 	protectionRulesState
 } from '$lib/workspaceProtectionRules.svelte'
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
+import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { workspaceRootId } from './sessionScope.svelte'
 import { type DBSchema, type IDBPDatabase } from 'idb'
 import { userScopedDb } from '$lib/userScopedDb'
@@ -134,8 +135,9 @@ export type Session = {
 // last observed location (see the sessions page for the url/loc split).
 // `friendlyLabel` / `friendlyPath` are transient overrides the live editor
 // stamps; not persisted (hydrate rebuilds tabs field-by-field), recomputed on
-// next mount. `friendlyLabel` names a never-deployed item parked at
-// `…/draft_<uuid>` (its typed/auto name). `friendlyPath` is the item's full
+// next mount. `friendlyLabel` is the item's display name — its summary, or the
+// typed/auto name of a never-deployed item parked at
+// `…/draft_<uuid>`. `friendlyPath` is the item's full
 // staged path whenever it differs from the tab's route path — draft-parked OR
 // a deployed item with an undeployed rename — and scopes the breadcrumb
 // picker into the folder the picker tree displays the item under.
@@ -145,6 +147,11 @@ export type SessionPreviewTab = {
 	loc: string
 	friendlyLabel?: string
 	friendlyPath?: string
+	// True once this tab's live editor has loaded its item and reported a name —
+	// or reported that it has none. Until then the sessions page names the tab
+	// from the workspace listing; after, the editor is the only source, else
+	// clearing a summary would fall back to the listing's stale copy of it.
+	editorNamed?: boolean
 }
 
 // Sessions live in one per-user IndexedDB, one record per session in the
@@ -795,6 +802,7 @@ export async function commitSessionWorkspace(
 		// The draft prompt has been consumed as the first message.
 		delete s.draftPrompt
 		await putSession(s)
+		logFeatureUsage('ai_session', 'created', { key: 'fork', entityId: s.id, workspace: newId })
 		// The global workspaceStore is intentionally left untouched: the session
 		// chat targets its own workspace via AIChatManager.operatingWorkspace, so
 		// committing must not yank the user's active (navigation-mode) workspace.
@@ -809,6 +817,12 @@ export async function commitSessionWorkspace(
 	// The draft prompt has been consumed as the first message.
 	delete s.draftPrompt
 	await putSession(s)
+	// A picked workspace can itself be an existing fork — classify by root.
+	logFeatureUsage('ai_session', 'created', {
+		key: ws === s.workspace_root_id ? 'root' : 'fork',
+		entityId: s.id,
+		workspace: ws
+	})
 	// The global workspaceStore is intentionally left untouched (see the fork
 	// branch above): the session chat reads its committed workspace through the
 	// manager's workspace resolver, not the active workspaceStore.
@@ -958,8 +972,10 @@ export function setSessionArchived(id: string, archived: boolean) {
 	if (!s) return
 	const next = archived ? true : undefined
 	if (s.archived === next && (archived || !s.archivedByWorkspace)) return
-	if (archived) s.archived = true
-	else {
+	if (archived) {
+		s.archived = true
+		logFeatureUsage('ai_session', 'archived', { entityId: s.id, workspace: s.workspace_id })
+	} else {
 		delete s.archived
 		delete s.archivedByWorkspace
 	}
@@ -982,6 +998,7 @@ export function deleteSession(id: string) {
 	// GC any linked files and artifacts persisted for this session.
 	void deleteItemsForSession(id)
 	void deleteArtifactsForSession(id)
+	logFeatureUsage('ai_session', 'deleted', { entityId: id, workspace: s.workspace_id })
 }
 
 export function setSessionChatId(sessionId: string, chatId: string) {

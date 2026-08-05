@@ -140,7 +140,7 @@ fn runnable_format_from_schema_without_preprocessor(
     schema: Option<sqlx::types::Json<PartialSchema>>,
 ) -> RunnableFormat {
     match trigger_kind {
-        TriggerKind::Mqtt
+        TriggerKind::Mqtt | TriggerKind::Amqp
             if schema.as_ref().is_some_and(|schema| {
                 schema.properties.as_ref().is_some_and(|properties| {
                     properties.iter().any(|(key, def)| {
@@ -957,6 +957,7 @@ async fn trigger_script_with_retry_and_error_handler<'c>(
         email,
         permissioned_as,
         authed.token_prefix.as_deref(),
+        authed.username_override.as_deref(),
         None,
         None,
         None,

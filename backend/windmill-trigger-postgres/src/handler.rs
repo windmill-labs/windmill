@@ -20,7 +20,7 @@ use windmill_common::{
 };
 use windmill_git_sync::DeployedObject;
 
-use windmill_api_auth::ApiAuthed;
+use windmill_api_auth::{check_scopes, ApiAuthed};
 use windmill_trigger::{Trigger, TriggerCrud, TriggerData};
 
 use super::{
@@ -46,7 +46,8 @@ impl TriggerCrud for PostgresTrigger {
 
     const TABLE_NAME: &'static str = "postgres_trigger";
     const TRIGGER_TYPE: &'static str = "postgres";
-    const DRAFT_KIND: windmill_common::user_drafts::UserDraftItemKind = windmill_common::user_drafts::UserDraftItemKind::TriggerPostgres;
+    const DRAFT_KIND: windmill_common::user_drafts::UserDraftItemKind =
+        windmill_common::user_drafts::UserDraftItemKind::TriggerPostgres;
     const SUPPORTS_SERVER_STATE: bool = true;
     const SUPPORTS_TEST_CONNECTION: bool = true;
     const ROUTE_PREFIX: &'static str = "/postgres_triggers";
@@ -207,8 +208,7 @@ impl TriggerCrud for PostgresTrigger {
                 publication,
                 publication_data.map(|publication| publication.0),
             )
-            .await
-            .map_err(to_anyhow)?;
+            .await?;
         }
 
         remote_db_tx.commit().await.map_err(to_anyhow)?;
@@ -395,6 +395,10 @@ pub async fn get_postgres_version(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, postgres_resource_path)): Path<(String, String)>,
 ) -> Result<String> {
+    check_scopes(&authed, || {
+        format!("postgres_triggers:read:{}", postgres_resource_path)
+    })?;
+
     let pg_connection = get_default_pg_connection(
         authed.clone(),
         Some(user_db),
@@ -416,6 +420,10 @@ pub async fn list_slot_name(
     Extension(db): Extension<DB>,
     Path((w_id, postgres_resource_path)): Path<(String, String)>,
 ) -> Result<Json<Vec<SlotList>>> {
+    check_scopes(&authed, || {
+        format!("postgres_triggers:read:{}", postgres_resource_path)
+    })?;
+
     let pg_connection: Client = get_default_pg_connection(
         authed.clone(),
         Some(user_db.clone()),
@@ -458,6 +466,10 @@ pub async fn create_slot(
     Path((w_id, postgres_resource_path)): Path<(String, String)>,
     Json(Slot { name }): Json<Slot>,
 ) -> Result<String> {
+    check_scopes(&authed, || {
+        format!("postgres_triggers:write:{}", postgres_resource_path)
+    })?;
+
     let pg_connection = get_default_pg_connection(
         authed.clone(),
         Some(user_db.clone()),
@@ -513,6 +525,10 @@ pub async fn drop_slot_name(
     Path((w_id, postgres_resource_path)): Path<(String, String)>,
     Json(Slot { name }): Json<Slot>,
 ) -> Result<String> {
+    check_scopes(&authed, || {
+        format!("postgres_triggers:write:{}", postgres_resource_path)
+    })?;
+
     let pg_connection =
         get_default_pg_connection(authed, Some(user_db), &db, &postgres_resource_path, &w_id)
             .await
@@ -531,6 +547,10 @@ pub async fn list_database_publication(
     Extension(db): Extension<DB>,
     Path((w_id, postgres_resource_path)): Path<(String, String)>,
 ) -> Result<Json<Vec<String>>> {
+    check_scopes(&authed, || {
+        format!("postgres_triggers:read:{}", postgres_resource_path)
+    })?;
+
     let pg_connection = get_default_pg_connection(
         authed.clone(),
         Some(user_db.clone()),
@@ -563,6 +583,10 @@ pub async fn get_publication_info(
     Extension(db): Extension<DB>,
     Path((w_id, publication_name, postgres_resource_path)): Path<(String, String, String)>,
 ) -> Result<Json<PublicationData>> {
+    check_scopes(&authed, || {
+        format!("postgres_triggers:read:{}", postgres_resource_path)
+    })?;
+
     let mut pg_connection = get_default_pg_connection(
         authed.clone(),
         Some(user_db.clone()),
@@ -604,6 +628,10 @@ pub async fn create_publication(
     Path((w_id, publication_name, postgres_resource_path)): Path<(String, String, String)>,
     Json(publication_data): Json<PublicationData>,
 ) -> Result<String> {
+    check_scopes(&authed, || {
+        format!("postgres_triggers:write:{}", postgres_resource_path)
+    })?;
+
     let mut pg_connection = get_default_pg_connection(
         authed.clone(),
         Some(user_db.clone()),
@@ -640,6 +668,10 @@ pub async fn delete_publication(
     Extension(db): Extension<DB>,
     Path((w_id, publication_name, postgres_resource_path)): Path<(String, String, String)>,
 ) -> Result<String> {
+    check_scopes(&authed, || {
+        format!("postgres_triggers:write:{}", postgres_resource_path)
+    })?;
+
     let mut pg_connection = get_default_pg_connection(
         authed.clone(),
         Some(user_db.clone()),
@@ -681,15 +713,13 @@ pub async fn update_pg_publication(
                     table_to_track.as_deref(),
                     &transaction_to_track,
                 )
-                .await
-                .map_err(to_anyhow)?;
+                .await?;
             } else {
                 let pg_14 = check_if_valid_publication_for_postgres_version(
                     pg_connection,
                     table_to_track.as_deref(),
                 )
-                .await
-                .map_err(to_anyhow)?;
+                .await?;
 
                 let mut query = format!("ALTER PUBLICATION {} SET ", quoted_publication_name);
                 let mut first = true;
@@ -773,6 +803,10 @@ pub async fn alter_publication(
     Path((w_id, publication_name, postgres_resource_path)): Path<(String, String, String)>,
     Json(publication_data): Json<PublicationData>,
 ) -> Result<String> {
+    check_scopes(&authed, || {
+        format!("postgres_triggers:write:{}", postgres_resource_path)
+    })?;
+
     let mut pg_connection = get_default_pg_connection(
         authed.clone(),
         Some(user_db.clone()),
@@ -795,8 +829,7 @@ pub async fn alter_publication(
         publication_data,
         publication.map(|publication| publication.0),
     )
-    .await
-    .map_err(to_anyhow)?;
+    .await?;
 
     tx.commit().await.map_err(to_anyhow)?;
 
@@ -948,6 +981,10 @@ pub async fn create_template_script(
 ) -> Result<String> {
     let TemplateScript { postgres_resource_path, relations, language } = template_script;
 
+    check_scopes(&authed, || {
+        format!("postgres_triggers:write:{}", postgres_resource_path)
+    })?;
+
     let relations = match relations {
         Some(r) => r,
         None => {
@@ -1090,6 +1127,10 @@ pub async fn is_database_in_logical_level(
     Extension(db): Extension<DB>,
     Path((w_id, postgres_resource_path)): Path<(String, String)>,
 ) -> error::JsonResult<bool> {
+    check_scopes(&authed, || {
+        format!("postgres_triggers:read:{}", postgres_resource_path)
+    })?;
+
     let pg_connection = get_default_pg_connection(
         authed.clone(),
         Some(user_db.clone()),

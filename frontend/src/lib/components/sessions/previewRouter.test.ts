@@ -2,11 +2,28 @@ import { describe, it, expect } from 'vitest'
 import {
 	artifactUrl,
 	draftFriendlyLeaf,
+	itemDisplayName,
+	matchReusablePage,
 	parseArtifactRoute,
 	parsePreviewItemRoute,
+	parsePreviewSelectedId,
 	previewLocationLabel,
 	resolvePreviewTab
 } from './previewRouter'
+
+describe('matchReusablePage', () => {
+	it('matches curated pages and the compare page, ignoring query params', () => {
+		expect(matchReusablePage('/runs?path=f/a/b')?.path).toBe('/runs')
+		expect(matchReusablePage('/forks/compare?workspace_id=ws&items=script:f/a/b')?.path).toBe(
+			'/forks/compare'
+		)
+		expect(previewLocationLabel('/forks/compare?workspace_id=ws')).toBe('Compare & Deploy')
+	})
+
+	it('does not match trigger pages (they dedupe on exact URL)', () => {
+		expect(matchReusablePage('/kafka_triggers')).toBeUndefined()
+	})
+})
 
 describe('parsePreviewItemRoute', () => {
 	it('maps edit/get routes to item kinds', () => {
@@ -60,6 +77,24 @@ describe('draftFriendlyLeaf', () => {
 	})
 })
 
+describe('itemDisplayName', () => {
+	it('prefers the summary, including for a draft-parked item that also has a typed name', () => {
+		expect(itemDisplayName('u/admin/my_script', undefined, 'Sync users nightly')).toBe(
+			'Sync users nightly'
+		)
+		expect(
+			itemDisplayName('u/admin/draft_abc123', 'u/admin/valuable_script', 'Sync users nightly')
+		).toBe('Sync users nightly')
+	})
+
+	it('falls through a blank summary to the draft leaf, then to nothing', () => {
+		expect(itemDisplayName('u/admin/draft_abc123', 'u/admin/valuable_script', '   ')).toBe(
+			'valuable_script'
+		)
+		expect(itemDisplayName('u/admin/my_script', undefined, '')).toBeUndefined()
+	})
+})
+
 describe('resolvePreviewTab', () => {
 	it('routes a static page to the iframe fallback', () => {
 		expect(resolvePreviewTab('/runs')).toEqual({ kind: 'iframe' })
@@ -101,6 +136,16 @@ describe('resolvePreviewTab', () => {
 		})
 	})
 
+	it('routes a pipeline url carrying the owner path to the same folder editor', () => {
+		// A hand-written link (or a preview tab persisted from one) can hold
+		// `/pipeline/f%2F<folder>`; it must open the folder, not `f/<folder>`.
+		expect(resolvePreviewTab('/pipeline/f%2Fmy_folder')).toEqual({
+			kind: 'editor',
+			editorKind: 'pipeline',
+			path: 'my_folder'
+		})
+	})
+
 	it('routes the bare pipeline list page to the iframe fallback', () => {
 		expect(resolvePreviewTab('/pipeline')).toEqual({ kind: 'iframe' })
 	})
@@ -110,6 +155,22 @@ describe('resolvePreviewTab', () => {
 			kind: 'artifact',
 			id: 'abc 123'
 		})
+	})
+})
+
+describe('parsePreviewSelectedId', () => {
+	it('reads the step a tab was opened on, and stays out of the tab identity', () => {
+		const url = '/flows/edit/f/foo/bar?selected=b'
+		expect(parsePreviewSelectedId(url)).toBe('b')
+		expect(resolvePreviewTab(url)).toEqual({
+			kind: 'editor',
+			editorKind: 'flow',
+			path: 'f/foo/bar'
+		})
+	})
+
+	it('is undefined without the param', () => {
+		expect(parsePreviewSelectedId('/flows/edit/f/foo/bar')).toBeUndefined()
 	})
 })
 

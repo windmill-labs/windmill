@@ -4,6 +4,7 @@
 	import PullWorkspaceModal from '$lib/components/git_sync/PullWorkspaceModal.svelte'
 	import GitSyncSuccessModal from '$lib/components/git_sync/GitSyncSuccessModal.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { apiErrorMessage } from '$lib/utils'
 
 	const gitSyncContext = $state(getGitSyncContext())
 
@@ -15,18 +16,23 @@
 
 		// If this was a repository initialization, auto-save the connection
 		if (repo.isUnsavedConnection && repo.detectionState === 'no-wmill') {
-			gitSyncContext.saveRepository(idx).then(() => {
-				sendUserToast('Repository initialized and connection saved successfully')
-			}).catch((error) => {
-				sendUserToast('Repository initialized but failed to save connection: ' + error.message, true)
-			})
+			gitSyncContext
+				.saveRepository(idx)
+				.then(() => {
+					sendUserToast('Repository initialized and connection saved successfully')
+				})
+				.catch((error) => {
+					sendUserToast(
+						'Repository initialized but failed to save connection: ' + apiErrorMessage(error),
+						true
+					)
+				})
 		} else {
 			sendUserToast('Successfully pushed to git repository')
 		}
 
 		gitSyncContext.closePushModal()
 	}
-
 
 	function handlePullSuccess() {
 		sendUserToast('Successfully pulled from git repository')
@@ -54,7 +60,7 @@
 			sendUserToast('Connection saved successfully without initializing repository')
 			gitSyncContext.closePushModal()
 		} catch (error: any) {
-			sendUserToast('Failed to save connection: ' + error.message, true)
+			sendUserToast('Failed to save connection: ' + apiErrorMessage(error), true)
 		}
 	}
 </script>
