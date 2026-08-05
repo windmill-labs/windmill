@@ -528,6 +528,15 @@ abstract class BaseDebugSession {
 // Python Debug Session
 // ============================================================================
 
+const DEFAULT_DEBUGPY_TIMEOUT_MS = 10_000
+
+// `launch` waits on dependency preparation in the Python server, which allows `windmill
+// prepare-deps` up to 120s; anything shorter here reports a timeout while the install is
+// still legitimately running.
+const DEBUGPY_TIMEOUT_MS_BY_COMMAND: Record<string, number> = {
+	launch: 180_000
+}
+
 class PythonDebugSession extends BaseDebugSession {
 	private debugpyWs: WebSocket | null = null
 	private debugpySeq = 1
@@ -571,11 +580,13 @@ class PythonDebugSession extends BaseDebugSession {
 			arguments: args
 		}
 
+		const timeoutMs = DEBUGPY_TIMEOUT_MS_BY_COMMAND[command] ?? DEFAULT_DEBUGPY_TIMEOUT_MS
+
 		return new Promise((resolve, reject) => {
 			const timeout = setTimeout(() => {
 				this.pendingDebugpyRequests.delete(seq)
-				reject(new Error(`Debugpy command timeout: ${command}`))
-			}, 10000)
+				reject(new Error(`Debugpy command timeout: ${command} (after ${timeoutMs}ms)`))
+			}, timeoutMs)
 
 			this.pendingDebugpyRequests.set(seq, {
 				resolve: (value) => {
@@ -918,6 +929,13 @@ class PythonDebugSession extends BaseDebugSession {
 			this.debugpyWs.onclose = () => {
 				logger.info('Debugpy WebSocket closed')
 				this.debugpyWs = null
+				// A Python server that dies mid-request must fail it now; otherwise the caller
+				// waits out the command timeout, which for `launch` is minutes.
+				const aborted = Array.from(this.pendingDebugpyRequests.values())
+				this.pendingDebugpyRequests.clear()
+				for (const pending of aborted) {
+					pending.reject(new Error('Debugpy connection closed'))
+				}
 			}
 		})
 	}
@@ -1140,7 +1158,13 @@ sys.stdout.flush()
 			})
 		} catch (error) {
 			this.sendEvent('output', { category: 'stderr', output: `Failed to start Python: ${error}\n` })
+			// Claim the terminated event before cleanup kills the process, otherwise the
+			// `exited` handler sends a second one whose empty body erases this error.
+			this.terminatedSent = true
 			this.sendEvent('terminated', { error: String(error) })
+			// A Python server that refused the launch stays in its connection loop, so
+			// nothing else ever reaps it, its websocket or the temp dir.
+			await this.cleanup()
 		}
 	}
 
