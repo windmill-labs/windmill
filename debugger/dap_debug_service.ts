@@ -519,6 +519,7 @@ class PythonDebugSession extends BaseDebugSession {
 	private envVars: Record<string, string> = {}
 	private windmillPath?: string
 	private venvPath?: string
+	private prepareDepsProcess: Subprocess | null = null
 	private debugMode: boolean
 
 	constructor(ws: { send: (data: string) => void; close: () => void }, windmillPath?: string, debugMode = false) {
@@ -676,10 +677,16 @@ class PythonDebugSession extends BaseDebugSession {
 		try {
 			const proc = spawn({
 				cmd: [this.windmillPath, 'prepare-deps'],
-				stdin: new Blob([JSON.stringify({ code, language: 'python3' }) + '\n']),
+				// The venv has to be built against the interpreter that will run the script: its
+				// site-packages goes on that interpreter's sys.path, and uv otherwise picks its
+				// own, which silently leaves compiled extensions unimportable.
+				stdin: new Blob([
+					JSON.stringify({ code, language: 'python3', python_path: config.pythonPath }) + '\n'
+				]),
 				stdout: 'pipe',
 				stderr: 'pipe'
 			})
+			this.prepareDepsProcess = proc
 
 			// The launch response is already sent, so an install that never returns would leave the
 			// client waiting on a session that never starts, with nothing on screen. The deadline
@@ -697,6 +704,7 @@ class PythonDebugSession extends BaseDebugSession {
 				})
 			])
 			clearTimeout(timer)
+			this.prepareDepsProcess = null
 
 			if (!result) {
 				// SIGKILL, not the default SIGTERM: prepare-deps does not act on SIGTERM while uv
@@ -1158,6 +1166,12 @@ sys.stdout.flush()
 	}
 
 	async cleanup(): Promise<void> {
+		// A client that gives up mid-install must not leave the package manager running
+		if (this.prepareDepsProcess) {
+			this.prepareDepsProcess.kill('SIGKILL')
+			this.prepareDepsProcess = null
+		}
+
 		if (this.debugpyWs) {
 			this.debugpyWs.close()
 			this.debugpyWs = null

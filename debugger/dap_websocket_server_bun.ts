@@ -1616,7 +1616,9 @@ export class DebugSession {
 			killTimer = setTimeout(() => {
 				timedOut = true
 				logger.error(`prepare-deps timed out after ${PREPARE_DEPS_TIMEOUT_MS}ms`)
-				proc.kill()
+				// SIGKILL, not the default SIGTERM: prepare-deps does not act on SIGTERM while the
+				// package manager is running, so a polite signal leaves it going after the timeout.
+				proc.kill('SIGKILL')
 			}, PREPARE_DEPS_TIMEOUT_MS)
 
 			// Wait for completion

@@ -94,7 +94,8 @@ with the other settings):
 | `PY_INDEX_URL` / `PIP_INDEX_URL` | Package index (`--index-url`) | PyPI |
 | `PY_EXTRA_INDEX_URL` / `PIP_EXTRA_INDEX_URL` | Extra indexes, comma-separated (`--extra-index-url`) | - |
 | `PY_TRUSTED_HOST` / `PIP_TRUSTED_HOST` | Hosts to trust, whitespace-separated (`--trusted-host`) | - |
-| `PY_INDEX_CERT` / `PIP_INDEX_CERT` | CA bundle for the index, passed to uv as `SSL_CERT_FILE`. Falls back to `SSL_CERT_FILE`, then `REQUESTS_CA_BUNDLE`, then `CURL_CA_BUNDLE`, so a host that configures its CA under any of those names is picked up. `bun install` gets the same bundle as `NODE_EXTRA_CA_CERTS`, which is the only spelling Bun reads | - |
+| `PY_INDEX_CERT` / `PIP_INDEX_CERT` | CA bundle for the index, passed to uv as `SSL_CERT_FILE`. Falls back to `SSL_CERT_FILE`, then `REQUESTS_CA_BUNDLE`, then `CURL_CA_BUNDLE`, so a host that configures its CA under any of those names is picked up. Whichever is used **replaces** uv's own roots rather than adding to them, so it has to be a complete bundle: one holding only a private CA leaves every public index untrusted. `bun install` gets the same bundle as `NODE_EXTRA_CA_CERTS`, the only spelling Bun reads | - |
+| `SSL_CERT_DIR` | Directory of certificates, forwarded to uv as-is. Additive, so unlike the bundle above it does not displace uv's roots | - |
 | `PY_NATIVE_CERT` / `UV_NATIVE_TLS` | `true` to also trust the platform certificate store (`--native-tls`) | false |
 | `UV_INDEX_STRATEGY` | uv index strategy | unsafe-best-match |
 | `UV_HTTP_TIMEOUT` | uv HTTP request timeout, in seconds | uv's own default |
