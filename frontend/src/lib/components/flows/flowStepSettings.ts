@@ -149,7 +149,7 @@ const SPECS: { key: StepSettingKey; spec: SettingSpec }[] = [
 	{
 		key: 'suspend',
 		spec: {
-			label: 'Suspend / approval',
+			label: 'Suspend until approval/resume',
 			icon: Hand,
 			configured: (m) => Boolean(m.suspend),
 			summarize: (m) => {

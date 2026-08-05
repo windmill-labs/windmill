@@ -5,7 +5,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { getContext } from 'svelte'
 
-	// Modal mode (sessions): a step's editor only opens on double-click, so add the
+	// Detached mode (sessions): a step's editor is hidden until asked for, so add the
 	// hint to the name tooltip. Provided by FlowEditor; absent (=> false) elsewhere.
 	const stepExploreHint = getContext<(() => boolean) | undefined>('flowGraphStepExploreHint')
 	const showExploreHint = $derived(stepExploreHint?.() ?? false)
