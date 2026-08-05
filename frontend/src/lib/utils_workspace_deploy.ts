@@ -173,6 +173,13 @@ function legacyTriggerKind(kind: TriggerDeployKind) {
 export type AppIdentity = { email: string; permissionedAs: string }
 
 /**
+ * Set when a create-only deploy was refused because the target turned out to already have the
+ * item. Carried on an object rather than matched out of the error text: `deployItem` swallows
+ * every throw into `{ success: false, error }`, so the flag is the only reliable signal.
+ */
+export type DeployConflict = { hit: boolean }
+
+/**
  * `deployItem` overrides only the email half of the identity, while the body it builds
  * spreads the *source* item — which carries the source workspace's permissioned_as, valid
  * nowhere else since usernames are per-workspace. The key is therefore always overwritten:
@@ -181,13 +188,6 @@ export type AppIdentity = { email: string; permissionedAs: string }
  * clears it too, but this app consumes the published package, so the clear has to exist
  * on both sides until that version ships.
  */
-/**
- * Set when a create-only deploy was refused because the target turned out to already have the
- * item. Carried on an object rather than matched out of the error text: `deployItem` swallows
- * every throw into `{ success: false, error }`, so the flag is the only reliable signal.
- */
-export type DeployConflict = { hit: boolean }
-
 function makeProvider(
 	onBehalfOfPrincipal?: string,
 	appIdentity?: AppIdentity,
@@ -575,18 +575,36 @@ export async function getOnBehalfOfOrThrow(
  * is the only identifier stable across workspaces, so users go source username -> email -> target
  * username, and anyone without an account there resolves to undefined for the caller to deal with.
  */
+/**
+ * Every workspace group, not just the first page.
+ *
+ * `listGroupNames` would be the obvious call but unions in instance groups, which folder rules do
+ * not resolve against — a same-named instance group would let an unusable rule through. `listGroups`
+ * reads the workspace's own `group_` rows, which is what the server checks, but it paginates: a
+ * group missed here reads as "no account in the target", which now refuses a folder copy outright.
+ */
+async function workspaceGroupNames(workspace: string): Promise<Set<string>> {
+	const PER_PAGE = 1000
+	const names = new Set<string>()
+	// Stops on a short page; the size check is the backstop for a server that ignores `page`.
+	for (let page = 1; page <= 50; page++) {
+		const batch = await GroupService.listGroups({ workspace, page, perPage: PER_PAGE })
+		const before = names.size
+		batch.forEach((g) => names.add(g.name))
+		if (batch.length < PER_PAGE || names.size === before) break
+	}
+	return names
+}
+
 async function principalTranslator(workspaceFrom: string, workspaceTo: string) {
-	const [fromUsers, toUsers, toGroups] = await Promise.all([
+	const [fromUsers, toUsers, targetGroups] = await Promise.all([
+		// `list_users` is unpaginated, unlike the group listing below.
 		UserService.listUsers({ workspace: workspaceFrom }),
 		UserService.listUsers({ workspace: workspaceTo }),
-		// `listGroupNames` unions in instance groups, which folder rules do not resolve against —
-		// a same-named instance group would let an unusable rule through. `listGroups` reads the
-		// workspace's own `group_` rows, which is what the server checks.
-		GroupService.listGroups({ workspace: workspaceTo, perPage: 100 })
+		workspaceGroupNames(workspaceTo)
 	])
 	const emailOfSourceUsername = new Map(fromUsers.map((u) => [u.username, u.email]))
 	const targetUsernameOfEmail = new Map(toUsers.map((u) => [u.email, u.username]))
-	const targetGroups = new Set(toGroups.map((g) => g.name))
 
 	/** The same principal as `workspaceTo` names it, or undefined when it has no account there. */
 	return (principal: string): string | undefined => {
