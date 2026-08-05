@@ -7368,9 +7368,9 @@ async fn attach_dev_workspace(
     // Prod may be a root workspace or another dev workspace (a dev of a dev); a throwaway fork
     // can't host one.
     ensure_dev_parent_can_host_dev(&db, &prod_w_id).await?;
-    // With a dev workspace allowed as prod, the candidate can sit ABOVE prod in the tree —
-    // reparenting it below prod would close a parent<->child cycle and hang every hierarchy walk.
-    // Prod itself is at depth 0 of the chain, but `dev_w_id == prod_w_id` is already rejected above.
+    // Prod may be a dev workspace, so the candidate can sit ABOVE it in the tree — reparenting it
+    // below prod would close a parent<->child cycle and hang every hierarchy walk. Prod itself is at
+    // depth 0 of the chain, but `dev_w_id == prod_w_id` is already rejected above.
     let would_cycle = sqlx::query_scalar!(
         r#"WITH RECURSIVE chain AS (
                SELECT id, parent_workspace_id, 0 AS depth FROM workspace WHERE id = $1
