@@ -95,9 +95,10 @@ lazy_static::lazy_static! {
     /// Python executor, which takes the same settings for regular jobs.
     static ref NETWORK_ENVS: Vec<(&'static str, String)> = {
         let mut envs = Vec::new();
-        // uv has no --cert flag, so a custom CA can only reach it as a trust store, and of the
-        // spellings a host may use it reads only SSL_CERT_FILE/SSL_CERT_DIR. Collapse the rest
-        // into one value, most specific first, rather than forwarding them inertly.
+        // Neither `uv venv` nor `uv pip install` takes --cert (only `uv pip compile` does), so a
+        // custom CA can only reach the commands below as a trust store, and of the spellings a
+        // host may use they read only SSL_CERT_FILE/SSL_CERT_DIR. Collapse the rest into one
+        // value, most specific first, rather than forwarding them inertly.
         if let Some(cert) = non_empty_var("PY_INDEX_CERT")
             .or_else(|| non_empty_var("PIP_INDEX_CERT"))
             .or_else(|| non_empty_var("SSL_CERT_FILE"))
