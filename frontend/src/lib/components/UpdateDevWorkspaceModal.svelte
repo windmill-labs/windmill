@@ -153,7 +153,17 @@
 		}
 		// Create-only: nobody asked for this folder to be deployed, so it must never overwrite one
 		// that appeared meanwhile. See `createFolderIfAbsent`.
-		return await createFolderIfAbsent(folder, req.prodWorkspaceId, req.devWorkspaceId)
+		const result = await createFolderIfAbsent(folder, req.prodWorkspaceId, req.devWorkspaceId)
+		if (result.droppedRules?.length) {
+			// The folder is now less restrictive than its source, which is not something to discover
+			// later from an item running as the wrong user.
+			sendUserToast(
+				`${folderPath} was created without its "run on behalf of" rule for ` +
+					`${result.droppedRules.join(', ')} — no such user or group in ${req.devWorkspaceName}`,
+				true
+			)
+		}
+		return result
 	}
 
 	async function presenceInDev(

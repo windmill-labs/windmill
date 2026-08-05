@@ -14,10 +14,12 @@ import {
 	ScheduleService,
 	ScriptService,
 	SqsTriggerService,
+	GroupService,
 	UserService,
 	VariableService,
 	WebsocketTriggerService,
 	WorkspaceService,
+	type FolderDefaultPermissionedAs,
 	type User
 } from '$lib/gen'
 import {
@@ -529,6 +531,58 @@ export async function getOnBehalfOfOrThrow(
 }
 
 /**
+ * Rewrite a folder's create-time identity rules for `workspaceTo`, dropping the ones that can't be
+ * honoured there.
+ *
+ * A `u/<username>` names a workspace-local account: the same username in the target can be a
+ * different person, and the email behind it is the only stable identifier across workspaces. Rules
+ * are therefore resolved source username -> email -> target username, and a rule whose principal has
+ * no account in the target is dropped rather than carried. Carrying it would either hand the item to
+ * a namesake, or — since the server only checks a rule's *shape* when the folder is created and its
+ * *existence* when an item lands in it — let the folder be created and then fail every deploy into
+ * it, including the retry, with nothing the prompt can do about it.
+ */
+async function rulesForTarget(
+	rules: FolderDefaultPermissionedAs,
+	workspaceFrom: string,
+	workspaceTo: string
+): Promise<{ kept: FolderDefaultPermissionedAs; dropped: string[] }> {
+	const [fromUsers, toUsers, toGroups] = await Promise.all([
+		UserService.listUsers({ workspace: workspaceFrom }),
+		UserService.listUsers({ workspace: workspaceTo }),
+		GroupService.listGroupNames({ workspace: workspaceTo })
+	])
+	const emailOfSourceUsername = new Map(fromUsers.map((u) => [u.username, u.email]))
+	const targetUsernameOfEmail = new Map(toUsers.map((u) => [u.email, u.username]))
+	const targetGroups = new Set(toGroups)
+
+	const kept: FolderDefaultPermissionedAs = []
+	const dropped: string[] = []
+	for (const rule of rules) {
+		const principal = rule.permissioned_as
+		let translated: string | undefined
+		if (principal.startsWith('u/')) {
+			const email = emailOfSourceUsername.get(principal.slice(2))
+			const username = email ? targetUsernameOfEmail.get(email) : undefined
+			translated = username ? `u/${username}` : undefined
+		} else if (principal.startsWith('g/')) {
+			translated = targetGroups.has(principal.slice(2)) ? principal : undefined
+		} else {
+			// An email is already workspace-independent; it only has to name someone there.
+			translated = targetUsernameOfEmail.has(principal) ? principal : undefined
+		}
+		if (translated) kept.push({ ...rule, permissioned_as: translated })
+		else dropped.push(principal)
+	}
+	return { kept, dropped }
+}
+
+export type CreateFolderResult = DeployResult & {
+	/** Identity rules left behind because their principal has no account in the target. */
+	droppedRules?: string[]
+}
+
+/**
  * Copy a folder into `workspaceTo`, creating it and never updating it.
  *
  * `deployItem` re-probes and switches to `updateFolder` when the folder turns out to exist, which
@@ -540,16 +594,18 @@ export async function getOnBehalfOfOrThrow(
  * Also carries `default_permissioned_as` and `labels`, which the shared folder deploy drops. Without
  * the former a copied folder applies no create-time identity rules, so an item deployed into it with
  * no on_behalf_of of its own resolves to the deploying user rather than to whoever the source folder
- * would have chosen. Principals are copied verbatim, as owners and `extra_perms` already are, and
- * the server is left to judge them.
+ * would have chosen. See `rulesForTarget` for why those principals are translated rather than copied.
  */
 export async function createFolderIfAbsent(
 	name: string,
 	workspaceFrom: string,
 	workspaceTo: string
-): Promise<DeployResult> {
+): Promise<CreateFolderResult> {
 	try {
 		const folder = await FolderService.getFolder({ workspace: workspaceFrom, name })
+		const rules = folder.default_permissioned_as?.length
+			? await rulesForTarget(folder.default_permissioned_as, workspaceFrom, workspaceTo)
+			: undefined
 		await FolderService.createFolder({
 			workspace: workspaceTo,
 			requestBody: {
@@ -557,11 +613,11 @@ export async function createFolderIfAbsent(
 				owners: folder.owners,
 				extra_perms: folder.extra_perms,
 				summary: folder.summary ?? undefined,
-				default_permissioned_as: folder.default_permissioned_as,
+				default_permissioned_as: rules?.kept,
 				labels: folder.labels
 			}
 		})
-		return { success: true }
+		return { success: true, droppedRules: rules?.dropped.length ? rules.dropped : undefined }
 	} catch (e) {
 		// The name conflict a concurrent create produces is not part of the API contract, so ask
 		// again rather than matching its message.
