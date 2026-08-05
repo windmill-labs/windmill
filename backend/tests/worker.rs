@@ -4055,7 +4055,7 @@ async fn test_failure_module(db: Pool<Postgres>) -> anyhow::Result<()> {
 
 /// Push `flow`, run it on a real worker until its first step is running, then simulate
 /// `monitor::handle_zombie_jobs` reaping that step unrecoverably (its worker crashed/OOM'd)
-/// by calling `handle_job_error(..., unrecoverable = true, ...)` exactly as the monitor does.
+/// by calling `handle_job_error(..., StepFailureKind::Unrecoverable, ...)` exactly as the monitor does.
 /// Returns the flow's completed result.
 #[cfg(feature = "deno_core")]
 async fn run_flow_until_step_running_then_fail_unrecoverably(
@@ -4070,7 +4070,7 @@ async fn run_flow_until_step_running_then_fail_unrecoverably(
     use windmill_common::client::AuthedClient;
     use windmill_common::KillpillSender;
     use windmill_queue::{get_queued_job_v2, MiniCompletedJob, SameWorkerPayload};
-    use windmill_worker::{JobCompletedSender, SameWorkerSender};
+    use windmill_worker::{JobCompletedSender, SameWorkerSender, StepFailureKind};
 
     let flow_id =
         RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
@@ -4135,7 +4135,7 @@ async fn run_flow_until_step_running_then_fail_unrecoverably(
                 windmill_common::error::Error::ExecutionErr(
                     "simulated worker OOM crash".to_string(),
                 ),
-                true, // unrecoverable
+                StepFailureKind::Unrecoverable,
                 Some(&sw_tx),
                 "",
                 "test-monitor",
