@@ -30,6 +30,15 @@
 	} from '$lib/workspaceProtectionRules.svelte'
 	import { GitFork, ExternalLink, Check, Minus, Pen } from 'lucide-svelte'
 	import { resource } from 'runed'
+	import type { Snippet } from 'svelte'
+
+	let {
+		// What this workspace promotes into its parent (deploy target + item filters). Rendered right
+		// under the pairing it configures, which is why the page hands it over instead of placing it
+		// itself: a dev workspace also shows a nested pairing below, and the filters must not read as
+		// belonging to that one.
+		deployTarget
+	}: { deployTarget?: Snippet } = $props()
 
 	let currentWs = $derived($userWorkspaces.find((w) => w.id === $workspaceStore))
 	let isDev = $derived(currentWs?.is_dev_workspace ?? false)
@@ -559,6 +568,7 @@
 		Dev workspace pairing is not available on a throwaway fork. This workspace is a fork of
 		<b>{parentId}</b>.
 	</p>
+	{@render deployTarget?.()}
 {:else if isDev && parentId}
 	<div class="flex flex-col gap-3 max-w-2xl">
 		<p class="text-sm">
@@ -596,6 +606,9 @@
 			</Button>
 		</div>
 	</div>
+	<!-- What this workspace promotes into the pairing above, so it belongs with it rather than under
+	     the nested section that follows. -->
+	{@render deployTarget?.()}
 	<div class="flex flex-col gap-3 max-w-2xl mt-8 pt-6 border-t">
 		<div class="flex flex-col gap-1">
 			<span class="text-xs font-semibold text-emphasis">This workspace's own dev workspace</span>
