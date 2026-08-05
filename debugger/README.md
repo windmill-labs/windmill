@@ -111,9 +111,11 @@ as a job's script does on a worker. When a proxy is set without a bypass list, `
 to `localhost,127.0.0.1` so calls to `BASE_INTERNAL_URL` are not proxied.
 
 Keeping the settings out of the session's environment only bounds what the debugged script can read
-from itself. A session started without `--nsjail` runs under the same user as the service and can
-still read the service's environment through `/proc`, the same way a job can read a worker's when
-the worker runs unsandboxed. Run the service with `--nsjail` to isolate sessions from it.
+from itself. An unsandboxed session runs under the same user as the service and can still read the
+service's environment through `/proc`, the same way a job can read a worker's when the worker runs
+unsandboxed. Isolating sessions from the service takes `--nsjail --nsjail-config
+nsjail.debug.config.proto`: it is that config's PID namespace and `mount_proc` that put the service
+out of reach, not the flag on its own.
 
 ### Frontend Integration
 
