@@ -1,5 +1,5 @@
 /** Below this editor width the step-details pane doesn't fit alongside the graph. */
-export const MODAL_PANEL_BREAKPOINT = 1280
+const MODAL_PANEL_BREAKPOINT = 1280
 
 /**
  * What the user asked for, which is not the same as where the panel ends up: `auto`
@@ -8,9 +8,7 @@ export const MODAL_PANEL_BREAKPOINT = 1280
 export type FlowPanelPreference = 'auto' | 'docked' | 'modal'
 
 /** Where the panel actually is. */
-export type FlowPanelMode = 'docked' | 'modal'
-
-export type FlowPanelModeController = ReturnType<typeof useFlowPanelMode>
+type FlowPanelMode = 'docked' | 'modal'
 
 /**
  * Resolves the step panel's position from the user's preference and the editor's own
