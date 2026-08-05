@@ -7399,8 +7399,6 @@ async fn attach_dev_workspace(
     ensure_dev_parent_can_host_dev(&db, &prod_w_id).await?;
     reject_attach_cycle(&db, &prod_w_id, &dev_w_id).await?;
 
-    // Label checks come after the shape checks: on a cyclic pairing the candidate is its own
-    // ancestor, so the chain below would report a workspace as clashing with itself.
     // The attached workspace keeps its own sync repos and prod keeps its config; the label branch
     // must not collide with either side's tracked branch.
     reject_dev_label_matching_tracked_branch(
@@ -7439,6 +7437,32 @@ async fn attach_dev_workspace(
     // Everything above ran outside a transaction, so prod's eligibility and the chain's labels could
     // have changed under us: re-decide both here, under the pairing lock.
     lock_dev_pairing(&mut tx, &[&prod_w_id, &dev_w_id]).await?;
+    // The candidate was read before the lock, and archiving it is one of the operations the lock
+    // serializes: re-read it, or the pairing lands on a workspace that is gone or has since been
+    // taken by another prod.
+    let dev = sqlx::query!(
+        r#"SELECT parent_workspace_id, deleted FROM workspace WHERE id = $1"#,
+        &dev_w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| Error::NotFound(format!("Workspace {} not found", dev_w_id)))?;
+    if dev.deleted {
+        return Err(Error::BadRequest(format!(
+            "Workspace {} is archived",
+            dev_w_id
+        )));
+    }
+    if dev
+        .parent_workspace_id
+        .as_deref()
+        .is_some_and(|p| p != prod_w_id)
+    {
+        return Err(Error::BadRequest(format!(
+            "Workspace {} is already a fork or dev workspace of another workspace",
+            dev_w_id
+        )));
+    }
     ensure_dev_parent_can_host_dev(&mut *tx, &prod_w_id).await?;
     reject_attach_cycle(&mut *tx, &prod_w_id, &dev_w_id).await?;
     ensure_no_existing_dev_workspace(&mut *tx, &prod_w_id).await?;
@@ -7752,10 +7776,28 @@ pub(crate) async fn archive_workspace_impl(
 ) -> Result<(usize, usize, usize)> {
     // Step 1: Disable all schedules and clear their queued jobs
     let mut tx = db.begin().await?;
-    if dev_lock_parent.is_some() {
+    // Unconditionally, before reading any pairing state: whether this workspace is a dev, and whether
+    // it has one, is exactly what a concurrent attach changes, so gating the lock on the caller's
+    // `dev_lock_parent` would skip it on the strength of the value the race invalidates.
+    lock_dev_pairing(&mut tx, &[w_id]).await?;
+    let dev_parent = sqlx::query_scalar!(
+        "SELECT parent_workspace_id FROM workspace WHERE id = $1 AND is_dev_workspace",
+        w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+    // The caller resolved this before the lock and authorized against it — its prod admin check, and
+    // the pairing teardown below, are both answers to that value. Refuse rather than act on a pairing
+    // nobody checked.
+    if dev_parent.as_deref() != dev_lock_parent {
+        return Err(Error::BadRequest(format!(
+            "The dev pairing of {w_id} changed while it was being archived. Retry."
+        )));
+    }
+    if dev_parent.is_some() {
         // Archiving a dev workspace clears its dev flag, so it must not strand a dev workspace of
-        // its own — decided here, under the pairing lock.
-        lock_dev_pairing(&mut tx, &[w_id]).await?;
+        // its own.
         reject_stranding_nested_dev(&mut *tx, w_id, DevTeardown::Archive).await?;
     }
     let disabled_schedules = sqlx::query_scalar!(

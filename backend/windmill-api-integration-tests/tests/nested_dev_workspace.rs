@@ -400,3 +400,35 @@ async fn test_pairing_lock_does_not_span_unrelated_families(
     held.rollback().await?;
     Ok(())
 }
+
+/// Archive resolves the workspace's pairing state before its transaction, and that value used to
+/// decide whether to take the pairing lock at all — so a standalone workspace was archived without
+/// it, free to race an attach that was busy making it a dev. `h-cand` is standalone, the case that
+/// skipped the lock: with the lock held elsewhere, its archive must wait rather than proceed.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "nested_dev_workspace"))]
+async fn test_archive_takes_the_pairing_lock_for_a_standalone_workspace(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let mut held = db.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('dev_workspace_pairing:' || $1))")
+        .bind("h-cand")
+        .execute(&mut *held)
+        .await?;
+
+    let finished = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        archive(port, "h-cand"),
+    )
+    .await;
+    assert!(
+        finished.is_err(),
+        "archive of a standalone workspace completed while its pairing lock was held: {finished:?}"
+    );
+
+    held.rollback().await?;
+    Ok(())
+}

@@ -1,4 +1,4 @@
--- Six families for the nested dev-workspace (dev of a dev) guards.
+-- Seven families for the nested dev-workspace (dev of a dev) guards.
 --
 -- Family A is rooted at `test-workspace` (base fixture) and is the one a nested dev is attached to:
 --   test-workspace -> tw-dev ('dev')
@@ -23,6 +23,10 @@
 -- Family G already nests, so two attaches at opposite ends of it touch no workspace in common —
 -- their labels only collide once both land, three dev workspaces deep:
 --   prod-g (root), g-mid -> g-sub ('dev'), and the standalone `g-leaf`
+--
+-- Family H is a standalone that already owns a dev, so archiving it and attaching it under a prod
+-- read its pairing state differently — archive sees a standalone, attach makes it a dev:
+--   prod-h (root), and standalone h-cand -> h-sub ('dev')
 
 
 INSERT INTO workspace (id, name, owner, parent_workspace_id, is_dev_workspace, dev_workspace_label) VALUES
@@ -45,12 +49,16 @@ INSERT INTO workspace (id, name, owner, parent_workspace_id, is_dev_workspace, d
 	('prod-g', 'prod g', 'test@windmill.dev', NULL, false, NULL),
 	('g-mid', 'standalone with a dev of its own', 'test@windmill.dev', NULL, false, NULL),
 	('g-sub', 'dev of g-mid', 'test@windmill.dev', 'g-mid', true, 'dev'),
-	('g-leaf', 'leaf attach candidate', 'test@windmill.dev', NULL, false, NULL);
+	('g-leaf', 'leaf attach candidate', 'test@windmill.dev', NULL, false, NULL),
+	('prod-h', 'prod h', 'test@windmill.dev', NULL, false, NULL),
+	('h-cand', 'standalone owning a dev', 'test@windmill.dev', NULL, false, NULL),
+	('h-sub', 'dev of h-cand', 'test@windmill.dev', 'h-cand', true, 'dev');
 
 CREATE TEMP VIEW new_workspaces AS SELECT unnest(ARRAY[
 	'tw-dev', 'standalone', 'standalone-dev', 'spare', 'prod-b', 'wm-fork-redev', 'redev-dev',
 	'prod-c', 'c-dev', 'c-dev-dev', 'prod-e', 'wm-fork-edev', 'e-cand',
-	'prod-f', 'f-mid', 'f-leaf', 'prod-g', 'g-mid', 'g-sub', 'g-leaf'
+	'prod-f', 'f-mid', 'f-leaf', 'prod-g', 'g-mid', 'g-sub', 'g-leaf',
+	'prod-h', 'h-cand', 'h-sub'
 ]) AS id;
 
 INSERT INTO workspace_settings (workspace_id)
