@@ -108,7 +108,7 @@
 	import WorkerTagSelect from './WorkerTagSelect.svelte'
 	import type { ButtonType } from './common/button/model'
 	import DebounceLimit from './flows/DebounceLimit.svelte'
-	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
+	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
 	import OnBehalfOfSelector, { type OnBehalfOfChoice } from './OnBehalfOfSelector.svelte'
 	import WacExportDrawer from './scripts/WacExportDrawer.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
@@ -866,7 +866,7 @@
 												{
 													label: editInForkLabel(opWorkspace, $userWorkspaces),
 													onClick: () => {
-														window.open(buildForkEditUrl('script', initialPath))
+														openEditInFork('script', initialPath, opWorkspace)
 													}
 												}
 											]
