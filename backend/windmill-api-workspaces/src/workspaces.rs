@@ -7092,6 +7092,15 @@ async fn create_workspace_fork(
 
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
+    if nw.is_dev_workspace {
+        // The checks above ran outside a transaction, so the parent's eligibility could have changed
+        // under us: re-decide it here, under the lock a concurrent teardown of the parent must also
+        // take.
+        lock_dev_pairing(&mut tx, &parent_workspace_id).await?;
+        ensure_dev_parent_can_host_dev(&mut *tx, &parent_workspace_id).await?;
+        ensure_no_existing_dev_workspace(&mut *tx, &parent_workspace_id).await?;
+    }
+
     let forked_id = nw.id;
 
     sqlx::query!(
@@ -7428,9 +7437,12 @@ async fn attach_dev_workspace(
         )));
     }
 
-    ensure_no_existing_dev_workspace(&db, &prod_w_id).await?;
-
     let mut tx = db.begin().await?;
+    // Everything above ran outside a transaction, so prod's eligibility could have changed under
+    // us: re-decide it here, under the lock a concurrent teardown of prod must also take.
+    lock_dev_pairing(&mut tx, &prod_w_id).await?;
+    ensure_dev_parent_can_host_dev(&mut *tx, &prod_w_id).await?;
+    ensure_no_existing_dev_workspace(&mut *tx, &prod_w_id).await?;
     sqlx::query!(
         "UPDATE workspace SET parent_workspace_id = $1, is_dev_workspace = true, dev_workspace_label = $3 WHERE id = $2",
         &prod_w_id,
@@ -7602,6 +7614,11 @@ async fn detach_dev_workspace(
     require_admin(authed.is_admin, &authed.username)?;
 
     let dev_w_id = req.dev_workspace_id;
+
+    let mut tx = db.begin().await?;
+    // Under the lock a concurrent create/attach on this workspace must also take, so a dev workspace
+    // cannot appear beneath it between the check below and the update.
+    lock_dev_pairing(&mut tx, &dev_w_id).await?;
     let is_dev_of_prod = sqlx::query_scalar!(
         r#"SELECT EXISTS(
             SELECT 1 FROM workspace
@@ -7610,7 +7627,7 @@ async fn detach_dev_workspace(
         &dev_w_id,
         &prod_w_id
     )
-    .fetch_one(&db)
+    .fetch_one(&mut *tx)
     .await?
     .unwrap_or(false);
     if !is_dev_of_prod {
@@ -7619,10 +7636,8 @@ async fn detach_dev_workspace(
             dev_w_id, prod_w_id
         )));
     }
+    reject_stranding_nested_dev(&mut *tx, &dev_w_id, DevTeardown::Detach).await?;
 
-    reject_stranding_nested_dev(&db, &dev_w_id, DevTeardown::Detach).await?;
-
-    let mut tx = db.begin().await?;
     // A wm-fork- workspace re-designated as dev returns to being a plain fork
     // (keeps its parent); a standalone workspace that was attached returns to
     // being standalone — with the parent kept it would still classify as a
@@ -7730,6 +7745,12 @@ pub(crate) async fn archive_workspace_impl(
 ) -> Result<(usize, usize, usize)> {
     // Step 1: Disable all schedules and clear their queued jobs
     let mut tx = db.begin().await?;
+    if dev_lock_parent.is_some() {
+        // Archiving a dev workspace clears its dev flag, so it must not strand a dev workspace of
+        // its own — decided here, under the lock a concurrent create/attach on it must also take.
+        lock_dev_pairing(&mut tx, w_id).await?;
+        reject_stranding_nested_dev(&mut *tx, w_id, DevTeardown::Archive).await?;
+    }
     let disabled_schedules = sqlx::query_scalar!(
         "UPDATE schedule SET enabled = false WHERE workspace_id = $1 AND enabled = true RETURNING path",
         w_id
@@ -7869,15 +7890,10 @@ async fn archive_workspace(
         }
     }
 
-    // Archiving clears `is_dev_workspace` like a detach does, so it must not strand a dev workspace
-    // of this one either. Only asked of a workspace that is itself a dev: a root archived out from
-    // under its dev is the pre-existing shape and is not this pairing's to police.
-    if dev_lock_parent.is_some() {
-        reject_stranding_nested_dev(&db, &w_id, DevTeardown::Archive).await?;
-    }
-
     // The dev pairing teardown (clear is_dev + drop the prod lock) runs inside archive_workspace_impl's
-    // transaction, atomically with `deleted = true`.
+    // transaction, atomically with `deleted = true` — including the guard that it strands no nested
+    // dev workspace, which only applies to a workspace that is itself a dev (`dev_lock_parent`): a
+    // root archived out from under its dev is the pre-existing shape and not this pairing's to police.
     let (schedules_count, canceled_count, deleted_tokens_count) =
         archive_workspace_impl(&db, &w_id, &authed.username, dev_lock_parent.as_deref()).await?;
 
@@ -8929,7 +8945,10 @@ async fn lock_prod_workspace(
 
 /// Error out if `parent_w_id` already has an active (non-archived) dev workspace. Mirrors the
 /// partial unique index `workspace_canonical_dev_idx` with a friendly message.
-async fn ensure_no_existing_dev_workspace(db: &DB, parent_w_id: &str) -> Result<()> {
+async fn ensure_no_existing_dev_workspace<'e, E: sqlx::Executor<'e, Database = Postgres>>(
+    db: E,
+    parent_w_id: &str,
+) -> Result<()> {
     let existing = sqlx::query_scalar!(
         "SELECT id FROM workspace WHERE parent_workspace_id = $1 AND is_dev_workspace AND deleted = false",
         parent_w_id
@@ -8948,24 +8967,50 @@ async fn ensure_no_existing_dev_workspace(db: &DB, parent_w_id: &str) -> Result<
 /// A dev workspace pairs with a root workspace or — supported, though not the recommended shape —
 /// with another dev workspace, giving a promotion chain (dev of dev -> dev -> prod). A throwaway
 /// fork is never a valid prod: its deploys go to its own `wm-fork/**` branch and it is discarded
-/// with its subtree, so a dev pinned under it has nowhere to promote to.
-async fn ensure_dev_parent_can_host_dev(db: &DB, parent_w_id: &str) -> Result<()> {
+/// with its subtree, so a dev pinned under it has nowhere to promote to. Nor is an archived one,
+/// which hosts nothing at all.
+async fn ensure_dev_parent_can_host_dev<'e, E: sqlx::Executor<'e, Database = Postgres>>(
+    db: E,
+    parent_w_id: &str,
+) -> Result<()> {
     let parent = sqlx::query!(
-        r#"SELECT (parent_workspace_id IS NOT NULL) AS "is_fork!", is_dev_workspace
+        r#"SELECT (parent_workspace_id IS NOT NULL) AS "is_fork!", is_dev_workspace, deleted
            FROM workspace WHERE id = $1"#,
         parent_w_id
     )
     .fetch_optional(db)
     .await?;
-    if parent
-        .as_ref()
-        .is_some_and(|p| p.is_fork && !p.is_dev_workspace)
-    {
+    let Some(parent) = parent else {
+        return Ok(());
+    };
+    if parent.deleted {
+        return Err(Error::BadRequest(format!(
+            "Cannot create a dev workspace of '{}' because it is archived.",
+            parent_w_id
+        )));
+    }
+    if parent.is_fork && !parent.is_dev_workspace {
         return Err(Error::BadRequest(format!(
             "Cannot create a dev workspace of '{}' because it is a throwaway fork.",
             parent_w_id
         )));
     }
+    Ok(())
+}
+
+/// Serialize everything that makes or breaks a dev pairing *on* `w_id`: giving it a dev workspace
+/// (create, attach) and clearing its own dev flag (detach, archive). Each side decides on state the
+/// other mutates — "does this one already have a dev", "does it still have one" — so checked outside
+/// a common lock, two concurrent requests both pass and land the stranded shape the guards exist to
+/// prevent. Take it before re-running those checks inside the mutating transaction; it releases on
+/// commit or rollback.
+async fn lock_dev_pairing(tx: &mut Transaction<'_, Postgres>, w_id: &str) -> Result<()> {
+    sqlx::query!(
+        "SELECT pg_advisory_xact_lock(hashtext('dev_workspace_pairing:' || $1))",
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }
 
@@ -8983,7 +9028,11 @@ enum DevTeardown {
 /// shape that hosts no pairing: its settings tab offers no detach control, and `delete_workspace`
 /// refuses a workspace that still has a dev child, so the pairing could never be undone. Reject the
 /// teardown so it is done bottom-up instead.
-async fn reject_stranding_nested_dev(db: &DB, w_id: &str, teardown: DevTeardown) -> Result<()> {
+async fn reject_stranding_nested_dev<'e, E: sqlx::Executor<'e, Database = Postgres>>(
+    db: E,
+    w_id: &str,
+    teardown: DevTeardown,
+) -> Result<()> {
     let action = match teardown {
         DevTeardown::Detach => {
             if !w_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX) {

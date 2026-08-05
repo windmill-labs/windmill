@@ -160,7 +160,7 @@ async fn test_teardown_refuses_to_strand_a_nested_dev(db: Pool<Postgres>) -> any
         "prefix-less detach returned {status}: {body}"
     );
 
-    // Detaching from the bottom up is the supported order.
+    // Bottom-up is the supported order.
     let (status, body) = detach(port, "wm-fork-redev", "redev-dev").await;
     assert!(status.is_success(), "leaf detach returned {status}: {body}");
     let (status, body) = detach(port, "prod-b", "wm-fork-redev").await;
@@ -169,5 +169,67 @@ async fn test_teardown_refuses_to_strand_a_nested_dev(db: Pool<Postgres>) -> any
         "detach after cleanup returned {status}: {body}"
     );
 
+    Ok(())
+}
+
+/// Giving a workspace a dev and clearing its own dev flag each decide on state the other mutates, so
+/// checked outside a common lock both commit and leave `e-cand` under a throwaway fork. Fired
+/// together: whichever lands second must see the first and be rejected.
+///
+/// Repeated, because how far each handler gets before the other's mutation lands is timing-dependent
+/// — one pass caught an unlocked build only about a fifth of the time, and the runs are cheap.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "nested_dev_workspace"))]
+async fn test_nested_attach_and_detach_cannot_both_commit(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    for round in 0..12 {
+        // Back to `prod-e -> wm-fork-edev ('dev')` with `e-cand` standalone, the state in which both
+        // requests pass their own checks.
+        sqlx::query(
+            "UPDATE workspace SET parent_workspace_id = 'prod-e', is_dev_workspace = true,
+                    dev_workspace_label = 'dev' WHERE id = 'wm-fork-edev'",
+        )
+        .execute(&db)
+        .await?;
+        sqlx::query(
+            "UPDATE workspace SET parent_workspace_id = NULL, is_dev_workspace = false,
+                    dev_workspace_label = NULL WHERE id = 'e-cand'",
+        )
+        .execute(&db)
+        .await?;
+
+        let (attached, detached) = tokio::join!(
+            attach(
+                port,
+                "wm-fork-edev",
+                json!({ "dev_workspace_id": "e-cand", "dev_workspace_label": "staging" }),
+            ),
+            detach(port, "prod-e", "wm-fork-edev"),
+        );
+        assert!(
+            attached.0.is_success() != detached.0.is_success(),
+            "round {round}: exactly one must win, got attach={} detach={}\n{}\n{}",
+            attached.0,
+            detached.0,
+            attached.1,
+            detached.1
+        );
+
+        // Whichever won, `wm-fork-edev` is never left a throwaway fork with a dev workspace beneath it.
+        let (is_dev, cand_parent): (bool, Option<String>) = sqlx::query_as(
+            "SELECT (SELECT is_dev_workspace FROM workspace WHERE id = 'wm-fork-edev'),
+                    (SELECT parent_workspace_id FROM workspace WHERE id = 'e-cand')",
+        )
+        .fetch_one(&db)
+        .await?;
+        assert!(
+            is_dev || cand_parent.is_none(),
+            "round {round}: stranded — wm-fork-edev is_dev={is_dev}, e-cand parent={cand_parent:?}"
+        );
+    }
     Ok(())
 }

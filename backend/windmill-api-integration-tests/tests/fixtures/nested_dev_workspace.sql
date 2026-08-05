@@ -1,4 +1,4 @@
--- Three families for the nested dev-workspace (dev of a dev) guards.
+-- Four families for the nested dev-workspace (dev of a dev) guards.
 --
 -- Family A is rooted at `test-workspace` (base fixture) and is the one a nested dev is attached to:
 --   test-workspace -> tw-dev ('dev')
@@ -11,6 +11,10 @@
 -- Family C is the ordinary prefix-less nesting. Detaching its middle workspace is fine (it returns
 -- to standalone and goes on hosting `c-dev-dev`), but archiving it is not:
 --   prod-c -> c-dev ('dev') -> c-dev-dev ('staging')
+--
+-- Family E has no nested dev yet, so both "give `wm-fork-edev` a dev" and "detach `wm-fork-edev`"
+-- pass their own checks — the pair that must not both commit:
+--   prod-e -> wm-fork-edev ('dev'), plus the standalone candidate `e-cand`
 
 INSERT INTO workspace (id, name, owner, parent_workspace_id, is_dev_workspace, dev_workspace_label) VALUES
 	('tw-dev', 'dev of test-workspace', 'test@windmill.dev', 'test-workspace', true, 'dev'),
@@ -22,11 +26,14 @@ INSERT INTO workspace (id, name, owner, parent_workspace_id, is_dev_workspace, d
 	('redev-dev', 'dev of the redesignated fork', 'test@windmill.dev', 'wm-fork-redev', true, 'staging'),
 	('prod-c', 'prod c', 'test@windmill.dev', NULL, false, NULL),
 	('c-dev', 'dev of prod-c', 'test@windmill.dev', 'prod-c', true, 'dev'),
-	('c-dev-dev', 'dev of c-dev', 'test@windmill.dev', 'c-dev', true, 'staging');
+	('c-dev-dev', 'dev of c-dev', 'test@windmill.dev', 'c-dev', true, 'staging'),
+	('prod-e', 'prod e', 'test@windmill.dev', NULL, false, NULL),
+	('wm-fork-edev', 'redesignated fork with no dev yet', 'test@windmill.dev', 'prod-e', true, 'dev'),
+	('e-cand', 'attach candidate', 'test@windmill.dev', NULL, false, NULL);
 
 CREATE TEMP VIEW new_workspaces AS SELECT unnest(ARRAY[
 	'tw-dev', 'standalone', 'standalone-dev', 'spare', 'prod-b', 'wm-fork-redev', 'redev-dev',
-	'prod-c', 'c-dev', 'c-dev-dev'
+	'prod-c', 'c-dev', 'c-dev-dev', 'prod-e', 'wm-fork-edev', 'e-cand'
 ]) AS id;
 
 INSERT INTO workspace_settings (workspace_id)

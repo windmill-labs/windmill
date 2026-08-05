@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT (parent_workspace_id IS NOT NULL) AS \"is_fork!\", is_dev_workspace\n           FROM workspace WHERE id = $1",
+  "query": "SELECT (parent_workspace_id IS NOT NULL) AS \"is_fork!\", is_dev_workspace, deleted\n           FROM workspace WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -12,6 +12,11 @@
         "ordinal": 1,
         "name": "is_dev_workspace",
         "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "deleted",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -21,8 +26,9 @@
     },
     "nullable": [
       null,
+      false,
       false
     ]
   },
-  "hash": "8daaeb66fc177a1cf3a3163a9ef561b670b7103967f4c032661cc4ac76cada27"
+  "hash": "e9ea69ee2a7927e18a2bae9721407e05b1ab61512e00034982dfd9b4ac3257aa"
 }
