@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.778.0
+  version: 1.780.0
   title: Windmill API
 
   contact:
@@ -5899,6 +5899,41 @@ paths:
                 items:
                   $ref: "#/components/schemas/User"
 
+  /w/{workspace}/users/list_addable:
+    get:
+      summary: list instance users that can still be added to this workspace (require to be super admin)
+      operationId: listAddableInstanceUsers
+      tags:
+        - user
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: search
+          in: query
+          description: filter users whose email or username contains this string
+          schema:
+            type: string
+        - name: per_page
+          in: query
+          description: number of users to return (default 10, max 100)
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: addable instance users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    email:
+                      type: string
+                    username:
+                      type: string
+                  required:
+                    - email
+
   /w/{workspace}/users/list_usage:
     get:
       summary: list users usage
@@ -6657,6 +6692,12 @@ paths:
                 - bypass_groups
                 - bypass_users
               properties:
+                name:
+                  type: string
+                  description: >-
+                    New name for the rule. Omit, or pass the current name, to leave it unchanged.
+                    The reserved `dev_workspace_lock` rule cannot be renamed, nor can another rule
+                    be renamed onto it.
                 rules:
                   $ref: "#/components/schemas/ProtectionRules"
                 bypass_groups:
@@ -11795,6 +11836,9 @@ paths:
     get:
       summary: list all apps
       operationId: listApps
+      x-mcp-tool: true
+      x-mcp-instructions: "Lists every app, low-code and full-code alike. `raw_app` tells them apart: true is a full-code app, which getAppByPath then reads and updateApp deploys. An app with no `raw_app` field is low-code — the field is omitted rather than sent as false. A low-code app can only be read here — editing one is a job for its editor in the UI."
+      x-mcp-tool-include-query-params: [path_start, page, per_page]
       tags:
         - app
       parameters:
@@ -11854,16 +11898,6 @@ paths:
     post:
       summary: create app
       operationId: createApp
-      x-mcp-tool: true
-      x-mcp-tool-include-fields:
-        - path
-        - value
-        - summary
-        - policy
-        - deployment_message
-      x-mcp-tool-opaque-fields:
-        - value
-        - policy
       tags:
         - app
       parameters:
@@ -11988,6 +12022,9 @@ paths:
     get:
       summary: get app by path
       operationId: getAppByPath
+      x-mcp-tool: true
+      x-mcp-instructions: "Returns the app's whole `value`, which is what updateApp needs: it takes the whole thing, not a patch. A big enough app is truncated by the tool-result limit; sending that back fails the build rather than deploying something partial, so edit those in the app editor or with the CLI. `raw_app` says whether this is a full-code app (its value holds `files`/`runnables`) or a low-code one (a `grid`), and only a full-code app can be deployed through MCP."
+      x-mcp-tool-include-query-params: []
       tags:
         - app
       parameters:
@@ -12298,16 +12335,6 @@ paths:
     post:
       summary: update app
       operationId: updateApp
-      x-mcp-tool: true
-      x-mcp-tool-include-fields:
-        - path
-        - value
-        - summary
-        - policy
-        - deployment_message
-      x-mcp-tool-opaque-fields:
-        - value
-        - policy
       tags:
         - app
       parameters:
@@ -12342,6 +12369,151 @@ paths:
                 skip_draft_deletion:
                   type: boolean
                   description: "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
+                allow_kind_change:
+                  type: boolean
+                  description: "When true, this deploy may switch the app between low-code and raw. Without it, deploying a value to an app of the other kind is refused so an app is never converted by accident."
+      responses:
+        "200":
+          description: app updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/apps/create_raw_source:
+    post:
+      # The summary is what the MCP token picker shows next to the tool, so it has
+      # to carry the consequence of granting it, not just what it does.
+      summary: create a raw app from its sources, compiling them on a worker (which runs the app's own dependencies to do so)
+      operationId: createAppRawSource
+      x-mcp-tool: true
+      # Creating an app through MCP means creating a full-code one; low-code apps
+      # are legacy and aren't exposed there at all.
+      x-mcp-tool-name: createApp
+      x-mcp-instructions: "Creates a raw (full-code) app: `value.files` holds its sources, keyed by path (`/index.tsx`, `/App.tsx`, `/package.json`), and needs an entry point (`/index.tsx`, `/index.ts` or `/index.js`). The sources are compiled on a worker by the same build the editor and the CLI run, so a compile error comes back as the error of this call. Compiling runs the app's own dependencies on a worker, so this tool can execute code there. Low-code apps are legacy and have no MCP tool at all — they are built in their editor."
+      x-mcp-tool-include-fields:
+        - path
+        - value
+        - summary
+        - policy
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: raw app sources to bundle and deploy
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                summary:
+                  type: string
+                value:
+                  type: object
+                  description: "The raw app's value. `files` maps each source path to its content and must contain an entry point; `runnables` and `data` are carried through unchanged."
+                  properties:
+                    files:
+                      type: object
+                      additionalProperties:
+                        type: string
+                    runnables:
+                      type: object
+                    data:
+                      type: object
+                  required: [files]
+                policy:
+                  $ref: "#/components/schemas/Policy"
+                deployment_message:
+                  type: string
+                custom_path:
+                  type: string
+                preserve_on_behalf_of:
+                  type: boolean
+                  description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it."
+                labels:
+                  type: array
+                  items:
+                    type: string
+                skip_draft_deletion:
+                  type: boolean
+                  description: "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
+              required: [path, value, summary, policy]
+      responses:
+        "201":
+          description: app created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/apps/update_raw_source/{path}:
+    post:
+      # The summary is what the MCP token picker shows next to the tool, so it has
+      # to carry the consequence of granting it, not just what it does.
+      summary: update a raw app from its sources, compiling them on a worker (which runs the app's own dependencies to do so)
+      operationId: updateAppRawSource
+      x-mcp-tool: true
+      x-mcp-tool-name: updateApp
+      x-mcp-instructions: "Use this to change a raw (full-code) app — an app whose `raw_app` field is true. Send the whole `value` (`files`, `runnables`, `data`), not a patch: read the current one with getAppByPath first and edit it. The sources are compiled on a worker by the same build the editor and the CLI run, so a compile error comes back as the error of this call. Compiling runs the app's own dependencies on a worker, so this tool can execute code there. Low-code apps are legacy and have no MCP tool at all — they are edited in their editor."
+      x-mcp-tool-include-fields:
+        - path
+        - value
+        - summary
+        - policy
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      requestBody:
+        description: raw app sources to bundle and deploy
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                summary:
+                  type: string
+                value:
+                  type: object
+                  description: "The raw app's value. `files` maps each source path (e.g. `/index.tsx`, `/App.tsx`, `/package.json`) to its content and must contain an entry point (`/index.tsx`, `/index.ts` or `/index.js`); `runnables` and `data` are carried through unchanged."
+                  properties:
+                    files:
+                      type: object
+                      additionalProperties:
+                        type: string
+                    runnables:
+                      type: object
+                    data:
+                      type: object
+                  required: [files]
+                policy:
+                  $ref: "#/components/schemas/Policy"
+                deployment_message:
+                  type: string
+                custom_path:
+                  type: string
+                preserve_on_behalf_of:
+                  type: boolean
+                  description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it."
+                labels:
+                  type: array
+                  items:
+                    type: string
+                skip_draft_deletion:
+                  type: boolean
+                  description: "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
+                allow_kind_change:
+                  type: boolean
+                  description: "When true, this deploy may switch the app between low-code and raw. Without it, deploying a value to an app of the other kind is refused so an app is never converted by accident."
+              required: [value]
       responses:
         "200":
           description: app updated
@@ -12391,6 +12563,9 @@ paths:
                     skip_draft_deletion:
                       type: boolean
                       description: "When true (set by the CLI / git sync), deploying this app does not delete an existing user draft at the same path."
+                    allow_kind_change:
+                      type: boolean
+                      description: "When true, this deploy may switch the app between low-code and raw. Without it, deploying a value to an app of the other kind is refused so an app is never converted by accident."
                 js:
                   type: string
                 css:
@@ -31774,6 +31949,9 @@ components:
           description: the resolved resource, rendered into profiles.yml
         target:
           type: string
+        resource_type:
+          type: string
+          description: decides whether the value is translated into a profiles.yml target or already is one
       required:
         - value
 

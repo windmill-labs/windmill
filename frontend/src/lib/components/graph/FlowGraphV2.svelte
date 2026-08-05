@@ -4,6 +4,9 @@
 	import type { FlowPanelDetachContext } from '$lib/components/flows/types'
 	import { overlayStack } from '$lib/components/common/overlayHost.svelte'
 	import { FlowService, type FlowModule, type FlowNote, type Job, type OpenFlow } from '../../gen'
+	import { findStepPath, parseExpandedSubflowId } from '$lib/components/restartFromStepPath'
+	import { expandedSubflowParentId } from '../flows/expandedSubflowStep'
+	import { sendUserToast } from '$lib/utils'
 	import { AI_OR_ASSET_NODE_TYPES, NODE, type GraphModuleState } from '.'
 	import { isTriggerStep } from '$lib/components/flows/flowStepSettings'
 	import { getContext, onDestroy, onMount, tick, untrack, type Snippet } from 'svelte'
@@ -1106,6 +1109,54 @@
 		if (!showNotes) {
 			showNotes = true
 		}
+	}
+
+	let latestReload = 0
+
+	/** Flow an expanded subflow node stands for, read from the step it inlines: the edited
+	 * flow for a top-level expansion, the enclosing expansion's modules otherwise. */
+	function expandedSubflowPath(nodeId: string): string | undefined {
+		const parentId = expandedSubflowParentId(nodeId)
+		const parentModules = parentId == undefined ? modules : expandedSubflows[parentId]?.modules
+		const stepId = parseExpandedSubflowId(nodeId)?.leaf ?? nodeId
+		const value = parentModules && findStepPath(parentModules, stepId)?.target.value
+		return value && value.type === 'flow' ? value.path : undefined
+	}
+
+	/** Refetch the steps inlined by every expanded subflow, e.g. after one was deployed from
+	 * the flow editor drawer. Outermost first, so a nested expansion resolves its path from
+	 * its refreshed parent: a step now pointing at another flow must not keep rendering the
+	 * one it pointed at when it was expanded. */
+	export async function reloadExpandedSubflows() {
+		const reload = ++latestReload
+		const ids = Object.keys(expandedSubflows).sort(
+			(a, b) =>
+				(parseExpandedSubflowId(a)?.subflowSteps.length ?? 0) -
+				(parseExpandedSubflowId(b)?.subflowSteps.length ?? 0)
+		)
+		for (const id of ids) {
+			// A later reload owns the state from here on.
+			if (reload !== latestReload) return
+			const expansion = expandedSubflows[id]
+			if (expansion == undefined) continue
+			const path = expandedSubflowPath(id)
+			if (path == undefined) {
+				delete expandedSubflows[id]
+				continue
+			}
+			try {
+				const flow = await FlowService.getFlowByPath({ workspace: workspace, path })
+				if (reload !== latestReload) return
+				// While this request was in flight the user may have collapsed the expansion, or
+				// collapsed it and re-expanded onto another flow: only commit onto the very
+				// expansion this response was fetched for.
+				if (expandedSubflows[id] !== expansion) continue
+				expandedSubflows[id] = { modules: flow.value.modules, groups: flow.value.groups }
+			} catch (err) {
+				sendUserToast(`Could not reload expanded subflow ${path}: ${err.body ?? err}`, true)
+			}
+		}
+		expandedSubflows = expandedSubflows
 	}
 
 	export function createGroupFromSelection(ids: string[]) {

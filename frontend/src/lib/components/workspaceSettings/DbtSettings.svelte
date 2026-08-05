@@ -7,6 +7,24 @@
 	/** The name a project reaches when its descriptor names none. */
 	export const DEFAULT_WAREHOUSE = 'main'
 
+	/**
+	 * The resource types a warehouse may point at: `dbt_profile`, which carries a
+	 * `profiles.yml` block verbatim and so reaches any adapter, plus the connection types
+	 * `render_profile` (backend/windmill-worker/src/dbt_profiles.rs) translates. Anything
+	 * else has no way to become a dbt target at all.
+	 */
+	export const WAREHOUSE_RESOURCE_TYPES = [
+		'dbt_profile',
+		'postgresql',
+		'redshift',
+		'mysql',
+		'snowflake',
+		'snowflake_oauth',
+		'bigquery',
+		'gcp_service_account',
+		'databricks'
+	].join(',')
+
 	export function convertDbtSettingsFromBackend(
 		settings: GetSettingsResponse['dbt_warehouses']
 	): DbtSettingsType {
@@ -94,10 +112,12 @@
 	<span class="font-mono">{DEFAULT_WAREHOUSE}</span> when it names none, so a project carries no
 	connection of its own. The name is also what its tables are keyed on in the asset graph (<span
 		class="font-mono">dbt://{DEFAULT_WAREHOUSE}/schema/table</span
-	>), so two projects on one warehouse share their nodes. Each entry points at a resource, and
-	configuring one here is what makes it available: anyone who may run a dbt script builds with it
-	and reads its models, without being granted the resource, the same bargain workspace object
-	storage makes.
+	>), so two projects on one warehouse share their nodes. Each entry points either at one of
+	Windmill's own connection resources, whose fields are translated into a dbt target, or at a
+	<span class="font-mono">dbt_profile</span> resource, which carries a
+	<span class="font-mono">profiles.yml</span> target as it is and so reaches any adapter dbt has. Configuring
+	one here is what makes it available: anyone who may run a dbt script builds with it and reads its models,
+	without being granted the resource, the same bargain workspace object storage makes.
 </Description>
 
 <DataTable>
@@ -114,20 +134,25 @@
 			<Row>
 				<Cell first>
 					<TextInput
-							bind:value={warehouse.name}
-							inputProps={{ placeholder: DEFAULT_WAREHOUSE }}
-							class="min-w-32"
-						/>
+						bind:value={warehouse.name}
+						inputProps={{ placeholder: DEFAULT_WAREHOUSE }}
+						class="min-w-32"
+					/>
 				</Cell>
 				<Cell>
-					<ResourcePicker class="min-w-48" bind:value={warehouse.resource_path} />
+					<ResourcePicker
+						class="min-w-48"
+						bind:value={warehouse.resource_path}
+						resourceType={WAREHOUSE_RESOURCE_TYPES}
+						placeholder="warehouse resource"
+					/>
 				</Cell>
 				<Cell>
 					<TextInput
-							bind:value={warehouse.target}
-							inputProps={{ placeholder: 'default' }}
-							class="min-w-24"
-						/>
+						bind:value={warehouse.target}
+						inputProps={{ placeholder: 'default' }}
+						class="min-w-24"
+					/>
 				</Cell>
 				<Cell last>
 					<Button

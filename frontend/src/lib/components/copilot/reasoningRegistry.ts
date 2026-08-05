@@ -1,5 +1,5 @@
 import type { AIProvider, AIProviderModel } from '$lib/gen'
-import { usesAnthropicMessagesApi } from './modelConfig'
+import { parseModelId, usesAnthropicMessagesApi } from './modelConfig'
 
 /**
  * Reasoning effort is provider/model-specific. We never normalize a single
@@ -35,8 +35,7 @@ export function stripLegacyThinkingSuffix(model: string): string {
 
 /** Bare model id without any provider/gateway prefix (e.g. OpenRouter's `openai/o3`). */
 function baseModelId(model: string): string {
-	const normalized = model.toLowerCase()
-	return normalized.split('/').pop() ?? normalized
+	return parseModelId(model).base
 }
 
 /**

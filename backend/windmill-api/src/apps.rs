@@ -13,6 +13,7 @@ use crate::job_helpers_oss::{
     spawn_storage_usage_recount_floored,
 };
 use crate::{
+    apps_raw_bundle,
     auth::{get_end_user_email, AuthCache, OptTokened},
     db::{ApiAuthed, DB},
     jobs::RunJobQuery,
@@ -116,6 +117,16 @@ pub fn workspaced_service(raw_app_body_limit: usize) -> Router {
         .route(
             "/update_raw/{*path}",
             post(update_app_raw).layer(axum::extract::DefaultBodyLimit::max(raw_app_body_limit)),
+        )
+        .route(
+            "/create_raw_source",
+            post(create_app_raw_source)
+                .layer(axum::extract::DefaultBodyLimit::max(raw_app_body_limit)),
+        )
+        .route(
+            "/update_raw_source/{*path}",
+            post(update_app_raw_source)
+                .layer(axum::extract::DefaultBodyLimit::max(raw_app_body_limit)),
         )
         .route("/delete/{*path}", delete(delete_app))
         .route("/create", post(create_app))
@@ -374,6 +385,11 @@ pub struct EditApp {
     /// Transient — never persisted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skip_draft_deletion: Option<bool>,
+    /// Caller-intent flag: when true this deploy may switch the app between
+    /// low-code and raw (see `update_app_internal`). Transient — never
+    /// persisted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_kind_change: Option<bool>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -2613,6 +2629,285 @@ async fn update_app(
     Ok(format!("app {} updated (npath: {:?})", opath, npath))
 }
 
+/// Deploy a raw app from its sources, compiling them on a worker. `update_raw`
+/// takes the bundle the caller already built (the editor and the CLI both
+/// bundle before calling it); an API client has nothing to build with, so this
+/// is the raw-app deploy an MCP agent or a script can actually reach.
+async fn update_app_raw_source(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Extension(webhook): Extension<WebhookShared>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+    Json(ns): Json<EditApp>,
+) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot update apps for security reasons".to_string(),
+        ));
+    }
+
+    let path = path.to_path();
+    check_scopes(&authed, || format!("apps:write:{}", path))?;
+    // The sources are compiled by a job on a worker: dependency resolution and
+    // the build run there, on caller-supplied input. A token that can't run jobs
+    // must not gain that through an app write, so require both scopes.
+    check_scopes(&authed, || "jobs:run".to_string())?;
+
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
+        &w_id,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
+    let Some(value) = ns.value.as_ref() else {
+        return Err(Error::BadRequest(
+            "value with the app's `files` is required to deploy a raw app".to_string(),
+        ));
+    };
+    let files: RawAppSourceFiles = serde_json::from_str(value.0.get())
+        .map_err(|e| Error::BadRequest(format!("app value is not a raw app source: {e}")))?;
+
+    // All before the compile, which costs a job on a worker: it must not run for
+    // a path with no app, for a caller who can only read one (RLS refuses the
+    // write, but not until their sources have been built), or for an app of the
+    // other kind, which update_app_internal refuses anyway.
+    let deployed_raw_app = deployed_app_kind(&user_db, &authed, &w_id, path)
+        .await?
+        .ok_or_else(|| Error::NotFound(format!("App {path} not found")))?;
+    if !can_write_app(&user_db, &authed, &w_id, path).await? {
+        return Err(Error::PermissionDenied(format!(
+            "You do not have permission to update app {path}"
+        )));
+    }
+    if !ns.allow_kind_change.unwrap_or(false) {
+        reject_kind_change(path, true, Some(deployed_raw_app))?;
+    }
+
+    let (js, css) =
+        apps_raw_bundle::bundle_raw_app_sources(&db, &user_db, &authed, &w_id, &files.files)
+            .await?;
+
+    let opath = path.to_string();
+    let db2 = db.clone();
+    let (mut tx, npath, v_id) =
+        update_app_internal(authed, db, user_db, &w_id, path, true, ns).await?;
+    store_raw_app_file(&w_id, &v_id, "js", bytes::Bytes::from(js), &mut tx).await?;
+    if !css.is_empty() {
+        store_raw_app_file(&w_id, &v_id, "css", bytes::Bytes::from(css), &mut tx).await?;
+    }
+    tx.commit().await?;
+    tally_app_rename(&db2, &w_id, &opath, &npath, v_id).await;
+
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::UpdateApp {
+            workspace: w_id.clone(),
+            old_path: opath.clone(),
+            new_path: npath.clone(),
+        },
+    );
+
+    Ok(format!("app {} updated (npath: {:?})", opath, npath))
+}
+
+/// Whether the caller may create an app at `path` — asked of the database rather
+/// than restated here, like `can_write_app`: the app's RLS grants group members
+/// write on a `g/<group>/…` path, which a hand-written check misses. The probe is
+/// the insert itself, rolled back; `app` has no insert trigger, so the only trace
+/// is a consumed sequence value.
+async fn can_create_app(
+    user_db: &UserDB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    path: &str,
+) -> Result<bool> {
+    let mut tx = user_db.clone().begin(authed).await?;
+    let allowed = sqlx::query_scalar!(
+        "INSERT INTO app (workspace_id, path, summary, policy, versions)
+         VALUES ($1, $2, '', '{}'::jsonb, '{}') RETURNING 1",
+        w_id,
+        path
+    )
+    .fetch_optional(&mut *tx)
+    .await;
+    tx.rollback().await?;
+    match allowed {
+        Ok(row) => Ok(row.is_some()),
+        Err(sqlx::Error::Database(e)) => match e.code().as_deref() {
+            // RLS refuses an insert outright rather than filtering it out.
+            Some("42501") => Ok(false),
+            // The path was taken between the existence check and this probe.
+            // Permission is not what is wrong, so let the real insert say so.
+            Some("23505") => Ok(true),
+            _ => Err(sqlx::Error::Database(e).into()),
+        },
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// Whether a deployed app already occupies `path`. Through the privileged pool
+/// on purpose: a path taken by an app the caller can't see is still taken, and
+/// `create_app_internal` would fail on the unique index either way.
+async fn app_exists(db: &DB, w_id: &str, path: &str) -> Result<bool> {
+    Ok(sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM app WHERE path = $1 AND workspace_id = $2)",
+        path,
+        w_id
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false))
+}
+
+/// Create a raw app from its sources, compiling them on a worker. The counterpart
+/// of `update_app_raw_source`: `create_raw` takes a bundle the caller already
+/// built, which an API client has no way to produce.
+async fn create_app_raw_source(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Extension(webhook): Extension<WebhookShared>,
+    Path(w_id): Path<String>,
+    Json(app): Json<CreateApp>,
+) -> Result<(StatusCode, String)> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot create apps for security reasons".to_string(),
+        ));
+    }
+
+    let path = app.path.clone();
+    check_scopes(&authed, || format!("apps:write:{}", path))?;
+    // See update_app_raw_source: the compile runs caller-supplied sources on a
+    // worker, so writing an app must not be a way to gain that.
+    check_scopes(&authed, || "jobs:run".to_string())?;
+
+    if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
+        &w_id,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
+    let files: RawAppSourceFiles = serde_json::from_str(app.value.0.get())
+        .map_err(|e| Error::BadRequest(format!("app value is not a raw app source: {e}")))?;
+
+    // Before the compile, which costs a job on a worker: it must not run for a
+    // path already taken, nor for one the caller can't write. `create_app_internal`
+    // rejects both, but only after the sources have been built.
+    if app_exists(&db, &w_id, &path).await? {
+        return Err(Error::BadRequest(format!("App {path} already exists")));
+    }
+    if !can_create_app(&user_db, &authed, &w_id, &path).await? {
+        return Err(Error::PermissionDenied(format!(
+            "You do not have permission to create app {path}"
+        )));
+    }
+
+    let (js, css) =
+        apps_raw_bundle::bundle_raw_app_sources(&db, &user_db, &authed, &w_id, &files.files)
+            .await?;
+
+    let (mut tx, npath, v_id) = create_app_internal(authed, db, user_db, &w_id, true, app).await?;
+    store_raw_app_file(&w_id, &v_id, "js", bytes::Bytes::from(js), &mut tx).await?;
+    if !css.is_empty() {
+        store_raw_app_file(&w_id, &v_id, "css", bytes::Bytes::from(css), &mut tx).await?;
+    }
+    tx.commit().await?;
+
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::CreateApp { workspace: w_id, path: npath.clone() },
+    );
+
+    Ok((StatusCode::CREATED, npath))
+}
+
+/// The part of a raw app's value the bundler needs.
+#[derive(Deserialize)]
+struct RawAppSourceFiles {
+    #[serde(default)]
+    files: HashMap<String, String>,
+}
+
+fn reject_kind_change(path: &str, raw_app: bool, deployed_raw_app: Option<bool>) -> Result<()> {
+    if !deployed_raw_app.is_some_and(|deployed| deployed != raw_app) {
+        return Ok(());
+    }
+    // Name the folder suffix too: a sync push picks the endpoint from the repo
+    // layout, so its operator has no endpoint to swap, only a folder.
+    let (kind, endpoint, folder) = if raw_app {
+        ("a low-code app", "/apps/update", ".app")
+    } else {
+        ("a raw app", "/apps/update_raw", ".raw_app")
+    };
+    Err(Error::BadRequest(format!(
+        "App {path} is {kind}: deploying a value to it through the other kind's endpoint \
+         would convert it and strand its bundle. Deploy it through {endpoint} instead \
+         (from a synced repo, from a `{folder}` folder), or set allow_kind_change to \
+         convert it on purpose."
+    )))
+}
+
+/// Whether the caller may write the app — decided by the database rather than by
+/// restating its policies here, which is how a hand-written check came to miss
+/// that the app's RLS grants group members write on a `g/<group>/…` path. The
+/// probe is the write itself, rolled back; `path = path` touches no column any
+/// trigger watches.
+async fn can_write_app(
+    user_db: &UserDB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    path: &str,
+) -> Result<bool> {
+    let mut tx = user_db.clone().begin(authed).await?;
+    let allowed = sqlx::query_scalar!(
+        "UPDATE app SET path = path WHERE path = $1 AND workspace_id = $2 RETURNING 1",
+        path,
+        w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .is_some();
+    tx.rollback().await?;
+    Ok(allowed)
+}
+
+/// Whether the app deployed at `path` is raw, or None when there is none the
+/// caller can see. Through `user_db`, so it can't tell a caller anything about
+/// an app they aren't allowed to read.
+async fn deployed_app_kind(
+    user_db: &UserDB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    path: &str,
+) -> Result<Option<bool>> {
+    let mut tx = user_db.clone().begin(authed).await?;
+    let deployed_raw_app = sqlx::query_scalar!(
+        "SELECT app_version.raw_app FROM app
+         JOIN app_version ON app_version.id = app.versions[array_upper(app.versions, 1)]
+         WHERE app.path = $1 AND app.workspace_id = $2",
+        path,
+        w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(deployed_raw_app)
+}
+
 async fn update_app_raw<'a>(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -2692,6 +2987,33 @@ async fn update_app_internal<'a>(
     }
 
     let mut tx = user_db.clone().begin(&authed).await?;
+
+    // `app_version.raw_app` is set by whichever endpoint writes the version, so a
+    // value deployed through the wrong one converts the app and strands its bundle.
+    // `FOR UPDATE` holds the app row until this transaction appends its own version,
+    // so a concurrent deploy of the other kind can't land between check and append.
+    if ns.value.is_some() && !ns.allow_kind_change.unwrap_or(false) {
+        let deployed_version = sqlx::query_scalar!(
+            "SELECT versions[array_upper(versions, 1)] FROM app
+             WHERE path = $1 AND workspace_id = $2 FOR UPDATE",
+            path,
+            w_id
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten();
+        let deployed_raw_app = match deployed_version {
+            // A separate statement: it needs the head the lock above pinned, not
+            // the snapshot the locking statement started from.
+            Some(version) => {
+                sqlx::query_scalar!("SELECT raw_app FROM app_version WHERE id = $1", version)
+                    .fetch_optional(&mut *tx)
+                    .await?
+            }
+            None => None,
+        };
+        reject_kind_change(path, raw_app, deployed_raw_app)?;
+    }
 
     let mut preserved_on_behalf_of: Option<String> = None;
     let npath = if ns.policy.is_some()

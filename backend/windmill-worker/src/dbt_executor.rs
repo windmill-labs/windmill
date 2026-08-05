@@ -34,7 +34,9 @@ use crate::common::{
 };
 use crate::common::{start_child_process, OccupancyMetrics};
 use crate::dbt_engine::{provision_engine, ProvisionedEngine, DBT_CACHE_DIR};
-use crate::dbt_profiles::{ensure_adapter_licensed, render_profile, DbtAdapter};
+use crate::dbt_profiles::{
+    ensure_adapter_licensed, render_dbt_profile, render_profile, DbtAdapter, KnownAdapter,
+};
 use crate::handle_child::{
     get_mem_peak, handle_child, run_future_with_polling_update_job_poller, JobCtx, JobDeadline,
 };
@@ -1541,15 +1543,7 @@ async fn write_profiles(
         .profile
         .adapter
         .as_deref()
-        .map(|t| {
-            DbtAdapter::from_resource_type(t).ok_or_else(|| {
-                Error::BadRequest(format!(
-                    "`profile.type: {t}` is not a supported dbt adapter (postgres, redshift, \
-                     mysql, duckdb, clickhouse, snowflake, bigquery, databricks, salesforce, \
-                     mssql, oracle)"
-                ))
-            })
-        })
+        .map(DbtAdapter::from_dbt_type)
         .transpose()?;
 
     if let Some(own) = descriptor.profile.profiles_yml.as_deref() {
@@ -1573,7 +1567,7 @@ async fn write_profiles(
         )
         .await?;
         let actual = target.adapter;
-        if let Some(declared) = declared.filter(|d| *d != actual) {
+        if let Some(declared) = declared.filter(|d| *d != actual).as_ref() {
             return Err(Error::BadRequest(format!(
                 "`profile.type: {}` disagrees with `{}`, whose target uses `{}`. dbt connects \
                  with the file, so remove `profile.type` or correct it",
@@ -1583,7 +1577,7 @@ async fn write_profiles(
             )));
         }
         let adapter = actual;
-        ensure_adapter_licensed(adapter)?;
+        ensure_adapter_licensed(&adapter)?;
         // The target's own database and schema, read from the file dbt connects
         // with. A relation that sits in them is then spelled plainly, exactly as
         // a workspace-warehouse project spells it, and one that overrides them
@@ -1625,18 +1619,43 @@ async fn write_profiles(
         ));
     }
 
+    use windmill_common::workspaces::DBT_PROFILE_RESOURCE_TYPE;
+
     let resolved = resolve_warehouse(warehouse, client).await?;
     let workspace_target = resolved.target;
     let value = resolved.value;
+    // From the resource's TYPE, not its shape: both kinds are objects with a `type`
+    // (Windmill's bigquery resource is a service-account JSON), so the value cannot
+    // say which it is.
+    let is_dbt_profile = resolved.resource_type == DBT_PROFILE_RESOURCE_TYPE;
+    // The block is written for the adapter it names, so a descriptor claiming another
+    // is a mistake worth naming rather than a profile rendered under the wrong type.
+    let stated = is_dbt_profile
+        .then(|| DbtAdapter::stated_by_dbt_profile(&value))
+        .transpose()?;
+    if let (Some(declared), Some(stated)) = (declared.as_ref(), stated.as_ref()) {
+        if declared != stated {
+            return Err(Error::BadRequest(format!(
+                "`profile.type: {}` disagrees with the `{warehouse}` warehouse, whose resource \
+                 states `{}`. Remove `profile.type` or correct it",
+                declared.name(),
+                stated.name(),
+            )));
+        }
+    }
     let adapter = declared
-        .or_else(|| DbtAdapter::infer_from_resource(&value))
+        .or(stated)
+        // The resource TYPE: decision 9's authority, which the warehouse now carries.
+        // Inference reads connection details and covers a workspace's own type.
+        .or_else(|| KnownAdapter::from_resource_type(&resolved.resource_type).map(DbtAdapter::from))
+        .or_else(|| KnownAdapter::infer_from_resource(&value).map(DbtAdapter::from))
         .ok_or_else(|| {
             Error::BadRequest(format!(
                 "could not tell which dbt adapter the `{warehouse}` warehouse needs; \
                  set `profile.type` in the descriptor"
             ))
         })?;
-    ensure_adapter_licensed(adapter)?;
+    ensure_adapter_licensed(&adapter)?;
     let profile_name = project_profile_name(project_dir, template_env).await;
     // The workspace's warehouse may name the target too, so a project that carries
     // no connection still gets `{{ target }}` right.
@@ -1650,15 +1669,34 @@ async fn write_profiles(
     tokio::fs::create_dir_all(&dir)
         .await
         .map_err(|e| Error::internal_err(format!("creating the profiles dir: {e}")))?;
-    let rendered = render_profile(
-        adapter,
-        &value,
-        &profile_name,
-        target,
-        descriptor.threads,
-        descriptor.profile.schema.as_deref(),
-        &dir,
-    )?;
+    let rendered = if is_dbt_profile {
+        let block = value.as_object().ok_or_else(|| {
+            Error::BadRequest(
+                "a `dbt_profile` resource is a `profiles.yml` output block, so its value must be \
+                 an object"
+                    .to_string(),
+            )
+        })?;
+        render_dbt_profile(
+            &adapter,
+            block,
+            &profile_name,
+            target,
+            descriptor.threads,
+            descriptor.profile.schema.as_deref(),
+            &dir,
+        )?
+    } else {
+        render_profile(
+            &adapter,
+            &value,
+            &profile_name,
+            target,
+            descriptor.threads,
+            descriptor.profile.schema.as_deref(),
+            &dir,
+        )?
+    };
     write_file(dir.to_str().unwrap(), "profiles.yml", &rendered.yaml)?;
     if let Some(pem) = rendered.root_certificate_pem.as_deref() {
         write_file(
@@ -1800,8 +1838,7 @@ async fn adapter_from_profiles_yml(
         .and_then(|t| t.as_str())
         .filter(|t| !t.contains("{{"));
     let adapter = match declared_type {
-        Some(t) => DbtAdapter::from_resource_type(t)
-            .ok_or_else(|| Error::BadRequest(format!("unsupported dbt adapter `{t}`")))?,
+        Some(t) => DbtAdapter::from_dbt_type(t)?,
         // REFUSED, not guessed. dbt renders the template and Windmill does not,
         // so the descriptor's word is the only thing left — and it is worth
         // nothing here: `profile.type: postgres` over a target resolving to
@@ -5152,7 +5189,7 @@ mod tests {
         let t = adapter_from_profiles_yml(&path, "jaffle", None)
             .await
             .unwrap();
-        assert_eq!(t.adapter, DbtAdapter::Snowflake);
+        assert_eq!(t.adapter, DbtAdapter::from(KnownAdapter::Snowflake));
         assert_eq!(t.database.as_deref(), Some("prod"));
         assert_eq!(t.schema.as_deref(), Some("analytics"));
         // Spelled plainly, exactly as a rendered profile on the same relation.
@@ -5185,7 +5222,7 @@ mod tests {
         let t = adapter_from_profiles_yml(&path, "jaffle", None)
             .await
             .unwrap();
-        assert_eq!(t.adapter, DbtAdapter::Snowflake);
+        assert_eq!(t.adapter, DbtAdapter::from(KnownAdapter::Snowflake));
         assert_eq!(t.database.as_deref(), Some("prod"));
     }
 

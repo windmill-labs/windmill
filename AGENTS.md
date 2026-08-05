@@ -92,6 +92,11 @@ Typical flow:
 5. `mcp__playwright__browser_take_screenshot` for visual confirmation
 6. `mcp__playwright__browser_console_messages` / `browser_network_requests` to surface errors
 
+Write screenshots to an absolute path under `/tmp` (the MCP servers already do; standalone
+Playwright scripts must be told): moving a PNG out of the checkout afterwards needs a `mv` the
+permission hooks always prompt on. Same reason to run `rm`/`mv`/`cp` as one plain command per Bash
+call: those hooks defer on `&&`, `;`, redirects, quotes and `$VAR`.
+
 **Attach the screenshots to the PR.** For any change under `frontend/`, embed screenshots of the affected UI in the PR body — the `pr` skill requires this and carries the upload recipe.
 
 If you cannot exercise a UI change (no dev server, etc.), say so explicitly rather than claiming success.

@@ -320,6 +320,10 @@
 		graph?.enableNotes?.()
 	}
 
+	export function reloadExpandedSubflows(): void {
+		graph?.reloadExpandedSubflows?.()
+	}
+
 	function toggleNoteMode() {
 		noteMode = !noteMode
 	}
