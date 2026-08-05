@@ -52,9 +52,10 @@ export async function fetchRegistryConfig(
 			headers: { authorization: `Bearer ${token}` },
 			signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
 		})
-		if (response.status === 401 || response.status === 403) {
-			// The expected answer for a session that may not read the settings, an operator's for
-			// instance. It installs from the public registries, and there is nothing to report.
+		if (response.status === 401 || response.status === 403 || response.status === 404) {
+			// Expected answers, not something the user can act on: a session that may not read
+			// the settings (an operator's) is refused, and a backend older than this image has
+			// no such route at all. Both install from the public registries.
 			logger.info(`Registry configuration not served for this session (${response.status})`)
 			return {}
 		}

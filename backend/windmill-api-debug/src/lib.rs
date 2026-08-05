@@ -285,19 +285,33 @@ async fn get_registry_config(
     let workspace_overrides = stored
         .get(WORKSPACE_REGISTRIES_SETTING)
         .and_then(|v| v.get(&claims.workspace_id));
-    let resolve = |key: &str, env_var: &str| {
-        resolve_registry_setting(&stored, workspace_overrides, key, env_var)
+    // A session is served only what its own installer runs on: the token names the language it
+    // was signed for, so one minted for a TypeScript session cannot be replayed to read the
+    // Python index credentials, or the other way round.
+    let (npm, python) = match claims.language.as_str() {
+        "bun" | "typescript" | "deno" => (true, false),
+        "python3" | "python" => (false, true),
+        _ => (false, false),
+    };
+    let resolve = |serve: bool, key: &str, env_var: &str| {
+        serve
+            .then(|| resolve_registry_setting(&stored, workspace_overrides, key, env_var))
+            .flatten()
     };
 
     let mut config = DebugRegistryConfig {
-        npm_config_registry: resolve(NPM_CONFIG_REGISTRY_SETTING, "NPM_CONFIG_REGISTRY"),
-        npmrc: resolve(NPMRC_SETTING, "NPMRC"),
-        bunfig_install_scopes: resolve(BUNFIG_INSTALL_SCOPES_SETTING, "BUNFIG_INSTALL_SCOPES"),
-        pip_index_url: resolve(PIP_INDEX_URL_SETTING, "PIP_INDEX_URL"),
-        pip_extra_index_url: resolve(EXTRA_PIP_INDEX_URL_SETTING, "PIP_EXTRA_INDEX_URL"),
+        npm_config_registry: resolve(npm, NPM_CONFIG_REGISTRY_SETTING, "NPM_CONFIG_REGISTRY"),
+        npmrc: resolve(npm, NPMRC_SETTING, "NPMRC"),
+        bunfig_install_scopes: resolve(
+            npm,
+            BUNFIG_INSTALL_SCOPES_SETTING,
+            "BUNFIG_INSTALL_SCOPES",
+        ),
+        pip_index_url: resolve(python, PIP_INDEX_URL_SETTING, "PIP_INDEX_URL"),
+        pip_extra_index_url: resolve(python, EXTRA_PIP_INDEX_URL_SETTING, "PIP_EXTRA_INDEX_URL"),
         // Not a private-registry setting: a worker reads it on any edition, so it is
         // served below the Enterprise gate too.
-        uv_index_strategy: resolve(UV_INDEX_STRATEGY_SETTING, "UV_INDEX_STRATEGY"),
+        uv_index_strategy: resolve(python, UV_INDEX_STRATEGY_SETTING, "UV_INDEX_STRATEGY"),
         message: None,
     };
 
@@ -465,11 +479,13 @@ async fn sign_debug_request(
         iat: now_ts,
         exp,
         job_id: job_id.to_string(),
-        // The registry settings embed credentials, so they are only served to a session
-        // whose author can already reach them by running a preview job: a worker writes
-        // the same `.npmrc` / `bunfig.toml` into the job directory the script runs in.
-        // Operators cannot run previews, so their sessions install from the public
-        // registries instead.
+        // The registry settings embed credentials, and the token reaches the browser, so they
+        // are only served for a session whose author can already install with them: someone
+        // who can run a preview job. For npm that discloses nothing new, since a worker leaves
+        // the same `.npmrc` / `bunfig.toml` in the directory the previewed script runs in; the
+        // Python index URL only ever appears as uv's argv, so serving it here does widen what
+        // a member of the workspace can read. Operators cannot run previews at all, so their
+        // sessions install from the public registries.
         registry_config: !authed.is_operator,
     };
 

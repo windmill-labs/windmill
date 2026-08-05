@@ -137,6 +137,11 @@ pub struct RegistryConfig {
 pub struct PrepareRequest {
     pub code: String,
     pub language: String,
+    /// Interpreter the caller will run the script with. The venv must be built against it:
+    /// site-packages is put on that interpreter's sys.path, and a wheel with a compiled
+    /// extension built for another version is simply invisible there.
+    #[serde(default)]
+    pub python_path: Option<String>,
     #[serde(default)]
     pub registry: RegistryConfig,
 }
@@ -148,29 +153,47 @@ fn configured(value: &Option<String>) -> Option<String> {
 
 /// Where the registry configuration for one `bun install` is written.
 ///
-/// Deliberately not under `/tmp`, and never the install directory itself: the debug session
-/// resolves its `node_modules` symlink into that directory, and the shipped sandbox
-/// (`debugger/nsjail.debug.config.proto`) bind-mounts all of `/tmp` into every session, so a
-/// concurrent session could read the credentials of an install in flight. `bun install` reads
-/// them from here instead, through `--config` and `HOME`.
+/// Deliberately not the install directory: the debug session resolves its `node_modules`
+/// symlink into that directory, and the sandbox bind-mounts all of `/tmp` into every session,
+/// so a concurrent session could read the credentials of an install in flight. `/var/tmp` is a
+/// tmpfs private to each jail (`debugger/nsjail.debug.config.proto`), which also takes the
+/// credentials with it when a jailed install is killed. `bun install` reads them from here
+/// through `--config` and `HOME`.
 const REGISTRY_CONFIG_ROOT: &str = "/var/tmp/windmill-debug-registry";
 
-/// Write the registry configuration for one install and return the directory holding it, or
-/// `None` when there is nothing to write.
+/// How long a configuration directory may survive before the next install treats it as debris.
+/// The caller kills an install with SIGKILL, leaving nothing able to clean up after it, and an
+/// unjailed install is the only one that writes somewhere outliving the process at all. Well
+/// past any install: the caller's own timeout is two minutes by default.
+const REGISTRY_CONFIG_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+/// Removes the registry configuration when the install ends, whichever way it ends.
+struct RegistryConfigDir(Option<String>);
+
+impl Drop for RegistryConfigDir {
+    fn drop(&mut self) {
+        if let Some(dir) = self.0.as_deref() {
+            remove_registry_config_dir(dir);
+        }
+    }
+}
+
+/// Write the registry configuration for one install and return the directory holding it, empty
+/// when there is nothing to write.
 ///
 /// Falls back to the install directory if the private root is not writable: an install that
-/// reaches its registry matters more than the sandbox hardening above, which only holds for
-/// sessions that run under nsjail in the first place.
+/// reaches its registry matters more than the isolation above, which only holds for sessions
+/// that run under nsjail in the first place.
 fn write_registry_config_dir(
     job_id: &uuid::Uuid,
     job_dir: &str,
     registry: &RegistryConfig,
-) -> anyhow::Result<Option<String>> {
+) -> anyhow::Result<RegistryConfigDir> {
     let npmrc = configured(&registry.npmrc);
     let npm_config_registry = configured(&registry.npm_config_registry);
     let bunfig_install_scopes = configured(&registry.bunfig_install_scopes);
     if npmrc.is_none() && npm_config_registry.is_none() && bunfig_install_scopes.is_none() {
-        return Ok(None);
+        return Ok(RegistryConfigDir(None));
     }
 
     let dir = format!("{}/{}", REGISTRY_CONFIG_ROOT, job_id);
@@ -181,8 +204,10 @@ fn write_registry_config_dir(
             job_dir.to_string()
         }
     };
+    // Claimed before anything is written to it, so a failure below still takes it down.
+    let held = RegistryConfigDir(Some(dir.clone()));
     write_bun_registry_config(&dir, npmrc, npm_config_registry, bunfig_install_scopes)?;
-    Ok(Some(dir))
+    Ok(held)
 }
 
 fn create_private_dir(dir: &str) -> std::io::Result<()> {
@@ -190,10 +215,30 @@ fn create_private_dir(dir: &str) -> std::io::Result<()> {
     {
         use std::os::unix::fs::DirBuilderExt;
         std::fs::create_dir_all(REGISTRY_CONFIG_ROOT)?;
+        sweep_stale_registry_config();
         std::fs::DirBuilder::new().mode(0o700).create(dir)
     }
     #[cfg(not(unix))]
-    std::fs::create_dir_all(dir)
+    {
+        sweep_stale_registry_config();
+        std::fs::create_dir_all(dir)
+    }
+}
+
+/// Drop what an install that was killed could not clean up itself.
+fn sweep_stale_registry_config() {
+    let Ok(entries) = std::fs::read_dir(REGISTRY_CONFIG_ROOT) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let stale = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .is_ok_and(|m| m.elapsed().is_ok_and(|age| age > REGISTRY_CONFIG_MAX_AGE));
+        if stale {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
 }
 
 /// Delete the registry configuration once the install that needed it is over. A failure to
@@ -278,6 +323,17 @@ fn get_proc_envs(cache_env: Option<(&str, &str)>) -> HashMap<String, String> {
     envs
 }
 
+/// CA bundle for the package index, most specific spelling first. A host behind a TLS-intercepting
+/// proxy configures it under whichever name its other tooling uses, and the environment is cleared
+/// below, so falling back past `PY_INDEX_CERT` is what makes those hosts work at all.
+fn index_ca_bundle() -> Option<String> {
+    INDEX_CERT
+        .clone()
+        .or_else(|| non_empty_env("SSL_CERT_FILE"))
+        .or_else(|| non_empty_env("REQUESTS_CA_BUNDLE"))
+        .or_else(|| non_empty_env("CURL_CA_BUNDLE"))
+}
+
 /// uv registry arguments, mirroring what the job path passes in `python_executor`.
 fn uv_registry_args(registry: &RegistryConfig) -> Vec<String> {
     let index_url = configured(&registry.pip_index_url).or_else(|| PY_INDEX_URL.clone());
@@ -305,7 +361,11 @@ fn uv_registry_args(registry: &RegistryConfig) -> Vec<String> {
 }
 
 /// Prepare Python dependencies using uv
-async fn prepare_python_deps_standalone(code: &str, registry: &RegistryConfig) -> PrepareResponse {
+async fn prepare_python_deps_standalone(
+    code: &str,
+    python_path: Option<&str>,
+    registry: &RegistryConfig,
+) -> PrepareResponse {
     // Parse imports from the code
     let packages = parse_python_imports(code);
 
@@ -346,10 +406,16 @@ async fn prepare_python_deps_standalone(code: &str, registry: &RegistryConfig) -
     if let Some(timeout) = UV_HTTP_TIMEOUT.as_ref() {
         common_uv_envs.insert("UV_HTTP_TIMEOUT".to_string(), timeout.to_string());
     }
-    if let Some(cert_path) = INDEX_CERT.as_ref() {
+    if let Some(cert_path) = index_ca_bundle() {
         // uv has no `--cert` on `venv`/`pip install` (astral-sh/uv#6715), so a custom CA bundle
-        // reaches it through SSL_CERT_FILE, as in the job path.
-        common_uv_envs.insert("SSL_CERT_FILE".to_string(), cert_path.to_string());
+        // reaches it through SSL_CERT_FILE, as in the job path. It replaces uv's own roots rather
+        // than adding to them, so the file has to be a complete bundle.
+        common_uv_envs.insert("SSL_CERT_FILE".to_string(), cert_path);
+    }
+    // The other spelling uv accepts. Like the bundle above it replaces uv's own roots rather than
+    // adding to them, so a directory holding only a private CA leaves public indexes untrusted.
+    if let Some(cert_dir) = non_empty_env("SSL_CERT_DIR") {
+        common_uv_envs.insert("SSL_CERT_DIR".to_string(), cert_dir);
     }
 
     let registry_args = uv_registry_args(registry);
@@ -358,6 +424,13 @@ async fn prepare_python_deps_standalone(code: &str, registry: &RegistryConfig) -
     // `--seed` resolves pip/setuptools from the index, so the venv also needs the registry
     // arguments: on a network that only reaches a private mirror it fails without them.
     let mut venv_args = vec!["venv".to_string(), venv_dir.clone(), "--seed".to_string()];
+    // Without this uv picks its own interpreter, and the caller then puts a site-packages built
+    // for that version on a different interpreter's sys.path: pure-Python packages still import,
+    // anything with a compiled extension does not, and the error names the missing extension
+    // rather than the mismatch.
+    if let Some(python_path) = python_path {
+        venv_args.extend(["-p".to_string(), python_path.to_string()]);
+    }
     venv_args.extend(registry_args.iter().cloned());
 
     let output = Command::new(UV_PATH.as_str())
@@ -479,7 +552,12 @@ async fn prepare_python_deps_standalone(code: &str, registry: &RegistryConfig) -
 
 /// Get common environment variables for Bun processes
 pub fn get_simple_bun_proc_envs() -> HashMap<String, String> {
-    get_proc_envs(Some(("BUN_INSTALL_CACHE_DIR", &BUN_CACHE_DIR)))
+    let mut envs = get_proc_envs(Some(("BUN_INSTALL_CACHE_DIR", &BUN_CACHE_DIR)));
+    // Bun reads none of the spellings uv does, so a custom CA reaches `bun install` only here.
+    if let Some(cert_path) = non_empty_env("NODE_EXTRA_CA_CERTS").or_else(index_ca_bundle) {
+        envs.insert("NODE_EXTRA_CA_CERTS".to_string(), cert_path);
+    }
+    envs
 }
 
 /// Prepare dependencies for a script without requiring database access.
@@ -487,12 +565,13 @@ pub fn get_simple_bun_proc_envs() -> HashMap<String, String> {
 pub async fn prepare_deps_standalone(
     code: &str,
     language: &str,
+    python_path: Option<&str>,
     registry: &RegistryConfig,
 ) -> PrepareResponse {
     // Route to the appropriate handler based on language
     match language {
         "python3" | "python" => {
-            return prepare_python_deps_standalone(code, registry).await;
+            return prepare_python_deps_standalone(code, python_path, registry).await;
         }
         "bun" | "typescript" | "deno" => {
             // Continue with JS/TS handling below
@@ -667,7 +746,7 @@ pub async fn prepare_deps_standalone(
             };
         }
     };
-    if let Some(dir) = registry_config_dir.as_ref() {
+    if let Some(dir) = registry_config_dir.0.as_ref() {
         // Only one of the two files exists: `.npmrc` is read from the installer's home,
         // `bunfig.toml` only from the path named here.
         common_bun_proc_envs.insert("HOME".to_string(), dir.to_string());
@@ -676,22 +755,6 @@ pub async fn prepare_deps_standalone(
             args.push(format!("--config={}", bunfig));
         }
     }
-
-    // The caller kills this process when the install outruns its timeout, which would
-    // otherwise leave the credentials behind: nothing else ever visits this directory.
-    #[cfg(unix)]
-    let interrupted_cleanup = registry_config_dir.clone().map(|dir| {
-        tokio::spawn(async move {
-            let Ok(mut sigterm) =
-                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            else {
-                return;
-            };
-            sigterm.recv().await;
-            remove_registry_config_dir(&dir);
-            std::process::exit(143);
-        })
-    });
 
     let output = Command::new(&*BUN_PATH)
         .current_dir(&job_dir)
@@ -703,13 +766,7 @@ pub async fn prepare_deps_standalone(
         .output()
         .await;
 
-    #[cfg(unix)]
-    if let Some(cleanup) = interrupted_cleanup {
-        cleanup.abort();
-    }
-    if let Some(dir) = registry_config_dir.as_ref() {
-        remove_registry_config_dir(dir);
-    }
+    drop(registry_config_dir);
 
     match output {
         Ok(out) => {
@@ -805,8 +862,13 @@ pub async fn run_prepare_deps_cli() -> anyhow::Result<()> {
         }
     };
 
-    let response =
-        prepare_deps_standalone(&request.code, &request.language, &request.registry).await;
+    let response = prepare_deps_standalone(
+        &request.code,
+        &request.language,
+        request.python_path.as_deref(),
+        &request.registry,
+    )
+    .await;
     println!("{}", serde_json::to_string(&response)?);
 
     Ok(())

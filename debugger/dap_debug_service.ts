@@ -40,7 +40,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 // Import the working Bun debug session from the standalone server
-import { DebugSession as BunDebugSessionWorking, type NsjailConfig } from './dap_websocket_server_bun'
+import {
+	DebugSession as BunDebugSessionWorking,
+	killProcessTree,
+	nsjailWrap,
+	type NsjailConfig
+} from './dap_websocket_server_bun'
+import { sessionEnv } from './env_passthrough'
 import { fetchRegistryConfig, type RegistryConfig } from './registry_config'
 
 // ============================================================================
@@ -349,26 +355,20 @@ interface SpawnOptions {
 	cmd: string[]
 	cwd?: string
 	env?: Record<string, string>
+	stdin?: Blob
+	/**
+	 * Hand the child this process's whole environment rather than the minimal set below. Only
+	 * the dependency installer wants it: the registry credentials and CA settings it reads are
+	 * precisely what the minimal set exists to keep away from a debugged script.
+	 */
+	inheritEnv?: boolean
+	/**
+	 * Start the child in its own process group, so killProcessTree can signal what it spawns.
+	 */
+	detached?: boolean
 	stdout?: 'pipe' | 'inherit'
 	stderr?: 'pipe' | 'inherit'
 }
-
-/**
- * Proxy settings forwarded to a debug session, matching what a worker gives a job's script.
- * spawnProcess intentionally does not inherit this process's environment, so an outbound proxy
- * is unreachable from a session unless these are passed explicitly. Registry settings are
- * deliberately absent: they carry credentials and are consumed by the service itself (see
- * PythonDebugSession.prepareDependencies).
- */
-const SESSION_PROXY_ENV_VARS = [
-	'HTTP_PROXY',
-	'HTTPS_PROXY',
-	'NO_PROXY',
-	// The lowercase spellings take precedence in the worker, so forward both.
-	'http_proxy',
-	'https_proxy',
-	'no_proxy'
-]
 
 /**
  * How long `windmill prepare-deps` may take before the session gives up on it and starts without
@@ -376,51 +376,14 @@ const SESSION_PROXY_ENV_VARS = [
  */
 const PREPARE_DEPS_TIMEOUT_MS = Number(process.env.DAP_PREPARE_DEPS_TIMEOUT_MS) || 120_000
 
-function sessionProxyEnv(): Record<string, string> {
-	const env: Record<string, string> = {}
-	for (const key of SESSION_PROXY_ENV_VARS) {
-		const value = process.env[key]
-		if (value) {
-			env[key] = value
-		}
-	}
-	// A proxy without a bypass list would send the script's calls to BASE_INTERNAL_URL through it;
-	// the worker defaults the same way (PROXY_ENVS in windmill-worker).
-	if (!env.NO_PROXY && !env.no_proxy && (env.HTTP_PROXY || env.http_proxy || env.HTTPS_PROXY || env.https_proxy)) {
-		env.NO_PROXY = 'localhost,127.0.0.1'
-	}
-	return env
-}
-
 /**
  * Spawn a process, optionally wrapped with nsjail.
  * This is the key function for sandboxed execution.
  */
 function spawnProcess(options: SpawnOptions): Subprocess {
-	let cmd = options.cmd
+	const cmd = nsjailWrap(options.cmd, config.nsjail, options.cwd)
 
 	if (config.nsjail.enabled) {
-		// Build nsjail command
-		const nsjailCmd = [config.nsjail.binaryPath]
-
-		// Add config file if specified
-		if (config.nsjail.configPath) {
-			nsjailCmd.push('--config', config.nsjail.configPath)
-		}
-
-		// Add any extra nsjail arguments
-		nsjailCmd.push(...config.nsjail.extraArgs)
-
-		// Add working directory if specified
-		if (options.cwd) {
-			nsjailCmd.push('--cwd', options.cwd)
-		}
-
-		// Separator and actual command
-		nsjailCmd.push('--')
-		nsjailCmd.push(...cmd)
-
-		cmd = nsjailCmd
 		logger.info(`Spawning with nsjail: ${cmd.join(' ')}`)
 	} else {
 		logger.info(`Spawning: ${cmd.join(' ')}`)
@@ -431,9 +394,12 @@ function spawnProcess(options: SpawnOptions): Subprocess {
 	return spawn({
 		cmd,
 		cwd: options.cwd || process.cwd(),
+		...(options.stdin ? { stdin: options.stdin } : {}),
+		...(options.detached ? { detached: true } : {}),
 		stdout: options.stdout || 'pipe',
 		stderr: options.stderr || 'pipe',
 		env: {
+			...(options.inheritEnv ? process.env : {}),
 			// Essential system vars
 			PATH: process.env.PATH || '/usr/bin:/bin',
 			HOME: process.env.HOME,
@@ -552,6 +518,8 @@ class PythonDebugSession extends BaseDebugSession {
 	private envVars: Record<string, string> = {}
 	private windmillPath?: string
 	private venvPath?: string
+	private prepareDepsProcess: Subprocess | null = null
+	private disposed = false
 	private debugMode: boolean
 
 	constructor(ws: { send: (data: string) => void; close: () => void }, windmillPath?: string, debugMode = false) {
@@ -688,8 +656,10 @@ class PythonDebugSession extends BaseDebugSession {
 	 * submitted script inside its own interpreter: anything in that process is recoverable by the
 	 * script. The service never executes user code, so the credentials stop here.
 	 *
-	 * The trade-off is that the install itself is not jailed, so a source distribution's build
-	 * backend runs outside nsjail, as it already does for Bun sessions.
+	 * It still goes through spawnProcess so nsjail confines it on the same terms as the debuggee:
+	 * `uv pip install` builds source distributions, which executes their build backend's arbitrary
+	 * Python. Those same credentials are what `inheritEnv` is for — the jail config keeps the
+	 * environment across the boundary, so nothing else has to carry them in.
 	 */
 	private async prepareDependencies(code: string, registry: RegistryConfig): Promise<string | null> {
 		if (!this.windmillPath) {
@@ -698,6 +668,12 @@ class PythonDebugSession extends BaseDebugSession {
 		}
 
 		const warn = (reason: string): null => {
+			// cleanup() kills the installer, which ends the read with nothing to parse. Reporting
+			// that as an install failure blames the user for their own disconnect, on a websocket
+			// that is being torn down anyway.
+			if (this.disposed) {
+				return null
+			}
 			logger.error(`prepare-deps failed: ${reason}`)
 			this.sendEvent('output', {
 				category: 'stderr',
@@ -707,21 +683,33 @@ class PythonDebugSession extends BaseDebugSession {
 		}
 
 		try {
-			const proc = spawn({
+			const proc = spawnProcess({
 				cmd: [this.windmillPath, 'prepare-deps'],
-				stdin: new Blob([JSON.stringify({ code, language: 'python3', registry }) + '\n']),
-				stdout: 'pipe',
-				stderr: 'pipe'
+				// The venv has to be built against the interpreter that will run the script: its
+				// site-packages goes on that interpreter's sys.path, and uv otherwise picks its
+				// own, which silently leaves compiled extensions unimportable.
+				stdin: new Blob([
+					JSON.stringify({
+						code,
+						language: 'python3',
+						python_path: config.pythonPath,
+						registry
+					}) + '\n'
+				]),
+				inheritEnv: true,
+				detached: true
 			})
+			this.prepareDepsProcess = proc
 
 			// The launch response is already sent, so an install that never returns would leave the
 			// client waiting on a session that never starts, with nothing on screen. The deadline
 			// races the read rather than only killing the child: a grandchild holding the pipe open
 			// keeps the read pending long after the child itself is gone.
 			let timer: ReturnType<typeof setTimeout> | undefined
+			// spawnProcess's return type does not carry the piped stdio through
 			const read = (async () => ({
-				output: await new Response(proc.stdout).text(),
-				stderr: await new Response(proc.stderr).text()
+				output: await new Response(proc.stdout as ReadableStream).text(),
+				stderr: await new Response(proc.stderr as ReadableStream).text()
 			}))()
 			const result = await Promise.race([
 				read,
@@ -730,9 +718,10 @@ class PythonDebugSession extends BaseDebugSession {
 				})
 			])
 			clearTimeout(timer)
+			this.prepareDepsProcess = null
 
 			if (!result) {
-				proc.kill()
+				killProcessTree(proc)
 				return warn(
 					`dependency installation timed out after ${PREPARE_DEPS_TIMEOUT_MS / 1000}s`
 				)
@@ -798,7 +787,7 @@ class PythonDebugSession extends BaseDebugSession {
 		this.process = spawnProcess({
 			cmd,
 			cwd,
-			env: { PYTHONUNBUFFERED: '1', ...sessionProxyEnv(), ...this.envVars }
+			env: { PYTHONUNBUFFERED: '1', ...sessionEnv(), ...this.envVars }
 		})
 
 		// Read stderr to capture startup messages
@@ -1048,6 +1037,10 @@ class PythonDebugSession extends BaseDebugSession {
 	}
 
 	private async handleLaunch(request: DAPMessage): Promise<void> {
+		// Per launch, not per session: cleanup() also runs when a program finishes normally, and
+		// the flag must only mean "torn down while this launch was still preparing".
+		this.disposed = false
+
 		const args = request.arguments || {}
 		let code = args.code as string | undefined
 		this.scriptPath = args.program as string | undefined
@@ -1139,6 +1132,16 @@ sys.stdout.flush()
 				this.venvPath = (await this.prepareDependencies(code, registry)) ?? undefined
 			}
 
+			// Installing takes long enough for the client to give up meanwhile, and cleanup() has
+			// then already run: starting the debuggee now would leave a process nothing owns
+			// executing the script for a session that is gone. Clean up again on the way out,
+			// since a teardown that landed before the script was written left it behind.
+			if (this.disposed) {
+				logger.info('Session torn down during dependency preparation, not starting Python')
+				await this.cleanup()
+				return
+			}
+
 			await this.startPythonProcess(cwd)
 
 			// Re-apply breakpoints to the Python server using the actual script path
@@ -1194,6 +1197,14 @@ sys.stdout.flush()
 	}
 
 	async cleanup(): Promise<void> {
+		this.disposed = true
+
+		// A client that gives up mid-install must not leave the package manager running
+		if (this.prepareDepsProcess) {
+			killProcessTree(this.prepareDepsProcess)
+			this.prepareDepsProcess = null
+		}
+
 		if (this.debugpyWs) {
 			this.debugpyWs.close()
 			this.debugpyWs = null

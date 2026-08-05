@@ -94,10 +94,15 @@ the user instead of a bare `ModuleNotFoundError` at the first import.
 
 Because `prepare-deps` has no database, the service reads the instance settings for it from
 `GET /api/debug/registry_config` on `WINDMILL_BASE_URL` and passes them down over the CLI's stdin
-request. It is authorized by the launch token of the session being started, so the settings are
-only served for a session whose author could already reach the same credentials by running a
-preview job, where a worker writes them into the job directory the script runs in. Sessions started
-by an operator, who cannot run previews, install from the public registries.
+request. It is authorized by the launch token of the session being started, and serves only the
+settings that session's own installer runs on, so a TypeScript session's token cannot be used to
+read the Python index credentials.
+
+The token also reaches the browser, so what it can fetch is what a workspace member can fetch.
+Sessions started by an operator are refused outright, since an operator cannot run a preview job
+either; for a member who can, the npm settings are already exposed by a preview (a worker leaves
+the same `.npmrc` / `bunfig.toml` in the directory the previewed script runs in), while the Python
+index URL, which otherwise only appears as uv's argv, becomes readable where it was not before.
 
 These settings are Enterprise-only, exactly as they are for jobs, and a CE instance reports that in
 the session's output rather than applying them:
@@ -114,14 +119,17 @@ the session's output rather than applying them:
 `EPHEMERAL_TOKEN` placeholder is not served at all: only a worker can run the command that
 substitutes it.
 
-The credential-bearing files (`.npmrc`, `bunfig.toml`) are written to a private directory under
-`/var/tmp/windmill-debug-registry`, not to the directory the install runs in, and are deleted once
-the install is over, including when it is killed for exceeding `DAP_PREPARE_DEPS_TIMEOUT_MS`. The
-install directory is not private to the install: a session resolves its `node_modules` symlink back
-into it, and `nsjail.debug.config.proto` bind-mounts the whole of `/tmp` into every session, so
-credentials left there would be readable by a concurrent session. Nothing outside `/tmp` is mounted
-into a session, which is what keeps them out of reach. Sessions started without `--nsjail` are not
-confined at all and see the whole filesystem, as they already do the rest of the service's state.
+The credential-bearing files (`.npmrc`, `bunfig.toml`) are written under
+`/var/tmp/windmill-debug-registry`, not into the directory the install runs in, and are deleted
+when the install ends. That directory is not private to the install: a session resolves its
+`node_modules` symlink back into it, and `nsjail.debug.config.proto` bind-mounts the whole of
+`/tmp` into every session, so credentials left there would be readable by a concurrent session.
+`/var/tmp` is a tmpfs in that same config, one instance per jail, so a session sees an empty one
+and a jailed install's credentials go away with the jail even when it is killed (the service kills
+an install with SIGKILL, which no cleanup in the installer can survive). An install running
+unjailed writes to the host's `/var/tmp` instead, where a directory a kill left behind is removed
+by the next install; a session running unjailed is unconfined anyway and sees the whole filesystem,
+as it already does the rest of the service's state.
 
 The rest of the registry configuration has no instance setting and is read from the environment of
 the debug service. Where two names are listed the first wins; a worker reads the same names:
@@ -129,7 +137,8 @@ the debug service. Where two names are listed the first wins; a worker reads the
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `PY_TRUSTED_HOST` / `PIP_TRUSTED_HOST` | Hosts to trust, whitespace-separated (`--trusted-host`) | - |
-| `PY_INDEX_CERT` / `PIP_INDEX_CERT` | CA bundle for the index, passed to uv as `SSL_CERT_FILE` | - |
+| `PY_INDEX_CERT` / `PIP_INDEX_CERT` | CA bundle for the index, passed to uv as `SSL_CERT_FILE`. Falls back to `SSL_CERT_FILE`, then `REQUESTS_CA_BUNDLE`, then `CURL_CA_BUNDLE`, so a host that configures its CA under any of those names is picked up. Whichever is used **replaces** uv's own roots rather than adding to them, so it has to be a complete bundle: one holding only a private CA leaves every public index untrusted. `bun install` gets the same bundle as `NODE_EXTRA_CA_CERTS`, the only spelling Bun reads | - |
+| `SSL_CERT_DIR` | Directory of certificates, forwarded to uv as-is. Replaces uv's roots the same way the bundle does, so a directory holding only a private CA leaves public indexes untrusted | - |
 | `PY_NATIVE_CERT` / `UV_NATIVE_TLS` | `true` to also trust the platform certificate store (`--native-tls`) | false |
 | `UV_HTTP_TIMEOUT` | uv HTTP request timeout, in seconds | uv's own default |
 | `DAP_REGISTRY_CONFIG_TIMEOUT_MS` | How long to wait on the settings fetch before installing without it | 10000 |
@@ -147,12 +156,31 @@ service into each session, since the debugged script needs them for its own outb
 as a job's script does on a worker. When a proxy is set without a bypass list, `NO_PROXY` defaults
 to `localhost,127.0.0.1` so calls to `BASE_INTERNAL_URL` are not proxied.
 
+Trust roots are forwarded alongside them: `SSL_CERT_FILE`, `SSL_CERT_DIR`, `REQUESTS_CA_BUNDLE`,
+`CURL_CA_BUNDLE` and `NODE_EXTRA_CA_CERTS`. Behind a TLS-intercepting proxy these are what let the
+debugged script's own HTTPS calls verify, and installing the CA in the container's system store is
+not enough on its own, since `requests` carries its own bundle and Node reads only
+`NODE_EXTRA_CA_CERTS`. Registry settings are deliberately not forwarded: they carry credentials and
+only the service needs them.
+
+To install that CA into the container's system store in the first place, set `INIT_SCRIPT` on the
+`windmill_extra` container (e.g. `INIT_SCRIPT=update-ca-certificates`). It runs before any service
+starts and aborts startup if it fails, the same hook a worker offers.
+
 Keeping the settings out of the session's environment only bounds what the debugged script can read
 from itself. An unsandboxed session runs under the same user as the service and can still read the
 service's environment through `/proc`, the same way a job can read a worker's when the worker runs
 unsandboxed. Isolating sessions from the service takes `--nsjail --nsjail-config
 nsjail.debug.config.proto`: it is that config's PID namespace and `mount_proc` that put the service
 out of reach, not the flag on its own.
+
+The installer is jailed on the same terms, in both languages: `uv pip install` builds source
+distributions and `bun install` runs postinstall scripts, so a package's own code executes there
+too. It keeps the service's environment across that boundary — the config sets `keep_env`, which is
+how the settings above reach it — so replacing that with an allowlist would have to carry the
+registry and CA variables in explicitly. It also runs in its own process group, because `uv` and
+`bun` are grandchildren: signalling only the installer reparents them to init and they keep
+downloading, which would make the timeout and the cancel-on-disconnect half-measures.
 
 ### Frontend Integration
 
