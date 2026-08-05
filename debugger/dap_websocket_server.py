@@ -301,56 +301,16 @@ def _prepare_error_detail(response: dict) -> str:
     """
     Build the failure reason from a prepare-deps response.
 
-    `install_stderr` is the installer's raw output and is only present on newer workers;
-    `error` wraps the same text in a sentence, so take whichever is available rather than
-    both, which would print the installer's output twice.
+    `error` is the installer's own output prefixed with the step that failed, and
+    `install_stderr` is that same output unprefixed, so take one rather than both: joining
+    them prints the installer's output twice, and the prefix is what tells a reader whether
+    the venv or the install was what went wrong.
     """
-    for key in ("install_stderr", "error"):
+    for key in ("error", "install_stderr"):
         detail = str(response.get(key) or "").strip()
         if detail:
             return detail
     return "unknown error"
-
-
-# Prefixes uv uses for routine resolve/install progress, which it writes to stderr on a
-# perfectly successful run. `warning:` belongs here because uv's warnings are non-fatal by
-# construction (the hardlink fallback fires whenever the cache and the venv are on
-# different filesystems, which is the normal layout). The `+`/`-` forms are the
-# per-package change list.
-_INSTALLER_PROGRESS_PREFIXES = (
-    "resolved ",
-    "prepared ",
-    "installed ",
-    "uninstalled ",
-    "downloading ",
-    "downloaded ",
-    "building ",
-    "built ",
-    "updated ",
-    "audited ",
-    "using ",
-    "creating ",
-    "warning:",
-    "+ ",
-    "- ",
-)
-
-
-def _installer_diagnostics(stderr: str) -> str:
-    """
-    Strip an installer's routine progress from its stderr, keeping anything unexplained.
-
-    uv renders failures several ways (`error:`, `× No solution found` with tree glyphs), so
-    matching failure shapes misses some of them. Matching progress instead errs toward a
-    spurious warning rather than toward the silence this exists to prevent. All of this
-    goes away once the response carries an explicit failure flag to key on.
-    """
-    kept = [
-        line
-        for line in stderr.splitlines()
-        if line.strip() and not line.strip().lower().startswith(_INSTALLER_PROGRESS_PREFIXES)
-    ]
-    return "\n".join(kept).strip()
 
 
 def _first_line(detail: str, limit: int = 300) -> str:
@@ -469,14 +429,7 @@ class DebugSession:
             else:
                 logger.info("No external dependencies detected in code")
 
-            # `uv pip install` failing for individual packages does not fail the whole
-            # response, so a "successful" preparation can still carry the reason an import
-            # is about to fail.
-            installer_error = _installer_diagnostics(str(response.get("install_stderr") or ""))
-            if installer_error:
-                logger.warning(f"prepare-deps reported an installer error: {installer_error}")
-
-            return PrepareResult(venv_path=venv_path, error=installer_error or None)
+            return PrepareResult(venv_path=venv_path)
 
         except subprocess.TimeoutExpired:
             message = f"prepare-deps timed out after {PREPARE_DEPS_TIMEOUT_SECONDS}s"
