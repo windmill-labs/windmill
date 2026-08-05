@@ -118,9 +118,18 @@ not enough on its own, since `requests` carries its own bundle and Node reads on
 `NODE_EXTRA_CA_CERTS`. Registry settings are deliberately not forwarded: they carry credentials and
 only the service needs them.
 
-To install that CA into the container's system store in the first place, set `INIT_SCRIPT` on the
-`windmill_extra` container (e.g. `INIT_SCRIPT=update-ca-certificates`). It runs before any service
-starts and aborts startup if it fails, the same hook a worker offers.
+Registering that CA in the container's system store happens on its own: mount it into
+`/usr/local/share/ca-certificates/` **named `*.crt`**, the only extension `update-ca-certificates`
+reads, and `windmill_extra` runs it before starting any service. `RUN_UPDATE_CA_CERTIFICATE_AT_START=true` forces the same thing whether or not
+certificates are mounted there, and `RUN_UPDATE_CA_CERTIFICATE_PATH` overrides the tool, matching
+the server and worker. Both are best-effort: a UID that cannot write `/etc/ssl/certs` logs a warning
+and the container still boots. `INIT_SCRIPT` remains the hook for anything more involved, and unlike
+the CA update it aborts startup when it fails.
+
+Note what the system store does *not* cover, which is most of what a debug session installs with:
+uv trusts its own bundled roots unless `PY_NATIVE_CERT`/`UV_NATIVE_TLS` is `true`, Bun and Node read
+only `NODE_EXTRA_CA_CERTS`, and `requests` carries certifi. Registering the CA fixes Python's stdlib
+`ssl`, `curl` and `git`; the rest still needs the variables above.
 
 Keeping the settings out of the session's environment only bounds what the debugged script can read
 from itself. An unsandboxed session runs under the same user as the service and can still read the

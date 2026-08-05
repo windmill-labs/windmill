@@ -33,6 +33,44 @@ if [ ! -w "$HOME" ]; then
 fi
 export HOME
 
+# Register CA certificates mounted into the image before anything opens a TLS connection.
+# Best-effort on purpose, unlike INIT_SCRIPT below: a non-root UID cannot write /etc/ssl/certs, and
+# a deployment that never needed a custom CA must still boot. Env var names and the default-off
+# behavior match the server/worker binary, so one setting covers every container. What the system
+# trust store does and does not reach is documented in debugger/README.md.
+CA_CERT_DIR=/usr/local/share/ca-certificates
+
+update_ca_certificates() {
+    local reason="$1"
+    local tool="${RUN_UPDATE_CA_CERTIFICATE_PATH:-/usr/sbin/update-ca-certificates}"
+    local output
+    if [ ! -x "$tool" ]; then
+        echo "[entrypoint] $reason but $tool is not executable, skipping CA update"
+        return
+    fi
+    echo "[entrypoint] $reason, running $tool"
+    if output=$("$tool" 2>&1); then
+        echo "[entrypoint] CA certificates updated"
+    else
+        # Carry the tool's own message: the usual cause is an unwritable /etc/ssl/certs under a
+        # non-root UID, but guessing that in place of the real error hides everything else.
+        echo "[entrypoint] WARNING: $tool failed (UID $(id -u)): ${output:-no output}; continuing" >&2
+    fi
+}
+
+if [ "$(echo "${RUN_UPDATE_CA_CERTIFICATE_AT_START:-false}" | tr '[:upper:]' '[:lower:]')" = "true" ]; then
+    update_ca_certificates "RUN_UPDATE_CA_CERTIFICATE_AT_START=true"
+elif [ -n "$(find -L "$CA_CERT_DIR" -type f -name '*.crt' -print -quit 2>/dev/null)" ]; then
+    # Certificates mounted there are unambiguous intent, and they do nothing until registered, so
+    # take the same action without making the operator also find the env var.
+    update_ca_certificates "Found certificates in $CA_CERT_DIR"
+elif [ -n "$(ls -A "$CA_CERT_DIR" 2>/dev/null)" ]; then
+    # Reporting success over a mount update-ca-certificates ignores would be worse than saying
+    # nothing: .pem is the spelling people reach for, and only .crt is read.
+    echo "[entrypoint] WARNING: $CA_CERT_DIR has files but none named *.crt, the only extension" \
+        "update-ca-certificates reads; they will be ignored" >&2
+fi
+
 # INIT_SCRIPT is the documented hook for preparing the host before anything reaches the network
 # (CA certificates, proxies, mounts), matching the worker's INIT_SCRIPT. It must therefore complete
 # before any service starts, and a failure has to abort: services that come up with an unprepared
