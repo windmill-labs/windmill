@@ -1390,21 +1390,25 @@ async fn maybe_post_git_sync_check(
             }
         }
     } else {
-        // Phase 4: dry-run diff preview for a PR. The diff previews the PR's
-        // merge with its base, so an unmergeable PR has no diff to compute;
-        // the pull script reports that as a structured result carrying one of
-        // these sentinels (a thrown error would reach the result as truncated
-        // log tails that can drop the message), matched before the
-        // success/failure split. Resolving conflicts requires pushing to the
-        // branch, which re-runs the check.
-        if result_raw.contains("PR_MERGE_CONFLICTS") {
+        // Phase 4: dry-run diff preview for a PR. An unmergeable PR has no
+        // diff; the pull script reports that as a structured `pr_check_error`
+        // sentinel (thrown bun errors reach the result as truncated log tails),
+        // matched exactly — diffs list paths that could embed the sentinel text.
+        let pr_check_error = serde_json::from_str::<serde_json::Value>(result_raw)
+            .ok()
+            .and_then(|v| {
+                v.get("pr_check_error")
+                    .and_then(|e| e.as_str())
+                    .map(|s| s.to_string())
+            });
+        if pr_check_error.as_deref() == Some("PR_MERGE_CONFLICTS") {
             (
                 "failure",
                 "Merge conflicts with the base branch".to_string(),
                 "This PR cannot be merged cleanly, so there is no deploy diff to compute. Resolve the conflicts and push again to re-run this check."
                     .to_string(),
             )
-        } else if result_raw.contains("PR_HEAD_REF_UNAVAILABLE") {
+        } else if pr_check_error.as_deref() == Some("PR_HEAD_REF_UNAVAILABLE") {
             (
                 "failure",
                 "Could not compute the deploy diff".to_string(),
