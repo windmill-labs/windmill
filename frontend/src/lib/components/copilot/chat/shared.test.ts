@@ -1556,3 +1556,45 @@ describe('createSearchHubScriptsTool', () => {
 		expect(results[1].content).toBe('ok')
 	})
 })
+
+describe('processToolCall confirmation hooks', () => {
+	async function hookedTool() {
+		const { createToolDef } = await import('./shared')
+		return {
+			def: createToolDef(z.object({}), 'apply_change', 'Apply change'),
+			requiresConfirmation: true,
+			fn: vi.fn().mockResolvedValue('ok'),
+			onConfirmationRequested: vi.fn()
+		}
+	}
+
+	it('requests before the card resolves', async () => {
+		const tool = await hookedTool()
+		let requestedBeforeResolve = false
+		const requestConfirmation = vi.fn(async () => {
+			requestedBeforeResolve = tool.onConfirmationRequested.mock.calls.length === 1
+			return false
+		})
+
+		await runToolCall(tool, { requestConfirmation })
+
+		expect(requestedBeforeResolve).toBe(true)
+		// The hook needs the id and callbacks to attach what it sets up to this card.
+		expect(tool.onConfirmationRequested).toHaveBeenCalledWith(
+			expect.objectContaining({ toolId: 'call_plan', toolCallbacks: expect.any(Object) })
+		)
+		expect(tool.fn).not.toHaveBeenCalled()
+	})
+
+	it('fires no hook when the confirmation is auto-accepted', async () => {
+		const tool = await hookedTool()
+
+		await runToolCall(tool, {
+			requestConfirmation: vi.fn(async () => true),
+			shouldAutoAcceptToolConfirmations: () => true
+		})
+
+		expect(tool.onConfirmationRequested).not.toHaveBeenCalled()
+		expect(tool.fn).toHaveBeenCalled()
+	})
+})

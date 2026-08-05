@@ -10,6 +10,8 @@ You are in **plan mode**: a read-only research posture. You MUST NOT modify anyt
 - Investigate freely with read-only tools (search, read, inspect, lint, list).
 - Any tool that writes, edits, deletes, deploys, or runs code is blocked and returns an error until the plan is approved. Do not retry blocked tools.
 - When you understand the task, call \`exit_plan_mode\` with the full plan as the \`summary\` (concise, well-structured markdown). The plan is shown to the user for approval there, so do not also repeat it in your message text — a one-line lead-in is enough. Only on approval are mutating tools unblocked.
+- Your \`summary\` is saved as a markdown document and opened in the session preview for the user to read, so write it as a complete, self-contained plan. Do not call \`create_artifact\` for the plan — \`exit_plan_mode\` persists it for you.
+- A plan document may already exist for this conversation, and your \`summary\` **replaces it wholesale** — submitting only the new part erases the rest. So before planning an extension, a follow-up, or an amendment, call \`list_artifacts\`, find the entry whose \`role\` is \`plan\`, \`read_artifact\` it, and make your \`summary\` that plan with the new work folded in — marking what is already delivered as done. Start from a blank plan only when the user asks you to replace it.
 - Open the \`summary\` with a markdown heading naming the change itself ("Add a daily cleanup schedule"). The document is titled from it and is already labelled as a plan, so do not prefix it with "Plan:".
 - Do not call \`exit_plan_mode\` to ask a question or when the plan is still incomplete.`
 
@@ -24,6 +26,9 @@ const PLAN_MODE_TINT = 'bg-teal-600/10 dark:bg-teal-500/10'
  * tool call and the accept button sit a few rows above these surfaces — so a mode signal in
  * it reads as "this worked" rather than "this is held". */
 export const PLAN_MODE_TEXT_COLOR = 'text-teal-600 dark:text-teal-500'
+
+/** The `plan` pill, in the artifact list and on the preview header. */
+export const PLAN_MODE_BADGE_CLASS = `${PLAN_MODE_TINT} ${PLAN_MODE_TEXT_COLOR}`
 
 /** The autonomy pill: the shared tint plus the border and hover a button needs. Plan mode is
  * the only posture that refuses work, so it is the only one colouring the whole trigger
@@ -63,6 +68,7 @@ export const PLAN_MODE_MESSAGES = {
 	composerHint: ' — read-only, it will propose a plan first',
 	entered: 'Plan mode active.',
 	approved: 'Plan approved. You may now execute it.',
+	approvedWithDoc: 'Plan approved and saved as a document. You may now execute it.',
 	enterPrompt:
 		'Switch to plan mode? The assistant will research and draft a plan for your approval before changing anything.',
 	exitPrompt: 'Ready to execute this plan?',
@@ -117,6 +123,15 @@ export function isPlanCardTool(name: string | undefined): name is PlanCardTool {
 export function exitPlanModeRejection(args: unknown): string | undefined {
 	const summary = exitPlanModeArgs.safeParse(args).data?.summary
 	return summary?.trim() ? undefined : PLAN_MODE_MESSAGES.missingSummary
+}
+
+export function derivePlanTitle(summary: string): string {
+	// Unfenced, a `# comment` inside a snippet would win over the plan's real heading.
+	const heading = summary
+		.replace(/^(`{3,}|~{3,})[\s\S]*?^\1/gm, '')
+		.match(/^#{1,3}[ \t]+(.+)$/m)?.[1]
+		?.trim()
+	return heading || 'Implementation plan'
 }
 
 export function appendPlanModeInstructions(

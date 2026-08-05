@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IDBFactory } from 'fake-indexeddb'
-import { SessionArtifactsStore } from './artifactsState.svelte'
+import { planFirst, SessionArtifactsStore } from './artifactsState.svelte'
 import * as db from './artifactsDB'
 
 // The user-scoping subscription is BROWSER-gated; the node test env reports false.
@@ -198,6 +198,23 @@ describe('SessionArtifactsStore', () => {
 		await store.remove(created.id)
 		expect(store.artifacts).toEqual([])
 		expect(await dbMod.getArtifact(created.id)).toBeUndefined()
+	})
+})
+
+describe('planFirst', () => {
+	it('pins plans above artifacts updated more recently', () => {
+		// Store order is newest-first; a run that writes a CSV after the plan is
+		// approved would otherwise bury the plan the user keeps coming back to.
+		const csv = mk({ id: 'csv', name: 'runs.csv', updatedAt: 20 })
+		const plan = mk({ id: 'plan', name: 'Add retries', role: 'plan', updatedAt: 10 })
+		expect(planFirst([csv, plan]).map((a) => a.id)).toEqual(['plan', 'csv'])
+	})
+
+	it('keeps each group newest-first, and several plans together', () => {
+		const newPlan = mk({ id: 'p2', role: 'plan', updatedAt: 30 })
+		const doc = mk({ id: 'doc', updatedAt: 20 })
+		const oldPlan = mk({ id: 'p1', role: 'plan', updatedAt: 10 })
+		expect(planFirst([newPlan, doc, oldPlan]).map((a) => a.id)).toEqual(['p2', 'p1', 'doc'])
 	})
 })
 

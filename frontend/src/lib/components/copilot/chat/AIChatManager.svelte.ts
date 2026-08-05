@@ -137,6 +137,7 @@ import { SessionArtifactsStore } from './artifacts/artifactsState.svelte'
 import { appendAttachedFilesRoster } from './files/fileTools'
 import {
 	appendPlanModeInstructions,
+	derivePlanTitle,
 	enterPlanModeArgs,
 	exitPlanModeArgs,
 	exitPlanModeRejection,
@@ -570,6 +571,23 @@ export class AIChatManager {
 	planModeAvailable = $derived(this.isSessionChat && supportsPlanMode(this.mode))
 	planModeActive = $derived(this.autonomyMode === AIAutonomyMode.PLAN && this.planModeAvailable)
 	prePlanAutonomyMode = $state<AIAutonomyMode | undefined>(undefined)
+	// One plan document per conversation, revised in place: keyed by tool call so the
+	// confirmation hook and fn of the same card share a single write, while a new proposal
+	// rewrites the document rather than adding a draft. Deliberately survives leaving and
+	// re-entering plan mode — coming back to amend an approved plan is the common case, and
+	// a fresh document each time would leave the user picking their live plan out of a stack
+	// of stale ones. The cost is that an unrelated second plan in the same conversation
+	// overwrites the first; "New chat" is what separates them.
+	private planSave:
+		| { toolId: string; doc: Promise<{ id: string; name: string } | undefined> }
+		| undefined
+	private planDocId: string | undefined
+	// The approved plan this round of planning is about to overwrite, kept so an unapproved
+	// proposal can be rolled back. Undefined when there is nothing to lose — no document yet,
+	// or this round has not proposed anything.
+	private planRoundBase: string | undefined
+	// Bumped on every reset so a save still in flight can tell its conversation is gone.
+	private planDocGeneration = 0
 	#automaticScroll = $state<boolean>(true)
 	systemMessage = $state<ChatCompletionSystemMessageParam>({
 		role: 'system',
@@ -1525,6 +1543,9 @@ export class AIChatManager {
 		const leavingPlan = mode !== AIAutonomyMode.PLAN && this.autonomyMode === AIAutonomyMode.PLAN
 		if (enteringPlan) {
 			this.prePlanAutonomyMode = this.autonomyMode
+			// A new round of planning: whatever the document holds now is what a rejected
+			// proposal in this round must restore.
+			this.planRoundBase = undefined
 		} else if (mode !== AIAutonomyMode.PLAN) {
 			this.prePlanAutonomyMode = undefined
 			this.planBlocksThisTurn = 0
@@ -1560,6 +1581,7 @@ export class AIChatManager {
 		migrateLegacyAutonomyKeys()
 		this.autonomyMode = getPersistedAutonomyMode()
 		this.prePlanAutonomyMode = undefined
+		this.resetPlanDoc()
 	}
 
 	applyScriptEditorCode = async (code: string, opts?: ReviewChangesOpts) => {
@@ -2054,6 +2076,115 @@ export class AIChatManager {
 		}
 	}
 
+	// The plan document belongs to the conversation that proposed it. Plan mode outlives
+	// a chat switch, so without this the next proposal takes the update branch and
+	// rewrites the previous conversation's saved plan in place. Only chat rotation resets
+	// it: a posture change must not, or amending an approved plan starts a new one.
+	private resetPlanDoc = () => {
+		this.planSave = undefined
+		this.planDocId = undefined
+		this.planRoundBase = undefined
+		this.planDocGeneration++
+	}
+
+	/**
+	 * Put back the plan this round of planning overwrote. A plan is saved when it is
+	 * *proposed*, so an approved plan is gone the moment the model proposes its successor —
+	 * and stopping the turn, or keeping planning, would otherwise leave the user holding an
+	 * unapproved draft with the plan they had agreed to nowhere. No-ops on the first plan of
+	 * a conversation, where there is nothing to restore and the draft is worth keeping.
+	 */
+	private restorePlanDoc = async () => {
+		const base = this.planRoundBase
+		const id = this.planDocId
+		if (base === undefined || !id) return
+		const generation = this.planDocGeneration
+		try {
+			const restored = await this.artifacts.update(id, {
+				name: derivePlanTitle(base),
+				content: base
+			})
+			if (generation !== this.planDocGeneration || !restored) return
+			this.openArtifact?.(restored.id, restored.name)
+		} catch (e) {
+			console.error('Failed to restore plan artifact', e)
+		}
+	}
+
+	// `planDocId` is in-memory, so a reload or a reopened session has none even though the
+	// conversation's plan is still on disk. Recover it from the store, or the amend writes a
+	// second plan beside the one the user is looking at. Keyed by chat: the id is what scopes
+	// a plan to its conversation, and it survives the reload the field does not.
+	private findPlanDocForCurrentChat = async (): Promise<string | undefined> => {
+		if (!this.sessionId) return undefined
+		const chatId = this.historyManager.getCurrentChatId()
+		const items = await this.artifacts.listForSession(this.sessionId)
+		// Newest first, so a conversation that accumulated plans before this lookup existed
+		// revises the live one rather than the first one it ever wrote.
+		return items.find((a) => a.role === 'plan' && a.chatId === chatId)?.id
+	}
+
+	private ensurePlanDoc = (p: { args: any; toolCallbacks: ToolCallbacks; toolId: string }) => {
+		if (this.planSave?.toolId !== p.toolId) {
+			this.planSave = { toolId: p.toolId, doc: this.savePlanDoc(p) }
+		}
+		return this.planSave.doc
+	}
+
+	// A failed save must not block the plan card or the posture restore.
+	private savePlanDoc = async ({
+		args,
+		toolCallbacks,
+		toolId
+	}: {
+		args: any
+		toolCallbacks: ToolCallbacks
+		toolId: string
+	}) => {
+		if (!this.isSessionChat || !this.sessionId) return undefined
+		// safeParse, not parse: a malformed summary has no document to save, and must not
+		// take the card or the posture restore down with it. validateBeforeConfirmation
+		// already refused those calls; this keeps the write itself total.
+		const summary = exitPlanModeArgs.safeParse(args).data?.summary
+		if (!summary) return undefined
+		const name = derivePlanTitle(summary)
+		// The write outlives the conversation that asked for it: nothing below may be
+		// adopted once the chat has rotated, or the next conversation inherits this plan.
+		const generation = this.planDocGeneration
+		try {
+			const existingId = this.planDocId ?? (await this.findPlanDocForCurrentChat())
+			// The lookup awaits, so re-check before writing: a chat rotated in that window
+			// would otherwise have this plan written into the conversation it just left.
+			if (generation !== this.planDocGeneration) return undefined
+			// Read before overwriting: this round's first proposal is the moment the standing
+			// plan is lost, so that is where the copy to restore has to be taken.
+			if (existingId && this.planRoundBase === undefined) {
+				this.planRoundBase = (await this.artifacts.get(existingId))?.content
+				if (generation !== this.planDocGeneration) return undefined
+			}
+			// Falls back to a create when the document is gone — the user may have deleted it.
+			const plan =
+				(existingId
+					? await this.artifacts.update(existingId, { name, content: summary })
+					: undefined) ??
+				(await this.artifacts.create(this.sessionId, {
+					name,
+					content: summary,
+					kind: 'md',
+					role: 'plan',
+					chatId: this.historyManager.getCurrentChatId()
+				}))
+			if (generation !== this.planDocGeneration) return undefined
+			this.planDocId = plan.id
+			this.openArtifact?.(plan.id, plan.name)
+			toolCallbacks.setToolStatus(toolId, { planArtifactId: plan.id })
+			return plan
+		} catch (e) {
+			console.error('Failed to persist plan artifact', e)
+			return undefined
+		}
+	}
+
 	// `readonly` is what lets this tool through the plan-mode gate; without it plan mode
 	// has no exit. `processToolCall` grants no other exemption.
 	exitPlanModeTool: Tool<any> = {
@@ -2067,12 +2198,21 @@ export class AIChatManager {
 			exitPlanModeArgs.safeParse(args).data?.summary ?? PLAN_MODE_MESSAGES.exitPrompt,
 		cancellationMessage: PLAN_MODE_MESSAGES.exitDeclined,
 		showDetails: true,
-		fn: async () => {
+		onConfirmationRequested: (p) => {
+			void this.ensurePlanDoc(p)
+		},
+		onConfirmationDeclined: () => {
+			void this.restorePlanDoc()
+		},
+		fn: async ({ args, toolCallbacks, toolId }) => {
+			const saved = await this.ensurePlanDoc({ args, toolCallbacks, toolId })
+			// Approved: this content is the plan now, so there is nothing left to roll back to.
+			this.planRoundBase = undefined
 			// No-op if the user already left plan mode while the card was pending.
 			if (this.planModeActive) {
 				this.setAutonomyMode(this.prePlanAutonomyMode ?? AIAutonomyMode.DEFAULT)
 			}
-			return PLAN_MODE_MESSAGES.approved
+			return saved ? PLAN_MODE_MESSAGES.approvedWithDoc : PLAN_MODE_MESSAGES.approved
 		}
 	}
 
@@ -3638,6 +3778,7 @@ export class AIChatManager {
 		// Message-attached rows belong to the conversation just left in every case.
 		this.#syncMessageFiles()
 		this.syncArtifactsSession()
+		this.resetPlanDoc()
 		this.onChatRotated?.(this.historyManager.getCurrentChatId())
 	}
 
@@ -3680,6 +3821,7 @@ export class AIChatManager {
 			this.#syncMessageFiles()
 			this.#automaticScroll = true
 			this.syncArtifactsSession()
+			this.resetPlanDoc()
 			this.onChatRotated?.(id)
 		}
 	}

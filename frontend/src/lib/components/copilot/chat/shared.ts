@@ -602,6 +602,7 @@ export type ToolDisplayMessage = {
 	 * always-visible card that opens (or focuses) the item's preview in the
 	 * session side panel. Set only for session chats — the side panel is their surface. */
 	previewCard?: { kind: PreviewCardKind; path: string }
+	planArtifactId?: string
 	/** Refused by the plan-mode gate. Renders as its own lean row rather than a tool
 	 * error, so the transcript says the mode stopped it and not that the call failed. */
 	blockedByPlanMode?: boolean
@@ -884,9 +885,14 @@ export async function processToolCall<T>({
 
 		// If confirmation is needed and we have the callback, wait for it
 		if (needsConfirmation && toolCallbacks.requestConfirmation) {
+			tool?.onConfirmationRequested?.({ args, toolCallbacks, toolId: toolCall.id })
 			const confirmed = await toolCallbacks.requestConfirmation(toolCall.id, toolCall.function.name)
 
 			if (!confirmed) {
+				// Counterpart to onConfirmationRequested, for a tool that wrote something to show
+				// on the card and has to undo it. Covers a Stop too: cancelling the turn resolves
+				// every pending confirmation false.
+				tool?.onConfirmationDeclined?.({ args, toolCallbacks, toolId: toolCall.id })
 				toolCallbacks.setToolStatus(toolCall.id, {
 					content: 'Cancelled by user',
 					isLoading: false,
@@ -1016,6 +1022,14 @@ export interface Tool<T> {
 	/** Header shown on the confirmation card before the tool runs. Pass a function
 	 * to derive it from the parsed arguments (e.g. name the script being tested). */
 	confirmationMessage?: string | ((args: any) => string)
+	/** Fires only when a confirmation card gates the call, never on auto-accept, so `fn` must
+	 * not rely on it having run. It is not awaited, so it may not throw, and it must be safe
+	 * to run for a call the user then declines. */
+	onConfirmationRequested?: (p: { args: any; toolCallbacks: ToolCallbacks; toolId: string }) => void
+	/** The undo for whatever `onConfirmationRequested` did: fires when the user rejects the
+	 * card, and when a Stop cancels the turn out from under it. Same contract — not awaited,
+	 * must not throw. */
+	onConfirmationDeclined?: (p: { args: any; toolCallbacks: ToolCallbacks; toolId: string }) => void
 	/** Model-facing result returned when the user rejects the confirmation; defaults
 	 * to a generic cancellation. */
 	cancellationMessage?: string

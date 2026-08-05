@@ -6,6 +6,7 @@ import type { ReviewChangesOpts } from './monaco-adapter'
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions.mjs'
 import type { AttachedImage } from './imageUtils'
 import { AIChatManager, AIMode, AIAutonomyMode } from './AIChatManager.svelte'
+import { PLAN_MODE_MESSAGES } from './planMode'
 import { runChatLoop } from './chatLoop'
 
 // This suite forces esm-env BROWSER=true (below). That makes @sveltejs/kit's
@@ -478,6 +479,320 @@ describe('AIChatManager autonomy mode', () => {
 
 		expect(manager.autonomyMode).toBe(AIAutonomyMode.YOLO)
 		expect(manager.planModeActive).toBe(false)
+	})
+
+	const callExitPlanMode = (
+		manager: AIChatManager,
+		summary: string,
+		setToolStatus = vi.fn(),
+		toolId = 'call_exit'
+	) =>
+		manager.exitPlanModeTool.fn({
+			args: { summary },
+			workspace: 'test-workspace',
+			helpers: {},
+			toolCallbacks: {
+				setToolStatus,
+				removeToolStatus: vi.fn()
+			},
+			toolId
+		})
+
+	const proposePlan = async (manager: AIChatManager, summary: string, toolId = 'call_exit') => {
+		const setToolStatus = vi.fn()
+		manager.exitPlanModeTool.onConfirmationRequested?.({
+			args: { summary },
+			toolCallbacks: { setToolStatus, removeToolStatus: vi.fn() },
+			toolId
+		})
+		// The hook deliberately does not block the card, so let its save settle.
+		const save = (manager as any).planSave
+		expect(save?.doc).toBeInstanceOf(Promise)
+		await save.doc
+		return setToolStatus
+	}
+
+	// Rolling an unapproved proposal back needs the content that was there before it, so the
+	// stubs have to be a store rather than call recorders.
+	let planDocs: Map<string, { id: string; name: string; content: string }>
+
+	const planningManager = () => {
+		const manager = new AIChatManager()
+		manager.mode = AIMode.GLOBAL
+		manager.isSessionChat = true
+		manager.sessionId = 'session-1'
+		manager.openArtifact = vi.fn()
+		planDocs = new Map()
+		let n = 0
+		manager.artifacts.create = vi.fn(async (_s: string, input: any) => {
+			const doc = { id: `artifact-${++n}`, name: input.name, content: input.content }
+			planDocs.set(doc.id, doc)
+			return doc
+		}) as any
+		manager.artifacts.update = vi.fn(async (id: string, input: any) => {
+			const doc = planDocs.get(id)
+			return doc && Object.assign(doc, input)
+		}) as any
+		manager.artifacts.get = vi.fn(async (id: string) => planDocs.get(id)) as any
+		manager.setAutonomyMode(AIAutonomyMode.DEFAULT)
+		manager.setAutonomyMode(AIAutonomyMode.PLAN)
+		return manager
+	}
+
+	it('saves and opens the plan document when the approval card appears', async () => {
+		const manager = planningManager()
+
+		const setToolStatus = await proposePlan(manager, '# Add retries\n\nStep one.')
+
+		expect(manager.artifacts.create).toHaveBeenCalledWith(
+			'session-1',
+			expect.objectContaining({
+				name: 'Add retries',
+				content: '# Add retries\n\nStep one.',
+				kind: 'md',
+				// The badge, the pinned row and the preview header all key off this.
+				role: 'plan'
+			})
+		)
+		expect(manager.openArtifact).toHaveBeenCalledWith('artifact-1', 'Add retries')
+		// The card resolves its document by this id, so losing it orphans the link.
+		expect(setToolStatus).toHaveBeenCalledWith('call_exit', { planArtifactId: 'artifact-1' })
+		expect(manager.planModeActive).toBe(true)
+	})
+
+	it('rewrites the one plan document when the user keeps planning and the plan is revised', async () => {
+		const manager = planningManager()
+
+		await proposePlan(manager, '# First cut\n\nStep one.')
+		// "Keep planning" leaves the document open; the revision rewrites it in place
+		// rather than piling up a draft per round.
+		await proposePlan(manager, '# Second cut\n\nStep two.', 'call_exit_2')
+		await callExitPlanMode(manager, '# Second cut\n\nStep two.', vi.fn(), 'call_exit_2')
+
+		expect(manager.artifacts.create).toHaveBeenCalledTimes(1)
+		expect(manager.artifacts.update).toHaveBeenCalledWith('artifact-1', {
+			name: 'Second cut',
+			content: '# Second cut\n\nStep two.'
+		})
+		expect(manager.openArtifact).toHaveBeenLastCalledWith('artifact-1', 'Second cut')
+	})
+
+	it('revises the same plan document when the user comes back to amend an approved plan', async () => {
+		const manager = planningManager()
+
+		await proposePlan(manager, '# First cut\n\nStep one.')
+		await callExitPlanMode(manager, '# First cut\n\nStep one.')
+		expect(manager.planModeActive).toBe(false)
+		// Interrupted mid-execution, back to plan mode to amend: resetting the document
+		// here is what made the model appear to start a fresh plan every round.
+		manager.setAutonomyMode(AIAutonomyMode.PLAN)
+		await proposePlan(manager, '# First cut, amended\n\nStep two.', 'call_exit_2')
+
+		expect(manager.artifacts.create).toHaveBeenCalledTimes(1)
+		expect(manager.artifacts.update).toHaveBeenCalledWith('artifact-1', {
+			name: 'First cut, amended',
+			content: '# First cut, amended\n\nStep two.'
+		})
+	})
+
+	it('adopts the conversation plan already on disk when the in-memory id is gone', async () => {
+		const manager = planningManager()
+		// A reload rebuilds the manager with no plan id, while the plan itself is still in
+		// the store — without the lookup the amend writes a second one beside it.
+		planDocs.set('artifact-on-disk', {
+			id: 'artifact-on-disk',
+			name: 'Ship the endpoint',
+			content: '# Ship the endpoint\n\nStep one.'
+		})
+		manager.artifacts.listForSession = vi.fn(async () => [
+			{ id: 'other-chat-plan', role: 'plan', chatId: 'a-previous-chat', name: 'Stale' },
+			{ id: 'artifact-on-disk', role: 'plan', chatId: manager.historyManager.getCurrentChatId() },
+			{ id: 'a-note', chatId: manager.historyManager.getCurrentChatId() }
+		]) as any
+
+		await proposePlan(manager, '# Amended\n\nStep two.')
+
+		expect(manager.artifacts.create).not.toHaveBeenCalled()
+		expect(manager.artifacts.update).toHaveBeenCalledWith('artifact-on-disk', {
+			name: 'Amended',
+			content: '# Amended\n\nStep two.'
+		})
+	})
+
+	it('puts the approved plan back when the next proposal is not approved', async () => {
+		const manager = planningManager()
+
+		await proposePlan(manager, '# Ship the endpoint\n\nStep one.')
+		await callExitPlanMode(manager, '# Ship the endpoint\n\nStep one.')
+		manager.setAutonomyMode(AIAutonomyMode.PLAN)
+		// Proposing overwrites the approved plan immediately, so stopping the turn here —
+		// or rejecting the card — must not leave the user with only the unapproved draft.
+		await proposePlan(manager, '# Rewrite it in Rust\n\nStep two.', 'call_exit_2')
+		expect(planDocs.get('artifact-1')?.content).toBe('# Rewrite it in Rust\n\nStep two.')
+
+		manager.exitPlanModeTool.onConfirmationDeclined?.({
+			args: { summary: '# Rewrite it in Rust\n\nStep two.' },
+			toolCallbacks: { setToolStatus: vi.fn(), removeToolStatus: vi.fn() },
+			toolId: 'call_exit_2'
+		})
+		await vi.waitFor(() =>
+			expect(planDocs.get('artifact-1')).toEqual({
+				id: 'artifact-1',
+				name: 'Ship the endpoint',
+				content: '# Ship the endpoint\n\nStep one.'
+			})
+		)
+	})
+
+	it('starts a new plan document after the chat rotates', async () => {
+		const manager = planningManager()
+
+		await proposePlan(manager, '# First chat\n\nStep one.')
+		// Plan mode outlives "New chat"; reusing the id here would rewrite the
+		// previous conversation's saved plan instead of writing this one's.
+		await manager.saveAndClear()
+		await proposePlan(manager, '# Second chat\n\nStep two.', 'call_exit_2')
+
+		expect(manager.artifacts.update).not.toHaveBeenCalled()
+		expect(manager.artifacts.create).toHaveBeenCalledTimes(2)
+		expect(manager.openArtifact).toHaveBeenLastCalledWith('artifact-2', 'Second chat')
+	})
+
+	it('lets the real exit_plan_mode tool through the gate that blocks everything else', async () => {
+		const { processToolCall } = await import('./shared')
+		const manager = planningManager()
+
+		const result = await processToolCall({
+			tools: [manager.exitPlanModeTool],
+			toolCall: {
+				id: 'call_exit',
+				type: 'function',
+				function: {
+					name: 'exit_plan_mode',
+					arguments: JSON.stringify({ summary: '# Add retries\n\nStep one.' })
+				}
+			},
+			helpers: {},
+			workspace: 'test-workspace',
+			toolCallbacks: {
+				setToolStatus: vi.fn(),
+				removeToolStatus: vi.fn(),
+				isPlanModeActive: () => manager.planModeActive,
+				requestConfirmation: async () => true
+			}
+		})
+
+		// `readonly` is the gate's only exemption, so losing it here would leave plan
+		// mode with no way out.
+		expect(result.content).toBe(PLAN_MODE_MESSAGES.approvedWithDoc)
+		expect(manager.planModeActive).toBe(false)
+	})
+
+	it('refuses an exit_plan_mode with no plan instead of offering to approve one', async () => {
+		const { processToolCall } = await import('./shared')
+		const manager = planningManager()
+		const requestConfirmation = vi.fn().mockResolvedValue(true)
+
+		const result = await processToolCall({
+			tools: [manager.exitPlanModeTool],
+			toolCall: {
+				id: 'call_exit',
+				type: 'function',
+				function: { name: 'exit_plan_mode', arguments: JSON.stringify({ summary: '   ' }) }
+			},
+			helpers: {},
+			workspace: 'test-workspace',
+			toolCallbacks: {
+				setToolStatus: vi.fn(),
+				removeToolStatus: vi.fn(),
+				isPlanModeActive: () => manager.planModeActive,
+				requestConfirmation
+			}
+		})
+
+		// A card here would offer "Approve & run" with nothing to read, and approving it
+		// would unblock every mutating tool without a plan ever being shown.
+		expect(requestConfirmation).not.toHaveBeenCalled()
+		expect(result.content).toBe(PLAN_MODE_MESSAGES.missingSummary)
+		expect(manager.artifacts.create).not.toHaveBeenCalled()
+		expect(manager.planModeActive).toBe(true)
+	})
+
+	it('drops a plan save that lands after the chat has rotated', async () => {
+		const manager = planningManager()
+		let finishCreate: (a: { id: string; name: string }) => void = () => {}
+		manager.artifacts.create = vi.fn(
+			() => new Promise((resolve) => (finishCreate = resolve))
+		) as any
+
+		const setToolStatus = vi.fn()
+		manager.exitPlanModeTool.onConfirmationRequested?.({
+			args: { summary: '# First chat\n\nStep one.' },
+			toolCallbacks: { setToolStatus, removeToolStatus: vi.fn() },
+			toolId: 'call_exit'
+		})
+		const inFlight = (manager as any).planSave.doc
+
+		await manager.saveAndClear()
+		finishCreate({ id: 'artifact-1', name: 'First chat' })
+		await inFlight
+
+		// The write belongs to the conversation that is gone: adopting it here would open
+		// the old plan in the new chat and hand the next proposal the previous document.
+		expect(manager.openArtifact).not.toHaveBeenCalled()
+		expect(setToolStatus).not.toHaveBeenCalled()
+
+		manager.artifacts.create = vi.fn(async (_s: string, input: any) => ({
+			id: 'artifact-2',
+			name: input.name
+		})) as any
+		await proposePlan(manager, '# Second chat\n\nStep two.', 'call_exit_2')
+
+		expect(manager.artifacts.update).not.toHaveBeenCalled()
+		expect(manager.openArtifact).toHaveBeenCalledWith('artifact-2', 'Second chat')
+	})
+
+	it('saves, opens and links the plan document even when no card gated the call', async () => {
+		const manager = planningManager()
+		const setToolStatus = vi.fn()
+
+		// The hook never runs when the call skips the card, so fn must produce the document.
+		await callExitPlanMode(manager, '# Add retries\n\nStep one.', setToolStatus)
+
+		expect(manager.artifacts.create).toHaveBeenCalledTimes(1)
+		expect(manager.openArtifact).toHaveBeenCalledWith('artifact-1', 'Add retries')
+		expect(setToolStatus).toHaveBeenCalledWith('call_exit', { planArtifactId: 'artifact-1' })
+	})
+
+	it('switching to YOLO approves the plan, keeps its document, and holds full autonomy', async () => {
+		const manager = planningManager()
+		await proposePlan(manager, '# Add retries\n\nStep one.')
+		const exitConfirmed = manager.requestConfirmation('call_exit', 'exit_plan_mode')
+
+		manager.setAutonomyMode(AIAutonomyMode.YOLO)
+
+		expect(await exitConfirmed).toBe(true)
+		await callExitPlanMode(manager, '# Add retries\n\nStep one.')
+		// fn must not restore a pre-plan posture over the autonomy the user just chose.
+		expect(manager.autonomyMode).toBe(AIAutonomyMode.YOLO)
+	})
+
+	it('restores the posture and claims no document when saving the plan fails', async () => {
+		const manager = planningManager()
+		manager.artifacts.create = vi.fn(async () => {
+			throw new Error('indexeddb unavailable')
+		}) as any
+		const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+		const setToolStatus = await proposePlan(manager, '# Add retries\n\nStep one.')
+		const result = await callExitPlanMode(manager, '# Add retries\n\nStep one.')
+
+		expect(manager.openArtifact).not.toHaveBeenCalled()
+		expect(setToolStatus).not.toHaveBeenCalled()
+		expect(result).not.toContain('saved as a document')
+		expect(manager.autonomyMode).toBe(AIAutonomyMode.DEFAULT)
+		expect(manager.planModeActive).toBe(false)
+		consoleError.mockRestore()
 	})
 
 	it('approves a pending enter_plan_mode card when the user enters plan mode via the picker', async () => {

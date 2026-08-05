@@ -12,6 +12,7 @@ export interface CreateArtifactInput {
 	name: string
 	content: string
 	kind?: ArtifactKind
+	role?: PersistedArtifact['role']
 	chatId?: string
 }
 
@@ -84,6 +85,7 @@ export class SessionArtifactsStore {
 			sessionId,
 			chatId: input.chatId,
 			kind: input.kind ?? 'md',
+			role: input.role,
 			name: input.name,
 			content: input.content,
 			createdAt: now,
@@ -131,4 +133,14 @@ export class SessionArtifactsStore {
 
 function sortByUpdatedDesc(items: PersistedArtifact[]): PersistedArtifact[] {
 	return [...items].sort((a, b) => b.updatedAt - a.updatedAt)
+}
+
+/**
+ * Plans first, each group still newest-first. Display order only — the store's own
+ * order backs `list_artifacts`, and the plan has no business leading that. A session
+ * holds one plan per conversation, so this is a group and not a single row.
+ */
+export function planFirst(items: PersistedArtifact[]): PersistedArtifact[] {
+	if (!items.some((a) => a.role === 'plan')) return items
+	return [...items.filter((a) => a.role === 'plan'), ...items.filter((a) => a.role !== 'plan')]
 }

@@ -110,7 +110,7 @@ export const artifactTools: Tool<{}>[] = [
 		def: createToolDef(
 			listArtifactsSchema,
 			'list_artifacts',
-			"List the current session's artifacts (id, name, kind)."
+			"List the current session's artifacts (id, name, kind, role)."
 		),
 		readonly: true,
 		fn: async ({ toolId, toolCallbacks, helpers }) => {
@@ -127,7 +127,9 @@ export const artifactTools: Tool<{}>[] = [
 			return JSON.stringify(
 				items
 					.sort((a, b) => b.updatedAt - a.updatedAt)
-					.map((a) => ({ id: a.id, name: a.name, kind: a.kind }))
+					// `role` is what lets the model find the conversation's plan among the rest;
+					// undefined on ordinary artifacts, so it costs nothing to list them.
+					.map((a) => ({ id: a.id, name: a.name, kind: a.kind, role: a.role }))
 			)
 		}
 	},
