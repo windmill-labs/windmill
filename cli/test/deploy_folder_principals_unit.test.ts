@@ -21,8 +21,12 @@ function folderProvider(
     existsFolder: async () => alreadyExists,
     getFolder: async () => folder,
     listUsers: async (p: { workspace: string }) => users[p.workspace],
+    // `group_` rows only — what an identity rule resolves against.
     listGroups: async (p: { workspace: string; page?: number }) =>
       p.workspace === "dst" && p.page === 1 ? [{ name: "both" }] : [],
+    // `group_` unioned with instance groups — what an owner or ACL entry is matched against.
+    listGroupNames: async (p: { workspace: string }) =>
+      p.workspace === "dst" ? ["both", "igroup"] : [],
     createFolder: async (p: any) =>
       void captured.push(["createFolder", p.requestBody]),
     updateFolder: async (p: any) =>
@@ -33,8 +37,13 @@ function folderProvider(
 const translatable = {
   name: "x",
   summary: "s",
-  owners: ["u/alice_src", "u/bob", "g/both"],
-  extra_perms: { "u/alice_src": true, "u/bob": false, "g/only-src": true },
+  owners: ["u/alice_src", "u/bob", "g/both", "g/igroup"],
+  extra_perms: {
+    "u/alice_src": true,
+    "u/bob": false,
+    "g/only-src": true,
+    "g/igroup": true,
+  },
   default_permissioned_as: [{ path_glob: "**", permissioned_as: "u/alice_src" }],
   labels: ["l"],
 };
@@ -59,9 +68,10 @@ test("deployItem: folder principals are translated into the target's naming", as
     expect(captured.map(([name]) => name)).toEqual([fn]);
     const body = captured[0][1];
     // Alice resolves through her email; Bob and the source-only group are dropped, since
-    // narrowing a folder is safe where naming a stranger is not.
-    expect(body.owners).toEqual(["u/alice_dst", "g/both"]);
-    expect(body.extra_perms).toEqual({ "u/alice_dst": true });
+    // narrowing a folder is safe where naming a stranger is not. `g/igroup` is an instance
+    // group — instance-wide, so it grants access in the target and must survive.
+    expect(body.owners).toEqual(["u/alice_dst", "g/both", "g/igroup"]);
+    expect(body.extra_perms).toEqual({ "u/alice_dst": true, "g/igroup": true });
     expect(body.default_permissioned_as).toEqual([
       { path_glob: "**", permissioned_as: "u/alice_dst" },
     ]);
@@ -71,6 +81,52 @@ test("deployItem: folder principals are translated into the target's naming", as
     // Named once each, though Bob appears in both owners and the ACL.
     expect(result.droppedAccess).toEqual(["u/bob", "g/only-src"]);
   }
+});
+
+test("deployItem: an instance group is not accepted as an identity rule", async () => {
+  // `ensure_permissioned_as_exists` resolves a rule against `group_` alone, so carrying an
+  // instance group here would write a folder the server then rejects every item deploy into —
+  // the opposite of the owners/ACL case in the test above, which is why the two use different
+  // group sets rather than one.
+  const captured: [string, any][] = [];
+  const result = await deployItem(
+    folderProvider(captured, {
+      ...translatable,
+      default_permissioned_as: [
+        { path_glob: "**", permissioned_as: "g/igroup" },
+      ],
+    }),
+    "folder" as any,
+    "f/x",
+    "src",
+    "dst",
+  );
+
+  expect(result.success).toBe(false);
+  expect(captured).toEqual([]);
+  expect(result.error).toContain("g/igroup");
+});
+
+test("deployItem: an all-untranslatable owners list never blanks the target's", async () => {
+  // `update_folder` force-appends the caller only when they are not an admin, so writing `[]`
+  // over an existing list would leave an admin-deployed folder with no owners at all.
+  const captured: [string, any][] = [];
+  const result = await deployItem(
+    folderProvider(
+      captured,
+      { ...translatable, owners: ["u/bob"], extra_perms: {} },
+      true,
+    ),
+    "folder" as any,
+    "f/x",
+    "src",
+    "dst",
+  );
+
+  expect(result.success).toBe(true);
+  expect(captured[0][0]).toBe("updateFolder");
+  expect("owners" in JSON.parse(JSON.stringify(captured[0][1]))).toBe(false);
+  expect(result.droppedAccess).toEqual(["u/bob"]);
 });
 
 test("deployItem: an unresolvable identity rule writes nothing", async () => {

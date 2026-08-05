@@ -65,6 +65,7 @@ const provider: DeployProvider = {
   // Users and groups
   listUsers: wmill.listUsers,
   listGroups: wmill.listGroups,
+  listGroupNames: wmill.listGroupNames,
   // Triggers — per-kind dispatch on the new TriggerDeployKind union.
   existsTriggerByKind: (kind, p) => triggerService(kind).exists(p),
   getTriggerForDeploy: async (kind, p) => {
