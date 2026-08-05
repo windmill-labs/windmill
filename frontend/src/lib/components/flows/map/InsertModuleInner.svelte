@@ -19,6 +19,9 @@
 		kind?: 'script' | 'trigger' | 'preprocessor' | 'failure'
 		allowTrigger?: boolean
 		toolMode?: boolean
+		/** Narrow layout (450px instead of 650px). Defaults on for the preprocessor
+		 *  and failure pickers; set it when the container cannot fit the wide one. */
+		small?: boolean
 	}
 
 	let {
@@ -27,7 +30,8 @@
 		disableAi = false,
 		kind = 'script',
 		allowTrigger = true,
-		toolMode = false
+		toolMode = false,
+		small: smallProp = undefined
 	}: Props = $props()
 
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
@@ -41,7 +45,7 @@
 		| 'aisandbox' = $state(untrack(() => kind))
 	let preFilter: 'all' | 'workspace' | 'hub' = $state('all')
 	let loading = $state(false)
-	let small = $derived(kind === 'preprocessor' || kind === 'failure')
+	let small = $derived(smallProp ?? (kind === 'preprocessor' || kind === 'failure'))
 
 	let height = $state(0)
 	let owners = $state([])
@@ -53,9 +57,7 @@
 
 <div
 	id="flow-editor-insert-module"
-	class="flex flex-col h-full {small ? 'w-[450px]' : 'w-[650px]'} gap-2 {small
-		? 'min-w-[450px]'
-		: 'min-w-[650px]'}"
+	class="flex flex-col h-full gap-2 max-w-full {small ? 'w-[450px]' : 'w-[650px]'}"
 	onwheel={(e) => {
 		e.stopPropagation()
 	}}

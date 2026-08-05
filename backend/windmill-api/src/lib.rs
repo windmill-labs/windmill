@@ -425,6 +425,27 @@ pub async fn run_server(
         .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
         .allow_origin(Any);
 
+    // MCP carries protocol state in its own headers: `MCP-Protocol-Version` from
+    // revision 2025-06-18 onward, plus `Mcp-Method` and `Mcp-Name` at 2026-07-28.
+    // None of them are CORS-simple, so a browser-based MCP client fails preflight
+    // unless they are allowed — hence a separate layer rather than widening the
+    // one every other route shares. (`Mcp-Param-*` is only sent for tool inputs
+    // annotated with `x-mcp-header`, which no tool here declares.)
+    let mcp_cors = CorsLayer::new()
+        .allow_methods([http::Method::GET, http::Method::POST, http::Method::DELETE])
+        .allow_headers([
+            http::header::CONTENT_TYPE,
+            http::header::AUTHORIZATION,
+            http::HeaderName::from_static("mcp-protocol-version"),
+            http::HeaderName::from_static("mcp-method"),
+            http::HeaderName::from_static("mcp-name"),
+        ])
+        // The 401 challenge is how a client discovers where to authorize (RFC 9728),
+        // and it is not a safelisted response header, so without this a browser
+        // client sees an empty one and has no way to begin the OAuth flow.
+        .expose_headers([http::header::WWW_AUTHENTICATE])
+        .allow_origin(Any);
+
     let sp_extension = Arc::new(saml_oss::build_sp_extension().await?);
 
     if server_mode {
@@ -821,13 +842,13 @@ pub async fn run_server(
                 // Deprecated, here for backwards compatibility: user should use /mcp/w/{workspace_id}/mcp instead
                 .nest(
                     "/mcp/w/{workspace_id}/sse",
-                    mcp_router.clone().layer(cors.clone()),
+                    mcp_router.clone().layer(mcp_cors.clone()),
                 )
                 .nest(
                     "/mcp/w/{workspace_id}/mcp",
-                    mcp_router.clone().layer(cors.clone()),
+                    mcp_router.clone().layer(mcp_cors.clone()),
                 )
-                .nest("/mcp/gateway", gateway_mcp_router.layer(cors.clone()))
+                .nest("/mcp/gateway", gateway_mcp_router.layer(mcp_cors.clone()))
                 .nest("/agent_workers", {
                     #[cfg(feature = "agent_worker_server")]
                     {

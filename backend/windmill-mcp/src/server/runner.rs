@@ -17,15 +17,41 @@ use crate::server::endpoints::{
 use crate::server::tools::create_tool_from_item;
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
-    CallToolRequestParams, CallToolResult, Content, Implementation, InitializeRequestParams,
-    InitializeResult, ListPromptsResult, ListResourceTemplatesResult, ListResourcesResult,
-    ListToolsResult, PaginatedRequestParams, ProtocolVersion, ServerCapabilities, ServerInfo,
+    CacheScope, CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock,
+    Implementation, InitializeResult, ListPromptsResult, ListResourceTemplatesResult,
+    ListResourcesResult, ListToolsResult, PaginatedRequestParams, ProtocolVersion,
+    ServerCapabilities, ServerInfo,
 };
 use rmcp::service::{RequestContext, RoleServer};
 use rmcp::ErrorData;
 use serde_json::Value;
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+
+/// Protocol revisions this server is willing to speak. `2026-07-28` is served
+/// statelessly with per-request metadata; the older revisions keep the
+/// `initialize` handshake, so both eras are answered on the same endpoint.
+const SUPPORTED_PROTOCOL_VERSIONS: &[ProtocolVersion] = &[
+    ProtocolVersion::V_2024_11_05,
+    ProtocolVersion::V_2025_03_26,
+    ProtocolVersion::V_2025_06_18,
+    ProtocolVersion::V_2025_11_25,
+    ProtocolVersion::V_2026_07_28,
+];
+
+/// SEP-2549 cache hints, required on every list result at `2026-07-28` — rmcp
+/// leaves them unset, and a strict client rejects the response without them.
+///
+/// Zero because nothing here is cacheable: the listing is rebuilt from the
+/// workspace's scripts and flows, which change at any time, and this server
+/// advertises no `listChanged` capability, so a client that cached a stale list
+/// would have no way to learn it had gone stale.
+const LIST_TTL_MS: u64 = 0;
+/// Every listing is filtered by the caller's token scopes and workspace
+/// membership, so no two callers necessarily see the same tools — a shared
+/// cache entry would leak one token's view to another.
+const LIST_CACHE_SCOPE: CacheScope = CacheScope::Private;
 
 // Re-export from http crate for extracting request parts
 use http::request::Parts as HttpParts;
@@ -307,24 +333,26 @@ fn find_matching_path<T: ToolableItem>(candidates: Vec<T>, request_name: &str) -
 
 impl<B: McpBackend> ServerHandler for Runner<B> {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo {
-            protocol_version: ProtocolVersion::default(),
-            capabilities: ServerCapabilities::builder().enable_tools().build(),
-            server_info: Implementation::from_build_env(),
-            instructions: Some(
+        // Not `Implementation::from_build_env()`: its `env!` expands inside rmcp, so it
+        // would name the SDK crate rather than this server.
+        let server_info = Implementation::new("windmill", env!("CARGO_PKG_VERSION"))
+            .with_title("Windmill")
+            .with_website_url("https://windmill.dev");
+
+        InitializeResult::new(ServerCapabilities::builder().enable_tools().build())
+            .with_server_info(server_info)
+            .with_instructions(
                 "This server provides a list of scripts and flows the user can run on Windmill. \
-                 Each flow and script is a tool callable with their respective arguments."
-                    .to_string(),
-            ),
-        }
+                 Each flow and script is a tool callable with their respective arguments.",
+            )
     }
 
-    async fn initialize(
-        &self,
-        _request: InitializeRequestParams,
-        _context: RequestContext<RoleServer>,
-    ) -> Result<InitializeResult, ErrorData> {
-        Ok(self.get_info())
+    /// Pinned rather than left to rmcp's default (every version the SDK knows), so a
+    /// future SDK revision cannot start advertising a version this server has not been
+    /// exercised against. Bounds `initialize` negotiation, `server/discover`, and
+    /// per-request version validation alike.
+    fn supported_protocol_versions(&self) -> Cow<'static, [ProtocolVersion]> {
+        Cow::Borrowed(SUPPORTED_PROTOCOL_VERSIONS)
     }
 
     async fn list_tools(
@@ -359,7 +387,7 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         &self,
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, ErrorData> {
+    ) -> Result<CallToolResponse, ErrorData> {
         let (auth, mode) = Self::extract_context(&context)?;
 
         // Parse MCP scopes for authorization
@@ -370,7 +398,9 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
 
         let args = request.arguments.map(Value::Object).unwrap_or(Value::Null);
 
-        match mode {
+        // Every tool here runs to completion in one round trip: none of them ask the
+        // client for input, so the MRTR variants of `CallToolResponse` are never built.
+        let result = match mode {
             McpMode::Single(workspace_id) => {
                 self.call_tool_single(
                     &auth,
@@ -386,7 +416,8 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
                 self.call_tool_multi(&auth, &token, &scope_config, read_only, request.name, args)
                     .await
             }
-        }
+        }?;
+        Ok(result.into())
     }
 
     async fn list_resources(
@@ -394,7 +425,9 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, ErrorData> {
-        Ok(ListResourcesResult { resources: vec![], next_cursor: None, meta: None })
+        Ok(ListResourcesResult::with_all_items(vec![])
+            .with_ttl_ms(LIST_TTL_MS)
+            .with_cache_scope(LIST_CACHE_SCOPE))
     }
 
     async fn list_prompts(
@@ -402,7 +435,9 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListPromptsResult, ErrorData> {
-        Ok(ListPromptsResult::default())
+        Ok(ListPromptsResult::default()
+            .with_ttl_ms(LIST_TTL_MS)
+            .with_cache_scope(LIST_CACHE_SCOPE))
     }
 
     async fn list_resource_templates(
@@ -410,7 +445,9 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListResourceTemplatesResult, ErrorData> {
-        Ok(ListResourceTemplatesResult::default())
+        Ok(ListResourceTemplatesResult::default()
+            .with_ttl_ms(LIST_TTL_MS)
+            .with_cache_scope(LIST_CACHE_SCOPE))
     }
 }
 
@@ -547,7 +584,9 @@ impl<B: McpBackend> Runner<B> {
             tools.push(endpoint_tool_to_mcp_tool(&endpoint_tool));
         }
 
-        Ok(ListToolsResult { tools, next_cursor: None, meta: None })
+        Ok(ListToolsResult::with_all_items(tools)
+            .with_ttl_ms(LIST_TTL_MS)
+            .with_cache_scope(LIST_CACHE_SCOPE))
     }
 
     /// Handle a tool call for a single, bound workspace.
@@ -575,7 +614,7 @@ impl<B: McpBackend> Runner<B> {
                     .await
                     .map_err(|e| ErrorData::internal_error(e.message, None))?;
 
-                return Ok(CallToolResult::success(vec![Content::text(
+                return Ok(CallToolResult::success(vec![ContentBlock::text(
                     truncate_tool_result(
                         serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string()),
                     ),
@@ -699,7 +738,7 @@ impl<B: McpBackend> Runner<B> {
         };
 
         match result {
-            Ok(value) => Ok(CallToolResult::success(vec![Content::text(
+            Ok(value) => Ok(CallToolResult::success(vec![ContentBlock::text(
                 truncate_tool_result(
                     serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string()),
                 ),
@@ -733,7 +772,9 @@ impl<B: McpBackend> Runner<B> {
             tools.push(endpoint_tool_to_mcp_tool_multi(&endpoint_tool));
         }
 
-        ListToolsResult { tools, next_cursor: None, meta: None }
+        ListToolsResult::with_all_items(tools)
+            .with_ttl_ms(LIST_TTL_MS)
+            .with_cache_scope(LIST_CACHE_SCOPE)
     }
 
     /// Handle a tool call for a multi-workspace session. `base_auth` is the
@@ -754,7 +795,7 @@ impl<B: McpBackend> Runner<B> {
                 .list_accessible_workspaces(base_auth)
                 .await
                 .map_err(|e| ErrorData::internal_error(e.message, None))?;
-            return Ok(CallToolResult::success(vec![Content::text(
+            return Ok(CallToolResult::success(vec![ContentBlock::text(
                 serde_json::to_string_pretty(&workspaces).unwrap_or_else(|_| "[]".to_string()),
             )]));
         }
@@ -827,7 +868,7 @@ impl<B: McpBackend> Runner<B> {
             .await
             .map_err(|e| ErrorData::internal_error(e.message, None))?;
 
-        Ok(CallToolResult::success(vec![Content::text(
+        Ok(CallToolResult::success(vec![ContentBlock::text(
             truncate_tool_result(
                 serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string()),
             ),

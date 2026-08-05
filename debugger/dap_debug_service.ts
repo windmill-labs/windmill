@@ -353,6 +353,45 @@ interface SpawnOptions {
 }
 
 /**
+ * Proxy settings forwarded to a debug session, matching what a worker gives a job's script.
+ * spawnProcess intentionally does not inherit this process's environment, so an outbound proxy
+ * is unreachable from a session unless these are passed explicitly. Registry settings are
+ * deliberately absent: they carry credentials and are consumed by the service itself (see
+ * PythonDebugSession.prepareDependencies).
+ */
+const SESSION_PROXY_ENV_VARS = [
+	'HTTP_PROXY',
+	'HTTPS_PROXY',
+	'NO_PROXY',
+	// The lowercase spellings take precedence in the worker, so forward both.
+	'http_proxy',
+	'https_proxy',
+	'no_proxy'
+]
+
+/**
+ * How long `windmill prepare-deps` may take before the session gives up on it and starts without
+ * the dependencies. Raise it for slow private mirrors, where a large install can outlast the default.
+ */
+const PREPARE_DEPS_TIMEOUT_MS = Number(process.env.DAP_PREPARE_DEPS_TIMEOUT_MS) || 120_000
+
+function sessionProxyEnv(): Record<string, string> {
+	const env: Record<string, string> = {}
+	for (const key of SESSION_PROXY_ENV_VARS) {
+		const value = process.env[key]
+		if (value) {
+			env[key] = value
+		}
+	}
+	// A proxy without a bypass list would send the script's calls to BASE_INTERNAL_URL through it;
+	// the worker defaults the same way (PROXY_ENVS in windmill-worker).
+	if (!env.NO_PROXY && !env.no_proxy && (env.HTTP_PROXY || env.http_proxy || env.HTTPS_PROXY || env.https_proxy)) {
+		env.NO_PROXY = 'localhost,127.0.0.1'
+	}
+	return env
+}
+
+/**
  * Spawn a process, optionally wrapped with nsjail.
  * This is the key function for sandboxed execution.
  */
@@ -489,6 +528,15 @@ abstract class BaseDebugSession {
 // Python Debug Session
 // ============================================================================
 
+const DEFAULT_DEBUGPY_TIMEOUT_MS = 10_000
+
+// `launch` waits on dependency preparation in the Python server, which allows `windmill
+// prepare-deps` up to 120s; anything shorter here reports a timeout while the install is
+// still legitimately running.
+const DEBUGPY_TIMEOUT_MS_BY_COMMAND: Record<string, number> = {
+	launch: 180_000
+}
+
 class PythonDebugSession extends BaseDebugSession {
 	private debugpyWs: WebSocket | null = null
 	private debugpySeq = 1
@@ -502,6 +550,7 @@ class PythonDebugSession extends BaseDebugSession {
 	private scriptResult: unknown = undefined
 	private envVars: Record<string, string> = {}
 	private windmillPath?: string
+	private venvPath?: string
 	private debugMode: boolean
 
 	constructor(ws: { send: (data: string) => void; close: () => void }, windmillPath?: string, debugMode = false) {
@@ -531,11 +580,13 @@ class PythonDebugSession extends BaseDebugSession {
 			arguments: args
 		}
 
+		const timeoutMs = DEBUGPY_TIMEOUT_MS_BY_COMMAND[command] ?? DEFAULT_DEBUGPY_TIMEOUT_MS
+
 		return new Promise((resolve, reject) => {
 			const timeout = setTimeout(() => {
 				this.pendingDebugpyRequests.delete(seq)
-				reject(new Error(`Debugpy command timeout: ${command}`))
-			}, 10000)
+				reject(new Error(`Debugpy command timeout: ${command} (after ${timeoutMs}ms)`))
+			}, timeoutMs)
 
 			this.pendingDebugpyRequests.set(seq, {
 				resolve: (value) => {
@@ -627,6 +678,89 @@ class PythonDebugSession extends BaseDebugSession {
 		}
 	}
 
+	/**
+	 * Install the script's imports through `windmill prepare-deps` and return the venv to add to
+	 * the debugged script's sys.path.
+	 *
+	 * This runs here rather than in the Python server because the registry settings the CLI reads
+	 * (`PY_INDEX_URL` and friends) routinely embed private-registry credentials, and the Python
+	 * server executes the submitted script inside its own interpreter: anything in that process is
+	 * recoverable by the script. The service never executes user code, so the credentials stop here.
+	 *
+	 * The trade-off is that the install itself is not jailed, so a source distribution's build
+	 * backend runs outside nsjail, as it already does for Bun sessions.
+	 */
+	private async prepareDependencies(code: string): Promise<string | null> {
+		if (!this.windmillPath) {
+			logger.info('No windmill binary path configured, skipping dependency preparation')
+			return null
+		}
+
+		const warn = (reason: string): null => {
+			logger.error(`prepare-deps failed: ${reason}`)
+			this.sendEvent('output', {
+				category: 'stderr',
+				output: `Failed to prepare dependencies: ${reason}\n`
+			})
+			return null
+		}
+
+		try {
+			const proc = spawn({
+				cmd: [this.windmillPath, 'prepare-deps'],
+				stdin: new Blob([JSON.stringify({ code, language: 'python3' }) + '\n']),
+				stdout: 'pipe',
+				stderr: 'pipe'
+			})
+
+			// The launch response is already sent, so an install that never returns would leave the
+			// client waiting on a session that never starts, with nothing on screen. The deadline
+			// races the read rather than only killing the child: a grandchild holding the pipe open
+			// keeps the read pending long after the child itself is gone.
+			let timer: ReturnType<typeof setTimeout> | undefined
+			const read = (async () => ({
+				output: await new Response(proc.stdout).text(),
+				stderr: await new Response(proc.stderr).text()
+			}))()
+			const result = await Promise.race([
+				read,
+				new Promise<null>((resolve) => {
+					timer = setTimeout(() => resolve(null), PREPARE_DEPS_TIMEOUT_MS)
+				})
+			])
+			clearTimeout(timer)
+
+			if (!result) {
+				proc.kill()
+				return warn(
+					`dependency installation timed out after ${PREPARE_DEPS_TIMEOUT_MS / 1000}s`
+				)
+			}
+			const { output, stderr } = result
+
+			const lastLine = output.trim().split('\n').pop() || ''
+			if (!lastLine.startsWith('{')) {
+				return warn(stderr.trim() || 'windmill binary produced no response')
+			}
+
+			const response = JSON.parse(lastLine)
+			if (!response.success) {
+				// install_stderr is the installer's raw output; `error` already contains it, so
+				// prefer whichever the CLI version at hand provides.
+				return warn(response.install_stderr || response.error || 'unknown error')
+			}
+
+			if (response.venv_path) {
+				logger.info(`Dependencies installed at: ${response.venv_path}`)
+			} else {
+				logger.info('No external dependencies to install')
+			}
+			return response.venv_path || null
+		} catch (error) {
+			return warn(String(error))
+		}
+	}
+
 	private async startPythonProcess(cwd: string): Promise<void> {
 		if (!this.scriptPath) {
 			throw new Error('No script path')
@@ -648,10 +782,11 @@ class PythonDebugSession extends BaseDebugSession {
 			'--host', '127.0.0.1'
 		]
 
-		// Pass windmill path for dependency auto-installation if configured
-		if (this.windmillPath) {
-			cmd.push('--windmill', this.windmillPath)
-			logger.info(`Python session: autoinstall enabled with windmill at ${this.windmillPath}`)
+		// Dependencies are installed by the service (see prepareDependencies), so the server is
+		// handed the resulting venv instead of the windmill binary it would install with.
+		if (this.venvPath) {
+			cmd.push('--venv-path', this.venvPath)
+			logger.info(`Python session: using dependencies at ${this.venvPath}`)
 		}
 
 		// Pass debug flag to Python subprocess
@@ -662,7 +797,7 @@ class PythonDebugSession extends BaseDebugSession {
 		this.process = spawnProcess({
 			cmd,
 			cwd,
-			env: { PYTHONUNBUFFERED: '1', ...this.envVars }
+			env: { PYTHONUNBUFFERED: '1', ...sessionProxyEnv(), ...this.envVars }
 		})
 
 		// Read stderr to capture startup messages
@@ -794,6 +929,13 @@ class PythonDebugSession extends BaseDebugSession {
 			this.debugpyWs.onclose = () => {
 				logger.info('Debugpy WebSocket closed')
 				this.debugpyWs = null
+				// A Python server that dies mid-request must fail it now; otherwise the caller
+				// waits out the command timeout, which for `launch` is minutes.
+				const aborted = Array.from(this.pendingDebugpyRequests.values())
+				this.pendingDebugpyRequests.clear()
+				for (const pending of aborted) {
+					pending.reject(new Error('Debugpy connection closed'))
+				}
 			}
 		})
 	}
@@ -987,6 +1129,10 @@ sys.stdout.flush()
 		this.sendResponse(request)
 
 		try {
+			if (code) {
+				this.venvPath = (await this.prepareDependencies(code)) ?? undefined
+			}
+
 			await this.startPythonProcess(cwd)
 
 			// Re-apply breakpoints to the Python server using the actual script path
@@ -1012,7 +1158,13 @@ sys.stdout.flush()
 			})
 		} catch (error) {
 			this.sendEvent('output', { category: 'stderr', output: `Failed to start Python: ${error}\n` })
+			// Claim the terminated event before cleanup kills the process, otherwise the
+			// `exited` handler sends a second one whose empty body erases this error.
+			this.terminatedSent = true
 			this.sendEvent('terminated', { error: String(error) })
+			// A Python server that refused the launch stays in its connection loop, so
+			// nothing else ever reaps it, its websocket or the temp dir.
+			await this.cleanup()
 		}
 	}
 

@@ -37,7 +37,8 @@
 	import FlowHistory from '$lib/components/flows/FlowHistory.svelte'
 	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
-	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
+	import { editInForkAllowed, editInForkLabel, onEditInForkClick } from '$lib/utils/editInFork'
+	import EditInForkButton from './EditInForkButton.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 
 	interface Props {
@@ -195,17 +196,7 @@
 					</div>
 				{/if}
 				{#if !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !flow.canWrite)}
-					<div>
-						<Button
-							variant={!showEditButton ? 'default' : 'subtle'}
-							wrapperClasses="w-32"
-							unifiedSize="md"
-							startIcon={{ icon: GitFork }}
-							href={buildForkEditUrl('flow', flow.path)}
-						>
-							{editInForkLabel($workspaceStore, $userWorkspaces)}
-						</Button>
-					</div>
+					<EditInForkButton itemType="flow" path={flow.path} />
 				{/if}
 			{/if}
 		</span>
@@ -256,8 +247,10 @@
 					},
 					{
 						displayName: editInForkLabel($workspaceStore, $userWorkspaces),
-						icon: GitFork,
-						href: buildForkEditUrl('flow', path),
+						icon: Pen,
+						// No `href`: the handler resolves the destination asynchronously, and a melt
+						// menu item's anchor navigates before a delegated onclick can preventDefault it.
+						action: (e) => onEditInForkClick(e, 'flow', path),
 						hide:
 							$userStore?.operator ||
 							isCloudHosted() ||

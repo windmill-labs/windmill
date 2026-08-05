@@ -110,9 +110,14 @@
 			e.preventDefault()
 			let item = filteredWithOwner[selected]
 			if (kind == 'flow') {
-				dispatch('pickFlow', { path: item.path })
+				dispatch('pickFlow', { path: item.path, summary: item.summary })
 			} else {
-				dispatch('pickScript', { path: item.path, hash: lockHash ? item.hash : undefined, kind })
+				dispatch('pickScript', {
+					path: item.path,
+					hash: lockHash ? item.hash : undefined,
+					summary: item.summary,
+					kind
+				})
 			}
 		}
 	}
@@ -192,9 +197,9 @@
 						onmousemove={() => onHover?.(index)}
 						onClick={() => {
 							if (kind == 'flow') {
-								dispatch('pickFlow', { path: path })
+								dispatch('pickFlow', { path, summary })
 							} else {
-								dispatch('pickScript', { path: path, hash: lockHash ? hash : undefined, kind })
+								dispatch('pickScript', { path, hash: lockHash ? hash : undefined, summary, kind })
 							}
 						}}
 						startIcon={{

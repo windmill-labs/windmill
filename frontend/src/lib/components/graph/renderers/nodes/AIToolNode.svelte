@@ -303,9 +303,9 @@
 	// agent's module id through the manual path would race the agent node's own click selection.
 	function onSelect() {
 		if (data.selectTarget) {
-			selectionManager?.selectId(data.selectTarget)
+			selectionManager?.selectId(data.selectTarget, { openPanel: true })
 		}
-		data.eventHandlers.select(data.selectTarget ?? data.moduleId)
+		data.eventHandlers.select(data.selectTarget ?? data.moduleId, { openPanel: true })
 	}
 </script>
 

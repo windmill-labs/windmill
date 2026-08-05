@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+	checkPathWritePermission,
 	diffActionableInDirection,
 	diffCreatesInTarget,
 	diffRemovesInTarget
@@ -66,5 +67,52 @@ describe('deploy direction of a one-sided diff row', () => {
 		expect(diffActionableInDirection({ ...bothSides, behind: 0 }, false)).toBe(false)
 		expect(diffCreatesInTarget(bothSides, true)).toBe(false)
 		expect(diffRemovesInTarget(bothSides, false)).toBe(false)
+	})
+})
+
+describe('per-item write permission in the deploy target', () => {
+	const member = { is_admin: false, username: 'alice', folders: ['shared'] }
+	const never = async () => {
+		throw new Error('folder probe should not run')
+	}
+
+	it('lets a workspace admin write anywhere', async () => {
+		const admin = { is_admin: true, username: 'root', folders: [] }
+		expect(await checkPathWritePermission('dev', 'u/someone/x', admin, never)).toEqual({ ok: true })
+		expect(await checkPathWritePermission('dev', 'f/locked/x', admin, never)).toEqual({ ok: true })
+	})
+
+	it('allows a user their own path and refuses someone else’s', async () => {
+		expect(await checkPathWritePermission('dev', 'u/alice/x', member, never)).toEqual({ ok: true })
+		const refused = await checkPathWritePermission('dev', 'u/bob/x', member, never)
+		expect(refused.ok).toBe(false)
+		expect(refused.reason).toContain('u/bob')
+	})
+
+	it('allows a folder in the write set without probing for it', async () => {
+		expect(await checkPathWritePermission('dev', 'f/shared/x', member, never)).toEqual({ ok: true })
+	})
+
+	it('refuses a folder that exists in the target but is not writable', async () => {
+		const refused = await checkPathWritePermission('dev', 'f/locked/x', member, async () => true)
+		expect(refused.ok).toBe(false)
+		expect(refused.reason).toContain('locked')
+	})
+
+	// The two fail-open paths. Turning either into a refusal would block a deploy the server
+	// would have accepted, so they are asserted rather than left to the `catch` reading as dead.
+	it('allows a folder the target does not have yet, since the deploy creates it', async () => {
+		expect(
+			await checkPathWritePermission('dev', 'f/brand_new/x', member, async () => false)
+		).toEqual({ ok: true })
+	})
+
+	it('allows when the folder probe itself fails', async () => {
+		const probeFailed = async () => {
+			throw new Error('network')
+		}
+		expect(await checkPathWritePermission('dev', 'f/locked/x', member, probeFailed)).toEqual({
+			ok: true
+		})
 	})
 })

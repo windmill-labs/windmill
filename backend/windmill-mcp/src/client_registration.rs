@@ -170,7 +170,7 @@ pub async fn get_or_refresh_mcp_client(
         .map_err(|e| error::Error::BadRequest(format!("Failed to create auth manager: {e}")))?;
     // Discovery hits the well-known endpoint on the MCP server host validated
     // above; pin to that address so it cannot rebind between check and connect.
-    // Limitation: rmcp's discover_metadata may additionally follow server-supplied
+    // Limitation: rmcp's resolve_metadata may additionally follow server-supplied
     // metadata URLs (resource_metadata / authorization_servers) on other hosts,
     // which this per-host pin does not cover — a pre-existing gap in rmcp discovery
     // that a validating resolver would need to close, out of scope for this pin.
@@ -181,8 +181,7 @@ pub async fn get_or_refresh_mcp_client(
         .with_client(discovery_client)
         .map_err(|e| error::Error::BadRequest(format!("Failed to configure auth manager: {e}")))?;
 
-    let metadata = manager
-        .discover_metadata()
+    let metadata = crate::oauth::discover_authorization_metadata(&manager)
         .await
         .map_err(|e| error::Error::BadRequest(format!("OAuth discovery failed: {e}")))?;
 

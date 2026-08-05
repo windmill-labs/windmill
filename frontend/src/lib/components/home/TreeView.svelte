@@ -33,6 +33,7 @@
 		// Position of this node among the rendered root nodes; "expand all" only
 		// auto-loads the first EXPAND_ALL_LOAD_LIMIT of them (see the effect below).
 		rootIndex?: number
+		showEditButton?: boolean
 		// Path prefix of the parent node, so this one can name its own (`ownerLoad` and
 		// the listing endpoint are both keyed by full prefix). Unset at the top level.
 		parentPrefix?: string
@@ -54,6 +55,7 @@
 		onExpandOwner,
 		onCollapseOwner,
 		rootIndex = 0,
+		showEditButton = true,
 		parentPrefix,
 		ancestorHasMore = false
 	}: Props = $props()
@@ -309,6 +311,7 @@
 						on:rawAppChanged
 						on:reload
 						{showCode}
+						{showEditButton}
 						depth={depth + 1}
 					/>
 				{/each}
@@ -373,6 +376,7 @@
 	<Item
 		{item}
 		{showCode}
+		{showEditButton}
 		on:scriptChanged
 		on:flowChanged
 		on:appChanged

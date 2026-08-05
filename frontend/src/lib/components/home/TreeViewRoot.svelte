@@ -37,6 +37,7 @@
 		>
 		onExpandOwner?: (owner: string, more?: boolean) => void
 		onCollapseOwner?: (owner: string) => void
+		showEditButton?: boolean
 	}
 
 	let {
@@ -55,7 +56,8 @@
 		selfUsername,
 		ownerLoad,
 		onExpandOwner,
-		onCollapseOwner
+		onCollapseOwner,
+		showEditButton = true
 	}: Props = $props()
 
 	// How many root nodes render at once. A root node is a collapsed owner row that
@@ -205,6 +207,7 @@
 					on:rawAppChanged
 					on:reload
 					{showCode}
+					{showEditButton}
 				/>
 			{/if}
 		{/each}

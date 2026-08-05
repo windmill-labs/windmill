@@ -6,7 +6,6 @@
 	import { getStraightLinePath } from '../utils'
 	import { twMerge } from 'tailwind-merge'
 	import { NODE_WITH_WRITE_ASSET_Y_OFFSET } from '../nodes/AssetNode.svelte'
-	import { workspaceStore } from '$lib/stores'
 	import FlowStatusWaitingForEvents from '$lib/components/FlowStatusWaitingForEvents.svelte'
 	import type { Job } from '$lib/gen'
 	import type { GraphModuleState } from '../../model'
@@ -150,7 +149,7 @@
 			{#if data?.flowJob && data.flowJob.flow_status?.modules?.[data.flowJob.flow_status?.step]?.type === 'WaitingForEvents'}
 				<FlowStatusWaitingForEvents
 					job={data.flowJob}
-					workspaceId={$workspaceStore!}
+					workspaceId={data.flowJob.workspace_id}
 					isOwner={data.isOwner}
 					light
 				/>
@@ -159,7 +158,7 @@
 					{#each Object.values(suspendStatus) as suspendCount (suspendCount.job.id)}
 						<FlowStatusWaitingForEvents
 							job={suspendCount.job}
-							workspaceId={$workspaceStore!}
+							workspaceId={suspendCount.job.workspace_id}
 							isOwner={data.isOwner}
 							light
 						/>
