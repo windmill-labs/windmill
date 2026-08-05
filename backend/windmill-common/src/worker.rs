@@ -2100,7 +2100,11 @@ pub async fn load_worker_config(
         // if no priority is used, push all tags with a priority to 0
         priority_tags_sorted.push(PriorityTags { priority: 0, tags: worker_tags.clone() });
     }
-    tracing::debug!("Custom tags priority set: {:?}", priority_tags_sorted);
+    if priority_tags_map.is_empty() {
+        tracing::info!("Worker tags: {:?}", worker_tags);
+    } else {
+        tracing::info!("Worker tags, by priority desc: {:?}", priority_tags_sorted);
+    }
 
     let env_vars_static = config.env_vars_static.unwrap_or_default().clone();
     let resolved_env_vars: HashMap<String, String> = load_env_vars(
