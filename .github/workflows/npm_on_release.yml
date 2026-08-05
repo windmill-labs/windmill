@@ -27,7 +27,7 @@ jobs:
           registry-url: "https://registry.npmjs.org"
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.3.10
       - run: cd cli && ./build.sh && cd npm && npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
