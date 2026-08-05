@@ -64,3 +64,11 @@ function collect(keys: string[]): Record<string, string> {
 export function runtimeEnv(): Record<string, string> {
 	return collect(RUNTIME_ENV_VARS)
 }
+
+/**
+ * The extra settings only the dependency installer may see. Spread over a spawn that already
+ * carries {@link runtimeEnv}, and only for a process that never executes user code.
+ */
+export function installerEnv(): Record<string, string> {
+	return collect(INSTALLER_ENV_VARS)
+}
