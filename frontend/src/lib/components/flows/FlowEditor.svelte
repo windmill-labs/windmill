@@ -144,17 +144,49 @@
 	const overlayHost = getOverlayHost()
 	const modalHost = $derived(overlayHost?.el())
 
+	// Only nodes that can take the selection, or the modal would open on whatever was
+	// selected before — asset and note nodes are deliberately unselectable.
+	//
+	// The In/Out bar sits inside the node but is a picker of its own: it toggles open and
+	// shut on click, so opening then closing it is a double-click the graph must not read
+	// as "show me this step".
+	function selectableNodeAt(e: MouseEvent): HTMLElement | null {
+		const target = e.target as HTMLElement | null
+		if (target?.closest('[data-prop-picker]')) return null
+		return target?.closest('.svelte-flow__node.selectable') ?? null
+	}
+
 	function openPanelModalFromGraph(e: MouseEvent) {
-		// Only nodes that can take the selection, or the modal would open on whatever
-		// was selected before — asset and note nodes are deliberately unselectable.
-		if ((e.target as HTMLElement | null)?.closest('.svelte-flow__node.selectable')) {
+		if (selectableNodeAt(e)) {
 			panelModalOpen = true
 		}
 	}
 
-	// In modal mode a step's editor is a double-click away but invisible until then —
+	// A click on the step that is already selected is the second half of "select it, then
+	// show it". Read in the capture phase: by the time the click bubbles here the graph has
+	// applied its own selection, so a first click would look indistinguishable from this.
+	let clickStartedOnSelected = false
+	function noteSelectionBeforeClick(e: MouseEvent) {
+		const node = selectableNodeAt(e)
+		clickStartedOnSelected =
+			Boolean(node?.classList.contains('selected')) && selectionManager.selectedIds.length === 1
+	}
+
+	function openPanelModalIfReselected(e: MouseEvent) {
+		if (clickStartedOnSelected && selectableNodeAt(e)) {
+			panelModalOpen = true
+		}
+	}
+
+	// In modal mode a step's editor is a click or two away but invisible until then —
 	// keep a standing hint whenever the graph is showing (modal closed).
 	const showStepHint = $derived.by(() => panelMode === 'modal' && !panelModalOpen)
+	const stepHintText = $derived.by(() => {
+		const ids = selectionManager.selectedIds
+		return ids.length === 1 && !isFlowLevelPanelTarget(ids[0])
+			? 'Click the selected step to explore its content'
+			: 'Double click a step to explore its content'
+	})
 
 	// When the graph pane is narrow, fall back to a top-centered overlay so the
 	// preview buttons don't overlap the rightmost node ports (matches the dev
@@ -293,6 +325,8 @@
 			<div
 				bind:clientWidth={graphPaneWidth}
 				ondblclick={panelMode === 'modal' ? openPanelModalFromGraph : undefined}
+				onpointerdowncapture={panelMode === 'modal' ? noteSelectionBeforeClick : undefined}
+				onclick={panelMode === 'modal' ? openPanelModalIfReselected : undefined}
 				class="grow overflow-hidden bg-gray h-full bg-surface-secondary relative"
 			>
 				{#if graphOverlay}
@@ -402,7 +436,7 @@
 			class="pointer-events-none absolute bottom-2 left-3 z-30 flex items-center gap-1.5 text-xs text-hint"
 		>
 			<MousePointerClick size={13} />
-			Double click a step to explore its content
+			{stepHintText}
 		</div>
 	{/if}
 </div>

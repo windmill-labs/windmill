@@ -51,8 +51,9 @@
 
 	let isPreprocessor = $derived(data.id === 'preprocessor')
 
-	// In modal-panel mode (sessions) step details only open on double-click, so
-	// surface the same action in the ellipsis menu with the gesture as shortcut.
+	// In modal-panel mode (sessions) step details open on double-click, or on a click on the
+	// already selected step. Surface the action in the ellipsis menu too, with the gesture
+	// that works from any state as its shortcut.
 	const stepExploreHint = getContext<(() => boolean) | undefined>('flowGraphStepExploreHint')
 	const selectionManager = getGraphContext()?.selectionManager
 
