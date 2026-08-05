@@ -34,7 +34,9 @@
 	const overlayHost = getOverlayHost()
 	let windowWidth = $state(0)
 	let windowHeight = $state(0)
-	let hostHeight = $state(0)
+	// undefined means "no host to measure", which 0 does not: the panel is resized rather than
+	// unmounted, so a collapsed host measures 0 and must stay 0 rather than fall back to the window.
+	let hostHeight = $state<number | undefined>(undefined)
 
 	$effect(() => {
 		if (!expanded) return
@@ -47,7 +49,7 @@
 		observer.observe(host)
 		return () => {
 			observer.disconnect()
-			hostHeight = 0
+			hostHeight = undefined
 		}
 	})
 
@@ -56,34 +58,41 @@
 	let canvasHeight = $derived(
 		Math.max(
 			MIN_CANVAS_PX,
-			(hostHeight || windowHeight) -
+			(hostHeight ?? windowHeight) -
 				(windowWidth >= SM_BREAKPOINT_PX ? CHROME_PX.fromSm : CHROME_PX.belowSm)
 		)
 	)
 
-	// Emoji, including the keycap sequences whose base is an ASCII digit / # / * — those bases
-	// have to reach the font too, or a keycap is measured in the wrong family.
-	const EMOJI_IN_SOURCE = /[#*0-9]️?⃣|\p{Extended_Pictographic}[️‍]*/gu
 	// Past this, render with whatever metrics are available rather than sit on the raw source.
 	const FONT_LOAD_TIMEOUT_MS = 2000
 
 	/**
 	 * Mermaid sizes every node by measuring its rendered label, so the fonts that label will be
 	 * drawn in must be loaded first: measured against fallback metrics the boxes come out too
-	 * narrow and the labels overflow them once the real font swaps in. Only the emoji actually
-	 * present are requested — the emoji font's subsets cover digits, # and *, so passing the
-	 * whole source would fetch 64 KB for any diagram containing a number.
+	 * narrow and the labels overflow them once the real font swaps in.
+	 *
+	 * Only the non-ASCII of the source is offered to the emoji font. Its subsets cover digits,
+	 * `#` and `*`, so passing the whole source would pull 64 KB for any diagram carrying a
+	 * number. Keycaps still resolve: their U+20E3 is non-ASCII and shares a subset with the
+	 * digit bases, and every other emoji class — flags, skin tones, ZWJ sequences — is
+	 * non-ASCII by construction, so this needs no emoji grammar to keep up to date.
 	 */
 	async function loadLabelFonts(source: string): Promise<void> {
-		const emoji = source.match(EMOJI_IN_SOURCE)?.join('') ?? ''
-		const loads = [document.fonts.load('16px Inter', source)]
-		if (emoji) loads.push(document.fonts.load('16px "Noto Color Emoji"', emoji))
-		// Neither rejection nor a stalled fetch may reach the caller's catch, which reads any
-		// throw as a parse failure and drops the diagram to raw source.
-		await Promise.race([
-			Promise.all(loads).catch(() => {}),
-			new Promise((resolve) => setTimeout(resolve, FONT_LOAD_TIMEOUT_MS))
-		])
+		// eslint-disable-next-line no-control-regex
+		const nonAscii = source.replace(/[\x00-\x7F]/g, '')
+		const loads = [document.fonts?.load('16px Inter', source)]
+		if (nonAscii) loads.push(document.fonts?.load('16px "Noto Color Emoji"', nonAscii))
+		let timer: ReturnType<typeof setTimeout> | undefined
+		try {
+			// Neither a rejection nor a stalled fetch may reach the caller's catch, which reads any
+			// throw as a parse failure and drops the diagram to raw source.
+			await Promise.race([
+				Promise.all(loads).catch(() => {}),
+				new Promise((resolve) => (timer = setTimeout(resolve, FONT_LOAD_TIMEOUT_MS)))
+			])
+		} finally {
+			clearTimeout(timer)
+		}
 	}
 
 	async function render(source: string, dark: boolean) {
@@ -102,10 +111,10 @@
 				// Mermaid writes this stack into a <style> block inside the SVG, so the app's font
 				// never reaches a diagram: the bundled vector emoji font has to be named here or
 				// emoji fall back to the platform bitmap one, which ignores the zoom transform
-				// (app.css). Inter leads because that font also covers digits, # and * — without a
-				// preceding family that has them, a box lacking the MS core fonts renders those
-				// from the emoji font instead.
-				fontFamily: 'Inter, "trebuchet ms", verdana, arial, "Noto Color Emoji", sans-serif',
+				// (app.css). Inter sits last before it because the emoji font also covers digits,
+				// # and *; on a box without the MS core fonts those would otherwise render as its
+				// keycap glyphs. Keeping Inter behind them leaves diagram typography unchanged.
+				fontFamily: '"trebuchet ms", verdana, arial, Inter, "Noto Color Emoji", sans-serif',
 				// Throw on parse errors instead of injecting an orphan error diagram into the DOM.
 				suppressErrorRendering: true
 			})
