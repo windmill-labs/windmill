@@ -5,7 +5,6 @@
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import { copyToClipboard, download } from '$lib/utils'
 	import { ClipboardCopy, Download, Maximize2, Minus, Plus, RotateCcw } from 'lucide-svelte'
-	import { getOverlayHost } from '$lib/components/common/overlayHost.svelte'
 	import type { PanZoom } from 'panzoom'
 
 	let { code }: { code: string } = $props()
@@ -22,42 +21,6 @@
 	let renderSeq = 0
 
 	let expanded = $state(false)
-
-	// The dialog fills the enclosing pane when there is one (see overlayHost), the viewport
-	// otherwise. Size against that box less the chrome Modal.svelte wraps the canvas in — its
-	// scroll wrapper p-4, box px-4/pt-5/pb-4 (sm:p-6) + sm:my-8, title row and body mt-4. Held
-	// in rem, not px: those are all rem utilities and :root scales to 18px past 1760px.
-	const CHROME_REM = { belowSm: 7, fromSm: 11.75 }
-	const SM_BREAKPOINT_PX = 640
-	const MIN_CANVAS_REM = 15
-	const overlayHost = getOverlayHost()
-	let windowWidth = $state(0)
-	let windowHeight = $state(0)
-	// undefined means "no host to measure", which 0 does not: the panel is resized rather than
-	// unmounted, so a collapsed host measures 0 and must stay 0 rather than fall back to the window.
-	let hostHeight = $state<number | undefined>(undefined)
-
-	$effect(() => {
-		if (!expanded) return
-		const host = overlayHost?.el()
-		// Reset here rather than in the teardown: `expanded` is tracked, so a teardown reset would
-		// resize the canvas mid fade-out, while the dialog is still on screen.
-		if (!host) {
-			hostHeight = undefined
-			return
-		}
-		// Seed synchronously so the first frame isn't sized off the window while the observer's
-		// initial callback is still pending.
-		hostHeight = host.clientHeight
-		const observer = new ResizeObserver(() => (hostHeight = host.clientHeight))
-		observer.observe(host)
-		return () => observer.disconnect()
-	})
-
-	// windowHeight covers the un-hosted case: documentElement's box is content-driven on a
-	// scrollable page, so observing it would miss a purely vertical window resize.
-	let availableHeight = $derived(hostHeight ?? windowHeight)
-	let chromeRem = $derived(windowWidth >= SM_BREAKPOINT_PX ? CHROME_REM.fromSm : CHROME_REM.belowSm)
 
 	async function render(source: string, dark: boolean) {
 		const seq = ++renderSeq
@@ -164,8 +127,6 @@
 	}
 </script>
 
-<svelte:window bind:innerHeight={windowHeight} bind:innerWidth={windowWidth} />
-
 {#if showSvg}
 	<div class="relative">
 		<div class="absolute top-2 right-2 z-20 flex flex-row gap-1">
@@ -200,7 +161,7 @@
 		</div>
 	</div>
 
-	<Modal bind:open={expanded} title="Diagram" kind="X" class="sm:max-w-none w-[92vw]">
+	<Modal bind:open={expanded} title="Diagram" kind="X" fillHeight class="sm:max-w-none w-[92vw]">
 		{#snippet settings()}
 			<div class="flex flex-row gap-1 mr-8">
 				<Button
@@ -238,8 +199,7 @@
 			</div>
 		{/snippet}
 		<div
-			class="relative w-full overflow-hidden rounded border cursor-grab bg-surface-secondary"
-			style="height: max({MIN_CANVAS_REM}rem, {availableHeight}px - {chromeRem}rem)"
+			class="relative w-full h-full overflow-hidden rounded border cursor-grab bg-surface-secondary"
 		>
 			{#if expanded}
 				<div use:panzoomAction class="w-full h-full flex items-center justify-center">
