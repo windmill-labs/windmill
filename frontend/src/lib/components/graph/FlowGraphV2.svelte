@@ -1,5 +1,6 @@
 <script lang="ts">
 	import GraphZoomControls from './GraphZoomControls.svelte'
+	import FlowPanelPlacementPicker from '$lib/components/flows/common/FlowPanelPlacementPicker.svelte'
 	import { overlayStack } from '$lib/components/common/overlayHost.svelte'
 	import { FlowService, type FlowModule, type FlowNote, type Job, type OpenFlow } from '../../gen'
 	import { findStepPath, parseExpandedSubflowId } from '$lib/components/restartFromStepPath'
@@ -1361,6 +1362,7 @@
 								<Expand size="14" />
 							</ControlButton>
 						{/if}
+						<FlowPanelPlacementPicker variant="control" placement="top-end" />
 					</Controls>
 
 					<Controls

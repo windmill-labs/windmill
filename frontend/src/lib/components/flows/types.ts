@@ -17,6 +17,7 @@ import type { ModulesTestStates } from '../modulesTest.svelte'
 import type { ButtonProp } from '$lib/components/diffEditorTypes'
 
 import type { SelectionManager } from '../graph/selectionUtils.svelte'
+import type { FlowPanelPreference } from './flowPanelMode.svelte'
 import type { InferAssetsSqlQueryDetails } from '$lib/infer'
 
 export type FlowInput = Record<
@@ -141,15 +142,16 @@ export type OutputViewerJob =
  *  the returned unregister for teardown), which hides FlowEditor's fallback
  *  strip; `visible` is false outside docked mode. */
 export type FlowPanelDetachContext = {
-	visible: () => boolean
-	detach: () => void
 	claim: () => () => void
-	/** True while the panel is detached and its modal is closed — the one state with no
-	 *  other way back to the docked pane. */
-	dockVisible: () => boolean
-	dock: () => void
 	/** True while the detached modal is open. Its chrome lives in the panel's card header,
 	 *  so the modal draws no header of its own. */
 	modalOpen: () => boolean
 	close: () => void
+	/** False for whitelabel embeds that keep the classic always-docked pane — they get no
+	 *  panel-position control at all, in the graph or anywhere else. */
+	enabled: () => boolean
+	/** The Auto/Attached/Detached choice, picked from the graph's control bar. Distinct
+	 *  from where the panel currently is: `auto` resolves against the editor's width. */
+	preference: () => FlowPanelPreference
+	setPreference: (preference: FlowPanelPreference) => void
 }

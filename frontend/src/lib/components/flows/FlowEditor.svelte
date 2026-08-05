@@ -11,7 +11,7 @@
 	import { getOverlayHost } from '$lib/components/common/overlayHost.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import { isFlowLevelPanelTarget } from '$lib/components/graph/selectionUtils.svelte'
-	import type { FlowPanelModeController } from './flowPanelMode.svelte'
+	import { useFlowPanelMode } from './flowPanelMode.svelte'
 
 	import { writable } from 'svelte/store'
 	import type { PropPickerContext, FlowPropPickerConfig } from '$lib/components/prop_picker'
@@ -32,7 +32,8 @@
 	import { extractAllModules } from '../copilot/chat/shared'
 	import type { Snippet } from 'svelte'
 	import { Button } from '../common'
-	import { MousePointerClick, PanelRight, PictureInPicture2, X } from 'lucide-svelte'
+	import { MousePointerClick, X } from 'lucide-svelte'
+	import FlowPanelPlacementPicker from './common/FlowPanelPlacementPicker.svelte'
 	const { flowStore, selectionManager } = getContext<FlowEditorContext>('FlowEditorContext')
 	const sessionScopedManager = getContext<AIChatManager>('aiChatManager')
 	const aiChatManager = sessionScopedManager ?? singletonAiChatManager
@@ -79,9 +80,6 @@
 		/** Allow the step-details pane to open as a modal. Whitelabel embeds turn this off
 		 *  to keep the classic always-docked pane. */
 		modalPanel?: boolean
-		/** Owned by FlowBuilder, which also renders the Auto/Attached/Detached toggle for
-		 *  it in the top bar. */
-		panelController: FlowPanelModeController
 	}
 
 	let {
@@ -119,8 +117,7 @@
 		flowHasChanged,
 		previewOpen,
 		graphOverlay,
-		modalPanel = true,
-		panelController
+		modalPanel = true
 	}: Props = $props()
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
@@ -128,6 +125,7 @@
 	// 'docked' = normal split pane; 'modal' = graph full-width, panel in a modal opened by
 	// double-clicking a node. The controller resolves it from the user's Auto/Attached/
 	// Detached preference and the width measured below.
+	const panelController = useFlowPanelMode({ enabled: () => modalPanel })
 	const panelMode = $derived(panelController.mode)
 	let panelModalOpen = $state(false)
 
@@ -235,25 +233,22 @@
 	// fallback strip instead, driven by the claim count.
 	let detachClaims = $state(0)
 	setContext<FlowPanelDetachContext>('flowPanelDetach', {
-		visible: () => modalPanel && panelMode === 'docked',
-		// These pin the preference rather than nudging the panel for one turn: leaving it on
-		// Auto would let the next resize undo the move, and the top-bar toggle would claim
-		// Auto while the panel sat where the user put it.
-		detach: () => {
-			panelController.preference = 'modal'
-			panelModalOpen = true
-		},
 		claim: () => {
 			detachClaims++
 			return () => detachClaims--
 		},
-		dockVisible: () => modalPanel && panelMode === 'modal' && !panelModalOpen,
-		dock: () => {
-			panelController.preference = 'docked'
-			panelModalOpen = false
-		},
 		modalOpen: () => modalPanel && panelMode === 'modal' && panelModalOpen,
-		close: () => (panelModalOpen = false)
+		close: () => (panelModalOpen = false),
+		enabled: () => modalPanel,
+		preference: () => panelController.preference,
+		setPreference: (preference) => {
+			// Moving the panel must not lose what it was showing: docked, it is always on
+			// screen, so the modal it becomes has to open on arrival. The reverse is handled
+			// by the effect above, which closes a modal that is no longer rendered.
+			const wasVisible = panelMode === 'docked' || panelModalOpen
+			panelController.preference = preference
+			panelModalOpen = panelController.mode === 'modal' && wasVisible
+		}
 	})
 
 	$effect(() => {
@@ -403,23 +398,13 @@
 					</div>
 				{:else if modalPanel}
 					<div class="flex h-full flex-col">
-						<!-- Fallback for panels without a card header hosting the detach
-						     action: a slim strip so detaching stays reachable. Toggled
+						<!-- Fallback for panels without a card header hosting the placement
+						     picker: a slim strip so moving the panel stays reachable. Toggled
 						     around a stable panelBody — re-parenting it would re-mount
 						     the claiming header and loop. -->
 						{#if detachClaims === 0}
 							<div class="flex items-center justify-end border-b px-1">
-								<Button
-									size="xs2"
-									variant="subtle"
-									iconOnly
-									startIcon={{ icon: PictureInPicture2 }}
-									title="Detach into a modal"
-									on:click={() => {
-										panelController.preference = 'modal'
-										panelModalOpen = true
-									}}
-								/>
+								<FlowPanelPlacementPicker variant="header" />
 							</div>
 						{/if}
 						<div class="min-h-0 flex-1">
@@ -468,21 +453,11 @@
 						class="relative flex w-full max-w-4xl flex-col overflow-hidden rounded-md border bg-surface shadow-xl"
 					>
 						<!-- Same fallback as the docked strip: a panel whose body has a card header
-						     hosts the id, dock and close inline, so this bar would double it. -->
+						     hosts the id, placement and close inline, so this bar would double it. -->
 						{#if detachClaims === 0}
 							<div class="flex items-center justify-end gap-2 border-b px-2 py-1">
 								<div class="flex items-center gap-0.5">
-									<Button
-										size="xs2"
-										variant="subtle"
-										iconOnly
-										startIcon={{ icon: PanelRight }}
-										title="Dock to the right"
-										on:click={() => {
-											panelController.preference = 'docked'
-											panelModalOpen = false
-										}}
-									/>
+									<FlowPanelPlacementPicker variant="header" />
 									<Button
 										size="xs2"
 										variant="subtle"

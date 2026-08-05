@@ -75,14 +75,8 @@
 		CheckCircle,
 		RefreshCw,
 		CheckCheck,
-		Disc,
-		MonitorSmartphone,
-		PanelRight,
-		PictureInPicture2
+		Disc
 	} from 'lucide-svelte'
-	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
-	import { useFlowPanelMode } from './flows/flowPanelMode.svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
 	import { type FlowCopilotContext } from './copilot/flow'
@@ -592,9 +586,6 @@
 		undefined
 	)
 	const flowEditorDrawer = writable<FlowEditorDrawer | undefined>(undefined)
-	// Owned here rather than in FlowEditor: the Auto/Attached/Detached toggle lives in this
-	// top bar, above the editor that reacts to it.
-	const panelController = useFlowPanelMode({ enabled: () => customUi?.modalPanel != false })
 	const history = initHistory(untrack(() => flowStore).val)
 	const pathStore = writable<string>(untrack(() => pathStoreInit) ?? initialPath)
 
@@ -1397,40 +1388,6 @@
 							{onOpenOthersDrafts}
 						/>
 					{/if}
-					{#if customUi?.modalPanel != false}
-						<ToggleButtonGroup
-							noWFull
-							selected={panelController.preference}
-							onSelected={(v) => (panelController.preference = v)}
-						>
-							{#snippet children({ item })}
-								<ToggleButton
-									value="auto"
-									icon={MonitorSmartphone}
-									iconOnly
-									tooltip="Auto — the step panel follows the editor's width"
-									{item}
-									small
-								/>
-								<ToggleButton
-									value="docked"
-									icon={PanelRight}
-									iconOnly
-									tooltip="Attached — the step panel stays docked to the right"
-									{item}
-									small
-								/>
-								<ToggleButton
-									value="modal"
-									icon={PictureInPicture2}
-									iconOnly
-									tooltip="Detached — the step panel opens as a modal"
-									{item}
-									small
-								/>
-							{/snippet}
-						</ToggleButtonGroup>
-					{/if}
 				</div>
 				<div class="flex flex-row gap-2 items-center shrink-0">
 					{#if $enterpriseLicense && !newFlow && !inSessionPane}
@@ -1512,7 +1469,6 @@
 					disableAi={disableAi || customUi?.stepInputs?.ai == false}
 					disableSettings={customUi?.settingsPanel === false}
 					modalPanel={customUi?.modalPanel != false}
-					{panelController}
 					{loading}
 					on:reload={() => {
 						renderCount += 1
