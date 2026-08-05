@@ -27,7 +27,9 @@
 <button
 	class="px-3 py-2 gap-2 w-full text-left flex flex-row items-center transition-all rounded-md {selected
 		? 'bg-surface-hover'
-		: ''}"
+		: onHover
+			? ''
+			: 'hover:bg-surface-hover'}"
 	onclick={bubble('click')}
 	onmousemove={() => onHover?.()}
 >
