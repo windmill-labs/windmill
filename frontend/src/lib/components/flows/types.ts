@@ -17,7 +17,7 @@ import type { ModulesTestStates } from '../modulesTest.svelte'
 import type { ButtonProp } from '$lib/components/diffEditorTypes'
 
 import type { SelectionManager } from '../graph/selectionUtils.svelte'
-import type { FlowPanelPreference } from './flowPanelMode.svelte'
+import type { FlowPanelPreference } from './panelPlacement'
 import type { InferAssetsSqlQueryDetails } from '$lib/infer'
 
 export type FlowInput = Record<
