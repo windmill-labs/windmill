@@ -33,6 +33,37 @@ if [ ! -w "$HOME" ]; then
 fi
 export HOME
 
+# Register CA certificates mounted into the image before anything opens a TLS connection.
+# Best-effort on purpose, unlike INIT_SCRIPT below: a non-root UID cannot write /etc/ssl/certs, and
+# a deployment that never needed a custom CA must still boot. Env var names and the default-off
+# behavior match the server/worker binary, so one setting covers every container.
+#
+# This only reaches what reads the system trust store: Python's stdlib ssl, curl, git. uv verifies
+# against its own bundled roots unless PY_NATIVE_CERT/UV_NATIVE_TLS is true, Bun and Node read only
+# NODE_EXTRA_CA_CERTS, and requests carries certifi — see debugger/README.md.
+update_ca_certificates() {
+    local reason="$1"
+    local tool="${RUN_UPDATE_CA_CERTIFICATE_PATH:-/usr/sbin/update-ca-certificates}"
+    if [ ! -x "$tool" ]; then
+        echo "[entrypoint] $reason but $tool is not executable, skipping CA update"
+        return
+    fi
+    echo "[entrypoint] $reason, running $tool"
+    if "$tool" > /dev/null 2>&1; then
+        echo "[entrypoint] CA certificates updated"
+    else
+        echo "[entrypoint] WARNING: $tool failed (UID $(id -u) may not own /etc/ssl/certs); continuing" >&2
+    fi
+}
+
+if [ "$(echo "${RUN_UPDATE_CA_CERTIFICATE_AT_START:-false}" | tr '[:upper:]' '[:lower:]')" = "true" ]; then
+    update_ca_certificates "RUN_UPDATE_CA_CERTIFICATE_AT_START=true"
+elif [ -n "$(ls -A /usr/local/share/ca-certificates 2>/dev/null)" ]; then
+    # Certificates mounted there are unambiguous intent, and they do nothing until registered, so
+    # take the same action without making the operator also find the env var.
+    update_ca_certificates "Found certificates in /usr/local/share/ca-certificates"
+fi
+
 # INIT_SCRIPT is the documented hook for preparing the host before anything reaches the network
 # (CA certificates, proxies, mounts), matching the worker's INIT_SCRIPT. It must therefore complete
 # before any service starts, and a failure has to abort: services that come up with an unprepared
