@@ -353,25 +353,13 @@ interface SpawnOptions {
 }
 
 /**
- * Registry, TLS and proxy settings that `windmill prepare-deps` reads to install a Python
- * script's dependencies. spawnProcess intentionally does not inherit this process's
- * environment, so they have to be forwarded explicitly: without them a private mirror or a
- * TLS-intercepting proxy is unreachable from a debug session even when the service itself
- * is configured for it.
+ * Proxy settings forwarded to a debug session, matching what a worker gives a job's script.
+ * spawnProcess intentionally does not inherit this process's environment, so an outbound proxy
+ * is unreachable from a session unless these are passed explicitly. Registry settings are
+ * deliberately absent: they carry credentials and are consumed by the service itself (see
+ * PythonDebugSession.prepareDependencies).
  */
-const PYTHON_REGISTRY_ENV_VARS = [
-	'PY_INDEX_URL',
-	'PIP_INDEX_URL',
-	'PY_EXTRA_INDEX_URL',
-	'PIP_EXTRA_INDEX_URL',
-	'PY_TRUSTED_HOST',
-	'PIP_TRUSTED_HOST',
-	'PY_INDEX_CERT',
-	'PIP_INDEX_CERT',
-	'PY_NATIVE_CERT',
-	'UV_NATIVE_TLS',
-	'UV_INDEX_STRATEGY',
-	'UV_HTTP_TIMEOUT',
+const SESSION_PROXY_ENV_VARS = [
 	'HTTP_PROXY',
 	'HTTPS_PROXY',
 	'NO_PROXY',
@@ -381,9 +369,9 @@ const PYTHON_REGISTRY_ENV_VARS = [
 	'no_proxy'
 ]
 
-function pythonRegistryEnv(): Record<string, string> {
+function sessionProxyEnv(): Record<string, string> {
 	const env: Record<string, string> = {}
-	for (const key of PYTHON_REGISTRY_ENV_VARS) {
+	for (const key of SESSION_PROXY_ENV_VARS) {
 		const value = process.env[key]
 		if (value) {
 			env[key] = value
@@ -542,6 +530,7 @@ class PythonDebugSession extends BaseDebugSession {
 	private scriptResult: unknown = undefined
 	private envVars: Record<string, string> = {}
 	private windmillPath?: string
+	private venvPath?: string
 	private debugMode: boolean
 
 	constructor(ws: { send: (data: string) => void; close: () => void }, windmillPath?: string, debugMode = false) {
@@ -667,6 +656,64 @@ class PythonDebugSession extends BaseDebugSession {
 		}
 	}
 
+	/**
+	 * Install the script's imports through `windmill prepare-deps` and return the venv to add to
+	 * the debugged script's sys.path.
+	 *
+	 * This runs here rather than in the Python server because the registry settings the CLI reads
+	 * (`PY_INDEX_URL` and friends) routinely embed private-registry credentials, and the Python
+	 * server executes the submitted script inside its own interpreter: anything in that process is
+	 * recoverable by the script. The service never executes user code, so the credentials stop here.
+	 */
+	private async prepareDependencies(code: string): Promise<string | null> {
+		if (!this.windmillPath) {
+			logger.info('No windmill binary path configured, skipping dependency preparation')
+			return null
+		}
+
+		const warn = (reason: string): null => {
+			logger.error(`prepare-deps failed: ${reason}`)
+			this.sendEvent('output', {
+				category: 'stderr',
+				output: `Failed to prepare dependencies: ${reason}\n`
+			})
+			return null
+		}
+
+		try {
+			const proc = spawn({
+				cmd: [this.windmillPath, 'prepare-deps'],
+				stdin: new Blob([JSON.stringify({ code, language: 'python3' }) + '\n']),
+				stdout: 'pipe',
+				stderr: 'pipe'
+			})
+
+			const output = await new Response(proc.stdout).text()
+			const stderr = await new Response(proc.stderr).text()
+
+			const lastLine = output.trim().split('\n').pop() || ''
+			if (!lastLine.startsWith('{')) {
+				return warn(stderr.trim() || 'windmill binary produced no response')
+			}
+
+			const response = JSON.parse(lastLine)
+			if (!response.success) {
+				// install_stderr is the installer's raw output; `error` already contains it, so
+				// prefer whichever the CLI version at hand provides.
+				return warn(response.install_stderr || response.error || 'unknown error')
+			}
+
+			if (response.venv_path) {
+				logger.info(`Dependencies installed at: ${response.venv_path}`)
+			} else {
+				logger.info('No external dependencies to install')
+			}
+			return response.venv_path || null
+		} catch (error) {
+			return warn(String(error))
+		}
+	}
+
 	private async startPythonProcess(cwd: string): Promise<void> {
 		if (!this.scriptPath) {
 			throw new Error('No script path')
@@ -688,10 +735,11 @@ class PythonDebugSession extends BaseDebugSession {
 			'--host', '127.0.0.1'
 		]
 
-		// Pass windmill path for dependency auto-installation if configured
-		if (this.windmillPath) {
-			cmd.push('--windmill', this.windmillPath)
-			logger.info(`Python session: autoinstall enabled with windmill at ${this.windmillPath}`)
+		// Dependencies are installed by the service (see prepareDependencies), so the server is
+		// handed the resulting venv instead of the windmill binary it would install with.
+		if (this.venvPath) {
+			cmd.push('--venv-path', this.venvPath)
+			logger.info(`Python session: using dependencies at ${this.venvPath}`)
 		}
 
 		// Pass debug flag to Python subprocess
@@ -702,7 +750,7 @@ class PythonDebugSession extends BaseDebugSession {
 		this.process = spawnProcess({
 			cmd,
 			cwd,
-			env: { PYTHONUNBUFFERED: '1', ...pythonRegistryEnv(), ...this.envVars }
+			env: { PYTHONUNBUFFERED: '1', ...sessionProxyEnv(), ...this.envVars }
 		})
 
 		// Read stderr to capture startup messages
@@ -1027,6 +1075,10 @@ sys.stdout.flush()
 		this.sendResponse(request)
 
 		try {
+			if (code) {
+				this.venvPath = (await this.prepareDependencies(code)) ?? undefined
+			}
+
 			await this.startPythonProcess(cwd)
 
 			// Re-apply breakpoints to the Python server using the actual script path

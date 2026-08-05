@@ -46,32 +46,6 @@ except ImportError:
     sys.exit(1)
 
 
-# Registry settings for `windmill prepare-deps`. The debugged script runs inside this
-# process, and these values commonly carry private-registry credentials, so they are moved
-# out of os.environ at import time and handed to the CLI subprocess only. Proxy variables
-# are deliberately left in place: a job's script sees those on a worker too.
-_PREPARE_DEPS_ENV_VARS = (
-    "PY_INDEX_URL",
-    "PIP_INDEX_URL",
-    "PY_EXTRA_INDEX_URL",
-    "PIP_EXTRA_INDEX_URL",
-    "PY_TRUSTED_HOST",
-    "PIP_TRUSTED_HOST",
-    "PY_INDEX_CERT",
-    "PIP_INDEX_CERT",
-    "PY_NATIVE_CERT",
-    "UV_NATIVE_TLS",
-    "UV_INDEX_STRATEGY",
-    "UV_HTTP_TIMEOUT",
-)
-
-_prepare_deps_env: dict[str, str] = {
-    key: value
-    for key, value in ((key, os.environ.pop(key, None)) for key in _PREPARE_DEPS_ENV_VARS)
-    if value
-}
-
-
 class DAPMessageType(Enum):
     REQUEST = "request"
     RESPONSE = "response"
@@ -306,9 +280,10 @@ class WindmillDebugger(bdb.Bdb):
 class DebugSession:
     """Manages a single debug session."""
 
-    def __init__(self, websocket, windmill_path: str | None = None):
+    def __init__(self, websocket, windmill_path: str | None = None, prepared_venv_path: str | None = None):
         self.websocket = websocket
         self.windmill_path = windmill_path
+        self._prepared_venv_path = prepared_venv_path
         self.seq = 1
         self.initialized = False
         self.configured = False
@@ -335,6 +310,12 @@ class DebugSession:
         Prepare Python dependencies by calling the windmill CLI.
         Returns the path to the venv's site-packages directory, or None if no dependencies needed.
         """
+        if self._prepared_venv_path:
+            # The debug service installs dependencies itself so that the registry credentials
+            # the CLI needs never enter this interpreter, which executes the debugged script.
+            logger.info(f"Using dependencies prepared by the debug service: {self._prepared_venv_path}")
+            return self._prepared_venv_path
+
         if not self.windmill_path:
             logger.info("No windmill binary path configured, skipping dependency preparation")
             return None
@@ -355,7 +336,6 @@ class DebugSession:
                 capture_output=True,
                 text=True,
                 timeout=120,  # 2 minute timeout for dependency installation
-                env={**os.environ, **_prepare_deps_env},
             )
 
             elapsed = time.time() - start_time
@@ -921,13 +901,17 @@ class DebugSession:
             )
 
 
-# Module-level variable to store windmill binary path
+# Module-level variables to store the windmill binary path and, when the debug service
+# already installed the script's dependencies, the venv to use instead of installing here.
 _windmill_path: str | None = None
+_prepared_venv_path: str | None = None
 
 
 async def handle_connection(websocket) -> None:
     """Handle a WebSocket connection."""
-    session = DebugSession(websocket, windmill_path=_windmill_path)
+    session = DebugSession(
+        websocket, windmill_path=_windmill_path, prepared_venv_path=_prepared_venv_path
+    )
     logger.info(f"New connection from {websocket.remote_address}")
 
     try:
@@ -951,13 +935,21 @@ async def handle_connection(websocket) -> None:
         session._cleanup_temp_file()
 
 
-async def main(host: str = "localhost", port: int = 5679, windmill_path: str | None = None) -> None:
+async def main(
+    host: str = "localhost",
+    port: int = 5679,
+    windmill_path: str | None = None,
+    prepared_venv_path: str | None = None,
+) -> None:
     """Start the DAP WebSocket server."""
-    global _windmill_path
+    global _windmill_path, _prepared_venv_path
     _windmill_path = windmill_path
+    _prepared_venv_path = prepared_venv_path
 
     if windmill_path:
         logger.info(f"Windmill binary path: {windmill_path}")
+    if prepared_venv_path:
+        logger.info(f"Dependencies prepared by the debug service: {prepared_venv_path}")
     logger.info(f"Starting DAP WebSocket server on ws://{host}:{port}")
 
     async with serve(handle_connection, host, port):
@@ -971,6 +963,7 @@ if __name__ == "__main__":
     parser.add_argument("--host", default="localhost", help="Host to bind to")
     parser.add_argument("--port", type=int, default=5679, help="Port to listen on")
     parser.add_argument("--windmill", help="Path to windmill binary for dependency preparation (or set WINDMILL_PATH env var)")
+    parser.add_argument("--venv-path", help="Site-packages directory of a venv the caller already prepared; skips dependency installation")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     args = parser.parse_args()
 
@@ -984,6 +977,6 @@ if __name__ == "__main__":
     windmill_path = args.windmill or os.environ.get("WINDMILL_PATH")
 
     try:
-        asyncio.run(main(args.host, args.port, windmill_path))
+        asyncio.run(main(args.host, args.port, windmill_path, args.venv_path))
     except KeyboardInterrupt:
         logger.info("Server stopped")

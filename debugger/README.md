@@ -77,18 +77,17 @@ Options:
 
 ### Python dependency preparation
 
-Before debugging a Python script, the server installs its imports through `windmill prepare-deps`,
-which runs `uv` without a database connection. It therefore cannot read the instance settings, and
-takes its registry configuration from the environment instead. The debug service forwards these
-variables (plus `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`, in either case) from its own environment
-to each Python session, so setting them on the service is enough, unless nsjail is enabled: nsjail
-passes only the variables its config lists under `envar`, so they have to be added there too.
-Within a session the registry settings are scoped to the `prepare-deps` subprocess and removed from
-the environment the debugged script runs in, since a private index URL usually embeds credentials.
-Where two names are listed the first wins; a
-worker reads the `PIP_*` / `PY_*` names in the same way, except for the index URLs, whose worker
-env fallbacks are only `PIP_INDEX_URL` / `PIP_EXTRA_INDEX_URL` (the `PY_*` spellings are accepted
-here for symmetry with the other settings):
+Before debugging a Python script, its imports are installed through `windmill prepare-deps`, which
+runs `uv` without a database connection. It cannot read the instance settings, so it takes its
+registry configuration from the environment of the debug service instead, and the Python server is
+handed the resulting venv with `--venv-path`. The install runs in the service rather than in the
+session because a private index URL usually embeds credentials and the Python server executes the
+debugged script inside its own interpreter, where anything it holds is readable by that script.
+
+Set these on the debug service. Where two names are listed the first wins; a worker reads the
+`PIP_*` / `PY_*` names in the same way, except for the index URLs, whose worker env fallbacks are
+only `PIP_INDEX_URL` / `PIP_EXTRA_INDEX_URL` (the `PY_*` spellings are accepted here for symmetry
+with the other settings):
 
 | Variable | Description | Default |
 |----------|-------------|---------|
@@ -100,10 +99,14 @@ here for symmetry with the other settings):
 | `UV_INDEX_STRATEGY` | uv index strategy | unsafe-best-match |
 | `UV_HTTP_TIMEOUT` | uv HTTP request timeout, in seconds | uv's own default |
 
-When the install fails, the response is `success: false` and carries the installer's stderr in
-both `error` and `install_stderr`, so the reason (unreachable mirror, untrusted certificate,
-unknown package) is available to the caller rather than surfacing later as a bare
-`ModuleNotFoundError`.
+When the install fails, the CLI answers `success: false` and carries the installer's stderr in both
+`error` and `install_stderr`; the service reports it to the client as an `output` event, so the
+reason (unreachable mirror, untrusted certificate, unknown package) reaches the user instead of a
+bare `ModuleNotFoundError` at the first import.
+
+Proxy variables (`HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`, in either case) are forwarded from the
+service into each session, since the debugged script needs them for its own outbound calls, exactly
+as a job's script does on a worker.
 
 ### Frontend Integration
 
