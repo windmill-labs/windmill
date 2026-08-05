@@ -318,6 +318,12 @@
 	let emptyStateNewTabOpen = $state(false)
 
 	let fullscreen = $state(false)
+	// Fullscreen is page state, not per-session, so it outlives a session switch —
+	// tell the incoming session's model, whose own collapsed flag it overrides, or
+	// re-opening the item plainly on screen would be judged invisible and not flash.
+	$effect(() => {
+		owner?.setFullscreen(fullscreen)
+	})
 	// Collapse the preview panel to give the chat the full width. Per-session and
 	// owned by the runtime's previewTabs (restored on switch, written back on
 	// toggle) so it survives session switches with the rest of the tab model.

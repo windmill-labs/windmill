@@ -700,6 +700,17 @@ describe('SessionPreviewTabs.pulseFocus', () => {
 		expect(o.focusPulse.nonce).toBe(3)
 	})
 
+	it('still flashes a collapsed-but-fullscreen panel', () => {
+		const o = owner()
+		o.open(rawAppTarget)
+		o.setCollapsed(true)
+		// Fullscreen carries over from the previous session and overrides collapse,
+		// so the tab is on screen and a re-open of it changes nothing visible.
+		o.setFullscreen(true)
+		o.open(rawAppTarget)
+		expect(o.focusPulse.nonce).toBe(1)
+	})
+
 	it('judges a composed select+navigate as one change', () => {
 		const o = owner()
 		o.open(pageTarget)

@@ -263,8 +263,7 @@
 
 <!-- Flash ring, a sibling of every tab body rather than a child of one: an
      editor's own opaque background (or an iframe's document) would paint over a
-     ring drawn inside it. Sits above the active body's z-10, and stays
-     transparent while this tab is not the displayed one. -->
+     ring drawn inside it. -->
 <div
 	class="pointer-events-none absolute inset-0 z-30 ring-2 ring-inset ring-border-accent transition-opacity duration-300 {flashing &&
 	active

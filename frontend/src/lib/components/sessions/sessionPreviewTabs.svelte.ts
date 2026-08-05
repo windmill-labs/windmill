@@ -172,6 +172,11 @@ export class SessionPreviewTabs {
 	#reloadPulse = $state({ id: '', nonce: 0 })
 	// Set while a mutation sequence is being judged as a whole (see asOneChange).
 	#pulsing = false
+	// Fullscreen overrides the collapsed layout, so the panel can be on screen
+	// while `#collapsed` still says otherwise. Page-level state (it outlives a
+	// session switch, unlike the persisted per-session flag), pushed in here so
+	// the flash decision reads what the user can actually see.
+	#fullscreen = false
 	readonly #adapter: PreviewTabsAdapter
 	readonly #flushDelay: number
 	#flushHandle: ReturnType<typeof setTimeout> | undefined
@@ -234,16 +239,22 @@ export class SessionPreviewTabs {
 		this.#schedulePersist()
 	}
 
-	// The tab the user is actually looking at, or undefined when the panel is
-	// collapsed and nothing is on screen.
+	// Whether the panel is on screen at all — fullscreen wins over collapsed.
+	setFullscreen(fullscreen: boolean): void {
+		this.#fullscreen = fullscreen
+	}
+
+	// The tab the user is actually looking at, or undefined when nothing is on screen.
 	#displayedTab(): SessionPreviewTab | undefined {
-		return this.#collapsed ? undefined : this.#tabs.find((t) => t.id === this.#activeId)
+		if (this.#collapsed && !this.#fullscreen) return undefined
+		return this.#tabs.find((t) => t.id === this.#activeId)
 	}
 
 	// Run a caller's own multi-call sequence (select + navigate + reveal) as a
 	// single change for the flash decision. Judging each call separately would
 	// flash a tab the sequence had just switched to, since the step that made it
-	// visible is not the step that finds nothing left to change.
+	// visible is not the step that finds nothing left to change. `mutate` must be
+	// synchronous: the verdict is read the moment it returns.
 	asOneChange<T>(mutate: () => T): T {
 		return this.#pulsingIfUnchanged(mutate)
 	}
