@@ -1124,6 +1124,8 @@ mod tests {
             folders: vec![],
             scopes: None,
             username_override: None,
+            username_override_is_token_label: false,
+            is_session_token: false,
             token_prefix: None,
             read_only: false,
             job_id,
@@ -1170,11 +1172,18 @@ mod tests {
 
         server.abort();
 
-        let header = captured.lock().unwrap().clone().expect("no auth header captured");
+        let header = captured
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("no auth header captured");
         let token = header.strip_prefix("Bearer ").unwrap().to_string();
-        let jwt = token.strip_prefix("jwt_").expect("expected an internal jwt_ token");
-        let claims: JWTAuthClaims =
-            windmill_common::jwt::decode_with_internal_secret(jwt).await.unwrap();
+        let jwt = token
+            .strip_prefix("jwt_")
+            .expect("expected an internal jwt_ token");
+        let claims: JWTAuthClaims = windmill_common::jwt::decode_with_internal_secret(jwt)
+            .await
+            .unwrap();
         claims.job_id
     }
 
