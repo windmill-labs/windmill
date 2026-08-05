@@ -283,10 +283,18 @@ PREPARE_DEPS_PROGRESS_INTERVAL_SECONDS = 5
 
 @dataclass
 class PrepareResult:
-    """Outcome of dependency preparation: a venv path on success, a reason on failure."""
+    """
+    Outcome of dependency preparation.
+
+    `error` holds anything worth telling the user, including a problem reported by an
+    otherwise successful preparation. Only `fatal` means the packages are known to be
+    missing: failing to reach the CLI at all says nothing about the script's imports and
+    must not block a session that would otherwise run.
+    """
 
     venv_path: str | None = None
     error: str | None = None
+    fatal: bool = False
 
 
 def _prepare_error_detail(response: dict) -> str:
@@ -374,7 +382,8 @@ class DebugSession:
                 logger.error(f"prepare-deps failed (stdout): {result.stdout}")
                 detail = (result.stderr or "").strip() or (result.stdout or "").strip()
                 return PrepareResult(
-                    error=detail or f"windmill prepare-deps exited with code {result.returncode}"
+                    error=detail or f"windmill prepare-deps exited with code {result.returncode}",
+                    fatal=True,
                 )
 
             # Log raw output for debugging
@@ -399,7 +408,7 @@ class DebugSession:
             if not response.get("success"):
                 detail = _prepare_error_detail(response)
                 logger.error(f"prepare-deps error: {detail}")
-                return PrepareResult(error=detail)
+                return PrepareResult(error=detail, fatal=True)
 
             venv_path = response.get("venv_path")
             cached = response.get("cached", False)
@@ -412,12 +421,19 @@ class DebugSession:
             else:
                 logger.info("No external dependencies detected in code")
 
-            return PrepareResult(venv_path=venv_path)
+            # `uv pip install` failing for individual packages does not fail the whole
+            # response, so a "successful" preparation can still carry the reason an import
+            # is about to fail. Report it rather than let it become a bare ModuleNotFoundError.
+            installer_output = str(response.get("stderr") or "").strip()
+            if installer_output:
+                logger.warning(f"prepare-deps reported installer output: {installer_output}")
+
+            return PrepareResult(venv_path=venv_path, error=installer_output or None)
 
         except subprocess.TimeoutExpired:
             message = f"prepare-deps timed out after {PREPARE_DEPS_TIMEOUT_SECONDS}s"
             logger.error(message)
-            return PrepareResult(error=message)
+            return PrepareResult(error=message, fatal=True)
         except json.JSONDecodeError as e:
             raw = output[:500] if 'output' in dir() else '(not available)'
             logger.error(f"Failed to parse prepare-deps JSON output: {e}")
@@ -596,21 +612,24 @@ class DebugSession:
         if code:
             prepared = await self._prepare_dependencies_with_progress(code)
             if prepared.error:
-                # Running the script regardless would surface only a bare ModuleNotFoundError,
-                # hiding why the install actually failed.
+                # Reporting the reason is what keeps a failed install from reaching the user
+                # as nothing but a bare ModuleNotFoundError.
+                prefix = (
+                    "Failed to prepare dependencies"
+                    if prepared.fatal
+                    else "Warning: dependency preparation reported a problem, running anyway"
+                )
                 await self.send_event(
                     "output",
-                    {
-                        "category": "stderr",
-                        "output": f"Failed to prepare dependencies:\n{prepared.error}\n",
-                    },
+                    {"category": "stderr", "output": f"{prefix}:\n{prepared.error}\n"},
                 )
-                await self.send_response(
-                    request,
-                    success=False,
-                    message=f"Failed to prepare dependencies: {_first_line(prepared.error)}",
-                )
-                return
+                if prepared.fatal:
+                    await self.send_response(
+                        request,
+                        success=False,
+                        message=f"Failed to prepare dependencies: {_first_line(prepared.error)}",
+                    )
+                    return
             self._venv_path = prepared.venv_path
 
         # If callMain is True, append a call to main() with the provided args

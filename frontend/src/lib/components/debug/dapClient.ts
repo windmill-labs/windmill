@@ -128,7 +128,13 @@ export class DAPClient {
 						logs: s.logs,
 						output: s.output
 					}))
+					// Reject rather than drop: a dropped `launch` leaves its caller awaiting
+					// until the timeout below fires, which is minutes rather than seconds.
+					const aborted = Array.from(this.pendingRequests.values())
 					this.pendingRequests.clear()
+					for (const pending of aborted) {
+						pending.reject(new Error('DAP connection closed'))
+					}
 				}
 
 				this.ws.onerror = (error) => {

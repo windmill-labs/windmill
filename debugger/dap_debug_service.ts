@@ -805,6 +805,13 @@ class PythonDebugSession extends BaseDebugSession {
 			this.debugpyWs.onclose = () => {
 				logger.info('Debugpy WebSocket closed')
 				this.debugpyWs = null
+				// A Python server that dies mid-request must fail it now; otherwise the caller
+				// waits out the command timeout, which for `launch` is minutes.
+				const aborted = Array.from(this.pendingDebugpyRequests.values())
+				this.pendingDebugpyRequests.clear()
+				for (const pending of aborted) {
+					pending.reject(new Error('Debugpy connection closed'))
+				}
 			}
 		})
 	}

@@ -1579,6 +1579,18 @@ export class DebugSession {
 
 		logger.info(`Preparing dependencies using ${this.windmillPath}`)
 
+		// The launch response is only sent once this returns, so without progress a cold
+		// cache looks like a frozen debugger for as long as the install takes.
+		this.sendEvent('output', { category: 'console', output: 'Preparing dependencies...\n' })
+		let waited = 0
+		const progress = setInterval(() => {
+			waited += 5
+			this.sendEvent('output', {
+				category: 'console',
+				output: `Still preparing dependencies... (${waited}s)\n`
+			})
+		}, 5000)
+
 		try {
 			const input = JSON.stringify({ code, language }) + '\n'
 			logger.info(`prepare-deps input length: ${input.length}`)
@@ -1648,6 +1660,8 @@ export class DebugSession {
 				output: `Warning: Failed to prepare dependencies: ${error}\n`
 			})
 			return null
+		} finally {
+			clearInterval(progress)
 		}
 	}
 
