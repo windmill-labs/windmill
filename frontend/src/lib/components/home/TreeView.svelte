@@ -28,7 +28,8 @@
 			string,
 			{ cursor?: string; hasMore: boolean; loading: boolean; loaded: boolean }
 		>
-		onExpandOwner?: (prefix: string, more?: boolean) => void
+		// `all` pages the prefix to the end in one call instead of fetching a single page.
+		onExpandOwner?: (prefix: string, more?: boolean, opts?: { all?: boolean }) => void
 		onCollapseOwner?: (prefix: string) => void
 		// Position of this node among the rendered root nodes; "expand all" only
 		// auto-loads the first EXPAND_ALL_LOAD_LIMIT of them (see the effect below).
@@ -356,16 +357,30 @@
 							<span class="text-xs text-secondary">
 								Showing {loadedHere}{ownerTotal != undefined ? ` of ${ownerTotal}` : ''} items in {nodePrefix}
 							</span>
-							<Button
-								unifiedSize="sm"
-								variant="subtle"
-								loading={nodeState?.loading}
-								on:click={() =>
-									nodePrefix != undefined &&
-									onExpandOwner?.(nodePrefix, nodeState?.loaded ?? false)}
-							>
-								Load more
-							</Button>
+							<div class="flex flex-row items-center gap-2 shrink-0">
+								<Button
+									unifiedSize="sm"
+									variant="subtle"
+									loading={nodeState?.loading}
+									on:click={() =>
+										nodePrefix != undefined &&
+										onExpandOwner?.(nodePrefix, nodeState?.loaded ?? false)}
+								>
+									Load more
+								</Button>
+								<!-- Same call, paged to the end: a folder several pages deep otherwise
+								     takes a click per page to reach an exact count. -->
+								<Button
+									unifiedSize="sm"
+									variant="subtle"
+									loading={nodeState?.loading}
+									on:click={() =>
+										nodePrefix != undefined &&
+										onExpandOwner?.(nodePrefix, nodeState?.loaded ?? false, { all: true })}
+								>
+									Load all
+								</Button>
+							</div>
 						</div>
 					{/if}
 				{/if}

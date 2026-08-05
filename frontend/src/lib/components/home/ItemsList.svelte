@@ -371,6 +371,10 @@
 	// How far one "Load more" will page past rows it already has before giving up and
 	// leaving the rest to another click (see the catch-up loop in loadOwnerItems).
 	const OWNER_CATCH_UP_PAGES = 5
+	// Ceiling on the pages one "Load all" issues. It exists so a prefix that never stops
+	// handing back a cursor can't spin forever; hitting it leaves `hasMore` set, so the
+	// footer stays and another click resumes where this one stopped.
+	const OWNER_LOAD_ALL_PAGES = 100
 	let ownerLoad = $state<Record<string, OwnerLoadState>>({})
 	let treeOwnerItems = $state<ItemType[]>([])
 	let treeGen = 0
@@ -391,8 +395,15 @@
 
 	// `owner` is the full prefix a node covers: `f/<folder>`, `u/<username>`, or any
 	// folder under one. `force` re-fetches its first page even if already loaded (a
-	// re-sort / re-filter reload uses it to refresh the loaded rows in place).
-	async function loadOwnerItems(owner: string, more = false, force = false): Promise<void> {
+	// re-sort / re-filter reload uses it to refresh the loaded rows in place); `all`
+	// keeps paging until the prefix's stream is exhausted instead of stopping at a page.
+	async function loadOwnerItems(
+		owner: string,
+		more = false,
+		opts?: { force?: boolean; all?: boolean }
+	): Promise<void> {
+		const force = opts?.force ?? false
+		const all = opts?.all ?? false
 		const ws = $workspaceStore
 		if (!ws || !$userStore) return
 		// Track the prefix as open first — even a no-op call (re-expanding a cached node)
@@ -448,8 +459,10 @@
 		// A nested prefix's own stream restarts at its first row, which an ancestor's pages
 		// may already have brought in — that page then adds nothing and the click would read
 		// as broken. Keep paging until one adds something or the stream ends, bounded so a
-		// single click can't turn into an unbounded fetch loop.
-		for (let page = 0; page < OWNER_CATCH_UP_PAGES; page++) {
+		// single click can't turn into an unbounded fetch loop. "Load all" instead stops
+		// only at the end of the stream, so `loading` stays set for the whole run and the
+		// footer resolves to an exact count in one click.
+		for (let page = 0; page < (all ? OWNER_LOAD_ALL_PAGES : OWNER_CATCH_UP_PAGES); page++) {
 			let res: { items: RunnableItem[]; next_cursor?: string }
 			try {
 				res = await ScriptService.listRunnables({
@@ -477,7 +490,7 @@
 			const added = mergePage(res.items)
 			nextCursor = res.next_cursor
 			cursor = nextCursor
-			if (added > 0 || nextCursor == undefined) break
+			if (nextCursor == undefined || (!all && added > 0)) break
 		}
 		ownerLoad = Object.fromEntries([
 			// A replacing load dropped every row under this prefix, so a nested folder that
@@ -534,7 +547,9 @@
 			byDepth.set(d, [...(byDepth.get(d) ?? []), p])
 		}
 		for (const d of [...byDepth.keys()].sort((a, b) => a - b)) {
-			await Promise.all((byDepth.get(d) ?? []).map((p) => loadOwnerItems(p, false, true)))
+			await Promise.all(
+				(byDepth.get(d) ?? []).map((p) => loadOwnerItems(p, false, { force: true }))
+			)
 		}
 	}
 

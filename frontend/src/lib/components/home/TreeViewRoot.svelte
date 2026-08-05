@@ -35,7 +35,7 @@
 			string,
 			{ cursor?: string; hasMore: boolean; loading: boolean; loaded: boolean }
 		>
-		onExpandOwner?: (owner: string, more?: boolean) => void
+		onExpandOwner?: (owner: string, more?: boolean, opts?: { all?: boolean }) => void
 		onCollapseOwner?: (owner: string) => void
 		showEditButton?: boolean
 	}
