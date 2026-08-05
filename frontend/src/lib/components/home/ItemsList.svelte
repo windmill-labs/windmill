@@ -483,11 +483,15 @@
 				// there. Left at where this run started, it would re-read every page already
 				// merged — and each of those dedups to nothing, so a "Load more" after a run
 				// that failed deep in the stream would spend its whole budget adding no rows.
+				// `loaded` moves with it: a node still marked unloaded is retried as a first
+				// load, which starts from no cursor and throws the saved one away.
 				const prev = ownerLoad[owner]
+				const advanced = nextCursor != undefined
 				ownerLoad[owner] = {
 					...prev,
 					cursor: nextCursor ?? prev?.cursor,
-					hasMore: nextCursor != undefined || (prev?.hasMore ?? false),
+					hasMore: advanced || (prev?.hasMore ?? false),
+					loaded: advanced || (prev?.loaded ?? false),
 					loading: false
 				}
 				sendUserToast(`Failed to load ${owner}: ${e?.body ?? e?.message ?? e}`, true)
