@@ -9008,6 +9008,10 @@ async fn ensure_dev_parent_can_host_dev<'e, E: sqlx::Executor<'e, Database = Pos
 /// Prod may be a dev workspace, so the candidate can sit ABOVE it in the tree — reparenting it below
 /// prod would close a parent<->child cycle and hang every hierarchy walk. Prod itself is at depth 0
 /// of the chain, so callers must have rejected `dev_w_id == prod_w_id` first.
+///
+/// `reject_dev_label_taken_in_chain` would also reject a cyclic pairing, since a cycle puts one
+/// workspace in the chain twice and so always repeats a label. It reports it as a workspace clashing
+/// with itself, which describes nothing the caller can act on — hence this, first.
 async fn reject_attach_cycle<'e, E: sqlx::Executor<'e, Database = Postgres>>(
     db: E,
     prod_w_id: &str,

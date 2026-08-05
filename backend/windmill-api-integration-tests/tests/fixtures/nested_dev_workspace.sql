@@ -24,6 +24,7 @@
 -- their labels only collide once both land, three dev workspaces deep:
 --   prod-g (root), g-mid -> g-sub ('dev'), and the standalone `g-leaf`
 
+
 INSERT INTO workspace (id, name, owner, parent_workspace_id, is_dev_workspace, dev_workspace_label) VALUES
 	('tw-dev', 'dev of test-workspace', 'test@windmill.dev', 'test-workspace', true, 'dev'),
 	('standalone', 'standalone', 'test@windmill.dev', NULL, false, NULL),

@@ -87,9 +87,14 @@
 	// Fork/dev workspaces are detected by their parent link, not the `wm-fork-` id prefix. A dev
 	// workspace is excluded: it is a standing environment its whole team works in, torn down by
 	// detaching it in the dev-workspace settings, so offering a one-click delete beside the account
-	// menu puts a destructive action on the wrong surface.
+	// menu puts a destructive action on the wrong surface. Requires the entry to be loaded, not just
+	// absent from the list: `workspaceIsFork` answers from the id prefix alone, so between a cold
+	// load restoring the workspace id and the list arriving, a `wm-fork-` dev workspace would read
+	// as a throwaway and offer its own deletion.
 	const currentWsIsThrowawayFork = $derived(
-		workspaceIsFork($workspaceStore, $userWorkspaces ?? []) && !currentWs?.is_dev_workspace
+		!!currentWs &&
+			workspaceIsFork($workspaceStore, $userWorkspaces ?? []) &&
+			!currentWs.is_dev_workspace
 	)
 
 	let leaveWorkspaceModal = $state(false)
