@@ -36,7 +36,7 @@
 	import PropPicker from '$lib/components/propertyPicker/PropPicker.svelte'
 	import PropPickerResult from '$lib/components/propertyPicker/PropPickerResult.svelte'
 	import { clickOutside } from '$lib/utils'
-	import { createEventDispatcher, getContext, setContext } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy, setContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { writable, type Writable } from 'svelte/store'
 	import type { PickableProperties } from '../previousResults'
@@ -98,6 +98,11 @@
 		localConfig: propPickerConfig,
 		onEvent: (event) => telemetry.log('connect', `input:${event}`)
 	})
+
+	// An armed target that goes away with the panel is abandoned like any other, and has to
+	// say so or `open` never balances against `insert` + `abandon`. `disarm` no-ops unless
+	// this surface is the one holding the arm.
+	onDestroy(() => connect.disarm())
 
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
 		propPickerConfig,

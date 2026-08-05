@@ -30,17 +30,25 @@ export type FlowEditorTelemetryKind =
 
 /**
  * Kinds carrying the editor-session entity id, so the stats job's per-entity median/p90
- * answers "how much of this per editing session". The rest stay plain counters: an entity
- * id costs a row per session per day, which is only worth paying where the spread is the
- * question.
+ * answers "how much of this per editing session". The rest stay plain counters, because an
+ * entity id costs a row per session per day per key it appears under — `feature_usage` is
+ * instance-wide, with no workspace column to spread that across. `panel_open` pays it
+ * against two keys; `setting` would pay it against twenty-four, for a distribution its
+ * plain counter already largely answers.
  */
-const PER_SESSION_KINDS: ReadonlySet<FlowEditorTelemetryKind> = new Set(['panel_open', 'setting'])
+const PER_SESSION_KINDS: ReadonlySet<FlowEditorTelemetryKind> = new Set(['panel_open'])
 
 export interface FlowEditorTelemetry {
 	log(kind: FlowEditorTelemetryKind, key: string): void
 }
 
 const CONTEXT_KEY = 'flowEditorTelemetry'
+
+/**
+ * Set by hosts that keep a flow editor mounted while it is off screen (session preview
+ * tabs). Absent means the editor is the only thing rendering it, so it is visible.
+ */
+export const FLOW_EDITOR_VISIBLE_CONTEXT = 'flowEditorVisible'
 
 /** These components also mount outside a flow editor, where there is nothing to measure. */
 const NOOP: FlowEditorTelemetry = { log: () => {} }
@@ -77,13 +85,23 @@ const DWELL_BUCKETS: readonly (readonly [number, string])[] = [
  * Buckets a duration into a fixed set of keys rather than logging the seconds against a
  * per-visit entity id: a histogram of four keys costs four rows a day, where per-visit ids
  * would cost one per panel opened.
+ *
+ * Labels stay within the backend's key charset (see `KEY_CHARSET` below) — a `+` would be
+ * dropped by the validator with no error on either side.
  */
 export function dwellBucket(ms: number): string {
 	for (const [limit, label] of DWELL_BUCKETS) {
 		if (ms < limit) return label
 	}
-	return '120s+'
+	return '120s_plus'
 }
+
+/**
+ * What `is_identifier_shaped` in `windmill-api-workspaces` accepts. A key outside it is
+ * skipped by `log_feature_usage`, which still answers 204 — so a rejected key is invisible
+ * from the browser and only shows up as a hole in the table weeks later.
+ */
+export const KEY_CHARSET = /^[A-Za-z0-9_\-:./]{1,100}$/
 
 type Log = (kind: FlowEditorTelemetryKind, key: string) => void
 

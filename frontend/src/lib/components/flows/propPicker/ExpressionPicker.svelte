@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, setContext } from 'svelte'
+	import { getContext, onDestroy, setContext } from 'svelte'
 	import { writable } from 'svelte/store'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import PropPicker from '$lib/components/propertyPicker/PropPicker.svelte'
@@ -35,6 +35,9 @@
 		flowPropPickerConfig: propPickerContext?.flowPropPickerConfig ?? writable(undefined),
 		onEvent: (event) => telemetry.log('connect', `expression:${event}`)
 	})
+
+	// See PropPickerWrapper: an arm that disappears with its component still ends.
+	onDestroy(() => connect.disarm())
 
 	// PropPicker reads these to filter and highlight against what is being typed. Only the
 	// step input form produces that signal, so here they stay empty.

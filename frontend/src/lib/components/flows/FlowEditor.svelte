@@ -15,7 +15,8 @@
 	import {
 		createPanelVisitTracker,
 		placementKey,
-		setFlowEditorTelemetry
+		setFlowEditorTelemetry,
+		FLOW_EDITOR_VISIBLE_CONTEXT
 	} from './flowEditorTelemetry'
 
 	import { writable } from 'svelte/store'
@@ -136,11 +137,15 @@
 
 	const telemetry = setFlowEditorTelemetry()
 	const panelVisits = createPanelVisitTracker(telemetry.log)
+	const editorVisible = getContext<(() => boolean) | undefined>(FLOW_EDITOR_VISIBLE_CONTEXT)
 
-	// The step whose panel the user is actually looking at. Docked, that is whatever single
-	// step is selected; modal, only while the modal is up. Flow-level targets (settings,
-	// inputs, triggers) share the pane but are not what the step panels measure.
+	// The step whose panel the user is actually looking at. Docked, the panel is always on
+	// screen, so this follows the selection — meaning a `panel_open` there is "moved to a
+	// step", where in modal mode it is "asked to see a step". The two are not counts of the
+	// same gesture and don't compare directly. Flow-level targets (settings, inputs,
+	// triggers) share the pane but are not what the step panels measure.
 	const openPanelTarget = $derived.by(() => {
+		if (editorVisible?.() === false) return undefined
 		const ids = selectionManager.selectedIds
 		if (ids.length !== 1 || isFlowLevelPanelTarget(ids[0])) return undefined
 		if (panelMode === 'modal' && !panelModalOpen) return undefined
@@ -148,6 +153,14 @@
 	})
 	$effect(() => {
 		panelVisits.visit(openPanelTarget, panelMode)
+	})
+
+	// Svelte tears components down on navigation, not on tab close, so `onDestroy` alone
+	// would drop the last — typically longest — dwell of every session.
+	$effect(() => {
+		const end = () => panelVisits.end()
+		window.addEventListener('pagehide', end)
+		return () => window.removeEventListener('pagehide', end)
 	})
 
 	// Auto can move the panel back into the pane under a modal that is open — leaving it
@@ -262,6 +275,10 @@
 		enabled: () => modalPanel,
 		preference: () => panelController.preference,
 		setPreference: (preference) => {
+			// Picking the row that is already active is not a move. Counting it would also
+			// make the event ambiguous: `auto:from_docked` would mean both "switched to Auto"
+			// and "clicked Auto while already on Auto".
+			if (preference === panelController.preference) return
 			// Moving the panel must not lose what it was showing: docked, it is always on
 			// screen, so the modal it becomes has to open on arrival. The reverse is handled
 			// by the effect above, which closes a modal that is no longer rendered.

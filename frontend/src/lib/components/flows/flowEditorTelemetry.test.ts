@@ -1,10 +1,41 @@
 import { describe, expect, it } from 'vitest'
-import { createPanelVisitTracker, createSettingsChangeTracker } from './flowEditorTelemetry'
+import {
+	createPanelVisitTracker,
+	createSettingsChangeTracker,
+	dwellBucket,
+	KEY_CHARSET,
+	placementKey
+} from './flowEditorTelemetry'
 import type { StepSettingView } from './flowStepSettings'
 
 function view(key: string, configured: boolean, state: 'configured' | 'default' | 'invalid') {
 	return { key, configured, summary: { text: '', state } } as StepSettingView
 }
+
+// The producer is TypeScript and the validator is Rust, so nothing but this connects them:
+// `log_feature_usage` skips a key outside its charset and still answers 204, which means a
+// rejected key is invisible in the browser and shows up only as a hole in the table.
+describe('emitted keys stay inside the backend charset', () => {
+	const PREFERENCES = ['auto', 'docked', 'modal'] as const
+	const MODES = ['docked', 'modal'] as const
+
+	it.each([0, 4_999, 5_000, 29_999, 30_000, 119_999, 120_000, 10 * 60_000])(
+		'dwell bucket for %ims',
+		(ms) => {
+			for (const mode of MODES) {
+				expect(`${mode}:${dwellBucket(ms)}`).toMatch(KEY_CHARSET)
+			}
+		}
+	)
+
+	it('accepts every placement key', () => {
+		for (const preference of PREFERENCES) {
+			for (const mode of MODES) {
+				expect(placementKey(preference, mode)).toMatch(KEY_CHARSET)
+			}
+		}
+	})
+})
 
 describe('createPanelVisitTracker', () => {
 	it('logs one open per visit and pairs it with the dwell it ended in', () => {
