@@ -236,9 +236,8 @@ async fn test_nested_attach_and_detach_cannot_both_commit(
 
 /// Two adjacent attaches — `f-mid` under `prod-f` and `f-leaf` under `f-mid` — each see a chain that
 /// does not yet contain the other's dev workspace, so both pass their label check. Committing both
-/// puts two `dev` workspaces in one chain, deploying to the same branch. Attaching locks its
-/// candidate as well as its prod, which is what makes the second one re-read a chain containing the
-/// first. Repeated for the same reason as the detach race above.
+/// puts two `dev` workspaces in one chain, deploying to the same branch. Repeated for the same
+/// reason as the detach race above.
 #[sqlx::test(migrations = "../migrations", fixtures("base", "nested_dev_workspace"))]
 async fn test_adjacent_attaches_cannot_both_claim_a_label(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -294,7 +293,8 @@ async fn test_adjacent_attaches_cannot_both_claim_a_label(db: Pool<Postgres>) ->
 /// Attaching `g-mid` under `prod-g` and attaching `g-leaf` under `g-sub` touch no workspace in
 /// common — `g-sub` already sits under `g-mid`, so the two operations are two hops apart. Each sees
 /// a two-workspace chain with a free label; together they make a four-deep one that repeats
-/// `staging`. No per-workspace key covers this pair, which is why the pairing lock is class-wide.
+/// `staging`. Locking the endpoints alone leaves them free to both commit, which is why the pairing
+/// lock covers every workspace its checks read.
 #[sqlx::test(migrations = "../migrations", fixtures("base", "nested_dev_workspace"))]
 async fn test_attaches_two_hops_apart_cannot_both_claim_a_label(
     db: Pool<Postgres>,
@@ -354,5 +354,36 @@ async fn test_attaches_two_hops_apart_cannot_both_claim_a_label(
             "round {round}: a chain repeats a label, below {duplicated:?}"
         );
     }
+    Ok(())
+}
+
+/// The pairing lock covers the chains an operation touches, not every pairing on the instance: a
+/// transaction holding one family's nodes must not hold up another family's. Pinned because the
+/// obvious way to make the races above safe — one key for the whole operation class — would serialize
+/// dev-workspace creation database-wide, and creation holds its transaction across a full clone.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "nested_dev_workspace"))]
+async fn test_pairing_lock_does_not_span_unrelated_families(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // Hold family F's nodes the way an in-flight attach on it would, then act on family E.
+    let mut held = db.begin().await?;
+    for node in ["prod-f", "f-mid", "f-leaf"] {
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext('dev_workspace_pairing:' || $1))")
+            .bind(node)
+            .execute(&mut *held)
+            .await?;
+    }
+
+    let (status, body) = tokio::time::timeout(
+        std::time::Duration::from_secs(20),
+        detach(port, "prod-e", "wm-fork-edev"),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("an unrelated family's pairing blocked on family F's locks"))?;
+    assert!(status.is_success(), "unrelated detach returned {status}: {body}");
+
+    held.rollback().await?;
     Ok(())
 }

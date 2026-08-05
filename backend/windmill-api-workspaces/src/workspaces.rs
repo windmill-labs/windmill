@@ -7108,7 +7108,7 @@ async fn create_workspace_fork(
     if nw.is_dev_workspace {
         // The checks above ran outside a transaction, so the parent's eligibility and the chain's
         // labels could have changed under us: re-decide both here, under the pairing lock.
-        lock_dev_pairing(&mut tx).await?;
+        lock_dev_pairing(&mut tx, &[&parent_workspace_id]).await?;
         ensure_dev_parent_can_host_dev(&mut *tx, &parent_workspace_id).await?;
         ensure_no_existing_dev_workspace(&mut *tx, &parent_workspace_id).await?;
         reject_dev_label_taken_in_chain(
@@ -7460,7 +7460,7 @@ async fn attach_dev_workspace(
     let mut tx = db.begin().await?;
     // Everything above ran outside a transaction, so prod's eligibility and the chain's labels could
     // have changed under us: re-decide both here, under the pairing lock.
-    lock_dev_pairing(&mut tx).await?;
+    lock_dev_pairing(&mut tx, &[&prod_w_id, &dev_w_id]).await?;
     ensure_dev_parent_can_host_dev(&mut *tx, &prod_w_id).await?;
     ensure_no_existing_dev_workspace(&mut *tx, &prod_w_id).await?;
     reject_dev_label_taken_in_chain(
@@ -7646,7 +7646,7 @@ async fn detach_dev_workspace(
     let mut tx = db.begin().await?;
     // Under the pairing lock, so a dev workspace cannot appear beneath this one between the check
     // below and the update.
-    lock_dev_pairing(&mut tx).await?;
+    lock_dev_pairing(&mut tx, &[&prod_w_id, &dev_w_id]).await?;
     let is_dev_of_prod = sqlx::query_scalar!(
         r#"SELECT EXISTS(
             SELECT 1 FROM workspace
@@ -7776,7 +7776,7 @@ pub(crate) async fn archive_workspace_impl(
     if dev_lock_parent.is_some() {
         // Archiving a dev workspace clears its dev flag, so it must not strand a dev workspace of
         // its own — decided here, under the pairing lock.
-        lock_dev_pairing(&mut tx).await?;
+        lock_dev_pairing(&mut tx, &[w_id]).await?;
         reject_stranding_nested_dev(&mut *tx, w_id, DevTeardown::Archive).await?;
     }
     let disabled_schedules = sqlx::query_scalar!(
@@ -9032,15 +9032,53 @@ async fn ensure_dev_parent_can_host_dev<'e, E: sqlx::Executor<'e, Database = Pos
 /// unserialized they all pass their checks and commit a shape those checks exist to reject. Take it
 /// before re-running them inside the mutating transaction; it releases on commit or rollback.
 ///
-/// One key for the whole operation class rather than one per workspace: the label rule spans a chain,
-/// and an attach can splice two chains together, so no per-workspace key covers every pair of
-/// operations that can collide — locking endpoints leaves two operations a couple of hops apart free
-/// to both commit. Contention is irrelevant here: these are workspace-admin actions taken a handful
-/// of times in a workspace's life, and they queue rather than fail.
-async fn lock_dev_pairing(tx: &mut Transaction<'_, Postgres>) -> Result<()> {
-    sqlx::query!("SELECT pg_advisory_xact_lock(hashtext('dev_workspace_pairing'))")
+/// Locks every workspace the operation's own checks read: each seed, its ancestors, and the dev
+/// workspaces beneath it. Locking just the endpoints is not enough — the label rule spans a whole
+/// chain, so two operations a couple of hops apart would hold disjoint keys and both commit. Reading
+/// the same set that is checked is what closes that: an attach splices two chains together and so
+/// holds nodes from both, and any operation that could collide with it necessarily touches the
+/// joined chain, hence shares a node. Acquired in id order, the only ordering rule that keeps two
+/// overlapping sets from deadlocking.
+///
+/// Recomputed inside the transaction, but from a set that may already be stale — harmless, because
+/// whoever made it stale is the operation holding the node this one is missing.
+async fn lock_dev_pairing(tx: &mut Transaction<'_, Postgres>, seeds: &[&str]) -> Result<()> {
+    let seeds: Vec<String> = seeds.iter().map(|s| s.to_string()).collect();
+    // Depth bounds are the cycle-safety backstop used by every other hierarchy walk.
+    let nodes = sqlx::query_scalar!(
+        r#"WITH RECURSIVE seeded AS (SELECT unnest($1::text[]) AS id),
+           up AS (
+               SELECT w.id, w.parent_workspace_id, 0 AS depth
+               FROM workspace w JOIN seeded s ON w.id = s.id
+               UNION ALL
+               SELECT w.id, w.parent_workspace_id, up.depth + 1
+               FROM workspace w JOIN up ON w.id = up.parent_workspace_id
+               WHERE up.depth < 20
+           ),
+           down AS (
+               SELECT w.id, 0 AS depth FROM workspace w JOIN seeded s ON w.id = s.id
+               UNION ALL
+               SELECT w.id, down.depth + 1
+               FROM workspace w JOIN down ON w.parent_workspace_id = down.id
+               WHERE down.depth < 20 AND w.is_dev_workspace
+           )
+           SELECT id AS "id!" FROM (
+               SELECT id FROM seeded UNION SELECT id FROM up UNION SELECT id FROM down
+           ) n ORDER BY id"#,
+        &seeds[..]
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    // One statement per node rather than a set-returning call: only a client-side loop actually
+    // guarantees the acquisition order the deadlock argument above rests on.
+    for node in nodes {
+        sqlx::query!(
+            "SELECT pg_advisory_xact_lock(hashtext('dev_workspace_pairing:' || $1))",
+            node
+        )
         .execute(&mut **tx)
         .await?;
+    }
     Ok(())
 }
 
