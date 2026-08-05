@@ -62,12 +62,14 @@
 	// Past this, render with whatever metrics are available rather than sit on the raw source.
 	const FONT_LOAD_TIMEOUT_MS = 2000
 
-	// Mermaid draws `#NNN;` / `#xHHH;` as the character they name, so a label written that way is
-	// pure ASCII in source yet renders an emoji. Decode before sampling or those diagrams skip
-	// the preload below. Affects the font sample only — the source mermaid parses is untouched.
+	// Mermaid draws `#NNN;` as the character that code names (decimal only — its own test is
+	// /^\+?\d+$/), so a label written that way is pure ASCII in source yet renders an emoji.
+	// Decode before sampling or those diagrams skip the preload below. Feeds the font sample
+	// only, never the source mermaid parses, so over-matching a colour like `fill:#123;` costs
+	// at most one spurious subset and can never drop a character the sample needs.
 	function decodeEntityCodes(source: string): string {
-		return source.replace(/#(x[0-9a-f]+|\d+);/gi, (whole, code: string) => {
-			const point = code[0].toLowerCase() === 'x' ? parseInt(code.slice(1), 16) : Number(code)
+		return source.replace(/#(\+?\d+);/g, (whole, code: string) => {
+			const point = Number(code)
 			return point <= 0x10ffff ? String.fromCodePoint(point) : whole
 		})
 	}
@@ -84,9 +86,10 @@
 	 * non-ASCII by construction, so this needs no emoji grammar to keep up to date.
 	 */
 	async function loadLabelFonts(source: string): Promise<void> {
+		const decoded = decodeEntityCodes(source)
 		// eslint-disable-next-line no-control-regex
-		const nonAscii = decodeEntityCodes(source).replace(/[\x00-\x7F]/g, '')
-		const loads = [document.fonts?.load('16px Inter', source)]
+		const nonAscii = decoded.replace(/[\x00-\x7F]/g, '')
+		const loads = [document.fonts?.load('16px Inter', decoded)]
 		if (nonAscii) loads.push(document.fonts?.load('16px "Noto Color Emoji"', nonAscii))
 		let timer: ReturnType<typeof setTimeout> | undefined
 		try {
