@@ -94,7 +94,8 @@ with the other settings):
 | `PY_INDEX_URL` / `PIP_INDEX_URL` | Package index (`--index-url`) | PyPI |
 | `PY_EXTRA_INDEX_URL` / `PIP_EXTRA_INDEX_URL` | Extra indexes, comma-separated (`--extra-index-url`) | - |
 | `PY_TRUSTED_HOST` / `PIP_TRUSTED_HOST` | Hosts to trust, whitespace-separated (`--trusted-host`) | - |
-| `PY_INDEX_CERT` / `PIP_INDEX_CERT` | CA bundle for the index, passed to uv as `SSL_CERT_FILE` | - |
+| `PY_INDEX_CERT` / `PIP_INDEX_CERT` | CA bundle for the index, passed to uv as `SSL_CERT_FILE`. Falls back to `SSL_CERT_FILE`, then `REQUESTS_CA_BUNDLE`, then `CURL_CA_BUNDLE`, so a host that configures its CA under any of those names is picked up. Whichever is used **replaces** uv's own roots rather than adding to them, so it has to be a complete bundle: one holding only a private CA leaves every public index untrusted. `bun install` gets the same bundle as `NODE_EXTRA_CA_CERTS`, the only spelling Bun reads | - |
+| `SSL_CERT_DIR` | Directory of certificates, forwarded to uv as-is. Replaces uv's roots the same way the bundle does, so a directory holding only a private CA leaves public indexes untrusted | - |
 | `PY_NATIVE_CERT` / `UV_NATIVE_TLS` | `true` to also trust the platform certificate store (`--native-tls`) | false |
 | `UV_INDEX_STRATEGY` | uv index strategy | unsafe-best-match |
 | `UV_HTTP_TIMEOUT` | uv HTTP request timeout, in seconds | uv's own default |
@@ -109,6 +110,17 @@ Proxy variables (`HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`, in either case) are 
 service into each session, since the debugged script needs them for its own outbound calls, exactly
 as a job's script does on a worker. When a proxy is set without a bypass list, `NO_PROXY` defaults
 to `localhost,127.0.0.1` so calls to `BASE_INTERNAL_URL` are not proxied.
+
+Trust roots are forwarded alongside them: `SSL_CERT_FILE`, `SSL_CERT_DIR`, `REQUESTS_CA_BUNDLE`,
+`CURL_CA_BUNDLE` and `NODE_EXTRA_CA_CERTS`. Behind a TLS-intercepting proxy these are what let the
+debugged script's own HTTPS calls verify, and installing the CA in the container's system store is
+not enough on its own, since `requests` carries its own bundle and Node reads only
+`NODE_EXTRA_CA_CERTS`. Registry settings are deliberately not forwarded: they carry credentials and
+only the service needs them.
+
+To install that CA into the container's system store in the first place, set `INIT_SCRIPT` on the
+`windmill_extra` container (e.g. `INIT_SCRIPT=update-ca-certificates`). It runs before any service
+starts and aborts startup if it fails, the same hook a worker offers.
 
 Keeping the settings out of the session's environment only bounds what the debugged script can read
 from itself. An unsandboxed session runs under the same user as the service and can still read the

@@ -41,6 +41,7 @@ import { join } from 'node:path'
 
 // Import the working Bun debug session from the standalone server
 import { DebugSession as BunDebugSessionWorking, type NsjailConfig } from './dap_websocket_server_bun'
+import { sessionEnv } from './env_passthrough'
 
 // ============================================================================
 // Configuration
@@ -353,43 +354,10 @@ interface SpawnOptions {
 }
 
 /**
- * Proxy settings forwarded to a debug session, matching what a worker gives a job's script.
- * spawnProcess intentionally does not inherit this process's environment, so an outbound proxy
- * is unreachable from a session unless these are passed explicitly. Registry settings are
- * deliberately absent: they carry credentials and are consumed by the service itself (see
- * PythonDebugSession.prepareDependencies).
- */
-const SESSION_PROXY_ENV_VARS = [
-	'HTTP_PROXY',
-	'HTTPS_PROXY',
-	'NO_PROXY',
-	// The lowercase spellings take precedence in the worker, so forward both.
-	'http_proxy',
-	'https_proxy',
-	'no_proxy'
-]
-
-/**
  * How long `windmill prepare-deps` may take before the session gives up on it and starts without
  * the dependencies. Raise it for slow private mirrors, where a large install can outlast the default.
  */
 const PREPARE_DEPS_TIMEOUT_MS = Number(process.env.DAP_PREPARE_DEPS_TIMEOUT_MS) || 120_000
-
-function sessionProxyEnv(): Record<string, string> {
-	const env: Record<string, string> = {}
-	for (const key of SESSION_PROXY_ENV_VARS) {
-		const value = process.env[key]
-		if (value) {
-			env[key] = value
-		}
-	}
-	// A proxy without a bypass list would send the script's calls to BASE_INTERNAL_URL through it;
-	// the worker defaults the same way (PROXY_ENVS in windmill-worker).
-	if (!env.NO_PROXY && !env.no_proxy && (env.HTTP_PROXY || env.http_proxy || env.HTTPS_PROXY || env.https_proxy)) {
-		env.NO_PROXY = 'localhost,127.0.0.1'
-	}
-	return env
-}
 
 /**
  * Spawn a process, optionally wrapped with nsjail.
@@ -551,6 +519,8 @@ class PythonDebugSession extends BaseDebugSession {
 	private envVars: Record<string, string> = {}
 	private windmillPath?: string
 	private venvPath?: string
+	private prepareDepsProcess: Subprocess | null = null
+	private disposed = false
 	private debugMode: boolean
 
 	constructor(ws: { send: (data: string) => void; close: () => void }, windmillPath?: string, debugMode = false) {
@@ -708,10 +678,16 @@ class PythonDebugSession extends BaseDebugSession {
 		try {
 			const proc = spawn({
 				cmd: [this.windmillPath, 'prepare-deps'],
-				stdin: new Blob([JSON.stringify({ code, language: 'python3' }) + '\n']),
+				// The venv has to be built against the interpreter that will run the script: its
+				// site-packages goes on that interpreter's sys.path, and uv otherwise picks its
+				// own, which silently leaves compiled extensions unimportable.
+				stdin: new Blob([
+					JSON.stringify({ code, language: 'python3', python_path: config.pythonPath }) + '\n'
+				]),
 				stdout: 'pipe',
 				stderr: 'pipe'
 			})
+			this.prepareDepsProcess = proc
 
 			// The launch response is already sent, so an install that never returns would leave the
 			// client waiting on a session that never starts, with nothing on screen. The deadline
@@ -729,9 +705,12 @@ class PythonDebugSession extends BaseDebugSession {
 				})
 			])
 			clearTimeout(timer)
+			this.prepareDepsProcess = null
 
 			if (!result) {
-				proc.kill()
+				// SIGKILL, not the default SIGTERM: prepare-deps does not act on SIGTERM while uv
+				// is running, so a polite signal leaves it running after the session gave up.
+				proc.kill('SIGKILL')
 				return warn(
 					`dependency installation timed out after ${PREPARE_DEPS_TIMEOUT_MS / 1000}s`
 				)
@@ -797,7 +776,7 @@ class PythonDebugSession extends BaseDebugSession {
 		this.process = spawnProcess({
 			cmd,
 			cwd,
-			env: { PYTHONUNBUFFERED: '1', ...sessionProxyEnv(), ...this.envVars }
+			env: { PYTHONUNBUFFERED: '1', ...sessionEnv(), ...this.envVars }
 		})
 
 		// Read stderr to capture startup messages
@@ -1133,6 +1112,16 @@ sys.stdout.flush()
 				this.venvPath = (await this.prepareDependencies(code)) ?? undefined
 			}
 
+			// Installing takes long enough for the client to give up meanwhile, and cleanup() has
+			// then already run: starting the debuggee now would leave a process nothing owns
+			// executing the script for a session that is gone. Clean up again on the way out,
+			// since a teardown that landed before the script was written left it behind.
+			if (this.disposed) {
+				logger.info('Session torn down during dependency preparation, not starting Python')
+				await this.cleanup()
+				return
+			}
+
 			await this.startPythonProcess(cwd)
 
 			// Re-apply breakpoints to the Python server using the actual script path
@@ -1188,6 +1177,14 @@ sys.stdout.flush()
 	}
 
 	async cleanup(): Promise<void> {
+		this.disposed = true
+
+		// A client that gives up mid-install must not leave the package manager running
+		if (this.prepareDepsProcess) {
+			this.prepareDepsProcess.kill('SIGKILL')
+			this.prepareDepsProcess = null
+		}
+
 		if (this.debugpyWs) {
 			this.debugpyWs.close()
 			this.debugpyWs = null

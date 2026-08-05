@@ -116,6 +116,11 @@ const p = {
 pub struct PrepareRequest {
     pub code: String,
     pub language: String,
+    /// Interpreter the caller will run the script with. The venv must be built against it:
+    /// site-packages is put on that interpreter's sys.path, and a wheel with a compiled
+    /// extension built for another version is simply invisible there.
+    #[serde(default)]
+    pub python_path: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -178,6 +183,17 @@ fn get_proc_envs(cache_env: Option<(&str, &str)>) -> HashMap<String, String> {
     envs
 }
 
+/// CA bundle for the package index, most specific spelling first. A host behind a TLS-intercepting
+/// proxy configures it under whichever name its other tooling uses, and the environment is cleared
+/// below, so falling back past `PY_INDEX_CERT` is what makes those hosts work at all.
+fn index_ca_bundle() -> Option<String> {
+    INDEX_CERT
+        .clone()
+        .or_else(|| non_empty_env("SSL_CERT_FILE"))
+        .or_else(|| non_empty_env("REQUESTS_CA_BUNDLE"))
+        .or_else(|| non_empty_env("CURL_CA_BUNDLE"))
+}
+
 /// uv registry arguments, mirroring what the job path passes in `python_executor`.
 fn uv_registry_args() -> Vec<String> {
     let mut args: Vec<String> = vec![];
@@ -201,7 +217,7 @@ fn uv_registry_args() -> Vec<String> {
 }
 
 /// Prepare Python dependencies using uv
-async fn prepare_python_deps_standalone(code: &str) -> PrepareResponse {
+async fn prepare_python_deps_standalone(code: &str, python_path: Option<&str>) -> PrepareResponse {
     // Parse imports from the code
     let packages = parse_python_imports(code);
 
@@ -242,10 +258,16 @@ async fn prepare_python_deps_standalone(code: &str) -> PrepareResponse {
     if let Some(timeout) = UV_HTTP_TIMEOUT.as_ref() {
         common_uv_envs.insert("UV_HTTP_TIMEOUT".to_string(), timeout.to_string());
     }
-    if let Some(cert_path) = INDEX_CERT.as_ref() {
+    if let Some(cert_path) = index_ca_bundle() {
         // uv has no `--cert` on `venv`/`pip install` (astral-sh/uv#6715), so a custom CA bundle
-        // reaches it through SSL_CERT_FILE, as in the job path.
-        common_uv_envs.insert("SSL_CERT_FILE".to_string(), cert_path.to_string());
+        // reaches it through SSL_CERT_FILE, as in the job path. It replaces uv's own roots rather
+        // than adding to them, so the file has to be a complete bundle.
+        common_uv_envs.insert("SSL_CERT_FILE".to_string(), cert_path);
+    }
+    // The other spelling uv accepts. Like the bundle above it replaces uv's own roots rather than
+    // adding to them, so a directory holding only a private CA leaves public indexes untrusted.
+    if let Some(cert_dir) = non_empty_env("SSL_CERT_DIR") {
+        common_uv_envs.insert("SSL_CERT_DIR".to_string(), cert_dir);
     }
 
     let registry_args = uv_registry_args();
@@ -254,6 +276,13 @@ async fn prepare_python_deps_standalone(code: &str) -> PrepareResponse {
     // `--seed` resolves pip/setuptools from the index, so the venv also needs the registry
     // arguments: on a network that only reaches a private mirror it fails without them.
     let mut venv_args = vec!["venv".to_string(), venv_dir.clone(), "--seed".to_string()];
+    // Without this uv picks its own interpreter, and the caller then puts a site-packages built
+    // for that version on a different interpreter's sys.path: pure-Python packages still import,
+    // anything with a compiled extension does not, and the error names the missing extension
+    // rather than the mismatch.
+    if let Some(python_path) = python_path {
+        venv_args.extend(["-p".to_string(), python_path.to_string()]);
+    }
     venv_args.extend(registry_args.iter().cloned());
 
     let output = Command::new(UV_PATH.as_str())
@@ -375,16 +404,25 @@ async fn prepare_python_deps_standalone(code: &str) -> PrepareResponse {
 
 /// Get common environment variables for Bun processes
 pub fn get_simple_bun_proc_envs() -> HashMap<String, String> {
-    get_proc_envs(Some(("BUN_INSTALL_CACHE_DIR", &BUN_CACHE_DIR)))
+    let mut envs = get_proc_envs(Some(("BUN_INSTALL_CACHE_DIR", &BUN_CACHE_DIR)));
+    // Bun reads none of the spellings uv does, so a custom CA reaches `bun install` only here.
+    if let Some(cert_path) = non_empty_env("NODE_EXTRA_CA_CERTS").or_else(index_ca_bundle) {
+        envs.insert("NODE_EXTRA_CA_CERTS".to_string(), cert_path);
+    }
+    envs
 }
 
 /// Prepare dependencies for a script without requiring database access.
 /// This is meant to be called from the CLI.
-pub async fn prepare_deps_standalone(code: &str, language: &str) -> PrepareResponse {
+pub async fn prepare_deps_standalone(
+    code: &str,
+    language: &str,
+    python_path: Option<&str>,
+) -> PrepareResponse {
     // Route to the appropriate handler based on language
     match language {
         "python3" | "python" => {
-            return prepare_python_deps_standalone(code).await;
+            return prepare_python_deps_standalone(code, python_path).await;
         }
         "bun" | "typescript" | "deno" => {
             // Continue with JS/TS handling below
@@ -649,7 +687,12 @@ pub async fn run_prepare_deps_cli() -> anyhow::Result<()> {
         }
     };
 
-    let response = prepare_deps_standalone(&request.code, &request.language).await;
+    let response = prepare_deps_standalone(
+        &request.code,
+        &request.language,
+        request.python_path.as_deref(),
+    )
+    .await;
     println!("{}", serde_json::to_string(&response)?);
 
     Ok(())
