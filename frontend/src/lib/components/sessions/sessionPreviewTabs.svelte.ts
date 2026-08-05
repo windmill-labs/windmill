@@ -228,10 +228,40 @@ export class SessionPreviewTabs {
 		this.#schedulePersist()
 	}
 
+	// The tab the user is actually looking at, or undefined when the panel is
+	// collapsed and nothing is on screen.
+	#displayedTab(): SessionPreviewTab | undefined {
+		return this.#collapsed ? undefined : this.#tabs.find((t) => t.id === this.#activeId)
+	}
+
+	// Run a tab mutation, flashing the displayed tab's border when it left the
+	// panel showing exactly what it already showed. Re-opening a destination that
+	// is already on screen is otherwise indistinguishable from a dead click.
+	#pulsingIfUnchanged<T>(mutate: () => T): T {
+		const before = this.#displayedTab()
+		const shown = before && { id: before.id, url: before.url, loc: before.loc }
+		const result = mutate()
+		const after = this.#displayedTab()
+		if (
+			shown &&
+			after &&
+			after.id === shown.id &&
+			after.url === shown.url &&
+			after.loc === shown.loc
+		) {
+			this.pulseFocus(after.id)
+		}
+		return result
+	}
+
 	// Open — or focus, if already shown — a tab for a destination, and reveal the
 	// panel. An editable item dedupes against the tab already hosting that same
 	// (kind, path); anything else dedupes on the tab's observed location.
 	open(target: PreviewTarget): { status: 'opened' | 'focused' } {
+		return this.#pulsingIfUnchanged(() => this.#open(target))
+	}
+
+	#open(target: PreviewTarget): { status: 'opened' | 'focused' } {
 		const editorTarget = editorTargetFor(target)
 		// A fresh session starts collapsed, so without this the tab opens behind a
 		// collapsed panel and the user sees nothing change.
@@ -276,8 +306,12 @@ export class SessionPreviewTabs {
 		}
 		// Focus the tab currently *showing* this destination instead of opening a
 		// duplicate. Matched on the observed `loc`, not `url`: a tab that was
-		// opened here but navigated away no longer counts as showing it.
-		const shown = this.#tabs.find((t) => t.loc === url)
+		// opened here but navigated away no longer counts as showing it. Both sides
+		// are canonicalized because a caller may bake `?workspace=` into the href
+		// (the frame re-injects it from the session anyway) while the observed loc
+		// has had it stripped — comparing raw would reopen the page as a duplicate.
+		const canonicalUrl = canonicalizeObservedLoc(url)
+		const shown = this.#tabs.find((t) => canonicalizeObservedLoc(t.loc) === canonicalUrl)
 		if (shown) {
 			this.#activeId = shown.id
 			this.#flush()
@@ -294,6 +328,10 @@ export class SessionPreviewTabs {
 	// Re-point the active tab at a destination (breadcrumb pick / in-editor link /
 	// iframe-posted editor navigation).
 	navigate(target: PreviewTarget): void {
+		this.#pulsingIfUnchanged(() => this.#navigate(target))
+	}
+
+	#navigate(target: PreviewTarget): void {
 		const t = this.#tabs.find((x) => x.id === this.#activeId)
 		if (!t) return
 		const editorTarget = editorTargetFor(target)

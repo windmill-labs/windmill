@@ -681,4 +681,51 @@ describe('SessionPreviewTabs.pulseFocus', () => {
 		o.pulseFocus('tab-b')
 		expect(o.focusPulse).toEqual({ id: 'tab-b', nonce: 3 })
 	})
+
+	it('fires on re-opening whatever the panel already displays, for any tab kind', () => {
+		const o = owner()
+		o.open(rawAppTarget)
+		expect(o.focusPulse.nonce).toBe(0)
+		o.open(rawAppTarget)
+		expect(o.focusPulse).toEqual({ id: o.activeId, nonce: 1 })
+		// A second tab taking over is its own visible change.
+		o.open(pageTarget)
+		expect(o.focusPulse.nonce).toBe(1)
+		o.open(pageTarget)
+		expect(o.focusPulse).toEqual({ id: o.activeId, nonce: 2 })
+		// Re-pointing the displayed tab elsewhere changes what is on screen.
+		o.navigate(scriptTarget)
+		expect(o.focusPulse.nonce).toBe(2)
+		o.navigate(scriptTarget)
+		expect(o.focusPulse.nonce).toBe(3)
+	})
+
+	it('focuses (and flashes) a run tab whose href carries ?workspace=', () => {
+		const o = owner()
+		const run: PreviewTarget = {
+			type: 'page',
+			href: `${base}/run/job-1?workspace=fork`,
+			label: 'Run'
+		}
+		o.open(run)
+		// What the frame reports back has the injected params stripped.
+		o.observeLocation(o.activeId, `${base}/run/job-1?workspace=fork&nomenubar=true`)
+		expect(o.tabs.length).toBe(1)
+		expect(o.open(run).status).toBe('focused')
+		expect(o.tabs.length).toBe(1)
+		expect(o.focusPulse.nonce).toBe(1)
+	})
+
+	it('stays quiet when the re-open is what reveals the tab', () => {
+		const o = owner()
+		o.open(rawAppTarget)
+		o.setCollapsed(true)
+		// Un-collapsing onto the same tab is already visible.
+		o.open(rawAppTarget)
+		expect(o.focusPulse.nonce).toBe(0)
+		// Switching back to a background tab is too.
+		o.open(pageTarget)
+		o.open(rawAppTarget)
+		expect(o.focusPulse.nonce).toBe(0)
+	})
 })

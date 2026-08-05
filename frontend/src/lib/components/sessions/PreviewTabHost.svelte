@@ -143,8 +143,10 @@
 
 	let flashing = $state(false)
 	let flashTimer: ReturnType<typeof setTimeout> | undefined
-	// Guard against the effect's non-pulse reruns (tab/runtime changes) firing a flash.
-	let lastPulseNonce = -1
+	// Guard against the effect's non-pulse reruns (tab/runtime changes) firing a
+	// flash. Seeded from the current nonce: a pulse from before this host mounted
+	// is moot, the tab appearing is itself the change the flash would point at.
+	let lastPulseNonce = runtime?.previewTabs.focusPulse.nonce ?? -1
 	$effect(() => {
 		const pulse = runtime?.previewTabs.focusPulse
 		if (!pulse || pulse.nonce === lastPulseNonce) return
@@ -242,13 +244,6 @@
 		{:else if !runtime?.manager.artifacts.loading}
 			<div class="p-4 text-sm text-tertiary">This artifact is no longer available.</div>
 		{/if}
-		<!-- Overlay: the source editor's opaque bg would cover a ring on the container. -->
-		<div
-			class="pointer-events-none absolute inset-0 z-30 ring-2 ring-inset ring-border-accent transition-opacity duration-300 {flashing
-				? 'opacity-100'
-				: 'opacity-0'}"
-			aria-hidden="true"
-		></div>
 	</div>
 {:else if mounted}
 	<iframe
@@ -265,3 +260,15 @@
 		class="absolute inset-0 w-full h-full border-0 bg-surface {visibility}"
 	></iframe>
 {/if}
+
+<!-- Flash ring, a sibling of every tab body rather than a child of one: an
+     editor's own opaque background (or an iframe's document) would paint over a
+     ring drawn inside it. Sits above the active body's z-10, and stays
+     transparent while this tab is not the displayed one. -->
+<div
+	class="pointer-events-none absolute inset-0 z-30 ring-2 ring-inset ring-border-accent transition-opacity duration-300 {flashing &&
+	active
+		? 'opacity-100'
+		: 'opacity-0'}"
+	aria-hidden="true"
+></div>
