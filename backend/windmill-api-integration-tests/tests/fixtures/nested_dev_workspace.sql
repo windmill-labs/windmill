@@ -1,4 +1,4 @@
--- Four families for the nested dev-workspace (dev of a dev) guards.
+-- Five families for the nested dev-workspace (dev of a dev) guards.
 --
 -- Family A is rooted at `test-workspace` (base fixture) and is the one a nested dev is attached to:
 --   test-workspace -> tw-dev ('dev')
@@ -15,6 +15,10 @@
 -- Family E has no nested dev yet, so both "give `wm-fork-edev` a dev" and "detach `wm-fork-edev`"
 -- pass their own checks — the pair that must not both commit:
 --   prod-e -> wm-fork-edev ('dev'), plus the standalone candidate `e-cand`
+--
+-- Family F is three standalone workspaces, so "attach f-mid under prod-f" and "attach f-leaf under
+-- f-mid" both pass on their own — adjacent attaches whose labels only collide once both land:
+--   prod-f, f-mid, f-leaf
 
 INSERT INTO workspace (id, name, owner, parent_workspace_id, is_dev_workspace, dev_workspace_label) VALUES
 	('tw-dev', 'dev of test-workspace', 'test@windmill.dev', 'test-workspace', true, 'dev'),
@@ -29,11 +33,15 @@ INSERT INTO workspace (id, name, owner, parent_workspace_id, is_dev_workspace, d
 	('c-dev-dev', 'dev of c-dev', 'test@windmill.dev', 'c-dev', true, 'staging'),
 	('prod-e', 'prod e', 'test@windmill.dev', NULL, false, NULL),
 	('wm-fork-edev', 'redesignated fork with no dev yet', 'test@windmill.dev', 'prod-e', true, 'dev'),
-	('e-cand', 'attach candidate', 'test@windmill.dev', NULL, false, NULL);
+	('e-cand', 'attach candidate', 'test@windmill.dev', NULL, false, NULL),
+	('prod-f', 'prod f', 'test@windmill.dev', NULL, false, NULL),
+	('f-mid', 'middle attach candidate', 'test@windmill.dev', NULL, false, NULL),
+	('f-leaf', 'leaf attach candidate', 'test@windmill.dev', NULL, false, NULL);
 
 CREATE TEMP VIEW new_workspaces AS SELECT unnest(ARRAY[
 	'tw-dev', 'standalone', 'standalone-dev', 'spare', 'prod-b', 'wm-fork-redev', 'redev-dev',
-	'prod-c', 'c-dev', 'c-dev-dev', 'prod-e', 'wm-fork-edev', 'e-cand'
+	'prod-c', 'c-dev', 'c-dev-dev', 'prod-e', 'wm-fork-edev', 'e-cand',
+	'prod-f', 'f-mid', 'f-leaf'
 ]) AS id;
 
 INSERT INTO workspace_settings (workspace_id)

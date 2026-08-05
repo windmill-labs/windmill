@@ -233,3 +233,60 @@ async fn test_nested_attach_and_detach_cannot_both_commit(
     }
     Ok(())
 }
+
+/// Two adjacent attaches — `f-mid` under `prod-f` and `f-leaf` under `f-mid` — each see a chain that
+/// does not yet contain the other's dev workspace, so both pass their label check. Committing both
+/// puts two `dev` workspaces in one chain, deploying to the same branch. Attaching locks its
+/// candidate as well as its prod, which is what makes the second one re-read a chain containing the
+/// first. Repeated for the same reason as the detach race above.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "nested_dev_workspace"))]
+async fn test_adjacent_attaches_cannot_both_claim_a_label(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    for round in 0..12 {
+        sqlx::query(
+            "UPDATE workspace SET parent_workspace_id = NULL, is_dev_workspace = false,
+                    dev_workspace_label = NULL WHERE id IN ('f-mid', 'f-leaf')",
+        )
+        .execute(&db)
+        .await?;
+
+        let (upper, lower) = tokio::join!(
+            attach(
+                port,
+                "prod-f",
+                json!({ "dev_workspace_id": "f-mid", "dev_workspace_label": "dev" }),
+            ),
+            attach(
+                port,
+                "f-mid",
+                json!({ "dev_workspace_id": "f-leaf", "dev_workspace_label": "dev" }),
+            ),
+        );
+        assert!(
+            upper.0.is_success() != lower.0.is_success(),
+            "round {round}: exactly one must win, got upper={} lower={}\n{}\n{}",
+            upper.0,
+            lower.0,
+            upper.1,
+            lower.1
+        );
+
+        // Never both: that is the chain prod-f -> f-mid('dev') -> f-leaf('dev').
+        let chained: bool = sqlx::query_scalar(
+            "SELECT EXISTS(
+                 SELECT 1 FROM workspace mid
+                 JOIN workspace leaf ON leaf.parent_workspace_id = mid.id
+                 WHERE mid.id = 'f-mid' AND leaf.id = 'f-leaf'
+                   AND mid.is_dev_workspace AND leaf.is_dev_workspace
+                   AND mid.parent_workspace_id = 'prod-f'
+             )",
+        )
+        .fetch_one(&db)
+        .await?;
+        assert!(!chained, "round {round}: both attaches committed");
+    }
+    Ok(())
+}

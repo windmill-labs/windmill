@@ -6692,7 +6692,14 @@ async fn create_workspace_fork_branch(
         let label = normalize_dev_workspace_label(nw.dev_workspace_label.clone())?;
         reject_dev_label_matching_tracked_branch(&db, label.as_deref(), &[&w_id]).await?;
         ensure_dev_parent_can_host_dev(&db, &w_id).await?;
-        reject_dev_label_taken_in_chain(&db, &w_id, &nw.id, false, label.as_deref()).await?;
+        reject_dev_label_taken_in_chain(
+            &mut *db.acquire().await?,
+            &w_id,
+            &nw.id,
+            false,
+            label.as_deref(),
+        )
+        .await?;
         // Reject before creating any git branch if the parent already has a dev workspace,
         // otherwise the deferred branch-creation job leaves a dangling branch on the synced repos.
         ensure_no_existing_dev_workspace(&db, &w_id).await?;
@@ -7013,8 +7020,14 @@ async fn create_workspace_fork(
         let label = normalize_dev_workspace_label(nw.dev_workspace_label.clone())?;
         reject_dev_label_matching_tracked_branch(&db, label.as_deref(), &[&parent_workspace_id])
             .await?;
-        reject_dev_label_taken_in_chain(&db, &parent_workspace_id, &nw.id, false, label.as_deref())
-            .await?;
+        reject_dev_label_taken_in_chain(
+            &mut *db.acquire().await?,
+            &parent_workspace_id,
+            &nw.id,
+            false,
+            label.as_deref(),
+        )
+        .await?;
         label
     } else {
         None
@@ -7093,12 +7106,21 @@ async fn create_workspace_fork(
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
     if nw.is_dev_workspace {
-        // The checks above ran outside a transaction, so the parent's eligibility could have changed
-        // under us: re-decide it here, under the lock a concurrent teardown of the parent must also
-        // take.
+        // The checks above ran outside a transaction, so the parent's eligibility and the chain's
+        // labels could have changed under us: re-decide both here, under the lock every other
+        // operation on this parent's pairing must also take. The new workspace's own id is not yet
+        // in use, so nothing can be operating on its side.
         lock_dev_pairing(&mut tx, &parent_workspace_id).await?;
         ensure_dev_parent_can_host_dev(&mut *tx, &parent_workspace_id).await?;
         ensure_no_existing_dev_workspace(&mut *tx, &parent_workspace_id).await?;
+        reject_dev_label_taken_in_chain(
+            &mut *tx,
+            &parent_workspace_id,
+            &nw.id,
+            false,
+            dev_workspace_label.as_deref(),
+        )
+        .await?;
     }
 
     let forked_id = nw.id;
@@ -7414,7 +7436,7 @@ async fn attach_dev_workspace(
     // The candidate keeps its own subtree, so its dev descendants keep their labels and join the
     // chain alongside it.
     reject_dev_label_taken_in_chain(
-        &db,
+        &mut *db.acquire().await?,
         &prod_w_id,
         &dev_w_id,
         true,
@@ -7438,11 +7460,28 @@ async fn attach_dev_workspace(
     }
 
     let mut tx = db.begin().await?;
-    // Everything above ran outside a transaction, so prod's eligibility could have changed under
-    // us: re-decide it here, under the lock a concurrent teardown of prod must also take.
-    lock_dev_pairing(&mut tx, &prod_w_id).await?;
+    // Everything above ran outside a transaction, so prod's eligibility and the chain's labels could
+    // have changed under us. Both sides are locked: prod because a teardown of it would leave the
+    // candidate stranded, and the candidate because attaching it splices its own subtree into this
+    // chain, so a concurrent pairing made *under the candidate* has to contend with this one too.
+    // Lowest id first — two attaches touching the same pair would otherwise deadlock.
+    let (first, second) = if prod_w_id <= dev_w_id {
+        (&prod_w_id, &dev_w_id)
+    } else {
+        (&dev_w_id, &prod_w_id)
+    };
+    lock_dev_pairing(&mut tx, first).await?;
+    lock_dev_pairing(&mut tx, second).await?;
     ensure_dev_parent_can_host_dev(&mut *tx, &prod_w_id).await?;
     ensure_no_existing_dev_workspace(&mut *tx, &prod_w_id).await?;
+    reject_dev_label_taken_in_chain(
+        &mut *tx,
+        &prod_w_id,
+        &dev_w_id,
+        true,
+        dev_workspace_label.as_deref(),
+    )
+    .await?;
     sqlx::query!(
         "UPDATE workspace SET parent_workspace_id = $1, is_dev_workspace = true, dev_workspace_label = $3 WHERE id = $2",
         &prod_w_id,
@@ -9068,7 +9107,7 @@ async fn reject_stranding_nested_dev<'e, E: sqlx::Executor<'e, Database = Postgr
 /// workspaces. Dev workspaces only ever hang off a root or another dev (`ensure_dev_parent_can_host_dev`),
 /// so that chain is linear and this is the whole of it.
 async fn reject_dev_label_taken_in_chain(
-    db: &DB,
+    db: &mut sqlx::PgConnection,
     parent_w_id: &str,
     new_dev_id: &str,
     keeps_own_subtree: bool,
@@ -9090,7 +9129,7 @@ async fn reject_dev_label_taken_in_chain(
            WHERE is_dev_workspace AND NOT deleted"#,
         parent_w_id
     )
-    .fetch_all(db)
+    .fetch_all(&mut *db)
     .await?
     .into_iter()
     .map(|r| {
@@ -9121,7 +9160,7 @@ async fn reject_dev_label_taken_in_chain(
                    WHERE depth > 0 AND is_dev_workspace AND NOT deleted"#,
                 new_dev_id
             )
-            .fetch_all(db)
+            .fetch_all(&mut *db)
             .await?
             .into_iter()
             .map(|r| {
