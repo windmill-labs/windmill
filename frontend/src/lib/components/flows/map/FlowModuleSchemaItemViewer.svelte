@@ -62,7 +62,7 @@
 				<div>{label}</div>
 				{#if path != ''}<div>{path}</div>{/if}
 				{#if showExploreHint}
-					<div class="mt-1 text-tertiary">double click to explore</div>
+					<div class="mt-1 text-tertiary">double click, or click again, to explore</div>
 				{/if}
 			</div>
 		{/snippet}

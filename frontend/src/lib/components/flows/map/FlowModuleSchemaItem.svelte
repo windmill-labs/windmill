@@ -285,8 +285,6 @@
 						<Icon size={12} />
 					</div>
 					{#snippet text()}
-						<!-- A badge only says a setting is on; its value is what the reader came for,
-						     and reaching it otherwise means opening the step. -->
 						{s.tooltip}
 						<span class={s.summary.mono ? 'font-mono' : ''}>· {s.summary.text}</span>
 					{/snippet}
