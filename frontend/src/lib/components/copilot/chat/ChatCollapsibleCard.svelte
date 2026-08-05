@@ -141,9 +141,15 @@
 			mask-position: 0 0;
 		}
 	}
+	/* The sweep is the only thing marking a row as running, so it degrades to a
+	   flat wash rather than disappearing — otherwise a running tool row would be
+	   indistinguishable from a settled one here. */
 	@media (prefers-reduced-motion: reduce) {
 		.shimmer-band {
-			display: none;
+			animation: none;
+			-webkit-mask-image: none;
+			mask-image: none;
+			opacity: 0.35;
 		}
 	}
 </style>

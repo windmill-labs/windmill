@@ -3003,3 +3003,81 @@ describe('AIChatManager.waitForPipelineHelpers', () => {
 		await expect(manager.waitForPipelineHelpers(10)).resolves.toBe(false)
 	})
 })
+
+describe('AIChatManager reasoning duration', () => {
+	beforeEach(() => {
+		localStorage.clear()
+		mocks.getCurrentModel.mockReturnValue({ model: 'test-model', provider: 'openai' })
+	})
+
+	function assistantDurations(manager: AIChatManager): (number | undefined)[] {
+		return manager.displayMessages
+			.filter((m) => m.role === 'assistant')
+			.map((m) => (m as { reasoningDurationMs?: number }).reasoningDurationMs)
+	}
+
+	it('stops the clock at the first answer token, not at the end of the turn', async () => {
+		const manager = new AIChatManager()
+		manager.changeMode(AIMode.ASK)
+		manager.setAiChatInput({ restoreInstructions: vi.fn(), focusInput: vi.fn() } as any)
+
+		let now = 1_000
+		vi.spyOn(Date, 'now').mockImplementation(() => now)
+
+		vi.mocked(runChatLoop).mockImplementation(async (config) => {
+			config.callbacks.onReasoningStart?.()
+			config.callbacks.onReasoningDelta?.('weighing the options')
+			now += 4_000
+			config.callbacks.onNewToken('here is the answer')
+			// The answer keeps streaming well past the end of thinking; none of it
+			// may land in the duration.
+			now += 9_000
+			config.callbacks.onMessageEnd()
+			return {
+				addedMessages: [],
+				tokenUsage: {} as any,
+				lastIterationUsage: null,
+				hitMaxIterations: false
+			}
+		})
+
+		manager.instructions = 'do a thing'
+		await manager.sendRequest()
+
+		expect(assistantDurations(manager)).toEqual([4_000])
+	})
+
+	it('times each reasoning pass of a tool-using turn independently', async () => {
+		const manager = new AIChatManager()
+		manager.changeMode(AIMode.ASK)
+		manager.setAiChatInput({ restoreInstructions: vi.fn(), focusInput: vi.fn() } as any)
+
+		let now = 1_000
+		vi.spyOn(Date, 'now').mockImplementation(() => now)
+
+		vi.mocked(runChatLoop).mockImplementation(async (config) => {
+			// First pass reasons straight into a tool call — no answer token, so the
+			// message boundary is where its thinking stops.
+			config.callbacks.onReasoningDelta?.('which tool do I need')
+			now += 3_000
+			config.callbacks.onMessageEnd()
+			// Tool execution must not be billed to either pass.
+			now += 20_000
+			config.callbacks.onReasoningDelta?.('now what does that result mean')
+			now += 7_000
+			config.callbacks.onNewToken('here is the answer')
+			config.callbacks.onMessageEnd()
+			return {
+				addedMessages: [],
+				tokenUsage: {} as any,
+				lastIterationUsage: null,
+				hitMaxIterations: false
+			}
+		})
+
+		manager.instructions = 'do a thing'
+		await manager.sendRequest()
+
+		expect(assistantDurations(manager)).toEqual([3_000, 7_000])
+	})
+})
