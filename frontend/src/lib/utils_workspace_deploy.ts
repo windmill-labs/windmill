@@ -568,14 +568,6 @@ export async function getOnBehalfOfOrThrow(
 }
 
 /**
- * Resolve a source-workspace principal into the same person or group as the target names them.
- *
- * A `u/<username>` is workspace-local: the same username in the target can be a different account,
- * so copying one verbatim can hand a folder — or an item's execution identity — to a namesake. Email
- * is the only identifier stable across workspaces, so users go source username -> email -> target
- * username, and anyone without an account there resolves to undefined for the caller to deal with.
- */
-/**
  * Every workspace group, not just the first page.
  *
  * `listGroupNames` would be the obvious call but unions in instance groups, which folder rules do
@@ -596,6 +588,14 @@ async function workspaceGroupNames(workspace: string): Promise<Set<string>> {
 	return names
 }
 
+/**
+ * Resolve a source-workspace principal into the same person or group as the target names them.
+ *
+ * A `u/<username>` is workspace-local: the same username in the target can be a different account,
+ * so copying one verbatim can hand a folder — or an item's execution identity — to a namesake. Email
+ * is the only identifier stable across workspaces, so users go source username -> email -> target
+ * username, and anyone without an account there resolves to undefined for the caller to deal with.
+ */
 async function principalTranslator(workspaceFrom: string, workspaceTo: string) {
 	const [fromUsers, toUsers, targetGroups] = await Promise.all([
 		// `list_users` is unpaginated, unlike the group listing below.
