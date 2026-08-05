@@ -1,5 +1,6 @@
 <script lang="ts">
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
+	import { PIPELINE_DRAFT_KIND, pipelineFolderFromBundlePath } from '$lib/pipelinePaths'
 	import { Badge, Button, Skeleton } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import {
@@ -104,9 +105,9 @@
 			}
 			try {
 				for (const d of await getDraftItems(ws)) {
-					if (d.kind !== 'data_pipeline') continue
-					const m = d.path.match(/^f\/([^/]+)\/data_pipeline$/)
-					if (m) folders.add(m[1])
+					if (d.kind !== PIPELINE_DRAFT_KIND) continue
+					const folder = pipelineFolderFromBundlePath(d.path)
+					if (folder) folders.add(folder)
 				}
 			} catch {
 				// Drafts unavailable — show deployed pipelines only.

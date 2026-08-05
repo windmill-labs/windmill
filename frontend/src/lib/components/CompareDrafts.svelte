@@ -1,6 +1,7 @@
 <script lang="ts">
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
 	import { maskHasDraftRow } from './sessions/modifiedItemsMask'
+	import { pipelineFolderFromBundlePath } from '$lib/pipelinePaths'
 	import DiffDrawer from './DiffDrawer.svelte'
 	import WorkspaceDeployItemSummary from './WorkspaceDeployItemSummary.svelte'
 	import DraftBadge from './DraftBadge.svelte'
@@ -570,15 +571,9 @@
 		trigger_azure: '/azure_triggers',
 		trigger_email: '/email_triggers'
 	}
-	// A data-pipeline bundle is keyed at `f/<folder>/data_pipeline`; its editor
-	// is the pipeline view of that folder.
-	function pipelineFolderFromPath(path: string): string | undefined {
-		const segs = path.split('/')
-		return segs[0] === 'f' && segs.length >= 2 ? segs[1] : undefined
-	}
 	function draftEditUrl(d: Row): string | undefined {
 		if (d.draftKind === 'data_pipeline') {
-			const folder = pipelineFolderFromPath(d.path)
+			const folder = pipelineFolderFromBundlePath(d.path)
 			return folder
 				? `/pipeline/${encodeURIComponent(folder)}?workspace=${encodeURIComponent(currentWorkspaceId)}`
 				: undefined
@@ -608,7 +603,7 @@
 		// The pipeline bundle's storage path (`f/<folder>/data_pipeline`) is an
 		// implementation detail — show the folder it belongs to.
 		if (d.draftKind === 'data_pipeline') {
-			const folder = pipelineFolderFromPath(d.path)
+			const folder = pipelineFolderFromBundlePath(d.path)
 			return folder ? `f/${folder}` : d.path
 		}
 		const path = d.draft_path ?? d.path

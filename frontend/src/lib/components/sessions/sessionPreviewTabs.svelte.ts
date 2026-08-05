@@ -14,6 +14,7 @@ import {
 } from './previewRouter'
 import type { SessionPreviewTab, SessionTarget } from './sessionState.svelte'
 import type { Kind } from '$lib/utils_deployable'
+import { pipelineFolderFromBundlePath } from '$lib/pipelinePaths'
 
 // The single live owner of a session's preview tabs. Runs behind a small
 // interface both the sessions page (renderer) and the `open_preview` tool cross,
@@ -116,9 +117,10 @@ export function previewTargetForSessionTarget(
 // Adapt a deployable item's layout kind (the session review dock speaks `Kind`,
 // not SessionTarget) to a preview destination: the three live editors, data
 // pipelines, plus legacy drag-and-drop apps, which the panel hosts as an iframe
-// over their edit route. Any other kind — triggers, schedules, resources,
-// variables, folders — has no preview route and maps to undefined, which is the
-// caller's test for "can this row be previewed?".
+// over their edit route. Every other kind maps to undefined — not for lack of any
+// route (a variable or trigger has a list page the panel can host) but because
+// there is no item editor to preview, so their row falls back to the diff. The
+// undefined is also the caller's test for "can this row be previewed?".
 export function previewTargetForDeployKind(kind: Kind, path: string): PreviewTarget | undefined {
 	if (kind === 'app') {
 		return { type: 'item', item: { kind: 'app', raw_app: false, path, summary: '' } }
@@ -126,11 +128,9 @@ export function previewTargetForDeployKind(kind: Kind, path: string): PreviewTar
 	if (kind === 'script' || kind === 'flow' || kind === 'raw_app') {
 		return previewTargetForSessionTarget(kind, path)
 	}
-	// A pipeline bundle is stored at `f/<folder>/data_pipeline`; its editor is the
-	// pipeline view of that folder, so route on the folder rather than the key.
+	// A pipeline's editor is its folder's graph view, not its bundle path.
 	if (kind === 'data_pipeline') {
-		const segs = path.split('/')
-		const folder = segs[0] === 'f' && segs.length >= 2 ? segs[1] : undefined
+		const folder = pipelineFolderFromBundlePath(path)
 		return folder ? previewTargetForSessionTarget('pipeline', folder) : undefined
 	}
 	return undefined
