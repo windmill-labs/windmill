@@ -489,6 +489,15 @@ abstract class BaseDebugSession {
 // Python Debug Session
 // ============================================================================
 
+const DEFAULT_DEBUGPY_TIMEOUT_MS = 10_000
+
+// `launch` waits on dependency preparation in the Python server, which allows `windmill
+// prepare-deps` up to 120s; anything shorter here reports a timeout while the install is
+// still legitimately running.
+const DEBUGPY_TIMEOUT_MS_BY_COMMAND: Record<string, number> = {
+	launch: 180_000
+}
+
 class PythonDebugSession extends BaseDebugSession {
 	private debugpyWs: WebSocket | null = null
 	private debugpySeq = 1
@@ -531,11 +540,13 @@ class PythonDebugSession extends BaseDebugSession {
 			arguments: args
 		}
 
+		const timeoutMs = DEBUGPY_TIMEOUT_MS_BY_COMMAND[command] ?? DEFAULT_DEBUGPY_TIMEOUT_MS
+
 		return new Promise((resolve, reject) => {
 			const timeout = setTimeout(() => {
 				this.pendingDebugpyRequests.delete(seq)
-				reject(new Error(`Debugpy command timeout: ${command}`))
-			}, 10000)
+				reject(new Error(`Debugpy command timeout: ${command} (after ${timeoutMs}ms)`))
+			}, timeoutMs)
 
 			this.pendingDebugpyRequests.set(seq, {
 				resolve: (value) => {
