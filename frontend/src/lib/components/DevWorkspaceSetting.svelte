@@ -33,10 +33,10 @@
 	import type { Snippet } from 'svelte'
 
 	let {
-		// What this workspace promotes into its parent (deploy target + item filters). Rendered right
-		// under the pairing it configures, which is why the page hands it over instead of placing it
-		// itself: a dev workspace also shows a nested pairing below, and the filters must not read as
-		// belonging to that one.
+		// What this workspace promotes into its parent (deploy target + item filters). Rendered with
+		// the pairing statement it restates, ahead of the parent's protections and of the nested
+		// pairing below — hence handed over rather than placed by the page, which cannot see where
+		// that boundary falls.
 		deployTarget
 	}: { deployTarget?: Snippet } = $props()
 
@@ -583,6 +583,9 @@
 				<span class="font-mono">{currentLabel}</span> branch.
 			</span>
 		</div>
+	</div>
+	{@render deployTarget?.()}
+	<div class="flex flex-col gap-3 max-w-2xl mt-6">
 		<!-- A reader who is not a member of the parent gets a 403 listing its rules, which is expected
 			     here rather than an anomaly worth a permanent error box, so drop the panel instead. -->
 		{#if !parentRules.readFailed}
@@ -606,7 +609,6 @@
 			</Button>
 		</div>
 	</div>
-	{@render deployTarget?.()}
 	<div class="flex flex-col gap-3 max-w-2xl mt-8 pt-6 border-t">
 		<div class="flex flex-col gap-1">
 			<span class="text-xs font-semibold text-emphasis">This workspace's own dev workspace</span>
