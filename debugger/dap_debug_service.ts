@@ -353,6 +353,54 @@ interface SpawnOptions {
 }
 
 /**
+ * Container-level network configuration that the debugged process, and more importantly the
+ * `windmill prepare-deps` subprocess the Python DAP server shells out to, cannot work without:
+ * behind a corporate proxy or a private package index, `uv venv` / `uv pip install` reach nothing
+ * unless these are handed down. They are read from the service's own environment because there is
+ * no other channel a deployment can configure them through.
+ */
+const PASSTHROUGH_ENV_VARS = [
+	// Proxy
+	'HTTP_PROXY',
+	'HTTPS_PROXY',
+	'NO_PROXY',
+	'http_proxy',
+	'https_proxy',
+	'no_proxy',
+	// TLS trust roots (custom/MITM CAs)
+	'SSL_CERT_FILE',
+	'SSL_CERT_DIR',
+	'REQUESTS_CA_BUNDLE',
+	'CURL_CA_BUNDLE',
+	'NODE_EXTRA_CA_CERTS',
+	// Python package index
+	'PIP_INDEX_URL',
+	'PY_INDEX_URL',
+	'PIP_EXTRA_INDEX_URL',
+	'PY_EXTRA_INDEX_URL',
+	'PIP_INDEX_CERT',
+	'PY_INDEX_CERT',
+	'PIP_TRUSTED_HOST',
+	'PY_TRUSTED_HOST',
+	'UV_NATIVE_TLS',
+	'PY_NATIVE_CERT',
+	'UV_HTTP_TIMEOUT'
+]
+
+function passthroughEnv(): Record<string, string> {
+	const env: Record<string, string> = {}
+	for (const key of PASSTHROUGH_ENV_VARS) {
+		const value = process.env[key]
+		// An unset var and an empty one are equivalent here, and forwarding "" would shadow a
+		// default the child would otherwise pick up.
+		if (value !== undefined && value !== '') {
+			env[key] = value
+		}
+	}
+	return env
+}
+
+/**
  * Spawn a process, optionally wrapped with nsjail.
  * This is the key function for sandboxed execution.
  */
@@ -386,7 +434,7 @@ function spawnProcess(options: SpawnOptions): Subprocess {
 		logger.info(`Spawning: ${cmd.join(' ')}`)
 	}
 
-	// Only include essential env vars + caller-provided ones
+	// Only include essential env vars + the network-config allowlist + caller-provided ones.
 	// Don't inherit all of process.env to keep debugger environment clean
 	return spawn({
 		cmd,
@@ -397,6 +445,9 @@ function spawnProcess(options: SpawnOptions): Subprocess {
 			// Essential system vars
 			PATH: process.env.PATH || '/usr/bin:/bin',
 			HOME: process.env.HOME,
+			// Proxy / TLS / package-index settings inherited from the container, before the
+			// caller's env so an explicit override still wins
+			...passthroughEnv(),
 			// Caller-provided env vars
 			// Note: WM_BASE_URL is already overridden by BASE_INTERNAL_URL if set
 			...options.env

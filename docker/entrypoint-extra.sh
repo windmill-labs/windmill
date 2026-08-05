@@ -33,6 +33,20 @@ if [ ! -w "$HOME" ]; then
 fi
 export HOME
 
+# INIT_SCRIPT is the documented hook for preparing the host before anything reaches the network
+# (CA certificates, proxies, mounts), matching MODE=worker/server. It must therefore complete
+# before any service starts, and a failure has to abort: services that come up with an unprepared
+# trust store fail every TLS handshake instead, which is far harder to diagnose.
+if [ -n "$INIT_SCRIPT" ]; then
+    echo "[entrypoint] Running INIT_SCRIPT..."
+    bash -c "$INIT_SCRIPT" || {
+        code=$?
+        echo "[entrypoint] ERROR: INIT_SCRIPT failed with exit code $code, aborting" >&2
+        exit "$code"
+    }
+    echo "[entrypoint] INIT_SCRIPT completed"
+fi
+
 # Setup NETRC if provided (for LSP)
 if [ -n "$NETRC" ]; then
     echo "$NETRC" > "$HOME/.netrc"

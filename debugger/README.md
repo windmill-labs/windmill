@@ -75,6 +75,20 @@ Options:
 | `DAP_NSJAIL_PATH` | nsjail binary path | nsjail |
 | `DAP_NSJAIL_CONFIG` | nsjail config file path | - |
 
+The service does not inherit its whole environment into debug subprocesses. Beyond `PATH` and
+`HOME`, only the network configuration below is forwarded, so that dependency installation
+(`windmill prepare-deps`, which runs `uv venv` / `uv pip install`) works behind a proxy, a custom
+CA, or a private package index:
+
+- `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` (and their lowercase spellings)
+- `SSL_CERT_FILE`, `SSL_CERT_DIR`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `NODE_EXTRA_CA_CERTS`
+- `PIP_INDEX_URL`, `PY_INDEX_URL`, `PIP_EXTRA_INDEX_URL`, `PY_EXTRA_INDEX_URL`, `PIP_INDEX_CERT`,
+  `PY_INDEX_CERT`, `PIP_TRUSTED_HOST`, `PY_TRUSTED_HOST`, `UV_NATIVE_TLS`, `PY_NATIVE_CERT`,
+  `UV_HTTP_TIMEOUT`
+
+In the `windmill-extra` container, set `INIT_SCRIPT` to prepare the host before the services
+start (e.g. `INIT_SCRIPT=update-ca-certificates` to install a mounted CA bundle).
+
 ### Frontend Integration
 
 ```svelte
