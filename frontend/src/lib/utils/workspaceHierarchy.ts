@@ -158,8 +158,9 @@ export function findWorkspaceAncestors(
  * workspaces at or above it, plus those inside `broughtSubtreeId` (a candidate being attached keeps
  * its own subtree). Their environment labels are the ones the new dev cannot reuse — dev workspaces
  * in a chain inherit the same git-sync repositories, so an equal label means one shared deploy
- * branch. Ancestors the caller cannot see end the walk, so this can under-report; the backend
- * rejects on the full tree either way.
+ * branch. `disabled` is not filtered out, unlike elsewhere: it means the caller has no seat in that
+ * workspace, which does not free the branch it deploys to. Ancestors the caller cannot see end the
+ * walk, so this can under-report; the backend rejects on the full tree either way.
  */
 export function devWorkspacesSharingChain(
 	workspaceId: string | undefined,
@@ -171,7 +172,7 @@ export function devWorkspacesSharingChain(
 		...(self ? [self] : []),
 		...findWorkspaceAncestors(workspaceId, allWorkspaces),
 		...(broughtSubtreeId ? findWorkspaceDescendants(broughtSubtreeId, allWorkspaces) : [])
-	].filter((w) => w.is_dev_workspace && !w.disabled)
+	].filter((w) => w.is_dev_workspace)
 }
 
 /**
