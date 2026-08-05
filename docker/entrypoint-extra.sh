@@ -60,7 +60,7 @@ update_ca_certificates() {
 
 if [ "$(echo "${RUN_UPDATE_CA_CERTIFICATE_AT_START:-false}" | tr '[:upper:]' '[:lower:]')" = "true" ]; then
     update_ca_certificates "RUN_UPDATE_CA_CERTIFICATE_AT_START=true"
-elif [ -n "$(find -L "$CA_CERT_DIR" -maxdepth 1 -type f -name '*.crt' -print -quit 2>/dev/null)" ]; then
+elif [ -n "$(find -L "$CA_CERT_DIR" -type f -name '*.crt' -print -quit 2>/dev/null)" ]; then
     # Certificates mounted there are unambiguous intent, and they do nothing until registered, so
     # take the same action without making the operator also find the env var.
     update_ca_certificates "Found certificates in $CA_CERT_DIR"
