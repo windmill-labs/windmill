@@ -31,8 +31,8 @@
 	<DrawerContent title="Suspend/Approval/Prompt help" on:close={drawer?.closeDrawer}>
 		<div class="flex flex-col gap-y-6 text-xs text-primary font-normal">
 			<Section label="Form/Payload">
-				To add a form, open the <b>Form</b> tab of this <b>Suspend for approval</b> setting and
-				click
+				To add a form, open the <b>Form</b> tab of this <b>Suspend until approval/resume</b> setting
+				and click
 				<b>Add a form</b>. You can then get back the payloads using `resume` (single approver), or
 				`resumes` (multiple approvers) in the next step. Forms are an EE feature only. The approver
 				list itself is fetchable using `approvers`

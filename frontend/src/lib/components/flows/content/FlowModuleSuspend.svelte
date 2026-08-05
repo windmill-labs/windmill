@@ -96,7 +96,7 @@
 			}
 		}}
 		options={{
-			right: 'Suspend for approval',
+			right: 'Suspend until approval/resume',
 			rightTooltip:
 				'At the end of the step, the flow is suspended until it receives external requests to resume or cancel it. Most useful for approval steps, but can be used flexibly for other purposes.',
 			rightDocumentationLink: 'https://www.windmill.dev/docs/flows/flow_approval'
