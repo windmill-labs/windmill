@@ -264,8 +264,8 @@ async fn prepare_python_deps_standalone(code: &str, python_path: Option<&str>) -
         // than adding to them, so the file has to be a complete bundle.
         common_uv_envs.insert("SSL_CERT_FILE".to_string(), cert_path);
     }
-    // A directory of certificates is the other spelling uv accepts, and it is additive, so it is
-    // forwarded regardless of whether a bundle was found above.
+    // The other spelling uv accepts. Like the bundle above it replaces uv's own roots rather than
+    // adding to them, so a directory holding only a private CA leaves public indexes untrusted.
     if let Some(cert_dir) = non_empty_env("SSL_CERT_DIR") {
         common_uv_envs.insert("SSL_CERT_DIR".to_string(), cert_dir);
     }

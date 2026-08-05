@@ -520,6 +520,7 @@ class PythonDebugSession extends BaseDebugSession {
 	private windmillPath?: string
 	private venvPath?: string
 	private prepareDepsProcess: Subprocess | null = null
+	private disposed = false
 	private debugMode: boolean
 
 	constructor(ws: { send: (data: string) => void; close: () => void }, windmillPath?: string, debugMode = false) {
@@ -1111,6 +1112,14 @@ sys.stdout.flush()
 				this.venvPath = (await this.prepareDependencies(code)) ?? undefined
 			}
 
+			// Installing takes long enough for the client to give up meanwhile, and cleanup() has
+			// then already run: starting the debuggee now would leave a process nothing owns
+			// executing the script for a session that is gone.
+			if (this.disposed) {
+				logger.info('Session torn down during dependency preparation, not starting Python')
+				return
+			}
+
 			await this.startPythonProcess(cwd)
 
 			// Re-apply breakpoints to the Python server using the actual script path
@@ -1166,6 +1175,8 @@ sys.stdout.flush()
 	}
 
 	async cleanup(): Promise<void> {
+		this.disposed = true
+
 		// A client that gives up mid-install must not leave the package manager running
 		if (this.prepareDepsProcess) {
 			this.prepareDepsProcess.kill('SIGKILL')
