@@ -1560,6 +1560,14 @@ export class DebugSession {
 		// This analyzes imports and installs required npm packages
 		if (code) {
 			const registry = await fetchRegistryConfig(token, logger)
+			// A round trip of its own, during which the client can give up: the installer runs the
+			// packages' postinstall scripts, so starting one for a session that is already gone
+			// executes package code nobody is waiting for.
+			if (this.disposed) {
+				logger.info('Session was torn down during the registry configuration fetch, not installing')
+				this.sendResponse(request, false, {}, 'Session terminated during dependency preparation')
+				return
+			}
 			if (registry.message) {
 				this.sendEvent('output', { category: 'console', output: `${registry.message}\n` })
 			}

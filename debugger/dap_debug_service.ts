@@ -1126,6 +1126,14 @@ sys.stdout.flush()
 		try {
 			if (code) {
 				const registry = await fetchRegistryConfig(token, logger)
+				// A round trip of its own, during which the client can give up: the installer runs
+				// a source distribution's build backend, so starting one for a session that is
+				// already gone executes package code nobody is waiting for.
+				if (this.disposed) {
+					logger.info('Session torn down during the registry configuration fetch, not installing')
+					await this.cleanup()
+					return
+				}
 				if (registry.message) {
 					this.sendEvent('output', { category: 'console', output: `${registry.message}\n` })
 				}

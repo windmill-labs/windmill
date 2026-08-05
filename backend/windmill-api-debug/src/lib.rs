@@ -224,6 +224,19 @@ const REGISTRY_SETTINGS: [&str; 7] = [
     WORKSPACE_REGISTRIES_SETTING,
 ];
 
+/// Which half of the settings a session installs with, from the language its token was signed
+/// for: a session is served only what its own installer runs on, so a token minted for one
+/// language cannot be replayed to read the other's credentials. Every language the debugger
+/// accepts (`isDebuggableLanguage` in the frontend) has to appear here, or its sessions
+/// silently install from the public registries.
+fn registry_settings_for_language(language: &str) -> (bool, bool) {
+    match language {
+        "bun" | "typescript" | "deno" | "nativets" => (true, false),
+        "python3" | "python" => (false, true),
+        _ => (false, false),
+    }
+}
+
 /// Resolve one setting the way a worker resolves it: a workspace override wins over the
 /// instance value, which is `FORCE_<env>` > `global_settings` > `<env>` (the server's
 /// `load_option_setting_value`). A blank value means unset from either source, so a
@@ -285,14 +298,7 @@ async fn get_registry_config(
     let workspace_overrides = stored
         .get(WORKSPACE_REGISTRIES_SETTING)
         .and_then(|v| v.get(&claims.workspace_id));
-    // A session is served only what its own installer runs on: the token names the language it
-    // was signed for, so one minted for a TypeScript session cannot be replayed to read the
-    // Python index credentials, or the other way round.
-    let (npm, python) = match claims.language.as_str() {
-        "bun" | "typescript" | "deno" => (true, false),
-        "python3" | "python" => (false, true),
-        _ => (false, false),
-    };
+    let (npm, python) = registry_settings_for_language(&claims.language);
     let resolve = |serve: bool, key: &str, env_var: &str| {
         serve
             .then(|| resolve_registry_setting(&stored, workspace_overrides, key, env_var))
@@ -799,6 +805,19 @@ mod tests {
                 .await
                 .is_err()
         );
+    }
+
+    /// Every language the debugger can start a session for installs dependencies, so each one
+    /// has to name the settings its installer reads. A language missing here is not a refusal:
+    /// its sessions quietly install from the public registries instead.
+    #[test]
+    fn every_debuggable_language_is_served_its_own_settings() {
+        // Mirrors `isDebuggableLanguage` in frontend/src/lib/components/debug/debugUtils.ts.
+        for language in ["bun", "typescript", "deno", "nativets"] {
+            assert_eq!(registry_settings_for_language(language), (true, false));
+        }
+        assert_eq!(registry_settings_for_language("python3"), (false, true));
+        assert_eq!(registry_settings_for_language("go"), (false, false));
     }
 
     /// A debug session must resolve a registry setting to what a job in the same workspace
