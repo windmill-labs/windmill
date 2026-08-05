@@ -41,7 +41,7 @@ import { join } from 'node:path'
 
 // Import the working Bun debug session from the standalone server
 import { DebugSession as BunDebugSessionWorking, type NsjailConfig } from './dap_websocket_server_bun'
-import { prefixedInstallerEnv, runtimeEnv } from './env_passthrough'
+import { runtimeEnv } from './env_passthrough'
 
 // ============================================================================
 // Configuration
@@ -399,10 +399,9 @@ function spawnProcess(options: SpawnOptions): Subprocess {
 			PATH: process.env.PATH || '/usr/bin:/bin',
 			HOME: process.env.HOME,
 			// Proxy / TLS settings inherited from the container, before the caller's env so an
-			// explicit override still wins. Package-index settings travel prefixed: this env is
-			// also the debugged script's, and index URLs carry registry credentials.
+			// explicit override still wins. Package-index settings are absent by design: this is
+			// the debugged script's environment and index URLs carry registry credentials.
 			...runtimeEnv(),
-			...prefixedInstallerEnv(),
 			// Caller-provided env vars
 			// Note: WM_BASE_URL is already overridden by BASE_INTERNAL_URL if set
 			...options.env
@@ -509,11 +508,57 @@ class PythonDebugSession extends BaseDebugSession {
 	private envVars: Record<string, string> = {}
 	private windmillPath?: string
 	private debugMode: boolean
+	private venvPath?: string
 
 	constructor(ws: { send: (data: string) => void; close: () => void }, windmillPath?: string, debugMode = false) {
 		super(ws)
 		this.windmillPath = windmillPath
 		this.debugMode = debugMode
+	}
+
+	/**
+	 * Install the script's dependencies from here rather than from the Python DAP server.
+	 * `prepare-deps` needs the package-index settings, which routinely embed registry
+	 * credentials, and the DAP server runs debugged code in its own interpreter, where any
+	 * secret it holds is readable (`import __main__`, /proc/self/environ). This process never
+	 * executes user code, so it is the right place to hold them; the server receives only the
+	 * resulting venv path.
+	 */
+	private async preparePythonDeps(code: string): Promise<string | undefined> {
+		if (!this.windmillPath) {
+			return undefined
+		}
+		logger.info(`Python session: preparing dependencies with ${this.windmillPath}`)
+		try {
+			const proc = spawn({
+				cmd: [this.windmillPath, 'prepare-deps'],
+				stdin: new Blob([JSON.stringify({ code, language: 'python3' }) + '\n']),
+				stdout: 'pipe',
+				stderr: 'pipe'
+			})
+			const [stdout, stderr] = await Promise.all([
+				new Response(proc.stdout).text(),
+				new Response(proc.stderr).text()
+			])
+			// "Running in standalone mode" and friends precede the JSON on stdout.
+			const start = stdout.indexOf('{')
+			if (start < 0) {
+				logger.error(`prepare-deps returned no JSON: ${stdout.slice(0, 500)} ${stderr.slice(0, 500)}`)
+				return undefined
+			}
+			const response = JSON.parse(stdout.slice(start))
+			if (!response.success) {
+				logger.error(`prepare-deps failed: ${response.error}`)
+				return undefined
+			}
+			if (response.venv_path) {
+				logger.info(`Python session: dependencies installed at ${response.venv_path}`)
+			}
+			return response.venv_path ?? undefined
+		} catch (error) {
+			logger.error('Failed to run prepare-deps:', error)
+			return undefined
+		}
 	}
 
 	private nextDebugpySeq(): number {
@@ -654,10 +699,9 @@ class PythonDebugSession extends BaseDebugSession {
 			'--host', '127.0.0.1'
 		]
 
-		// Pass windmill path for dependency auto-installation if configured
-		if (this.windmillPath) {
-			cmd.push('--windmill', this.windmillPath)
-			logger.info(`Python session: autoinstall enabled with windmill at ${this.windmillPath}`)
+		// Hand over the venv we installed; the server must not run prepare-deps itself
+		if (this.venvPath) {
+			cmd.push('--venv-path', this.venvPath)
 		}
 
 		// Pass debug flag to Python subprocess
@@ -958,6 +1002,11 @@ class PythonDebugSession extends BaseDebugSession {
 		if (!this.scriptPath && !code) {
 			this.sendResponse(request, false, {}, 'No program or code specified')
 			return
+		}
+
+		// Before the main() wrapper is appended, so the installer parses the user's own imports
+		if (code) {
+			this.venvPath = await this.preparePythonDeps(code)
 		}
 
 		// If callMain is true, wrap the code to call main() with args

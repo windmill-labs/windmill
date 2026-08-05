@@ -92,6 +92,11 @@ session runs user-supplied code:
   `PY_INDEX_CERT`, `PIP_TRUSTED_HOST`, `PY_TRUSTED_HOST`, `UV_NATIVE_TLS`, `PY_NATIVE_CERT`,
   `UV_HTTP_TIMEOUT`
 
+Keeping that second set out of a debug runtime is why `dap_debug_service.ts` runs `prepare-deps`
+itself and passes the Python DAP server only the resulting venv (`--venv-path`). A secret held by
+an interpreter that also executes user code is readable from that code no matter where it is
+stashed, so the service, which never runs user code, is the only process that holds them.
+
 `prepare-deps` translates these into the spellings uv and bun actually read (`UV_INDEX_URL`,
 `UV_EXTRA_INDEX_URL`, `UV_INSECURE_HOST`, `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`) before invoking
 them, since uv reads none of pip's variables. The index settings apply to Python only; a private

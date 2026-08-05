@@ -27,7 +27,12 @@ export const RUNTIME_ENV_VARS = [
 	'NODE_EXTRA_CA_CERTS'
 ]
 
-/** Read by `windmill prepare-deps` only, and withheld from the debugged script. */
+/**
+ * Read by `windmill prepare-deps` only. These must never be added to the list above: index URLs
+ * routinely embed registry credentials, and a debug runtime executes user-supplied code, which can
+ * read anything its process holds. `prepare-deps` is spawned from the service process, which never
+ * runs user code and so already has them from the container.
+ */
 export const INSTALLER_ENV_VARS = [
 	'PIP_INDEX_URL',
 	'PY_INDEX_URL',
@@ -42,22 +47,14 @@ export const INSTALLER_ENV_VARS = [
 	'UV_HTTP_TIMEOUT'
 ]
 
-/**
- * Prefix under which installer variables are smuggled past a debug runtime that shares its
- * environment with the installer it spawns (the Python DAP server runs user code in-process).
- * That server strips the prefix into the `prepare-deps` environment and drops it from its own,
- * so the values never appear in the debugged script's `os.environ`.
- */
-export const INSTALLER_ENV_PREFIX = 'WM_DAP_INSTALLER_'
-
-function collect(keys: string[], keyPrefix = ''): Record<string, string> {
+function collect(keys: string[]): Record<string, string> {
 	const env: Record<string, string> = {}
 	for (const key of keys) {
 		const value = process.env[key]
 		// An unset var and an empty one are equivalent here, and forwarding "" would shadow a
 		// default the child would otherwise pick up.
 		if (value !== undefined && value !== '') {
-			env[keyPrefix + key] = value
+			env[key] = value
 		}
 	}
 	return env
@@ -66,14 +63,4 @@ function collect(keys: string[], keyPrefix = ''): Record<string, string> {
 /** Safe to expose to debugged user code. */
 export function runtimeEnv(): Record<string, string> {
 	return collect(RUNTIME_ENV_VARS)
-}
-
-/** Installer settings under their real names, for a process that does not run user code. */
-export function installerEnv(): Record<string, string> {
-	return collect(INSTALLER_ENV_VARS)
-}
-
-/** Installer settings under {@link INSTALLER_ENV_PREFIX}, for a runtime that does. */
-export function prefixedInstallerEnv(): Record<string, string> {
-	return collect(INSTALLER_ENV_VARS, INSTALLER_ENV_PREFIX)
 }

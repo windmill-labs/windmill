@@ -38,17 +38,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger("dap_server")
 
-# Package-index settings arrive under this prefix because debugged code runs inside this very
-# process: index URLs carry registry credentials, so they are moved out of os.environ here, before
-# any user code can read them, and handed only to the prepare-deps subprocess. Keep in sync with
-# INSTALLER_ENV_PREFIX in env_passthrough.ts.
-INSTALLER_ENV_PREFIX = "WM_DAP_INSTALLER_"
-INSTALLER_ENV = {
-    key[len(INSTALLER_ENV_PREFIX) :]: os.environ.pop(key)
-    for key in list(os.environ)
-    if key.startswith(INSTALLER_ENV_PREFIX)
-}
-
 try:
     import websockets
     from websockets.server import serve
@@ -291,7 +280,7 @@ class WindmillDebugger(bdb.Bdb):
 class DebugSession:
     """Manages a single debug session."""
 
-    def __init__(self, websocket, windmill_path: str | None = None):
+    def __init__(self, websocket, windmill_path: str | None = None, venv_path: str | None = None):
         self.websocket = websocket
         self.windmill_path = windmill_path
         self.seq = 1
@@ -308,7 +297,10 @@ class DebugSession:
         self._loop = asyncio.get_event_loop()
         self._call_main = False
         self._main_args: dict = {}
-        self._venv_path: str | None = None
+        # Set when the caller already installed the dependencies for us. Doing it here instead
+        # would mean holding the registry credentials in the interpreter that runs user code,
+        # where no amount of hiding helps (`import __main__`, /proc/self/environ).
+        self._venv_path: str | None = venv_path
 
     def next_seq(self) -> int:
         seq = self.seq
@@ -340,7 +332,6 @@ class DebugSession:
                 capture_output=True,
                 text=True,
                 timeout=120,  # 2 minute timeout for dependency installation
-                env={**os.environ, **INSTALLER_ENV},
             )
 
             elapsed = time.time() - start_time
@@ -531,8 +522,8 @@ class DebugSession:
             )
             return
 
-        # Prepare dependencies before modifying the code
-        if code:
+        # Prepare dependencies before modifying the code, unless they were installed for us
+        if code and self.windmill_path:
             self._venv_path = self.prepare_dependencies(code)
 
         # If callMain is True, append a call to main() with the provided args
@@ -908,11 +899,13 @@ class DebugSession:
 
 # Module-level variable to store windmill binary path
 _windmill_path: str | None = None
+# Module-level variable to store a venv prepared by the caller
+_venv_path: str | None = None
 
 
 async def handle_connection(websocket) -> None:
     """Handle a WebSocket connection."""
-    session = DebugSession(websocket, windmill_path=_windmill_path)
+    session = DebugSession(websocket, windmill_path=_windmill_path, venv_path=_venv_path)
     logger.info(f"New connection from {websocket.remote_address}")
 
     try:
@@ -936,13 +929,21 @@ async def handle_connection(websocket) -> None:
         session._cleanup_temp_file()
 
 
-async def main(host: str = "localhost", port: int = 5679, windmill_path: str | None = None) -> None:
+async def main(
+    host: str = "localhost",
+    port: int = 5679,
+    windmill_path: str | None = None,
+    venv_path: str | None = None,
+) -> None:
     """Start the DAP WebSocket server."""
-    global _windmill_path
+    global _windmill_path, _venv_path
     _windmill_path = windmill_path
+    _venv_path = venv_path
 
     if windmill_path:
         logger.info(f"Windmill binary path: {windmill_path}")
+    if venv_path:
+        logger.info(f"Using dependencies prepared by the caller at {venv_path}")
     logger.info(f"Starting DAP WebSocket server on ws://{host}:{port}")
 
     async with serve(handle_connection, host, port):
@@ -956,6 +957,7 @@ if __name__ == "__main__":
     parser.add_argument("--host", default="localhost", help="Host to bind to")
     parser.add_argument("--port", type=int, default=5679, help="Port to listen on")
     parser.add_argument("--windmill", help="Path to windmill binary for dependency preparation (or set WINDMILL_PATH env var)")
+    parser.add_argument("--venv-path", help="site-packages of a venv already prepared by the caller; skips dependency preparation, which keeps registry credentials out of this interpreter")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     args = parser.parse_args()
 
@@ -969,6 +971,6 @@ if __name__ == "__main__":
     windmill_path = args.windmill or os.environ.get("WINDMILL_PATH")
 
     try:
-        asyncio.run(main(args.host, args.port, windmill_path))
+        asyncio.run(main(args.host, args.port, windmill_path, args.venv_path))
     except KeyboardInterrupt:
         logger.info("Server stopped")
