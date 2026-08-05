@@ -24,10 +24,14 @@ const COVERED_ENDPOINTS: Record<string, string> = {
 	// The item read/list endpoints return deployed state only, blind to the user's
 	// drafts; read_workspace_item / list_workspace_items merge drafts, and for
 	// flows return the compact JSON that patch_flow_json matches against.
-	getScriptByPath: 'read_workspace_item (reads your draft when one exists; pass version: "deployed" for the deployed state)',
-	getFlowByPath: 'read_workspace_item (reads your draft when one exists; pass version: "deployed" for the deployed state)',
-	getResource: 'read_workspace_item (reads your draft when one exists; pass version: "deployed" for the deployed state)',
-	getSchedule: 'read_workspace_item (reads your draft when one exists; pass version: "deployed" for the deployed state)',
+	getScriptByPath:
+		'read_workspace_item (reads your draft when one exists; pass version: "deployed" for the deployed state)',
+	getFlowByPath:
+		'read_workspace_item (reads your draft when one exists; pass version: "deployed" for the deployed state)',
+	getResource:
+		'read_workspace_item (reads your draft when one exists; pass version: "deployed" for the deployed state)',
+	getSchedule:
+		'read_workspace_item (reads your draft when one exists; pass version: "deployed" for the deployed state)',
 	listScripts: 'list_workspace_items (it includes your drafts)',
 	listFlows: 'list_workspace_items (it includes your drafts)',
 	listResource: 'list_workspace_items (it includes your drafts)',
@@ -259,6 +263,7 @@ export const apiCatalogTools: Tool<{}>[] = [
 			'search_api_endpoints',
 			'Search the Windmill REST API endpoint catalog for operations no dedicated tool covers (workers, queue state, job details, running deployed items, deletions, ...). Returns endpoint names to pass to call_api_get or call_api_endpoint.'
 		),
+		readonly: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = searchApiEndpointsSchema.parse(args)
 			toolCallbacks.setToolStatus(toolId, { content: 'Searching API endpoints...' })
@@ -314,6 +319,9 @@ export const apiCatalogTools: Tool<{}>[] = [
 			'call_api_get',
 			'Call a read-only GET endpoint from the API catalog by name. Use search_api_endpoints first to find the endpoint name; a failed call returns the parameter schema.'
 		),
+		// Readonly rests on the method check below plus the catalog only exposing
+		// side-effect-free GETs; never mark a mutating GET as an `x-mcp-tool`.
+		readonly: true,
 		showDetails: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = callApiGetSchema.parse(args)

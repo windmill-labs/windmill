@@ -112,6 +112,7 @@ export const artifactTools: Tool<{}>[] = [
 			'list_artifacts',
 			"List the current session's artifacts (id, name, kind)."
 		),
+		readonly: true,
 		fn: async ({ toolId, toolCallbacks, helpers }) => {
 			const h = helpers as ArtifactToolHelpers
 			const sessionId = h.sessionId
@@ -136,6 +137,7 @@ export const artifactTools: Tool<{}>[] = [
 			'read_artifact',
 			"Read an artifact's full markdown content by id."
 		),
+		readonly: true,
 		fn: async ({ args, toolId, toolCallbacks, helpers }) => {
 			const parsed = readArtifactSchema.parse(args)
 			const h = helpers as ArtifactToolHelpers

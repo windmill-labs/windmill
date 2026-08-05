@@ -446,6 +446,7 @@ export interface ScriptChatHelpers {
 
 export const resourceTypeTool: Tool<ScriptChatHelpers> = {
 	def: RESOURCE_TYPE_FUNCTION_DEF,
+	readonly: true,
 	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
 		toolCallbacks.setToolStatus(toolId, {
 			content: 'Searching resource types for "' + args.query + '"...'
@@ -471,6 +472,7 @@ export function createDbSchemaTool<T>(
 					function: { ...DB_SCHEMA_FUNCTION_DEF.function, description }
 				}
 			: DB_SCHEMA_FUNCTION_DEF,
+		readonly: true,
 		fn: async ({ args, workspace, toolCallbacks, toolId }) => {
 			if (!args.resourcePath) {
 				throw new Error('Database path not provided')
@@ -604,6 +606,7 @@ const SEARCH_NPM_PACKAGES_TOOL: ChatCompletionFunctionTool = {
 // Helpers-agnostic so both script mode and global mode can offer it.
 export const searchNpmPackagesTool: Tool<{}> = {
 	def: SEARCH_NPM_PACKAGES_TOOL,
+	readonly: true,
 	fn: async ({ args, toolId, toolCallbacks }) => {
 		toolCallbacks.setToolStatus(toolId, { content: 'Searching for relevant packages...' })
 		const result = await searchExternalIntegrationResources(args)
@@ -927,6 +930,7 @@ export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 
 export const getLintErrorsTool: Tool<ScriptChatHelpers> = {
 	def: GET_LINT_ERRORS_TOOL,
+	readonly: true,
 	fn: async function ({ helpers, toolCallbacks, toolId }) {
 		toolCallbacks.setToolStatus(toolId, { content: 'Getting lint errors...' })
 

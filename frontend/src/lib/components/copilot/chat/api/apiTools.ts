@@ -107,6 +107,7 @@ export function createApiTools(
 
 		return {
 			def: chatTool,
+			readonly: !!endpoint && ['GET', 'HEAD', 'OPTIONS'].includes(method),
 			requiresConfirmation: needsConfirmation,
 			confirmationMessage: `Run ${toolName}`,
 			showDetails: true,

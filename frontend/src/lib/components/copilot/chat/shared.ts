@@ -726,11 +726,7 @@ type MaybePromise<T> = T | Promise<T>
  * misspelled keys and saves a policy that does nothing. Recursive because dropping one
  * nested key leaves the parent non-empty.
  */
-export function droppedOptionKeys(
-	supplied: unknown,
-	parsed: unknown,
-	prefix = ''
-): string[] {
+export function droppedOptionKeys(supplied: unknown, parsed: unknown, prefix = ''): string[] {
 	if (supplied === null || typeof supplied !== 'object' || Array.isArray(supplied)) {
 		return parsed === undefined && prefix ? [prefix] : []
 	}
@@ -738,7 +734,11 @@ export function droppedOptionKeys(
 		return Object.keys(supplied).length && prefix ? [prefix] : []
 	}
 	return Object.entries(supplied).flatMap(([key, value]) =>
-		droppedOptionKeys(value, (parsed as Record<string, unknown>)[key], prefix ? `${prefix}.${key}` : key)
+		droppedOptionKeys(
+			value,
+			(parsed as Record<string, unknown>)[key],
+			prefix ? `${prefix}.${key}` : key
+		)
 	)
 }
 
@@ -964,6 +964,10 @@ export interface Tool<T> {
 		helpers: T
 	}) => MaybePromise<string | undefined>
 	setSchema?: (helpers: any) => Promise<void>
+	/** Safe to run while plan mode is active. Absent ⇒ mutating: the plan-mode gate
+	 * blocks anything not explicitly `true`. Distinct from `requiresConfirmation` —
+	 * unconfirmed mutating tools exist, so one must not be derived from the other. */
+	readonly?: boolean
 	requiresConfirmation?: boolean
 	/** Header shown on the confirmation card before the tool runs. Pass a function
 	 * to derive it from the parsed arguments (e.g. name the script being tested). */
@@ -1236,6 +1240,7 @@ export function isHubPath(path: string): boolean {
 
 export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 	def: searchHubScriptsToolDef,
+	readonly: true,
 	fn: async ({ args, toolId, toolCallbacks }) => {
 		toolCallbacks.setToolStatus(toolId, {
 			content: 'Searching for hub scripts related to "' + args.query + '"...'
@@ -2085,6 +2090,7 @@ export const workspaceRunnablesSearch = new WorkspaceRunnablesSearch()
 
 export const createSearchWorkspaceTool = () => ({
 	def: searchWorkspaceToolDef,
+	readonly: true,
 	fn: async ({
 		args,
 		workspace,
@@ -2135,6 +2141,7 @@ const getRunnableDetailsToolDef = createToolDef(
 
 export const createGetRunnableDetailsTool = () => ({
 	def: getRunnableDetailsToolDef,
+	readonly: true,
 	fn: async ({
 		args,
 		workspace,
