@@ -58,9 +58,6 @@
 	{/if}
 	<span class="grow truncate text-left {eeRestricted ? 'text-disabled' : ''}">
 		{label}{#if eeRestricted}&nbsp;(EE){/if}
-		{#if lang === 'claudesandbox'}
-			<span class="text-primary !text-xs">(new)</span>
-		{/if}
 	</span>
 	{#if selected}
 		<kbd class="!text-xs">&crarr;</kbd>

@@ -200,12 +200,7 @@
 
 	let scrollable: HTMLElement | undefined = $state()
 	function onKeyDown(e: KeyboardEvent) {
-		let length =
-			topLevelNodes?.length +
-			inlineScripts.length +
-			aiLength +
-			filteredWorkspaceItems.length +
-			hubCompletions.length
+		let length = hubOffset + (hubCompletions?.length ?? 0)
 		if (e.key === 'ArrowDown') {
 			selectedByKeyboard = (selectedByKeyboard + 1) % length
 			scrollable?.scrollTo({ top: selectedByKeyboard * 32, behavior: 'smooth' })
@@ -266,12 +261,36 @@
 	)
 	let aiLength = $derived(showAiRows ? 2 : 0)
 
+	// Must match the heading and label rendered for the AI Sandbox section
+	const aiSandboxHeading = 'AI Sandbox'
+	const aiSandboxLabel = 'Claude Code'
+	let matchesAiSandbox = $derived.by(() => {
+		const query = funcDesc?.trim().toLowerCase() ?? ''
+		if (query.length == 0) {
+			return true
+		}
+		return [aiSandboxHeading, aiSandboxLabel].some((term) => {
+			const lowered = term.toLowerCase()
+			return lowered.startsWith(query) || lowered.split(' ').some((w) => w.startsWith(query))
+		})
+	})
+	// Gates the AI Sandbox row and its slot in the index space; both must agree or arrow keys land
+	// on an index that renders nothing.
+	let showAiSandbox = $derived(
+		selectedKind === 'script' &&
+			preFilter === 'all' &&
+			!selected &&
+			customUi?.aiSandbox != false &&
+			matchesAiSandbox
+	)
+
 	// Every result row lives in one keyboard index space, and hovering a row moves that index, so
 	// mouse and keyboard can never highlight two different rows. Offsets follow the render order.
 	let inlineOffset = $derived(topLevelNodes.length)
 	let aiOffset = $derived(inlineOffset + (inlineScripts?.length ?? 0))
 	let workspaceOffset = $derived(aiOffset + aiLength)
-	let hubOffset = $derived(workspaceOffset + (filteredWorkspaceItems?.length ?? 0))
+	let aiSandboxOffset = $derived(workspaceOffset + (filteredWorkspaceItems?.length ?? 0))
+	let hubOffset = $derived(aiSandboxOffset + (showAiSandbox ? 1 : 0))
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -500,13 +519,14 @@
 			{/await}
 			<div class="pb-1"></div>
 		{/if}
-		{#if selectedKind === 'script' && preFilter === 'all' && !selected && customUi?.aiSandbox != false}
-			<div class="pb-0 text-2xs font-normal text-secondary ml-2">AI Sandbox</div>
+		{#if showAiSandbox}
+			<div class="pb-0 text-2xs font-normal text-secondary ml-2">{aiSandboxHeading}</div>
 			<FlowScriptPickerQuick
 				eeRestricted={false}
-				selected={false}
+				selected={selectedByKeyboard === aiSandboxOffset}
+				onHover={() => hover(aiSandboxOffset)}
 				enterpriseLangs={[]}
-				label="Claude Code"
+				label={aiSandboxLabel}
 				lang="claudesandbox"
 				on:click={() => {
 					dispatch('new', {
