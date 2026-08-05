@@ -119,8 +119,8 @@ not enough on its own, since `requests` carries its own bundle and Node reads on
 only the service needs them.
 
 Registering that CA in the container's system store happens on its own: mount it into
-`/usr/local/share/ca-certificates/` and `windmill_extra` runs `update-ca-certificates` before
-starting any service. `RUN_UPDATE_CA_CERTIFICATE_AT_START=true` forces the same thing whether or not
+`/usr/local/share/ca-certificates/` **named `*.crt`**, the only extension `update-ca-certificates`
+reads, and `windmill_extra` runs it before starting any service. `RUN_UPDATE_CA_CERTIFICATE_AT_START=true` forces the same thing whether or not
 certificates are mounted there, and `RUN_UPDATE_CA_CERTIFICATE_PATH` overrides the tool, matching
 the server and worker. Both are best-effort: a UID that cannot write `/etc/ssl/certs` logs a warning
 and the container still boots. `INIT_SCRIPT` remains the hook for anything more involved, and unlike
