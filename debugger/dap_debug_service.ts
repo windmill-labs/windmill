@@ -40,7 +40,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 // Import the working Bun debug session from the standalone server
-import { DebugSession as BunDebugSessionWorking, type NsjailConfig } from './dap_websocket_server_bun'
+import {
+	DebugSession as BunDebugSessionWorking,
+	killProcessTree,
+	nsjailWrap,
+	type NsjailConfig
+} from './dap_websocket_server_bun'
 import { sessionEnv } from './env_passthrough'
 
 // ============================================================================
@@ -349,6 +354,17 @@ interface SpawnOptions {
 	cmd: string[]
 	cwd?: string
 	env?: Record<string, string>
+	stdin?: Blob
+	/**
+	 * Hand the child this process's whole environment rather than the minimal set below. Only
+	 * the dependency installer wants it: the registry credentials and CA settings it reads are
+	 * precisely what the minimal set exists to keep away from a debugged script.
+	 */
+	inheritEnv?: boolean
+	/**
+	 * Start the child in its own process group, so killProcessTree can signal what it spawns.
+	 */
+	detached?: boolean
 	stdout?: 'pipe' | 'inherit'
 	stderr?: 'pipe' | 'inherit'
 }
@@ -364,30 +380,9 @@ const PREPARE_DEPS_TIMEOUT_MS = Number(process.env.DAP_PREPARE_DEPS_TIMEOUT_MS) 
  * This is the key function for sandboxed execution.
  */
 function spawnProcess(options: SpawnOptions): Subprocess {
-	let cmd = options.cmd
+	const cmd = nsjailWrap(options.cmd, config.nsjail, options.cwd)
 
 	if (config.nsjail.enabled) {
-		// Build nsjail command
-		const nsjailCmd = [config.nsjail.binaryPath]
-
-		// Add config file if specified
-		if (config.nsjail.configPath) {
-			nsjailCmd.push('--config', config.nsjail.configPath)
-		}
-
-		// Add any extra nsjail arguments
-		nsjailCmd.push(...config.nsjail.extraArgs)
-
-		// Add working directory if specified
-		if (options.cwd) {
-			nsjailCmd.push('--cwd', options.cwd)
-		}
-
-		// Separator and actual command
-		nsjailCmd.push('--')
-		nsjailCmd.push(...cmd)
-
-		cmd = nsjailCmd
 		logger.info(`Spawning with nsjail: ${cmd.join(' ')}`)
 	} else {
 		logger.info(`Spawning: ${cmd.join(' ')}`)
@@ -398,9 +393,12 @@ function spawnProcess(options: SpawnOptions): Subprocess {
 	return spawn({
 		cmd,
 		cwd: options.cwd || process.cwd(),
+		...(options.stdin ? { stdin: options.stdin } : {}),
+		...(options.detached ? { detached: true } : {}),
 		stdout: options.stdout || 'pipe',
 		stderr: options.stderr || 'pipe',
 		env: {
+			...(options.inheritEnv ? process.env : {}),
 			// Essential system vars
 			PATH: process.env.PATH || '/usr/bin:/bin',
 			HOME: process.env.HOME,
@@ -657,8 +655,10 @@ class PythonDebugSession extends BaseDebugSession {
 	 * server executes the submitted script inside its own interpreter: anything in that process is
 	 * recoverable by the script. The service never executes user code, so the credentials stop here.
 	 *
-	 * The trade-off is that the install itself is not jailed, so a source distribution's build
-	 * backend runs outside nsjail, as it already does for Bun sessions.
+	 * It still goes through spawnProcess so nsjail confines it on the same terms as the debuggee:
+	 * `uv pip install` builds source distributions, which executes their build backend's arbitrary
+	 * Python. Those same credentials are what `inheritEnv` is for — the jail config keeps the
+	 * environment across the boundary, so nothing else has to carry them in.
 	 */
 	private async prepareDependencies(code: string): Promise<string | null> {
 		if (!this.windmillPath) {
@@ -667,6 +667,12 @@ class PythonDebugSession extends BaseDebugSession {
 		}
 
 		const warn = (reason: string): null => {
+			// cleanup() kills the installer, which ends the read with nothing to parse. Reporting
+			// that as an install failure blames the user for their own disconnect, on a websocket
+			// that is being torn down anyway.
+			if (this.disposed) {
+				return null
+			}
 			logger.error(`prepare-deps failed: ${reason}`)
 			this.sendEvent('output', {
 				category: 'stderr',
@@ -676,7 +682,7 @@ class PythonDebugSession extends BaseDebugSession {
 		}
 
 		try {
-			const proc = spawn({
+			const proc = spawnProcess({
 				cmd: [this.windmillPath, 'prepare-deps'],
 				// The venv has to be built against the interpreter that will run the script: its
 				// site-packages goes on that interpreter's sys.path, and uv otherwise picks its
@@ -684,8 +690,8 @@ class PythonDebugSession extends BaseDebugSession {
 				stdin: new Blob([
 					JSON.stringify({ code, language: 'python3', python_path: config.pythonPath }) + '\n'
 				]),
-				stdout: 'pipe',
-				stderr: 'pipe'
+				inheritEnv: true,
+				detached: true
 			})
 			this.prepareDepsProcess = proc
 
@@ -694,9 +700,10 @@ class PythonDebugSession extends BaseDebugSession {
 			// races the read rather than only killing the child: a grandchild holding the pipe open
 			// keeps the read pending long after the child itself is gone.
 			let timer: ReturnType<typeof setTimeout> | undefined
+			// spawnProcess's return type does not carry the piped stdio through
 			const read = (async () => ({
-				output: await new Response(proc.stdout).text(),
-				stderr: await new Response(proc.stderr).text()
+				output: await new Response(proc.stdout as ReadableStream).text(),
+				stderr: await new Response(proc.stderr as ReadableStream).text()
 			}))()
 			const result = await Promise.race([
 				read,
@@ -708,9 +715,7 @@ class PythonDebugSession extends BaseDebugSession {
 			this.prepareDepsProcess = null
 
 			if (!result) {
-				// SIGKILL, not the default SIGTERM: prepare-deps does not act on SIGTERM while uv
-				// is running, so a polite signal leaves it running after the session gave up.
-				proc.kill('SIGKILL')
+				killProcessTree(proc)
 				return warn(
 					`dependency installation timed out after ${PREPARE_DEPS_TIMEOUT_MS / 1000}s`
 				)
@@ -1026,6 +1031,10 @@ class PythonDebugSession extends BaseDebugSession {
 	}
 
 	private async handleLaunch(request: DAPMessage): Promise<void> {
+		// Per launch, not per session: cleanup() also runs when a program finishes normally, and
+		// the flag must only mean "torn down while this launch was still preparing".
+		this.disposed = false
+
 		const args = request.arguments || {}
 		let code = args.code as string | undefined
 		this.scriptPath = args.program as string | undefined
@@ -1181,7 +1190,7 @@ sys.stdout.flush()
 
 		// A client that gives up mid-install must not leave the package manager running
 		if (this.prepareDepsProcess) {
-			this.prepareDepsProcess.kill('SIGKILL')
+			killProcessTree(this.prepareDepsProcess)
 			this.prepareDepsProcess = null
 		}
 
