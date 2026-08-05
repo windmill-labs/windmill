@@ -465,6 +465,7 @@ pub fn start_background_processor(
                             worker_dir,
                             stop_early_override,
                             token,
+                            unrecoverable,
                         }),
                     time,
                 }) => {
@@ -485,7 +486,7 @@ pub fn start_background_processor(
                         None,
                         Arc::new(result),
                         None,
-                        true,
+                        unrecoverable,
                         &same_worker_tx,
                         &worker_dir,
                         stop_early_override,

@@ -587,6 +587,69 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
     Ok(())
 }
+
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_same_worker_survives_empty_branch(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server: ApiServer = ApiServer::start(db.clone()).await?;
+
+    // No branch matches and the default is empty, so `a` completes without spawning a job and
+    // hands the flow back over the UpdateFlow channel. `b` must still be pinned to the worker.
+    let flow: FlowValue = serde_json::from_value(json!({
+        "same_worker": true,
+        "modules": [
+            {
+                "id": "a",
+                "value": {
+                    "type": "branchone",
+                    "branches": [{
+                        "expr": "false",
+                        "modules": [{
+                            "id": "c",
+                            "value": {
+                                "type": "rawscript",
+                                "language": "deno",
+                                "content": "export function main(){ return 1 }",
+                            }
+                        }]
+                    }],
+                    "default": []
+                }
+            },
+            {
+                "id": "b",
+                "value": {
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main(){ return 42 }",
+                }
+            }
+        ]
+    }))
+    .unwrap();
+
+    let job = run_job_in_new_worker_until_complete(
+        &db,
+        false,
+        JobPayload::RawFlow { value: flow, path: None, restarted_from: None },
+        server.addr.port(),
+    )
+    .await;
+    assert_eq!(job.json_result().unwrap(), json!(42));
+
+    let same_worker: Option<bool> = sqlx::query_scalar(
+        "SELECT same_worker FROM v2_job WHERE parent_job = $1 AND flow_step_id = 'b'",
+    )
+    .bind(job.id)
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(same_worker, Some(true));
+
+    Ok(())
+}
+
 #[sqlx::test(fixtures("base"))]
 async fn test_flow_result_by_id(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
