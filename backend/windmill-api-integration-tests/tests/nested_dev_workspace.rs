@@ -146,6 +146,20 @@ async fn test_teardown_refuses_to_strand_a_nested_dev(db: Pool<Postgres>) -> any
     );
     assert!(body.contains("redev-dev"), "unexpected error: {body}");
 
+    // Archive soft-deletes whatever the id looks like, so a prefix-less dev workspace strands its
+    // own dev too — even though detaching that same workspace is fine (it returns to standalone).
+    let (status, body) = archive(port, "c-dev").await;
+    assert!(
+        status.is_client_error(),
+        "prefix-less stranding archive returned {status}: {body}"
+    );
+    assert!(body.contains("c-dev-dev"), "unexpected error: {body}");
+    let (status, body) = detach(port, "prod-c", "c-dev").await;
+    assert!(
+        status.is_success(),
+        "prefix-less detach returned {status}: {body}"
+    );
+
     // Detaching from the bottom up is the supported order.
     let (status, body) = detach(port, "wm-fork-redev", "redev-dev").await;
     assert!(status.is_success(), "leaf detach returned {status}: {body}");

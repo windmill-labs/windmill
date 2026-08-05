@@ -7620,7 +7620,7 @@ async fn detach_dev_workspace(
         )));
     }
 
-    reject_stranding_nested_dev(&db, &dev_w_id, "Detaching").await?;
+    reject_stranding_nested_dev(&db, &dev_w_id, DevTeardown::Detach).await?;
 
     let mut tx = db.begin().await?;
     // A wm-fork- workspace re-designated as dev returns to being a plain fork
@@ -7869,9 +7869,12 @@ async fn archive_workspace(
         }
     }
 
-    // Archiving tears the pairing down the same way a detach does — it clears `is_dev_workspace` and
-    // keeps the parent — so it must not strand a nested dev either.
-    reject_stranding_nested_dev(&db, &w_id, "Archiving").await?;
+    // Archiving clears `is_dev_workspace` like a detach does, so it must not strand a dev workspace
+    // of this one either. Only asked of a workspace that is itself a dev: a root archived out from
+    // under its dev is the pre-existing shape and is not this pairing's to police.
+    if dev_lock_parent.is_some() {
+        reject_stranding_nested_dev(&db, &w_id, DevTeardown::Archive).await?;
+    }
 
     // The dev pairing teardown (clear is_dev + drop the prod lock) runs inside archive_workspace_impl's
     // transaction, atomically with `deleted = true`.
@@ -8966,17 +8969,30 @@ async fn ensure_dev_parent_can_host_dev(db: &DB, parent_w_id: &str) -> Result<()
     Ok(())
 }
 
-/// A `wm-fork-` workspace keeps its `parent_workspace_id` when it stops being a dev workspace —
-/// detach and archive both only clear the flag — so it returns to being a throwaway fork, a shape
-/// that hosts no pairing. A dev workspace of its own would stay attached to it with no settings tab
-/// left to detach it from, and `delete_workspace` refuses a workspace that still has a dev child, so
-/// it could not be cleaned up either. A prefix-less workspace becomes standalone and goes on hosting
-/// its dev, so only the fork case is rejected. `action` names what the caller is about to do,
-/// capitalized ("Detaching", "Archiving").
-async fn reject_stranding_nested_dev(db: &DB, w_id: &str, action: &str) -> Result<()> {
-    if !w_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX) {
-        return Ok(());
-    }
+/// What is about to clear `is_dev_workspace` on a workspace, which decides whether the workspace can
+/// go on hosting a dev workspace of its own afterwards.
+enum DevTeardown {
+    /// Keeps `parent_workspace_id` only for a `wm-fork-` workspace, which then reads as a throwaway
+    /// fork. A prefix-less workspace returns to standalone and hosts its dev exactly as before.
+    Detach,
+    /// Soft-deletes the workspace whatever its id looks like, so it hosts nothing afterwards.
+    Archive,
+}
+
+/// A nested dev workspace outlives whatever clears its parent's dev flag, and the parent is then a
+/// shape that hosts no pairing: its settings tab offers no detach control, and `delete_workspace`
+/// refuses a workspace that still has a dev child, so the pairing could never be undone. Reject the
+/// teardown so it is done bottom-up instead.
+async fn reject_stranding_nested_dev(db: &DB, w_id: &str, teardown: DevTeardown) -> Result<()> {
+    let action = match teardown {
+        DevTeardown::Detach => {
+            if !w_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX) {
+                return Ok(());
+            }
+            "Detaching"
+        }
+        DevTeardown::Archive => "Archiving",
+    };
     let nested = sqlx::query_scalar!(
         "SELECT id FROM workspace
          WHERE parent_workspace_id = $1 AND is_dev_workspace AND NOT deleted",
@@ -8986,8 +9002,8 @@ async fn reject_stranding_nested_dev(db: &DB, w_id: &str, action: &str) -> Resul
     .await?;
     if let Some(nested) = nested {
         return Err(Error::BadRequest(format!(
-            "{action} {w_id} would return it to being a throwaway fork, which cannot host a \
-             pairing, but it is the prod workspace of '{nested}'. Detach '{nested}' first."
+            "{action} {w_id} would leave it unable to host a pairing, but it is the prod workspace \
+             of '{nested}'. Detach '{nested}' first."
         )));
     }
     Ok(())

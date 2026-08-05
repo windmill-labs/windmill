@@ -1412,8 +1412,7 @@
 								description="Pair this workspace with a dev workspace: the same code with a different environment. Edits are made in the dev workspace and promoted to prod."
 								link="https://www.windmill.dev/docs/core_concepts/staging_prod"
 							/>
-							<!-- Handed to DevWorkspaceSetting rather than placed here: it renders this right
-							     under the pairing it configures, above the nested dev-workspace section. -->
+							<!-- Positioned by DevWorkspaceSetting, not here — see its `deployTarget` prop. -->
 							{#snippet deployTarget()}
 								{#if showDeployToTab}
 									<!-- The deploy filters only bite on a workspace that deploys into a

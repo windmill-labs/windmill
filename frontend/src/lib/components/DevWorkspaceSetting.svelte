@@ -606,8 +606,6 @@
 			</Button>
 		</div>
 	</div>
-	<!-- What this workspace promotes into the pairing above, so it belongs with it rather than under
-	     the nested section that follows. -->
 	{@render deployTarget?.()}
 	<div class="flex flex-col gap-3 max-w-2xl mt-8 pt-6 border-t">
 		<div class="flex flex-col gap-1">
