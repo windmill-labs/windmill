@@ -150,7 +150,8 @@ const logger = {
 const WINDMILL_BASE_URL = process.env.WINDMILL_BASE_URL || process.env.BASE_INTERNAL_URL // e.g., http://localhost:8000
 const REQUIRE_SIGNED_REQUESTS = process.env.REQUIRE_SIGNED_DEBUG_REQUESTS !== 'false'
 
-// Matches the bound prepare_deps.rs itself applies to a dependency install
+// Ceiling on a dependency install. Nothing downstream imposes one: prepare-deps awaits uv
+// without a deadline, and UV_HTTP_TIMEOUT only bounds individual requests.
 const PREPARE_DEPS_TIMEOUT_MS = 120_000
 
 // Opt-in cross-origin protection (CSWSH defense-in-depth). When
@@ -532,9 +533,9 @@ class PythonDebugSession extends BaseDebugSession {
 	 * executes user code, so it is the right place to hold them; the server receives only the
 	 * resulting venv path.
 	 *
-	 * It still goes through spawnProcess() so that nsjail, when enabled, confines it: `uv pip
-	 * install` builds source distributions, which runs their build backend's arbitrary Python.
-	 * The installer env is passed explicitly because that allowlist deliberately omits it.
+	 * Goes through spawnProcess() so that nsjail, when enabled, confines it: `uv pip install`
+	 * builds source distributions, which runs their build backend's arbitrary Python. The
+	 * installer env is passed explicitly because that allowlist deliberately omits it.
 	 */
 	private async preparePythonDeps(code: string): Promise<string | undefined> {
 		if (!this.windmillPath) {
@@ -548,8 +549,8 @@ class PythonDebugSession extends BaseDebugSession {
 				env: installerEnv()
 			})
 			const proc = this.prepareDepsProcess
-			// A stalled index or build backend must not park the launch forever; the Python
-			// server bounded this at the same 120s before it moved here.
+			// handleLaunch awaits this, so a stalled index or build backend would otherwise park
+			// the session with no response to the client
 			let timedOut = false
 			const timer = setTimeout(() => {
 				timedOut = true
