@@ -98,6 +98,7 @@ with the other settings):
 | `PY_NATIVE_CERT` / `UV_NATIVE_TLS` | `true` to also trust the platform certificate store (`--native-tls`) | false |
 | `UV_INDEX_STRATEGY` | uv index strategy | unsafe-best-match |
 | `UV_HTTP_TIMEOUT` | uv HTTP request timeout, in seconds | uv's own default |
+| `DAP_PREPARE_DEPS_TIMEOUT_MS` | How long to wait for the install before starting the session without it | 120000 |
 
 When the install fails, the CLI answers `success: false` and carries the installer's stderr in both
 `error` and `install_stderr`; the service reports it to the client as an `output` event, so the
@@ -106,7 +107,13 @@ bare `ModuleNotFoundError` at the first import.
 
 Proxy variables (`HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`, in either case) are forwarded from the
 service into each session, since the debugged script needs them for its own outbound calls, exactly
-as a job's script does on a worker.
+as a job's script does on a worker. When a proxy is set without a bypass list, `NO_PROXY` defaults
+to `localhost,127.0.0.1` so calls to `BASE_INTERNAL_URL` are not proxied.
+
+Keeping the settings out of the session's environment only bounds what the debugged script can read
+from itself. A session started without `--nsjail` runs under the same user as the service and can
+still read the service's environment through `/proc`, the same way a job can read a worker's when
+the worker runs unsandboxed. Run the service with `--nsjail` to isolate sessions from it.
 
 ### Frontend Integration
 

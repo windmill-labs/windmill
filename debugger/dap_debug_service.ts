@@ -369,6 +369,12 @@ const SESSION_PROXY_ENV_VARS = [
 	'no_proxy'
 ]
 
+/**
+ * How long `windmill prepare-deps` may take before the session gives up on it and starts without
+ * the dependencies. Raise it for slow private mirrors, where a large install can outlast the default.
+ */
+const PREPARE_DEPS_TIMEOUT_MS = Number(process.env.DAP_PREPARE_DEPS_TIMEOUT_MS) || 120_000
+
 function sessionProxyEnv(): Record<string, string> {
 	const env: Record<string, string> = {}
 	for (const key of SESSION_PROXY_ENV_VARS) {
@@ -376,6 +382,11 @@ function sessionProxyEnv(): Record<string, string> {
 		if (value) {
 			env[key] = value
 		}
+	}
+	// A proxy without a bypass list would send the script's calls to BASE_INTERNAL_URL through it;
+	// the worker defaults the same way (PROXY_ENVS in windmill-worker).
+	if (!env.NO_PROXY && !env.no_proxy && (env.HTTP_PROXY || env.http_proxy || env.HTTPS_PROXY || env.https_proxy)) {
+		env.NO_PROXY = 'localhost,127.0.0.1'
 	}
 	return env
 }
@@ -664,6 +675,9 @@ class PythonDebugSession extends BaseDebugSession {
 	 * (`PY_INDEX_URL` and friends) routinely embed private-registry credentials, and the Python
 	 * server executes the submitted script inside its own interpreter: anything in that process is
 	 * recoverable by the script. The service never executes user code, so the credentials stop here.
+	 *
+	 * The trade-off is that the install itself is not jailed, so a source distribution's build
+	 * backend runs outside nsjail, as it already does for Bun sessions.
 	 */
 	private async prepareDependencies(code: string): Promise<string | null> {
 		if (!this.windmillPath) {
@@ -688,8 +702,30 @@ class PythonDebugSession extends BaseDebugSession {
 				stderr: 'pipe'
 			})
 
-			const output = await new Response(proc.stdout).text()
-			const stderr = await new Response(proc.stderr).text()
+			// The launch response is already sent, so an install that never returns would leave the
+			// client waiting on a session that never starts, with nothing on screen. The deadline
+			// races the read rather than only killing the child: a grandchild holding the pipe open
+			// keeps the read pending long after the child itself is gone.
+			let timer: ReturnType<typeof setTimeout> | undefined
+			const read = (async () => ({
+				output: await new Response(proc.stdout).text(),
+				stderr: await new Response(proc.stderr).text()
+			}))()
+			const result = await Promise.race([
+				read,
+				new Promise<null>((resolve) => {
+					timer = setTimeout(() => resolve(null), PREPARE_DEPS_TIMEOUT_MS)
+				})
+			])
+			clearTimeout(timer)
+
+			if (!result) {
+				proc.kill()
+				return warn(
+					`dependency installation timed out after ${PREPARE_DEPS_TIMEOUT_MS / 1000}s`
+				)
+			}
+			const { output, stderr } = result
 
 			const lastLine = output.trim().split('\n').pop() || ''
 			if (!lastLine.startsWith('{')) {
