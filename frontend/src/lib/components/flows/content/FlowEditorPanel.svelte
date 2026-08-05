@@ -2,7 +2,7 @@
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import FlowModuleWrapper from './FlowModuleWrapper.svelte'
-	import { moduleSlot } from '../moduleSlot'
+	import { moduleSlot, savedModuleById } from '../moduleSlot'
 	import FlowSettings from './FlowSettings.svelte'
 	import FlowInput from './FlowInput.svelte'
 	import FlowFailureModule from './FlowFailureModule.svelte'
@@ -195,7 +195,7 @@
 					bind:flowModule={slot.get, slot.set}
 					previousModule={flowStore.val.value.modules[index - 1]}
 					{enableAi}
-					savedModule={savedFlow?.value.modules[index]}
+					savedModule={savedModuleById(savedFlow?.value.modules, flowModule.id)}
 					{forceTestTab}
 					{highlightArg}
 				/>

@@ -1,6 +1,5 @@
 <script lang="ts">
 	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import Button from '$lib/components/common/button/Button.svelte'
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
 	import MetadataGen from '$lib/components/copilot/MetadataGen.svelte'
 	import IconedPath from '$lib/components/IconedPath.svelte'
@@ -10,16 +9,14 @@
 		Flag,
 		GitFork,
 		Lock,
-		PanelRight,
 		Pen,
-		PictureInPicture2,
 		RefreshCw,
 		Settings,
-		Unlock,
-		X
+		Unlock
 	} from 'lucide-svelte'
-	import { createEventDispatcher, getContext, onMount, untrack } from 'svelte'
-	import type { FlowEditorContext, FlowPanelDetachContext } from '../types'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
+	import type { FlowEditorContext } from '../types'
+	import FlowPanelChrome from './FlowPanelChrome.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { hubBaseUrlStore, workspaceStore } from '$lib/stores'
@@ -182,12 +179,6 @@
 		}
 		return items
 	})
-
-	const panelDetach = getContext<FlowPanelDetachContext | undefined>('flowPanelDetach')
-	// The detached modal draws no header of its own, so this row carries its chrome too.
-	// onMount, not $effect: claim() increments (reads+writes) the claim count, and
-	// a tracking effect would re-run on its own write.
-	onMount(() => panelDetach?.claim())
 </script>
 
 <div class="flex flex-col gap-1 px-4 py-2">
@@ -251,39 +242,7 @@
 		{/if}
 		{@render children?.()}
 		{@render action?.()}
-		{#if panelDetach?.visible()}
-			<Button
-				unifiedSize="sm"
-				variant="subtle"
-				iconOnly
-				wrapperClasses="ml-2 shrink-0"
-				startIcon={{ icon: PictureInPicture2 }}
-				title="Detach into a modal"
-				onClick={() => panelDetach.detach()}
-			/>
-		{/if}
-		{#if panelDetach?.dockVisible() || panelDetach?.modalOpen()}
-			<Button
-				unifiedSize="sm"
-				variant="subtle"
-				iconOnly
-				wrapperClasses="ml-2 shrink-0"
-				startIcon={{ icon: PanelRight }}
-				title="Dock to the right"
-				onClick={() => panelDetach.dock()}
-			/>
-		{/if}
-		{#if panelDetach?.modalOpen()}
-			<Button
-				unifiedSize="sm"
-				variant="subtle"
-				iconOnly
-				wrapperClasses="shrink-0"
-				startIcon={{ icon: X }}
-				title="Close"
-				onClick={() => panelDetach.close()}
-			/>
-		{/if}
+		<FlowPanelChrome />
 	</div>
 	{#if subtitle}
 		<p class="text-xs leading-snug text-tertiary">

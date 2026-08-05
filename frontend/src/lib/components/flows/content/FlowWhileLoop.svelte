@@ -101,10 +101,10 @@
 							size="xs"
 							documentationLink="https://www.windmill.dev/docs/flows/while_loops"
 						>
-							Add steps inside the while loop but have one of them use early stop/break in their
-							Advanced settings (or do it at the loop level that will watch the last step) to break
-							out of the while loop (otherwise it will loop forever and you will have to cancel the
-							flow manually).
+							Add steps inside the while loop but have one of them use early stop/break in their Run
+							settings (or do it at the loop level that will watch the last step) to break out of
+							the while loop (otherwise it will loop forever and you will have to cancel the flow
+							manually).
 						</Alert>
 					{/if}
 

@@ -80,4 +80,11 @@ describe('savedModuleById', () => {
 	it('returns undefined for a step that has no deployed counterpart yet', () => {
 		expect(savedModuleById(branchOne('a', [[mod('x')]]), 'brand-new')).toBeUndefined()
 	})
+
+	it('searches the deployed top-level module list when given one', () => {
+		// Inserting a step at the top shifts every later one, so position and id disagree.
+		const deployed = [mod('a', 'code-a'), mod('b', 'code-b')]
+
+		expect((savedModuleById(deployed, 'b')?.value as { content: string }).content).toBe('code-b')
+	})
 })

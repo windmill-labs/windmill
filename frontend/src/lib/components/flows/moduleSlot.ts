@@ -26,7 +26,8 @@ export function moduleSlot(
 }
 
 /**
- * The deployed counterpart of a step, matched by id rather than by position.
+ * The deployed counterpart of a step, matched by id rather than by position. Takes either
+ * one deployed step to search under, or the deployed flow's top-level module list.
  *
  * The saved flow keeps the order it was deployed in, so any structural edit since —
  * reordering branches, inserting or deleting a step — shifts positions apart. Matching by
@@ -34,7 +35,7 @@ export function moduleSlot(
  * the wrong "last deployed" in the diff.
  */
 export function savedModuleById(
-	saved: FlowModule | undefined,
+	saved: FlowModule | FlowModule[] | undefined,
 	id: string | undefined
 ): FlowModule | undefined {
 	if (!saved || !id) return undefined
@@ -56,6 +57,6 @@ export function savedModuleById(
 			}
 		}
 	}
-	walk([saved])
+	walk(Array.isArray(saved) ? saved : [saved])
 	return found
 }

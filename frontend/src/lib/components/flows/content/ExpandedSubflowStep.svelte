@@ -15,6 +15,7 @@
 	} from '../expandedSubflowStep'
 	import { parseExpandedSubflowId } from '$lib/components/restartFromStepPath'
 	import { base } from '$app/paths'
+	import FlowPanelChrome from '../common/FlowPanelChrome.svelte'
 
 	interface Props {
 		/** Graph node id of the selected step, of the form `subflow:<step>[:<step>...]:<leaf>`. */
@@ -100,9 +101,9 @@
 				{/each}
 			{/if}
 		</div>
-		{#if resolved}
-			{@const { containingFlowPath, module } = resolved}
-			<div class="flex items-center gap-1 shrink-0">
+		<div class="flex items-center gap-1 shrink-0">
+			{#if resolved}
+				{@const { containingFlowPath, module } = resolved}
 				{#if $flowEditorDrawer}
 					<Button
 						unifiedSize="sm"
@@ -124,8 +125,9 @@
 					)}${module ? `&selected=${encodeURIComponent(leafId)}` : ''}`}
 					target="_blank"
 				/>
-			</div>
-		{/if}
+			{/if}
+			<FlowPanelChrome />
+		</div>
 	</div>
 	<div class="min-h-0 grow overflow-auto">
 		{#if loaded == undefined}
