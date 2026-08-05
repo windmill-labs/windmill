@@ -11,6 +11,7 @@
 	import { getOverlayHost } from '$lib/components/common/overlayHost.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import { isFlowLevelPanelTarget } from '$lib/components/graph/selectionUtils.svelte'
+	import type { FlowPanelModeController } from './flowPanelMode.svelte'
 
 	import { writable } from 'svelte/store'
 	import type { PropPickerContext, FlowPropPickerConfig } from '$lib/components/prop_picker'
@@ -75,10 +76,12 @@
 		flowHasChanged?: boolean
 		previewOpen: boolean
 		graphOverlay?: Snippet
-		/** Allow the step-details pane to open as a modal, starting in whichever mode
-		 *  suits the editor's width at mount. Whitelabel embeds turn this off to keep
-		 *  the classic always-docked pane. */
+		/** Allow the step-details pane to open as a modal. Whitelabel embeds turn this off
+		 *  to keep the classic always-docked pane. */
 		modalPanel?: boolean
+		/** Owned by FlowBuilder, which also renders the Auto/Attached/Detached toggle for
+		 *  it in the top bar. */
+		panelController: FlowPanelModeController
 	}
 
 	let {
@@ -116,20 +119,25 @@
 		flowHasChanged,
 		previewOpen,
 		graphOverlay,
-		modalPanel = true
+		modalPanel = true,
+		panelController
 	}: Props = $props()
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
 
-	// Below this editor width the step-details pane doesn't fit alongside the
-	// graph, so the editor starts in modal mode instead.
-	const MODAL_PANEL_BREAKPOINT = 1280
-	let rootEl: HTMLDivElement | undefined = $state()
-	// 'docked' = normal split pane; 'modal' = graph full-width, panel in a modal
-	// opened by double-clicking a node. Decided once at mount from the editor's
-	// own width; the user can then toggle either way (Dock right / open in modal).
-	let panelMode: 'docked' | 'modal' = $state('docked')
+	// 'docked' = normal split pane; 'modal' = graph full-width, panel in a modal opened by
+	// double-clicking a node. The controller resolves it from the user's Auto/Attached/
+	// Detached preference and the width measured below.
+	const panelMode = $derived(panelController.mode)
 	let panelModalOpen = $state(false)
+
+	// Auto can move the panel back into the pane under a modal that is open — leaving it
+	// open would keep an overlay registered for a modal nothing renders, swallowing Escape.
+	$effect(() => {
+		if (panelMode === 'docked' && untrack(() => panelModalOpen)) {
+			panelModalOpen = false
+		}
+	})
 
 	let panelDisposable: Disposable | undefined = $state(undefined)
 	// Disposable joins the stack through its methods, not by watching `open` — same sync
@@ -228,8 +236,11 @@
 	let detachClaims = $state(0)
 	setContext<FlowPanelDetachContext>('flowPanelDetach', {
 		visible: () => modalPanel && panelMode === 'docked',
+		// These pin the preference rather than nudging the panel for one turn: leaving it on
+		// Auto would let the next resize undo the move, and the top-bar toggle would claim
+		// Auto while the panel sat where the user put it.
 		detach: () => {
-			panelMode = 'modal'
+			panelController.preference = 'modal'
 			panelModalOpen = true
 		},
 		claim: () => {
@@ -238,7 +249,7 @@
 		},
 		dockVisible: () => modalPanel && panelMode === 'modal' && !panelModalOpen,
 		dock: () => {
-			panelMode = 'docked'
+			panelController.preference = 'docked'
 			panelModalOpen = false
 		},
 		modalOpen: () => modalPanel && panelMode === 'modal' && panelModalOpen,
@@ -257,12 +268,6 @@
 	})
 
 	onMount(() => {
-		// A zero width means the editor was mounted into a box that has not been laid out —
-		// that is not evidence of a narrow screen, so leave the mode alone.
-		const w = rootEl?.clientWidth ?? 0
-		if (modalPanel && w > 0 && w < MODAL_PANEL_BREAKPOINT) {
-			panelMode = 'modal'
-		}
 		if (modalPanel) {
 			selectionManager.setOnSelectIntent((id, opts) => {
 				if (opts?.openPanel === false) return
@@ -311,7 +316,7 @@
 {/snippet}
 
 <div
-	bind:this={rootEl}
+	bind:clientWidth={null, (w) => panelController.measure(w)}
 	id="flow-editor"
 	class={'relative h-full overflow-hidden transition-colors duration-[400ms] ease-linear border-t'}
 	use:triggerableByAI={{
@@ -411,7 +416,7 @@
 									startIcon={{ icon: PictureInPicture2 }}
 									title="Detach into a modal"
 									on:click={() => {
-										panelMode = 'modal'
+										panelController.preference = 'modal'
 										panelModalOpen = true
 									}}
 								/>
@@ -474,7 +479,7 @@
 										startIcon={{ icon: PanelRight }}
 										title="Dock to the right"
 										on:click={() => {
-											panelMode = 'docked'
+											panelController.preference = 'docked'
 											panelModalOpen = false
 										}}
 									/>

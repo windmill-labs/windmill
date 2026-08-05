@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { PanelRight } from 'lucide-svelte'
 	import GraphZoomControls from './GraphZoomControls.svelte'
-	import type { FlowPanelDetachContext } from '$lib/components/flows/types'
 	import { overlayStack } from '$lib/components/common/overlayHost.svelte'
 	import { FlowService, type FlowModule, type FlowNote, type Job, type OpenFlow } from '../../gen'
 	import { findStepPath, parseExpandedSubflowId } from '$lib/components/restartFromStepPath'
@@ -118,7 +116,6 @@
 	let showNotes = $state(true)
 
 	const triggerContext = getContext<TriggerContext>('TriggerContext')
-	const panelDetach = getContext<FlowPanelDetachContext | undefined>('flowPanelDetach')
 	const overlays = overlayStack()
 
 	// Create diffManager instance for this FlowGraphV2
@@ -1363,14 +1360,6 @@
 							>
 								<Expand size="14" />
 							</ControlButton>
-						{/if}
-						{#if panelDetach?.dockVisible()}
-							<Tooltip>
-								<ControlButton onclick={() => panelDetach?.dock()}>
-									<PanelRight size="14" />
-								</ControlButton>
-								{#snippet text()}Dock the step panel to the right{/snippet}
-							</Tooltip>
 						{/if}
 					</Controls>
 
