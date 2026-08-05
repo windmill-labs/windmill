@@ -61,11 +61,8 @@ pub mod oauth {
     /// guard validated for the request URL so the connect cannot rebind to an
     /// internal IP after the check (TOCTOU). The OAuth DCR/discovery/token
     /// requests target author-controlled URLs and carry secrets, so they must
-    /// go through this rather than the unpinned client. `apply_dns_pinning`
-    /// lives on windmill-common's reqwest, which this crate resolves at a
-    /// different version (via rmcp), so pin directly with the std-typed
-    /// host/addrs. Empty `addrs` (IP literal or ALLOW_PRIVATE_MCP_SERVER_URLS)
-    /// leaves resolution untouched.
+    /// go through this rather than the unpinned client. Empty `addrs` (IP literal
+    /// or ALLOW_PRIVATE_MCP_SERVER_URLS) leaves resolution untouched.
     pub fn no_redirect_http_client_pinned(
         target: &windmill_common::ssrf::ValidatedTarget,
     ) -> Result<reqwest::Client, reqwest::Error> {
