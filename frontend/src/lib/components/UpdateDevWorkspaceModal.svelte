@@ -5,7 +5,7 @@
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import { updateDevWorkspaceModal } from '$lib/utils/editInForkModal.svelte'
-	import { devWorkspaceEditUrl } from '$lib/utils/editInFork'
+	import { claimTab, devWorkspaceEditUrl } from '$lib/utils/editInFork'
 	import {
 		checkItemDeployAccess,
 		checkItemExists,
@@ -173,12 +173,25 @@
 	async function confirm() {
 		const req = pending
 		if (!req || updating) return
+		// Claimed before the first `await`, for the same reason the dropdown entry claims one: a tab
+		// opened from a promise continuation never appears on Safari. Released on every path that
+		// leaves the prompt up, so a retry starts from a clean slate.
+		const tab = req.openInNewTab ? claimTab() : undefined
+		async function leaveTo(url: string, destination: string) {
+			if (tab) tab.show(url)
+			else if (req!.openInNewTab) {
+				// The claim was blocked, and so is this. Every caller has already closed the prompt and
+				// may have deployed, so staying silent would read as the confirm having done nothing.
+				if (!window.open(url)) sendUserToast(`Allow popups to open ${destination}`, true)
+			} else await goto(url)
+		}
+		const itemInDev = `${req.itemPath} in ${req.devWorkspaceName}`
 		if (!canDeploy) {
 			// Read before closing: the href is derived from the request being answered, so clearing it
 			// first leaves nothing to navigate to.
 			const href = compareHref
 			close()
-			await goto(href)
+			await leaveTo(href, 'the compare page')
 			return
 		}
 		updating = true
@@ -194,13 +207,17 @@
 				updating = false
 				close()
 				sendUserToast(`${req.itemPath} is already in ${req.devWorkspaceName}, opening it`)
-				await goto(devWorkspaceEditUrl(req.itemType, req.itemPath, req.devWorkspaceId))
+				await leaveTo(
+					devWorkspaceEditUrl(req.itemType, req.itemPath, req.devWorkspaceId),
+					itemInDev
+				)
 				return
 			}
 			if (presence === 'unknown') {
 				// Someone may have landed it meanwhile and writing would overwrite them, so this probe
 				// can't fail open either. Prompt stays up so a retry is one click away.
 				updating = false
+				tab?.discard()
 				sendUserToast(
 					`Could not check whether ${req.itemPath} is already in ${req.devWorkspaceName}`,
 					true
@@ -220,6 +237,7 @@
 		if (!result.success) {
 			// Kept open so the failure is attached to the item it happened on — a lone item can
 			// fail to stand on its own (missing resource, resource type...).
+			tab?.discard()
 			sendUserToast(
 				`Could not update ${req.devWorkspaceName} with ${req.itemPath}: ${result.error}`,
 				true
@@ -227,7 +245,7 @@
 			return
 		}
 		close()
-		await goto(devWorkspaceEditUrl(req.itemType, req.itemPath, req.devWorkspaceId))
+		await leaveTo(devWorkspaceEditUrl(req.itemType, req.itemPath, req.devWorkspaceId), itemInDev)
 	}
 </script>
 

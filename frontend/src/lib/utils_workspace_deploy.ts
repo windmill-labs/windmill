@@ -573,12 +573,19 @@ export async function checkDeployPermission(
 
 /**
  * Whether `me` may write at `path` in `workspace` — the per-item half of the deploy gate, which
- * `checkDeployPermission`'s workspace-level rules don't cover. Same fail-open contract.
+ * `checkDeployPermission`'s workspace-level rules don't cover. Advisory only: it exists so the UI
+ * can refuse with a reason instead of letting the write fail, and the server stays the enforcement
+ * point. Same fail-open contract — every uncertain answer is `ok`.
+ *
+ * `me.folders` is the target workspace's *write* set, so a folder absent from it is one this user
+ * can read at most. `folderExists` is injected so the decision can be exercised without a backend.
  */
-async function checkPathWritePermission(
+export async function checkPathWritePermission(
 	workspace: string,
 	path: string,
-	me: User
+	me: Pick<User, 'is_admin' | 'username' | 'folders'>,
+	folderExists: (folderPath: string) => Promise<boolean> = (folderPath) =>
+		checkItemExists('folder', folderPath, workspace)
 ): Promise<DeployPermission> {
 	if (me.is_admin) return { ok: true }
 	const owner = path.match(/^u\/([^/]+)\//)?.[1]
@@ -595,7 +602,7 @@ async function checkPathWritePermission(
 	try {
 		// A folder the target doesn't have yet is created by the deploy, with the deployer as its
 		// owner — lacking write access to something that doesn't exist isn't a refusal.
-		if (!(await checkItemExists('folder', `f/${folder}`, workspace))) return { ok: true }
+		if (!(await folderExists(`f/${folder}`))) return { ok: true }
 	} catch {
 		// Inconclusive: let the deploy decide rather than refusing on a failed probe.
 		return { ok: true }

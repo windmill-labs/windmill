@@ -105,7 +105,8 @@ async function resolveEditInForkTarget(
 	itemType: ItemType,
 	itemPath: string,
 	prod: string,
-	dev: UserWorkspace
+	dev: UserWorkspace,
+	openInNewTab = false
 ): Promise<string | undefined> {
 	const seq = ++latestResolve
 	const from = { path: window.location.pathname, workspace: get(workspaceStore) }
@@ -128,13 +129,16 @@ async function resolveEditInForkTarget(
 		itemPath,
 		devWorkspaceId: dev.id,
 		devWorkspaceName: dev.name,
-		prodWorkspaceId: prod
+		prodWorkspaceId: prod,
+		openInNewTab
 	}
 	return undefined
 }
 
-function currentDevWorkspace(): { prod: string; dev: UserWorkspace } | undefined {
-	const prod = get(workspaceStore)
+function currentDevWorkspace(
+	prodWorkspace?: string
+): { prod: string; dev: UserWorkspace } | undefined {
+	const prod = prodWorkspace ?? get(workspaceStore)
 	const dev = findCanonicalDevWorkspace(prod, get(userWorkspaces))
 	if (!dev || !prod) return undefined
 	return { prod, dev }
@@ -169,22 +173,57 @@ export async function onEditInForkClick(
 	if (url) await goto(url)
 }
 
+export type ClaimedTab = { show: (url: string) => void; discard: () => void }
+
+/**
+ * Take a tab now, to point somewhere once an async step resolves. Safari refuses `window.open` from
+ * any promise continuation however fast it resolves, so a tab opened after an `await` never appears
+ * there — it has to be claimed inside the click's own transient activation. `discard` releases it
+ * when the answer turns out to be "nowhere to go". Returns undefined if the popup was blocked, which
+ * leaves the caller to decide between a late `window.open` and saying so.
+ */
+export function claimTab(): ClaimedTab | undefined {
+	const tab = window.open('about:blank')
+	if (!tab) return undefined
+	return {
+		show: (url: string) => {
+			tab.location.href = url
+		},
+		discard: () => tab.close()
+	}
+}
+
 /**
  * "Edit in <dev workspace>" from an editor's dropdown, which opens a new tab rather than navigating
- * away from work in progress.
+ * away from work in progress. `prodWorkspace` is the workspace the editor is operating on, which in
+ * a session pane is not the one the navigation store holds — pass the same value the surrounding
+ * `editInForkAllowed` / `editInForkLabel` are given, so the action can't resolve against a different
+ * workspace than the label above it names.
  */
-export async function openEditInFork(itemType: ItemType, itemPath: string): Promise<void> {
-	const target = currentDevWorkspace()
+export async function openEditInFork(
+	itemType: ItemType,
+	itemPath: string,
+	prodWorkspace?: string
+): Promise<void> {
+	const target = currentDevWorkspace(prodWorkspace)
 	if (!target) {
-		window.open(buildForkEditUrl(itemType, itemPath))
+		// No dev workspace to probe for: the destination is the fork-creation flow.
+		window.open(forkWorkspaceUrl(itemType, itemPath))
 		return
 	}
-	const url = await resolveEditInForkTarget(itemType, itemPath, target.prod, target.dev)
-	if (!url) return
-	if (!window.open(url)) {
-		// Blocked, because the existence check outlived the click's transient activation. Falling
-		// back to navigating in place would throw away whatever this editor is holding — the whole
-		// reason this entry opens a tab — so say so instead.
+	// Navigating in place would throw away whatever this editor is holding — the whole reason this
+	// entry opens a tab. The cost is a blank tab that flashes and closes when the item turns out to
+	// be missing and the prompt takes over; the prompt then opens its own tab on confirm.
+	const tab = claimTab()
+	const url = await resolveEditInForkTarget(itemType, itemPath, target.prod, target.dev, true)
+	if (!url) {
+		// Superseded, abandoned, or answered by the prompt in the original tab — nothing to show.
+		tab?.discard()
+		return
+	}
+	if (tab) {
+		tab.show(url)
+	} else if (!window.open(url)) {
 		sendUserToast(`Allow popups to open ${itemPath} in ${target.dev.name}`, true)
 	}
 }

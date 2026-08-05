@@ -866,7 +866,7 @@
 												{
 													label: editInForkLabel(opWorkspace, $userWorkspaces),
 													onClick: () => {
-														openEditInFork('script', initialPath)
+														openEditInFork('script', initialPath, opWorkspace)
 													}
 												}
 											]
@@ -1445,7 +1445,7 @@
 									<!-- Not for dbt: each kind tags a script for a role in a flow that a project
 										     bundle cannot fill (approval, trigger, preprocessor), and the runtime only
 										     ever runs it as an action. -->
-										{#if customUi?.settingsPanel?.metadata?.disableScriptKind !== true && !isDbt}
+									{#if customUi?.settingsPanel?.metadata?.disableScriptKind !== true && !isDbt}
 										<Section label="Script kind">
 											{#snippet header()}
 												<Tooltip
@@ -1904,8 +1904,7 @@
 																// Keep the saved pair. A script that has no recorded principal yet
 																// sends the email alone and the backend derives one from it.
 																script.on_behalf_of_email = originalOnBehalfOfEmail
-																script.on_behalf_of =
-																	originalOnBehalfOfPermissionedAs
+																script.on_behalf_of = originalOnBehalfOfPermissionedAs
 																customOnBehalfOfEmail = ''
 																preserveOnBehalfOf = true
 															} else if (choice === 'custom' && details) {

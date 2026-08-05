@@ -892,7 +892,7 @@
 									{
 										label: editInForkLabel(opWorkspace, $userWorkspaces),
 										onClick: () => {
-											openEditInFork('raw_app', appPath)
+											openEditInFork('raw_app', appPath, opWorkspace)
 										}
 									}
 								]

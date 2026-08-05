@@ -970,7 +970,7 @@
 		) {
 			dropdownItems.push({
 				label: editInForkLabel(opWorkspace, $userWorkspaces),
-				onClick: () => openEditInFork('flow', initialPath)
+				onClick: () => openEditInFork('flow', initialPath, opWorkspace)
 			})
 		}
 	}

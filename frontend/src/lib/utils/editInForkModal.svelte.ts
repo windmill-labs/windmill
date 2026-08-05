@@ -13,6 +13,13 @@ export type UpdateDevWorkspaceModalState = {
 	devWorkspaceId: string
 	devWorkspaceName: string
 	prodWorkspaceId: string
+	/**
+	 * The click that raised this came from an editor's dropdown, which opens a tab rather than
+	 * navigating away from work in progress. Answering it has to keep that promise: without this
+	 * the "item is present" branch opens a tab while the "item is missing" branch — this prompt —
+	 * would leave the editor the user was told would be preserved.
+	 */
+	openInNewTab?: boolean
 }
 
 export let updateDevWorkspaceModal: StateStore<UpdateDevWorkspaceModalState | undefined> =
