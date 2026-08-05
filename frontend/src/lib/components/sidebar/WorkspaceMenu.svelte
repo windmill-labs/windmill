@@ -9,8 +9,7 @@
 		workspaceUsageStore,
 		workspaceColor,
 		clearWorkspaceFromStorage,
-		globalForkModal,
-		type UserWorkspace
+		globalForkModal
 	} from '$lib/stores'
 	import { Building, Check, ChevronDown, ChevronRight, Plus, Settings } from 'lucide-svelte'
 	import { forkAccentStyle } from '$lib/utils/forkColor'
@@ -30,7 +29,12 @@
 	import { workspaceAIClients } from '../copilot/lib'
 	import { twMerge } from 'tailwind-merge'
 	import type { MenubarBuilders } from '@melt-ui/svelte'
-	import { buildWorkspaceHierarchy, isForkOwner } from '$lib/utils/workspaceHierarchy'
+	import {
+		buildWorkspaceHierarchy,
+		findWorkspaceAncestors,
+		findWorkspaceRoot,
+		isForkOwner
+	} from '$lib/utils/workspaceHierarchy'
 	import { canCreateFork } from '$lib/utils/editInFork'
 	import { getContrastTextColor } from '$lib/utils'
 	import { workspaceRootId } from '$lib/components/sessions/sessionScope.svelte'
@@ -149,21 +153,23 @@
 		e.stopPropagation()
 	}
 
-	function findRoot(id: string | undefined): UserWorkspace | undefined {
-		if (!id || !$userWorkspaces) return undefined
-		let current = $userWorkspaces.find((w) => w.id === id)
-		while (current?.parent_workspace_id) {
-			const parent = $userWorkspaces.find((w) => w.id === current!.parent_workspace_id)
-			if (!parent) break
-			current = parent
-		}
-		return current
-	}
+	// The active workspace's family root — shown in the trigger so a forked active workspace still
+	// surfaces its family name here (the fork itself is shown in the breadcrumb). Resolved exactly
+	// like the scope picker right below, so the two never name different heads for one workspace:
+	// inside a dev workspace's own subtree the head is that dev workspace, not the far root.
+	const currentFamily = $derived(
+		findWorkspaceRoot($workspaceStore ?? undefined, $userWorkspaces ?? [])
+	)
 
-	// The active workspace's family root — shown in the trigger so a forked
-	// active workspace still surfaces its family name here (the fork itself is
-	// shown in the breadcrumb).
-	const currentFamily = $derived(findRoot($workspaceStore ?? undefined))
+	// The list groups by true lineage (`buildWorkspaceHierarchy` roots only at a parentless
+	// workspace), so the row mechanics below — which family to expand, which collapsed row carries
+	// the tick — key on that root and not on the displayed head, which may sit mid-tree.
+	const lineageRoot = $derived.by(() => {
+		const id = $workspaceStore ?? undefined
+		if (!id) return undefined
+		const ancestors = findWorkspaceAncestors(id, $userWorkspaces ?? [])
+		return ancestors.at(-1) ?? $userWorkspaces?.find((w) => w.id === id)
+	})
 
 	// Workspace names carry no uniqueness constraint, and this menu labels every
 	// row by name alone: a prod/staging pair sharing one name renders as two
@@ -183,8 +189,8 @@
 	// on the active fork's own row instead of on its collapsed root.
 	function seedExpandedFamilies() {
 		expandedFamilies.clear()
-		if (currentFamily && currentFamily.id !== $workspaceStore) {
-			expandedFamilies.add(currentFamily.id)
+		if (lineageRoot && lineageRoot.id !== $workspaceStore) {
+			expandedFamilies.add(lineageRoot.id)
 		}
 	}
 
@@ -258,7 +264,7 @@
 						isActive ||
 						(!strictWorkspaceSelect &&
 							depth === 0 &&
-							currentFamily?.id === workspace.id &&
+							lineageRoot?.id === workspace.id &&
 							!expandedFamilies.has(workspace.id))}
 					{@const expandable =
 						!strictWorkspaceSelect && depth === 0 && familiesWithForks.has(workspace.id)}
