@@ -561,6 +561,35 @@ export function runBenchmarkScriptPreview(input: {
 	})
 }
 
+export function runBenchmarkScriptByPath(input: {
+	workspace: string
+	path: string
+	args?: Record<string, unknown>
+}): string {
+	const script = getBenchmarkScriptByPath(input.workspace, input.path)
+	return createBenchmarkCompletedJob({
+		workspace: input.workspace,
+		jobKind: 'script',
+		success: script !== null,
+		scriptPath: input.path,
+		args: input.args,
+		result:
+			script !== null
+				? {
+						path: input.path,
+						args: input.args ?? {},
+						mocked: true
+					}
+				: {
+						error: `Script "${input.path}" not found in benchmark workspace`
+					},
+		logs:
+			script !== null
+				? 'Mock benchmark script run completed successfully.'
+				: `Script "${input.path}" not found in benchmark workspace.`
+	})
+}
+
 export function runBenchmarkFlowByPath(input: {
 	workspace: string
 	path: string
@@ -745,6 +774,27 @@ const BENCHMARK_MCP_TOOLS: EndpointTool[] = [
 			type: 'object',
 			properties: { workspace: { type: 'string' } },
 			required: ['workspace']
+		}
+	},
+	{
+		name: 'getJob',
+		description: 'get job',
+		instructions: '',
+		path: '/w/{workspace}/jobs_u/get/{id}',
+		method: 'GET',
+		path_params_schema: {
+			type: 'object',
+			properties: { workspace: { type: 'string' }, id: { type: 'string', format: 'uuid' } },
+			required: ['workspace', 'id']
+		},
+		query_params_schema: {
+			type: 'object',
+			properties: {
+				no_logs: { type: 'boolean' },
+				no_code: { type: 'boolean' },
+				approval_token: { type: 'string' }
+			},
+			required: []
 		}
 	},
 	{
@@ -968,6 +1018,26 @@ const BENCHMARK_WORKERS = [
 	}
 ]
 
+const BENCHMARK_JOB_GET_PATH = /^\/api\/w\/([^/]+)\/jobs_u\/get\/([^/]+)$/
+const BENCHMARK_RUN_BY_PATH = /^\/api\/w\/([^/]+)\/jobs\/run\/(p|f)\/([^/]+)$/
+
+/** `executeEndpoint` sends a JSON string; anything else means no args were supplied. */
+function parseBenchmarkRequestBody(
+	body: BodyInit | null | undefined
+): Record<string, unknown> | undefined {
+	if (typeof body !== 'string') {
+		return undefined
+	}
+	try {
+		const parsed = JSON.parse(body)
+		return typeof parsed === 'object' && parsed !== null
+			? (parsed as Record<string, unknown>)
+			: undefined
+	} catch {
+		return undefined
+	}
+}
+
 /** True when `handleBenchmarkApiFetch` has an answer for this `/api/...` url.
  * Any other relative fetch must keep its normal (non-benchmark) behavior —
  * intercepting it with a synthetic 404 sends the model into retry loops. */
@@ -975,6 +1045,8 @@ export function hasBenchmarkApiHandler(url: string): boolean {
 	const path = url.split('?')[0]
 	return (
 		path === '/api/workers/list' ||
+		BENCHMARK_JOB_GET_PATH.test(path) ||
+		BENCHMARK_RUN_BY_PATH.test(path) ||
 		/^\/api\/w\/[^/]+\/jobs\/queue\/list$/.test(path) ||
 		path === '/api/embeddings/query_hub_scripts' ||
 		path.startsWith('/api/scripts/hub/get_full/')
@@ -983,13 +1055,43 @@ export function hasBenchmarkApiHandler(url: string): boolean {
 
 /** Answer a relative `/api/...` fetch — from the API catalog executor, or from the
  * chat's hub tools. */
-export function handleBenchmarkApiFetch(url: string): Response {
+export function handleBenchmarkApiFetch(url: string, init?: RequestInit): Response {
 	const path = url.split('?')[0]
 	if (path === '/api/workers/list') {
 		return Response.json(BENCHMARK_WORKERS)
 	}
 	if (/^\/api\/w\/[^/]+\/jobs\/queue\/list$/.test(path)) {
 		return Response.json([])
+	}
+	const jobGet = BENCHMARK_JOB_GET_PATH.exec(path)
+	if (jobGet) {
+		const id = decodeURIComponent(jobGet[2])
+		const job = getBenchmarkCompletedJob(decodeURIComponent(jobGet[1]), id)
+		if (!job) {
+			return Response.json({ error: `Job not found for "${id}"` }, { status: 404 })
+		}
+		// The real endpoint lets a caller drop the bulky fields. Ignoring that here would
+		// size the model's context off a payload it explicitly asked to shrink.
+		const query = new URLSearchParams(url.split('?')[1] ?? '')
+		if (query.get('no_logs') === 'true') {
+			delete job.logs
+		}
+		if (query.get('no_code') === 'true') {
+			delete job.raw_code
+		}
+		return Response.json(job)
+	}
+	const runByPath = BENCHMARK_RUN_BY_PATH.exec(path)
+	if (runByPath) {
+		const workspace = decodeURIComponent(runByPath[1])
+		const runnablePath = decodeURIComponent(runByPath[3])
+		const args = parseBenchmarkRequestBody(init?.body)
+		// The real endpoint answers with the bare job id as text, not JSON.
+		return new Response(
+			runByPath[2] === 'f'
+				? runBenchmarkFlowByPath({ workspace, path: runnablePath, args })
+				: runBenchmarkScriptByPath({ workspace, path: runnablePath, args })
+		)
 	}
 	if (path === '/api/embeddings/query_hub_scripts') {
 		const text = new URLSearchParams(url.split('?')[1] ?? '').get('text') ?? ''

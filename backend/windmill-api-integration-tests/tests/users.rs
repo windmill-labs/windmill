@@ -513,6 +513,84 @@ async fn test_user_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
 }
 
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_list_addable_instance_users(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/users/list_addable");
+
+    // The three fixture accounts are all members of test-workspace already.
+    sqlx::query(
+        "INSERT INTO password(email, password_hash, login_type, verified, username, disabled) VALUES
+         ('addable@windmill.dev', 'x', 'password', true, 'addable-user', false),
+         ('with_underscore@windmill.dev', 'x', 'password', true, 'underscored', false),
+         ('gone@windmill.dev', 'x', 'password', true, 'gone-user', true)"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO usr(workspace_id, email, username, is_admin, role, is_service_account)
+         VALUES ('test-workspace', 'sa@creator.test-workspace.sa.wm.dev', 'sa', false, 'User', true)"
+    )
+    .execute(&db)
+    .await?;
+
+    let emails = |query: &str| {
+        let url = format!("{base}?{query}");
+        async move {
+            let resp = authed(client().get(url)).send().await.unwrap();
+            assert_eq!(resp.status(), 200);
+            resp.json::<Vec<serde_json::Value>>()
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|u| u["email"].as_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        }
+    };
+
+    // Members, disabled accounts and service accounts are all out; a service account has no
+    // `password` row at all, so it can never reach the picker.
+    assert_eq!(
+        emails("").await,
+        vec![
+            "addable@windmill.dev",
+            // seeded by the migrations, not a member of test-workspace
+            "admin@windmill.dev",
+            "with_underscore@windmill.dev"
+        ]
+    );
+
+    // The exclusions are part of the query, so the limit counts addable accounts only — a
+    // workspace whose members sort first must not swallow the whole page.
+    assert_eq!(emails("per_page=1").await, vec!["addable@windmill.dev"]);
+
+    // Search matches the instance username as well as the email.
+    assert_eq!(
+        emails("search=addable-user").await,
+        vec!["addable@windmill.dev"]
+    );
+
+    // Wildcards in the search are matched literally rather than expanded.
+    assert_eq!(
+        emails("search=_").await,
+        vec!["with_underscore@windmill.dev"]
+    );
+    assert!(emails("search=%25").await.is_empty());
+
+    // Listing instance-wide accounts is superadmin-only, workspace admin is not enough.
+    let resp = client()
+        .get(&base)
+        .header("Authorization", "Bearer SECRET_TOKEN_3")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 401);
+
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_change_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;

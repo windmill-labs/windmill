@@ -411,6 +411,37 @@ async fn test_raw_app_kind_is_not_flipped_by_update(db: Pool<Postgres>) -> anyho
         "expected the raw update of a low-code app to be refused"
     );
 
+    // Nor may the source endpoints compile a value that isn't a raw app's: both
+    // refuse up front, without queueing a bundle job no worker would pick up here.
+    let resp = authed(client().post(format!("{base}/create_raw_source")))
+        .json(&json!({
+            "path": "u/test-user/from_source",
+            "summary": "",
+            "value": { "grid": [] },
+            "policy": { "execution_mode": "publisher" }
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+    assert!(
+        resp.text().await?.contains("no `files` to bundle"),
+        "expected a low-code value to be refused before bundling"
+    );
+
+    // The source endpoint refuses the same mismatch up front — it must not queue
+    // a bundle job (which no worker would pick up here) to find that out.
+    let resp = authed(client().post(format!("{base}/update_raw_source/{low_code_path}")))
+        .json(&json!({ "value": { "files": { "/index.tsx": "export {}" } } }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+    assert!(
+        resp.text().await?.contains("is a low-code app"),
+        "expected the source deploy of a low-code app to be refused"
+    );
+
     // Metadata-only updates and same-kind deploys still go through.
     let resp = authed(client().post(format!("{base}/update/{raw_path}")))
         .json(&json!({ "summary": "Renamed" }))
@@ -440,6 +471,56 @@ async fn test_raw_app_kind_is_not_flipped_by_update(db: Pool<Postgres>) -> anyho
 
     let resp = authed_get(port, "get/p", raw_path).await;
     assert_eq!(resp.json::<serde_json::Value>().await?["raw_app"], false);
+
+    Ok(())
+}
+
+/// Who may create at a path is the app table's answer, not a rule restated in the
+/// handler: a non-admin member of `g/<group>` writes there, and nowhere a
+/// non-member does. Both are decided before the sources are compiled, so an empty
+/// `files` is enough to say which side of that check the request reached.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_create_raw_source_write_check_follows_app_rls(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    sqlx::query(
+        "INSERT INTO usr_to_group (workspace_id, usr, group_) VALUES
+         ('test-workspace', 'test-user-2', 'all')",
+    )
+    .execute(&db)
+    .await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/apps");
+    let create_as_member = |path: &'static str| {
+        client()
+            .post(format!("{base}/create_raw_source"))
+            .header("Authorization", "Bearer SECRET_TOKEN_2")
+            .json(&json!({
+                "path": path,
+                "summary": "",
+                "value": { "files": {} },
+                "policy": { "execution_mode": "publisher" }
+            }))
+            .send()
+    };
+
+    let resp = create_as_member("g/all/from_source").await.unwrap();
+    assert_eq!(
+        resp.status(),
+        400,
+        "a group member must reach the compile: {}",
+        resp.text().await?
+    );
+
+    let resp = create_as_member("u/test-user/from_source").await.unwrap();
+    assert_eq!(
+        resp.status(),
+        403,
+        "expected another user's path to be refused"
+    );
 
     Ok(())
 }

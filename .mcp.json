@@ -7,12 +7,12 @@
     "playwright": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "@playwright/mcp@latest", "--browser", "chromium", "--headless"]
+      "args": ["-y", "@playwright/mcp@latest", "--browser", "chromium", "--headless", "--output-dir", "/tmp/playwright-mcp-${USER:-shared}"]
     },
     "playwright-headed": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "@playwright/mcp@latest", "--browser", "chromium"]
+      "args": ["-y", "@playwright/mcp@latest", "--browser", "chromium", "--output-dir", "/tmp/playwright-mcp-${USER:-shared}"]
     }
   }
 }

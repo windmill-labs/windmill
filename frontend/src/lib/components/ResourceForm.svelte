@@ -291,7 +291,7 @@
 		{:else if !can_write}
 			<input type="text" disabled value={rawCode} />
 		{:else}
-			{#if !viewJsonSchema}
+			{#if !viewJsonSchema && !resourceSchema}
 				<div class="flex flex-col gap-2 mb-4">
 					<p class="text-red-500 dark:text-red-400 text-xs">
 						Resource type '{resource_type}' not found in your workspace

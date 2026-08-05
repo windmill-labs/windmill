@@ -2617,7 +2617,7 @@ fn pg_secret_attach_statements(db_resource: Value, alias_name: &str) -> Result<V
             esc(&res.host),
             res.port.unwrap_or(5432),
             esc(&res.dbname),
-            esc(res.user.as_deref().unwrap_or("postgres")),
+            esc(res.login_name()),
             esc(res.password.as_deref().unwrap_or("")),
         ),
         format!("ATTACH 'sslmode={sslmode}' AS {alias_name} (TYPE postgres, SECRET {secret_name});"),
