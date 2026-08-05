@@ -26,10 +26,13 @@
 	// The dialog fills the enclosing pane when there is one (see overlayHost) and the viewport
 	// otherwise, so a viewport-relative canvas height overflows it in any pane shorter than the
 	// window. Size against whichever box it actually fills, less the chrome Modal.svelte wraps
-	// it in: the scroll wrapper's p-4, plus the box's sm:my-8, sm:p-6, title row and mt-4.
-	const DIALOG_CHROME_PX = 188
+	// the canvas in — read off that component, and only correct while it stays in step:
+	// scroll wrapper p-4, box px-4/pt-5/pb-4 (sm:p-6) + sm:my-8, title row, and the body's mt-4.
+	const CHROME_PX = { belowSm: 112, fromSm: 188 }
+	const SM_BREAKPOINT_PX = 640
 	const MIN_CANVAS_PX = 240
 	const overlayHost = getOverlayHost()
+	let windowWidth = $state(0)
 	let windowHeight = $state(0)
 	let hostHeight = $state(0)
 
@@ -37,6 +40,9 @@
 		if (!expanded) return
 		const host = overlayHost?.el()
 		if (!host) return
+		// Seed synchronously so the first frame isn't sized off the window while the observer's
+		// initial callback is still pending.
+		hostHeight = host.clientHeight
 		const observer = new ResizeObserver(() => (hostHeight = host.clientHeight))
 		observer.observe(host)
 		return () => {
@@ -48,8 +54,37 @@
 	// windowHeight covers the un-hosted case: documentElement's box is content-driven on a
 	// scrollable page, so observing it would miss a purely vertical window resize.
 	let canvasHeight = $derived(
-		Math.max(MIN_CANVAS_PX, (hostHeight || windowHeight) - DIALOG_CHROME_PX)
+		Math.max(
+			MIN_CANVAS_PX,
+			(hostHeight || windowHeight) -
+				(windowWidth >= SM_BREAKPOINT_PX ? CHROME_PX.fromSm : CHROME_PX.belowSm)
+		)
 	)
+
+	// Emoji, including the keycap sequences whose base is an ASCII digit / # / * — those bases
+	// have to reach the font too, or a keycap is measured in the wrong family.
+	const EMOJI_IN_SOURCE = /[#*0-9]️?⃣|\p{Extended_Pictographic}[️‍]*/gu
+	// Past this, render with whatever metrics are available rather than sit on the raw source.
+	const FONT_LOAD_TIMEOUT_MS = 2000
+
+	/**
+	 * Mermaid sizes every node by measuring its rendered label, so the fonts that label will be
+	 * drawn in must be loaded first: measured against fallback metrics the boxes come out too
+	 * narrow and the labels overflow them once the real font swaps in. Only the emoji actually
+	 * present are requested — the emoji font's subsets cover digits, # and *, so passing the
+	 * whole source would fetch 64 KB for any diagram containing a number.
+	 */
+	async function loadLabelFonts(source: string): Promise<void> {
+		const emoji = source.match(EMOJI_IN_SOURCE)?.join('') ?? ''
+		const loads = [document.fonts.load('16px Inter', source)]
+		if (emoji) loads.push(document.fonts.load('16px "Noto Color Emoji"', emoji))
+		// Neither rejection nor a stalled fetch may reach the caller's catch, which reads any
+		// throw as a parse failure and drops the diagram to raw source.
+		await Promise.race([
+			Promise.all(loads).catch(() => {}),
+			new Promise((resolve) => setTimeout(resolve, FONT_LOAD_TIMEOUT_MS))
+		])
+	}
 
 	async function render(source: string, dark: boolean) {
 		const seq = ++renderSeq
@@ -74,12 +109,7 @@
 				// Throw on parse errors instead of injecting an orphan error diagram into the DOM.
 				suppressErrorRendering: true
 			})
-			// Mermaid sizes every node by measuring its rendered label, so the emoji font has to be
-			// in memory first: measured against fallback metrics the boxes come out too narrow and
-			// the labels overflow them once the real font swaps in. The catch is load-bearing — a
-			// font failure reaching the outer catch would be read as a parse error and drop the
-			// whole diagram to raw source.
-			await document.fonts.load('16px "Noto Color Emoji"', source).catch(() => {})
+			await loadLabelFonts(source)
 			if (seq !== renderSeq) return
 			// mermaid.render needs a fresh element id per attempt to avoid id collisions.
 			const result = await mermaid.render(`mermaid-${randomUUID()}`, source)
@@ -154,7 +184,7 @@
 	}
 </script>
 
-<svelte:window bind:innerHeight={windowHeight} />
+<svelte:window bind:innerHeight={windowHeight} bind:innerWidth={windowWidth} />
 
 {#if showSvg}
 	<div class="relative">
