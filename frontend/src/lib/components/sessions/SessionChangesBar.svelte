@@ -1,10 +1,10 @@
 <script lang="ts">
 	import {
 		Archive,
+		Diff,
 		ExternalLink,
 		GitPullRequestClosed,
 		MoveRight,
-		PanelRightOpen,
 		Trash2
 	} from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
@@ -198,6 +198,20 @@
 		return previewTargetForDeployKind(item.deployKind, item.path)
 	}
 
+	// The row's primary action is the preview; kinds the panel can't host
+	// (triggers, schedules, resources, variables) fall back to their diff.
+	function openRow(item: DeployItem) {
+		if (previewTargetFor(item)) openInPreview(item)
+		else openDrawer(item.key)
+	}
+
+	// Trailing action; unlike a row pick it isn't routed through the popover's
+	// own close, so it dismisses the popover itself.
+	function openDiff(item: DeployItem) {
+		editsOpen = false
+		openDrawer(item.key)
+	}
+
 	// Open (or focus) the item in this session's preview panel. Mirrors
 	// manager.openArtifact: flash the tab only when a 'focused' open changed
 	// nothing else visible — open() also un-collapses the panel and can switch
@@ -293,8 +307,9 @@
 					title="Edited this session"
 					items={dockItems}
 					itemKey={(item) => item.key}
-					rowTitle={(item) => item.displayPath}
-					onPick={(item) => openDrawer(item.key)}
+					rowTitle={(item) =>
+						previewTargetFor(item) ? `Open ${item.displayPath} in preview` : item.displayPath}
+					onPick={openRow}
 					triggerClass={`${TOKEN_TRIGGER_CLASS} ${editsColorClass}`}
 					widthClass="w-96"
 					maxHeightClass="max-h-[min(9rem,50vh)]"
@@ -313,16 +328,29 @@
 						{/if}
 					{/snippet}
 					{#snippet actions(item)}
-						{#if previewTargetFor(item)}
-							<Button
-								unifiedSize="xs"
-								variant="subtle"
-								iconOnly
-								title="Open in preview"
-								startIcon={{ icon: PanelRightOpen }}
-								onClick={() => openInPreview(item)}
-							/>
-						{/if}
+						<Button
+							unifiedSize="xs"
+							variant="subtle"
+							title="Review & deploy"
+							startIcon={{ icon: Diff }}
+							onClick={() => openDiff(item)}
+						>
+							Diff
+						</Button>
+					{/snippet}
+					{#snippet footer()}
+						<button
+							type="button"
+							data-status-row
+							class="flex w-full items-center gap-2 py-1 pl-3 pr-3 text-left font-normal hover:bg-surface-hover focus:bg-surface-hover focus:outline-none"
+							onclick={() => {
+								editsOpen = false
+								openDrawer()
+							}}
+						>
+							<Diff size={14} class="shrink-0 text-tertiary" />
+							<span class="min-w-0 flex-1 truncate text-secondary">Review & deploy all</span>
+						</button>
 					{/snippet}
 				</SessionStatusPopover>
 			{/if}
