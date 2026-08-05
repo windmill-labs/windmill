@@ -313,16 +313,24 @@ def _prepare_error_detail(response: dict) -> str:
 
 
 # Prefixes uv uses for routine resolve/install progress, which it writes to stderr on a
-# perfectly successful run. The `+`/`-` forms are the per-package change list.
+# perfectly successful run. `warning:` belongs here because uv's warnings are non-fatal by
+# construction (the hardlink fallback fires whenever the cache and the venv are on
+# different filesystems, which is the normal layout). The `+`/`-` forms are the
+# per-package change list.
 _INSTALLER_PROGRESS_PREFIXES = (
     "resolved ",
     "prepared ",
     "installed ",
     "uninstalled ",
+    "downloading ",
     "downloaded ",
+    "building ",
+    "built ",
+    "updated ",
     "audited ",
     "using ",
     "creating ",
+    "warning:",
     "+ ",
     "- ",
 )
@@ -334,7 +342,8 @@ def _installer_diagnostics(stderr: str) -> str:
 
     uv renders failures several ways (`error:`, `× No solution found` with tree glyphs), so
     matching failure shapes misses some of them. Matching progress instead errs toward a
-    spurious warning rather than toward the silence this exists to prevent.
+    spurious warning rather than toward the silence this exists to prevent. All of this
+    goes away once the response carries an explicit failure flag to key on.
     """
     kept = [
         line
